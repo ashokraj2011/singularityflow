@@ -10,7 +10,7 @@ disable-model-invocation: true
 <!-- sflow-output-contract: clarification-and-artifact -->
 **Output contract:** Use the complete governed prompt and approved inputs, ask unresolved questions, then publish and show configured artifacts.
 
-This is the compatibility name for `/sflow-epic-story-draft`. Follow that skill's canonical procedure:
+This is the compatibility name for `/sf-epic-story-draft`. Follow that skill's canonical procedure:
 
 1. Prepare from approved Requirements and impact analysis.
 2. Author and publish the parent specification, Story plan, and one exact specification per Story.

@@ -48,17 +48,13 @@ test('direct skills install as personal bare-command aliases and update only man
     const directName = entry.name.replace(/^sflow-/, 'sf-');
     const source = await readFile(path.join(sourceRoot, entry.name, 'SKILL.md'), 'utf8');
     const direct = await readFile(path.join(targetRoot, directName, 'SKILL.md'), 'utf8');
-    const normalized = direct
-      .replace(new RegExp(`^name: ${directName}$`, 'm'), `name: ${entry.name}`)
-      .replaceAll('/sf-', '/sflow-')
-      .replace('<!-- managed-by: singularity-flow direct-skill-alias -->\n', '');
-    assert.equal(normalized, source, `${directName} must preserve the complete source contract`);
+    assert.equal(direct, renderDirectSkill(source, entry.name), `${directName} must preserve the complete source contract`);
   }
   const directSubmit = await readFile(path.join(targetRoot, 'sf-submit', 'SKILL.md'), 'utf8');
   const sourceSubmit = await readFile(path.join(sourceRoot, 'sflow-submit', 'SKILL.md'), 'utf8');
   assert.match(directSubmit, /^name: sf-submit$/m);
   assert.match(directSubmit, /every generated current-phase document/);
-  assert.equal(directSubmit.replace(/^name: sf-submit$/m, 'name: sflow-submit').replace(/\/sf-/g, '/sflow-').replace(/<!-- managed-by: singularity-flow direct-skill-alias -->\n/, ''), sourceSubmit);
+  assert.equal(directSubmit, renderDirectSkill(sourceSubmit, 'sflow-submit'));
 
   await writeFile(path.join(targetRoot, 'sf-submit', 'SKILL.md'), directSubmit.replace('Validate and submit', 'OLD Validate and submit'));
   installDirectSkills({ sourceRoot, targetRoot });

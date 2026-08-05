@@ -16,6 +16,7 @@ import {
 import { nowIso } from './util.mjs';
 import { listEpicSources } from './epic-sources.mjs';
 import { initiativeOutputRequired } from './initiative-policy.mjs';
+import { copilotSkillForCommand } from './copilot-guidance.mjs';
 
 function milliseconds(start, end) {
   const from = Date.parse(start ?? '');
@@ -244,7 +245,7 @@ export function renderInitiativeReport(report) {
   return `${lines.join('\n')}\n`;
 }
 
-export async function initiativeNextActions(root, initiativeId) {
+async function resolveInitiativeNextActions(root, initiativeId) {
   const { portfolio, initiative } = await loadInitiative(root, initiativeId);
   if (initiative.status === 'complete') return [{
     action: 'report',
@@ -327,4 +328,12 @@ export async function initiativeNextActions(root, initiativeId) {
     }];
   }
   return [{ action: 'status', command: `singularity-flow initiative status ${initiativeId}`, reason: `Initiative phase ${phase.id} has status ${phase.status}.` }];
+}
+
+export async function initiativeNextActions(root, initiativeId) {
+  const actions = await resolveInitiativeNextActions(root, initiativeId);
+  return actions.map((action) => ({
+    ...action,
+    skill: copilotSkillForCommand(action.command, '/sf-initiative-next')
+  }));
 }

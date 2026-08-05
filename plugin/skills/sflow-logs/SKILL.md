@@ -36,7 +36,7 @@ SINGULARITY_FLOW_LOG_LEVEL=all singularity-flow <the failing command>
 ## How to read what you find
 
 - `command.failed` carries the exact message, exit code, duration, and stack. Report the message and the failing command, not a paraphrase.
-- `hook.guard.deny` means Singularity Flow refused a tool call. The `reason` field says which selection was missing. Fix the cause — usually `/sflow-session` — rather than retrying the same call.
+- `hook.guard.deny` means Singularity Flow refused a tool call. The `reason` field says which selection was missing. Fix the cause — usually `/sf-session` — rather than retrying the same call.
 - `hook.session.initiative` means the branch is a governed initiative, where no work/Jira selection applies.
 - `copilot.turn-complete` carries the stop reason. A turn that completed with no proposal is a real outcome, not a pending one; say so and look for a nearby `copilot.permission-denied` or `copilot.error` that explains it.
 - `log.unreadable` is a truncated final line, normal when a process died mid-write. Treat it as evidence of a crash.

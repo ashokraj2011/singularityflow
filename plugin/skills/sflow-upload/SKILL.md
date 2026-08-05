@@ -26,6 +26,6 @@ Use this skill whenever a user wants to add files or links to the active Epic or
    - Record an HTTPS reference with `singularity-flow documents upload --url <URL> --label "<LABEL>"`.
 5. Respect configured phases, providers, file-size limits, and sequence gates. On a hard gate, stop and show the exact recovery command. On a soft warning, show it and let the user decide whether to continue.
 6. Never expose credentials, follow a URL implicitly, invent a MIME type when detection is available, or bypass the managed catalog.
-7. After success, print every stable source/document ID, SHA-256, size, provider or repository path, commit, and push result. Finish with the next applicable `/sflow-*` command.
+7. After success, print every stable source/document ID, SHA-256, size, provider or repository path, commit, and push result. Finish with the next applicable `/sf-*` command.
 
-Use `/sflow-epic-sources` for detailed Epic-source verification and `/sflow-documents` for listing or viewing Story evidence.
+Use `/sf-epic-sources` for detailed Epic-source verification and `/sf-documents` for listing or viewing Story evidence.

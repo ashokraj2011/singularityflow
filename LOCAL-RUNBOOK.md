@@ -2,11 +2,11 @@
 
 The complete lifecycle without a Jira connection: workspace, initialization, repository grounding, manual Story intake, the phase loop, and completion.
 
-Examples below retain the established `/sflow-*` spelling where historical
-screens or notes use it. After `singularity-flow plugin install`, use the shorter
-direct personal aliases instead: `/sf-init`, `/sf-session`, `/sf-phase`,
-`/sf-submit`, and `/sf-approve`. Both spellings execute the same complete skill
-contract; `/sf-*` does not require the `singularity-flow` plugin namespace.
+Examples use the direct personal aliases installed by
+`singularity-flow plugin install`: `/sf-init`, `/sf-session`, `/sf-phase`, `/sf-submit`, and
+`/sf-approve`. They do not require a plugin namespace. The packaged compatibility
+form remains available when needed, for example
+`/singularity-flow/sflow-submit`.
 
 [HOW-TO.md](HOW-TO.md) is the general walkthrough and assumes a Jira-backed intake in places. This document covers the Git-only path end to end, plus two things documented nowhere else: which commands require an interactive terminal, and why `finalize` does not apply to a standalone work item.
 
@@ -176,7 +176,7 @@ is inside a workspace that would be deleted. Unregistered directories are not
 deleted. Singularity Flow credentials and profile data are cleared when the
 reinstalled VS Code extension first activates.
 
-In Copilot CLI, `/sflow-init` performs the same check-and-repair sequence and
+In Copilot CLI, `/sf-init` performs the same check-and-repair sequence and
 shows every added file for review. To recover or initialize an existing Work
 ID from another terminal, use:
 
@@ -389,7 +389,12 @@ singularity-flow epic start --local \
 
 All three flags are required, and `--profile` defaults to `epic-planning`. Before the first local Epic, populate `approvalAuthorities` in `singularity/portfolio.yml` when the selected profile requires named members. The first phase's governed agent activates automatically; there is no role picker.
 
-Continue with `epic sources`, `epic requirements`, `epic planning`, and `initiative materialize`, which seeds Story branches as `SF-S-001-001`. See [INITIATIVE-ORCHESTRATION.md](INITIATIVE-ORCHESTRATION.md).
+Continue in Copilot with `/sf-epic-sources`, `/sf-epic-requirements`,
+`/sf-epic-planning`, and `/sf-initiative-materialize`. Their CLI equivalents are
+`singularity-flow epic sources`, `singularity-flow epic requirements`,
+`singularity-flow epic planning`, and `singularity-flow initiative materialize`.
+Materialization seeds Story branches such as `SF-S-001-001`. See
+[INITIATIVE-ORCHESTRATION.md](INITIATIVE-ORCHESTRATION.md).
 
 ---
 

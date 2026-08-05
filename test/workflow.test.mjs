@@ -310,7 +310,7 @@ test('next executes one valid lifecycle action at a time', async () => {
   let workflow = JSON.parse(await readFile(workflowFile, 'utf8'));
   const prepared = flow(root, ['next', '--task', 'Capture automatic intake'], { selection: selection('feature', 'product-owner') });
   assert.match(prepared.stdout, /Next step prepared: generate 'intake'/);
-  assert.match(flow(root, ['nextsteps']).stdout, /Automatic next action: sflow-next/);
+  assert.match(flow(root, ['nextsteps']).stdout, /Automatic next action in Copilot: \/sf-next/);
   await completeArtifact(root, workflow, 'intake');
   flow(root, ['phase', 'publish', 'intake'], { selection: selection('feature', 'product-owner') });
 
@@ -321,7 +321,8 @@ test('next executes one valid lifecycle action at a time', async () => {
   assert.equal(workflow.phases.intake.status, 'in_progress');
 
   const submitted = flow(root, ['next'], { selection: selection('feature', 'product-owner') });
-  assert.match(submitted.stdout, /Next step: submit published phase 'intake'/);
+  assert.match(submitted.stdout, /Next action in Copilot: \/sf-submit intake/);
+  assert.match(submitted.stdout, /CLI equivalent: singularity-flow submit intake/);
   workflow = JSON.parse(await readFile(workflowFile, 'utf8'));
   assert.equal(workflow.phases.intake.status, 'awaiting_approval');
 
@@ -329,7 +330,7 @@ test('next executes one valid lifecycle action at a time', async () => {
   assert.match(approved.stdout, /Approval decision committed [0-9a-f]{8} locally/);
   assert.match(approved.stdout, /Context boundary: new/);
   assert.match(approved.stdout, /1\. \/clear/);
-  assert.match(approved.stdout, /2\. \/sflow-next/);
+  assert.match(approved.stdout, /2\. \/sf-next/);
   workflow = JSON.parse(await readFile(workflowFile, 'utf8'));
   assert.equal(workflow.currentPhase, 'requirements');
   assert.deepEqual(workflow.resolution.contextPolicy, { onApproval: 'new', onRejection: 'keep', phaseOverrides: {} });

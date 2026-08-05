@@ -11,7 +11,7 @@ argument-hint: "<EPIC-KEY> <STORY-KEY> <approve|reject> <PACKET-SHA256>"
 <!-- sflow-output-contract: governed-review -->
 **Output contract:** Show governed artifacts, hashes, identity warnings, and the exact confirmation before recording any decision.
 
-1. Require Epic key, Story key, decision (`approve` or `reject`), and the exact full packet SHA-256 previously displayed by `/sflow-epic-review`.
+1. Require Epic key, Story key, decision (`approve` or `reject`), and the exact full packet SHA-256 previously displayed by `/sf-epic-review`.
 2. Run `singularity-flow epic review-choice begin <DECISION> <STORY-KEY> --epic <EPIC-KEY> --packet <SHA-256> --json`.
 3. Ask the user to select every returned choice:
    - current reviewer identity and matched approval authority group;

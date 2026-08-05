@@ -25,4 +25,4 @@ Use Singularity Flow's direct Jira REST client. Do not use Jira MCP tools.
    - status category not Done.
 5. When there are no results, report that clearly. Do not silently broaden the project, issue type, assignee, or status filter.
 
-This skill is read-only. Never request or display the user's Jira token or password. Use `/sflow-jira-update` only when the user explicitly asks to change one Story.
+This skill is read-only. Never request or display the user's Jira token or password. Use `/sf-jira-update` only when the user explicitly asks to change one Story.

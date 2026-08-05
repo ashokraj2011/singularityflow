@@ -23,7 +23,7 @@ argument-hint: "<JIRA-STORY-KEY>"
    - Run `singularity-flow story start <STORY-KEY> --fetch --selection-receipt <TOKEN>` only after the receipt reports `ready: true`.
 7. Show the resulting Epic → Jira Story → canonical branch lineage, selected workflow, governed agent, current phase, generated intake document paths, commit, and push result.
 8. Only after the canonical Story branch exists, run `singularity-flow wm check`. If the model is missing or stale, run `singularity-flow wm build --phase <CURRENT-PHASE> --task "<STORY-TITLE>"` on that Story branch. Do not use `--local`: the model commit must be pushed as part of the Story branch before phase authoring begins.
-9. Show the world-model generation timestamp, source-tree hash, commit, and push result. If generation fails, leave the Story intake intact and explain that `/sflow-phase` remains blocked until `/sflow-worldmodel` succeeds on this branch.
-10. Continue only when asked. The next authoring action is `/sflow-phase`; `/sflow-nextsteps` remains the read-only guide.
+9. Show the world-model generation timestamp, source-tree hash, commit, and push result. If generation fails, leave the Story intake intact and explain that `/sf-phase` remains blocked until `/sf-worldmodel` succeeds on this branch.
+10. Continue only when asked. The next authoring action is `/sf-phase`; `/sf-nextsteps` remains the read-only guide.
 
 The canonical branch is the exact Jira key. Jira intake pins the normalized issue snapshot in Git; it does not silently update Jira status or create an approval. Main, workspace, and Epic intake never require or warn about a world model.

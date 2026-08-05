@@ -10,7 +10,7 @@ disable-model-invocation: true
 <!-- sflow-output-contract: clarification-and-artifact -->
 **Output contract:** Use the exact workspace snapshots and documents, ask for missing intent, and return the complete advisory report with freshness and promotion choices.
 
-1. Run `singularity-flow workspace current --json`. If no workspace is active, stop and use `/sflow-workspace` to let the contributor select one; do not infer a workspace from the current repository.
+1. Run `singularity-flow workspace current --json`. If no workspace is active, stop and use `/sf-workspace` to let the contributor select one; do not infer a workspace from the current repository.
 2. Ask for a concise change description and optional title. Let the contributor narrow the analysis to repository, capability, or staged-document IDs; otherwise explain that all workspace repositories and staged documents are used.
 3. Before spending Copilot tokens, run `singularity-flow workspace impact analyze <WORKSPACE-PATH> --description <TEXT> [--title <TITLE>] [--repository <ID>]... [--capability <ID>]... [--document <PATH>]... --dry-run --json`. Show the exact revisions, missing world models, dirty-working-tree warnings, and selected documents.
 4. Ask the contributor to confirm that the advisory analysis should run. Then execute the same command without `--dry-run`. This intentionally starts a separate non-interactive Copilot analysis process over disposable detached clones; never inspect or edit the contributor's live checkout yourself.

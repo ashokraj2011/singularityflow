@@ -3,6 +3,7 @@ import { stdin as input, stdout as output } from 'node:process';
 import { readFile } from 'node:fs/promises';
 import path from 'node:path';
 import { exists, nowIso, SingularityFlowError } from './util.mjs';
+import { actionCommandLines, copilotAction } from './copilot-guidance.mjs';
 
 const confirmed = new WeakMap();
 let activeConfirmationPort = null;
@@ -28,39 +29,42 @@ export function sequenceGuidance(workflow) {
   const phase = activePhase(workflow);
   if (!phase) return {
     summary: 'The workflow is complete; no further lifecycle transition is normally allowed.',
-    commands: [
-      `singularity-flow progress ${workId}`,
-      `singularity-flow report ${workId}`,
-      'singularity-flow gate --terminal'
+    actions: [
+      copilotAction({ skill: '/sflow-progress', command: `singularity-flow progress ${workId}` }),
+      copilotAction({ skill: '/sflow-report', command: `singularity-flow report ${workId}` }),
+      copilotAction({ command: 'singularity-flow gate --terminal' })
     ]
   };
   if (phase.status === 'awaiting_approval') return {
     summary: `Review submitted phase '${phase.id}', then approve it or return it for correction.`,
-    commands: [
-      `singularity-flow approve ${phase.id} --work-id ${workId} --fetch`,
-      `singularity-flow reject ${phase.id} --work-id ${workId} --fetch --to <phase> --reason <reason>`
+    actions: [
+      copilotAction({ skill: '/sflow-approve', command: `singularity-flow approve ${phase.id} --work-id ${workId} --fetch` }),
+      copilotAction({ skill: '/sflow-reject', command: `singularity-flow reject ${phase.id} --work-id ${workId} --fetch --to <phase> --reason <reason>` })
     ],
     alternativeSecond: true
   };
   if (phase.status === 'in_progress' && phaseNeedsGeneration(workflow, phase)) return {
     summary: `${phase.generation > 0 ? 'Regenerate' : 'Generate'} and publish phase '${phase.id}' before submission.`,
-    commands: [
-      `singularity-flow prepare ${phase.id}`,
-      `singularity-flow phase publish ${phase.id}`
+    actions: [
+      copilotAction({ skill: '/sflow-phase', command: `singularity-flow prepare ${phase.id}` }),
+      copilotAction({ skill: '/sflow-phase', command: `singularity-flow phase publish ${phase.id}` })
     ]
   };
   if (phase.status === 'in_progress') return {
     summary: `Submit published phase '${phase.id}' for approval.`,
-    commands: [`singularity-flow submit ${phase.id}`]
+    actions: [copilotAction({ skill: '/sflow-submit', command: `singularity-flow submit ${phase.id}` })]
   };
   return {
     summary: `Continue from the active workflow state for phase '${phase.id}'.`,
-    commands: [`singularity-flow nextsteps ${workId}`]
+    actions: [copilotAction({ skill: '/sflow-nextsteps', command: `singularity-flow nextsteps ${workId}` })]
   };
 }
 
-function commandLines(commands, alternativeSecond = false) {
-  return commands.map((command, index) => `${index === 0 ? 'Run next' : index === 1 && alternativeSecond ? 'Alternatively' : 'Then'}: ${command}`);
+function commandLines(actions, alternativeSecond = false) {
+  return actions.flatMap((action, index) => actionCommandLines(
+    action,
+    index === 0 ? 'Run next' : index === 1 && alternativeSecond ? 'Alternative' : 'Then'
+  ));
 }
 
 function sequenceMessage(workflow, gate, action, { requestedPhase = null, reason = null, mode = sequenceGateMode(workflow, gate) } = {}) {
@@ -72,7 +76,7 @@ function sequenceMessage(workflow, gate, action, { requestedPhase = null, reason
   const guidance = gate === 'publicationPending'
     ? {
         summary: 'Publish the retained local lifecycle commit before any further mutation.',
-        commands: ['singularity-flow sync']
+        actions: [copilotAction({ command: 'singularity-flow sync' })]
       }
     : sequenceGuidance(workflow);
   return [
@@ -81,8 +85,9 @@ function sequenceMessage(workflow, gate, action, { requestedPhase = null, reason
     reason ? `Reason: ${reason}` : null,
     `Gate mode: ${mode}.`,
     `Required next action: ${guidance.summary}`,
-    ...commandLines(guidance.commands, guidance.alternativeSecond),
-    `See all valid actions: singularity-flow nextsteps ${workflow.workItem.id}`
+    ...commandLines(guidance.actions, guidance.alternativeSecond),
+    `See all valid actions in Copilot: /sf-nextsteps ${workflow.workItem.id}`,
+    `CLI equivalent: singularity-flow nextsteps ${workflow.workItem.id}`
   ].filter(Boolean).join('\n');
 }
 

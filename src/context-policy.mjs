@@ -47,7 +47,7 @@ export function contextBoundaryMode(policy, phaseId, event = 'approval') {
 export function contextBoundaryHandoff(policy, phaseId, {
   event = 'approval',
   nextPhase = null,
-  nextSkill = '/sflow-next',
+  nextSkill = '/sf-next',
   complete = false
 } = {}) {
   const selected = contextBoundaryMode(policy, phaseId, event);

@@ -13,6 +13,6 @@ disable-model-invocation: true
 2. Run `singularity-flow workspace current --json`.
 3. Show every non-archived workspace with its name, workspace ID, Jira anchor, directory, the capabilities it is for, and whether it is active. The capabilities are what the workspace is; the repositories in it are what those capabilities ship from.
 4. For the active workspace, show the selected repository, branch, Story ID when present, and the exact context label from `prompt`.
-5. If no workspace is active, say so and offer `/sflow-workspace`. Do not select one without asking the contributor.
+5. If no workspace is active, say so and offer `/sf-workspace`. Do not select one without asking the contributor.
 6. This skill is read-only. Do not create, clone, repair, archive, switch, or modify a workspace.
 

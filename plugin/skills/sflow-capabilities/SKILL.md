@@ -20,7 +20,7 @@ says nothing about which of the two it is — the repository does.
 3. Run `singularity-flow capabilities show <ID> --json`.
 4. Explain the root-to-leaf path and effective restrictions.
 5. Do not edit `singularity/capabilities.yml` by hand. When the contributor asks
-   to change the map, use `/sflow-capability-map`, which validates every write
+   to change the map, use `/sf-capability-map`, which validates every write
    and pushes to the lead repository that holds the map.
 
 Missing values inherit. Empty allowlists deny all. Required checks and protected

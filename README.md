@@ -108,7 +108,7 @@ singularity-flow init --repair
 Repair copies only missing packaged files and never overwrites repository
 customizations. It therefore does **not** convert or overwrite a version-1
 `workflow.yml`. Version 2 is the only supported workflow schema; this POC has no
-migration path. In Copilot CLI, use `/sflow-init [WORK-ID]`; `/sflow-doctor`
+migration path. In Copilot CLI, use `/sf-init [WORK-ID]`; `/sf-doctor`
 also runs the read-only initialization inventory before its wider repository
 diagnostics.
 
@@ -186,7 +186,7 @@ global state.
 Initialization also installs `singularity/portfolio.yml`. It is inert until an initiative is started and provides editable `initiative-lite` and `enterprise-delivery` profiles. See [INITIATIVE-ORCHESTRATION.md](INITIATIVE-ORCHESTRATION.md) for the complete multi-repository guide.
 
 The governed Epic and Story pages do not start or embed a Copilot planning session. Requirements
-and Planning show the exact `/sflow-*` command to run from the open repository,
+and Planning show the exact `/sf-*` command to run from the open repository,
 with one-click copy controls. The installed skill composes the selected phase,
 governed agent, repository world model, approved inputs, agent skills, requirements,
 and templates inside the user’s normal Copilot CLI session. Refresh the VS Code
@@ -285,7 +285,7 @@ packs, remote agent resources, mappings, and approval policy. Capabilities are
 not a fourth lifecycle/configuration concept; they are shown as part of the
 selected Workspace scope.
 
-From Copilot, `/sflow-workspaces` lists saved contexts and `/sflow-workspace`
+From Copilot, `/sf-workspaces` lists saved contexts and `/sf-workspace`
 selects one. From a terminal, `singularity-flow workspace copilot <WORKSPACE>`
 starts Copilot in the selected repository and names the session for the
 workspace; a governed Story branch adds the Story ID. Singularity renders labels
@@ -344,10 +344,10 @@ The leading dot was intentionally removed: repository-owned configuration, promp
 Start an initiative from GitHub Copilot:
 
 ```text
-/sflow-initiative-start INIT-2026-001
-/sflow-initiative-phase
-/sflow-initiative-next
-/sflow-initiative-status
+/sf-initiative-start INIT-2026-001
+/sf-initiative-phase
+/sf-initiative-next
+/sf-initiative-status
 ```
 
 Starting uses `main` (or the configured default branch) only as the source baseline for the new initiative branch. It does not merge anything into `main`; completed code still follows the repository's normal pull-request and merge process.
@@ -359,27 +359,27 @@ specification, canonical repository branches, and Product Owner validation,
 use the four-phase `epic-planning` profile:
 
 ```text
-/sflow-epic-start MOB-100
-/sflow-epic-sources
-/sflow-epic-requirements
-/sflow-epic-story-draft
-/sflow-epic-publish
-/sflow-epic-status
-/sflow-epic-next
-/sflow-epic-sync
-/sflow-epic-drift
-/sflow-epic-review
-/sflow-epic-review-decision
-/sflow-epic-merge-plan
+/sf-epic-start MOB-100
+/sf-epic-sources
+/sf-epic-requirements
+/sf-epic-story-draft
+/sf-epic-publish
+/sf-epic-status
+/sf-epic-next
+/sf-epic-sync
+/sf-epic-drift
+/sf-epic-review
+/sf-epic-review-decision
+/sf-epic-merge-plan
 /sf-stack
 /sf-refresh-branch
 /sf-regression-investigate
-/sflow-story-start
-/sflow-story-fetch
-/sflow-story-checks
-/sflow-worldmodel
-/sflow-agents
-/sflow-telemetry
+/sf-story-start
+/sf-story-fetch
+/sf-story-checks
+/sf-worldmodel
+/sf-agents
+/sf-telemetry
 ```
 
 Stories in the Epic's own repository are branched from the **Epic branch**, which
@@ -424,8 +424,8 @@ Jira Story or enter its exact key, inspect the parent Epic and acceptance
 criteria, confirm repository routing, and select the workflow; its phase agent is automatic. The
 Story can be started directly without first creating or selecting an Epic in
 Singularity Flow; any Jira parent is retained as optional lineage. The
-same entry point is available through `/sflow-story-start`; a Story published
-by a governed Epic can still be fetched with `/sflow-story-fetch`. Intake pins
+same entry point is available through `/sf-story-start`; a Story published
+by a governed Epic can still be fetched with `/sf-story-fetch`. Intake pins
 the Jira snapshot, creates or resumes the canonical Jira-key branch, commits,
 and pushes before phase work begins. Developers finalize independently, and the Product Owner closes the Epic only after the
 exact parent specification and every blocking Story's spec-to-code evidence
@@ -497,7 +497,7 @@ without persistent stdin uses a short-lived one-time selection receipt, so the
 contributor or reviewer can stay in Copilot. If interactive questions themselves are disabled, Singularity
 Flow stops rather than choosing a default.
 
-Use `/sflow-nextsteps [WORK-ID]` whenever you need a compact ordered plan. Its CLI equivalent, `singularity-flow nextsteps [WORK-ID]`, works before initialization, without an active work item, during pending publication recovery, throughout every phase, and after completion. It is read-only and marks actions as `NOW`, `THEN`, or `ALTERNATIVE`.
+Use `/sf-nextsteps [WORK-ID]` whenever you need a compact ordered plan. Its CLI equivalent, `singularity-flow nextsteps [WORK-ID]`, works before initialization, without an active work item, during pending publication recovery, throughout every phase, and after completion. It is read-only and marks actions as `NOW`, `THEN`, or `ALTERNATIVE`.
 
 For an executable, revision-bound plan use `/sf-continue` or **Lifecycle → Continue safely** in VS
 Code. The underlying commands are `singularity-flow action plan --json` and
@@ -634,7 +634,7 @@ The bundled profiles are:
 | Chore | intake → implementation → verification → conformance |
 | Figma export to mobile app | design-intake → design-inventory → component-mapping → mobile-spec → implementation → visual-verification → conformance |
 
-Agent mappings connect native Copilot agents to governed Agent Markdown. Each phase activates its configured default agent automatically; `/sflow-agent` is an explicit, audited override. An agent changes instruction context only and can never grant approval permission. Phase approvals reference `approvalAuthorities`; every decision records the human identity, matched authority group, identity-assurance level, and active agent separately.
+Agent mappings connect native Copilot agents to governed Agent Markdown. Each phase activates its configured default agent automatically; `/sf-agent` is an explicit, audited override. An agent changes instruction context only and can never grant approval permission. Phase approvals reference `approvalAuthorities`; every decision records the human identity, matched authority group, identity-assurance level, and active agent separately.
 
 For `figma-mobile`, committed PNG exports are the canonical approval baseline. VS Code and the generated local gallery provide verified thumbnails, full-size previews, and local PDF viewing; visual-verification evidence registers the pinned design, implementation screenshot, and diff image under the governed Story. Live Figma links open externally over HTTPS and are explicitly labeled as mutable convenience context.
 
@@ -690,13 +690,13 @@ contextPolicy:
     implementation: compact
 ```
 
-The boundary is advisory because a child process cannot clear its parent Copilot CLI conversation. After the approval commit and push succeed, the CLI prints the exact next actions. `new` prints `/clear` followed by `/sflow-next`, `compact` prints `/compact` followed by `/sflow-next`, and `keep` continues directly. The next skill reconstructs its phase prompt from approved Git artifacts, pinned inputs, the selected governed agent, templates, agent Markdown, and required world-model views. Clearing therefore removes conversation history without losing governed state. It reduces tokens sent in later phases but does not refund tokens already consumed. Rejections default to `keep` so the correction conversation retains review feedback. The normalized policy is pinned in work-item and initiative state; configurations without it retain the earlier `keep` behavior.
+The boundary is advisory because a child process cannot clear its parent Copilot CLI conversation. After the approval commit and push succeed, the CLI prints the exact next actions. `new` prints `/clear` followed by `/sf-next`, `compact` prints `/compact` followed by `/sf-next`, and `keep` continues directly. The next skill reconstructs its phase prompt from approved Git artifacts, pinned inputs, the selected governed agent, templates, agent Markdown, and required world-model views. Clearing therefore removes conversation history without losing governed state. It reduces tokens sent in later phases but does not refund tokens already consumed. Rejections default to `keep` so the correction conversation retains review feedback. The normalized policy is pinned in work-item and initiative state; configurations without it retain the earlier `keep` behavior.
 
-`/sflow-session` applies this policy in order. For each new Copilot session it uses an exact work ID or Jira ID explicitly supplied by the contributor, or asks for one when it is absent; lists committed work-item branches from the configured Git remote; fetches the remote; checks out a missing local tracking branch; and fast-forwards to the exact remote head. It then activates the current phase's default agent. `/sflow-agent` explicitly overrides that prompt context without changing the human identity or its approval authority.
+`/sf-session` applies this policy in order. For each new Copilot session it uses an exact work ID or Jira ID explicitly supplied by the contributor, or asks for one when it is absent; lists committed work-item branches from the configured Git remote; fetches the remote; checks out a missing local tracking branch; and fast-forwards to the exact remote head. It then activates the current phase's default agent. `/sf-agent` explicitly overrides that prompt context without changing the human identity or its approval authority.
 
 The attach path is deliberately conservative: missing, malformed, ahead, or diverged branches stop with a clear message, as does a dirty tree when attachment would require a checkout or fast-forward. If the requested Story branch is already checked out and its HEAD exactly matches the freshly fetched remote HEAD, attachment may bind the new Copilot session in place while preserving unpublished phase edits. It never creates a work branch, merges, rebases, resets, stashes, force-checks out, or discards local work. Run it directly with `singularity-flow session candidates` and `singularity-flow session attach ENG-142`. Copilot must already be open inside a clone of the application repository so `singularity/workflow.yml` and its configured remote are known; when the selected branch is absent locally, Git materializes it from the remote rather than cloning a duplicate repository.
 
-Reviewers can open `/sflow-inbox` or run `singularity-flow inbox` to fetch a repository-wide queue of committed phases awaiting approval. The inbox reads workflow state directly from remote work-item branches without checking each one out. It shows the work/Jira ID, title, phase, generation, approval threshold, waiting time, human authority groups, artifact path, self-approval warning, and exact remote commit. Selecting an item uses the same conservative session-attachment flow before displaying the complete phase documents; it never approves automatically.
+Reviewers can open `/sf-inbox` or run `singularity-flow inbox` to fetch a repository-wide queue of committed phases awaiting approval. The inbox reads workflow state directly from remote work-item branches without checking each one out. It shows the work/Jira ID, title, phase, generation, approval threshold, waiting time, human authority groups, artifact path, self-approval warning, and exact remote commit. Selecting an item uses the same conservative session-attachment flow before displaying the complete phase documents; it never approves automatically.
 
 No ID or governed agent is inferred, and the active agent never replaces the authenticated Git identity in audit records. Existing repositories without `session` behave exactly as before (`off`). The resolved policy is pinned into each work item so a base-branch YAML edit cannot weaken an active item silently.
 
@@ -738,11 +738,11 @@ singularity-flow start ENG-142 --jira
 
 Jira Cloud and Jira Data Center are both supported. Data Center uses `JIRA_DEPLOYMENT=data-center` and a Bearer `JIRA_PAT`; the Cloud path uses username plus PAT/API token with Basic authentication. `singularity-flow jira status`, `projects`, `epics --project`, `children`, and `permissions --project` provide read-only discovery. The Copilot CLI exposes the same operations as collision-safe skills:
 
-- `/sflow-jira-status` checks the connection and authenticated Jira identity.
-- `/sflow-jira-doctor` checks the active workspace, repository Jira policy, CLI credential availability, identity, configured projects, permissions, boards, and Epic visibility, then prints corrective actions.
-- `/sflow-jira-assigned` lists incomplete Stories assigned to that identity.
-- `/sflow-jira-board` lists Stories grouped under active/future sprints and never queries the backlog.
-- `/sflow-jira-update` changes one Story only after displaying its current state and receiving exact Story-key confirmation.
+- `/sf-jira-status` checks the connection and authenticated Jira identity.
+- `/sf-jira-doctor` checks the active workspace, repository Jira policy, CLI credential availability, identity, configured projects, permissions, boards, and Epic visibility, then prints corrective actions.
+- `/sf-jira-assigned` lists incomplete Stories assigned to that identity.
+- `/sf-jira-board` lists Stories grouped under active/future sprints and never queries the backlog.
+- `/sf-jira-update` changes one Story only after displaying its current state and receiving exact Story-key confirmation.
 
 Discover boards and retrieve sprint work without backlog:
 
@@ -768,7 +768,7 @@ For corporate use, enable and constrain the connector in `singularity/portfolio.
 
 When `singularity/portfolio.yml` is absent, initialize or configure the repository from **Configuration** before starting governed Jira intake.
 
-Initiative-planning Jira writes are never immediate UI mutations. `initiative jira-plan` produces and pushes an exact reviewed diff; `initiative jira-apply --plan <sha256>` additionally requires an approved Plan/Elaboration phase, Jira permission preflight, exact initiative confirmation, unchanged Jira `updatedAt` values, and a plan that still matches the pinned connection, deployment, and project policy. Applied operations produce committed receipts, and retries accept only receipts that match the exact reviewed plan. That governed planner excludes status, assignee, sprint, priority, and resolution. A separately invoked `/sflow-jira-update` is an operator action against one exact Story and is not part of the governed initiative write plan.
+Initiative-planning Jira writes are never immediate UI mutations. `initiative jira-plan` produces and pushes an exact reviewed diff; `initiative jira-apply --plan <sha256>` additionally requires an approved Plan/Elaboration phase, Jira permission preflight, exact initiative confirmation, unchanged Jira `updatedAt` values, and a plan that still matches the pinned connection, deployment, and project policy. Applied operations produce committed receipts, and retries accept only receipts that match the exact reviewed plan. That governed planner excludes status, assignee, sprint, priority, and resolution. A separately invoked `/sf-jira-update` is an operator action against one exact Story and is not part of the governed initiative write plan.
 
 ### Manual story intake without Jira
 
@@ -810,10 +810,10 @@ singularity-flow guide WORK-123
 From Copilot, use:
 
 ```text
-/sflow-help WORK-123
+/sf-help WORK-123
 ```
 
-The guide is read-only. Depending on state, it recommends `/sflow-phase`, `/sflow-submit`, `/sflow-approve` or `/sflow-reject`, and `/sflow-progress` after completion.
+The guide is read-only. Depending on state, it recommends `/sf-phase`, `/sf-submit`, `/sf-approve` or `/sf-reject`, and `/sf-progress` after completion.
 
 For the complete sequence of immediate, subsequent, and alternative actions instead of the full template explanation:
 
@@ -821,12 +821,12 @@ For the complete sequence of immediate, subsequent, and alternative actions inst
 singularity-flow nextsteps WORK-123
 ```
 
-From Copilot, use `/sflow-nextsteps WORK-123`.
+From Copilot, use `/sf-nextsteps WORK-123`.
 
 To execute one next action instead of only displaying the plan, use either form:
 
 ```text
-/sflow-next
+/sf-next
 ```
 
 ```bash
@@ -855,7 +855,7 @@ singularity-flow report ENG-142 --format json
 singularity-flow report ENG-142 --format html --out workflow-report.html
 ```
 
-From Copilot, use `/sflow-report ENG-142`. Markdown is the default; JSON exposes the derived data and HTML includes script-free inline charts. Reports show total and per-phase wall-clock duration, approval waiting, active time, generation/rework count, rejections, self-approvals, provider/model identity, exact token usage with per-model totals, quality-check duration, and the largest approval-latency bottleneck. An open approval request accumulates waiting time through report generation.
+From Copilot, use `/sf-report ENG-142`. Markdown is the default; JSON exposes the derived data and HTML includes script-free inline charts. Reports show total and per-phase wall-clock duration, approval waiting, active time, generation/rework count, rejections, self-approvals, provider/model identity, exact token usage with per-model totals, quality-check duration, and the largest approval-latency bottleneck. An open approval request accumulates waiting time through report generation.
 
 Durations include nights and weekends; they are not business-hours or developer-productivity estimates. Reports are derived views, not authoritative workflow state. Standard output is read-only, while `--out` writes only the requested report file and does not commit or push it automatically.
 
@@ -888,7 +888,7 @@ Every uploaded file receives a stable `DOC-nnn` identifier, content hash, MIME t
 Copilot users normally invoke the appropriate skill, for example:
 
 ```text
-/sflow-phase
+/sf-phase
 ```
 
 The skill combines its phase contract with the active governed agent and verified repository grounding. The equivalent deterministic CLI sequence is:
@@ -930,7 +930,7 @@ phases:
         maxBytes: 16384
 ```
 
-Use `singularity-flow inputs design --dry-run` to inspect provenance without writing, or `/sflow-inputs` in Copilot. Normal preparation writes a managed artifact block and `context/inputs-design-gen<n>.json`; publication recollects inputs and the gate verifies approved hashes and rendered-block freshness.
+Use `singularity-flow inputs design --dry-run` to inspect provenance without writing, or `/sf-inputs` in Copilot. Normal preparation writes a managed artifact block and `context/inputs-design-gen<n>.json`; publication recollects inputs and the gate verifies approved hashes and rendered-block freshness.
 
 ## Human clarification checkpoints
 
@@ -953,7 +953,7 @@ The bundled intake, requirements, reproduction, and design-intake phases use `re
 
 ## Token usage
 
-With installer-managed Copilot telemetry, `prepare` opens a generation capture window. Copilot exports a chat span only after the response finishes, so `phase publish` may initially mark the current generation `pending`. The next `submit` or `/sflow-next` invocation automatically reconciles the completed span in its own commit and push before submission. The sanitized record is committed under the work item:
+With installer-managed Copilot telemetry, `prepare` opens a generation capture window. Copilot exports a chat span only after the response finishes, so `phase publish` may initially mark the current generation `pending`. The next `submit` or `/sf-next` invocation automatically reconciles the completed span in its own commit and push before submission. The sanitized record is committed under the work item:
 
 ```text
 singularity/work-items/<WORK-ID>/telemetry/<phase>-gen<N>.json
@@ -1000,7 +1000,7 @@ singularity-flow reject design --work-id ENG-142 --fetch --to requirements --rea
 singularity-flow reopen ENG-142 --fetch --to implementation --reason "Production feedback requires a safer rollback"
 ```
 
-Approval first verifies the reviewer’s Git/GitHub identity against the phase authority groups, activates the phase agent, shows artifact hashes, checks, token usage, prior approvals, and any self-approval warning, and requires the phase name as confirmation. When Copilot lacks persistent shell stdin, `/sflow-approve` collects that exact confirmation with a one-time receipt and runs the same approval itself; it never uses `--yes`. Multi-approval thresholds require distinct human identities.
+Approval first verifies the reviewer’s Git/GitHub identity against the phase authority groups, activates the phase agent, shows artifact hashes, checks, token usage, prior approvals, and any self-approval warning, and requires the phase name as confirmation. When Copilot lacks persistent shell stdin, `/sf-approve` collects that exact confirmation with a one-time receipt and runs the same approval itself; it never uses `--yes`. Multi-approval thresholds require distinct human identities.
 
 Every individual approval is an atomic lifecycle decision: it updates the decision ledger and workflow state, creates its own `[WORK-ID][phase:<id>][approve] <authority-group>` commit, and pushes that commit before reporting success. This also applies to approvals that do not yet satisfy a multi-approval threshold. A failed push retains the local commit and blocks further decisions until `singularity-flow sync` succeeds.
 
@@ -1110,8 +1110,8 @@ than overwriting work. Use `--remote <name>` when the branch is not on `origin`.
 
 `wm compose` is the single phase entry point. It combines the active governed Agent Markdown, mandatory phase and agent-added views, the exact task guide, applicable evidence, rule-selected files, and locked remote agent skills. `wm inject` remains an alias for compatibility. Rules can match the governed `agent` ID, phase, immutable work type, committed or pending changed paths, and source labels.
 
-Use `/sflow-show-prompt` at any active Story phase to display the complete
-`/sflow-phase` `SKILL.md` followed by the exact rendered governed phase prompt.
+Use `/sf-show-prompt` at any active Story phase to display the complete
+`/sf-phase` `SKILL.md` followed by the exact rendered governed phase prompt.
 The inspection uses `--render-only`: it does not create a grounding record,
 prepare an artifact, edit workflow state, commit, or push. Pass
 `--skill sflow-design` (or another installed Flow skill ID) to inspect that
@@ -1523,7 +1523,7 @@ commands are:
 ```
 
 The `sf-` prefix prevents collisions with generic skills such as `/start`,
-`/status`, and `/approve`. Existing `/sflow-*` and qualified
+`/status`, and `/approve`. Existing `/sf-*` and qualified
 `/singularity-flow/sflow-*` invocations remain compatible. After upgrading, run
 `singularity-flow plugin install`, close existing Copilot sessions, and confirm
 that `copilot plugins list --kind skill` reports `sf-*` personal skills.

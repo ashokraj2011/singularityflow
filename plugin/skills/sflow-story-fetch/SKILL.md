@@ -10,7 +10,7 @@ disable-model-invocation: true
 <!-- sflow-output-contract: explicit-selection -->
 **Output contract:** Collect every required choice explicitly; never infer or preselect; preserve errors, artifacts, and next actions.
 
-1. Ask the user to choose a Story from `/sflow-story-inbox`.
+1. Ask the user to choose a Story from `/sf-story-inbox`.
 2. Run `singularity-flow story fetch <JIRA-KEY>`. If it belongs to another configured repository, provide the user's chosen local directory through `--directory`.
 3. The command must resolve repository identity only through the workspace allowlist, fast-forward the canonical branch, and verify the seed and every governed-context hash.
 4. Let the governed-agent picker complete. The workflow type is already pinned by the approved Story plan.

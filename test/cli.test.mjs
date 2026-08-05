@@ -74,7 +74,7 @@ test('about identifies the brand and exposes the short command namespace', async
   assert.equal(result.status, 0, result.stderr);
   assert.match(result.stdout, /^Singularity Flow 0\.9\.0/m);
   assert.match(result.stdout, /Singularity product\s+brand/);
-  assert.match(result.stdout, /Copilot: \/sflow-<action>/);
+  assert.match(result.stdout, /Copilot: \/sf-<action>/);
   assert.match(result.stdout, /Atomic Git commit\/push state transfer/);
   assert.match(result.stdout, /token and model usage/);
 });

@@ -60,6 +60,7 @@ export function normalizeNextActionId(id) {
 }
 
 import { initiativeCheckRequirement, initiativeOutputRequired } from './initiative-policy.mjs';
+import { copilotSkillForCommand } from './copilot-guidance.mjs';
 
 export const EPIC_JOURNEY_STAGES = Object.freeze([
   { id: 'intake', label: 'Intake', phase: 'epic-intake' },
@@ -160,6 +161,7 @@ export function epicJourney(initiative, nextActions = []) {
       // Preserved so an unmapped action can be reported precisely rather than guessed at.
       sourceId: next.action,
       label: epicActionLabel(next, current.label),
+      skill: next.skill ?? copilotSkillForCommand(next.command, '/sf-initiative-next'),
       command: next.command ?? null,
       reason: next.reason ?? next.detail ?? null,
       phaseId: next.phaseId ?? initiative.currentPhase ?? null,
@@ -169,6 +171,7 @@ export function epicJourney(initiative, nextActions = []) {
       id: activeStep === finalStep ? NEXT_ACTIONS.REPORT : NEXT_ACTIONS.STATUS,
       sourceId: activeStep === finalStep ? 'report' : 'status',
       label: epicActionLabel(null, current.label),
+      skill: activeStep === finalStep ? '/sf-initiative-status' : '/sf-initiative-next',
       command: null,
       reason: null,
       phaseId: initiative.currentPhase ?? null,
@@ -190,7 +193,7 @@ function plural(count, singular, suffix = 's') {
  *                   should pass the result; without it, gate reporting is skipped rather than
  *                   guessed at.
  */
-export function nextInitiativeAction(initiative, phaseId = null, { checklist = null } = {}) {
+function resolveNextInitiativeAction(initiative, phaseId = null, { checklist = null } = {}) {
   const id = phaseId ?? initiative?.currentPhase ?? null;
   if (!initiative) return { action: NEXT_ACTIONS.BLOCKED, phaseId: null, title: 'No initiative is open.', detail: null, command: null };
   if (!id) {
@@ -280,6 +283,14 @@ export function nextInitiativeAction(initiative, phaseId = null, { checklist = n
     title: `${definition.label} is ready to publish.`,
     detail: `Publishing records generation ${phase.generation + 1} and its machine evidence.`,
     command: `singularity-flow initiative phase publish ${id}`
+  };
+}
+
+export function nextInitiativeAction(initiative, phaseId = null, options = {}) {
+  const result = resolveNextInitiativeAction(initiative, phaseId, options);
+  return {
+    ...result,
+    skill: result.command ? copilotSkillForCommand(result.command, '/sf-initiative-next') : '/sf-initiative-next'
   };
 }
 

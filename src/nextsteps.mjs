@@ -1,7 +1,8 @@
 import { phaseNeedsGeneration, workflowGuide } from './guide.mjs';
+import { copilotAction } from './copilot-guidance.mjs';
 
 function action(timing, skill, command, reason) {
-  return { timing, skill, command, reason };
+  return copilotAction({ timing, skill, command, reason });
 }
 
 function nextPhase(workflow, currentId) {
@@ -49,7 +50,7 @@ export function workflowNextSteps(workflow, { publicationPending = false, prereq
   if (phase.status === 'awaiting_approval') return [...immediate, ...afterApprovalActions(workflow, phase)];
 
   const needsGeneration = phaseNeedsGeneration(workflow, phase);
-  const actions = [...prerequisites, ...immediate];
+  const actions = [...prerequisites.map(copilotAction), ...immediate];
   const resolvedPhase = workflow.resolution?.phases?.find((item) => item.id === phase.id);
   if (needsGeneration && workflow.resolution?.inputsMode === 'enforce' && resolvedPhase?.inputs?.length && phase.inputContext?.generation !== phase.generation + 1) {
     actions.unshift(action('now', '/sflow-inputs', `singularity-flow inputs ${phase.id}`, 'Resolve and render every enforced approved phase input before generation.'));
@@ -108,13 +109,13 @@ export function nextStepsText(snapshot) {
     `State: ${snapshot.state}`,
     snapshot.branch ? `Branch: ${snapshot.branch}` : null,
     snapshot.currentPhase ? `Current phase: ${snapshot.currentPhase}` : null,
-    snapshot.workId ? 'Automatic next action: sflow-next' : null,
+    snapshot.workId ? 'Automatic next action in Copilot: /sf-next' : null,
     ''
   ].filter((line) => line !== null);
   snapshot.actions.forEach((item, index) => {
-    lines.push(`${index + 1}. ${item.timing.toUpperCase()}${item.skill ? ` — ${item.skill}` : ''}`);
+    lines.push(`${index + 1}. ${item.timing.toUpperCase()} — Copilot: ${item.skill}`);
     lines.push(`   ${item.reason}`);
-    lines.push(`   CLI: ${item.command}`);
+    lines.push(`   CLI equivalent: ${item.command}`);
   });
   return `${lines.join('\n')}\n`;
 }

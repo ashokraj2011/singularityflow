@@ -9,7 +9,7 @@ user-invocable: false
 <!-- sflow-output-contract: guided-actions -->
 **Output contract:** Use read-only CLI evidence, preserve warnings and ordered actions, and change nothing unless explicitly requested.
 
-`/sflow-session` is setup only: stop after its report. Do not inspect artifacts/source or infer delivery work from an ID.
+`/sf-session` is setup only: stop after its report. Do not inspect artifacts/source or infer delivery work from an ID.
 
 `workflow.json` is immutable-profile lifecycle state; `singularity/workflow.yml` defines new profiles, phases, templates, and authorities. `.github/agents` owns phase defaults, prompt instructions, and added views.
 
@@ -27,5 +27,6 @@ user-invocable: false
 12. Tag tests with `@ac:AC-n` for every `AC-n` identifier in the requirements artifact.
 13. Before reasoning, compose the exact phase/task prompt; if stale, build and recompose identically. Add `--evidence` for verification/review/release.
 14. Treat `singularity/work-items/<WORK-ID>/inputs/` and `documents.json` as managed supporting evidence. Upload through `singularity-flow documents upload`, list/view by stable document ID, and never edit the catalog manually.
-15. Never choose a workflow template for the user. Use the phase-default agent automatically; change it only when the user explicitly invokes `/sflow-agent`. Approval capability comes only from the current human Git/GitHub identity matching a configured authority group.
-16. Run `singularity-flow next` only when the user explicitly invokes `/sflow-next` or directly asks to execute the next lifecycle action. Execute one action only; approval must retain human-authority validation, exact confirmation, commit, and push.
+15. Never choose a workflow template for the user. Use the phase-default agent automatically; change it only when the user explicitly invokes `/sf-agent`. Approval capability comes only from the current human Git/GitHub identity matching a configured authority group.
+16. Run `singularity-flow next` only when the user explicitly invokes `/sf-next` or directly asks to execute the next lifecycle action. Execute one action only; approval must retain human-authority validation, exact confirmation, commit, and push.
+17. In every final status or next-action handoff, show the direct Copilot command first using `/sf-*`, then show the equivalent `singularity-flow ...` terminal command. Never give a CLI-only next action when a direct Copilot skill can perform it.

@@ -17,5 +17,5 @@ disable-model-invocation: true
 5. Require explicit confirmation of the Epic key and exact plan hash.
 6. Run `singularity-flow epic jira apply --epic <EPIC-KEY> --plan <SHA-256>`.
 7. Show Jira IDs/keys, `STORY-nnn` lineage, created Jira tasks, canonical branches, governed context paths and hashes, Git/Jira receipts, failures, and safe retry guidance.
-8. When every Jira/Git receipt is present, confirm that Epic planning is complete and developer delivery tracking is open. Tell developers to use `/sflow-story-fetch <JIRA-KEY>`.
+8. When every Jira/Git receipt is present, confirm that Epic planning is complete and developer delivery tracking is open. Tell developers to use `/sf-story-fetch <JIRA-KEY>`.
 9. Never follow an unconfigured repository URL, force-push, assign a Story, alter the parent of a directly adopted Jira Story, or duplicate an operation with an existing matching receipt.

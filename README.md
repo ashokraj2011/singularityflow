@@ -1085,9 +1085,14 @@ singularity-flow wm compose --phase design --task "Design invoice export" --dry-
 singularity-flow wm compose --phase design --task "Design invoice export"
 singularity-flow wm show-prompt
 singularity-flow wm check
+# Remove worktrees left by a killed semantic build; --force also removes unowned legacy worktrees
+singularity-flow wm cleanup
+singularity-flow wm cleanup --force
 ```
 
 `wm light` deterministically reads Git paths plus bounded package-manifest metadata and never launches Copilot. `wm build` with `quick`, `standard`, or `deep` runs the semantic model generator in a detached analysis worktree, rejects writes outside its isolated output, validates every manifest entry, records a repository source-tree hash, commits the model, and follows the configured Git publication policy. When a semantic phase requests multiple views, view-scoped read-only discovery workers run concurrently (four by default), write private bounded packets, and feed one final synthesizer. Each completed packet is checkpointed immediately under `singularity/world-model/.checkpoints/`. If the command fails or is stopped, rerun the same command (or add the explicit `--resume` flag): exact source/prompt/options matches are reused and only pending or invalid views run again. `--no-resume` discards the matching checkpoint and rebuilds every view. A successful validated installation removes the checkpoint automatically. Packet ordering, validation, installation, commit, and push remain single-owner operations. Use `--workers N`, `--no-parallel`, or the `worldModel.generation` YAML policy to tune semantic generation. Work-item lifecycle commits, checkpoints, and the model commit itself do not make the model stale; repository source/configuration changes do.
+
+Every semantic build records an owner/PID beside its isolated worktree. The next build automatically removes worktrees whose owning process is no longer alive. `wm cleanup` performs the same recovery explicitly; it preserves active and unowned legacy worktrees, while `wm cleanup --force` removes those too after you have confirmed no build is running.
 
 `wm light`, `wm build`, `wm check`, and `wm context` are repository operations and never
 require an Epic, Story, or work ID. Add `--branch <name>` to target any existing
@@ -1308,7 +1313,7 @@ new lock. Remote templates are inert unless a workflow explicitly names
 | `sflow-about` | Describe the Singularity Flow product, version, capabilities, and `sflow-` namespace. |
 | `singularity-flow init` | Install editable YAML, templates, agent prompts, and world-model builder prompt. |
 | `singularity-flow factory-reset --dry-run` | Preview a destructive reset of repository Singularity state and local runtime data before reinstalling current npm-package defaults. |
-| `singularity-flow start <ID> [--jira \| --story-file FILE] [--ref BRANCH]` | Import Jira or manual story details, attach optional documents, choose a workflow; its phase agent is automatic, and create/push the canonical branch. The branch defaults to the Work ID; `--ref` decouples its name. |
+| `singularity-flow start <ID> [--jira \| --story-file FILE] [--work-type ID] [--agent ID] [--ref BRANCH]` | Import Jira or manual story details, attach optional documents, choose a workflow, and create/push the canonical branch. Non-interactive callers must pass `--work-type`; a failed preflight restores the original branch and removes only the empty branch created by that attempt. The branch defaults to the Work ID; `--ref` decouples its name. |
 | `singularity-flow choices begin\|answer\|status` | Bridge explicit Copilot start and approval choices through a short-lived one-time receipt when persistent terminal stdin is unavailable. |
 | `singularity-flow resume <ID\|BRANCH> --fetch` | Resolve the Work ID/canonical-branch binding, fast-forward it, and activate the current phase agent. |
 | `sflow-agent [ID]` | Select or change the prompt-only governed agent for the current local work-item session. |
@@ -1325,7 +1330,7 @@ new lock. Remote templates are inert unless a workflow explicitly names
 | `singularity-flow action plan [STORY-OR-INITIATIVE]` | Create a short-lived action plan bound to subject kind, branch, HEAD, index, working-tree, and lifecycle hashes. |
 | `singularity-flow action authorize <PLAN-ID> --action <ACTION-ID> --confirm <ACTION-ID>` | Record one short-lived, machine-local authorization after reviewing that exact action. |
 | `singularity-flow action execute <PLAN-ID> --action <ACTION-ID> --authorization <TOKEN>` | Revalidate and run one reviewed action directly through the engine. The token is consumed once; read-only actions omit it. |
-| `sflow-next [--task TEXT]` | Execute exactly one next valid action; alias for `singularity-flow next`. |
+| `sflow-next [--task TEXT] [--yes]` | Execute exactly one next valid action; alias for `singularity-flow next`. If a semantic world model is missing, interactive use asks before starting its model agent and non-interactive use requires explicit `--yes`. |
 | `singularity-flow inputs [PHASE] [--dry-run]` | Inspect or render approved phase-input dataflow. |
 | `singularity-flow agents list\|mappings\|lock\|sync\|status\|refresh-output` | Resolve Copilot-agent mappings and trust, materialize, inspect, or refresh remote Markdown agents. |
 | `singularity-flow capabilities doctor [ID] [--offline]` | Verify capability ownership, inherited lifecycle policy, orphan-state publication, ledger integrity, lifecycle pinning, and cross-repository world-model snapshots. |
@@ -1359,6 +1364,7 @@ new lock. Remote templates are inert unless a workflow explicitly names
 | `singularity-flow regression analyze [--good REF] [--bad REF] [--path PATH]` | Rank likely regression commits and merge history without changing the repository. |
 | `singularity-flow wm light [--phase PHASE] [--branch BRANCH] [--local]` | Build a compact deterministic repository inventory with zero model tokens, then validate and commit it like any other world model. |
 | `singularity-flow wm build [--depth light\|quick\|standard\|deep] [--branch BRANCH] [--local] [--parallel\|--no-parallel] [--workers N] [--resume\|--no-resume]` | Build the repository world model on the current or selected branch; light is deterministic and zero-token, while semantic depths support parallel discovery and exact-match checkpoint resume. |
+| `singularity-flow wm cleanup [--force]` | Prune stale owned worktrees left by interrupted world-model builds; `--force` also removes unowned legacy temporary worktrees after operator review. |
 | `sflow-wm-minimal [--phase PHASE] [--branch BRANCH] [--publish]` | Build the smallest deterministic zero-token validated model; defaults to one development view and a local commit. |
 | `singularity-flow documents browse --provider <ID> [--path FOLDER]` | List items in a configured OneDrive/SharePoint, Artifactory, S3, or HTTPS provider. |
 | `singularity-flow documents fetch --provider <ID> --ref <ITEM>` | Materialize provider bytes into the work item's inputs, then commit and publish them. |

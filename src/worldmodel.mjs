@@ -1,5 +1,5 @@
 import { cp, lstat, mkdtemp, copyFile, mkdir, readFile, readdir, rename, rm, writeFile } from 'node:fs/promises';
-import { existsSync, readFileSync } from 'node:fs';
+import { existsSync, readFileSync, realpathSync } from 'node:fs';
 import { createHash } from 'node:crypto';
 import { spawn } from 'node:child_process';
 import os from 'node:os';
@@ -32,6 +32,82 @@ const packageRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '
 const configRelative = 'singularity/worldmodel.json';
 const CHECKPOINT_SCHEMA_VERSION = 1;
 const MAX_DISCOVERY_PACKET_BYTES = 24 * 1024;
+const WORLD_MODEL_TEMP_PREFIXES = [
+  'singularity-flow-world-model-',
+  'singularity-flow-world-model-branch-'
+];
+const WORLD_MODEL_OWNER_FILE = 'singularity-flow-owner.json';
+
+function commonGitDirectory(root) {
+  const value = run('git', ['rev-parse', '--git-common-dir'], { cwd: root }).stdout.trim();
+  return realpathSync(path.resolve(root, value));
+}
+
+function canonicalExistingPath(value) {
+  try { return realpathSync(value); }
+  catch { return path.resolve(value); }
+}
+
+async function writeWorktreeOwner(temporary, root, kind) {
+  await writeJson(path.join(temporary, WORLD_MODEL_OWNER_FILE), {
+    schemaVersion: 1,
+    kind,
+    pid: process.pid,
+    createdAt: new Date().toISOString(),
+    repositoryGitDirectory: commonGitDirectory(root)
+  });
+}
+
+function processIsAlive(pid) {
+  if (!Number.isSafeInteger(pid) || pid <= 0) return false;
+  try {
+    process.kill(pid, 0);
+    return true;
+  } catch (error) {
+    return error?.code === 'EPERM';
+  }
+}
+
+function registeredWorktrees(root) {
+  return run('git', ['worktree', 'list', '--porcelain'], { cwd: root }).stdout
+    .split(/\r?\n/)
+    .filter((line) => line.startsWith('worktree '))
+    .map((line) => path.resolve(line.slice('worktree '.length)));
+}
+
+function managedTemporaryParent(worktree) {
+  if (path.basename(worktree) !== 'repository') return null;
+  const parent = path.dirname(worktree);
+  return WORLD_MODEL_TEMP_PREFIXES.some((prefix) => path.basename(parent).startsWith(prefix))
+    ? parent
+    : null;
+}
+
+export async function cleanupStaleWorldModelWorktrees(root, { force = false } = {}) {
+  const repositoryGitDirectory = commonGitDirectory(root);
+  const removed = [];
+  const active = [];
+  const candidates = registeredWorktrees(root)
+    .map((worktree) => ({ worktree, temporary: managedTemporaryParent(worktree) }))
+    .filter((entry) => entry.temporary);
+  for (const candidate of candidates) {
+    let owner = null;
+    try { owner = JSON.parse(await readFile(path.join(candidate.temporary, WORLD_MODEL_OWNER_FILE), 'utf8')); }
+    catch { /* Legacy worktrees require the explicit --force recovery path. */ }
+    const belongsHere = owner?.repositoryGitDirectory
+      && canonicalExistingPath(owner.repositoryGitDirectory) === repositoryGitDirectory;
+    const stale = !existsSync(candidate.worktree) || (belongsHere && !processIsAlive(owner?.pid));
+    if (!force && !stale) {
+      active.push({ path: candidate.worktree, pid: owner?.pid ?? null, owned: Boolean(owner) });
+      continue;
+    }
+    run('git', ['worktree', 'remove', '--force', candidate.worktree], { cwd: root, allowFailure: true });
+    await rm(candidate.temporary, { recursive: true, force: true });
+    removed.push(candidate.worktree);
+  }
+  run('git', ['worktree', 'prune', '--expire', 'now'], { cwd: root, allowFailure: true });
+  return { removed, active };
+}
 
 function defaults() {
   return JSON.parse(requireTemplate('worldmodel.json'));
@@ -720,6 +796,7 @@ async function build(root, config, options) {
     working_tree_clean: changedFiles(root).length === 0,
     analysis_depth: optionString(options, 'depth', 'standard')
   };
+  await writeWorktreeOwner(temporary, root, 'analysis');
   run('git', ['worktree', 'add', '--detach', analysisRoot, sourceCommit], { cwd: root, stdio: 'inherit' });
   // Mark this process (and every Copilot child it spawns, which inherit the environment) as the
   // world-model builder so an optional custom session-gate hook can exempt the isolated build
@@ -955,6 +1032,7 @@ async function withTargetBranch(root, options, operation) {
   const targetRoot = path.join(temporary, 'repository');
   let worktreeAdded = false;
   try {
+    await writeWorktreeOwner(temporary, root, 'target-branch');
     const args = refExists(root, localRef)
       ? ['worktree', 'add', '--', targetRoot, branchName]
       : ['worktree', 'add', '-b', branchName, '--', targetRoot, `${remote}/${branchName}`];
@@ -1310,9 +1388,19 @@ export async function worldModelCommand(root, positionals, options) {
   }
   if (command === 'inject' || command === 'compose') return compose(root, options);
   if (command === 'show-prompt') return showPrompt(root, options);
-  if (!['prompt', 'build', 'light', 'context', 'check'].includes(command)) {
-    throw new SingularityFlowError('Usage: singularity-flow wm init|prompt|build|light|context <phase>|compose|show-prompt|inject|check');
+  if (command === 'cleanup') {
+    const result = await cleanupStaleWorldModelWorktrees(root, { force: optionBoolean(options, 'force') });
+    if (optionBoolean(options, 'json')) console.log(JSON.stringify(result, null, 2));
+    else {
+      console.log(`Removed ${result.removed.length} stale world-model worktree(s).`);
+      if (result.active.length) console.log(`Kept ${result.active.length} active or unowned worktree(s); use --force only after confirming no build is running.`);
+    }
+    return result;
   }
+  if (!['prompt', 'build', 'light', 'context', 'check'].includes(command)) {
+    throw new SingularityFlowError('Usage: singularity-flow wm init|prompt|build|light|context <phase>|compose|show-prompt|inject|check|cleanup');
+  }
+  if (command === 'build' || command === 'light') await cleanupStaleWorldModelWorktrees(root);
   return withTargetBranch(root, options, async (targetRoot) => {
     const config = await load(targetRoot);
     if (command === 'prompt') return prompt(targetRoot, config, options);

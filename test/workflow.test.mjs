@@ -41,8 +41,10 @@ function selection(workType, agent) { return { workType, agent }; }
 
 test('start refuses non-interactive selection without a test or UI selection', async () => {
   const root = await repository();
-  const result = execute(process.execPath, [bin, 'start', 'NO-SELECT'], root, { allowFailure: true });
-  assert.notEqual(result.status, 0); assert.match(result.stderr, /requires an interactive terminal/);
+  const result = execute(process.execPath, [bin, 'start', 'NO-SELECT', '--title', 'Missing workflow choice', '--description', 'Exercise the non-interactive start preflight.', '--agent', 'product-owner'], root, { allowFailure: true });
+  assert.notEqual(result.status, 0); assert.match(result.stderr, /--work-type <id>/);
+  assert.equal(execute('git', ['branch', '--show-current'], root).stdout.trim(), 'main');
+  assert.notEqual(execute('git', ['show-ref', '--verify', '--quiet', 'refs/heads/NO-SELECT'], root, { allowFailure: true }).status, 0);
 });
 
 test('CLI Story start pins configuration and world model from the refreshed configured remote', async () => {
@@ -206,6 +208,12 @@ test('next executes one valid lifecycle action at a time', async () => {
   await completeArtifact(root, workflow, 'intake');
   flow(root, ['phase', 'publish', 'intake'], { selection: selection('feature', 'product-owner') });
 
+  const unattendedRun = flow(root, ['run'], { allowFailure: true, selection: selection('feature', 'product-owner') });
+  assert.notEqual(unattendedRun.status, 0);
+  assert.match(unattendedRun.stderr, /interactive terminal or the explicit --yes flag/);
+  workflow = JSON.parse(await readFile(workflowFile, 'utf8'));
+  assert.equal(workflow.phases.intake.status, 'in_progress');
+
   const submitted = flow(root, ['next'], { selection: selection('feature', 'product-owner') });
   assert.match(submitted.stdout, /Next step: submit published phase 'intake'/);
   workflow = JSON.parse(await readFile(workflowFile, 'utf8'));
@@ -220,6 +228,26 @@ test('next executes one valid lifecycle action at a time', async () => {
   assert.equal(workflow.currentPhase, 'requirements');
   assert.deepEqual(workflow.resolution.contextPolicy, { onApproval: 'new', onRejection: 'keep', phaseOverrides: {} });
   assert.equal(execute('git', ['log', '-1', '--format=%s'], root).stdout.trim(), `[${workId}][phase:intake][approve] product-approvers`);
+});
+
+test('next never launches a missing world-model agent unattended without --yes', async () => {
+  const root = await repository();
+  const definitionPath = path.join(root, 'singularity/workflow.yml');
+  const definition = YAML.parse(await readFile(definitionPath, 'utf8'));
+  definition.worldModel.grounding = 'enforce';
+  await writeFile(definitionPath, YAML.stringify(definition));
+  execute('git', ['add', 'singularity/workflow.yml'], root);
+  execute('git', ['commit', '-m', 'enforce grounding'], root);
+  flow(root, ['start', 'NEXT-CONSENT-1', '--work-type', 'feature', '--agent', 'product-owner', '--title', 'Consent test', '--description', 'Do not run a model unattended.']);
+
+  const result = flow(root, ['next', '--task', 'Consent test'], { allowFailure: true });
+  assert.notEqual(result.status, 0);
+  assert.match(result.stdout, /Next step prerequisite:/);
+  assert.match(result.stderr, /interactive terminal or the explicit --yes flag/);
+  assert.equal(execute('git', ['worktree', 'list', '--porcelain'], root).stdout.match(/^worktree /gm)?.length, 1);
+  assert.equal(execute('git', ['status', '--short'], root).stdout.trim(), '');
+  const workflow = JSON.parse(await readFile(path.join(root, 'singularity/work-items/NEXT-CONSENT-1/workflow.json'), 'utf8'));
+  assert.equal(workflow.phases.intake.generation, 0);
 });
 
 test('feature profile publishes generations, records tokens, approvals, and conformance', async () => {

@@ -258,7 +258,7 @@ Usage:
   singularity-flow regression analyze [--base main] [--good REF] [--bad HEAD] [--path PATH]... [--max 20] [--json]
   singularity-flow start <WORK-ID> [--jira | --story-file FILE] [--title TEXT] [--description TEXT]
     [--acceptance-criteria TEXT] [--document FILE]... [--document-url URL]... [--base BRANCH] [--fetch] [--allow-dirty]
-    [--ref CANONICAL-BRANCH] [--capability ID] [--selection-receipt TOKEN]
+    [--work-type ID] [--agent ID] [--ref CANONICAL-BRANCH] [--capability ID] [--selection-receipt TOKEN]
   singularity-flow choices begin start <WORK-ID> [--json]
   singularity-flow choices begin approve <WORK-ID> [--fetch] [--json]
   singularity-flow choices answer <TOKEN> <CHOICE> <ID> [--json]
@@ -348,6 +348,7 @@ Usage:
   singularity-flow wm show-prompt [--phase ID] [--work-id ID] [--skill ID] [--task TEXT] [--evidence]
   singularity-flow wm inject [same options]              Compatibility alias for wm compose
   singularity-flow wm check [--branch BRANCH] [--remote REMOTE]
+  singularity-flow wm cleanup [--force] [--json]
   singularity-flow jira status [--json]
   singularity-flow jira doctor [--json]
   singularity-flow jira assigned [--project KEY] [--type Story] [--limit 25] [--json]
@@ -571,7 +572,9 @@ async function confirmExact(prompt, expected) {
 }
 
 async function confirmYesNo(prompt) {
-  if (!input.isTTY || !output.isTTY) return false;
+  if (!input.isTTY || !output.isTTY) {
+    throw new SingularityFlowError('Confirmation needs an interactive terminal or the explicit --yes flag.');
+  }
   const io = readline.createInterface({ input, output });
   try { return /^(y|yes)$/i.test((await io.question(`${prompt} [y/N] `)).trim()); }
   finally { io.close(); }
@@ -764,11 +767,14 @@ async function startCommand(positionals, options) {
   const canonicalBranch = optionString(options, 'ref', id);
   const baseAtStart = explicitBase ?? config.defaultBaseBranch;
   const remote = config.git?.remote ?? 'origin';
-  checkout(root, canonicalBranch, {
+  const originalBranch = branch(root);
+  const checkoutResult = checkout(root, canonicalBranch, {
     base: baseAtStart,
     fetch: optionBoolean(options, 'fetch'),
     remote
   });
+  const createdBranch = checkoutResult.startsWith('created-from-');
+  try {
   // The selected lifecycle branch, not the checkout the user happened to start from, owns the
   // workflow definition. Reload after materialization so a newly fetched phase graph, agent,
   // template, or world-model policy is what gets pinned into the Story.
@@ -819,8 +825,6 @@ async function startCommand(positionals, options) {
   const selectedAgent = await activatePhaseAgent(
     root, config, id, resolvedWorkType.phases[0], optionString(options, 'agent') ?? null
   );
-  if (receiptToken) await consumeSelectionReceipt(root, receiptToken);
-
   let base = baseAtStart;
   const seedFile = path.join(root, 'singularity', 'seeds', `${id}.yml`);
   if (existsSync(seedFile)) {
@@ -856,6 +860,7 @@ async function startCommand(positionals, options) {
     resolved: resolvedWorkType,
     capabilityId: optionString(options, 'capability')
   });
+  if (receiptToken) await consumeSelectionReceipt(root, receiptToken);
   await commitAndPublish(root, config, workflow, { type: 'binding' }, `[${id}][init] start ${workType} workflow`);
   for (const document of supportingDocuments) {
     const records = await addDocuments(root, config, workflow, {
@@ -870,6 +875,21 @@ async function startCommand(positionals, options) {
   if (supportingDocuments.length) console.log(`Supporting documents: ${supportingDocuments.length} uploaded and published.`);
   console.log('\nTemplate help: /sflow-help');
   console.log('\nNext in Copilot: /sflow-phase');
+  } catch (error) {
+    // Selection and validation happen against the lifecycle branch because that branch owns the
+    // workflow definition and any governed Story seed. If those preflight steps fail before state
+    // exists, restore the caller's branch and remove only the branch this invocation created.
+    // Existing remote/local Story branches and partially-created workflow state are never deleted.
+    if (createdBranch && !existsSync(workflowPath(root, config, id))) {
+      const restored = run('git', ['switch', originalBranch], { cwd: root, stdio: 'inherit', allowFailure: true });
+      if (restored.status === 0) {
+        run('git', ['branch', '-D', canonicalBranch], { cwd: root, stdio: 'inherit', allowFailure: true });
+      } else {
+        console.warn(`Warning: start failed before creating workflow state, but Git could not restore branch '${originalBranch}'. The original error follows.`);
+      }
+    }
+    throw error;
+  }
 }
 
 function printSelectionReceipt(receipt) {
@@ -1237,6 +1257,13 @@ async function nextCommand(options) {
     const rebuildReason = await worldModelRebuildReason(root, config);
     if (rebuildReason) {
       console.log(`Next step prerequisite: ${rebuildReason}`);
+      if (!optionBoolean(options, 'yes')) {
+        const approved = await confirmYesNo('Building the repository world model starts a governed model agent that reads the repository and writes model files. Continue?');
+        if (!approved) {
+          console.log('No state changed. Run singularity-flow next --yes when you are ready to build the world model and continue.');
+          return;
+        }
+      }
       await worldModelCommand(root, ['wm', 'build'], { phase: phase.id, task });
     }
     await worldModelCommand(root, ['wm', 'compose'], { phase: phase.id, task, evidence: phase.worldModel?.evidence === true });

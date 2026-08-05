@@ -31,6 +31,7 @@ is not part of the current product.
 | System components and data flow | [Architecture](../ARCHITECTURE.md) |
 | Runtime internals and prompt composition | [Under the hood](UNDER-THE-HOOD.md) |
 | Which state plane owns each fact | [State authority](STATE-AUTHORITY.md) |
+| Approved clause-driven specification architecture | [Clause-driven specifications](CLAUSE-DRIVEN-SPECIFICATIONS.md) |
 | Capability hierarchy and optional proof ledger | [Capability ledger](../CAPABILITY-LEDGER.md) |
 | Epic/Initiative orchestration across repositories | [Initiative orchestration](../INITIATIVE-ORCHESTRATION.md) |
 | Native Copilot handoff | [Native Copilot](../NATIVE-COPILOT.md) |
@@ -59,4 +60,3 @@ Documentation explains the system, but the repository remains authoritative:
 5. `singularity/work-items/<ID>/workflow.json` or
    `singularity/initiatives/<ID>/state.json` owns active lifecycle state.
 6. Git commits and normal fast-forward pushes transfer that state between users.
-

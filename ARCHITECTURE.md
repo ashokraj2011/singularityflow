@@ -5,6 +5,10 @@
 The authority and recovery rules behind that sentence are normative in
 [State authority](docs/STATE-AUTHORITY.md).
 
+The approved phased design for addressable specification clauses, deterministic
+indexes, claim maps, executable acceptance, scoped rework, and offline trace is
+defined in [Clause-driven specifications](docs/CLAUSE-DRIVEN-SPECIFICATIONS.md).
+
 ## Product boundary
 
 Singularity Flow has one deterministic engine and two supported user surfaces.

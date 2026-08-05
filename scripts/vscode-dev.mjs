@@ -9,8 +9,8 @@
  *   node scripts/vscode-dev.mjs                     build, make a demo Epic, open it
  *   node scripts/vscode-dev.mjs --repo /path/to/x   build and open an existing Flow repository
  *   node scripts/vscode-dev.mjs --demo-only         make the demo repository and print its path
- *   node scripts/vscode-dev.mjs --github            drive the real GitHub sandbox repositories
- *                                                   (owner from --owner, SFLOW_SANDBOX_OWNER, or gh)
+ *   node scripts/vscode-dev.mjs --github            drive remote sandbox repositories
+ *                                                   (--host plus owner from --owner or environment)
  *   node scripts/vscode-dev.mjs --clean-github      delete the branches --github created
  *   node scripts/vscode-dev.mjs --package           build a .vsix for installing properly
  *   node scripts/vscode-dev.mjs --editor cursor     use Cursor instead of VS Code
@@ -111,8 +111,7 @@ const confirm = (expected, args, cwd) => spawnSync(process.execPath, [cli, ...ar
  * Whose sandbox repositories to use.
  *
  * Taken from --owner, then SFLOW_SANDBOX_OWNER, then whoever `gh` is logged in as. Deliberately not
- * hard-coded: `npm run check` forbids committing a personal repository reference, and a demo script
- * that names one person's account is wrong for everyone else anyway.
+ * hard-coded: the deterministic check forbids personal or public sample repository references.
  */
 function sandboxOwner() {
   const explicit = value('owner') ?? process.env.SFLOW_SANDBOX_OWNER;
@@ -120,16 +119,25 @@ function sandboxOwner() {
   const probe = spawnSync('gh', ['api', 'user', '--jq', '.login'], { encoding: 'utf8' });
   const login = probe.status === 0 ? probe.stdout.trim() : '';
   if (!login) {
-    throw new Error('Could not tell whose sandbox repositories to use. Pass --owner <github-account>, '
+    throw new Error('Could not tell whose sandbox repositories to use. Pass --owner <account>, '
       + 'set SFLOW_SANDBOX_OWNER, or authenticate with `gh auth login`.');
   }
   return login;
 }
 
-const sandboxUrl = (repo) => `https://github.com/${sandboxOwner()}/${repo}.git`;
+function sandboxHost() {
+  const host = value('host') ?? process.env.SFLOW_SANDBOX_HOST ?? process.env.GH_HOST;
+  if (!host) {
+    throw new Error('Pass --host <git-host> or set SFLOW_SANDBOX_HOST/GH_HOST before using remote sandboxes.');
+  }
+  if (!/^[a-z0-9.-]+$/i.test(host)) throw new Error(`Invalid sandbox Git host: ${host}`);
+  return host;
+}
+
+const sandboxUrl = (repo) => `https://${sandboxHost()}/${sandboxOwner()}/${repo}.git`;
 
 /**
- * The three GitHub sandbox repositories, used with --github.
+ * The three remote sandbox repositories, used with --github.
  *
  * Real remotes make this a true end-to-end run: materialization clones each one, branches from its
  * default branch, and pushes. The Story identifiers are deliberately unmistakable so the branches
@@ -441,7 +449,7 @@ async function packageExtension() {
 
 async function main() {
   if (flag('clean-github')) {
-    step('Deleting the demo branches from the GitHub sandboxes');
+    step('Deleting the demo branches from the remote sandboxes');
     await cleanSandbox();
     return;
   }
@@ -464,13 +472,13 @@ async function main() {
     if (github) {
       console.log([
         '',
-        'Using the GitHub sandbox repositories. Materialization will push one branch to each:',
+        'Using the remote sandbox repositories. Materialization will push one branch to each:',
         ...Object.entries(SANDBOX).map(([id, entry]) => `  ${entry.story}  →  ${sandboxUrl(entry.repo)}`),
         'Remove them afterwards with: node scripts/vscode-dev.mjs --clean-github',
         ''
       ].join('\n'));
     }
-    step(`Creating a demo repository against ${github ? 'the GitHub sandboxes' : 'local repositories'}`);
+    step(`Creating a demo repository against ${github ? 'the remote sandboxes' : 'local repositories'}`);
     ({ repository: target, epic } = await demoRepository({ github }));
   }
 

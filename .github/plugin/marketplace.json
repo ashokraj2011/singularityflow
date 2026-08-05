@@ -4,7 +4,7 @@
     "name": "Singularity Flow"
   },
   "metadata": {
-    "description": "Official GitHub Copilot plugins for the Singularity Flow Git-native SDLC.",
+    "description": "Singularity Flow plugin package for a governed Git-native SDLC.",
     "version": "0.9.0"
   },
   "plugins": [

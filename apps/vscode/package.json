@@ -4,7 +4,7 @@
   "version": "0.9.0",
   "private": true,
   "description": "Run the Product Development Lifecycle from the editor: initiatives, stage gates, artifact packs, Stories, and reconciliation.",
-  "author": "Singularity Flow contributors",
+  "author": "Singularity Flow",
   "license": "MIT",
   "type": "module",
   "publisher": "singularityflow",

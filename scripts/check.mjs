@@ -119,6 +119,19 @@ const personalSourceCheck = spawnSync('git', ['grep', '-n', '-i', '-E', personal
 });
 if (personalSourceCheck.status === 0) fail(`Personal source repository references remain:\n${personalSourceCheck.stdout.trim()}`);
 else if (personalSourceCheck.status !== 1) fail(`Unable to scan personal source repository references: ${personalSourceCheck.stderr.trim() || `git exited ${personalSourceCheck.status}`}`);
+const publicSourceReferences = [
+  ['github', 'com'].join('\\.'),
+  ['singularity', 'flow', 'contributors'].join('[[:space:]]+')
+];
+const publicSourceCheck = spawnSync('git', ['grep', '-n', '-i', '-E', publicSourceReferences.join('|'), '--', '.'], {
+  cwd: root,
+  encoding: 'utf8'
+});
+if (publicSourceCheck.status === 0) fail(`Public sample repository or collective-authorship references remain:\n${publicSourceCheck.stdout.trim()}`);
+else if (publicSourceCheck.status !== 1) fail(`Unable to scan public repository references: ${publicSourceCheck.stderr.trim() || `git exited ${publicSourceCheck.status}`}`);
+if (existsSync(path.join(root, 'examples', 'singularity-flow-approve.yml'))) {
+  fail('Hosted approval workflow example must remain absent; use the local Git publication path.');
+}
 const hostedAutomationRoot = ['.github', 'workflows'].join('/');
 if (allFiles.some((file) => path.relative(root, file).startsWith(`${hostedAutomationRoot}/`))) {
   fail(`${hostedAutomationRoot}/ must remain absent; use the local release and verification scripts.`);

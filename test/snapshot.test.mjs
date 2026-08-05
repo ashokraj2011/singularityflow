@@ -193,7 +193,7 @@ test('visual editor bootstraps governed portfolio and Jira policy without storin
     approvalEmail: 'Owner@Example.com',
     repository: {
       id: 'mobile',
-      url: 'git@github.com:company/mobile.git',
+      url: 'git@git.example.corp:company/mobile.git',
       defaultBranch: 'develop',
       required: true,
       metadata: {
@@ -246,7 +246,7 @@ test('visual editor safely repairs an untouched starter portfolio with empty aut
     replaceEmptyStarter: true,
     repositories: {
       lead: {
-        url: 'https://github.com/company/lead.git',
+        url: 'https://git.example.corp/company/lead.git',
         defaultBranch: 'main',
         required: true,
         metadata: { appId: 'APP-1', name: 'Lead' }
@@ -286,13 +286,13 @@ test('visual editor bootstraps all workspace repositories and Jira project route
   const created = await bootstrapWorkspacePortfolio(root, {
     repositories: {
       lead: {
-        url: 'https://github.com/company/lead.git',
+        url: 'https://git.example.corp/company/lead.git',
         defaultBranch: 'main',
         required: true,
         metadata: { appId: 'APP-1', name: 'Lead' }
       },
       mobile: {
-        url: 'https://github.com/company/mobile.git',
+        url: 'https://git.example.corp/company/mobile.git',
         defaultBranch: 'develop',
         required: true,
         metadata: { appId: 'APP-2', name: 'Mobile' }

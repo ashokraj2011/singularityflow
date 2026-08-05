@@ -131,7 +131,7 @@ export function mapCapabilityHtml(form: MapCapabilityForm): string {
     <h2>${icon('git')}Repository it ships from</h2>
     ${form.kind === 'delivery' ? `<div class="form-grid">
       <label class="field full"><span>Clone URL</span><input type="text" value="${escape(form.repositoryUrl)}" data-map="repositoryUrl"
-        placeholder="https://github.com/acme/payments-api.git"><small>The repository is declared in the portfolio so workspaces can clone it.</small></label>
+        placeholder="https://git.example.corp/acme/payments-api.git"><small>The repository is declared in the portfolio so workspaces can clone it.</small></label>
     </div>` : '<p class="muted">A Collection groups capabilities and does not ship from a repository.</p>'}
 
     <div class="editor-card">
@@ -152,7 +152,7 @@ export function mapCapabilityHtml(form: MapCapabilityForm): string {
     : 'Use the existing capability map instead of the shipping repository.'}</span>
       </label>` : ''}
       ${!form.leads.length && form.kind === 'collection' ? `<label class="field full"><span>Repository</span>
-        <input type="text" value="${escape(form.lead)}" data-map="lead" placeholder="https://github.com/acme/platform.git">
+        <input type="text" value="${escape(form.lead)}" data-map="lead" placeholder="https://git.example.corp/acme/platform.git">
         <small>No capability-map repository is registered yet. Enter the repository that should hold it.</small></label>` : ''}
       ${form.kind === 'delivery' ? `<label class="choice${usesShippingRepository ? ' chosen' : ''}">
         <input type="checkbox" data-use-shipping-repository${usesShippingRepository ? ' checked' : ''}${repository ? '' : ' disabled'}>

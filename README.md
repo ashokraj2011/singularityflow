@@ -211,8 +211,8 @@ the repositories it refers to declared in that repository's
 a temporary directory, edited, pushed and discarded.
 
 ```
-singularity-flow capability map payments-api --lead https://github.com/acme/platform.git \
-  --name "Payments API" --kind delivery --parent payments --repository https://github.com/acme/api.git
+singularity-flow capability map payments-api --lead https://git.example.corp/acme/platform.git \
+  --name "Payments API" --kind delivery --parent payments --repository https://git.example.corp/acme/api.git
 ```
 
 The first capability mapped into a repository governs it — `singularity/` is
@@ -246,7 +246,7 @@ initialised.
 
 ```
 singularity-flow workspace create --local --id commerce-work \
-  --organisation https://github.com/acme/platform.git \
+  --organisation https://git.example.corp/acme/platform.git \
   --capability commerce --lead-capability payments-api \
   --base ~/work --confirm commerce-work
 ```
@@ -320,7 +320,7 @@ Each participating repository can carry application identity and arbitrary scala
 ```yaml
 repositories:
   mobile:
-    url: git@github.com:company/mobile.git
+    url: git@git.example.corp:company/mobile.git
     defaultBranch: main
     required: true
     metadata:
@@ -998,13 +998,6 @@ Approval first verifies the reviewer’s Git/GitHub identity against the phase a
 Every individual approval is an atomic lifecycle decision: it updates the decision ledger and workflow state, creates its own `[WORK-ID][phase:<id>][approve] <authority-group>` commit, and pushes that commit before reporting success. This also applies to approvals that do not yet satisfy a multi-approval threshold. A failed push retains the local commit and blocks further decisions until `singularity-flow sync` succeeds.
 
 Only a Git/GitHub identity matched to one of the phase's configured `approvalAuthorities` may decide a phase. The active governed agent is recorded as prompt/audit context but never grants permission. If the authenticated generator and approver are the same person, the approval is allowed when policy permits but is visibly recorded as `selfApproval: true`; it is never represented as independent review.
-
-GitHub PR comments are also supported by installing `examples/singularity-flow-approve.yml`:
-
-```text
-/approve design
-/reject design --to requirements --reason "Missing failure behavior"
-```
 
 Requesting changes may target only a phase listed in the deciding phase's `rejectTo` policy. While a phase is awaiting approval, `reject` reopens that target. After a Story is complete, `reopen` uses the final phase's same policy. Both create a structured `CR-nnn` record containing the exact comment, requester identity, authority group, governed agent, source artifact hashes, target phase, timestamp, and invalidated approval cone. Prior artifacts and decisions remain in Git history.
 

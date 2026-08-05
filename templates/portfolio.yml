@@ -91,7 +91,7 @@ approvalAuthorities:
 # identity and any organization-specific tags stay with the Git configuration:
 # repositories:
 #   mobile:
-#     url: git@github.com:company/mobile.git
+#     url: git@git.example.corp:company/mobile.git
 #     defaultBranch: main
 #     required: true
 #     jira: { projectKey: MOB }

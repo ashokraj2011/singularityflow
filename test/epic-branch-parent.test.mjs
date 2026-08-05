@@ -299,15 +299,15 @@ test('story pull request targets the epic branch and is built from committed sta
   const calls = [];
   const stub = (command, args) => {
     calls.push(`${command} ${args[0]}`);
-    if (command === 'git') return { status: 0, stdout: 'git@github.com:acme/app.git', stderr: '' };
+    if (command === 'git') return { status: 0, stdout: 'git@git.example.corp:acme/app.git', stderr: '' };
     if (args[0] === 'auth') return { status: 0, stdout: '', stderr: '' };
-    if (args[0] === 'pr' && args[1] === 'list') return { status: 0, stdout: 'https://github.com/acme/app/pull/7', stderr: '' };
+    if (args[0] === 'pr' && args[1] === 'list') return { status: 0, stdout: 'https://git.example.corp/acme/app/pull/7', stderr: '' };
     return { status: 0, stdout: '', stderr: '' };
   };
   const ready = { workId: 'APP-1', base: EPIC, head: 'APP-1', title: 't', body: 'b', requiredChecks: [], blockedBy: [] };
   const result = createStoryPullRequest('/tmp', ready, { runCommand: stub });
   assert.equal(result.status, 'existing');
-  assert.equal(result.url, 'https://github.com/acme/app/pull/7');
+  assert.equal(result.url, 'https://git.example.corp/acme/app/pull/7');
   assert.ok(!calls.includes('gh pr create'));
 });
 

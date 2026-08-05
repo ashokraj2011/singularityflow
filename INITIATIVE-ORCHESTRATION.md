@@ -31,11 +31,11 @@ Add stable repository aliases and authority members before starting:
 ```yaml
 repositories:
   mobile:
-    url: git@github.com:example/mobile.git
+    url: git@git.example.corp:example/mobile.git
     defaultBranch: main
     required: true
   api:
-    url: git@github.com:example/api.git
+    url: git@git.example.corp:example/api.git
     defaultBranch: main
     required: true
 

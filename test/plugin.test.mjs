@@ -343,9 +343,26 @@ test('nextsteps skill delegates to the read-only deterministic action planner', 
 test('next skill executes one action and preserves explicit approval controls', async () => {
   const content = await readFile(path.join(pluginRoot, 'skills', 'sflow-next', 'SKILL.md'), 'utf8');
   assert.match(content, /singularity-flow next --task/);
+  assert.match(content, /singularity-flow nextsteps --json/);
+  assert.match(content, /explicit consent/);
+  assert.match(content, /singularity-flow next --yes --task/);
+  assert.match(content, /Do not start it while waiting/);
   assert.match(content, /automatic phase agent.*exact phase name/is);
   assert.match(content, /Every recorded approval must produce its own commit and push/);
   assert.match(content, /Do not automatically submit a generation you just published/);
+});
+
+test('guided run and world-model skills preserve consent and crash-recovery boundaries', async () => {
+  const run = await readFile(path.join(pluginRoot, 'skills', 'sflow-run', 'SKILL.md'), 'utf8');
+  assert.match(run, /singularity-flow nextsteps --json/);
+  assert.match(run, /explicit consent/);
+  assert.match(run, /singularity-flow run --yes --task/);
+  assert.match(run, /If the next action is submission, ask whether to submit/);
+
+  const worldModel = await readFile(path.join(pluginRoot, 'skills', 'sflow-worldmodel', 'SKILL.md'), 'utf8');
+  assert.match(worldModel, /singularity-flow wm cleanup --json/);
+  assert.match(worldModel, /stale, process-owned temporary worktrees/i);
+  assert.match(worldModel, /--force/);
 });
 
 test('generation skills display published documents instead of reducing them to summaries', async () => {

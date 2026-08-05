@@ -17,6 +17,7 @@ Use the requested operation:
 - Initialize configuration: `singularity-flow wm init`.
 - Build a deterministic, very small repository inventory with zero model tokens: `singularity-flow wm light [--branch BRANCH] [--remote REMOTE] [--phase PHASE] [--views LIST] [--task TEXT] [--local]`.
 - Build a semantic model: `singularity-flow wm build [--branch BRANCH] [--remote REMOTE] [--phase PHASE] [--task TEXT] [--focus TEXT] [--depth light|quick|standard|deep] [--parallel|--no-parallel] [--workers N]`. `light` is the zero-token path.
+- Recover stale, process-owned temporary worktrees left by an interrupted semantic build: `singularity-flow wm cleanup --json`. It preserves active and unowned legacy worktrees; use `--force` only after confirming no world-model build is running.
 - Verify freshness and generation metadata: `singularity-flow wm check [--branch BRANCH] [--remote REMOTE]`.
 - Inspect routed context: `singularity-flow wm context <PHASE> [--branch BRANCH] [--remote REMOTE] [--task TEXT] [--concat] [--evidence] [--no-agent]`.
 - Compose and audit a governed generation prompt: `singularity-flow wm compose [--agent ID] [--phase ID] [--work-id ID] [--task TEXT] [--evidence] [--dry-run]`.

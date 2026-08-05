@@ -61,6 +61,23 @@ export interface WorkspaceStatus {
    * instead of accepting free text.
    */
   availableCapabilities?: WorkspaceCapabilityChoice[];
+  /** A local, read-only proof that every repository has no non-terminal Story. */
+  archiveReadiness?: WorkspaceArchiveReadiness;
+}
+
+export interface WorkspaceArchiveReadiness {
+  eligible: boolean;
+  checkedAt: string;
+  fetched: boolean;
+  activeStories: Array<{
+    repository: string;
+    id: string;
+    title: string;
+    status: string;
+    phase: string | null;
+    branch: string;
+  }>;
+  blockers: string[];
 }
 
 export interface WorkspaceCapabilityChoice {
@@ -172,8 +189,17 @@ export function duplicateCommand(row: WorkspaceRow, id: string, base: string | n
 
 /** The argv a rename describes. Editing a workspace is editing a local convenience, not a record. */
 export function renameCommand(row: WorkspaceRow, name: string): string[] {
-  return ['workspace', 'update', row.directory, '--name', name.trim(),
+  return ['workspace', 'rename', row.directory, '--name', name.trim(),
     '--confirm', row.anchorKey, '--json'];
+}
+
+/** Archiving is local and reversible, but the engine proves there is no active Story first. */
+export function archiveCommand(row: WorkspaceRow): string[] {
+  return ['workspace', 'archive', row.directory, '--confirm', row.anchorKey, '--fetch', '--json'];
+}
+
+export function restoreCommand(row: WorkspaceRow): string[] {
+  return ['workspace', 'restore', row.directory, '--json'];
 }
 
 /**

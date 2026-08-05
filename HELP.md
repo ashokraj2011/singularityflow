@@ -671,6 +671,11 @@ In VS Code:
    capability scope, lead repository, health, and local clone paths.
 5. Open **Lifecycle** to start an Initiative, Epic, or Story inside that selected scope.
 
+The Workspaces detail page also supports local rename, archive, and restore.
+Archive performs a fresh cross-repository check and refuses when any Story is not
+`complete` or `cancelled`, or when a repository cannot be inspected. It never
+deletes the checkout, branches, artifacts, approvals, or history.
+
 Useful commands:
 
 ```bash
@@ -682,6 +687,10 @@ singularity-flow workspace create --local --id <ID> --organisation <LEAD-URL> --
 singularity-flow workspace list --json
 singularity-flow workspace use <ID|NAME|DIRECTORY>
 singularity-flow workspace current --json
+singularity-flow workspace rename <DIRECTORY> --name <TEXT> --confirm <WORKSPACE-ID>
+singularity-flow workspace archive-status <DIRECTORY> --fetch
+singularity-flow workspace archive <DIRECTORY> --confirm <WORKSPACE-ID>
+singularity-flow workspace restore <DIRECTORY>
 ```
 
 ## Workspace configuration

@@ -86,9 +86,18 @@ test('archive and restore round-trip, and archiving demands exact confirmation',
   assert.notEqual(refused.status, 0);
   assert.match(refused.stderr, /requires exact confirmation 'demo-team'/);
 
+  cli(['workspace', 'use', directory], env);
   const archived = cli(['workspace', 'archive', directory, '--confirm', 'demo-team'], env);
   assert.match(archived.stdout, /Archived/);
-  assert.match(archived.stdout, /files are untouched/, 'archiving is a registry action, not a delete');
+  assert.match(archived.stdout, /checkout and artifacts are untouched/, 'archiving is a registry action, not a delete');
+  assert.match(archived.stdout, /active workspace selection was cleared/);
+  assert.deepEqual(JSON.parse(cli(['workspace', 'current', '--json'], env).stdout), { active: false });
+
+  cli(['workspace', 'rename', directory, '--name', 'Archived demo team', '--confirm', 'demo-team'], env);
+  const archivedEntry = JSON.parse(cli(['workspace', 'list', '--json'], env).stdout)
+    .find((entry) => entry.anchorKey === 'demo-team');
+  assert.equal(archivedEntry.name, 'Archived demo team');
+  assert.ok(archivedEntry.archivedAt, 'renaming an archived workspace must not restore it');
 
   const restored = cli(['workspace', 'restore', directory], env);
   assert.match(restored.stdout, /Restored/);

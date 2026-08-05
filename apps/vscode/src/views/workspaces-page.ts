@@ -20,8 +20,10 @@ function rowHtml(row: WorkspaceRow, selected: string | null): string {
     <td>${icon('directory')}<code>${escape(row.directory)}</code>
       ${row.collides ? `<span class="pill bad">${icon('bad')}shared directory</span>` : ''}</td>
     <td>${row.lead ? `${icon('repository')}<code>${escape(row.lead)}</code>` : '<span class="muted">—</span>'}</td>
-    <td><button class="${row.active ? 'secondary' : ''}" data-switch="${escape(row.path)}">
-      ${row.active ? 'Reload' : 'Switch'}</button></td>
+    <td>${row.archived
+      ? `<button class="secondary" data-restore="${escape(row.path)}">Restore</button>`
+      : `<button class="${row.active ? 'secondary' : ''}" data-switch="${escape(row.path)}">
+        ${row.active ? 'Reload' : 'Switch'}</button>`}</td>
   </tr>`;
 }
 
@@ -118,6 +120,8 @@ function detailHtml(
 
   ${workspaceDetails(status, loading, detailError)}
 
+  ${archiveWorkspaceHtml(row, status, loading)}
+
   <h2>${icon('document')}Manage local workspace</h2>
   ${edit.open
     ? workspaceEditHtml(row, status, edit)
@@ -149,6 +153,46 @@ function detailHtml(
     <button class="link" data-forget="${escape(row.path)}">Forget</button>
   </p>
   <p class="muted">Forgetting removes it from this list and leaves the directory alone.</p>`;
+}
+
+function archiveWorkspaceHtml(
+  row: WorkspaceRow,
+  status: WorkspaceStatus | null,
+  loading: boolean
+): string {
+  if (row.archived) {
+    return `<h2>${icon('archive')}Archived workspace</h2>
+    <div class="card">
+      <div class="card-head"><strong>Preserved locally</strong><span class="grow"></span>
+        <span class="pill">archived</span></div>
+      <p class="muted">Its checkout, branches and generated artifacts were not deleted. Restore it
+        before selecting it for governed work.</p>
+      <p class="card-foot"><button data-restore="${escape(row.path)}">Restore workspace</button></p>
+    </div>`;
+  }
+
+  const readiness = status?.archiveReadiness;
+  const activeStories = readiness?.activeStories ?? [];
+  const blockers = readiness?.blockers ?? [];
+  const eligible = Boolean(readiness?.eligible);
+  return `<h2>${icon('archive')}Archive workspace</h2>
+  <div class="card">
+    <div class="card-head"><strong>${eligible ? 'Ready to archive' : 'Active work is protected'}</strong>
+      <span class="grow"></span><span class="pill ${eligible ? 'ok' : activeStories.length || blockers.length ? 'wait' : ''}">
+      ${loading ? 'checking' : eligible ? 'no active Stories' : `${activeStories.length} active`}</span></div>
+    <p class="muted">Archiving removes this workspace from the active list. Its directory, Git
+      branches and generated artifacts remain exactly where they are.</p>
+    ${activeStories.length ? `<table>
+      <thead><tr><th>Story</th><th>Repository</th><th>Status</th><th>Phase</th></tr></thead>
+      <tbody>${activeStories.map((story) => `<tr><td><strong>${escape(story.id)}</strong><br><span class="muted">${escape(story.title)}</span></td>
+        <td><code>${escape(story.repository)}</code></td><td>${escape(story.status)}</td>
+        <td>${story.phase ? escape(story.phase) : '<span class="muted">—</span>'}</td></tr>`).join('')}</tbody>
+    </table>` : ''}
+    ${blockers.map((blocker) => `<p class="blockers">${escape(blocker)}</p>`).join('')}
+    <p class="card-foot"><button class="secondary" data-archive="${escape(row.path)}"${eligible ? '' : ' disabled'}>
+      Archive workspace</button></p>
+    ${eligible ? '<p class="muted">The final archive action refreshes every remote and checks again before changing the local registry.</p>' : ''}
+  </div>`;
 }
 
 export interface DuplicateDraft { id: string; base: string; busy: boolean }
@@ -275,7 +319,7 @@ export function workspacesHtml(
 export const WORKSPACES_SCRIPT = `
   const vscode = acquireVsCodeApi();
   document.addEventListener('click', (event) => {
-    const target = event.target.closest('[data-select],[data-switch],[data-rename],[data-duplicate],[data-forget],[data-create],[data-edit],[data-edit-add],[data-edit-remove],[data-edit-save],[data-edit-cancel]');
+    const target = event.target.closest('[data-select],[data-switch],[data-rename],[data-duplicate],[data-forget],[data-create],[data-edit],[data-edit-add],[data-edit-remove],[data-edit-save],[data-edit-cancel],[data-archive],[data-restore]');
     if (!target) return;
     event.preventDefault();
     const data = target.dataset;
@@ -284,6 +328,8 @@ export const WORKSPACES_SCRIPT = `
     else if (data.switch !== undefined) vscode.postMessage({ type: 'switch', path: data.switch });
     else if (data.create !== undefined) vscode.postMessage({ type: 'create' });
     else if (data.forget !== undefined) vscode.postMessage({ type: 'forget', path: data.forget });
+    else if (data.archive !== undefined) vscode.postMessage({ type: 'archive', path: data.archive });
+    else if (data.restore !== undefined) vscode.postMessage({ type: 'restore', path: data.restore });
     else if (data.rename !== undefined) vscode.postMessage({ type: 'rename', path: data.rename, name: value('name') });
     else if (data.edit !== undefined) vscode.postMessage({ type: 'edit', path: data.edit });
     else if (data.editCancel !== undefined) vscode.postMessage({ type: 'edit-cancel' });

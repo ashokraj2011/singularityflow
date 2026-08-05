@@ -56,7 +56,7 @@ interface PlannedAction {
   reason: string;
   executable: boolean;
   effect: { class: string; mutatesState: boolean; externalSideEffect: boolean; reversible: boolean };
-  confirmation: { required: boolean; valueFromKernel: string | null };
+  confirmation: { required: boolean; mode: 'none' | 'one-time-authorization' };
 }
 
 interface GovernedActionPlan {
@@ -64,7 +64,13 @@ interface GovernedActionPlan {
   planHash: string;
   createdAt: string;
   expiresAt: string;
-  revision: { branch: string; head: string; worktreeHash: string; lifecycleSha256: string };
+  revision: {
+    branch: string;
+    head: string;
+    worktreeHash: string;
+    lifecycleSha256: string;
+    workingTree?: { headTree: string; indexTree: string; workingTree: string; sha256: string };
+  };
   actions: PlannedAction[];
 }
 
@@ -244,8 +250,22 @@ export async function runPlannedAction(
   if (confirmed !== 'Run exact action') return false;
 
   const argv = ['action', 'execute', plan.planId, '--action', choice.action.actionId];
-  if (choice.action.confirmation.required && choice.action.confirmation.valueFromKernel) {
-    argv.push('--confirm', choice.action.confirmation.valueFromKernel);
+  if (choice.action.confirmation.required) {
+    let authorization: { token: string };
+    try {
+      authorization = await client.run<{ token: string }>([
+        'action', 'authorize', plan.planId,
+        '--action', choice.action.actionId,
+        '--confirm', choice.action.actionId,
+        '--channel', 'vscode',
+        '--json'
+      ]);
+    } catch (error) {
+      output.appendLine(`  authorization refused: ${(error as Error).message}`);
+      void vscode.window.showErrorMessage((error as Error).message);
+      return false;
+    }
+    argv.push('--authorization', authorization.token);
   }
   output.appendLine(`\n$ singularity-flow ${argv.join(' ')}`);
   try {

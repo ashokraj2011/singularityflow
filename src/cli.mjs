@@ -196,7 +196,6 @@ import {
 } from './state-stores.mjs';
 import { SnapshotCoordinator } from './snapshot-coordinator.mjs';
 import {
-  assertActionConfirmation,
   assertActionPlanFresh,
   createActionPlan,
   loadActionPlan,
@@ -204,6 +203,7 @@ import {
   recordActionResult,
   selectPlannedAction
 } from './action-plans.mjs';
+import { consumeActionAuthorization, issueActionAuthorization } from './action-authorization.mjs';
 import { refreshBranch } from './branch-refresh.mjs';
 import { buildStoryStack, publishedStackForStory, syncStoryStack } from './story-stack.mjs';
 import { analyzeRegression, regressionReportMarkdown } from './regression-analysis.mjs';
@@ -292,8 +292,9 @@ Usage:
   singularity-flow capabilities lease revoke <ID> <LEASE-ID> --reason TEXT --confirm <ID>
   singularity-flow guide [WORK-ID] [--json]
   singularity-flow nextsteps [WORK-ID] [--json]
-  singularity-flow action plan [WORK-ID] [--ttl-ms N] [--json]
-  singularity-flow action execute <PLAN-ID> [--action ACTION-ID] [--confirm KERNEL-VALUE] [--json]
+  singularity-flow action plan [STORY-OR-INITIATIVE] [--ttl-ms N] [--json]
+  singularity-flow action authorize <PLAN-ID> --action ACTION-ID --confirm ACTION-ID [--channel terminal|vscode] [--json]
+  singularity-flow action execute <PLAN-ID> [--action ACTION-ID] [--authorization TOKEN] [--json]
   singularity-flow next [--task TEXT] [--fetch] [--yes] [--skip-checks]
   singularity-flow run [--task TEXT] [--yes]
   singularity-flow doctor [WORK-ID] [--offline] [--json]
@@ -1033,11 +1034,27 @@ async function resolveNextStepsSnapshot(positionals, options) {
   if (!initialized) snapshot = nextStepsSnapshot({ initialized: false, branch: branch(root) });
   else {
     const config = await loadConfig(root);
+    const portfolio = await loadPortfolio(root, { required: false });
     const requestedWorkId = positionals[1] ?? null;
     const id = requestedWorkId ?? branch(root);
-    const index = await buildRepositorySubjectIndex(root, { definition: config });
-    const selected = resolveContext(index, { reference: id, kind: 'story', required: false });
-    if (selected) {
+    const index = await buildRepositorySubjectIndex(root, { definition: config, portfolio });
+    const selected = resolveContext(index, { reference: id, required: false });
+    if (selected?.kind === 'initiative') {
+      const initiative = selected.state;
+      snapshot = {
+        schemaVersion: 1,
+        state: initiative.status ?? 'active',
+        subject: { kind: 'initiative', id: selected.id },
+        initiativeId: selected.id,
+        currentPhase: initiative.currentPhase ?? null,
+        actions: (await initiativeNextActions(root, selected.id)).map((item) => ({
+          timing: 'now',
+          skill: null,
+          command: item.command,
+          reason: item.reason
+        }))
+      };
+    } else if (selected?.kind === 'story') {
       const workflow = await loadStoryAggregate(root, config, selected.id);
       const prerequisites = [];
       const active = currentPhase(workflow); const session = await loadSession(root, { required: false });
@@ -1093,7 +1110,8 @@ async function actionCommand(positionals, options) {
     const reference = positionals[2] ?? optionString(options, 'work-id');
     const snapshot = await resolveNextStepsSnapshot(['nextsteps', reference].filter(Boolean), {});
     const plan = await createActionPlan(root, snapshot, {
-      ttlMs: optionNumber(options, 'ttl-ms', 15 * 60 * 1000)
+      ttlMs: optionNumber(options, 'ttl-ms', 15 * 60 * 1000),
+      subject: snapshot.subject ?? null
     });
     if (optionBoolean(options, 'json')) return console.log(JSON.stringify(plan, null, 2));
     console.log(`Governed action plan: ${plan.planId}`);
@@ -1106,22 +1124,39 @@ async function actionCommand(positionals, options) {
       { key: 'intent', label: 'INTENT' }, { key: 'executable', label: 'READY' },
       { key: 'reason', label: 'REASON' }
     ]));
-    console.log(`Execute after review: singularity-flow action execute ${plan.planId} --action <id> --confirm <kernel-value>`);
+    console.log(`Authorize after review: singularity-flow action authorize ${plan.planId} --action <id> --confirm <exact-action-id>`);
+    console.log(`Then execute once: singularity-flow action execute ${plan.planId} --action <id> --authorization <token>`);
     return;
   }
-  if (subcommand !== 'execute') throw new SingularityFlowError(`Unknown action subcommand '${subcommand}'. Use action plan or action execute.`);
+  if (!['authorize', 'execute'].includes(subcommand)) {
+    throw new SingularityFlowError(`Unknown action subcommand '${subcommand}'. Use action plan, action authorize, or action execute.`);
+  }
 
   const planId = positionals[2] ?? optionString(options, 'plan');
   const plan = await loadActionPlan(root, planId);
+  const action = selectPlannedAction(plan, optionString(options, 'action'));
+  if (subcommand === 'execute') {
+    const prior = await readActionResult(root, plan, action);
+    if (prior) {
+      if (optionBoolean(options, 'json')) return console.log(JSON.stringify({ replayed: true, record: prior }, null, 2));
+      console.log(`Action ${action.actionId.slice(0, 10)} already completed at ${prior.completedAt}; no command was repeated.`);
+      return;
+    }
+  }
   const snapshot = await resolveNextStepsSnapshot(['nextsteps', plan.subject.id].filter(Boolean), {});
   assertActionPlanFresh(root, plan, snapshot);
-  const action = selectPlannedAction(plan, optionString(options, 'action'));
-  assertActionConfirmation(action, optionString(options, 'confirm'));
-  const prior = await readActionResult(root, plan, action);
-  if (prior) {
-    if (optionBoolean(options, 'json')) return console.log(JSON.stringify({ replayed: true, record: prior }, null, 2));
-    console.log(`Action ${action.actionId.slice(0, 10)} already completed at ${prior.completedAt}; no command was repeated.`);
+  if (subcommand === 'authorize') {
+    const authorization = await issueActionAuthorization(root, plan, action, {
+      confirmation: optionString(options, 'confirm'),
+      channel: optionString(options, 'channel', 'terminal')
+    });
+    if (optionBoolean(options, 'json')) return console.log(JSON.stringify(authorization, null, 2));
+    console.log(`One-time authorization: ${authorization.token}`);
+    console.log(`Execute: singularity-flow action execute ${plan.planId} --action ${action.actionId} --authorization ${authorization.token}`);
     return;
+  }
+  if (action.confirmation?.required) {
+    await consumeActionAuthorization(root, optionString(options, 'authorization'), plan, action);
   }
 
   const priorActionEnvironment = {

@@ -2,7 +2,7 @@
 
 - Status: approved for phased implementation
 - Decision date: 2026-08-05
-- Decision owner: Ashok Raj
+- Decision owner: Singularity Flow maintainers
 - Baseline: `main@56c2511`
 - Normative language follows RFC-style uppercase key words inside anchored clauses.
 

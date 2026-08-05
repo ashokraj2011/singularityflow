@@ -23,14 +23,17 @@ The public `/sf-*` names are generated aliases. Their canonical plugin sources r
 `.git/singularity-flow/action-plans/`. A plan contains ordered actions and is bound to:
 
 - the current branch and full HEAD SHA;
-- the complete worktree status hash;
+- the Git HEAD tree, real index tree, and complete visible working-tree tree (including untracked files);
 - the deterministic lifecycle snapshot hash; and
 - a short expiry time.
 
-`singularity-flow action execute <PLAN-ID> --action <ACTION-ID> --confirm <KERNEL-VALUE>` reloads the plan and rejects it if
-any binding changed. It executes argv directly through the Node CLI; it does not invoke a shell and
-does not accept shell composition. Results are recorded under `.git/singularity-flow/action-results/`
-so a successful action is not replayed accidentally.
+After review, `singularity-flow action authorize <PLAN-ID> --action <ACTION-ID> --confirm <ACTION-ID>`
+creates a short-lived receipt under `.git/singularity-flow/action-authorizations/`. The receipt is
+bound to the exact plan hash and action ID and records configured local Git identity assurance.
+`singularity-flow action execute <PLAN-ID> --action <ACTION-ID> --authorization <TOKEN>` reloads the
+plan, rejects changed bindings, and atomically consumes the receipt. It executes argv directly
+through the Node CLI; it does not invoke a shell or accept shell composition. Results are recorded
+under `.git/singularity-flow/action-results/` so a successful action is not replayed accidentally.
 
 The VS Code **Continue safely** action is a review interface for this same protocol. It does not
 recalculate the next lifecycle action in TypeScript.
@@ -47,6 +50,11 @@ Governed publication uses a temporary Git index:
 6. refresh only those paths in the developer's real index;
 7. push without force; on failure, retain the local commit and write a recovery marker under
    `.git/singularity-flow/pending-publication/`.
+
+Before step 2, the kernel writes a transaction journal under
+`.git/singularity-flow/publication-journal/`. A hard process death therefore remains discoverable
+both before the branch ref advances and after the local commit exists. Successful publication clears
+the journal; interrupted post-commit publication promotes it to the normal pending-publication record.
 
 Unrelated staged changes are preserved and cannot leak into the lifecycle commit. If a governed
 path is already staged, publication stops before creating a commit. Arbitrary repository hooks are

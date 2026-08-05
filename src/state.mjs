@@ -1180,6 +1180,12 @@ export async function syncPublication(root, config, workflow) {
     kind: 'story', id: workflow.workItem.id,
     legacyPath: legacyPendingPublicationPath(root, config, workflow.workItem.id)
   });
+  if (pending?.record?.recoveryStage === 'interrupted-before-branch-ref-advanced') {
+    throw new SingularityFlowError(
+      `Story '${workflow.workItem.id}' was interrupted before its governed commit completed. `
+      + 'Inspect the working tree, run singularity-flow doctor, and repair or discard the partial local state before retrying.'
+    );
+  }
   const record = pending?.record ?? { remote: config.git?.remote ?? 'origin', branch: workflowPublicationBranch(root, workflow) };
   const result = pushBranch(root, record.remote, record.branch); if (result.status !== 0) throw new SingularityFlowError(`Push still fails: ${(result.stderr || result.stdout).trim()}`);
   await clearPendingPublication(root, {

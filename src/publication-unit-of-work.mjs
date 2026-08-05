@@ -10,6 +10,9 @@ import {
 } from './ledger.mjs';
 import { assertLifecycleEvent, bindLifecycleEvent } from './lifecycle-event.mjs';
 import { readPendingPublication, writePendingPublication } from './publication-pending.mjs';
+import {
+  beginPublicationJournal, clearPublicationJournal, updatePublicationJournal
+} from './publication-journal.mjs';
 import { withSubjectLock } from './subject-lock.mjs';
 import { SingularityFlowError, nowIso } from './util.mjs';
 
@@ -63,6 +66,13 @@ export class GitPublicationUnitOfWork {
      * be trusted.
      */
     const publicationHead = head(root);
+    await beginPublicationJournal(root, {
+      subject,
+      expectedHead: publicationHead,
+      branch: publication.branch,
+      remote: publication.remote ?? 'origin',
+      event: envelope
+    });
     let wroteState = false;
     let ledgerIntentPath = null;
     const unwind = async (error) => {
@@ -75,6 +85,7 @@ export class GitPublicationUnitOfWork {
           );
         }
       }
+      await clearPublicationJournal(root, subject);
       throw error;
     };
 
@@ -132,11 +143,14 @@ export class GitPublicationUnitOfWork {
           }
         });
       }
+      await clearPublicationJournal(root, subject);
       throw error;
     }
+    await updatePublicationJournal(root, subject, { stage: 'committed', commit: sourceCommit });
     // The envelope this function returns is bound to the commit; the intent's payload deliberately
     // is not, so that it matches the file already committed above.
     envelope = bindLifecycleEvent(envelope, sourceCommit);
+    if (publication.mode === 'off') await clearPublicationJournal(root, subject);
     if (fault) await fault('after-commit', { envelope, sourceCommit });
     let pushed = false;
     let replayed = false;
@@ -166,11 +180,14 @@ export class GitPublicationUnitOfWork {
             ...(pendingRecord?.({ sourceCommit, error, envelope }) ?? {})
           }
         });
+        await clearPublicationJournal(root, subject);
         const message = `${subject.kind} commit ${sourceCommit.slice(0, 8)} was retained locally but push failed.${error ? ` Git reported: ${error}` : ''}`;
         if (publication.mode === 'warn') return { sha: sourceCommit, pushed: false, pending: true, warning: message, replayed, event: envelope, ledger: null };
         throw new SingularityFlowError(`${message} Run the appropriate sync command after fixing remote access.`);
       }
       pushed = true;
+      await updatePublicationJournal(root, subject, { stage: 'pushed', commit: publishedCommit });
+      await clearPublicationJournal(root, subject);
     }
     // Append-only replay can replace the original commit. Event identity always
     // follows the commit that actually became the lifecycle branch head. The intent's payload is

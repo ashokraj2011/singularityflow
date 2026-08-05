@@ -112,6 +112,18 @@ test('initiative Copilot selection receipts preserve the explicit profile while 
   assert.match(started.stdout, /Initiative INIT-RECEIPT started/);
 });
 
+test('generic governed action planning preserves Initiative identity and commands', async () => {
+  const root = await repository();
+  execute(root, ['initiative', 'start', 'INIT-ACTION', '--title', 'Initiative action routing']);
+
+  const plan = JSON.parse(execute(root, ['action', 'plan', '--json']).stdout);
+  assert.deepEqual(plan.subject, { kind: 'initiative', id: 'INIT-ACTION' });
+  assert.equal(plan.state, 'in_progress');
+  assert.ok(plan.actions.length > 0);
+  assert.match(plan.actions[0].command, /singularity-flow initiative phase define/);
+  assert.doesNotMatch(plan.actions[0].command, /singularity-flow prepare/);
+});
+
 test('initiative resume materializes an Initiative that exists only on a remote branch', async () => {
   const source = await repository();
   execute(source, ['initiative', 'start', 'INIT-REMOTE', '--title', 'Remote-only initiative']);

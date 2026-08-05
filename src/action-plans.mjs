@@ -1,15 +1,41 @@
 import { createHash } from 'node:crypto';
+import { mkdirSync, mkdtempSync, rmSync } from 'node:fs';
 import path from 'node:path';
 import { branch, gitDir, head } from './git.mjs';
 import { canonicalJson, recordSha256 } from './records.mjs';
 import { SingularityFlowError, ensureDir, nowIso, readJson, run, writeAtomic } from './util.mjs';
 
-const PLAN_SCHEMA_VERSION = 1;
+const PLAN_SCHEMA_VERSION = 2;
 const DEFAULT_TTL_MS = 15 * 60 * 1000;
 
 function worktreeHash(root) {
-  const status = run('git', ['status', '--porcelain=v1', '-z', '--untracked-files=all'], { cwd: root });
-  return createHash('sha256').update(status.stdout).digest('hex');
+  const temporaryRoot = path.join(gitDir(root), 'singularity-flow', 'temporary-indexes');
+  mkdirSync(temporaryRoot, { recursive: true });
+  const scratch = mkdtempSync(path.join(temporaryRoot, 'action-plan-'));
+  const indexPath = path.join(scratch, 'index');
+  const env = { ...process.env, GIT_INDEX_FILE: indexPath };
+  try {
+    const headTree = run('git', ['rev-parse', 'HEAD^{tree}'], { cwd: root }).stdout.trim();
+    // `write-tree` reads the real index without changing it. Binding this tree separately matters
+    // when a staged blob differs from both HEAD and the working-tree copy.
+    const indexTree = run('git', ['write-tree'], { cwd: root }).stdout.trim();
+    // A private index converts the complete visible working tree (including untracked paths, file
+    // modes, deletions and symlinks) into Git's canonical tree representation. Unlike porcelain
+    // status, the tree id changes when bytes inside an already-dirty path change.
+    run('git', ['read-tree', 'HEAD'], { cwd: root, env });
+    run('git', ['add', '-A'], { cwd: root, env });
+    const workingTree = run('git', ['write-tree'], { cwd: root, env }).stdout.trim();
+    return {
+      headTree,
+      indexTree,
+      workingTree,
+      sha256: createHash('sha256')
+        .update(canonicalJson({ headTree, indexTree, workingTree }))
+        .digest('hex')
+    };
+  } finally {
+    rmSync(scratch, { recursive: true, force: true });
+  }
 }
 
 function planDirectory(root) {
@@ -107,28 +133,34 @@ function normalizeAction(item, index, revision) {
     ...body,
     actionId,
     confirmation: effect.mutatesState
-      ? { required: true, valueFromKernel: actionId }
-      : { required: false, valueFromKernel: null },
+      ? { required: true, mode: 'one-time-authorization' }
+      : { required: false, mode: 'none' },
     idempotencyKey: recordSha256({ revision, actionId, command: item.command })
   };
 }
 
 export function repositoryActionRevision(root, lifecycleSnapshot) {
+  const workingTree = worktreeHash(root);
   return {
     branch: branch(root),
     head: head(root),
-    worktreeHash: worktreeHash(root),
+    workingTree,
+    // Kept as a compatibility field for existing action-plan consumers. It is now content-aware.
+    worktreeHash: workingTree.sha256,
     lifecycleSha256: recordSha256(lifecycleSnapshot)
   };
 }
 
-export async function createActionPlan(root, lifecycleSnapshot, { ttlMs = DEFAULT_TTL_MS } = {}) {
+export async function createActionPlan(root, lifecycleSnapshot, {
+  ttlMs = DEFAULT_TTL_MS,
+  subject: explicitSubject = null
+} = {}) {
   const createdAt = nowIso();
   const expiresAt = new Date(Date.parse(createdAt) + ttlMs).toISOString();
   const revision = repositoryActionRevision(root, lifecycleSnapshot);
-  const subject = lifecycleSnapshot.workId
+  const subject = explicitSubject ?? lifecycleSnapshot.subject ?? (lifecycleSnapshot.workId
     ? { kind: 'story', id: lifecycleSnapshot.workId }
-    : { kind: 'repository', id: null };
+    : { kind: 'repository', id: null });
   const core = {
     schemaVersion: PLAN_SCHEMA_VERSION,
     kind: 'governed-action-plan',
@@ -190,15 +222,6 @@ export function selectPlannedAction(plan, actionId = null) {
     );
   }
   return executable[0];
-}
-
-export function assertActionConfirmation(action, confirmation) {
-  if (!action.confirmation?.required) return;
-  if (confirmation !== action.confirmation.valueFromKernel) {
-    throw new SingularityFlowError(
-      `Action '${action.actionId}' changes governed state. Review the plan, then pass --confirm ${action.confirmation.valueFromKernel}.`
-    );
-  }
 }
 
 export async function readActionResult(root, plan, action) {

@@ -1058,12 +1058,14 @@ To continue through a reviewed, revision-bound action plan, use `/sf-continue` o
 **Lifecycle → Continue safely** in VS Code. The same protocol is available directly:
 
 ```bash
-singularity-flow action plan [WORK-ID] --json
-singularity-flow action execute <PLAN-ID> --action <ACTION-ID> --confirm <KERNEL-VALUE>
+singularity-flow action plan [STORY-OR-INITIATIVE] --json
+singularity-flow action authorize <PLAN-ID> --action <ACTION-ID> --confirm <ACTION-ID>
+singularity-flow action execute <PLAN-ID> --action <ACTION-ID> --authorization <ONE-TIME-TOKEN>
 ```
 
 The plan is content-addressed, expires after a short period, and is rejected if the branch, HEAD,
-worktree, or lifecycle snapshot changes. Execution invokes the Node CLI directly without a shell.
+staged/unstaged file content, or lifecycle snapshot changes. Authorization is machine-local, bound
+to the exact plan and action, and consumed once. Execution invokes the Node CLI directly without a shell.
 Use `/sf-inspect` for read-only status and document inspection, and `/sf-admin` for explicit
 diagnostic/configuration work.
 
@@ -2032,8 +2034,9 @@ singularity-flow inbox [--fetch] [--json]
 singularity-flow finalize [--json]
 singularity-flow guide [WORK-ID] [--json]
 singularity-flow nextsteps [WORK-ID] [--json]
-singularity-flow action plan [WORK-ID] [--ttl-ms N] [--json]
-singularity-flow action execute <PLAN-ID> [--action ACTION-ID] [--confirm KERNEL-VALUE] [--json]
+singularity-flow action plan [STORY-OR-INITIATIVE] [--ttl-ms N] [--json]
+singularity-flow action authorize <PLAN-ID> [--action ACTION-ID] --confirm ACTION-ID [--channel terminal|vscode] [--json]
+singularity-flow action execute <PLAN-ID> [--action ACTION-ID] [--authorization TOKEN] [--json]
 singularity-flow next [--task TEXT] [--fetch] [--yes] [--skip-checks]
 singularity-flow run [--task TEXT] [--yes]
 singularity-flow cockpit

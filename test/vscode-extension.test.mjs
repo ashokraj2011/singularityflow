@@ -1943,7 +1943,8 @@ test('every domain noun has an icon, so nothing falls back to a bare label', () 
     'agent', 'prompt', 'skill', 'pack', 'approval', 'jira', 'worldModel', 'story', 'initiative',
     'git', 'branch', 'commit', 'merge', 'code', 'capability', 'directory', 'teams', 'policy',
     'gate', 'epic', 'tracker', 'document', 'impact', 'success', 'waiting', 'warning',
-    'blocked', 'stale', 'ok', 'wait', 'bad'
+    'blocked', 'stale', 'ok', 'wait', 'bad', 'workspaceManage', 'workspaceAdd',
+    'configuration', 'inbox', 'help', 'start'
   ]) {
     assert.ok(ICON_NAMES.includes(name), `${name} is not registered`);
     assert.notEqual(icon(name), '', `${name} has no icon`);
@@ -1953,7 +1954,8 @@ test('every domain noun has an icon, so nothing falls back to a bare label', () 
 test('every core semantic icon resolves for native trees and theme-aware states name their color', () => {
   for (const name of [
     'workspace', 'collection', 'delivery', 'workflow', 'phase', 'artifact', 'agent', 'prompt',
-    'skill', 'pack', 'approval', 'jira', 'worldModel', 'story', 'initiative'
+    'skill', 'pack', 'approval', 'jira', 'worldModel', 'story', 'initiative', 'workspaceManage',
+    'workspaceAdd', 'configuration', 'inbox', 'help', 'start'
   ]) {
     assert.ok(TREE_ICONS[name], `${name} has no native-tree mapping`);
     assert.match(treeIcon(name).id, /\S+/, `${name} resolved to an empty Codicon`);
@@ -1964,6 +1966,22 @@ test('every core semantic icon resolves for native trees and theme-aware states 
   for (const entry of ['workspace', 'capability', 'workflow']) {
     assert.equal(treeIcon(entry).color, 'charts.green', `${entry} is a branded navigation entry`);
   }
+});
+
+test('the compact sidebar uses distinct modern icons for navigation and task actions', async () => {
+  const content = await readFile(source('views/sidebar.ts'), 'utf8');
+  assert.match(content, /label: 'Workspaces', icon: 'workspace'/);
+  assert.match(content, /label: 'Lifecycle', icon: 'workflow'/);
+  assert.match(content, /label: 'Inbox', icon: 'inbox'/);
+  assert.match(content, /label: 'Configuration', icon: 'configuration'/);
+  assert.match(content, /label: 'Help', icon: 'help'/);
+  assert.match(content, /label: 'Start intake', icon: 'start'/);
+  assert.match(content, /label: 'Create workspace', icon: 'workspaceAdd'/);
+  assert.match(content, /label: 'Manage workspaces', icon: 'workspaceManage'/);
+  assert.doesNotMatch(content, /label: 'Inbox', icon: 'approval'/,
+    'an inbox must not be represented as a governance approval');
+  assert.doesNotMatch(content, /label: 'Configuration', icon: 'workflow'/,
+    'configuration and lifecycle need distinct visual identities');
 });
 
 test('icon-only actions are labelled and raw Unicode action glyphs cannot return', async () => {

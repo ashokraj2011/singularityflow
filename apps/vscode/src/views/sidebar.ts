@@ -21,23 +21,23 @@ const SECTION_META: Record<SidebarSection, {
 }> = {
   workspaces: {
     label: 'Workspaces', icon: 'workspace', actions: [
-      { id: 'workspace-create', label: 'Create workspace', icon: 'add' },
-      { id: 'workspace-manage', label: 'Manage workspaces', icon: 'workspace' }
+      { id: 'workspace-create', label: 'Create workspace', icon: 'workspaceAdd' },
+      { id: 'workspace-manage', label: 'Manage workspaces', icon: 'workspaceManage' }
     ]
   },
   lifecycle: {
     label: 'Lifecycle', icon: 'workflow', actions: [
-      { id: 'work-start', label: 'Start intake', icon: 'add' },
+      { id: 'work-start', label: 'Start intake', icon: 'start' },
       { id: 'refresh', label: 'Refresh lifecycle', icon: 'refresh' }
     ]
   },
   inbox: {
-    label: 'Inbox', icon: 'approval', actions: [
-      { id: 'inbox-open', label: 'Open inbox', icon: 'approval' }
+    label: 'Inbox', icon: 'inbox', actions: [
+      { id: 'inbox-open', label: 'Open inbox', icon: 'inbox' }
     ]
   },
   configuration: {
-    label: 'Configuration', icon: 'workflow', actions: [
+    label: 'Configuration', icon: 'configuration', actions: [
       { id: 'capability-map', label: 'Map capability', icon: 'capability' },
       { id: 'workflow-design', label: 'Design workflow', icon: 'workflow' },
       { id: 'instruction-design', label: 'Design agents and prompts', icon: 'agent' },
@@ -45,7 +45,7 @@ const SECTION_META: Record<SidebarSection, {
     ]
   },
   help: {
-    label: 'Help', icon: 'book', actions: [
+    label: 'Help', icon: 'help', actions: [
       { id: 'help-open', label: 'Open Help Center', icon: 'search' }
     ]
   }
@@ -201,12 +201,12 @@ export class SidebarViewProvider implements vscode.WebviewViewProvider, vscode.D
           background:var(--vscode-sideBarSectionHeader-background,var(--vscode-sideBar-background)); }
         .section-heading:before { content:''; width:6px; height:6px; margin:0 9px 0 2px; border-right:1.5px solid currentColor; border-bottom:1.5px solid currentColor; transform:rotate(-45deg); transition:transform .14s ease; opacity:.72; }
         .section[open]>.section-heading:before { transform:rotate(45deg) translate(-1px,-1px); }
-        .section-title { display:flex; align-items:center; gap:7px; min-width:0; color:var(--vscode-sideBarSectionHeader-foreground,var(--vscode-sideBar-foreground)); font-size:12px; font-weight:500; letter-spacing:.005em; }
+        .section-title { display:flex; align-items:center; gap:8px; min-width:0; color:var(--vscode-sideBarSectionHeader-foreground,var(--vscode-sideBar-foreground)); font-size:12px; font-weight:500; letter-spacing:.005em; }
         .section-title .ico { color:var(--accent); }
         .section-actions { display:flex; gap:1px; margin-left:auto; }
-        .icon-button { display:grid; place-items:center; width:29px; height:29px; padding:0; border:0; border-radius:5px;
+        .icon-button { display:grid; place-items:center; width:30px; height:30px; padding:0; border:0; border-radius:6px;
           color:var(--vscode-icon-foreground); background:transparent; cursor:pointer; }
-        .icon-button:hover { color:var(--vscode-toolbar-hoverForeground); background:var(--vscode-toolbar-hoverBackground); }
+        .icon-button:hover { color:var(--accent); background:var(--vscode-toolbar-hoverBackground); }
         .icon-button:focus-visible,.actionable:focus-visible { outline:1px solid var(--vscode-focusBorder); outline-offset:-1px; }
         .section-body { padding:4px 6px 7px; }
         .node { display:block; }

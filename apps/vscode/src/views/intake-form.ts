@@ -35,6 +35,8 @@ export interface InFlight {
   id: string;
   title: string;
   status: string;
+  /** Completed work stays visible but must not be described as under way. */
+  completed?: boolean;
 }
 
 export interface IntakeForm {
@@ -358,21 +360,29 @@ function phaseRailHtml(phases: string[]): string {
   </span>`;
 }
 
-/** What is already under way, so nobody starts the same thing twice. */
+/** Started work, separated by lifecycle outcome so completed work is never called active. */
 function inFlightHtml(form: IntakeForm): string {
   if (!form.inFlight.length) return '';
-  return `
-  <section class="plain">
-    <h2>${icon('wait')}Already under way</h2>
+  const table = (entries: InFlight[]): string => `
     <table>
-      <tbody>${form.inFlight.map((entry) => `
+      <tbody>${entries.map((entry) => `
         <tr>
           <td>${icon(entry.shape === 'story' ? 'story' : entry.shape === 'epic' ? 'epic' : 'impact')}<code>${escape(entry.id)}</code></td>
           <td>${escape(entry.title)}</td>
           <td class="muted">${escape(entry.status)}</td>
         </tr>`).join('')}</tbody>
-    </table>
-  </section>`;
+    </table>`;
+  const active = form.inFlight.filter((entry) => !entry.completed);
+  const completed = form.inFlight.filter((entry) => entry.completed);
+  return `${active.length ? `
+  <section class="plain">
+    <h2>${icon('wait')}Already under way</h2>
+    ${table(active)}
+  </section>` : ''}${completed.length ? `
+  <section class="plain">
+    <h2>${icon('ok')}Completed</h2>
+    ${table(completed)}
+  </section>` : ''}`;
 }
 
 export function intakeHtml(form: IntakeForm): string {

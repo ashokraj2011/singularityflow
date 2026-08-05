@@ -2340,6 +2340,22 @@ test('what is already under way is shown, and starting it again is refused', () 
   assert.match(intakeProblems(clash).join(' '), /has already been started/);
 });
 
+test('completed work is shown as completed rather than already under way', () => {
+  const completed = [{
+    shape: 'story', id: 'WRK-456', title: 'Change the color', status: 'complete', completed: true
+  }];
+  const html = intakeHtml(intake({ inFlight: completed }));
+  assert.match(html, /Completed/);
+  assert.match(html, /WRK-456/);
+  assert.match(html, /complete/);
+  assert.doesNotMatch(html, /Already under way/);
+
+  const clash = intake({
+    shape: 'story', tracker: 'none', id: 'WRK-456', title: 'A', description: 'B', inFlight: completed
+  });
+  assert.match(intakeProblems(clash).join(' '), /has already been started/);
+});
+
 test('an intake form still missing something disables the button and lists why', () => {
   const html = intakeHtml(intake());
   assert.match(html, /Before this can start/);

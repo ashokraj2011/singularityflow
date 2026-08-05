@@ -11,7 +11,7 @@
  */
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { mkdir, mkdtemp, readdir, readFile, writeFile } from 'node:fs/promises';
+import { chmod, mkdir, mkdtemp, readdir, readFile, writeFile, rm } from 'node:fs/promises';
 import { existsSync } from 'node:fs';
 import { execFileSync } from 'node:child_process';
 import { fileURLToPath } from 'node:url';
@@ -20,7 +20,7 @@ import path from 'node:path';
 import { run } from '../src/util.mjs';
 import {
   editCapabilityInOrganisation, initializeWorkspaceState, mapCapability, readOrganisation,
-  resolveWorkspacePlan
+  publishOrganisationCapabilityMap, resolveWorkspacePlan
 } from '../src/organisation.mjs';
 
 /** Bare repositories with one commit each, standing in for an organisation's remotes. */
@@ -46,6 +46,28 @@ async function remotes(...names) {
 
 const registry = (base) => path.join(base, 'leads.json');
 
+/** Simulate the repository's normal review merge without giving production code a bypass. */
+async function mergeProposal(remote, proposal) {
+  const checkout = await mkdtemp(path.join(os.tmpdir(), 'sflow-review-'));
+  try {
+    run('git', ['clone', '-q', remote, checkout]);
+    run('git', ['config', 'user.email', 'reviewer@example.com'], { cwd: checkout });
+    run('git', ['config', 'user.name', 'Review User'], { cwd: checkout });
+    run('git', ['fetch', '-q', 'origin', proposal.branch], { cwd: checkout });
+    run('git', ['switch', '-q', proposal.baseBranch], { cwd: checkout });
+    run('git', ['merge', '--ff-only', `origin/${proposal.branch}`], { cwd: checkout });
+    run('git', ['push', '-q', 'origin', `HEAD:${proposal.baseBranch}`], { cwd: checkout });
+  } finally {
+    await rm(checkout, { recursive: true, force: true });
+  }
+}
+
+async function mapAndMerge(remote, options) {
+  const proposal = await mapCapability(remote, options);
+  await mergeProposal(remote, proposal);
+  return proposal;
+}
+
 test('the first capability governs the repository it is mapped into', async () => {
   // The product's one circular dependency: mapping a capability needed a map, and the only way to
   // get a map was to map a capability. Refusing here is what made starting impossible.
@@ -57,6 +79,19 @@ test('the first capability governs the repository it is mapped into', async () =
   });
   assert.equal(first.capabilityId, 'commerce');
 
+  const untouched = run('git', ['show', 'main:README.md'], { cwd: org.platform }).stdout;
+  assert.equal(untouched, '# platform\n', 'the default branch remains untouched before review');
+  assert.equal(run('git', ['show-ref', '--verify', '--quiet', 'refs/heads/state'], {
+    cwd: org.platform, allowFailure: true
+  }).status, 1, 'unreviewed configuration is not copied to the state branch');
+  assert.match(first.branch, /^sflow\/capability\/map-commerce-[0-9a-f]{8}$/);
+  assert.equal(first.baseBranch, 'main');
+  assert.match(run('git', ['show', `${first.branch}:singularity/capabilities.yml`], {
+    cwd: org.platform
+  }).stdout, /commerce:/, 'the complete proposal is available for review');
+
+  await mergeProposal(org.platform, first);
+
   const governed = run('git', ['show', 'main:singularity/workflow.yml'], { cwd: org.platform }).stdout;
   assert.match(governed, /branch: state/, 'the orphan branch is named for a workspace to create');
   const map = run('git', ['show', 'main:singularity/capabilities.yml'], { cwd: org.platform }).stdout;
@@ -66,7 +101,7 @@ test('the first capability governs the repository it is mapped into', async () =
   assert.doesNotMatch(map, /placeholder|your-capability/i);
 
   // And the second one finds the map already there rather than governing again.
-  await mapCapability(org.platform, {
+  await mapAndMerge(org.platform, {
     capabilityId: 'payments', name: 'Payments', kind: 'collection', parent: 'commerce'
   });
   const both = run('git', ['show', 'main:singularity/capabilities.yml'], { cwd: org.platform }).stdout;
@@ -85,11 +120,53 @@ test('mapping leaves nothing behind: the lead is borrowed, not checked out', asy
   assert.deepEqual((await readdir(org.base)).sort(), before.sort());
 });
 
+test('mapping succeeds against a protected default branch and preserves existing singularity files', async () => {
+  const org = await remotes('platform');
+  process.env.SINGULARITY_FLOW_LEAD_REGISTRY = registry(org.base);
+
+  // An existing Singularity directory may contain organisation-specific policy that initialization
+  // must not replace. Put one on main before the proposal.
+  const seed = path.join(org.base, 'existing-governance');
+  run('git', ['clone', '-q', org.platform, seed], { cwd: org.base });
+  run('git', ['config', 'user.email', 'a@b.com'], { cwd: seed });
+  run('git', ['config', 'user.name', 'A B'], { cwd: seed });
+  await mkdir(path.join(seed, 'singularity'), { recursive: true });
+  await writeFile(path.join(seed, 'singularity', 'company-policy.md'), '# Keep me\n');
+  run('git', ['add', '-A'], { cwd: seed });
+  run('git', ['commit', '-qm', 'Existing organisation policy'], { cwd: seed });
+  run('git', ['push', '-q', 'origin', 'main'], { cwd: seed });
+  const mainBefore = run('git', ['rev-parse', 'main'], { cwd: org.platform }).stdout.trim();
+
+  // Simulate branch protection. A direct default-branch push would make the operation fail.
+  const hook = path.join(org.platform, 'hooks', 'pre-receive');
+  await writeFile(hook, `#!/bin/sh
+while read old new ref; do
+  if [ "$ref" = "refs/heads/main" ]; then
+    echo "main is protected" >&2
+    exit 1
+  fi
+done
+exit 0
+`);
+  await chmod(hook, 0o755);
+
+  const proposal = await mapCapability(org.platform, {
+    capabilityId: 'commerce', name: 'Commerce', kind: 'collection'
+  });
+  assert.equal(run('git', ['rev-parse', 'main'], { cwd: org.platform }).stdout.trim(), mainBefore);
+  assert.equal(run('git', ['show', `${proposal.branch}:singularity/company-policy.md`], {
+    cwd: org.platform
+  }).stdout, '# Keep me\n');
+  assert.match(run('git', ['show', `${proposal.branch}:singularity/capabilities.yml`], {
+    cwd: org.platform
+  }).stdout, /commerce:/);
+});
+
 test('a capability that ships declares its repository; a grouping declares none', async () => {
   const org = await remotes('platform', 'api');
   process.env.SINGULARITY_FLOW_LEAD_REGISTRY = registry(org.base);
-  await mapCapability(org.platform, { capabilityId: 'commerce', kind: 'collection' });
-  await mapCapability(org.platform, {
+  await mapAndMerge(org.platform, { capabilityId: 'commerce', kind: 'collection' });
+  await mapAndMerge(org.platform, {
     capabilityId: 'payments-api', name: 'Payments API', parent: 'commerce', repositoryUrl: org.api
   });
 
@@ -442,7 +519,7 @@ test('choosing a workspace is what scopes the rest', async () => {
   // and therefore resolved to nothing every time, so the open folder always won.
   const org = await remotes('platform');
   process.env.SINGULARITY_FLOW_LEAD_REGISTRY = registry(org.base);
-  await mapCapability(org.platform, { capabilityId: 'commerce', kind: 'delivery', repositoryUrl: org.platform });
+  await mapAndMerge(org.platform, { capabilityId: 'commerce', kind: 'delivery', repositoryUrl: org.platform });
   const cli = fileURLToPath(new URL('../bin/singularity-flow.mjs', import.meta.url));
   // Both the registry and the selection are redirected: the selection is machine-wide, and a test
   // that wrote to the real one would change which workspace the person running it is working in.
@@ -676,20 +753,25 @@ test('an initiative can enter its lifecycle at a later phase', async () => {
   assert.match(cli, /\[--start-phase ID\]/);
 });
 
-test('the capability map is published to the state branch as well as the branch it was edited on', async () => {
-  // Two copies on purpose. The branch copy is the one a person reviews and the one a force-push can
-  // rewrite; the state-branch copy is an orphan, so it survives the history being rewritten under
-  // it. Every organisation-level read prefers the second — and nothing wrote it until now.
+test('only reviewed capability configuration can be published to the state branch', async () => {
+  // A proposal is neither default-branch configuration nor governed state. Only after the normal
+  // review merge may the explicit publisher refresh the orphan projection.
   const org = await remotes('platform');
   process.env.SINGULARITY_FLOW_LEAD_REGISTRY = registry(org.base);
 
-  // The first map governs the repository, which names the state branch — so the governed copy
-  // exists from the moment there is a map to govern, rather than from the first workspace.
   const mapped = await mapCapability(org.platform, {
     capabilityId: 'commerce', name: 'Commerce', kind: 'collection'
   });
-  assert.equal(mapped.state.published, true);
-  assert.equal(mapped.state.branch, 'state');
+  assert.equal(mapped.state.published, false);
+  assert.match(mapped.state.reason, /awaiting review/);
+  assert.equal(run('git', ['show-ref', '--verify', '--quiet', 'refs/heads/state'], {
+    cwd: org.platform, allowFailure: true
+  }).status, 1);
+  await mergeProposal(org.platform, mapped);
+
+  const publishedInitial = await publishOrganisationCapabilityMap(org.platform);
+  assert.equal(publishedInitial.published, true);
+  assert.equal(publishedInitial.branch, 'state');
 
   const lead = path.join(org.base, 'lead');
   run('git', ['clone', '-q', org.platform, lead], { cwd: org.base });
@@ -697,15 +779,28 @@ test('the capability map is published to the state branch as well as the branch 
   run('git', ['config', 'user.name', 'A B'], { cwd: lead });
 
   const edited = await editCapabilityInOrganisation(org.platform, 'commerce', { name: 'Commerce platform' });
-  assert.equal(edited.state.published, true);
-  assert.equal(edited.state.branch, 'state');
+  assert.equal(edited.state.published, false);
+
+  // Neither governed copy sees the unreviewed edit.
+  run('git', ['fetch', '-q', 'origin', '+refs/heads/state:refs/remotes/origin/state'], { cwd: lead });
+  assert.doesNotMatch(
+    run('git', ['show', 'origin/state:singularity/capabilities.yml'], { cwd: lead }).stdout,
+    /Commerce platform/);
+  assert.doesNotMatch(
+    run('git', ['show', 'origin/main:singularity/capabilities.yml'], { cwd: lead }).stdout,
+    /Commerce platform/);
+
+  await mergeProposal(org.platform, edited);
+  const publishedEdit = await publishOrganisationCapabilityMap(org.platform);
+  assert.equal(publishedEdit.published, true);
+  assert.equal(publishedEdit.branch, 'state');
 
   // Readable straight from the remote, with no checkout — which is how the readers reach it.
   run('git', ['fetch', '-q', 'origin', '+refs/heads/state:refs/remotes/origin/state'], { cwd: lead });
   const published = run('git', ['show', 'origin/state:singularity/capabilities.yml'], { cwd: lead }).stdout;
   assert.match(published, /Commerce platform/);
 
-  // And the ordinary branch still has it: the state branch is the governed copy, not the only one.
+  // And the reviewed default branch has it: the state branch is the projection, not a bypass.
   run('git', ['fetch', '-q', 'origin'], { cwd: lead });
   assert.match(run('git', ['show', 'origin/main:singularity/capabilities.yml'], { cwd: lead }).stdout,
     /Commerce platform/);

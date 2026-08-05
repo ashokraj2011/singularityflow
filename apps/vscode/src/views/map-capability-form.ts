@@ -191,13 +191,16 @@ export function mapCapabilityHtml(form: MapCapabilityForm): string {
       </ul>
     </div>
     <div data-map-ready${problems.length ? ' hidden' : ''}>
-      <h2>${icon('ok')}Ready</h2><p class="ok-text">Commits the map to ${escape(form.lead)} and pushes.</p>
+      <h2>${icon('ok')}Ready for review</h2>
+      <p class="ok-text">Creates and pushes a dedicated capability review branch in ${escape(form.lead)}.</p>
+      <p class="muted">The repository's default branch and capability state projection are not changed.
+        Merge the proposal through the repository's normal review process, then publish the reviewed projection.</p>
     </div>
     ${form.notice ? `<p class="warning-text">${icon('warning')}${escape(form.notice)}</p>` : ''}
     ${form.error ? `<p class="blockers">${escape(form.error)}</p>` : ''}
     <p>
       <button data-map-submit="1" data-map-busy="${form.busy ? 'true' : 'false'}" ${problems.length || form.busy ? 'disabled' : ''}>
-        ${form.busy && form.loaded ? 'Mapping…' : 'Map this capability'}
+        ${form.busy && form.loaded ? 'Creating proposal…' : 'Create review proposal'}
       </button>
     </p>
   </section>`;

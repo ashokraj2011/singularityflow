@@ -109,7 +109,8 @@ export function checkout(root, name, {
   base = 'main',
   fetch = false,
   existingOnly = false,
-  remote = 'origin'
+  remote = 'origin',
+  preferRemoteBase = fetch
 } = {}) {
   validBranch(root, name);
   if (fetch) fetchRemote(root, remote);
@@ -138,11 +139,14 @@ export function checkout(root, name, {
     return 'tracked-remote';
   }
   if (existingOnly) throw new SingularityFlowError(`Branch ${name} does not exist locally or on ${remote}.`);
-  const baseRef = refExists(root, `refs/heads/${base}`)
-    ? base
-    : refExists(root, `refs/remotes/${remote}/${base}`)
-      ? `${remote}/${base}`
-      : 'HEAD';
+  // A fetched start must fork from the ref that was just refreshed. Preferring a stale local
+  // `main` here silently excluded configuration and world-model commits already merged upstream.
+  // Callers that deliberately work offline retain the historical local-first behavior.
+  const remoteBase = refExists(root, `refs/remotes/${remote}/${base}`) ? `${remote}/${base}` : null;
+  const localBase = refExists(root, `refs/heads/${base}`) ? base : null;
+  const baseRef = preferRemoteBase
+    ? remoteBase ?? localBase ?? 'HEAD'
+    : localBase ?? remoteBase ?? 'HEAD';
   git(['switch', '-c', name, baseRef], { cwd: root, stdio: 'inherit' });
   return `created-from-${baseRef}`;
 }

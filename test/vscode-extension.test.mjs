@@ -2265,7 +2265,7 @@ test('a Story is the one shape that asks how it will be judged done', () => {
   });
   assert.deepEqual(intakeProblems(form), []);
   assert.deepEqual(intakeCommand(form), [
-    'start', 'checkout-retry', '--json',
+    'start', 'checkout-retry', '--json', '--fetch',
     '--title', 'Retry a failed charge',
     '--description', 'One retry with backoff',
     '--work-type', 'feature',
@@ -2297,7 +2297,7 @@ test('a tracked Story is fetched by key', () => {
   const form = intake({ shape: 'story', tracker: 'jira', jiraConfigured: true, key: 'ENG-142' });
   assert.deepEqual(intakeProblems(form), []);
   assert.deepEqual(intakeCommand(form), [
-    'story', 'start', 'ENG-142', '--json', '--work-type', 'feature'
+    'story', 'start', 'ENG-142', '--json', '--fetch', '--work-type', 'feature'
   ]);
 });
 

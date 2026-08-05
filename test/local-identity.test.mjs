@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { mkdir, mkdtemp, writeFile } from 'node:fs/promises';
+import { mkdir, mkdtemp, readFile, writeFile } from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
 import {
@@ -152,6 +152,34 @@ test('fetching repairs an existing single-branch workspace clone', async () => {
   assert.equal(refExists(clone, 'refs/remotes/origin/KAN-8'), true);
   assert.equal(checkout(clone, 'KAN-8', { fetch: true, existingOnly: true }), 'tracked-remote');
   assert.equal(hasUpstream(clone), true);
+});
+
+test('a fetched new work branch starts from the refreshed remote base rather than stale local main', async () => {
+  const base = await mkdtemp(path.join(os.tmpdir(), 'sflow-fresh-work-base-'));
+  const source = path.join(base, 'source');
+  const remote = path.join(base, 'origin.git');
+  const clone = path.join(base, 'clone');
+  run('git', ['init', '-b', 'main', source], { cwd: base });
+  run('git', ['config', 'user.name', 'Planner'], { cwd: source });
+  run('git', ['config', 'user.email', 'planner@example.com'], { cwd: source });
+  await writeFile(path.join(source, 'README.md'), '# Initial source\n');
+  run('git', ['add', '.'], { cwd: source });
+  run('git', ['commit', '-m', 'Initial'], { cwd: source });
+  run('git', ['clone', '--bare', source, remote], { cwd: base });
+  run('git', ['clone', remote, clone], { cwd: base });
+
+  // The clone's local main now stays behind while another contributor publishes the world model.
+  const modelDirectory = path.join(source, 'singularity', 'world-model');
+  await mkdir(modelDirectory, { recursive: true });
+  await writeFile(path.join(modelDirectory, 'manifest.json'), '{"schema_version":"2.0"}\n');
+  run('git', ['add', '.'], { cwd: source });
+  run('git', ['commit', '-m', 'Publish repository world model'], { cwd: source });
+  run('git', ['push', remote, 'main'], { cwd: source });
+
+  assert.equal(refExists(clone, 'refs/heads/WORK-999'), false);
+  assert.equal(checkout(clone, 'WORK-999', { base: 'main', fetch: true }), 'created-from-origin/main');
+  assert.equal(await readFile(path.join(clone, 'singularity/world-model/manifest.json'), 'utf8'),
+    '{"schema_version":"2.0"}\n');
 });
 
 test('an Epic whose branch was never pushed is still listed from another branch', async () => {

@@ -31,6 +31,8 @@ test('top-level help flags print usage', () => {
     assert.match(result.stdout, /singularity-flow start <WORK-ID>/);
     assert.match(result.stdout, /--work-type ID/);
     assert.match(result.stdout, /singularity-flow report \[WORK-ID\]/);
+    assert.match(result.stdout, /singularity-flow submit \[PHASE\]/);
+    assert.match(result.stdout, /singularity-flow approve \[PHASE\] \[--work-id WORK-ID\]/);
     assert.match(result.stdout, /singularity-flow nextsteps \[WORK-ID\]/);
     assert.match(result.stdout, /singularity-flow inputs \[PHASE\]/);
     assert.match(result.stdout, /singularity-flow agent \[WORK-ID\]/);

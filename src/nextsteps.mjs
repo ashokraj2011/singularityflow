@@ -47,10 +47,10 @@ export function workflowNextSteps(workflow, { publicationPending = false, prereq
   if (needsGeneration && workflow.resolution?.inputsMode === 'enforce' && resolvedPhase?.inputs?.length && phase.inputContext?.generation !== phase.generation + 1) {
     actions.unshift(action('now', '/sflow-inputs', `singularity-flow inputs ${phase.id}`, 'Resolve and render every enforced approved phase input before generation.'));
   }
-  if (needsGeneration) actions.push(action('then', '/sflow-submit', `singularity-flow submit --phase ${phase.id}`, `After publishing ${phase.id}, run its checks and submit it for approval.`));
+  if (needsGeneration) actions.push(action('then', '/sflow-submit', `singularity-flow submit ${phase.id}`, `After publishing ${phase.id}, run its checks and submit it for approval.`));
   actions.push(
-    action('then', '/sflow-approve', `singularity-flow approve ${workId} --fetch`, `After submission, approve ${phase.id} using an authorized human Git identity; the phase agent is prompt context only.`),
-    action('alternative', '/sflow-reject', `singularity-flow reject ${workId} --fetch --to <phase> --reason <reason>`, `Instead of approval, return ${phase.id} to an allowed earlier phase.`),
+    action('then', '/sflow-approve', `singularity-flow approve ${phase.id} --work-id ${workId} --fetch`, `After submission, approve ${phase.id} using an authorized human Git identity; the phase agent is prompt context only.`),
+    action('alternative', '/sflow-reject', `singularity-flow reject ${phase.id} --work-id ${workId} --fetch --to <phase> --reason <reason>`, `Instead of approval, return ${phase.id} to an allowed earlier phase.`),
     ...afterApprovalActions(workflow, phase)
   );
   return actions;

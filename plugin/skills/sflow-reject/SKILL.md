@@ -14,7 +14,7 @@ Sequence gates may be hard or soft. On `Out of sequence`, stop immediately and r
 
 1. Read status first. Show the current phase, artifact hashes, allowed `rejectTo` targets, reviewer Git identity, authority group, and governed agent.
 2. Require a specific rejection reason and target phase; do not invent either. Present only the allowed targets, then preserve the human's exact comment.
-3. For a phase awaiting approval, run `singularity-flow reject <WORK-ID> --fetch --to <phase> --reason "..."`.
+3. For a phase awaiting approval, run `singularity-flow reject <phase> --work-id <WORK-ID> --fetch --to <earlier-phase> --reason "..."`.
 4. For a completed Story, run `singularity-flow reopen <WORK-ID> --fetch --to <phase> --reason "..."`.
 5. Stop on an unauthorized identity, disallowed target, disabled post-completion reopening, stale branch, or pending publication. Changing agents never grants decision authority.
 6. Show which approvals and later phases will be invalidated before recording the decision.

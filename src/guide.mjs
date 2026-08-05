@@ -8,15 +8,15 @@ function nextActions(workflow, phase) {
     { skill: '/sflow-progress', command: `singularity-flow progress ${workflow.workItem.id}`, reason: 'Review the completed workflow and final conformance.' }
   ];
   if (phase.status === 'awaiting_approval') return [
-    { skill: '/sflow-approve', command: `singularity-flow approve ${workflow.workItem.id} --fetch`, reason: `Approve ${phase.id} using an authorized human Git identity; the phase-default agent is recorded automatically.` },
-    { skill: '/sflow-reject', command: `singularity-flow reject ${workflow.workItem.id} --fetch --to <phase> --reason <reason>`, reason: `Return ${phase.id} for correction.` }
+    { skill: '/sflow-approve', command: `singularity-flow approve ${phase.id} --work-id ${workflow.workItem.id} --fetch`, reason: `Approve ${phase.id} using an authorized human Git identity; the phase-default agent is recorded automatically.` },
+    { skill: '/sflow-reject', command: `singularity-flow reject ${phase.id} --work-id ${workflow.workItem.id} --fetch --to <phase> --reason <reason>`, reason: `Return ${phase.id} for correction.` }
   ];
   const regenerate = phaseNeedsGeneration(workflow, phase);
   if (regenerate) return [
     { skill: '/sflow-phase', command: `singularity-flow prepare ${phase.id}`, reason: `${phase.generation > 0 ? 'Regenerate' : 'Generate'} the required ${phase.label} artifact, then publish it.` }
   ];
   return [
-    { skill: '/sflow-submit', command: `singularity-flow submit --phase ${phase.id}`, reason: `Run configured checks and submit ${phase.id} for approval.` }
+    { skill: '/sflow-submit', command: `singularity-flow submit ${phase.id}`, reason: `Run configured checks and submit ${phase.id} for approval.` }
   ];
 }
 

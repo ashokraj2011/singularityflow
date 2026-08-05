@@ -6,7 +6,7 @@ export const COMMAND_REGISTRY = Object.freeze([
   ['next'], ['run'], ['cockpit', ['home']], ['logs'], ['doctor'], ['review'], ['workflow'],
   ['assign'], ['watch'], ['recover'], ['nextsteps', ['next-steps']], ['action'], ['inputs'],
   ['agents'], ['documents'], ['prepare'], ['phase'], ['artifact'], ['pr'], ['stack'], ['regression'], ['submit'],
-  ['approve'], ['reject'], ['sync'], ['ledger'], ['capabilities'], ['state'],
+  ['approve'], ['reject'], ['reopen'], ['sync'], ['ledger'], ['capabilities'], ['state'],
   ['validate'], ['gate'], ['wm'], ['jira'], ['plugin'], ['snapshot'], ['configuration'], ['initiative'], ['epic'],
   ['story'], ['workspace'], ['knowledge'], ['capability'], ['hook'], ['bootstrap']
 ].map(([name, aliases = []]) => Object.freeze({ name, aliases: Object.freeze(aliases) })));

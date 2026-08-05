@@ -1136,6 +1136,26 @@ async function compose(root, options) {
       views: phase?.worldModel?.views ?? []
     })
     : { text: '', files: [], warnings: [] };
+  const openChangeRequests = (workflow?.changeRequests ?? []).filter((request) =>
+    request.status === 'open' && request.targetPhase === signals.phase
+  );
+  const changeRequestContext = openChangeRequests.length
+    ? [
+        '# Open stakeholder change requests',
+        '',
+        'These comments are governed inputs for this regeneration. Address each one explicitly in the artifact and preserve its ID in the response so the approving stakeholder can verify the resolution.',
+        '',
+        ...openChangeRequests.flatMap((request) => [
+          `## ${request.id} — returned from ${request.sourcePhase} generation ${request.sourceGeneration}`,
+          '',
+          `- Target phase: \`${request.targetPhase}\``,
+          `- Requested by: ${request.requestedBy?.name ?? request.requestedBy?.email ?? request.requestedBy?.login ?? 'unknown'}`,
+          `- Requested at: ${request.requestedAt}`,
+          `- Comment: ${request.comment}`,
+          ''
+        ])
+      ].join('\n')
+    : '';
   governed.warnings.forEach((warning) => console.error(`Warning: ${warning}`));
   capability.warnings.forEach((warning) => console.error(`Capability warning: ${warning}`));
   const pieces = [
@@ -1145,6 +1165,7 @@ async function compose(root, options) {
     requiredText,
     capability.text,
     remote.text,
+    changeRequestContext,
     governed.inputs
   ].filter((part) => part?.trim());
   const composedText = `${pieces.join('\n\n')}\n`;
@@ -1171,7 +1192,7 @@ async function compose(root, options) {
     .filter((section, index, all) => all.findIndex((candidate) => candidate.path === section.path) === index);
 
   if (dryRun) {
-    console.log(`phase: ${signals.phase}  governed agent: ${agent}  clarification: ${clarificationPolicy.mode}  required files: ${mandatory.length}  capability files: ${capability.files.length}  rules matched: ${injection.matchedRules}  rule files: ${injection.sections.length}  agent skills: ${remote.skills.length}  fresh: ${required.freshness.fresh ? 'yes' : 'no'}`);
+    console.log(`phase: ${signals.phase}  governed agent: ${agent}  clarification: ${clarificationPolicy.mode}  change requests: ${openChangeRequests.length}  required files: ${mandatory.length}  capability files: ${capability.files.length}  rules matched: ${injection.matchedRules}  rule files: ${injection.sections.length}  agent skills: ${remote.skills.length}  fresh: ${required.freshness.fresh ? 'yes' : 'no'}`);
     files.forEach((section) => console.log(`  ${section.category}:${section.path} (${section.injectedBytes}/${section.bytes} bytes)${section.truncated ? ' (truncated)' : ''}`));
     remote.skills.forEach((skill) => console.log(`  agent:${session?.agent ?? 'unknown'}/${skill.id} (${skill.size} bytes) @${skill.sha256.slice(0, 12)}`));
     return;

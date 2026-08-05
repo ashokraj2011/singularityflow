@@ -82,7 +82,23 @@ export function normalizeApprovalPolicy(value = {}, authorities, phaseId) {
   if (value.allowSelfApproval != null && typeof value.allowSelfApproval !== 'boolean') {
     throw new SingularityFlowError(`Phase '${phaseId}' approval.allowSelfApproval must be boolean.`);
   }
-  return { authorities: authorityIds, minimum, rejectTo, allowSelfApproval: value.allowSelfApproval !== false };
+  const changeRequests = value.changeRequests ?? {};
+  if (changeRequests.commentRequired != null && typeof changeRequests.commentRequired !== 'boolean') {
+    throw new SingularityFlowError(`Phase '${phaseId}' approval.changeRequests.commentRequired must be boolean.`);
+  }
+  if (changeRequests.reopenCompleted != null && typeof changeRequests.reopenCompleted !== 'boolean') {
+    throw new SingularityFlowError(`Phase '${phaseId}' approval.changeRequests.reopenCompleted must be boolean.`);
+  }
+  return {
+    authorities: authorityIds,
+    minimum,
+    rejectTo,
+    allowSelfApproval: value.allowSelfApproval !== false,
+    changeRequests: {
+      commentRequired: changeRequests.commentRequired !== false,
+      reopenCompleted: changeRequests.reopenCompleted !== false
+    }
+  };
 }
 
 export function matchApprovalAuthority(authorities, policy, actor) {

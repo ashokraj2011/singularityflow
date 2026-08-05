@@ -212,7 +212,8 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
     'singularityFlow.approve', 'singularityFlow.openJourney', 'singularityFlow.openReconciliation',
     'singularityFlow.showImpact', 'singularityFlow.addCapability', 'singularityFlow.editCapability',
     'singularityFlow.openDashboard', 'singularityFlow.openDesigner',
-    'singularityFlow.openInstructionDesigner', 'singularityFlow.openPromptAudit', 'singularityFlow.openCopilot'
+    'singularityFlow.openInstructionDesigner', 'singularityFlow.openPromptAudit', 'singularityFlow.openCopilot',
+    'singularityFlow.reopenCompleted'
   ];
   /** Workspaces are machine-wide and remain available whatever folder is open. */
   const workspaceTree = new NodeTreeProvider();
@@ -1104,10 +1105,26 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
           }
       });
     }
-    // Rejecting needs a reason: an invalidation nobody can explain is worse than none at all.
+    let target = approval.phase;
+    if (approval.source === 'story') {
+      const workflow = store.current.snapshot?.workflow;
+      const choices = approval.rejectTo.map((phaseId) => ({
+        label: workflow?.phases?.[phaseId]?.label ?? phaseId,
+        description: phaseId,
+        phaseId
+      }));
+      const selected = choices.length === 1 ? choices[0] : await vscode.window.showQuickPick(choices, {
+        title: `Send ${approval.label} back to an earlier phase`,
+        placeHolder: 'Choose the phase that must be revised',
+        ignoreFocusOut: true
+      });
+      if (!selected) return;
+      target = selected.phaseId;
+    }
+    // Change requests need a reason: an invalidation nobody can explain is worse than none at all.
     const reason = await vscode.window.showInputBox({
-      title: `Reject ${approval.label}`,
-      prompt: 'Why is this being sent back? Recorded with the decision.',
+      title: `Request changes to ${approval.label}`,
+      prompt: `What must change in ${target}? This comment is recorded and injected into the next generation.`,
       ignoreFocusOut: true,
       validateInput: (value) => (value.trim() ? null : 'A reason is required.')
     });
@@ -1115,7 +1132,7 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
     await runNode({
       kind: 'action', id: approval.id, label: approval.label,
       command: approval.source === 'story'
-        ? ['reject', approval.workId ?? '', '--fetch', '--phase', approval.phase, '--reason', reason.trim()]
+        ? ['reject', approval.workId ?? '', '--fetch', '--phase', approval.phase, '--to', target, '--reason', reason.trim()]
         : ['initiative', 'reject', approval.subject, '--reason', reason.trim()]
     });
   };
@@ -1285,6 +1302,43 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
     'singularityFlow.openReconciliation': () => ReconciliationPanel.show(context, store, client),
     'singularityFlow.showImpact': () => showImpact(client, output),
     'singularityFlow.openDashboard': () => DashboardPanel.show(context, store),
+    'singularityFlow.reopenCompleted': async () => {
+      const workflow = store.current.snapshot?.workflow;
+      if (!workflow || workflow.status !== 'complete') {
+        void vscode.window.showWarningMessage('Only a completed Story can be reopened.');
+        return;
+      }
+      const completion = workflow.phases[workflow.phaseOrder.at(-1) ?? ''];
+      if (!completion) {
+        void vscode.window.showErrorMessage('The completed Story has no final phase policy.');
+        return;
+      }
+      const choices = (completion.approvalPolicy?.rejectTo ?? [completion.id]).map((phaseId) => ({
+        label: workflow.phases[phaseId]?.label ?? phaseId,
+        description: phaseId,
+        phaseId
+      }));
+      const selected = choices.length === 1 ? choices[0] : await vscode.window.showQuickPick(choices, {
+        title: `Reopen ${workflow.workItem.id}`,
+        placeHolder: 'Choose the phase that must be revised',
+        ignoreFocusOut: true
+      });
+      if (!selected) return;
+      const reason = await vscode.window.showInputBox({
+        title: `Why is ${workflow.workItem.id} being reopened?`,
+        prompt: 'The comment is recorded as a governed change request and injected into the target phase.',
+        ignoreFocusOut: true,
+        validateInput: (value) => value.trim() ? null : 'A comment is required.'
+      });
+      if (!reason?.trim()) return;
+      try {
+        await client.runText(['reopen', workflow.workItem.id, '--fetch', '--to', selected.phaseId, '--reason', reason.trim()]);
+        await store.refresh();
+        void vscode.window.showInformationMessage(`${workflow.workItem.id} reopened at ${selected.phaseId}.`);
+      } catch (error) {
+        void vscode.window.showErrorMessage(`Could not reopen ${workflow.workItem.id}: ${(error as Error).message}`);
+      }
+    },
     'singularityFlow.openDesigner': () => DesignerPanel.show(context, store, async (message) => {
       if (message.type === 'open') {
         await openArtifact(repository, { kind: 'artifact', id: message.path, label: message.path, path: message.path });

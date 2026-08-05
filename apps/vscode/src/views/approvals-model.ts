@@ -45,6 +45,8 @@ export interface PendingApproval {
   selfApproval: boolean;
   chain: ChainStep[];
   authorities: string[];
+  /** Earlier phases this exact gate is configured to return work to. */
+  rejectTo: string[];
   signatures: Array<{ actor: string; at: string | null }>;
   /** Exact governed file shown when this decision represents a Story phase. */
   artifactPath?: string | null;
@@ -244,6 +246,7 @@ function storyApprovalsOf(snapshot: RepositorySnapshot, workflow: StoryWorkflow)
       selfApproval: Boolean(actor) && identityOf(phase.generatedBy) === actor,
       chain: [],
       authorities,
+      rejectTo: phase.approvalPolicy?.rejectTo ?? [phase.id],
       signatures: active.map((approval) => ({
         actor: identityOf(approval.actor) || 'unknown', at: approval.at ?? null
       })),
@@ -297,6 +300,7 @@ function approvalsOf(snapshot: RepositorySnapshot, initiative: InitiativeSnapsho
         selfApproval: Boolean(actor) && lower(output.generatedBy) === actor,
         chain,
         authorities,
+        rejectTo: [phaseId],
         signatures: signed.map((record) => ({ actor: record.actorEmail ?? 'unknown', at: record.at ?? null }))
       });
     }
@@ -333,6 +337,7 @@ function approvalsOf(snapshot: RepositorySnapshot, initiative: InitiativeSnapsho
         selfApproval: false,
         chain,
         authorities,
+        rejectTo: [phaseId],
         signatures: signed.map((record) => ({ actor: record.actorEmail ?? 'unknown', at: record.at ?? null }))
       });
     }
@@ -359,6 +364,7 @@ function approvalsOf(snapshot: RepositorySnapshot, initiative: InitiativeSnapsho
           && Object.values(phase.outputs ?? {}).some((output) => lower(output.generatedBy) === actor),
         chain,
         authorities,
+        rejectTo: [phaseId],
         signatures: signed.map((record) => ({ actor: record.actorEmail ?? 'unknown', at: record.at ?? null }))
       });
     }

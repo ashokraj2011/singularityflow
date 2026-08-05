@@ -186,7 +186,12 @@ test('wm inject renders matched agent context and records the generation audit',
   await writeFile(path.join(workDir, 'workflow.json'), JSON.stringify({
     workItem: { id: 'WM-1', workType: 'feature' }, currentPhase: 'design',
     resolution: { worldModelGrounding: 'enforce' },
-    phases: { design: { id: 'design', status: 'in_progress', generation: 0 } }
+    phases: { design: { id: 'design', status: 'in_progress', generation: 0 } },
+    changeRequests: [{
+      id: 'CR-007', status: 'open', sourcePhase: 'verification', sourceGeneration: 2,
+      targetPhase: 'design', comment: 'Document the timeout and rollback behavior.',
+      requestedAt: '2026-08-05T00:00:00.000Z', requestedBy: { name: 'Product reviewer' }
+    }]
   }));
   await writeFile(path.join(workDir, 'source.json'), JSON.stringify({ type: 'manual', labels: [] }));
 
@@ -198,6 +203,9 @@ test('wm inject renders matched agent context and records the generation audit',
   assert.match(rendered, /Work ID: `WM-1`/);
   assert.match(rendered, /Developer agent/);
   assert.match(rendered, /INJECTED DEVELOPMENT VIEW/);
+  assert.match(rendered, /Open stakeholder change requests/);
+  assert.match(rendered, /CR-007/);
+  assert.match(rendered, /Document the timeout and rollback behavior/);
   await assert.rejects(readFile(path.join(workDir, 'context/design-gen1.json'), 'utf8'), /ENOENT/);
   const inspected = run(process.execPath, [bin, 'wm', 'show-prompt', '--phase', 'design', '--work-id', 'WM-1'], root);
   assert.match(inspected, /BEGIN plugin\/skills\/sflow-phase\/SKILL\.md/);

@@ -307,6 +307,14 @@
           "minItems": 1,
           "uniqueItems": true,
           "items": { "type": "string" }
+        },
+        "changeRequests": {
+          "type": "object",
+          "properties": {
+            "commentRequired": { "type": "boolean" },
+            "reopenCompleted": { "type": "boolean" }
+          },
+          "additionalProperties": false
         }
       },
       "additionalProperties": false

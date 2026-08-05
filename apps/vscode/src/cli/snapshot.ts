@@ -234,7 +234,12 @@ export interface StoryPhase {
   requiredArtifact?: { path: string } | null;
   artifacts: StoryArtifact[];
   approvals: StoryApproval[];
-  approvalPolicy?: { authorities?: string[]; minimum?: number };
+  approvalPolicy?: {
+    authorities?: string[];
+    minimum?: number;
+    rejectTo?: string[];
+    changeRequests?: { commentRequired?: boolean; reopenCompleted?: boolean };
+  };
 }
 
 export interface StoryWorkflow {
@@ -243,6 +248,16 @@ export interface StoryWorkflow {
   phaseOrder: string[];
   phases: Record<string, StoryPhase>;
   status?: string;
+  changeRequests?: Array<{
+    id: string;
+    status: 'open' | 'resolved';
+    sourcePhase: string;
+    targetPhase: string;
+    comment: string;
+    requestedAt: string;
+    requestedBy?: { name?: string; email?: string; login?: string } | null;
+    resolvedAt?: string | null;
+  }>;
   resolution?: {
     approvalAuthorities?: Record<string, { members?: Array<{ name?: string; email?: string }> }>;
     [key: string]: unknown;

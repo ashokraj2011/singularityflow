@@ -981,13 +981,14 @@ singularity-flow telemetry reconcile implementation
 
 `telemetry status` shows whether this Copilot process inherited the file exporter, the repository trace path and byte count, completed chat spans, and pending generations. Reconciliation never commits raw traces—only the sanitized phase record.
 
-## Approval and rejection
+## Approval and governed change requests
 
 From a terminal:
 
 ```bash
 singularity-flow approve ENG-142 --fetch
 singularity-flow reject ENG-142 --fetch --to requirements --reason "Failure behavior is missing"
+singularity-flow reopen ENG-142 --fetch --to implementation --reason "Production feedback requires a safer rollback"
 ```
 
 Approval first verifies the reviewer’s Git/GitHub identity against the phase authority groups, activates the phase agent, shows artifact hashes, checks, token usage, prior approvals, and any self-approval warning, and requires the phase name as confirmation. When Copilot lacks persistent shell stdin, `/sflow-approve` collects that exact confirmation with a one-time receipt and runs the same approval itself; it never uses `--yes`. Multi-approval thresholds require distinct human identities.
@@ -1003,7 +1004,21 @@ GitHub PR comments are also supported by installing `examples/singularity-flow-a
 /reject design --to requirements --reason "Missing failure behavior"
 ```
 
-Rejection may target only a phase allowed by that phase's YAML policy. It reopens the target and invalidates target/downstream approvals while preserving old artifacts in Git history.
+Requesting changes may target only a phase listed in the deciding phase's `rejectTo` policy. While a phase is awaiting approval, `reject` reopens that target. After a Story is complete, `reopen` uses the final phase's same policy. Both create a structured `CR-nnn` record containing the exact comment, requester identity, authority group, governed agent, source artifact hashes, target phase, timestamp, and invalidated approval cone. Prior artifacts and decisions remain in Git history.
+
+Open requests appear in `STATUS.md`, the VS Code Lifecycle tree, and the next governed Copilot prompt for the reopened phase. A new generation does not silently close the request: it becomes resolved only when the reopened phase is approved, with the resolving generation and artifact hashes recorded.
+
+The behavior is configurable per phase:
+
+```yaml
+approval:
+  authorities: [product-approvers]
+  minimum: 1
+  rejectTo: [requirements, design, implementation]
+  changeRequests:
+    commentRequired: true
+    reopenCompleted: true
+```
 
 ## Publication and recovery
 
@@ -1337,7 +1352,8 @@ new lock. Remote templates are inert unless a workflow explicitly names
 | `singularity-flow phase publish [PHASE]` | Validate, annotate, commit, and push one generation. |
 | `singularity-flow submit` | Run checks and publish an approval request. |
 | `singularity-flow approve [ID] --fetch` | Verify human authority, activate the phase agent, and record/push the exact-hash decision. |
-| `singularity-flow reject [ID] --fetch --to PHASE --reason TEXT` | Reject, reopen, invalidate downstream state, commit, and push. |
+| `singularity-flow reject [ID] --fetch --to PHASE --reason TEXT` | Record a governed change request, reopen an awaiting-approval Story, invalidate downstream state, commit, and push. |
+| `singularity-flow reopen [ID] --fetch --to PHASE --reason TEXT` | Return a completed Story to an allowed phase with a governed comment, commit, and push. |
 | `singularity-flow sync` | Retry a pending publication without rewriting the commit. |
 | `singularity-flow gate --terminal` | Run the final deterministic/remote-state gate. |
 | `singularity-flow pr [ID] [--create]` | Preview the story pull request built from committed governed state; `--create` opens it after typed confirmation. |

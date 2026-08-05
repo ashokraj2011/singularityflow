@@ -1023,7 +1023,7 @@ export async function approveInitiative(root, {
   const contextBoundary = reached && target.type === 'phase'
     ? contextBoundaryHandoff(initiative.resolution.contextPolicy, selectedPhase, {
       nextPhase: initiative.currentPhase,
-      nextSkill: '/sflow-initiative-next',
+      nextSkill: '/sf-initiative-next',
       complete: initiative.status === 'complete'
     })
     : null;

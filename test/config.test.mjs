@@ -107,7 +107,7 @@ test('phase context boundaries default legacy configs to keep and support approv
     }, { phaseIds: ['requirements', 'implementation'] }),
     { onApproval: 'new', onRejection: 'keep', phaseOverrides: { implementation: 'compact' } }
   );
-  assert.deepEqual(contextBoundaryHandoff({ onApproval: 'new' }, 'requirements', { nextPhase: 'design' }).commands, ['/clear', '/sflow-next']);
+  assert.deepEqual(contextBoundaryHandoff({ onApproval: 'new' }, 'requirements', { nextPhase: 'design' }).commands, ['/clear', '/sf-next']);
   assert.deepEqual(contextBoundaryHandoff({ onApproval: 'compact' }, 'requirements', { nextSkill: '/sflow-initiative-next' }).commands, ['/compact', '/sflow-initiative-next']);
   assert.deepEqual(contextBoundaryHandoff({ onApproval: 'new' }, 'conformance', { complete: true }).commands, ['/clear']);
   assert.throws(() => normalizeContextPolicy({ onApproval: 'reset' }), /must be keep, compact, or new/);

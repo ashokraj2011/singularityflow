@@ -12,10 +12,10 @@ argument-hint: "[WORK-ID] [--project KEY] [--type Story]"
 
 No MCP server or IDE Jira plugin is used.
 
-- Check the connection with `/sflow-jira-status`.
-- List assigned work with `/sflow-jira-assigned` (`singularity-flow jira assigned`; `jira list` remains an alias).
-- Browse active and future sprint Stories without backlog with `/sflow-jira-board`.
-- Make a separately confirmed status, assignee, priority, sprint, or comment change with `/sflow-jira-update`.
+- Check the connection with `/sf-jira-status`.
+- List assigned work with `/sf-jira-assigned` (`singularity-flow jira assigned`; `jira list` remains an alias).
+- Browse active and future sprint Stories without backlog with `/sf-jira-board`.
+- Make a separately confirmed status, assignee, priority, sprint, or comment change with `/sf-jira-update`.
 - Retrieve a specific item with `singularity-flow jira pull <WORK-ID>` (`show` remains an alias).
 - Discover custom field IDs with `singularity-flow jira fields --query acceptance`, `--query story points`, or `--query sprint`.
 - Start selected Jira work with `singularity-flow start <WORK-ID> --jira`.

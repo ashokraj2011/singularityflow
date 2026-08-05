@@ -10,7 +10,7 @@ disable-model-invocation: true
 <!-- sflow-output-contract: deterministic-mutation -->
 **Output contract:** Let the CLI validate and mutate state; preserve its exact result, warnings, publication status, artifacts, and next actions.
 
-For a short upload-first experience, use `/sflow-upload`. This skill remains the complete Epic-source lifecycle interface.
+For a short upload-first experience, use `/sf-upload`. This skill remains the complete Epic-source lifecycle interface.
 
 1. Start with `singularity-flow epic sources list --epic <EPIC-KEY>`.
 2. For an upload, ask for the exact provider and local path, then run `singularity-flow epic sources add --epic <EPIC-KEY> --provider <ID> --file <PATH> --mime <TYPE>`.

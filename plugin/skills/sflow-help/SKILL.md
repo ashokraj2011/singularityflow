@@ -13,8 +13,8 @@ argument-hint: "[WORK-ID | TOPIC] [--json]"
 2. For a work ID or a question about the active work item's current phase, run `singularity-flow guide <WORK-ID>` instead.
 3. When using the work-item guide, state the selected workflow template and whether the source is Jira or manual intake.
 4. Explain the ordered phases, required artifact for each phase, suggested governed agents, human approval authority groups, and approval threshold.
-5. Highlight the current phase and present the exact recommended `/sflow-*` skill and equivalent CLI command. Point to `/sflow-nextsteps` for a read-only ordered plan and `/sflow-next` to execute exactly one valid action.
+5. Highlight the current phase and present the exact recommended `/sf-*` skill and equivalent CLI command. Point to `/sf-nextsteps` for a read-only ordered plan and `/sf-next` to execute exactly one valid action.
 6. If approval is pending, show both approve and reject paths and remind the user that authority comes from their Git/GitHub identity; a governed agent cannot grant it.
-7. If the workflow is complete, point to `/sflow-progress`, `/sflow-report`, and the final conformance artifact.
+7. If the workflow is complete, point to `/sf-progress`, `/sf-report`, and the final conformance artifact.
 8. Treat `HELP.md` as the canonical product manual; do not invent a conflicting rule when the manual or committed workflow provides one.
 9. Do not generate, submit, approve, reject, upload, commit, or push anything.

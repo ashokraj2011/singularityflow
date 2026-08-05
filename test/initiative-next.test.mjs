@@ -21,6 +21,7 @@ test('an unauthored phase asks for the outputs it is actually waiting on', () =>
     status: 'in_progress', generation: 0, outputs: { spec: {}, trace: { sha256: 'a', status: 'draft' }, gaps: {} }
   }));
   assert.equal(next.action, NEXT_ACTIONS.AUTHOR);
+  assert.equal(next.skill, '/sf-initiative-phase');
   // Only the unauthored required output is named. Listing everything, or counting the optional one,
   // would send the user looking for work that is already done or was never needed.
   assert.deepEqual(next.outputs, ['spec']);
@@ -36,6 +37,7 @@ test('an optional output left blank does not hold up publication', () => {
     outputs: { spec: { sha256: 'a', status: 'draft' }, trace: { sha256: 'b', status: 'draft' }, gaps: {} }
   }));
   assert.equal(next.action, NEXT_ACTIONS.PUBLISH);
+  assert.equal(next.skill, '/sf-initiative-phase');
   assert.match(next.command, /initiative phase publish epic-requirements/);
 });
 
@@ -49,6 +51,7 @@ test('a published phase with an unevidenced blocking gate asks for evidence, not
     ] }
   );
   assert.equal(next.action, NEXT_ACTIONS.EVIDENCE);
+  assert.equal(next.skill, '/sf-initiative-evidence');
   assert.deepEqual(next.checks, ['material-questions-resolved']);
 });
 
@@ -73,6 +76,7 @@ test('legacy add-evidence guidance becomes the canonical evidence action', () =>
   assert.equal(journey.nextAction.id, NEXT_ACTIONS.EVIDENCE);
   assert.equal(journey.nextAction.sourceId, 'add-evidence');
   assert.equal(journey.nextAction.label, 'Add Requirements evidence');
+  assert.equal(journey.nextAction.skill, '/sf-initiative-evidence');
   assert.deepEqual(journey.nextAction.checks, ['material-questions-resolved']);
 });
 
@@ -86,6 +90,7 @@ test('a warn-level gate does not block, and a satisfied phase offers approval wi
     ] }
   );
   assert.equal(next.action, NEXT_ACTIONS.APPROVE);
+  assert.equal(next.skill, '/sf-initiative-approve');
   // The confirmation is exact and non-obvious; showing it is the difference between one attempt
   // and three.
   assert.equal(next.confirmation, 'epic-requirements:phase');
@@ -134,6 +139,7 @@ test('Epic journey projects the governed phase into a business-friendly stage an
   assert.equal(journey.stage, 'planning');
   assert.equal(journey.activeStep, 2);
   assert.equal(journey.nextAction.label, 'Publish Planning');
+  assert.equal(journey.nextAction.skill, '/sf-initiative-phase');
   assert.equal(journey.stages[0].status, 'complete');
   assert.equal(journey.stages[3].status, 'upcoming');
 });
@@ -143,6 +149,7 @@ test('completed Epic journey exposes a report CTA and reaches 100 percent', () =
   assert.equal(journey.stage, 'complete');
   assert.equal(journey.completionPercent, 100);
   assert.equal(journey.nextAction.id, 'report');
+  assert.equal(journey.nextAction.skill, '/sf-initiative-status');
 });
 
 test('every action name the journey can emit maps to exactly one canonical action', async () => {

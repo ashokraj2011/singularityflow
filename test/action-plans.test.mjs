@@ -38,7 +38,7 @@ function lifecycle(actions = null) {
     workId: 'STORY-1',
     currentPhase: 'intake',
     actions: actions ?? [{
-      timing: 'now', skill: '/sflow-phase', command: 'singularity-flow prepare intake', reason: 'Prepare intake.'
+      timing: 'now', skill: '/sf-phase', command: 'singularity-flow prepare intake', reason: 'Prepare intake.'
     }]
   };
 }

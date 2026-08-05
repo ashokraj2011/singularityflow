@@ -18,6 +18,6 @@ Keep every choice and confirmation inside GitHub Copilot.
 4. Record each exact answer with `singularity-flow initiative choices answer <TOKEN> <CHOICE-ID> <SELECTED-ID> --json`.
 5. After the receipt reports `ready: true`, run `singularity-flow initiative start <INIT-ID> --selection-receipt <TOKEN>` with the user's Jira, title, and description arguments.
 6. The CLI creates the exact initiative branch, snapshots the portfolio/profile, commits, and pushes. Do not create or switch branches manually.
-7. Show the complete phase flow, profile, current phase, commit, publication result, and next action. Recommend `/sflow-initiative-documents` after phase preparation.
+7. Show the complete phase flow, profile, current phase, commit, publication result, and next action. Recommend `/sf-initiative-documents` after phase preparation.
 
 If `ask_user` is unavailable or disabled, stop without mutation. Never substitute public `--profile` or `--agent` flags; they intentionally do not exist.

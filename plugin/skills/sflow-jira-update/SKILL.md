@@ -44,7 +44,7 @@ Priority:
 
 Sprint:
 
-1. Use `/sflow-jira-board` or `singularity-flow jira board <BOARD-ID> --state active,future --json` to show valid sprint IDs.
+1. Use `/sf-jira-board` or `singularity-flow jira board <BOARD-ID> --state active,future --json` to show valid sprint IDs.
 2. Run:
 
    `singularity-flow jira sprint <STORY-KEY> --to <SPRINT-ID> --confirm <STORY-KEY> --json`

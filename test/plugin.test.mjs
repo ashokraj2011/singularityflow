@@ -27,7 +27,7 @@ test('plugin can audit and safely repair branch initialization before a work ses
   assert.match(initialize, /Do not commit\s+or push/i);
   assert.match(initialize, /disable-model-invocation:\s*true/);
   assert.match(doctor, /singularity-flow init --check --json/);
-  assert.match(doctor, /Recommend `\/sflow-init`/);
+  assert.match(doctor, /Recommend `\/sf-init`/);
 });
 
 test('plugin provides one upload-first skill for Epic and Story evidence', async () => {
@@ -176,7 +176,7 @@ test('Epic Story decisions use exact-packet Copilot selection receipts', async (
 
 test('legacy Epic planning skill redirects to the canonical Story drafting boundary', async () => {
   const content = await readFile(path.join(pluginRoot, 'skills', 'sflow-epic-planning', 'SKILL.md'), 'utf8');
-  assert.match(content, /compatibility name for `\/sflow-epic-story-draft`/);
+  assert.match(content, /compatibility name for `\/sf-epic-story-draft`/);
   assert.match(content, /Stop for exact business approval in the VS Code extension's Approvals view/);
   assert.match(content, /Do not run a second planning sequence/);
 });
@@ -319,7 +319,7 @@ test('about skill explains the brand and remains read-only', async () => {
   const content = await readFile(path.join(pluginRoot, 'skills', 'sflow-about', 'SKILL.md'), 'utf8');
   assert.match(content, /disable-model-invocation:\s*true/);
   assert.match(content, /Singularity Flow.*product.*Singularity.*brand/s);
-  assert.match(content, /Copilot uses `\/sflow-<action>`/);
+  assert.match(content, /Copilot uses `\/sf-<action>`/);
   assert.match(content, /Do not initialize a repository.*commit, or push/s);
 });
 

@@ -99,6 +99,6 @@ test('manual story intake commits complete details and every supplied document w
 
   const guide = flow(root, ['guide']).stdout;
   assert.match(guide, /WORK-123 — Feature \(feature\)/);
-  assert.match(guide, /\/sflow-phase/);
+  assert.match(guide, /\/sf-phase/);
   assert.match(guide, /artifacts\/intake\/intake\.md/);
 });

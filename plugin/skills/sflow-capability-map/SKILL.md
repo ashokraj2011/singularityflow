@@ -41,10 +41,10 @@ separately first.
 - Jira projects and team names belong to a **capability**, not to a workspace.
   Set them here.
 - A workspace is capabilities plus a local working directory. Do not create one
-  from this skill; offer `/sflow-workspace` afterwards.
+  from this skill; offer `/sf-workspace` afterwards.
 - Do not edit `singularity/capabilities.yml` or `singularity/portfolio.yml` by
   hand. Both are validated on every write, and a hand edit skips that.
 - Policy is inherited from the root toward each child and every fold is
   monotonic: a child may tighten what an ancestor set and can never loosen it.
-  Use `/sflow-capabilities` to explain the effect rather than reasoning about it
+  Use `/sf-capabilities` to explain the effect rather than reasoning about it
   from the file.

@@ -50,6 +50,8 @@ function assertSequenceFailure(result, ...patterns) {
   assert.match(result.stderr, /(?:Out of sequence|Soft sequence warning) \[[A-Za-z]+\]:/);
   assert.match(result.stderr, /Current state:/);
   assert.match(result.stderr, /Required next action:/);
+  assert.match(result.stderr, /Run next in Copilot: \/sf-/);
+  assert.match(result.stderr, /CLI equivalent: singularity-flow/);
   assert.match(result.stderr, /singularity-flow nextsteps SEQ-1/);
   assert.match(result.stderr, /(?:No workflow files, commits, or remote state were changed|Nothing was changed)/);
   for (const pattern of patterns) assert.match(result.stderr, pattern);

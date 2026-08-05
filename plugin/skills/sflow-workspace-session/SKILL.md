@@ -17,5 +17,5 @@ This is context setup only. Do not inspect application files, start implementati
 4. Run `singularity-flow session workspace <WORKSPACE> [--repository <ID>] [--story <ID>] --json`.
 5. Report the returned workspace, repository path, Story selection, prompt label, and `hostAction`.
 6. When `hostAction` is `reopen-repository`, explain that a child command cannot change the parent Copilot or VS Code process's working directory. In VS Code run **Singularity Flow: Attach Copilot Session to Workspace**. From a terminal run the returned `commands.openCopilot` command. Do not claim the current host changed directory.
-7. When a Story is selected, use `/sflow-session <STORY-ID>` only after Copilot is rooted in the returned repository. When no Story is selected, stop after reporting that the workspace is active.
+7. When a Story is selected, use `/sf-session <STORY-ID>` only after Copilot is rooted in the returned repository. When no Story is selected, stop after reporting that the workspace is active.
 8. End the turn. Workspace attachment is never an implicit request to implement work.

@@ -20,6 +20,10 @@ Workspaces answers **where am I working?**
   available within its materialized repository boundary.
 - Copy a workspace when a different local directory or repository boundary is
   required; an edit never silently redirects an existing clone.
+- Rename a workspace without changing governed state. Archive it only after the
+  engine refreshes every repository and proves there are no active Stories;
+  archived workspaces move into a separate folder and retain every checkout and
+  artifact for inspection or restore.
 - Open a repository explicitly only when you want VS Code to change folders.
   Selecting a workspace alone never opens another VS Code window.
 

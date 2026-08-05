@@ -163,7 +163,7 @@ import {
   updateWorkspaceConfiguration, workspaceRemoteCapabilities,
   workspaceRemoteDefaults,
   workspaceRepositoryDefaults,
-  workspaceStatus
+  workspaceArchiveReadiness, workspaceStatus
 } from './workspace.mjs';
 import {
   analyzeWorkspaceImpact, listWorkspaceImpacts, previewWorkspaceImpact,
@@ -488,7 +488,9 @@ Usage:
   singularity-flow capability leads [--json]
   singularity-flow workspace update <DIRECTORY> [--name TEXT] [--lead ID] [--capability ID]
     [--repository ID=URL] [--confirm KEY] [--dry-run] [--json]
-  singularity-flow workspace archive <DIRECTORY> --confirm KEY [--json]
+  singularity-flow workspace rename <DIRECTORY> --name TEXT --confirm KEY [--json]
+  singularity-flow workspace archive-status <DIRECTORY> [--fetch|--no-fetch] [--json]
+  singularity-flow workspace archive <DIRECTORY> --confirm KEY [--fetch|--no-fetch] [--json]
   singularity-flow workspace restore <DIRECTORY> [--json]
   singularity-flow workspace list [--json]
   singularity-flow workspace prune [--json]
@@ -4746,10 +4748,42 @@ async function workspaceCommand(positionals, options) {
     if (optionBoolean(options, 'json')) return console.log(JSON.stringify(status, null, 2));
     return renderWorkspaceStatus(status);
   }
+  if (subcommand === 'archive-status') {
+    const readiness = await workspaceArchiveReadiness(workspacePath, {
+      fetch: optionBoolean(options, 'fetch', true)
+    });
+    if (optionBoolean(options, 'json')) return console.log(JSON.stringify(readiness, null, 2));
+    console.log(`${readiness.workspace.name}: ${readiness.eligible ? 'ready to archive' : 'cannot be archived'}`);
+    if (readiness.activeStories.length) {
+      console.log('\nActive Stories:');
+      for (const story of readiness.activeStories) {
+        console.log(`  ${story.id} · ${story.repository} · ${story.status}${story.phase ? ` · ${story.phase}` : ''}`);
+      }
+    }
+    for (const blocker of readiness.blockers) console.log(`  blocked: ${blocker}`);
+    return;
+  }
+  if (subcommand === 'rename') {
+    const name = optionString(options, 'name');
+    if (!name?.trim()) throw new SingularityFlowError('workspace rename requires --name TEXT.');
+    const renamed = await updateWorkspaceConfiguration(workspacePath, { name: name.trim() }, {
+      confirmation: optionString(options, 'confirm')
+    });
+    await rememberWorkspace(registry, renamed.workspace, renamed.status, { preserveArchived: true });
+    if (optionBoolean(options, 'json')) return console.log(JSON.stringify(renamed, null, 2));
+    return console.log(`Renamed workspace to ${renamed.workspace.name}. Governed repository state was not changed.`);
+  }
   if (subcommand === 'archive') {
-    const archived = await archiveWorkspace(registry, workspacePath, { confirmation: optionString(options, 'confirm') });
-    if (optionBoolean(options, 'json')) return console.log(JSON.stringify(archived, null, 2));
-    return console.log(`Archived ${archived.workspace?.name ?? workspacePath}. Its files are untouched; restore it with singularity-flow workspace restore.`);
+    const archived = await archiveWorkspace(registry, workspacePath, {
+      confirmation: optionString(options, 'confirm'),
+      fetch: optionBoolean(options, 'fetch', true)
+    });
+    const clearedSelection = await clearActiveWorkspaceContext(activeWorkspaceFile(), archived.workspace.path);
+    const result = { ...archived, clearedSelection };
+    if (optionBoolean(options, 'json')) return console.log(JSON.stringify(result, null, 2));
+    console.log(`Archived ${archived.workspace.name}. No active Stories were found; its checkout and artifacts are untouched.`);
+    if (clearedSelection) console.log('The active workspace selection was cleared.');
+    return console.log('Restore it with singularity-flow workspace restore.');
   }
   if (subcommand === 'restore') {
     const restored = await restoreWorkspace(registry, workspacePath);
@@ -4831,7 +4865,7 @@ async function workspaceCommand(positionals, options) {
     const updated = await updateWorkspaceConfiguration(workspacePath, updateInput, {
       confirmation: optionString(options, 'confirm')
     });
-    await rememberWorkspace(registry, updated.workspace, updated.status);
+    await rememberWorkspace(registry, updated.workspace, updated.status, { preserveArchived: true });
     if (optionBoolean(options, 'json')) return console.log(JSON.stringify(updated, null, 2));
     console.log(`Updated ${updated.workspace.name}.`);
     return renderWorkspaceStatus(updated.status);

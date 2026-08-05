@@ -37,7 +37,7 @@ export function buildWorkspaceTree(entries: WorkspaceEntry[]): TreeNode[] {
     }];
   }
 
-  return rows.map((row) => {
+  const nodeFor = (row: ReturnType<typeof workspaceRows>[number]): TreeNode => {
     const unavailable = Boolean(row.active && row.repositoryState && row.repositoryState !== 'ready');
     return {
       kind: 'action' as const,
@@ -45,19 +45,24 @@ export function buildWorkspaceTree(entries: WorkspaceEntry[]): TreeNode[] {
       label: row.name,
       // "working here" rather than "active": it says what the state means for the reader rather than
       // naming the flag that holds it.
-      description: row.collides ? 'shares a directory'
+      description: row.archived ? 'preserved locally'
+        : row.collides ? 'shares a directory'
         : row.sharesId ? `shares the id ${row.id}`
           : unavailable ? `selected · repository ${row.repositoryState}`
             : row.active ? 'working here' : undefined,
-      tooltip: row.collides
+      tooltip: row.archived
+        ? `${row.directory}${row.lead ? `\nLead repository: ${row.lead}` : ''}\n\nArchived locally. Click to inspect or restore it.`
+        : row.collides
         ? `${row.directory}\n\nAnother workspace occupies this directory. Two sets of governed state writing into one tree is not a conflict to resolve later.`
         : `${row.directory}${row.lead ? `\nLead repository: ${row.lead}` : ''}\n\n${row.active
           ? unavailable
             ? `This workspace is selected, but its repository is ${row.repositoryState}. Repair the workspace before opening Lifecycle, Inbox, or Configuration.`
             : 'Every screen is scoped to this workspace. Click to inspect its full details.'
           : 'Click to inspect this workspace. Use the check action to work in it.'}`,
-      icon: row.collides || row.sharesId || unavailable ? 'statusWarning' : row.active ? 'statusSuccess' : 'workspace',
-      contextValue: unavailable ? 'sflow.workspace.active.unavailable'
+      icon: row.archived ? 'archive'
+        : row.collides || row.sharesId || unavailable ? 'statusWarning' : row.active ? 'statusSuccess' : 'workspace',
+      contextValue: row.archived ? 'sflow.workspace.archived'
+        : unavailable ? 'sflow.workspace.active.unavailable'
         : row.active ? 'sflow.workspace.active' : 'sflow.workspace',
       // Carried so the commands acting on this row never have to re-read the registry to find out
       // which one was clicked. Opening a workspace means opening its lead repository: that is where
@@ -66,7 +71,23 @@ export function buildWorkspaceTree(entries: WorkspaceEntry[]): TreeNode[] {
       openPath: row.leadRepositoryPath || row.directory,
       runCommand: 'singularityFlow.openWorkspaces'
     };
-  });
+  };
+
+  const current = rows.filter((row) => !row.archived).map(nodeFor);
+  const archived = rows.filter((row) => row.archived).map(nodeFor);
+  if (archived.length) {
+    current.push({
+      kind: 'group',
+      id: 'workspaces:archived',
+      label: 'Archived',
+      description: `${archived.length}`,
+      tooltip: 'Workspaces with no active Stories. Their checkouts, branches and artifacts remain on disk.',
+      icon: 'archive',
+      contextValue: 'sflow.workspaces.archived',
+      children: archived
+    });
+  }
+  return current;
 }
 
 /**

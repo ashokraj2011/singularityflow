@@ -266,6 +266,13 @@ those views to the lead repository; it never creates another window. **Open lead
 repository** remains a separate, explicit action for editing code and is not
 required just to select a workspace.
 
+Workspace display names can be changed locally. Before archiving, Singularity
+Flow refreshes every participating repository and proves that every governed
+Story is `complete` or `cancelled`; inaccessible repositories and active Stories
+block the action. Archived workspaces move into a separate VS Code folder while
+their checkouts, branches, generated artifacts, approvals, and history remain
+available for inspection and restore.
+
 The VS Code sidebar deliberately separates work from setup. **Lifecycle** is the
 intake and delivery view: start Initiative, Epic, or Story intake, choose the
 workflow for that work, inspect the selected workflow's phases and artifacts,

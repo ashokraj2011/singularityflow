@@ -2411,7 +2411,10 @@ test('a refused start is reported on the form that caused it', () => {
   assert.match(intakeHtml(intake({ error: 'Working tree is not clean.' })), /Working tree is not clean/);
 });
 
-const { duplicateCommand, duplicateDirectory, duplicateProblems, renameCommand, updateCommand, workspaceRows } =
+const {
+  archiveCommand, duplicateCommand, duplicateDirectory, duplicateProblems,
+  renameCommand, restoreCommand, updateCommand, workspaceRows
+} =
   await import(source('views/workspaces-model.ts'));
 const { workspacesHtml, EMPTY_DRAFT: EMPTY_COPY } = await import(source('views/workspaces-page.ts'));
 
@@ -2475,8 +2478,12 @@ test('the copy and rename commands are what the engine expects', () => {
       '--base', '/elsewhere', '--name', 'Spike']);
   // Renaming carries the exact confirmation the engine demands for an edit.
   assert.deepEqual(renameCommand(commerce, ' Commerce platform '),
-    ['workspace', 'update', '/work/commerce', '--name', 'Commerce platform',
+    ['workspace', 'rename', '/work/commerce', '--name', 'Commerce platform',
       '--confirm', 'commerce', '--json']);
+  assert.deepEqual(archiveCommand(commerce),
+    ['workspace', 'archive', '/work/commerce', '--confirm', 'commerce', '--fetch', '--json']);
+  assert.deepEqual(restoreCommand(commerce),
+    ['workspace', 'restore', '/work/commerce', '--json']);
   assert.deepEqual(updateCommand(commerce, ' Commerce platform ', ['payments', 'checkout', 'payments']),
     ['workspace', 'update', '/work/commerce', '--name', 'Commerce platform',
       '--capability', 'checkout', '--capability', 'payments',
@@ -2489,11 +2496,22 @@ test('the selected workspace offers edit, copy and forget, and says what each co
   assert.match(html, /data-edit="\/work\/commerce"/);
   assert.match(html, /data-duplicate="\/work\/commerce"/);
   assert.match(html, /data-forget="\/work\/commerce"/);
+  assert.match(html, /data-archive="\/work\/commerce" disabled/,
+    'archive stays unavailable until repository Story state has been inspected');
   assert.match(html, /data-switch="\/work\/commerce"/, 'switching is available directly on the row');
   assert.doesNotMatch(html, /data-open="\/work\/commerce"/, 'there is no separate, ambiguous Open action');
   assert.match(html, /The copy would be created at \/work\/commerce-spike/);
   assert.match(html, /leaves the directory alone/, 'forgetting is not deleting, and says so');
   assert.match(html, /Repository origins and the directory itself stay fixed/, 'editing does not move anything');
+});
+
+test('an archived workspace offers restore instead of selection', () => {
+  const rows = workspaceRows([{ ...REGISTRY[0], active: undefined, archivedAt: '2026-08-05T00:00:00.000Z' }]);
+  const html = workspacesHtml(rows, '/work/commerce', EMPTY_COPY, null);
+  assert.match(html, /Archived workspace/);
+  assert.match(html, /data-restore="\/work\/commerce"/);
+  assert.doesNotMatch(html, /data-switch="\/work\/commerce"/);
+  assert.match(html, /checkout, branches and generated artifacts were not deleted/);
 });
 
 test('workspace details show its directory, capabilities, repositories and Jira context', () => {
@@ -2513,7 +2531,15 @@ test('workspace details show its directory, capabilities, repositories and Jira 
       jira: { projectKey: 'KAN' }, worldModel: { state: 'available' }
     }],
     counts: { repositories: 1, ready: 1, dirty: 0, worldModels: 1 },
-    warnings: []
+    warnings: [],
+    archiveReadiness: {
+      eligible: false, checkedAt: '2026-08-05T00:00:00.000Z', fetched: false,
+      activeStories: [{
+        repository: 'platform', id: 'PAY-123', title: 'Finish checkout', status: 'in_progress',
+        phase: 'implementation', branch: 'PAY-123'
+      }],
+      blockers: []
+    }
   };
   const html = workspacesHtml(rows, '/work/commerce', EMPTY_COPY, null, status, false, null);
   assert.match(html, /Workspace details/);
@@ -2524,6 +2550,9 @@ test('workspace details show its directory, capabilities, repositories and Jira 
   assert.match(html, /APP-1001/);
   assert.match(html, /projectKey/);
   assert.match(html, /available/);
+  assert.match(html, /Active work is protected/);
+  assert.match(html, /PAY-123/);
+  assert.match(html, /data-archive="\/work\/commerce" disabled/);
 
   const editStatus = {
     ...status,
@@ -2585,6 +2614,22 @@ test('workspace rows open their details while selection remains a separate actio
   // The one being worked in is distinguishable to a menu, not just to a reader.
   assert.equal(commerce.contextValue, 'sflow.workspace.active');
   assert.equal(payments.contextValue, 'sflow.workspace');
+});
+
+test('archived workspaces move under one folder and can be inspected for restore', () => {
+  const nodes = buildWorkspaceTree([
+    REGISTRY[0],
+    { ...REGISTRY[1], archivedAt: '2026-08-05T00:00:00.000Z' }
+  ]);
+  assert.equal(nodes.length, 2);
+  const archived = nodes[1];
+  assert.equal(archived.label, 'Archived');
+  assert.equal(archived.icon, 'archive');
+  assert.equal(archived.children.length, 1);
+  assert.equal(archived.children[0].label, 'payments');
+  assert.equal(archived.children[0].description, 'preserved locally');
+  assert.equal(archived.children[0].contextValue, 'sflow.workspace.archived');
+  assert.match(archived.children[0].tooltip, /inspect or restore/);
 });
 
 test('a workspace sharing a directory with another is marked in the tree', () => {

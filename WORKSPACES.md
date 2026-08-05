@@ -60,6 +60,19 @@ An edit cannot silently move a workspace, change a clone URL, or introduce an
 unmaterialized repository. Choose **Copy workspace** when the directory or
 repository boundary must change; the preview shows every clone before creation.
 
+### Rename, archive, and restore
+
+Renaming changes only the machine-local display name. Archiving is also local and
+reversible, but it is guarded: Singularity Flow fetches every materialized
+repository and refuses the archive while any Story is not `complete` or
+`cancelled`. A repository that cannot be refreshed or inspected is a blocker, not
+evidence that the workspace is idle.
+
+The **Workspaces** page lists the blocking Story IDs, repositories, phases, and
+statuses. Successfully archived workspaces move under **Archived**. Their
+directories, branches, generated artifacts, approvals, and Git history remain on
+disk and can be inspected or restored at any time.
+
 ### Capability portfolio dashboard
 
 The Inbox opens with a capability-level portfolio summary. It shows root
@@ -169,6 +182,9 @@ sflow workspace use payments-modernization
 sflow workspace status /path/to/payments-modernization
 sflow workspace sync /path/to/payments-modernization
 sflow workspace repair /path/to/payments-modernization
+sflow workspace rename /path/to/payments-modernization \
+  --name "Payments delivery" --confirm payments-modernization
+sflow workspace archive-status /path/to/payments-modernization --fetch
 sflow workspace duplicate /path/to/payments-modernization \
   --id payments-spike --name "Payments spike"
 sflow workspace archive /path/to/payments-modernization \
@@ -199,6 +215,8 @@ Workspace operations are designed to be recoverable:
 - creation and repair never overwrite unrelated directories;
 - interrupted clones are journaled and can resume;
 - sync skips dirty clones and does not change their branch;
+- archive requires every repository to be inspectable and every Story to be
+  complete or cancelled;
 - archive and forget never delete repository contents; and
 - shared work can be reconstructed from lifecycle branches even if the local
   workspace is lost.

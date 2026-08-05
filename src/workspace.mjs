@@ -5,6 +5,10 @@ import os from 'node:os';
 import path from 'node:path';
 import YAML from 'yaml';
 import { normalizeRepositoryMetadata } from './repository-metadata.mjs';
+import { fetchRemote, localBranches, remoteBranches } from './git.mjs';
+import {
+  buildRepositorySubjectIndex, buildRepositorySubjectIndexFromRefs
+} from './repository-subject-index.mjs';
 import { SingularityFlowError, run } from './util.mjs';
 
 export const WORKSPACE_FILE = 'workspace.json';
@@ -1262,7 +1266,7 @@ export async function readWorkspaceRegistry(file) {
   return [...unique.values()].sort((left, right) => right.openedAt.localeCompare(left.openedAt)).slice(0, MAX_RECENT_WORKSPACES);
 }
 
-export async function rememberWorkspace(file, workspace, status = null) {
+export async function rememberWorkspace(file, workspace, status = null, { preserveArchived = false } = {}) {
   const resolvedPath = path.resolve(workspace.path);
   const canonicalPath = await realpath(resolvedPath).catch(() => resolvedPath);
   const normalized = validateWorkspaceManifest(workspace, { workspaceRoot: canonicalPath });
@@ -1279,6 +1283,9 @@ export async function rememberWorkspace(file, workspace, status = null) {
   });
   return withRegistryMutation(file, async () => {
     const current = await readWorkspaceRegistry(file);
+    if (preserveArchived) {
+      entry.archivedAt = current.find((item) => item.path === entry.path)?.archivedAt ?? null;
+    }
     // Keyed by path, not by identifier: copying a workspace beside itself keeps its id, and both
     // copies are real workspaces. The identifier is therefore not unique, which is why anything
     // resolving by id has to say so when the answer is ambiguous rather than pick one.
@@ -1298,18 +1305,132 @@ export async function forgetWorkspace(file, workspacePath) {
   });
 }
 
-export async function archiveWorkspace(file, workspacePath, { confirmation } = {}) {
+function terminalStory(state) {
+  return ['complete', 'cancelled'].includes(String(state?.status ?? '').trim());
+}
+
+async function repositoryWorkflowDefinition(repositoryPath) {
+  try {
+    return YAML.parse(await readFile(path.join(repositoryPath, 'singularity', 'workflow.yml'), 'utf8')) ?? {};
+  } catch {
+    // The subject index has stable defaults for an uninitialised or partly repaired repository.
+    // Archive readiness is about governed Stories, not whether Configuration is otherwise valid.
+    return {};
+  }
+}
+
+/**
+ * Prove whether this local workspace may leave the active list.
+ *
+ * A workspace itself is disposable, but it points at branches that are not. Every ready repository
+ * is inspected across its working tree, local branches and remote-tracking branches. A Story is
+ * active until it reaches one of the two explicit terminal states: complete or cancelled. Missing
+ * repositories and failed refreshes are blockers because "could not inspect" is not evidence that
+ * no active work exists.
+ */
+export async function workspaceArchiveReadiness(workspacePath, { fetch = true } = {}) {
+  const status = await workspaceStatus(workspacePath);
+  const active = new Map();
+  const blockers = [];
+  const repositories = [];
+
+  for (const repository of status.repositories) {
+    const record = {
+      id: repository.id,
+      path: repository.absolutePath,
+      state: repository.state,
+      refreshed: false,
+      stories: 0,
+      activeStories: 0
+    };
+    repositories.push(record);
+    if (repository.state !== 'ready') {
+      blockers.push(`Repository '${repository.id}' is ${repository.state}; repair it before archiving the workspace.`);
+      continue;
+    }
+
+    if (fetch) {
+      try {
+        fetchRemote(repository.absolutePath, 'origin');
+        record.refreshed = true;
+      } catch (error) {
+        blockers.push(`Repository '${repository.id}' could not refresh origin: ${error.message}`);
+        continue;
+      }
+    }
+
+    const definition = await repositoryWorkflowDefinition(repository.absolutePath);
+    const refs = [
+      ...remoteBranches(repository.absolutePath, definition.git?.remote ?? 'origin')
+        .map((branch) => ({ branch, ref: `${definition.git?.remote ?? 'origin'}/${branch}` })),
+      ...localBranches(repository.absolutePath).map((branch) => ({ branch, ref: branch }))
+    ];
+    const indexes = [
+      await buildRepositorySubjectIndex(repository.absolutePath, { definition }),
+      await buildRepositorySubjectIndexFromRefs(repository.absolutePath, { definition, refs })
+    ];
+    const seen = new Set();
+    for (const index of indexes) {
+      for (const unreadable of index.unreadable) {
+        blockers.push(`Repository '${repository.id}' has unreadable Story state at ${unreadable.path}: ${unreadable.reason}`);
+      }
+      for (const subject of index.list('story')) {
+        const key = `${repository.id}:${subject.id}`;
+        const locations = subject.locations?.length ? subject.locations : [{ state: subject.state }];
+        const isActive = locations.some((location) => !terminalStory(location.state));
+        if (!seen.has(key)) {
+          seen.add(key);
+          record.stories += 1;
+        }
+        if (!isActive) continue;
+        active.set(key, {
+          repository: repository.id,
+          id: subject.id,
+          title: subject.state?.workItem?.title ?? subject.id,
+          status: subject.state?.status ?? 'unknown',
+          phase: subject.state?.currentPhase ?? null,
+          branch: subject.canonicalBranch
+        });
+      }
+    }
+    record.activeStories = [...active.values()].filter((story) => story.repository === repository.id).length;
+  }
+
+  const activeStories = [...active.values()].sort((left, right) =>
+    left.repository.localeCompare(right.repository) || left.id.localeCompare(right.id));
+  return {
+    workspace: { id: status.workspace.id, name: status.workspace.name, path: status.workspace.path },
+    eligible: blockers.length === 0 && activeStories.length === 0,
+    checkedAt: nowIso(),
+    fetched: fetch,
+    activeStories,
+    blockers,
+    repositories
+  };
+}
+
+export async function archiveWorkspace(file, workspacePath, { confirmation, fetch = true } = {}) {
   const workspace = await readWorkspace(workspacePath);
   if (confirmation !== workspace.anchor.key) {
     throw new SingularityFlowError(`Workspace archiving requires exact confirmation '${workspace.anchor.key}'.`);
+  }
+  const readiness = await workspaceArchiveReadiness(workspace.path, { fetch });
+  if (!readiness.eligible) {
+    const reasons = [
+      ...readiness.activeStories.map((story) =>
+        `${story.id} in ${story.repository} is ${story.status}${story.phase ? ` (${story.phase})` : ''}`),
+      ...readiness.blockers
+    ];
+    throw new SingularityFlowError(`Workspace '${workspace.name}' cannot be archived: ${reasons.join(' | ')}`);
   }
   return withRegistryMutation(file, async () => {
     const workspaces = await readWorkspaceRegistry(file);
     const target = workspaces.find((item) => item.path === workspace.path);
     if (!target) throw new SingularityFlowError(`Workspace '${workspace.name}' is not in the local workspace registry.`);
-    target.archivedAt = nowIso();
+    const archivedAt = nowIso();
+    target.archivedAt = archivedAt;
     await atomicJson(file, { schemaVersion: 1, workspaces });
-    return workspaces;
+    return { workspace: target, archivedAt, readiness, workspaces };
   });
 }
 
@@ -1320,10 +1441,11 @@ export async function restoreWorkspace(file, workspacePath) {
     const workspaces = await readWorkspaceRegistry(file);
     const target = workspaces.find((item) => item.path === targetPath);
     if (!target) throw new SingularityFlowError('Archived workspace is no longer in the local registry.');
+    const restoredAt = nowIso();
     target.archivedAt = null;
     target.openedAt = nowIso();
     await atomicJson(file, { schemaVersion: 1, workspaces });
-    return workspaces;
+    return { workspace: target, restoredAt, workspaces };
   });
 }
 

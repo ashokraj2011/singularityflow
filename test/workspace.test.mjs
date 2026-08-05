@@ -9,7 +9,7 @@ import {
   archiveWorkspace, createWorkspace, createWorkspaceConfiguration, fetchWorkspace, forgetWorkspace, listWorkspaceDocuments,
   normalizeWorkspaceAnchor, previewWorkspace, previewWorkspaceConfiguration, readWorkspace, readWorkspaceRegistry,
   rememberWorkspace, resolveWorkspaceDocument, restoreWorkspace, saveWorkspaceConfiguration, stageWorkspaceDocuments,
-  updateWorkspaceConfiguration, validateWorkspaceManifest, workspaceStatus
+  updateWorkspaceConfiguration, validateWorkspaceManifest, workspaceArchiveReadiness, workspaceStatus
 } from '../src/workspace.mjs';
 import {
   activateWorkspaceContext, buildWorkspaceContext, discardUnsupportedWorkflowWorkspaces,
@@ -124,7 +124,7 @@ test('workspace configuration is independent from Jira hierarchy and pins reposi
 test('workspace Jira project routing is optional and can be added later', async () => {
   const root = await mkdtemp(path.join(os.tmpdir(), 'sflow-workspace-optional-jira-'));
   const remote = await remoteRepository(root, 'platform');
-  const created = await saveWorkspaceConfiguration({
+  const created = await createWorkspaceConfiguration({
     baseDirectory: path.join(root, 'workspaces'),
     id: 'optional-jira',
     name: 'Optional Jira',
@@ -489,7 +489,7 @@ test('workspace editing updates Jira routing and metadata while archive remains 
         metadata: { appId: 'APP-1', name: 'Payments platform' }
       }
     }
-  }, { confirmation: 'payments-platform' });
+  }, { confirmation: 'payments-platform', clone: true });
   await rememberWorkspace(registry, created.workspace, created.status);
   const updated = await updateWorkspaceConfiguration(created.workspace.path, {
     name: 'Payments delivery',
@@ -513,7 +513,31 @@ test('workspace editing updates Jira routing and metadata while archive remains 
     }
   }, { confirmation: 'payments-platform' }), /cannot change url/);
 
-  await archiveWorkspace(registry, created.workspace.path, { confirmation: 'payments-platform' });
+  const storyDirectory = path.join(created.status.leadRepositoryPath, 'singularity', 'work-items', 'PAY-123');
+  await mkdir(storyDirectory, { recursive: true });
+  const story = {
+    workItem: { id: 'PAY-123', title: 'Finish the payment route', branch: 'PAY-123' },
+    status: 'in_progress', currentPhase: 'implementation',
+    phaseOrder: ['implementation'], phases: { implementation: { status: 'in_progress' } }
+  };
+  await writeFile(path.join(storyDirectory, 'workflow.json'), `${JSON.stringify(story, null, 2)}\n`);
+  const blocked = await workspaceArchiveReadiness(created.workspace.path, { fetch: false });
+  assert.equal(blocked.eligible, false);
+  assert.equal(blocked.activeStories[0].id, 'PAY-123');
+  await assert.rejects(
+    () => archiveWorkspace(registry, created.workspace.path, {
+      confirmation: 'payments-platform', fetch: false
+    }),
+    /PAY-123.*in_progress/
+  );
+
+  story.status = 'cancelled';
+  story.currentPhase = null;
+  story.phases.implementation.status = 'cancelled';
+  await writeFile(path.join(storyDirectory, 'workflow.json'), `${JSON.stringify(story, null, 2)}\n`);
+  await archiveWorkspace(registry, created.workspace.path, {
+    confirmation: 'payments-platform', fetch: false
+  });
   assert.ok((await readWorkspaceRegistry(registry))[0].archivedAt);
   assert.equal(await stat(path.join(created.workspace.path, 'workspace.json')).then(() => true), true);
   await restoreWorkspace(registry, created.workspace.path);

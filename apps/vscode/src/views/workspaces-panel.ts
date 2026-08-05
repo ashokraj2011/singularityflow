@@ -21,6 +21,8 @@ export type WorkspacesMessage =
   | { type: 'switch'; row: WorkspaceRow }
   | { type: 'create' }
   | { type: 'forget'; row: WorkspaceRow }
+  | { type: 'archive'; row: WorkspaceRow }
+  | { type: 'restore'; row: WorkspaceRow }
   | { type: 'run'; command: string[]; title: string };
 
 export class WorkspacesPanel {
@@ -226,6 +228,19 @@ export class WorkspacesPanel {
       const failure = await this.onMessage({ type: 'forget', row });
       this.error = failure;
       if (!failure && this.selected === row.path) this.selected = null;
+      return this.refresh();
+    }
+
+    if (message.type === 'archive') {
+      const failure = await this.onMessage({ type: 'archive', row });
+      this.error = failure;
+      if (!failure && this.selected === row.path) this.selected = null;
+      return this.refresh();
+    }
+
+    if (message.type === 'restore') {
+      const failure = await this.onMessage({ type: 'restore', row });
+      this.error = failure;
       return this.refresh();
     }
 

@@ -33,7 +33,10 @@ import { HelpPanel } from './views/help.ts';
 import type { HelpDocument } from './views/help-page.ts';
 import { WorkspacesPanel, type WorkspacesMessage } from './views/workspaces-panel.ts';
 import { BootstrapPanel, type Mapped } from './views/bootstrap-panel.ts';
-import type { WorkspaceEntry, WorkspaceStatus } from './views/workspaces-model.ts';
+import {
+  archiveCommand, restoreCommand, type WorkspaceArchiveReadiness,
+  type WorkspaceEntry, type WorkspaceStatus
+} from './views/workspaces-model.ts';
 import { capabilityChoices, type RemoteCapability } from './views/workspace-form.ts';
 import { capabilityArgv } from './views/capability-model.ts';
 import { buildConfigurationTree, unavailableTree, type TreeNode } from './views/tree-model.ts';
@@ -443,7 +446,23 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
     const list = (): Promise<WorkspaceEntry[]> =>
       registry.run<WorkspaceEntry[]>(['workspace', 'list', '--json']).catch(() => []);
     const details = async (workspacePath: string): Promise<WorkspaceStatus> => {
-      const status = await registry.run<WorkspaceStatus>(['workspace', 'open', workspacePath, '--json']);
+      // Inspecting an archived workspace must not restore it as a side effect. `status` reads the
+      // checkout, while `archive-status --no-fetch` supplies the immediate local proof shown on the
+      // page. The mutating archive command refreshes remotes and verifies again before it commits to
+      // the registry change.
+      const [status, archiveReadiness] = await Promise.all([
+        registry.run<WorkspaceStatus>(['workspace', 'status', workspacePath, '--json']),
+        registry.run<WorkspaceArchiveReadiness>([
+          'workspace', 'archive-status', workspacePath, '--no-fetch', '--json'
+        ]).catch((error) => ({
+          eligible: false,
+          checkedAt: new Date().toISOString(),
+          fetched: false,
+          activeStories: [],
+          blockers: [(error as Error).message]
+        }))
+      ]);
+      status.archiveReadiness = archiveReadiness;
       const lead = status.repositories.find((repository) =>
         repository.id === status.workspace.leadRepository || repository.role === 'lead');
       if (!lead?.url) return status;
@@ -493,6 +512,25 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
           'Forget');
         if (confirmed !== 'Forget') return null;
         message = { type: 'run', command: ['workspace', 'forget', message.row.directory, '--json'], title: 'Forgetting workspace' };
+      }
+      if (message.type === 'archive') {
+        const confirmed = await vscode.window.showWarningMessage(
+          `Archive ${message.row.name}?`,
+          {
+            modal: true,
+            detail: 'Singularity Flow will refresh every repository and refuse if any Story is still active. The checkout, branches and generated artifacts are preserved.'
+          },
+          'Archive workspace'
+        );
+        if (confirmed !== 'Archive workspace') return null;
+        message = {
+          type: 'run', command: archiveCommand(message.row), title: `Archiving ${message.row.name}`
+        };
+      }
+      if (message.type === 'restore') {
+        message = {
+          type: 'run', command: restoreCommand(message.row), title: `Restoring ${message.row.name}`
+        };
       }
       output.appendLine(`\n$ singularity-flow ${message.command.join(' ')}`);
       try {

@@ -3,7 +3,9 @@ import { existsSync } from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import YAML from 'yaml';
-import { add, branch, changedFiles, commit, head, identity, pushBranch } from './git.mjs';
+import {
+  add, branch, changedFiles, commit, head, identity, localBranches, pushBranch, remoteBranches
+} from './git.mjs';
 import {
   DEFAULT_PLANNING_PROMPT,
   ensureRepositoryTemplates,
@@ -64,7 +66,9 @@ import { planningTargetCatalog } from './planning.mjs';
 import { jiraSnapshotSource, listEpicSources } from './epic-sources.mjs';
 import { epicDeliveryReadiness } from './epic-completion.mjs';
 import { ledgerStatus } from './ledger.mjs';
-import { buildRepositorySubjectIndex, resolveContext } from './repository-subject-index.mjs';
+import {
+  buildRepositorySubjectIndex, buildRepositorySubjectIndexFromRefs, resolveContext
+} from './repository-subject-index.mjs';
 
 const packageRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 export const REPOSITORY_SKILLS_ROOT = '.github/skills';
@@ -175,28 +179,51 @@ async function planningPrompt(root, definition) {
 
 async function workItems(root, definition) {
   const base = path.join(root, definition.workItemRoot ?? 'singularity/work-items');
-  if (!(await exists(base))) return [];
-  const results = [];
-  for (const entry of await readdir(base, { withFileTypes: true })) {
-    if (!entry.isDirectory()) continue;
-    const statePath = path.join(base, entry.name, 'workflow.json');
-    if (!(await exists(statePath))) continue;
-    try {
-      const state = await readJson(statePath);
-      results.push({
-        id: state.workItem?.id ?? entry.name,
-        title: state.workItem?.title ?? entry.name,
-        workType: state.workItem?.workType ?? 'legacy',
-        status: state.status ?? 'unknown',
-        currentPhase: state.currentPhase ?? null,
-        branch: state.workItem?.branch ?? entry.name,
-        updatedAt: state.history?.at(-1)?.at ?? state.workItem?.createdAt ?? null
-      });
-    } catch (error) {
-      results.push({ id: entry.name, title: entry.name, status: 'invalid', error: error.message });
+  const results = new Map();
+  const summarize = (state, fallbackId, source) => ({
+    id: state.workItem?.id ?? fallbackId,
+    title: state.workItem?.title ?? fallbackId,
+    workType: state.workItem?.workType ?? 'legacy',
+    status: state.status ?? 'unknown',
+    currentPhase: state.currentPhase ?? null,
+    branch: state.lineage?.canonicalBranch ?? state.workItem?.branch ?? fallbackId,
+    updatedAt: state.history?.at(-1)?.at ?? state.workItem?.createdAt ?? null,
+    source
+  });
+
+  // Completed Stories normally live on sibling branches, not in the currently checked-out tree.
+  // Enumerate the refs already present locally; a read-model refresh must never perform network I/O.
+  const remote = definition.git?.remote ?? 'origin';
+  const refs = [
+    ...remoteBranches(root, remote).map((name) => ({ branch: name, ref: `${remote}/${name}` })),
+    ...localBranches(root).map((name) => ({ branch: name, ref: name }))
+  ];
+  const refIndex = await buildRepositorySubjectIndexFromRefs(root, { definition, refs });
+  for (const subject of refIndex.list('story')) {
+    results.set(subject.id, summarize(
+      subject.state,
+      subject.id,
+      subject.location.ref ?? subject.location.branch ?? 'git-ref'
+    ));
+  }
+
+  // The working tree wins for the checked-out Story, including governed edits not yet committed.
+  if (await exists(base)) {
+    for (const entry of await readdir(base, { withFileTypes: true })) {
+      if (!entry.isDirectory()) continue;
+      const statePath = path.join(base, entry.name, 'workflow.json');
+      if (!(await exists(statePath))) continue;
+      try {
+        const state = await readJson(statePath);
+        const item = summarize(state, entry.name, 'working-tree');
+        results.set(item.id, item);
+      } catch (error) {
+        results.set(entry.name, { id: entry.name, title: entry.name, status: 'invalid', error: error.message });
+      }
     }
   }
-  return results.sort((left, right) => String(right.updatedAt ?? '').localeCompare(String(left.updatedAt ?? '')));
+  return [...results.values()].sort((left, right) =>
+    String(right.updatedAt ?? '').localeCompare(String(left.updatedAt ?? '')));
 }
 
 function configurationChangeScope(root, definition, portfolio, changes) {
@@ -353,7 +380,9 @@ async function fullRepositorySnapshot(root, requestedWorkId = null, requestedIni
   const telemetry = await copilotTelemetryStatus(root);
   let ledger;
   try {
-    ledger = await ledgerStatus(root, workflow?.resolution?.ledger ?? definition.ledger ?? {});
+    // Navigation is a local Git read. A remote ledger outage must not empty Lifecycle or make the
+    // extension appear frozen; explicit refresh/reconcile commands own network verification.
+    ledger = await ledgerStatus(root, workflow?.resolution?.ledger ?? definition.ledger ?? {}, { offline: true });
   } catch (error) {
     ledger = {
       enabled: Boolean(workflow?.resolution?.ledger?.enabled ?? definition.ledger?.enabled),

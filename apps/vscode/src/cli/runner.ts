@@ -14,9 +14,9 @@ import { spawn, spawnSync, type ChildProcess } from 'node:child_process';
 import { lstat, realpath } from 'node:fs/promises';
 import path from 'node:path';
 
-/** A phase publish or an approval does real work; 45 s is for reads that must feel instant. */
+/** Lifecycle snapshots include branch cataloguing and deterministic governance checks. */
 export const CLI_TIMEOUT_MS = 120_000;
-export const SNAPSHOT_TIMEOUT_MS = 45_000;
+export const SNAPSHOT_TIMEOUT_MS = 120_000;
 /** `wm build` runs a model over a whole repository and legitimately takes minutes. */
 export const WORLD_MODEL_TIMEOUT_MS = 15 * 60_000;
 /** Governed image/PDF previews may carry a 25 MiB document encoded as base64. */

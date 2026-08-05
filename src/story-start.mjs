@@ -97,7 +97,10 @@ export async function startStory(root, {
     || refExists(root, `refs/remotes/${remote}/${id}`);
   const checkoutMode = checkout(root, id, {
     base: definition.defaultBaseBranch,
-    remote
+    remote,
+    // fetchRemote above discovered both the Story branch and the latest base. When this is a new
+    // Story, fork from that refreshed remote base rather than a possibly stale local main.
+    preferRemoteBase: true
   });
 
   if (existed) {

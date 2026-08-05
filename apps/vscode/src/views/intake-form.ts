@@ -198,8 +198,8 @@ export function intakeCommand(form: IntakeForm): string[] {
   }
 
   // A Story with a tracker is fetched by key; without one, its content is what was typed here.
-  if (tracked) return ['story', 'start', identifier, '--json', '--work-type', form.workType!];
-  const args = ['start', identifier, '--json',
+  if (tracked) return ['story', 'start', identifier, '--json', '--fetch', '--work-type', form.workType!];
+  const args = ['start', identifier, '--json', '--fetch',
     '--title', form.title.trim(), '--description', form.description.trim(),
     '--work-type', form.workType!];
   if (form.acceptanceCriteria.trim()) {

@@ -248,6 +248,14 @@ export function storyStatusMarkdown(workflow) {
     lines.push(`| ${phase.order + 1} | ${phase.label} (\`${id}\`) | ${phase.defaultAgent ?? 'unavailable'} | **${phase.status}** | ${phase.generation} | ${approvals} | ${tokens || 'unavailable'} |`);
     for (const approval of phase.approvals.filter((item) => !item.invalidatedAt && item.selfApproval)) lines.push(`|  | ⚠ self-approval | ${approval.actor.name ?? approval.actor.email ?? 'unknown'} via ${approval.authorityGroup ?? 'unrecorded authority'}; agent ${approval.agent ?? 'unavailable'} | **warning** |  |  |  |`);
   }
+  const openChangeRequests = (workflow.changeRequests ?? []).filter((request) => request.status === 'open');
+  if (openChangeRequests.length) {
+    lines.push('', '## Open stakeholder change requests', '');
+    for (const request of openChangeRequests) {
+      const requester = request.requestedBy?.name ?? request.requestedBy?.email ?? request.requestedBy?.login ?? 'unknown';
+      lines.push(`- **${request.id}** — return \`${request.sourcePhase}\` to \`${request.targetPhase}\`: ${request.comment} _(requested by ${requester} at ${request.requestedAt})_`);
+    }
+  }
   lines.push('', '## Recent history', '');
   workflow.history.slice(-15).reverse().forEach((item) => lines.push(`- ${item.at} — **${item.event}**${item.phase ? ` (${item.phase})` : ''} by ${item.actor ?? 'unknown'}${item.agent ? ` · governed agent ${item.agent}` : ''}${item.detail ? `: ${item.detail}` : ''}`));
   if (workflow.sequenceOverrides?.length) lines.push('', `> ⚠ ${workflow.sequenceOverrides.length} confirmed soft sequence override(s) are recorded for this work item.`);
@@ -326,6 +334,7 @@ export async function createWorkflow(root, config, { id, title, source, baseBran
     documents: { count: 0, updatedAt: null },
     collaboration: { assignments: {}, notifications: [] },
     sequenceOverrides: [],
+    changeRequests: [],
     history: [{ at: createdAt, actor: actorKey(actor), agent: agent ?? null, event: 'work_started', phase: phases[0]?.id ?? null, detail: `Created ${selectedType} branch ${branch(root)}` }]
   };
   if (capability?.policy?.maxDocumentBytes) {
@@ -383,6 +392,7 @@ function normalizeCurrentWorkflow(workflow) {
   workflow.collaboration.assignments ??= {};
   workflow.collaboration.notifications ??= [];
   workflow.sequenceOverrides ??= [];
+  workflow.changeRequests ??= [];
   workflow.usage.exactRecords ??= 0; workflow.usage.unavailableRecords ??= 0;
   workflow.usage.byPhase ??= {}; workflow.usage.byAgent ??= {}; workflow.usage.byWorkType ??= {}; workflow.usage.byWorkItem ??= {};
   for (const id of workflow.phaseOrder) {
@@ -878,6 +888,21 @@ export async function approvePhase(root, config, workflow, { phaseId, channel = 
   phase.approvals.push(decision); const reached = phase.approvals.filter((item) => !item.invalidatedAt && item.decision === 'approved').length >= (phase.approvalPolicy.minimum ?? 1);
   if (reached) {
     phase.status = 'approved'; phase.approvedAt = decision.at; phase.approvedBy = key;
+    const resolved = (workflow.changeRequests ?? []).filter((request) =>
+      request.status === 'open' && request.targetPhase === phase.id
+    );
+    for (const request of resolved) {
+      request.status = 'resolved';
+      request.resolvedAt = decision.at;
+      request.resolvedBy = key;
+      request.resolution = {
+        phase: phase.id,
+        generation: phase.generation,
+        artifactSha256: (phase.artifacts ?? []).map((artifact) => ({ path: artifact.path, sha256: artifact.sha256 ?? null })),
+        approvalDecisionAt: decision.at
+      };
+    }
+    if (resolved.length) decision.resolvedChangeRequests = resolved.map((request) => request.id);
     const upcoming = nextPhase(workflow, phase);
     if (upcoming) { upcoming.status = 'in_progress'; upcoming.startedAt = decision.at; workflow.currentPhase = upcoming.id; }
     else { workflow.currentPhase = null; workflow.status = 'complete'; }
@@ -910,7 +935,9 @@ async function refreshRequiredArtifact(root, config, workflow, phase) {
 export async function rejectPhase(root, config, workflow, { phaseId, target, reason, channel = 'terminal', actionContext = null } = {}) {
   await assertNoPendingPublication(root, config, workflow, 'reject');
   const phase = await assertPhaseSequence(root, workflow, 'reject', { requestedPhase: phaseId, allowedStatuses: ['awaiting_approval'] });
-  if (!reason?.trim()) throw new SingularityFlowError('A rejection reason is required.');
+  if (phase.approvalPolicy.changeRequests?.commentRequired !== false && !reason?.trim()) {
+    throw new SingularityFlowError('A change-request comment is required.');
+  }
   const session = await loadSession(root);
   const authority = requireApprovalAuthority(
     workflow.resolution.approvalAuthorities ?? config.approvalAuthorities,
@@ -920,11 +947,30 @@ export async function rejectPhase(root, config, workflow, { phaseId, target, rea
   const targetId = target ?? phase.id; if (!(phase.approvalPolicy.rejectTo ?? [phase.id]).includes(targetId)) throw new SingularityFlowError(`Phase '${phase.id}' cannot be rejected to '${targetId}'. Allowed: ${(phase.approvalPolicy.rejectTo ?? []).join(', ')}.`);
   const targetIndex = workflow.phaseOrder.indexOf(targetId); if (targetIndex < 0 || targetIndex > workflow.phaseOrder.indexOf(phase.id)) throw new SingularityFlowError(`Invalid rejection target '${targetId}'.`);
   const timestamp = nowIso(); const key = actorKey(session.actor);
+  workflow.changeRequests ??= [];
+  const changeRequest = {
+    schemaVersion: 1,
+    id: `CR-${String(workflow.changeRequests.length + 1).padStart(3, '0')}`,
+    status: 'open',
+    sourcePhase: phase.id,
+    sourceGeneration: phase.generation,
+    targetPhase: targetId,
+    comment: reason?.trim() || 'Changes requested.',
+    requestedAt: timestamp,
+    requestedBy: session.actor,
+    agent: session.agent,
+    channel,
+    authorityGroup: authority.authorityGroup,
+    identityAssurance: authority.identityAssurance,
+    sourceArtifactSha256: (phase.artifacts ?? []).map((artifact) => ({ path: artifact.path, sha256: artifact.sha256 ?? null })),
+    reviewPacketSha256: null,
+    resolution: null
+  };
   for (let index = targetIndex; index < workflow.phaseOrder.length; index += 1) {
     const affected = workflow.phases[workflow.phaseOrder[index]];
     affected.approvals.forEach((approval) => { if (!approval.invalidatedAt) approval.invalidatedAt = timestamp; });
     affected.status = index === targetIndex ? 'in_progress' : 'not_started'; affected.submittedAt = null; affected.approvedAt = null; affected.approvedBy = null;
-    if (index === targetIndex) { affected.rejectedAt = timestamp; affected.rejectedBy = key; affected.rejectionReason = reason.trim(); }
+    if (index === targetIndex) { affected.rejectedAt = timestamp; affected.rejectedBy = key; affected.rejectionReason = changeRequest.comment; }
     await updateArtifactMetadata(root, config, workflow, affected);
   }
   workflow.currentPhase = targetId; workflow.status = 'in_progress';
@@ -933,11 +979,14 @@ export async function rejectPhase(root, config, workflow, { phaseId, target, rea
   ) ?? [...(workflow.lineage?.submissions ?? [])].reverse().find((entry) =>
     entry.phase === phase.id && entry.generation === phase.generation
   );
+  changeRequest.reviewPacketSha256 = packet?.packetSha256 ?? null;
+  workflow.changeRequests.push(changeRequest);
   const decision = {
     decision: 'rejected',
     phase: phase.id,
     target: targetId,
-    reason: reason.trim(),
+    reason: changeRequest.comment,
+    changeRequestId: changeRequest.id,
     at: timestamp,
     actor: session.actor,
     agent: session.agent,
@@ -950,15 +999,94 @@ export async function rejectPhase(root, config, workflow, { phaseId, target, rea
     ...(actionContext ? { actionContext } : {})
   };
   phase.approvals.push(decision); await writeDecision(root, config, workflow, phase, decision);
-  workflow.history.push({ at: timestamp, actor: key, agent: session.agent, event: 'phase_rejected', phase: phase.id, detail: `returned to ${targetId}: ${reason.trim()}` });
+  workflow.history.push({ at: timestamp, actor: key, agent: session.agent, event: 'phase_rejected', phase: phase.id, detail: `${changeRequest.id} returned to ${targetId}: ${changeRequest.comment}` });
   await saveWorkflow(root, config, workflow);
   return {
     ...workflow.phases[targetId],
+    changeRequest,
     contextBoundary: contextBoundaryHandoff(workflow.resolution.contextPolicy, phase.id, {
       event: 'rejection',
       nextPhase: targetId
     })
   };
+}
+
+export async function reopenWorkflow(root, config, workflow, { target, reason, channel = 'terminal', actionContext = null } = {}) {
+  await assertNoPendingPublication(root, config, workflow, 'reopen completed work');
+  if (workflow.status !== 'complete' || workflow.currentPhase != null) {
+    throw new SingularityFlowError(`Story '${workflow.workItem.id}' is not complete; use reject while a phase is awaiting approval.`);
+  }
+  const completionPhase = workflow.phases[workflow.phaseOrder.at(-1)];
+  if (completionPhase.approvalPolicy.changeRequests?.reopenCompleted === false) {
+    throw new SingularityFlowError(`Phase '${completionPhase.id}' policy does not allow completed work to be reopened.`);
+  }
+  const targetId = target ?? completionPhase.id;
+  const allowed = completionPhase.approvalPolicy.rejectTo ?? [completionPhase.id];
+  if (!allowed.includes(targetId)) {
+    throw new SingularityFlowError(`Completed Story '${workflow.workItem.id}' cannot be reopened to '${targetId}'. Allowed: ${allowed.join(', ')}.`);
+  }
+  const targetIndex = workflow.phaseOrder.indexOf(targetId);
+  if (targetIndex < 0) throw new SingularityFlowError(`Unknown reopen target '${targetId}'.`);
+  if (completionPhase.approvalPolicy.changeRequests?.commentRequired !== false && !reason?.trim()) {
+    throw new SingularityFlowError('A change-request comment is required to reopen completed work.');
+  }
+  const session = await loadSession(root);
+  const authority = requireApprovalAuthority(
+    workflow.resolution.approvalAuthorities ?? config.approvalAuthorities,
+    completionPhase.approvalPolicy,
+    session.actor
+  );
+  const timestamp = nowIso();
+  const key = actorKey(session.actor);
+  workflow.changeRequests ??= [];
+  const changeRequest = {
+    schemaVersion: 1,
+    id: `CR-${String(workflow.changeRequests.length + 1).padStart(3, '0')}`,
+    status: 'open',
+    sourcePhase: completionPhase.id,
+    sourceGeneration: completionPhase.generation,
+    targetPhase: targetId,
+    comment: reason?.trim() || 'Completed work reopened.',
+    requestedAt: timestamp,
+    requestedBy: session.actor,
+    agent: session.agent,
+    channel,
+    authorityGroup: authority.authorityGroup,
+    identityAssurance: authority.identityAssurance,
+    sourceArtifactSha256: (completionPhase.artifacts ?? []).map((artifact) => ({ path: artifact.path, sha256: artifact.sha256 ?? null })),
+    reviewPacketSha256: null,
+    resolution: null
+  };
+  for (let index = targetIndex; index < workflow.phaseOrder.length; index += 1) {
+    const affected = workflow.phases[workflow.phaseOrder[index]];
+    affected.approvals.forEach((approval) => { if (!approval.invalidatedAt) approval.invalidatedAt = timestamp; });
+    affected.status = index === targetIndex ? 'in_progress' : 'not_started';
+    affected.submittedAt = null; affected.approvedAt = null; affected.approvedBy = null;
+    if (index === targetIndex) {
+      affected.rejectedAt = timestamp; affected.rejectedBy = key; affected.rejectionReason = changeRequest.comment;
+    }
+    await updateArtifactMetadata(root, config, workflow, affected);
+  }
+  workflow.currentPhase = targetId;
+  workflow.status = 'in_progress';
+  workflow.changeRequests.push(changeRequest);
+  const decision = {
+    decision: 'reopened', phase: completionPhase.id, target: targetId,
+    reason: changeRequest.comment, changeRequestId: changeRequest.id, at: timestamp,
+    actor: session.actor, agent: session.agent, authorityGroup: authority.authorityGroup,
+    identityAssurance: authority.identityAssurance, channel,
+    generation: completionPhase.generation,
+    artifactSha256: changeRequest.sourceArtifactSha256,
+    ...(actionContext ? { actionContext } : {})
+  };
+  completionPhase.approvals.push(decision);
+  await writeDecision(root, config, workflow, completionPhase, decision);
+  workflow.history.push({
+    at: timestamp, actor: key, agent: session.agent, event: 'workflow_reopened', phase: completionPhase.id,
+    detail: `${changeRequest.id} returned completed work to ${targetId}: ${changeRequest.comment}`
+  });
+  await saveWorkflow(root, config, workflow);
+  return { phase: workflow.phases[targetId], changeRequest, decision };
 }
 
 export async function commitAndPublish(root, config, workflow, event, message, extraPaths = []) {

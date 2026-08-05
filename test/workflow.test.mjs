@@ -236,9 +236,46 @@ test('bugfix profile is immutable and rejection reopens an allowed earlier phase
   flow(root, ['resume', workId], { selection: selection('bugfix', 'qa') }); flow(root, ['phase', 'publish', 'reproduction'], { selection: selection('bugfix', 'qa') }); flow(root, ['submit'], { selection: selection('bugfix', 'qa') });
   flow(root, ['reject', '--to', 'intake', '--reason', 'Need stronger impact evidence'], { selection: selection('bugfix', 'qa') });
   workflow = JSON.parse(await readFile(workflowFile, 'utf8')); assert.equal(workflow.currentPhase, 'intake'); assert.equal(workflow.phases.intake.rejectionReason, 'Need stronger impact evidence'); assert.equal(workflow.workItem.workType, 'bugfix');
+  assert.deepEqual(workflow.changeRequests.map(({ id, status, sourcePhase, targetPhase, comment }) => ({ id, status, sourcePhase, targetPhase, comment })), [{
+    id: 'CR-001', status: 'open', sourcePhase: 'reproduction', targetPhase: 'intake', comment: 'Need stronger impact evidence'
+  }]);
+  assert.equal(workflow.phases.reproduction.approvals.at(-1).changeRequestId, 'CR-001');
   assert.equal(workflow.phases.intake.approvals[0].invalidatedAt != null, true); assert.equal(workflow.phases.reproduction.status, 'not_started');
+  flow(root, ['prepare', 'intake'], { selection: selection('bugfix', 'product-owner') });
+  workflow = JSON.parse(await readFile(workflowFile, 'utf8')); await completeArtifact(root, workflow, 'intake');
+  flow(root, ['phase', 'publish', 'intake'], { selection: selection('bugfix', 'product-owner') });
+  flow(root, ['submit'], { selection: selection('bugfix', 'product-owner') });
+  flow(root, ['approve', '--yes'], { selection: selection('bugfix', 'product-owner') });
+  workflow = JSON.parse(await readFile(workflowFile, 'utf8'));
+  assert.equal(workflow.changeRequests[0].status, 'resolved');
+  assert.equal(workflow.changeRequests[0].resolution.phase, 'intake');
+  assert.equal(workflow.changeRequests[0].resolution.generation, 2);
+  assert.deepEqual(workflow.phases.intake.approvals.at(-1).resolvedChangeRequests, ['CR-001']);
   workflow.workItem.workType = 'feature'; await writeFile(workflowFile, JSON.stringify(workflow, null, 2));
   const tampered = flow(root, ['validate'], { allowFailure: true, selection: selection('bugfix', 'qa') }); assert.notEqual(tampered.status, 0); assert.match(tampered.stderr, /immutable profile snapshot/);
+});
+
+test('completed work can be reopened only through an authorized governed change request', async () => {
+  const root = await repository(); const workId = 'REOPEN-1';
+  flow(root, ['start', workId], { selection: selection('chore', 'developer') });
+  const workflowFile = path.join(root, 'singularity/work-items', workId, 'workflow.json');
+  const workflow = JSON.parse(await readFile(workflowFile, 'utf8'));
+  workflow.status = 'complete'; workflow.currentPhase = null;
+  for (const phaseId of workflow.phaseOrder) workflow.phases[phaseId].status = 'approved';
+  await writeFile(workflowFile, JSON.stringify(workflow, null, 2));
+  execute('git', ['add', workflowFile], root); execute('git', ['commit', '-m', 'simulate completed story'], root);
+
+  const result = flow(root, ['reopen', workId, '--to', 'implementation', '--reason', 'Production feedback requires safer rollback behavior']);
+  assert.match(result.stdout, /Reopened REOPEN-1 at implementation with CR-001/);
+  const reopened = JSON.parse(await readFile(workflowFile, 'utf8'));
+  assert.equal(reopened.status, 'in_progress'); assert.equal(reopened.currentPhase, 'implementation');
+  assert.equal(reopened.phases.implementation.status, 'in_progress');
+  assert.equal(reopened.phases.verification.status, 'not_started');
+  assert.equal(reopened.changeRequests[0].status, 'open');
+  assert.equal(reopened.changeRequests[0].comment, 'Production feedback requires safer rollback behavior');
+  assert.equal(reopened.history.at(-1).event, 'workflow_reopened');
+  assert.match(await readFile(path.join(root, 'singularity/work-items', workId, 'STATUS.md'), 'utf8'),
+    /CR-001.*Production feedback requires safer rollback behavior/);
 });
 
 test('multi-approval threshold requires distinct identities while allowing agent selection', async () => {

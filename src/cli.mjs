@@ -39,6 +39,7 @@ import {
   reconcilePhaseTelemetry,
   registerArtifact,
   rejectPhase,
+  reopenWorkflow,
   resolveWorkItem,
   saveWorkflow,
   scanArtifacts,
@@ -334,6 +335,7 @@ Usage:
   singularity-flow submit [--phase PHASE] [--skip-checks]
   singularity-flow approve [WORK-ID] [--fetch] [--phase PHASE] [--yes]
   singularity-flow reject [WORK-ID] [--fetch] --reason TEXT [--to PHASE]
+  singularity-flow reopen [WORK-ID] [--fetch] --reason TEXT --to PHASE
   singularity-flow sync
   singularity-flow validate [--strict]
   singularity-flow gate [--terminal]
@@ -1742,7 +1744,7 @@ async function approveCommand(positionals, options) {
 async function rejectCommand(positionals, options) {
   const { root, config, workflow, phase: current, session } = await decisionWorkflow(positionals, options, 'reject');
   const target = optionString(options, 'to') ?? current.id;
-  console.log(`Rejecting ${current.id} to ${target} as ${session.actor.name ?? session.actor.email ?? session.actor.login}; governed agent ${session.agent} is audit context only. Approvals from ${target} onward will be invalidated.`);
+  console.log(`Requesting changes to ${current.id}, returning work to ${target} as ${session.actor.name ?? session.actor.email ?? session.actor.login}; governed agent ${session.agent} is audit context only. Approvals from ${target} onward will be invalidated.`);
   const phase = await rejectPhase(root, config, workflow, {
     phaseId: optionString(options, 'phase'),
     target,
@@ -1751,8 +1753,38 @@ async function rejectCommand(positionals, options) {
     actionContext: activeActionContext()
   });
   await commitAndPublish(root, config, workflow, { type: 'phase-rejected', phaseId: current.id, generation: current.generation, actor: session.actor, agent: session.agent, payload: { targetPhaseId: phase.id } }, `[${workflow.workItem.id}][phase:${current.id}][reject] return to ${phase.id}`);
-  console.log(`Rejected ${current.id}; ${phase.id} is now in progress.`);
+  console.log(`Recorded ${phase.changeRequest.id}; ${phase.id} is now in progress. Comment: ${phase.changeRequest.comment}`);
   formatContextBoundaryHandoff(phase.contextBoundary).forEach((line) => console.log(line));
+}
+
+async function reopenCommand(positionals, options) {
+  const root = repoRoot();
+  const requestedId = positionals[1];
+  let config = await loadConfig(root);
+  if (requestedId && (requestedId !== branch(root) || optionBoolean(options, 'fetch'))) {
+    checkout(root, requestedId, { base: config.defaultBaseBranch, fetch: optionBoolean(options, 'fetch'), existingOnly: true });
+  }
+  config = await loadConfig(root);
+  const workflow = await loadStoryAggregate(root, config, requestedId);
+  const result = await reopenWorkflow(root, config, workflow, {
+    target: optionString(options, 'to'),
+    reason: optionString(options, 'reason'),
+    channel: 'terminal',
+    actionContext: activeActionContext()
+  });
+  const publication = await commitAndPublish(root, config, workflow, {
+    type: 'workflow-reopened',
+    phaseId: result.decision.phase,
+    generation: result.decision.generation,
+    actor: result.decision.actor,
+    agent: result.decision.agent,
+    authorityGroup: result.decision.authorityGroup,
+    payload: { targetPhaseId: result.phase.id, changeRequestId: result.changeRequest.id }
+  }, `[${workflow.workItem.id}][reopen:${result.phase.id}] ${result.changeRequest.id}`);
+  console.log(`Reopened ${workflow.workItem.id} at ${result.phase.id} with ${result.changeRequest.id}.`);
+  console.log(publication.pushed
+    ? `Decision committed ${publication.sha.slice(0, 8)} and pushed.`
+    : `Decision committed ${publication.sha.slice(0, 8)} locally.`);
 }
 
 async function syncCommand() {
@@ -5794,6 +5826,7 @@ async function dispatch(command, positionals, options) {
     submit: () => submitCommand(options),
     approve: () => approveCommand(positionals, options),
     reject: () => rejectCommand(positionals, options),
+    reopen: () => reopenCommand(positionals, options),
     sync: () => syncCommand(),
     ledger: () => ledgerCommand(positionals, options),
     capabilities: () => capabilitiesCommand(positionals, options),

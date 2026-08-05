@@ -402,6 +402,10 @@ function completedStoryNode(workflow: StoryWorkflow, documents: StoryArtifact[])
     icon: 'statusSuccess',
     contextValue: 'sflow.story.completed',
     children: [{
+      kind: 'action', id: 'completed-story:reopen', label: 'Request post-completion changes',
+      description: 'choose phase · record comment · reopen', icon: 'git-pull-request-go-to-changes',
+      runCommand: 'singularityFlow.reopenCompleted', contextValue: 'sflow.story.reopen'
+    }, {
       kind: 'action', id: 'completed-story:open', label: 'Open complete artifact catalog',
       description: 'documents · approvals · provenance', icon: 'inbox',
       runCommand: 'singularityFlow.openInbox', contextValue: 'sflow.completed.open'
@@ -539,6 +543,7 @@ function storyWorkflowNode(workflow: StoryWorkflow, documents: StoryArtifact[]):
   const phases = workflow.phaseOrder.map((id) => workflow.phases[id])
     .filter((phase): phase is StoryPhase => Boolean(phase));
   const approved = phases.filter((phase) => phase.status === 'approved').length;
+  const openChangeRequests = (workflow.changeRequests ?? []).filter((request) => request.status === 'open');
   return {
     kind: 'story',
     id: `active-story:${workflow.workItem.id}`,
@@ -555,7 +560,17 @@ function storyWorkflowNode(workflow: StoryWorkflow, documents: StoryArtifact[]):
       kind: 'action', id: 'story:analytics', label: 'Open lifecycle analytics',
       description: 'phases · time · tokens · cost', icon: 'impact',
       runCommand: 'singularityFlow.openDashboard', contextValue: 'sflow.story.analytics'
-    }, {
+    }, ...(openChangeRequests.length ? [{
+      kind: 'group' as const, id: 'story:change-requests', label: 'Changes requested',
+      description: `${openChangeRequests.length} open`, icon: 'prompt',
+      children: openChangeRequests.map((request) => ({
+        kind: 'message' as const, id: `story:change-request:${request.id}`,
+        label: `${request.id} · ${request.targetPhase}`,
+        description: request.comment,
+        tooltip: `${request.sourcePhase} → ${request.targetPhase}\n${request.comment}\nRequested ${request.requestedAt}`,
+        icon: 'prompt'
+      }))
+    }] : []), {
       kind: 'group', id: 'story:phase-rail', label: 'Story lifecycle',
       description: `${approved}/${phases.length} approved`, icon: 'list-ordered',
       children: phases.map((phase) => ({

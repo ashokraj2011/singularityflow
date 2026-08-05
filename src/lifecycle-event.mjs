@@ -8,6 +8,7 @@ export const LIFECYCLE_EVENT_TYPES = Object.freeze([
   'approval-requested',
   'phase-approved',
   'phase-rejected',
+  'workflow-reopened',
   'sequence-override',
   'evidence-recorded',
   'external-synchronized',

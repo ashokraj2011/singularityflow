@@ -332,7 +332,7 @@ function storySnapshot({ status = 'in_progress', generation = 0 } = {}) {
           id: 'design', label: 'Design', status, generation,
           generatedBy: { email: 'author@example.com' }, requiredArtifact: { path: artifact.path },
           artifacts: [artifact], approvals: [],
-          approvalPolicy: { authorities: ['architecture-reviewers'], minimum: 1 }
+          approvalPolicy: { authorities: ['architecture-reviewers'], minimum: 1, rejectTo: ['intake', 'design'] }
         }
       }
     },
@@ -428,6 +428,20 @@ test('a checked-out Story gets a phase rail with named prepare publish and submi
     'singularity/work-items/STORY-42/artifacts/design/design.md');
 });
 
+test('an open stakeholder change request is visible beside the reopened Story', () => {
+  const reopened = storySnapshot({ generation: 2 });
+  reopened.workflow.changeRequests = [{
+    id: 'CR-003', status: 'open', sourcePhase: 'design', targetPhase: 'intake',
+    comment: 'Clarify failure behavior before design continues.',
+    requestedAt: '2026-08-05T00:00:00.000Z', requestedBy: { email: 'reviewer@example.com' }
+  }];
+  const tree = buildTree(reopened);
+  assert.equal(find(tree, 'story:change-requests').description, '1 open');
+  const request = find(tree, 'story:change-request:CR-003');
+  assert.equal(request.label, 'CR-003 · intake');
+  assert.match(request.description, /Clarify failure behavior/);
+});
+
 test('a completed Story leaves the active rail and opens from Completed with every artifact', () => {
   const done = storySnapshot({ status: 'approved', generation: 1 });
   done.workflow.status = 'complete';
@@ -444,6 +458,7 @@ test('a completed Story leaves the active rail and opens from Completed with eve
   assert.match(story.description, /1 artifact/);
   assert.equal(find(tree, 'story:continue-safely'), undefined, 'terminal work has no mutation action');
   assert.equal(find(tree, 'completed-story:open').runCommand, 'singularityFlow.openInbox');
+  assert.equal(find(tree, 'completed-story:reopen').runCommand, 'singularityFlow.reopenCompleted');
   assert.equal(find(tree, 'completed-story-artifact:design:PHASE-DESIGN').path,
     'singularity/work-items/STORY-42/artifacts/design/design.md');
   assert.equal(find(tree, 'completed-story-artifact:design:PHASE-DESIGN').readOnly, true);
@@ -1271,6 +1286,7 @@ test('a submitted Story phase appears in the same approval inbox with its exact 
     'singularity/work-items/STORY-42/artifacts/design/design.md');
   assert.equal(approvals.pending[0].reviewPacketSha256, 'b'.repeat(64));
   assert.equal(approvals.pending[0].submittedSourceCommit, 'c'.repeat(40));
+  assert.deepEqual(approvals.pending[0].rejectTo, ['intake', 'design']);
   assert.match(approvals.pending[0].detail, /packet b{12}/);
 
   const inbox = buildInbox(shot);

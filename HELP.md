@@ -1318,6 +1318,26 @@ singularity-flow reject WORK-123 --fetch \
 
 Rejection reopens the target, invalidates target and downstream approvals, and preserves prior artifacts and decisions in Git history.
 
+Return completed work when later review or production feedback finds a problem:
+
+```bash
+singularity-flow reopen WORK-123 --fetch \
+  --to implementation \
+  --reason "Rollback behavior does not satisfy the approved operating model"
+```
+
+Both commands create a structured `CR-nnn` record. The record pins the human comment, requester and authority, governed agent, source generation and artifact hashes, target phase, and invalidated approval cone. The comment is shown in Story status, VS Code Lifecycle, and the reopened phase's Copilot context. Approval of the replacement generation resolves the request; history remains append-only.
+
+Allowed targets and completed-work behavior come from the phase policy:
+
+```yaml
+approval:
+  rejectTo: [requirements, design, implementation]
+  changeRequests:
+    commentRequired: true
+    reopenCompleted: true
+```
+
 Self-approval is allowed when the same authenticated person generated and approved a phase, but it is marked `selfApproval: true`. It appears in artifacts, decision records, status, reports, and conformance, and is never described as independent review.
 
 Each approval—including each partial decision toward a multi-approval threshold—creates and pushes a separate atomic commit before the command succeeds. If publication fails, the approval commit remains local, publication is marked pending, and later decisions are blocked until `singularity-flow sync` publishes it.
@@ -2050,6 +2070,7 @@ singularity-flow artifact scan [--phase PHASE]
 singularity-flow submit [--phase PHASE]
 singularity-flow approve [WORK-ID] [--fetch]
 singularity-flow reject [WORK-ID] [--fetch] --reason TEXT [--to PHASE]
+singularity-flow reopen [WORK-ID] [--fetch] --reason TEXT --to PHASE
 singularity-flow pr [WORK-ID] [--create] [--yes] [--json]
 singularity-flow sync
 singularity-flow ledger status|verify|publish ...

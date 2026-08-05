@@ -255,6 +255,11 @@
         "icon": "$(play)"
       },
       {
+        "command": "singularityFlow.reopenCompleted",
+        "title": "Singularity Flow: Request Changes to Completed Story",
+        "icon": "$(git-pull-request-go-to-changes)"
+      },
+      {
         "command": "singularityFlow.prepareStoryPhase",
         "title": "Singularity Flow: Prepare Current Story Phase",
         "icon": "$(tools)"

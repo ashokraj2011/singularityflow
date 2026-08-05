@@ -428,6 +428,49 @@ test('a checked-out Story gets a phase rail with named prepare publish and submi
     'singularity/work-items/STORY-42/artifacts/design/design.md');
 });
 
+test('a completed Story leaves the active rail and opens from Completed with every artifact', () => {
+  const done = storySnapshot({ status: 'approved', generation: 1 });
+  done.workflow.status = 'complete';
+  done.workflow.currentPhase = null;
+  done.workflow.phases.design.status = 'approved';
+  done.documents[0].status = 'approved';
+  const tree = buildTree(done);
+
+  assert.deepEqual(tree.map((node) => node.id), ['completed', 'workspace:impact']);
+  assert.equal(tree[0].label, 'Completed');
+  assert.equal(tree[0].description, '1 artifact');
+  const story = find(tree, 'completed-story:STORY-42');
+  assert.equal(story.contextValue, 'sflow.story.completed');
+  assert.match(story.description, /1 artifact/);
+  assert.equal(find(tree, 'story:continue-safely'), undefined, 'terminal work has no mutation action');
+  assert.equal(find(tree, 'completed-story:open').runCommand, 'singularityFlow.openInbox');
+  assert.equal(find(tree, 'completed-story-artifact:design:PHASE-DESIGN').path,
+    'singularity/work-items/STORY-42/artifacts/design/design.md');
+  assert.equal(find(tree, 'completed-story-artifact:design:PHASE-DESIGN').readOnly, true);
+});
+
+test('a completed Initiative is archived with its generated outputs, not active actions', () => {
+  const done = structuredClone(snapshot);
+  done.initiative.state.status = 'complete';
+  done.initiative.state.currentPhase = null;
+  const output = done.initiative.state.phases.define.outputs['business-case'];
+  output.status = 'approved';
+  output.sha256 = 'c'.repeat(64);
+  done.initiative.documents = [{
+    ...output, phase: 'define', repositoryPath:
+      'singularity/initiatives/INIT-MULTI/artifacts/define/business-case.md'
+  }];
+  const tree = buildTree(done);
+
+  assert.deepEqual(tree.map((node) => node.id), ['completed', 'workspace:impact']);
+  assert.equal(tree[0].description, '1 artifact');
+  assert.ok(find(tree, 'completed-initiative:INIT-MULTI'));
+  assert.equal(find(tree, 'initiative:continue-safely'), undefined);
+  assert.equal(find(tree, 'completed-initiative:open').runCommand, 'singularityFlow.openInbox');
+  assert.equal(find(tree, 'completed-initiative-artifact:define/business-case').path,
+    'singularity/initiatives/INIT-MULTI/artifacts/define/business-case.md');
+});
+
 test('the tree is built from the real snapshot: lifecycle, phases, artifacts, Stories', () => {
   const tree = buildTree(snapshot);
   // Once intake has selected a workflow, Lifecycle shows only that work and its phases.

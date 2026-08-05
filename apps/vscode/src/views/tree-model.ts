@@ -274,7 +274,13 @@ export function buildLifecycleTree(snapshot: RepositorySnapshot | null, error: E
     runCommand: 'singularityFlow.openImpact', contextValue: 'sflow.workspace.impact'
   };
 
-  if (snapshot.workflow) return [storyWorkflowNode(snapshot.workflow, snapshot.documents ?? []), workspaceImpact];
+  if (snapshot.workflow) {
+    if (snapshot.workflow.status === 'complete') {
+      const completed = completedStoryNode(snapshot.workflow, snapshot.documents ?? []);
+      return [completedFolder(completed, countArtifacts(completed)), workspaceImpact];
+    }
+    return [storyWorkflowNode(snapshot.workflow, snapshot.documents ?? []), workspaceImpact];
+  }
 
   const initiative = snapshot.initiative;
   if (!initiative) {
@@ -307,7 +313,175 @@ export function buildLifecycleTree(snapshot: RepositorySnapshot | null, error: E
   // Workflow selection belongs to intake. Once work exists, Lifecycle shows only that work and its
   // phases; showing every other configured workflow beside it made Configuration and Lifecycle look
   // like duplicate workflow browsers.
+  if (initiative.state.status === 'complete') {
+    const completed = completedInitiativeNode(initiative);
+    return [completedFolder(completed, countArtifacts(completed)), workspaceImpact];
+  }
   return [initiativeNode(initiative), workspaceImpact];
+}
+
+/** Count unique, openable artifact paths beneath one completed subject. */
+function countArtifacts(node: TreeNode): number {
+  const paths = new Set<string>();
+  const visit = (current: TreeNode): void => {
+    if (current.kind === 'artifact' && current.path) paths.add(current.path);
+    for (const child of current.children ?? []) visit(child);
+  };
+  visit(node);
+  return paths.size;
+}
+
+/**
+ * Completion changes where work is presented, not where governed state is stored.
+ *
+ * Git paths stay immutable for lineage and resume. `Completed` is therefore a presentation folder:
+ * it removes terminal work from the active rail while preserving direct access to its evidence.
+ */
+function completedFolder(subject: TreeNode, artifactCount: number): TreeNode {
+  return {
+    kind: 'group',
+    id: 'completed',
+    label: 'Completed',
+    description: `${artifactCount} ${artifactCount === 1 ? 'artifact' : 'artifacts'}`,
+    tooltip: 'Finished work is archived here. Expand it to browse every generated artifact.',
+    icon: 'pack',
+    contextValue: 'sflow.completed',
+    children: [subject]
+  };
+}
+
+function storyArtifactGroups(workflow: StoryWorkflow, documents: StoryArtifact[]): TreeNode[] {
+  const unique = new Map<string, StoryArtifact>();
+  for (const document of documents) {
+    if (document.path) unique.set(document.path, document);
+  }
+  const phaseOrder = [...workflow.phaseOrder, 'documents'];
+  const phaseLabels = new Map(workflow.phaseOrder.map((phaseId) =>
+    [phaseId, workflow.phases[phaseId]?.label ?? phaseId] as const));
+  phaseLabels.set('documents', 'Other documents');
+
+  const grouped = new Map<string, StoryArtifact[]>();
+  for (const document of unique.values()) {
+    const phaseId = document.phase && workflow.phases[document.phase] ? document.phase : 'documents';
+    grouped.set(phaseId, [...(grouped.get(phaseId) ?? []), document]);
+  }
+  return [...grouped.entries()]
+    .sort(([left], [right]) => phaseOrder.indexOf(left) - phaseOrder.indexOf(right))
+    .map(([phaseId, artifacts]) => ({
+      kind: 'group' as const,
+      id: `completed-story-phase:${phaseId}`,
+      label: phaseLabels.get(phaseId) ?? phaseId,
+      description: String(artifacts.length),
+      icon: 'phase',
+      children: artifacts
+        .sort((left, right) => (left.label ?? left.id ?? left.path)
+          .localeCompare(right.label ?? right.id ?? right.path))
+        .map((document) => ({
+          kind: 'artifact' as const,
+          id: `completed-story-artifact:${phaseId}:${document.id ?? document.path}`,
+          label: document.label ?? document.id ?? document.path,
+          description: document.status?.replace(/_/g, ' ') ?? 'generated',
+          tooltip: `${document.path}\nsha256 ${document.sha256 ?? 'unavailable'}`,
+          icon: document.status === 'approved' ? 'statusSuccess' : 'artifact',
+          path: document.path,
+          readOnly: document.status === 'approved',
+          contextValue: document.status === 'approved' ? 'sflow.artifact.pinned' : 'sflow.artifact'
+        }))
+    }));
+}
+
+function completedStoryNode(workflow: StoryWorkflow, documents: StoryArtifact[]): TreeNode {
+  const artifacts = storyArtifactGroups(workflow, documents);
+  const count = artifacts.reduce((total, group) => total + (group.children?.length ?? 0), 0);
+  return {
+    kind: 'story',
+    id: `completed-story:${workflow.workItem.id}`,
+    label: workflow.workItem.id,
+    description: `${workflow.workItem.title ?? workflow.workItem.workType ?? 'Story'} · ${count} ${count === 1 ? 'artifact' : 'artifacts'}`,
+    tooltip: `Completed ${workflow.workItem.workType ?? 'Story'} workflow\nBranch ${workflow.workItem.branch ?? 'unknown'}`,
+    icon: 'statusSuccess',
+    contextValue: 'sflow.story.completed',
+    children: [{
+      kind: 'action', id: 'completed-story:open', label: 'Open complete artifact catalog',
+      description: 'documents · approvals · provenance', icon: 'inbox',
+      runCommand: 'singularityFlow.openInbox', contextValue: 'sflow.completed.open'
+    }, {
+      kind: 'action', id: 'completed-story:analytics', label: 'Open lifecycle analytics',
+      description: 'phases · time · tokens · cost', icon: 'impact',
+      runCommand: 'singularityFlow.openDashboard', contextValue: 'sflow.story.analytics'
+    }, {
+      kind: 'group', id: 'completed-story:artifacts', label: 'All generated artifacts',
+      description: String(count), icon: 'pack',
+      children: artifacts.length ? artifacts : [{
+        kind: 'message', id: 'completed-story:artifacts-empty', label: 'No generated artifacts were recorded',
+        icon: 'info'
+      }]
+    }]
+  };
+}
+
+function completedInitiativeNode(initiative: InitiativeSnapshot): TreeNode {
+  const { state } = initiative;
+  const phaseLabels = new Map(state.resolution.phases.map((phase) => [phase.id, phase.label] as const));
+  const phaseOrder = state.phaseOrder;
+  const unique = new Map<string, InitiativeOutput>();
+  for (const output of initiative.documents ?? []) {
+    const repositoryPath = output.repositoryPath ?? output.path;
+    if (repositoryPath && output.sha256) unique.set(repositoryPath, output);
+  }
+  const grouped = new Map<string, InitiativeOutput[]>();
+  for (const output of unique.values()) {
+    const phaseId = output.phase ?? 'documents';
+    grouped.set(phaseId, [...(grouped.get(phaseId) ?? []), output]);
+  }
+  const artifacts: TreeNode[] = [...grouped.entries()]
+    .sort(([left], [right]) => {
+      const leftIndex = phaseOrder.indexOf(left); const rightIndex = phaseOrder.indexOf(right);
+      return (leftIndex < 0 ? Number.MAX_SAFE_INTEGER : leftIndex)
+        - (rightIndex < 0 ? Number.MAX_SAFE_INTEGER : rightIndex);
+    })
+    .map(([phaseId, outputs]) => ({
+      kind: 'group' as const,
+      id: `completed-initiative-phase:${phaseId}`,
+      label: phaseLabels.get(phaseId) ?? (phaseId === 'documents' ? 'Other documents' : phaseId),
+      description: String(outputs.length),
+      icon: 'phase',
+      children: outputs
+        .sort((left, right) => (left.label ?? left.id).localeCompare(right.label ?? right.id))
+        .map((output) => ({
+          kind: 'artifact' as const,
+          id: `completed-initiative-artifact:${phaseId}/${output.id}`,
+          label: output.label ?? output.id,
+          description: output.status.replace(/_/g, ' '),
+          tooltip: `${output.repositoryPath ?? output.path}\nsha256 ${output.sha256 ?? 'unavailable'}`,
+          icon: output.status === 'approved' ? 'statusSuccess' : 'artifact',
+          path: output.repositoryPath ?? output.path,
+          readOnly: output.status === 'approved',
+          contextValue: output.status === 'approved' ? 'sflow.artifact.pinned' : 'sflow.artifact'
+        }))
+    }));
+  const count = artifacts.reduce((total, group) => total + (group.children?.length ?? 0), 0);
+  return {
+    kind: 'initiative',
+    id: `completed-initiative:${state.initiative.id}`,
+    label: state.initiative.id,
+    description: `${state.initiative.title ?? state.resolution.profile} · ${count} ${count === 1 ? 'artifact' : 'artifacts'}`,
+    tooltip: `Completed ${state.resolution.profile}\nBranch ${state.initiative.branch ?? 'unknown'}`,
+    icon: 'statusSuccess',
+    contextValue: 'sflow.initiative.completed',
+    children: [{
+      kind: 'action', id: 'completed-initiative:open', label: 'Open complete artifact catalog',
+      description: 'documents · approvals · provenance', icon: 'inbox',
+      runCommand: 'singularityFlow.openInbox', contextValue: 'sflow.completed.open'
+    }, {
+      kind: 'group', id: 'completed-initiative:artifacts', label: 'All generated artifacts',
+      description: String(count), icon: 'pack',
+      children: artifacts.length ? artifacts : [{
+        kind: 'message', id: 'completed-initiative:artifacts-empty', label: 'No generated artifacts were recorded',
+        icon: 'info'
+      }]
+    }]
+  };
 }
 
 function storyDocumentNodes(documents: StoryArtifact[], phaseId: string): TreeNode[] {

@@ -743,7 +743,7 @@ async function helpCommand(positionals, options) {
 async function startCommand(positionals, options) {
   const id = requirePositional(positionals, 1, 'work ID');
   const root = repoRoot();
-  const config = await loadConfig(root);
+  let config = await loadConfig(root);
   validateId(config, id);
   const receiptToken = optionString(options, 'selection-receipt');
   const receipt = receiptToken ? await resolveSelectionReceipt(root, config, receiptToken, { action: 'start', workId: id }) : null;
@@ -760,6 +760,20 @@ async function startCommand(positionals, options) {
   const declaredSource = jira ? 'jira' : hasManualInput ? 'manual' : null;
   const receiptSource = receipt?.answers['intake-source'] ?? null;
   if (declaredSource && receiptSource && declaredSource !== receiptSource) throw new SingularityFlowError(`Selection receipt chose ${receiptSource} intake, but the start command explicitly requests ${declaredSource} intake.`);
+  const explicitBase = optionString(options, 'base');
+  const canonicalBranch = optionString(options, 'ref', id);
+  const baseAtStart = explicitBase ?? config.defaultBaseBranch;
+  const remote = config.git?.remote ?? 'origin';
+  checkout(root, canonicalBranch, {
+    base: baseAtStart,
+    fetch: optionBoolean(options, 'fetch'),
+    remote
+  });
+  // The selected lifecycle branch, not the checkout the user happened to start from, owns the
+  // workflow definition. Reload after materialization so a newly fetched phase graph, agent,
+  // template, or world-model policy is what gets pinned into the Story.
+  config = await loadConfig(root);
+  validateId(config, id);
   // A materialized Story arrives on a branch carrying its own governed seed — the requirements, the
   // specification and the traceability are already pinned there. Asking where the work came from is
   // asking a question the branch has already answered, and asking it interactively made starting a
@@ -807,10 +821,7 @@ async function startCommand(positionals, options) {
   );
   if (receiptToken) await consumeSelectionReceipt(root, receiptToken);
 
-  const explicitBase = optionString(options, 'base');
-  const canonicalBranch = optionString(options, 'ref', id);
-  let base = explicitBase ?? config.defaultBaseBranch;
-  checkout(root, canonicalBranch, { base, fetch: optionBoolean(options, 'fetch') });
+  let base = baseAtStart;
   const seedFile = path.join(root, 'singularity', 'seeds', `${id}.yml`);
   if (existsSync(seedFile)) {
     const seed = YAML.parse(await readFile(seedFile, 'utf8'));
@@ -884,7 +895,12 @@ async function choicesCommand(positionals, options) {
     let workflow = null;
     if (action === 'approve') {
       assertClean(root);
-      if (workId !== branch(root) || optionBoolean(options, 'fetch')) checkout(root, workId, { base: config.defaultBaseBranch, fetch: optionBoolean(options, 'fetch'), existingOnly: true });
+      if (workId !== branch(root) || optionBoolean(options, 'fetch')) checkout(root, workId, {
+        base: config.defaultBaseBranch,
+        fetch: optionBoolean(options, 'fetch'),
+        existingOnly: true,
+        remote: config.git?.remote ?? 'origin'
+      });
       config = await loadConfig(root);
       workflow = await loadStoryAggregate(root, config, workId);
       await assertNoPendingPublication(root, config, workflow, 'prepare an approval selection');
@@ -923,7 +939,7 @@ async function resumeCommand(positionals, options) {
   validateId(initialConfig, resolved.workId);
   const targetBranch = resolved.selectedBranch ?? resolved.branch;
   if (branch(root) !== targetBranch && !optionBoolean(options, 'allow-dirty')) assertClean(root);
-  checkout(root, targetBranch, { base: initialConfig.defaultBaseBranch, fetch, existingOnly: true });
+  checkout(root, targetBranch, { base: initialConfig.defaultBaseBranch, fetch, existingOnly: true, remote });
   const config = await loadConfig(root);
   const workflow = await loadStoryAggregate(root, config, resolved.workId);
   const session = await activatePhaseAgent(
@@ -1711,7 +1727,12 @@ async function decisionWorkflow(positionals, options, action) {
   const receiptToken = optionString(options, 'selection-receipt');
   if (receiptToken) assertClean(root);
   let config = await loadConfig(root);
-  if (requestedId && (requestedId !== branch(root) || optionBoolean(options, 'fetch'))) checkout(root, requestedId, { base: config.defaultBaseBranch, fetch: optionBoolean(options, 'fetch'), existingOnly: true });
+  if (requestedId && (requestedId !== branch(root) || optionBoolean(options, 'fetch'))) checkout(root, requestedId, {
+    base: config.defaultBaseBranch,
+    fetch: optionBoolean(options, 'fetch'),
+    existingOnly: true,
+    remote: config.git?.remote ?? 'origin'
+  });
   config = await loadConfig(root);
   const workflow = await loadStoryAggregate(root, config, requestedId);
   const workId = workflow.workItem.id;
@@ -1797,7 +1818,12 @@ async function reopenCommand(positionals, options) {
   const requestedId = positionals[1];
   let config = await loadConfig(root);
   if (requestedId && (requestedId !== branch(root) || optionBoolean(options, 'fetch'))) {
-    checkout(root, requestedId, { base: config.defaultBaseBranch, fetch: optionBoolean(options, 'fetch'), existingOnly: true });
+    checkout(root, requestedId, {
+      base: config.defaultBaseBranch,
+      fetch: optionBoolean(options, 'fetch'),
+      existingOnly: true,
+      remote: config.git?.remote ?? 'origin'
+    });
   }
   config = await loadConfig(root);
   const workflow = await loadStoryAggregate(root, config, requestedId);
@@ -3348,8 +3374,8 @@ async function knowledgeCommand(positionals, options) {
 async function initiativeCommand(positionals, options) {
   const subcommand = positionals[1] ?? 'status';
   const root = repoRoot();
-  const portfolio = await loadPortfolio(root);
-  const config = await loadConfig(root);
+  let portfolio = await loadPortfolio(root);
+  let config = await loadConfig(root);
   if (subcommand === 'profiles') {
     const profiles = initiativeProfileChoices(portfolio);
     if (optionBoolean(options, 'json')) console.log(JSON.stringify(profiles, null, 2));
@@ -3363,15 +3389,26 @@ async function initiativeCommand(positionals, options) {
     const initiativeId = requirePositional(positionals, 2, 'initiative ID');
     validateInitiativeId(initiativeId);
     if (!optionBoolean(options, 'allow-dirty')) assertClean(root);
-    const choiceSets = initiativeStartChoiceSets(portfolio);
     const receiptToken = optionString(options, 'selection-receipt');
+    checkout(root, initiativeId, {
+      base: optionString(options, 'base', config.defaultBaseBranch),
+      fetch: optionBoolean(options, 'fetch'),
+      remote: config.git?.remote ?? 'origin'
+    });
+    // The materialized Initiative branch owns its lifecycle contract. Resolve the selection receipt,
+    // profile, starting phase and agent only after switching, so a profile newly published to the
+    // configured remote is selectable and stale local main cannot pin an older contract.
+    portfolio = await loadPortfolio(root);
+    config = await loadConfig(root);
+    const choiceSets = initiativeStartChoiceSets(portfolio);
     const receipt = receiptToken ? await resolveCustomSelectionReceipt(root, receiptToken, {
       action: 'initiative-start',
       workId: initiativeId,
       choiceSets
     }) : null;
     const profile = await chooseInitiativeProfile(portfolio, receipt?.answers['initiative-profile'] ?? optionString(options, 'profile'));
-    const startPhaseId = optionString(options, 'start-phase') ?? portfolio.initiativeProfiles[profile].phases[0];
+    const requestedStartPhase = optionString(options, 'start-phase');
+    const startPhaseId = requestedStartPhase ?? portfolio.initiativeProfiles[profile].phases[0];
     const selectedAgent = await activateInitiativeAgent(
       root, config, initiativeId, portfolio.initiativePhases[startPhaseId], optionString(options, 'agent') ?? null
     );
@@ -3379,7 +3416,6 @@ async function initiativeCommand(positionals, options) {
     const source = optionBoolean(options, 'jira')
       ? await getIssue(initiativeId)
       : { type: 'manual', id: initiativeId, title: optionString(options, 'title', initiativeId), description: optionString(options, 'description', '') };
-    checkout(root, initiativeId, { base: optionString(options, 'base', config.defaultBaseBranch), fetch: optionBoolean(options, 'fetch') });
     const created = await createInitiative(root, {
       // Enter the lifecycle where the work actually is. The phases before it are recorded as
       // skipped rather than approved — an approval that never happened must never look like one.

@@ -45,6 +45,45 @@ test('start refuses non-interactive selection without a test or UI selection', a
   assert.notEqual(result.status, 0); assert.match(result.stderr, /requires an interactive terminal/);
 });
 
+test('CLI Story start pins configuration and world model from the refreshed configured remote', async () => {
+  const source = await repository();
+  const configPath = path.join(source, 'singularity/workflow.yml');
+  const config = YAML.parse(await readFile(configPath, 'utf8'));
+  config.git.remote = 'company';
+  await writeFile(configPath, YAML.stringify(config));
+  execute('git', ['add', 'singularity/workflow.yml'], source);
+  execute('git', ['commit', '-m', 'configure corporate remote'], source);
+
+  const parent = await mkdtemp(path.join(os.tmpdir(), 'singularity-flow-cli-remote-'));
+  const remote = path.join(parent, 'remote.git');
+  const clone = path.join(parent, 'clone');
+  execute('git', ['clone', '--bare', source, remote], parent);
+  execute('git', ['clone', remote, clone], parent);
+  execute('git', ['remote', 'rename', 'origin', 'company'], clone);
+  execute('git', ['config', 'user.name', 'Singularity Flow Test'], clone);
+  execute('git', ['config', 'user.email', 'singularity-flow@example.com'], clone);
+
+  const current = YAML.parse(await readFile(configPath, 'utf8'));
+  current.workTypes.chore.label = 'Remote governed chore';
+  await writeFile(configPath, YAML.stringify(current));
+  const worldModelPath = path.join(source, 'singularity/world-model/manifest.json');
+  await mkdir(path.dirname(worldModelPath), { recursive: true });
+  await writeFile(worldModelPath, JSON.stringify({ marker: 'remote-world-model' }, null, 2));
+  execute('git', ['add', 'singularity/workflow.yml', 'singularity/world-model/manifest.json'], source);
+  execute('git', ['commit', '-m', 'publish remote workflow and world model'], source);
+  execute('git', ['push', remote, 'main'], source);
+
+  flow(clone, ['start', 'WORK-CLI-REMOTE', '--fetch', '--title', 'Use remote state'], {
+    selection: selection('chore', 'developer')
+  });
+
+  const workflow = JSON.parse(await readFile(path.join(clone, 'singularity/work-items/WORK-CLI-REMOTE/workflow.json'), 'utf8'));
+  assert.equal(workflow.workItem.workTypeLabel, 'Remote governed chore');
+  const inheritedModel = JSON.parse(await readFile(path.join(clone, 'singularity/world-model/manifest.json'), 'utf8'));
+  assert.equal(inheritedModel.marker, 'remote-world-model');
+  assert.equal(execute('git', ['branch', '--show-current'], clone).stdout.trim(), 'WORK-CLI-REMOTE');
+});
+
 test('agent selection changes only the local session and persists for later actions', async () => {
   const root = await repository(); const workId = 'AGENT-1';
   flow(root, ['start', workId], { selection: selection('feature', 'product-owner') });

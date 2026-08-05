@@ -1,5 +1,5 @@
 import assert from 'node:assert/strict';
-import { mkdtemp, readFile, writeFile } from 'node:fs/promises';
+import { mkdir, mkdtemp, readFile, writeFile } from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
 import { spawnSync } from 'node:child_process';
@@ -85,6 +85,44 @@ test('Story intake creates durable manual state and resumes an existing branch',
   });
   assert.equal(resumed.resumed, true);
   assert.equal(resumed.workflow.workItem.workType, 'feature');
+});
+
+test('Story intake pins refreshed remote configuration and world-model files from a named corporate remote', async () => {
+  const source = await repository();
+  const initialDefinitionPath = path.join(source, 'singularity/workflow.yml');
+  const initialDefinition = YAML.parse(await readFile(initialDefinitionPath, 'utf8'));
+  initialDefinition.git.remote = 'company';
+  await writeFile(initialDefinitionPath, YAML.stringify(initialDefinition));
+  run('git', ['add', 'singularity/workflow.yml'], source);
+  run('git', ['commit', '-m', 'Configure corporate remote'], source);
+
+  const base = await mkdtemp(path.join(os.tmpdir(), 'sflow-desktop-story-remote-'));
+  const remote = path.join(base, 'company.git');
+  const clone = path.join(base, 'clone');
+  run('git', ['clone', '--bare', source, remote], base);
+  run('git', ['clone', remote, clone], base);
+  run('git', ['remote', 'rename', 'origin', 'company'], clone);
+  run('git', ['config', 'user.name', 'Desktop Story Tester'], clone);
+  run('git', ['config', 'user.email', 'desktop-story@example.com'], clone);
+
+  // Another contributor publishes both a newer phase profile and the repository model. The local
+  // clone intentionally keeps its main branch behind.
+  const refreshed = YAML.parse(await readFile(initialDefinitionPath, 'utf8'));
+  refreshed.workTypes.chore.label = 'Remote governed chore';
+  await writeFile(initialDefinitionPath, YAML.stringify(refreshed));
+  await mkdir(path.join(source, 'singularity/world-model'), { recursive: true });
+  await writeFile(path.join(source, 'singularity/world-model/manifest.json'), '{"schema_version":"2.0","marker":"remote"}\n');
+  run('git', ['add', 'singularity/workflow.yml', 'singularity/world-model/manifest.json'], source);
+  run('git', ['commit', '-m', 'Publish refreshed configuration and world model'], source);
+  run('git', ['push', remote, 'main'], source);
+
+  const started = await startStory(clone, {
+    id: 'WORK-REMOTE-1',
+    source: manualStorySource('WORK-REMOTE-1', { title: 'Use refreshed governance' }),
+    workType: 'chore'
+  });
+  assert.equal(started.workflow.workItem.workTypeLabel, 'Remote governed chore');
+  assert.match(await readFile(path.join(clone, 'singularity/world-model/manifest.json'), 'utf8'), /"marker":"remote"/);
 });
 
 test('manual Story source requires only a Work ID and title while normalizing optional lists', () => {

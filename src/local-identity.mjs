@@ -210,7 +210,10 @@ export async function reserveLocalEpicBranch(root, portfolio, {
   for (let attempt = 1; attempt <= maxAttempts; attempt += 1) {
     const allocation = await nextLocalEpicId(root, portfolio, { remote, fetch: true });
     const id = allocation.id;
-    checkout(root, id, { base, remote });
+    // Allocation fetched the organisation remote to discover concurrent reservations. The new
+    // Epic must also fork from that refreshed base; otherwise it can omit configuration and a
+    // repository world model already published by another contributor.
+    checkout(root, id, { base, remote, preferRemoteBase: true });
     const relative = posix(path.join('singularity', 'identity-reservations', `${id}.json`));
     const absolute = path.join(root, relative);
     await ensureDir(path.dirname(absolute));

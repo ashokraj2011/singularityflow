@@ -81,27 +81,33 @@ export async function startStory(root, {
   files = [],
   urls = []
 } = {}) {
-  const definition = await loadDefinition(root);
-  validateId(definition, id);
-  if (!definition.workTypes?.[workType]) throw new SingularityFlowError(`Unknown work type '${workType ?? ''}'.`);
-  const resolved = resolveWorkType(definition, workType);
-  const selectedAgent = agent ?? resolved.phases[0]?.defaultAgent;
-  if (!definition.agents?.[selectedAgent]) throw new SingularityFlowError(`Work type '${workType}' has no default governed agent for its first phase.`);
+  const initialDefinition = await loadDefinition(root);
+  validateId(initialDefinition, id);
   const normalizedSource = validateStorySource(source, id);
   const actor = identity(root);
-  const remote = definition.git?.remote ?? 'origin';
+  const remote = initialDefinition.git?.remote ?? 'origin';
 
   assertClean(root);
   fetchRemote(root, remote);
   const existed = refExists(root, `refs/heads/${id}`)
     || refExists(root, `refs/remotes/${remote}/${id}`);
   const checkoutMode = checkout(root, id, {
-    base: definition.defaultBaseBranch,
+    base: initialDefinition.defaultBaseBranch,
     remote,
     // fetchRemote above discovered both the Story branch and the latest base. When this is a new
     // Story, fork from that refreshed remote base rather than a possibly stale local main.
     preferRemoteBase: true
   });
+
+  // The branch we just materialized is authoritative for new lifecycle configuration. Keeping the
+  // definition loaded from the old checkout meant the files came from fresh remote main while the
+  // pinned phase graph, agents, templates, and world-model policy came from stale local main.
+  const definition = await loadDefinition(root);
+  validateId(definition, id);
+  if (!definition.workTypes?.[workType]) throw new SingularityFlowError(`Unknown work type '${workType ?? ''}'.`);
+  const resolved = resolveWorkType(definition, workType);
+  const selectedAgent = agent ?? resolved.phases[0]?.defaultAgent;
+  if (!definition.agents?.[selectedAgent]) throw new SingularityFlowError(`Work type '${workType}' has no default governed agent for its first phase.`);
 
   if (existed) {
     // fetchRemote updated the remote-tracking ref; now advance an existing

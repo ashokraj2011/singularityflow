@@ -182,6 +182,30 @@ test('a fetched new work branch starts from the refreshed remote base rather tha
     '{"schema_version":"2.0"}\n');
 });
 
+test('local Epic reservation inherits the refreshed remote base after identity allocation fetches', async () => {
+  const base = await mkdtemp(path.join(os.tmpdir(), 'sflow-local-epic-base-'));
+  const source = await repository();
+  const remote = path.join(base, 'origin.git');
+  const clone = path.join(base, 'clone');
+  run('git', ['clone', '--bare', source, remote], { cwd: base });
+  run('git', ['clone', remote, clone], { cwd: base });
+  run('git', ['config', 'user.name', 'Planner'], { cwd: clone });
+  run('git', ['config', 'user.email', 'planner@example.com'], { cwd: clone });
+
+  await mkdir(path.join(source, 'singularity/world-model'), { recursive: true });
+  await writeFile(path.join(source, 'singularity/world-model/manifest.json'), '{"schema_version":"2.0","marker":"remote"}\n');
+  run('git', ['add', 'singularity/world-model/manifest.json'], { cwd: source });
+  run('git', ['commit', '-m', 'Publish repository world model'], { cwd: source });
+  run('git', ['push', remote, 'main'], { cwd: source });
+
+  const reserved = await reserveLocalEpicBranch(clone, policy(), {
+    base: 'main',
+    actor: { name: 'Planner', email: 'planner@example.com' }
+  });
+  assert.equal(reserved.id, 'SF-E-001');
+  assert.match(await readFile(path.join(clone, 'singularity/world-model/manifest.json'), 'utf8'), /"marker":"remote"/);
+});
+
 test('an Epic whose branch was never pushed is still listed from another branch', async () => {
   // The Epic list read the working tree and the remote, so an Epic whose push failed existed on
   // exactly one local branch and nowhere the app could see it. From main it was invisible, while

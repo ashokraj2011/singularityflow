@@ -102,6 +102,48 @@ test('initiative CLI starts, prepares, publishes, records evidence, approves, an
   assert.match(git(root, ['ls-files']), /singularity\/initiatives\/INIT-CLI\/evidence\/files\//);
 });
 
+test('Initiative start pins the refreshed configured-remote profile and world model', async () => {
+  const source = await repository();
+  const workflowPath = path.join(source, 'singularity/workflow.yml');
+  const workflow = YAML.parse(await readFile(workflowPath, 'utf8'));
+  workflow.git.remote = 'company';
+  await writeFile(workflowPath, YAML.stringify(workflow));
+  git(source, ['add', 'singularity/workflow.yml']);
+  git(source, ['commit', '-m', 'Configure corporate remote']);
+
+  const parent = await mkdtemp(path.join(os.tmpdir(), 'sflow-initiative-fresh-base-'));
+  const remote = path.join(parent, 'remote.git');
+  const clone = path.join(parent, 'clone');
+  git(parent, ['clone', '--bare', source, remote]);
+  git(parent, ['clone', remote, clone]);
+  git(clone, ['remote', 'rename', 'origin', 'company']);
+  git(clone, ['config', 'user.name', actor]);
+  git(clone, ['config', 'user.email', actorEmail]);
+
+  const portfolioPath = path.join(source, 'singularity/portfolio.yml');
+  const portfolio = YAML.parse(await readFile(portfolioPath, 'utf8'));
+  portfolio.initiativeProfiles['remote-lite'] = {
+    ...portfolio.initiativeProfiles['initiative-lite'],
+    label: 'Remote initiative profile'
+  };
+  await writeFile(portfolioPath, YAML.stringify(portfolio));
+  const worldModelPath = path.join(source, 'singularity/world-model/manifest.json');
+  await mkdir(path.dirname(worldModelPath), { recursive: true });
+  await writeFile(worldModelPath, JSON.stringify({ marker: 'remote-initiative-world-model' }, null, 2));
+  git(source, ['add', 'singularity/portfolio.yml', 'singularity/world-model/manifest.json']);
+  git(source, ['commit', '-m', 'Publish remote Initiative profile and world model']);
+  git(source, ['push', remote, 'main']);
+
+  execute(clone, ['initiative', 'start', 'INIT-FRESH', '--fetch', '--profile', 'remote-lite', '--title', 'Fresh Initiative']);
+
+  const state = JSON.parse(await readFile(path.join(clone, 'singularity/initiatives/INIT-FRESH/state.json'), 'utf8'));
+  assert.equal(state.initiative.profile, 'remote-lite');
+  assert.equal(state.initiative.profileLabel, 'Remote initiative profile');
+  const inheritedModel = JSON.parse(await readFile(path.join(clone, 'singularity/world-model/manifest.json'), 'utf8'));
+  assert.equal(inheritedModel.marker, 'remote-initiative-world-model');
+  assert.equal(git(clone, ['branch', '--show-current']), 'INIT-FRESH');
+});
+
 test('initiative Copilot selection receipts preserve the explicit profile while the phase agent is automatic', async () => {
   const root = await repository();
   const begun = JSON.parse(execute(root, ['initiative', 'choices', 'begin', 'start', 'INIT-RECEIPT', '--json']).stdout);

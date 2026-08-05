@@ -77,6 +77,34 @@ test('out-of-sequence commands exit before changing workflow, session, or Git st
   assert.equal(execute('git', ['status', '--porcelain'], root).stdout.trim(), '');
 });
 
+test('review, submit, and approve use the same positional phase grammar', async () => {
+  const root = await repository();
+  const initialBranch = execute('git', ['branch', '--show-current'], root).stdout.trim();
+
+  const review = flow(root, ['review', 'intake']);
+  assert.equal(review.status, 0, review.stderr);
+  assert.match(review.stdout, /intake/i);
+
+  assertSequenceFailure(flow(root, ['submit', 'intake'], { allowFailure: true }), /no published generation/i);
+
+  const positionalApproval = flow(root, ['approve', 'intake', '--yes'], { allowFailure: true, agent: 'architect' });
+  assertSequenceFailure(positionalApproval, /requires status awaiting_approval/);
+  assert.doesNotMatch(positionalApproval.stderr, /Branch intake does not exist/);
+
+  const explicitWorkItem = flow(root, ['approve', 'intake', '--work-id', 'SEQ-1', '--yes'], { allowFailure: true, agent: 'architect' });
+  assertSequenceFailure(explicitWorkItem, /requires status awaiting_approval/);
+
+  const conflictingSubmit = flow(root, ['submit', 'intake', '--phase', 'requirements'], { allowFailure: true });
+  assert.notEqual(conflictingSubmit.status, 0);
+  assert.match(conflictingSubmit.stderr, /received two different phases/);
+
+  const unknown = flow(root, ['approve', 'intke', '--yes'], { allowFailure: true, agent: 'architect' });
+  assert.notEqual(unknown.status, 0);
+  assert.match(unknown.stderr, /not a configured phase or an available Work ID/);
+  assert.match(unknown.stderr, /--work-id <WORK-ID>/);
+  assert.equal(execute('git', ['branch', '--show-current'], root).stdout.trim(), initialBranch);
+});
+
 test('soft gates require confirmation and audit a confirmed override with the selected agent', async () => {
   const root = await repository();
   const workflowFile = path.join(root, 'singularity/work-items/SEQ-1/workflow.json');
@@ -142,13 +170,13 @@ test('submitted work blocks generation mutations and rejection requires regenera
   await writeFile(artifact, (await readFile(artifact, 'utf8')).replace(/TODO:[^\n]*/g, 'Complete and measurable intake evidence for strict lifecycle sequencing.'));
   flow(root, ['phase', 'publish', 'intake']);
 
-  assertSequenceFailure(flow(root, ['approve', '--yes'], { allowFailure: true, agent: 'architect' }), /submit --phase intake/);
+  assertSequenceFailure(flow(root, ['approve', '--yes'], { allowFailure: true, agent: 'architect' }), /submit intake/);
   flow(root, ['submit']);
 
   const submittedWorkflow = await readFile(workflowFile, 'utf8');
   const submittedHead = execute('git', ['rev-parse', 'HEAD'], root).stdout.trim();
-  assertSequenceFailure(flow(root, ['prepare', 'intake'], { allowFailure: true }), /approve SEQ-1 --fetch/, /reject SEQ-1 --fetch/);
-  assertSequenceFailure(flow(root, ['phase', 'publish', 'intake'], { allowFailure: true }), /approve SEQ-1 --fetch/);
+  assertSequenceFailure(flow(root, ['prepare', 'intake'], { allowFailure: true }), /approve intake --work-id SEQ-1 --fetch/, /reject intake --work-id SEQ-1 --fetch/);
+  assertSequenceFailure(flow(root, ['phase', 'publish', 'intake'], { allowFailure: true }), /approve intake --work-id SEQ-1 --fetch/);
   assertSequenceFailure(flow(root, ['documents', 'upload', artifact], { allowFailure: true }), /cannot upload documents/, /awaiting_approval/);
   assertSequenceFailure(flow(root, ['agents', 'refresh-output', 'external-result'], { allowFailure: true }), /cannot refresh remote generated output/);
   assertSequenceFailure(flow(root, ['wm', 'inject', '--phase', 'intake'], { allowFailure: true }), /cannot compose and record a generation prompt/);

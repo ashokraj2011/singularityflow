@@ -290,12 +290,12 @@ test('factory-reset skill requires preview and contributor-owned exact confirmat
 test('approval skill is explicitly user-invoked', async () => {
   const content = await readFile(path.join(pluginRoot, 'skills', 'sflow-approve', 'SKILL.md'), 'utf8');
   assert.match(content, /disable-model-invocation:\s*true/);
-  assert.match(content, /singularity-flow approve <WORK-ID> --fetch/);
+  assert.match(content, /singularity-flow approve <PHASE> --work-id <WORK-ID> --fetch/);
   assert.match(content, /singularity-flow phase show <phase>/);
   assert.match(content, /Never ask for approval based only on a filename or summary/);
   assert.match(content, /choices begin approve <WORK-ID> --fetch --json/);
   assert.match(content, /phase-confirmation <TYPED-PHASE>/);
-  assert.match(content, /approve <WORK-ID> --fetch --selection-receipt <TOKEN>/);
+  assert.match(content, /approve <TYPED-PHASE> --work-id <WORK-ID> --fetch --selection-receipt <TOKEN>/);
   assert.match(content, /Never add `--yes`/);
   assert.match(content, /consumes the receipt exactly once/i);
 });

@@ -1287,7 +1287,7 @@ Singularity Flow error: Out of sequence [phaseStatus]: cannot approve for phase 
 Current state: phase 'design' is in_progress at generation 1.
 Gate mode: hard.
 Required next action: Submit published phase 'design' for approval.
-Run next: singularity-flow submit --phase design
+Run next: singularity-flow submit design
 See all valid actions: singularity-flow nextsteps WORK-123
 No workflow files, commits, or remote state were changed.
 ```
@@ -1305,7 +1305,7 @@ Selecting an inbox item invokes the existing safe session attachment path. The b
 Approve from a terminal:
 
 ```bash
-singularity-flow approve WORK-123 --fetch
+singularity-flow approve design --work-id WORK-123 --fetch
 ```
 
 The command fetches the branch, activates its phase agent, displays reviewer identity and authority, hashes, checks, token usage, prior approvals, and any self-approval warning, then requires explicit phase confirmation. If Copilot cannot write to a persistent shell, `/sflow-approve` issues a 15-minute receipt for the exact typed phase ID. The CLI independently revalidates the branch HEAD, submitted generation, artifact hashes, human authority, identity threshold, and receipt before committing and pushing the decision.
@@ -1313,7 +1313,7 @@ The command fetches the branch, activates its phase agent, displays reviewer ide
 Reject to an allowed target:
 
 ```bash
-singularity-flow reject WORK-123 --fetch \
+singularity-flow reject design --work-id WORK-123 --fetch \
   --to requirements \
   --reason "Failure behavior is missing"
 ```
@@ -2041,7 +2041,7 @@ singularity-flow next [--task TEXT] [--fetch] [--yes] [--skip-checks]
 singularity-flow run [--task TEXT] [--yes]
 singularity-flow cockpit
 singularity-flow doctor [WORK-ID] [--offline] [--json]
-singularity-flow review [PHASE] [--format md|html|json] [--out FILE]
+singularity-flow review [PHASE] [--phase PHASE] [--format md|html|json] [--out FILE]
 singularity-flow workflow list|simulate|diff|add|upgrade
 singularity-flow assign <PHASE> <ASSIGNEE>
 singularity-flow watch [WORK-ID] [--once] [--fetch] [--interval SECONDS]
@@ -2070,9 +2070,9 @@ singularity-flow phase show [PHASE] [--json]
 singularity-flow phase publish [PHASE] [--usage-json FILE]
 singularity-flow artifact add <PATH...> [--kind KIND] [--phase PHASE]
 singularity-flow artifact scan [--phase PHASE]
-singularity-flow submit [--phase PHASE]
-singularity-flow approve [WORK-ID] [--fetch]
-singularity-flow reject [WORK-ID] [--fetch] --reason TEXT [--to PHASE]
+singularity-flow submit [PHASE] [--phase PHASE]
+singularity-flow approve [PHASE] [--work-id WORK-ID] [--fetch]
+singularity-flow reject [PHASE] [--work-id WORK-ID] [--fetch] --reason TEXT [--to PHASE]
 singularity-flow reopen [WORK-ID] [--fetch] --reason TEXT --to PHASE
 singularity-flow pr [WORK-ID] [--create] [--yes] [--json]
 singularity-flow sync

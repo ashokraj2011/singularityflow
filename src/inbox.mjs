@@ -73,8 +73,8 @@ export async function approvalInbox(root, definition, { fetch = true, now = new 
         commands: {
           attach: `singularity-flow session attach ${subject.id}`,
           review: `singularity-flow phase show ${phaseId}`,
-          approve: `singularity-flow approve ${subject.id} --fetch --phase ${phaseId}`,
-          reject: `singularity-flow reject ${subject.id} --fetch --reason <REASON>`
+          approve: `singularity-flow approve ${phaseId} --work-id ${subject.id} --fetch`,
+          reject: `singularity-flow reject ${phaseId} --work-id ${subject.id} --fetch --reason <REASON>`
         }
       });
     } catch { /* Malformed or mismatched remote branches never enter the reviewer inbox. */ }

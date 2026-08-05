@@ -298,7 +298,7 @@ Usage:
   singularity-flow next [--task TEXT] [--fetch] [--yes] [--skip-checks]
   singularity-flow run [--task TEXT] [--yes]
   singularity-flow doctor [WORK-ID] [--offline] [--json]
-  singularity-flow review [PHASE] [--format md|html|json] [--out FILE]
+  singularity-flow review [PHASE] [--phase PHASE] [--format md|html|json] [--out FILE]
   singularity-flow workflow list [--json]                  every workflow, Story and Initiative
   singularity-flow workflow create <ID> --phases a,b,c [--label TEXT] [--governs story|initiative]
   singularity-flow workflow edit <ID> [--phases a,b,c] [--label TEXT] [--description TEXT]
@@ -333,9 +333,9 @@ Usage:
   singularity-flow phase publish [PHASE] [--usage-json FILE]
   singularity-flow artifact add <PATH...> [--kind KIND] [--phase PHASE]
   singularity-flow artifact scan [--phase PHASE]
-  singularity-flow submit [--phase PHASE] [--skip-checks]
-  singularity-flow approve [WORK-ID] [--fetch] [--phase PHASE] [--yes]
-  singularity-flow reject [WORK-ID] [--fetch] --reason TEXT [--to PHASE]
+  singularity-flow submit [PHASE] [--phase PHASE] [--skip-checks]
+  singularity-flow approve [PHASE] [--work-id WORK-ID] [--fetch] [--phase PHASE] [--yes]
+  singularity-flow reject [PHASE] [--work-id WORK-ID] [--fetch] --reason TEXT [--to PHASE]
   singularity-flow reopen [WORK-ID] [--fetch] --reason TEXT --to PHASE
   singularity-flow sync
   singularity-flow validate [--strict]
@@ -1255,7 +1255,7 @@ async function nextCommand(options) {
   if (phase.status !== 'in_progress') throw new SingularityFlowError(`Cannot automatically continue phase '${phase.id}' while it is ${phase.status}. Run singularity-flow nextsteps ${workflow.workItem.id}.`);
   if (!phaseNeedsGeneration(workflow, phase)) {
     console.log(`Next step: submit published phase '${phase.id}' for approval.`);
-    return submitCommand({ ...options, phase: phase.id });
+    return submitCommand(['submit', phase.id], options);
   }
 
   const task = optionString(options, 'task', workflow.workItem.title);
@@ -1690,11 +1690,60 @@ async function regressionCommand(positionals, options) {
   console.log(regressionReportMarkdown(report));
 }
 
-async function submitCommand(options) {
+function selectedPhaseArgument(positionals, options, command) {
+  const positional = positionals[1];
+  const flagged = optionString(options, 'phase');
+  if (positional && flagged && positional !== flagged) {
+    throw new SingularityFlowError(`${command} received two different phases: '${positional}' and '${flagged}'. Pass the phase once, either positionally or with --phase.`);
+  }
+  return flagged ?? positional;
+}
+
+function configuredStoryPhaseIds(config) {
+  const phases = new Set(Object.keys(config.phases ?? {}));
+  for (const workType of Object.values(config.workTypes ?? {})) {
+    for (const phase of workType.phases ?? []) {
+      const id = typeof phase === 'string' ? phase : phase?.id ?? phase?.phase;
+      if (id) phases.add(id);
+    }
+  }
+  return phases;
+}
+
+function decisionArguments(config, positionals, options, action) {
+  const positional = positionals[1];
+  const explicitWorkId = optionString(options, 'work-id');
+  const flaggedPhase = optionString(options, 'phase');
+  if (!positional) return { requestedId: explicitWorkId, requestedPhase: flaggedPhase, implicitLegacyWorkId: false };
+
+  if (explicitWorkId) {
+    return {
+      requestedId: explicitWorkId,
+      requestedPhase: selectedPhaseArgument(positionals, options, action),
+      implicitLegacyWorkId: false
+    };
+  }
+
+  const phaseIds = configuredStoryPhaseIds(config);
+  if (phaseIds.has(positional)) {
+    return {
+      requestedId: undefined,
+      requestedPhase: selectedPhaseArgument(positionals, options, action),
+      implicitLegacyWorkId: false
+    };
+  }
+
+  // Compatibility for the former `approve WORK-ID --phase PHASE` grammar. New calls should use
+  // `approve PHASE --work-id WORK-ID`, which cannot confuse a phase with a branch name.
+  return { requestedId: positional, requestedPhase: flaggedPhase, implicitLegacyWorkId: true };
+}
+
+async function submitCommand(positionals, options) {
   const root = repoRoot();
   const config = await loadConfig(root);
   let workflow = await loadStoryAggregate(root, config);
-  const reconciliation = await reconcilePhaseTelemetry(root, config, workflow, { phaseId: optionString(options, 'phase') });
+  const requestedPhase = selectedPhaseArgument(positionals, options, 'submit');
+  const reconciliation = await reconcilePhaseTelemetry(root, config, workflow, { phaseId: requestedPhase });
   if (reconciliation.updated) {
     const telemetryPublication = await commitAndPublish(root, config, workflow, { type: 'telemetry-recorded', phaseId: reconciliation.phase, generation: reconciliation.generation }, `[${workflow.workItem.id}][phase:${reconciliation.phase}][telemetry:${reconciliation.generation}] reconcile Copilot usage`);
     console.log(`Reconciled ${reconciliation.phase} generation ${reconciliation.generation} telemetry at ${telemetryPublication.sha.slice(0, 8)}${telemetryPublication.pushed ? ' and pushed' : ''}.`);
@@ -1702,7 +1751,7 @@ async function submitCommand(options) {
     workflow = await loadStoryAggregate(root, config);
   } else if (reconciliation.pending) console.warn(`Telemetry remains pending: ${reconciliation.reason}`);
   const phase = await submitPhase(root, config, workflow, {
-    phaseId: optionString(options, 'phase'),
+    phaseId: requestedPhase,
     runChecks: !optionBoolean(options, 'skip-checks')
   });
   const reviewPacket = await createStoryReviewPacket(root, config, workflow, phase);
@@ -1757,23 +1806,32 @@ async function telemetryCommand(positionals, options) {
 
 async function decisionWorkflow(positionals, options, action) {
   const root = repoRoot();
-  const requestedId = positionals[1];
   const receiptToken = optionString(options, 'selection-receipt');
   if (receiptToken) assertClean(root);
   let config = await loadConfig(root);
-  if (requestedId && (requestedId !== branch(root) || optionBoolean(options, 'fetch'))) checkout(root, requestedId, {
-    base: config.defaultBaseBranch,
-    fetch: optionBoolean(options, 'fetch'),
-    existingOnly: true,
-    remote: config.git?.remote ?? 'origin'
-  });
+  const { requestedId, requestedPhase, implicitLegacyWorkId } = decisionArguments(config, positionals, options, action);
+  if (requestedId && (requestedId !== branch(root) || optionBoolean(options, 'fetch'))) {
+    try {
+      checkout(root, requestedId, {
+        base: config.defaultBaseBranch,
+        fetch: optionBoolean(options, 'fetch'),
+        existingOnly: true,
+        remote: config.git?.remote ?? 'origin'
+      });
+    } catch (error) {
+      if (implicitLegacyWorkId && /Branch .* does not exist/.test(error?.message ?? '')) {
+        throw new SingularityFlowError(`'${requestedId}' is not a configured phase or an available Work ID. Use '${action} <PHASE>' for the current Story, or '${action} <PHASE> --work-id <WORK-ID>' for another Story.`);
+      }
+      throw error;
+    }
+  }
   config = await loadConfig(root);
   const workflow = await loadStoryAggregate(root, config, requestedId);
   const workId = workflow.workItem.id;
   const overridesBefore = workflow.sequenceOverrides?.length ?? 0;
   await assertNoPendingPublication(root, config, workflow, action);
   const phase = await assertPhaseSequence(root, workflow, action, {
-    requestedPhase: optionString(options, 'phase'),
+    requestedPhase,
     allowedStatuses: ['awaiting_approval']
   });
   const receipt = receiptToken
@@ -1817,7 +1875,7 @@ async function approveCommand(positionals, options) {
   if (receiptToken) await consumeSelectionReceipt(root, receiptToken);
   if (!receipt && !optionBoolean(options, 'yes') && !(await confirm(phase))) throw new SingularityFlowError('Approval cancelled.');
   const result = await approvePhase(root, config, workflow, {
-    phaseId: optionString(options, 'phase'),
+    phaseId: phase.id,
     channel: process.env.SINGULARITY_FLOW_GITHUB_ACTOR ? 'github-pr-comment' : receipt ? 'copilot-selection-receipt' : 'terminal',
     actionContext: activeActionContext() ?? receipt?.approvalContext ?? null
   });
@@ -1836,7 +1894,7 @@ async function rejectCommand(positionals, options) {
   const target = optionString(options, 'to') ?? current.id;
   console.log(`Requesting changes to ${current.id}, returning work to ${target} as ${session.actor.name ?? session.actor.email ?? session.actor.login}; governed agent ${session.agent} is audit context only. Approvals from ${target} onward will be invalidated.`);
   const phase = await rejectPhase(root, config, workflow, {
-    phaseId: optionString(options, 'phase'),
+    phaseId: current.id,
     target,
     reason: optionString(options, 'reason'),
     channel: process.env.SINGULARITY_FLOW_GITHUB_ACTOR ? 'github-pr-comment' : 'terminal',
@@ -2141,7 +2199,7 @@ async function doctorCommand(positionals, options) {
 
 async function reviewCommand(positionals, options) {
   const root = repoRoot(); const config = await loadConfig(root); const workflow = await loadStoryAggregate(root, config);
-  const bundle = await createReviewBundle(root, config, workflow, positionals[1]);
+  const bundle = await createReviewBundle(root, config, workflow, selectedPhaseArgument(positionals, options, 'review'));
   const format = optionString(options, 'format', 'md').toLowerCase();
   if (!['md', 'html', 'json'].includes(format)) throw new SingularityFlowError('Review format must be md, html, or json.');
   const rendered = format === 'json' ? `${JSON.stringify(bundle, null, 2)}\n` : format === 'html' ? reviewHtml(bundle) : reviewMarkdown(bundle);
@@ -2315,7 +2373,7 @@ async function runCommand(options) {
   if (phase.status === 'awaiting_approval') {
     console.log(`Guided run stopped: '${phase.id}' is awaiting human review and approval.`);
     console.log(`Review: singularity-flow review ${phase.id}`);
-    console.log(`Decide: singularity-flow approve ${workflow.workItem.id} --fetch`);
+    console.log(`Decide: singularity-flow approve ${phase.id} --work-id ${workflow.workItem.id} --fetch`);
     return;
   }
   if (phaseNeedsGeneration(workflow, phase)) {
@@ -2324,8 +2382,8 @@ async function runCommand(options) {
     return;
   }
   const submit = optionBoolean(options, 'yes') || await confirmYesNo(`Generation ${phase.generation} is published. Submit '${phase.id}' for approval?`);
-  if (!submit) { console.log(`No state changed. Submit later with singularity-flow submit --phase ${phase.id}.`); return; }
-  await submitCommand({ ...options, phase: phase.id });
+  if (!submit) { console.log(`No state changed. Submit later with singularity-flow submit ${phase.id}.`); return; }
+  await submitCommand(['submit', phase.id], options);
   console.log(`Guided run stopped at the approval boundary. Review with singularity-flow review ${phase.id}.`);
 }
 
@@ -5805,7 +5863,7 @@ async function storyCommand(positionals, options) {
     console.log(`Current: ${status.currentBranch} (${status.kind}) · Canonical: ${status.canonicalBranch}`);
     return;
   }
-  if (subcommand === 'submit') return submitCommand(options);
+  if (subcommand === 'submit') return submitCommand(['submit', positionals[2]], options);
   if (subcommand === 'finalize') return finalizeCommand(options);
   if (subcommand === 'checks') {
     const workflow = await loadStoryAggregate(root, config, optionString(options, 'parent'));
@@ -5928,7 +5986,7 @@ async function dispatch(command, positionals, options) {
     pr: () => pullRequestCommand(positionals, options),
     stack: () => stackCommand(positionals, options),
     regression: () => regressionCommand(positionals, options),
-    submit: () => submitCommand(options),
+    submit: () => submitCommand(positionals, options),
     approve: () => approveCommand(positionals, options),
     reject: () => rejectCommand(positionals, options),
     reopen: () => reopenCommand(positionals, options),

@@ -37,8 +37,8 @@ export function sequenceGuidance(workflow) {
   if (phase.status === 'awaiting_approval') return {
     summary: `Review submitted phase '${phase.id}', then approve it or return it for correction.`,
     commands: [
-      `singularity-flow approve ${workId} --fetch`,
-      `singularity-flow reject ${workId} --fetch --to <phase> --reason <reason>`
+      `singularity-flow approve ${phase.id} --work-id ${workId} --fetch`,
+      `singularity-flow reject ${phase.id} --work-id ${workId} --fetch --to <phase> --reason <reason>`
     ],
     alternativeSecond: true
   };
@@ -51,7 +51,7 @@ export function sequenceGuidance(workflow) {
   };
   if (phase.status === 'in_progress') return {
     summary: `Submit published phase '${phase.id}' for approval.`,
-    commands: [`singularity-flow submit --phase ${phase.id}`]
+    commands: [`singularity-flow submit ${phase.id}`]
   };
   return {
     summary: `Continue from the active workflow state for phase '${phase.id}'.`,

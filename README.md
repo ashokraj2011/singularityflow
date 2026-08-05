@@ -988,8 +988,8 @@ singularity-flow telemetry reconcile implementation
 From a terminal:
 
 ```bash
-singularity-flow approve ENG-142 --fetch
-singularity-flow reject ENG-142 --fetch --to requirements --reason "Failure behavior is missing"
+singularity-flow approve design --work-id ENG-142 --fetch
+singularity-flow reject design --work-id ENG-142 --fetch --to requirements --reason "Failure behavior is missing"
 singularity-flow reopen ENG-142 --fetch --to implementation --reason "Production feedback requires a safer rollback"
 ```
 
@@ -1351,9 +1351,9 @@ new lock. Remote templates are inert unless a workflow explicitly names
 | `singularity-flow prepare [PHASE]` | Materialize the resolved artifact template. |
 | `singularity-flow phase show [PHASE]` | Display every generated phase document, its review metadata, and text content. |
 | `singularity-flow phase publish [PHASE]` | Validate, annotate, commit, and push one generation. |
-| `singularity-flow submit` | Run checks and publish an approval request. |
-| `singularity-flow approve [ID] --fetch` | Verify human authority, activate the phase agent, and record/push the exact-hash decision. |
-| `singularity-flow reject [ID] --fetch --to PHASE --reason TEXT` | Record a governed change request, reopen an awaiting-approval Story, invalidate downstream state, commit, and push. |
+| `singularity-flow submit [PHASE]` | Run checks and publish an approval request. |
+| `singularity-flow approve [PHASE] --work-id ID --fetch` | Verify human authority, activate the phase agent, and record/push the exact-hash decision. Omit `--work-id` for the active Story. |
+| `singularity-flow reject [PHASE] --work-id ID --fetch --to PHASE --reason TEXT` | Record a governed change request, reopen an awaiting-approval Story, invalidate downstream state, commit, and push. Omit `--work-id` for the active Story. |
 | `singularity-flow reopen [ID] --fetch --to PHASE --reason TEXT` | Return a completed Story to an allowed phase with a governed comment, commit, and push. |
 | `singularity-flow sync` | Retry a pending publication without rewriting the commit. |
 | `singularity-flow gate --terminal` | Run the final deterministic/remote-state gate. |

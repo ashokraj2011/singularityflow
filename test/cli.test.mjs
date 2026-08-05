@@ -29,6 +29,7 @@ test('top-level help flags print usage', () => {
     assert.equal(result.status, 0, result.stderr);
     assert.match(result.stdout, /^Singularity Flow 0\.9\.0/m);
     assert.match(result.stdout, /singularity-flow start <WORK-ID>/);
+    assert.match(result.stdout, /--work-type ID/);
     assert.match(result.stdout, /singularity-flow report \[WORK-ID\]/);
     assert.match(result.stdout, /singularity-flow nextsteps \[WORK-ID\]/);
     assert.match(result.stdout, /singularity-flow inputs \[PHASE\]/);
@@ -38,6 +39,7 @@ test('top-level help flags print usage', () => {
     assert.match(result.stdout, /singularity-flow factory-reset \[--dry-run\]/);
     assert.match(result.stdout, /sflow reset-all \[--yes\]/);
     assert.match(result.stdout, /singularity-flow fresh-install \[--checkout DIRECTORY\]/);
+    assert.match(result.stdout, /singularity-flow wm cleanup \[--force\]/);
   }
 });
 

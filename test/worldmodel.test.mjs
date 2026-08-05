@@ -860,3 +860,32 @@ test('legacy world-model hashes are accepted when only governed state changed', 
   await writeFile(path.join(root, 'README.md'), '# app changed\n');
   assert.match(await worldModelRebuildReason(root, definition), /source changes: README\.md/);
 });
+
+test('wm cleanup removes a worktree whose recorded builder process is dead', async () => {
+  const root = await mkdtemp(path.join(os.tmpdir(), 'sflow-worldmodel-cleanup-repo-'));
+  run('git', ['init', '-b', 'main'], root);
+  run('git', ['config', 'user.email', 'wm@example.com'], root);
+  run('git', ['config', 'user.name', 'World Model'], root);
+  await writeFile(path.join(root, 'README.md'), '# cleanup\n');
+  run('git', ['add', 'README.md'], root);
+  run('git', ['commit', '-m', 'init'], root);
+
+  const temporary = await mkdtemp(path.join(os.tmpdir(), 'singularity-flow-world-model-'));
+  const worktree = path.join(temporary, 'repository');
+  await writeFile(path.join(temporary, 'singularity-flow-owner.json'), JSON.stringify({
+    schemaVersion: 1,
+    kind: 'analysis',
+    pid: 999999,
+    createdAt: new Date(0).toISOString(),
+    repositoryGitDirectory: path.join(root, '.git')
+  }));
+  run('git', ['worktree', 'add', '--detach', worktree, 'HEAD'], root);
+
+  const cleanup = result(process.execPath, [bin, 'wm', 'cleanup', '--json'], root);
+  assert.equal(cleanup.status, 0, cleanup.stderr);
+  const report = JSON.parse(cleanup.stdout);
+  assert.equal(report.removed.length, 1);
+  assert.equal(path.basename(path.dirname(report.removed[0])), path.basename(temporary));
+  assert.doesNotMatch(run('git', ['worktree', 'list', '--porcelain'], root), new RegExp(worktree.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')));
+  await assert.rejects(lstat(temporary), /ENOENT/);
+});

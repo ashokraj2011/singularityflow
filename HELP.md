@@ -2025,7 +2025,7 @@ singularity-flow reset-all [--yes]
 sf-reset-all [--yes]
 singularity-flow fresh-install [--checkout DIRECTORY] [--yes] [--registry URL] [--cli-only] [--no-copilot-telemetry]
 singularity-flow choices start|resume|approve|reject ...
-singularity-flow start <WORK-ID> [--jira | --story-file FILE] [--ref CANONICAL-BRANCH]
+singularity-flow start <WORK-ID> [--jira | --story-file FILE] [--work-type ID] [--agent ID] [--ref CANONICAL-BRANCH]
 singularity-flow resume <WORK-ID|BRANCH> [--fetch]
 singularity-flow agent [WORK-ID]
 sflow-agent [WORK-ID]
@@ -2085,6 +2085,7 @@ singularity-flow wm build [--depth light|quick|standard|deep] [--branch BRANCH] 
 sflow-wm-minimal [--phase PHASE] [--views LIST] [--branch BRANCH] [--parallel] [--workers N] [--publish]
 singularity-flow wm context|check [--branch BRANCH] [--remote REMOTE]
 singularity-flow wm inject
+singularity-flow wm cleanup [--force] [--json]
 singularity-flow jira assigned|list|pull|fields
 singularity-flow jira status|projects|epics|children|permissions|boards|board
 singularity-flow jira transitions|transition|assign|priority|sprint|comment

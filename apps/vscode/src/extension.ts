@@ -13,7 +13,7 @@ import { resolveCli, SingularityFlowClient } from './cli/client.ts';
 import { validateRepositoryDirectory } from './cli/runner.ts';
 import { WorkspaceStore } from './state.ts';
 import { ConfigurationValidator } from './validation.ts';
-import { approveWithReceipt, resolvePlaceholders, runGovernedAction } from './actions.ts';
+import { approveWithReceipt, resolvePlaceholders, runGovernedAction, runPlannedAction } from './actions.ts';
 import { WorkspacePanel } from './views/workspace-panel.ts';
 import { LifecycleTreeProvider } from './views/lifecycle.ts';
 import { JourneyPanel, type JourneyMessage } from './views/journey.ts';
@@ -206,6 +206,7 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
     'singularityFlow.openCapabilities', 'singularityFlow.openImpact', 'singularityFlow.openStories',
     'singularityFlow.openApprovals', 'singularityFlow.openInbox', 'singularityFlow.startWork', 'singularityFlow.addSource',
     'singularityFlow.refresh', 'singularityFlow.openArtifact', 'singularityFlow.runAction',
+    'singularityFlow.continueSafely',
     'singularityFlow.prepareStoryPhase', 'singularityFlow.publishStoryPhase',
     'singularityFlow.submitStoryPhase',
     'singularityFlow.approve', 'singularityFlow.openJourney', 'singularityFlow.openReconciliation',
@@ -1267,6 +1268,9 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
       () => ApprovalsPanel.show(context, store, (message) => { void onApprovalsMessage(message); }),
     'singularityFlow.openInbox':
       () => InboxPanel.show(context, store, (message) => { void onInboxMessage(message); }),
+    'singularityFlow.continueSafely': async () => {
+      if (await runPlannedAction(client, output)) await store.refresh();
+    },
     'singularityFlow.startWork': startWork,
     'singularityFlow.addSource': addSource,
     'singularityFlow.refresh': async () => { await store.refresh(); void refreshReadiness(); },

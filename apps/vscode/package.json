@@ -141,6 +141,11 @@
         "icon": "$(add)"
       },
       {
+        "command": "singularityFlow.continueSafely",
+        "title": "Singularity Flow: Continue Safely",
+        "icon": "$(play-circle)"
+      },
+      {
         "command": "singularityFlow.openCopilot",
         "title": "Singularity Flow: Continue Active Story in Copilot",
         "icon": "$(sparkle)"
@@ -315,6 +320,11 @@
           "command": "singularityFlow.startWork",
           "when": "view == singularityFlow.lifecycle",
           "group": "navigation@0"
+        },
+        {
+          "command": "singularityFlow.continueSafely",
+          "when": "view == singularityFlow.lifecycle",
+          "group": "navigation@1"
         },
         {
           "command": "singularityFlow.openDashboard",

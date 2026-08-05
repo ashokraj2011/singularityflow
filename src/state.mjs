@@ -840,7 +840,7 @@ async function writeDecision(root, config, workflow, phase, decision) {
   await writeJson(approvalPath(root, config, workflow.workItem.id, phase.id), { schemaVersion: 2, phase: phase.id, decisions: phase.approvals });
 }
 
-export async function approvePhase(root, config, workflow, { phaseId, channel = 'terminal' } = {}) {
+export async function approvePhase(root, config, workflow, { phaseId, channel = 'terminal', actionContext = null } = {}) {
   await assertNoPendingPublication(root, config, workflow, 'approve');
   const phase = await assertPhaseSequence(root, workflow, 'approve', { requestedPhase: phaseId, allowedStatuses: ['awaiting_approval'] });
   const session = await loadSession(root);
@@ -867,7 +867,9 @@ export async function approvePhase(root, config, workflow, { phaseId, channel = 
     identityAssurance: authority.identityAssurance,
     channel,
     generation: phase.generation,
+    artifactSha256: (phase.artifacts ?? []).map((artifact) => ({ path: artifact.path, sha256: artifact.sha256 ?? null })),
     reviewPacketSha256: packet?.packetSha256 ?? null,
+    ...(actionContext ? { actionContext } : {}),
     selfApproval: actorKey(phase.generatedBy ?? {}) === key
   };
   if (decision.selfApproval && phase.approvalPolicy.allowSelfApproval === false) {
@@ -905,7 +907,7 @@ async function refreshRequiredArtifact(root, config, workflow, phase) {
   else phase.artifacts.push({ path: required, kind: phase.requiredArtifact.kind ?? inferKind(required), status: 'pending', ...current, registeredAt: nowIso(), updatedAt: nowIso() });
 }
 
-export async function rejectPhase(root, config, workflow, { phaseId, target, reason, channel = 'terminal' } = {}) {
+export async function rejectPhase(root, config, workflow, { phaseId, target, reason, channel = 'terminal', actionContext = null } = {}) {
   await assertNoPendingPublication(root, config, workflow, 'reject');
   const phase = await assertPhaseSequence(root, workflow, 'reject', { requestedPhase: phaseId, allowedStatuses: ['awaiting_approval'] });
   if (!reason?.trim()) throw new SingularityFlowError('A rejection reason is required.');
@@ -943,7 +945,9 @@ export async function rejectPhase(root, config, workflow, { phaseId, target, rea
     identityAssurance: authority.identityAssurance,
     channel,
     generation: phase.generation,
-    reviewPacketSha256: packet?.packetSha256 ?? null
+    artifactSha256: (phase.artifacts ?? []).map((artifact) => ({ path: artifact.path, sha256: artifact.sha256 ?? null })),
+    reviewPacketSha256: packet?.packetSha256 ?? null,
+    ...(actionContext ? { actionContext } : {})
   };
   phase.approvals.push(decision); await writeDecision(root, config, workflow, phase, decision);
   workflow.history.push({ at: timestamp, actor: key, agent: session.agent, event: 'phase_rejected', phase: phase.id, detail: `returned to ${targetId}: ${reason.trim()}` });

@@ -194,6 +194,15 @@ import {
   InitiativeStateStore, StoryStateStore, loadInitiativeAggregate, loadStoryAggregate
 } from './state-stores.mjs';
 import { SnapshotCoordinator } from './snapshot-coordinator.mjs';
+import {
+  assertActionConfirmation,
+  assertActionPlanFresh,
+  createActionPlan,
+  loadActionPlan,
+  readActionResult,
+  recordActionResult,
+  selectPlannedAction
+} from './action-plans.mjs';
 import { refreshBranch } from './branch-refresh.mjs';
 import { buildStoryStack, publishedStackForStory, syncStoryStack } from './story-stack.mjs';
 import { analyzeRegression, regressionReportMarkdown } from './regression-analysis.mjs';
@@ -282,6 +291,8 @@ Usage:
   singularity-flow capabilities lease revoke <ID> <LEASE-ID> --reason TEXT --confirm <ID>
   singularity-flow guide [WORK-ID] [--json]
   singularity-flow nextsteps [WORK-ID] [--json]
+  singularity-flow action plan [WORK-ID] [--ttl-ms N] [--json]
+  singularity-flow action execute <PLAN-ID> [--action ACTION-ID] [--confirm KERNEL-VALUE] [--json]
   singularity-flow next [--task TEXT] [--fetch] [--yes] [--skip-checks]
   singularity-flow run [--task TEXT] [--yes]
   singularity-flow doctor [WORK-ID] [--offline] [--json]
@@ -1013,7 +1024,7 @@ async function guideCommand(positionals, options) {
   else process.stdout.write(guideText(guide));
 }
 
-async function nextStepsCommand(positionals, options) {
+async function resolveNextStepsSnapshot(positionals, options) {
   const root = repoRoot();
   const initialized = existsSync(path.join(root, WORKFLOW_PATH)) || existsSync(path.join(root, 'singularity/config.json'));
   let snapshot;
@@ -1064,8 +1075,86 @@ async function nextStepsCommand(positionals, options) {
       });
     } else snapshot = nextStepsSnapshot({ branch: branch(root), requestedWorkId });
   }
+  return snapshot;
+}
+
+async function nextStepsCommand(positionals, options) {
+  const snapshot = await resolveNextStepsSnapshot(positionals, options);
   if (optionBoolean(options, 'json')) console.log(JSON.stringify(snapshot, null, 2));
   else process.stdout.write(nextStepsText(snapshot));
+}
+
+async function actionCommand(positionals, options) {
+  const root = repoRoot();
+  const subcommand = positionals[1] ?? 'plan';
+  if (subcommand === 'plan') {
+    const reference = positionals[2] ?? optionString(options, 'work-id');
+    const snapshot = await resolveNextStepsSnapshot(['nextsteps', reference].filter(Boolean), {});
+    const plan = await createActionPlan(root, snapshot, {
+      ttlMs: optionNumber(options, 'ttl-ms', 15 * 60 * 1000)
+    });
+    if (optionBoolean(options, 'json')) return console.log(JSON.stringify(plan, null, 2));
+    console.log(`Governed action plan: ${plan.planId}`);
+    console.log(`Bound to: ${plan.revision.branch}@${plan.revision.head.slice(0, 12)} · expires ${plan.expiresAt}`);
+    console.log(table(plan.actions.map((action) => ({
+      id: action.actionId.slice(0, 10), timing: action.timing, intent: action.intent,
+      executable: action.executable ? 'yes' : 'no', reason: action.reason
+    })), [
+      { key: 'id', label: 'ACTION' }, { key: 'timing', label: 'WHEN' },
+      { key: 'intent', label: 'INTENT' }, { key: 'executable', label: 'READY' },
+      { key: 'reason', label: 'REASON' }
+    ]));
+    console.log(`Execute after review: singularity-flow action execute ${plan.planId} --action <id> --confirm <kernel-value>`);
+    return;
+  }
+  if (subcommand !== 'execute') throw new SingularityFlowError(`Unknown action subcommand '${subcommand}'. Use action plan or action execute.`);
+
+  const planId = positionals[2] ?? optionString(options, 'plan');
+  const plan = await loadActionPlan(root, planId);
+  const snapshot = await resolveNextStepsSnapshot(['nextsteps', plan.subject.id].filter(Boolean), {});
+  assertActionPlanFresh(root, plan, snapshot);
+  const action = selectPlannedAction(plan, optionString(options, 'action'));
+  assertActionConfirmation(action, optionString(options, 'confirm'));
+  const prior = await readActionResult(root, plan, action);
+  if (prior) {
+    if (optionBoolean(options, 'json')) return console.log(JSON.stringify({ replayed: true, record: prior }, null, 2));
+    console.log(`Action ${action.actionId.slice(0, 10)} already completed at ${prior.completedAt}; no command was repeated.`);
+    return;
+  }
+
+  const priorActionEnvironment = {
+    planId: process.env.SINGULARITY_FLOW_ACTION_PLAN_ID,
+    planHash: process.env.SINGULARITY_FLOW_ACTION_PLAN_HASH,
+    actionId: process.env.SINGULARITY_FLOW_ACTION_ID
+  };
+  process.env.SINGULARITY_FLOW_ACTION_PLAN_ID = plan.planId;
+  process.env.SINGULARITY_FLOW_ACTION_PLAN_HASH = plan.planHash;
+  process.env.SINGULARITY_FLOW_ACTION_ID = action.actionId;
+  try { await main(action.argv); }
+  finally {
+    for (const [key, value] of Object.entries({
+      SINGULARITY_FLOW_ACTION_PLAN_ID: priorActionEnvironment.planId,
+      SINGULARITY_FLOW_ACTION_PLAN_HASH: priorActionEnvironment.planHash,
+      SINGULARITY_FLOW_ACTION_ID: priorActionEnvironment.actionId
+    })) {
+      if (value == null) delete process.env[key];
+      else process.env[key] = value;
+    }
+  }
+  const result = await recordActionResult(root, plan, action, {
+    status: 'completed',
+    branch: branch(root),
+    head: head(root)
+  });
+  if (optionBoolean(options, 'json')) console.log(JSON.stringify({ replayed: false, record: result }, null, 2));
+  else console.log(`Governed action ${action.actionId.slice(0, 10)} completed and was recorded locally.`);
+}
+
+function activeActionContext() {
+  const planId = process.env.SINGULARITY_FLOW_ACTION_PLAN_ID;
+  const planHash = process.env.SINGULARITY_FLOW_ACTION_PLAN_HASH;
+  const actionId = process.env.SINGULARITY_FLOW_ACTION_ID;
+  return planId && planHash && actionId ? { planId, planHash, actionId } : null;
 }
 
 async function nextCommand(options) {
@@ -1637,7 +1726,8 @@ async function approveCommand(positionals, options) {
   if (!receipt && !optionBoolean(options, 'yes') && !(await confirm(phase))) throw new SingularityFlowError('Approval cancelled.');
   const result = await approvePhase(root, config, workflow, {
     phaseId: optionString(options, 'phase'),
-    channel: process.env.SINGULARITY_FLOW_GITHUB_ACTOR ? 'github-pr-comment' : receipt ? 'copilot-selection-receipt' : 'terminal'
+    channel: process.env.SINGULARITY_FLOW_GITHUB_ACTOR ? 'github-pr-comment' : receipt ? 'copilot-selection-receipt' : 'terminal',
+    actionContext: activeActionContext() ?? receipt?.approvalContext ?? null
   });
   const publication = await commitAndPublish(root, config, workflow, { type: 'phase-approved', phaseId: phase.id, generation: phase.generation, actor: result.approval.actor, agent: result.approval.agent, authorityGroup: result.approval.authorityGroup }, `[${workflow.workItem.id}][phase:${phase.id}][approve] ${result.approval.authorityGroup}`, phase.artifacts.map((item) => item.path));
   console.log(publication.pushed
@@ -1653,7 +1743,13 @@ async function rejectCommand(positionals, options) {
   const { root, config, workflow, phase: current, session } = await decisionWorkflow(positionals, options, 'reject');
   const target = optionString(options, 'to') ?? current.id;
   console.log(`Rejecting ${current.id} to ${target} as ${session.actor.name ?? session.actor.email ?? session.actor.login}; governed agent ${session.agent} is audit context only. Approvals from ${target} onward will be invalidated.`);
-  const phase = await rejectPhase(root, config, workflow, { phaseId: optionString(options, 'phase'), target, reason: optionString(options, 'reason'), channel: process.env.SINGULARITY_FLOW_GITHUB_ACTOR ? 'github-pr-comment' : 'terminal' });
+  const phase = await rejectPhase(root, config, workflow, {
+    phaseId: optionString(options, 'phase'),
+    target,
+    reason: optionString(options, 'reason'),
+    channel: process.env.SINGULARITY_FLOW_GITHUB_ACTOR ? 'github-pr-comment' : 'terminal',
+    actionContext: activeActionContext()
+  });
   await commitAndPublish(root, config, workflow, { type: 'phase-rejected', phaseId: current.id, generation: current.generation, actor: session.actor, agent: session.agent, payload: { targetPhaseId: phase.id } }, `[${workflow.workItem.id}][phase:${current.id}][reject] return to ${phase.id}`);
   console.log(`Rejected ${current.id}; ${phase.id} is now in progress.`);
   formatContextBoundaryHandoff(phase.contextBoundary).forEach((line) => console.log(line));
@@ -5685,6 +5781,7 @@ async function dispatch(command, positionals, options) {
     watch: () => watchCommand(positionals, options),
     recover: () => recoverCommand(positionals, options),
     nextsteps: () => nextStepsCommand(positionals, options),
+    action: () => actionCommand(positionals, options),
     inputs: () => inputsCommand(positionals, options),
     'agents': () => agentsCommand(positionals, options),
     documents: () => documentsCommand(positionals, options),

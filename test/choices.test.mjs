@@ -134,6 +134,7 @@ test('approval receipt keeps exact phase confirmation inside Copilot and uses th
   assert.equal(begun.action, 'approve');
   assert.equal(begun.approvalContext.phase, 'intake');
   assert.equal(begun.approvalContext.generation, 1);
+  assert.match(begun.approvalContext.planId, /^[0-9a-f]{24}$/);
   assert.ok(begun.approvalContext.artifacts[0].sha256);
   assert.deepEqual(begun.choiceSets.map((item) => item.id), ['phase-confirmation']);
 
@@ -155,6 +156,11 @@ test('approval receipt keeps exact phase confirmation inside Copilot and uses th
   workflow = JSON.parse(await readFile(workflowFile, 'utf8'));
   assert.equal(workflow.currentPhase, 'requirements');
   assert.equal(workflow.phases.intake.approvals[0].channel, 'copilot-selection-receipt');
+  assert.equal(workflow.phases.intake.approvals[0].actionContext.planId, begun.approvalContext.planId);
+  assert.deepEqual(
+    workflow.phases.intake.approvals[0].artifactSha256,
+    begun.approvalContext.artifacts
+  );
   assert.equal(flow(root, ['choices', 'status', begun.token, '--json'], { allowFailure: true }).status, 1);
 });
 

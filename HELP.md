@@ -1054,6 +1054,19 @@ singularity-flow nextsteps [WORK-ID]
 In Copilot, use `/sflow-nextsteps [WORK-ID]`. It labels actions as `NOW`,
 `THEN`, or `ALTERNATIVE` and never executes them automatically.
 
+To continue through a reviewed, revision-bound action plan, use `/sf-continue` or
+**Lifecycle → Continue safely** in VS Code. The same protocol is available directly:
+
+```bash
+singularity-flow action plan [WORK-ID] --json
+singularity-flow action execute <PLAN-ID> --action <ACTION-ID> --confirm <KERNEL-VALUE>
+```
+
+The plan is content-addressed, expires after a short period, and is rejected if the branch, HEAD,
+worktree, or lifecycle snapshot changes. Execution invokes the Node CLI directly without a shell.
+Use `/sf-inspect` for read-only status and document inspection, and `/sf-admin` for explicit
+diagnostic/configuration work.
+
 Use `/sflow-next` when you want the first valid action executed. Its terminal
 equivalent is `sflow-next`, which delegates to `singularity-flow next`.
 
@@ -1999,6 +2012,8 @@ singularity-flow inbox [--fetch] [--json]
 singularity-flow finalize [--json]
 singularity-flow guide [WORK-ID] [--json]
 singularity-flow nextsteps [WORK-ID] [--json]
+singularity-flow action plan [WORK-ID] [--ttl-ms N] [--json]
+singularity-flow action execute <PLAN-ID> [--action ACTION-ID] [--confirm KERNEL-VALUE] [--json]
 singularity-flow next [--task TEXT] [--fetch] [--yes] [--skip-checks]
 singularity-flow run [--task TEXT] [--yes]
 singularity-flow cockpit

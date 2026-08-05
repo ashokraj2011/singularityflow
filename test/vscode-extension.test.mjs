@@ -416,6 +416,7 @@ test('a repository with nothing started at all offers the command that starts so
 test('a checked-out Story gets a phase rail with named prepare publish and submit actions', () => {
   const tree = buildTree(storySnapshot({ generation: 1 }));
   assert.deepEqual(tree.map((node) => node.id), ['active-story:STORY-42', 'workspace:impact']);
+  assert.equal(find(tree, 'story:continue-safely').runCommand, 'singularityFlow.continueSafely');
   assert.equal(find(tree, 'story:analytics').runCommand, 'singularityFlow.openDashboard');
   assert.match(find(tree, 'story:analytics').description, /time · tokens · cost/);
   assert.equal(find(tree, 'story:phase-rail').description, '1/2 approved');
@@ -451,6 +452,7 @@ test('the tree is built from the real snapshot: lifecycle, phases, artifacts, St
 
 test('the next governed action is surfaced first, with the engine own wording', () => {
   const tree = buildTree(snapshot);
+  assert.equal(find(tree, 'initiative:continue-safely').runCommand, 'singularityFlow.continueSafely');
   const action = find(tree, 'next-action');
   assert.equal(action.kind, 'action');
   assert.equal(action.label, snapshot.initiative.nextActions[0].reason);
@@ -1209,6 +1211,10 @@ const { buildInbox, buildInboxTree } = await import(source('views/inbox-model.ts
 
 test('a submitted Story phase appears in the same approval inbox with its exact artifact', () => {
   const shot = storySnapshot({ status: 'awaiting_approval', generation: 1 });
+  shot.workflow.lineage = { submissions: [{
+    packetSha256: 'b'.repeat(64), phase: 'design', generation: 1,
+    projection: { sourceCommit: 'c'.repeat(40) }
+  }] };
   const approvals = buildApprovals(shot);
   assert.equal(approvals.initiativeId, 'STORY-42');
   assert.equal(approvals.pending.length, 1);
@@ -1220,6 +1226,9 @@ test('a submitted Story phase appears in the same approval inbox with its exact 
   }, { source: 'story', phase: 'design', expected: 'design', standing: 'yours' });
   assert.equal(approvals.pending[0].artifactPath,
     'singularity/work-items/STORY-42/artifacts/design/design.md');
+  assert.equal(approvals.pending[0].reviewPacketSha256, 'b'.repeat(64));
+  assert.equal(approvals.pending[0].submittedSourceCommit, 'c'.repeat(40));
+  assert.match(approvals.pending[0].detail, /packet b{12}/);
 
   const inbox = buildInbox(shot);
   assert.equal(inbox.subjectId, 'STORY-42');

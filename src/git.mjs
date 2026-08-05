@@ -1,4 +1,5 @@
 import path from 'node:path';
+import { mkdir, mkdtemp, rm } from 'node:fs/promises';
 import { SingularityFlowError, invariant, run } from './util.mjs';
 
 function git(args, options = {}) {
@@ -218,6 +219,88 @@ export function commit(root, message, paths = null) {
   const scope = paths?.length ? ['--only', '--', ...paths] : [];
   git(['commit', '-m', message, ...scope], { cwd: root, stdio: 'inherit' });
   return head(root);
+}
+
+/**
+ * Create a governed commit without borrowing the contributor's Git index.
+ *
+ * The lifecycle engine writes governed files into the worktree, but a contributor may already
+ * have unrelated work staged. A normal `git add` mutates that index even when `git commit --only`
+ * keeps those files out of the resulting commit. This plumbing transaction builds the commit from
+ * a temporary index, advances the branch with compare-and-swap semantics, and then refreshes only
+ * the governed entries in the real index. Existing staged content is therefore neither committed
+ * nor rewritten.
+ *
+ * Arbitrary repository commit hooks are intentionally not run: lifecycle publication has already
+ * executed its deterministic validators before entering this function. Callers that require signed
+ * commits can request `commitSpec.sign`; `git commit-tree` then uses the configured signing key.
+ */
+export async function commitIsolated(root, message, paths, {
+  expectedHead = head(root),
+  sign = false,
+  signingKey = null,
+  fault = null
+} = {}) {
+  const scope = [...new Set((paths ?? []).filter(Boolean))];
+  if (!scope.length) throw new SingularityFlowError('Governed publication requires at least one allowed path.');
+
+  const stagedOverlap = git(['diff', '--cached', '--name-only', '-z', expectedHead, '--', ...scope], { cwd: root }).stdout
+    .split('\0').filter(Boolean);
+  if (stagedOverlap.length) {
+    throw new SingularityFlowError(
+      `Governed publication cannot replace already staged governed path(s): ${stagedOverlap.join(', ')}. `
+      + 'Commit or unstage those paths, then retry.'
+    );
+  }
+
+  const temporaryRoot = path.join(gitDir(root), 'singularity-flow', 'temporary-indexes');
+  await mkdir(temporaryRoot, { recursive: true });
+  const scratch = await mkdtemp(path.join(temporaryRoot, 'publication-'));
+  const indexPath = path.join(scratch, 'index');
+  const env = { ...process.env, GIT_INDEX_FILE: indexPath };
+  let refAdvanced = false;
+  let sourceCommit = null;
+  try {
+    git(['read-tree', expectedHead], { cwd: root, env });
+    if (fault) await fault('before-staging', { expectedHead, paths: scope });
+    git(['add', '-A', '--', ...scope], { cwd: root, env });
+    if (fault) await fault('after-staging', { expectedHead, paths: scope });
+
+    const tree = git(['write-tree'], { cwd: root, env }).stdout.trim();
+    const priorTree = git(['rev-parse', `${expectedHead}^{tree}`], { cwd: root }).stdout.trim();
+    if (tree === priorTree) throw new SingularityFlowError('No governed changes are ready to commit.');
+
+    const signing = sign ? [signingKey ? `-S${signingKey}` : '-S'] : [];
+    sourceCommit = git(
+      ['commit-tree', tree, '-p', expectedHead, ...signing, '-m', message],
+      { cwd: root, env }
+    ).stdout.trim();
+    if (fault) await fault('after-commit-object', { expectedHead, sourceCommit, tree });
+
+    const ref = git(['symbolic-ref', '-q', 'HEAD'], { cwd: root }).stdout.trim();
+    const update = git(['update-ref', ref, sourceCommit, expectedHead], { cwd: root, allowFailure: true });
+    if (update.status !== 0) {
+      throw new SingularityFlowError(
+        `Governed publication lost its branch-head race: ${(update.stderr || update.stdout).trim() || 'compare-and-swap failed'}. `
+        + 'Reload the lifecycle state and retry.'
+      );
+    }
+    refAdvanced = true;
+
+    // The real index still describes the old HEAD. Refresh only governed entries so they do not
+    // appear as synthetic staged reversions; unrelated staged entries remain byte-for-byte intact.
+    git(['reset', '-q', sourceCommit, '--', ...scope], { cwd: root });
+    if (fault) await fault('after-ref-update', { expectedHead, sourceCommit, tree });
+    return sourceCommit;
+  } catch (error) {
+    // Before update-ref succeeds, every object/index artefact is unreachable scratch data. Once the
+    // ref advances, the commit is durable and must be recovered/published rather than rolled back.
+    error.publicationRefAdvanced = refAdvanced;
+    error.publicationCommit = refAdvanced ? sourceCommit : null;
+    throw error;
+  } finally {
+    await rm(scratch, { recursive: true, force: true });
+  }
 }
 
 export function pushBranch(root, remote = 'origin', branchName = branch(root)) {

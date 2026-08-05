@@ -150,7 +150,9 @@ export class SidebarViewProvider implements vscode.WebviewViewProvider, vscode.D
     if (!hasChildren) return `<div class="leaf depth-${Math.min(depth, 3)}">${row}</div>`;
     const children = node.children!.map((child, index) =>
       this.renderNode(section, child, [...path, index], depth + 1)).join('');
-    const open = depth === 0 || node.kind === 'initiative' || node.id === 'configuration' ? ' open' : '';
+    const open = depth === 0 || node.kind === 'initiative' || node.id === 'configuration'
+      || node.id.startsWith('completed-story:') || node.id.startsWith('completed-initiative:')
+      ? ' open' : '';
     return `<details class="node depth-${Math.min(depth, 3)}" data-node-state="${escape(key)}"${open}>
       <summary>${row}</summary><div class="children">${children}</div></details>`;
   }

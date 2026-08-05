@@ -10,31 +10,39 @@ disable-model-invocation: true
 <!-- sflow-output-contract: explicit-selection -->
 **Output contract:** Collect every required choice explicitly; never infer or preselect; preserve errors, artifacts, and next actions.
 
-Capabilities form a tree. A `delivery` ships from repository entries; a `collection` groups related capabilities. The tree has one root and any depth.
+Capabilities form a tree. A `delivery` ships from repositories; a `collection` groups capabilities. The tree has one root and any depth.
 
 The lead repository owns `singularity/capabilities.yml`; its `portfolio.yml` declares repositories. Flow edits it in a temporary clone, so this also works outside Git.
 
 1. Run `singularity-flow capability leads --json` for the lead repositories this
-   machine already knows. If exactly one is returned, use it. If several are,
+   machine knows. If exactly one is returned, use it. If several are,
    ask which organisation this capability belongs to. If none is, ask for the
    lead repository's clone URL — do not guess one.
 2. Run `singularity-flow capability organisation <LEAD-URL> --json` and show the
-   tree. This is what the capability is being added to, and it is also the list
-   of possible parents.
+   tree and possible parents.
 3. Ask only for missing: kebab-case ID, display name, kind (`collection` or `delivery`), parent, and repository URL(s). A delivery requires repositories; a collection forbids them. Parent may be any capability allowed by validation; omit only for the root.
 4. Run:
 
    `singularity-flow capability map <ID> --lead <LEAD-URL> --kind <KIND> [--name TEXT] [--parent ID] [--repository URL] [--jira-project KEY] [--teams A,B] --json`
 
-5. Report the commit that was pushed and the tree as it now stands.
+5. Report the review branch, base branch, and commit. State explicitly that the
+   default branch and state projection were not changed. Do not report the new
+   capability as active yet.
+6. Ask the contributor to review and merge the branch through the repository's
+   normal controls. After they confirm the merge, run:
+
+   `singularity-flow capability publish --lead <LEAD-URL> --json`
+
+   Then re-read `capability organisation` and report the active tree.
 
 ## Starting from nothing
 
 A lead repository that has never been governed is the ordinary starting point,
-not an error. The first `capability map` writes `singularity/` into it, declares
-it in its own portfolio, names the orphan `state` branch, commits and pushes —
-all in the same operation. Say that this happened; do not run `bootstrap`
-separately first.
+not an error. The first `capability map` writes the proposed `singularity/`
+configuration, repository declaration, and state-branch setting to a review
+branch. It never pushes the default or state branch directly. If `singularity/`
+already exists, the proposal preserves it and adds only missing starter files
+and the requested capability changes. Do not run `bootstrap` separately first.
 
 ## Boundaries
 
@@ -44,6 +52,9 @@ separately first.
   from this skill; offer `/sf-workspace` afterwards.
 - Do not edit `singularity/capabilities.yml` or `singularity/portfolio.yml` by
   hand. Both are validated on every write, and a hand edit skips that.
+- Do not merge, force-push, or delete the review branch. The contributor's
+  repository controls own that decision. Do not run `capability publish` before
+  the contributor confirms the review branch was merged.
 - Policy is inherited from the root toward each child and every fold is
   monotonic: a child may tighten what an ancestor set and can never loosen it.
   Use `/sf-capabilities` to explain the effect rather than reasoning about it

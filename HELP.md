@@ -683,6 +683,7 @@ Useful commands:
 singularity-flow capability tree --json
 singularity-flow capability show <CAPABILITY-ID> --json
 singularity-flow capability map <CAPABILITY-ID> --lead <URL> --repository <URL>
+singularity-flow capability publish --lead <URL>
 singularity-flow capability world-model <CAPABILITY-ID> --json
 singularity-flow workspace create --local --id <ID> --organisation <LEAD-URL> --capability <CAPABILITY-ID>
 singularity-flow workspace list --json
@@ -693,6 +694,12 @@ singularity-flow workspace archive-status <DIRECTORY> --fetch
 singularity-flow workspace archive <DIRECTORY> --confirm <WORKSPACE-ID>
 singularity-flow workspace restore <DIRECTORY>
 ```
+
+`capability map` and remote `capability edit` create a review branch named under
+`sflow/capability/`; they do not push the default branch. Merge that proposal using
+the repository's normal review process, then run `capability publish` to refresh
+the orphan state projection. If the repository already contains `singularity/`,
+the proposal preserves it and updates only the required capability configuration.
 
 ## Workspace configuration
 

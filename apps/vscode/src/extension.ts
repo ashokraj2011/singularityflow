@@ -367,11 +367,17 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
       void vscode.window.showInformationMessage(`Workspace created. Now working in ${created.lead}.`);
       await selectWorkspace(created.directory, created.leadDirectory, created.lead);
     }, async () => {
-      // Keep the workspace draft open. Successful capability setup returns here, refreshes the map,
-      // and preserves the directory, identifier and name the person already entered.
+      // Keep the workspace draft open. Capability setup creates a review proposal; it cannot be
+      // loaded into this draft until the organisation's normal review controls merge that branch.
       await vscode.commands.executeCommand(
         'singularityFlow.mapCapability',
-        async () => workspacePanel.refreshCapabilityMap()
+        async (mapped: Mapped) => {
+          const chosen = await vscode.window.showInformationMessage(
+            `${mapped.capabilityId} is proposed on ${mapped.branch}. ${mapped.baseBranch} was not changed. `
+            + 'Merge the review branch, publish the capability projection, then reopen or refresh the workspace form.',
+            'Copy branch');
+          if (chosen === 'Copy branch') await vscode.env.clipboard.writeText(mapped.branch ?? '');
+        }
       );
     });
   }));
@@ -417,10 +423,11 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
         return;
       }
       void vscode.window.showInformationMessage(
-        `${mapped.capabilityId} is mapped${mapped.repositoryId ? ` to ${mapped.repositoryId}` : ''}. `
-        + 'Create a workspace on it to work in it.', 'Create a workspace')
+        `${mapped.capabilityId} is ready for review on ${mapped.branch}. `
+        + `${mapped.baseBranch} was not changed. Merge the proposal, then run capability publish before creating a workspace on it.`,
+        'Copy branch')
         .then((chosen) => (chosen
-          ? vscode.commands.executeCommand('singularityFlow.createWorkspace')
+          ? vscode.env.clipboard.writeText(mapped.branch ?? '')
           : undefined));
     });
   }));

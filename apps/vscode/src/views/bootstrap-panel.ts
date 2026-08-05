@@ -18,7 +18,15 @@ export interface Organisation {
   capabilities: Array<{ id: string; name: string; kind?: string; repository?: string | null; children: unknown[] }>;
 }
 
-export interface Mapped { capabilityId: string; repositoryId: string | null; lead: string }
+export interface Mapped {
+  capabilityId: string;
+  repositoryId: string | null;
+  lead: string;
+  branch: string | null;
+  baseBranch: string;
+  commit: string | null;
+  reviewRequired: boolean;
+}
 
 type Run = (argv: string[]) => Promise<{ result: unknown; error: string | null }>;
 

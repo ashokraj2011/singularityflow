@@ -186,6 +186,7 @@ import { bootstrapRepository } from './bootstrap.mjs';
 import {
   capabilityReadiness, composeCapabilityWorldModel, editCapabilityInOrganisation,
   initializeWorkspaceState, listLeadRepositories, mapCapability, publishCapabilityMap,
+  publishOrganisationCapabilityMap,
   readOrganisation, rememberLeadRepository, resolveWorkspacePlan
 } from './organisation.mjs';
 import { canonicalCommand, validateCommandHandlers } from './command-registry.mjs';
@@ -477,10 +478,13 @@ Usage:
     [--kind collection|delivery] [--type tech|business] [--parent ID] [--lead-repository URL]
     [--doc KEY=VALUE]... [--resource KEY=VALUE]... [--jira-project KEY] [--teams A,B] [--json]
     (--repository is repeatable and required for delivery; omit it for collection. --lead-repository
-     says which delivery repository holds governed state when there are several.)
+     says which delivery repository holds governed state when there are several. Remote mapping
+     pushes a review branch and never writes the default branch directly.)
   singularity-flow capability edit <CAPABILITY-ID> [--lead URL] [--name TEXT] [--kind collection|delivery]
     [--type tech|business] [--parent ID] [--repositories A,B] [--lead-repository ID]
     [--doc KEY=VALUE]... [--resource KEY=VALUE]... [--json]   (no checkout needed)
+  singularity-flow capability publish [--lead URL] [--json]
+    (after a capability review branch is merged, refresh its orphan state projection)
   singularity-flow capability world-model <CAPABILITY-ID> [--lead URL] [--json]
     (a capability that ships has its lead's model; one that groups others composes theirs)
   singularity-flow capability organisation [LEAD-URL] [--readiness] [--json]
@@ -3226,8 +3230,14 @@ async function capabilityCommand(positionals, options) {
     const ships = mapped.repositoryIds?.length
       ? ` to ${mapped.repositoryIds.join(', ')}${mapped.leadRepositoryId && mapped.repositoryIds.length > 1 ? ` (lead ${mapped.leadRepositoryId})` : ''}`
       : '';
-    console.log(`Mapped ${mapped.capabilityId}${ships} in ${leadUrl}.`);
-    if (mapped.commit) console.log(`  pushed ${mapped.commit.slice(0, 8)} to ${mapped.branch}`);
+    console.log(`Proposed capability ${mapped.capabilityId}${ships} in ${leadUrl}.`);
+    if (mapped.commit) {
+      console.log(`  review branch: ${mapped.branch}`);
+      console.log(`  base: ${mapped.baseBranch}@${mapped.baseCommit.slice(0, 8)}`);
+      console.log(`  commit: ${mapped.commit.slice(0, 8)}`);
+      console.log(`  ${mapped.baseBranch} was not changed; review and merge the branch through normal repository controls.`);
+      console.log(`  after merge: singularity-flow capability publish --lead ${leadUrl}`);
+    }
     return;
   }
 
@@ -3248,9 +3258,29 @@ async function capabilityCommand(positionals, options) {
     const edited = await editCapabilityInOrganisation(leadUrl, id, capabilityChanges(options));
     await rememberLeadRepository(leadUrl);
     if (optionBoolean(options, 'json')) return console.log(JSON.stringify({ lead: leadUrl, ...edited }, null, 2));
-    console.log(`Updated ${id} in ${leadUrl}.`);
-    if (edited.commit) console.log(`  pushed ${edited.commit.slice(0, 8)} to ${edited.branch}`);
+    console.log(`Proposed an update to ${id} in ${leadUrl}.`);
+    if (edited.commit) {
+      console.log(`  review branch: ${edited.branch}`);
+      console.log(`  base: ${edited.baseBranch}@${edited.baseCommit.slice(0, 8)}`);
+      console.log(`  commit: ${edited.commit.slice(0, 8)}`);
+      console.log(`  ${edited.baseBranch} was not changed; review and merge the branch through normal repository controls.`);
+      console.log(`  after merge: singularity-flow capability publish --lead ${leadUrl}`);
+    }
     return;
+  }
+
+  if (subcommandForWrite === 'publish') {
+    const leadUrl = optionString(options, 'lead') ?? (await listLeadRepositories())[0]?.url;
+    if (!leadUrl) throw new SingularityFlowError('No lead repository is known. Pass --lead <URL>.');
+    const state = await publishOrganisationCapabilityMap(leadUrl);
+    await rememberLeadRepository(leadUrl);
+    if (optionBoolean(options, 'json')) return console.log(JSON.stringify({ lead: leadUrl, ...state }, null, 2));
+    if (state.published) {
+      return console.log(`Published the reviewed ${state.baseBranch} capability map to ${state.branch} at ${state.commit.slice(0, 8)}.`);
+    }
+    return console.log(state.branch
+      ? `The ${state.branch} capability projection is already current.`
+      : `Capability projection not published: ${state.reason}.`);
   }
 
   if (subcommandForWrite === 'world-model') {

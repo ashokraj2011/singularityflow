@@ -208,17 +208,24 @@ and team names belong to a capability, not to a repository or workspace. Optiona
 The map lives in `singularity/capabilities.yml` in the **lead repository**, with
 the repositories it refers to declared in that repository's
 `singularity/portfolio.yml`. Editing it checks nothing out: the lead is cloned to
-a temporary directory, edited, pushed and discarded.
+a temporary directory, edited, pushed to a new `sflow/capability/...` review
+branch and discarded. Flow never writes the lead repository's default branch
+from this path.
 
 ```
 singularity-flow capability map payments-api --lead https://git.example.corp/acme/platform.git \
   --name "Payments API" --kind delivery --parent payments --repository https://git.example.corp/acme/api.git
+
+# After the review branch is merged through normal repository controls:
+singularity-flow capability publish --lead https://git.example.corp/acme/platform.git
 ```
 
 The first capability mapped into a repository governs it — `singularity/` is
 written, the repository is declared in its own portfolio, and the orphan `state`
-branch is named, all in the same operation. There is no separate setup step, and
-no order in which you need a map before you can make one.
+branch is named on the review branch. Existing `singularity/` files are preserved;
+only missing starter files and the proposed capability/portfolio changes are added.
+After review and merge, `capability publish` refreshes the orphan state projection.
+Unreviewed configuration is never copied to `main` or the state branch.
 
 When a Story or Initiative starts, Flow resolves the owning capability from the
 active workspace (or accepts `--capability <ID>` when a repository participates in

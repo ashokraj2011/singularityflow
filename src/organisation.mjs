@@ -7,8 +7,9 @@
  * could be edited. Cloning is a workspace's job, and a workspace is created for doing work, not for
  * describing what exists.
  *
- * So this clones into a temporary directory, edits, pushes, and discards. The lead repository is
- * the durable record; the checkout was never the point.
+ * So this clones into a temporary directory, edits, pushes a review branch, and discards. The lead
+ * repository is the durable record; the checkout was never the point. The default branch is never
+ * written by this path: an organisation's ordinary review and merge controls remain authoritative.
  *
  * The one thing kept on the machine is a pointer: which repositories hold a map. Reading a map
  * requires knowing where it is, and asking for the same URL on every screen is a worse answer than
@@ -70,30 +71,49 @@ export async function forgetLeadRepository(url, file = leadRegistryFile()) {
  * caller mutates the checkout and says what the commit is for; pushing and cleaning up happen here
  * so that no caller can forget either.
  */
-async function withLeadCheckout(url, message, mutate) {
+async function withLeadCheckout(url, message, reviewBranchPrefix, mutate) {
   const remote = String(url ?? '').trim();
   if (!remote) throw new SingularityFlowError('A lead repository URL is required.');
 
-  const branch = remoteDefaultBranch(
+  const baseBranch = remoteDefaultBranch(
     remote,
     run('git', ['ls-remote', '--symref', remote, 'HEAD'], { allowFailure: true }).stdout
   );
   const scratch = await mkdtemp(path.join(os.tmpdir(), 'sflow-lead-'));
   try {
-    const cloned = run('git', ['clone', '--quiet', '--depth', '1', '--branch', branch, remote, scratch],
+    const cloned = run('git', ['clone', '--quiet', '--depth', '1', '--branch', baseBranch, remote, scratch],
       { allowFailure: true });
     if (cloned.status !== 0) {
       throw new SingularityFlowError(
         `Cannot read '${remote}': ${(cloned.stderr || cloned.stdout).trim().split('\n')[0]}`);
     }
 
-    const result = await mutate(scratch, branch);
+    const baseCommit = run('git', ['rev-parse', 'HEAD'], { cwd: scratch }).stdout.trim();
+    const result = await mutate(scratch, baseBranch);
 
     const staged = run('git', ['add', '-A'], { cwd: scratch, allowFailure: true });
     if (staged.status !== 0) throw new SingularityFlowError('Could not stage the change.');
     if (!run('git', ['diff', '--cached', '--name-only'], { cwd: scratch }).stdout.trim()) {
-      return { ...result, changed: false, pushed: false, commit: null };
+      return {
+        ...result, changed: false, pushed: false, commit: null,
+        branch: null, baseBranch, baseCommit, reviewRequired: false
+      };
     }
+
+    // The base revision makes the proposal stable and conflict-visible. A retry against the same
+    // base cannot overwrite the first proposal, while a later edit after merge naturally gets a
+    // new branch name. The prefix is supplied by the operation and contains only a capability ID.
+    const safePrefix = String(reviewBranchPrefix ?? 'capability-change')
+      .toLowerCase().replace(/[^a-z0-9._/-]+/g, '-').replace(/^-+|-+$/g, '');
+    const reviewBranch = `sflow/${safePrefix}-${baseCommit.slice(0, 8)}`;
+    const exists = run('git', ['ls-remote', '--heads', 'origin', `refs/heads/${reviewBranch}`], {
+      cwd: scratch, allowFailure: true
+    }).stdout.trim();
+    if (exists) {
+      throw new SingularityFlowError(
+        `Review branch '${reviewBranch}' already exists on '${remote}'. Review or remove that proposal before retrying.`);
+    }
+    run('git', ['switch', '--quiet', '-c', reviewBranch], { cwd: scratch });
 
     const actor = identity(scratch);
     run('git', ['-c', `user.name=${actor.name || 'Singularity Flow'}`,
@@ -102,13 +122,18 @@ async function withLeadCheckout(url, message, mutate) {
     const commit = run('git', ['rev-parse', 'HEAD'], { cwd: scratch }).stdout.trim();
 
     // Pushed here rather than left for later: the temporary checkout is about to be deleted, so a
-    // commit that is not pushed is a commit that never existed.
-    const pushed = run('git', ['push', 'origin', `HEAD:${branch}`], { cwd: scratch, allowFailure: true });
+    // commit that is not pushed is a commit that never existed. This deliberately targets only a
+    // new review branch. The default branch and orphan state branch remain unchanged until review.
+    const pushed = run('git', ['push', '--set-upstream', 'origin',
+      `HEAD:refs/heads/${reviewBranch}`], { cwd: scratch, allowFailure: true });
     if (pushed.status !== 0) {
       throw new SingularityFlowError(
         `The change could not be pushed to '${remote}': ${(pushed.stderr || pushed.stdout).trim().split('\n')[0]}`);
     }
-    return { ...result, changed: true, pushed: true, commit, branch };
+    return {
+      ...result, changed: true, pushed: true, commit,
+      branch: reviewBranch, baseBranch, baseCommit, reviewRequired: true
+    };
   } finally {
     await rm(scratch, { recursive: true, force: true });
   }
@@ -173,7 +198,8 @@ export async function mapCapability(leadUrl, {
 } = {}) {
   if (!capabilityId) throw new SingularityFlowError('A capability identifier is required.');
 
-  return withLeadCheckout(leadUrl, `Map capability ${capabilityId}`, async (root) => {
+  return withLeadCheckout(leadUrl, `Map capability ${capabilityId}`,
+    `capability/map-${capabilityId}`, async (root, baseBranch) => {
     // The first capability governs the repository it is mapped into.
     //
     // Requiring a governed lead before the first capability could be mapped was the product's one
@@ -183,11 +209,10 @@ export async function mapCapability(leadUrl, {
     assertGovernanceVisible(root);
     const governed = existsSync(path.join(root, CAPABILITIES_PATH));
     if (!governed) {
-      const branch = run('git', ['rev-parse', '--abbrev-ref', 'HEAD'], { cwd: root }).stdout.trim();
       await initializeDefinition(root);
-      await describeRepository(root, repositoryIdFromUrl(leadUrl), leadUrl, branch, identity(root));
-      // The orphan branch is named in the definition here; publishing the map below is what
-      // actually creates it, so the governed copy exists from the moment there is a map.
+      await describeRepository(root, repositoryIdFromUrl(leadUrl), leadUrl, baseBranch, identity(root));
+      // The orphan branch is named in the definition here. It is not published until this proposal
+      // is reviewed and merged; unreviewed configuration must never become an authoritative mirror.
       await enableLedger(root, 'state');
     }
 
@@ -252,11 +277,10 @@ export async function mapCapability(leadUrl, {
       : null;
     validateCapabilities(document.toJS(), portfolio);
     await writeFile(file, document.toString(YAML_OUTPUT), 'utf8');
-    const state = await publishCapabilityMap(root, { message: `Map capability ${capabilityId}` });
-
     return {
       capabilityId, repositoryId, repositoryIds, leadRepositoryId, type: type ?? null,
-      parent: parent || null, state
+      parent: parent || null,
+      state: { published: false, reason: 'awaiting review and merge' }
     };
   });
 }
@@ -297,6 +321,36 @@ export async function publishCapabilityMap(root, { message = 'Publish the capabi
 }
 
 /**
+ * Refresh the orphan capability projection from the reviewed default branch of a remote lead.
+ *
+ * This is intentionally separate from map/edit. Those operations only propose a review branch;
+ * publishing before merge would make unreviewed configuration visible as governed state.
+ */
+export async function publishOrganisationCapabilityMap(url) {
+  const remote = String(url ?? '').trim();
+  if (!remote) throw new SingularityFlowError('A lead repository URL is required.');
+  const baseBranch = remoteDefaultBranch(
+    remote,
+    run('git', ['ls-remote', '--symref', remote, 'HEAD'], { allowFailure: true }).stdout
+  );
+  const scratch = await mkdtemp(path.join(os.tmpdir(), 'sflow-publish-map-'));
+  try {
+    const cloned = run('git', ['clone', '--quiet', '--depth', '1', '--branch', baseBranch,
+      remote, scratch], { allowFailure: true });
+    if (cloned.status !== 0) {
+      throw new SingularityFlowError(
+        `Cannot read '${remote}': ${(cloned.stderr || cloned.stdout).trim().split('\n')[0]}`);
+    }
+    const state = await publishCapabilityMap(scratch, {
+      message: `Publish reviewed capability map from ${baseBranch}`
+    });
+    return { baseBranch, ...state };
+  } finally {
+    await rm(scratch, { recursive: true, force: true });
+  }
+}
+
+/**
  * Change a capability that is already on the map, without checking anything out.
  *
  * Same borrowed-clone path as mapping one. Requiring a full clone to correct a Confluence link or
@@ -305,7 +359,8 @@ export async function publishCapabilityMap(root, { message = 'Publish the capabi
  */
 export async function editCapabilityInOrganisation(leadUrl, capabilityId, changes = {}) {
   if (!capabilityId) throw new SingularityFlowError('A capability identifier is required.');
-  return withLeadCheckout(leadUrl, `Update capability ${capabilityId}`, async (root) => {
+  return withLeadCheckout(leadUrl, `Update capability ${capabilityId}`,
+    `capability/edit-${capabilityId}`, async (root) => {
     assertGovernanceVisible(root);
     if (!existsSync(path.join(root, CAPABILITIES_PATH))) {
       throw new SingularityFlowError(
@@ -317,8 +372,10 @@ export async function editCapabilityInOrganisation(leadUrl, capabilityId, change
     // editCapability validates before it writes, so a refused edit leaves the map exactly as it
     // was — which matters more here than usual, because this checkout is about to be pushed.
     const result = await editCapability(root, capabilityId, changes, { mode: 'set', portfolio });
-    const state = await publishCapabilityMap(root, { message: `Update capability ${capabilityId}` });
-    return { capabilityId, changed: result?.changed ?? true, state };
+    return {
+      capabilityId, changed: result?.changed ?? true,
+      state: { published: false, reason: 'awaiting review and merge' }
+    };
   });
 }
 

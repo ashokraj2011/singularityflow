@@ -129,6 +129,25 @@ async function until(read, { attempts = 600, everyMs = 50, what = '' } = {}) {
   throw new Error(`Timed out after ${Math.round((attempts * everyMs) / 1000)}s waiting for: ${described}`);
 }
 
+/** Accept the one capability review proposal currently based on a remote's default branch. */
+function mergeCapabilityProposal(remote, branchPrefix) {
+  const branches = run('git', ['for-each-ref', '--format=%(refname:short)',
+    `refs/heads/sflow/capability/${branchPrefix}*`], { cwd: remote }).stdout.trim().split('\n').filter(Boolean);
+  assert.equal(branches.length, 1, `one ${branchPrefix} review branch is available`);
+  const baseCommit = run('git', ['rev-parse', `${branches[0]}^`], { cwd: remote }).stdout.trim();
+  const baseBranches = run('git', ['for-each-ref', '--format=%(refname:short)',
+    '--points-at', baseCommit, 'refs/heads'], { cwd: remote }).stdout.trim().split('\n')
+    .filter((branch) => branch && !branch.startsWith('sflow/capability/'));
+  assert.equal(baseBranches.length, 1, 'the proposal has one unchanged base branch');
+  const [defaultBranch] = baseBranches;
+  const checkout = path.join(mkdtempSync(path.join(os.tmpdir(), 'sflow-review-')), 'checkout');
+  run('git', ['clone', '-q', '--branch', defaultBranch, remote, checkout]);
+  run('git', ['fetch', '-q', 'origin', branches[0]], { cwd: checkout });
+  run('git', ['merge', '--ff-only', `origin/${branches[0]}`], { cwd: checkout });
+  run('git', ['push', '-q', 'origin', `HEAD:${defaultBranch}`], { cwd: checkout });
+  return branches[0];
+}
+
 /** Let a fire-and-forget listener finish when the expected outcome is that nothing happens. */
 const settle = () => new Promise((resolve) => setTimeout(resolve, 400));
 
@@ -1489,11 +1508,19 @@ test('an organisation that has not described what it builds says so, and where t
   await capabilityPanel.post({ type: 'field', field: 'repositoryUrl', value: origin });
   await capabilityPanel.post({ type: 'map' });
 
+  // Mapping is a review proposal: the retained workspace form must not see it until the proposal
+  // reaches the remote's default branch through normal review controls.
+  await until(() => run('git', ['for-each-ref', '--format=%(refname:short)',
+    'refs/heads/sflow/capability/map-payments-api-*'], { cwd: origin }).stdout.trim() || null,
+  { attempts: 200 });
+  mergeCapabilityProposal(origin, 'map-payments-api');
+  await registered.commands.get('singularityFlow.createWorkspace')();
+
   const refreshed = await until(() =>
     (panel.webview.html.includes('<option value="payments-api"') ? panel.webview.html : null),
   { attempts: 200 });
   assert.match(refreshed, /value="rules-workspace"/, 'the workspace draft survived capability setup');
-  assert.match(refreshed, /Payments API/, 'the new capability is selectable without reopening the form');
+  assert.match(refreshed, /Payments API/, 'the reviewed capability is selectable after refreshing the form');
 });
 
 test('with no organisation mapped at all, the form offers the screen that maps one', async (t) => {
@@ -2244,16 +2271,16 @@ test('a window with nothing open can map a capability from scratch', async (t) =
   await panel.post({ type: 'field', field: 'kind', value: 'collection' });
   await panel.post({ type: 'map' });
 
-  // The map reached the remote, which is the end of the work — nothing local is left behind.
-  await until(() => {
-    const show = run('git', ['show', 'main:singularity/capabilities.yml'],
-      { cwd: bare, allowFailure: true });
-    return show.stdout.includes('commerce') ? show.stdout : null;
-  }, { attempts: 200 });
+  // The map reaches a review branch. The default branch remains untouched until the repository's
+  // normal approval controls merge that proposal.
+  await until(() => run('git', ['for-each-ref', '--format=%(refname:short)',
+    'refs/heads/sflow/capability/map-commerce-*'], { cwd: bare }).stdout.trim() || null,
+  { attempts: 200 });
+  const firstReview = mergeCapabilityProposal(bare, 'map-commerce-');
+  assert.match(firstReview, /^sflow\/capability\/map-commerce-/);
 
-  // The first capability governed the repository it was mapped into: the whole singularity/ folder
-  // is there, which is the circular dependency this breaks. Without it there was no way to get a
-  // first map, because getting one required already having one.
+  // Once reviewed, the first capability governs the repository it was mapped into: the whole
+  // singularity/ folder is there, which is the circular dependency this breaks.
   assert.ok(run('git', ['show', 'main:singularity/workflow.yml'], { cwd: bare }).stdout.includes('phases'));
   assert.match(run('git', ['show', 'main:singularity/workflow.yml'], { cwd: bare }).stdout,
     /branch: state/, 'the orphan branch is named, and made when a workspace is initialised');
@@ -2283,12 +2310,11 @@ test('a window with nothing open can map a capability from scratch', async (t) =
   await panel2.post({ type: 'field', field: 'repositoryUrl', value: bare });
   await panel2.post({ type: 'map' });
 
-  // Waited on the capability itself, not the portfolio: governing already put the lead in the
-  // portfolio, so polling for that would be satisfied before this map had done anything.
-  const map = await until(() => {
-    const show = run('git', ['show', 'main:singularity/capabilities.yml'], { cwd: bare, allowFailure: true });
-    return show.stdout.includes('platform-api') ? show.stdout : null;
-  }, { attempts: 200 });
+  await until(() => run('git', ['for-each-ref', '--format=%(refname:short)',
+    'refs/heads/sflow/capability/map-platform-api-*'], { cwd: bare }).stdout.trim() || null,
+  { attempts: 200 });
+  mergeCapabilityProposal(bare, 'map-platform-api-');
+  const map = run('git', ['show', 'main:singularity/capabilities.yml'], { cwd: bare }).stdout;
   assert.ok(map, 'the second capability reached the remote');
   const portfolio = run('git', ['show', 'main:singularity/portfolio.yml'], { cwd: bare }).stdout;
   assert.match(map, /parent: commerce/, 'and it was placed under the capability chosen as its parent');

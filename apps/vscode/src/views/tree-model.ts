@@ -267,7 +267,14 @@ export function buildLifecycleTree(snapshot: RepositorySnapshot | null, error: E
     return [{ kind: 'message', id: 'loading', label: 'Reading the repository…', icon: 'loading~spin' }];
   }
 
-  if (snapshot.workflow) return [storyWorkflowNode(snapshot.workflow, snapshot.documents ?? [])];
+  const workspaceImpact: TreeNode = {
+    kind: 'action', id: 'workspace:impact', label: 'Explore workspace impact',
+    description: 'advisory · no Work ID', icon: 'impact',
+    tooltip: 'Ask Copilot to assess a proposed change across the selected workspace without creating lifecycle state or a branch.',
+    runCommand: 'singularityFlow.openImpact', contextValue: 'sflow.workspace.impact'
+  };
+
+  if (snapshot.workflow) return [storyWorkflowNode(snapshot.workflow, snapshot.documents ?? []), workspaceImpact];
 
   const initiative = snapshot.initiative;
   if (!initiative) {
@@ -294,13 +301,13 @@ export function buildLifecycleTree(snapshot: RepositorySnapshot | null, error: E
       icon: 'play-circle',
       runCommand: 'singularityFlow.startWork',
       contextValue: 'sflow.start'
-    }, workflowsNode(snapshot)];
+    }, workspaceImpact, workflowsNode(snapshot)];
   }
 
   // Workflow selection belongs to intake. Once work exists, Lifecycle shows only that work and its
   // phases; showing every other configured workflow beside it made Configuration and Lifecycle look
   // like duplicate workflow browsers.
-  return [initiativeNode(initiative)];
+  return [initiativeNode(initiative), workspaceImpact];
 }
 
 function storyDocumentNodes(documents: StoryArtifact[], phaseId: string): TreeNode[] {

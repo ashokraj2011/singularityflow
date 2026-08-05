@@ -107,6 +107,36 @@ A Jira anchor is optional. For an existing higher-level Jira item, use
 `workspace create --jira <KEY>` with the repository arguments documented by
 `sflow help workspaces`. For work with no tracker, always use `--local --id`.
 
+## Explore impact before creating work
+
+A workspace can answer “what would this change touch?” before the team has a Jira
+key, Work ID, or lifecycle branch:
+
+```bash
+sflow workspace impact analyze /path/to/workspace \
+  --title "Passkey authentication" \
+  --description "Assess repository, API, security, migration, and test impact."
+sflow workspace impact list /path/to/workspace
+sflow workspace impact show /path/to/workspace <ANALYSIS-ID>
+```
+
+The analysis is advisory and local. Copilot runs against disposable detached
+copies pinned to the recorded repository commits, plus staged workspace documents
+and committed world-model evidence. Reports live under `cache/copilot/impact/` and
+become stale when any recorded repository HEAD or saved analysis artifact changes.
+They do not create or switch branches and do not modify a Story workflow. In
+Copilot CLI, `/sf-workspace-impact` guides the same preview, confirmation, analysis,
+and optional promotion.
+
+To carry a useful result into governance, stage it as an intake source:
+
+```bash
+sflow workspace impact promote /path/to/workspace <ANALYSIS-ID>
+```
+
+This copies the summary to `documents/inbox/`; starting work and selecting that
+document are still explicit governed actions.
+
 ## Local layout
 
 ```text

@@ -294,6 +294,17 @@ governed repository. VS Code replaces the current window with that repository
 and opens a fresh chat; a terminal receives the exact `workspace copilot`
 command because a child process cannot change its parent process's directory.
 
+Before a Story or Epic exists, **Lifecycle → Explore workspace impact** can call
+Copilot over revision-pinned, disposable copies of every selected workspace
+repository. It needs no Work ID and creates no branch. The local report records the
+repository commits, world-model hashes, staged documents, prompt, summary, and
+freshness. Changes to a captured repository HEAD or to the saved prompt/summary
+make the report stale. A useful result can be copied into the workspace document
+inbox and then explicitly selected as governed intake evidence; advisory output is
+never silently treated as approved lifecycle state. The terminal equivalent is
+`singularity-flow workspace impact analyze <WORKSPACE-DIRECTORY> --description
+"..."`; `/sf-workspace-impact` provides the guided Copilot CLI flow.
+
 Interrupted workspace creation is resumable: selecting the same workspace ID and
 exact repository plan retries missing clones and updates the local
 materialization journal. Singularity Flow rejects configuration drift at an

@@ -237,7 +237,12 @@ export function storyStatusMarkdown(workflow) {
         `- Capability map: \`${workflow.resolution.capability.map.sha256}\``]
       : []),
     `- Overall status: **${workflow.status}**`,
-    `- Current phase: **${workflow.currentPhase ?? 'complete'}**`, '',
+    `- Current phase: **${workflow.currentPhase ?? (workflow.status === 'cancelled' ? 'cancelled and archived' : 'complete')}**`,
+    ...(workflow.cancellation ? [
+      `- Cancelled during: **${workflow.cancellation.phase}**`,
+      `- Cancellation reason: ${workflow.cancellation.reason}`,
+      `- Cancelled at: ${workflow.cancellation.cancelledAt}`
+    ] : []), '',
     '| # | Phase | Governed agent | Status | Generation | Approvals | Tokens |',
     '|---:|---|---|---|---:|---:|---:|'
   ];
@@ -1089,6 +1094,59 @@ export async function reopenWorkflow(root, config, workflow, { target, reason, c
   return { phase: workflow.phases[targetId], changeRequest, decision };
 }
 
+/**
+ * End a Story without claiming it was successfully completed.
+ *
+ * Cancellation is a terminal, audited lifecycle decision. It deliberately keeps the
+ * Story directory, artifacts, approvals, and branch intact so the archived record
+ * remains reconstructable from Git.
+ */
+export async function cancelWorkflow(root, config, workflow, { reason, channel = 'terminal', actionContext = null } = {}) {
+  await assertNoPendingPublication(root, config, workflow, 'cancel work');
+  if (workflow.status === 'cancelled') {
+    throw new SingularityFlowError(`Story '${workflow.workItem.id}' is already cancelled and archived.`);
+  }
+  if (workflow.status === 'complete' || workflow.currentPhase == null) {
+    throw new SingularityFlowError(`Story '${workflow.workItem.id}' is complete; use reopen when post-completion changes are required.`);
+  }
+  const comment = String(reason ?? '').trim();
+  if (!comment) throw new SingularityFlowError('A cancellation reason is required.');
+  const phase = currentPhase(workflow);
+  if (!phase) throw new SingularityFlowError(`Story '${workflow.workItem.id}' has no active phase to cancel.`);
+  const session = await loadSession(root);
+  const timestamp = nowIso();
+  const record = {
+    schemaVersion: 1,
+    status: 'cancelled',
+    phase: phase.id,
+    generation: phase.generation,
+    reason: comment,
+    cancelledAt: timestamp,
+    cancelledBy: session.actor,
+    agent: session.agent ?? null,
+    channel,
+    ...(actionContext ? { actionContext } : {})
+  };
+  phase.status = 'cancelled';
+  phase.cancelledAt = timestamp;
+  phase.cancelledBy = session.actor;
+  phase.cancellationReason = comment;
+  workflow.status = 'cancelled';
+  workflow.currentPhase = null;
+  workflow.cancellation = record;
+  workflow.history.push({
+    at: timestamp,
+    actor: actorKey(session.actor),
+    agent: session.agent,
+    event: 'work_cancelled',
+    phase: phase.id,
+    detail: comment
+  });
+  await updateArtifactMetadata(root, config, workflow, phase);
+  await saveWorkflow(root, config, workflow);
+  return { phase, cancellation: record };
+}
+
 export async function commitAndPublish(root, config, workflow, event, message, extraPaths = []) {
   if (await storyPublicationPending(root, config, workflow.workItem.id)) await assertNoPendingPublication(root, config, workflow, 'create another lifecycle commit');
   const ledgerConfig = normalizeLedgerConfig(workflow.resolution?.ledger ?? config.ledger ?? {});
@@ -1219,7 +1277,13 @@ export async function validateWorkflow(root, config, workflow, { strict = false 
     if (phase.status === 'approved' && !(await exists(path.join(root, requiredRepoPath(config, workflow, phase))))) errors.push(`Approved artifact missing: ${requiredRepoPath(config, workflow, phase)}`);
   }
   if (workflow.status === 'complete') { if (workflow.currentPhase !== null) errors.push('Complete workflow must have currentPhase null.'); if (activeCount) errors.push('Complete workflow cannot have an active phase.'); }
-  else { if (!workflow.currentPhase) errors.push('In-progress workflow must have a current phase.'); if (activeCount !== 1) errors.push(`In-progress workflow must have exactly one active phase; found ${activeCount}.`); }
+  else if (workflow.status === 'cancelled') {
+    if (workflow.currentPhase !== null) errors.push('Cancelled workflow must have currentPhase null.');
+    if (activeCount) errors.push('Cancelled workflow cannot have an active phase.');
+    if (!workflow.cancellation?.reason?.trim()) errors.push('Cancelled workflow must record a cancellation reason.');
+    if (!workflow.cancellation?.cancelledAt || !workflow.cancellation?.cancelledBy) errors.push('Cancelled workflow must record when and by whom it was cancelled.');
+    if (!workflow.cancellation?.phase || workflow.phases[workflow.cancellation.phase]?.status !== 'cancelled') errors.push('Cancelled workflow must identify its cancelled phase.');
+  } else { if (!workflow.currentPhase) errors.push('In-progress workflow must have a current phase.'); if (activeCount !== 1) errors.push(`In-progress workflow must have exactly one active phase; found ${activeCount}.`); }
   const active = currentPhase(workflow); if (strict && active && active.status === 'awaiting_approval') errors.push(...await validatePhase(root, config, workflow, active));
   // Validation reports; it does not migrate. The enforcement paths that gate a mutation still do.
   if (await storyPublicationPending(root, config, workflow.workItem.id, { migrate: false })) errors.push('Publication is pending; run singularity-flow sync.');

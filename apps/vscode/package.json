@@ -260,6 +260,11 @@
         "icon": "$(git-pull-request-go-to-changes)"
       },
       {
+        "command": "singularityFlow.cancelWork",
+        "title": "Singularity Flow: Cancel and Archive Story",
+        "icon": "$(archive)"
+      },
+      {
         "command": "singularityFlow.prepareStoryPhase",
         "title": "Singularity Flow: Prepare Current Story Phase",
         "icon": "$(tools)"

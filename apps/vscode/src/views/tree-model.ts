@@ -275,19 +275,27 @@ export function buildLifecycleTree(snapshot: RepositorySnapshot | null, error: E
   };
 
   if (snapshot.workflow) {
-    const archived = completedStoryArchive(snapshot, snapshot.workflow.workItem.id);
+    const completedArchive = completedStoryArchive(snapshot, snapshot.workflow.workItem.id);
+    const cancelledArchive = cancelledStoryArchive(snapshot, snapshot.workflow.workItem.id);
+    if (snapshot.workflow.status === 'cancelled') {
+      return [archivedFolder([cancelledStoryNode(snapshot.workflow, snapshot.documents ?? [])]),
+        ...(completedArchive ? [completedArchive] : []), workspaceImpact];
+    }
     if (snapshot.workflow.status === 'complete') {
       const completed = completedStoryNode(snapshot.workflow, snapshot.documents ?? []);
       const siblings = completedStorySummaries(snapshot, snapshot.workflow.workItem.id);
-      return [completedFolder([completed, ...siblings], countArtifacts(completed)), workspaceImpact];
+      return [completedFolder([completed, ...siblings], countArtifacts(completed)),
+        ...(cancelledArchive ? [cancelledArchive] : []), workspaceImpact];
     }
-    return [storyWorkflowNode(snapshot.workflow, snapshot.documents ?? []), ...(archived ? [archived] : []), workspaceImpact];
+    return [storyWorkflowNode(snapshot.workflow, snapshot.documents ?? []),
+      ...(completedArchive ? [completedArchive] : []), ...(cancelledArchive ? [cancelledArchive] : []), workspaceImpact];
   }
 
   const initiative = snapshot.initiative;
   if (!initiative) {
     const available = (snapshot.initiatives?.length ?? 0) + (snapshot.workItems?.length ?? 0);
     const archived = completedStoryArchive(snapshot);
+    const cancelled = cancelledStoryArchive(snapshot);
     return [{
       kind: 'message',
       id: 'no-initiative',
@@ -310,7 +318,7 @@ export function buildLifecycleTree(snapshot: RepositorySnapshot | null, error: E
       icon: 'play-circle',
       runCommand: 'singularityFlow.startWork',
       contextValue: 'sflow.start'
-    }, ...(archived ? [archived] : []), workspaceImpact, workflowsNode(snapshot)];
+    }, ...(archived ? [archived] : []), ...(cancelled ? [cancelled] : []), workspaceImpact, workflowsNode(snapshot)];
   }
 
   // Workflow selection belongs to intake. Once work exists, Lifecycle shows only that work and its
@@ -381,7 +389,38 @@ function completedStoryArchive(snapshot: RepositorySnapshot, excludeId?: string)
   return stories.length ? completedFolder(stories, 0) : null;
 }
 
-function storyArtifactGroups(workflow: StoryWorkflow, documents: StoryArtifact[]): TreeNode[] {
+function archivedFolder(subjects: TreeNode[]): TreeNode {
+  return {
+    kind: 'group', id: 'archived', label: 'Archived',
+    description: `${subjects.length} ${subjects.length === 1 ? 'cancelled item' : 'cancelled items'}`,
+    tooltip: 'Cancelled work is retained here with its artifacts, approvals, reason, actor, and Git history.',
+    icon: 'archive', contextValue: 'sflow.archived', children: subjects
+  };
+}
+
+function cancelledStorySummaries(snapshot: RepositorySnapshot, excludeId?: string): TreeNode[] {
+  return (snapshot.workItems ?? [])
+    .filter((item) => item.id !== excludeId && item.status === 'cancelled')
+    .sort((left, right) => left.id.localeCompare(right.id))
+    .map((item) => ({
+      kind: 'story' as const, id: `archived-story-summary:${item.id}`, label: item.id,
+      description: item.title ?? 'Cancelled Story',
+      tooltip: `Cancelled on ${item.branch ?? item.id}. Select it to synchronize that governed branch and browse its preserved artifacts.`,
+      icon: 'archive', command: ['session', 'attach', item.id], runCommand: 'singularityFlow.runAction',
+      contextValue: 'sflow.story.archived.summary'
+    }));
+}
+
+function cancelledStoryArchive(snapshot: RepositorySnapshot, excludeId?: string): TreeNode | null {
+  const stories = cancelledStorySummaries(snapshot, excludeId);
+  return stories.length ? archivedFolder(stories) : null;
+}
+
+function storyArtifactGroups(
+  workflow: StoryWorkflow,
+  documents: StoryArtifact[],
+  archiveKind: 'completed' | 'archived' = 'completed'
+): TreeNode[] {
   const unique = new Map<string, StoryArtifact>();
   for (const document of documents) {
     if (document.path) unique.set(document.path, document);
@@ -400,7 +439,7 @@ function storyArtifactGroups(workflow: StoryWorkflow, documents: StoryArtifact[]
     .sort(([left], [right]) => phaseOrder.indexOf(left) - phaseOrder.indexOf(right))
     .map(([phaseId, artifacts]) => ({
       kind: 'group' as const,
-      id: `completed-story-phase:${phaseId}`,
+      id: `${archiveKind}-story-phase:${phaseId}`,
       label: phaseLabels.get(phaseId) ?? phaseId,
       description: String(artifacts.length),
       icon: 'phase',
@@ -409,13 +448,13 @@ function storyArtifactGroups(workflow: StoryWorkflow, documents: StoryArtifact[]
           .localeCompare(right.label ?? right.id ?? right.path))
         .map((document) => ({
           kind: 'artifact' as const,
-          id: `completed-story-artifact:${phaseId}:${document.id ?? document.path}`,
+          id: `${archiveKind}-story-artifact:${phaseId}:${document.id ?? document.path}`,
           label: document.label ?? document.id ?? document.path,
           description: document.status?.replace(/_/g, ' ') ?? 'generated',
           tooltip: `${document.path}\nsha256 ${document.sha256 ?? 'unavailable'}`,
           icon: document.status === 'approved' ? 'statusSuccess' : 'artifact',
           path: document.path,
-          readOnly: document.status === 'approved',
+          readOnly: archiveKind === 'archived' || document.status === 'approved',
           contextValue: document.status === 'approved' ? 'sflow.artifact.pinned' : 'sflow.artifact'
         }))
     }));
@@ -450,6 +489,37 @@ function completedStoryNode(workflow: StoryWorkflow, documents: StoryArtifact[])
       children: artifacts.length ? artifacts : [{
         kind: 'message', id: 'completed-story:artifacts-empty', label: 'No generated artifacts were recorded',
         icon: 'info'
+      }]
+    }]
+  };
+}
+
+function cancelledStoryNode(workflow: StoryWorkflow, documents: StoryArtifact[]): TreeNode {
+  const artifacts = storyArtifactGroups(workflow, documents, 'archived');
+  const count = artifacts.reduce((total, group) => total + (group.children?.length ?? 0), 0);
+  const actor = workflow.cancellation?.cancelledBy;
+  const actorLabel = actor?.name ?? actor?.email ?? actor?.login ?? 'unknown actor';
+  return {
+    kind: 'story', id: `archived-story:${workflow.workItem.id}`, label: workflow.workItem.id,
+    description: `${workflow.workItem.title ?? workflow.workItem.workType ?? 'Story'} · cancelled`,
+    tooltip: `Cancelled during ${workflow.cancellation?.phase ?? 'unknown phase'} by ${actorLabel}\n${workflow.cancellation?.reason ?? 'No reason recorded'}`,
+    icon: 'archive', contextValue: 'sflow.story.archived',
+    children: [{
+      kind: 'message', id: 'archived-story:reason', label: 'Cancellation reason',
+      description: workflow.cancellation?.reason ?? 'Not recorded', icon: 'comment-discussion',
+      tooltip: `${actorLabel} · ${workflow.cancellation?.cancelledAt ?? 'time unavailable'}`
+    }, {
+      kind: 'action', id: 'archived-story:open', label: 'Open preserved artifact catalog',
+      description: `${count} ${count === 1 ? 'artifact' : 'artifacts'}`, icon: 'inbox',
+      runCommand: 'singularityFlow.openInbox', contextValue: 'sflow.archived.open'
+    }, {
+      kind: 'action', id: 'archived-story:analytics', label: 'Open lifecycle analytics',
+      description: 'phases · time · tokens · cost', icon: 'impact',
+      runCommand: 'singularityFlow.openDashboard', contextValue: 'sflow.story.analytics'
+    }, {
+      kind: 'group', id: 'archived-story:artifacts', label: 'Preserved generated artifacts',
+      description: String(count), icon: 'pack', children: artifacts.length ? artifacts : [{
+        kind: 'message', id: 'archived-story:artifacts-empty', label: 'No generated artifacts were recorded', icon: 'info'
       }]
     }]
   };
@@ -587,6 +657,10 @@ function storyWorkflowNode(workflow: StoryWorkflow, documents: StoryArtifact[]):
       kind: 'action', id: 'story:continue-safely', label: 'Continue safely',
       description: 'review exact next action', icon: 'play-circle',
       runCommand: 'singularityFlow.continueSafely', contextValue: 'sflow.action.plan'
+    }, {
+      kind: 'action', id: 'story:cancel', label: 'Cancel and archive work',
+      description: 'reason required · artifacts preserved', icon: 'archive',
+      runCommand: 'singularityFlow.cancelWork', contextValue: 'sflow.story.cancel'
     }, {
       kind: 'action', id: 'story:analytics', label: 'Open lifecycle analytics',
       description: 'phases · time · tokens · cost', icon: 'impact',

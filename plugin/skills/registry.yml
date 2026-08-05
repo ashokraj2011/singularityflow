@@ -41,6 +41,7 @@ skills:
   sflow-agents: { class: echo }
   sflow-admin: { class: conversational }
   sflow-approve: { class: review }
+  sflow-cancel: { class: mutation }
   sflow-capabilities: { class: echo }
   sflow-capability-doctor: { class: echo }
   sflow-capability-map: { class: interactive }

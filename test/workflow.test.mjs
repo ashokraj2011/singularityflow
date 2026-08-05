@@ -122,6 +122,37 @@ test('failed first start leaves no local session or abandoned branch', async () 
   assert.equal(execute('git', ['status', '--short'], root).stdout.trim(), '');
 });
 
+test('cancel requires an exact confirmation and archives work without deleting its artifacts', async () => {
+  const root = await repository();
+  const workId = 'CANCEL-101';
+  flow(root, ['start', workId, '--work-type', 'feature', '--agent', 'product-owner', '--title', 'Stop obsolete work', '--description', 'A replacement Story supersedes this work.']);
+  const workflowFile = path.join(root, 'singularity/work-items', workId, 'workflow.json');
+  const artifactFile = path.join(root, 'singularity/work-items', workId, 'artifacts/intake/intake.md');
+  const before = JSON.parse(await readFile(workflowFile, 'utf8'));
+
+  const unconfirmed = flow(root, ['cancel', workId, '--reason', 'Superseded by CANCEL-102'], { allowFailure: true });
+  assert.notEqual(unconfirmed.status, 0);
+  assert.match(unconfirmed.stderr, /--confirm CANCEL-101/);
+  assert.deepEqual(JSON.parse(await readFile(workflowFile, 'utf8')), before);
+
+  const cancelled = flow(root, ['cancel', workId, '--reason', 'Superseded by CANCEL-102', '--confirm', workId]);
+  assert.match(cancelled.stdout, /cancelled and moved to Archived|Story is now archived/i);
+  const workflow = JSON.parse(await readFile(workflowFile, 'utf8'));
+  assert.equal(workflow.status, 'cancelled');
+  assert.equal(workflow.currentPhase, null);
+  assert.equal(workflow.phases.intake.status, 'cancelled');
+  assert.equal(workflow.cancellation.phase, 'intake');
+  assert.equal(workflow.cancellation.reason, 'Superseded by CANCEL-102');
+  assert.equal(workflow.cancellation.cancelledBy.email, 'singularity.flow.test@example.com');
+  assert.equal(workflow.history.at(-1).event, 'work_cancelled');
+  assert.equal(await readFile(artifactFile, 'utf8').then(() => true), true);
+  assert.match(await readFile(path.join(root, 'singularity/work-items', workId, 'STATUS.md'), 'utf8'), /cancelled and archived/);
+  assert.match(execute('git', ['log', '-1', '--format=%s'], root).stdout, /\[CANCEL-101\]\[cancel\] archive cancelled work/);
+  const next = JSON.parse(flow(root, ['nextsteps', workId, '--json']).stdout);
+  assert.equal(next.state, 'cancelled');
+  assert.ok(next.actions.some((action) => action.command.includes('documents list CANCEL-101')));
+});
+
 test('CLI Story start pins configuration and world model from the refreshed configured remote', async () => {
   const source = await repository();
   const configPath = path.join(source, 'singularity/workflow.yml');

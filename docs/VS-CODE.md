@@ -35,6 +35,10 @@ Lifecycle answers **what governed work is active, and what happens next?**
 - View the phase rail, current status, inputs, required outputs, checks, and gates.
 - Prepare, publish, submit, approve, reject, synchronize, or run the next valid
   action through the CLI.
+- Cancel active Story work only after recording a reason and confirming the exact
+  Work ID. Cancellation commits and pushes an audited terminal decision; it moves
+  the Story to **Archived** without deleting its branch, artifacts, approvals,
+  telemetry, or Git history.
 - Open generated artifacts and see exact generation, hashes, author, agent,
   approvals, and self-approval warnings.
 - Hand the active phase to native Copilot with the exact composed prompt.

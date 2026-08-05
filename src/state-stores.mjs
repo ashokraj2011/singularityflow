@@ -170,7 +170,7 @@ export {
   validateWorkflow, workflowPath
 };
 export {
-  approvePhase, assertNoPendingPublication, CONFIG_PATH, createWorkflow, currentPhase,
+  approvePhase, assertNoPendingPublication, cancelWorkflow, CONFIG_PATH, createWorkflow, currentPhase,
   loadConfig, preparePhase, preparePhaseInputs, publishGeneration,
   reconcilePhaseTelemetry, registerArtifact, rejectPhase, reopenWorkflow, scanArtifacts,
   storyPublicationPending, submitPhase, validateId, workflowBranchAllowed,

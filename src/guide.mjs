@@ -4,6 +4,9 @@ import { phaseNeedsGeneration } from './sequence.mjs';
 export { phaseNeedsGeneration } from './sequence.mjs';
 
 function nextActions(workflow, phase) {
+  if (workflow.status === 'cancelled') return [
+    { skill: '/sflow-documents', command: `singularity-flow documents list ${workflow.workItem.id}`, reason: 'Review the artifacts preserved with this archived Story.' }
+  ];
   if (!phase) return [
     { skill: '/sflow-progress', command: `singularity-flow progress ${workflow.workItem.id}`, reason: 'Review the completed workflow and final conformance.' }
   ];
@@ -50,7 +53,7 @@ export function guideText(guide) {
     `${guide.workId} — ${guide.template.label} (${guide.template.id})`,
     `Source: ${guide.source.type}${guide.source.key ? ` / ${guide.source.key}` : ''}`,
     `Status: ${guide.status}`,
-    `Current phase: ${guide.currentPhase ?? 'complete'}`,
+    `Current phase: ${guide.currentPhase ?? (guide.status === 'cancelled' ? 'cancelled and archived' : 'complete')}`,
     '',
     'Workflow template:',
     ...guide.phases.map((phase) => `${phase.number}. ${phase.label} (${phase.id}) — ${phase.status}\n   Artifact: ${phase.artifact}\n   Governed agent: ${phase.agent ?? 'unavailable'}; approval authority: ${phase.approvalAuthorities.join(', ') || 'none'} (${phase.approvalsRequired} required)`),

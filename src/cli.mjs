@@ -28,6 +28,7 @@ import { buildRepositorySubjectIndex, buildRepositorySubjectIndexFromRefs, resol
 import {
   approvePhase,
   assertNoPendingPublication,
+  cancelWorkflow,
   commitAndPublish,
   CONFIG_PATH,
   createWorkflow,
@@ -337,6 +338,7 @@ Usage:
   singularity-flow approve [PHASE] [--work-id WORK-ID] [--fetch] [--phase PHASE] [--yes]
   singularity-flow reject [PHASE] [--work-id WORK-ID] [--fetch] --reason TEXT [--to PHASE]
   singularity-flow reopen [WORK-ID] [--fetch] --reason TEXT --to PHASE
+  singularity-flow cancel [WORK-ID] [--fetch] --reason TEXT --confirm WORK-ID
   singularity-flow sync
   singularity-flow validate [--strict]
   singularity-flow gate [--terminal]
@@ -1938,6 +1940,47 @@ async function reopenCommand(positionals, options) {
   console.log(publication.pushed
     ? `Decision committed ${publication.sha.slice(0, 8)} and pushed.`
     : `Decision committed ${publication.sha.slice(0, 8)} locally.`);
+}
+
+async function cancelCommand(positionals, options) {
+  const root = repoRoot();
+  const requestedId = positionals[1];
+  let config = await loadConfig(root);
+  if (requestedId && (requestedId !== branch(root) || optionBoolean(options, 'fetch'))) {
+    checkout(root, requestedId, {
+      base: config.defaultBaseBranch,
+      fetch: optionBoolean(options, 'fetch'),
+      existingOnly: true,
+      remote: config.git?.remote ?? 'origin'
+    });
+  }
+  config = await loadConfig(root);
+  const workflow = await loadStoryAggregate(root, config, requestedId);
+  const confirmation = optionString(options, 'confirm');
+  if (confirmation !== workflow.workItem.id) {
+    throw new SingularityFlowError(
+      `Cancelling archives Story '${workflow.workItem.id}' and stops its lifecycle. `
+      + `Re-run with --confirm ${workflow.workItem.id} after reviewing the generated artifacts.`
+    );
+  }
+  const result = await cancelWorkflow(root, config, workflow, {
+    reason: optionString(options, 'reason'),
+    channel: 'terminal',
+    actionContext: activeActionContext()
+  });
+  const publication = await commitAndPublish(root, config, workflow, {
+    type: 'work-cancelled',
+    phaseId: result.phase.id,
+    generation: result.phase.generation,
+    actor: result.cancellation.cancelledBy,
+    agent: result.cancellation.agent,
+    payload: { reason: result.cancellation.reason }
+  }, `[${workflow.workItem.id}][cancel] archive cancelled work`);
+  console.log(`Cancelled ${workflow.workItem.id} during ${result.phase.id}: ${result.cancellation.reason}`);
+  console.log(`All generated artifacts and approvals remain on ${workflowPublicationBranch(root, workflow)}.`);
+  console.log(publication.pushed
+    ? `Cancellation committed ${publication.sha.slice(0, 8)} and pushed; the Story is now archived.`
+    : `Cancellation committed ${publication.sha.slice(0, 8)} locally; the Story is now archived.`);
 }
 
 async function syncCommand() {
@@ -5990,6 +6033,7 @@ async function dispatch(command, positionals, options) {
     approve: () => approveCommand(positionals, options),
     reject: () => rejectCommand(positionals, options),
     reopen: () => reopenCommand(positionals, options),
+    cancel: () => cancelCommand(positionals, options),
     sync: () => syncCommand(),
     ledger: () => ledgerCommand(positionals, options),
     capabilities: () => capabilitiesCommand(positionals, options),

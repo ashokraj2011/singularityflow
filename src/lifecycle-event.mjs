@@ -15,6 +15,7 @@ export const LIFECYCLE_EVENT_TYPES = Object.freeze([
   'branch-linked',
   'telemetry-recorded',
   'projection-reconciled',
+  'work-cancelled',
   'work-completed'
 ]);
 

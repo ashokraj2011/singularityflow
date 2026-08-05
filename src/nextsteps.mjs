@@ -18,6 +18,13 @@ function completionActions(workId, timing = 'now') {
   ];
 }
 
+function cancellationActions(workflow) {
+  return [
+    action('now', '/sflow-documents', `singularity-flow documents list ${workflow.workItem.id}`, 'Review the preserved artifacts for this archived Story.'),
+    action('alternative', '/sflow-report', `singularity-flow report ${workflow.workItem.id}`, 'Review the lifecycle history, timing, and cancellation record.')
+  ];
+}
+
 function afterApprovalActions(workflow, phase) {
   const upcoming = nextPhase(workflow, phase.id);
   if (!upcoming) return completionActions(workflow.workItem.id, 'then');
@@ -31,7 +38,7 @@ export function workflowNextSteps(workflow, { publicationPending = false, prereq
     action('now', null, 'singularity-flow sync', 'Retry the retained commit push; workflow transitions are blocked until publication succeeds.'),
     action('then', '/sflow-nextsteps', `singularity-flow nextsteps ${workId}`, 'Recalculate actions from the synchronized branch state.')
   ];
-  if (!phase) return completionActions(workId);
+  if (!phase) return workflow.status === 'cancelled' ? cancellationActions(workflow) : completionActions(workId);
 
   const immediate = workflowGuide(workflow).nextActions.map((item, index) => action(
     phase.status === 'awaiting_approval' && index > 0 ? 'alternative' : 'now',
@@ -51,6 +58,7 @@ export function workflowNextSteps(workflow, { publicationPending = false, prereq
   actions.push(
     action('then', '/sflow-approve', `singularity-flow approve ${phase.id} --work-id ${workId} --fetch`, `After submission, approve ${phase.id} using an authorized human Git identity; the phase agent is prompt context only.`),
     action('alternative', '/sflow-reject', `singularity-flow reject ${phase.id} --work-id ${workId} --fetch --to <phase> --reason <reason>`, `Instead of approval, return ${phase.id} to an allowed earlier phase.`),
+    action('alternative', '/sf-cancel', `singularity-flow cancel ${workId} --reason <reason> --confirm ${workId}`, 'Cancel this Story, preserve its artifacts, and move it to Archived.'),
     ...afterApprovalActions(workflow, phase)
   );
   return actions;

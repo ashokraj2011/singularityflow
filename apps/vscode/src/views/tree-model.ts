@@ -275,16 +275,19 @@ export function buildLifecycleTree(snapshot: RepositorySnapshot | null, error: E
   };
 
   if (snapshot.workflow) {
+    const archived = completedStoryArchive(snapshot, snapshot.workflow.workItem.id);
     if (snapshot.workflow.status === 'complete') {
       const completed = completedStoryNode(snapshot.workflow, snapshot.documents ?? []);
-      return [completedFolder(completed, countArtifacts(completed)), workspaceImpact];
+      const siblings = completedStorySummaries(snapshot, snapshot.workflow.workItem.id);
+      return [completedFolder([completed, ...siblings], countArtifacts(completed)), workspaceImpact];
     }
-    return [storyWorkflowNode(snapshot.workflow, snapshot.documents ?? []), workspaceImpact];
+    return [storyWorkflowNode(snapshot.workflow, snapshot.documents ?? []), ...(archived ? [archived] : []), workspaceImpact];
   }
 
   const initiative = snapshot.initiative;
   if (!initiative) {
     const available = (snapshot.initiatives?.length ?? 0) + (snapshot.workItems?.length ?? 0);
+    const archived = completedStoryArchive(snapshot);
     return [{
       kind: 'message',
       id: 'no-initiative',
@@ -307,7 +310,7 @@ export function buildLifecycleTree(snapshot: RepositorySnapshot | null, error: E
       icon: 'play-circle',
       runCommand: 'singularityFlow.startWork',
       contextValue: 'sflow.start'
-    }, workspaceImpact, workflowsNode(snapshot)];
+    }, ...(archived ? [archived] : []), workspaceImpact, workflowsNode(snapshot)];
   }
 
   // Workflow selection belongs to intake. Once work exists, Lifecycle shows only that work and its
@@ -315,9 +318,11 @@ export function buildLifecycleTree(snapshot: RepositorySnapshot | null, error: E
   // like duplicate workflow browsers.
   if (initiative.state.status === 'complete') {
     const completed = completedInitiativeNode(initiative);
-    return [completedFolder(completed, countArtifacts(completed)), workspaceImpact];
+    const stories = completedStorySummaries(snapshot);
+    return [completedFolder([completed, ...stories], countArtifacts(completed)), workspaceImpact];
   }
-  return [initiativeNode(initiative), workspaceImpact];
+  const archived = completedStoryArchive(snapshot);
+  return [initiativeNode(initiative), ...(archived ? [archived] : []), workspaceImpact];
 }
 
 /** Count unique, openable artifact paths beneath one completed subject. */
@@ -337,17 +342,43 @@ function countArtifacts(node: TreeNode): number {
  * Git paths stay immutable for lineage and resume. `Completed` is therefore a presentation folder:
  * it removes terminal work from the active rail while preserving direct access to its evidence.
  */
-function completedFolder(subject: TreeNode, artifactCount: number): TreeNode {
+function completedFolder(subjects: TreeNode[], artifactCount: number): TreeNode {
+  const workCount = subjects.length;
   return {
     kind: 'group',
     id: 'completed',
     label: 'Completed',
-    description: `${artifactCount} ${artifactCount === 1 ? 'artifact' : 'artifacts'}`,
+    description: artifactCount
+      ? `${artifactCount} ${artifactCount === 1 ? 'artifact' : 'artifacts'}`
+      : `${workCount} ${workCount === 1 ? 'item' : 'items'}`,
     tooltip: 'Finished work is archived here. Expand it to browse every generated artifact.',
     icon: 'pack',
     contextValue: 'sflow.completed',
-    children: [subject]
+    children: subjects
   };
+}
+
+/** Completed sibling Stories are catalogued from Git refs even when another Story is checked out. */
+function completedStorySummaries(snapshot: RepositorySnapshot, excludeId?: string): TreeNode[] {
+  return (snapshot.workItems ?? [])
+    .filter((item) => item.id !== excludeId && ['complete', 'completed'].includes(String(item.status)))
+    .sort((left, right) => left.id.localeCompare(right.id))
+    .map((item) => ({
+      kind: 'story' as const,
+      id: `completed-story-summary:${item.id}`,
+      label: item.id,
+      description: item.title ?? 'Completed Story',
+      tooltip: `Completed on ${item.branch ?? item.id}. Select it to synchronize that governed branch and browse its artifacts.`,
+      icon: 'statusSuccess',
+      command: ['session', 'attach', item.id],
+      runCommand: 'singularityFlow.runAction',
+      contextValue: 'sflow.story.completed.summary'
+    }));
+}
+
+function completedStoryArchive(snapshot: RepositorySnapshot, excludeId?: string): TreeNode | null {
+  const stories = completedStorySummaries(snapshot, excludeId);
+  return stories.length ? completedFolder(stories, 0) : null;
 }
 
 function storyArtifactGroups(workflow: StoryWorkflow, documents: StoryArtifact[]): TreeNode[] {

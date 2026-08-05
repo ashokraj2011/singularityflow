@@ -464,6 +464,22 @@ test('a completed Story leaves the active rail and opens from Completed with eve
   assert.equal(find(tree, 'completed-story-artifact:design:PHASE-DESIGN').readOnly, true);
 });
 
+test('completed sibling Stories remain visible while another Story is active', () => {
+  const active = storySnapshot({ generation: 1 });
+  active.workItems.push({
+    id: 'WRK-456', title: 'Change the color', status: 'complete', branch: 'WRK-456'
+  });
+  const tree = buildTree(active);
+
+  assert.deepEqual(tree.map((node) => node.id), ['active-story:STORY-42', 'completed', 'workspace:impact']);
+  assert.equal(find(tree, 'completed').description, '1 item');
+  const completed = find(tree, 'completed-story-summary:WRK-456');
+  assert.equal(completed.label, 'WRK-456');
+  assert.equal(completed.description, 'Change the color');
+  assert.deepEqual(completed.command, ['session', 'attach', 'WRK-456']);
+  assert.equal(completed.runCommand, 'singularityFlow.runAction');
+});
+
 test('a completed Initiative is archived with its generated outputs, not active actions', () => {
   const done = structuredClone(snapshot);
   done.initiative.state.status = 'complete';

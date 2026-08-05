@@ -140,6 +140,8 @@ export const STYLE = `
   .decision-cards, .artifact-cards { display: grid; grid-template-columns: repeat(auto-fit, minmax(17rem, 1fr)); gap: .65rem; }
   .decision-card { border: var(--sf-border); border-left: 3px solid var(--sf-wait); border-radius: var(--sf-radius); padding: 1rem; background: var(--sf-surface); }
   .decision-card h3 { margin: .15rem 0; }
+  .review-binding { display: grid; grid-template-columns: max-content minmax(0, 1fr); gap: .28rem .55rem; margin: .7rem 0; color: var(--sf-dim); font-size: .76rem; }
+  .review-binding code { overflow-wrap: anywhere; color: var(--vscode-foreground); }
   .eyebrow { color: var(--sf-accent); font-size: .69rem; font-weight: 750; letter-spacing: .12em; text-transform: uppercase; }
   button.artifact-card { display: grid; grid-template-columns: 1fr auto; gap: .22rem .7rem; width: 100%; padding: .8rem; text-align: left; color: var(--vscode-foreground); background: var(--sf-surface); border: var(--sf-border); border-radius: var(--sf-radius); }
   button.artifact-card:hover { border-color: var(--sf-accent); background: var(--sf-accent-quiet); }

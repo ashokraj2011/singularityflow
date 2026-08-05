@@ -374,6 +374,10 @@ function storyWorkflowNode(workflow: StoryWorkflow, documents: StoryArtifact[]):
     icon: 'story',
     contextValue: 'sflow.story.active',
     children: [{
+      kind: 'action', id: 'story:continue-safely', label: 'Continue safely',
+      description: 'review exact next action', icon: 'play-circle',
+      runCommand: 'singularityFlow.continueSafely', contextValue: 'sflow.action.plan'
+    }, {
       kind: 'action', id: 'story:analytics', label: 'Open lifecycle analytics',
       description: 'phases · time · tokens · cost', icon: 'impact',
       runCommand: 'singularityFlow.openDashboard', contextValue: 'sflow.story.analytics'
@@ -805,6 +809,12 @@ function initiativeNode(initiative: InitiativeSnapshot): TreeNode {
   const packs = packsWithMembers(initiative);
   const repositories = storiesByRepository(initiative);
   const children: TreeNode[] = [];
+
+  children.push({
+    kind: 'action', id: 'initiative:continue-safely', label: 'Continue safely',
+    description: 'review exact next action', icon: 'play-circle',
+    runCommand: 'singularityFlow.continueSafely', contextValue: 'sflow.action.plan'
+  });
 
   const next = initiative.nextActions?.[0];
   if (next) {

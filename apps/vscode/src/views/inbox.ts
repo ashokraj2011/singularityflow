@@ -33,6 +33,7 @@ function decisionCards(inbox: Inbox): string {
     <article class="decision-card">
       <div><span class="eyebrow">${escape(approval.kind)}</span><h3>${escape(approval.label)}</h3></div>
       <p class="muted">${escape(approval.detail)}</p>
+      ${approval.reviewPacketSha256 ? `<div class="review-binding"><span>Review packet</span><code>${escape(approval.reviewPacketSha256)}</code>${approval.submittedSourceCommit ? `<span>Source commit</span><code>${escape(approval.submittedSourceCommit)}</code>` : ''}</div>` : ''}
       ${approval.sha256 ? `<code>${escape(approval.sha256.slice(0, 16))}</code>` : ''}
       ${approval.selfApproval ? '<p class="warning-text">You generated this; approval will not count as independent review.</p>' : ''}
       <div class="card-foot">

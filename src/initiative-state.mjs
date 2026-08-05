@@ -242,8 +242,9 @@ async function replayAppendOnlyCommit(root, portfolio, initiative, remote, sha) 
 // templatesRoot — the root the resolver and the recorded snapshot paths both read, and which the
 // workflow definition may configure differently. Repositories initialized before the initiatives/
 // subtree shipped have none of it, so every referenced template would otherwise abort the phase.
-// Installed files are staged because commitInitiativeChange stages only the initiative directory;
-// leaving them unstaged makes the next command fail on an unclean tree.
+// Installed files are claimed by commitInitiativeChange so the isolated publication index stages
+// them together with the initiative. They must not be placed in the contributor's real index:
+// pre-staging a governed path would make the publication boundary correctly refuse to replace it.
 /*
  * What this command restored, so the governed commit can claim it.
  *
@@ -251,8 +252,8 @@ async function replayAppendOnlyCommit(root, portfolio, initiative, remote, sha) 
  * path list through every caller in cli.mjs would be a wide change for a narrow fact. One command
  * per process, so the lifetime of this set is the command; `commitInitiativeChange` drains it.
  *
- * Before commits were bounded by their staged paths, these files rode along in the index-wide
- * commit — which is why the comment below said staging them was enough.
+ * Before commits were isolated from the contributor's index, these files rode along in the
+ * index-wide commit. The path set now supplies them directly to the publication transaction.
  */
 const healedTemplatePaths = new Set();
 
@@ -276,7 +277,6 @@ async function healInitiativeTemplates(root, portfolio) {
   const installed = await ensureRepositoryTemplates(root, null, { templatesRoot: portfolio.templatesRoot });
   if (installed.length) {
     const paths = installed.map((relative) => posix(path.join(portfolio.templatesRoot, relative)));
-    add(root, paths);
     for (const relative of paths) healedTemplatePaths.add(relative);
   }
   return installed;

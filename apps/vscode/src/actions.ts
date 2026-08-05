@@ -46,6 +46,28 @@ interface ChoiceOption { id: string; label?: string; description?: string }
 interface ReceiptChoiceSet { id: string; label: string; options: ChoiceOption[] }
 interface Receipt { token: string; choiceSets: ReceiptChoiceSet[] }
 
+interface PlannedAction {
+  actionId: string;
+  order: number;
+  timing: string;
+  intent: string;
+  skill: string | null;
+  command: string;
+  reason: string;
+  executable: boolean;
+  effect: { class: string; mutatesState: boolean; externalSideEffect: boolean; reversible: boolean };
+  confirmation: { required: boolean; valueFromKernel: string | null };
+}
+
+interface GovernedActionPlan {
+  planId: string;
+  planHash: string;
+  createdAt: string;
+  expiresAt: string;
+  revision: { branch: string; head: string; worktreeHash: string; lifecycleSha256: string };
+  actions: PlannedAction[];
+}
+
 export interface ActionRequest {
   /** argv for the CLI, without the binary name. */
   command: string[];
@@ -165,6 +187,75 @@ export async function runGovernedAction(
     }
     // The CLI's own message names the remedy; rewording it here would lose that.
     output.appendLine(`  failed: ${(error as Error).message}`);
+    void vscode.window.showErrorMessage((error as Error).message);
+    return false;
+  }
+}
+
+/**
+ * Review and execute one engine-produced action plan.
+ *
+ * The extension never rebuilds the next action from its own tree. The CLI binds the plan to the
+ * exact branch, HEAD, worktree, and lifecycle snapshot; `action execute` verifies all four again.
+ * That makes this picker a review surface for a capability owned by the engine, rather than a
+ * second workflow implementation hidden in the editor.
+ */
+export async function runPlannedAction(
+  client: SingularityFlowClient,
+  output: vscode.OutputChannel
+): Promise<boolean> {
+  let plan: GovernedActionPlan;
+  try {
+    plan = await client.run<GovernedActionPlan>(['action', 'plan', '--json']);
+  } catch (error) {
+    void vscode.window.showErrorMessage((error as Error).message);
+    return false;
+  }
+
+  const executable = plan.actions.filter((action) => action.executable);
+  if (!executable.length) {
+    const waiting = plan.actions.map((action) => `${action.order}. ${action.reason}`).join('\n');
+    void vscode.window.showInformationMessage(
+      waiting ? `No governed action is executable yet. ${waiting}` : 'The workflow has no next action.'
+    );
+    return false;
+  }
+
+  const choice = await vscode.window.showQuickPick(executable.map((action) => ({
+    label: action.reason,
+    description: action.command,
+    detail: `Plan ${plan.planId} · action ${action.actionId} · expires ${plan.expiresAt}`,
+    action
+  })), {
+    title: 'Continue governed work',
+    placeHolder: 'Choose one action from the exact current lifecycle plan',
+    ignoreFocusOut: true
+  });
+  if (!choice) return false;
+
+  const confirmed = await vscode.window.showWarningMessage(
+    `Run the exact governed action “${choice.action.reason}”?`,
+    {
+      modal: true,
+      detail: `${choice.action.command}\n\nPlan ${plan.planId} is bound to ${plan.revision.branch}@${plan.revision.head.slice(0, 12)}. Any repository or lifecycle change invalidates it.`
+    },
+    'Run exact action'
+  );
+  if (confirmed !== 'Run exact action') return false;
+
+  const argv = ['action', 'execute', plan.planId, '--action', choice.action.actionId];
+  if (choice.action.confirmation.required && choice.action.confirmation.valueFromKernel) {
+    argv.push('--confirm', choice.action.confirmation.valueFromKernel);
+  }
+  output.appendLine(`\n$ singularity-flow ${argv.join(' ')}`);
+  try {
+    await vscode.window.withProgress(
+      { location: vscode.ProgressLocation.Notification, title: choice.action.reason, cancellable: false },
+      () => client.runText(argv)
+    );
+    return true;
+  } catch (error) {
+    output.appendLine(`  refused: ${(error as Error).message}`);
     void vscode.window.showErrorMessage((error as Error).message);
     return false;
   }

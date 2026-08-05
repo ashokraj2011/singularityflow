@@ -247,6 +247,17 @@ export interface StoryWorkflow {
     approvalAuthorities?: Record<string, { members?: Array<{ name?: string; email?: string }> }>;
     [key: string]: unknown;
   };
+  lineage?: {
+    submissions?: Array<{
+      packetSha256: string;
+      phase: string;
+      generation: number;
+      path?: string;
+      sourceTreeSha256?: string;
+      projection?: { sourceCommit?: string; sourceTreeSha256?: string };
+    }>;
+    [key: string]: unknown;
+  };
   [key: string]: unknown;
 }
 

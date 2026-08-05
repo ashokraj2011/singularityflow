@@ -1,4 +1,6 @@
-import { add, branch, commit, head, pushBranch } from './git.mjs';
+import path from 'node:path';
+import { rm } from 'node:fs/promises';
+import { branch, commitIsolated, head, pushBranch } from './git.mjs';
 import {
   appendLedgerIntent,
   clearLedgerOutbox,
@@ -60,8 +62,11 @@ export class GitPublicationUnitOfWork {
      * to the append-only capability ledger: an approval nobody gave, in the record that exists to
      * be trusted.
      */
+    const publicationHead = head(root);
     let wroteState = false;
+    let ledgerIntentPath = null;
     const unwind = async (error) => {
+      if (ledgerIntentPath) await rm(path.join(root, ledgerIntentPath), { force: true });
       if (wroteState && state?.rollback) {
         try { await state.rollback(); } catch (failure) {
           throw new SingularityFlowError(
@@ -80,7 +85,6 @@ export class GitPublicationUnitOfWork {
       if (beforeCommit) await beforeCommit(envelope);
     } catch (error) { await unwind(error); }
 
-    let ledgerIntentPath = null;
     if (ledger?.config?.enabled && ledger.intent) {
       // The event is attached before the intent is written, so the file and any entry appended from
       // it carry the same payload. It is deliberately the unbound event: the commit it belongs to
@@ -98,8 +102,38 @@ export class GitPublicationUnitOfWork {
     // the person at the keyboard had staged rode into the governed commit and was pushed, pinned and
     // attested to.
     const staged = [...new Set([...allowedPaths, ledgerIntentPath].filter(Boolean))];
-    add(root, staged);
-    const sourceCommit = commit(root, commitSpec.message, staged);
+    let sourceCommit;
+    try {
+      sourceCommit = await commitIsolated(root, commitSpec.message, staged, {
+        expectedHead: publicationHead,
+        sign: commitSpec.sign === true,
+        signingKey: commitSpec.signingKey ?? null,
+        fault
+      });
+    } catch (error) {
+      if (!error.publicationRefAdvanced) await unwind(error);
+      sourceCommit = error.publicationCommit ?? head(root);
+      envelope = bindLifecycleEvent(envelope, sourceCommit);
+      if (publication.mode !== 'off') {
+        await writePendingPublication(root, {
+          kind: subject.kind,
+          id: subject.id,
+          record: {
+            schemaVersion: 2,
+            subject,
+            branch: publication.branch,
+            remote: publication.remote ?? 'origin',
+            commit: sourceCommit,
+            event: envelope,
+            createdAt: nowIso(),
+            recoveryStage: 'branch-ref-advanced-before-publication',
+            error: error.message,
+            ...(pendingRecord?.({ sourceCommit, error: error.message, envelope }) ?? {})
+          }
+        });
+      }
+      throw error;
+    }
     // The envelope this function returns is bound to the commit; the intent's payload deliberately
     // is not, so that it matches the file already committed above.
     envelope = bindLifecycleEvent(envelope, sourceCommit);

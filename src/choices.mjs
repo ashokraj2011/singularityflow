@@ -4,6 +4,7 @@ import path from 'node:path';
 import { gitDir, head } from './git.mjs';
 import { loadCopilotSession } from './session.mjs';
 import { SingularityFlowError, nowIso, writeAtomic } from './util.mjs';
+import { recordSha256 } from './records.mjs';
 
 const RECEIPT_TTL_MS = 15 * 60 * 1000;
 const RECEIPT_LOCK_TIMEOUT_MS = 5 * 1000;
@@ -28,12 +29,28 @@ function approvalContext(workflow) {
   if (!phase || phase.status !== 'awaiting_approval') {
     throw new SingularityFlowError(`Work item '${workflow?.workItem?.id ?? 'unknown'}' has no phase awaiting approval.`);
   }
+  const packet = workflow.lineage?.submissions?.findLast?.((entry) =>
+    entry.phase === phase.id && entry.generation === phase.generation
+  ) ?? [...(workflow.lineage?.submissions ?? [])].reverse().find((entry) =>
+    entry.phase === phase.id && entry.generation === phase.generation
+  );
   return {
     phase: phase.id,
     label: phase.label,
     generation: phase.generation,
     submittedAt: phase.submittedAt ?? null,
-    artifacts: (phase.artifacts ?? []).map((artifact) => ({ path: artifact.path, sha256: artifact.sha256 ?? null }))
+    artifacts: (phase.artifacts ?? []).map((artifact) => ({ path: artifact.path, sha256: artifact.sha256 ?? null })),
+    reviewPacketSha256: packet?.packetSha256 ?? null,
+    submittedSourceCommit: packet?.projection?.sourceCommit ?? null
+  };
+}
+
+function bindActionContext(action, workId, repositoryHead, context) {
+  if (!context || action !== 'approve') return context;
+  const { planId: ignored, ...review } = context;
+  return {
+    ...review,
+    planId: recordSha256({ kind: 'approval-action-plan', action, workId, repositoryHead, review }).slice(0, 24)
   };
 }
 
@@ -188,16 +205,18 @@ export async function beginCustomSelectionReceipt(root, { action, workId, choice
   await removeExpired(root);
   const copilot = await loadCopilotSession(root);
   const createdAt = new Date();
+  const repositoryHead = head(root);
+  const boundContext = bindActionContext(action, workId, repositoryHead, context);
   const receipt = {
     schemaVersion: 1,
     token: randomUUID(),
     action,
     workId,
-    repositoryHead: head(root),
+    repositoryHead,
     copilotSessionId: copilot?.sessionId ?? null,
     createdAt: createdAt.toISOString(),
     expiresAt: new Date(createdAt.getTime() + RECEIPT_TTL_MS).toISOString(),
-    ...(context ? { actionContext: context, ...(action === 'approve' ? { approvalContext: context } : {}) } : {}),
+    ...(boundContext ? { actionContext: boundContext, ...(action === 'approve' ? { approvalContext: boundContext } : {}) } : {}),
     choiceSets: configuredChoices,
     answers: {},
     ready: false
@@ -245,7 +264,8 @@ export async function resolveCustomSelectionReceipt(root, token, { action, workI
   if (receipt.repositoryHead !== head(root)) {
     throw new SingularityFlowError(`Selection receipt '${token}' is stale because the repository HEAD changed. Ask the contributor to review the choices again.`);
   }
-  if (JSON.stringify(receipt.actionContext ?? receipt.approvalContext ?? null) !== JSON.stringify(context ?? null)) {
+  const boundContext = bindActionContext(action, workId, receipt.repositoryHead, context);
+  if (JSON.stringify(receipt.actionContext ?? receipt.approvalContext ?? null) !== JSON.stringify(boundContext ?? null)) {
     throw new SingularityFlowError(`Selection receipt '${token}' is stale because the action context changed.`);
   }
   const answers = {};

@@ -7,6 +7,8 @@ import { spawnSync } from 'node:child_process';
 import test from 'node:test';
 import { lifecycleEvent } from '../src/lifecycle-event.mjs';
 import { GitPublicationUnitOfWork } from '../src/publication-unit-of-work.mjs';
+import { commitIsolated } from '../src/git.mjs';
+import { readPendingPublication } from '../src/publication-pending.mjs';
 import { acquireSubjectLock, releaseSubjectLock, subjectLockPath } from '../src/subject-lock.mjs';
 
 const packageRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
@@ -161,6 +163,100 @@ test('a lock left by a killed process is reclaimed for Story and Initiative subj
       await new Promise((resolve) => setTimeout(resolve, 5));
       const owner = await acquireSubjectLock(root, subject, { ttlMs: 0 });
       assert.equal(await releaseSubjectLock(root, subject, owner), true);
+    });
+  }
+});
+
+test('governed publication preserves unrelated staged work and commits only allowed paths', async () => {
+  const root = await repository('sflow-isolated-index-');
+  await writeFile(path.join(root, 'developer.txt'), 'developer work\n');
+  await writeFile(path.join(root, 'governed.json'), '{"status":"ready"}\n');
+  git(['add', 'developer.txt'], root);
+  const stagedBefore = git(['diff', '--cached', '--binary'], root);
+  const before = git(['rev-parse', 'HEAD'], root);
+
+  const committed = await commitIsolated(root, '[STORY-1][phase:intake] governed only', ['governed.json'], {
+    expectedHead: before
+  });
+
+  assert.equal(git(['show', '--format=', '--name-only', committed], root), 'governed.json');
+  assert.equal(git(['diff', '--cached', '--binary'], root), stagedBefore, 'developer index is unchanged');
+  assert.equal(git(['diff', '--cached', '--name-only'], root), 'developer.txt');
+  assert.equal(git(['status', '--porcelain'], root), 'A  developer.txt');
+});
+
+test('governed publication rejects a pre-staged governed path without changing HEAD or index', async () => {
+  const root = await repository('sflow-isolated-overlap-');
+  await writeFile(path.join(root, 'governed.json'), '{"status":"staged"}\n');
+  git(['add', 'governed.json'], root);
+  const before = git(['rev-parse', 'HEAD'], root);
+  const stagedBefore = git(['diff', '--cached', '--binary'], root);
+
+  await assert.rejects(
+    () => commitIsolated(root, 'must not commit', ['governed.json'], { expectedHead: before }),
+    /already staged governed path/
+  );
+  assert.equal(git(['rev-parse', 'HEAD'], root), before);
+  assert.equal(git(['diff', '--cached', '--binary'], root), stagedBefore);
+});
+
+test('temporary-index faults before ref update leave no commit or index mutation', async (t) => {
+  for (const stage of ['before-staging', 'after-staging', 'after-commit-object']) {
+    await t.test(stage, async () => {
+      const root = await repository(`sflow-index-${stage}-`);
+      await writeFile(path.join(root, 'developer.txt'), 'developer work\n');
+      await writeFile(path.join(root, 'governed.json'), `{\"stage\":\"${stage}\"}\n`);
+      git(['add', 'developer.txt'], root);
+      const before = git(['rev-parse', 'HEAD'], root);
+      const stagedBefore = git(['diff', '--cached', '--binary'], root);
+      await assert.rejects(() => commitIsolated(root, `fault ${stage}`, ['governed.json'], {
+        expectedHead: before,
+        fault: (current) => { if (current === stage) throw new Error(`fault:${stage}`); }
+      }), new RegExp(`fault:${stage}`));
+      assert.equal(git(['rev-parse', 'HEAD'], root), before);
+      assert.equal(git(['diff', '--cached', '--binary'], root), stagedBefore);
+      assert.match(git(['status', '--porcelain'], root), /A  developer.txt/);
+      assert.match(git(['status', '--porcelain'], root), /\?\? governed.json/);
+    });
+  }
+});
+
+test('a failure after branch ref advancement records the exact commit for publication recovery', async (t) => {
+  for (const kind of kinds) {
+    await t.test(kind, async () => {
+      const root = await repository(`sflow-ref-advanced-${kind}-`);
+      const subject = { kind, id: `${kind.toUpperCase()}-REF-ADVANCED`, branch: 'main' };
+      const target = `${kind}-state.json`;
+      await writeFile(path.join(root, target), '{"status":"before"}\n');
+      git(['add', target], root);
+      git(['commit', '-m', 'canonical state'], root);
+      const canonical = git(['rev-parse', 'HEAD'], root);
+
+      await assert.rejects(() => new GitPublicationUnitOfWork(root).execute({
+        subject,
+        event: lifecycleEvent({
+          type: 'artifact-generated', subject, phaseId: 'intake', generation: 1
+        }),
+        commit: { message: `[${subject.id}] ref advanced` },
+        publication: { mode: 'required', branch: 'main', remote: 'origin' },
+        allowedPaths: [target],
+        state: {
+          write: () => writeFile(path.join(root, target), '{"status":"committed"}\n'),
+          rollback: () => writeFile(path.join(root, target), '{"status":"before"}\n')
+        },
+        fault: (current) => {
+          if (current === 'after-ref-update') throw new Error(`fault:${kind}:after-ref-update`);
+        }
+      }), new RegExp(`fault:${kind}:after-ref-update`));
+
+      const committed = git(['rev-parse', 'HEAD'], root);
+      assert.notEqual(committed, canonical);
+      assert.equal(git(['status', '--porcelain'], root), '');
+      const pending = await readPendingPublication(root, subject);
+      assert.equal(pending.record.commit, committed);
+      assert.equal(pending.record.branch, 'main');
+      assert.equal(pending.record.recoveryStage, 'branch-ref-advanced-before-publication');
+      assert.equal(pending.record.event.sourceCommit, committed);
     });
   }
 });

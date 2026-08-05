@@ -39,10 +39,12 @@ skills:
   sflow-about: { class: echo }
   sflow-agent: { class: interactive }
   sflow-agents: { class: echo }
+  sflow-admin: { class: conversational }
   sflow-approve: { class: review }
   sflow-capabilities: { class: echo }
   sflow-capability-doctor: { class: echo }
   sflow-capability-map: { class: interactive }
+  sflow-continue: { class: mutation }
   sflow-design: { class: generative }
   sflow-doctor: { class: echo }
   sflow-documents: { class: mutation }
@@ -70,6 +72,7 @@ skills:
   sflow-implement: { class: generative }
   sflow-inbox: { class: echo }
   sflow-init: { class: mutation }
+  sflow-inspect: { class: conversational }
   sflow-initiative-approve: { class: review }
   sflow-initiative-checklist: { class: echo }
   sflow-initiative-documents: { class: echo }

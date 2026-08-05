@@ -49,6 +49,9 @@ export interface PendingApproval {
   /** Exact governed file shown when this decision represents a Story phase. */
   artifactPath?: string | null;
   workId?: string;
+  /** Exact submitted packet and source revision this decision is bound to. */
+  reviewPacketSha256?: string | null;
+  submittedSourceCommit?: string | null;
 }
 
 export interface Approvals {
@@ -219,6 +222,10 @@ function storyApprovalsOf(snapshot: RepositorySnapshot, workflow: StoryWorkflow)
   // already repository-relative, so it is the only safe path for an editor tab to open.
   const catalogArtifact = snapshot.documents?.find((item) => item.phase === phase.id && Boolean(item.path));
   const artifact = catalogArtifact?.path ?? null;
+  const submission = [...(workflow.lineage?.submissions ?? [])].reverse().find((item) =>
+    item.phase === phase.id && item.generation === phase.generation);
+  const packet = submission?.packetSha256 ?? null;
+  const sourceCommit = submission?.projection?.sourceCommit ?? null;
   return {
     initiativeId: workflow.workItem.id,
     actor,
@@ -229,7 +236,7 @@ function storyApprovalsOf(snapshot: RepositorySnapshot, workflow: StoryWorkflow)
       phase: phase.id,
       subject: 'phase',
       label: `${phase.label} — Story phase`,
-      detail: `Generation ${phase.generation} of ${workflow.workItem.id}`,
+      detail: `Generation ${phase.generation} of ${workflow.workItem.id}${packet ? ` · packet ${packet.slice(0, 12)}` : ''}`,
       sha256: catalogArtifact?.sha256 ?? null,
       expected: phase.id,
       standing,
@@ -241,7 +248,9 @@ function storyApprovalsOf(snapshot: RepositorySnapshot, workflow: StoryWorkflow)
         actor: identityOf(approval.actor) || 'unknown', at: approval.at ?? null
       })),
       artifactPath: artifact,
-      workId: workflow.workItem.id
+      workId: workflow.workItem.id,
+      reviewPacketSha256: packet,
+      submittedSourceCommit: sourceCommit
     }],
     obstacles: [],
     empty: null

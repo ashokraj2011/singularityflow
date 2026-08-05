@@ -734,6 +734,11 @@ singularity-flow workspace status <DIRECTORY>
 singularity-flow workspace sync <DIRECTORY>
 singularity-flow workspace repair <DIRECTORY>
 singularity-flow workspace documents <DIRECTORY>
+singularity-flow workspace impact analyze <DIRECTORY> --description "<PROPOSED CHANGE>"
+singularity-flow workspace impact analyze <DIRECTORY> --description-file <FILE> [--repository ID] [--capability ID] [--document PATH] [--model MODEL] [--dry-run]
+singularity-flow workspace impact list <DIRECTORY>
+singularity-flow workspace impact show <DIRECTORY> <ANALYSIS-ID>
+singularity-flow workspace impact promote <DIRECTORY> <ANALYSIS-ID>
 ```
 
 `workspace use` records a machine-local active workspace and repository. The
@@ -752,6 +757,28 @@ the host must reopen that repository. A child CLI process cannot change its
 parent application's working directory, so use **Singularity Flow: Attach Copilot
 Session to Workspace** in VS Code or run the returned `workspace copilot` command
 from a terminal. `/sflow-workspace-session` provides the same guided flow.
+
+### Advisory workspace impact analysis
+
+Use **Lifecycle → Explore workspace impact** in VS Code, or `workspace impact
+analyze`, before a Work ID exists. This is deliberately outside the governed
+lifecycle: it does not create a branch, Story, phase, generation, approval, or Git
+commit. Copilot receives disposable detached copies of the selected repositories,
+the commit SHA and committed world-model hash for each copy, mapped capability IDs,
+and selected files from the workspace document inbox.
+
+The result is stored locally under
+`<workspace>/cache/copilot/impact/<ANALYSIS-ID>/` with its prompt, Markdown summary,
+repository revision vector, warnings, and freshness state. If a repository HEAD
+or the saved prompt/summary changes, the report is visibly stale. `--dry-run`
+previews the exact prompt and revision vector without calling Copilot or writing a
+report. Use `/sf-workspace-impact` for the same guided flow in Copilot CLI.
+
+An advisory report has no approval authority. Choose **Use as intake source** or
+run `workspace impact promote` to copy its Markdown summary into
+`documents/inbox/`. Then start governed work normally and explicitly select that
+staged document during intake. That promotion boundary is where exploration can
+become traceable lifecycle input; it never happens automatically.
 
 For creation, offline provisioning, recovery, and safety details, open
 `WORKSPACES.md`.

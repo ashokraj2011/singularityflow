@@ -164,6 +164,10 @@ import {
   workspaceStatus
 } from './workspace.mjs';
 import {
+  analyzeWorkspaceImpact, listWorkspaceImpacts, previewWorkspaceImpact,
+  promoteWorkspaceImpact, workspaceImpactStatus
+} from './workspace-impact.mjs';
+import {
   activateWorkspaceContext, activeWorkspaceFile, clearActiveWorkspaceContext, discardUnsupportedWorkflowWorkspaces,
   readActiveWorkspaceContext, workspacePromptLabel, workspaceRegistryFile
 } from './workspace-context.mjs';
@@ -482,6 +486,12 @@ Usage:
   singularity-flow workspace repair <DIRECTORY> [--json]
   singularity-flow workspace documents <DIRECTORY> [--json]
   singularity-flow workspace documents import <DIRECTORY> <FILE...> [--json]
+  singularity-flow workspace impact analyze <DIRECTORY> --description TEXT
+    [--title TEXT] [--repository ID]... [--capability ID]... [--document PATH]...
+    [--model MODEL] [--dry-run] [--json]
+  singularity-flow workspace impact list <DIRECTORY> [--json]
+  singularity-flow workspace impact show <DIRECTORY> <ANALYSIS-ID> [--json]
+  singularity-flow workspace impact promote <DIRECTORY> <ANALYSIS-ID> [--json]
   singularity-flow workspace forget <DIRECTORY> [--json]
 
 Optional Jira environment:
@@ -4332,6 +4342,66 @@ async function workspaceCommand(positionals, options) {
     if (optionBoolean(options, 'json')) return console.log(JSON.stringify(result, null, 2));
     console.log(`Workspace ${result.created ? 'created' : 'resumed'} at ${result.workspace.path}.`);
     return renderWorkspaceStatus(result.status);
+  }
+  if (subcommand === 'impact') {
+    const action = positionals[2] ?? 'list';
+    const workspacePath = requirePositional(positionals, 3, 'workspace directory');
+    if (action === 'analyze') {
+      const descriptionFile = optionString(options, 'description-file');
+      const description = descriptionFile
+        ? await readFile(path.resolve(descriptionFile), 'utf8')
+        : optionString(options, 'description');
+      const request = {
+        id: optionString(options, 'id'),
+        title: optionString(options, 'title'),
+        description,
+        repositories: optionStrings(options, 'repository'),
+        capabilities: optionStrings(options, 'capability'),
+        documents: optionStrings(options, 'document'),
+        model: optionString(options, 'model')
+      };
+      const result = optionBoolean(options, 'dry-run')
+        ? await previewWorkspaceImpact(workspacePath, request)
+        : await analyzeWorkspaceImpact(workspacePath, request);
+      if (optionBoolean(options, 'json')) return console.log(JSON.stringify(result, null, 2));
+      if (optionBoolean(options, 'dry-run')) {
+        console.log(`\nPrepared advisory impact analysis ${result.id}; nothing was written and Copilot was not called.`);
+        console.log(`Repositories: ${result.repositories.map((repository) => `${repository.id}@${repository.commit.slice(0, 12)}`).join(', ')}`);
+        return;
+      }
+      console.log(`\nWorkspace impact analysis ${result.id}: ${result.status} · ${result.freshness}`);
+      console.log(result.result?.summaryMarkdown ?? 'No summary was produced.');
+      return;
+    }
+    if (action === 'list') {
+      const reports = await listWorkspaceImpacts(workspacePath);
+      if (optionBoolean(options, 'json')) return console.log(JSON.stringify(reports, null, 2));
+      return console.log(table(reports.map((report) => ({
+        id: report.id, title: report.title, status: report.status, freshness: report.freshness,
+        createdAt: report.createdAt
+      })), [
+        { key: 'id', label: 'ANALYSIS' }, { key: 'title', label: 'TITLE' },
+        { key: 'status', label: 'STATUS' }, { key: 'freshness', label: 'FRESHNESS' },
+        { key: 'createdAt', label: 'CREATED' }
+      ]));
+    }
+    if (action === 'show') {
+      const id = requirePositional(positionals, 4, 'impact analysis ID');
+      const result = await workspaceImpactStatus(workspacePath, id);
+      if (optionBoolean(options, 'json')) return console.log(JSON.stringify(result, null, 2));
+      console.log(`\n${result.title} · ${result.id} · ${result.freshness}`);
+      console.log(result.result?.summaryMarkdown ?? result.failure ?? 'No summary is available.');
+      return;
+    }
+    if (action === 'promote') {
+      const id = requirePositional(positionals, 4, 'impact analysis ID');
+      const result = await promoteWorkspaceImpact(workspacePath, id);
+      if (optionBoolean(options, 'json')) return console.log(JSON.stringify(result, null, 2));
+      console.log(`Staged ${result.document.path} as advisory intake context.`);
+      console.log(result.next);
+      return;
+    }
+    throw new SingularityFlowError(`Unknown workspace impact action '${action}'.`);
   }
   const workspacePath = positionals[subcommand === 'documents' && positionals[2] === 'import' ? 3 : 2];
   if (!workspacePath) throw new SingularityFlowError(`workspace ${subcommand} requires a workspace directory.`);

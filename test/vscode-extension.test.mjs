@@ -415,7 +415,7 @@ test('a repository with nothing started at all offers the command that starts so
 
 test('a checked-out Story gets a phase rail with named prepare publish and submit actions', () => {
   const tree = buildTree(storySnapshot({ generation: 1 }));
-  assert.deepEqual(tree.map((node) => node.id), ['active-story:STORY-42']);
+  assert.deepEqual(tree.map((node) => node.id), ['active-story:STORY-42', 'workspace:impact']);
   assert.equal(find(tree, 'story:analytics').runCommand, 'singularityFlow.openDashboard');
   assert.match(find(tree, 'story:analytics').description, /time · tokens · cost/);
   assert.equal(find(tree, 'story:phase-rail').description, '1/2 approved');
@@ -430,7 +430,7 @@ test('a checked-out Story gets a phase rail with named prepare publish and submi
 test('the tree is built from the real snapshot: lifecycle, phases, artifacts, Stories', () => {
   const tree = buildTree(snapshot);
   // Once intake has selected a workflow, Lifecycle shows only that work and its phases.
-  assert.deepEqual(tree.map((node) => node.id), ['initiative:INIT-MULTI']);
+  assert.deepEqual(tree.map((node) => node.id), ['initiative:INIT-MULTI', 'workspace:impact']);
   const [root] = tree;
   assert.equal(root.kind, 'initiative');
   assert.equal(root.label, 'INIT-MULTI');
@@ -1572,7 +1572,7 @@ test('a capability map that does not validate reports the engine reason', () => 
 test('Lifecycle owns intake and active phases; Configuration owns their design', () => {
   const lifecycle = buildTree(snapshot);
   const configurationTree = buildConfigurationTree(snapshot);
-  assert.deepEqual(lifecycle.map((node) => node.id), ['initiative:INIT-MULTI']);
+  assert.deepEqual(lifecycle.map((node) => node.id), ['initiative:INIT-MULTI', 'workspace:impact']);
   assert.equal(find(lifecycle, 'configuration'), undefined, 'settings do not crowd the intake view');
   assert.equal(find(lifecycle, 'capabilities'), undefined, 'the Capabilities view renders those');
   assert.equal(find(lifecycle, 'world-model'), undefined, 'grounding is configuration');
@@ -1607,7 +1607,8 @@ test('Lifecycle owns intake and active phases; Configuration owns their design',
   assert.equal(workflows.children[1].path, undefined, 'Lifecycle chooses; Configuration edits');
 
   // A workflow is still listed before anything has been started: it is how you choose what to start.
-  assert.deepEqual(intake.map((node) => node.id), ['no-initiative', 'start-intake', 'workflows']);
+  assert.deepEqual(intake.map((node) => node.id),
+    ['no-initiative', 'start-intake', 'workspace:impact', 'workflows']);
 });
 
 test('every agent is listed, including the ones that ship with the product', () => {

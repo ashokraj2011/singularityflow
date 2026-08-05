@@ -404,8 +404,8 @@ test('the built extension activates against a real repository and populates the 
   // The tree is populated from a real `snapshot --json` subprocess, not a fixture.
   const provider = view.treeDataProvider;
   const roots = provider.getChildren();
-  assert.deepEqual(roots.map((node) => node.id), ['initiative:INIT-CHECKOUT'],
-    'after intake, Lifecycle contains only the selected work and its phases');
+  assert.deepEqual(roots.map((node) => node.id), ['initiative:INIT-CHECKOUT', 'workspace:impact'],
+    'Lifecycle keeps advisory workspace exploration separate from the selected governed work');
   assert.equal(roots[0].label, 'INIT-CHECKOUT');
 
   const configuration = registered.trees.get('singularityFlow.configuration');
@@ -1156,7 +1156,7 @@ test('the Stories panel opens and offers the push once a plan exists', async (t)
   assert.match(panel.webview.html, /Push these Stories|Merge order|repository/);
 });
 
-test('the planning and impact panel computes from the plan, not from the map', async (t) => {
+test('the impact panel supports workspace advisory analysis and governed plan reconciliation', async (t) => {
   if (!requireBundle(t)) return;
   const { registered } = await activated();
   await registered.commands.get('singularityFlow.openImpact')();
@@ -1165,7 +1165,8 @@ test('the planning and impact panel computes from the plan, not from the map', a
   assert.ok(panel, 'an impact panel was created');
   assert.match(panel.webview.html, /default-src 'none'/);
   assert.doesNotMatch(panel.webview.html, /unsafe-inline|unsafe-eval/);
-  assert.match(panel.webview.html, /Planning and impact/);
+  assert.match(panel.webview.html, /Impact analysis/);
+  assert.match(panel.webview.html, /No Work ID or branch required|Select a workspace to analyze/);
   // It renders synchronously before the subprocess answers, rather than showing a blank page.
   assert.match(panel.webview.html, /Computing impact|Reconciliation|Nothing governed/);
 });

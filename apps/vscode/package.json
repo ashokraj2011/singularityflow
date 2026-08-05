@@ -217,7 +217,7 @@
       },
       {
         "command": "singularityFlow.openImpact",
-        "title": "Singularity Flow: Planning and Impact",
+        "title": "Singularity Flow: Impact Analysis",
         "icon": "$(graph)"
       },
       {

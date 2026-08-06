@@ -1005,6 +1005,7 @@ function configurationNode(snapshot: RepositorySnapshot, readiness: CapabilityRe
           description: 'off by default · workspace local', icon: 'prompt', runCommand: 'singularityFlow.openPromptAudit'
         }]
       },
+      mcpConfigurationNode(snapshot),
       worldModelNode(snapshot),
       {
         kind: 'group', id: 'config:workflow-design', label: 'Workflow and phase design',
@@ -1027,6 +1028,53 @@ function configurationNode(snapshot: RepositorySnapshot, readiness: CapabilityRe
         }]
       },
       ...fileSetNodes(snapshot)
+    ]
+  };
+}
+
+function mcpConfigurationNode(snapshot: RepositorySnapshot): TreeNode {
+  const servers = snapshot.mcp?.servers ?? [];
+  return {
+    kind: 'group',
+    id: 'config:mcp',
+    label: 'MCP tools',
+    description: servers.length
+      ? `${servers.filter((server) => server.configured).length}/${servers.length} host configured`
+      : 'none governed',
+    icon: 'mcp',
+    tooltip: 'VS Code or Copilot owns MCP processes and credentials. workflow.yml governs which agents, phases, and tools may use them.',
+    children: [
+      ...servers.map((server) => ({
+        kind: 'action' as const,
+        id: `config:mcp:${server.id}`,
+        label: server.label,
+        description: server.configured ? `ready · ${server.hostReference}` : `${server.required ? 'required' : 'optional'} · host missing`,
+        tooltip: [
+          `Host name: ${server.hostReference}`,
+          `Agents: ${server.agents.join(', ') || 'all'}`,
+          `Phases: ${server.phases.join(', ') || 'all'}`,
+          `Tools: ${server.tools.join(', ') || `${server.hostReference}/*`}`,
+          server.configured ? `Found in: ${server.sources.join(', ')}` : 'Not found in VS Code or Copilot host configuration.'
+        ].join('\n'),
+        icon: server.configured ? 'pass' : server.required ? 'error' : 'warning',
+        runCommand: 'singularityFlow.configureMcp',
+        contextValue: 'sflow.mcp'
+      })),
+      ...(!servers.length ? [{
+        kind: 'message' as const,
+        id: 'config:mcp:empty',
+        label: 'No governed MCP servers',
+        description: 'declare mcpServers in workflow.yml',
+        icon: 'info'
+      }] : []),
+      {
+        kind: 'action' as const,
+        id: 'config:mcp:configure',
+        label: 'Configure MCP host',
+        description: 'Playwright starter or open host file',
+        icon: 'tools',
+        runCommand: 'singularityFlow.configureMcp'
+      }
     ]
   };
 }

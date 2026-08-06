@@ -164,6 +164,7 @@ phase contract/template
 + agent-added world-model views
 + rule-selected repository world-model files
 + active-agent remote skill Markdown
++ governed host-MCP policy (agent, phase, and tool allowlist)
 + approved phase-input artifacts
 + evidence ledger for verification/conformance
 ```
@@ -173,6 +174,12 @@ World-model generation runs in a detached analysis worktree with a separate outp
 Normal phase skills use one `wm compose` operation. It joins the phase-default agent, mandatory phase/agent views, the exact task guide, applicable evidence, need-based `worldModel.injection.rules`, and locked remote Agent Markdown dependencies. The next generation commit includes a provenance record plus the exact rendered prompt. The configurable `off|warn|enforce` grounding gate verifies these against the committed model.
 
 Repository world models never move to remote delivery. Agent Markdown is the governed execution-role layer. `singularity/agents.lock.yml` supplies committed trust-on-first-use hashes; `.git/singularity-flow/agents/` is an uncommitted verified cache. Sync records the active agent without changing the lock. Remote Markdown dependencies are copied and hash-recorded per generation, remote templates are copied once into immutable work-item context, and generated outputs receive per-generation provenance records.
+
+MCP is a separate host boundary. VS Code or Copilot CLI owns MCP server processes,
+transports, trust, and credentials. The committed workflow owns only server-name,
+agent, phase, and tool policy. Prompt composition exposes that allowlist to the
+active governed agent. Material results become governed only when copied below the
+work item and recorded under `context/mcp/`; the gate revalidates their hashes.
 
 Agents define prompt behavior, allowed tools, phase scope, automatic phase ownership, and added world-model views. Agents are software execution contracts, not people. Human identity and organizational role are recorded separately, and approval authority comes only from configured identity groups.
 

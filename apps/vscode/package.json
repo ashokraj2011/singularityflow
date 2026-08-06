@@ -201,6 +201,11 @@
         "icon": "$(comment-discussion)"
       },
       {
+        "command": "singularityFlow.configureMcp",
+        "title": "Singularity Flow: Configure MCP Tools",
+        "icon": "$(plug)"
+      },
+      {
         "command": "singularityFlow.openCapabilities",
         "title": "Singularity Flow: Capabilities",
         "icon": "$(type-hierarchy)"

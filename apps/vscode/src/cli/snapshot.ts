@@ -451,6 +451,16 @@ export interface RepositorySnapshot {
     content?: string; sha256?: string; remoteResources?: number;
   }>;
   agentMappings?: { path: string; exists: boolean };
+  /** Governed MCP policy joined to host configuration by server name; never contains credentials. */
+  mcp?: {
+    servers: Array<{
+      id: string; label: string; hostReference: string; agents: string[]; phases: string[];
+      tools: string[]; required: boolean; approval: string; configured: boolean; sources: string[];
+    }>;
+    inventory: Array<{ surface: string; path: string; name: string | null; error: string | null }>;
+    errors: string[];
+    warnings: string[];
+  };
   /** Who this repository will attribute a decision to. Approvals turn on it. */
   identities?: {
     git?: { name?: string; email?: string; login?: string | null };

@@ -216,6 +216,7 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
     'singularityFlow.showImpact', 'singularityFlow.addCapability', 'singularityFlow.editCapability',
     'singularityFlow.openDashboard', 'singularityFlow.openDesigner',
     'singularityFlow.openInstructionDesigner', 'singularityFlow.openPromptAudit', 'singularityFlow.openCopilot',
+    'singularityFlow.configureMcp',
     'singularityFlow.reopenCompleted', 'singularityFlow.cancelWork'
   ];
   /** Workspaces are machine-wide and remain available whatever folder is open. */
@@ -1448,6 +1449,51 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
         return (error as Error).message;
       }
     }),
+    'singularityFlow.configureMcp': async () => {
+      const hostFile = path.join(client.repository, '.vscode', 'mcp.json');
+      const configured = store.current.snapshot?.mcp?.inventory.some(
+        (entry) => entry.surface === 'vscode-workspace' && entry.name
+      ) === true;
+      const choice = await vscode.window.showQuickPick([
+        ...(configured ? [{
+          label: 'Open workspace MCP configuration',
+          description: '.vscode/mcp.json',
+          action: 'open' as const
+        }] : [{
+          label: 'Configure Playwright MCP for this workspace',
+          description: 'creates .vscode/mcp.json; credentials remain host-owned',
+          action: 'playwright' as const
+        }]),
+        {
+          label: 'Open governed MCP policy',
+          description: 'singularity/workflow.yml · agent, phase, and tool allowlists',
+          action: 'policy' as const
+        }
+      ], {
+        title: 'MCP tools',
+        placeHolder: 'Choose host setup or governed policy',
+        ignoreFocusOut: true
+      });
+      if (!choice) return;
+      if (choice.action === 'policy') {
+        await openArtifact(client.repository, {
+          kind: 'artifact', id: 'mcp:policy', label: 'workflow.yml', path: 'singularity/workflow.yml'
+        });
+        return;
+      }
+      if (choice.action === 'playwright') {
+        try {
+          await client.runText(['mcp', 'scaffold', 'playwright']);
+          await store.refresh();
+          void vscode.window.showInformationMessage('Playwright MCP host configuration created. Review it, then use VS Code MCP: List Servers to trust and start it.');
+        } catch (error) {
+          void vscode.window.showErrorMessage(`Could not configure Playwright MCP: ${(error as Error).message}`);
+          return;
+        }
+      }
+      const document = await vscode.workspace.openTextDocument(vscode.Uri.file(hostFile));
+      await vscode.window.showTextDocument(document, { preview: false });
+    },
     'singularityFlow.openPromptAudit': () => PromptAuditPanel.show(context, client),
     'singularityFlow.openCopilot': async () => {
       try {

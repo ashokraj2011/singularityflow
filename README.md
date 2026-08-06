@@ -1330,6 +1330,28 @@ stops with a stale-lock error until a contributor runs `agents lock <id>
 new lock. Remote templates are inert unless a workflow explicitly names
 `agent:<agent-id>/<template-id>`.
 
+### Governed MCP tools such as Playwright
+
+MCP servers are host capabilities, not remote Markdown. VS Code or Copilot CLI
+owns their process, transport, trust prompts, and credentials. Singularity Flow
+adds the governed layer: `mcpServers` in `singularity/workflow.yml` assigns a host
+server to explicit agents, phases, and tool names; the Agent Markdown `tools`
+field permits the corresponding `server/tool` or `server/*` namespace; phase
+prompt composition includes the resulting policy.
+
+```bash
+singularity-flow mcp scaffold playwright  # creates .vscode/mcp.json; never overwrites
+singularity-flow mcp status
+singularity-flow mcp doctor
+```
+
+VS Code exposes the same status and scaffold under **Configuration → MCP tools**.
+Corporate npm registry, proxy, and CA configuration continue to come from
+`.npmrc`, environment variables, and the host. Durable screenshots or reports can
+be hash-recorded with `singularity-flow mcp record` and are revalidated by the
+governance gate. See [Governed MCP tools](docs/MCP-INTEGRATION.md) for the complete
+configuration, Playwright setup, security boundary, and evidence workflow.
+
 ## Useful commands
 
 | Command | Purpose |
@@ -1357,6 +1379,9 @@ new lock. Remote templates are inert unless a workflow explicitly names
 | `sflow-next [--task TEXT] [--yes]` | Execute exactly one next valid action; alias for `singularity-flow next`. If a semantic world model is missing, interactive use asks before starting its model agent and non-interactive use requires explicit `--yes`. |
 | `singularity-flow inputs [PHASE] [--dry-run]` | Inspect or render approved phase-input dataflow. |
 | `singularity-flow agents list\|mappings\|lock\|sync\|status\|refresh-output` | Resolve Copilot-agent mappings and trust, materialize, inspect, or refresh remote Markdown agents. |
+| `singularity-flow mcp list\|status\|doctor` | Join governed MCP assignments to host server names without exposing host secrets. |
+| `singularity-flow mcp scaffold playwright` | Create a reviewable VS Code Playwright MCP host configuration without replacing an existing file. |
+| `singularity-flow mcp record <SERVER> --tool <TOOL> [--phase PHASE] [--output PATH]` | Record a declared MCP call and optional hash-bound work-item output for governance. |
 | `singularity-flow capabilities doctor [ID] [--offline]` | Verify capability ownership, inherited lifecycle policy, orphan-state publication, ledger integrity, lifecycle pinning, and cross-repository world-model snapshots. |
 | `singularity-flow documents list [ID]` | List uploaded inputs and generated workflow documents. |
 | `singularity-flow documents view <ID>` | Display text content or return the path/URL for a binary/external document. |

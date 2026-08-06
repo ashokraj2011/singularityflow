@@ -29,6 +29,7 @@ import {
 } from './approval-authority.mjs';
 import { normalizeLedgerConfig } from './ledger-config.mjs';
 import { normalizeClarificationPolicy } from './clarifications.mjs';
+import { normalizeMcpServers, validateMcpAgentTools } from './mcp.mjs';
 
 export const WORKFLOW_PATH = 'singularity/workflow.yml';
 export const CONTROL_ROOT = 'singularity';
@@ -141,6 +142,11 @@ export function validateDefinition(definition) {
   normalizeContextPolicy(definition.contextPolicy ?? {}, { phaseIds: Object.keys(definition.phases) });
   normalizePlanning(definition.planning ?? {});
   normalizeLogging(definition.logging ?? {});
+  definition.mcpServers = normalizeMcpServers(definition.mcpServers ?? {}, {
+    agents: definition.agentCatalog ?? [],
+    phases: Object.keys(definition.phases)
+  });
+  validateMcpAgentTools(definition);
   definition.ledger = normalizeLedgerConfig(definition.ledger ?? {});
   definition.approvalAuthorities = normalizeApprovalAuthorities(definition.approvalAuthorities);
   groundingMode(definition);
@@ -534,6 +540,7 @@ export async function snapshotResolution(root, definition, resolved) {
     contextPolicy: resolved.contextPolicy ?? normalizeContextPolicy(definition.contextPolicy ?? {}, { phaseIds: Object.keys(definition.phases) }),
     ledger: structuredClone(resolved.ledger ?? normalizeLedgerConfig(definition.ledger ?? {})),
     agents,
+    mcpServers: structuredClone(definition.mcpServers ?? {}),
     templates
   };
 }

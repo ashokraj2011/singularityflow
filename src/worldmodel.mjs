@@ -12,6 +12,7 @@ import {
   SingularityFlowError, optionBoolean, optionNumber, optionString, posix, run, snapshot, writeJson
 } from './util.mjs';
 import { loadDefinition, renderArtifactTemplate, WORKFLOW_PATH } from './config.mjs';
+import { renderMcpPromptPolicy } from './mcp.mjs';
 import { injectAgentPrompt, recordInjection } from './inject.mjs';
 import { loadSession } from './session.mjs';
 import { renderAgentSkills } from './agents.mjs';
@@ -1209,6 +1210,7 @@ async function compose(root, options) {
     pinnedPhase?.clarification ?? definition.phases?.[signals.phase]?.clarification
   );
   const clarification = renderClarificationProtocol(clarificationPolicy, signals.phase);
+  const mcpPolicy = renderMcpPromptPolicy(definition, { agent, phase: signals.phase });
   const capability = workflow
     ? await renderCapabilityWorldModelPack(root, workflow.resolution?.capability, {
       views: phase?.worldModel?.views ?? []
@@ -1240,6 +1242,7 @@ async function compose(root, options) {
     governed.contract,
     clarification,
     text.trimEnd(),
+    mcpPolicy,
     requiredText,
     capability.text,
     remote.text,

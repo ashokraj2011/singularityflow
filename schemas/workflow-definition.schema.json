@@ -168,6 +168,11 @@
       }
     },
     "governance": { "type": "object" },
+    "mcpServers": {
+      "type": "object",
+      "description": "Governed references to MCP servers configured by the Copilot or VS Code host. Credentials and transport details never belong here.",
+      "additionalProperties": { "$ref": "#/$defs/mcpServer" }
+    },
     "worldModel": {
       "type": "object",
       "properties": {
@@ -225,6 +230,27 @@
   },
   "additionalProperties": false,
   "$defs": {
+    "mcpServer": {
+      "type": "object",
+      "properties": {
+        "label": { "type": "string", "minLength": 1 },
+        "hostReference": { "type": "string", "pattern": "^[a-z0-9]+(?:-[a-z0-9]+)*$" },
+        "agents": { "type": "array", "uniqueItems": true, "items": { "type": "string", "pattern": "^[a-z0-9]+(?:-[a-z0-9]+)*$" } },
+        "phases": { "type": "array", "uniqueItems": true, "items": { "type": "string", "pattern": "^[a-z0-9]+(?:-[a-z0-9]+)*$" } },
+        "tools": { "type": "array", "uniqueItems": true, "items": { "type": "string", "pattern": "^[A-Za-z0-9_.-]+$" } },
+        "required": { "type": "boolean", "default": false },
+        "approval": { "enum": ["confirm", "host"], "default": "confirm" },
+        "evidence": {
+          "type": "object",
+          "properties": {
+            "captureToolCalls": { "type": "boolean", "default": true },
+            "captureResults": { "type": "boolean", "default": false }
+          },
+          "additionalProperties": false
+        }
+      },
+      "additionalProperties": false
+    },
     "clarificationPolicy": {
       "oneOf": [
         { "enum": ["off", "when-needed", "required"] },

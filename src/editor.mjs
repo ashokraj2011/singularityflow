@@ -69,6 +69,7 @@ import { ledgerStatus } from './ledger.mjs';
 import {
   buildRepositorySubjectIndex, buildRepositorySubjectIndexFromRefs, resolveContext
 } from './repository-subject-index.mjs';
+import { mcpStatus } from './mcp.mjs';
 
 const packageRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 export const REPOSITORY_SKILLS_ROOT = '.github/skills';
@@ -506,6 +507,7 @@ async function fullRepositorySnapshot(root, requestedWorkId = null, requestedIni
       rows: mappingStatus.rows
     },
     agentsLock: { path: AGENT_LOCK_PATH, exists: lockExists, content: lockExists ? await readFile(agentLock.absolute, 'utf8') : '# No remote agents are trusted yet.\n' },
+    mcp: await mcpStatus(root, definition),
     workItems: items,
     initiatives,
     selectedInitiativeId,
@@ -685,7 +687,8 @@ async function configurationSlice(root) {
       content: agentLock.exists
         ? await readFile(agentLock.absolute, 'utf8')
         : '# No remote agents are trusted yet.\n'
-    }
+    },
+    mcp: await mcpStatus(root, definition)
   };
 }
 

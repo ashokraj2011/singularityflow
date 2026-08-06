@@ -1740,6 +1740,33 @@ singularity-flow agents refresh-output threat-model
 
 The bundled `sflow-workflow` Copilot agent contains empty dependency tables, so installation alone performs no remote download. Teams add their own URLs later. VS Code **Configuration → Agents** edits repository agent Markdown, shows lock status, and keeps the lock read-only.
 
+## Governed MCP tools
+
+MCP tool execution belongs to the host. VS Code or Copilot CLI starts the server,
+stores credentials, and asks for trust. Singularity Flow records only the shared
+policy in `singularity/workflow.yml`: the host server name, eligible governed
+agents, eligible phases, allowed tool names, approval posture, and evidence policy.
+Agent Markdown separately allows the corresponding `server/tool` or `server/*`
+namespace. Both checks must permit a required server.
+
+```bash
+singularity-flow mcp scaffold playwright
+singularity-flow mcp status
+singularity-flow mcp doctor
+singularity-flow mcp record playwright --tool browser_snapshot --phase verification
+```
+
+The scaffold creates `.vscode/mcp.json` with `@playwright/mcp@latest` and refuses
+to overwrite existing host configuration. It inherits the corporate npm registry,
+proxy, CA, and authentication configuration; no secret is stored in workflow YAML.
+The VS Code extension exposes the same operations under **Configuration → MCP
+tools**. `/sf-mcp` provides the Copilot command surface.
+
+When an MCP result matters to a decision, store it below the active work item and
+pass `--output`. Flow records and later verifies its size and SHA-256. This is a
+declared provenance record: Flow cannot intercept every host MCP call and does not
+claim that it can. See [docs/MCP-INTEGRATION.md](docs/MCP-INTEGRATION.md).
+
 ## Conformance and final gate
 
 The final conformance artifact compares every approved `AC-n` and `SPEC-nnn` with source and test evidence. Verdicts are `matched`, `partial`, `missing`, `deviated`, or `unplanned`. Evidence uses exact files and lines, and approved deviations and self-approvals are disclosed.
@@ -2081,6 +2108,9 @@ singularity-flow agents lock <PACK> [--update]
 singularity-flow agents sync <PACK>
 singularity-flow agents status [PACK]
 singularity-flow agents refresh-output <RESOURCE-ID> [--replace]
+singularity-flow mcp list|status|doctor [--json]
+singularity-flow mcp scaffold playwright [--replace]
+singularity-flow mcp record <SERVER> --tool TOOL [--phase PHASE] [--output PATH] [--note TEXT]
 singularity-flow status [WORK-ID] [--json]
 singularity-flow progress [WORK-ID] [--json]
 singularity-flow report [WORK-ID] [--format md|html|json] [--out FILE]

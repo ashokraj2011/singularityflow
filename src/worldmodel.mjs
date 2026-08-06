@@ -29,7 +29,9 @@ import { recordPromptAudit } from './prompt-audit.mjs';
 import { normalizeClarificationPolicy, renderClarificationProtocol } from './clarifications.mjs';
 import { generateLightWorldModel } from './worldmodel-light.mjs';
 import { renderDesignSourcePromptContext } from './design-sources.mjs';
-import { clearCompositionCache, compositionCacheStatus, memoizeComposition } from './composition-cache.mjs';
+import {
+  clearCompositionCache, compositionCacheEnabled, compositionCacheStatus, memoizeComposition
+} from './composition-cache.mjs';
 
 const packageRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 const configRelative = 'singularity/worldmodel.json';
@@ -1284,6 +1286,9 @@ async function compose(root, options) {
   ]
     .filter((section, index, all) => all.findIndex((candidate) => candidate.path === section.path) === index);
   const specPolicy = workflow?.resolution?.spec ?? definition.spec ?? { compositionCache: 'local' };
+  // A dry run must be observational: calculating the composed prompt is useful,
+  // but populating .git/singularity-flow/composition-cache is still a write.
+  const cacheEnabled = compositionCacheEnabled(specPolicy.compositionCache, { dryRun });
   const cached = await memoizeComposition(root, {
     schemaVersion: 1,
     workId: workflow?.workItem?.id ?? workId ?? null,
@@ -1298,9 +1303,9 @@ async function compose(root, options) {
     files: files.map((file) => ({ path: file.path, sha256: file.sha256, injectedBytes: file.injectedBytes })),
     remoteSkills: remote.skills.map((skill) => ({ id: skill.id, sha256: skill.sha256 })),
     changeRequests: openChangeRequests.map((request) => ({ id: request.id, clauseIds: request.clauseIds ?? [], comment: request.comment }))
-  }, candidateText, { enabled: specPolicy.compositionCache !== 'off' });
+  }, candidateText, { enabled: cacheEnabled });
   const composedText = cached.text;
-  if (specPolicy.compositionCache !== 'off') console.error(`Composition cache: ${cached.hit ? 'hit' : 'miss'} ${cached.key.slice(0, 12)}.`);
+  if (cacheEnabled) console.error(`Composition cache: ${cached.hit ? 'hit' : 'miss'} ${cached.key.slice(0, 12)}.`);
 
   if (dryRun) {
     console.log(`phase: ${signals.phase}  governed agent: ${agent}  clarification: ${clarificationPolicy.mode}  change requests: ${openChangeRequests.length}  required files: ${mandatory.length}  capability files: ${capability.files.length}  rules matched: ${injection.matchedRules}  rule files: ${injection.sections.length}  agent skills: ${remote.skills.length}  fresh: ${required.freshness.fresh ? 'yes' : 'no'}`);

@@ -11,7 +11,14 @@ import { verifyMcpEvidence } from './mcp.mjs';
 import { verifyDesignSourceLifecycle } from './design-sources.mjs';
 import { evaluateVisualCoverage } from './visual-coverage.mjs';
 import { listVisualComparisons } from './visual-compare.mjs';
-import { changedRepositoryPaths, evaluateSpecAcceptance, evaluateSpecCoverage, loadSpecRecords } from './specifications.mjs';
+import {
+  changedRepositoryPaths,
+  configuredAcceptanceCommandSetSha256,
+  evaluateSpecAcceptance,
+  evaluateSpecCoverage,
+  loadActiveSpecRecords,
+  specificationSourceTreeHash
+} from './specifications.mjs';
 
 function trackedFiles(root) { return run('git', ['ls-files', '-z'], { cwd: root }).stdout.split('\0').filter(Boolean); }
 function ids(text, pattern) { return [...new Set([...text.matchAll(pattern)].map((match) => match[0]))]; }
@@ -155,7 +162,7 @@ export async function runGovernanceGate(root, config, workflow, { terminal = fal
   const specPolicy = workflow.resolution?.spec ?? config.spec ?? { mode: 'off', coverage: 'off' };
   if (specPolicy.mode !== 'off') {
     const itemDirectory = workDir(root, config, workflow.workItem.id);
-    const records = await loadSpecRecords(itemDirectory);
+    const records = await loadActiveSpecRecords(itemDirectory, workflow);
     const fail = (message) => (specPolicy.mode === 'enforce' ? errors : warnings).push(message);
     for (const phaseId of workflow.phaseOrder) {
       const phase = workflow.phases[phaseId];
@@ -173,23 +180,29 @@ export async function runGovernanceGate(root, config, workflow, { terminal = fal
       const coverage = evaluateSpecCoverage(records, changedRepositoryPaths(root, {
         base: workflow.phases[workflow.phaseOrder[0]]?.sourceCommit ?? workflow.workItem.baseBranch,
         target: 'HEAD'
-      }), specPolicy);
+      }), specPolicy, { root });
       const messages = [
         ...coverage.unimplemented.map((id) => `clause ${id} is not fully implemented`),
         ...coverage.unclaimedChangedPaths.map((file) => `changed path is not claimed by a clause: ${file}`),
-        ...coverage.withdrawnButClaimed.map((id) => `withdrawn clause still has an observed claim: ${id}`)
+        ...coverage.withdrawnButClaimed.map((id) => `withdrawn clause still has an observed claim: ${id}`),
+        ...coverage.invalidEvidence.map((message) => `invalid clause evidence: ${message}`)
       ];
       if (coverage.severity === 'error') errors.push(...messages);
       else if (coverage.severity === 'warning') warnings.push(...messages);
       if (coverage.complete) passes.push(`clause coverage: ${coverage.totals.observed}/${coverage.totals.clauses} clauses, ${coverage.totals.changedPaths} changed paths`);
     }
     if (specPolicy.acceptance !== 'off') {
-      const acceptance = evaluateSpecAcceptance(records, specPolicy);
+      const acceptance = evaluateSpecAcceptance(records, specPolicy, {
+        workId: workflow.workItem.id,
+        sourceTreeSha256: await specificationSourceTreeHash(root),
+        commandSetSha256: configuredAcceptanceCommandSetSha256(specPolicy)
+      });
       const messages = [
         ...acceptance.missingPlannedTests.map((id) => `clause ${id} has no planned test`),
         ...acceptance.missingObservedTests.map((id) => `clause ${id} has no observed test result`),
         ...acceptance.failedCommands.map((id) => `allowlisted acceptance command failed: ${id}`),
-        ...(acceptance.missingRun ? ['no specification acceptance run is recorded'] : [])
+        ...(acceptance.missingRun ? ['no specification acceptance run is recorded'] : []),
+        ...acceptance.staleRunReasons.map((reason) => `specification acceptance is stale: ${reason}`)
       ];
       if (acceptance.complete) passes.push(`specification acceptance: ${acceptance.mode}`);
       else if (specPolicy.mode === 'enforce') errors.push(...messages);

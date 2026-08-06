@@ -2,7 +2,7 @@ import { createHash } from 'node:crypto';
 import { readFile } from 'node:fs/promises';
 import path from 'node:path';
 import { exists, nowIso, posix, snapshot, writeJson } from './util.mjs';
-import { loadSpecRecords, renderClauseContext, selectClauseContext } from './specifications.mjs';
+import { loadActiveSpecRecords, renderClauseContext, selectClauseContext } from './specifications.mjs';
 
 export const INPUTS_START = '<!-- singularity-flow:inputs:start -->';
 export const INPUTS_END = '<!-- singularity-flow:inputs:end -->';
@@ -89,7 +89,7 @@ export async function collectInputs(root, workflow, phase, { itemDirectory, item
       // unambiguous at every depth of the phase chain.
       let selectedBytes = raw.length;
       if (declaration.selector?.kind === 'clauses') {
-        const specRecords = await loadSpecRecords(itemDirectory);
+        const specRecords = await loadActiveSpecRecords(itemDirectory, workflow);
         let ids = declaration.selector.ids ?? [];
         if (!ids.length && declaration.selector.claims) {
           const maps = specRecords[declaration.selector.claims] ?? [];

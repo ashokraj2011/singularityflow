@@ -47,7 +47,7 @@ import { readConfigurationSource } from './configuration-branch.mjs';
 import { buildDesignSourceSet, classifyDesignSourceCandidates, approvedDesignSourceBinding } from './design-sources.mjs';
 import { verifyMcpEvidence } from './mcp-evidence.mjs';
 import { assertVisualCoverage } from './visual-coverage.mjs';
-import { buildSpecIndex, loadSpecRecords } from './specifications.mjs';
+import { buildSpecIndex, loadActiveSpecRecords, predecessorSpecClauses } from './specifications.mjs';
 
 export const CONFIG_PATH = WORKFLOW_PATH;
 export const loadConfig = loadDefinition;
@@ -755,16 +755,14 @@ export async function publishGeneration(root, config, workflow, { phaseId, usage
   await scanArtifacts(root, config, workflow, phase.id);
   const specPolicy = workflow.resolution?.spec ?? config.spec ?? { mode: 'off' };
   if (specPolicy.mode !== 'off' && ['requirements', 'implementation-spec', 'conformance-report'].includes(phase.requiredArtifact?.kind)) {
-    const priorSpecRecords = await loadSpecRecords(workDir(root, config, workflow.workItem.id));
-    const externalClauseIds = priorSpecRecords.indexes.flatMap((index) =>
-      (index.clauses ?? []).map((clause) => clause.id));
+    const priorSpecRecords = await loadActiveSpecRecords(workDir(root, config, workflow.workItem.id), workflow);
     const specIndex = await buildSpecIndex(root, requiredRepoPath(config, workflow, phase), {
       workId: workflow.workItem.id,
       phase: phase.id,
       generation: phase.generation,
       outputPath: posix(path.join(workDirRelative(config, workflow.workItem.id), 'context', 'spec-indexes', `${phase.id}-gen${phase.generation}.json`)),
       policy: specPolicy,
-      externalClauseIds
+      externalClauses: predecessorSpecClauses(priorSpecRecords, workflow, phase.id)
     });
     phase.specIndex = {
       generation: phase.generation,
@@ -1001,7 +999,7 @@ export async function rejectPhase(root, config, workflow, { phaseId, target, rea
   const targetIndex = workflow.phaseOrder.indexOf(targetId); if (targetIndex < 0 || targetIndex > workflow.phaseOrder.indexOf(phase.id)) throw new SingularityFlowError(`Invalid rejection target '${targetId}'.`);
   const requestedClauses = [...new Set(clauseIds)];
   if (requestedClauses.length) {
-    const records = await loadSpecRecords(workDir(root, config, workflow.workItem.id));
+    const records = await loadActiveSpecRecords(workDir(root, config, workflow.workItem.id), workflow);
     const known = new Set(records.indexes.flatMap((index) => (index.clauses ?? []).map((clause) => clause.id)));
     const unknown = requestedClauses.filter((id) => !known.has(id));
     if (unknown.length) throw new SingularityFlowError(`Change request references unknown specification clause(s): ${unknown.join(', ')}.`);

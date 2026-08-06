@@ -4,11 +4,17 @@ import { mkdir, mkdtemp } from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
 import {
-  clearCompositionCache, compositionCacheStatus, compositionFingerprint, memoizeComposition
+  clearCompositionCache, compositionCacheEnabled, compositionCacheStatus, compositionFingerprint, memoizeComposition
 } from '../src/composition-cache.mjs';
 
 test('composition fingerprints are stable across object key order', () => {
   assert.equal(compositionFingerprint({ b: 2, a: 1 }), compositionFingerprint({ a: 1, b: 2 }));
+});
+
+test('dry-run prompt composition never enables the local cache', () => {
+  assert.equal(compositionCacheEnabled('local', { dryRun: true }), false);
+  assert.equal(compositionCacheEnabled('local', { dryRun: false }), true);
+  assert.equal(compositionCacheEnabled('off', { dryRun: false }), false);
 });
 
 test('composition cache reuses exact prompt bytes and separates changed output', async () => {

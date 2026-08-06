@@ -10,6 +10,7 @@ import {
   buildDesignSourceSet, renderDesignSourcePromptContext, selectDesignSourceRecords,
   verifyDesignSourceLifecycle
 } from '../src/design-sources.mjs';
+import { promoteDesignSource } from '../src/state-stores.mjs';
 import { snapshot } from '../src/util.mjs';
 
 async function fixture() {
@@ -29,8 +30,8 @@ async function fixture() {
     currentPhase: 'design-intake',
     phaseOrder: ['design-intake', 'design-inventory'],
     phases: {
-      'design-intake': { id: 'design-intake', status: 'in_progress', generation: 0, approvals: [], designSourceSets: [] },
-      'design-inventory': { id: 'design-inventory', status: 'not_started', generation: 0, approvals: [] }
+      'design-intake': { id: 'design-intake', status: 'in_progress', generation: 0, approvals: [], designSourceSets: [], artifacts: [], requiredArtifact: { path: 'artifacts/design-intake/design-intake.md' } },
+      'design-inventory': { id: 'design-inventory', status: 'not_started', generation: 0, approvals: [], artifacts: [], requiredArtifact: { path: 'artifacts/design-inventory/design-inventory.md' } }
     },
     resolution: {
       workItemRoot: 'singularity/work-items',
@@ -39,7 +40,8 @@ async function fixture() {
         capturePhase: 'design-intake', consumeIn: ['design-inventory'],
         staleness: 'warn', requireApprovedSet: true, inventoryDigest: 'optional'
       }
-    }
+    },
+    history: []
   };
   return { root, itemDirectory, workflow };
 }
@@ -87,6 +89,49 @@ test('design-source-pin-round-trip: Figma XML becomes an approval-bound source s
   await writeFile(path.join(itemDirectory, recorded.record.output.path), 'tampered');
   const tampered = await verifyDesignSourceLifecycle(root, workflow, { itemDirectory });
   assert.match(tampered.errors.join('\n'), /changed after capture/);
+});
+
+test('candidate promotion explicitly reopens capture and pins the next generation selection', async () => {
+  const { root, itemDirectory, workflow } = await fixture();
+  const config = { workItemRoot: 'singularity/work-items' };
+  await writeFile(path.join(root, 'design-v1.xml'), '<frame id="1:3" name="Checkout" />\n');
+  const first = await recordMcpEvidence(root, workflow, {
+    kind: 'design-source', server: 'figma', tool: 'get_metadata', outputPath: 'design-v1.xml',
+    fileKey: 'checkout-file', fileVersion: 'v1', fileVersionCreatedAt: '2026-08-05T00:00:00.000Z',
+    nodes: ['1:3'], agent: 'product-designer', itemDirectory
+  });
+  workflow.phases['design-intake'].generation = 1;
+  const approved = await buildDesignSourceSet(root, workflow, { itemDirectory });
+  workflow.phases['design-intake'].approvals.push({ decision: 'approved', designSourceSet: approved.binding });
+
+  await writeFile(path.join(root, 'design-v2.xml'), '<frame id="1:3" name="Checkout revised" />\n');
+  const second = await recordMcpEvidence(root, workflow, {
+    kind: 'design-source', server: 'figma', tool: 'get_metadata', outputPath: 'design-v2.xml',
+    fileKey: 'checkout-file', fileVersion: 'v2', fileVersionCreatedAt: '2026-08-06T00:00:00.000Z',
+    nodes: ['1:3'], agent: 'product-designer', itemDirectory
+  });
+  workflow.phases['design-intake'].status = 'approved';
+  workflow.phases['design-inventory'].status = 'approved';
+  workflow.phases['design-inventory'].approvals.push({ decision: 'approved' });
+  workflow.currentPhase = null; workflow.status = 'complete';
+
+  const result = await promoteDesignSource(root, config, workflow, {
+    candidateRecordId: second.record.id, actor: { name: 'Reviewer', email: 'reviewer@example.test' }, agent: 'product-designer'
+  });
+  assert.equal(result.capturePhase, 'design-intake');
+  assert.deepEqual(result.invalidatedPhases, ['design-intake', 'design-inventory']);
+  assert.equal(workflow.currentPhase, 'design-intake');
+  assert.equal(workflow.phases['design-intake'].status, 'in_progress');
+  assert.equal(workflow.phases['design-inventory'].status, 'not_started');
+  assert.equal(workflow.phases['design-inventory'].approvals[0].invalidatedAt != null, true);
+  assert.equal(workflow.phases['design-intake'].designSourceSelection['checkout-file'], second.record.id);
+  assert.equal(approved.sourceSet.records[0].recordId, first.record.id, 'the existing approved binding remains unchanged');
+
+  workflow.phases['design-intake'].generation = 2;
+  const replacement = await buildDesignSourceSet(root, workflow, {
+    itemDirectory, selectionByFileKey: workflow.phases['design-intake'].designSourceSelection
+  });
+  assert.equal(replacement.sourceSet.records[0].recordId, second.record.id);
 });
 
 test('multiple Figma versions require an explicit record selection', () => {

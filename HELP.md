@@ -6,6 +6,8 @@ MCP remains host-managed: Singularity Flow records which agent, phase, and tool 
 
 Mobile visual verification is configured per work type under `verification.profiles`. Evidence must name a profile, screen, and state. Use `sflow visual status` to check coverage and `sflow visual compare --expected <record-or-path> --actual <record-or-path> --profile <id>` for a deterministic RGBA8 PNG comparison. Unsupported formats and dimension mismatches are reported honestly; comparison never silently resizes images.
 
+Approved design sources never follow a live Figma file automatically. Review candidates with `sflow mcp design-sources status`, then explicitly promote one with `sflow mcp design-sources promote <record-id> --confirm <record-id>`. Promotion is committed and pushed, reopens the capture phase, invalidates downstream approvals, and pins that record for the next capture generation. VS Code Visual Assurance exposes the same exact-record confirmation.
+
 Design inventory is deterministic and JSON-only: `sflow wm design-inventory --from-records`. It summarizes pinned design-source records without executing uploaded content. Current work receives the approved design-source set and its inventory digest through normal phase-context composition.
 
 In VS Code, **Visual Assurance** renders governed PNG comparisons directly in the
@@ -2143,6 +2145,8 @@ singularity-flow agents refresh-output <RESOURCE-ID> [--replace]
 singularity-flow mcp list|status|doctor [--json]
 singularity-flow mcp scaffold playwright|figma [--local] [--replace-server]
 singularity-flow mcp record <SERVER> --tool TOOL [--phase PHASE] [--output PATH] [--note TEXT]
+singularity-flow mcp design-sources status [--json]
+singularity-flow mcp design-sources promote <RECORD-ID> --confirm <RECORD-ID> [--reason TEXT]
 singularity-flow visual status [--json]
 singularity-flow visual compare --expected RECORD-OR-PATH --actual RECORD-OR-PATH [--profile ID] [--json]
 singularity-flow status [WORK-ID] [--json]

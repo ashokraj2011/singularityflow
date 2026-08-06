@@ -44,7 +44,8 @@ import { lifecycleEvent, recordPublicationProjection } from './lifecycle-event.m
 import { publishLifecycleChange } from './publication-unit-of-work.mjs';
 import { deliverLifecycleNotifications, warnNotificationFailures } from './notifications.mjs';
 import { readConfigurationSource } from './configuration-branch.mjs';
-import { buildDesignSourceSet } from './design-sources.mjs';
+import { buildDesignSourceSet, classifyDesignSourceCandidates, approvedDesignSourceBinding } from './design-sources.mjs';
+import { verifyMcpEvidence } from './mcp-evidence.mjs';
 import { assertVisualCoverage } from './visual-coverage.mjs';
 
 export const CONFIG_PATH = WORKFLOW_PATH;
@@ -1118,6 +1119,55 @@ export async function reopenWorkflow(root, config, workflow, { target, reason, c
 }
 
 /**
+ * Select a recorded design candidate and reopen the capture phase without
+ * silently changing the approved source set. The caller publishes this mutation
+ * through commitAndPublish; the next capture generation consumes the selection
+ * and must be approved before downstream phases can proceed again.
+ */
+export async function promoteDesignSource(root, config, workflow, {
+  candidateRecordId, reason = null, actor = null, agent = null, channel = 'terminal'
+} = {}) {
+  const configured = workflow.resolution?.designSources;
+  if (!configured) throw new SingularityFlowError('This Story has no governed design-source policy.', { code: 'DESIGN_SOURCE_NOT_CONFIGURED' });
+  const binding = approvedDesignSourceBinding(workflow);
+  if (!binding) throw new SingularityFlowError('No approved design-source set exists to replace.', { code: 'DESIGN_SOURCE_APPROVAL_MISSING' });
+  const evidence = await verifyMcpEvidence(root, workflow, { itemDirectory: workDir(root, config, workflow.workItem.id) });
+  if (evidence.errors.length) throw new SingularityFlowError(`Design-source evidence is not valid:\n- ${evidence.errors.join('\n- ')}`, { code: 'DESIGN_SOURCE_EVIDENCE_INVALID' });
+  const candidate = classifyDesignSourceCandidates(evidence.records, binding)
+    .find((entry) => entry.candidateRecordId === candidateRecordId);
+  if (!candidate) throw new SingularityFlowError(`Design-source candidate '${candidateRecordId}' is not available against the approved set.`, { code: 'DESIGN_SOURCE_CANDIDATE_UNKNOWN' });
+  const targetIndex = workflow.phaseOrder.indexOf(configured.capturePhase);
+  if (targetIndex < 0) throw new SingularityFlowError(`Pinned design-source capture phase '${configured.capturePhase}' is missing.`);
+  const timestamp = nowIso();
+  for (let index = targetIndex; index < workflow.phaseOrder.length; index += 1) {
+    const affected = workflow.phases[workflow.phaseOrder[index]];
+    for (const approval of affected.approvals ?? []) if (!approval.invalidatedAt) approval.invalidatedAt = timestamp;
+    affected.status = index === targetIndex ? 'in_progress' : 'not_started';
+    affected.submittedAt = null; affected.approvedAt = null; affected.approvedBy = null;
+    await updateArtifactMetadata(root, config, workflow, affected);
+  }
+  const capture = workflow.phases[configured.capturePhase];
+  capture.designSourceSelection = { ...(capture.designSourceSelection ?? {}), [candidate.fileKey]: candidate.candidateRecordId };
+  workflow.currentPhase = configured.capturePhase;
+  workflow.status = 'in_progress';
+  const record = {
+    schemaVersion: 1, candidateRecordId: candidate.candidateRecordId, fileKey: candidate.fileKey,
+    approvedRecordId: candidate.approvedRecordId, approvedVersion: candidate.approvedVersion,
+    candidateVersion: candidate.candidateVersion, classification: candidate.classification,
+    reason: reason?.trim() || 'Promote recorded design-source candidate.', promotedAt: timestamp,
+    promotedBy: actor, agent, channel
+  };
+  workflow.designSourcePromotions ??= [];
+  workflow.designSourcePromotions.push(record);
+  workflow.history.push({
+    at: timestamp, actor: actor ? actorKey(actor) : 'unknown', agent,
+    event: 'design_source_promoted', phase: configured.capturePhase,
+    detail: `${candidate.fileKey}: ${candidate.approvedVersion} -> ${candidate.candidateVersion} (${candidate.candidateRecordId})`
+  });
+  return { candidate, capturePhase: configured.capturePhase, invalidatedPhases: workflow.phaseOrder.slice(targetIndex), record };
+}
+
+/**
  * End a Story without claiming it was successfully completed.
  *
  * Cancellation is a terminal, audited lifecycle decision. It deliberately keeps the
@@ -1238,9 +1288,22 @@ export async function commitAndPublish(root, config, workflow, event, message, e
         if (event?.type === 'artifact-generated'
           && workflow.resolution?.designSources?.capturePhase === requestedPhase?.id) {
           await buildDesignSourceSet(root, workflow, {
-            itemDirectory: workDir(root, config, workflow.workItem.id)
+            itemDirectory: workDir(root, config, workflow.workItem.id),
+            selectionByFileKey: requestedPhase.designSourceSelection ?? {}
           });
           await updateArtifactMetadata(root, config, workflow, requestedPhase);
+          // The source set is created after publishGeneration has registered the
+          // artifact. Its managed metadata therefore changes once more here;
+          // refresh that registration inside the same publication transaction so
+          // submit does not mistake Flow's own metadata update for user tampering.
+          await registerArtifact(root, workflow, path.join(
+            workDirRelative(config, workflow.workItem.id),
+            requestedPhase.requiredArtifact.path
+          ), { phaseId: requestedPhase.id, kind: requestedPhase.requiredArtifact.kind });
+          const designValidation = await validatePhase(root, config, workflow, requestedPhase);
+          if (designValidation.length) {
+            throw new SingularityFlowError(`Phase ${requestedPhase.id} design-source binding is not publishable:\n- ${designValidation.join('\n- ')}`);
+          }
         }
         if (event?.type === 'phase-approved') {
           const binding = workflow.resolution?.designSources?.capturePhase === requestedPhase?.id

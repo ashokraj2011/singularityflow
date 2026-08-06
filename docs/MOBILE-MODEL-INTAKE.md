@@ -85,6 +85,26 @@ If an approved record, set, or managed output changes, the deterministic gate fa
 A newly fetched live Figma version never silently replaces the approved version; it
 must become a new source set and receive a new approval.
 
+## 5. Promote a reviewed candidate
+
+When another design-source record is captured after approval, Visual Assurance
+shows it as a candidate and preserves the current approved baseline. Promotion is
+never inferred from a newer-looking version string. Review the record and hashes,
+then confirm the exact record ID:
+
+```bash
+singularity-flow mcp design-sources promote mcp-RECORD-ID \
+  --confirm mcp-RECORD-ID \
+  --reason "Approved checkout revision"
+```
+
+The same action is available on the candidate row in the VS Code Visual Assurance
+view. Flow commits and publishes the decision, reopens `design-intake`, invalidates
+the capture and downstream approvals, and pins the candidate for the next capture
+generation. The previous set and approvals remain in Git history. The promoted
+candidate becomes authoritative only after the new generation is published and
+approved.
+
 ## Provenance boundary
 
 Flow records a declaration made by the governed agent and the hash of the copied
@@ -92,7 +112,7 @@ result. It does not intercept the MCP transport and must not claim that the reco
 alone proves the host executed the named tool. Credentials, headers, signed URLs,
 and host environment values are not written to Git or prompt provenance.
 
-This delivery is the first complete governed vertical slice: merge-safe host setup,
-typed Figma evidence, approval-bound source sets, downstream prompt provenance,
-readiness attestation, and tamper detection. Device-profile coverage and deterministic
-pixel comparison remain separate later slices.
+This delivery provides the complete governed vertical slice: merge-safe host setup,
+typed Figma evidence, approval-bound source sets, explicit candidate promotion,
+downstream prompt provenance, readiness attestation, device-profile coverage,
+deterministic RGBA8 PNG comparison, and tamper detection.

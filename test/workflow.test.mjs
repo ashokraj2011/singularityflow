@@ -1,11 +1,12 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { mkdtemp, readFile, writeFile, mkdir } from 'node:fs/promises';
+import { mkdtemp, readFile, writeFile, mkdir, unlink } from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { spawnSync } from 'node:child_process';
 import YAML from 'yaml';
+import { encodePngRgba8 } from '../src/png-rgba8.mjs';
 
 const packageRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 const bin = path.join(packageRoot, 'bin', 'singularity-flow.mjs');
@@ -395,6 +396,61 @@ test('feature profile publishes generations, records tokens, approvals, and conf
   const report = JSON.parse(flow(root, ['report', workId, '--format', 'json']).stdout); assert.equal(report.workItem.id, workId); assert.equal(report.workItem.status, 'complete'); assert.equal(report.tokens.total, 105); assert.equal(report.phases.length, 7); assert.equal(report.cost, null);
   assert.match(flow(root, ['report', workId]).stdout, /wall-clock elapsed time/);
   const htmlReport = path.join(root, '.git', 'workflow-report.html'); flow(root, ['report', workId, '--format', 'html', '--out', htmlReport]); assert.match(await readFile(htmlReport, 'utf8'), /<svg/);
+  assert.equal(flow(root, ['gate', '--terminal']).status, 0);
+});
+
+test('figma-mobile completes the governed design-to-visual-conformance lifecycle', async () => {
+  const root = await repository(); const workId = 'MOBILE-101';
+  flow(root, ['start', workId, '--title', 'Build approved mobile screens'], { selection: selection('figma-mobile', 'product-designer') });
+  const workflowFile = path.join(root, 'singularity/work-items', workId, 'workflow.json');
+  const agents = {
+    'design-intake': 'product-designer', 'design-inventory': 'product-designer',
+    'component-mapping': 'mobile-architect', 'mobile-spec': 'mobile-architect',
+    implementation: 'developer', 'visual-verification': 'qa', conformance: 'qa'
+  };
+  const phases = ['design-intake', 'design-inventory', 'component-mapping', 'mobile-spec', 'implementation', 'visual-verification', 'conformance'];
+  for (const phaseId of phases) {
+    let workflow = JSON.parse(await readFile(workflowFile, 'utf8'));
+    assert.equal(workflow.currentPhase, phaseId);
+    flow(root, ['prepare', phaseId], { selection: selection('figma-mobile', agents[phaseId]) });
+    flow(root, ['resume', workId], { selection: selection('figma-mobile', agents[phaseId]) });
+    workflow = JSON.parse(await readFile(workflowFile, 'utf8'));
+    await completeArtifact(root, workflow, phaseId);
+    if (phaseId === 'design-intake') {
+      await writeFile(path.join(root, 'figma-metadata.xml'), '<figma><frame id="1:3" name="Checkout" /></figma>\n');
+      flow(root, ['mcp', 'record', 'figma', '--kind', 'design-source', '--tool', 'get_metadata', '--phase', phaseId,
+        '--output', 'figma-metadata.xml', '--file-key', 'checkout-mobile', '--file-version', 'v1', '--node', '1:3'],
+      { selection: selection('figma-mobile', agents[phaseId]) });
+      await unlink(path.join(root, 'figma-metadata.xml'));
+    }
+    if (phaseId === 'implementation') {
+      await mkdir(path.join(root, 'src'), { recursive: true }); await mkdir(path.join(root, 'tests'), { recursive: true });
+      await writeFile(path.join(root, 'src/mobile.mjs'), 'export const mobile = true; // SPEC-001\n');
+      await writeFile(path.join(root, 'tests/mobile.test.mjs'), '// @ac:AC-001 SPEC-001\n');
+    }
+    if (phaseId === 'visual-verification') {
+      for (const profile of workflow.resolution.verification.profiles) {
+        const width = profile.width * profile.deviceScaleFactor, height = profile.height * profile.deviceScaleFactor;
+        const png = encodePngRgba8({ width, height, data: Buffer.alloc(width * height * 4, 255) });
+        const output = `${profile.id}.png`; await writeFile(path.join(root, output), png);
+        flow(root, ['mcp', 'record', 'playwright', '--kind', 'visual-artifact', '--tool', 'browser_take_screenshot',
+          '--phase', phaseId, '--output', output, '--profile-id', profile.id, '--screen-id', 'checkout', '--state-id', 'default'],
+        { selection: selection('figma-mobile', agents[phaseId]) });
+        await unlink(path.join(root, output));
+      }
+    }
+    flow(root, ['phase', 'publish', phaseId], { selection: selection('figma-mobile', agents[phaseId]) });
+    flow(root, ['submit'], { selection: selection('figma-mobile', agents[phaseId]) });
+    const approvalActors = ['Mobile Reviewer One', ...(phaseId === 'visual-verification' || phaseId === 'conformance' ? ['Mobile Reviewer Two'] : [])];
+    for (const actor of approvalActors) {
+      flow(root, ['approve', '--yes'], { actor, selection: selection('figma-mobile', agents[phaseId]) });
+    }
+  }
+  const workflow = JSON.parse(await readFile(workflowFile, 'utf8'));
+  assert.equal(workflow.status, 'complete');
+  assert.equal(workflow.phases['design-intake'].designSourceSets.length, 1);
+  assert.equal(workflow.phases['design-intake'].approvals.at(-1).designSourceSet.records[0].fileVersion, 'v1');
+  assert.equal(workflow.phases['visual-verification'].approvals.filter((approval) => approval.decision === 'approved').length, 2);
   assert.equal(flow(root, ['gate', '--terminal']).status, 0);
 });
 

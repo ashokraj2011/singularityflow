@@ -6,7 +6,7 @@ import { fileURLToPath } from 'node:url';
 const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 const source = (name) => path.join(root, 'apps', 'vscode', 'src', name);
 const { buildVisualAssuranceView } = await import(source('views/visual-assurance-model.ts'));
-const { visualAssuranceHtml } = await import(source('views/visual-assurance-page.ts'));
+const { visualAssuranceHtml, VISUAL_ASSURANCE_SCRIPT } = await import(source('views/visual-assurance-page.ts'));
 
 const snapshot = {
   workItems: [], initiatives: [], selectedWorkId: 'MOB-42', selectedInitiativeId: null,
@@ -55,6 +55,18 @@ test('visual assurance page exposes explicit review and network controls without
   assert.match(html, /Host readiness has not been attested/);
   assert.match(html, /Opening or refreshing this dashboard performs local checks only/);
   assert.doesNotMatch(html, /<script/);
+});
+
+test('visual assurance exposes candidate promotion as an explicit confirmed decision', () => {
+  const candidateSnapshot = structuredClone(snapshot);
+  candidateSnapshot.visualAssurance.designSources.candidates = [{
+    fileKey: 'checkout', approvedVersion: 'v1', candidateVersion: 'v2',
+    candidateRecordId: 'mcp-candidate-2', classification: 'newer-version-confirmed'
+  }];
+  const html = visualAssuranceHtml(buildVisualAssuranceView(candidateSnapshot), null, null);
+  assert.match(html, /Promote candidate/);
+  assert.match(html, /data-promote-candidate="mcp-candidate-2"/);
+  assert.match(VISUAL_ASSURANCE_SCRIPT, /promote-candidate/);
 });
 
 test('visual assurance renders a useful empty state before a Story is selected', () => {

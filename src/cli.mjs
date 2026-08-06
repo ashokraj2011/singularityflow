@@ -36,6 +36,7 @@ import {
   loadConfig,
   preparePhase,
   preparePhaseInputs,
+  promoteDesignSource,
   publishGeneration,
   reconcilePhaseTelemetry,
   registerArtifact,
@@ -346,6 +347,7 @@ Usage:
   singularity-flow mcp record <SERVER> --tool TOOL [--kind tool-call|design-source|visual-artifact]
     [--phase PHASE] [--output PATH|--output-url HTTPS-URL] [--file-key KEY] [--file-version VERSION] [--node NODE] [--note TEXT]
   singularity-flow mcp design-sources status [--json]
+  singularity-flow mcp design-sources promote <RECORD-ID> --confirm <RECORD-ID> [--reason TEXT]
   singularity-flow visual status [--json]
   singularity-flow visual compare --expected RECORD-OR-PATH --actual RECORD-OR-PATH [--profile ID] [--json]
   singularity-flow wm design-inventory --from-records [--json]
@@ -1644,8 +1646,34 @@ async function mcpCommand(positionals, options) {
   }
   if (subcommand === 'design-sources') {
     const action = positionals[2] ?? 'status';
-    if (action !== 'status') throw new SingularityFlowError(`Unknown mcp design-sources action: ${action}`);
     const workflow = await loadStoryAggregate(root, config);
+    if (action === 'promote') {
+      const candidateRecordId = requirePositional(positionals, 3, 'candidate record ID');
+      if (optionString(options, 'confirm') !== candidateRecordId) {
+        throw new SingularityFlowError(`Promotion reopens the design capture phase and invalidates its downstream approvals. Pass --confirm ${candidateRecordId} to continue.`, { code: 'DESIGN_SOURCE_CONFIRMATION_REQUIRED' });
+      }
+      const session = await loadSession(root);
+      if (session.workId !== workflow.workItem.id) throw new SingularityFlowError(`Resume ${workflow.workItem.id} before promoting design evidence.`);
+      const rollbackWorkflow = structuredClone(workflow);
+      let promoted;
+      const publication = await commitAndPublish(root, config, workflow, {
+        type: 'design-source-promoted', phaseId: workflow.resolution?.designSources?.capturePhase,
+        actor: session.actor, agent: session.agent, payload: { candidateRecordId }
+      }, `[${workflow.workItem.id}][design-source:promote] ${candidateRecordId}`, [], {
+        rollbackWorkflow,
+        beforeStateWrite: async () => {
+          promoted = await promoteDesignSource(root, config, workflow, {
+            candidateRecordId, reason: optionString(options, 'reason'), actor: session.actor, agent: session.agent
+          });
+        }
+      });
+      const output = { ...promoted, publication };
+      if (optionBoolean(options, 'json')) return console.log(JSON.stringify(output, null, 2));
+      console.log(`Promoted ${candidateRecordId}; reopened ${promoted.capturePhase} and invalidated ${promoted.invalidatedPhases.join(', ')}.`);
+      console.log(`Commit: ${publication.sha.slice(0, 8)}${publication.pushed ? ' pushed' : ' local'}. Publish and approve a new capture generation before continuing.`);
+      return;
+    }
+    if (action !== 'status') throw new SingularityFlowError(`Unknown mcp design-sources action: ${action}`);
     const result = await verifyDesignSourceLifecycle(root, workflow, {
       itemDirectory: workDir(root, config, workflow.workItem.id)
     });

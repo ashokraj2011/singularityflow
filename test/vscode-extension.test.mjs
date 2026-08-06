@@ -985,7 +985,15 @@ test('configuration is shown whether or not an Epic is checked out', () => {
       ['config:capabilities', 'config:local-profile', 'config:mcp', 'world-model', 'config:workflow-design']);
     const design = find(tree, 'config:workflow-design');
     assert.deepEqual(design.children.map((child) => child.id),
-      ['config:designer', 'config:instruction-designer', 'config:workflow', 'config:portfolio']);
+      [
+        'config:designer',
+        'config:instruction-designer',
+        'config:specification-trace',
+        'config:composition-cache',
+        'config:ledger-deployment',
+        'config:workflow',
+        'config:portfolio'
+      ]);
     for (const set of ['config:templates', 'config:skills', 'config:agents']) {
       assert.ok(children.includes(set), `${set} is reachable`);
     }

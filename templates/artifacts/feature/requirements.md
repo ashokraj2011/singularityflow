@@ -2,15 +2,15 @@
 
 ## Problem and outcome
 
-TODO: Define the problem and measurable outcome.
+The requested capability solves TODO and produces the measurable outcome TODO. [{{work.id}}:REQ-001]
 
 ## Scope
 
-TODO: Define in-scope and out-of-scope behavior.
+The implementation includes TODO and explicitly excludes TODO. [{{work.id}}:CON-001]
 
 ## Acceptance criteria
 
-- AC-001: TODO: Add a testable acceptance criterion.
+The completed behavior MUST satisfy TODO under the stated conditions. [{{work.id}}:AC-001]
 
 ## Dependencies, risks, and open questions
 

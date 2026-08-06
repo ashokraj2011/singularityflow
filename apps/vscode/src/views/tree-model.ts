@@ -1021,6 +1021,18 @@ function configurationNode(snapshot: RepositorySnapshot, readiness: CapabilityRe
         description: 'agents · prompts · skills · prompt packs', icon: 'agent',
           runCommand: 'singularityFlow.openInstructionDesigner'
         }, {
+          kind: 'action', id: 'config:specification-trace', label: 'Specification traceability',
+          description: 'clauses · source · tests · verdicts', icon: 'document',
+          runCommand: 'singularityFlow.openSpecificationTrace'
+        }, {
+          kind: 'action', id: 'config:composition-cache', label: 'Inspect composition cache',
+          description: 'exact local prompt reuse', icon: 'pack',
+          runCommand: 'singularityFlow.inspectCompositionCache'
+        }, {
+          kind: 'action', id: 'config:ledger-deployment', label: 'Check ledger deployment',
+          description: 'remote · pins · policy confirmations', icon: 'policy',
+          runCommand: 'singularityFlow.checkLedgerDeployment'
+        }, {
           kind: 'artifact', id: 'config:workflow', label: 'workflow.yml',
           description: 'Story workflows, phases, agent defaults, grounding', icon: 'layers',
           path: snapshot.definitionPath ?? 'singularity/workflow.yml', contextValue: 'sflow.config'

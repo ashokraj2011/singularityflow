@@ -416,6 +416,35 @@ singularity-flow story branch create feature/login-ui --parent MOB-123
 singularity-flow story branch attach --parent MOB-123
 singularity-flow story branch status --parent MOB-123
 singularity-flow story submit
+
+### Clause-driven specifications
+
+Enable the feature per repository with `spec.mode: record` while adopting it, then
+move to `enforce` once artifacts and claim maps are complete. Stable anchors use
+`[NAMESPACE:REQ-001]`, `[NAMESPACE:BEH-001]`, `[NAMESPACE:IFC-001]`,
+`[NAMESPACE:AC-001]`, or `[NAMESPACE:CON-001]`.
+
+```sh
+sflow spec index --phase requirements
+sflow spec claims planned --phase implementation-spec --file planned.yml
+sflow spec claims observed --phase implementation --file observed.yml
+sflow spec coverage --base origin/main
+sflow spec acceptance --dry-run
+sflow spec acceptance --command node-unit
+sflow spec trace APP:AC-001 --format json
+```
+
+Acceptance commands are explicit argv arrays allowlisted in
+`spec.testCommands`. `--dry-run` only displays those commands; it never executes
+them. Indexes, claims, acceptance records, selected-input provenance, and clause
+change requests are committed by the next normal lifecycle publication. VS Code's
+Configuration view includes a Specification traceability screen.
+
+`wm cache status` reports exact local composition entries. `wm cache clear` deletes
+only that `.git` cache; it cannot change governed state or published artifacts.
+
+For an orphan-ledger deployment, run `ledger deployment-check` before claiming a
+trust tier. T2/T3 require explicit confirmations for host policies Git cannot read.
 singularity-flow finalize
 singularity-flow story branch promote --parent MOB-123 --mode pr
 ```
@@ -2172,7 +2201,8 @@ singularity-flow reopen [WORK-ID] [--fetch] --reason TEXT --to PHASE
 singularity-flow cancel [WORK-ID] [--fetch] --reason TEXT --confirm WORK-ID
 singularity-flow pr [WORK-ID] [--create] [--yes] [--json]
 singularity-flow sync
-singularity-flow ledger status|verify|publish ...
+singularity-flow spec index|claims|coverage|acceptance|trace ...
+singularity-flow ledger status|verify|publish|deployment-check ...
 singularity-flow capabilities inspect|request|approve|revoke ...
 singularity-flow validate [--strict]
 singularity-flow gate [--terminal]
@@ -2182,6 +2212,7 @@ sflow-wm-minimal [--phase PHASE] [--views LIST] [--branch BRANCH] [--parallel] [
 singularity-flow wm context|check [--branch BRANCH] [--remote REMOTE]
 singularity-flow wm inject
 singularity-flow wm cleanup [--force] [--json]
+singularity-flow wm cache status|clear [--json]
 singularity-flow jira assigned|list|pull|fields
 singularity-flow jira status|projects|epics|children|permissions|boards|board
 singularity-flow jira transitions|transition|assign|priority|sprint|comment

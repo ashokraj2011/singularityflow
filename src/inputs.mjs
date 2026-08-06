@@ -2,6 +2,7 @@ import { createHash } from 'node:crypto';
 import { readFile } from 'node:fs/promises';
 import path from 'node:path';
 import { exists, nowIso, posix, snapshot, writeJson } from './util.mjs';
+import { loadSpecRecords, renderClauseContext, selectClauseContext } from './specifications.mjs';
 
 export const INPUTS_START = '<!-- singularity-flow:inputs:start -->';
 export const INPUTS_END = '<!-- singularity-flow:inputs:end -->';
@@ -86,9 +87,29 @@ export async function collectInputs(root, workflow, phase, { itemDirectory, item
       // that approved context, but neutralize its control markers before nesting
       // it in the consumer's block so extraction and integrity hashing remain
       // unambiguous at every depth of the phase chain.
-      record.content = embeddedInputContent(raw, declaration.maxBytes ?? null);
+      let selectedBytes = raw.length;
+      if (declaration.selector?.kind === 'clauses') {
+        const specRecords = await loadSpecRecords(itemDirectory);
+        let ids = declaration.selector.ids ?? [];
+        if (!ids.length && declaration.selector.claims) {
+          const maps = specRecords[declaration.selector.claims] ?? [];
+          ids = Object.keys(maps.at(-1)?.claims ?? {});
+        }
+        const clauses = selectClauseContext(specRecords.indexes, ids, {
+          includeDependencies: declaration.selector.includeDependencies,
+          fallback: declaration.selector.fallback
+        });
+        const selected = renderClauseContext(clauses);
+        selectedBytes = Buffer.byteLength(selected || raw);
+        record.content = embeddedInputContent(Buffer.from(selected || raw), declaration.maxBytes ?? null);
+        record.selector = {
+          ...declaration.selector,
+          selected: clauses.map((clause) => clause.id),
+          selectedSha256: selected ? sha256(selected) : null
+        };
+      } else record.content = embeddedInputContent(raw, declaration.maxBytes ?? null);
       record.injectedBytes = Buffer.byteLength(record.content, 'utf8');
-      record.truncated = record.injectedBytes < raw.length;
+      record.truncated = declaration.maxBytes != null && record.injectedBytes < selectedBytes;
     }
     const level = severity(mode, record.optional, status);
     const message = inputMessage(phase, record);

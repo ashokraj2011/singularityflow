@@ -9,6 +9,12 @@ The approved phased design for addressable specification clauses, deterministic
 indexes, claim maps, executable acceptance, scoped rework, and offline trace is
 defined in [Clause-driven specifications](docs/CLAUSE-DRIVEN-SPECIFICATIONS.md).
 
+Prompt composition may use an exact, content-addressed local cache under
+`.git/singularity-flow/composition-cache/`. The key includes the rendered prompt
+hash and all declared composition inputs. This preserves byte-identical prompts and
+provider-cache eligibility; it does not claim that a provider cached those tokens.
+The cache is local acceleration only and never lifecycle authority.
+
 ## Product boundary
 
 Singularity Flow has one deterministic engine and two supported user surfaces.
@@ -58,6 +64,8 @@ The opt-in capability ledger is a separate orphan Git history. Story and Initiat
 state remain their operational source while durable ledger intents feed a shared
 append-only sink after normal publication. The local outbox is a cache, never the
 recovery authority. See [CAPABILITY-LEDGER.md](./CAPABILITY-LEDGER.md).
+Portable deployment checks and their honest trust boundary are documented in
+[Ledger deployment validation](docs/LEDGER-DEPLOYMENT.md).
 
 ## Initiative layer
 

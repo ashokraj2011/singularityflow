@@ -2,13 +2,13 @@
 
 ## Traceability
 
-| Spec ID | Acceptance criteria | Planned code/tests | Status |
+| Clause | Acceptance criteria | Planned code/tests | Status |
 |---|---|---|---|
-| SPEC-001 | AC-001 | TODO | planned |
+| `{{work.id}}:IFC-001` | `{{work.id}}:AC-001` | TODO | planned |
 
 ## APIs, schemas, and contracts
 
-TODO: Define exact externally and internally visible contracts.
+The implementation MUST preserve or introduce the following exact contract: TODO. [{{work.id}}:IFC-001]
 
 ## File-level implementation plan
 
@@ -16,8 +16,8 @@ TODO: Identify components and expected changes without generating code.
 
 ## Security, observability, migration, and rollback
 
-TODO: Define implementation obligations.
+The implementation MUST satisfy the security, observability, migration, and rollback obligations TODO. [{{work.id}}:CON-002]
 
 ## Test specification
 
-TODO: Map every SPEC-nnn and AC-nnn item to required tests.
+TODO: Map every REQ/BEH/IFC/AC/CON clause to allowlisted tests and planned paths.

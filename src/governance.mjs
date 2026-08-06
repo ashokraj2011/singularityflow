@@ -11,6 +11,7 @@ import { verifyMcpEvidence } from './mcp.mjs';
 import { verifyDesignSourceLifecycle } from './design-sources.mjs';
 import { evaluateVisualCoverage } from './visual-coverage.mjs';
 import { listVisualComparisons } from './visual-compare.mjs';
+import { changedRepositoryPaths, evaluateSpecAcceptance, evaluateSpecCoverage, loadSpecRecords } from './specifications.mjs';
 
 function trackedFiles(root) { return run('git', ['ls-files', '-z'], { cwd: root }).stdout.split('\0').filter(Boolean); }
 function ids(text, pattern) { return [...new Set([...text.matchAll(pattern)].map((match) => match[0]))]; }
@@ -150,6 +151,51 @@ export async function runGovernanceGate(root, config, workflow, { terminal = fal
     else if (comparison.status !== 'pass') warnings.push(`visual comparison ${comparison.id}: ${comparison.status}`);
   }
   if (comparisons.length) passes.push(`visual comparisons: ${comparisons.length} deterministic result(s)`);
+
+  const specPolicy = workflow.resolution?.spec ?? config.spec ?? { mode: 'off', coverage: 'off' };
+  if (specPolicy.mode !== 'off') {
+    const itemDirectory = workDir(root, config, workflow.workItem.id);
+    const records = await loadSpecRecords(itemDirectory);
+    const fail = (message) => (specPolicy.mode === 'enforce' ? errors : warnings).push(message);
+    for (const phaseId of workflow.phaseOrder) {
+      const phase = workflow.phases[phaseId];
+      if (!(phase.generation > 0) || !['requirements', 'implementation-spec', 'conformance-report'].includes(phase.requiredArtifact?.kind)) continue;
+      const index = records.indexes.find((candidate) => candidate.phase === phaseId && candidate.generation === phase.generation);
+      if (!index) {
+        fail(`${phaseId} generation ${phase.generation} has no deterministic specification index`);
+        continue;
+      }
+      const artifact = await snapshot(path.join(root, index.source.path));
+      if (!artifact.exists || artifact.sha256 !== index.source.sha256) fail(`${phaseId} specification index is stale for ${index.source.path}`);
+      else passes.push(`specification clauses: ${phaseId} generation ${phase.generation} · ${index.clauses.length}`);
+    }
+    if (specPolicy.coverage !== 'off') {
+      const coverage = evaluateSpecCoverage(records, changedRepositoryPaths(root, {
+        base: workflow.phases[workflow.phaseOrder[0]]?.sourceCommit ?? workflow.workItem.baseBranch,
+        target: 'HEAD'
+      }), specPolicy);
+      const messages = [
+        ...coverage.unimplemented.map((id) => `clause ${id} is not fully implemented`),
+        ...coverage.unclaimedChangedPaths.map((file) => `changed path is not claimed by a clause: ${file}`),
+        ...coverage.withdrawnButClaimed.map((id) => `withdrawn clause still has an observed claim: ${id}`)
+      ];
+      if (coverage.severity === 'error') errors.push(...messages);
+      else if (coverage.severity === 'warning') warnings.push(...messages);
+      if (coverage.complete) passes.push(`clause coverage: ${coverage.totals.observed}/${coverage.totals.clauses} clauses, ${coverage.totals.changedPaths} changed paths`);
+    }
+    if (specPolicy.acceptance !== 'off') {
+      const acceptance = evaluateSpecAcceptance(records, specPolicy);
+      const messages = [
+        ...acceptance.missingPlannedTests.map((id) => `clause ${id} has no planned test`),
+        ...acceptance.missingObservedTests.map((id) => `clause ${id} has no observed test result`),
+        ...acceptance.failedCommands.map((id) => `allowlisted acceptance command failed: ${id}`),
+        ...(acceptance.missingRun ? ['no specification acceptance run is recorded'] : [])
+      ];
+      if (acceptance.complete) passes.push(`specification acceptance: ${acceptance.mode}`);
+      else if (specPolicy.mode === 'enforce') errors.push(...messages);
+      else warnings.push(...messages);
+    }
+  }
 
   if (config.governance?.requireAcceptanceCriteriaTags) {
     const acIds = new Set();

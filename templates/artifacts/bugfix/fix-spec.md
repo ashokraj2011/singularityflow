@@ -2,14 +2,14 @@
 
 ## Traceability
 
-| Spec ID | Acceptance criteria | Planned code/tests | Status |
+| Clause | Acceptance criteria | Planned code/tests | Status |
 |---|---|---|---|
-| SPEC-001 | AC-001 | TODO | planned |
+| `{{work.id}}:BEH-001` | `{{work.id}}:AC-001` | TODO | planned |
 
 ## Exact change
 
-TODO: Define file-level behavior and contract changes.
+The fix MUST change the observed failure into the expected behavior TODO without altering TODO. [{{work.id}}:BEH-001]
 
 ## Regression and negative tests
 
-TODO: Define tests tagged with the corresponding AC-nnn and SPEC-nnn identifiers.
+TODO: Define tests bound to the corresponding REQ/BEH/IFC/AC/CON clause IDs.

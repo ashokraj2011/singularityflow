@@ -216,6 +216,21 @@
         "icon": "$(comment-discussion)"
       },
       {
+        "command": "singularityFlow.openSpecificationTrace",
+        "title": "Singularity Flow: Specification Traceability",
+        "icon": "$(references)"
+      },
+      {
+        "command": "singularityFlow.inspectCompositionCache",
+        "title": "Singularity Flow: Inspect Composition Cache",
+        "icon": "$(database)"
+      },
+      {
+        "command": "singularityFlow.checkLedgerDeployment",
+        "title": "Singularity Flow: Check Ledger Deployment",
+        "icon": "$(shield)"
+      },
+      {
         "command": "singularityFlow.configureMcp",
         "title": "Singularity Flow: Configure MCP Tools",
         "icon": "$(plug)"

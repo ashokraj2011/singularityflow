@@ -29,6 +29,7 @@ import { recordPromptAudit } from './prompt-audit.mjs';
 import { normalizeClarificationPolicy, renderClarificationProtocol } from './clarifications.mjs';
 import { generateLightWorldModel } from './worldmodel-light.mjs';
 import { renderDesignSourcePromptContext } from './design-sources.mjs';
+import { clearCompositionCache, compositionCacheStatus, memoizeComposition } from './composition-cache.mjs';
 
 const packageRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 const configRelative = 'singularity/worldmodel.json';
@@ -1238,6 +1239,7 @@ async function compose(root, options) {
           `- Target phase: \`${request.targetPhase}\``,
           `- Requested by: ${request.requestedBy?.name ?? request.requestedBy?.email ?? request.requestedBy?.login ?? 'unknown'}`,
           `- Requested at: ${request.requestedAt}`,
+          ...(request.clauseIds?.length ? [`- Specification clauses: ${request.clauseIds.map((id) => `\`${id}\``).join(', ')}`] : []),
           `- Comment: ${request.comment}`,
           ''
         ])
@@ -1258,7 +1260,7 @@ async function compose(root, options) {
     changeRequestContext,
     governed.inputs
   ].filter((part) => part?.trim());
-  const composedText = `${pieces.join('\n\n')}\n`;
+  const candidateText = `${pieces.join('\n\n')}\n`;
   remote.warnings.forEach((warning) => console.error(`Warning: ${warning}`));
   const manifestInfo = await snapshot(path.join(root, config.outputDir, 'manifest.json'));
   const modelCommit = worldModelCommit(root, config.outputDir);
@@ -1281,6 +1283,24 @@ async function compose(root, options) {
     ...designSources.files
   ]
     .filter((section, index, all) => all.findIndex((candidate) => candidate.path === section.path) === index);
+  const specPolicy = workflow?.resolution?.spec ?? definition.spec ?? { compositionCache: 'local' };
+  const cached = await memoizeComposition(root, {
+    schemaVersion: 1,
+    workId: workflow?.workItem?.id ?? workId ?? null,
+    workType: workflow?.workItem?.workType ?? null,
+    phase: signals.phase,
+    generation: phase ? Number(phase.generation ?? 0) + 1 : null,
+    agent,
+    task: optionString(options, 'task') ?? null,
+    modelCommit,
+    manifestSha256: manifestInfo.sha256,
+    clarification: clarificationPolicy,
+    files: files.map((file) => ({ path: file.path, sha256: file.sha256, injectedBytes: file.injectedBytes })),
+    remoteSkills: remote.skills.map((skill) => ({ id: skill.id, sha256: skill.sha256 })),
+    changeRequests: openChangeRequests.map((request) => ({ id: request.id, clauseIds: request.clauseIds ?? [], comment: request.comment }))
+  }, candidateText, { enabled: specPolicy.compositionCache !== 'off' });
+  const composedText = cached.text;
+  if (specPolicy.compositionCache !== 'off') console.error(`Composition cache: ${cached.hit ? 'hit' : 'miss'} ${cached.key.slice(0, 12)}.`);
 
   if (dryRun) {
     console.log(`phase: ${signals.phase}  governed agent: ${agent}  clarification: ${clarificationPolicy.mode}  change requests: ${openChangeRequests.length}  required files: ${mandatory.length}  capability files: ${capability.files.length}  rules matched: ${injection.matchedRules}  rule files: ${injection.sections.length}  agent skills: ${remote.skills.length}  fresh: ${required.freshness.fresh ? 'yes' : 'no'}`);
@@ -1300,7 +1320,8 @@ async function compose(root, options) {
       renderedSha256,
       renderedText: composedText,
       requiredViews: config.phases[signals.phase]?.views ?? [],
-      task: optionString(options, 'task') ?? null
+      task: optionString(options, 'task') ?? null,
+      compositionCache: { key: cached.key, hit: cached.hit }
     }, { workDir: path.join(root, workItemRoot, workflow.workItem.id) });
     console.error(`Grounding composition recorded: ${file}`);
   }
@@ -1313,7 +1334,8 @@ async function compose(root, options) {
       workId: workflow?.workItem?.id ?? workId ?? null,
       workType: workflow?.workItem?.workType ?? null,
       task: optionString(options, 'task') ?? null,
-      source: 'wm-compose'
+      source: 'wm-compose',
+      compositionCache: { key: cached.key, hit: cached.hit }
     });
     if (audit) console.error(`Prompt audit recorded: ${audit.id} (${audit.promptSha256.slice(0, 12)}).`);
   }
@@ -1393,6 +1415,22 @@ async function showPrompt(root, options) {
 
 export async function worldModelCommand(root, positionals, options) {
   const command = positionals[1];
+  if (command === 'cache') {
+    const action = positionals[2] ?? 'status';
+    if (action === 'status') {
+      const result = await compositionCacheStatus(root);
+      if (optionBoolean(options, 'json')) console.log(JSON.stringify(result, null, 2));
+      else console.log(`Composition cache: ${result.entries} entr${result.entries === 1 ? 'y' : 'ies'} · ${result.bytes} bytes.`);
+      return result;
+    }
+    if (action === 'clear') {
+      const result = await clearCompositionCache(root);
+      if (optionBoolean(options, 'json')) console.log(JSON.stringify(result, null, 2));
+      else console.log(`Cleared ${result.removed} composition cache entr${result.removed === 1 ? 'y' : 'ies'} (${result.bytes} bytes).`);
+      return result;
+    }
+    throw new SingularityFlowError('Usage: singularity-flow wm cache status|clear [--json]');
+  }
   if (command === 'init') {
     if (optionString(options, 'branch')) {
       throw new SingularityFlowError('Run wm init from the branch where its prompt should be created; --branch is for build and inspection.');
@@ -1411,7 +1449,7 @@ export async function worldModelCommand(root, positionals, options) {
     return result;
   }
   if (!['prompt', 'build', 'light', 'context', 'check'].includes(command)) {
-    throw new SingularityFlowError('Usage: singularity-flow wm init|prompt|build|light|context <phase>|compose|show-prompt|inject|check|cleanup');
+    throw new SingularityFlowError('Usage: singularity-flow wm init|prompt|build|light|context <phase>|compose|show-prompt|inject|check|cleanup|cache status|clear');
   }
   if (command === 'build' || command === 'light') await cleanupStaleWorldModelWorktrees(root);
   return withTargetBranch(root, options, async (targetRoot) => {

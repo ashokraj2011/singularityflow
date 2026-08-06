@@ -47,6 +47,7 @@ import { readConfigurationSource } from './configuration-branch.mjs';
 import { buildDesignSourceSet, classifyDesignSourceCandidates, approvedDesignSourceBinding } from './design-sources.mjs';
 import { verifyMcpEvidence } from './mcp-evidence.mjs';
 import { assertVisualCoverage } from './visual-coverage.mjs';
+import { buildSpecIndex, loadSpecRecords } from './specifications.mjs';
 
 export const CONFIG_PATH = WORKFLOW_PATH;
 export const loadConfig = loadDefinition;
@@ -752,6 +753,29 @@ export async function publishGeneration(root, config, workflow, { phaseId, usage
   }];
   await updateArtifactMetadata(root, config, workflow, phase);
   await scanArtifacts(root, config, workflow, phase.id);
+  const specPolicy = workflow.resolution?.spec ?? config.spec ?? { mode: 'off' };
+  if (specPolicy.mode !== 'off' && ['requirements', 'implementation-spec', 'conformance-report'].includes(phase.requiredArtifact?.kind)) {
+    const priorSpecRecords = await loadSpecRecords(workDir(root, config, workflow.workItem.id));
+    const externalClauseIds = priorSpecRecords.indexes.flatMap((index) =>
+      (index.clauses ?? []).map((clause) => clause.id));
+    const specIndex = await buildSpecIndex(root, requiredRepoPath(config, workflow, phase), {
+      workId: workflow.workItem.id,
+      phase: phase.id,
+      generation: phase.generation,
+      outputPath: posix(path.join(workDirRelative(config, workflow.workItem.id), 'context', 'spec-indexes', `${phase.id}-gen${phase.generation}.json`)),
+      policy: specPolicy,
+      externalClauseIds
+    });
+    phase.specIndex = {
+      generation: phase.generation,
+      clauses: specIndex.clauses.length,
+      indexSha256: specIndex.indexSha256,
+      sourceSha256: specIndex.source.sha256
+    };
+    if (specPolicy.mode === 'enforce' && !specIndex.clauses.length) {
+      throw new SingularityFlowError(`Phase ${phase.id} requires stable clause anchors such as [${specPolicy.namespace ?? 'APP'}:REQ-001].`);
+    }
+  }
   await updateRemoteOutputRenderedHashes(root, workflow, phase, { itemDirectory: workDir(root, config, workflow.workItem.id) });
   const errors = await validatePhase(root, config, workflow, phase);
   if (errors.length) throw new SingularityFlowError(`Phase ${phase.id} generation is not publishable:\n- ${errors.join('\n- ')}`);
@@ -961,7 +985,7 @@ async function refreshRequiredArtifact(root, config, workflow, phase) {
   else phase.artifacts.push({ path: required, kind: phase.requiredArtifact.kind ?? inferKind(required), status: 'pending', ...current, registeredAt: nowIso(), updatedAt: nowIso() });
 }
 
-export async function rejectPhase(root, config, workflow, { phaseId, target, reason, channel = 'terminal', actionContext = null } = {}) {
+export async function rejectPhase(root, config, workflow, { phaseId, target, reason, clauseIds = [], channel = 'terminal', actionContext = null } = {}) {
   await assertNoPendingPublication(root, config, workflow, 'reject');
   const phase = await assertPhaseSequence(root, workflow, 'reject', { requestedPhase: phaseId, allowedStatuses: ['awaiting_approval'] });
   if (phase.approvalPolicy.changeRequests?.commentRequired !== false && !reason?.trim()) {
@@ -975,6 +999,13 @@ export async function rejectPhase(root, config, workflow, { phaseId, target, rea
   );
   const targetId = target ?? phase.id; if (!(phase.approvalPolicy.rejectTo ?? [phase.id]).includes(targetId)) throw new SingularityFlowError(`Phase '${phase.id}' cannot be rejected to '${targetId}'. Allowed: ${(phase.approvalPolicy.rejectTo ?? []).join(', ')}.`);
   const targetIndex = workflow.phaseOrder.indexOf(targetId); if (targetIndex < 0 || targetIndex > workflow.phaseOrder.indexOf(phase.id)) throw new SingularityFlowError(`Invalid rejection target '${targetId}'.`);
+  const requestedClauses = [...new Set(clauseIds)];
+  if (requestedClauses.length) {
+    const records = await loadSpecRecords(workDir(root, config, workflow.workItem.id));
+    const known = new Set(records.indexes.flatMap((index) => (index.clauses ?? []).map((clause) => clause.id)));
+    const unknown = requestedClauses.filter((id) => !known.has(id));
+    if (unknown.length) throw new SingularityFlowError(`Change request references unknown specification clause(s): ${unknown.join(', ')}.`);
+  }
   const timestamp = nowIso(); const key = actorKey(session.actor);
   workflow.changeRequests ??= [];
   const changeRequest = {
@@ -984,6 +1015,7 @@ export async function rejectPhase(root, config, workflow, { phaseId, target, rea
     sourcePhase: phase.id,
     sourceGeneration: phase.generation,
     targetPhase: targetId,
+    clauseIds: requestedClauses,
     comment: reason?.trim() || 'Changes requested.',
     requestedAt: timestamp,
     requestedBy: session.actor,
@@ -1016,6 +1048,7 @@ export async function rejectPhase(root, config, workflow, { phaseId, target, rea
     target: targetId,
     reason: changeRequest.comment,
     changeRequestId: changeRequest.id,
+    clauseIds: requestedClauses,
     at: timestamp,
     actor: session.actor,
     agent: session.agent,

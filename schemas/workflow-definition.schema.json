@@ -38,6 +38,36 @@
       },
       "additionalProperties": false
     },
+    "spec": {
+      "type": "object",
+      "properties": {
+        "mode": { "enum": ["off", "record", "enforce"], "default": "off" },
+        "namespace": { "type": "string", "pattern": "^[A-Z0-9][A-Z0-9._-]{0,63}$" },
+        "coverage": { "enum": ["off", "record", "enforce"], "default": "off" },
+        "acceptance": { "enum": ["off", "presence", "test-first", "verify"], "default": "off" },
+        "compositionCache": { "enum": ["off", "local"], "default": "local" },
+        "testCommands": {
+          "type": "object",
+          "additionalProperties": {
+            "type": "array",
+            "minItems": 1,
+            "items": { "type": "string", "minLength": 1 }
+          }
+        },
+        "excludes": { "type": "array", "uniqueItems": true, "items": { "type": "string", "minLength": 1 } },
+        "limits": {
+          "type": "object",
+          "properties": {
+            "maxClausesPerArtifact": { "type": "integer", "minimum": 1, "maximum": 10000 },
+            "maxDependenciesPerClause": { "type": "integer", "minimum": 1, "maximum": 1000 },
+            "maxPathsPerClaim": { "type": "integer", "minimum": 1, "maximum": 10000 },
+            "maxClaimBytes": { "type": "integer", "minimum": 1, "maximum": 10485760 }
+          },
+          "additionalProperties": false
+        }
+      },
+      "additionalProperties": false
+    },
     "templatesRoot": { "type": "string", "minLength": 1 },
     "planning": {
       "type": "object",
@@ -358,6 +388,18 @@
               "phase": { "type": "string", "pattern": "^[a-z0-9]+(?:-[a-z0-9]+)*$" },
               "optional": { "type": "boolean" },
               "maxBytes": { "type": "integer", "minimum": 1 }
+              ,"selector": {
+                "type": "object",
+                "required": ["kind"],
+                "properties": {
+                  "kind": { "const": "clauses" },
+                  "ids": { "type": "array", "uniqueItems": true, "items": { "type": "string" } },
+                  "claims": { "enum": ["planned", "observed"] },
+                  "includeDependencies": { "type": "boolean" },
+                  "fallback": { "enum": ["whole", "empty"] }
+                },
+                "additionalProperties": false
+              }
             },
             "additionalProperties": false
           }

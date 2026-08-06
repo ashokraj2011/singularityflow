@@ -481,6 +481,7 @@ export interface RepositorySnapshot {
     servers: Array<{
       id: string; label: string; hostReference: string; agents: string[]; phases: string[];
       tools: string[]; required: boolean; approval: string; configured: boolean; sources: string[];
+      readiness?: 'ready' | 'needs-host-setup' | 'misconfigured'; readinessReasons?: string[];
       evidence?: { captureToolCalls?: boolean; captureResults?: boolean };
     }>;
     inventory: Array<{ surface: string; path: string; name: string | null; error: string | null }>;

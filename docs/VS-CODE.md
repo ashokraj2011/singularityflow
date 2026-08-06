@@ -89,6 +89,17 @@ specific action and confirms it. The page never turns an MCP result into an
 approval: design-source approval still occurs through the normal hash-bound
 lifecycle decision.
 
+Recorded PNG comparisons render directly in the editor. Reviewers can switch
+between side-by-side, overlay-slider, and deterministic diff views while the
+approved and implementation hashes remain visible. The preview resolves only
+files inside the active Story artifact directory; missing, non-PNG, or escaping
+paths remain unavailable and can never broaden the webview's file access.
+
+Candidate design versions are listed separately from the approved version. MCP
+cards explain why a host is not ready and expose an exact-server-name
+attestation flow after the contributor has trusted, started, and authenticated
+that host. Attestation is machine-local readiness evidence, not design approval.
+
 ### Inbox
 
 Inbox answers **what needs attention?**

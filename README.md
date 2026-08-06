@@ -1367,6 +1367,10 @@ design inventory, viewport coverage, implementation captures, comparison/diff
 evidence, and MCP provenance in one review surface. Opening or refreshing the
 dashboard performs no network access; network diagnostics, server warm-up, and
 remote evidence capture are separate, explicitly confirmed actions.
+Recorded PNG comparisons can be inspected inline as side-by-side, overlay-slider,
+or deterministic diff views. The cards retain the exact approved, implementation,
+and diff hashes. Candidate versions never replace the approved source silently,
+and host readiness can be attested only after exact server-name confirmation.
 Corporate npm registry, proxy, and CA configuration continue to come from
 `.npmrc`, environment variables, and the host. Durable screenshots or reports can
 be hash-recorded with `singularity-flow mcp record` and are revalidated by the

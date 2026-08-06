@@ -1,5 +1,5 @@
 /** VS Code host for local-first visual assurance and explicit MCP operations. */
-import { existsSync } from 'node:fs';
+import { existsSync, realpathSync } from 'node:fs';
 import path from 'node:path';
 import * as vscode from 'vscode';
 import type { SingularityFlowClient } from '../cli/client.ts';
@@ -70,6 +70,19 @@ export class VisualAssurancePanel implements vscode.Disposable {
       if (confirmed !== 'Warm server') return;
       return this.operate(`MCP server '${message.server}' warmed.`, ['mcp', 'warm', message.server, '--network', '--json']);
     }
+    if (message.type === 'attest' && message.server) {
+      const confirmation = await vscode.window.showInputBox({
+        title: `Attest MCP host readiness · ${message.server}`,
+        prompt: `Type ${message.server} to confirm that you trusted, started, and authenticated this MCP host on this machine.`,
+        placeHolder: message.server,
+        ignoreFocusOut: true
+      });
+      if (confirmation !== message.server) {
+        if (confirmation !== undefined) void vscode.window.showWarningMessage(`Readiness was not attested. Enter the exact server ID: ${message.server}`);
+        return;
+      }
+      return this.operateText(`MCP host readiness attested for '${message.server}'.`, ['mcp', 'attest', message.server, '--confirm', message.server]);
+    }
     if (message.type === 'inventory') return this.operate(
       'Deterministic design inventory generated.', ['wm', 'design-inventory', '--from-records', '--json']
     );
@@ -122,9 +135,31 @@ export class VisualAssurancePanel implements vscode.Disposable {
     await vscode.commands.executeCommand('vscode.open', vscode.Uri.file(target));
   }
 
+  /** Resolve only a committed Story artifact to a webview URI; never expose arbitrary repository files. */
+  private mediaUri(relative: string | undefined): string | null {
+    if (!relative) return null;
+    const view = buildVisualAssuranceView(this.store.current.snapshot);
+    if (!view.itemDirectory) return null;
+    const repository = path.resolve(this.client.repository);
+    const itemRoot = path.resolve(repository, view.itemDirectory);
+    const possibilities = [path.resolve(itemRoot, relative), path.resolve(repository, relative)];
+    for (const possibility of possibilities) {
+      if (!existsSync(possibility)) continue;
+      try {
+        const canonicalRoot = realpathSync(itemRoot);
+        const canonical = realpathSync(possibility);
+        const inside = path.relative(canonicalRoot, canonical);
+        if ((!inside || (!inside.startsWith('..') && !path.isAbsolute(inside))) && /\.png$/i.test(canonical)) {
+          return this.panel.webview.asWebviewUri(vscode.Uri.file(canonical)).toString();
+        }
+      } catch { /* A missing or escaping artifact is shown as unavailable, never loaded. */ }
+    }
+    return null;
+  }
+
   private render(): void {
     const token = nonce();
-    const body = `${this.busy ? '<div class="notice warning">An explicit governed operation is running. The dashboard will refresh when it finishes.</div>' : ''}${visualAssuranceHtml(buildVisualAssuranceView(this.store.current.snapshot), this.notice, this.operationError)}`;
+    const body = `${this.busy ? '<div class="notice warning">An explicit governed operation is running. The dashboard will refresh when it finishes.</div>' : ''}${visualAssuranceHtml(buildVisualAssuranceView(this.store.current.snapshot), this.notice, this.operationError, (relative) => this.mediaUri(relative))}`;
     this.panel.webview.html = page('Visual Assurance', body, contentSecurityPolicy(this.panel.webview, token), token, VISUAL_ASSURANCE_SCRIPT);
   }
 
@@ -133,4 +168,3 @@ export class VisualAssurancePanel implements vscode.Disposable {
     VisualAssurancePanel.current = null;
   }
 }
-

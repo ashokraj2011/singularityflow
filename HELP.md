@@ -8,6 +8,13 @@ Mobile visual verification is configured per work type under `verification.profi
 
 Design inventory is deterministic and JSON-only: `sflow wm design-inventory --from-records`. It summarizes pinned design-source records without executing uploaded content. Current work receives the approved design-source set and its inventory digest through normal phase-context composition.
 
+In VS Code, **Visual Assurance** renders governed PNG comparisons directly in the
+editor with side-by-side, overlay-slider, and diff views. It shows approved and
+candidate design versions separately, preserves their hashes, and explains MCP
+readiness per server. Use **Attest host readiness** only after trusting, starting,
+and authenticating the named host; this local attestation never approves an
+artifact or advances a lifecycle phase.
+
 Singularity Flow is a Git-native SDLC workflow for GitHub Copilot and engineering teams. It turns requirements, designs, implementation specifications, code, tests, approvals, and conformance evidence into durable branch state that another person or terminal can resume safely.
 
 Use this manual in three places:

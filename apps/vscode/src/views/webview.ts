@@ -522,12 +522,35 @@ export const STYLE = `
   .comparison-metric { display:flex; align-items:baseline; gap:.45rem; margin-top:.75rem; }
   .comparison-metric strong { font-size:1.45rem; }
   .comparison-metric span { color:var(--sf-dim); }
+  .visual-mode-tabs { display:flex; gap:.35rem; margin:.75rem 0 .55rem; }
+  .visual-mode-tabs button { min-height:1.8rem; padding:.25rem .55rem; font-size:.75rem; }
+  .visual-mode-tabs button.active { color:var(--sf-accent); border-color:var(--sf-accent); background:var(--sf-accent-quiet); }
+  .visual-stage { --reveal:50%; display:grid; grid-template-columns:repeat(2,minmax(0,1fr)); gap:.55rem; min-height:12rem; }
+  .visual-pane { min-width:0; margin:0; border:var(--sf-border); border-radius:var(--sf-radius); overflow:hidden; background:var(--vscode-editorWidget-background); }
+  .visual-pane img { display:block; width:100%; height:16rem; object-fit:contain; background:repeating-conic-gradient(rgba(128,128,128,.08) 0 25%,transparent 0 50%) 50%/16px 16px; }
+  .visual-pane figcaption { padding:.45rem .55rem; color:var(--sf-dim); font-size:.72rem; }
+  .visual-pane.diff { display:none; }
+  .visual-stage.overlay { position:relative; display:block; }
+  .visual-stage.overlay .visual-pane { width:100%; }
+  .visual-stage.overlay .visual-pane.actual { position:absolute; inset:0 0 auto 0; clip-path:inset(0 calc(100% - var(--reveal)) 0 0); border-color:var(--sf-accent); }
+  .visual-stage.overlay .visual-pane.actual figcaption { visibility:hidden; }
+  .visual-stage.overlay .visual-pane.diff { display:none; }
+  .visual-stage.diff { display:block; }
+  .visual-stage.diff .visual-pane.expected, .visual-stage.diff .visual-pane.actual { display:none; }
+  .visual-stage.diff .visual-pane.diff { display:block; }
+  .overlay-control { display:none; grid-column:1 / -1; gap:.25rem; color:var(--sf-dim); font-size:.72rem; }
+  .visual-stage.overlay .overlay-control { display:grid; position:relative; margin-top:.55rem; }
+  .visual-unavailable { display:grid; place-items:center; align-content:center; gap:.45rem; height:16rem; color:var(--sf-dim); border:1px dashed var(--sf-border-color); }
+  .candidate-table { margin-top:.65rem; }
+  .candidate-table table { min-width:36rem; }
+  .server-card ul { margin:.5rem 0; padding-left:1.15rem; color:var(--sf-dim); font-size:.75rem; }
   .compact-form { margin:.75rem 0; }
   .inline-form { display:flex; gap:.65rem; align-items:end; margin:.8rem 0; }
   .inline-form .field { min-width:18rem; }
   @media(max-width:850px) {
     .assurance-header { display:grid; }
     .assurance-summary, .assurance-facts { grid-template-columns:repeat(2,minmax(0,1fr)); }
+    .visual-stage { grid-template-columns:1fr; }
   }
   .composition-map { display: flex; align-items: center; gap: .45rem; flex-wrap: wrap; margin-top: 1rem; padding: .75rem; border-radius: var(--sf-radius); background: var(--sf-accent-quiet); }
   .composition-map strong { width: 100%; }

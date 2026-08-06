@@ -17,7 +17,9 @@ export interface VisualAssuranceView {
   designSources: VisualEvidenceRecord[]; visualArtifacts: VisualEvidenceRecord[];
   otherEvidence: VisualEvidenceRecord[]; profiles: VisualProfileView[];
   comparisons: VisualComparison[]; inventory: VisualAssuranceSnapshot['inventory'];
-  servers: Array<{ id: string; label: string; readiness: string; configured: boolean; tools: string[] }>;
+  servers: Array<{
+    id: string; label: string; readiness: string; reasons: string[]; configured: boolean; tools: string[];
+  }>;
   summary: { designSources: number; profilesCovered: number; profilesTotal: number; comparisonsPassed: number; evidence: number };
 }
 
@@ -62,7 +64,9 @@ export function buildVisualAssuranceView(snapshot: RepositorySnapshot | null): V
     otherEvidence: records.filter((entry) => !['design-source', 'visual-artifact'].includes(entry.kind)),
     profiles, comparisons, inventory: visual?.inventory ?? null,
     servers: (snapshot?.mcp?.servers ?? []).map((server) => ({
-      id: server.id, label: server.label, readiness: String((server as { readiness?: string }).readiness ?? (server.configured ? 'needs-attestation' : 'needs-host-setup')),
+      id: server.id, label: server.label,
+      readiness: String(server.readiness ?? (server.configured ? 'needs-attestation' : 'needs-host-setup')),
+      reasons: server.readinessReasons ?? [],
       configured: server.configured, tools: server.tools
     })),
     summary: {

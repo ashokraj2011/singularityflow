@@ -458,7 +458,19 @@ export interface RepositorySnapshot {
     id: string; scope: string; path: string; packagePath?: string | null; editable?: boolean;
     content?: string; sha256?: string; remoteResources?: number;
   }>;
-  agentMappings?: { path: string; exists: boolean };
+  agentStatus?: Array<{
+    id: string; scope: string; source: string; sourceSha256: string; locked: boolean;
+    sourceChanged: boolean; status: 'local-only' | 'unlocked' | 'stale' | 'needs-sync' | 'ready';
+    dependencies: Array<{
+      id: string; type: 'skill' | 'template' | 'generated'; optional: boolean; locked: boolean;
+      sha256: string | null; status: string;
+    }>;
+  }>;
+  agentMappings?: {
+    path: string; exists: boolean; content?: string;
+    rows?: Array<{ copilotAgent: string; agentId: string; source: string }>;
+  };
+  agentsLock?: { path: string; exists: boolean; content?: string };
   /** Governed MCP policy joined to host configuration by server name; never contains credentials. */
   mcp?: {
     servers: Array<{
@@ -487,8 +499,6 @@ export interface RepositorySnapshot {
   };
   /** Approvals waiting on this person, as `inbox` reports them. */
   approvalInbox?: { count?: number; fetched?: boolean; items?: unknown[] };
-  /** Whether each installed agent still matches the version it was locked to. */
-  agentStatus?: Array<{ id: string; scope: string; status: string; locked?: boolean; sourceChanged?: boolean }>;
   /** The append-only workflow ledger, which is what makes progress recoverable from Git. */
   ledger?: { enabled?: boolean; config?: { branch?: string } };
   [key: string]: unknown;

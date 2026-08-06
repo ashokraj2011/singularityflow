@@ -1691,7 +1691,7 @@ Repository world models always remain repository-generated and repository-owned.
 ```markdown
 ## Remote skills
 
-| ID | URL | Phases | Agents | Optional | Max bytes |
+| ID | URL | Phases | Optional | Max bytes |
 
 ## Remote artifact templates
 
@@ -1726,8 +1726,9 @@ mappings:
 
 The mapping selects prompt context only. It never selects a governed agent,
 changes the contributor identity, or grants approval authority. Unknown target
-packs are rejected during validation. VS Code **Configuration → Agents** exposes
-the editable mapping YAML and its effective resolution table.
+packs are rejected during validation. VS Code **Configuration → Agents & delivery**
+exposes a structured mapping editor, the remote dependency tables, effective
+trust/cache status, and sync actions.
 
 First trust and every `--update` display hashes and require typing the exact pack name. The committed `singularity/agents.lock.yml` pins source-file and dependency hashes. Sync never updates trust: it verifies the lock, writes an atomic cache under `.git/singularity-flow/`, and records the active agent while preserving the selected governed agent. No authentication, cookies, or bearer tokens are sent.
 
@@ -1738,7 +1739,7 @@ singularity-flow agents refresh-output threat-model
 # Add --replace only after deciding to discard local edits.
 ```
 
-The bundled `sflow-workflow` Copilot agent contains empty dependency tables, so installation alone performs no remote download. Teams add their own URLs later. VS Code **Configuration → Agents** edits repository agent Markdown, shows lock status, and keeps the lock read-only.
+The bundled `sflow-workflow` Copilot agent contains empty dependency tables, so installation alone performs no remote download. Teams add their own URLs later. VS Code **Configuration → Agents & delivery** edits repository agent Markdown, shows lock status, and keeps the lock read-only.
 
 ## Governed MCP tools
 

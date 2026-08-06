@@ -4,7 +4,8 @@ import type { WorkspaceStore } from '../state.ts';
 import { contentSecurityPolicy, nonce, page } from './webview.ts';
 import {
   agentPath, instructionCatalog, parseAgent, parsePrompt, parseSkill, promptPath, renderAgent,
-  renderPrompt, renderSkill, skillPath, validateAgent, validatePrompt, validateSkill,
+  renderAgentMappings, renderPrompt, renderSkill, skillPath, validateAgent, validateAgentMappingsDraft,
+  validatePrompt, validateSkill,
   type AgentDraft, type InstructionCatalog, type InstructionEntry, type InstructionTab,
   type PromptDraft, type SkillDraft
 } from './instruction-designer-model.ts';
@@ -12,10 +13,12 @@ import {
   instructionDesignerHtml, INSTRUCTION_DESIGNER_SCRIPT, type InstructionDesignerView
 } from './instruction-designer-page.ts';
 
-export type InstructionDesignerMessage = { type: 'save'; path: string; content: string };
+export type InstructionDesignerMessage =
+  | { type: 'save'; path: string; content: string }
+  | { type: 'agent-action'; action: 'trust' | 'update' | 'sync' | 'refresh'; agentId: string };
 
 function emptyAgent(): AgentDraft {
-  return { id: '', label: '', description: '', phases: [], defaultFor: [], worldModelViews: [], tools: ['read', 'search'], body: '# Agent instructions\n\nDescribe how this agent should reason, what evidence it must use, and what it must produce.' };
+  return { id: '', label: '', description: '', phases: [], defaultFor: [], worldModelViews: [], tools: ['read', 'search'], body: '# Agent instructions\n\nDescribe how this agent should reason, what evidence it must use, and what it must produce.', remoteSkills: [], remoteTemplates: [], remoteOutputs: [] };
 }
 function emptyPrompt(): PromptDraft { return { id: '', body: '# Purpose\n\nDescribe the reusable instruction.' }; }
 function emptySkill(): SkillDraft {
@@ -77,7 +80,9 @@ export class InstructionDesignerPanel {
     return snapshot ? instructionCatalog(snapshot) : null;
   }
 
-  private entries(catalog: InstructionCatalog): InstructionEntry[] { return catalog[this.tab]; }
+  private entries(catalog: InstructionCatalog): InstructionEntry[] {
+    return this.tab === 'delivery' ? catalog.agents : catalog[this.tab];
+  }
 
   private selected(catalog: InstructionCatalog): InstructionEntry | null {
     const entries = this.entries(catalog);
@@ -107,7 +112,7 @@ export class InstructionDesignerPanel {
     const message = (raw && typeof raw === 'object' ? raw : {}) as Record<string, unknown>;
     const catalog = this.catalog();
     if (!catalog) return;
-    if (message.type === 'tab' && ['agents', 'prompts', 'skills', 'packs'].includes(String(message.tab))) {
+    if (message.type === 'tab' && ['agents', 'delivery', 'prompts', 'skills', 'packs'].includes(String(message.tab))) {
       this.tab = message.tab as InstructionTab; this.load(this.entries(catalog)[0] ?? null); return this.render();
     }
     if (message.type === 'select' && typeof message.path === 'string') {
@@ -125,11 +130,31 @@ export class InstructionDesignerPanel {
       const draft: AgentDraft = { id: String(message.id ?? '').trim(), label: String(message.label ?? '').trim(),
         description: String(message.description ?? '').trim(), phases: this.strings(message.phases),
         defaultFor: this.strings(message.defaultFor), worldModelViews: this.strings(message.worldModelViews),
-        tools: this.strings(message.tools), body: String(message.body ?? '') };
+        tools: this.strings(message.tools), body: String(message.body ?? ''),
+        remoteSkills: Array.isArray(message.remoteSkills) ? message.remoteSkills as AgentDraft['remoteSkills'] : [],
+        remoteTemplates: Array.isArray(message.remoteTemplates) ? message.remoteTemplates as AgentDraft['remoteTemplates'] : [],
+        remoteOutputs: Array.isArray(message.remoteOutputs) ? message.remoteOutputs as AgentDraft['remoteOutputs'] : [] };
       this.agent = draft; this.errors = validateAgent(draft);
       if (!this.errors.length) await this.save(this.selectedPath ?? agentPath(draft.id), renderAgent(draft));
       else this.render();
       return;
+    }
+    if (message.type === 'save-mappings') {
+      const rows = Array.isArray(message.rows) ? message.rows.map((row) => ({
+        copilotAgent: String((row as Record<string, unknown>).copilotAgent ?? '').trim(),
+        agentId: String((row as Record<string, unknown>).agentId ?? '').trim()
+      })) : [];
+      this.errors = validateAgentMappingsDraft(rows, catalog.agents.map((entry) => entry.id));
+      if (!this.errors.length) await this.save(catalog.mappingPath, renderAgentMappings(rows));
+      else this.render();
+      return;
+    }
+    if (message.type === 'agent-action' && typeof message.agentId === 'string'
+      && ['trust', 'update', 'sync', 'refresh'].includes(String(message.action))) {
+      const error = await this.onMessage({ type: 'agent-action', action: message.action as 'trust' | 'update' | 'sync' | 'refresh', agentId: message.agentId });
+      this.errors = error ? [error] : [];
+      this.notice = error ? null : message.action === 'refresh' ? 'Remote status refreshed.' : `${message.agentId}: ${message.action} started.`;
+      this.render(); return;
     }
     if (message.type === 'save-prompt') {
       const draft: PromptDraft = { id: String(message.id ?? '').trim(), body: String(message.body ?? '') };

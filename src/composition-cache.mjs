@@ -21,6 +21,10 @@ export function compositionFingerprint(inputs) {
   return sha256(JSON.stringify(stable(inputs)));
 }
 
+export function compositionCacheEnabled(mode, { dryRun = false } = {}) {
+  return !dryRun && mode !== 'off';
+}
+
 export async function memoizeComposition(root, inputs, text, { enabled = true } = {}) {
   // Include the rendered bytes in the cache identity. This keeps cache entries
   // content-addressed even when a caller accidentally omits a composition input.

@@ -43,8 +43,28 @@ test('high-trust deployment requires explicit server-policy confirmations', asyn
   assert.equal((await validateLedgerDeployment(root, tier2)).valid, false);
   const confirmed = await validateLedgerDeployment(root, tier2, {
     confirmations: { protectedBranch: true, pushPolicy: true, pinRetention: true },
+    confirmationContext: {
+      actor: { name: 'Deployment Tester', email: 'deployment@example.com' },
+      authorityGroup: 'release-administrators',
+      identityAssurance: 'configured-local'
+    },
     record: true
   });
   assert.equal(confirmed.valid, true);
-  assert.equal(JSON.parse(await readFile(path.join(root, confirmed.recordedPath), 'utf8')).trustTier, 'T2');
+  const stored = JSON.parse(await readFile(path.join(root, confirmed.recordedPath), 'utf8'));
+  assert.equal(stored.trustTier, 'T2');
+  assert.equal(stored.confirmation.authorityGroup, 'release-administrators');
+  assert.match(stored.recordSha256, /^[0-9a-f]{64}$/);
+});
+
+test('bare confirmation flags never prove a high-trust server policy', async () => {
+  const { root } = await repository();
+  await initializeLedger(root, tier0);
+  run('git', ['config', 'user.signingkey', 'configured-key'], { cwd: root });
+  const result = await validateLedgerDeployment(root, { ...tier0, trustTier: 'T2', signing: 'commit' }, {
+    confirmations: { protectedBranch: true, pushPolicy: true }
+  });
+  assert.equal(result.valid, false);
+  assert.equal(result.confirmation, null);
+  assert.equal(result.checks.find((check) => check.id === 'protected-branch-policy').status, 'fail');
 });

@@ -416,6 +416,7 @@ singularity-flow story branch create feature/login-ui --parent MOB-123
 singularity-flow story branch attach --parent MOB-123
 singularity-flow story branch status --parent MOB-123
 singularity-flow story submit
+```
 
 ### Clause-driven specifications
 
@@ -444,7 +445,11 @@ Configuration view includes a Specification traceability screen.
 only that `.git` cache; it cannot change governed state or published artifacts.
 
 For an orphan-ledger deployment, run `ledger deployment-check` before claiming a
-trust tier. T2/T3 require explicit confirmations for host policies Git cannot read.
+trust tier. T2/T3 require explicit, identity-bound confirmations for host policies
+Git cannot read. Each `--confirm-*` option therefore requires `--authority GROUP`;
+the configured local Git identity must belong to that approval authority.
+
+```bash
 singularity-flow finalize
 singularity-flow story branch promote --parent MOB-123 --mode pr
 ```

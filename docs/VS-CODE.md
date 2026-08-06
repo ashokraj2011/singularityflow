@@ -68,6 +68,27 @@ as a misleading zero. Durations include nights and weekends and are not producti
 estimates. The view refreshes from the coherent repository snapshot and stores no
 analytics state of its own.
 
+### Visual Assurance
+
+Visual Assurance answers **does the implementation match the approved design
+evidence?** Open it from Lifecycle, Inbox, Configuration Center, or the command
+palette with **Singularity Flow: Visual Assurance**. The page joins:
+
+- the approved design-source set, candidate source records, and deterministic
+  design inventory;
+- required viewport/profile coverage and the exact implementation captures that
+  satisfy it;
+- expected, actual, and diff artifacts for every deterministic comparison;
+- MCP server readiness and tool-call provenance; and
+- blocking errors, warnings, and passes from the same local read model used by
+  the governance engine.
+
+Opening and refreshing the page is always local and read-only. A network doctor,
+MCP warm-up, or remote evidence download runs only after the user selects that
+specific action and confirms it. The page never turns an MCP result into an
+approval: design-source approval still occurs through the normal hash-bound
+lifecycle decision.
+
 ### Inbox
 
 Inbox answers **what needs attention?**

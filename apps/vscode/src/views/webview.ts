@@ -492,6 +492,43 @@ export const STYLE = `
     border: var(--sf-border); border-radius: 4px;
     background: var(--vscode-textCodeBlock-background);
   }
+  /* Visual Assurance: dense evidence is grouped into reviewable bands without turning the page
+     into a second design system. Tables remain scrollable at narrow editor widths. */
+  .assurance-header { display:flex; align-items:flex-start; justify-content:space-between; gap:1rem; }
+  .header-actions { display:flex; align-items:center; gap:.55rem; flex-wrap:wrap; }
+  .assurance-section { margin-top:1rem; }
+  .assurance-summary { grid-template-columns:repeat(4,minmax(8rem,1fr)); }
+  .assurance-facts { display:grid; grid-template-columns:repeat(4,minmax(10rem,1fr)); gap:.55rem; margin:.8rem 0 1rem; }
+  .assurance-facts > div { display:grid; gap:.2rem; padding:.7rem; border:var(--sf-border); border-radius:var(--sf-radius); }
+  .assurance-facts span { color:var(--sf-dim); font-size:.75rem; }
+  .subheading { margin-top:1.15rem; }
+  .subheading h3 { margin:0; }
+  .table-wrap { overflow:auto; border:var(--sf-border); border-radius:var(--sf-radius); }
+  .table-wrap table { margin:0; border:0; min-width:56rem; }
+  .table-wrap td small, .table-wrap td strong { display:block; }
+  .table-wrap td small { color:var(--sf-dim); margin-top:.2rem; }
+  .compact-action { min-height:2rem; padding:.28rem .5rem; white-space:nowrap; }
+  .profile-grid, .server-grid { display:grid; grid-template-columns:repeat(auto-fit,minmax(13rem,1fr)); gap:.55rem; }
+  .profile-card, .server-card, .comparison-card { border:var(--sf-border); border-radius:var(--sf-radius); padding:.75rem; background:var(--sf-surface); }
+  .profile-card > div, .server-card > div { display:flex; align-items:center; gap:.45rem; }
+  .profile-card > span, .profile-card > small, .server-card > small { display:block; color:var(--sf-dim); margin-top:.35rem; }
+  .profile-card.ok { border-left:3px solid var(--sf-ok); }
+  .profile-card.wait { border-left:3px solid var(--sf-wait); }
+  .profile-card.bad { border-left:3px solid var(--sf-bad); }
+  .comparison-grid { display:grid; grid-template-columns:repeat(auto-fit,minmax(18rem,1fr)); gap:.65rem; margin-top:1rem; }
+  .comparison-card.ok { border-top:3px solid var(--sf-ok); }
+  .comparison-card.wait { border-top:3px solid var(--sf-wait); }
+  .comparison-card.bad { border-top:3px solid var(--sf-bad); }
+  .comparison-metric { display:flex; align-items:baseline; gap:.45rem; margin-top:.75rem; }
+  .comparison-metric strong { font-size:1.45rem; }
+  .comparison-metric span { color:var(--sf-dim); }
+  .compact-form { margin:.75rem 0; }
+  .inline-form { display:flex; gap:.65rem; align-items:end; margin:.8rem 0; }
+  .inline-form .field { min-width:18rem; }
+  @media(max-width:850px) {
+    .assurance-header { display:grid; }
+    .assurance-summary, .assurance-facts { grid-template-columns:repeat(2,minmax(0,1fr)); }
+  }
   .composition-map { display: flex; align-items: center; gap: .45rem; flex-wrap: wrap; margin-top: 1rem; padding: .75rem; border-radius: var(--sf-radius); background: var(--sf-accent-quiet); }
   .composition-map strong { width: 100%; }
   .composition-map span { display: inline-flex; align-items: center; gap: .3rem; border: var(--sf-border); border-radius: var(--sf-radius); padding: .3rem .55rem; background: var(--vscode-editor-background); }

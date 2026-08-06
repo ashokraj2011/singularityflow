@@ -374,6 +374,11 @@ export interface RepositorySnapshot {
   selectedInitiativeId: string | null;
   initiative: InitiativeSnapshot | null;
   workflow: StoryWorkflow | null;
+  /**
+   * Governed mobile/design evidence joined by the engine from committed Story state. Reading this
+   * never contacts an MCP server; network readiness is an explicit user action in the panel.
+   */
+  visualAssurance?: VisualAssuranceSnapshot | null;
   report?: StoryWorkflowReport | null;
   documents?: StoryArtifact[];
   worldModel?: {
@@ -502,6 +507,71 @@ export interface RepositorySnapshot {
   /** The append-only workflow ledger, which is what makes progress recoverable from Git. */
   ledger?: { enabled?: boolean; config?: { branch?: string } };
   [key: string]: unknown;
+}
+
+export interface VisualEvidenceRecord {
+  id: string;
+  kind: 'tool-call' | 'design-source' | 'visual-artifact' | string;
+  server?: string; tool?: string; phase?: string; targetGeneration?: number;
+  agent?: string; recordedAt?: string;
+  fileKey?: string; fileVersion?: string; fileVersionCreatedAt?: string | null;
+  nodes?: string[]; format?: string;
+  profileId?: string; screenId?: string; stateId?: string;
+  outputSha256?: string;
+  output?: { path?: string; sha256?: string; bytes?: number; mediaType?: string } | null;
+}
+
+export interface VisualComparison {
+  id: string; status: 'pass' | 'warn' | 'fail' | string; disposition?: string;
+  profileId?: string; generatedAt?: string; differingPixels?: number;
+  differingPixelRatio?: number; path?: string;
+  expected?: { recordId?: string | null; path?: string; sha256?: string };
+  actual?: { recordId?: string | null; path?: string; sha256?: string };
+  diffImage?: { path?: string; sha256?: string; bytes?: number } | null;
+}
+
+export interface VisualAssuranceSnapshot {
+  schemaVersion: 1;
+  configured: boolean;
+  workId: string;
+  phase: string | null;
+  itemDirectory: string;
+  policy: {
+    designSources?: Record<string, unknown> | null;
+    verification?: {
+      coverage?: string;
+      profiles?: Array<{ id: string; label?: string; width?: number; height?: number; deviceScaleFactor?: number }>;
+      comparison?: Record<string, unknown>;
+    } | null;
+  };
+  designSources: {
+    approvedSet?: {
+      path?: string; sha256?: string; setSha256?: string; phase?: string; generation?: number;
+      records?: Array<{ recordId: string; fileKey?: string; fileVersion?: string; nodes?: string[]; outputPath?: string; outputSha256?: string }>;
+    } | null;
+    candidates: Array<{ fileKey?: string; approvedVersion?: string; candidateVersion?: string; classification?: string }>;
+    stale: Array<{ fileKey?: string; candidateVersion?: string; classification?: string }>;
+    errors: string[]; warnings: string[]; passes: string[];
+  };
+  inventory?: {
+    path: string; sha256: string; bytes: number;
+    digest: {
+      digestSha256: string; generatedAt?: string;
+      counts: { nodes: number; components: number; componentSets: number; instances: number; nodeTypes?: Record<string, number> };
+      names?: string[]; variantProperties?: string[]; variables?: string[]; styles?: string[];
+    };
+  } | null;
+  evidence: { records: VisualEvidenceRecord[]; errors: string[]; warnings: string[]; passes: string[] };
+  coverage?: {
+    status: string; mode: string; phase: string; generation: number | null;
+    profiles: Array<{ id: string; label?: string; width?: number; height?: number; deviceScaleFactor?: number }>;
+    covered: Array<{ profileId: string; recordId: string; outputSha256?: string; dimensions?: { width: number; height: number } | null }>;
+    uncovered: string[]; stale: string[];
+    duplicates: Array<{ profileId: string; records: string[] }>;
+    warnings: string[]; errors: string[];
+  } | null;
+  comparisons: VisualComparison[];
+  readiness: { status: 'not-configured' | 'blocked' | 'attention' | 'ready'; errors: string[]; warnings: string[]; passes: string[] };
 }
 
 /** The phases in declared order, joined to the state each one is in. */

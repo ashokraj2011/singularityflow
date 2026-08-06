@@ -47,6 +47,8 @@ export const ICON_PATHS = {
   jira: '<rect x="3" y="3" width="18" height="18" rx="3"/><path d="m8 12 2.5 2.5L16 9"/>',
   tracker: '<rect x="3" y="3" width="18" height="18" rx="3"/><path d="m8 12 2.5 2.5L16 9"/>',
   impact: '<circle cx="12" cy="12" r="3"/><circle cx="12" cy="12" r="8"/><path d="M12 1v3M12 20v3M1 12h3M20 12h3"/>',
+  visual: '<rect x="3" y="4" width="18" height="16" rx="2"/><circle cx="9" cy="9" r="2"/><path d="m5 17 4.5-4.5 3 3L15 13l4 4"/>',
+  compare: '<rect x="3" y="4" width="13" height="13" rx="2"/><rect x="8" y="7" width="13" height="13" rx="2"/><path d="M12 7v10"/>',
 
   // Source control
   git: '<circle cx="6" cy="4" r="2"/><circle cx="6" cy="20" r="2"/><circle cx="18" cy="9" r="2"/><path d="M6 6v12M18 11c0 4-3 6-8 7"/>',
@@ -106,6 +108,7 @@ export const TREE_ICONS = {
   help: { id: 'question', color: 'charts.green' }, start: { id: 'play-circle' },
   worldModel: { id: 'globe' }, story: { id: 'git-pull-request' }, initiative: { id: 'milestone' },
   mcp: { id: 'plug' },
+  visual: { id: 'preview', color: 'charts.green' }, compare: { id: 'diff' },
   statusSuccess: { id: 'pass-filled', color: 'testing.iconPassed' },
   statusWaiting: { id: 'clock', color: 'testing.iconQueued' },
   statusWarning: { id: 'warning', color: 'problemsWarningIcon.foreground' },

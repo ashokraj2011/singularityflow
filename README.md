@@ -1361,6 +1361,12 @@ singularity-flow mcp attest figma --confirm figma
 
 VS Code exposes a complete policy editor, joined host status, and the same safe
 scaffold under **Configuration → MCP tools**.
+The **Visual Assurance** dashboard is available from Lifecycle, Inbox, and the
+Configuration Center. It presents approved design-source versions, deterministic
+design inventory, viewport coverage, implementation captures, comparison/diff
+evidence, and MCP provenance in one review surface. Opening or refreshing the
+dashboard performs no network access; network diagnostics, server warm-up, and
+remote evidence capture are separate, explicitly confirmed actions.
 Corporate npm registry, proxy, and CA configuration continue to come from
 `.npmrc`, environment variables, and the host. Durable screenshots or reports can
 be hash-recorded with `singularity-flow mcp record` and are revalidated by the

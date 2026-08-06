@@ -18,6 +18,7 @@ function overview(view: ConfigurationCenterView): string {
     ['instructions', 'agent', 'Agents & delivery', 'Agent routing, prompts, skills, remote templates, generated artifacts, and trust status.'],
     ['people', 'team', 'People & approvals', 'Human identities and the authority groups permitted to approve.'],
     ['mcp', 'mcp', 'MCP tools', 'Host-owned tool servers with governed agent, phase, and tool allowlists.'],
+    ['visual-assurance', 'visual', 'Visual assurance', 'Pinned design sources, viewport coverage, comparison evidence, and readiness.'],
     ['prompt-audit', 'prompt', 'Prompt audit', 'Optional workspace-local capture of composed governed prompts.']
   ];
   return `<section class="plain"><div class="section-heading"><h2>${icon('configuration')}Configuration areas</h2></div>

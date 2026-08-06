@@ -186,6 +186,11 @@
         "icon": "$(pulse)"
       },
       {
+        "command": "singularityFlow.openVisualAssurance",
+        "title": "Singularity Flow: Visual Assurance",
+        "icon": "$(preview)"
+      },
+      {
         "command": "singularityFlow.openConfigurationCenter",
         "title": "Singularity Flow: Configuration Center",
         "icon": "$(settings-gear)"

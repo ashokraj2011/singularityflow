@@ -229,6 +229,17 @@ workTypes:
       staleness: warn
       requireApprovedSet: true
       inventoryDigest: optional
+    verification:
+      coverage: enforce
+      profiles:
+        - { id: phone-390x844, label: Phone 390 × 844, width: 390, height: 844, deviceScaleFactor: 1 }
+        - { id: tablet-834x1194, label: Tablet 834 × 1194, width: 834, height: 1194, deviceScaleFactor: 1 }
+      comparison:
+        mode: warn
+        channelTolerance: 8
+        maxDifferingPixelRatio: 0.02
+        maxDifferingPixels: null
+        maxPixels: 40000000
     documents:
       allowedPhases: [design-intake, design-inventory]
     templateOverrides:

@@ -132,6 +132,46 @@ export function normalizeDesignSourcePolicy(value = null, { phases = [] } = {}) 
   };
 }
 
+export function normalizeVerificationPolicy(value = null, { phases = [] } = {}) {
+  const source = value ?? {};
+  if (!source || typeof source !== 'object' || Array.isArray(source)) throw new SingularityFlowError('verification must be an object.');
+  for (const key of Object.keys(source)) if (!['coverage', 'profiles', 'comparison'].includes(key)) throw new SingularityFlowError(`verification contains unknown field '${key}'.`);
+  const coverage = source.coverage ?? 'warn';
+  if (!['warn', 'enforce'].includes(coverage)) throw new SingularityFlowError('verification.coverage must be warn or enforce.');
+  const profiles = source.profiles ?? [];
+  if (!Array.isArray(profiles)) throw new SingularityFlowError('verification.profiles must be an array.');
+  const seen = new Set();
+  const normalizedProfiles = profiles.map((profile, index) => {
+    const label = `verification.profiles[${index}]`;
+    if (!profile || typeof profile !== 'object' || Array.isArray(profile)) throw new SingularityFlowError(`${label} must be an object.`);
+    for (const key of Object.keys(profile)) if (!['id', 'label', 'width', 'height', 'deviceScaleFactor'].includes(key)) throw new SingularityFlowError(`${label} contains unknown field '${key}'.`);
+    assertId(profile.id, `${label}.id`);
+    if (seen.has(profile.id)) throw new SingularityFlowError(`verification.profiles contains duplicate ID '${profile.id}'.`);
+    seen.add(profile.id);
+    if (typeof profile.label !== 'string' || !profile.label.trim()) throw new SingularityFlowError(`${label}.label must be non-empty.`);
+    for (const dimension of ['width', 'height']) if (!Number.isInteger(profile[dimension]) || profile[dimension] < 1 || profile[dimension] > 10000) throw new SingularityFlowError(`${label}.${dimension} must be an integer from 1 to 10000.`);
+    const scale = Number(profile.deviceScaleFactor);
+    if (!Number.isFinite(scale) || scale <= 0 || scale > 8) throw new SingularityFlowError(`${label}.deviceScaleFactor must be greater than 0 and at most 8.`);
+    return { id: profile.id, label: profile.label.trim(), width: profile.width, height: profile.height, deviceScaleFactor: scale };
+  });
+  if (normalizedProfiles.length && !phases.includes('visual-verification')) throw new SingularityFlowError('verification.profiles require the visual-verification phase.');
+  if (coverage === 'enforce' && !normalizedProfiles.length) throw new SingularityFlowError('verification.coverage enforce requires at least one profile.');
+  const comparison = source.comparison ?? {};
+  if (!comparison || typeof comparison !== 'object' || Array.isArray(comparison)) throw new SingularityFlowError('verification.comparison must be an object.');
+  for (const key of Object.keys(comparison)) if (!['mode', 'channelTolerance', 'maxDifferingPixelRatio', 'maxDifferingPixels', 'maxPixels'].includes(key)) throw new SingularityFlowError(`verification.comparison contains unknown field '${key}'.`);
+  const mode = comparison.mode ?? 'off';
+  if (!['off', 'warn', 'enforce'].includes(mode)) throw new SingularityFlowError('verification.comparison.mode must be off, warn, or enforce.');
+  const channelTolerance = comparison.channelTolerance ?? 0;
+  if (!Number.isInteger(channelTolerance) || channelTolerance < 0 || channelTolerance > 255) throw new SingularityFlowError('verification.comparison.channelTolerance must be an integer from 0 to 255.');
+  const ratio = comparison.maxDifferingPixelRatio ?? null;
+  if (ratio != null && (!Number.isFinite(ratio) || ratio < 0 || ratio > 1)) throw new SingularityFlowError('verification.comparison.maxDifferingPixelRatio must be null or a number from 0 to 1.');
+  const pixels = comparison.maxDifferingPixels ?? null;
+  if (pixels != null && (!Number.isInteger(pixels) || pixels < 0)) throw new SingularityFlowError('verification.comparison.maxDifferingPixels must be null or a non-negative integer.');
+  const maxPixels = comparison.maxPixels ?? 40_000_000;
+  if (!Number.isInteger(maxPixels) || maxPixels < 1 || maxPixels > 100_000_000) throw new SingularityFlowError('verification.comparison.maxPixels must be an integer from 1 to 100000000.');
+  return { coverage, profiles: normalizedProfiles, comparison: { mode, channelTolerance, maxDifferingPixelRatio: ratio, maxDifferingPixels: pixels, maxPixels } };
+}
+
 export function normalizeSessionPolicy(value = {}) {
   if (!value || typeof value !== 'object' || Array.isArray(value)) throw new SingularityFlowError('session must be an object.');
   for (const key of Object.keys(value)) if (!['workItemSelection', 'requireBeforeTools'].includes(key)) throw new SingularityFlowError(`session contains unknown field '${key}'.`);
@@ -233,6 +273,7 @@ export function validateDefinition(definition) {
     for (const phaseId of workType.documents?.allowedPhases ?? []) if (!workType.phases.includes(phaseId)) throw new SingularityFlowError(`Work type '${id}' allows document upload in inactive phase '${phaseId}'.`);
     normalizeSequenceGates(definition.sequenceGates ?? {}, workType.sequenceGates ?? {});
     workType.designSources = normalizeDesignSourcePolicy(workType.designSources, { phases: workType.phases });
+    workType.verification = normalizeVerificationPolicy(workType.verification, { phases: workType.phases });
   }
   for (const [id, phase] of Object.entries(definition.phases)) {
     assertId(id, 'Phase');
@@ -527,6 +568,7 @@ export function resolveWorkType(definition, workTypeId) {
     ledger: normalizeLedgerConfig(definition.ledger ?? {}),
     documents,
     designSources: normalizeDesignSourcePolicy(workType.designSources, { phases: workType.phases }),
+    verification: normalizeVerificationPolicy(workType.verification, { phases: workType.phases }),
     phases
   };
 }
@@ -572,6 +614,7 @@ export async function snapshotResolution(root, definition, resolved) {
     agents,
     mcpServers: structuredClone(definition.mcpServers ?? {}),
     designSources: structuredClone(resolved.designSources ?? null),
+    verification: structuredClone(resolved.verification ?? normalizeVerificationPolicy()),
     templates
   };
 }

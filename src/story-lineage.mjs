@@ -8,6 +8,8 @@ import {
   workflowPublicationBranch, workDir
 } from './state.mjs';
 import { nowIso, run, SingularityFlowError, snapshot, writeJson } from './util.mjs';
+import { evaluateVisualCoverage } from './visual-coverage.mjs';
+import { listVisualComparisons } from './visual-compare.mjs';
 
 function hash(value) {
   return createHash('sha256').update(JSON.stringify(value)).digest('hex');
@@ -124,6 +126,10 @@ export async function createStoryReviewPacket(root, config, workflow, phase) {
       size: item.size ?? null
     });
   }
+  const visualAssurance = phase.id === 'visual-verification' ? {
+    coverage: await evaluateVisualCoverage(root, workflow),
+    comparisons: await listVisualComparisons(root, workflow)
+  } : null;
   const base = {
     schemaVersion: 1,
     workId: workflow.workItem.id,
@@ -143,6 +149,7 @@ export async function createStoryReviewPacket(root, config, workflow, phase) {
     checks: phase.checks ?? [],
     usage: phase.usage ?? [],
     approvals: phase.approvals?.filter((entry) => !entry.invalidatedAt) ?? [],
+    visualAssurance,
     submittedAt: phase.submittedAt ?? nowIso(),
     submittedBy: identity(root),
     status: 'awaiting_review'

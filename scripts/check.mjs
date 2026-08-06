@@ -189,6 +189,9 @@ for (const schemaFile of [
   'schemas/capabilities.schema.json',
   'schemas/mcp-evidence-record.schema.json',
   'schemas/design-source-set.schema.json',
+  'schemas/visual-coverage.schema.json',
+  'schemas/visual-comparison.schema.json',
+  'schemas/design-inventory.schema.json',
   'schemas/design-source-provenance.schema.json',
   'schemas/mcp-readiness-attestation.schema.json',
   'schemas/mcp-preflight.schema.json'

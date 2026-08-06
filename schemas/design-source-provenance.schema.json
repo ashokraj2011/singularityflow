@@ -1,0 +1,17 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "Singularity Flow design-source prompt provenance",
+  "type": "object",
+  "required": ["schemaVersion", "kind", "workId", "phase", "generation", "approvedSet", "records", "verifiedAt"],
+  "properties": {
+    "schemaVersion": { "const": 1 },
+    "kind": { "const": "design-source-provenance" },
+    "workId": { "type": "string", "minLength": 1 },
+    "phase": { "type": "string", "minLength": 1 },
+    "generation": { "type": "integer", "minimum": 1 },
+    "approvedSet": { "type": "object" },
+    "records": { "type": "array" },
+    "verifiedAt": { "type": "string", "format": "date-time" }
+  },
+  "additionalProperties": false
+}

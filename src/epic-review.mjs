@@ -230,10 +230,12 @@ export async function epicReviewDecision(root, initiativeId, storyReference, {
     selectedAgent,
     selected.workflow.workItem.id
   );
+  const workflowBeforeDecision = structuredClone(selected.workflow);
   const outcome = decision === 'approve'
     ? await approvePhase(selected.clone, selected.config, selected.workflow, {
       phaseId: preview.phase,
-      channel
+      channel,
+      persist: false
     })
     : await rejectPhase(selected.clone, selected.config, selected.workflow, {
       phaseId: preview.phase,
@@ -246,7 +248,9 @@ export async function epicReviewDecision(root, initiativeId, storyReference, {
     selected.config,
     selected.workflow,
     { type: decision === 'approve' ? 'phase-approved' : 'phase-rejected', phaseId: preview.phase, payload: { packetSha256 } },
-    `[${selected.workflow.workItem.id}][review:${decision}] ${packetSha256.slice(0, 12)}`
+    `[${selected.workflow.workItem.id}][review:${decision}] ${packetSha256.slice(0, 12)}`,
+    [],
+    { rollbackWorkflow: workflowBeforeDecision }
   );
   const synchronized = await syncInitiativeRepositories(root, initiativeId);
   const refreshed = await loadInitiative(root, initiativeId);

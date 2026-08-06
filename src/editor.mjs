@@ -70,12 +70,31 @@ import {
   buildRepositorySubjectIndex, buildRepositorySubjectIndexFromRefs, resolveContext
 } from './repository-subject-index.mjs';
 import { mcpStatus } from './mcp.mjs';
+import { mcpDoctor } from './mcp-readiness.mjs';
 
 const packageRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 export const REPOSITORY_SKILLS_ROOT = '.github/skills';
 const DEFAULT_WORLD_MODEL_PROMPT = 'singularity/prompts/worldmodel-builder.md';
 const PROMPTS_ROOT = 'singularity/prompts';
 const TEXT_FILE_LIMIT = 10 * 1024 * 1024;
+
+async function mcpConfigurationStatus(root, definition) {
+  const [status, readiness] = await Promise.all([
+    mcpStatus(root, definition),
+    mcpDoctor(root, definition)
+  ]);
+  const readinessById = new Map(readiness.servers.map((server) => [server.id, server]));
+  return {
+    ...status,
+    overallReadiness: readiness.overallReadiness,
+    networkChecked: false,
+    servers: status.servers.map((server) => ({
+      ...server,
+      readiness: readinessById.get(server.id)?.readiness ?? 'needs-host-setup',
+      readinessReasons: readinessById.get(server.id)?.reasons ?? []
+    }))
+  };
+}
 
 async function textFiles(root, relativeRoot, { extensions = null } = {}) {
   const boundary = await secureRepositoryPath(root, relativeRoot, {
@@ -507,7 +526,7 @@ async function fullRepositorySnapshot(root, requestedWorkId = null, requestedIni
       rows: mappingStatus.rows
     },
     agentsLock: { path: AGENT_LOCK_PATH, exists: lockExists, content: lockExists ? await readFile(agentLock.absolute, 'utf8') : '# No remote agents are trusted yet.\n' },
-    mcp: await mcpStatus(root, definition),
+    mcp: await mcpConfigurationStatus(root, definition),
     workItems: items,
     initiatives,
     selectedInitiativeId,
@@ -688,7 +707,7 @@ async function configurationSlice(root) {
         ? await readFile(agentLock.absolute, 'utf8')
         : '# No remote agents are trusted yet.\n'
     },
-    mcp: await mcpStatus(root, definition)
+    mcp: await mcpConfigurationStatus(root, definition)
   };
 }
 

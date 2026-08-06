@@ -179,7 +179,20 @@ for (const entry of extensionDirs) {
   else checked.push(path.relative(root, file));
 }
 
-for (const schemaFile of ['schemas/config.schema.json', 'schemas/workflow.schema.json', 'schemas/workflow-definition.schema.json', 'schemas/agents-lock.schema.json', 'schemas/agent-mappings.schema.json', 'schemas/portfolio.schema.json', 'schemas/capabilities.schema.json']) {
+for (const schemaFile of [
+  'schemas/config.schema.json',
+  'schemas/workflow.schema.json',
+  'schemas/workflow-definition.schema.json',
+  'schemas/agents-lock.schema.json',
+  'schemas/agent-mappings.schema.json',
+  'schemas/portfolio.schema.json',
+  'schemas/capabilities.schema.json',
+  'schemas/mcp-evidence-record.schema.json',
+  'schemas/design-source-set.schema.json',
+  'schemas/design-source-provenance.schema.json',
+  'schemas/mcp-readiness-attestation.schema.json',
+  'schemas/mcp-preflight.schema.json'
+]) {
   JSON.parse(await readFile(path.join(root, schemaFile), 'utf8'));
   checked.push(schemaFile);
 }

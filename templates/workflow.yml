@@ -134,6 +134,17 @@ session:
 # host's MCP UI. Corporate npm registries are honored through normal npm/.npmrc
 # configuration; no registry or credential is stored here.
 mcpServers:
+  figma:
+    label: Figma design context
+    hostReference: figma
+    agents: [product-designer]
+    phases: [design-intake, design-inventory, component-mapping, mobile-spec, visual-verification]
+    tools: [get_metadata, get_design_context, get_screenshot, get_variable_defs, get_code_connect_map]
+    required: false
+    approval: confirm
+    evidence:
+      captureToolCalls: true
+      captureResults: true
   playwright:
     label: Playwright browser automation
     hostReference: playwright
@@ -212,6 +223,12 @@ workTypes:
   figma-mobile:
     label: Figma export to mobile app
     phases: [design-intake, design-inventory, component-mapping, mobile-spec, implementation, visual-verification, conformance]
+    designSources:
+      capturePhase: design-intake
+      consumeIn: [design-inventory, component-mapping, mobile-spec, visual-verification, conformance]
+      staleness: warn
+      requireApprovedSet: true
+      inventoryDigest: optional
     documents:
       allowedPhases: [design-intake, design-inventory]
     templateOverrides:

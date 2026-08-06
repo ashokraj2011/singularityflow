@@ -1,0 +1,36 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "Singularity Flow machine-local MCP readiness attestation",
+  "type": "object",
+  "required": [
+    "schemaVersion",
+    "serverId",
+    "hostReference",
+    "hostSource",
+    "hostEntrySha256",
+    "policySha256",
+    "confirmedAt",
+    "confirmedBy",
+    "confirmation"
+  ],
+  "properties": {
+    "schemaVersion": { "const": 1 },
+    "serverId": { "type": "string", "pattern": "^[a-z0-9]+(?:-[a-z0-9]+)*$" },
+    "hostReference": { "type": "string", "pattern": "^[a-z0-9]+(?:-[a-z0-9]+)*$" },
+    "hostSource": { "enum": ["vscode-workspace", "copilot-workspace", "copilot-user"] },
+    "hostEntrySha256": { "type": "string", "pattern": "^[0-9a-f]{64}$" },
+    "policySha256": { "type": "string", "pattern": "^[0-9a-f]{64}$" },
+    "confirmedAt": { "type": "string", "format": "date-time" },
+    "confirmedBy": {
+      "type": "object",
+      "properties": {
+        "name": { "type": ["string", "null"] },
+        "email": { "type": ["string", "null"] }
+      },
+      "required": ["name", "email"],
+      "additionalProperties": false
+    },
+    "confirmation": { "const": "The server was started, trusted, and authenticated in the host." }
+  },
+  "additionalProperties": false
+}

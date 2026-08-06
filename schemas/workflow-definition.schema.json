@@ -149,7 +149,8 @@
               }
             }
           },
-          "sequenceGates": { "$ref": "#/$defs/sequenceGates" }
+          "sequenceGates": { "$ref": "#/$defs/sequenceGates" },
+          "designSources": { "$ref": "#/$defs/designSourcePolicy" }
         },
         "additionalProperties": true
       }
@@ -230,6 +231,17 @@
   },
   "additionalProperties": false,
   "$defs": {
+    "designSourcePolicy": {
+      "type": "object",
+      "properties": {
+        "capturePhase": { "type": "string", "pattern": "^[a-z0-9]+(?:-[a-z0-9]+)*$" },
+        "consumeIn": { "type": "array", "uniqueItems": true, "items": { "type": "string", "pattern": "^[a-z0-9]+(?:-[a-z0-9]+)*$" } },
+        "staleness": { "enum": ["ignore", "warn", "fail"] },
+        "requireApprovedSet": { "type": "boolean" },
+        "inventoryDigest": { "enum": ["off", "optional", "required"] }
+      },
+      "additionalProperties": false
+    },
     "mcpServer": {
       "type": "object",
       "properties": {

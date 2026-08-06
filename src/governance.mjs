@@ -8,6 +8,7 @@ import { matchApprovalAuthority } from './approval-authority.mjs';
 import { verifyGroundingRecord } from './grounding.mjs';
 import { verifyPhaseTelemetry } from './telemetry.mjs';
 import { verifyMcpEvidence } from './mcp.mjs';
+import { verifyDesignSourceLifecycle } from './design-sources.mjs';
 
 function trackedFiles(root) { return run('git', ['ls-files', '-z'], { cwd: root }).stdout.split('\0').filter(Boolean); }
 function ids(text, pattern) { return [...new Set([...text.matchAll(pattern)].map((match) => match[0]))]; }
@@ -127,6 +128,13 @@ export async function runGovernanceGate(root, config, workflow, { terminal = fal
     itemDirectory: workDir(root, config, workflow.workItem.id)
   });
   errors.push(...mcpIntegrity.errors); warnings.push(...mcpIntegrity.warnings); passes.push(...mcpIntegrity.passes);
+
+  const designSourceIntegrity = await verifyDesignSourceLifecycle(root, workflow, {
+    itemDirectory: workDir(root, config, workflow.workItem.id)
+  });
+  errors.push(...designSourceIntegrity.errors);
+  warnings.push(...designSourceIntegrity.warnings);
+  passes.push(...designSourceIntegrity.passes);
 
   if (config.governance?.requireAcceptanceCriteriaTags) {
     const acIds = new Set();

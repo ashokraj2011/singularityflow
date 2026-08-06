@@ -54,8 +54,33 @@ test('starter YAML resolves feature, bugfix, and Figma-mobile templates and agen
   assert.deepEqual(figmaMobile.phases.find((item) => item.id === 'implementation').inputs.map((item) => item.phase), ['component-mapping', 'mobile-spec']);
   assert.equal(figmaMobile.phases.find((item) => item.id === 'visual-verification').approval.minimum, 2);
   assert.equal(figmaMobile.phases.find((item) => item.id === 'conformance').approval.minimum, 2);
+  assert.deepEqual(figmaMobile.designSources, {
+    capturePhase: 'design-intake',
+    consumeIn: ['design-inventory', 'component-mapping', 'mobile-spec', 'visual-verification', 'conformance'],
+    staleness: 'warn',
+    requireApprovedSet: true,
+    inventoryDigest: 'optional'
+  });
+  const figmaSnapshot = await snapshotResolution(root, definition, figmaMobile);
+  assert.deepEqual(figmaSnapshot.designSources, figmaMobile.designSources);
   assert.match(await agentPrompt(root, definition, 'product-designer'), /hash-pinned exports/i);
   assert.match(await readFile(path.join(root, 'singularity/templates/figma-mobile/visual-verification.md'), 'utf8'), /Screen comparison/);
+});
+
+test('design-source policy rejects inactive, duplicate, and invalid lifecycle declarations', async () => {
+  const root = await mkdtemp(path.join(os.tmpdir(), 'sflow-design-source-config-'));
+  await initializeDefinition(root);
+  const definition = await loadDefinition(root);
+  definition.workTypes['figma-mobile'].designSources.consumeIn = ['mobile-spec', 'mobile-spec'];
+  assert.throws(() => validateDefinition(definition), /consumeIn must not contain duplicates/);
+  definition.workTypes['figma-mobile'].designSources.consumeIn = ['requirements'];
+  assert.throws(() => validateDefinition(definition), /inactive phase 'requirements'/);
+  definition.workTypes['figma-mobile'].designSources.consumeIn = ['mobile-spec'];
+  definition.workTypes['figma-mobile'].designSources.capturePhase = 'requirements';
+  assert.throws(() => validateDefinition(definition), /capturePhase 'requirements' is not active/);
+  definition.workTypes['figma-mobile'].designSources.capturePhase = 'design-intake';
+  definition.workTypes['figma-mobile'].designSources.staleness = 'sometimes';
+  assert.throws(() => validateDefinition(definition), /staleness must be ignore, warn, or fail/);
 });
 
 test('workflow loading rejects symlinked governance templates instead of reading outside the repository', async () => {

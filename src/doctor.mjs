@@ -10,6 +10,7 @@ import { inspectStatePlanes } from './state-planes.mjs';
 import { run } from './util.mjs';
 import { copilotTelemetryStatus } from './telemetry.mjs';
 import { buildRepositorySubjectIndex, resolveContext } from './repository-subject-index.mjs';
+import { mcpDoctor } from './mcp-readiness.mjs';
 
 function check(id, status, message, fix = null) { return { id, status, message, fix }; }
 
@@ -42,6 +43,22 @@ export async function doctorSnapshot(root, { workId = null, offline = false } = 
   } catch (error) {
     checks.push(check('configuration', 'fail', error.message, `Repair ${WORKFLOW_PATH} or restore it from version control.`));
     return summarize(root, checks, null, null);
+  }
+  const mcpReadiness = await mcpDoctor(root, definition);
+  for (const server of mcpReadiness.servers) {
+    const status = server.readiness === 'ready'
+      ? 'pass'
+      : server.readiness === 'misconfigured' ? 'fail' : 'warn';
+    checks.push(check(
+      `mcp-${server.id}`,
+      status,
+      `MCP ${server.id}: ${server.readiness}.${server.reasons.length ? ` ${server.reasons.join(' ')}` : ''}`,
+      server.readiness === 'ready'
+        ? null
+        : server.readiness === 'misconfigured'
+          ? `Repair host entry '${server.hostReference}', then run singularity-flow mcp doctor --server ${server.id}.`
+          : `Trust and start '${server.hostReference}' in the host, then run singularity-flow mcp attest ${server.id} --confirm ${server.id}.`
+    ));
   }
   const telemetry = await copilotTelemetryStatus(root);
   checks.push(check(

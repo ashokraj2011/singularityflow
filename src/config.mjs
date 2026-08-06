@@ -104,6 +104,34 @@ export function normalizePhaseInputs(value, label = 'Phase inputs') {
   });
 }
 
+export function normalizeDesignSourcePolicy(value = null, { phases = [] } = {}) {
+  if (value == null) return null;
+  if (!value || typeof value !== 'object' || Array.isArray(value)) throw new SingularityFlowError('designSources must be an object.');
+  for (const key of Object.keys(value)) {
+    if (!['capturePhase', 'consumeIn', 'staleness', 'requireApprovedSet', 'inventoryDigest'].includes(key)) {
+      throw new SingularityFlowError(`designSources contains unknown field '${key}'.`);
+    }
+  }
+  const capturePhase = value.capturePhase ?? 'design-intake';
+  assertId(capturePhase, 'designSources.capturePhase');
+  if (!phases.includes(capturePhase)) throw new SingularityFlowError(`designSources.capturePhase '${capturePhase}' is not active in this work type.`);
+  const consumeIn = value.consumeIn ?? phases.filter((phase) => phase !== capturePhase);
+  if (!Array.isArray(consumeIn) || consumeIn.some((phase) => typeof phase !== 'string')) throw new SingularityFlowError('designSources.consumeIn must be an array of phase IDs.');
+  if (new Set(consumeIn).size !== consumeIn.length) throw new SingularityFlowError('designSources.consumeIn must not contain duplicates.');
+  for (const phase of consumeIn) if (!phases.includes(phase)) throw new SingularityFlowError(`designSources.consumeIn references inactive phase '${phase}'.`);
+  const staleness = value.staleness ?? 'warn';
+  if (!['ignore', 'warn', 'fail'].includes(staleness)) throw new SingularityFlowError('designSources.staleness must be ignore, warn, or fail.');
+  if (value.requireApprovedSet != null && typeof value.requireApprovedSet !== 'boolean') throw new SingularityFlowError('designSources.requireApprovedSet must be boolean.');
+  if (value.inventoryDigest != null && !['off', 'optional', 'required'].includes(value.inventoryDigest)) throw new SingularityFlowError('designSources.inventoryDigest must be off, optional, or required.');
+  return {
+    capturePhase,
+    consumeIn,
+    staleness,
+    requireApprovedSet: value.requireApprovedSet !== false,
+    inventoryDigest: value.inventoryDigest ?? 'optional'
+  };
+}
+
 export function normalizeSessionPolicy(value = {}) {
   if (!value || typeof value !== 'object' || Array.isArray(value)) throw new SingularityFlowError('session must be an object.');
   for (const key of Object.keys(value)) if (!['workItemSelection', 'requireBeforeTools'].includes(key)) throw new SingularityFlowError(`session contains unknown field '${key}'.`);
@@ -204,6 +232,7 @@ export function validateDefinition(definition) {
     for (const phaseId of Object.keys(workType.phaseOverrides ?? {})) if (!workType.phases.includes(phaseId)) throw new SingularityFlowError(`Work type '${id}' has an override for inactive phase '${phaseId}'.`);
     for (const phaseId of workType.documents?.allowedPhases ?? []) if (!workType.phases.includes(phaseId)) throw new SingularityFlowError(`Work type '${id}' allows document upload in inactive phase '${phaseId}'.`);
     normalizeSequenceGates(definition.sequenceGates ?? {}, workType.sequenceGates ?? {});
+    workType.designSources = normalizeDesignSourcePolicy(workType.designSources, { phases: workType.phases });
   }
   for (const [id, phase] of Object.entries(definition.phases)) {
     assertId(id, 'Phase');
@@ -497,6 +526,7 @@ export function resolveWorkType(definition, workTypeId) {
     contextPolicy,
     ledger: normalizeLedgerConfig(definition.ledger ?? {}),
     documents,
+    designSources: normalizeDesignSourcePolicy(workType.designSources, { phases: workType.phases }),
     phases
   };
 }
@@ -541,6 +571,7 @@ export async function snapshotResolution(root, definition, resolved) {
     ledger: structuredClone(resolved.ledger ?? normalizeLedgerConfig(definition.ledger ?? {})),
     agents,
     mcpServers: structuredClone(definition.mcpServers ?? {}),
+    designSources: structuredClone(resolved.designSources ?? null),
     templates
   };
 }

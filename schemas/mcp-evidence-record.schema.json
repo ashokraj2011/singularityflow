@@ -1,0 +1,41 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "Singularity Flow MCP evidence record",
+  "type": "object",
+  "required": ["schemaVersion", "id", "kind", "workId", "phase", "targetGeneration", "server", "tool", "recordedAt"],
+  "properties": {
+    "schemaVersion": { "const": 2 },
+    "id": { "type": "string", "pattern": "^mcp-[0-9a-f-]+$" },
+    "kind": { "enum": ["tool-call", "design-source", "visual-artifact"] },
+    "workId": { "type": "string", "minLength": 1 },
+    "phase": { "type": "string", "minLength": 1 },
+    "targetGeneration": { "type": "integer", "minimum": 1 },
+    "server": { "type": "string", "minLength": 1 },
+    "hostReference": { "type": "string", "minLength": 1 },
+    "tool": { "type": "string", "minLength": 1 },
+    "agent": { "type": ["string", "null"] },
+    "actor": { "type": ["object", "null"] },
+    "recordedAt": { "type": "string", "format": "date-time" },
+    "captureSource": { "const": "declared-by-agent" },
+    "note": { "type": ["string", "null"] },
+    "output": {
+      "type": ["object", "null"],
+      "properties": {
+        "path": { "type": "string", "minLength": 1 },
+        "sha256": { "type": "string", "pattern": "^[0-9a-f]{64}$" },
+        "bytes": { "type": "integer", "minimum": 0 },
+        "mediaType": { "type": "string", "minLength": 1 },
+        "sourceDisposition": { "const": "local-copy" }
+      },
+      "required": ["path", "sha256", "bytes", "mediaType", "sourceDisposition"],
+      "additionalProperties": false
+    },
+    "fileKey": { "type": "string", "minLength": 1 },
+    "fileVersion": { "type": "string", "minLength": 1 },
+    "fileVersionCreatedAt": { "type": ["string", "null"], "format": "date-time" },
+    "nodes": { "type": "array", "uniqueItems": true, "items": { "type": "string", "pattern": "^[0-9]+:[0-9]+$" } },
+    "format": { "enum": ["figma-mcp-metadata-xml", "figma-rest-file-json", "sflow-design-nodes-v1"] },
+    "outputSha256": { "type": "string", "pattern": "^[0-9a-f]{64}$" }
+  },
+  "additionalProperties": true
+}

@@ -1752,22 +1752,35 @@ namespace. Both checks must permit a required server.
 
 ```bash
 singularity-flow mcp scaffold playwright
+singularity-flow mcp scaffold figma
 singularity-flow mcp status
 singularity-flow mcp doctor
+singularity-flow mcp attest figma --confirm figma
 singularity-flow mcp record playwright --tool browser_snapshot --phase verification
+singularity-flow mcp record figma --kind design-source --tool get_metadata \
+  --phase design-intake --output figma-metadata.xml \
+  --file-key checkout --file-version v17 --node 1:3
 ```
 
-The scaffold creates `.vscode/mcp.json` with `@playwright/mcp@latest` and refuses
-to overwrite existing host configuration. It inherits the corporate npm registry,
-proxy, CA, and authentication configuration; no secret is stored in workflow YAML.
+Scaffolding merges only the requested entry into `.vscode/mcp.json`, preserves
+unrelated servers, and requires `--replace-server` when the same server name differs.
+Playwright uses a release-managed exact package version rather than `latest`.
+It inherits the corporate npm registry, proxy, CA, and authentication configuration;
+no secret is stored in workflow YAML.
 The VS Code extension exposes a full governed policy editor, host-readiness status,
 and the same safe scaffold under **Configuration → MCP tools**. Human Git identities
 and approval groups have their own **People & approvals** screen; they are never
 treated as AI agents. See [docs/CONFIGURATION-CENTER.md](docs/CONFIGURATION-CENTER.md).
 `/sf-mcp` provides the Copilot command surface.
 
-When an MCP result matters to a decision, store it below the active work item and
-pass `--output`. Flow records and later verifies its size and SHA-256. This is a
+`mcp doctor` is offline and read-only. It reports `needs-host-setup` until the user
+reviews, trusts, starts, and authenticates the server in the host and records that
+fact with `mcp attest`. The receipt lives under `.git/singularity-flow/mcp/readiness/`
+and becomes stale when the host entry or governed policy changes. It is an
+attestation, not proof of live connectivity.
+
+When an MCP result matters to a decision, pass `--output`. Flow copies it into the
+active work item's managed MCP context and later verifies its size and SHA-256. This is a
 declared provenance record: Flow cannot intercept every host MCP call and does not
 claim that it can. See [docs/MCP-INTEGRATION.md](docs/MCP-INTEGRATION.md).
 
@@ -2113,7 +2126,7 @@ singularity-flow agents sync <PACK>
 singularity-flow agents status [PACK]
 singularity-flow agents refresh-output <RESOURCE-ID> [--replace]
 singularity-flow mcp list|status|doctor [--json]
-singularity-flow mcp scaffold playwright [--replace]
+singularity-flow mcp scaffold playwright|figma [--local] [--replace-server]
 singularity-flow mcp record <SERVER> --tool TOOL [--phase PHASE] [--output PATH] [--note TEXT]
 singularity-flow status [WORK-ID] [--json]
 singularity-flow progress [WORK-ID] [--json]

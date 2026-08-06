@@ -76,7 +76,11 @@ import { guideText, phaseNeedsGeneration, workflowGuide } from './guide.mjs';
 import { nextStepsSnapshot, nextStepsText } from './nextsteps.mjs';
 import { loadHelpDocument } from './help.mjs';
 import { agentMappingStatus, agentStatus, discoverAgents, lockAgent, prepareRemoteOutputs, remoteOutputConflicts, syncAgent } from './agents.mjs';
-import { mcpStatus, recordMcpEvidence, scaffoldPlaywrightMcp } from './mcp.mjs';
+import {
+  attestMcpHost, mcpDoctor, mcpStatus, recordMcpEvidence, scaffoldFigmaMcp,
+  scaffoldPlaywrightMcp
+} from './mcp.mjs';
+import { approvedDesignSourceBinding, verifyDesignSourceLifecycle } from './design-sources.mjs';
 import {
   bootstrapWorkspacePortfolio,
   deleteConfigurationFile,
@@ -332,8 +336,12 @@ Usage:
   singularity-flow agents status [PACK]
   singularity-flow agents refresh-output <RESOURCE-ID> [--replace]
   singularity-flow mcp list|status|doctor [--json]
-  singularity-flow mcp scaffold playwright [--replace]
-  singularity-flow mcp record <SERVER> --tool TOOL [--phase PHASE] [--output PATH] [--note TEXT]
+  singularity-flow mcp scaffold playwright|figma [--local] [--replace-server]
+  singularity-flow mcp doctor [--server ID] [--json]
+  singularity-flow mcp attest <SERVER> --confirm <SERVER>
+  singularity-flow mcp record <SERVER> --tool TOOL [--kind tool-call|design-source|visual-artifact]
+    [--phase PHASE] [--output PATH] [--file-key KEY] [--file-version VERSION] [--node NODE] [--note TEXT]
+  singularity-flow mcp design-sources status [--json]
   singularity-flow documents list [WORK-ID] [--json]
   singularity-flow documents view <DOCUMENT-ID|PATH> [--work-id ID] [--json]
   singularity-flow documents preview <DOCUMENT-ID|PATH> [--work-id ID] [--json]
@@ -1534,13 +1542,42 @@ async function mcpCommand(positionals, options) {
   const root = repoRoot();
   if (subcommand === 'scaffold') {
     const server = requirePositional(positionals, 2, 'MCP server');
-    if (server !== 'playwright') throw new SingularityFlowError(`No MCP scaffold is bundled for '${server}'. Supported: playwright.`);
-    const result = await scaffoldPlaywrightMcp(root, { replace: optionBoolean(options, 'replace') });
-    console.log(`Created ${result.path} (${result.sha256.slice(0, 12)}). Review and commit it, then trust/start the server from VS Code or Copilot CLI.`);
+    if (!['playwright', 'figma'].includes(server)) throw new SingularityFlowError(`No MCP scaffold is bundled for '${server}'. Supported: playwright, figma.`);
+    const scaffold = server === 'figma' ? scaffoldFigmaMcp : scaffoldPlaywrightMcp;
+    const result = await scaffold(root, {
+      local: optionBoolean(options, 'local'),
+      replaceServer: optionBoolean(options, 'replace-server') || optionBoolean(options, 'replace')
+    });
+    console.log(`${result.changed ? 'Updated' : 'Verified'} ${result.path} (${result.sha256.slice(0, 12)}). Review and commit it, then trust/start the server from VS Code or Copilot CLI.`);
     return;
   }
   const config = await loadConfig(root);
-  if (['list', 'status', 'doctor'].includes(subcommand)) {
+  if (subcommand === 'attest') {
+    const server = requirePositional(positionals, 2, 'MCP server');
+    const receipt = await attestMcpHost(root, config, server, { confirmation: optionString(options, 'confirm') });
+    console.log(`Attested MCP host readiness for ${server} at ${receipt.path}. This machine-local receipt is invalidated when host or policy configuration changes.`);
+    return;
+  }
+  if (subcommand === 'doctor') {
+    const result = await mcpDoctor(root, config);
+    const selected = optionString(options, 'server');
+    if (selected && !result.servers.some((server) => server.id === selected)) {
+      throw new SingularityFlowError(`Unknown governed MCP server '${selected}'.`, { code: 'MCP_SERVER_UNKNOWN' });
+    }
+    const servers = selected ? result.servers.filter((server) => server.id === selected) : result.servers;
+    const payload = { ...result, servers };
+    if (optionBoolean(options, 'json')) return console.log(JSON.stringify(payload, null, 2));
+    if (!servers.length) console.log('No governed MCP servers are declared in singularity/workflow.yml.');
+    for (const server of servers) {
+      server.reasons.forEach((reason) => console.log(`  ${server.id}: ${reason}`));
+      console.log(`MCP ${server.id}: ${server.readiness}`);
+    }
+    if (servers.some((server) => server.readiness === 'misconfigured')) {
+      throw new SingularityFlowError('MCP diagnostics found configuration errors.', { code: 'MCP_HOST_CONFIG_INVALID' });
+    }
+    return;
+  }
+  if (['list', 'status'].includes(subcommand)) {
     const result = await mcpStatus(root, config);
     if (optionBoolean(options, 'json')) return console.log(JSON.stringify(result, null, 2));
     if (!result.servers.length) console.log('No governed MCP servers are declared in singularity/workflow.yml.');
@@ -1575,10 +1612,36 @@ async function mcpCommand(positionals, options) {
       phase: optionString(options, 'phase'),
       outputPath: optionString(options, 'output'),
       note: optionString(options, 'note'),
+      kind: optionString(options, 'kind', 'tool-call'),
+      fileKey: optionString(options, 'file-key'),
+      fileVersion: optionString(options, 'file-version'),
+      fileVersionCreatedAt: optionString(options, 'file-version-created-at'),
+      nodes: optionStrings(options, 'node'),
+      format: optionString(options, 'format'),
+      profileId: optionString(options, 'profile-id'),
+      screenId: optionString(options, 'screen-id'),
+      stateId: optionString(options, 'state-id'),
       agent: session.agent,
       actor: session.actor
     });
     console.log(`Recorded declared MCP provenance at ${result.file}. It will be committed by the next normal lifecycle publication.`);
+    return;
+  }
+  if (subcommand === 'design-sources') {
+    const action = positionals[2] ?? 'status';
+    if (action !== 'status') throw new SingularityFlowError(`Unknown mcp design-sources action: ${action}`);
+    const workflow = await loadStoryAggregate(root, config);
+    const result = await verifyDesignSourceLifecycle(root, workflow, {
+      itemDirectory: workDir(root, config, workflow.workItem.id)
+    });
+    const payload = { approved: approvedDesignSourceBinding(workflow), ...result };
+    if (optionBoolean(options, 'json')) return console.log(JSON.stringify(payload, null, 2));
+    console.log(payload.approved
+      ? `Approved design-source set: ${payload.approved.setSha256} (${payload.approved.records?.length ?? 0} record(s))`
+      : 'No approved design-source set.');
+    payload.passes.forEach((entry) => console.log(`Pass: ${entry}`));
+    payload.warnings.forEach((entry) => console.warn(`Warning: ${entry}`));
+    if (payload.errors.length) throw new SingularityFlowError(`Design-source diagnostics failed:\n- ${payload.errors.join('\n- ')}`);
     return;
   }
   throw new SingularityFlowError(`Unknown mcp subcommand: ${subcommand}`);
@@ -1664,8 +1727,24 @@ async function phaseCommand(positionals, options) {
   }
   if (subcommand !== 'publish') throw new SingularityFlowError(`Unknown phase subcommand: ${subcommand}`);
   const usageFile = optionString(options, 'usage-json'); const usage = usageFile ? await readJson(usageFile) : null;
-  const phase = await publishGeneration(root, config, workflow, { phaseId: positionals[2], usage });
-  const result = await commitAndPublish(root, config, workflow, { type: 'artifact-generated', phaseId: phase.id, generation: phase.generation }, `[${workflow.workItem.id}][phase:${phase.id}][generated:${phase.generation}] publish artifacts`, phase.artifacts.map((item) => item.path));
+  const phaseId = positionals[2] ?? workflow.currentPhase;
+  const requestedPhase = workflow.phases[phaseId];
+  if (!requestedPhase) throw new SingularityFlowError(`Unknown or unavailable phase '${phaseId ?? ''}'. Provide a phase ID.`);
+  const generation = requestedPhase.generation + 1;
+  let phase = requestedPhase;
+  const result = await commitAndPublish(
+    root,
+    config,
+    workflow,
+    { type: 'artifact-generated', phaseId, generation },
+    `[${workflow.workItem.id}][phase:${phaseId}][generated:${generation}] publish artifacts`,
+    requestedPhase.artifacts.map((item) => item.path),
+    {
+      beforeStateWrite: async () => {
+        phase = await publishGeneration(root, config, workflow, { phaseId, usage, persist: false });
+      }
+    }
+  );
   console.log(`Published ${phase.id} generation ${phase.generation} at ${result.sha.slice(0, 8)}${result.pushed ? ' and pushed' : ''}.`);
   const telemetry = (phase.telemetry ?? []).find((item) => item.generation === phase.generation);
   const generationUsage = (phase.usage ?? []).filter((item) => item.generation === phase.generation);
@@ -1876,12 +1955,32 @@ async function submitCommand(positionals, options) {
     console.log(`Models: ${reconciliation.models.join(', ') || 'unavailable'} | Tokens: ${reconciliation.usage.reduce((sum, item) => sum + (item.totalTokens ?? 0), 0) || 'unavailable'} | Provider cost: ${reconciliation.providerCost == null ? 'unavailable' : `$${reconciliation.providerCost.toFixed(6)}`}`);
     workflow = await loadStoryAggregate(root, config);
   } else if (reconciliation.pending) console.warn(`Telemetry remains pending: ${reconciliation.reason}`);
-  const phase = await submitPhase(root, config, workflow, {
-    phaseId: requestedPhase,
-    runChecks: !optionBoolean(options, 'skip-checks')
-  });
-  const reviewPacket = await createStoryReviewPacket(root, config, workflow, phase);
-  const publication = await commitAndPublish(root, config, workflow, { type: 'approval-requested', phaseId: phase.id, generation: phase.generation }, `[${workflow.workItem.id}][phase:${phase.id}][submit] request approval`, [...phase.artifacts.map((item) => item.path), reviewPacket.path]);
+  const workflowBeforeSubmission = structuredClone(workflow);
+  const phaseId = requestedPhase ?? workflow.currentPhase;
+  const requested = workflow.phases[phaseId];
+  if (!requested) throw new SingularityFlowError(`Unknown or unavailable phase '${phaseId ?? ''}'. Provide a phase ID.`);
+  let phase = requested;
+  let reviewPacket = null;
+  const publication = await commitAndPublish(
+    root,
+    config,
+    workflow,
+    { type: 'approval-requested', phaseId: requested.id, generation: requested.generation },
+    `[${workflow.workItem.id}][phase:${requested.id}][submit] request approval`,
+    requested.artifacts.map((item) => item.path),
+    {
+      rollbackWorkflow: workflowBeforeSubmission,
+      beforeStateWrite: async () => {
+        phase = await submitPhase(root, config, workflow, {
+          phaseId: requested.id,
+          runChecks: !optionBoolean(options, 'skip-checks'),
+          persist: false
+        });
+        reviewPacket = await createStoryReviewPacket(root, config, workflow, phase);
+      }
+    }
+  );
+  if (!reviewPacket) throw new SingularityFlowError('Submission review packet was not created.');
   console.log(`\nSubmitted ${phase.id} phase for approval.`);
   console.log(`Commit: ${publication.sha.slice(0, 8)} — request approval (${workflow.workItem.id})`);
   console.log(`Push: ${publication.pushed ? `${config.git?.remote ?? 'origin'}/${workflowPublicationBranch(root, workflow)}` : 'disabled by git.publish: off'}`);
@@ -2001,12 +2100,22 @@ async function approveCommand(positionals, options) {
   if (selfApproval) console.warn('Warning: this identity generated the phase; approval will be recorded as self-approval.');
   if (receiptToken) await consumeSelectionReceipt(root, receiptToken);
   if (!receipt && !optionBoolean(options, 'yes') && !(await confirm(phase))) throw new SingularityFlowError('Approval cancelled.');
+  const workflowBeforeApproval = structuredClone(workflow);
   const result = await approvePhase(root, config, workflow, {
     phaseId: phase.id,
     channel: process.env.SINGULARITY_FLOW_GITHUB_ACTOR ? 'github-pr-comment' : receipt ? 'copilot-selection-receipt' : 'terminal',
-    actionContext: activeActionContext() ?? receipt?.approvalContext ?? null
+    actionContext: activeActionContext() ?? receipt?.approvalContext ?? null,
+    persist: false
   });
-  const publication = await commitAndPublish(root, config, workflow, { type: 'phase-approved', phaseId: phase.id, generation: phase.generation, actor: result.approval.actor, agent: result.approval.agent, authorityGroup: result.approval.authorityGroup }, `[${workflow.workItem.id}][phase:${phase.id}][approve] ${result.approval.authorityGroup}`, phase.artifacts.map((item) => item.path));
+  const publication = await commitAndPublish(
+    root,
+    config,
+    workflow,
+    { type: 'phase-approved', phaseId: phase.id, generation: phase.generation, actor: result.approval.actor, agent: result.approval.agent, authorityGroup: result.approval.authorityGroup },
+    `[${workflow.workItem.id}][phase:${phase.id}][approve] ${result.approval.authorityGroup}`,
+    phase.artifacts.map((item) => item.path),
+    { rollbackWorkflow: workflowBeforeApproval }
+  );
   console.log(publication.pushed
     ? `Approval decision committed ${publication.sha.slice(0, 8)} and pushed to ${config.git?.remote ?? 'origin'}/${workflowPublicationBranch(root, workflow)}.`
     : `Approval decision committed ${publication.sha.slice(0, 8)} locally; push is disabled by git.publish: off.`);

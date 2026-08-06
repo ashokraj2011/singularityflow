@@ -28,6 +28,7 @@ import { renderCapabilityWorldModelPack } from './capability-context.mjs';
 import { recordPromptAudit } from './prompt-audit.mjs';
 import { normalizeClarificationPolicy, renderClarificationProtocol } from './clarifications.mjs';
 import { generateLightWorldModel } from './worldmodel-light.mjs';
+import { renderDesignSourcePromptContext } from './design-sources.mjs';
 
 const packageRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 const configRelative = 'singularity/worldmodel.json';
@@ -1211,6 +1212,12 @@ async function compose(root, options) {
   );
   const clarification = renderClarificationProtocol(clarificationPolicy, signals.phase);
   const mcpPolicy = renderMcpPromptPolicy(definition, { agent, phase: signals.phase });
+  const designSources = workflow && phase
+    ? await renderDesignSourcePromptContext(root, workflow, phase, {
+      itemDirectory: path.join(root, workItemRoot, workflow.workItem.id),
+      record: !dryRun && !renderOnly
+    })
+    : { markdown: '', files: [], warnings: [] };
   const capability = workflow
     ? await renderCapabilityWorldModelPack(root, workflow.resolution?.capability, {
       views: phase?.worldModel?.views ?? []
@@ -1238,11 +1245,13 @@ async function compose(root, options) {
     : '';
   governed.warnings.forEach((warning) => console.error(`Warning: ${warning}`));
   capability.warnings.forEach((warning) => console.error(`Capability warning: ${warning}`));
+  designSources.warnings.forEach((warning) => console.error(`Design-source warning: ${warning}`));
   const pieces = [
     governed.contract,
     clarification,
     text.trimEnd(),
     mcpPolicy,
+    designSources.markdown,
     requiredText,
     capability.text,
     remote.text,
@@ -1268,7 +1277,8 @@ async function compose(root, options) {
       category: 'capability',
       level: 1,
       reason: `capability ${workflow?.resolution?.capability?.id}`
-    }))
+    })),
+    ...designSources.files
   ]
     .filter((section, index, all) => all.findIndex((candidate) => candidate.path === section.path) === index);
 

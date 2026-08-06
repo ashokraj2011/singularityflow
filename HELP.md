@@ -1759,8 +1759,11 @@ singularity-flow mcp record playwright --tool browser_snapshot --phase verificat
 The scaffold creates `.vscode/mcp.json` with `@playwright/mcp@latest` and refuses
 to overwrite existing host configuration. It inherits the corporate npm registry,
 proxy, CA, and authentication configuration; no secret is stored in workflow YAML.
-The VS Code extension exposes the same operations under **Configuration → MCP
-tools**. `/sf-mcp` provides the Copilot command surface.
+The VS Code extension exposes a full governed policy editor, host-readiness status,
+and the same safe scaffold under **Configuration → MCP tools**. Human Git identities
+and approval groups have their own **People & approvals** screen; they are never
+treated as AI agents. See [docs/CONFIGURATION-CENTER.md](docs/CONFIGURATION-CENTER.md).
+`/sf-mcp` provides the Copilot command surface.
 
 When an MCP result matters to a decision, store it below the active work item and
 pass `--output`. Flow records and later verifies its size and SHA-256. This is a

@@ -186,6 +186,16 @@
         "icon": "$(pulse)"
       },
       {
+        "command": "singularityFlow.openConfigurationCenter",
+        "title": "Singularity Flow: Configuration Center",
+        "icon": "$(settings-gear)"
+      },
+      {
+        "command": "singularityFlow.configurePeople",
+        "title": "Singularity Flow: People & Approval Authorities",
+        "icon": "$(organization)"
+      },
+      {
         "command": "singularityFlow.openDesigner",
         "title": "Singularity Flow: Workflow Designer",
         "icon": "$(symbol-structure)"

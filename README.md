@@ -629,6 +629,14 @@ normal build and installation steps begin.
 
 ## Configuration
 
+In VS Code, open **Configuration → Open Configuration Center** for the guided
+overview. **People & approvals** manages real human Git identities and authority
+groups; **MCP tools** manages agent/phase/tool policy and reports whether the
+matching VS Code or Copilot host server is configured. These are deliberately
+separate from governed AI agents. All visual saves are validated by the CLI and
+preserve unrelated YAML content. See
+[`docs/CONFIGURATION-CENTER.md`](docs/CONFIGURATION-CENTER.md).
+
 `singularity/workflow.yml` is the definition for new work items. It contains:
 
 - `workTypes`: profile-specific phase sequences, template overrides, and optional `phaseOverrides` for checks, world-model, comparison, artifact, input, and approval policy.
@@ -1345,7 +1353,8 @@ singularity-flow mcp status
 singularity-flow mcp doctor
 ```
 
-VS Code exposes the same status and scaffold under **Configuration → MCP tools**.
+VS Code exposes a complete policy editor, joined host status, and the same safe
+scaffold under **Configuration → MCP tools**.
 Corporate npm registry, proxy, and CA configuration continue to come from
 `.npmrc`, environment variables, and the host. Durable screenshots or reports can
 be hash-recorded with `singularity-flow mcp record` and are revalidated by the

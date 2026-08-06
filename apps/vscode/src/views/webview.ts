@@ -255,6 +255,38 @@ export const STYLE = `
   .choice-detail.phases { margin-top: .25rem; }
   label { display: inline-flex; align-items: center; gap: .5rem; }
 
+  /* The Configuration Center is deliberately denser than a wizard: it is a control plane that
+     people revisit, so related settings stay visible without turning the page into raw YAML. */
+  .tabs { display: flex; gap: .25rem; margin: 1rem 0; border-bottom: var(--sf-border); }
+  button.tab { min-height: 2.25rem; padding: .4rem .75rem; border-radius: var(--sf-radius) var(--sf-radius) 0 0; background: transparent; color: var(--sf-dim); border-bottom: 2px solid transparent; box-shadow: none; }
+  button.tab:hover { background: var(--sf-accent-quiet); color: var(--vscode-foreground); box-shadow: none; }
+  button.tab.active { color: var(--sf-accent); border-bottom-color: var(--sf-accent); }
+  .configuration-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(16rem, 1fr)); gap: .65rem; margin: .7rem 0 1rem; }
+  button.configuration-card { display: grid; grid-template-columns: 1.5rem 1fr; grid-template-rows: auto auto; align-items: start; gap: .15rem .55rem; padding: .85rem; text-align: left; color: var(--vscode-foreground); background: var(--sf-surface); }
+  button.configuration-card .ico { grid-row: 1 / span 2; color: var(--sf-accent); }
+  button.configuration-card strong { font-size: .92rem; }
+  button.configuration-card span:not(.ico) { color: var(--sf-dim); font-size: .78rem; font-weight: 400; }
+  .configuration-list { display: grid; gap: .4rem; margin: .7rem 0; }
+  button.configuration-row { display: grid; grid-template-columns: 1.4rem minmax(10rem, .55fr) 1fr; gap: .55rem; justify-content: start; text-align: left; color: var(--vscode-foreground); background: var(--sf-surface); }
+  button.configuration-row small { color: var(--sf-dim); font-weight: 400; }
+  .notice { border: var(--sf-border); border-left: 3px solid var(--sf-wait); border-radius: var(--sf-radius); padding: .55rem .75rem; margin: .7rem 0; }
+  .notice p { margin: .15rem 0; }
+  .notice.ok { border-left-color: var(--sf-ok); }
+  .notice.error { border-left-color: var(--sf-bad); }
+  .editor-card .form-grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: .75rem; }
+  .editor-card label.stack, .editor-card .form-grid label { display: grid; align-items: start; gap: .25rem; }
+  .editor-card label.span-2 { grid-column: 1 / -1; }
+  .editor-card input, .editor-card select, .editor-card textarea { width: 100%; }
+  .editor-card small { color: var(--sf-dim); }
+  .check-grid { display: flex; flex-wrap: wrap; gap: .55rem 1rem; margin: .7rem 0; }
+  label.check { display: flex; align-items: center; gap: .45rem; }
+  @media (max-width: 44rem) {
+    .editor-card .form-grid { grid-template-columns: 1fr; }
+    .editor-card label.span-2 { grid-column: auto; }
+    button.configuration-row { grid-template-columns: 1.4rem 1fr; }
+    button.configuration-row small { grid-column: 2; }
+  }
+
   /* Forms use a quiet two-column rhythm rather than prose paragraphs containing unrelated controls.
      Stacked labels keep field names and guidance attached at every editor width. */
   .editor-card {

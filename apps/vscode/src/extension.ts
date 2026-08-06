@@ -29,6 +29,7 @@ import { DashboardPanel } from './views/dashboard.ts';
 import { DesignerPanel, type DesignerMessage } from './views/designer.ts';
 import { InstructionDesignerPanel } from './views/instruction-designer.ts';
 import { PromptAuditPanel } from './views/prompt-audit.ts';
+import { SpecificationTracePanel } from './views/specification-trace.ts';
 import { VisualAssurancePanel } from './views/visual-assurance.ts';
 import { ConfigurationCenterPanel, type ConfigurationCenterMessage } from './views/configuration-center.ts';
 import { HelpPanel } from './views/help.ts';
@@ -217,7 +218,8 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
     'singularityFlow.approve', 'singularityFlow.openJourney', 'singularityFlow.openReconciliation',
     'singularityFlow.showImpact', 'singularityFlow.addCapability', 'singularityFlow.editCapability',
     'singularityFlow.openDashboard', 'singularityFlow.openDesigner',
-    'singularityFlow.openInstructionDesigner', 'singularityFlow.openPromptAudit', 'singularityFlow.openCopilot',
+    'singularityFlow.openInstructionDesigner', 'singularityFlow.openPromptAudit', 'singularityFlow.openSpecificationTrace',
+    'singularityFlow.inspectCompositionCache', 'singularityFlow.checkLedgerDeployment', 'singularityFlow.openCopilot',
     'singularityFlow.openVisualAssurance',
     'singularityFlow.openConfigurationCenter', 'singularityFlow.configurePeople', 'singularityFlow.configureMcp',
     'singularityFlow.reopenCompleted', 'singularityFlow.cancelWork'
@@ -1545,6 +1547,16 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
     'singularityFlow.configurePeople': () => openConfigurationCenter('people'),
     'singularityFlow.configureMcp': () => openConfigurationCenter('mcp'),
     'singularityFlow.openPromptAudit': () => PromptAuditPanel.show(context, client),
+    'singularityFlow.openSpecificationTrace': () => SpecificationTracePanel.show(context, client),
+    'singularityFlow.inspectCompositionCache': async () => {
+      const status = await client.run<{ entries: number; bytes: number }>(['wm', 'cache', 'status', '--json']);
+      void vscode.window.showInformationMessage(`Composition cache: ${status.entries} exact prompt(s), ${status.bytes.toLocaleString()} bytes.`);
+    },
+    'singularityFlow.checkLedgerDeployment': async () => {
+      const result = await client.run<{ valid: boolean; checks: Array<{ status: string }> }>(['ledger', 'deployment-check', '--offline', '--json']);
+      const failed = result.checks.filter((check) => check.status === 'fail').length;
+      void vscode.window.showInformationMessage(result.valid ? 'Ledger deployment checks passed.' : `Ledger deployment needs attention: ${failed} failed check(s).`);
+    },
     'singularityFlow.openVisualAssurance': () => VisualAssurancePanel.show(context, store, client),
     'singularityFlow.openCopilot': async () => {
       try {

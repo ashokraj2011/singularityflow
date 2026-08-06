@@ -82,6 +82,17 @@ tokens:
   # pricing:
   #   provider-model-name: { input: 3, output: 15, cachedInput: 0.3 }
 
+# Stable clause anchors such as [APP:REQ-001] are indexed at publication time.
+# Recording is non-blocking for new repositories; switch mode/coverage to enforce
+# once existing specification templates and claim maps have been adopted.
+spec:
+  mode: record
+  coverage: record
+  acceptance: presence
+  compositionCache: local
+  testCommands: {}
+  excludes: []
+
 documents:
   allowedPhases: [intake, requirements, design, implementation-spec, reproduction, fix-design, fix-spec]
   maxFileBytes: 26214400

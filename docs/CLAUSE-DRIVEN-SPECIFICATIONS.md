@@ -1,10 +1,27 @@
 # Clause-driven specifications
 
-- Status: approved for phased implementation
+- Status: approved; deterministic foundation implemented
 - Decision date: 2026-08-05
 - Decision owner: Singularity Flow maintainers
 - Baseline: `main@56c2511`
 - Normative language follows RFC-style uppercase key words inside anchored clauses.
+
+## Implementation status
+
+The shipped foundation recognizes stable three-digit `REQ`, `BEH`, `IFC`, `AC`, and
+`CON` anchors; rejects duplicates, missing dependencies, and dependency cycles;
+writes content-bound indexes and planned/observed claim maps; calculates coverage;
+runs only configured argv-based acceptance commands; supports clause-selected phase
+inputs and clause-scoped change requests; validates the records in governance; and
+shows the trace in both the CLI and VS Code. Existing repositories remain inert when
+`spec.mode` is absent or `off`.
+
+The following parts of this approved architecture remain phased follow-up work and
+must not be inferred from the foundation: fenced `clause` YAML metadata, automatic
+namespace allocation/withdrawal, full Markdown block/end-line parsing, test-first
+red/green adapters, commit-trailer reconciliation, Initiative indexes, and
+dependency-cone selective regeneration. Exact phase-bundle approval remains the
+only lifecycle approval authority.
 
 ## Decision
 

@@ -33,6 +33,7 @@ is not part of the current product.
 | Which state plane owns each fact | [State authority](STATE-AUTHORITY.md) |
 | Approved clause-driven specification architecture | [Clause-driven specifications](CLAUSE-DRIVEN-SPECIFICATIONS.md) |
 | Capability hierarchy and optional proof ledger | [Capability ledger](../CAPABILITY-LEDGER.md) |
+| Validate an orphan-ledger deployment and trust tier | [Ledger deployment validation](LEDGER-DEPLOYMENT.md) |
 | Epic/Initiative orchestration across repositories | [Initiative orchestration](../INITIATIVE-ORCHESTRATION.md) |
 | Native Copilot handoff | [Native Copilot](../NATIVE-COPILOT.md) |
 | Connect governed agents to MCP tools such as Playwright | [Governed MCP tools](MCP-INTEGRATION.md) |

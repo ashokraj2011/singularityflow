@@ -21,6 +21,7 @@ import {
   run,
   snapshot,
   table,
+  writeJson,
   writeText
 } from './util.mjs';
 import { add, assertClean, branch, changes, checkout, commit, fastForwardTo, fetchOrigin, fetchRemote, fileAtRef, gitDir, hasUpstream, head, identity, localBranches, pullFastForward, refHead, remoteBranches, repoRoot } from './git.mjs';
@@ -189,6 +190,7 @@ import {
 import {
   appendLedgerIntent, archiveLedger, createLedgerIntent, initializeLedger, ledgerDoctor, ledgerLog, ledgerShow, ledgerStatus, reconcileLedger, verifyLedger
 } from './ledger.mjs';
+import { validateLedgerDeployment } from './ledger-deployment.mjs';
 import {
   CAPABILITY_KINDS, CAPABILITY_TYPES,
   CAPABILITIES_PATH, capabilityDeliveries, capabilityForRepository, capabilityTree, editCapability,
@@ -222,6 +224,10 @@ import { consumeActionAuthorization, issueActionAuthorization } from './action-a
 import { refreshBranch } from './branch-refresh.mjs';
 import { buildStoryStack, publishedStackForStory, syncStoryStack } from './story-stack.mjs';
 import { analyzeRegression, regressionReportMarkdown } from './regression-analysis.mjs';
+import {
+  buildSpecIndex, changedRepositoryPaths, evaluateSpecAcceptance, evaluateSpecCoverage, loadSpecRecords,
+  normalizeClaimMap, readStructuredFile, runSpecAcceptance, traceClause, traceCsv
+} from './specifications.mjs';
 
 const VERSION = '0.9.0';
 
@@ -300,6 +306,7 @@ Usage:
   singularity-flow ledger verify [--offline] [--json]
   singularity-flow ledger reconcile [WORK-ID] [--json]
   singularity-flow ledger archive [--out FILE] [--sign] [--json]
+  singularity-flow ledger deployment-check [--offline] [--record] [--confirm-protected] [--confirm-push-policy] [--confirm-pin-retention] [--json]
   singularity-flow capabilities list [--json]
   singularity-flow capabilities show <ID> [--json]
   singularity-flow capabilities doctor [ID] [--offline] [--json]
@@ -333,6 +340,11 @@ Usage:
   singularity-flow watch [WORK-ID] [--once] [--fetch] [--interval SECONDS] [--json]
   singularity-flow recover [WORK-ID] [--fetch] [--apply] [--json]
   singularity-flow inputs [PHASE] [--dry-run]
+  singularity-flow spec index [ARTIFACT] [--phase PHASE] [--work-id ID] [--dry-run] [--json]
+  singularity-flow spec claims planned|observed --file JSON_OR_YAML [--phase PHASE] [--json]
+  singularity-flow spec coverage [--base REF] [--target REF] [--json]
+  singularity-flow spec acceptance [--command ID]... [--phase PHASE] [--dry-run] [--json]
+  singularity-flow spec trace [CLAUSE-ID] [--format human|json|csv]
   singularity-flow agents list
   singularity-flow agents mappings
   singularity-flow agents lock <PACK> [--update]
@@ -362,7 +374,7 @@ Usage:
   singularity-flow artifact scan [--phase PHASE]
   singularity-flow submit [PHASE] [--phase PHASE] [--skip-checks]
   singularity-flow approve [PHASE] [--work-id WORK-ID] [--fetch] [--phase PHASE] [--yes]
-  singularity-flow reject [PHASE] [--work-id WORK-ID] [--fetch] --reason TEXT [--to PHASE]
+  singularity-flow reject [PHASE] [--work-id WORK-ID] [--fetch] --reason TEXT [--to PHASE] [--clause ID]...
   singularity-flow reopen [WORK-ID] [--fetch] --reason TEXT --to PHASE
   singularity-flow cancel [WORK-ID] [--fetch] --reason TEXT --confirm WORK-ID
   singularity-flow sync
@@ -377,6 +389,7 @@ Usage:
   singularity-flow wm inject [same options]              Compatibility alias for wm compose
   singularity-flow wm check [--branch BRANCH] [--remote REMOTE]
   singularity-flow wm cleanup [--force] [--json]
+  singularity-flow wm cache status|clear [--json]
   singularity-flow jira status [--json]
   singularity-flow jira doctor [--json]
   singularity-flow jira assigned [--project KEY] [--type Story] [--limit 25] [--json]
@@ -1472,6 +1485,120 @@ async function inputsCommand(positionals, options) {
   if (!dryRun && result.records.length) console.log(`Recorded generation ${result.generation} inputs and rendered the managed artifact block.`);
 }
 
+async function specCommand(positionals, options) {
+  const root = repoRoot();
+  const config = await loadConfig(root);
+  const workflow = await loadStoryAggregate(root, config, optionString(options, 'work-id'));
+  const itemDirectory = workDir(root, config, workflow.workItem.id);
+  const itemRelative = posix(path.relative(root, itemDirectory));
+  const phaseId = optionString(options, 'phase') ?? workflow.currentPhase;
+  const phase = workflow.phases[phaseId];
+  if (!phase) throw new SingularityFlowError(`Unknown Story phase '${phaseId}'.`);
+  const generation = Math.max(1, Number(phase.generation ?? 0));
+  const policy = workflow.resolution?.spec ?? config.spec;
+  const subcommand = positionals[1] ?? 'trace';
+
+  if (subcommand === 'index') {
+    const supplied = positionals[2];
+    const artifact = supplied
+      ? posix(path.relative(root, path.resolve(root, supplied)))
+      : posix(path.join(itemRelative, phase.requiredArtifact?.path ?? ''));
+    if (!supplied && !phase.requiredArtifact?.path) throw new SingularityFlowError(`Phase ${phase.id} has no specification artifact; provide its repository-relative path.`);
+    const outputPath = posix(path.join(itemRelative, 'context', 'spec-indexes', `${phase.id}-gen${generation}.json`));
+    const index = await buildSpecIndex(root, artifact, {
+      workId: workflow.workItem.id,
+      phase: phase.id,
+      generation,
+      outputPath,
+      policy,
+      write: !optionBoolean(options, 'dry-run')
+    });
+    if (optionBoolean(options, 'json')) return console.log(JSON.stringify(index, null, 2));
+    console.log(`${optionBoolean(options, 'dry-run') ? 'Validated' : 'Indexed'} ${index.clauses.length} clause(s) from ${index.source.path}.`);
+    if (!optionBoolean(options, 'dry-run')) console.log(`Index: ${outputPath} (${index.indexSha256.slice(0, 12)})`);
+    return;
+  }
+
+  if (subcommand === 'claims') {
+    const kind = requirePositional(positionals, 2, 'claim map kind (planned or observed)');
+    const inputFile = optionString(options, 'file');
+    if (!inputFile) throw new SingularityFlowError('Provide --file with a JSON or YAML claim map.');
+    const records = await loadSpecRecords(itemDirectory);
+    const clauseIds = records.indexes.flatMap((index) => (index.clauses ?? []).map((clause) => clause.id));
+    if (!clauseIds.length) throw new SingularityFlowError('No specification index exists. Run singularity-flow spec index first.');
+    const claims = normalizeClaimMap(await readStructuredFile(root, inputFile), { kind, clauseIds, policy });
+    Object.assign(claims, { workId: workflow.workItem.id, phase: phase.id, generation });
+    const relative = posix(path.join(itemRelative, 'context', 'claims', `${phase.id}-gen${generation}-${kind}.json`));
+    await writeJson(path.join(root, relative), claims);
+    if (optionBoolean(options, 'json')) return console.log(JSON.stringify(claims, null, 2));
+    console.log(`Recorded ${Object.keys(claims.claims).length} ${kind} clause claim(s): ${relative}`);
+    return;
+  }
+
+  if (subcommand === 'coverage') {
+    const records = await loadSpecRecords(itemDirectory);
+    const base = optionString(options, 'base') ?? workflow.phases[workflow.phaseOrder[0]]?.sourceCommit ?? null;
+    const target = optionString(options, 'target', 'HEAD');
+    const coverage = evaluateSpecCoverage(records, changedRepositoryPaths(root, { base, target }), policy);
+    if (optionBoolean(options, 'json')) return console.log(JSON.stringify(coverage, null, 2));
+    console.log(`Clause coverage: ${coverage.complete ? 'complete' : coverage.severity} · ${coverage.totals.observed}/${coverage.totals.clauses} observed · ${coverage.totals.changedPaths} changed path(s).`);
+    coverage.unimplemented.forEach((id) => console.log(`  missing ${id}`));
+    coverage.unclaimedChangedPaths.forEach((file) => console.log(`  unclaimed ${file}`));
+    coverage.withdrawnButClaimed.forEach((id) => console.log(`  withdrawn-but-claimed ${id}`));
+    if (coverage.severity === 'error') throw new SingularityFlowError('Clause coverage is incomplete.', { exitCode: 2 });
+    return;
+  }
+
+  if (subcommand === 'acceptance') {
+    const relative = posix(path.join(itemRelative, 'context', 'acceptance', `${phase.id}-gen${generation}.json`));
+    const commandIds = optionStrings(options, 'command');
+    if (optionBoolean(options, 'dry-run')) {
+      const selected = commandIds.length ? [...new Set(commandIds)] : Object.keys(policy.testCommands ?? {});
+      for (const id of selected) if (!policy.testCommands?.[id]) throw new SingularityFlowError(`Unknown allowlisted specification test command '${id}'.`);
+      if (!selected.length) throw new SingularityFlowError('No spec.testCommands are configured. Add an allowlisted argv command before running acceptance.');
+      const preview = { status: 'planned', write: false, commands: selected.map((id) => ({ id, argv: policy.testCommands[id] })) };
+      if (optionBoolean(options, 'json')) return console.log(JSON.stringify(preview, null, 2));
+      console.log(`Specification acceptance dry run: ${selected.length} allowlisted command(s); nothing executed or written.`);
+      preview.commands.forEach((entry) => console.log(`  ${entry.id}: ${entry.argv.join(' ')}`));
+      return;
+    }
+    const result = await runSpecAcceptance(root, policy, {
+      commandIds,
+      workId: workflow.workItem.id,
+      phase: phase.id,
+      generation,
+      outputPath: relative,
+      write: true
+    });
+    const records = await loadSpecRecords(itemDirectory);
+    const evaluation = evaluateSpecAcceptance({ ...records, acceptance: [...records.acceptance, result] }, policy);
+    if (optionBoolean(options, 'json')) return console.log(JSON.stringify({ record: result, evaluation }, null, 2));
+    console.log(`Specification acceptance: ${result.status} · ${result.commands.length} allowlisted command(s).`);
+    result.commands.forEach((entry) => console.log(`  ${entry.status === 'passed' ? 'PASS' : 'FAIL'} ${entry.id} (exit ${entry.exitCode})`));
+    if (!evaluation.complete) {
+      evaluation.missingPlannedTests.forEach((id) => console.warn(`  missing planned test evidence: ${id}`));
+      evaluation.missingObservedTests.forEach((id) => console.warn(`  missing observed test evidence: ${id}`));
+    }
+    if (result.status !== 'passed') throw new SingularityFlowError('One or more allowlisted specification acceptance commands failed.', { exitCode: 2 });
+    return;
+  }
+
+  if (subcommand === 'trace') {
+    const rows = traceClause(await loadSpecRecords(itemDirectory), positionals[2] ?? null);
+    const format = optionString(options, 'format', optionBoolean(options, 'json') ? 'json' : 'human');
+    if (format === 'json') return console.log(JSON.stringify(rows, null, 2));
+    if (format === 'csv') return console.log(traceCsv(rows));
+    if (format !== 'human') throw new SingularityFlowError('--format must be human, json, or csv.');
+    if (!rows.length) return console.log('No indexed specification clauses were found.');
+    console.log(table(rows.map((row) => ({ clause: row.id, type: row.type, verdict: row.verdict, source: row.source })), [
+      { key: 'clause', label: 'CLAUSE' }, { key: 'type', label: 'TYPE' },
+      { key: 'verdict', label: 'VERDICT' }, { key: 'source', label: 'SOURCE' }
+    ]));
+    return;
+  }
+  throw new SingularityFlowError(`Unknown spec subcommand '${subcommand}'. Use index, claims, coverage, acceptance, or trace.`);
+}
+
 async function agentsCommand(positionals, options) {
   const subcommand = requirePositional(positionals, 1, 'agents subcommand');
   const root = repoRoot();
@@ -2214,11 +2341,13 @@ async function rejectCommand(positionals, options) {
     phaseId: current.id,
     target,
     reason: optionString(options, 'reason'),
+    clauseIds: optionStrings(options, 'clause'),
     channel: process.env.SINGULARITY_FLOW_GITHUB_ACTOR ? 'github-pr-comment' : 'terminal',
     actionContext: activeActionContext()
   });
   await commitAndPublish(root, config, workflow, { type: 'phase-rejected', phaseId: current.id, generation: current.generation, actor: session.actor, agent: session.agent, payload: { targetPhaseId: phase.id } }, `[${workflow.workItem.id}][phase:${current.id}][reject] return to ${phase.id}`);
   console.log(`Recorded ${phase.changeRequest.id}; ${phase.id} is now in progress. Comment: ${phase.changeRequest.comment}`);
+  if (phase.changeRequest.clauseIds?.length) console.log(`Clauses requiring revision: ${phase.changeRequest.clauseIds.join(', ')}`);
   formatContextBoundaryHandoff(phase.contextBoundary).forEach((line) => console.log(line));
 }
 
@@ -2322,7 +2451,16 @@ async function ledgerCommand(positionals, options) {
     optionString(options, 'out', `singularity-ledger-${new Date().toISOString().slice(0, 10)}.bundle`),
     { sign: optionBoolean(options, 'sign') }
   );
-  else throw new SingularityFlowError(`Unknown ledger subcommand '${subcommand}'. Use init, doctor, status, log, show, verify, reconcile, or archive.`);
+  else if (subcommand === 'deployment-check') result = await validateLedgerDeployment(root, ledger, {
+    offline: optionBoolean(options, 'offline'),
+    record: optionBoolean(options, 'record'),
+    confirmations: {
+      protectedBranch: optionBoolean(options, 'confirm-protected'),
+      pushPolicy: optionBoolean(options, 'confirm-push-policy'),
+      pinRetention: optionBoolean(options, 'confirm-pin-retention')
+    }
+  });
+  else throw new SingularityFlowError(`Unknown ledger subcommand '${subcommand}'. Use init, doctor, status, log, show, verify, reconcile, archive, or deployment-check.`);
   if (optionBoolean(options, 'json')) return console.log(JSON.stringify(result, null, 2));
   if (subcommand === 'init') {
     console.log(result.created
@@ -2360,6 +2498,12 @@ async function ledgerCommand(positionals, options) {
     console.log(`Manifest: ${result.manifestPath}`);
     console.log(`SHA-256: ${result.sha256}`);
     if (result.signaturePath) console.log(`Detached signature: ${result.signaturePath}`);
+    return;
+  }
+  if (subcommand === 'deployment-check') {
+    result.checks.forEach((check) => console.log(`  ${check.status === 'pass' ? 'PASS' : check.status === 'warn' ? 'WARN' : 'FAIL'} ${check.id}: ${check.detail}`));
+    if (result.recordedPath) console.log(`Recorded deployment validation: ${result.recordedPath}`);
+    if (!result.valid) throw new SingularityFlowError(`Ledger deployment is not ready for trust tier ${result.trustTier}.`, { exitCode: 2 });
     return;
   }
   if (subcommand === 'log') {
@@ -6409,6 +6553,7 @@ async function dispatch(command, positionals, options) {
     nextsteps: () => nextStepsCommand(positionals, options),
     action: () => actionCommand(positionals, options),
     inputs: () => inputsCommand(positionals, options),
+    spec: () => specCommand(positionals, options),
     'agents': () => agentsCommand(positionals, options),
     mcp: () => mcpCommand(positionals, options),
     visual: () => visualCommand(positionals, options),

@@ -30,6 +30,7 @@ import {
 import { normalizeLedgerConfig } from './ledger-config.mjs';
 import { normalizeClarificationPolicy } from './clarifications.mjs';
 import { normalizeMcpServers, validateMcpAgentTools } from './mcp.mjs';
+import { normalizeSpecPolicy } from './specifications.mjs';
 
 export const WORKFLOW_PATH = 'singularity/workflow.yml';
 export const CONTROL_ROOT = 'singularity';
@@ -94,13 +95,35 @@ export function normalizePhaseInputs(value, label = 'Phase inputs') {
     const source = typeof entry === 'string' ? { phase: entry } : entry;
     const entryLabel = `${label}[${index}]`;
     if (!source || typeof source !== 'object' || Array.isArray(source)) throw new SingularityFlowError(`${entryLabel} must be a phase ID or object.`);
-    for (const key of Object.keys(source)) if (!['phase', 'optional', 'maxBytes'].includes(key)) throw new SingularityFlowError(`${entryLabel} has unsupported field '${key}'.`);
+    for (const key of Object.keys(source)) if (!['phase', 'optional', 'maxBytes', 'selector'].includes(key)) throw new SingularityFlowError(`${entryLabel} has unsupported field '${key}'.`);
     assertId(source.phase, `${entryLabel}.phase`);
     if (source.optional != null && typeof source.optional !== 'boolean') throw new SingularityFlowError(`${entryLabel}.optional must be boolean.`);
     if (source.maxBytes != null && (!Number.isInteger(source.maxBytes) || source.maxBytes < 1)) throw new SingularityFlowError(`${entryLabel}.maxBytes must be a positive integer.`);
+    let selector = null;
+    if (source.selector != null) {
+      if (!source.selector || typeof source.selector !== 'object' || Array.isArray(source.selector)) throw new SingularityFlowError(`${entryLabel}.selector must be an object.`);
+      for (const key of Object.keys(source.selector)) if (!['kind', 'ids', 'claims', 'includeDependencies', 'fallback'].includes(key)) throw new SingularityFlowError(`${entryLabel}.selector has unsupported field '${key}'.`);
+      if (source.selector.kind !== 'clauses') throw new SingularityFlowError(`${entryLabel}.selector.kind must be clauses.`);
+      if (source.selector.ids != null && (!Array.isArray(source.selector.ids) || source.selector.ids.some((id) => typeof id !== 'string'))) throw new SingularityFlowError(`${entryLabel}.selector.ids must be an array of clause IDs.`);
+      if (source.selector.claims != null && !['planned', 'observed'].includes(source.selector.claims)) throw new SingularityFlowError(`${entryLabel}.selector.claims must be planned or observed.`);
+      if (source.selector.includeDependencies != null && typeof source.selector.includeDependencies !== 'boolean') throw new SingularityFlowError(`${entryLabel}.selector.includeDependencies must be boolean.`);
+      if (source.selector.fallback != null && !['whole', 'empty'].includes(source.selector.fallback)) throw new SingularityFlowError(`${entryLabel}.selector.fallback must be whole or empty.`);
+      selector = {
+        kind: 'clauses',
+        ids: [...new Set(source.selector.ids ?? [])],
+        claims: source.selector.claims ?? null,
+        includeDependencies: source.selector.includeDependencies !== false,
+        fallback: source.selector.fallback ?? 'whole'
+      };
+    }
     if (seen.has(source.phase)) throw new SingularityFlowError(`${label} references '${source.phase}' more than once.`);
     seen.add(source.phase);
-    return { phase: source.phase, optional: source.optional ?? false, maxBytes: source.maxBytes ?? null };
+    return {
+      phase: source.phase,
+      optional: source.optional ?? false,
+      maxBytes: source.maxBytes ?? null,
+      ...(selector ? { selector } : {})
+    };
   });
 }
 
@@ -216,6 +239,7 @@ export function validateDefinition(definition) {
   });
   validateMcpAgentTools(definition);
   definition.ledger = normalizeLedgerConfig(definition.ledger ?? {});
+  definition.spec = normalizeSpecPolicy(definition.spec ?? {});
   definition.approvalAuthorities = normalizeApprovalAuthorities(definition.approvalAuthorities);
   groundingMode(definition);
   if (definition.worldModel?.outputDir) assertRelative(definition.worldModel.outputDir, 'worldModel.outputDir');
@@ -566,6 +590,7 @@ export function resolveWorkType(definition, workTypeId) {
     sequenceGates,
     contextPolicy,
     ledger: normalizeLedgerConfig(definition.ledger ?? {}),
+    spec: normalizeSpecPolicy(definition.spec ?? {}),
     documents,
     designSources: normalizeDesignSourcePolicy(workType.designSources, { phases: workType.phases }),
     verification: normalizeVerificationPolicy(workType.verification, { phases: workType.phases }),
@@ -611,6 +636,7 @@ export async function snapshotResolution(root, definition, resolved) {
     sequenceGates: resolved.sequenceGates ?? normalizeSequenceGates(definition.sequenceGates ?? {}),
     contextPolicy: resolved.contextPolicy ?? normalizeContextPolicy(definition.contextPolicy ?? {}, { phaseIds: Object.keys(definition.phases) }),
     ledger: structuredClone(resolved.ledger ?? normalizeLedgerConfig(definition.ledger ?? {})),
+    spec: structuredClone(resolved.spec ?? normalizeSpecPolicy(definition.spec ?? {})),
     agents,
     mcpServers: structuredClone(definition.mcpServers ?? {}),
     designSources: structuredClone(resolved.designSources ?? null),

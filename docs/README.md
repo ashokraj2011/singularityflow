@@ -36,6 +36,7 @@ is not part of the current product.
 | Epic/Initiative orchestration across repositories | [Initiative orchestration](../INITIATIVE-ORCHESTRATION.md) |
 | Native Copilot handoff | [Native Copilot](../NATIVE-COPILOT.md) |
 | Connect governed agents to MCP tools such as Playwright | [Governed MCP tools](MCP-INTEGRATION.md) |
+| Pin Figma MCP metadata into approved downstream design context | [Mobile model intake](MOBILE-MODEL-INTAKE.md) |
 | Configure people, approvals, workflows, agents, and MCP visually | [VS Code Configuration Center](CONFIGURATION-CENTER.md) |
 
 ## Operations and delivery

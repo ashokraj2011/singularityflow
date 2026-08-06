@@ -65,7 +65,18 @@ function mcp(view: ConfigurationCenterView, selected: McpServerView | null): str
   return `<section class="plain"><div class="section-heading"><h2>${icon('mcp')}Governed MCP tools</h2><button class="secondary" data-action="new-mcp">Add server policy</button></div>
     <p class="muted">VS Code or Copilot owns the process and credentials. Singularity Flow governs which agents, phases, and tools may use it, then records durable evidence.</p>
     ${(view.mcpErrors.length || view.mcpWarnings.length) ? `<div class="notice warning">${[...view.mcpErrors, ...view.mcpWarnings].map((entry) => `<p>${escape(entry)}</p>`).join('')}</div>` : ''}
-    <div class="configuration-list">${view.mcpServers.map((server) => `<button class="configuration-row secondary" data-mcp="${escape(server.id)}"><span>${icon(server.configured ? 'ok' : server.required ? 'bad' : 'warning')}</span><strong>${escape(server.label)}</strong><small>${escape(`${server.hostReference} · ${server.configured ? `configured in ${server.sources.join(', ')}` : 'host configuration missing'}`)}</small></button>`).join('') || '<p class="empty">No MCP servers are governed yet.</p>'}</div>
+    <div class="configuration-list">${view.mcpServers.map((server) => {
+      const readiness = server.readiness ?? (server.configured ? 'needs-host-setup' : 'needs-host-setup');
+      const glyph: IconName = readiness === 'ready' ? 'ok' : readiness === 'misconfigured' ? 'bad' : 'warning';
+      const detail = readiness === 'ready'
+        ? `ready on this machine · ${server.sources.join(', ')}`
+        : readiness === 'misconfigured'
+          ? `misconfigured · ${server.readinessReasons?.join(' ') || 'review host configuration'}`
+          : server.configured
+            ? 'configured; start, trust, authenticate, then attest readiness'
+            : 'host setup required';
+      return `<button class="configuration-row secondary" data-mcp="${escape(server.id)}"><span>${icon(glyph)}</span><strong>${escape(server.label)}</strong><small>${escape(`${server.hostReference} · ${detail}`)}</small></button>`;
+    }).join('') || '<p class="empty">No MCP servers are governed yet.</p>'}</div>
     <p class="card-foot"><button class="secondary" data-action="playwright">Add Playwright host starter</button><button class="secondary" data-action="open-mcp-host">Open VS Code MCP host file</button><button class="secondary" data-action="instructions">Open Agent Designer</button></p>
     ${selected ? mcpForm(selected) : ''}
   </section>`;

@@ -15,6 +15,7 @@ export interface McpServerView {
   id: string; label: string; hostReference: string; agents: string[]; phases: string[];
   tools: string[]; required: boolean; approval: 'confirm' | 'host'; configured: boolean;
   sources: string[]; captureToolCalls: boolean; captureResults: boolean;
+  readiness?: 'ready' | 'needs-host-setup' | 'misconfigured'; readinessReasons?: string[];
 }
 export interface ConfigurationCenterView {
   profile: ProfileView;

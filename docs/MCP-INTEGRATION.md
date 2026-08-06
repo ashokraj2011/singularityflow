@@ -24,10 +24,18 @@ matching VS Code host configuration from the repository root:
 singularity-flow mcp scaffold playwright
 ```
 
-This creates `.vscode/mcp.json` with the official `@playwright/mcp` package. It
-refuses to replace an existing file. In VS Code, use **MCP: List Servers** to
-review, trust, and start it. The equivalent visual entry is **Configuration → MCP
-tools → Configure MCP host**.
+This merge-safely adds an exact, release-managed `@playwright/mcp` package version
+to `.vscode/mcp.json`. Unrelated entries are preserved. A conflicting `playwright`
+entry requires explicit `--replace-server`; the complete file is never replaced.
+In VS Code, use **MCP: List Servers** to review, trust, and start it. The equivalent
+visual entry is **Configuration → MCP tools → Configure MCP host**.
+
+Figma can be scaffolded in the same way:
+
+```bash
+singularity-flow mcp scaffold figma          # https://mcp.figma.com/mcp
+singularity-flow mcp scaffold figma --local  # Figma desktop endpoint
+```
 
 For Copilot CLI, add the same server with its MCP configuration command and verify
 it with `copilot mcp list`. Host-level configuration is machine-local; the
@@ -87,10 +95,16 @@ approved upstream inputs, and remote Markdown skills.
 ```bash
 singularity-flow mcp status
 singularity-flow mcp doctor
+singularity-flow mcp attest playwright --confirm playwright
 ```
 
 Status reads server **names only** from supported host configuration files. It
 does not return commands, URLs, environment variables, tokens, or headers.
+Doctor performs static checks only and does not contact the MCP server or package
+registry. Readiness remains `needs-host-setup` until the user reviews, trusts,
+starts, and authenticates the host entry, then creates a machine-local attestation.
+The attestation is invalidated by any host-entry or governed-policy hash change.
+It states what the user confirmed; it is not transport interception or network proof.
 
 After a material MCP call, save any durable screenshot or report inside the
 active work-item directory and record its provenance:
@@ -103,10 +117,16 @@ singularity-flow mcp record playwright \
   --note "Authenticated home screen"
 ```
 
-The record is written under
-`singularity/work-items/<WORK-ID>/context/mcp/` and is committed by normal phase
-publication. The governance gate rechecks the pinned server, phase, allowed tool,
+The original file is copied under
+`singularity/work-items/<WORK-ID>/context/mcp/outputs/`; its typed record is written
+under `context/mcp/records/`. Both are committed by normal phase publication. The
+governance gate rechecks the pinned server, phase, governed agent, allowed tool,
 output location, size, and SHA-256.
+
+For Figma `get_metadata`, use `--kind design-source` and record the exact file key,
+opaque version, and colon-form node IDs. The payload is XML and defaults to
+`figma-mcp-metadata-xml`; it is not Figma REST JSON. See
+[Mobile model intake](MOBILE-MODEL-INTAKE.md).
 
 The host does not expose every tool-call event to Singularity Flow. A provenance
 record is therefore an explicit agent declaration, not proof that Flow intercepted

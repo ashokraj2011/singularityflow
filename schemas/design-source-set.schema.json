@@ -1,0 +1,35 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "Singularity Flow approved design source set",
+  "type": "object",
+  "required": ["schemaVersion", "kind", "workId", "workType", "phase", "generation", "records", "setSha256", "createdAt"],
+  "properties": {
+    "schemaVersion": { "const": 1 },
+    "kind": { "const": "design-source-set" },
+    "workId": { "type": "string", "minLength": 1 },
+    "workType": { "type": "string", "minLength": 1 },
+    "phase": { "type": "string", "minLength": 1 },
+    "generation": { "type": "integer", "minimum": 1 },
+    "records": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": ["recordId", "recordSha256", "fileKey", "fileVersion", "outputPath", "outputSha256"],
+        "properties": {
+          "recordId": { "type": "string" },
+          "recordSha256": { "type": "string", "pattern": "^[0-9a-f]{64}$" },
+          "fileKey": { "type": "string" },
+          "fileVersion": { "type": "string" },
+          "nodes": { "type": "array", "items": { "type": "string" } },
+          "format": { "type": "string" },
+          "outputPath": { "type": "string" },
+          "outputSha256": { "type": "string", "pattern": "^[0-9a-f]{64}$" }
+        },
+        "additionalProperties": true
+      }
+    },
+    "setSha256": { "type": "string", "pattern": "^[0-9a-f]{64}$" },
+    "createdAt": { "type": "string", "format": "date-time" }
+  },
+  "additionalProperties": false
+}

@@ -44,6 +44,7 @@ import { lifecycleEvent, recordPublicationProjection } from './lifecycle-event.m
 import { publishLifecycleChange } from './publication-unit-of-work.mjs';
 import { deliverLifecycleNotifications, warnNotificationFailures } from './notifications.mjs';
 import { readConfigurationSource } from './configuration-branch.mjs';
+import { buildDesignSourceSet } from './design-sources.mjs';
 
 export const CONFIG_PATH = WORKFLOW_PATH;
 export const loadConfig = loadDefinition;
@@ -174,6 +175,7 @@ function phaseState(definition, index) {
     usage: [],
     telemetry: [],
     approvals: [],
+    designSourceSets: [],
     artifacts: [],
     checks: []
   };
@@ -196,6 +198,10 @@ export function storyArtifactMetadata(workflow, phase) {
     sourceSha256: workflow.resolution.sourceSha256 ?? null,
     template: workflow.resolution.templates[phase.id],
     inputs: phase.inputContext ?? null,
+    designSources: {
+      sets: phase.designSourceSets ?? [],
+      approved: [...(phase.approvals ?? [])].reverse().find((approval) => !approval.invalidatedAt && approval.designSourceSet)?.designSourceSet ?? null
+    },
     remoteAgent: phase.agentContext ?? null,
     telemetry: phase.telemetry ?? [],
     remoteOutputs: (phase.remoteOutputs ?? []).map((output) => ({
@@ -696,7 +702,7 @@ function assertRequiredAssignment(workflow, phase) {
   }
 }
 
-export async function publishGeneration(root, config, workflow, { phaseId, usage: rawUsage } = {}) {
+export async function publishGeneration(root, config, workflow, { phaseId, usage: rawUsage, persist = true } = {}) {
   await assertNoPendingPublication(root, config, workflow, 'publish a generation');
   const phase = await assertPhaseSequence(root, workflow, 'publish a generation', { requestedPhase: phaseId }); const session = await loadSession(root);
   assertRequiredAssignment(workflow, phase);
@@ -749,7 +755,8 @@ export async function publishGeneration(root, config, workflow, { phaseId, usage
   if (errors.length) throw new SingularityFlowError(`Phase ${phase.id} generation is not publishable:\n- ${errors.join('\n- ')}`);
   normalizedUsage.forEach((usage) => addUsageAggregate(workflow, phase, usage));
   workflow.history.push({ at: nowIso(), actor: actorKey(session.actor), agent: session.agent, event: 'phase_generated', phase: phase.id, detail: `generation ${phase.generation}` });
-  await saveWorkflow(root, config, workflow); return phase;
+  if (persist) await saveWorkflow(root, config, workflow);
+  return phase;
 }
 
 export async function reconcilePhaseTelemetry(root, config, workflow, { phaseId } = {}) {
@@ -820,7 +827,7 @@ async function qualityChecks(root, phase) {
   return checks;
 }
 
-export async function submitPhase(root, config, workflow, { phaseId, runChecks = true } = {}) {
+export async function submitPhase(root, config, workflow, { phaseId, runChecks = true, persist = true } = {}) {
   await assertNoPendingPublication(root, config, workflow, 'submit for approval');
   const phase = await assertPhaseSequence(root, workflow, 'submit for approval', { requestedPhase: phaseId }); const session = await loadSession(root);
   assertRequiredAssignment(workflow, phase);
@@ -846,7 +853,8 @@ export async function submitPhase(root, config, workflow, { phaseId, runChecks =
   if (errors.length) throw new SingularityFlowError(`Phase ${phase.id} is not ready:\n- ${errors.join('\n- ')}`);
   phase.status = 'awaiting_approval'; phase.submittedAt = nowIso(); await updateArtifactMetadata(root, config, workflow, phase); await refreshRequiredArtifact(root, config, workflow, phase);
   workflow.history.push({ at: phase.submittedAt, actor: actorKey(session.actor), agent: session.agent, event: 'phase_submitted', phase: phase.id, detail: `${phase.artifacts.length} artifacts` });
-  await saveWorkflow(root, config, workflow); return phase;
+  if (persist) await saveWorkflow(root, config, workflow);
+  return phase;
 }
 
 function nextPhase(workflow, phase) { const id = workflow.phaseOrder[workflow.phaseOrder.indexOf(phase.id) + 1]; return id ? workflow.phases[id] : null; }
@@ -857,7 +865,12 @@ async function writeDecision(root, config, workflow, phase, decision) {
   await writeJson(approvalPath(root, config, workflow.workItem.id, phase.id), { schemaVersion: 2, phase: phase.id, decisions: phase.approvals });
 }
 
-export async function approvePhase(root, config, workflow, { phaseId, channel = 'terminal', actionContext = null } = {}) {
+export async function approvePhase(root, config, workflow, {
+  phaseId,
+  channel = 'terminal',
+  actionContext = null,
+  persist = true
+} = {}) {
   await assertNoPendingPublication(root, config, workflow, 'approve');
   const phase = await assertPhaseSequence(root, workflow, 'approve', { requestedPhase: phaseId, allowedStatuses: ['awaiting_approval'] });
   const session = await loadSession(root);
@@ -914,10 +927,16 @@ export async function approvePhase(root, config, workflow, { phaseId, channel = 
     if (upcoming) { upcoming.status = 'in_progress'; upcoming.startedAt = decision.at; workflow.currentPhase = upcoming.id; }
     else { workflow.currentPhase = null; workflow.status = 'complete'; }
   }
-  await updateArtifactMetadata(root, config, workflow, phase); await registerApprovedSnapshot(root, config, workflow, phase);
-  await writeDecision(root, config, workflow, phase, decision);
   workflow.history.push({ at: decision.at, actor: key, agent: session.agent, event: decision.selfApproval ? 'phase_self_approved' : 'phase_approved', phase: phase.id, detail: reached ? `threshold reached${workflow.currentPhase ? `; advanced to ${workflow.currentPhase}` : '; complete'}` : 'approval recorded' });
-  await saveWorkflow(root, config, workflow);
+  if (persist) {
+    // Approval metadata is part of the managed artifact. Render it before
+    // taking the approved snapshot so the metadata write cannot immediately
+    // make the registered approval hash stale.
+    await updateArtifactMetadata(root, config, workflow, phase);
+    await registerApprovedSnapshot(root, config, workflow, phase);
+    await writeDecision(root, config, workflow, phase, decision);
+    await saveWorkflow(root, config, workflow);
+  }
   const next = reached ? currentPhase(workflow) : phase;
   const contextBoundary = reached
     ? contextBoundaryHandoff(workflow.resolution.contextPolicy, phase.id, {
@@ -1149,7 +1168,10 @@ export async function cancelWorkflow(root, config, workflow, { reason, channel =
   return { phase, cancellation: record };
 }
 
-export async function commitAndPublish(root, config, workflow, event, message, extraPaths = []) {
+export async function commitAndPublish(root, config, workflow, event, message, extraPaths = [], {
+  beforeStateWrite = null,
+  rollbackWorkflow = null
+} = {}) {
   if (await storyPublicationPending(root, config, workflow.workItem.id)) await assertNoPendingPublication(root, config, workflow, 'create another lifecycle commit');
   const ledgerConfig = normalizeLedgerConfig(workflow.resolution?.ledger ?? config.ledger ?? {});
   const requestedPhaseId = event?.phaseId ?? workflow.currentPhase ?? null;
@@ -1194,7 +1216,7 @@ export async function commitAndPublish(root, config, workflow, event, message, e
     });
   }
   const targetBranch = workflowPublicationBranch(root, workflow);
-  const priorWorkflow = structuredClone(workflow);
+  const priorWorkflow = rollbackWorkflow ?? structuredClone(workflow);
   const result = await publishLifecycleChange(root, {
     subject: envelope.subject,
     expectedRevision: workflow[Symbol.for('singularity-flow.state-revision')] ?? null,
@@ -1202,7 +1224,44 @@ export async function commitAndPublish(root, config, workflow, event, message, e
     event: envelope,
     commit: { message },
     state: {
-      write: (publicationEvent) => {
+      write: async (publicationEvent) => {
+        // Mutations which create or advance governed lifecycle state must run
+        // after the publication unit has acquired the subject lock and opened
+        // its recovery journal. Callers may prepare an in-memory decision before
+        // this point, but may not persist governed files outside this callback.
+        if (beforeStateWrite) await beforeStateWrite();
+        // Design-source selection is lifecycle authority, not an incidental file
+        // write. Build and bind it only after the publication unit has acquired
+        // the subject lock, checked the revision, and opened its journal.
+        if (event?.type === 'artifact-generated'
+          && workflow.resolution?.designSources?.capturePhase === requestedPhase?.id) {
+          await buildDesignSourceSet(root, workflow, {
+            itemDirectory: workDir(root, config, workflow.workItem.id)
+          });
+          await updateArtifactMetadata(root, config, workflow, requestedPhase);
+        }
+        if (event?.type === 'phase-approved') {
+          const binding = workflow.resolution?.designSources?.capturePhase === requestedPhase?.id
+            ? [...(requestedPhase.designSourceSets ?? [])]
+              .reverse().find((entry) => entry.generation === requestedPhase.generation) ?? null
+            : null;
+          if (workflow.resolution?.designSources?.capturePhase === requestedPhase?.id
+            && workflow.resolution.designSources.requireApprovedSet && !binding) {
+            throw new SingularityFlowError(
+              `Phase '${requestedPhase.id}' cannot be approved without its generation ${requestedPhase.generation} design-source set.`
+            );
+          }
+          const approval = [...(requestedPhase.approvals ?? [])].reverse()
+            .find((item) => !item.invalidatedAt && item.decision === 'approved');
+          if (approval) {
+            if (binding) approval.designSourceSet = binding;
+            await updateArtifactMetadata(root, config, workflow, requestedPhase);
+            // This hash represents the final approved artifact, including its
+            // managed approval metadata. Do not rewrite it after this point.
+            await registerApprovedSnapshot(root, config, workflow, requestedPhase);
+            await writeDecision(root, config, workflow, requestedPhase, approval);
+          }
+        }
         recordPublicationProjection(workflow, publicationEvent, ledgerIntent);
         return saveWorkflow(root, config, workflow);
       },

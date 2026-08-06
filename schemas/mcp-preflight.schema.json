@@ -1,0 +1,51 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "Singularity Flow MCP readiness report",
+  "type": "object",
+  "required": ["schemaVersion", "generatedAt", "networkChecked", "overallReadiness", "servers"],
+  "properties": {
+    "schemaVersion": { "const": 1 },
+    "generatedAt": { "type": "string", "format": "date-time" },
+    "networkChecked": { "const": false },
+    "overallReadiness": { "enum": ["ready", "needs-host-setup", "misconfigured"] },
+    "servers": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": ["id", "hostReference", "readiness", "reasons", "host", "policy", "network"],
+        "properties": {
+          "id": { "type": "string" },
+          "hostReference": { "type": "string" },
+          "readiness": { "enum": ["ready", "needs-host-setup", "misconfigured"] },
+          "reasons": { "type": "array", "items": { "type": "string" } },
+          "host": {
+            "type": "object",
+            "required": ["sources", "entrySha256"],
+            "properties": {
+              "sources": { "type": "array", "items": { "type": "string" } },
+              "entrySha256": { "type": ["string", "null"], "pattern": "^[0-9a-f]{64}$" }
+            },
+            "additionalProperties": false
+          },
+          "policy": {
+            "type": "object",
+            "required": ["sha256", "required"],
+            "properties": {
+              "sha256": { "type": "string", "pattern": "^[0-9a-f]{64}$" },
+              "required": { "type": "boolean" }
+            },
+            "additionalProperties": false
+          },
+          "network": {
+            "type": "object",
+            "required": ["status"],
+            "properties": { "status": { "const": "not-checked" } },
+            "additionalProperties": false
+          }
+        },
+        "additionalProperties": false
+      }
+    }
+  },
+  "additionalProperties": false
+}

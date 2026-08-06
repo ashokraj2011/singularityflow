@@ -1,9 +1,15 @@
 import os from 'node:os';
 import path from 'node:path';
-import { mkdir, readFile, readdir, writeFile } from 'node:fs/promises';
-import { exists, nowIso, snapshot, SingularityFlowError } from './util.mjs';
+import { readFile } from 'node:fs/promises';
+import { exists, SingularityFlowError } from './util.mjs';
+import { MCP_WORKSPACE_PATH } from './mcp-host.mjs';
+export {
+  MCP_SCAFFOLD_VERSIONS, MCP_WORKSPACE_PATH, figmaHostEntry, playwrightHostEntry, scaffoldFigmaMcp,
+  scaffoldMcpServer, scaffoldPlaywrightMcp
+} from './mcp-host.mjs';
+export { listMcpEvidence, recordMcpEvidence, verifyMcpEvidence } from './mcp-evidence.mjs';
+export { attestMcpHost, inspectMcpHostEntries, mcpDoctor } from './mcp-readiness.mjs';
 
-export const MCP_WORKSPACE_PATH = '.vscode/mcp.json';
 const ID = /^[a-z0-9]+(?:-[a-z0-9]+)*$/;
 const TOOL = /^[A-Za-z0-9_.-]+(?:\/(?:\*|[A-Za-z0-9_.-]+))?$/;
 
@@ -142,114 +148,4 @@ export function renderMcpPromptPolicy(definition, { agent, phase } = {}) {
       ''
     ])
   ].join('\n').trim();
-}
-
-export async function scaffoldPlaywrightMcp(root, { replace = false } = {}) {
-  const target = path.join(root, MCP_WORKSPACE_PATH);
-  if (await exists(target) && !replace) throw new SingularityFlowError(`${MCP_WORKSPACE_PATH} already exists. Re-run with --replace only after reviewing it.`);
-  await mkdir(path.dirname(target), { recursive: true });
-  const document = {
-    servers: {
-      playwright: {
-        type: 'stdio',
-        command: 'npx',
-        args: ['-y', '@playwright/mcp@latest']
-      }
-    }
-  };
-  await writeFile(target, `${JSON.stringify(document, null, 2)}\n`, 'utf8');
-  return { path: MCP_WORKSPACE_PATH, sha256: (await snapshot(target)).sha256 };
-}
-
-export async function recordMcpEvidence(root, workflow, { server, tool, phase, outputPath = null, note = null, agent = null, actor = null } = {}) {
-  const configured = workflow.resolution?.mcpServers?.[server];
-  if (!configured) throw new SingularityFlowError(`MCP server '${server}' is not pinned for this work item.`);
-  const activePhase = phase ?? workflow.currentPhase;
-  if (!activePhase) throw new SingularityFlowError('MCP evidence requires an active phase.');
-  if (configured.phases.length && !configured.phases.includes(activePhase)) throw new SingularityFlowError(`MCP server '${server}' is not allowed in phase '${activePhase}'.`);
-  if (configured.agents.length && (!agent || !configured.agents.includes(agent))) {
-    throw new SingularityFlowError(`MCP server '${server}' requires one of these governed agents: ${configured.agents.join(', ')}.`);
-  }
-  if (!TOOL.test(tool ?? '') || tool.includes('/')) throw new SingularityFlowError('MCP evidence requires --tool with an unqualified tool name.');
-  if (configured.tools.length && !configured.tools.includes(tool)) throw new SingularityFlowError(`Tool '${tool}' is not allowed for MCP server '${server}'.`);
-  const itemRoot = path.join(root, workflow.resolution?.workItemRoot ?? 'singularity/work-items', workflow.workItem.id);
-  let output = null;
-  if (outputPath) {
-    const absolute = path.resolve(root, outputPath);
-    const relative = path.relative(itemRoot, absolute);
-    if (relative.startsWith('..') || path.isAbsolute(relative)) throw new SingularityFlowError('MCP evidence output must be inside the active work-item directory.');
-    const captured = await snapshot(absolute);
-    if (!captured.exists) throw new SingularityFlowError(`MCP evidence output does not exist: ${outputPath}`);
-    output = { path: relative.split(path.sep).join('/'), sha256: captured.sha256, bytes: captured.size };
-  }
-  const generation = Number(workflow.phases?.[activePhase]?.generation ?? 0) + 1;
-  const directory = path.join(itemRoot, 'context', 'mcp');
-  await mkdir(directory, { recursive: true });
-  const timestamp = nowIso();
-  const id = `${server}-${activePhase}-gen${generation}-${timestamp.replace(/[:.]/g, '-')}`;
-  const record = { schemaVersion: 1, id, workId: workflow.workItem.id, phase: activePhase, generation, server, hostReference: configured.hostReference, tool, agent, actor, output, note: note ?? null, recordedAt: timestamp, captureSource: 'declared-by-agent' };
-  const file = path.join(directory, `${id}.json`);
-  await writeFile(file, `${JSON.stringify(record, null, 2)}\n`, 'utf8');
-  return { file: path.relative(root, file).split(path.sep).join('/'), record };
-}
-
-/**
- * Revalidate the durable evidence an agent declared after using a host-owned MCP tool.
- *
- * Singularity Flow cannot intercept VS Code or Copilot's MCP transport, so an absent record does
- * not prove that no tool ran. A present record, however, is a governance claim: it must refer to
- * the immutable work-item policy and every captured output must still have the recorded bytes.
- */
-export async function verifyMcpEvidence(root, workflow, { itemDirectory = null } = {}) {
-  const errors = [], warnings = [], passes = [];
-  const itemRoot = itemDirectory ?? path.join(
-    root,
-    workflow.resolution?.workItemRoot ?? 'singularity/work-items',
-    workflow.workItem.id
-  );
-  const directory = path.join(itemRoot, 'context', 'mcp');
-  if (!(await exists(directory))) return { errors, warnings, passes, records: [] };
-
-  const files = (await readdir(directory)).filter((file) => file.endsWith('.json')).sort();
-  const records = [];
-  for (const file of files) {
-    const absolute = path.join(directory, file);
-    let record;
-    try { record = JSON.parse(await readFile(absolute, 'utf8')); }
-    catch (error) {
-      errors.push(`MCP evidence '${file}' is not valid JSON: ${error.message}`);
-      continue;
-    }
-    records.push(record);
-    const prefix = `MCP evidence '${record.id ?? file}'`;
-    if (record.schemaVersion !== 1) errors.push(`${prefix} has unsupported schemaVersion '${record.schemaVersion}'.`);
-    if (record.workId !== workflow.workItem.id) errors.push(`${prefix} belongs to work item '${record.workId ?? 'unknown'}'.`);
-    const configured = workflow.resolution?.mcpServers?.[record.server];
-    if (!configured) {
-      errors.push(`${prefix} references MCP server '${record.server ?? 'unknown'}' outside the pinned work-item policy.`);
-      continue;
-    }
-    if (record.hostReference !== configured.hostReference) errors.push(`${prefix} host reference differs from the pinned policy.`);
-    if (!workflow.phaseOrder.includes(record.phase)) errors.push(`${prefix} references unknown phase '${record.phase ?? 'unknown'}'.`);
-    if (configured.phases.length && !configured.phases.includes(record.phase)) errors.push(`${prefix} is outside MCP server '${record.server}' phase scope.`);
-    if (configured.agents.length && !configured.agents.includes(record.agent)) errors.push(`${prefix} was recorded by governed agent '${record.agent ?? 'unknown'}', outside the pinned assignment.`);
-    if (!TOOL.test(record.tool ?? '') || record.tool.includes('/')) errors.push(`${prefix} has an invalid tool name.`);
-    else if (configured.tools.length && !configured.tools.includes(record.tool)) errors.push(`${prefix} records disallowed tool '${record.tool}'.`);
-    if (record.output) {
-      const output = path.resolve(itemRoot, record.output.path ?? '');
-      const relative = path.relative(itemRoot, output);
-      if (!record.output.path || relative.startsWith('..') || path.isAbsolute(relative)) {
-        errors.push(`${prefix} output escapes the work-item directory.`);
-      } else {
-        const current = await snapshot(output);
-        if (!current.exists) errors.push(`${prefix} output is missing: ${record.output.path}`);
-        else if (current.sha256 !== record.output.sha256 || current.size !== record.output.bytes) errors.push(`${prefix} output changed after capture: ${record.output.path}`);
-        else passes.push(`MCP evidence output: ${record.server}/${record.tool}@${current.sha256.slice(0, 8)}`);
-      }
-    } else if (configured.evidence.captureResults) {
-      warnings.push(`${prefix} has no durable output although result capture is requested by policy.`);
-    }
-  }
-  if (records.length) passes.push(`MCP evidence integrity: ${records.length} record(s)`);
-  return { errors, warnings, passes, records };
 }

@@ -1,0 +1,178 @@
+import { randomUUID } from 'node:crypto';
+import { lstat, readFile, readdir } from 'node:fs/promises';
+import path from 'node:path';
+import { withSubjectLock } from './subject-lock.mjs';
+import {
+  exists, nowIso, posix, secureRepositoryPath, SingularityFlowError, snapshot,
+  writeAtomic, writeJson
+} from './util.mjs';
+
+const TOOL = /^[A-Za-z0-9_.-]+$/;
+const MAX_OUTPUT_BYTES = 25 * 1024 * 1024;
+const MAX_RECORDS = 5000;
+const SECRET = /(?:authorization|bearer|cookie|api[_-]?key|access[_-]?token|password|secret)\s*[:=]/i;
+
+function mediaType(file) {
+  return ({
+    '.json': 'application/json', '.xml': 'application/xml', '.png': 'image/png',
+    '.jpg': 'image/jpeg', '.jpeg': 'image/jpeg', '.md': 'text/markdown', '.txt': 'text/plain'
+  })[path.extname(file).toLowerCase()] ?? 'application/octet-stream';
+}
+
+function sanitizeName(value) {
+  const clean = path.basename(value).replace(/[^A-Za-z0-9._-]/g, '-').replace(/-+/g, '-');
+  return clean || 'output.bin';
+}
+
+function normalizeNodes(values = []) {
+  const list = [...new Set(values.map((value) => String(value).trim().replace(/-/g, ':')).filter(Boolean))].sort();
+  if (list.some((value) => !/^\d+:\d+$/.test(value))) {
+    throw new SingularityFlowError('Design-source node IDs must use Figma colon form such as 1:3.', {
+      code: 'MCP_EVIDENCE_INVALID'
+    });
+  }
+  if (list.length > 1000) throw new SingularityFlowError('A design-source record cannot contain more than 1000 nodes.', { code: 'MCP_EVIDENCE_LIMIT' });
+  return list;
+}
+
+function validateCommon(workflow, configured, values) {
+  const activePhase = values.phase ?? workflow.currentPhase;
+  if (!activePhase || !workflow.phases?.[activePhase]) throw new SingularityFlowError('MCP evidence requires an active phase.', { code: 'MCP_EVIDENCE_PHASE_REQUIRED' });
+  if (workflow.phases[activePhase].status !== 'in_progress') {
+    throw new SingularityFlowError(`MCP evidence can only target an in-progress phase; '${activePhase}' is ${workflow.phases[activePhase].status}.`, { code: 'MCP_EVIDENCE_PHASE_CLOSED' });
+  }
+  if (configured.phases.length && !configured.phases.includes(activePhase)) throw new SingularityFlowError(`MCP server '${values.server}' is not allowed in phase '${activePhase}'.`);
+  if (configured.agents.length && (!values.agent || !configured.agents.includes(values.agent))) throw new SingularityFlowError(`MCP server '${values.server}' requires one of these governed agents: ${configured.agents.join(', ')}.`);
+  if (!TOOL.test(values.tool ?? '')) throw new SingularityFlowError('MCP evidence requires --tool with an unqualified tool name.');
+  if (configured.tools.length && !configured.tools.includes(values.tool)) throw new SingularityFlowError(`Tool '${values.tool}' is not allowed for MCP server '${values.server}'.`);
+  return activePhase;
+}
+
+async function recordCount(directory) {
+  if (!(await exists(directory))) return 0;
+  return (await readdir(directory, { withFileTypes: true })).filter((entry) => entry.isFile() && entry.name.endsWith('.json')).length;
+}
+
+export async function recordMcpEvidence(root, workflow, {
+  server, tool, phase, outputPath = null, note = null, agent = null, actor = null,
+  kind = 'tool-call', fileKey = null, fileVersion = null, fileVersionCreatedAt = null,
+  nodes = [], format = null, profileId = null, screenId = null, stateId = null,
+  itemDirectory = null
+} = {}) {
+  const configured = workflow.resolution?.mcpServers?.[server];
+  if (!configured) throw new SingularityFlowError(`MCP server '${server}' is not pinned for this work item.`);
+  if (!['tool-call', 'design-source', 'visual-artifact'].includes(kind)) throw new SingularityFlowError(`Unsupported MCP evidence kind '${kind}'.`, { code: 'MCP_EVIDENCE_INVALID' });
+  const activePhase = validateCommon(workflow, configured, { server, tool, phase, agent });
+  if (note && SECRET.test(note)) throw new SingularityFlowError('MCP evidence notes must not contain credentials or secrets.', { code: 'MCP_EVIDENCE_SECRET' });
+  if (kind !== 'tool-call' && !outputPath) throw new SingularityFlowError(`${kind} evidence requires --output.`, { code: 'MCP_EVIDENCE_OUTPUT_REQUIRED' });
+  if (kind === 'design-source') {
+    if (!String(fileKey ?? '').trim() || !String(fileVersion ?? '').trim()) throw new SingularityFlowError('Design-source evidence requires --file-key and --file-version.', { code: 'MCP_EVIDENCE_INVALID' });
+    if (fileVersionCreatedAt && (!Number.isFinite(Date.parse(fileVersionCreatedAt)) || !String(fileVersionCreatedAt).endsWith('Z'))) throw new SingularityFlowError('--file-version-created-at must be a UTC ISO-8601 timestamp.', { code: 'MCP_EVIDENCE_INVALID' });
+  }
+  const itemRoot = itemDirectory ?? path.join(root, workflow.resolution?.workItemRoot ?? 'singularity/work-items', workflow.workItem.id);
+  const recordsDirectory = path.join(itemRoot, 'context', 'mcp', 'records');
+  const id = `mcp-${randomUUID()}`;
+  return withSubjectLock(root, { kind: 'story', id: workflow.workItem.id }, async () => {
+    if (await recordCount(recordsDirectory) >= MAX_RECORDS) throw new SingularityFlowError(`MCP evidence limit reached (${MAX_RECORDS} records).`, { code: 'MCP_EVIDENCE_LIMIT' });
+    let output = null;
+    if (outputPath) {
+      const source = await secureRepositoryPath(root, outputPath, { label: 'MCP evidence source', mustExist: true, type: 'file' });
+      const sourceInfo = await lstat(source.absolute);
+      if (!sourceInfo.isFile() || sourceInfo.isSymbolicLink()) throw new SingularityFlowError('MCP evidence source must be a regular, non-symbolic-link file.', { code: 'MCP_EVIDENCE_UNSAFE_PATH' });
+      if (sourceInfo.size > MAX_OUTPUT_BYTES) throw new SingularityFlowError(`MCP evidence output exceeds ${MAX_OUTPUT_BYTES} bytes.`, { code: 'MCP_EVIDENCE_LIMIT' });
+      const bytes = await readFile(source.absolute);
+      const relative = posix(path.join('context', 'mcp', 'outputs', id, sanitizeName(source.relative)));
+      const target = await secureRepositoryPath(itemRoot, relative, { label: 'Managed MCP evidence output' });
+      await writeAtomic(target.absolute, bytes);
+      const captured = await snapshot(target.absolute);
+      output = { path: relative, sha256: captured.sha256, bytes: captured.size, mediaType: mediaType(source.relative), sourceDisposition: 'local-copy' };
+    }
+    const generation = Number(workflow.phases[activePhase]?.generation ?? 0) + 1;
+    const record = {
+      schemaVersion: 2,
+      id,
+      kind,
+      workId: workflow.workItem.id,
+      phase: activePhase,
+      targetGeneration: generation,
+      server,
+      hostReference: configured.hostReference,
+      tool,
+      agent,
+      actor,
+      recordedAt: nowIso(),
+      captureSource: 'declared-by-agent',
+      note: note ?? null,
+      output,
+      ...(kind === 'design-source' ? {
+        fileKey: String(fileKey).trim(),
+        fileVersion: String(fileVersion).trim(),
+        fileVersionCreatedAt: fileVersionCreatedAt ?? null,
+        nodes: normalizeNodes(nodes),
+        format: format ?? 'figma-mcp-metadata-xml',
+        outputSha256: output.sha256
+      } : {}),
+      ...(kind === 'visual-artifact' ? {
+        profileId, screenId, stateId, outputSha256: output.sha256
+      } : {})
+    };
+    const file = path.join(recordsDirectory, `${id}.json`);
+    await writeJson(file, record);
+    return { file: posix(path.relative(root, file)), record };
+  });
+}
+
+async function candidateRecordFiles(directory) {
+  if (!(await exists(directory))) return [];
+  const files = [];
+  for (const relative of ['records', '.']) {
+    const target = path.join(directory, relative);
+    if (!(await exists(target))) continue;
+    for (const entry of await readdir(target, { withFileTypes: true })) {
+      if (entry.isFile() && entry.name.endsWith('.json')) files.push(path.join(target, entry.name));
+    }
+  }
+  return [...new Set(files)].sort();
+}
+
+export async function verifyMcpEvidence(root, workflow, { itemDirectory = null } = {}) {
+  const errors = [], warnings = [], passes = [], records = [];
+  const itemRoot = itemDirectory ?? path.join(root, workflow.resolution?.workItemRoot ?? 'singularity/work-items', workflow.workItem.id);
+  const directory = path.join(itemRoot, 'context', 'mcp');
+  for (const absolute of await candidateRecordFiles(directory)) {
+    let record;
+    try { record = JSON.parse(await readFile(absolute, 'utf8')); }
+    catch (error) { errors.push(`MCP evidence '${path.basename(absolute)}' is not valid JSON: ${error.message}`); continue; }
+    if (record.schemaVersion === 1) record = { ...record, kind: 'tool-call', targetGeneration: record.generation };
+    records.push(record);
+    const prefix = `MCP evidence '${record.id ?? path.basename(absolute)}'`;
+    if (![1, 2].includes(record.schemaVersion)) errors.push(`${prefix} has unsupported schemaVersion '${record.schemaVersion}'.`);
+    if (record.workId !== workflow.workItem.id) errors.push(`${prefix} belongs to work item '${record.workId ?? 'unknown'}'.`);
+    const configured = workflow.resolution?.mcpServers?.[record.server];
+    if (!configured) { errors.push(`${prefix} references MCP server '${record.server ?? 'unknown'}' outside the pinned work-item policy.`); continue; }
+    if (record.hostReference !== configured.hostReference) errors.push(`${prefix} host reference differs from the pinned policy.`);
+    if (!workflow.phaseOrder.includes(record.phase)) errors.push(`${prefix} references unknown phase '${record.phase ?? 'unknown'}'.`);
+    if (configured.phases.length && !configured.phases.includes(record.phase)) errors.push(`${prefix} is outside MCP server '${record.server}' phase scope.`);
+    if (configured.agents.length && !configured.agents.includes(record.agent)) errors.push(`${prefix} was recorded by governed agent '${record.agent ?? 'unknown'}', outside the pinned assignment.`);
+    if (!TOOL.test(record.tool ?? '')) errors.push(`${prefix} has an invalid tool name.`);
+    else if (configured.tools.length && !configured.tools.includes(record.tool)) errors.push(`${prefix} records disallowed tool '${record.tool}'.`);
+    if (record.kind === 'design-source') {
+      if (!record.fileKey || !record.fileVersion || !Array.isArray(record.nodes)) errors.push(`${prefix} is missing design-source identity fields.`);
+      if (record.format !== 'figma-mcp-metadata-xml' && record.format !== 'figma-rest-file-json' && record.format !== 'sflow-design-nodes-v1') errors.push(`${prefix} has unsupported design-source format '${record.format}'.`);
+      if (record.outputSha256 !== record.output?.sha256) errors.push(`${prefix} outputSha256 does not match its managed output.`);
+    }
+    if (record.output) {
+      const target = await secureRepositoryPath(itemRoot, record.output.path ?? '', { label: `${prefix} output`, mustExist: false });
+      const current = await snapshot(target.absolute);
+      if (!current.exists) errors.push(`${prefix} output is missing: ${record.output.path}`);
+      else if (current.sha256 !== record.output.sha256 || current.size !== record.output.bytes) errors.push(`${prefix} output changed after capture: ${record.output.path}`);
+      else passes.push(`MCP evidence output: ${record.server}/${record.tool}@${current.sha256.slice(0, 8)}`);
+    } else if (configured.evidence.captureResults) warnings.push(`${prefix} has no durable output although result capture is requested by policy.`);
+  }
+  if (records.length) passes.push(`MCP evidence integrity: ${records.length} record(s)`);
+  return { errors, warnings, passes, records };
+}
+
+export async function listMcpEvidence(root, workflow, options = {}) {
+  return (await verifyMcpEvidence(root, workflow, options)).records;
+}

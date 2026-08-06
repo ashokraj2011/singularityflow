@@ -4,10 +4,23 @@ import { lstat, mkdir, readFile, realpath, rename, rm, stat, writeFile } from 'n
 import path from 'node:path';
 
 export class SingularityFlowError extends Error {
-  constructor(message, { exitCode = 1 } = {}) {
+  constructor(message, { exitCode = 1, code = null, details = null, cause = undefined } = {}) {
     super(message);
     this.name = 'SingularityFlowError';
     this.exitCode = exitCode;
+    if (code) this.code = code;
+    if (details != null) this.details = details;
+    if (cause !== undefined) this.cause = cause;
+  }
+
+  toJSON() {
+    return {
+      name: this.name,
+      message: this.message,
+      exitCode: this.exitCode,
+      ...(this.code ? { code: this.code } : {}),
+      ...(this.details != null ? { details: this.details } : {})
+    };
   }
 }
 
@@ -152,7 +165,10 @@ export async function writeAtomic(filePath, value, { mode = undefined } = {}) {
   await ensureDir(path.dirname(filePath));
   const temp = `${filePath}.tmp-${process.pid}-${randomUUID()}`;
   try {
-    await writeFile(temp, value, { encoding: 'utf8', ...(mode == null ? {} : { mode }) });
+    await writeFile(temp, value, {
+      ...(Buffer.isBuffer(value) || value instanceof Uint8Array ? {} : { encoding: 'utf8' }),
+      ...(mode == null ? {} : { mode })
+    });
     await rename(temp, filePath);
   } finally {
     await rm(temp, { force: true }).catch(() => {});

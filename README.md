@@ -1352,9 +1352,11 @@ field permits the corresponding `server/tool` or `server/*` namespace; phase
 prompt composition includes the resulting policy.
 
 ```bash
-singularity-flow mcp scaffold playwright  # creates .vscode/mcp.json; never overwrites
+singularity-flow mcp scaffold playwright  # merge-safe, exact package version
+singularity-flow mcp scaffold figma       # remote Figma MCP; add --local for desktop
 singularity-flow mcp status
 singularity-flow mcp doctor
+singularity-flow mcp attest figma --confirm figma
 ```
 
 VS Code exposes a complete policy editor, joined host status, and the same safe
@@ -1362,8 +1364,12 @@ scaffold under **Configuration → MCP tools**.
 Corporate npm registry, proxy, and CA configuration continue to come from
 `.npmrc`, environment variables, and the host. Durable screenshots or reports can
 be hash-recorded with `singularity-flow mcp record` and are revalidated by the
-governance gate. See [Governed MCP tools](docs/MCP-INTEGRATION.md) for the complete
-configuration, Playwright setup, security boundary, and evidence workflow.
+governance gate. For `figma-mobile`, design-intake publication creates a deterministic
+source set and approval binds that exact set; downstream prompts receive its verified
+metadata and hashes rather than silently following the live file. See
+[Governed MCP tools](docs/MCP-INTEGRATION.md) and
+[Mobile model intake](docs/MOBILE-MODEL-INTAKE.md) for the complete security and
+evidence workflow.
 
 ## Useful commands
 
@@ -1392,9 +1398,11 @@ configuration, Playwright setup, security boundary, and evidence workflow.
 | `sflow-next [--task TEXT] [--yes]` | Execute exactly one next valid action; alias for `singularity-flow next`. If a semantic world model is missing, interactive use asks before starting its model agent and non-interactive use requires explicit `--yes`. |
 | `singularity-flow inputs [PHASE] [--dry-run]` | Inspect or render approved phase-input dataflow. |
 | `singularity-flow agents list\|mappings\|lock\|sync\|status\|refresh-output` | Resolve Copilot-agent mappings and trust, materialize, inspect, or refresh remote Markdown agents. |
-| `singularity-flow mcp list\|status\|doctor` | Join governed MCP assignments to host server names without exposing host secrets. |
-| `singularity-flow mcp scaffold playwright` | Create a reviewable VS Code Playwright MCP host configuration without replacing an existing file. |
-| `singularity-flow mcp record <SERVER> --tool <TOOL> [--phase PHASE] [--output PATH]` | Record a declared MCP call and optional hash-bound work-item output for governance. |
+| `singularity-flow mcp list\|status\|doctor` | Join governed MCP assignments to host server names and report static readiness without exposing host secrets or making network calls. |
+| `singularity-flow mcp scaffold figma\|playwright [--local] [--replace-server]` | Merge one reviewable, exact-version host entry while preserving unrelated `.vscode/mcp.json` servers. |
+| `singularity-flow mcp attest <SERVER> --confirm <SERVER>` | Record a machine-local statement that the reviewed host entry was trusted, started, and authenticated. |
+| `singularity-flow mcp record <SERVER> --tool <TOOL> [--kind KIND] [--phase PHASE] [--output PATH]` | Copy and hash a declared MCP result into the active work item; Figma design sources also require file key and version. |
+| `singularity-flow mcp design-sources status` | Verify and display the exact approved design-source set used by downstream prompts. |
 | `singularity-flow capabilities doctor [ID] [--offline]` | Verify capability ownership, inherited lifecycle policy, orphan-state publication, ledger integrity, lifecycle pinning, and cross-repository world-model snapshots. |
 | `singularity-flow documents list [ID]` | List uploaded inputs and generated workflow documents. |
 | `singularity-flow documents view <ID>` | Display text content or return the path/URL for a binary/external document. |

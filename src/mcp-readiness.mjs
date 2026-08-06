@@ -1,4 +1,6 @@
 import { mkdir, readFile } from 'node:fs/promises';
+import { execFile } from 'node:child_process';
+import { promisify } from 'node:util';
 import os from 'node:os';
 import path from 'node:path';
 import { gitDir, identity } from './git.mjs';
@@ -7,6 +9,7 @@ import { MCP_SCAFFOLD_VERSIONS, MCP_WORKSPACE_PATH } from './mcp-host.mjs';
 import { exists, nowIso, SingularityFlowError, writeJson } from './util.mjs';
 
 const SAFE_ID = /^[a-z0-9]+(?:-[a-z0-9]+)*$/;
+const execFileAsync = promisify(execFile);
 
 function sources(root, home = os.homedir()) {
   return [
@@ -67,6 +70,58 @@ export async function inspectMcpHostEntries(root, { home = os.homedir() } = {}) 
   return rows;
 }
 
+async function hostEntryMap(root, options = {}) {
+  const map = new Map();
+  for (const source of sources(root, options.home ?? os.homedir())) {
+    if (!(await exists(source.file))) continue;
+    let document; try { document = JSON.parse(await readFile(source.file, 'utf8')); } catch { continue; }
+    for (const [name, entry] of Object.entries(document?.servers ?? document?.mcpServers ?? {})) if (!map.has(name)) map.set(name, entry);
+  }
+  return map;
+}
+
+function safeHttpUrl(value) {
+  const url = new URL(value);
+  const loopback = ['localhost', '127.0.0.1', '::1'].includes(url.hostname);
+  if (url.protocol !== 'https:' && !(url.protocol === 'http:' && loopback)) throw new SingularityFlowError('MCP network probes require HTTPS, except loopback HTTP.', { code: 'MCP_NETWORK_UNSAFE_URL' });
+  url.username = ''; url.password = '';
+  return url;
+}
+
+async function defaultNetworkProbe(entry, { timeoutMs = 10_000 } = {}) {
+  if (entry?.type === 'http' || entry?.url) {
+    let url = safeHttpUrl(entry.url), redirects = 0;
+    while (redirects <= 5) {
+      const response = await fetch(url, { method: 'GET', redirect: 'manual', signal: AbortSignal.timeout(timeoutMs), headers: { accept: 'application/json, text/event-stream;q=0.9, */*;q=0.1' } });
+      if ([301, 302, 303, 307, 308].includes(response.status)) { const location = response.headers.get('location'); if (!location) break; url = safeHttpUrl(new URL(location, url)); redirects += 1; continue; }
+      return { status: [200, 204, 400, 401, 403, 405, 406].includes(response.status) ? 'reachable' : 'failed', protocol: url.protocol, httpStatus: response.status, redirects };
+    }
+    return { status: 'failed', reason: 'redirect-limit' };
+  }
+  if (entry?.command === 'npx') {
+    const spec = (entry.args ?? []).find((arg) => /^@?[A-Za-z0-9_.@/-]+@[0-9]/.test(String(arg)));
+    if (!spec) return { status: 'not-probed', reason: 'no-exact-package-pin' };
+    const at = spec.lastIndexOf('@'), packageName = spec.slice(0, at), version = spec.slice(at + 1);
+    const { stdout } = await execFileAsync('npm', ['view', `${packageName}@${version}`, 'version', '--json'], { timeout: timeoutMs, maxBuffer: 1024 * 1024, env: { ...process.env, NPM_CONFIG_LOGLEVEL: 'silent' } });
+    const resolved = JSON.parse(stdout.trim());
+    return { status: resolved === version ? 'reachable' : 'failed', package: packageName, requestedVersion: version, resolvedVersion: resolved };
+  }
+  return { status: 'not-probed', reason: 'unsupported-transport' };
+}
+
+export async function warmMcpHost(root, definition, serverId, { network = false, probe = defaultNetworkProbe } = {}) {
+  if (!network) throw new SingularityFlowError('MCP warm-up performs network access. Re-run with --network.', { code: 'MCP_NETWORK_CONSENT_REQUIRED' });
+  const server = definition.mcpServers?.[serverId];
+  if (!server) throw new SingularityFlowError(`Unknown governed MCP server '${serverId}'.`);
+  const entry = (await hostEntryMap(root)).get(server.hostReference);
+  if (!entry) throw new SingularityFlowError(`Host entry '${server.hostReference}' is absent.`);
+  const networkResult = await probe(entry, { server });
+  const receipt = { schemaVersion: 1, serverId, hostReference: server.hostReference, checkedAt: nowIso(), network: networkResult, hostEntrySha256: recordSha256(entry), policySha256: policyHash(server) };
+  const file = path.join(gitDir(root), 'singularity-flow', 'mcp', 'cache', `${serverId}.json`);
+  await mkdir(path.dirname(file), { recursive: true }); await writeJson(file, receipt);
+  return { ...receipt, path: file };
+}
+
 async function readReceipt(root, serverId) {
   try { return JSON.parse(await readFile(receiptPath(root, serverId), 'utf8')); }
   catch (error) { if (error?.code === 'ENOENT') return null; return { error: error.message }; }
@@ -111,6 +166,7 @@ export async function attestMcpHost(root, definition, serverId, { confirmation }
 
 export async function mcpDoctor(root, definition, options = {}) {
   const hostRows = await inspectMcpHostEntries(root, options);
+  const entries = options.network ? await hostEntryMap(root, options) : new Map();
   const globalErrors = hostRows.filter((row) => row.error).map((row) => `${row.surface}: ${row.error}`);
   const servers = [];
   for (const server of Object.values(definition.mcpServers ?? {})) {
@@ -142,6 +198,12 @@ export async function mcpDoctor(root, definition, options = {}) {
         reasons.push('Host readiness attestation is stale because host or policy configuration changed.');
       }
     }
+    let network = { status: 'not-checked' };
+    if (options.network && rows.length && rows.every((row) => row.structurallyValid)) {
+      try { network = await (options.probe ?? defaultNetworkProbe)(entries.get(server.hostReference), { server }); }
+      catch (error) { network = { status: 'failed', reason: error.code ?? error.name ?? 'network-error', message: error.message }; }
+      if (network.status === 'failed') { readiness = 'misconfigured'; reasons.push(`Network probe failed: ${network.message ?? network.reason ?? 'unreachable'}.`); }
+    }
     servers.push({
       id: server.id,
       hostReference: server.hostReference,
@@ -149,11 +211,11 @@ export async function mcpDoctor(root, definition, options = {}) {
       reasons,
       host: { sources: rows.map((row) => row.surface), entrySha256: rows[0]?.entrySha256 ?? null },
       policy: { sha256: policyHash(server), required: server.required },
-      network: { status: 'not-checked' }
+      network
     });
   }
   const rank = { ready: 0, 'needs-host-setup': 1, misconfigured: 2 };
   const overallReadiness = servers.reduce((current, server) =>
     rank[server.readiness] > rank[current] ? server.readiness : current, 'ready');
-  return { schemaVersion: 1, generatedAt: nowIso(), networkChecked: false, overallReadiness, servers };
+  return { schemaVersion: 1, generatedAt: nowIso(), networkChecked: Boolean(options.network), overallReadiness, servers };
 }

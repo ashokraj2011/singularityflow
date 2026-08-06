@@ -9,6 +9,8 @@ import { verifyGroundingRecord } from './grounding.mjs';
 import { verifyPhaseTelemetry } from './telemetry.mjs';
 import { verifyMcpEvidence } from './mcp.mjs';
 import { verifyDesignSourceLifecycle } from './design-sources.mjs';
+import { evaluateVisualCoverage } from './visual-coverage.mjs';
+import { listVisualComparisons } from './visual-compare.mjs';
 
 function trackedFiles(root) { return run('git', ['ls-files', '-z'], { cwd: root }).stdout.split('\0').filter(Boolean); }
 function ids(text, pattern) { return [...new Set([...text.matchAll(pattern)].map((match) => match[0]))]; }
@@ -135,6 +137,19 @@ export async function runGovernanceGate(root, config, workflow, { terminal = fal
   errors.push(...designSourceIntegrity.errors);
   warnings.push(...designSourceIntegrity.warnings);
   passes.push(...designSourceIntegrity.passes);
+
+  const visualCoverage = await evaluateVisualCoverage(root, workflow, {
+    itemDirectory: workDir(root, config, workflow.workItem.id)
+  });
+  if (visualCoverage.mode === 'enforce') errors.push(...visualCoverage.errors); else warnings.push(...visualCoverage.errors);
+  warnings.push(...visualCoverage.warnings);
+  if (visualCoverage.status === 'pass') passes.push(`visual coverage: ${visualCoverage.covered.length}/${visualCoverage.profiles.length} profiles`);
+  const comparisons = await listVisualComparisons(root, workflow, { itemDirectory: workDir(root, config, workflow.workItem.id) });
+  for (const comparison of comparisons) {
+    if (comparison.status === 'fail' && workflow.resolution?.verification?.comparison?.mode === 'enforce') errors.push(`visual comparison ${comparison.id} exceeds policy thresholds`);
+    else if (comparison.status !== 'pass') warnings.push(`visual comparison ${comparison.id}: ${comparison.status}`);
+  }
+  if (comparisons.length) passes.push(`visual comparisons: ${comparisons.length} deterministic result(s)`);
 
   if (config.governance?.requireAcceptanceCriteriaTags) {
     const acIds = new Set();

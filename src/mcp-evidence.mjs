@@ -24,6 +24,30 @@ function sanitizeName(value) {
   return clean || 'output.bin';
 }
 
+function safeOutputUrl(value) {
+  const url = new URL(value);
+  const loopback = ['localhost', '127.0.0.1', '::1'].includes(url.hostname);
+  if (url.protocol !== 'https:' && !(url.protocol === 'http:' && loopback)) throw new SingularityFlowError('MCP output URLs require HTTPS, except loopback HTTP.', { code: 'MCP_EVIDENCE_UNSAFE_URL' });
+  if (url.username || url.password) throw new SingularityFlowError('MCP output URLs must not contain credentials.', { code: 'MCP_EVIDENCE_SECRET' });
+  return url;
+}
+
+async function downloadOutput(value) {
+  let url = safeOutputUrl(value), redirects = 0;
+  while (redirects <= 5) {
+    const response = await fetch(url, { redirect: 'manual', signal: AbortSignal.timeout(20_000), headers: { accept: 'application/octet-stream,*/*;q=0.1' } });
+    if ([301, 302, 303, 307, 308].includes(response.status)) { const location = response.headers.get('location'); if (!location) break; url = safeOutputUrl(new URL(location, url)); redirects += 1; continue; }
+    if (!response.ok) throw new SingularityFlowError(`MCP output download failed with HTTP ${response.status}.`, { code: 'MCP_EVIDENCE_DOWNLOAD_FAILED' });
+    const declared = Number(response.headers.get('content-length'));
+    if (Number.isFinite(declared) && declared > MAX_OUTPUT_BYTES) throw new SingularityFlowError(`MCP evidence output exceeds ${MAX_OUTPUT_BYTES} bytes.`, { code: 'MCP_EVIDENCE_LIMIT' });
+    const bytes = Buffer.from(await response.arrayBuffer());
+    if (bytes.length > MAX_OUTPUT_BYTES) throw new SingularityFlowError(`MCP evidence output exceeds ${MAX_OUTPUT_BYTES} bytes.`, { code: 'MCP_EVIDENCE_LIMIT' });
+    const persisted = new URL(url); persisted.search = ''; persisted.hash = '';
+    return { bytes, name: sanitizeName(path.basename(url.pathname) || 'remote-output.bin'), mediaType: response.headers.get('content-type')?.split(';')[0] || mediaType(url.pathname), sourceUrl: persisted.toString(), redirects };
+  }
+  throw new SingularityFlowError('MCP output download exceeded the redirect limit.', { code: 'MCP_EVIDENCE_DOWNLOAD_FAILED' });
+}
+
 function normalizeNodes(values = []) {
   const list = [...new Set(values.map((value) => String(value).trim().replace(/-/g, ':')).filter(Boolean))].sort();
   if (list.some((value) => !/^\d+:\d+$/.test(value))) {
@@ -54,7 +78,7 @@ async function recordCount(directory) {
 }
 
 export async function recordMcpEvidence(root, workflow, {
-  server, tool, phase, outputPath = null, note = null, agent = null, actor = null,
+  server, tool, phase, outputPath = null, outputUrl = null, note = null, agent = null, actor = null,
   kind = 'tool-call', fileKey = null, fileVersion = null, fileVersionCreatedAt = null,
   nodes = [], format = null, profileId = null, screenId = null, stateId = null,
   itemDirectory = null
@@ -64,10 +88,20 @@ export async function recordMcpEvidence(root, workflow, {
   if (!['tool-call', 'design-source', 'visual-artifact'].includes(kind)) throw new SingularityFlowError(`Unsupported MCP evidence kind '${kind}'.`, { code: 'MCP_EVIDENCE_INVALID' });
   const activePhase = validateCommon(workflow, configured, { server, tool, phase, agent });
   if (note && SECRET.test(note)) throw new SingularityFlowError('MCP evidence notes must not contain credentials or secrets.', { code: 'MCP_EVIDENCE_SECRET' });
-  if (kind !== 'tool-call' && !outputPath) throw new SingularityFlowError(`${kind} evidence requires --output.`, { code: 'MCP_EVIDENCE_OUTPUT_REQUIRED' });
+  if (outputPath && outputUrl) throw new SingularityFlowError('Use either --output or --output-url, not both.');
+  if (kind !== 'tool-call' && !outputPath && !outputUrl) throw new SingularityFlowError(`${kind} evidence requires --output or --output-url.`, { code: 'MCP_EVIDENCE_OUTPUT_REQUIRED' });
   if (kind === 'design-source') {
     if (!String(fileKey ?? '').trim() || !String(fileVersion ?? '').trim()) throw new SingularityFlowError('Design-source evidence requires --file-key and --file-version.', { code: 'MCP_EVIDENCE_INVALID' });
     if (fileVersionCreatedAt && (!Number.isFinite(Date.parse(fileVersionCreatedAt)) || !String(fileVersionCreatedAt).endsWith('Z'))) throw new SingularityFlowError('--file-version-created-at must be a UTC ISO-8601 timestamp.', { code: 'MCP_EVIDENCE_INVALID' });
+  }
+  if (kind === 'visual-artifact') {
+    if (activePhase !== 'visual-verification') throw new SingularityFlowError('Visual-artifact evidence may only be recorded in the visual-verification phase.', { code: 'MCP_EVIDENCE_INVALID' });
+    if (!profileId || !screenId || !stateId) throw new SingularityFlowError('Visual-artifact evidence requires --profile-id, --screen-id, and --state-id.', { code: 'MCP_EVIDENCE_INVALID' });
+    const profiles = workflow.resolution?.verification?.profiles ?? [];
+    if (!profiles.some((profile) => profile.id === profileId)) throw new SingularityFlowError(`Unknown verification profile '${profileId}'.`, { code: 'MCP_EVIDENCE_INVALID' });
+    for (const [label, value] of [['screen ID', screenId], ['state ID', stateId]]) {
+      if (!/^[A-Za-z0-9][A-Za-z0-9._-]{0,127}$/.test(value)) throw new SingularityFlowError(`Visual artifact ${label} is invalid.`, { code: 'MCP_EVIDENCE_INVALID' });
+    }
   }
   const itemRoot = itemDirectory ?? path.join(root, workflow.resolution?.workItemRoot ?? 'singularity/work-items', workflow.workItem.id);
   const recordsDirectory = path.join(itemRoot, 'context', 'mcp', 'records');
@@ -86,6 +120,16 @@ export async function recordMcpEvidence(root, workflow, {
       await writeAtomic(target.absolute, bytes);
       const captured = await snapshot(target.absolute);
       output = { path: relative, sha256: captured.sha256, bytes: captured.size, mediaType: mediaType(source.relative), sourceDisposition: 'local-copy' };
+      if (kind === 'visual-artifact' && output.mediaType !== 'image/png') throw new SingularityFlowError('Visual-artifact evidence must be a PNG file.', { code: 'MCP_EVIDENCE_INVALID' });
+    }
+    if (outputUrl) {
+      const downloaded = await downloadOutput(outputUrl);
+      const relative = posix(path.join('context', 'mcp', 'outputs', id, downloaded.name));
+      const target = await secureRepositoryPath(itemRoot, relative, { label: 'Managed MCP evidence output' });
+      await writeAtomic(target.absolute, downloaded.bytes);
+      const captured = await snapshot(target.absolute);
+      output = { path: relative, sha256: captured.sha256, bytes: captured.size, mediaType: downloaded.mediaType, sourceDisposition: 'remote-copy', sourceUrl: downloaded.sourceUrl, redirects: downloaded.redirects };
+      if (kind === 'visual-artifact' && output.mediaType !== 'image/png') throw new SingularityFlowError('Visual-artifact evidence must be a PNG file.', { code: 'MCP_EVIDENCE_INVALID' });
     }
     const generation = Number(workflow.phases[activePhase]?.generation ?? 0) + 1;
     const record = {
@@ -159,6 +203,14 @@ export async function verifyMcpEvidence(root, workflow, { itemDirectory = null }
     if (record.kind === 'design-source') {
       if (!record.fileKey || !record.fileVersion || !Array.isArray(record.nodes)) errors.push(`${prefix} is missing design-source identity fields.`);
       if (record.format !== 'figma-mcp-metadata-xml' && record.format !== 'figma-rest-file-json' && record.format !== 'sflow-design-nodes-v1') errors.push(`${prefix} has unsupported design-source format '${record.format}'.`);
+      if (record.outputSha256 !== record.output?.sha256) errors.push(`${prefix} outputSha256 does not match its managed output.`);
+    }
+    if (record.kind === 'visual-artifact') {
+      const profiles = workflow.resolution?.verification?.profiles ?? [];
+      if (record.phase !== 'visual-verification') errors.push(`${prefix} is outside the visual-verification phase.`);
+      if (!profiles.some((profile) => profile.id === record.profileId)) errors.push(`${prefix} references unknown verification profile '${record.profileId ?? 'unknown'}'.`);
+      if (!record.screenId || !record.stateId) errors.push(`${prefix} is missing screen/state identity.`);
+      if (record.output?.mediaType !== 'image/png') errors.push(`${prefix} is not a PNG visual artifact.`);
       if (record.outputSha256 !== record.output?.sha256) errors.push(`${prefix} outputSha256 does not match its managed output.`);
     }
     if (record.output) {

@@ -2,6 +2,7 @@ import { readFile } from 'node:fs/promises';
 import path from 'node:path';
 import { listMcpEvidence, verifyMcpEvidence } from './mcp-evidence.mjs';
 import { canonicalJson, recordSha256 } from './records.mjs';
+import { readDesignInventory } from './design-inventory.mjs';
 import {
   nowIso, posix, secureRepositoryPath, SingularityFlowError, snapshot, writeJson
 } from './util.mjs';
@@ -90,6 +91,25 @@ export function createDesignSourceSet(workflow, records, { phase, generation } =
   return { ...body, setSha256: recordSha256(body), createdAt: nowIso() };
 }
 
+export function classifyDesignSourceCandidates(records, binding) {
+  if (!binding?.records?.length) return [];
+  const selectedIds = new Set(binding.records.map((entry) => entry.recordId));
+  const approvedByFile = new Map(binding.records.map((entry) => [entry.fileKey, entry]));
+  const candidates = [];
+  for (const record of records.filter((entry) => entry.kind === 'design-source' && !selectedIds.has(entry.id))) {
+    const approved = approvedByFile.get(record.fileKey);
+    if (!approved) continue;
+    const approvedCreated = approved.fileVersionCreatedAt ? Date.parse(approved.fileVersionCreatedAt) : NaN;
+    const candidateCreated = record.fileVersionCreatedAt ? Date.parse(record.fileVersionCreatedAt) : NaN;
+    let classification = 'different-version-unordered';
+    if (Number.isFinite(approvedCreated) && Number.isFinite(candidateCreated)) {
+      classification = candidateCreated > approvedCreated ? 'newer-version-confirmed' : candidateCreated < approvedCreated ? 'older-version-confirmed' : 'same-version-time';
+    } else if (record.fileVersion !== approved.fileVersion) classification = 'later-candidate-recorded';
+    candidates.push({ fileKey: record.fileKey, approvedRecordId: approved.recordId, approvedVersion: approved.fileVersion, candidateRecordId: record.id, candidateVersion: record.fileVersion, candidateRecordedAt: record.recordedAt, classification });
+  }
+  return candidates.sort((a, b) => a.fileKey.localeCompare(b.fileKey) || a.candidateRecordId.localeCompare(b.candidateRecordId));
+}
+
 export async function buildDesignSourceSet(root, workflow, {
   itemDirectory = null, selectionByFileKey = {}
 } = {}) {
@@ -172,6 +192,8 @@ export async function renderDesignSourcePromptContext(root, workflow, phase, {
   };
   const relative = posix(path.join('context', `design-sources-${phase.id}-gen${generation}.json`));
   const directory = itemRoot(root, workflow, itemDirectory);
+  const inventory = configured.inventoryDigest === 'off' ? null : await readDesignInventory(root, workflow, binding, { itemDirectory: directory });
+  if (!inventory && configured.inventoryDigest === 'required') throw new SingularityFlowError('The approved design source requires a deterministic inventory digest. Run singularity-flow wm design-inventory --from-records.', { code: 'DESIGN_INVENTORY_REQUIRED' });
   let provenanceSnapshot = null;
   if (record) {
     const target = await secureRepositoryPath(directory, relative, { label: 'Design-source prompt provenance' });
@@ -189,6 +211,12 @@ export async function renderDesignSourcePromptContext(root, workflow, phase, {
       `- Format: \`${entry.format}\``,
       `- Managed output: \`${entry.outputPath}\` @ \`${entry.outputSha256}\``, ''
     ]),
+    ...(inventory ? [
+      '# Deterministic design inventory', '',
+      `Inventory digest: \`${inventory.digest.digestSha256}\``,
+      `Nodes: ${inventory.digest.counts.nodes}; components: ${inventory.digest.counts.components}; instances: ${inventory.digest.counts.instances}.`,
+      `Managed digest: \`${inventory.path}\``, ''
+    ] : []),
     'The managed output remains evidence. Do not substitute a newer live design unless a new source set is generated and approved.'
   ].join('\n');
   const body = canonicalJson(provenance);
@@ -207,7 +235,7 @@ export async function renderDesignSourcePromptContext(root, workflow, phase, {
       category: 'design-source-provenance',
       level: 1,
       reason: `approved source set ${binding.setSha256}`
-    }]
+    }, ...(inventory ? [{ path: inventory.path, sha256: inventory.sha256, bytes: inventory.bytes, injectedBytes: 0, truncated: false, category: 'design-inventory', level: 1, reason: `approved source set ${binding.setSha256}` }] : [])]
   };
 }
 
@@ -225,5 +253,13 @@ export async function verifyDesignSourceLifecycle(root, workflow, options = {}) 
       ? { errors: [message], warnings: [], passes: [] }
       : { errors: [], warnings: [message], passes: [] };
   }
-  return verifyDesignSourceSet(root, workflow, binding, options);
+  const result = await verifyDesignSourceSet(root, workflow, binding, options);
+  const evidence = await listMcpEvidence(root, workflow, options);
+  const candidates = classifyDesignSourceCandidates(evidence, binding);
+  const stale = candidates.filter((entry) => ['newer-version-confirmed', 'later-candidate-recorded'].includes(entry.classification));
+  if (stale.length && configured.staleness !== 'ignore') {
+    const messages = stale.map((entry) => `Approved design source '${entry.fileKey}' has candidate ${entry.candidateVersion} (${entry.classification}).`);
+    if (configured.staleness === 'fail') result.errors.push(...messages); else result.warnings.push(...messages);
+  }
+  return { ...result, candidates, stale };
 }

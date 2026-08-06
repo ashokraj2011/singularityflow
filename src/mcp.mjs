@@ -8,7 +8,7 @@ export {
   scaffoldMcpServer, scaffoldPlaywrightMcp
 } from './mcp-host.mjs';
 export { listMcpEvidence, recordMcpEvidence, verifyMcpEvidence } from './mcp-evidence.mjs';
-export { attestMcpHost, inspectMcpHostEntries, mcpDoctor } from './mcp-readiness.mjs';
+export { attestMcpHost, inspectMcpHostEntries, mcpDoctor, warmMcpHost } from './mcp-readiness.mjs';
 
 const ID = /^[a-z0-9]+(?:-[a-z0-9]+)*$/;
 const TOOL = /^[A-Za-z0-9_.-]+(?:\/(?:\*|[A-Za-z0-9_.-]+))?$/;

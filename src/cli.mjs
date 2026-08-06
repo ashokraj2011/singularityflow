@@ -77,10 +77,13 @@ import { nextStepsSnapshot, nextStepsText } from './nextsteps.mjs';
 import { loadHelpDocument } from './help.mjs';
 import { agentMappingStatus, agentStatus, discoverAgents, lockAgent, prepareRemoteOutputs, remoteOutputConflicts, syncAgent } from './agents.mjs';
 import {
-  attestMcpHost, mcpDoctor, mcpStatus, recordMcpEvidence, scaffoldFigmaMcp,
+  attestMcpHost, mcpDoctor, mcpStatus, recordMcpEvidence, scaffoldFigmaMcp, warmMcpHost,
   scaffoldPlaywrightMcp
 } from './mcp.mjs';
 import { approvedDesignSourceBinding, verifyDesignSourceLifecycle } from './design-sources.mjs';
+import { generateDesignInventory } from './design-inventory.mjs';
+import { evaluateVisualCoverage } from './visual-coverage.mjs';
+import { compareVisualArtifacts, listVisualComparisons } from './visual-compare.mjs';
 import {
   bootstrapWorkspacePortfolio,
   deleteConfigurationFile,
@@ -337,11 +340,15 @@ Usage:
   singularity-flow agents refresh-output <RESOURCE-ID> [--replace]
   singularity-flow mcp list|status|doctor [--json]
   singularity-flow mcp scaffold playwright|figma [--local] [--replace-server]
-  singularity-flow mcp doctor [--server ID] [--json]
+  singularity-flow mcp doctor [--server ID] [--network] [--json]
+  singularity-flow mcp warm <SERVER> --network
   singularity-flow mcp attest <SERVER> --confirm <SERVER>
   singularity-flow mcp record <SERVER> --tool TOOL [--kind tool-call|design-source|visual-artifact]
-    [--phase PHASE] [--output PATH] [--file-key KEY] [--file-version VERSION] [--node NODE] [--note TEXT]
+    [--phase PHASE] [--output PATH|--output-url HTTPS-URL] [--file-key KEY] [--file-version VERSION] [--node NODE] [--note TEXT]
   singularity-flow mcp design-sources status [--json]
+  singularity-flow visual status [--json]
+  singularity-flow visual compare --expected RECORD-OR-PATH --actual RECORD-OR-PATH [--profile ID] [--json]
+  singularity-flow wm design-inventory --from-records [--json]
   singularity-flow documents list [WORK-ID] [--json]
   singularity-flow documents view <DOCUMENT-ID|PATH> [--work-id ID] [--json]
   singularity-flow documents preview <DOCUMENT-ID|PATH> [--work-id ID] [--json]
@@ -1559,7 +1566,7 @@ async function mcpCommand(positionals, options) {
     return;
   }
   if (subcommand === 'doctor') {
-    const result = await mcpDoctor(root, config);
+    const result = await mcpDoctor(root, config, { network: optionBoolean(options, 'network') });
     const selected = optionString(options, 'server');
     if (selected && !result.servers.some((server) => server.id === selected)) {
       throw new SingularityFlowError(`Unknown governed MCP server '${selected}'.`, { code: 'MCP_SERVER_UNKNOWN' });
@@ -1575,6 +1582,13 @@ async function mcpCommand(positionals, options) {
     if (servers.some((server) => server.readiness === 'misconfigured')) {
       throw new SingularityFlowError('MCP diagnostics found configuration errors.', { code: 'MCP_HOST_CONFIG_INVALID' });
     }
+    return;
+  }
+  if (subcommand === 'warm') {
+    const server = requirePositional(positionals, 2, 'MCP server');
+    const result = await warmMcpHost(root, config, server, { network: optionBoolean(options, 'network') });
+    if (optionBoolean(options, 'json')) return console.log(JSON.stringify(result, null, 2));
+    console.log(`MCP ${server} network warm-up: ${result.network.status}. Receipt: ${result.path}`);
     return;
   }
   if (['list', 'status'].includes(subcommand)) {
@@ -1611,6 +1625,7 @@ async function mcpCommand(positionals, options) {
       tool: optionString(options, 'tool'),
       phase: optionString(options, 'phase'),
       outputPath: optionString(options, 'output'),
+      outputUrl: optionString(options, 'output-url'),
       note: optionString(options, 'note'),
       kind: optionString(options, 'kind', 'tool-call'),
       fileKey: optionString(options, 'file-key'),
@@ -1645,6 +1660,44 @@ async function mcpCommand(positionals, options) {
     return;
   }
   throw new SingularityFlowError(`Unknown mcp subcommand: ${subcommand}`);
+}
+
+async function visualCommand(positionals, options) {
+  const root = repoRoot(), config = await loadConfig(root), workflow = await loadStoryAggregate(root, config);
+  const action = positionals[1] ?? 'status';
+  if (action === 'status') {
+    const coverage = await evaluateVisualCoverage(root, workflow, { itemDirectory: workDir(root, config, workflow.workItem.id) });
+    const comparisons = await listVisualComparisons(root, workflow, { itemDirectory: workDir(root, config, workflow.workItem.id) });
+    const result = { coverage, comparisons };
+    if (optionBoolean(options, 'json')) return console.log(JSON.stringify(result, null, 2));
+    console.log(`Visual coverage: ${coverage.status} (${coverage.covered.length}/${coverage.profiles.length} profiles)`);
+    coverage.warnings.forEach((entry) => console.warn(`Warning: ${entry}`));
+    coverage.errors.forEach((entry) => console.error(`Error: ${entry}`));
+    for (const comparison of comparisons) console.log(`${comparison.id}\t${comparison.status}\t${comparison.differingPixels} differing pixels`);
+    return;
+  }
+  if (action === 'compare') {
+    const result = await compareVisualArtifacts(root, workflow, {
+      expected: optionString(options, 'expected'), actual: optionString(options, 'actual'),
+      profileId: optionString(options, 'profile'), itemDirectory: workDir(root, config, workflow.workItem.id)
+    });
+    if (optionBoolean(options, 'json')) return console.log(JSON.stringify(result, null, 2));
+    console.log(`Visual comparison ${result.id}: ${result.status}; ${result.differingPixels} pixels (${(result.differingPixelRatio * 100).toFixed(3)}%).`);
+    console.log(`Summary: ${result.path}${result.diffImage ? `\nDiff: ${result.diffImage.path}` : ''}`);
+    if (result.status === 'fail') throw new SingularityFlowError('Visual comparison exceeds enforced thresholds.', { code: 'VISUAL_COMPARISON_FAILED' });
+    return;
+  }
+  throw new SingularityFlowError(`Unknown visual action '${action}'.`);
+}
+
+async function wmCommand(positionals, options) {
+  if (positionals[1] !== 'design-inventory') return worldModelCommand(repoRoot(), positionals, options);
+  if (!optionBoolean(options, 'from-records')) throw new SingularityFlowError('Design inventory generation is deterministic and requires --from-records.');
+  const root = repoRoot(), config = await loadConfig(root), workflow = await loadStoryAggregate(root, config);
+  const binding = approvedDesignSourceBinding(workflow);
+  const result = await generateDesignInventory(root, workflow, binding, { itemDirectory: workDir(root, config, workflow.workItem.id) });
+  if (optionBoolean(options, 'json')) return console.log(JSON.stringify(result, null, 2));
+  console.log(`Design inventory: ${result.digest.digestSha256}\nJSON: ${result.json.path}\nMarkdown: ${result.markdown.path}`);
 }
 
 async function phaseReview(root, config, workflow, phase) {
@@ -6330,6 +6383,7 @@ async function dispatch(command, positionals, options) {
     inputs: () => inputsCommand(positionals, options),
     'agents': () => agentsCommand(positionals, options),
     mcp: () => mcpCommand(positionals, options),
+    visual: () => visualCommand(positionals, options),
     documents: () => documentsCommand(positionals, options),
     prepare: () => prepareCommand(positionals, options),
     phase: () => phaseCommand(positionals, options),
@@ -6348,7 +6402,7 @@ async function dispatch(command, positionals, options) {
     state: () => stateCommand(positionals, options),
     validate: () => validateCommand(options),
     gate: () => gateCommand(options),
-    wm: () => worldModelCommand(repoRoot(), positionals, options),
+    wm: () => wmCommand(positionals, options),
     jira: () => jiraCommand(positionals, options),
     plugin: () => pluginCommand(positionals, options),
     snapshot: () => snapshotCommand(positionals, options),

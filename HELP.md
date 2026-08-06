@@ -1,5 +1,13 @@
 # Singularity Flow Help
 
+## Governed MCP and visual assurance
+
+MCP remains host-managed: Singularity Flow records which agent, phase, and tool may use it. `sflow mcp doctor` is offline by default; use `sflow mcp doctor --network` only for an explicit connectivity check and `sflow mcp warm <SERVER> --network` to pre-warm a pinned host dependency. Capture local output with `sflow mcp record`; remote output requires an explicit public HTTPS `--output-url` and is copied, size-limited, hashed, and committed as evidence.
+
+Mobile visual verification is configured per work type under `verification.profiles`. Evidence must name a profile, screen, and state. Use `sflow visual status` to check coverage and `sflow visual compare --expected <record-or-path> --actual <record-or-path> --profile <id>` for a deterministic RGBA8 PNG comparison. Unsupported formats and dimension mismatches are reported honestly; comparison never silently resizes images.
+
+Design inventory is deterministic and JSON-only: `sflow wm design-inventory --from-records`. It summarizes pinned design-source records without executing uploaded content. Current work receives the approved design-source set and its inventory digest through normal phase-context composition.
+
 Singularity Flow is a Git-native SDLC workflow for GitHub Copilot and engineering teams. It turns requirements, designs, implementation specifications, code, tests, approvals, and conformance evidence into durable branch state that another person or terminal can resume safely.
 
 Use this manual in three places:
@@ -2128,6 +2136,8 @@ singularity-flow agents refresh-output <RESOURCE-ID> [--replace]
 singularity-flow mcp list|status|doctor [--json]
 singularity-flow mcp scaffold playwright|figma [--local] [--replace-server]
 singularity-flow mcp record <SERVER> --tool TOOL [--phase PHASE] [--output PATH] [--note TEXT]
+singularity-flow visual status [--json]
+singularity-flow visual compare --expected RECORD-OR-PATH --actual RECORD-OR-PATH [--profile ID] [--json]
 singularity-flow status [WORK-ID] [--json]
 singularity-flow progress [WORK-ID] [--json]
 singularity-flow report [WORK-ID] [--format md|html|json] [--out FILE]

@@ -1492,6 +1492,42 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
       }
     }),
     'singularityFlow.openInstructionDesigner': () => InstructionDesignerPanel.show(context, store, async (message) => {
+      if (message.type === 'agent-action') {
+        if (message.action === 'refresh') {
+          await store.refresh();
+          return null;
+        }
+        if (message.action === 'sync') {
+          output.appendLine(`\n$ singularity-flow agents sync ${message.agentId}`);
+          try {
+            await client.runText(['agents', 'sync', message.agentId]);
+            await store.refresh();
+            return null;
+          } catch (error) {
+            output.appendLine(`  refused: ${(error as Error).message}`);
+            return (error as Error).message;
+          }
+        }
+
+        // First trust and lock updates deliberately require exact interactive confirmation. Open
+        // the bundled engine in an integrated terminal instead of weakening that TOFU boundary in
+        // the webview. The terminal uses the active repository and therefore records the same agent
+        // and lock hashes that a direct CLI user would review.
+        const quote = (value: string): string => `'${value.replace(/'/g, `'\\''`)}'`;
+        const args = [quote(client.location.executable), quote(client.location.cli), 'agents', 'lock', quote(message.agentId)];
+        if (message.action === 'update') args.push('--update');
+        const terminal = vscode.window.createTerminal({
+          name: `Singularity Flow · ${message.action === 'update' ? 'Update' : 'Trust'} ${message.agentId}`,
+          cwd: client.repository,
+          // VS Code's extension host is Electron. The normal CLI runner sets this flag when it
+          // invokes the bundled entrypoint; the interactive terminal must do the same or macOS
+          // launches another Code process instead of Node executing the CLI.
+          env: { ELECTRON_RUN_AS_NODE: '1' }
+        });
+        terminal.show(true);
+        terminal.sendText(args.join(' '), true);
+        return null;
+      }
       output.appendLine(`\n$ singularity-flow configuration save ${message.path}`);
       try {
         await client.runText(['configuration', 'save', message.path], { input: message.content });

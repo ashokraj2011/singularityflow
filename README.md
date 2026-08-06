@@ -1175,10 +1175,10 @@ boundaries.
 
 ## Remote skills
 
-| ID | URL | Phases | Agents | Optional | Max bytes |
-|---|---|---|---|---|---|
-| secure-design | https://example.com/agents/secure-design.md | design,implementation-spec | architect | false | 262144 |
-| api-review | https://example.com/agents/api-review.md | design | architect,developer | true | 262144 |
+| ID | URL | Phases | Optional | Max bytes |
+|---|---|---|---|---|
+| secure-design | https://example.com/agents/secure-design.md | design,implementation-spec | false | 262144 |
+| api-review | https://example.com/agents/api-review.md | design | true | 262144 |
 
 ## Remote artifact templates
 
@@ -1194,7 +1194,8 @@ boundaries.
 ```
 
 The headings, column names, and column order are exact. Use comma-separated
-phase and governed-agent IDs; `*`, `-`, or an empty value means all. `Optional` accepts
+phase IDs; `*`, `-`, or an empty value means all. The enclosing agent already
+defines the agent scope. `Optional` accepts
 `true` or `false`. The default size limit is 1 MiB and the hard ceiling is
 10 MiB.
 
@@ -1270,8 +1271,9 @@ uncached remote pack remains inactive and Copilot receives the exact
 An unrelated Copilot agent has no effect. Invalid mappings and unknown target
 packs fail validation instead of silently selecting another pack. agents
 remain instructions and context—not a human identity, governed agent, or approval
-authority. Edit the mapping YAML in VS Code **Configuration → Agents** or commit
-it normally so every contributor receives the same routing.
+authority. Edit the mapping visually in VS Code **Configuration → Agents &
+delivery** or commit the YAML normally so every contributor receives the same
+routing.
 
 ### Use a remote artifact template
 
@@ -1311,9 +1313,11 @@ singularity-flow agents refresh-output threat-model
 singularity-flow agents refresh-output threat-model --replace
 ```
 
-VS Code **Configuration → Agents** can edit repository agent Markdown and display
-lock status. Lock creation and updates remain explicit CLI
-trust operations. Authenticated private Git, Artifactory, cookie, and bearer
+VS Code **Configuration → Agents & delivery** provides the same lifecycle visually:
+edit the three structured resource tables, map native Copilot agent names, inspect
+per-resource hashes and cache state, open the exact trust/update confirmation in an
+integrated terminal, and sync locked content. Authenticated private Git,
+Artifactory, cookie, and bearer
 token downloads are not supported in this delivery. See
 [HELP.md](HELP.md#remote-agent-markdown) for lifecycle and integrity details.
 

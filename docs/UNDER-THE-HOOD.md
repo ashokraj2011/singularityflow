@@ -164,9 +164,9 @@ It may contain exact dependency tables:
 ```markdown
 ## Remote skills
 
-| ID | URL | Phases | Agents | Optional | Max bytes |
-|---|---|---|---|---|---|
-| security-review | https://example.com/security.md | design | architect | false | 65536 |
+| ID | URL | Phases | Optional | Max bytes |
+|---|---|---|---|---|
+| security-review | https://example.com/security.md | design | false | 65536 |
 
 ## Remote artifact templates
 

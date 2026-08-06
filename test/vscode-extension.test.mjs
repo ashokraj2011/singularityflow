@@ -2997,7 +2997,8 @@ const { designerHtml } = await import(source('views/designer-page.ts'));
 const { newArtifactDraft, renderArtifactTemplate, sectionFor, validateArtifactDraft } =
   await import(source('views/artifact-designer-model.ts'));
 const {
-  instructionCatalog, parseAgent, parseSkill, renderAgent, renderSkill, validateAgent, validateSkill
+  instructionCatalog, parseAgent, parseSkill, renderAgent, renderAgentMappings, renderSkill,
+  validateAgent, validateAgentMappingsDraft, validateSkill
 } = await import(source('views/instruction-designer-model.ts'));
 const { instructionDesignerHtml } = await import(source('views/instruction-designer-page.ts'));
 
@@ -3137,7 +3138,14 @@ test('the instruction designer separates agents, prompts, repository skills and 
     portfolio: { initiativePhases: {} },
     worldModel: { views: [{ id: 'development', references: [] }] },
     agents: [{ id: 'architect', scope: 'repository', path: '.github/agents/architect.agent.md', editable: true,
-      content: `---\nname: architect\ndescription: Designs systems.\ntools: [read, search]\nmetadata:\n  sflow-label: "Architect"\n  sflow-phases: "design"\n  sflow-default-for: "design"\n  sflow-world-model-views: "architecture,security"\n---\n\n# Architect\n\nUse evidence.` }],
+      content: `---\nname: architect\ndescription: Designs systems.\ntools: [read, search]\nmetadata:\n  sflow-label: "Architect"\n  sflow-phases: "design"\n  sflow-default-for: "design"\n  sflow-world-model-views: "architecture,security"\n---\n\n# Architect\n\nUse evidence.\n\n## Remote skills\n\n| ID | URL | Phases | Optional | Max bytes |\n|---|---|---|---|---|\n| security-guide | https://docs.example.test/security.md | design | false | 4096 |\n\n## Remote artifact templates\n\n| ID | URL | Phases | Optional | Max bytes |\n|---|---|---|---|---|\n| design-template | https://docs.example.test/design.md | design | false | - |\n\n## Remote generated artifacts\n\n| ID | URL template | Phase | Target | Optional | Max bytes |\n|---|---|---|---|---|---|\n| external-review | https://docs.example.test/{workId}/review.md | design | artifacts/design/external-review.md | true | - |` }],
+    agentMappings: { path: 'singularity/agent-mappings.yml', exists: true, rows: [
+      { copilotAgent: 'architecture', agentId: 'architect', source: 'configured' },
+      { copilotAgent: 'architect', agentId: 'architect', source: 'same-name fallback' }
+    ] },
+    agentStatus: [{ id: 'architect', scope: 'repository', source: '.github/agents/architect.agent.md',
+      sourceSha256: 'abc', locked: false, sourceChanged: false, status: 'unlocked',
+      dependencies: [{ id: 'security-guide', type: 'skill', optional: false, locked: false, sha256: null, status: 'unlocked' }] }],
     prompts: [{ path: 'singularity/prompts/planning.md', name: 'planning.md', content: '# Planning' }],
     repositorySkills: [{ path: '.github/skills/sf-review/SKILL.md', name: 'SKILL.md', content: `---\nname: sf-review\ndescription: Review work.\nargument-hint: "[ID]"\ndisable-model-invocation: false\n---\n\n# Review` }],
     flowSkills: [{ id: 'sf-help', path: 'plugin/skills/sf-help/SKILL.md', repositoryPath: '.github/skills/sf-help/SKILL.md', description: 'Explain Flow.', content: '# Help' }]
@@ -3153,8 +3161,15 @@ test('the instruction designer separates agents, prompts, repository skills and 
   const parsed = parseAgent(catalog.agents[0].content, 'architect');
   assert.deepEqual(parsed.phases, ['design']);
   assert.deepEqual(parsed.worldModelViews, ['architecture', 'security']);
+  assert.equal(parsed.remoteSkills[0].id, 'security-guide');
+  assert.equal(parsed.remoteTemplates[0].id, 'design-template');
+  assert.equal(parsed.remoteOutputs[0].target, 'artifacts/design/external-review.md');
   assert.deepEqual(validateAgent(parsed), []);
   assert.match(renderAgent(parsed), /## Remote generated artifacts/);
+  assert.match(renderAgent(parsed), /\| ID \| URL \| Phases \| Optional \| Max bytes \|/);
+  assert.doesNotMatch(renderAgent(parsed), /\| Personas \|/);
+  assert.deepEqual(validateAgentMappingsDraft([{ copilotAgent: 'architecture', agentId: 'architect' }], ['architect']), []);
+  assert.match(renderAgentMappings([{ copilotAgent: 'architecture', agentId: 'architect' }]), /"architecture": "architect"/);
 
   const skill = parseSkill(instructionSnapshot.repositorySkills[0].content, 'sf-review');
   assert.deepEqual(validateSkill(skill), []);
@@ -3167,6 +3182,14 @@ test('the instruction designer separates agents, prompts, repository skills and 
   assert.match(html, /Prompt composition/);
   assert.match(html, /Phase contract/);
   assert.match(html, /Repository world-model views/);
+
+  const delivery = instructionDesignerHtml(catalog, {
+    tab: 'delivery', selected: null, agent: null, prompt: null, skill: null, errors: [], notice: null
+  });
+  assert.match(delivery, /Copilot → Flow agent mappings/);
+  assert.match(delivery, /architecture/);
+  assert.match(delivery, /Remote resource trust/);
+  assert.match(delivery, /Review (?:&|&amp;) trust/);
 });
 
 test('every prompt pack is listed, including the ones that ship with the product', () => {

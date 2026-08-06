@@ -951,7 +951,7 @@ function fileSetNodes(snapshot: RepositorySnapshot): TreeNode[] {
         kind: 'artifact' as const,
         id: 'agent:mappings',
         label: 'agent-mappings.yml',
-        description: snapshot.agentMappings.exists ? 'which agent runs which skill' : 'not created yet',
+        description: snapshot.agentMappings.exists ? 'Copilot → governed agent routing' : 'same-name routing',
         icon: 'list-tree',
         path: snapshot.agentMappings.path,
         contextValue: 'sflow.config'

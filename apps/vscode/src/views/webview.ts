@@ -433,6 +433,31 @@ export const STYLE = `
   .instruction-item small { text-transform: uppercase; letter-spacing: .08em; }
   .instruction-editor { border: var(--sf-border); border-radius: var(--sf-radius); background: var(--sf-surface); padding: 1rem 1.15rem 1.25rem; }
   .instruction-editor h1 { margin-top: .1rem; }
+  .instruction-studio.single { grid-template-columns: minmax(0, 1fr); }
+  .remote-delivery, .delivery-section { margin-top: 1.15rem; padding-top: 1rem; border-top: var(--sf-border); }
+  .remote-delivery h3 { margin: 1rem 0 .25rem; font-size: .92rem; }
+  .remote-resource-list { display: grid; gap: .45rem; margin: .55rem 0; }
+  .remote-row { display: grid; grid-template-columns: minmax(8rem,.7fr) minmax(15rem,2fr) minmax(10rem,1fr) minmax(8rem,.65fr) auto auto; gap: .5rem; align-items: end; padding: .65rem; border: var(--sf-border); border-radius: var(--sf-radius); background: var(--vscode-editor-background); }
+  .remote-row label, .mapping-row label { display: grid; gap: .25rem; min-width: 0; }
+  .remote-row label > span, .mapping-row label > span { color: var(--sf-dim); font-size: .72rem; }
+  .remote-row input, .remote-row select, .mapping-row input, .mapping-row select { width: 100%; min-width: 0; }
+  .remote-row .remote-optional { display: flex; align-items: center; min-height: 2rem; gap: .35rem; white-space: nowrap; }
+  .remote-row .remote-optional input { width: auto; }
+  .mapping-table { display: grid; gap: .45rem; margin: .75rem 0; }
+  .mapping-row { display: grid; grid-template-columns: minmax(12rem,1fr) auto minmax(12rem,1fr) auto; gap: .65rem; align-items: end; padding: .65rem; border: var(--sf-border); border-radius: var(--sf-radius); }
+  .mapping-arrow { align-self: center; color: var(--sf-accent); font-size: 1.1rem; }
+  .trust-grid { display: grid; grid-template-columns: repeat(auto-fit,minmax(17rem,1fr)); gap: .7rem; margin-top: .75rem; }
+  .trust-card { display: grid; align-content: start; gap: .55rem; padding: .8rem; border: var(--sf-border); border-radius: var(--sf-radius); background: var(--vscode-editor-background); }
+  .trust-head { display: flex; align-items: start; justify-content: space-between; gap: .6rem; }
+  .trust-head > div { display: grid; gap: .15rem; }
+  .trust-head small, .trust-card p { color: var(--sf-dim); }
+  .status-chip { display: inline-flex; align-items: center; width: fit-content; padding: .18rem .45rem; border: var(--sf-border); border-radius: 999px; color: var(--sf-dim); font-size: .7rem; text-transform: uppercase; letter-spacing: .05em; }
+  .status-chip.ready, .status-chip.local-only { color: var(--sf-ok); border-color: var(--sf-ok); }
+  .status-chip.unlocked, .status-chip.needs-sync { color: var(--sf-wait); border-color: var(--sf-wait); }
+  .status-chip.stale { color: var(--sf-bad); border-color: var(--sf-bad); }
+  .resource-status { display: grid; gap: .25rem; margin: 0; padding: 0; list-style: none; }
+  .resource-status li { display: flex; justify-content: space-between; gap: .5rem; color: var(--sf-dim); font-size: .75rem; }
+  .resource-status li span:first-child { color: var(--vscode-foreground); }
   .choice-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(12rem, 1fr)); gap: .4rem; }
   .choice { display: flex; align-items: flex-start; gap: .5rem; padding: .5rem .6rem; border: var(--sf-border); border-radius: var(--sf-radius); }
   .choice input { margin-top: .25rem; }
@@ -512,6 +537,8 @@ export const STYLE = `
     .artifact-studio { grid-template-columns: 1fr; }
     .instruction-studio { grid-template-columns: 1fr; }
     .instruction-library { position: static; max-height: 22rem; }
+    .remote-row, .mapping-row { grid-template-columns: 1fr; }
+    .mapping-arrow { display: none; }
     .document-preview { position: static; }
     .workflow-rail { align-items: stretch; }
     .section-actions { flex-direction: column; }

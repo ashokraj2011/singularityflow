@@ -12,7 +12,7 @@ Singularity Flow configuration has one visual entry point in VS Code: **Configur
 |---|---|---|
 | Capabilities and repository ownership | Capability Designer | `singularity/capabilities.yml` and the state branch |
 | Story workflows, phases, gates and artifacts | Workflow and Artifact Designers | `singularity/workflow.yml` and `singularity/templates/` |
-| Agents, prompts, skills and prompt packs | Agent, Prompt & Skill Designer | `.github/agents/`, `singularity/prompts/`, repository skills and packs |
+| Agents, mappings, remote Markdown, prompts, skills and prompt packs | Agent Delivery & Instruction Designer | `.github/agents/`, `singularity/agent-mappings.yml`, `singularity/agents.lock.yml`, `singularity/prompts/`, repository skills and packs |
 | People and Story approval groups | People & approvals | `singularity/workflow.yml` |
 | People and Initiative approval groups | People & approvals | `singularity/portfolio.yml` |
 | MCP phase/agent/tool policy | MCP tools | `singularity/workflow.yml` |
@@ -21,6 +21,23 @@ Singularity Flow configuration has one visual entry point in VS Code: **Configur
 | Prompt audit | Prompt audit | workspace-local audit records |
 
 Every governed save goes through `singularity-flow configuration save`. The CLI validates the complete resulting file before writing it, so a visual edit cannot leave an unknown phase, authority, agent, or MCP policy behind. YAML comments and unrelated keys are retained.
+
+## Agents and remote Markdown delivery
+
+**Configuration → Agents & delivery** separates authoring from trust:
+
+- **Agents** edits phase routing, instructions, tools, world-model views, and the
+  structured remote skill, artifact-template, and generated-output declarations.
+- **Mappings & remote** maps a native Copilot agent name to a governed Flow agent,
+  then shows source drift, dependency hashes, lock state, and local cache readiness.
+- **Review & trust** and **Review update** open the engine's exact-name confirmation
+  in an integrated terminal. The webview cannot silently establish or widen trust.
+- **Sync locked resources** verifies committed hashes and materializes the local
+  cache without modifying `singularity/agents.lock.yml`.
+
+Only public HTTPS Markdown is supported. Ordinary links in agent prose remain inert,
+and a remote template affects a workflow only when its template reference explicitly
+uses `agent:<agent-id>/<template-id>`.
 
 ## People and approvals
 

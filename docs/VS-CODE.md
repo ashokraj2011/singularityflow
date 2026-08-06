@@ -99,8 +99,10 @@ for repository-owned configuration:
 - **Artifact Designer** — compose Markdown artifact templates from ordered
   sections, required fields, traceability tables, instructions, and optional
   remote template URLs.
-- **Agent Designer** — create and edit `.github/agents/*.agent.md`, including
-  phase scope, instructions, tool policy, and added world-model views.
+- **Agent Delivery & Instruction Designer** — create and edit
+  `.github/agents/*.agent.md`, including phase scope, instructions, tool policy,
+  world-model views, remote skills, remote artifact templates, generated outputs,
+  native Copilot-to-Flow mappings, and hash-lock/cache status.
 - **Prompt, Skill, and Prompt Pack Designer** — inspect and edit reusable Markdown,
   assemble ordered packs, and preview the final composition.
 - **Capability Designer** — add or edit collection and delivery

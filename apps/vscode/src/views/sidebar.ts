@@ -28,12 +28,14 @@ const SECTION_META: Record<SidebarSection, {
   lifecycle: {
     label: 'Lifecycle', icon: 'workflow', actions: [
       { id: 'work-start', label: 'Start intake', icon: 'start' },
+      { id: 'visual-assurance', label: 'Open visual assurance', icon: 'visual' },
       { id: 'refresh', label: 'Refresh lifecycle', icon: 'refresh' }
     ]
   },
   inbox: {
     label: 'Inbox', icon: 'inbox', actions: [
-      { id: 'inbox-open', label: 'Open inbox', icon: 'inbox' }
+      { id: 'inbox-open', label: 'Open inbox', icon: 'inbox' },
+      { id: 'visual-assurance', label: 'Review visual evidence', icon: 'compare' }
     ]
   },
   configuration: {
@@ -61,6 +63,7 @@ const ACTION_COMMANDS: Record<string, string> = {
   'workflow-design': 'singularityFlow.openDesigner',
   'instruction-design': 'singularityFlow.openInstructionDesigner',
   'prompt-audit': 'singularityFlow.openPromptAudit',
+  'visual-assurance': 'singularityFlow.openVisualAssurance',
   'help-open': 'singularityFlow.openHelp'
 };
 

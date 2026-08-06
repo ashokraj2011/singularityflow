@@ -29,6 +29,7 @@ import { DashboardPanel } from './views/dashboard.ts';
 import { DesignerPanel, type DesignerMessage } from './views/designer.ts';
 import { InstructionDesignerPanel } from './views/instruction-designer.ts';
 import { PromptAuditPanel } from './views/prompt-audit.ts';
+import { VisualAssurancePanel } from './views/visual-assurance.ts';
 import { ConfigurationCenterPanel, type ConfigurationCenterMessage } from './views/configuration-center.ts';
 import { HelpPanel } from './views/help.ts';
 import type { HelpDocument } from './views/help-page.ts';
@@ -217,6 +218,7 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
     'singularityFlow.showImpact', 'singularityFlow.addCapability', 'singularityFlow.editCapability',
     'singularityFlow.openDashboard', 'singularityFlow.openDesigner',
     'singularityFlow.openInstructionDesigner', 'singularityFlow.openPromptAudit', 'singularityFlow.openCopilot',
+    'singularityFlow.openVisualAssurance',
     'singularityFlow.openConfigurationCenter', 'singularityFlow.configurePeople', 'singularityFlow.configureMcp',
     'singularityFlow.reopenCompleted', 'singularityFlow.cancelWork'
   ];
@@ -1347,6 +1349,7 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
     else if (message.action === 'people') { openConfigurationCenter('people'); return null; }
     else if (message.action === 'mcp') { openConfigurationCenter('mcp'); return null; }
     else if (message.action === 'prompt-audit') await vscode.commands.executeCommand('singularityFlow.openPromptAudit');
+    else if (message.action === 'visual-assurance') await vscode.commands.executeCommand('singularityFlow.openVisualAssurance');
     else if (message.action === 'jira') await vscode.commands.executeCommand('singularityFlow.connectJira');
     else if (message.action === 'teams') await vscode.commands.executeCommand('singularityFlow.configureTeams');
     else if (message.action === 'open-workflow') await openArtifact(client.repository, { kind: 'artifact', id: 'config:workflow', label: 'workflow.yml', path: store.current.snapshot?.definitionPath ?? 'singularity/workflow.yml' });
@@ -1542,6 +1545,7 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
     'singularityFlow.configurePeople': () => openConfigurationCenter('people'),
     'singularityFlow.configureMcp': () => openConfigurationCenter('mcp'),
     'singularityFlow.openPromptAudit': () => PromptAuditPanel.show(context, client),
+    'singularityFlow.openVisualAssurance': () => VisualAssurancePanel.show(context, store, client),
     'singularityFlow.openCopilot': async () => {
       try {
         const target = path.resolve(client.repository);

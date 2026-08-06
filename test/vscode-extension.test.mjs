@@ -2063,7 +2063,7 @@ test('every domain noun has an icon, so nothing falls back to a bare label', () 
     'git', 'branch', 'commit', 'merge', 'code', 'capability', 'directory', 'teams', 'policy',
     'gate', 'epic', 'tracker', 'document', 'impact', 'success', 'waiting', 'warning',
     'blocked', 'stale', 'ok', 'wait', 'bad', 'workspaceManage', 'workspaceAdd',
-    'configuration', 'inbox', 'help', 'start'
+    'configuration', 'inbox', 'help', 'start', 'visual', 'compare'
   ]) {
     assert.ok(ICON_NAMES.includes(name), `${name} is not registered`);
     assert.notEqual(icon(name), '', `${name} has no icon`);
@@ -2074,7 +2074,7 @@ test('every core semantic icon resolves for native trees and theme-aware states 
   for (const name of [
     'workspace', 'collection', 'delivery', 'workflow', 'phase', 'artifact', 'agent', 'prompt',
     'skill', 'pack', 'approval', 'jira', 'worldModel', 'story', 'initiative', 'workspaceManage',
-    'workspaceAdd', 'configuration', 'inbox', 'help', 'start'
+    'workspaceAdd', 'configuration', 'inbox', 'help', 'start', 'visual', 'compare'
   ]) {
     assert.ok(TREE_ICONS[name], `${name} has no native-tree mapping`);
     assert.match(treeIcon(name).id, /\S+/, `${name} resolved to an empty Codicon`);

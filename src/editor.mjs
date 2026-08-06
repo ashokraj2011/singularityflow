@@ -71,6 +71,11 @@ import {
 } from './repository-subject-index.mjs';
 import { mcpStatus } from './mcp.mjs';
 import { mcpDoctor } from './mcp-readiness.mjs';
+import { approvedDesignSourceBinding, verifyDesignSourceLifecycle } from './design-sources.mjs';
+import { readDesignInventory } from './design-inventory.mjs';
+import { evaluateVisualCoverage } from './visual-coverage.mjs';
+import { listVisualComparisons } from './visual-compare.mjs';
+import { verifyMcpEvidence } from './mcp-evidence.mjs';
 
 const packageRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 export const REPOSITORY_SKILLS_ROOT = '.github/skills';
@@ -93,6 +98,101 @@ async function mcpConfigurationStatus(root, definition) {
       readiness: readinessById.get(server.id)?.readiness ?? 'needs-host-setup',
       readinessReasons: readinessById.get(server.id)?.reasons ?? []
     }))
+  };
+}
+
+/**
+ * One local, read-only Visual Assurance projection for every editor surface.
+ *
+ * The projection deliberately does not warm an MCP server or perform a network doctor. Opening a
+ * dashboard must never contact a design system. It joins the governed files already committed to
+ * the Story and preserves the engine's own errors and warnings instead of translating them into a
+ * second policy vocabulary in VS Code.
+ */
+async function visualAssuranceSnapshot(root, definition, workflow) {
+  if (!workflow) return null;
+  const itemDirectoryRelative = posix(path.join(
+    workflow.resolution?.workItemRoot ?? definition.workItemRoot ?? 'singularity/work-items',
+    workflow.workItem.id
+  ));
+  const itemDirectory = path.join(root, itemDirectoryRelative);
+  const errors = [], warnings = [], passes = [];
+
+  let evidence = { errors: [], warnings: [], passes: [], records: [] };
+  try { evidence = await verifyMcpEvidence(root, workflow, { itemDirectory }); }
+  catch (error) { errors.push(`MCP evidence could not be read: ${error.message}`); }
+  errors.push(...evidence.errors); warnings.push(...evidence.warnings); passes.push(...evidence.passes);
+
+  let designSources = { errors: [], warnings: [], passes: [], candidates: [], stale: [] };
+  try { designSources = await verifyDesignSourceLifecycle(root, workflow, { itemDirectory }); }
+  catch (error) { errors.push(`Design-source lifecycle could not be read: ${error.message}`); }
+  errors.push(...designSources.errors); warnings.push(...designSources.warnings); passes.push(...designSources.passes);
+
+  const approvedSet = approvedDesignSourceBinding(workflow);
+  let inventory = null;
+  if (approvedSet) {
+    try { inventory = await readDesignInventory(root, workflow, approvedSet, { itemDirectory }); }
+    catch (error) { errors.push(`Design inventory could not be read: ${error.message}`); }
+  }
+
+  let coverage = null;
+  try { coverage = await evaluateVisualCoverage(root, workflow, { itemDirectory }); }
+  catch (error) { errors.push(`Visual coverage could not be evaluated: ${error.message}`); }
+  if (coverage) {
+    errors.push(...coverage.errors); warnings.push(...coverage.warnings);
+    if (coverage.status === 'pass') passes.push(`visual coverage: ${coverage.covered.length}/${coverage.profiles.length} profile(s)`);
+  }
+
+  let comparisons = [];
+  try { comparisons = await listVisualComparisons(root, workflow, { itemDirectory }); }
+  catch (error) { errors.push(`Visual comparisons could not be read: ${error.message}`); }
+  for (const comparison of comparisons) {
+    const message = `visual comparison ${comparison.id}: ${comparison.status}`;
+    if (comparison.status === 'fail') errors.push(message);
+    else if (comparison.status === 'warn') warnings.push(message);
+    else passes.push(message);
+  }
+
+  const configured = Boolean(
+    workflow.resolution?.designSources
+    || workflow.resolution?.verification?.profiles?.length
+    || (workflow.resolution?.verification?.comparison?.mode
+      && workflow.resolution.verification.comparison.mode !== 'off')
+    || evidence.records.length
+  );
+  return {
+    schemaVersion: 1,
+    configured,
+    workId: workflow.workItem.id,
+    phase: workflow.currentPhase,
+    itemDirectory: itemDirectoryRelative,
+    policy: {
+      designSources: workflow.resolution?.designSources ?? null,
+      verification: workflow.resolution?.verification ?? null
+    },
+    designSources: {
+      approvedSet,
+      candidates: designSources.candidates ?? [],
+      stale: designSources.stale ?? [],
+      errors: designSources.errors ?? [],
+      warnings: designSources.warnings ?? [],
+      passes: designSources.passes ?? []
+    },
+    inventory,
+    evidence: {
+      records: evidence.records,
+      errors: evidence.errors,
+      warnings: evidence.warnings,
+      passes: evidence.passes
+    },
+    coverage,
+    comparisons,
+    readiness: {
+      status: !configured ? 'not-configured' : errors.length ? 'blocked' : warnings.length ? 'attention' : 'ready',
+      errors: [...new Set(errors)],
+      warnings: [...new Set(warnings)],
+      passes: [...new Set(passes)]
+    }
   };
 }
 
@@ -538,6 +638,7 @@ async function fullRepositorySnapshot(root, requestedWorkId = null, requestedIni
     report,
     documents,
     review,
+    visualAssurance: await visualAssuranceSnapshot(root, definition, workflow),
     diagnostics: await doctorSnapshot(root, { workId: selectedId, offline: true }),
     workflowSimulations: await simulateWorkflow(root),
     session: await loadSession(root, { required: false })
@@ -609,6 +710,7 @@ async function lifecycleSlice(root, requestedWorkId, requestedInitiativeId) {
     report,
     documents,
     review,
+    visualAssurance: await visualAssuranceSnapshot(root, definition, workflow),
     initiative: await initiativeEditorSnapshot(root, portfolio, selectedInitiativeId),
     approvalInbox: {
       remote: definition.git?.remote ?? 'origin',

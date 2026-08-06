@@ -89,6 +89,11 @@ business users enter a portfolio without navigating repository internals first.
 Configuration answers **how should future work run?** It contains visual editors
 for repository-owned configuration:
 
+- **Configuration Center** — one guided overview of all major areas, including
+  first-class People & approvals and MCP policy screens. It distinguishes human
+  identities, governed AI agents, and host-owned tool processes instead of
+  presenting them as one kind of user.
+
 - **Workflow Designer** — create or edit work types, phase order, inputs, gates,
   checks, approvals, and world-model routing.
 - **Artifact Designer** — compose Markdown artifact templates from ordered
@@ -100,8 +105,9 @@ for repository-owned configuration:
   assemble ordered packs, and preview the final composition.
 - **Capability Designer** — add or edit collection and delivery
   capabilities, connect repositories and Jira routes, and view inherited policy.
-- **Integrations and policy** — Jira, storage, Teams notifications, approval
-  authorities, remote-agent locks, and world-model rules.
+- **Integrations and policy** — secure Jira and Teams actions, approval
+  authorities, governed MCP policy and host readiness, remote-agent locks, and
+  world-model rules.
 
 Configuration changes affect new work unless a lifecycle explicitly regenerates a
 new version. Active work continues from its pinned resolution.

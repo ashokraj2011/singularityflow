@@ -29,6 +29,7 @@ import { DashboardPanel } from './views/dashboard.ts';
 import { DesignerPanel, type DesignerMessage } from './views/designer.ts';
 import { InstructionDesignerPanel } from './views/instruction-designer.ts';
 import { PromptAuditPanel } from './views/prompt-audit.ts';
+import { ConfigurationCenterPanel, type ConfigurationCenterMessage } from './views/configuration-center.ts';
 import { HelpPanel } from './views/help.ts';
 import type { HelpDocument } from './views/help-page.ts';
 import { WorkspacesPanel, type WorkspacesMessage } from './views/workspaces-panel.ts';
@@ -216,7 +217,7 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
     'singularityFlow.showImpact', 'singularityFlow.addCapability', 'singularityFlow.editCapability',
     'singularityFlow.openDashboard', 'singularityFlow.openDesigner',
     'singularityFlow.openInstructionDesigner', 'singularityFlow.openPromptAudit', 'singularityFlow.openCopilot',
-    'singularityFlow.configureMcp',
+    'singularityFlow.openConfigurationCenter', 'singularityFlow.configurePeople', 'singularityFlow.configureMcp',
     'singularityFlow.reopenCompleted', 'singularityFlow.cancelWork'
   ];
   /** Workspaces are machine-wide and remain available whatever folder is open. */
@@ -1074,12 +1075,9 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
     if (Object.keys(authorities).length && !named.length) {
       const open = await vscode.window.showWarningMessage(
         'No approval authority has a member yet, so governed work cannot be started.',
-        { modal: true, detail: 'Add at least one person under approvalAuthorities in singularity/portfolio.yml. Every governed approval is checked against that list.' },
-        'Open portfolio.yml');
-      if (open === 'Open portfolio.yml') {
-        const target = vscode.Uri.file(path.join(repository, store.current.snapshot?.portfolioPath ?? 'singularity/portfolio.yml'));
-        await vscode.window.showTextDocument(await vscode.workspace.openTextDocument(target));
-      }
+        { modal: true, detail: 'Add at least one person in People & approvals. Every governed approval is checked against the configured Git or GitHub identity.' },
+        'Open People & approvals');
+      if (open === 'Open People & approvals') await vscode.commands.executeCommand('singularityFlow.configurePeople');
       return;
     }
 
@@ -1319,6 +1317,61 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
     });
   };
 
+  const configurationMessage = async (message: ConfigurationCenterMessage): Promise<string | null> => {
+    if (message.type === 'save') {
+      output.appendLine(`\n$ singularity-flow configuration save ${message.path}`);
+      try {
+        await client.runText(['configuration', 'save', message.path], { input: message.content });
+        await store.refresh();
+        return null;
+      } catch (error) {
+        output.appendLine(`  refused: ${(error as Error).message}`);
+        return (error as Error).message;
+      }
+    }
+    if (message.type === 'profile') {
+      try {
+        const settings = vscode.workspace.getConfiguration('singularityFlow');
+        await Promise.all([
+          settings.update('userName', message.name.trim(), vscode.ConfigurationTarget.Global),
+          settings.update('role', message.role, vscode.ConfigurationTarget.Global),
+          context.globalState.update('onboardingComplete', true)
+        ]);
+        return null;
+      } catch (error) { return (error as Error).message; }
+    }
+
+    if (message.action === 'capabilities') await vscode.commands.executeCommand('singularityFlow.openCapabilities');
+    else if (message.action === 'workflow') await vscode.commands.executeCommand('singularityFlow.openDesigner');
+    else if (message.action === 'instructions') await vscode.commands.executeCommand('singularityFlow.openInstructionDesigner');
+    else if (message.action === 'people') { openConfigurationCenter('people'); return null; }
+    else if (message.action === 'mcp') { openConfigurationCenter('mcp'); return null; }
+    else if (message.action === 'prompt-audit') await vscode.commands.executeCommand('singularityFlow.openPromptAudit');
+    else if (message.action === 'jira') await vscode.commands.executeCommand('singularityFlow.connectJira');
+    else if (message.action === 'teams') await vscode.commands.executeCommand('singularityFlow.configureTeams');
+    else if (message.action === 'open-workflow') await openArtifact(client.repository, { kind: 'artifact', id: 'config:workflow', label: 'workflow.yml', path: store.current.snapshot?.definitionPath ?? 'singularity/workflow.yml' });
+    else if (message.action === 'open-portfolio') await openArtifact(client.repository, { kind: 'artifact', id: 'config:portfolio', label: 'portfolio.yml', path: store.current.snapshot?.portfolioPath ?? 'singularity/portfolio.yml' });
+    else if (message.action === 'playwright') {
+      try {
+        await client.runText(['mcp', 'scaffold', 'playwright']);
+        await store.refresh();
+        void vscode.window.showInformationMessage('Playwright MCP host configuration created. Review it, then trust and start it through VS Code MCP: List Servers.');
+      } catch (error) { return (error as Error).message; }
+    } else if (message.action === 'open-mcp-host') {
+      const hostFile = vscode.Uri.file(path.join(client.repository, '.vscode', 'mcp.json'));
+      try { await vscode.window.showTextDocument(await vscode.workspace.openTextDocument(hostFile), { preview: false }); }
+      catch { return 'No .vscode/mcp.json exists yet. Add a Playwright starter or create a host configuration first.'; }
+    }
+    return null;
+  };
+
+  const openConfigurationCenter = (tab: 'overview' | 'people' | 'mcp' = 'overview'): void => {
+    ConfigurationCenterPanel.show(context, store, () => {
+      const settings = vscode.workspace.getConfiguration('singularityFlow');
+      return { name: settings.get<string>('userName') ?? '', role: settings.get<string>('role') || 'other' };
+    }, configurationMessage, tab);
+  };
+
   // The commands themselves were registered at activation; this is what they do once there is a
   // repository to do it against.
   const registered: Record<string, (...args: never[]) => unknown> = {
@@ -1449,51 +1502,9 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
         return (error as Error).message;
       }
     }),
-    'singularityFlow.configureMcp': async () => {
-      const hostFile = path.join(client.repository, '.vscode', 'mcp.json');
-      const configured = store.current.snapshot?.mcp?.inventory.some(
-        (entry) => entry.surface === 'vscode-workspace' && entry.name
-      ) === true;
-      const choice = await vscode.window.showQuickPick([
-        ...(configured ? [{
-          label: 'Open workspace MCP configuration',
-          description: '.vscode/mcp.json',
-          action: 'open' as const
-        }] : [{
-          label: 'Configure Playwright MCP for this workspace',
-          description: 'creates .vscode/mcp.json; credentials remain host-owned',
-          action: 'playwright' as const
-        }]),
-        {
-          label: 'Open governed MCP policy',
-          description: 'singularity/workflow.yml · agent, phase, and tool allowlists',
-          action: 'policy' as const
-        }
-      ], {
-        title: 'MCP tools',
-        placeHolder: 'Choose host setup or governed policy',
-        ignoreFocusOut: true
-      });
-      if (!choice) return;
-      if (choice.action === 'policy') {
-        await openArtifact(client.repository, {
-          kind: 'artifact', id: 'mcp:policy', label: 'workflow.yml', path: 'singularity/workflow.yml'
-        });
-        return;
-      }
-      if (choice.action === 'playwright') {
-        try {
-          await client.runText(['mcp', 'scaffold', 'playwright']);
-          await store.refresh();
-          void vscode.window.showInformationMessage('Playwright MCP host configuration created. Review it, then use VS Code MCP: List Servers to trust and start it.');
-        } catch (error) {
-          void vscode.window.showErrorMessage(`Could not configure Playwright MCP: ${(error as Error).message}`);
-          return;
-        }
-      }
-      const document = await vscode.workspace.openTextDocument(vscode.Uri.file(hostFile));
-      await vscode.window.showTextDocument(document, { preview: false });
-    },
+    'singularityFlow.openConfigurationCenter': () => openConfigurationCenter('overview'),
+    'singularityFlow.configurePeople': () => openConfigurationCenter('people'),
+    'singularityFlow.configureMcp': () => openConfigurationCenter('mcp'),
     'singularityFlow.openPromptAudit': () => PromptAuditPanel.show(context, client),
     'singularityFlow.openCopilot': async () => {
       try {

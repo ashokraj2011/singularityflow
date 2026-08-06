@@ -986,11 +986,14 @@ function configurationNode(snapshot: RepositorySnapshot, readiness: CapabilityRe
       // recreates the onboarding circle the standalone mapper exists to remove.
       capabilityConfigurationNode(snapshot, readiness),
       {
-        kind: 'group', id: 'config:local-profile', label: 'User and integrations',
-        description: 'local · keychain protected', icon: 'account',
+        kind: 'group', id: 'config:local-profile', label: 'People and integrations',
+        description: 'humans · local secrets', icon: 'account',
         children: [{
-          kind: 'action', id: 'config:profile', label: 'Configure user profile',
-          description: 'name and role', icon: 'account', runCommand: 'singularityFlow.configureProfile'
+          kind: 'action', id: 'config:people', label: 'People & approval authorities',
+          description: 'human identities · approval groups', icon: 'people', runCommand: 'singularityFlow.configurePeople'
+        }, {
+          kind: 'action', id: 'config:profile', label: 'Quick-edit local profile',
+          description: 'name and guidance role', icon: 'account', runCommand: 'singularityFlow.configureProfile'
         }, {
           kind: 'action', id: 'config:jira', label: 'Connect or replace Jira',
           description: 'VS Code SecretStorage', icon: 'key', runCommand: 'singularityFlow.connectJira'
@@ -1026,6 +1029,11 @@ function configurationNode(snapshot: RepositorySnapshot, readiness: CapabilityRe
           description: 'Initiative profiles, gates, approvers, repositories', icon: 'organization',
           path: snapshot.portfolioPath ?? 'singularity/portfolio.yml', contextValue: 'sflow.config'
         }]
+      },
+      {
+        kind: 'action', id: 'config:center', label: 'Open Configuration Center',
+        description: 'guided setup overview', icon: 'settings-gear',
+        runCommand: 'singularityFlow.openConfigurationCenter'
       },
       ...fileSetNodes(snapshot)
     ]
@@ -1064,7 +1072,7 @@ function mcpConfigurationNode(snapshot: RepositorySnapshot): TreeNode {
         kind: 'message' as const,
         id: 'config:mcp:empty',
         label: 'No governed MCP servers',
-        description: 'declare mcpServers in workflow.yml',
+        description: 'open the guided MCP editor',
         icon: 'info'
       }] : []),
       {

@@ -388,10 +388,14 @@ export interface RepositorySnapshot {
    * least one is populated, and finding that out after asking five questions is a poor greeting.
    */
   portfolio?: {
-    approvalAuthorities?: Record<string, { members?: Array<{ name?: string; email?: string }> }>;
+    approvalAuthorities?: Record<string, {
+      label?: string; allowAnyGitIdentity?: boolean;
+      members?: Array<{ name?: string; email?: string; githubLogin?: string; login?: string }>;
+    }>;
     [key: string]: unknown;
   } | null;
   portfolioPath?: string;
+  portfolioText?: string;
   /**
    * What this organisation builds, as a tree, held by the lead repository. Distinct from the
    * repositories: one business capability is often several repositories, and the shape of what is
@@ -408,7 +412,10 @@ export interface RepositorySnapshot {
    * offer the lenses this repository declares, not a list this extension keeps.
    */
   definition?: {
-    approvalAuthorities?: Record<string, { members?: Array<{ name?: string; email?: string }> }>;
+    approvalAuthorities?: Record<string, {
+      label?: string; allowAnyGitIdentity?: boolean;
+      members?: Array<{ name?: string; email?: string; githubLogin?: string; login?: string }>;
+    }>;
     personas?: Record<string, { label?: string; description?: string }>;
     phases?: Record<string, {
       label?: string;
@@ -422,6 +429,7 @@ export interface RepositorySnapshot {
     [key: string]: unknown;
   };
   definitionPath?: string;
+  definitionText?: string;
   /** Validation may fail while the configuration inventory remains safely readable. */
   configurationValid?: boolean;
   configurationError?: string | null;
@@ -456,6 +464,7 @@ export interface RepositorySnapshot {
     servers: Array<{
       id: string; label: string; hostReference: string; agents: string[]; phases: string[];
       tools: string[]; required: boolean; approval: string; configured: boolean; sources: string[];
+      evidence?: { captureToolCalls?: boolean; captureResults?: boolean };
     }>;
     inventory: Array<{ surface: string; path: string; name: string | null; error: string | null }>;
     errors: string[];

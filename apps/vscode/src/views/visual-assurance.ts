@@ -12,6 +12,7 @@ interface VisualMessage {
   type?: string; path?: string; server?: string; expected?: string; actual?: string; profile?: string;
   tool?: string; kind?: string; output?: string; outputUrl?: string; fileKey?: string;
   fileVersion?: string; profileId?: string; screenId?: string; stateId?: string; nodes?: string[];
+  candidateRecordId?: string;
 }
 
 function addOption(args: string[], flag: string, value: unknown): void {
@@ -86,6 +87,17 @@ export class VisualAssurancePanel implements vscode.Disposable {
     if (message.type === 'inventory') return this.operate(
       'Deterministic design inventory generated.', ['wm', 'design-inventory', '--from-records', '--json']
     );
+    if (message.type === 'promote-candidate' && message.candidateRecordId) {
+      const confirmation = await vscode.window.showInputBox({
+        title: 'Promote design-source candidate',
+        prompt: 'This reopens the design capture phase and invalidates downstream approvals. Type the exact candidate record ID to continue.',
+        placeHolder: message.candidateRecordId, ignoreFocusOut: true
+      });
+      if (confirmation !== message.candidateRecordId) return;
+      return this.operateText('Design candidate promoted; capture and downstream phases reopened.', [
+        'mcp', 'design-sources', 'promote', message.candidateRecordId, '--confirm', message.candidateRecordId
+      ]);
+    }
     if (message.type === 'compare' && message.expected && message.actual) {
       const args = ['visual', 'compare', '--expected', message.expected, '--actual', message.actual];
       addOption(args, '--profile', message.profile); args.push('--json');

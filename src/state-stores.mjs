@@ -172,7 +172,7 @@ export {
 export {
   approvePhase, assertNoPendingPublication, cancelWorkflow, CONFIG_PATH, createWorkflow, currentPhase,
   loadConfig, preparePhase, preparePhaseInputs, publishGeneration,
-  reconcilePhaseTelemetry, registerArtifact, rejectPhase, reopenWorkflow, scanArtifacts,
+  promoteDesignSource, reconcilePhaseTelemetry, registerArtifact, rejectPhase, reopenWorkflow, scanArtifacts,
   storyPublicationPending, submitPhase, validateId, workflowBranchAllowed,
   workflowPublicationBranch, workDir
 } from './state.mjs';

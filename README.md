@@ -1371,6 +1371,11 @@ Recorded PNG comparisons can be inspected inline as side-by-side, overlay-slider
 or deterministic diff views. The cards retain the exact approved, implementation,
 and diff hashes. Candidate versions never replace the approved source silently,
 and host readiness can be attested only after exact server-name confirmation.
+When a reviewed candidate should become the new baseline, use the explicit
+**Promote** action in Visual Assurance or run `singularity-flow mcp
+design-sources promote <record-id> --confirm <record-id>`. Promotion is an audited
+publication: it reopens design intake, invalidates that phase and its downstream
+approvals, and pins the chosen record for the next capture generation.
 Corporate npm registry, proxy, and CA configuration continue to come from
 `.npmrc`, environment variables, and the host. Durable screenshots or reports can
 be hash-recorded with `singularity-flow mcp record` and are revalidated by the
@@ -1413,6 +1418,7 @@ evidence workflow.
 | `singularity-flow mcp attest <SERVER> --confirm <SERVER>` | Record a machine-local statement that the reviewed host entry was trusted, started, and authenticated. |
 | `singularity-flow mcp record <SERVER> --tool <TOOL> [--kind KIND] [--phase PHASE] [--output PATH]` | Copy and hash a declared MCP result into the active work item; Figma design sources also require file key and version. |
 | `singularity-flow mcp design-sources status` | Verify and display the exact approved design-source set used by downstream prompts. |
+| `singularity-flow mcp design-sources promote <RECORD-ID> --confirm <RECORD-ID>` | Explicitly promote a reviewed candidate, reopen capture, invalidate downstream approvals, and pin it for the next generation. |
 | `singularity-flow capabilities doctor [ID] [--offline]` | Verify capability ownership, inherited lifecycle policy, orphan-state publication, ledger integrity, lifecycle pinning, and cross-repository world-model snapshots. |
 | `singularity-flow documents list [ID]` | List uploaded inputs and generated workflow documents. |
 | `singularity-flow documents view <ID>` | Display text content or return the path/URL for a binary/external document. |

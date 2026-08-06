@@ -1,5 +1,5 @@
 import assert from 'node:assert/strict';
-import { mkdtemp, mkdir, readFile, writeFile } from 'node:fs/promises';
+import { mkdtemp, mkdir, readFile, symlink, writeFile } from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
 import test from 'node:test';
@@ -175,4 +175,48 @@ test('MCP provenance records only governed tools and hash-bound work-item output
   assert.equal(result.record.output.sha256.length, 64);
   await assert.rejects(() => recordMcpEvidence(root, workflow, { server: 'playwright', tool: 'browser_install', agent: 'qa' }), /not allowed/);
   await assert.rejects(() => recordMcpEvidence(root, workflow, { server: 'playwright', tool: 'browser_navigate', agent: 'developer' }), /requires one of these governed agents/);
+});
+
+test('MCP evidence rejects symbolic-link sources and credential-bearing URLs', async () => {
+  const root = await repository('sflow-mcp-boundaries-');
+  const outside = path.join(await mkdtemp(path.join(os.tmpdir(), 'sflow-mcp-outside-')), 'secret.txt');
+  const linked = path.join(root, 'linked-output.txt');
+  await writeFile(outside, 'outside repository evidence\n');
+  await symlink(outside, linked);
+  const workflow = {
+    workItem: { id: 'STORY-1' }, currentPhase: 'verification',
+    phaseOrder: ['verification'], phases: { verification: { generation: 0, status: 'in_progress' } },
+    resolution: { mcpServers: configured() }
+  };
+
+  await assert.rejects(() => recordMcpEvidence(root, workflow, {
+    server: 'playwright', tool: 'browser_navigate', agent: 'qa', outputPath: 'linked-output.txt'
+  }), /symbolic|outside the repository|regular/i);
+  await assert.rejects(() => recordMcpEvidence(root, workflow, {
+    server: 'playwright', tool: 'browser_navigate', agent: 'qa',
+    outputUrl: 'https://user:secret@example.test/evidence.txt'
+  }), /must not contain credentials/);
+  await assert.rejects(() => recordMcpEvidence(root, workflow, {
+    server: 'playwright', tool: 'browser_navigate', agent: 'qa', note: 'Authorization: bearer private'
+  }), /must not contain credentials or secrets/);
+});
+
+test('MCP evidence honors an immutable custom work-item root', async () => {
+  const root = await repository('sflow-mcp-custom-root-');
+  const output = path.join(root, 'verification-output.txt');
+  await mkdir(path.join(root, 'governed/story-state/STORY-1'), { recursive: true });
+  await writeFile(output, 'verified from custom root\n');
+  const workflow = {
+    workItem: { id: 'STORY-1' }, currentPhase: 'verification',
+    phaseOrder: ['verification'], phases: { verification: { generation: 0, status: 'in_progress' } },
+    resolution: { workItemRoot: 'governed/story-state', mcpServers: configured() }
+  };
+
+  const result = await recordMcpEvidence(root, workflow, {
+    server: 'playwright', tool: 'browser_navigate', agent: 'qa', outputPath: 'verification-output.txt'
+  });
+  assert.match(result.file, /^governed\/story-state\/STORY-1\/context\/mcp\/records\//);
+  const verified = await verifyMcpEvidence(root, workflow);
+  assert.equal(verified.errors.length, 0);
+  assert.equal(verified.records.length, 1);
 });

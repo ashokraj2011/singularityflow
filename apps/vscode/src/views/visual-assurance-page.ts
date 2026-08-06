@@ -55,7 +55,7 @@ function sourceSection(view: VisualAssuranceView): string {
     <div class="section-heading subheading"><h3>${icon('document')}Recorded design evidence</h3><button class="secondary" data-action="show-record">Record evidence</button></div>
     <div class="table-wrap"><table><thead><tr><th>Record</th><th>MCP source</th><th>Phase</th><th>Version / nodes</th><th>Hash / agent</th><th>Artifact</th></tr></thead><tbody>${evidenceRows(view.designSources)}</tbody></table></div>
     ${view.candidates.length ? `<div class="notice warning"><strong>${view.candidates.length} newer candidate version${view.candidates.length === 1 ? '' : 's'} detected.</strong><p>A candidate becomes governed only through a new capture-phase generation and approval; this page does not silently replace the pin.</p>
-      <div class="table-wrap candidate-table"><table><thead><tr><th>Design file</th><th>Approved version</th><th>Candidate version</th><th>Classification</th></tr></thead><tbody>${view.candidates.map((candidate) => `<tr><td><code>${escape(candidate.fileKey ?? '—')}</code></td><td>${escape(candidate.approvedVersion ?? '—')}</td><td>${escape(candidate.candidateVersion ?? '—')}</td><td>${escape(candidate.classification ?? 'candidate')}</td></tr>`).join('')}</tbody></table></div></div>` : ''}
+      <div class="table-wrap candidate-table"><table><thead><tr><th>Design file</th><th>Approved version</th><th>Candidate version</th><th>Classification</th><th>Decision</th></tr></thead><tbody>${view.candidates.map((candidate) => `<tr><td><code>${escape(candidate.fileKey ?? '—')}</code></td><td>${escape(candidate.approvedVersion ?? '—')}</td><td>${escape(candidate.candidateVersion ?? '—')}</td><td>${escape(candidate.classification ?? 'candidate')}</td><td>${candidate.candidateRecordId ? `<button type="button" class="secondary compact-action" data-promote-candidate="${escape(candidate.candidateRecordId)}">Promote candidate</button>` : '—'}</td></tr>`).join('')}</tbody></table></div></div>` : ''}
     <div class="card-foot"><button data-action="inventory"${approved ? '' : ' disabled'}>${icon('worldModel')}Generate deterministic inventory</button>${inventory ? openButton(inventory.path, 'Open inventory') : ''}</div>
   </section>`;
 }
@@ -148,6 +148,7 @@ export const VISUAL_ASSURANCE_SCRIPT = `
     if (action) { if (action.dataset.action === 'show-record') document.querySelector('#record-evidence')?.setAttribute('open', ''); else vscode.postMessage({ type: action.dataset.action }); }
     const open = event.target.closest('[data-open]'); if (open) vscode.postMessage({ type: 'open', path: open.dataset.open });
     const attest = event.target.closest('[data-attest]'); if (attest) vscode.postMessage({ type: 'attest', server: attest.dataset.attest });
+    const promote = event.target.closest('[data-promote-candidate]'); if (promote) vscode.postMessage({ type: 'promote-candidate', candidateRecordId: promote.dataset.promoteCandidate });
     const mode = event.target.closest('[data-mode]');
     if (mode) {
       const card = mode.closest('[data-comparison]'); const stage = card?.querySelector('[data-visual-stage]');

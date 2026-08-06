@@ -550,7 +550,7 @@ export interface VisualAssuranceSnapshot {
       path?: string; sha256?: string; setSha256?: string; phase?: string; generation?: number;
       records?: Array<{ recordId: string; fileKey?: string; fileVersion?: string; nodes?: string[]; outputPath?: string; outputSha256?: string }>;
     } | null;
-    candidates: Array<{ fileKey?: string; approvedVersion?: string; candidateVersion?: string; classification?: string }>;
+    candidates: Array<{ fileKey?: string; approvedRecordId?: string; approvedVersion?: string; candidateRecordId?: string; candidateVersion?: string; classification?: string }>;
     stale: Array<{ fileKey?: string; candidateVersion?: string; classification?: string }>;
     errors: string[]; warnings: string[]; passes: string[];
   };

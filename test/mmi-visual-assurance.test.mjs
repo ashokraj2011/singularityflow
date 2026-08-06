@@ -29,3 +29,29 @@ test('enforced visual coverage reports a missing configured profile', async () =
   const result = await evaluateVisualCoverage(root, workflow(root));
   assert.equal(result.status, 'fail'); assert.deepEqual(result.uncovered, ['phone']);
 });
+
+test('PNG decoding rejects malformed, corrupt, and over-budget inputs', () => {
+  assert.throws(() => decodePngRgba8(Buffer.from('not a png')), /not a PNG/);
+  const valid = encodePngRgba8({ width: 2, height: 1, data: Buffer.alloc(8, 255) });
+  const corrupt = Buffer.from(valid);
+  corrupt[20] ^= 0xff;
+  assert.throws(() => decodePngRgba8(corrupt), /CRC is invalid/);
+  assert.throws(() => decodePngRgba8(valid, { maxPixels: 1 }), /pixel limit/);
+});
+
+test('visual comparison reports dimension mismatch without producing a misleading pixel diff', async () => {
+  const root = await mkdtemp(path.join(os.tmpdir(), 'sflow-visual-dimensions-'));
+  await mkdir(path.join(root, 'singularity/work-items/VIS-1'), { recursive: true });
+  await writeFile(path.join(root, 'expected.png'), encodePngRgba8({ width: 2, height: 1, data: Buffer.alloc(8, 255) }));
+  await writeFile(path.join(root, 'actual.png'), encodePngRgba8({ width: 1, height: 1, data: Buffer.alloc(4, 255) }));
+
+  const result = await compareVisualArtifacts(root, workflow(root), {
+    expected: 'expected.png', actual: 'actual.png', profileId: 'phone'
+  });
+  assert.equal(result.status, 'fail');
+  assert.equal(result.disposition, 'dimension-mismatch');
+  assert.deepEqual(result.dimensions, {
+    expected: { width: 2, height: 1 }, actual: { width: 1, height: 1 }
+  });
+  assert.equal(result.diffImage, null);
+});

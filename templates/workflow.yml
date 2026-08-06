@@ -127,6 +127,25 @@ session:
   workItemSelection: prompt
   requireBeforeTools: false
 
+# MCP transports and credentials are owned by VS Code or Copilot CLI. This
+# governed registry only decides which server/tool namespaces an agent may use,
+# in which phases, and what provenance must be recorded. Configure the matching
+# host server explicitly with `singularity-flow mcp scaffold playwright` or the
+# host's MCP UI. Corporate npm registries are honored through normal npm/.npmrc
+# configuration; no registry or credential is stored here.
+mcpServers:
+  playwright:
+    label: Playwright browser automation
+    hostReference: playwright
+    agents: [qa, product-designer]
+    phases: [design-intake, design-inventory, verification, visual-verification, conformance]
+    tools: [browser_navigate, browser_snapshot, browser_click, browser_take_screenshot]
+    required: false
+    approval: confirm
+    evidence:
+      captureToolCalls: true
+      captureResults: true
+
 # Human approval groups are matched against the real Git/GitHub identity.
 approvalAuthorities:
   product-approvers:

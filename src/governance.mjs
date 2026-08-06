@@ -7,6 +7,7 @@ import { verifyAgentIntegrity } from './agents.mjs';
 import { matchApprovalAuthority } from './approval-authority.mjs';
 import { verifyGroundingRecord } from './grounding.mjs';
 import { verifyPhaseTelemetry } from './telemetry.mjs';
+import { verifyMcpEvidence } from './mcp.mjs';
 
 function trackedFiles(root) { return run('git', ['ls-files', '-z'], { cwd: root }).stdout.split('\0').filter(Boolean); }
 function ids(text, pattern) { return [...new Set([...text.matchAll(pattern)].map((match) => match[0]))]; }
@@ -121,6 +122,11 @@ export async function runGovernanceGate(root, config, workflow, { terminal = fal
     if (decisions.some((item) => item.selfApproval) && !/"selfApproval": true/.test(text)) errors.push(`${phaseId} artifact does not expose its self-approval warning`);
     passes.push(`approval integrity: ${phaseId}`);
   }
+
+  const mcpIntegrity = await verifyMcpEvidence(root, workflow, {
+    itemDirectory: workDir(root, config, workflow.workItem.id)
+  });
+  errors.push(...mcpIntegrity.errors); warnings.push(...mcpIntegrity.warnings); passes.push(...mcpIntegrity.passes);
 
   if (config.governance?.requireAcceptanceCriteriaTags) {
     const acIds = new Set();

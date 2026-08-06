@@ -94,6 +94,7 @@ skills:
   sflow-jira-work: { class: echo }
   sflow-ledger: { class: mutation }
   sflow-logs: { class: echo }
+  sflow-mcp: { class: mutation }
   sflow-next: { class: mutation }
   sflow-nextsteps: { class: conversational }
   sflow-phase: { class: generative }

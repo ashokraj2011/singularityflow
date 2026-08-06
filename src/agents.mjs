@@ -97,6 +97,9 @@ export function parseAgentDependencies(text, { source = 'agent.md', agentId = nu
   const phases = metadataList(metadata, 'sflow-phases');
   const defaultFor = metadataList(metadata, 'sflow-default-for');
   const worldModelViews = metadataList(metadata, 'sflow-world-model-views');
+  const tools = frontmatter.tools ?? [];
+  if (!Array.isArray(tools) || tools.some((tool) => typeof tool !== 'string' || !tool.trim())) throw new SingularityFlowError(`Agent '${id}' tools must be an array of non-empty tool names.`);
+  if (new Set(tools).size !== tools.length) throw new SingularityFlowError(`Agent '${id}' tools must not contain duplicates.`);
   for (const phase of [...phases, ...defaultFor]) if (!idPattern(phase)) throw new SingularityFlowError(`Agent '${id}' references invalid phase '${phase}'.`);
   for (const view of worldModelViews) if (!idPattern(view)) throw new SingularityFlowError(`Agent '${id}' references invalid world-model view '${view}'.`);
   for (const phase of defaultFor) if (phases.length && !phases.includes(phase)) throw new SingularityFlowError(`Agent '${id}' defaults phase '${phase}' without supporting it.`);
@@ -130,6 +133,7 @@ export function parseAgentDependencies(text, { source = 'agent.md', agentId = nu
     phases,
     defaultFor,
     worldModelViews,
+    tools,
     prompt: body.trim(),
     skills,
     templates,

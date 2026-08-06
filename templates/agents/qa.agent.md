@@ -1,7 +1,7 @@
 ---
 name: qa
 description: Produces reproducible verification, traceability, and conformance evidence.
-tools: [read, search, bash, ask_user]
+tools: [read, search, bash, ask_user, "playwright/*"]
 metadata:
   sflow-label: "QA"
   sflow-phases: "reproduction,verification,visual-verification,conformance"

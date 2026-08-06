@@ -981,8 +981,8 @@ test('configuration is shown whether or not an Epic is checked out', () => {
     const children = configuration.children.map((child) => child.id);
     // Capabilities lead because they decide which repositories a workspace will contain; local
     // identity, grounding and governed design follow.
-    assert.deepEqual(children.slice(0, 4),
-      ['config:capabilities', 'config:local-profile', 'world-model', 'config:workflow-design']);
+    assert.deepEqual(children.slice(0, 5),
+      ['config:capabilities', 'config:local-profile', 'config:mcp', 'world-model', 'config:workflow-design']);
     const design = find(tree, 'config:workflow-design');
     assert.deepEqual(design.children.map((child) => child.id),
       ['config:designer', 'config:instruction-designer', 'config:workflow', 'config:portfolio']);
@@ -1014,6 +1014,26 @@ test('each governed agent is openable as the file that defines it', () => {
   assert.equal(agents.description, '2');
   assert.deepEqual(agents.children.map((child) => child.label), ['product-owner', 'developer']);
   assert.equal(agents.children[0].path, '.github/agents/product-owner.agent.md');
+});
+
+test('governed MCP tools show host readiness and remain configurable from VS Code', () => {
+  const withMcp = structuredClone(snapshot);
+  withMcp.mcp = {
+    servers: [{
+      id: 'playwright', label: 'Playwright browser automation', hostReference: 'playwright',
+      agents: ['qa'], phases: ['verification'], tools: ['browser_snapshot'], required: false,
+      configured: true, sources: ['vscode-workspace']
+    }],
+    inventory: [{ surface: 'vscode-workspace', path: '.vscode/mcp.json', name: 'playwright', error: null }],
+    errors: [], warnings: []
+  };
+  const group = find(buildConfigurationTree(withMcp), 'config:mcp');
+  assert.equal(group.label, 'MCP tools');
+  assert.equal(group.description, '1/1 host configured');
+  assert.equal(group.children[0].label, 'Playwright browser automation');
+  assert.equal(group.children[0].description, 'ready · playwright');
+  assert.match(group.children[0].tooltip, /browser_snapshot/);
+  assert.equal(group.children[0].runCommand, 'singularityFlow.configureMcp');
 });
 
 const {
@@ -1690,7 +1710,8 @@ test('Lifecycle owns intake and active phases; Configuration owns their design',
   const configuration = find(configurationTree, 'configuration');
   assert.equal(configuration.children[0].id, 'config:capabilities');
   assert.equal(configuration.children[1].id, 'config:local-profile');
-  assert.equal(configuration.children[2].id, 'world-model');
+  assert.equal(configuration.children[2].id, 'config:mcp');
+  assert.equal(configuration.children[3].id, 'world-model');
   assert.ok(find(configurationTree, 'config:workflow-design'), 'workflow definitions are designed here');
   const capabilities = find(configurationTree, 'config:capabilities');
   assert.ok(capabilities, 'the capability map is configuration rather than workspace identity');

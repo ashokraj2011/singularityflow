@@ -76,6 +76,7 @@ import { guideText, phaseNeedsGeneration, workflowGuide } from './guide.mjs';
 import { nextStepsSnapshot, nextStepsText } from './nextsteps.mjs';
 import { loadHelpDocument } from './help.mjs';
 import { agentMappingStatus, agentStatus, discoverAgents, lockAgent, prepareRemoteOutputs, remoteOutputConflicts, syncAgent } from './agents.mjs';
+import { mcpStatus, recordMcpEvidence, scaffoldPlaywrightMcp } from './mcp.mjs';
 import {
   bootstrapWorkspacePortfolio,
   deleteConfigurationFile,
@@ -330,6 +331,9 @@ Usage:
   singularity-flow agents sync <PACK>
   singularity-flow agents status [PACK]
   singularity-flow agents refresh-output <RESOURCE-ID> [--replace]
+  singularity-flow mcp list|status|doctor [--json]
+  singularity-flow mcp scaffold playwright [--replace]
+  singularity-flow mcp record <SERVER> --tool TOOL [--phase PHASE] [--output PATH] [--note TEXT]
   singularity-flow documents list [WORK-ID] [--json]
   singularity-flow documents view <DOCUMENT-ID|PATH> [--work-id ID] [--json]
   singularity-flow documents preview <DOCUMENT-ID|PATH> [--work-id ID] [--json]
@@ -1523,6 +1527,61 @@ async function agentsCommand(positionals, options) {
     return console.log(`Refreshed remote generated artifact '${resourceId}'. It will be committed by the next phase publication.`);
   }
   throw new SingularityFlowError(`Unknown agents subcommand: ${subcommand}`);
+}
+
+async function mcpCommand(positionals, options) {
+  const subcommand = positionals[1] ?? 'status';
+  const root = repoRoot();
+  if (subcommand === 'scaffold') {
+    const server = requirePositional(positionals, 2, 'MCP server');
+    if (server !== 'playwright') throw new SingularityFlowError(`No MCP scaffold is bundled for '${server}'. Supported: playwright.`);
+    const result = await scaffoldPlaywrightMcp(root, { replace: optionBoolean(options, 'replace') });
+    console.log(`Created ${result.path} (${result.sha256.slice(0, 12)}). Review and commit it, then trust/start the server from VS Code or Copilot CLI.`);
+    return;
+  }
+  const config = await loadConfig(root);
+  if (['list', 'status', 'doctor'].includes(subcommand)) {
+    const result = await mcpStatus(root, config);
+    if (optionBoolean(options, 'json')) return console.log(JSON.stringify(result, null, 2));
+    if (!result.servers.length) console.log('No governed MCP servers are declared in singularity/workflow.yml.');
+    else console.log(table(result.servers.map((server) => ({
+      id: server.id,
+      host: server.hostReference,
+      required: server.required ? 'yes' : 'no',
+      configured: server.configured ? 'yes' : 'no',
+      agents: server.agents.join(',') || '*',
+      phases: server.phases.join(',') || '*',
+      source: server.sources.join(',') || '-'
+    })), [
+      { key: 'id', label: 'SERVER' }, { key: 'host', label: 'HOST NAME' },
+      { key: 'required', label: 'REQUIRED' }, { key: 'configured', label: 'CONFIGURED' },
+      { key: 'agents', label: 'AGENTS' }, { key: 'phases', label: 'PHASES' }, { key: 'source', label: 'HOST SOURCE' }
+    ]));
+    result.errors.forEach((error) => console.error(`Error: ${error}`));
+    result.warnings.forEach((warning) => console.warn(`Warning: ${warning}`));
+    if (subcommand === 'doctor' && (result.errors.length || result.servers.some((server) => server.required && !server.configured))) {
+      throw new SingularityFlowError('MCP diagnostics found blocking configuration errors.');
+    }
+    return;
+  }
+  if (subcommand === 'record') {
+    const server = requirePositional(positionals, 2, 'MCP server');
+    const workflow = await loadStoryAggregate(root, config);
+    const session = await loadSession(root);
+    if (!session || session.workId !== workflow.workItem.id) throw new SingularityFlowError(`Resume ${workflow.workItem.id} before recording MCP evidence.`);
+    const result = await recordMcpEvidence(root, workflow, {
+      server,
+      tool: optionString(options, 'tool'),
+      phase: optionString(options, 'phase'),
+      outputPath: optionString(options, 'output'),
+      note: optionString(options, 'note'),
+      agent: session.agent,
+      actor: session.actor
+    });
+    console.log(`Recorded declared MCP provenance at ${result.file}. It will be committed by the next normal lifecycle publication.`);
+    return;
+  }
+  throw new SingularityFlowError(`Unknown mcp subcommand: ${subcommand}`);
 }
 
 async function phaseReview(root, config, workflow, phase) {
@@ -6161,6 +6220,7 @@ async function dispatch(command, positionals, options) {
     action: () => actionCommand(positionals, options),
     inputs: () => inputsCommand(positionals, options),
     'agents': () => agentsCommand(positionals, options),
+    mcp: () => mcpCommand(positionals, options),
     documents: () => documentsCommand(positionals, options),
     prepare: () => prepareCommand(positionals, options),
     phase: () => phaseCommand(positionals, options),

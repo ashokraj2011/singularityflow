@@ -5,7 +5,7 @@ export const COMMAND_REGISTRY = Object.freeze([
   ['inbox'], ['finalize'], ['status'], ['progress'], ['report'], ['telemetry'], ['prompt-log'], ['guide'], ['refresh-branch'],
   ['next'], ['run'], ['cockpit', ['home']], ['logs'], ['doctor'], ['review'], ['workflow'],
   ['assign'], ['watch'], ['recover'], ['nextsteps', ['next-steps']], ['action'], ['inputs'],
-  ['agents'], ['documents'], ['prepare'], ['phase'], ['artifact'], ['pr'], ['stack'], ['regression'], ['submit'],
+  ['agents'], ['mcp'], ['documents'], ['prepare'], ['phase'], ['artifact'], ['pr'], ['stack'], ['regression'], ['submit'],
   ['approve'], ['reject'], ['reopen'], ['cancel'], ['sync'], ['ledger'], ['capabilities'], ['state'],
   ['validate'], ['gate'], ['wm'], ['jira'], ['plugin'], ['snapshot'], ['configuration'], ['initiative'], ['epic'],
   ['story'], ['workspace'], ['knowledge'], ['capability'], ['hook'], ['bootstrap']

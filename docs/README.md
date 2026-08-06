@@ -35,6 +35,7 @@ is not part of the current product.
 | Capability hierarchy and optional proof ledger | [Capability ledger](../CAPABILITY-LEDGER.md) |
 | Epic/Initiative orchestration across repositories | [Initiative orchestration](../INITIATIVE-ORCHESTRATION.md) |
 | Native Copilot handoff | [Native Copilot](../NATIVE-COPILOT.md) |
+| Connect governed agents to MCP tools such as Playwright | [Governed MCP tools](MCP-INTEGRATION.md) |
 
 ## Operations and delivery
 

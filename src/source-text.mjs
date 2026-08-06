@@ -7,7 +7,8 @@
  * on". Requirements could not cite what Copilot could not read.
  *
  * This stays dependency-light. The engine has a single runtime dependency (`yaml`) and
- * `npm run check` asserts no Python and no MCP. The rendition is another file written beside the
+ * `npm run check` asserts no Python and no embedded MCP transport. MCP processes remain owned by
+ * VS Code or Copilot; the rendition is another file written beside the
  * cached bytes, and the engine keeps treating it as one.
  *
  * DOCX and XLSX are ZIP containers of XML, so Node's own zlib is enough. PDF is not: extracting its

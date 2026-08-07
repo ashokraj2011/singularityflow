@@ -914,9 +914,20 @@ singularity-flow documents upload \
 
 singularity-flow documents list
 singularity-flow documents view DOC-001
+
+# Stop future prompts from using evidence without deleting its audited bytes
+singularity-flow documents detach DOC-001 --reason "Superseded by the approved design"
+singularity-flow documents detach DOC-002 --scope package --reason "Replace the complete Figma export"
+singularity-flow documents list --all
+
+# Epic evidence uses the same governed detachment model
+singularity-flow epic sources detach SRC-001 --epic MOB-100 --reason "Source withdrawn by Product"
+singularity-flow epic sources list --epic MOB-100 --all
 ```
 
-Every uploaded file receives a stable `DOC-nnn` identifier, content hash, MIME type, original filename, phase, human actor, and governed agent. Directory imports preserve the package name and relative source path for every discovered regular file; symbolic links are rejected. Upload creates and pushes one atomic work-item commit. Text formats can be displayed directly; images, PDFs, `.fig`, and other binary files return an absolute path for the appropriate viewer. The catalog also lists generated phase artifacts, status, source context, and Jira user-story documents.
+Every uploaded file receives a stable `DOC-nnn` identifier, content hash, MIME type, original filename, phase, human actor, and governed agent. Directory imports preserve the package name and relative source path for every discovered regular file; symbolic links are rejected. Upload creates and pushes one atomic work-item commit. Text evidence is embedded in governed Copilot prompts up to the pinned preview-byte limit. Images, PDFs, `.fig`, and other binaries contribute a verified repository path, MIME type, byte count, and SHA-256 so Copilot can inspect them with its file/image tools without base64 token inflation. Live Figma links remain external references and are never fetched automatically.
+
+Detachment is also an atomic commit/push decision. It requires a reason, retains the governed bytes and an append-only hash-addressed decision record, excludes the evidence from later prompts, and reopens only phases whose recorded compositions depended on it. Default catalogs show active evidence; `--all` includes detached history, actor, and reason. VS Code exposes the same operations under **Lifecycle → Manage evidence & designs**, including file-level and complete-package Figma detachment.
 
 ## Generate a phase
 
@@ -1432,9 +1443,12 @@ evidence workflow.
 | `singularity-flow mcp design-sources status` | Verify and display the exact approved design-source set used by downstream prompts. |
 | `singularity-flow mcp design-sources promote <RECORD-ID> --confirm <RECORD-ID>` | Explicitly promote a reviewed candidate, reopen capture, invalidate downstream approvals, and pin it for the next generation. |
 | `singularity-flow capabilities doctor [ID] [--offline]` | Verify capability ownership, inherited lifecycle policy, orphan-state publication, ledger integrity, lifecycle pinning, and cross-repository world-model snapshots. |
-| `singularity-flow documents list [ID]` | List uploaded inputs and generated workflow documents. |
-| `singularity-flow documents view <ID>` | Display text content or return the path/URL for a binary/external document. |
+| `singularity-flow documents list [ID] [--active\|--all]` | List active uploaded inputs and generated documents, or include detached evidence history. |
+| `singularity-flow documents view <ID> [--all]` | Display active text content or return the path/URL for a binary/external document; `--all` permits audited detached evidence. |
 | `singularity-flow documents upload <FILE-OR-DIRECTORY...>` | Recursively copy, hash, catalog, commit, and push supporting evidence during configured initial phases. |
+| `singularity-flow documents detach <ID> [--scope file\|package] --reason TEXT` | Preserve Story evidence bytes, audit the decision, exclude future prompts, and invalidate only dependent phases. |
+| `singularity-flow epic sources list --epic <ID> [--active\|--all]` | List active Epic sources or include detached history. |
+| `singularity-flow epic sources detach <ID> --epic <ID> --reason TEXT` | Govern and publish an Epic-source detachment with dependency-scoped invalidation. |
 | `singularity-flow jira pull <ID>` | Read and normalize one Jira issue using configured REST credentials. |
 | `singularity-flow jira assigned` | List incomplete Jira work assigned to the connected Jira user; `jira list` remains an alias. |
 | `singularity-flow jira boards\|board` | Discover Jira Software boards and list Stories in active/future sprints with backlog excluded. |

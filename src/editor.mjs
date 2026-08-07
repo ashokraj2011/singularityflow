@@ -16,7 +16,7 @@ import {
   worldModelPromptViewReferences,
   WORKFLOW_PATH
 } from './config.mjs';
-import { documentCatalog } from './documents.mjs';
+import { documentCatalog, evidenceIsActive } from './documents.mjs';
 import { CAPABILITIES_PATH, capabilityTree, loadCapabilities, validateCapabilities } from './capabilities.mjs';
 import { worldModelRebuildReason } from './grounding.mjs';
 import { progressSnapshot } from './progress.mjs';
@@ -405,7 +405,15 @@ async function initiativeEditorSnapshot(root, portfolio, initiativeId) {
   // every surface, which reads as "nothing is pinned" when the opposite is true. An Epic with no
   // sources directory yields an empty manifest rather than an error.
   let sources = { version: 1, initiativeId, sources: [] };
-  try { sources = (await listEpicSources(root, initiativeId)).manifest; }
+  let detachedSources = [];
+  try {
+    const completeSourceCatalog = (await listEpicSources(root, initiativeId, { includeDetached: true })).manifest;
+    sources = {
+      ...completeSourceCatalog,
+      sources: completeSourceCatalog.sources.filter((source) => source?.status == null || ['active', 'pinned'].includes(source.status))
+    };
+    detachedSources = completeSourceCatalog.sources.filter((source) => source?.status === 'detached');
+  }
   catch { /* No manifest yet is the same as nothing pinned. */ }
   // The imported Jira Epic is a hashed, citable source that verifyEpicTraceability accepts, but it
   // is not in the uploaded manifest — so a surface counting only uploads reported "nothing pinned"
@@ -453,6 +461,7 @@ async function initiativeEditorSnapshot(root, portfolio, initiativeId) {
       }))
     }])),
     sources,
+    detachedSources,
     jiraDrift: initiative.jiraDrift ?? null,
     delivery: initiative.resolution.profile === 'epic-planning'
       ? await epicDeliveryReadiness(root, initiativeId)
@@ -485,13 +494,16 @@ async function fullRepositorySnapshot(root, requestedWorkId = null, requestedIni
   let workflow = null;
   let progress = null;
   let documents = [];
+  let detachedDocuments = [];
   let review = null;
   let report = null;
   if (selectedId) {
     workflow = await loadStoryAggregate(root, definition, selectedId);
     progress = progressSnapshot(workflow);
     report = deriveReport(workflow, { pricing: definition.tokens?.pricing ?? null });
-    documents = await documentCatalog(root, definition, workflow);
+    const completeDocumentCatalog = await documentCatalog(root, definition, workflow, { includeDetached: true });
+    documents = completeDocumentCatalog.filter(evidenceIsActive);
+    detachedDocuments = completeDocumentCatalog.filter((document) => document.status === 'detached');
     review = await createReviewBundle(root, definition, workflow);
     review.markdown = reviewMarkdown(review);
   }
@@ -637,6 +649,7 @@ async function fullRepositorySnapshot(root, requestedWorkId = null, requestedIni
     progress,
     report,
     documents,
+    detachedDocuments,
     review,
     visualAssurance: await visualAssuranceSnapshot(root, definition, workflow),
     diagnostics: await doctorSnapshot(root, { workId: selectedId, offline: true }),
@@ -690,13 +703,16 @@ async function lifecycleSlice(root, requestedWorkId, requestedInitiativeId) {
   let workflow = null;
   let progress = null;
   let documents = [];
+  let detachedDocuments = [];
   let review = null;
   let report = null;
   if (selectedWorkId) {
     workflow = await loadStoryAggregate(root, definition, selectedWorkId);
     progress = progressSnapshot(workflow);
     report = deriveReport(workflow, { pricing: definition.tokens?.pricing ?? null });
-    documents = await documentCatalog(root, definition, workflow);
+    const completeDocumentCatalog = await documentCatalog(root, definition, workflow, { includeDetached: true });
+    documents = completeDocumentCatalog.filter(evidenceIsActive);
+    detachedDocuments = completeDocumentCatalog.filter((document) => document.status === 'detached');
     review = await createReviewBundle(root, definition, workflow);
     review.markdown = reviewMarkdown(review);
   }
@@ -709,6 +725,7 @@ async function lifecycleSlice(root, requestedWorkId, requestedInitiativeId) {
     progress,
     report,
     documents,
+    detachedDocuments,
     review,
     visualAssurance: await visualAssuranceSnapshot(root, definition, workflow),
     initiative: await initiativeEditorSnapshot(root, portfolio, selectedInitiativeId),

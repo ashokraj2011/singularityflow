@@ -266,6 +266,16 @@
         "icon": "$(files)"
       },
       {
+        "command": "singularityFlow.manageEvidence",
+        "title": "Singularity Flow: Manage Evidence & Designs",
+        "icon": "$(references)"
+      },
+      {
+        "command": "singularityFlow.detachEvidence",
+        "title": "Singularity Flow: Detach Evidence",
+        "icon": "$(archive)"
+      },
+      {
         "command": "singularityFlow.addSource",
         "title": "Singularity Flow: Pin a Source",
         "icon": "$(new-file)"
@@ -375,6 +385,11 @@
           "command": "singularityFlow.attachEvidence",
           "when": "view == singularityFlow.lifecycle",
           "group": "navigation@1"
+        },
+        {
+          "command": "singularityFlow.manageEvidence",
+          "when": "view == singularityFlow.lifecycle",
+          "group": "navigation@1.5"
         },
         {
           "command": "singularityFlow.continueSafely",
@@ -521,6 +536,16 @@
         {
           "command": "singularityFlow.attachEvidence",
           "when": "view == singularityFlow.lifecycle && viewItem == sflow.story.active",
+          "group": "inline"
+        },
+        {
+          "command": "singularityFlow.manageEvidence",
+          "when": "view == singularityFlow.lifecycle && (viewItem == sflow.evidence.group || viewItem == sflow.evidence.manage || viewItem == sflow.evidence.detached.group)",
+          "group": "inline"
+        },
+        {
+          "command": "singularityFlow.detachEvidence",
+          "when": "view == singularityFlow.lifecycle && viewItem == sflow.evidence.active",
           "group": "inline"
         },
         {

@@ -14,7 +14,7 @@ import { initiativeOutputRequired } from './initiative-policy.mjs';
 import { groundingMode } from './grounding.mjs';
 import { normalizeContextPolicy } from './context-policy.mjs';
 import {
-  secureRepositoryPath, SingularityFlowError, nowIso, posix, readJson, run, snapshot, writeJson, writeText
+  secureRepositoryPath, SingularityFlowError, nowIso, posix, readJson, run, snapshot, writeAtomic, writeJson, writeText
 } from './util.mjs';
 import { createLedgerIntent, reconcileLedger } from './ledger.mjs';
 import { normalizeLedgerConfig } from './ledger-config.mjs';
@@ -1212,6 +1212,30 @@ export function initiativeDefinitionHash(value) {
   return createHash('sha256').update(JSON.stringify(value)).digest('hex');
 }
 
+async function captureInitiativeDirectory(directory, relative = '', captured = new Map()) {
+  const entries = await readdir(path.join(directory, relative), { withFileTypes: true })
+    .catch((error) => { if (error?.code === 'ENOENT') return []; throw error; });
+  for (const entry of entries) {
+    const child = relative ? path.join(relative, entry.name) : entry.name;
+    if (entry.isDirectory()) await captureInitiativeDirectory(directory, child, captured);
+    else if (entry.isFile()) captured.set(posix(child), await readFile(path.join(directory, child)));
+  }
+  return captured;
+}
+
+async function restoreInitiativeDirectory(directory, captured) {
+  const now = await captureInitiativeDirectory(directory);
+  for (const [relative, contents] of captured) {
+    if (now.get(relative)?.equals(contents)) continue;
+    const target = path.join(directory, relative);
+    await mkdir(path.dirname(target), { recursive: true });
+    await writeAtomic(target, contents);
+  }
+  for (const relative of now.keys()) {
+    if (!captured.has(relative)) await rm(path.join(directory, relative), { force: true });
+  }
+}
+
 export async function commitInitiativeChange(root, portfolio, initiative, event, message, {
   extraPaths = [],
   appendOnly = false,
@@ -1263,7 +1287,12 @@ export async function commitInitiativeChange(root, portfolio, initiative, event,
   }
   const mode = initiativePublicationMode(portfolio, initiative);
   const remote = portfolio.git?.remote ?? 'origin';
-  const priorInitiative = rollbackInitiative ?? structuredClone(initiative);
+  // The transition may update source manifests, prompt-composition records, detach decisions and
+  // projections as well as state.json. Capture the complete governed Initiative directory so a
+  // pre-commit failure cannot leave any part of an unpublished decision behind.
+  void rollbackInitiative;
+  const initiativeDirectory = path.join(root, initiativeRelative(portfolio, initiative.initiative.id));
+  const priorInitiativeDirectory = await captureInitiativeDirectory(initiativeDirectory);
   const result = await publishLifecycleChange(root, {
     subject: envelope.subject,
     expectedRevision: initiative[Symbol.for('singularity-flow.state-revision')] ?? null,
@@ -1278,9 +1307,9 @@ export async function commitInitiativeChange(root, portfolio, initiative, event,
         recordPublicationProjection(initiative, publicationEvent, ledgerIntent);
         return saveInitiative(root, portfolio, initiative);
       },
-      // Captured before the projection mutates it in place: a publication that fails after the
-      // write must not leave a committable record of an event that never happened.
-      rollback: () => saveInitiative(root, portfolio, priorInitiative)
+      // Restore the complete governed Initiative directory: a publication that fails after any
+      // manifest, context, decision, projection, or state write must leave no unpublished change.
+      rollback: () => restoreInitiativeDirectory(initiativeDirectory, priorInitiativeDirectory)
     },
     publication: { mode, remote, branch: initiative.initiative.branch },
     pendingRecord: () => ({ initiativeId: initiative.initiative.id, appendOnly }),

@@ -7,7 +7,7 @@ import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import YAML from 'yaml';
 import { initializeDefinition } from '../src/config.mjs';
-import { jiraSnapshotSource, listEpicSources, pinJiraEpicAttachments, registerEpicSource, verifyEpicSources } from '../src/epic-sources.mjs';
+import { detachEpicSource, jiraSnapshotSource, listEpicSources, pinJiraEpicAttachments, registerEpicSource, verifyEpicSources } from '../src/epic-sources.mjs';
 import {
   adoptEpicStory, completeEpicIntake, completeEpicPublication, prepareEpicStorySpecifications, splitEpicStory,
   updateEpicStory, verifyEpicPlanningPackage
@@ -511,4 +511,51 @@ test('a source whose name has spaces is pinned, not rejected', async () => {
   assert.equal(registered.record.name, 'Auth V2 PRD.md');
   assert.match(registered.record.filename, /^[A-Za-z0-9][A-Za-z0-9._-]*$/);
   assert.ok(!registered.record.filename.includes(' '), 'the storage key must stay portable');
+});
+
+test('Epic source detachment is audited, hidden by default, and reopens its dependency cone', async () => {
+  const root = await repository();
+  const content = Buffer.from('# Governed product brief\n');
+  const fetchImpl = async (_url, init = {}) => response(content, { method: init.method ?? 'GET' });
+  const registered = await registerEpicSource(root, {
+    initiativeId: 'MOB-100', providerId: 'reference',
+    url: 'https://documents.example.com/product-brief.md', label: 'Product brief',
+    mimeType: 'text/markdown', runtime: { fetchImpl }
+  });
+  const loaded = await loadInitiative(root, 'MOB-100');
+  const contextDirectory = path.join(root, 'singularity/initiatives/MOB-100/context');
+  await mkdir(contextDirectory, { recursive: true });
+  await writeFile(path.join(contextDirectory, 'requirements-gen1.json'), `${JSON.stringify({
+    phase: 'epic-requirements', sources: [{ sourceId: registered.record.sourceId, sha256: registered.record.sha256 }]
+  }, null, 2)}\n`);
+  const detached = await detachEpicSource(root, loaded.portfolio, loaded.initiative, {
+    sourceId: registered.record.sourceId, reason: 'Product brief was withdrawn', agent: 'product-owner'
+  });
+  assert.equal(detached.reopenedPhase, 'epic-requirements');
+  assert.match(detached.decision.sha256, /^[a-f0-9]{64}$/);
+  assert.equal((await listEpicSources(root, 'MOB-100')).manifest.sources.length, 0);
+  const historical = (await listEpicSources(root, 'MOB-100', { includeDetached: true })).manifest.sources;
+  assert.equal(historical.length, 1);
+  assert.equal(historical[0].status, 'detached');
+  assert.equal(historical[0].detachReason, 'Product brief was withdrawn');
+  const stale = JSON.parse(await readFile(path.join(contextDirectory, 'requirements-gen1.json'), 'utf8'));
+  assert.equal(stale.stale, true);
+  assert.match(stale.staleReason, new RegExp(registered.record.sourceId));
+});
+
+test('Epic source detach CLI publishes one exact decision and supports active or historical listing', async () => {
+  const root = await repository();
+  const attached = JSON.parse(flow(root, [
+    'epic', 'sources', 'note', '--epic', 'MOB-100', '--text', 'Approved intake note', '--label', 'Intake note', '--json'
+  ]).stdout);
+  const detached = JSON.parse(flow(root, [
+    'epic', 'sources', 'detach', attached.record.sourceId, '--epic', 'MOB-100',
+    '--reason', 'Note replaced by signed brief', '--yes', '--json'
+  ]).stdout);
+  assert.equal(detached.source.status, 'detached');
+  assert.match(detached.publication.sha, /^[a-f0-9]{40}$/);
+  assert.deepEqual(JSON.parse(flow(root, ['epic', 'sources', 'list', '--epic', 'MOB-100', '--json']).stdout).sources, []);
+  const historical = JSON.parse(flow(root, ['epic', 'sources', 'list', '--epic', 'MOB-100', '--all', '--json']).stdout);
+  assert.equal(historical.sources[0].detachReason, 'Note replaced by signed brief');
+  assert.match(run('git', ['log', '--format=%s'], { cwd: root }).stdout, /\[MOB-100\]\[epic:evidence:detach\]/);
 });

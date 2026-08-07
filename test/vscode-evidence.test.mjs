@@ -7,7 +7,7 @@ import { fileURLToPath } from 'node:url';
 
 const packageRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 const {
-  evidenceCommands, evidenceTargets, expandEpicEvidenceDirectory, validateEvidenceUrl
+  evidenceCatalog, evidenceCommands, evidenceDetachCommand, evidenceTargets, expandEpicEvidenceDirectory, validateEvidenceUrl
 } = await import(path.join(packageRoot, 'apps/vscode/src/evidence.ts'));
 
 test('evidence targets use the governed Story and Epic identities from the snapshot', () => {
@@ -61,5 +61,30 @@ test('Epic Figma exports expand deterministically without following symlinks', a
   assert.deepEqual(await expandEpicEvidenceDirectory(root), [
     path.join(root, 'screens', 'checkout.png'),
     path.join(root, 'tokens.json')
+  ]);
+});
+
+test('VS Code separates active and detached evidence and builds shell-free detach commands', () => {
+  const catalog = evidenceCatalog({
+    workflow: { workItem: { id: 'MOB-123' } },
+    documents: [{ id: 'DOC-001', type: 'file', label: 'Current design', status: 'active', packageId: 'PKG-001' }],
+    detachedDocuments: [{
+      id: 'DOC-002', type: 'file', label: 'Old design', status: 'detached',
+      detachReason: 'Superseded', detachedBy: { name: 'Product Owner' }
+    }],
+    initiative: {
+      state: { initiative: { id: 'MOB-100' } },
+      sources: { sources: [{ sourceId: 'SRC-A', name: 'Current brief', status: 'pinned' }] },
+      detachedSources: [{ sourceId: 'SRC-B', name: 'Old brief', status: 'detached', detachReason: 'Withdrawn' }]
+    }
+  });
+  assert.deepEqual(catalog.map((item) => [item.id, item.status]), [
+    ['SRC-A', 'active'], ['SRC-B', 'detached'], ['DOC-001', 'active'], ['DOC-002', 'detached']
+  ]);
+  assert.deepEqual(evidenceDetachCommand(catalog.find((item) => item.id === 'DOC-001'), 'package', 'New export'), [
+    'documents', 'detach', 'DOC-001', '--scope', 'package', '--reason', 'New export', '--yes'
+  ]);
+  assert.deepEqual(evidenceDetachCommand(catalog.find((item) => item.id === 'SRC-A'), 'file', 'Withdrawn'), [
+    'epic', 'sources', 'detach', 'SRC-A', '--epic', 'MOB-100', '--reason', 'Withdrawn', '--yes'
   ]);
 });

@@ -193,6 +193,7 @@ export async function recordInjection(root, workflow, phase, injection, { workDi
     evidence: injection.evidence,
     requiredViews: injection.requiredViews ?? [],
     task: injection.task ?? null,
+    supportingEvidence: injection.supportingEvidence ?? [],
     modelSourceTreeSha256: injection.modelSourceTreeSha256 ?? null,
     composedSourceTreeSha256: injection.composedSourceTreeSha256 ?? null,
     worldModelCommit: injection.modelCommit ?? null,
@@ -203,7 +204,9 @@ export async function recordInjection(root, workflow, phase, injection, { workDi
     files: injection.sections.map((section) => ({
       path: section.path, sha256: section.sha256, bytes: section.bytes,
       injectedBytes: section.injectedBytes, truncated: section.truncated,
-      category: section.category ?? 'rule', level: section.level ?? null, reason: section.reason ?? null
+      category: section.category ?? 'rule', level: section.level ?? null, reason: section.reason ?? null,
+      evidenceId: section.evidenceId ?? null, mimeType: section.mimeType ?? null,
+      packageId: section.packageId ?? null
     })),
     injectedAt: nowIso()
   };

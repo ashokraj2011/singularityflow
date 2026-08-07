@@ -66,6 +66,10 @@ export interface TreeNode {
     | { kind: 'initiative'; initiativeId: string; subject: string; expected: string; summary: string }
     | { kind: 'story'; workId: string; phaseId: string; expected: string; summary: string };
   contextValue?: string;
+  evidence?: {
+    ownerKind: 'story' | 'epic'; ownerId: string; evidenceId: string;
+    packageId?: string; status: 'active' | 'detached';
+  };
 }
 
 const PHASE_ICON: Record<string, string> = {
@@ -287,7 +291,7 @@ export function buildLifecycleTree(snapshot: RepositorySnapshot | null, error: E
       return [completedFolder([completed, ...siblings], countArtifacts(completed)),
         ...(cancelledArchive ? [cancelledArchive] : []), workspaceImpact];
     }
-    return [storyWorkflowNode(snapshot.workflow, snapshot.documents ?? []),
+    return [storyWorkflowNode(snapshot.workflow, snapshot.documents ?? [], snapshot.detachedDocuments ?? []),
       ...(completedArchive ? [completedArchive] : []), ...(cancelledArchive ? [cancelledArchive] : []), workspaceImpact];
   }
 
@@ -591,7 +595,11 @@ function completedInitiativeNode(initiative: InitiativeSnapshot): TreeNode {
 
 function storyDocumentNodes(documents: StoryArtifact[], phaseId: string): TreeNode[] {
   return documents
-    .filter((document) => document.phase === phaseId && Boolean(document.path))
+    // Current snapshots identify generated outputs explicitly. Keep accepting the earlier
+    // phase-scoped shape as well so a coherent lifecycle rail survives while the extension and
+    // CLI are upgraded independently.
+    .filter((document) => (document.type === 'artifact' || (!document.type && Boolean(document.phase)))
+      && document.phase === phaseId && Boolean(document.path))
     .sort((left, right) => (left.label ?? left.path).localeCompare(right.label ?? right.path))
     .map((document) => ({
       kind: 'artifact' as const,
@@ -604,6 +612,45 @@ function storyDocumentNodes(documents: StoryArtifact[], phaseId: string): TreeNo
       readOnly: document.status === 'approved',
       contextValue: document.status === 'approved' ? 'sflow.artifact.pinned' : 'sflow.artifact'
     }));
+}
+
+function storyEvidenceNode(workId: string, document: StoryArtifact, detached = false): TreeNode {
+  const id = document.id ?? document.path;
+  return {
+    kind: 'source', id: `story-evidence:${workId}:${id}`,
+    label: document.label ?? id,
+    description: detached ? 'detached' : (document.mimeType ?? document.kind ?? 'evidence'),
+    tooltip: detached
+      ? `${document.detachReason ?? 'Detached'}${document.detachedAt ? `\n${document.detachedAt}` : ''}`
+      : `${document.path ?? document.url ?? ''}\nsha256 ${document.sha256 ?? 'external reference'}`,
+    icon: detached ? 'archive' : (document.mimeType?.startsWith('image/') ? 'visual' : 'references'),
+    ...(document.path ? { path: document.path } : {}),
+    readOnly: detached,
+    contextValue: detached ? 'sflow.evidence.detached' : 'sflow.evidence.active',
+    evidence: {
+      ownerKind: 'story', ownerId: workId, evidenceId: document.id ?? id,
+      packageId: document.packageId, status: detached ? 'detached' : 'active'
+    }
+  };
+}
+
+function storyEvidenceGroups(workId: string, active: StoryArtifact[], detached: StoryArtifact[]): TreeNode[] {
+  const support = active.filter((document) => ['file', 'url'].includes(document.type ?? ''));
+  const history = detached.filter((document) => ['file', 'url'].includes(document.type ?? ''));
+  return [{
+    kind: 'group', id: `story:${workId}:evidence`, label: 'Supporting evidence',
+    description: support.length ? String(support.length) : 'none attached', icon: 'references',
+    contextValue: 'sflow.evidence.group',
+    children: [...support.map((document) => storyEvidenceNode(workId, document)), {
+      kind: 'action', id: `story:${workId}:evidence:manage`, label: 'Manage evidence & designs',
+      description: 'attach · preview · detach', icon: 'visual',
+      runCommand: 'singularityFlow.manageEvidence', contextValue: 'sflow.evidence.manage'
+    }]
+  }, ...(history.length ? [{
+    kind: 'group' as const, id: `story:${workId}:evidence:detached`, label: 'Detached evidence',
+    description: String(history.length), icon: 'archive', contextValue: 'sflow.evidence.detached.group',
+    children: history.map((document) => storyEvidenceNode(workId, document, true))
+  }] : [])];
 }
 
 function storyPhaseActions(workflow: StoryWorkflow, phase: StoryPhase): TreeNode[] {
@@ -640,7 +687,7 @@ function storyPhaseActions(workflow: StoryWorkflow, phase: StoryPhase): TreeNode
   }] : [])];
 }
 
-function storyWorkflowNode(workflow: StoryWorkflow, documents: StoryArtifact[]): TreeNode {
+function storyWorkflowNode(workflow: StoryWorkflow, documents: StoryArtifact[], detachedDocuments: StoryArtifact[]): TreeNode {
   const phases = workflow.phaseOrder.map((id) => workflow.phases[id])
     .filter((phase): phase is StoryPhase => Boolean(phase));
   const approved = phases.filter((phase) => phase.status === 'approved').length;
@@ -661,6 +708,10 @@ function storyWorkflowNode(workflow: StoryWorkflow, documents: StoryArtifact[]):
       kind: 'action', id: 'story:attach-evidence', label: 'Attach evidence & designs',
       description: 'files · Figma exports · HTTPS links', icon: 'visual',
       runCommand: 'singularityFlow.attachEvidence', contextValue: 'sflow.story.evidence'
+    }, ...storyEvidenceGroups(workflow.workItem.id, documents, detachedDocuments), {
+      kind: 'action', id: 'story:manage-evidence', label: 'Manage evidence & designs',
+      description: 'list · preview · detach', icon: 'references',
+      runCommand: 'singularityFlow.manageEvidence', contextValue: 'sflow.evidence.manage'
     }, {
       kind: 'action', id: 'story:cancel', label: 'Cancel and archive work',
       description: 'reason required · artifacts preserved', icon: 'archive',
@@ -1253,10 +1304,11 @@ function initiativeNode(initiative: InitiativeSnapshot): TreeNode {
   }
 
   const sources = (initiative.sources?.sources ?? []) as Array<Record<string, unknown>>;
+  const detachedSources = (initiative.detachedSources ?? []) as Array<Record<string, unknown>>;
   children.push({
     kind: 'group',
     id: 'sources',
-    label: 'Pinned sources',
+    label: 'Supporting evidence',
     description: sources.length ? `${sources.length}` : 'none pinned',
     icon: 'references',
     // Everything a requirement cites has to appear here, so an empty list is a finding rather than
@@ -1276,7 +1328,11 @@ function initiativeNode(initiative: InitiativeSnapshot): TreeNode {
         // Only a locally-provided source has its bytes in the repository; anything else lives in
         // corporate storage and has no path here to open.
         ...(source.cachePath ? { path: String(source.cachePath) } : {}),
-        contextValue: 'sflow.source'
+        contextValue: 'sflow.evidence.active',
+        evidence: {
+          ownerKind: 'epic' as const, ownerId: state.initiative.id,
+          evidenceId: String(source.sourceId ?? source.id ?? ''), status: 'active' as const
+        }
       }))
       : [{
         kind: 'message' as const,
@@ -1291,7 +1347,34 @@ function initiativeNode(initiative: InitiativeSnapshot): TreeNode {
         icon: 'visual',
         runCommand: 'singularityFlow.attachEvidence',
         contextValue: 'sflow.sources.attach'
+      }, {
+        kind: 'action' as const,
+        id: 'sources-manage',
+        label: 'Manage evidence & designs',
+        description: 'list · preview · detach',
+        icon: 'references',
+        runCommand: 'singularityFlow.manageEvidence',
+        contextValue: 'sflow.evidence.manage'
       }]
+  });
+  if (detachedSources.length) children.push({
+    kind: 'group', id: 'sources-detached', label: 'Detached evidence',
+    description: String(detachedSources.length), icon: 'archive', contextValue: 'sflow.evidence.detached.group',
+    children: detachedSources.map((source) => ({
+      kind: 'source' as const,
+      id: `source-detached:${String(source.sourceId ?? source.id ?? '')}`,
+      label: String(source.name ?? source.sourceId ?? 'unnamed source'),
+      description: 'detached',
+      tooltip: `${String(source.detachReason ?? 'Detached')}\n${String(source.detachedAt ?? '')}`,
+      icon: 'archive',
+      ...(source.recordPath ? { path: String(source.recordPath) } : {}),
+      readOnly: true,
+      contextValue: 'sflow.evidence.detached',
+      evidence: {
+        ownerKind: 'epic' as const, ownerId: state.initiative.id,
+        evidenceId: String(source.sourceId ?? source.id ?? ''), status: 'detached' as const
+      }
+    }))
   });
 
   if (repositories.length) {

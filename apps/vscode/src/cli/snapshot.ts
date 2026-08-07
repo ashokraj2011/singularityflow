@@ -189,7 +189,8 @@ export interface InitiativeSnapshot {
     editable: boolean;
     choices: Array<{ id: string; label: string; required: boolean; included: boolean; authored: boolean }>;
   }>;
-  sources?: { version: number; initiativeId: string; sources: unknown[]; jiraSnapshot?: unknown };
+  sources?: { version: number; initiativeId: string; sources: EpicSourceRecord[]; jiraSnapshot?: unknown };
+  detachedSources?: EpicSourceRecord[];
   documents: InitiativeOutput[];
   delivery?: unknown;
   [key: string]: unknown;
@@ -206,13 +207,36 @@ export interface WorkItemSummary {
 export interface StoryArtifact {
   id?: string;
   label?: string;
+  type?: string;
   kind?: string;
   path: string;
+  url?: string;
+  mimeType?: string;
+  size?: number;
   sha256?: string | null;
   status?: string;
+  packageId?: string;
+  detachReason?: string;
+  detachedAt?: string;
+  detachedBy?: { name?: string; email?: string; login?: string };
   generation?: number;
   phase?: string | null;
   generatedBy?: string | null;
+}
+
+export interface EpicSourceRecord {
+  sourceId: string;
+  name?: string;
+  provider?: string;
+  recordPath?: string;
+  sha256?: string;
+  bytes?: number;
+  mimeType?: string;
+  status?: string;
+  detachReason?: string;
+  detachedAt?: string;
+  detachedBy?: { name?: string; email?: string; login?: string };
+  [key: string]: unknown;
 }
 
 export interface StoryApproval {
@@ -381,6 +405,7 @@ export interface RepositorySnapshot {
   visualAssurance?: VisualAssuranceSnapshot | null;
   report?: StoryWorkflowReport | null;
   documents?: StoryArtifact[];
+  detachedDocuments?: StoryArtifact[];
   worldModel?: {
     root: string;
     generatedAt: string | null;

@@ -1,3 +1,4 @@
+import { createHash } from 'node:crypto';
 import { copyFile, lstat, mkdir, readFile, readdir, realpath, stat, writeFile } from 'node:fs/promises';
 import path from 'node:path';
 import { assertNoPendingPublication, saveStoryDraft, workDir, workDirRelative } from './state-stores.mjs';
@@ -50,6 +51,148 @@ async function loadManifest(root, config, workflow) {
   const manifest = await exists(file) ? JSON.parse(await readFile(file, 'utf8')) : { schemaVersion: 2, workId: workflow.workItem.id, documents: [], packages: [] };
   manifest.schemaVersion = Math.max(2, manifest.schemaVersion ?? 1); manifest.packages ??= [];
   return manifest;
+}
+
+export function evidenceIsActive(record) {
+  return record?.status == null || ['active', 'pinned'].includes(record.status);
+}
+
+async function contextJsonFiles(directory) {
+  if (!(await exists(directory))) return [];
+  const files = [];
+  for (const entry of await readdir(directory, { withFileTypes: true })) {
+    const absolute = path.join(directory, entry.name);
+    if (entry.isDirectory()) files.push(...await contextJsonFiles(absolute));
+    else if (entry.isFile() && entry.name.endsWith('.json')) files.push(absolute);
+  }
+  return files.sort();
+}
+
+async function storyEvidenceDependencies(root, config, workflow, targets) {
+  const needles = new Set(targets.flatMap((record) => [record.id, record.sha256, record.path, record.url].filter(Boolean)));
+  const itemRoot = workDir(root, config, workflow.workItem.id);
+  const phases = new Set();
+  const records = [];
+  for (const file of await contextJsonFiles(path.join(itemRoot, 'context'))) {
+    let parsed;
+    try { parsed = JSON.parse(await readFile(file, 'utf8')); } catch { continue; }
+    const serialized = JSON.stringify(parsed);
+    if (![...needles].some((needle) => serialized.includes(needle))) continue;
+    if (parsed.phase && workflow.phases?.[parsed.phase]) phases.add(parsed.phase);
+    parsed.stale = true;
+    parsed.staleReason = `Supporting evidence detached: ${targets.map((item) => item.id).join(', ')}`;
+    parsed.staleAt = nowIso();
+    await writeJson(file, parsed);
+    records.push(posix(path.relative(root, file)));
+  }
+  return { phases: [...phases], records };
+}
+
+function storyCone(workflow, phases) {
+  const indexes = phases.map((phaseId) => workflow.phaseOrder.indexOf(phaseId)).filter((index) => index >= 0);
+  if (!indexes.length) return { affectedPhases: [], reopenedPhase: null, earliest: -1 };
+  const earliest = Math.min(...indexes);
+  const affectedPhases = workflow.phaseOrder.slice(earliest);
+  return { affectedPhases, reopenedPhase: workflow.phaseOrder[earliest], earliest };
+}
+
+function invalidateStoryCone(workflow, cone, decisionSha256, timestamp) {
+  if (cone.earliest < 0) return cone;
+  const { earliest, affectedPhases, reopenedPhase } = cone;
+  for (let index = earliest; index < workflow.phaseOrder.length; index += 1) {
+    const phase = workflow.phases[workflow.phaseOrder[index]];
+    for (const approval of phase.approvals ?? []) if (!approval.invalidatedAt) {
+      approval.invalidatedAt = timestamp;
+      approval.invalidationReason = 'supporting-evidence-detached';
+      approval.invalidatedBy = decisionSha256;
+    }
+    phase.status = index === earliest ? 'in_progress' : 'not_started';
+    phase.submittedAt = null;
+    phase.approvedAt = null;
+    phase.approvedBy = null;
+    phase.invalidatedAt = timestamp;
+    phase.invalidatedBy = decisionSha256;
+  }
+  workflow.currentPhase = reopenedPhase;
+  workflow.status = 'in_progress';
+  return { affectedPhases, reopenedPhase };
+}
+
+/**
+ * Detach supporting evidence without deleting its committed bytes. The caller runs this inside
+ * commitAndPublish.beforeStateWrite so manifest, state, projections, decision, commit, and push are
+ * one publication transaction.
+ */
+export async function detachDocuments(root, config, workflow, {
+  documentId, scope = 'file', reason
+} = {}) {
+  const comment = String(reason ?? '').trim();
+  if (!comment) throw new SingularityFlowError('A detachment reason is required.');
+  if (!['file', 'package'].includes(scope)) throw new SingularityFlowError("Document detach --scope must be 'file' or 'package'.");
+  const manifest = await loadManifest(root, config, workflow);
+  const selected = manifest.documents.find((record) => record.id === documentId);
+  if (!selected) throw new SingularityFlowError(`Supporting document '${documentId}' was not found.`);
+  if (!evidenceIsActive(selected)) throw new SingularityFlowError(`Supporting document '${documentId}' is already detached.`);
+  if (scope === 'package' && !selected.packageId) throw new SingularityFlowError(`Document '${documentId}' is not a Figma or directory package member.`);
+  const targets = scope === 'package'
+    ? manifest.documents.filter((record) => record.packageId === selected.packageId && evidenceIsActive(record))
+    : [selected];
+  const session = await loadSession(root);
+  const timestamp = nowIso();
+  const dependencies = await storyEvidenceDependencies(root, config, workflow, targets);
+  const cone = storyCone(workflow, dependencies.phases);
+  const decisionBase = {
+    schemaVersion: 1,
+    type: 'evidence-detachment',
+    subject: { kind: 'story', id: workflow.workItem.id },
+    target: { documentId: selected.id, packageId: selected.packageId ?? null, scope },
+    documents: targets.map((record) => ({ id: record.id, sha256: record.sha256 ?? null, path: record.path ?? null, url: record.url ?? null })),
+    reason: comment,
+    actor: session.actor,
+    agent: session.agent ?? null,
+    at: timestamp,
+    previousHash: selected.sha256 ?? createHash('sha256').update(String(selected.url ?? '')).digest('hex'),
+    dependentContextRecords: dependencies.records,
+    affectedPhases: cone.affectedPhases,
+    reopenedPhase: cone.reopenedPhase
+  };
+  const decisionSha256 = createHash('sha256').update(JSON.stringify(decisionBase)).digest('hex');
+  decisionBase.sha256 = decisionSha256;
+  const invalidation = invalidateStoryCone(workflow, cone, decisionSha256, timestamp);
+  for (const record of targets) Object.assign(record, {
+    status: 'detached', detachedAt: timestamp, detachDecisionSha256: decisionSha256,
+    detachedBy: session.actor, detachReason: comment
+  });
+  if (selected.packageId) {
+    const packageRecord = manifest.packages.find((record) => record.id === selected.packageId);
+    if (packageRecord && manifest.documents.filter((record) => record.packageId === selected.packageId).every((record) => !evidenceIsActive(record))) {
+      Object.assign(packageRecord, { status: 'detached', detachedAt: timestamp, detachDecisionSha256: decisionSha256 });
+    }
+  }
+  const decisionFile = path.join(workDir(root, config, workflow.workItem.id), 'evidence', 'detachments', `${decisionSha256}.json`);
+  await writeJson(decisionFile, decisionBase);
+  manifest.updatedAt = timestamp;
+  await writeJson(manifestPath(root, config, workflow), manifest);
+  workflow.documents = {
+    count: manifest.documents.filter(evidenceIsActive).length,
+    totalCount: manifest.documents.length,
+    updatedAt: timestamp
+  };
+  workflow.history.push({
+    at: timestamp,
+    actor: session.actor.login ?? session.actor.email ?? session.actor.name,
+    agent: session.agent,
+    event: 'evidence_detached',
+    phase: invalidation.reopenedPhase ?? workflow.currentPhase,
+    detail: `${targets.map((item) => item.id).join(', ')} detached: ${comment}`
+  });
+  return {
+    decision: decisionBase,
+    decisionPath: posix(path.relative(root, decisionFile)),
+    targets,
+    affectedPhases: invalidation.affectedPhases,
+    reopenedPhase: invalidation.reopenedPhase
+  };
 }
 
 async function writePackageIndexes(root, config, workflow, manifest, packageRecord) {
@@ -226,9 +369,11 @@ async function systemDocument(root, config, workflow, id, label, relative) {
   const info = await snapshot(absolute); return { id, type: 'system', label, kind: 'workflow', path: posix(path.relative(root, absolute)), mimeType: mimeType(relative), size: info.size, sha256: info.sha256, phase: null };
 }
 
-export async function documentCatalog(root, config, workflow) {
-  const manifest = await loadManifest(root, config, workflow); const records = [...manifest.documents];
+export async function documentCatalog(root, config, workflow, { includeDetached = false } = {}) {
+  const manifest = await loadManifest(root, config, workflow);
+  const records = manifest.documents.filter((record) => includeDetached || evidenceIsActive(record));
   for (const packageRecord of manifest.packages ?? []) {
+    if (!includeDetached && !evidenceIsActive(packageRecord)) continue;
     for (const [suffix, label, kind, filePath, type] of [['INVENTORY', `${packageRecord.name} inventory`, 'package-inventory', packageRecord.inventoryPath, 'text/markdown'], ['GALLERY', `${packageRecord.name} gallery`, 'package-gallery', packageRecord.galleryPath, 'text/html'], ['MANIFEST', `${packageRecord.name} manifest`, 'package-manifest', packageRecord.manifestPath, 'application/json']]) {
       if (!filePath || !(await exists(path.join(root, filePath)))) continue;
       const info = await snapshot(path.join(root, filePath)); records.push({ id: `PACKAGE-${packageRecord.id}-${suffix}`, type: 'package', label, kind, path: filePath, mimeType: type, size: info.size, sha256: info.sha256, phase: packageRecord.phase, packageId: packageRecord.id });
@@ -237,12 +382,14 @@ export async function documentCatalog(root, config, workflow) {
   for (const [id, label, relative] of [['SYS-README', 'Work-item guide', 'README.md'], ['SYS-STATUS', 'Workflow status', 'STATUS.md'], ['SYS-WORKFLOW', 'Workflow state', 'workflow.json'], ['SYS-SOURCE', 'Source context', 'source.json'], ['SYS-STORY', 'User story', 'USER-STORY.md']]) {
     const record = await systemDocument(root, config, workflow, id, label, relative); if (record) records.push(record);
   }
-  for (const phaseId of workflow.phaseOrder) {
-    const phase = workflow.phases[phaseId]; const absolute = path.join(workDir(root, config, workflow.workItem.id), phase.requiredArtifact.path);
+  for (const phaseId of workflow.phaseOrder ?? Object.keys(workflow.phases ?? {})) {
+    const phase = workflow.phases[phaseId];
+    if (!phase?.requiredArtifact?.path) continue;
+    const absolute = path.join(workDir(root, config, workflow.workItem.id), phase.requiredArtifact.path);
     if (!(await exists(absolute))) continue; const info = await snapshot(absolute);
     records.push({ id: `PHASE-${phaseId.toUpperCase()}`, type: 'artifact', label: phase.label, kind: phase.requiredArtifact.kind, path: posix(path.relative(root, absolute)), mimeType: mimeType(absolute), size: info.size, sha256: info.sha256, phase: phaseId, status: phase.status, generation: phase.generation });
     let extraIndex = 0;
-    for (const artifact of phase.artifacts.filter((item) => item.path !== posix(path.relative(root, absolute)))) {
+    for (const artifact of (phase.artifacts ?? []).filter((item) => item.path !== posix(path.relative(root, absolute)))) {
       if (!(await exists(path.join(root, artifact.path)))) continue; extraIndex += 1;
       records.push({ id: `ART-${phaseId.toUpperCase()}-${String(extraIndex).padStart(2, '0')}`, type: 'artifact', label: path.basename(artifact.path), kind: artifact.kind, path: artifact.path, mimeType: mimeType(artifact.path), size: artifact.size, sha256: artifact.sha256, phase: phaseId, status: artifact.status, generation: phase.generation });
     }
@@ -250,17 +397,36 @@ export async function documentCatalog(root, config, workflow) {
   return records;
 }
 
-export async function viewDocument(root, config, workflow, reference) {
-  const records = await documentCatalog(root, config, workflow); const normalized = reference.toLowerCase();
+export async function viewDocument(root, config, workflow, reference, { includeDetached = false } = {}) {
+  const records = await documentCatalog(root, config, workflow, { includeDetached }); const normalized = reference.toLowerCase();
   const matches = records.filter((item) => item.id.toLowerCase() === normalized || item.path?.toLowerCase() === normalized || path.basename(item.path ?? '').toLowerCase() === normalized);
   if (!matches.length) throw new SingularityFlowError(`Document '${reference}' was not found. Run singularity-flow documents list.`);
   if (matches.length > 1) throw new SingularityFlowError(`Document reference '${reference}' is ambiguous; use its document ID.`);
   const record = matches[0]; if (record.type === 'url') return { record, content: null, binary: false };
   const extension = path.extname(record.path).toLowerCase(); const binary = !TEXT_EXTENSIONS.has(extension) && !record.mimeType.startsWith('text/');
   const absolute = await governedDocumentPath(root, config, workflow, record);
-  if (binary) return { record, content: null, binary: true, absolutePath: absolute };
-  const policy = documentPolicy(workflow, config); const content = await readFile(absolute, 'utf8'); const limit = policy.maxPreviewBytes ?? 1048576;
-  return { record, content: content.length > limit ? `${content.slice(0, limit)}\n… preview truncated …\n` : content, binary: false };
+  const current = await snapshot(absolute);
+  if (record.sha256 && (current.sha256 !== record.sha256 || current.size !== record.size)) {
+    throw new SingularityFlowError(`Document '${record.id}' no longer matches its committed catalog hash. Expected ${record.sha256}, found ${current.sha256}.`);
+  }
+  if (binary) return {
+    record, content: null, binary: true, absolutePath: absolute,
+    verifiedSha256: current.sha256, size: current.size, previewBytes: 0, truncated: false
+  };
+  const policy = documentPolicy(workflow, config); const bytes = await readFile(absolute); const limit = policy.maxPreviewBytes ?? 1048576;
+  let previewBytes = Math.min(bytes.length, limit);
+  let content = bytes.subarray(0, previewBytes).toString('utf8');
+  // Do not end a byte-limited preview halfway through a UTF-8 code point.
+  while (content.endsWith('\uFFFD') && previewBytes > 0) {
+    previewBytes -= 1;
+    content = bytes.subarray(0, previewBytes).toString('utf8');
+  }
+  const truncated = bytes.length > previewBytes;
+  if (truncated) content = `${content}\n… preview truncated …\n`;
+  return {
+    record, content, binary: false, absolutePath: absolute,
+    verifiedSha256: current.sha256, size: current.size, previewBytes, truncated
+  };
 }
 
 export async function previewDocument(root, config, workflow, reference) {

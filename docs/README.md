@@ -36,6 +36,7 @@ is not part of the current product.
 | Validate an orphan-ledger deployment and trust tier | [Ledger deployment validation](LEDGER-DEPLOYMENT.md) |
 | Epic/Initiative orchestration across repositories | [Initiative orchestration](../INITIATIVE-ORCHESTRATION.md) |
 | Native Copilot handoff | [Native Copilot](../NATIVE-COPILOT.md) |
+| Bounded reference previews and runtime conformance | [Harness Imports](HARNESS-IMPORTS.md) |
 | Connect governed agents to MCP tools such as Playwright | [Governed MCP tools](MCP-INTEGRATION.md) |
 | Pin Figma MCP metadata into approved downstream design context | [Mobile model intake](MOBILE-MODEL-INTAKE.md) |
 | Configure people, approvals, workflows, agents, and MCP visually | [VS Code Configuration Center](CONFIGURATION-CENTER.md) |

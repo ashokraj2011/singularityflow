@@ -1,0 +1,14 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://example.invalid/singularity-flow/reference-record.schema.json",
+  "type": "object",
+  "required": ["schemaVersion", "kind", "repository", "subject", "artifact", "revision", "visibility", "createdAt"],
+  "properties": {
+    "schemaVersion": { "const": 1 }, "kind": { "const": "governed-reference" },
+    "repository": { "type": "object", "required": ["id", "origin"], "properties": { "id": { "type": "string", "minLength": 1 }, "origin": { "type": ["string", "null"] } }, "additionalProperties": false },
+    "subject": { "type": "object", "required": ["kind", "id", "branch", "subjectRevision"], "properties": { "kind": { "enum": ["story", "initiative"] }, "id": { "type": "string", "pattern": "^[A-Za-z0-9][A-Za-z0-9._-]{0,127}$" }, "branch": { "type": "string", "minLength": 1 }, "subjectRevision": { "type": "integer", "minimum": 0 } }, "additionalProperties": false },
+    "artifact": { "type": "object", "required": ["phaseId", "generation", "outputId", "path", "mediaType"], "properties": { "phaseId": { "type": "string", "minLength": 1 }, "generation": { "type": "integer", "minimum": 0 }, "outputId": { "type": "string", "minLength": 1 }, "path": { "type": "string", "pattern": "^(?!/)(?!.*(?:^|/)\\.\\.(?:/|$)).+$" }, "mediaType": { "type": "string", "minLength": 1 } }, "additionalProperties": false },
+    "revision": { "type": "object", "required": ["commitSha", "sha256", "bytes"], "properties": { "commitSha": { "type": "string", "pattern": "^[a-f0-9]{40,64}$" }, "sha256": { "type": "string", "pattern": "^[a-f0-9]{64}$" }, "bytes": { "type": "integer", "minimum": 0 } }, "additionalProperties": false },
+    "visibility": { "enum": ["model", "human"] }, "createdAt": { "type": "string", "format": "date-time" }
+  }, "additionalProperties": false
+}

@@ -69,7 +69,9 @@ import { jiraDoctor, jiraDoctorText } from './jira-doctor.mjs';
 import { installPlugin, listPlugins, pluginPath, uninstallPlugin } from './plugin.mjs';
 import { runGovernanceGate } from './governance.mjs';
 import { worldModelCommand } from './worldmodel.mjs';
-import { initializationStatus, initializeDefinition, resolveWorkType, validateDefinition, WORKFLOW_PATH } from './config.mjs';
+import { initializationStatus, initializeDefinition, loadDefinition, resolveWorkType, validateDefinition, WORKFLOW_PATH } from './config.mjs';
+import { registerReference, resolveReference } from './harness-imports.mjs';
+import { beginHarnessInvocation, completeHarnessInvocation, harnessReport } from './harness-events.mjs';
 import { activateWorkItemSession, loadCopilotSession, loadSession, agentSessionStatus, restoreAgentSession, restoreCopilotSession, selectIntakeSource, selectAgent, selectWorkType, setAgentSession } from './session.mjs';
 import { addDocuments, detachDocuments, documentCatalog, fetchRemoteDocument, listRemoteDocuments, previewDocument, viewDocument } from './documents.mjs';
 import { progressBar, progressFlow, progressSnapshot } from './progress.mjs';
@@ -121,8 +123,8 @@ import {
 } from './knowledge.mjs';
 import {
   commitInitiativeChange, createInitiative, initiativeProgress, initiativeStartPreflight, listInitiatives,
-  availableInitiativeOutputs, prepareInitiativePhase, restartInitiative, secureInitiativePath,
-  selectInitiativePhaseOutputs, setInitiativeApplicability, initiativeApplicabilityState,
+  availableInitiativeOutputs, initiativeRelative, prepareInitiativePhase, restartInitiative, secureInitiativePath,
+  saveInitiativeDraft, selectInitiativePhaseOutputs, setInitiativeApplicability, initiativeApplicabilityState,
   syncInitiativePublication, validateInitiativeId
 } from './state-stores.mjs';
 import {
@@ -268,6 +270,9 @@ Personal Copilot skills plus a deterministic Git-native SDLC utility.
 Usage:
   singularity-flow about
   singularity-flow help [TOPIC] [--json]
+  singularity-flow show <SFREF-HANDLE> [--section HEADING | --json-pointer POINTER | --range RANGE]
+    [--max-bytes N] [--json]
+  singularity-flow harness report [--json]
   singularity-flow bootstrap <REPOSITORY-URL> --capability ID [--name TEXT] [--kind collection|delivery]
     [--jira-project KEY] [--teams A,B] [--into DIRECTORY] [--base DIRECTORY]
     [--state-branch NAME | --no-state-branch] [--no-push] [--json]
@@ -1294,9 +1299,9 @@ async function actionCommand(positionals, options) {
     console.log(`Execute: singularity-flow action execute ${plan.planId} --action ${action.actionId} --authorization ${authorization.token}`);
     return;
   }
-  if (action.confirmation?.required) {
-    await consumeActionAuthorization(root, optionString(options, 'authorization'), plan, action);
-  }
+  const authorization = action.confirmation?.required
+    ? await consumeActionAuthorization(root, optionString(options, 'authorization'), plan, action)
+    : null;
 
   const priorActionEnvironment = {
     planId: process.env.SINGULARITY_FLOW_ACTION_PLAN_ID,
@@ -1324,6 +1329,27 @@ async function actionCommand(positionals, options) {
   });
   if (optionBoolean(options, 'json')) console.log(JSON.stringify({ replayed: false, record: result }, null, 2));
   else console.log(`Governed action ${action.actionId.slice(0, 10)} completed and was recorded locally.`);
+  if (!action.effect?.mutatesState) return {};
+  return {
+    harnessEvidence: {
+      questions: authorization ? [{
+        questionId: authorization.questionId,
+        answered: true,
+        answerReceipt: authorization.answerReceipt,
+        actionPlanId: plan.planId,
+        actionId: action.actionId,
+        expiresAt: authorization.expiresAt
+      }] : [],
+      actionsExecuted: [{
+        questionId: authorization?.questionId ?? null,
+        answerReceipt: authorization?.answerReceipt ?? null,
+        authorizationId: authorization?.authorizationId ?? null,
+        planId: plan.planId,
+        actionId: action.actionId,
+        result: 'succeeded'
+      }]
+    }
+  };
 }
 
 function activeActionContext() {
@@ -2005,6 +2031,12 @@ async function phaseCommand(positionals, options) {
   const phaseId = positionals[2] ?? workflow.currentPhase;
   const requestedPhase = workflow.phases[phaseId];
   if (!requestedPhase) throw new SingularityFlowError(`Unknown or unavailable phase '${phaseId ?? ''}'. Provide a phase ID.`);
+  // Discover the prospective generation's artifact set before opening the publication unit. This
+  // changes only the in-memory aggregate; the unit below still owns every durable write. Without
+  // this preflight, implementation source/tests first discovered inside `publishGeneration` were
+  // absent from the transaction's immutable path allowlist and therefore absent from the exact
+  // generation commit later used by governed references and review packets.
+  await scanArtifacts(root, config, workflow, phaseId);
   const generation = requestedPhase.generation + 1;
   let phase = requestedPhase;
   const result = await commitAndPublish(
@@ -4064,13 +4096,19 @@ async function knowledgeCommand(positionals, options) {
   if (subcommand === 'record') {
     const result = await recordKnowledge(root, {
       type: requirePositional(positionals, 2, 'knowledge type'),
-      title: optionString(options, 'title') ?? positionals.slice(3).join(' '),
-      detail: optionString(options, 'detail') ?? null,
-      tags: (optionString(options, 'tags') ?? '').split(',').map((tag) => tag.trim()).filter(Boolean)
+      text: optionString(options, 'text') ?? optionString(options, 'title') ?? positionals.slice(3).join(' '),
+      provenance: [{
+        workId: optionString(options, 'work-id'), artifact: optionString(options, 'artifact'),
+        sha256: optionString(options, 'sha256'), approvedRevision: optionNumber(options, 'approved-revision')
+      }],
+      scope: {
+        capabilities: optionStrings(options, 'capability'), repositories: optionStrings(options, 'repository'),
+        paths: optionStrings(options, 'path'), environments: optionStrings(options, 'environment')
+      }
     });
-    if (result.created) commitKnowledge(root, `[knowledge][${result.record.type}] ${result.record.title}`);
+    if (result.created) commitKnowledge(root, `[knowledge][${result.record.type}] ${result.record.id}`);
     if (optionBoolean(options, 'json')) return console.log(JSON.stringify(result, null, 2));
-    return console.log(`${result.created ? 'Recorded' : 'Already recorded'} ${result.record.type} ${result.sha256.slice(0, 12)}: ${result.record.title}`);
+    return console.log(`${result.created ? 'Recorded' : 'Already recorded'} ${result.record.type} ${result.record.id}: ${result.record.text}`);
   }
 
   if (subcommand === 'resolve') {
@@ -4079,7 +4117,7 @@ async function knowledgeCommand(positionals, options) {
     });
     commitKnowledge(root, `[knowledge][resolve] ${result.record.supersedes.slice(0, 12)}`);
     if (optionBoolean(options, 'json')) return console.log(JSON.stringify(result, null, 2));
-    return console.log(`Resolved ${result.record.supersedes.slice(0, 12)} as ${result.sha256.slice(0, 12)}: ${result.record.detail}`);
+    return console.log(`Resolved ${result.record.supersedes.slice(0, 12)} as ${result.record.id}: ${result.record.text}`);
   }
 
   if (subcommand === 'harvest') {
@@ -4092,11 +4130,11 @@ async function knowledgeCommand(positionals, options) {
     });
     if (optionBoolean(options, 'json')) return console.log(JSON.stringify(result, null, 2));
     if (dryRun) {
-      for (const candidate of result.candidates) console.log(`${candidate.type.padEnd(12)} ${candidate.provenance.phase}/${candidate.provenance.output}  ${candidate.title}`);
+      for (const candidate of result.candidates) console.log(`${candidate.type.padEnd(12)} ${candidate.provenance[0].artifact}  ${candidate.text}`);
       return console.log(`\n${result.candidates.length} entr${result.candidates.length === 1 ? 'y' : 'ies'} would be harvested. Re-run without --dry-run to record them.`);
     }
     if (result.harvested.length) commitKnowledge(root, `[${initiativeId}][knowledge][harvest] ${result.harvested.length} entries`);
-    for (const entry of result.harvested) console.log(`${entry.record.type.padEnd(12)} ${entry.sha256.slice(0, 12)}  ${entry.record.title}`);
+    for (const entry of result.harvested) console.log(`${entry.record.type.padEnd(12)} ${entry.record.id}  ${entry.record.text}`);
     return console.log(`\nHarvested ${result.harvested.length}; ${result.skipped} already recorded.`);
   }
 
@@ -4107,13 +4145,9 @@ async function knowledgeCommand(positionals, options) {
     if (!found) throw new SingularityFlowError(`No knowledge entry matches '${wanted}'.`);
     if (optionBoolean(options, 'json')) return console.log(JSON.stringify(found, null, 2));
     console.log(`${found.record.type} ${found.sha256}`);
-    console.log(`\n${found.record.title}`);
-    if (found.record.detail) console.log(`\n${found.record.detail}`);
-    if (found.record.provenance) {
-      const source = found.record.provenance;
-      console.log(`\nFrom ${source.initiativeId} ${source.phase}/${source.output} (${source.section}) @ ${String(source.sha256).slice(0, 12)}`);
-    }
-    return console.log(`Recorded ${found.record.recordedAt} by ${found.record.actor ?? 'unknown'}`);
+    console.log(`\n${found.record.text}`);
+    for (const source of found.record.provenance) console.log(`\nFrom ${source.workId}:${source.artifact}@${source.sha256.slice(0, 12)} revision ${source.approvedRevision}`);
+    return console.log(`Recorded ${found.record.createdAt} by ${found.record.createdBy ?? 'unknown'}`);
   }
 
   const entries = filterKnowledge(currentKnowledge(await readKnowledge(root)), {
@@ -4125,8 +4159,8 @@ async function knowledgeCommand(positionals, options) {
   if (optionBoolean(options, 'json')) return console.log(JSON.stringify(entries, null, 2));
   if (!entries.length) return console.log('No knowledge entries yet. Harvest an approved initiative with: singularity-flow knowledge harvest');
   for (const { sha256, record } of entries) {
-    const scope = record.provenance ? `${record.provenance.initiativeId}/${record.provenance.phase}` : 'manual';
-    console.log(`${sha256.slice(0, 12)}  ${record.type.padEnd(12)} ${(record.status ?? '').padEnd(9)} ${scope.padEnd(28)} ${record.title}`);
+    const scope = Object.entries(record.scope).flatMap(([key, values]) => values.map((value) => `${key}:${value}`)).join(',');
+    console.log(`${record.id}  ${record.type.padEnd(12)} ${record.status.padEnd(10)} ${scope.padEnd(28)} ${record.text}`);
   }
   console.log(`\n${entries.length} entr${entries.length === 1 ? 'y' : 'ies'}.`);
 }
@@ -4348,9 +4382,26 @@ async function initiativeCommand(positionals, options) {
       // and the VS Code extension record the same thing. They used to live here, which is why publishing
       // from the editor left blocking gates unsatisfied and the phase impossible to approve.
       const result = await publishInitiativePhase(root, initiativeId, phaseId, { agent: session?.agent ?? null });
-      const publishState = await loadInitiativeAggregate(root, initiativeId);
-      const publication = await commitInitiativeChange(root, publishState.portfolio, publishState.initiative, { type: 'artifact-generated', phaseId, generation: result.phase.generation }, `[${initiativeId}][initiative:${phaseId}][generated:${result.phase.generation}] publish`);
-      console.log(`Published ${phaseId} generation ${result.phase.generation}. Commit ${publication.sha.slice(0, 8)}${publication.pushed ? ' pushed' : ''}.`);
+      const generationPublication = await commitInitiativeChange(root, result.portfolio, result.initiative, { type: 'artifact-generated', phaseId, generation: result.phase.generation }, `[${initiativeId}][initiative:${phaseId}][generated:${result.phase.generation}] publish`);
+      // A governed handle must name bytes which already exist in an immutable Git revision. Publish
+      // the generation first, then register its handles in a small atomic follow-up publication.
+      // This avoids prospective or synthetic commit identifiers and keeps every handle reproducible.
+      const referenceState = await loadInitiativeAggregate(root, initiativeId);
+      const referencePhase = referenceState.initiative.phases[phaseId];
+      const references = await registerInitiativePhaseReferences(root, config, referenceState.initiative, referencePhase, generationPublication.sha);
+      let referencePublication = null;
+      if (references.length) {
+        await saveInitiativeDraft(root, referenceState.portfolio, referenceState.initiative);
+        referencePublication = await commitInitiativeChange(
+          root,
+          referenceState.portfolio,
+          referenceState.initiative,
+          { type: 'configuration-changed', phaseId, generation: referencePhase.generation, payload: { references: references.map((entry) => entry.handle) } },
+          `[${initiativeId}][initiative:${phaseId}][references:${referencePhase.generation}] register governed handles`
+        );
+      }
+      console.log(`Published ${phaseId} generation ${result.phase.generation}. Commit ${generationPublication.sha.slice(0, 8)}${generationPublication.pushed ? ' pushed' : ''}.`);
+      if (referencePublication) console.log(`Registered ${references.length} governed reference(s). Commit ${referencePublication.sha.slice(0, 8)}${referencePublication.pushed ? ' pushed' : ''}.`);
     } else {
       const context = await composeInitiativeContext(root, initiativeId, phaseId, { agent: session?.agent ?? null });
       const result = await prepareInitiativePhase(root, initiativeId, phaseId, { agent: session?.agent ?? null });
@@ -6646,6 +6697,98 @@ async function finalizeCommand(options) {
   console.log(`Commit: ${publication.sha.slice(0, 8)}${publication.pushed ? ' pushed' : ' local'}`);
 }
 
+async function showCommand(positionals, options) {
+  const handle = requirePositional(positionals, 1, 'governed reference handle');
+  const selectors = [optionString(options, 'section'), optionString(options, 'json-pointer'), optionString(options, 'range')]
+    .filter((value) => value != null);
+  if (selectors.length > 1) throw new SingularityFlowError('Choose only one of --section, --json-pointer, or --range.', { exitCode: 5, code: 'handle.expansion_invalid' });
+  const result = await resolveReference(repoRoot(), handle, {
+    section: optionString(options, 'section'),
+    jsonPointer: optionString(options, 'json-pointer'),
+    range: optionString(options, 'range'),
+    maxBytes: optionNumber(options, 'max-bytes')
+  });
+  if (optionBoolean(options, 'json')) console.log(JSON.stringify(result, null, 2));
+  else console.log(result.preview.text);
+  return {
+    harnessOutput: {
+      rawSha256: result.source.rawSha256,
+      rawBytes: result.source.rawBytes,
+      previewSha256: result.preview.sha256,
+      previewBytes: result.preview.bytes,
+      handle: result.handle
+    }
+  };
+}
+
+function harnessMediaType(file) {
+  return ({
+    '.md': 'text/markdown', '.markdown': 'text/markdown', '.json': 'application/json',
+    '.yml': 'application/yaml', '.yaml': 'application/yaml', '.csv': 'text/csv',
+    '.txt': 'text/plain', '.log': 'text/plain', '.png': 'image/png', '.jpg': 'image/jpeg',
+    '.jpeg': 'image/jpeg', '.gif': 'image/gif', '.pdf': 'application/pdf'
+  })[path.extname(file).toLowerCase()] ?? 'application/octet-stream';
+}
+
+async function registerInitiativePhaseReferences(root, config, initiative, phase, commitSha = head(root)) {
+  const policy = initiative.resolution?.harnessImports ?? config.harnessImports ?? { mode: 'off' };
+  if (policy.mode === 'off') return [];
+  const originResult = run('git', ['remote', 'get-url', 'origin'], { cwd: root, allowFailure: true });
+  const references = [];
+  const subjectRoot = initiativeRelative(config, initiative.initiative.id);
+  for (const output of Object.values(phase.outputs ?? {})) {
+    if (!output.sha256 || !Number.isInteger(output.bytes)) continue;
+    const artifactPath = path.posix.join(subjectRoot, output.path);
+    const registered = await registerReference(root, {
+      repository: { id: path.basename(root), origin: originResult.status === 0 ? originResult.stdout.trim() || null : null },
+      subject: {
+        kind: 'initiative', id: initiative.initiative.id,
+        branch: initiative.initiative.branch, subjectRevision: phase.generation
+      },
+      artifact: {
+        phaseId: phase.id, generation: phase.generation, outputId: output.id,
+        path: artifactPath, mediaType: harnessMediaType(output.path)
+      },
+      revision: { commitSha, sha256: output.sha256, bytes: output.bytes },
+      visibility: 'model'
+    });
+    references.push({ outputId: output.id, handle: registered.handle, recordHash: registered.recordHash });
+  }
+  phase.references = references;
+  return references;
+}
+
+async function harnessCommand(positionals, options) {
+  const subcommand = positionals[1] ?? 'report';
+  if (subcommand !== 'report') throw new SingularityFlowError(`Unknown harness subcommand '${subcommand}'.`);
+  const report = await harnessReport(repoRoot());
+  if (optionBoolean(options, 'json')) return console.log(JSON.stringify(report, null, 2));
+  console.log(`Harness invocations: ${report.invocations}`);
+  console.log(`Reference bytes: ${report.output.rawBytes} raw → ${report.output.previewBytes} preview (${report.output.savedBytes} omitted)`);
+  console.log(`Checker coverage: ${(report.checkers.coverage * 100).toFixed(1)}% · pass ${report.checkers.verdicts.pass} · fail ${report.checkers.verdicts.fail} · not observed ${report.checkers.verdicts['not-observed']}`);
+  console.log(`Host observations: ${report.hostObservations.status} — ${report.hostObservations.reason}`);
+}
+
+async function harnessInvocation(command, argv) {
+  try {
+    const root = repoRoot();
+    const definition = await loadDefinition(root);
+    if (definition.harnessImports?.mode === 'off') return null;
+    const session = await loadSession(root).catch(() => null);
+    return {
+      root,
+      started: beginHarnessInvocation({
+        subject: session?.workId ? { kind: 'story', id: session.workId } : null,
+        skill: command === 'show' ? 'sflow-show' : null,
+        contractClass: command === 'show' ? 'echo' : null,
+        command: ['singularity-flow', ...argv]
+      })
+    };
+  } catch {
+    return null;
+  }
+}
+
 // Log every command's outcome. This is the spine of the activity log: without it a failure leaves
 // only the message printed to the terminal, and the sequence that produced it is gone. Building the
 // logger must never break a command, so a repository that cannot be resolved simply gets no file.
@@ -6671,14 +6814,22 @@ export async function main(argv) {
   // `logs` reads the file; logging its own invocation would append noise to what it is showing.
   if (!['logs', 'factory-reset', 'reset-all', 'fresh-install'].includes(command)) {
     const log = await commandLogger(command, argv);
+    const harness = await harnessInvocation(command, argv);
     const started = Date.now();
     log.info('command.start', null, { argv: argv.slice(0, 24) });
     try {
       const result = await dispatch(command, positionals, options);
       log.info('command.ok', null, { durationMs: Date.now() - started });
+      if (harness) await completeHarnessInvocation(harness.root, harness.started, {
+        exitCode: 0,
+        output: result?.harnessOutput ?? null,
+        actionsExecuted: result?.harnessEvidence?.actionsExecuted ?? [],
+        questions: result?.harnessEvidence?.questions ?? []
+      }).catch(() => {});
       return result;
     } catch (error) {
       log.error('command.failed', error?.message, { durationMs: Date.now() - started, exitCode: error?.exitCode ?? 1, error });
+      if (harness) await completeHarnessInvocation(harness.root, harness.started, { exitCode: error?.exitCode ?? 1 }).catch(() => {});
       throw error;
     }
   }
@@ -6689,6 +6840,8 @@ async function dispatch(command, positionals, options) {
   const handlers = validateCommandHandlers({
     about: () => console.log(ABOUT),
     help: () => helpCommand(positionals, options),
+    show: () => showCommand(positionals, options),
+    harness: () => harnessCommand(positionals, options),
     init: () => initCommand(options),
     'factory-reset': () => factoryResetCommand(options),
     'reset-all': () => resetAllCommand(options),

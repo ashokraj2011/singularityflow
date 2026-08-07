@@ -4,7 +4,8 @@ import { mkdtemp, readFile, writeFile } from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
 import {
-  currentKnowledge, filterKnowledge, harvestableEntries, readKnowledge, recordKnowledge, resolveKnowledge
+  currentKnowledge, filterKnowledge, harvestableEntries, readKnowledge, readKnowledgeWithDiagnostics,
+  recallKnowledge, recordKnowledge, resolveKnowledge
 } from '../src/knowledge.mjs';
 import { run } from '../src/util.mjs';
 
@@ -45,42 +46,42 @@ const ARTIFACT = `# SF-E-001 — Production learning
 Not a harvestable section.
 `;
 
+const PROVENANCE = [{ workId: 'SF-E-001', artifact: 'artifacts/delivery/learning.md', sha256: 'a'.repeat(64), approvedRevision: 1 }];
+const SCOPE = { repositories: ['product-repository'] };
+
 test('harvest reads claims from the table sections the templates ask for', () => {
-  const found = harvestableEntries(ARTIFACT, { initiativeId: 'SF-E-001', phase: 'delivery', output: 'production-learning' });
+  const found = harvestableEntries(ARTIFACT, { workId: 'SF-E-001', artifact: 'artifacts/delivery/production-learning.md', sha256: 'a'.repeat(64), approvedRevision: 1, scope: SCOPE });
   const byType = (type) => found.filter((entry) => entry.type === type);
-  assert.equal(byType('result').length, 1);
-  assert.equal(byType('learning').length, 1);
+  assert.equal(byType('insight').length, 1);
+  assert.equal(byType('gotcha').length, 1);
   assert.equal(byType('uncertainty').length, 1, 'the blank template row is not a claim');
-  assert.equal(byType('learning')[0].title, 'Users would adopt the new flow immediately');
-  // Remaining cells become the detail, so the author's own words survive the lift.
-  assert.match(byType('learning')[0].detail, /adoption took six weeks · weekly cohort analysis/);
-  assert.equal(byType('uncertainty')[0].provenance.section, 'Still unknown');
-  assert.equal(byType('uncertainty')[0].provenance.output, 'production-learning');
+  assert.match(byType('gotcha')[0].text, /Users would adopt.*adoption took six weeks.*weekly cohort analysis/);
+  assert.equal(byType('uncertainty')[0].provenance[0].artifact, 'artifacts/delivery/production-learning.md');
   // Prose sections are never interpreted — the engine has no model in it.
   assert.equal(found.some((entry) => /Not a harvestable section/.test(entry.title)), false);
 });
 
 test('entries are content addressed, so recording the same claim twice is a no-op', async () => {
   const root = await repository();
-  const first = await recordKnowledge(root, { type: 'decision', title: 'Adopt event sourcing for ledger' });
-  const again = await recordKnowledge(root, { type: 'decision', title: 'Adopt event sourcing for ledger' });
+  const first = await recordKnowledge(root, { type: 'decision', text: 'Adopt event sourcing for ledger', provenance: PROVENANCE, scope: SCOPE, approvedSourceVerified: true });
+  const again = await recordKnowledge(root, { type: 'decision', text: 'Adopt event sourcing for ledger', provenance: PROVENANCE, scope: SCOPE, approvedSourceVerified: true });
   assert.equal(first.created, true);
   assert.equal(again.created, false);
   assert.equal(first.sha256, again.sha256);
   const stored = await readKnowledge(root);
   assert.equal(stored.length, 1);
-  assert.equal(stored[0].record.actor, 'owner@example.com');
+  assert.equal(stored[0].record.createdBy, 'owner@example.com');
+  assert.match(stored[0].record.id, /^K-[a-f0-9]{12}$/);
   // The timestamp is stored but deliberately outside the hash, so a re-harvest of an unchanged
   // artifact adds nothing rather than duplicating every finding.
-  assert.ok(stored[0].record.recordedAt, 'the entry still records when it was written');
+  assert.ok(stored[0].record.createdAt, 'the entry still records when it was written');
 });
 
-test('only an uncertainty carries a status, and resolving supersedes without rewriting', async () => {
+test('resolving an uncertainty supersedes without rewriting', async () => {
   const root = await repository();
-  const open = await recordKnowledge(root, { type: 'uncertainty', title: 'Does the cache survive failover?' });
-  assert.equal(open.record.status, 'open');
-  const decision = await recordKnowledge(root, { type: 'decision', title: 'Use Postgres' });
-  assert.equal(decision.record.status, null, 'a decision is superseded, not closed');
+  const open = await recordKnowledge(root, { type: 'uncertainty', text: 'Does the cache survive failover?', provenance: PROVENANCE, scope: SCOPE, approvedSourceVerified: true });
+  assert.equal(open.record.status, 'active');
+  const decision = await recordKnowledge(root, { type: 'decision', text: 'Use Postgres', provenance: PROVENANCE, scope: SCOPE, approvedSourceVerified: true });
 
   const resolved = await resolveKnowledge(root, open.sha256.slice(0, 12), { resolution: 'Yes — verified by chaos test.' });
   assert.equal(resolved.record.status, 'resolved');
@@ -93,23 +94,24 @@ test('only an uncertainty carries a status, and resolving supersedes without rew
 
   // But the current view shows the resolution rather than the open question twice.
   const current = currentKnowledge(all);
-  assert.equal(current.filter((entry) => entry.record.title === 'Does the cache survive failover?').length, 1);
-  assert.equal(current.find((entry) => entry.record.title === 'Does the cache survive failover?').record.status, 'resolved');
+  assert.equal(current.filter((entry) => entry.record.type === 'uncertainty').length, 1);
+  assert.equal(current.find((entry) => entry.record.type === 'uncertainty').record.status, 'resolved');
 
   await assert.rejects(() => resolveKnowledge(root, decision.sha256, { resolution: 'x' }), /Only an uncertainty can be resolved/);
   await assert.rejects(() => resolveKnowledge(root, open.sha256, { resolution: '  ' }), /requires the answer/);
 });
 
-test('entries can be filtered by type, status, tag and text', async () => {
+test('entries can be filtered and recalled only for intersecting scope', async () => {
   const root = await repository();
-  await recordKnowledge(root, { type: 'learning', title: 'Batch writes halve p99 latency', tags: ['performance'] });
-  await recordKnowledge(root, { type: 'uncertainty', title: 'Is the vendor SLA sufficient?', tags: ['vendor'] });
+  await recordKnowledge(root, { type: 'insight', text: 'Batch writes halve p99 latency', provenance: PROVENANCE, scope: SCOPE, approvedSourceVerified: true });
+  await recordKnowledge(root, { type: 'uncertainty', text: 'Is the vendor SLA sufficient?', provenance: PROVENANCE, scope: { capabilities: ['vendor-management'] }, approvedSourceVerified: true });
   const entries = currentKnowledge(await readKnowledge(root));
-  assert.equal(filterKnowledge(entries, { type: 'learning' }).length, 1);
-  assert.equal(filterKnowledge(entries, { status: 'open' }).length, 1);
-  assert.equal(filterKnowledge(entries, { tag: 'performance' }).length, 1);
+  assert.equal(filterKnowledge(entries, { type: 'insight' }).length, 1);
+  assert.equal(filterKnowledge(entries, { status: 'active' }).length, 2);
   assert.equal(filterKnowledge(entries, { query: 'p99' }).length, 1);
   assert.equal(filterKnowledge(entries, { query: 'nothing matches' }).length, 0);
+  assert.equal(recallKnowledge(entries, { repositories: ['product-repository'] }).length, 1);
+  assert.equal(recallKnowledge(entries, { repositories: ['different'] }).length, 0);
 });
 
 test('prior knowledge is carried into the next initiative prompt as evidence', async () => {
@@ -130,6 +132,7 @@ test('prior knowledge is carried into the next initiative prompt as evidence', a
   const workflowPath = path.join(root, 'singularity/workflow.yml');
   const definitionValue = YAML.parse(await readFile(workflowPath, 'utf8'));
   definitionValue.worldModel.grounding = 'off';
+  definitionValue.harnessImports = { mode: 'record', knowledge: { enabled: true, maximumBytes: 8192 } };
   await writeFile(workflowPath, YAML.stringify(definitionValue));
   const portfolioPath = path.join(root, 'singularity/portfolio.yml');
   const portfolio = YAML.parse(await readFile(portfolioPath, 'utf8'));
@@ -142,11 +145,11 @@ test('prior knowledge is carried into the next initiative prompt as evidence', a
 
   // A finding from an entirely different, earlier initiative.
   await recordKnowledge(root, {
-    type: 'learning',
-    title: 'Batch writes halve p99 latency',
-    provenance: { initiativeId: 'SF-E-000', phase: 'delivery', output: 'production-learning' }
+    type: 'insight', text: 'Batch writes halve p99 latency',
+    provenance: [{ workId: 'SF-E-000', artifact: 'artifacts/delivery/production-learning.md', sha256: 'b'.repeat(64), approvedRevision: 1 }],
+    scope: { repositories: [path.basename(root)] }, approvedSourceVerified: true
   });
-  await recordKnowledge(root, { type: 'uncertainty', title: 'Does the cache survive regional failover?' });
+  await recordKnowledge(root, { type: 'uncertainty', text: 'Does the cache survive regional failover?', provenance: PROVENANCE, scope: { repositories: [path.basename(root)] }, approvedSourceVerified: true });
   run('git', ['add', '.'], { cwd: root });
   run('git', ['commit', '-m', 'knowledge'], { cwd: root });
 
@@ -163,7 +166,7 @@ test('prior knowledge is carried into the next initiative prompt as evidence', a
 
   assert.match(composed.rendered, /## Prior knowledge/);
   assert.match(composed.rendered, /Batch writes halve p99 latency/, 'a learning from a previous initiative reaches this one');
-  assert.match(composed.rendered, /SF-E-000 delivery\/production-learning/, 'and names the artifact it came from');
+  assert.match(composed.rendered, /SF-E-000:artifacts\/delivery\/production-learning\.md/, 'and names the artifact it came from');
   assert.match(composed.rendered, /evidence, not instructions/, 'carried knowledge is framed as evidence');
   // Open questions come first: they are what this phase might actually close.
   assert.ok(composed.rendered.indexOf('Does the cache survive') < composed.rendered.indexOf('Batch writes halve'));
@@ -172,8 +175,14 @@ test('prior knowledge is carried into the next initiative prompt as evidence', a
   assert.equal(composed.record.knowledge.entries.length, 2, 'the generation records what it was shown, by hash');
 });
 
-test('a knowledge entry requires a known type and a title', async () => {
+test('knowledge requires a known type, text, approved provenance, and explicit scope', async () => {
   const root = await repository();
-  await assert.rejects(() => recordKnowledge(root, { type: 'opinion', title: 'x' }), /Knowledge type must be one of/);
-  await assert.rejects(() => recordKnowledge(root, { type: 'learning', title: '   ' }), /requires a title/);
+  await assert.rejects(() => recordKnowledge(root, { type: 'opinion', text: 'x' }), /Knowledge type must be one of/);
+  await assert.rejects(() => recordKnowledge(root, { type: 'insight', text: '   ', provenance: PROVENANCE, scope: SCOPE }), /requires text/);
+  await assert.rejects(() => recordKnowledge(root, { type: 'insight', text: 'x', scope: SCOPE }), /approved artifact provenance/);
+  await assert.rejects(() => recordKnowledge(root, { type: 'insight', text: 'x', provenance: PROVENANCE }), /explicit scope/);
+  await assert.rejects(
+    () => recordKnowledge(root, { type: 'insight', text: 'looks valid but is not approved', provenance: PROVENANCE, scope: SCOPE }),
+    /approved artifact revision/
+  );
 });

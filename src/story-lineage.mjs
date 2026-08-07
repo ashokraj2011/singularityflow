@@ -10,9 +10,25 @@ import {
 import { nowIso, run, SingularityFlowError, snapshot, writeJson } from './util.mjs';
 import { evaluateVisualCoverage } from './visual-coverage.mjs';
 import { listVisualComparisons } from './visual-compare.mjs';
+import { referenceRevision, registerReference } from './harness-imports.mjs';
 
 function hash(value) {
   return createHash('sha256').update(JSON.stringify(value)).digest('hex');
+}
+
+function mediaTypeFor(file) {
+  const extension = path.extname(file).toLowerCase();
+  return ({
+    '.md': 'text/markdown', '.markdown': 'text/markdown', '.json': 'application/json',
+    '.yml': 'application/yaml', '.yaml': 'application/yaml', '.csv': 'text/csv',
+    '.txt': 'text/plain', '.log': 'text/plain', '.png': 'image/png', '.jpg': 'image/jpeg',
+    '.jpeg': 'image/jpeg', '.gif': 'image/gif', '.pdf': 'application/pdf'
+  })[extension] ?? 'application/octet-stream';
+}
+
+function repositoryOrigin(root) {
+  const result = run('git', ['remote', 'get-url', 'origin'], { cwd: root, allowFailure: true });
+  return result.status === 0 ? result.stdout.trim() || null : null;
 }
 
 function validateBranchName(root, value) {
@@ -117,14 +133,48 @@ export async function storyBranchStatus(root, config, parentStoryId = null) {
 
 export async function createStoryReviewPacket(root, config, workflow, phase) {
   const submittedBranch = workflowPublicationBranch(root, workflow);
+  const submittedCommit = phase.generationCommit ?? head(root);
   const artifacts = [];
+  const references = [];
+  const harnessPolicy = workflow.resolution?.harnessImports ?? config.harnessImports ?? { mode: 'off' };
+  const governedItemPrefix = `${path.relative(root, workDir(root, config, workflow.workItem.id)).replaceAll('\\', '/')}/`;
   for (const item of phase.artifacts ?? []) {
-    artifacts.push({
+    const artifact = {
       path: item.path,
       kind: item.kind ?? null,
       sha256: item.sha256 ?? null,
       size: item.size ?? null
-    });
+    };
+    // Source and test files may be phase artifacts, but model-facing reference handles are
+    // deliberately confined to the governed subject namespace. Those repository files remain in
+    // the review packet with their exact hashes; the phase's governed report/specification is the
+    // safe, immutable reference a later agent may expand.
+    if (harnessPolicy.mode !== 'off' && item.path.startsWith(governedItemPrefix)) {
+      const revision = referenceRevision(root, submittedCommit, item.path);
+      const registered = await registerReference(root, {
+        repository: { id: config.repository?.id ?? path.basename(root), origin: config.repository?.origin ?? repositoryOrigin(root) },
+        subject: {
+          kind: 'story', id: workflow.workItem.id,
+          branch: workflow.workItem.branch,
+          subjectRevision: phase.generation
+        },
+        artifact: {
+          phaseId: phase.id, generation: phase.generation,
+          outputId: item.kind ?? path.basename(item.path, path.extname(item.path)),
+          path: item.path, mediaType: mediaTypeFor(item.path)
+        },
+        revision,
+        visibility: 'model',
+        // Submission adds approval metadata before this packet is assembled. The governed
+        // evidence is the immutable generation artifact, not that prospective submit commit.
+        allowHistorical: true
+      });
+      artifact.sha256 = revision.sha256;
+      artifact.size = revision.bytes;
+      artifact.reference = { handle: registered.handle, recordHash: registered.recordHash };
+      references.push({ handle: registered.handle, recordHash: registered.recordHash, purpose: 'review-evidence', required: true });
+    }
+    artifacts.push(artifact);
   }
   const visualAssurance = phase.id === 'visual-verification' ? {
     coverage: await evaluateVisualCoverage(root, workflow),
@@ -140,12 +190,13 @@ export async function createStoryReviewPacket(root, config, workflow, phase) {
     currentJiraKey: workflow.lineage?.currentJiraKey ?? null,
     canonicalBranch: workflow.lineage?.canonicalBranch ?? workflow.workItem.branch,
     submittedBranch,
-    submissionCommit: head(root),
-    sourceCommit: phase.generationCommit ?? head(root),
+    submissionCommit: submittedCommit,
+    sourceCommit: submittedCommit,
     sourceTreeSha256: await sourceTreeHash(root),
     phase: phase.id,
     generation: phase.generation,
     artifacts,
+    references,
     checks: phase.checks ?? [],
     usage: phase.usage ?? [],
     approvals: phase.approvals?.filter((entry) => !entry.invalidatedAt) ?? [],

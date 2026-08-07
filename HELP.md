@@ -2150,6 +2150,15 @@ new initiative, because the resolution is immutable by design.
 
 ## CLI command reference
 
+### Governed reference expansion
+
+```text
+singularity-flow show <SFREF-HANDLE> [--section HEADING | --json-pointer POINTER | --range RANGE] [--max-bytes N] [--json]
+singularity-flow harness report [--json]
+```
+
+`show` accepts only a committed `sfref:v1:` handle. It verifies the reference record and artifact hash, then returns a deterministic preview bounded to 65,536 bytes. It never accepts an arbitrary repository path. In Copilot use `/sf-show` (or `/singularity-flow/sflow-show`).
+
 ```text
 singularity-flow about
 sflow-about

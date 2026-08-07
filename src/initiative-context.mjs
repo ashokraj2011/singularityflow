@@ -16,7 +16,7 @@ import {
   verifyInitiativePhaseInputs
 } from './state-stores.mjs';
 import { initiativeCheckRequirement, initiativeOutputRequired } from './initiative-policy.mjs';
-import { currentKnowledge, readKnowledge } from './knowledge.mjs';
+import { readKnowledge, recallKnowledge } from './knowledge.mjs';
 import { loadSession } from './session.mjs';
 import { renderCapabilityWorldModelPack } from './capability-context.mjs';
 import {
@@ -151,19 +151,12 @@ async function epicSourceSections(root, initiative, phase) {
 // How much prior knowledge may enter one prompt. The knowledge base grows without bound while a
 // prompt does not, so the budget is enforced here and truncation is stated in the prompt rather than
 // left for the reader to infer from a list that stops.
-const KNOWLEDGE_BUDGET_BYTES = 8 * 1024;
-
-// Open questions first: they are the entries this phase might actually close. Settled learnings and
-// decisions follow, and results last — a measured outcome is context, not an instruction.
-const KNOWLEDGE_ORDER = { uncertainty: 0, learning: 1, decision: 2, result: 3 };
+const KNOWLEDGE_ORDER = { uncertainty: 0, constraint: 1, gotcha: 2, decision: 3, insight: 4 };
 
 function knowledgeLine(entry) {
   const { sha256, record } = entry;
-  const origin = record.provenance
-    ? `${record.provenance.initiativeId} ${record.provenance.phase}/${record.provenance.output}`
-    : 'recorded directly';
-  const state = record.type === 'uncertainty' ? ` (${record.status})` : '';
-  return `- **${record.type}${state}** ${record.title}${record.detail ? ` — ${record.detail}` : ''}\n  \`${sha256.slice(0, 12)}\` · ${origin}`;
+  const origin = record.provenance.map((item) => `${item.workId}:${item.artifact}@${item.sha256.slice(0, 12)}`).join(', ');
+  return `- **${record.type}${record.type === 'uncertainty' ? ` (${record.status})` : ''}** ${record.text}\n  \`${record.id}\` · ${origin}`;
 }
 
 /**
@@ -172,17 +165,33 @@ function knowledgeLine(entry) {
  * This is the half that makes the store a knowledge base rather than a log: without it an initiative
  * can record what it learned but the next one never sees it.
  */
-async function knowledgeSections(root) {
-  const entries = currentKnowledge(await readKnowledge(root));
-  if (!entries.length) return { included: [], total: 0, truncated: false, text: '' };
+async function knowledgeSections(root, definition, initiative) {
+  const policy = initiative.resolution?.harnessImports ?? definition.harnessImports;
+  if (policy?.mode === 'off' || policy?.knowledge?.enabled !== true) {
+    return { included: [], total: 0, matched: 0, truncated: false, text: '', omittedReason: 'knowledge-disabled' };
+  }
+  const origin = run('git', ['config', '--get', 'remote.origin.url'], { cwd: root, allowFailure: true }).stdout.trim();
+  const originName = origin.split(/[/:]/).at(-1)?.replace(/\.git$/, '');
+  const repositoryIds = unique([
+    originName,
+    path.basename(root),
+    ...Object.keys(initiative.resolution?.repositories ?? {})
+  ]);
+  const all = await readKnowledge(root);
+  const entries = recallKnowledge(all, {
+    capabilities: [initiative.resolution?.capability?.id],
+    repositories: repositoryIds,
+    environments: [initiative.resolution?.environment]
+  });
+  if (!entries.length) return { included: [], total: all.length, matched: 0, truncated: false, text: '', omittedReason: all.length ? 'scope-mismatch' : 'none-available' };
   const ordered = entries.slice().sort((left, right) =>
     (KNOWLEDGE_ORDER[left.record.type] ?? 9) - (KNOWLEDGE_ORDER[right.record.type] ?? 9)
-    || String(right.record.recordedAt).localeCompare(String(left.record.recordedAt)));
+    || String(right.record.createdAt).localeCompare(String(left.record.createdAt)));
   const included = [];
   let bytes = 0;
   for (const entry of ordered) {
     const size = Buffer.byteLength(`${knowledgeLine(entry)}\n`);
-    if (bytes + size > KNOWLEDGE_BUDGET_BYTES) break;
+    if (bytes + size > policy.knowledge.maximumBytes) break;
     bytes += size;
     included.push(entry);
   }
@@ -198,7 +207,7 @@ async function knowledgeSections(root) {
     included.map(knowledgeLine).join('\n'),
     truncated ? `\n_${ordered.length - included.length} further entries omitted for length. Read them with \`singularity-flow knowledge list\`._` : ''
   ].filter((line) => line !== '').join('\n');
-  return { included, total: ordered.length, truncated, text };
+  return { included, total: all.length, matched: ordered.length, truncated, text };
 }
 
 async function repositoryGrounding(root, definition, phase, agent, mode, profilePhases = [], staleness = null) {
@@ -336,7 +345,7 @@ export async function composeInitiativeContext(root, initiativeId, requestedPhas
   const agentText = agentProfile.prompt;
   const inputs = await approvedInputSections(root, portfolio, initiative, phase);
   const epicSources = await epicSourceSections(root, initiative, phase);
-  const knowledge = await knowledgeSections(root);
+  const knowledge = await knowledgeSections(root, definition, initiative);
   const mode = initiative.resolution.worldModelGrounding ?? groundingMode(definition);
   const grounding = await repositoryGrounding(root, definition, phase, selectedAgent, mode,
     Object.values(initiative.resolution?.phases ?? {}),
@@ -441,8 +450,9 @@ export async function composeInitiativeContext(root, initiativeId, requestedPhas
     epicSources: epicSources.sections,
     // Recorded so a generation can be audited for what prior knowledge it was shown, by hash.
     knowledge: {
-      entries: knowledge.included.map(({ sha256, record }) => ({ sha256, type: record.type, title: record.title })),
+      entries: knowledge.included.map(({ sha256, record }) => ({ sha256, id: record.id, type: record.type, text: record.text })),
       total: knowledge.total,
+      matched: knowledge.matched ?? knowledge.included.length,
       truncated: knowledge.truncated
     },
     remoteAgent: session?.workId === initiativeId && session.agent ? {

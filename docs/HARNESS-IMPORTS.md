@@ -228,8 +228,12 @@ singularity/initiatives/<INIT-ID>/context/references/<sha256>.json
 ```
 
 The record filename is the SHA-256 of canonical JSON excluding `createdAt`.
-Creation occurs inside the same publication transaction as the artifact or
-review packet that registers it.
+The referenced artifact is published first so its immutable Git commit exists.
+Reference registration then occurs in an immediately adjacent publication
+transaction on the same lifecycle branch. That second transaction records the
+exact artifact commit without attempting to predict a Git commit that contains
+its own SHA. A failed reference publication is retained through the normal
+pending-publication recovery path and blocks later transitions until synchronized.
 
 ### 7.3 Resolution
 

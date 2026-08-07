@@ -57,11 +57,30 @@ test('action plans are content-addressed, private, and bound to repository/lifec
   assert.equal(plan.basedOn.head, plan.revision.head);
   assert.equal(plan.basedOn.stateHash, plan.revision.lifecycleSha256);
   assert.match(plan.actions[0].idempotencyKey, /^[a-f0-9]{64}$/);
+  assert.deepEqual(plan.actions[0].expectedOutcome.references, []);
   assert.deepEqual((await loadActionPlan(root, plan.planId)).revision, plan.revision);
   assert.doesNotThrow(() => assertActionPlanFresh(root, plan, snapshot));
 
   await writeFile(path.join(root, 'README.md'), '# changed after planning\n');
   assert.throws(() => assertActionPlanFresh(root, plan, snapshot), /worktreeHash changed/);
+});
+
+test('governed references are part of the expected outcome and action identity', async () => {
+  const root = await repository();
+  const withoutReference = await createActionPlan(root, lifecycle());
+  const handle = `sfref:v1:story:STORY-1:${'a'.repeat(64)}`;
+  const withReference = await createActionPlan(root, lifecycle([{
+    timing: 'now',
+    skill: '/sf-phase',
+    command: 'singularity-flow prepare intake',
+    reason: 'Prepare intake.',
+    references: [{ handle, purpose: 'approved-design', required: true }]
+  }]));
+  assert.deepEqual(withReference.actions[0].expectedOutcome.references, [{
+    handle, purpose: 'approved-design', required: true
+  }]);
+  assert.notEqual(withReference.actions[0].actionId, withoutReference.actions[0].actionId);
+  assert.notEqual(withReference.planHash, withoutReference.planHash);
 });
 
 test('only current, placeholder-free actions can execute', async () => {
@@ -85,7 +104,12 @@ test('mutating actions require exact kernel confirmation and fabricated action I
     confirmation: action.actionId,
     channel: 'test'
   });
-  assert.equal((await consumeActionAuthorization(root, authorization.token, plan, action)).actionId, action.actionId);
+  assert.match(authorization.authorizationId, /^[0-9a-f-]{36}$/);
+  assert.match(authorization.questionId, /^[a-f0-9]{24}$/);
+  assert.match(authorization.answerReceipt, /^[a-f0-9]{64}$/);
+  const consumed = await consumeActionAuthorization(root, authorization.token, plan, action);
+  assert.equal(consumed.actionId, action.actionId);
+  assert.equal(consumed.answerReceipt, authorization.answerReceipt);
   await assert.rejects(
     () => consumeActionAuthorization(root, authorization.token, plan, action),
     /already consumed/

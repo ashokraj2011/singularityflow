@@ -31,6 +31,7 @@ import { normalizeLedgerConfig } from './ledger-config.mjs';
 import { normalizeClarificationPolicy } from './clarifications.mjs';
 import { normalizeMcpServers, validateMcpAgentTools } from './mcp.mjs';
 import { normalizeSpecPolicy } from './specifications.mjs';
+import { normalizeHarnessImports } from './harness-imports.mjs';
 
 export const WORKFLOW_PATH = 'singularity/workflow.yml';
 export const CONTROL_ROOT = 'singularity';
@@ -243,6 +244,7 @@ export function validateDefinition(definition) {
   normalizeSessionPolicy(definition.session ?? {});
   normalizeContextPolicy(definition.contextPolicy ?? {}, { phaseIds: Object.keys(definition.phases) });
   normalizePlanning(definition.planning ?? {});
+  definition.harnessImports = normalizeHarnessImports(definition.harnessImports);
   normalizeLogging(definition.logging ?? {});
   definition.mcpServers = normalizeMcpServers(definition.mcpServers ?? {}, {
     agents: definition.agentCatalog ?? [],
@@ -602,6 +604,7 @@ export function resolveWorkType(definition, workTypeId) {
     contextPolicy,
     ledger: normalizeLedgerConfig(definition.ledger ?? {}),
     spec: normalizeSpecPolicy(definition.spec ?? {}),
+    harnessImports: normalizeHarnessImports(definition.harnessImports),
     documents,
     designSources: normalizeDesignSourcePolicy(workType.designSources, { phases: workType.phases }),
     verification: normalizeVerificationPolicy(workType.verification, { phases: workType.phases }),
@@ -648,6 +651,7 @@ export async function snapshotResolution(root, definition, resolved) {
     contextPolicy: resolved.contextPolicy ?? normalizeContextPolicy(definition.contextPolicy ?? {}, { phaseIds: Object.keys(definition.phases) }),
     ledger: structuredClone(resolved.ledger ?? normalizeLedgerConfig(definition.ledger ?? {})),
     spec: structuredClone(resolved.spec ?? normalizeSpecPolicy(definition.spec ?? {})),
+    harnessImports: structuredClone(resolved.harnessImports ?? normalizeHarnessImports(definition.harnessImports)),
     agents,
     mcpServers: structuredClone(definition.mcpServers ?? {}),
     designSources: structuredClone(resolved.designSources ?? null),

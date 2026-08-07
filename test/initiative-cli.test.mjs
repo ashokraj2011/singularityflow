@@ -440,8 +440,8 @@ test('approval harvests knowledge from the approved artifact, in the same commit
   assert.equal(after.length, 2);
   assert.deepEqual(after.map((entry) => entry.record.type).sort(), ['decision', 'uncertainty']);
   // Provenance points at the exact approved artifact, not just the phase.
-  assert.equal(after[0].record.provenance.output, 'business-case');
-  assert.equal(after[0].record.provenance.initiativeId, 'INIT-KNOW');
+  assert.equal(after[0].record.provenance[0].artifact, 'artifacts/define/business-case.md');
+  assert.equal(after[0].record.provenance[0].workId, 'INIT-KNOW');
 
   // The records are committed with the approval, and the checkout is left clean.
   assert.equal(git(root, ['status', '--porcelain']), '', 'approval leaves no untracked knowledge behind');
@@ -486,7 +486,7 @@ test('approving a phase bundle harvests its artifacts, not only individually app
   const entries = JSON.parse(execute(root, ['knowledge', 'list', '--json']).stdout);
   assert.equal(entries.length, 1);
   assert.equal(entries[0].record.type, 'uncertainty');
-  assert.equal(entries[0].record.provenance.output, 'scope-and-outcomes');
+  assert.equal(entries[0].record.provenance[0].artifact, 'artifacts/define/scope-and-outcomes.md');
   // Committed with the approval, leaving nothing of the store untracked. (The scratch approval.md
   // this test writes at the repository root is its own litter, so the check is scoped to the store.)
   assert.equal(git(root, ['status', '--porcelain', 'singularity/knowledge']), '');

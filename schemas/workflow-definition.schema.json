@@ -7,6 +7,29 @@
   "properties": {
     "version": { "const": 2 },
     "inputsMode": { "enum": ["off", "record", "enforce"], "default": "off" },
+    "harnessImports": {
+      "type": "object",
+      "properties": {
+        "mode": { "enum": ["off", "record", "enforce"], "default": "off" },
+        "defaultPreviewBytes": { "type": "integer", "minimum": 1, "maximum": 65536, "default": 16384 },
+        "knowledge": {
+          "type": "object",
+          "properties": { "enabled": { "type": "boolean", "default": false }, "maximumBytes": { "type": "integer", "minimum": 1, "maximum": 65536, "default": 8192 } },
+          "additionalProperties": false
+        },
+        "conformance": {
+          "type": "object",
+          "properties": {
+            "verbatimRelay": { "enum": ["off", "observe", "warn", "enforce"] },
+            "questionPrecedesMutation": { "enum": ["off", "observe", "warn", "enforce"] },
+            "maximumActions": { "enum": ["off", "observe", "warn", "enforce"] },
+            "previewRespected": { "enum": ["off", "observe", "warn", "enforce"] }
+          },
+          "additionalProperties": false
+        }
+      },
+      "additionalProperties": false
+    },
     "sequenceGates": { "$ref": "#/$defs/sequenceGates" },
     "contextPolicy": { "$ref": "#/$defs/contextPolicy" },
     "defaultBaseBranch": { "type": "string", "minLength": 1 },

@@ -230,6 +230,33 @@ export async function activateWorkItemSession(root, definition, workflow) {
   const policy = normalizeSessionPolicy(workflow.resolution?.session ?? definition.session ?? {});
   const existing = await loadSession(root, { required: false });
   const phaseId = workflow.currentPhase;
+  if (!phaseId) {
+    if (!['complete', 'cancelled'].includes(workflow.status)) {
+      throw new SingularityFlowError(
+        `Work item '${workflow.workItem.id}' has no active phase while its status is '${workflow.status ?? 'unknown'}'. `
+        + 'Run singularity-flow doctor before attaching the session.'
+      );
+    }
+    // A terminal Story remains inspectable, but there is no phase contract and
+    // therefore no governed phase agent to activate. Clear a stale local agent
+    // from the final phase so status and Copilot do not present it as active.
+    await restoreAgentSession(root, null);
+    return recordCopilotSession(root, {
+      ...(copilot ?? {}),
+      sessionId: copilot?.sessionId ?? null,
+      source: copilot?.source ?? 'startup',
+      repositoryRoot: root,
+      workId: workflow.workItem.id,
+      candidateWorkId: workflow.workItem.id,
+      phase: null,
+      workflowStatus: workflow.status,
+      policy,
+      workItemSelectionRequired: false,
+      selectionRequired: false,
+      selectedAgent: null,
+      workItemSelectedAt: nowIso()
+    });
+  }
   const phase = workflow.phases?.[phaseId] ?? null;
   const defaultAgent = phase?.defaultAgent
     ? definition.agents?.[phase.defaultAgent]

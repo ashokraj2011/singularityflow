@@ -54,6 +54,31 @@ test('phase activation selects the configured agent automatically and reselects 
   assert.equal(session.phaseId, 'implementation');
 });
 
+test('terminal Story sessions attach without inventing a null phase agent', async () => {
+  const root = await mkdtemp(path.join(os.tmpdir(), 'sflow-terminal-agent-'));
+  const current = workflow({ workItemSelection: 'off', requireBeforeTools: false });
+  await setAgentSession(root, definition, 'User <user@example.com>', 'architect', 'HOOK-1', { phaseId: 'design' });
+  current.currentPhase = null;
+  current.status = 'complete';
+
+  const activation = await activateWorkItemSession(root, definition, current);
+  assert.equal(activation.phase, null);
+  assert.equal(activation.workflowStatus, 'complete');
+  assert.equal(activation.selectedAgent, null);
+  assert.equal(await loadSession(root, { required: false }), null, 'the final-phase agent is no longer presented as active');
+});
+
+test('a non-terminal Story without an active phase reports corrupt state clearly', async () => {
+  const root = await mkdtemp(path.join(os.tmpdir(), 'sflow-missing-phase-'));
+  const current = workflow({ workItemSelection: 'off', requireBeforeTools: false });
+  current.currentPhase = null;
+  current.status = 'in_progress';
+  await assert.rejects(
+    () => activateWorkItemSession(root, definition, current),
+    /has no active phase while its status is 'in_progress'.*doctor/
+  );
+});
+
 test('explicit agent override is local, audited, and does not grant approval authority', async () => {
   const root = await mkdtemp(path.join(os.tmpdir(), 'sflow-agent-override-'));
   const session = await setAgentSession(root, definition, 'User <user@example.com>', 'developer', 'HOOK-1', {

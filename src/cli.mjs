@@ -3164,7 +3164,8 @@ async function sessionCommand(positionals, options) {
     if (optionBoolean(options, 'json')) return console.log(JSON.stringify(result, null, 2));
     console.log(`Attached to ${id} from ${remote}/${targetBranch} at ${remoteSha.slice(0, 8)}.`);
     console.log(`Current phase: ${workflow.currentPhase ?? 'complete'} · status: ${workflow.status}`);
-    console.log(`Phase agent: ${session.selectedAgent} (activated automatically).`);
+    if (session.selectedAgent) console.log(`Phase agent: ${session.selectedAgent} (activated automatically).`);
+    else console.log(`The Story is ${workflow.status}; no phase agent is required for read-only inspection.`);
     return;
   }
   if (subcommand !== 'status') throw new SingularityFlowError(`Unknown session subcommand: ${subcommand}`);

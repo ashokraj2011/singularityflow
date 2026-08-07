@@ -101,6 +101,12 @@ function usageByModel(records, pricing = null) {
       exactRecords: 0,
       unavailableRecords: 0,
       totalTokens: 0,
+      inputTokens: 0,
+      outputTokens: 0,
+      cachedInputTokens: 0,
+      inputTokenRecords: 0,
+      outputTokenRecords: 0,
+      cachedInputTokenRecords: 0,
       cost: 0,
       pricedRecords: 0,
       fullyPricedRecords: 0,
@@ -110,6 +116,12 @@ function usageByModel(records, pricing = null) {
     aggregate.records += 1;
     aggregate[record.status === 'exact' ? 'exactRecords' : 'unavailableRecords'] += 1;
     aggregate.totalTokens += record.totalTokens ?? 0;
+    for (const field of ['inputTokens', 'outputTokens', 'cachedInputTokens']) {
+      if (record.status === 'exact' && Number.isFinite(record[field])) {
+        aggregate[field] += record[field];
+        aggregate[`${field.replace(/s$/, '')}Records`] += 1;
+      }
+    }
     const priced = record.status === 'exact' ? usageCost(record, pricing) : null;
     if (priced) {
       aggregate.cost += priced.value;
@@ -121,6 +133,9 @@ function usageByModel(records, pricing = null) {
   }
   return [...aggregates.values()].map((aggregate) => ({
     ...aggregate,
+    inputTokens: aggregate.inputTokenRecords ? aggregate.inputTokens : null,
+    outputTokens: aggregate.outputTokenRecords ? aggregate.outputTokens : null,
+    cachedInputTokens: aggregate.cachedInputTokenRecords ? aggregate.cachedInputTokens : null,
     cost: aggregate.pricedRecords ? aggregate.cost : null,
     costStatus: !aggregate.pricedRecords
       ? 'unavailable'
@@ -163,6 +178,7 @@ export function deriveReport(workflow, { pricing = null, now = nowIso() } = {}) 
       generations: phase.generation ?? 0,
       elapsedMs: window.elapsedMs,
       activeMs,
+      flowTimeExcludingApprovalWaitMs: activeMs,
       waitingMs: wait.waitingMs || (window.elapsedMs != null ? 0 : null),
       openSubmission: wait.openSubmission,
       approvals: (phase.approvals ?? []).filter((item) => !item.invalidatedAt && item.decision === 'approved').length,
@@ -218,6 +234,7 @@ export function deriveReport(workflow, { pricing = null, now = nowIso() } = {}) 
     elapsedMs,
     waitingMs,
     activeMs: elapsedMs != null ? Math.max(0, elapsedMs - waitingMs) : null,
+    flowTimeExcludingApprovalWaitMs: elapsedMs != null ? Math.max(0, elapsedMs - waitingMs) : null,
     reworkCycles: phases.reduce((sum, phase) => sum + Math.max(0, phase.generations - 1), 0),
     rejections: phases.flatMap((phase) => phase.rejections.map((item) => ({ phase: phase.id, ...item }))),
     selfApprovals: phases.reduce((sum, phase) => sum + phase.selfApprovals, 0),

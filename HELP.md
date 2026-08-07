@@ -1939,6 +1939,7 @@ Preferred direct skills use the collision-safe `sf-` prefix. The equivalent
 | `/sf-status` | Show detailed work-item state and warnings |
 | `/sf-progress` | Show deterministic phase completion |
 | `/sf-report` | Show timing, waiting, rework, token, and bottleneck metrics |
+| `/sf-impact` | Classify enrolled Stories, inspect exposure/evidence, finalize and verify receipts, and compare privacy-safe cohorts |
 | `/sf-upload` | Upload files, folders, notes, images, Figma exports, or HTTPS references to the active Epic or Story |
 | `/sf-documents` | List, view, and upload supporting documents |
 | `/sf-review` | Review current artifacts and evidence |
@@ -2208,6 +2209,15 @@ singularity-flow visual compare --expected RECORD-OR-PATH --actual RECORD-OR-PAT
 singularity-flow status [WORK-ID] [--json]
 singularity-flow progress [WORK-ID] [--json]
 singularity-flow report [WORK-ID] [--format md|html|json] [--out FILE]
+singularity-flow impact status [WORK-ID] [--json]
+singularity-flow impact study list|show [STUDY-ID] [--json]
+singularity-flow impact enroll [WORK-ID] (--complexity BAND --risk BAND | --opt-out --reason TEXT) --confirm
+singularity-flow impact exposure status|attest [WORK-ID] [--phase PHASE --level LEVEL --assurance ASSURANCE --reason TEXT]
+singularity-flow impact evidence import <FILE> [WORK-ID]
+singularity-flow impact evidence collect <PROVIDER> <FILE> [WORK-ID] --commit SHA --run-id ID [--provider-version VERSION]
+singularity-flow impact finalize|verify|doctor [WORK-ID] [--json]
+singularity-flow impact compare <STUDY-ID> [--filter DIMENSION=VALUE]... [--json]
+singularity-flow impact export [--study STUDY-ID] --out FILE [--json]
 singularity-flow prompt-log on|off|status|list|view [ID|latest] [--agent AGENT] [--phase PHASE]
 singularity-flow telemetry status [--json]
 singularity-flow telemetry reconcile [PHASE] [--json]

@@ -11,6 +11,7 @@ import { nowIso, run, SingularityFlowError, snapshot, writeJson } from './util.m
 import { evaluateVisualCoverage } from './visual-coverage.mjs';
 import { listVisualComparisons } from './visual-compare.mjs';
 import { referenceRevision, registerReference } from './harness-imports.mjs';
+import { createImpactReceipt } from './impact.mjs';
 
 function hash(value) {
   return createHash('sha256').update(JSON.stringify(value)).digest('hex');
@@ -236,7 +237,7 @@ export async function readStoryReviewPacket(root, config, workflow, packetSha256
   return packet;
 }
 
-export async function finalizeStoryDelivery(root, config, workflow) {
+export async function finalizeStoryDelivery(root, config, workflow, { persist = true } = {}) {
   const incomplete = workflow.phaseOrder
     .map((phaseId) => workflow.phases[phaseId])
     .filter((phase) => phase.status !== 'approved');
@@ -305,6 +306,13 @@ export async function finalizeStoryDelivery(root, config, workflow) {
       `Story '${workflow.workItem.id}' has no published phase review packet. Submit the final configured phase before finalizing.`
     );
   }
+  // Receipt bytes must be reproducible from governed evidence. The publication
+  // event records when finalization was requested; the packet uses the final
+  // approval timestamp so repeating finalization over the same source and phase
+  // evidence does not mint a different hash merely because wall-clock time moved.
+  const completedAt = [...(workflow.history ?? [])].reverse()
+    .find((entry) => ['phase_approved', 'phase_self_approved'].includes(entry.event))?.at
+    ?? workflow.workItem.createdAt;
   const base = {
     schemaVersion: 1,
     status: 'finalized_for_review',
@@ -320,7 +328,7 @@ export async function finalizeStoryDelivery(root, config, workflow) {
     reviewPacketSha256: reviewPacket.packetSha256,
     governedContext,
     phases,
-    finalizedAt: nowIso(),
+    finalizedAt: completedAt,
     finalizedBy: identity(root)
   };
   const packetSha256 = hash(base);
@@ -352,10 +360,16 @@ export async function finalizeStoryDelivery(root, config, workflow) {
     phase: null,
     detail: packetSha256
   });
-  await saveStoryDraft(root, config, workflow);
+  const impact = await createImpactReceipt(root, config, workflow, packet);
+  // Standalone callers retain the draft-writing compatibility behavior. Governed
+  // lifecycle callers pass persist:false and invoke this function from
+  // StoryStateStore.transact(), so every packet/evidence/state write is covered by
+  // the publication lock, recovery journal, rollback, commit, and push boundary.
+  if (persist) await saveStoryDraft(root, config, workflow);
   return {
     packet,
-    path: path.relative(root, file).split(path.sep).join('/')
+    path: path.relative(root, file).split(path.sep).join('/'),
+    impact
   };
 }
 

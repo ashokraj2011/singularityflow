@@ -416,6 +416,7 @@ governance:
   requireAcceptanceCriteriaTags: true
   protectedPaths:
     - singularity/workflow.yml
+    - singularity/impact.yml
     - singularity/agent-mappings.yml
     - singularity/agents.lock.yml
     - singularity/templates

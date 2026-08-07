@@ -15,6 +15,12 @@ export const LIFECYCLE_EVENT_TYPES = Object.freeze([
   'branch-linked',
   'telemetry-recorded',
   'projection-reconciled',
+  'impact-classified',
+  'impact-opted-out',
+  'impact-exposure-recorded',
+  'impact-evidence-collected',
+  'impact-evidence-imported',
+  'impact-finalized',
   'work-cancelled',
   'work-completed'
 ]);

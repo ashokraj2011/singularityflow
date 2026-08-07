@@ -79,6 +79,8 @@ test('deriveReport computes phase waiting, active time, rework, tokens, and bott
   assert.equal(report.tokens.total, 10000);
   assert.deepEqual(report.tokens.byModel, [{
     provider: 'test', model: 'test-model', records: 3, exactRecords: 2, unavailableRecords: 1, totalTokens: 10000,
+    inputTokens: 8000, outputTokens: 2000, cachedInputTokens: null,
+    inputTokenRecords: 2, outputTokenRecords: 2, cachedInputTokenRecords: 0,
     cost: null, pricedRecords: 0, fullyPricedRecords: 0, providerCostRecords: 0, configuredPriceRecords: 0, costStatus: 'unavailable'
   }]);
   assert.deepEqual(report.costCoverage, {

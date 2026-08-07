@@ -11,6 +11,8 @@ import { verifyMcpEvidence } from './mcp.mjs';
 import { verifyDesignSourceLifecycle } from './design-sources.mjs';
 import { evaluateVisualCoverage } from './visual-coverage.mjs';
 import { listVisualComparisons } from './visual-compare.mjs';
+import { loadImpactDefinition } from './impact-config.mjs';
+import { verifyImpactReceipt } from './impact.mjs';
 import {
   changedRepositoryPaths,
   configuredAcceptanceCommandSetSha256,
@@ -44,6 +46,22 @@ export async function runGovernanceGate(root, config, workflow, { terminal = fal
       const source = await snapshot(path.join(workDir(root, config, workflow.workItem.id), 'source.json'));
       if (source.sha256 !== workflow.resolution.sourceSha256) errors.push('source.json differs from the immutable source snapshot');
     }
+    if (workflow.resolution.impact?.sha256) {
+      try {
+        const currentImpact = await loadImpactDefinition(root, { required: true });
+        if (currentImpact.sha256 !== workflow.resolution.impact.sha256) {
+          errors.push('impact.yml differs from the immutable work-item impact-study snapshot');
+        } else passes.push(`impact study configuration pinned: ${currentImpact.sha256.slice(0, 12)}`);
+      } catch (error) {
+        errors.push(`impact study configuration is unavailable: ${error.message}`);
+      }
+    }
+  }
+
+  if (workflow.measurement?.receipt) {
+    const verification = await verifyImpactReceipt(root, workflow);
+    errors.push(...verification.errors.map((error) => `impact receipt: ${error}`));
+    if (verification.valid) passes.push(`impact receipt verified: ${workflow.measurement.receipt.sha256.slice(0, 12)}`);
   }
 
   const documentManifest = path.join(workDir(root, config, workflow.workItem.id), 'documents.json');

@@ -67,6 +67,30 @@ interface PendingCopilotHandoff {
   requestedAt: string;
 }
 
+interface GovernedReferencePreview {
+  handle: string;
+  mediaType: string;
+  renderer: { id: string; version: number };
+  source: { rawSha256: string; rawBytes: number };
+  preview: { text: string; sha256: string; bytes: number };
+  truncated: boolean;
+  reference: { artifact: { path: string }; revision: { commitSha: string } };
+}
+
+interface HarnessReport {
+  invocations: number;
+  output: { rawBytes: number; previewBytes: number; savedBytes: number };
+  checkers: { total: number; coverage: number; verdicts: Record<string, number> };
+  hostObservations: { status: string; coverage: number; reason: string };
+  events: Array<{
+    invocationId: string;
+    command?: string[];
+    startedAt?: string;
+    exitCode?: number;
+    checkers?: Array<{ checkerId: string; verdict: string }>;
+  }>;
+}
+
 export async function activate(context: vscode.ExtensionContext): Promise<void> {
   const output = vscode.window.createOutputChannel('Singularity Flow');
   context.subscriptions.push(output);
@@ -229,7 +253,8 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
     'singularityFlow.inspectCompositionCache', 'singularityFlow.checkLedgerDeployment', 'singularityFlow.openCopilot',
     'singularityFlow.openVisualAssurance',
     'singularityFlow.openConfigurationCenter', 'singularityFlow.configurePeople', 'singularityFlow.configureMcp',
-    'singularityFlow.reopenCompleted', 'singularityFlow.cancelWork'
+    'singularityFlow.reopenCompleted', 'singularityFlow.cancelWork',
+    'singularityFlow.expandReference', 'singularityFlow.openHarnessReport'
   ];
   /** Workspaces are machine-wide and remain available whatever folder is open. */
   const workspaceTree = new NodeTreeProvider();
@@ -841,6 +866,78 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
     return unavailable('No Singularity Flow CLI was found', (error as Error).message);
   }
   output.appendLine(`Using CLI (${client.location.source}): ${client.location.cli}`);
+
+  const expandReference = async (seed?: string): Promise<void> => {
+    const handle = seed?.startsWith('sfref:') ? seed : await vscode.window.showInputBox({
+      title: 'Expand governed reference',
+      prompt: 'Paste the opaque sfref:v1 handle. The CLI verifies its exact Git revision and hash.',
+      value: seed ?? '', ignoreFocusOut: true,
+      validateInput: (value) => /^sfref:v1:(story|initiative):[^:]+:[a-f0-9]{12,64}$/.test(value.trim())
+        ? null : 'Enter a registered sfref:v1 Story or Initiative handle.'
+    });
+    if (!handle) return;
+    const selector = await vscode.window.showQuickPick([
+      { label: 'Bounded preview', value: null },
+      { label: 'Markdown section', value: 'section' },
+      { label: 'JSON Pointer', value: 'json-pointer' },
+      { label: 'Line or byte range', value: 'range' }
+    ], { title: 'Choose the exact expansion', placeHolder: 'Expansion is explicit and recorded by the engine.' });
+    if (!selector) return;
+    const args = ['show', handle.trim(), '--json'];
+    if (selector.value) {
+      const selection = await vscode.window.showInputBox({
+        title: selector.label,
+        prompt: selector.value === 'range' ? 'lines:1..40 or bytes:0..4095' : undefined,
+        ignoreFocusOut: true
+      });
+      if (!selection) return;
+      args.push(`--${selector.value}`, selection.trim());
+    }
+    try {
+      const result = await client.run<GovernedReferencePreview>(args);
+      const content = [
+        '# Governed reference preview', '',
+        `- Handle: \`${result.handle}\``,
+        `- Artifact: \`${result.reference.artifact.path}\``,
+        `- Revision: \`${result.reference.revision.commitSha}\``,
+        `- MIME: \`${result.mediaType}\``,
+        `- Source: \`${result.source.rawSha256}\` (${result.source.rawBytes} bytes)`,
+        `- Preview: \`${result.preview.sha256}\` (${result.preview.bytes} bytes; ${result.renderer.id}@${result.renderer.version})`,
+        `- Truncated: ${result.truncated ? 'yes' : 'no'}`, '',
+        '---', '', result.preview.text, ''
+      ].join('\n');
+      const document = await vscode.workspace.openTextDocument({ language: 'markdown', content });
+      await vscode.window.showTextDocument(document, { preview: true });
+    } catch (error) {
+      void vscode.window.showErrorMessage(`Could not expand governed reference: ${(error as Error).message}`);
+    }
+  };
+  const openHarnessReport = async (): Promise<void> => {
+    try {
+      const report = await client.run<HarnessReport>(['harness', 'report', '--json']);
+      const percent = (report.checkers.coverage * 100).toFixed(1);
+      const rows = report.events.map((event) => {
+        const verdict = event.checkers?.some((checker) => checker.verdict === 'fail') ? 'fail'
+          : event.checkers?.some((checker) => checker.verdict === 'pass') ? 'pass' : 'not observed';
+        return `| \`${event.invocationId}\` | ${event.command?.join(' ') || 'unknown'} | ${event.exitCode ?? '—'} | ${verdict} |`;
+      });
+      const content = [
+        '# Harness imports report', '',
+        `- Engine invocations: **${report.invocations}**`,
+        `- Reference bytes: **${report.output.rawBytes}** raw → **${report.output.previewBytes}** rendered (**${report.output.savedBytes}** omitted)`,
+        `- Deterministic checker coverage: **${percent}%**`,
+        `- Host observation: **${report.hostObservations.status}**`,
+        `- Host note: ${report.hostObservations.reason}`, '',
+        '| Invocation | Command | Exit | Verdict |',
+        '|---|---|---:|---|',
+        ...(rows.length ? rows : ['| — | No harness invocations recorded in this checkout | — | not observed |']), ''
+      ].join('\n');
+      const document = await vscode.workspace.openTextDocument({ language: 'markdown', content });
+      await vscode.window.showTextDocument(document, { preview: true });
+    } catch (error) {
+      void vscode.window.showErrorMessage(`Could not open the harness report: ${(error as Error).message}`);
+    }
+  };
   // Packaged agents and skills belong to the exact engine this window is driving. Resolve them
   // beside that CLI, not beside the repository and not beside some other globally installed copy.
   const cliPackageRoot = path.resolve(path.dirname(client.location.cli), '..');
@@ -1659,6 +1756,8 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
       () => ApprovalsPanel.show(context, store, (message) => { void onApprovalsMessage(message); }),
     'singularityFlow.openInbox':
       () => InboxPanel.show(context, store, (message) => { void onInboxMessage(message); }),
+    'singularityFlow.expandReference': expandReference as never,
+    'singularityFlow.openHarnessReport': openHarnessReport,
     'singularityFlow.continueSafely': async () => {
       if (await runPlannedAction(client, output)) await store.refresh();
     },

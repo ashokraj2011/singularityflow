@@ -1,0 +1,42 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://example.invalid/singularity-flow/harness-host-observation.schema.json",
+  "type": "object",
+  "required": ["schemaVersion", "eventType", "invocationId", "source", "coverage"],
+  "properties": {
+    "schemaVersion": { "const": 1 },
+    "eventType": { "const": "host.model.observed" },
+    "invocationId": { "type": "string", "format": "uuid" },
+    "source": { "type": "string", "minLength": 1 },
+    "coverage": {
+      "type": "object",
+      "required": ["model", "reply", "toolCalls", "tokens"],
+      "properties": {
+        "model": { "enum": ["exact", "unavailable"] },
+        "reply": { "enum": ["exact", "unavailable"] },
+        "toolCalls": { "enum": ["exact", "unavailable"] },
+        "tokens": { "enum": ["exact", "unavailable"] }
+      },
+      "additionalProperties": false
+    },
+    "model": {
+      "type": ["object", "null"],
+      "properties": { "provider": { "type": "string" }, "id": { "type": "string" } },
+      "required": ["provider", "id"],
+      "additionalProperties": false
+    },
+    "usage": {
+      "type": ["object", "null"],
+      "properties": {
+        "inputTokens": { "type": "integer", "minimum": 0 },
+        "cachedInputTokens": { "type": "integer", "minimum": 0 },
+        "outputTokens": { "type": "integer", "minimum": 0 },
+        "totalTokens": { "type": "integer", "minimum": 0 }
+      },
+      "required": ["inputTokens", "cachedInputTokens", "outputTokens", "totalTokens"],
+      "additionalProperties": false
+    },
+    "replySha256": { "type": ["string", "null"], "pattern": "^[a-f0-9]{64}$" }
+  },
+  "additionalProperties": false
+}

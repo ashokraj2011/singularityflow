@@ -15,6 +15,15 @@ hash and all declared composition inputs. This preserves byte-identical prompts 
 provider-cache eligibility; it does not claim that a provider cached those tokens.
 The cache is local acceleration only and never lifecycle authority.
 
+Harness Imports applies the same boundary to large outputs. Approved artifact bytes
+remain authoritative on the lifecycle branch; a committed, content-addressed
+reference record binds those bytes to an opaque `sfref:v1:` handle. Copilot receives
+only a deterministic bounded preview and may request an explicit section, JSON
+Pointer, or range through the CLI. Engine observations are content-addressed local
+evidence, host observations are recorded only when supplied exactly, and reusable
+knowledge requires approved artifact provenance plus explicit scope. See
+[Harness Imports](docs/HARNESS-IMPORTS.md).
+
 ## Product boundary
 
 Singularity Flow has one deterministic engine and two supported user surfaces.

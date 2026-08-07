@@ -2,7 +2,7 @@ import { randomUUID } from 'node:crypto';
 import { mkdir, readFile, rename, rm } from 'node:fs/promises';
 import path from 'node:path';
 import { gitDir, identity } from './git.mjs';
-import { canonicalJson } from './records.mjs';
+import { canonicalJson, recordSha256 } from './records.mjs';
 import { SingularityFlowError, nowIso, writeAtomic } from './util.mjs';
 
 const AUTHORIZATION_TTL_MS = 15 * 60 * 1000;
@@ -29,6 +29,11 @@ function validate(record, token) {
     throw new SingularityFlowError(`Action authorization '${token}' has invalid timestamps.`);
   }
   if (expires <= Date.now()) throw new SingularityFlowError(`Action authorization '${token}' expired; review the action again.`);
+  const expectedQuestionId = recordSha256({ planId: record.planId, actionId: record.actionId, channel: record.channel }).slice(0, 24);
+  const expectedAnswerReceipt = recordSha256({ token, authorizationId: record.authorizationId, planHash: record.planHash, actionId: record.actionId });
+  if (record.questionId !== expectedQuestionId || record.answerReceipt !== expectedAnswerReceipt || !record.authorizationId) {
+    throw new SingularityFlowError(`Action authorization '${token}' failed its question and answer-receipt binding.`);
+  }
   return record;
 }
 
@@ -46,10 +51,15 @@ export async function issueActionAuthorization(root, plan, action, {
   }
   const createdAt = nowIso();
   const token = randomUUID();
+  const authorizationId = randomUUID();
+  const questionId = recordSha256({ planId: plan.planId, actionId: action.actionId, channel }).slice(0, 24);
   const record = {
     schemaVersion: 1,
     kind: 'governed-action-authorization',
     token,
+    authorizationId,
+    questionId,
+    answerReceipt: recordSha256({ token, authorizationId, planHash: plan.planHash, actionId: action.actionId }),
     planId: plan.planId,
     planHash: plan.planHash,
     actionId: action.actionId,

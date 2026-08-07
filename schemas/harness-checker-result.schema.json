@@ -1,0 +1,5 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema", "$id": "https://example.invalid/singularity-flow/harness-checker-result.schema.json", "type": "object",
+  "required": ["schemaVersion", "checkerId", "checkerVersion", "coverage", "verdict", "reasons"],
+  "properties": { "schemaVersion": { "const": 1 }, "checkerId": { "enum": ["question-precedes-mutation", "maximum-actions", "verbatim-relay", "preview-respected"] }, "checkerVersion": { "type": "integer", "minimum": 1 }, "coverage": { "type": "number", "minimum": 0, "maximum": 1 }, "verdict": { "enum": ["pass", "fail", "not-observed"] }, "reasons": { "type": "array", "items": { "type": "string" } } }, "additionalProperties": false
+}

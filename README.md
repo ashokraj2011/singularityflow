@@ -32,6 +32,7 @@ The package contains:
 - World-model grounding, approval auditing, token accounting, and a final spec-to-code conformance gate.
 - Opt-in clause-driven specification indexes, claim maps, coverage, acceptance evidence, and a VS Code traceability view.
 - Exact local prompt-composition caching and honest deployment validation for orphan state ledgers.
+- Opt-in Harness Imports for revision-bound `sfref:v1` artifacts, deterministic bounded previews, exact engine conformance evidence, and approved scoped knowledge recall.
 - A no-argument cockpit, repository doctor, guided run mode, portable review bundles, safe recovery, workflow simulation, assignments, and read-only watching.
 - Recursive design-package inventory and a local image gallery for exported Figma/mobile evidence.
 - Opt-in initiative orchestration for Epics and repository-specific stories, with separate Epic/Story Work/Jira IDs, typed evidence, interface contracts, cross-repository progress, and enterprise phase gates.

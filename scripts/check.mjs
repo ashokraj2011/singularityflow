@@ -194,7 +194,12 @@ for (const schemaFile of [
   'schemas/design-inventory.schema.json',
   'schemas/design-source-provenance.schema.json',
   'schemas/mcp-readiness-attestation.schema.json',
-  'schemas/mcp-preflight.schema.json'
+  'schemas/mcp-preflight.schema.json',
+  'schemas/reference-envelope.schema.json',
+  'schemas/reference-record.schema.json',
+  'schemas/harness-event.schema.json',
+  'schemas/harness-checker-result.schema.json',
+  'schemas/knowledge-record.schema.json'
 ]) {
   JSON.parse(await readFile(path.join(root, schemaFile), 'utf8'));
   checked.push(schemaFile);

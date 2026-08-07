@@ -1,0 +1,12 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://example.invalid/singularity-flow/harness-event.schema.json",
+  "type": "object",
+  "required": ["schemaVersion", "eventType", "invocationId", "command", "startedAt"],
+  "properties": {
+    "schemaVersion": { "const": 1 }, "eventType": { "enum": ["engine.invocation.started", "engine.invocation.completed"] },
+    "invocationId": { "type": "string", "format": "uuid" }, "subject": { "type": ["object", "null"] }, "skill": { "type": ["string", "null"] }, "contractClass": { "type": ["string", "null"] },
+    "command": { "type": "array", "items": { "type": "string" } }, "startedAt": { "type": "string", "format": "date-time" }, "endedAt": { "type": "string", "format": "date-time" },
+    "exitCode": { "type": "integer" }, "output": { "type": ["object", "null"] }, "actionsExecuted": { "type": "array", "items": { "type": "object" } }, "questions": { "type": "array", "items": { "type": "object" } }, "checkers": { "type": "array", "items": { "$ref": "harness-checker-result.schema.json" } }, "eventId": { "type": "string", "pattern": "^[a-f0-9]{64}$" }
+  }, "additionalProperties": false
+}

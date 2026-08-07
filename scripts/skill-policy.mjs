@@ -91,6 +91,8 @@ export async function auditSkillPolicy(repositoryRoot, { write = false } = {}) {
       errors.push(`${name}: unknown class '${rule.class}'`);
       continue;
     }
+    if (!Number.isInteger(classPolicy.previewBytes) || classPolicy.previewBytes < 1 || classPolicy.previewBytes > 65536) errors.push(`${name}: class previewBytes must be from 1 through 65536`);
+    if (classPolicy.hardMaximumBytes !== 65536) errors.push(`${name}: class hardMaximumBytes must be exactly 65536`);
     if (rule.maximumTokenOverride != null && !rule.exception) errors.push(`${name}: token override requires an exception reason`);
     const file = path.join(skillRoot, name, 'SKILL.md');
     let text = await readFile(file, 'utf8');
@@ -122,6 +124,8 @@ export async function auditSkillPolicy(repositoryRoot, { write = false } = {}) {
       bodyTokens,
       warningTokens: classPolicy.warningTokens,
       maximumTokens: maximum,
+      previewBytes: classPolicy.previewBytes,
+      hardMaximumBytes: classPolicy.hardMaximumBytes,
       exception: rule.exception ?? null
     });
   }

@@ -12,26 +12,38 @@ classes:
     outputContract: guided-actions
     warningTokens: 500
     maximumTokens: 800
+    previewBytes: 16384
+    hardMaximumBytes: 65536
   echo:
     outputContract: concise-relay
     warningTokens: 500
     maximumTokens: 800
+    previewBytes: 8192
+    hardMaximumBytes: 65536
   interactive:
     outputContract: explicit-selection
     warningTokens: 500
     maximumTokens: 800
+    previewBytes: 16384
+    hardMaximumBytes: 65536
   review:
     outputContract: governed-review
     warningTokens: 500
     maximumTokens: 800
+    previewBytes: 16384
+    hardMaximumBytes: 65536
   generative:
     outputContract: clarification-and-artifact
     warningTokens: 500
     maximumTokens: 800
+    previewBytes: 16384
+    hardMaximumBytes: 65536
   mutation:
     outputContract: deterministic-mutation
     warningTokens: 500
     maximumTokens: 800
+    previewBytes: 16384
+    hardMaximumBytes: 65536
 
 # Every public skill is deliberately classified. All classes share the same body
 # budget so catalog growth cannot hide behind per-skill exceptions.
@@ -110,6 +122,7 @@ skills:
   sflow-review: { class: review }
   sflow-run: { class: mutation }
   sflow-session: { class: interactive }
+  sflow-show: { class: echo }
   sflow-show-prompt: { class: echo }
   sflow-stack: { class: mutation }
   sflow-start: { class: interactive }

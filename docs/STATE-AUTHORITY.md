@@ -15,6 +15,9 @@ The lifecycle branch owns operational state; local context selects it; the state
 | Capability state branch / ledger | Configured orphan state branch | Append-only proof, binding, and cross-repository mirror | Read-only fallback only | No | Reconcile from committed lifecycle events; ledger-only subjects remain read-only until their lifecycle branch is available |
 | Human and audit projections | `STATUS.md`, managed artifact metadata, approval summaries, review packets, ledger intents, reports, capability dashboard, Inbox, and revisioned VS Code snapshots | Derived presentation or exact reproducible audit material | No | No | Regenerate from authoritative lifecycle state and immutable records at one captured revision |
 | Remote systems | Jira, CI, storage providers, GitHub observations | Timestamped evidence and external receipts | By explicit identity/reference | No, unless an exact reviewed write plan says otherwise | Refresh observations and record drift; never silently overwrite Git-owned state |
+| Governed references | Committed `context/references/<sha256>.json` beside Story or Initiative state | Revision-bound address of approved artifact bytes | No | No | Verify the exact Git object, raw hash, renderer version, and bounded preview; an opaque handle never grants arbitrary path access |
+| Harness observations | `.git/singularity-flow/harness-events/*.json` | Local, content-addressed execution and conformance evidence | No | No | Rebuild the report from valid events; unavailable host data stays explicitly unavailable and is never inferred |
+| Reusable knowledge | `singularity/knowledge/records/<sha256>.json` | Governed append-only claims with approved provenance and explicit scope | No | No | Reject unapproved provenance; rebuild indexes and prompt projections from the committed records |
 
 ## Resolution contract
 
@@ -45,6 +48,12 @@ Projection repair never invents lifecycle facts. It may only regenerate a declar
 projection from the currently loaded authoritative aggregate. It cannot recreate a
 missing approval, artifact, lifecycle event, or remote receipt, and it cannot use
 the ledger or local session as a substitute for a missing lifecycle branch.
+
+Governed reference handles follow the same rule. A handle resolves only through its
+committed reference record and exact Git revision. Deterministic expansion may
+project a Markdown section, JSON Pointer, or explicit range, but cannot accept an
+arbitrary repository path. Harness reports and search indexes are local projections;
+neither may authorize lifecycle work or substitute for approved artifact bytes.
 
 `singularity-flow state reconcile <ID> --check` reports every declared projector and
 its expected and current hash without writing. `--repair-projections` replaces only

@@ -119,6 +119,8 @@ export async function recordPromptAudit(root, input) {
     task: input.task ?? null,
     source: input.source ?? 'wm-compose',
     supportingEvidence: input.supportingEvidence ?? [],
+    references: input.references ?? [],
+    compositionCache: input.compositionCache ?? null,
     promptSha256,
     bytes: Buffer.byteLength(scrubbed.prompt),
     redactions: scrubbed.redactions,

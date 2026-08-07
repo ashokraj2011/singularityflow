@@ -221,6 +221,16 @@
         "icon": "$(references)"
       },
       {
+        "command": "singularityFlow.expandReference",
+        "title": "Singularity Flow: Expand Governed Reference",
+        "icon": "$(preview)"
+      },
+      {
+        "command": "singularityFlow.openHarnessReport",
+        "title": "Singularity Flow: Open Harness Imports Report",
+        "icon": "$(graph)"
+      },
+      {
         "command": "singularityFlow.inspectCompositionCache",
         "title": "Singularity Flow: Inspect Composition Cache",
         "icon": "$(database)"

@@ -1,0 +1,10 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema", "$id": "https://example.invalid/singularity-flow/knowledge-record.schema.json", "type": "object",
+  "required": ["schemaVersion", "id", "type", "text", "provenance", "scope", "status", "validFrom", "validUntil", "createdBy", "createdAt", "supersedes"],
+  "properties": {
+    "schemaVersion": { "const": 2 }, "id": { "type": "string", "pattern": "^K-[a-f0-9]{12}$" }, "type": { "enum": ["insight", "decision", "gotcha", "constraint", "uncertainty"] }, "text": { "type": "string", "minLength": 1 },
+    "provenance": { "type": "array", "minItems": 1, "items": { "type": "object", "required": ["workId", "artifact", "sha256", "approvedRevision"], "properties": { "workId": { "type": "string", "minLength": 1 }, "artifact": { "type": "string", "minLength": 1 }, "sha256": { "type": "string", "pattern": "^[a-f0-9]{64}$" }, "approvedRevision": { "type": "integer", "minimum": 0 } }, "additionalProperties": false } },
+    "scope": { "type": "object", "properties": { "capabilities": { "type": "array", "items": { "type": "string", "minLength": 1 }, "uniqueItems": true }, "repositories": { "type": "array", "items": { "type": "string", "minLength": 1 }, "uniqueItems": true }, "paths": { "type": "array", "items": { "type": "string", "minLength": 1 }, "uniqueItems": true }, "environments": { "type": "array", "items": { "type": "string", "minLength": 1 }, "uniqueItems": true } }, "additionalProperties": false, "anyOf": [{ "required": ["capabilities"] }, { "required": ["repositories"] }, { "required": ["paths"] }, { "required": ["environments"] }] },
+    "status": { "enum": ["active", "resolved", "superseded"] }, "validFrom": { "type": "string", "format": "date-time" }, "validUntil": { "type": ["string", "null"], "format": "date-time" }, "createdBy": { "type": ["string", "null"] }, "createdAt": { "type": "string", "format": "date-time" }, "supersedes": { "type": ["string", "null"], "pattern": "^[a-f0-9]{64}$" }
+  }, "additionalProperties": false
+}

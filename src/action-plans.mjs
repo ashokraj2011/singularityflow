@@ -107,6 +107,16 @@ function normalizeAction(item, index, revision) {
   const argv = tokens.slice(1);
   const executable = item.timing === 'now' && !argv.some((value) => /<[^>]+>/.test(value));
   const effect = effectFor(argv);
+  const references = (item.references ?? []).map((reference) => {
+    if (!reference || typeof reference !== 'object' || !/^sfref:v1:(story|initiative):[A-Za-z0-9][A-Za-z0-9._-]{0,127}:[a-f0-9]{12,64}$/.test(reference.handle ?? '')) {
+      throw new SingularityFlowError(`Action '${item.command}' contains an invalid governed reference.`);
+    }
+    return {
+      handle: reference.handle,
+      purpose: String(reference.purpose ?? 'supporting-evidence'),
+      required: reference.required !== false
+    };
+  });
   const body = {
     order: index + 1,
     timing: item.timing,
@@ -126,7 +136,7 @@ function normalizeAction(item, index, revision) {
       { type: 'lifecycle-hash-equals', expected: revision.lifecycleSha256 },
       { type: 'timing-equals', expected: 'now' }
     ],
-    expectedOutcome: item.reason
+    expectedOutcome: { text: item.reason, references }
   };
   const actionId = recordSha256(body).slice(0, 24);
   return {

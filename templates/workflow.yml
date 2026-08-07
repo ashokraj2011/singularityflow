@@ -1,6 +1,18 @@
 version: 2
 inputsMode: enforce
 
+# Keep large governed results bounded in model context and allow exact expansion
+# only through registered, hash-bound sfref handles.
+harnessImports:
+  mode: record
+  defaultPreviewBytes: 16384
+  knowledge:
+    enabled: true
+    maximumBytes: 8192
+  conformance:
+    questionPrecedesMutation: warn
+    maximumActions: observe
+
 # Rotate Copilot only after a durable lifecycle decision. `new` prints `/clear`
 # followed by `/sflow-next`; the new conversation reconstructs its prompt from
 # approved Git artifacts, governed agent guidance, inputs, and world-model views.

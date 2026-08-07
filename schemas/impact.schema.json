@@ -1,0 +1,114 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://singularity-flow.local/schemas/impact.schema.json",
+  "title": "Singularity Flow impact studies",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["version", "studies"],
+  "$defs": {
+    "id": { "type": "string", "pattern": "^[a-z0-9]+(?:-[a-z0-9]+)*$" },
+    "metricId": {
+      "enum": [
+        "flow-time-excluding-approval-wait-ms", "elapsed-ms", "approval-wait-ms",
+        "rework-cycles", "rejections", "self-approvals", "sequence-overrides",
+        "input-tokens", "output-tokens", "cached-input-tokens", "total-tokens",
+        "cost-usd", "first-pass-approval-rate",
+        "required-check-pass-rate", "conformance-gap-count", "escaped-defects"
+      ]
+    },
+    "group": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["id", "label", "assistanceMode"],
+      "properties": {
+        "id": { "$ref": "#/$defs/id" },
+        "label": { "type": "string", "minLength": 1 },
+        "assistanceMode": { "enum": ["baseline", "assisted", "governed-agent", "custom"] },
+        "weight": { "type": "number", "exclusiveMinimum": 0 }
+      }
+    },
+    "primaryMetric": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["id"],
+      "properties": {
+        "id": { "$ref": "#/$defs/metricId" },
+        "direction": { "enum": ["higher", "lower"] }
+      }
+    },
+    "guardrail": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["id", "maximumRegressionPercent"],
+      "properties": {
+        "id": { "$ref": "#/$defs/metricId" },
+        "maximumRegressionPercent": { "type": "number", "minimum": 0 }
+      }
+    }
+  },
+  "properties": {
+    "version": { "const": 1 },
+    "automaticEnrollment": { "type": "boolean" },
+    "studies": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["id", "label", "method", "groups", "primaryMetric"],
+        "properties": {
+          "id": { "$ref": "#/$defs/id" },
+          "label": { "type": "string", "minLength": 1 },
+          "enabled": { "type": "boolean" },
+          "unit": { "const": "story" },
+          "method": { "enum": ["matched-observational", "phased-rollout", "before-after"] },
+          "eligibility": {
+            "type": "object",
+            "additionalProperties": false,
+            "properties": {
+              "workTypes": { "type": "array", "uniqueItems": true, "items": { "type": "string", "minLength": 1 } },
+              "capabilities": { "type": "array", "uniqueItems": true, "items": { "$ref": "#/$defs/id" } }
+            }
+          },
+          "groups": { "type": "array", "minItems": 2, "maxItems": 2, "items": { "$ref": "#/$defs/group" } },
+          "matching": {
+            "type": "object",
+            "additionalProperties": false,
+            "properties": {
+              "dimensions": {
+                "type": "array",
+                "uniqueItems": true,
+                "items": { "enum": ["capability", "repository-class", "work-type", "complexity", "risk", "time-period"] }
+              },
+              "timePeriod": { "enum": ["month", "quarter", "half-year", "year"] },
+              "seed": { "type": "string" }
+            }
+          },
+          "primaryMetric": { "$ref": "#/$defs/primaryMetric" },
+          "guardrails": { "type": "array", "items": { "$ref": "#/$defs/guardrail" } },
+          "reporting": {
+            "type": "object",
+            "additionalProperties": false,
+            "properties": {
+              "bootstrapSamples": { "type": "integer", "minimum": 100, "maximum": 100000 },
+              "confidenceLevel": { "type": "number", "exclusiveMinimum": 0.5, "exclusiveMaximum": 1 }
+            }
+          },
+          "privacy": {
+            "type": "object",
+            "additionalProperties": false,
+            "properties": {
+              "individualReporting": { "const": false },
+              "minimumCohortSize": { "type": "integer", "minimum": 2 },
+              "pseudonymizeContributors": { "type": "boolean" },
+              "allowedDimensions": {
+                "type": "array",
+                "uniqueItems": true,
+                "items": { "enum": ["capability", "repository-class", "work-type", "complexity", "risk", "time-period"] }
+              }
+            }
+          }
+        }
+      }
+    }
+  }
+}

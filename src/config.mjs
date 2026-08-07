@@ -32,6 +32,7 @@ import { normalizeClarificationPolicy } from './clarifications.mjs';
 import { normalizeMcpServers, validateMcpAgentTools } from './mcp.mjs';
 import { normalizeSpecPolicy } from './specifications.mjs';
 import { normalizeHarnessImports } from './harness-imports.mjs';
+import { loadImpactDefinition } from './impact-config.mjs';
 
 export const WORKFLOW_PATH = 'singularity/workflow.yml';
 export const CONTROL_ROOT = 'singularity';
@@ -43,6 +44,7 @@ const INITIALIZATION_MAPPINGS = [
   ['portfolio.yml', 'singularity/portfolio.yml'],
   ['capabilities.yml', 'singularity/capabilities.yml'],
   ['agent-mappings.yml', 'singularity/agent-mappings.yml'],
+  ['impact.yml', 'singularity/impact.yml'],
   ['artifacts', 'singularity/templates'],
   ['agents', '.github/agents'],
   ['worldmodel-builder.md', 'singularity/prompts/worldmodel-builder.md'],
@@ -552,7 +554,10 @@ export async function initializationStatus(root) {
   const missingFiles = expectedFiles.filter((file) => !existsSync(path.join(root, file)));
   let configurationError = null;
   if (existsSync(path.join(root, WORKFLOW_PATH))) {
-    try { await loadDefinition(root); }
+    try {
+      await loadDefinition(root);
+      await loadImpactDefinition(root, { required: true });
+    }
     catch (error) { configurationError = error.message; }
   } else configurationError = `${WORKFLOW_PATH} is missing.`;
   return {
@@ -642,6 +647,7 @@ export async function snapshotResolution(root, definition, resolved) {
     });
     templates[phase.id] = { path: path.posix.join(definition.templatesRoot, phase.template), sha256: (await snapshot(file.absolute)).sha256 };
   }
+  const impact = await loadImpactDefinition(root);
   return {
     configSha256: definitionSnapshot.sha256,
     inputsMode: resolved.inputsMode ?? configuredInputsMode(definition),
@@ -652,6 +658,7 @@ export async function snapshotResolution(root, definition, resolved) {
     ledger: structuredClone(resolved.ledger ?? normalizeLedgerConfig(definition.ledger ?? {})),
     spec: structuredClone(resolved.spec ?? normalizeSpecPolicy(definition.spec ?? {})),
     harnessImports: structuredClone(resolved.harnessImports ?? normalizeHarnessImports(definition.harnessImports)),
+    impact: impact ? structuredClone(impact) : null,
     agents,
     mcpServers: structuredClone(definition.mcpServers ?? {}),
     designSources: structuredClone(resolved.designSources ?? null),

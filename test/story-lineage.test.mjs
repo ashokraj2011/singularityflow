@@ -150,6 +150,7 @@ test('finalize binds a completed Story to its governed specifications and exact 
   assert.match(record.packetSha256, /^[a-f0-9]{64}$/);
   const packet = JSON.parse(await readFile(path.join(root, record.path), 'utf8'));
   assert.equal(packet.governedContext[0].verifiedSha256, contextSha256);
+  assert.equal(packet.finalizedAt, workflow.workItem.createdAt);
   assert.match(
     git(root, ['--git-dir', remote, 'ls-tree', '-r', '--name-only', 'refs/heads/MOB-200']).stdout,
     new RegExp(record.path.replace(/[.*+?^${}()|[\]\\]/g, '\\$&'))

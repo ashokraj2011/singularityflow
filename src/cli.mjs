@@ -70,6 +70,12 @@ import { installPlugin, listPlugins, pluginPath, uninstallPlugin } from './plugi
 import { runGovernanceGate } from './governance.mjs';
 import { worldModelCommand } from './worldmodel.mjs';
 import { initializationStatus, initializeDefinition, loadDefinition, resolveWorkType, validateDefinition, WORKFLOW_PATH } from './config.mjs';
+import { loadImpactDefinition } from './impact-config.mjs';
+import {
+  collectImpactEvidence, compareImpactReceipts, confirmImpactEnrollment, exportImpactReceipts, hydrateImpactPlan,
+  impactDoctor, importImpactEvidence, listImpactReceipts, recordImpactExposure,
+  verifyImpactReceipt
+} from './impact.mjs';
 import { registerReference, resolveReference } from './harness-imports.mjs';
 import { beginHarnessInvocation, completeHarnessInvocation, harnessReport } from './harness-events.mjs';
 import { activateWorkItemSession, loadCopilotSession, loadSession, agentSessionStatus, restoreAgentSession, restoreCopilotSession, selectIntakeSource, selectAgent, selectWorkType, setAgentSession } from './session.mjs';
@@ -301,6 +307,18 @@ Usage:
   singularity-flow status [WORK-ID] [--json]
   singularity-flow progress [WORK-ID] [--json]
   singularity-flow report [WORK-ID] [--format md|html|json] [--out FILE]
+  singularity-flow impact study list|show [STUDY] [--json]
+  singularity-flow impact enroll [WORK-ID] --complexity BAND --risk BAND --confirm
+  singularity-flow impact enroll [WORK-ID] --opt-out --reason TEXT --confirm
+  singularity-flow impact status [WORK-ID] [--json]
+  singularity-flow impact exposure attest [WORK-ID] --phase PHASE --level LEVEL --assurance ASSURANCE [--reason TEXT]
+  singularity-flow impact evidence import <FILE> [WORK-ID]
+  singularity-flow impact evidence collect <PROVIDER> <FILE> [WORK-ID] --commit SHA --run-id ID [--provider-version VERSION]
+  singularity-flow impact finalize [WORK-ID] [--json]
+  singularity-flow impact verify [WORK-ID] [--json]
+  singularity-flow impact export --out FILE [--study STUDY] [--json]
+  singularity-flow impact compare <STUDY> [--filter DIMENSION=VALUE]... [--json]
+  singularity-flow impact doctor [WORK-ID] [--json]
   singularity-flow telemetry status [--json]
   singularity-flow telemetry reconcile [PHASE] [--json]
   singularity-flow prompt-log on|off|status
@@ -1160,6 +1178,172 @@ async function reportCommand(positionals, options) {
     return;
   }
   process.stdout.write(rendered);
+}
+
+function impactFilters(values) {
+  const result = {};
+  for (const item of values) {
+    const separator = item.indexOf('=');
+    if (separator < 1 || separator === item.length - 1) throw new SingularityFlowError(`Impact filters must use DIMENSION=VALUE; got '${item}'.`);
+    result[item.slice(0, separator)] = item.slice(separator + 1);
+  }
+  return result;
+}
+
+function printImpactPlan(workflow) {
+  const measurement = workflow.measurement ?? {};
+  console.log(`Impact measurement: ${measurement.status ?? 'not-enrolled'}`);
+  if (!measurement.plan) return;
+  console.log(`Study: ${measurement.plan.studyId} · cohort ${measurement.plan.groupId}`);
+  const suggested = measurement.classification?.suggested;
+  const confirmed = measurement.classification?.confirmed;
+  if (suggested) console.log(`Suggested classification: ${suggested.complexity}/${suggested.risk}`);
+  console.log(`Confirmed classification: ${confirmed ? `${confirmed.complexity}/${confirmed.risk}` : 'pending human confirmation'}`);
+  if (measurement.receipt) console.log(`Receipt: ${measurement.receipt.status} · ${measurement.receipt.sha256.slice(0, 12)} · ${measurement.receipt.path}`);
+  console.log(`Exposure records: ${(measurement.exposures ?? []).length} · Evidence records: ${(measurement.evidence ?? []).length}`);
+}
+
+async function impactCommand(positionals, options) {
+  const root = repoRoot();
+  const action = positionals[1] ?? 'status';
+  if (action === 'study') {
+    const impact = await loadImpactDefinition(root, { required: true });
+    const operation = positionals[2] ?? 'list';
+    if (operation === 'list') {
+      if (optionBoolean(options, 'json')) return console.log(JSON.stringify(impact.studies, null, 2));
+      if (!impact.studies.length) return console.log('No impact studies are configured.');
+      for (const study of impact.studies) console.log(`${study.id}\t${study.enabled ? 'enabled' : 'disabled'}\t${study.method}\t${study.label}`);
+      return;
+    }
+    if (operation === 'show') {
+      const id = requirePositional(positionals, 3, 'study ID');
+      const study = impact.studies.find((item) => item.id === id);
+      if (!study) throw new SingularityFlowError(`Unknown impact study '${id}'.`);
+      if (optionBoolean(options, 'json')) return console.log(JSON.stringify(study, null, 2));
+      return process.stdout.write(YAML.stringify(study));
+    }
+    throw new SingularityFlowError(`Unknown impact study action '${operation}'.`);
+  }
+
+  if (action === 'compare') {
+    const studyId = requirePositional(positionals, 2, 'study ID');
+    const impact = await loadImpactDefinition(root, { required: true });
+    const study = impact.studies.find((item) => item.id === studyId);
+    if (!study) throw new SingularityFlowError(`Unknown impact study '${studyId}'.`);
+    const result = compareImpactReceipts(await listImpactReceipts(root, await loadConfig(root), { studyId }), study, {
+      filters: impactFilters(optionStrings(options, 'filter'))
+    });
+    if (optionBoolean(options, 'json')) return console.log(JSON.stringify(result, null, 2));
+    console.log(`${result.label}\nStudy: ${result.study} · method ${result.method} · evidence grade ${result.evidenceGrade}`);
+    console.log(`Matched cohorts: baseline ${result.cohorts.matchedBaseline}, treatment ${result.cohorts.matchedTreatment}; privacy floor ${result.cohorts.privacyFloor}`);
+    console.log(`Primary ${result.primaryMetric.id}: ${result.result.gainPercent.toFixed(2)}% · CI ${result.result.confidenceInterval.lower.toFixed(2)}%..${result.result.confidenceInterval.upper.toFixed(2)}%`);
+    for (const guardrail of result.guardrails) console.log(`Guardrail ${guardrail.metric}: ${guardrail.passed ? 'pass' : 'fail'} (${guardrail.regressionPercent == null ? 'unavailable' : `${guardrail.regressionPercent.toFixed(2)}%`})`);
+    return;
+  }
+
+  if (action === 'export') {
+    const outputFile = optionString(options, 'out');
+    if (!outputFile) throw new SingularityFlowError('Impact export requires --out FILE.');
+    const result = await exportImpactReceipts(root, await loadConfig(root), path.resolve(root, outputFile), { studyId: optionString(options, 'study') });
+    if (optionBoolean(options, 'json')) return console.log(JSON.stringify(result, null, 2));
+    return console.log(`Exported ${result.receipts} normalized Impact Receipt(s) to ${result.output} · ${result.sha256.slice(0, 12)}.`);
+  }
+
+  const config = await loadConfig(root);
+  const evidenceOperation = action === 'evidence' ? positionals[2] : null;
+  const id = action === 'evidence'
+    ? (evidenceOperation === 'collect' ? positionals[5] : positionals[4])
+    : action === 'exposure' ? positionals[3] : positionals[2];
+  const workflow = await loadStoryAggregate(root, config, id);
+  await hydrateImpactPlan(root, workflow);
+
+  if (action === 'status') {
+    const result = { workId: workflow.workItem.id, measurement: workflow.measurement ?? { status: 'not-enrolled' } };
+    if (optionBoolean(options, 'json')) return console.log(JSON.stringify(result, null, 2));
+    printImpactPlan(workflow);
+    return;
+  }
+  if (action === 'enroll') {
+    if (!optionBoolean(options, 'confirm')) throw new SingularityFlowError(`Review the suggested classification, then re-run with --confirm for Story '${workflow.workItem.id}'.`);
+    const optOut = optionBoolean(options, 'opt-out');
+    const { value, publication } = await transactStory(
+      root, config, workflow,
+      { type: optOut ? 'impact-opted-out' : 'impact-classified', phaseId: workflow.currentPhase },
+      `[${workflow.workItem.id}][impact:${optOut ? 'opt-out' : 'classify'}]`,
+      (aggregate) => confirmImpactEnrollment(root, config, aggregate, {
+        complexity: optionString(options, 'complexity'),
+        risk: optionString(options, 'risk'),
+        optOut,
+        reason: optionString(options, 'reason')
+      })
+    );
+    console.log(`${optOut ? 'Opted out of' : 'Confirmed enrollment in'} impact study '${value.study.id}'. Commit ${publication.sha.slice(0, 8)}${publication.pushed ? ' pushed' : ' retained locally'}.`);
+    return;
+  }
+  if (action === 'exposure') {
+    const operation = positionals[2] ?? 'status';
+    if (operation === 'status') {
+      if (optionBoolean(options, 'json')) return console.log(JSON.stringify(workflow.measurement?.exposures ?? [], null, 2));
+      for (const item of workflow.measurement?.exposures ?? []) console.log(`${item.phaseId}\t${item.level}\t${item.assurance}\t${item.sha256.slice(0, 12)}`);
+      return;
+    }
+    if (operation !== 'attest') throw new SingularityFlowError(`Unknown impact exposure action '${operation}'.`);
+    const phaseId = optionString(options, 'phase');
+    if (!phaseId) throw new SingularityFlowError('Impact exposure attestation requires --phase PHASE.');
+    const level = optionString(options, 'level'); const assurance = optionString(options, 'assurance');
+    const { value, publication } = await transactStory(
+      root, config, workflow,
+      { type: 'impact-exposure-recorded', phaseId, payload: { level, assurance } },
+      `[${workflow.workItem.id}][impact:exposure] ${phaseId} ${level}`,
+      (aggregate) => recordImpactExposure(root, config, aggregate, { phaseId, level, assurance, reason: optionString(options, 'reason') })
+    );
+    console.log(`Recorded ${value.record.level} exposure for ${phaseId} · ${value.record.integrity.sha256.slice(0, 12)} · commit ${publication.sha.slice(0, 8)}.`);
+    return;
+  }
+  if (action === 'evidence') {
+    const operation = positionals[2];
+    if (!['import', 'collect'].includes(operation)) throw new SingularityFlowError(`Unknown impact evidence action '${operation ?? 'missing'}'.`);
+    const providerId = operation === 'collect' ? requirePositional(positionals, 3, 'provider ID') : null;
+    const sourceFile = path.resolve(root, requirePositional(positionals, operation === 'collect' ? 4 : 3, operation === 'collect' ? 'provider observation file' : 'evidence file'));
+    const { value, publication } = await transactStory(
+      root, config, workflow,
+      { type: operation === 'collect' ? 'impact-evidence-collected' : 'impact-evidence-imported', phaseId: workflow.currentPhase, payload: providerId ? { providerId } : undefined },
+      `[${workflow.workItem.id}][impact:evidence] ${operation}`,
+      (aggregate) => operation === 'collect'
+        ? collectImpactEvidence(root, config, aggregate, {
+            providerId,
+            providerVersion: optionString(options, 'provider-version') ?? '1',
+            runId: optionString(options, 'run-id'),
+            file: sourceFile,
+            commitSha: optionString(options, 'commit'),
+            phaseId: optionString(options, 'phase'),
+            generation: optionString(options, 'generation'),
+            kind: optionString(options, 'kind'),
+            capturedAt: optionString(options, 'captured-at')
+          })
+        : importImpactEvidence(root, config, aggregate, sourceFile)
+    );
+    console.log(`${operation === 'collect' ? 'Collected' : 'Imported'} ${value.record.evidenceId} · ${value.record.observation.metric}=${value.record.observation.status} · commit ${publication.sha.slice(0, 8)}.`);
+    return;
+  }
+  if (action === 'verify') {
+    const result = await verifyImpactReceipt(root, workflow);
+    if (optionBoolean(options, 'json')) return console.log(JSON.stringify(result, null, 2));
+    console.log(result.valid ? `Impact Receipt verified for ${workflow.workItem.id}.` : `Impact Receipt is invalid for ${workflow.workItem.id}.`);
+    for (const error of result.errors) console.warn(`- ${error}`);
+    if (!result.valid) process.exitCode = 1;
+    return;
+  }
+  if (action === 'doctor') {
+    const result = await impactDoctor(root, config, workflow);
+    if (optionBoolean(options, 'json')) return console.log(JSON.stringify(result, null, 2));
+    if (!result.findings.length) return console.log(`Impact measurement is healthy for ${workflow.workItem.id}.`);
+    for (const item of result.findings) console.log(`${item.severity.toUpperCase()} ${item.code}: ${item.message}`);
+    if (!result.valid) process.exitCode = 1;
+    return;
+  }
+  if (action === 'finalize') return finalizeCommand({ ...options, parent: workflow.workItem.id });
+  throw new SingularityFlowError(`Unknown impact action '${action}'.`);
 }
 
 async function guideCommand(positionals, options) {
@@ -6679,20 +6863,26 @@ async function finalizeCommand(options) {
   const root = repoRoot();
   const config = await loadConfig(root);
   const workflow = await loadStoryAggregate(root, config, optionString(options, 'parent'));
-  const result = await finalizeStoryDelivery(root, config, workflow);
-  const publication = await commitAndPublish(
-    root,
-    config,
+  const store = new StoryStateStore(root, config);
+  const impactFinalization = Boolean(workflow.measurement?.plan && workflow.measurement?.status !== 'opted-out');
+  const transaction = await store.transact(
     workflow,
-    { type: 'work-completed', phaseId: workflow.currentPhase },
+    {
+      type: impactFinalization ? 'impact-finalized' : 'work-completed',
+      phaseId: workflow.currentPhase,
+      payload: { workCompleted: true }
+    },
     `[${workflow.workItem.id}][finalize] ready for Product Owner review`,
-    [result.path]
+    async () => finalizeStoryDelivery(root, config, workflow, { persist: false })
   );
+  const result = transaction.value;
+  const publication = transaction.publication;
   const output = { ...result, publication };
   if (optionBoolean(options, 'json')) return console.log(JSON.stringify(output, null, 2));
   console.log(`Story ${workflow.workItem.id} finalized for Product Owner review.`);
   console.log(`Packet: ${result.path}`);
   console.log(`Packet hash: ${result.packet.packetSha256}`);
+  if (result.impact) console.log(`Impact receipt: ${result.impact.path} · ${result.impact.receipt.integrity.sha256.slice(0, 12)}`);
   console.log(`Source: ${result.packet.sourceCommit.slice(0, 12)} · tree ${result.packet.sourceTreeSha256.slice(0, 12)}`);
   console.log(`Commit: ${publication.sha.slice(0, 8)}${publication.pushed ? ' pushed' : ' local'}`);
 }
@@ -6856,6 +7046,7 @@ async function dispatch(command, positionals, options) {
     status: () => statusCommand(positionals, options),
     progress: () => progressCommand(positionals, options),
     report: () => reportCommand(positionals, options),
+    impact: () => impactCommand(positionals, options),
     telemetry: () => telemetryCommand(positionals, options),
     'prompt-log': () => promptLogCommand(positionals, options),
     guide: () => guideCommand(positionals, options),

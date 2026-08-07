@@ -85,6 +85,7 @@ skills:
   sflow-implement: { class: generative }
   sflow-inbox: { class: echo }
   sflow-init: { class: mutation }
+  sflow-impact: { class: mutation }
   sflow-inspect: { class: conversational }
   sflow-initiative-approve: { class: review }
   sflow-initiative-checklist: { class: echo }

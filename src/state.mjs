@@ -48,6 +48,9 @@ import { buildDesignSourceSet, classifyDesignSourceCandidates, approvedDesignSou
 import { verifyMcpEvidence } from './mcp-evidence.mjs';
 import { assertVisualCoverage } from './visual-coverage.mjs';
 import { buildSpecIndex, loadActiveSpecRecords, predecessorSpecClauses } from './specifications.mjs';
+import {
+  hydrateImpactPlan, impactImplementationGate, initializeStoryImpact, invalidateImpactReceipt
+} from './impact.mjs';
 
 export const CONFIG_PATH = WORKFLOW_PATH;
 export const loadConfig = loadDefinition;
@@ -408,6 +411,7 @@ export async function createWorkflow(root, config, { id, title, source, baseBran
     });
     workflow.resolution.capability = { ...capability, context };
   }
+  await initializeStoryImpact(root, config, workflow, source);
   for (const [phaseId, template] of Object.entries(workflow.resolution.templates ?? {})) {
     if (template.source !== 'agent' || !template.cachePath) continue;
     const destination = path.join(workDir(root, config, id), 'context/agent-templates', template.agent, `${template.resource}-${template.sha256}.md`);
@@ -575,6 +579,9 @@ export async function preparePhase(root, config, workflow, requested = undefined
 export async function preparePhaseInputs(root, config, workflow, requested = undefined, { dryRun = false } = {}) {
   if (!dryRun) await assertNoPendingPublication(root, config, workflow, 'prepare or change phase inputs');
   const phase = await assertPhaseSequence(root, workflow, 'prepare', { requestedPhase: requested });
+  await hydrateImpactPlan(root, workflow);
+  const impactGate = impactImplementationGate(workflow, phase.id);
+  if (impactGate) throw new SingularityFlowError(impactGate);
   if (!dryRun) await beginTelemetryCapture(root, workflow, phase);
   const itemDirectory = workDir(root, config, workflow.workItem.id);
   const itemRelative = workDirRelative(config, workflow.workItem.id);
@@ -1169,6 +1176,12 @@ export async function reopenWorkflow(root, config, workflow, { target, reason, c
   }
   workflow.currentPhase = targetId;
   workflow.status = 'in_progress';
+  await invalidateImpactReceipt(root, config, workflow, {
+    reason: changeRequest.comment,
+    cause: 'workflow-reopened',
+    actor: session.actor,
+    agent: session.agent
+  });
   workflow.changeRequests.push(changeRequest);
   const decision = {
     decision: 'reopened', phase: completionPhase.id, target: targetId,

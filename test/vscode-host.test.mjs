@@ -210,7 +210,10 @@ function stubVscode() {
         return item;
       },
       showErrorMessage: async (message) => { registered.errors.push(message); },
-    showInformationMessage: async (message) => { registered.infos.push(message); return undefined; },
+    showInformationMessage: async (message) => {
+      registered.infos.push(message);
+      return registered.informationAnswer;
+    },
       showWarningMessage: async (message) => { registered.warnings.push(message); },
       showTextDocument: async () => ({}),
       setStatusBarMessage: () => ({ dispose() {} }),
@@ -243,6 +246,7 @@ function stubVscode() {
   // What a human "types" into the exact-confirmation box, and what they answer to the self-approval
   // modal. Set per test: the default is a person who confirms nothing.
   registered.typed = null;
+  registered.informationAnswer = undefined;
   registered.selfApprovalAnswer = undefined;
   registered.pickedLens = 'first';
   registered.pickedFile = null;
@@ -942,6 +946,27 @@ test('pinning a source from the editor puts it in the tree', async (t) => {
   const sources = provider.getChildren(roots[0]).find((node) => node.id === 'sources');
   assert.equal(sources.description, '1');
   assert.equal(provider.getChildren(sources)[0].label, 'research.md');
+});
+
+test('the guided evidence action pins a selected file to the active Epic', async (t) => {
+  if (!requireBundle(t)) return;
+  const { root, registered } = await activated();
+  const design = path.join(root, 'checkout-design.png');
+  await writeFile(design, 'pinned design bytes');
+  registered.pickedFile = design;
+  registered.informationAnswer = 'Attach evidence';
+
+  await registered.commands.get('singularityFlow.attachEvidence')();
+
+  assert.deepEqual(registered.errors, []);
+  assert.equal(registered.openDialogs.length, 1, 'the editor collected the local evidence');
+  assert.equal(registered.openDialogs[0].canSelectMany, true, 'the same action accepts a complete evidence set');
+  const provider = registered.trees.get('singularityFlow.lifecycle').treeDataProvider;
+  const roots = provider.getChildren();
+  const sources = provider.getChildren(roots[0]).find((node) => node.id === 'sources');
+  assert.equal(sources.description, '1');
+  assert.equal(provider.getChildren(sources)[0].label, 'checkout-design.png');
+  assert.ok(registered.infos.some((message) => /Attached 1 path to Epic/.test(message)));
 });
 
 test('an Epic can be started and its first source pinned entirely from the editor', async (t) => {

@@ -261,6 +261,11 @@
         "icon": "$(graph)"
       },
       {
+        "command": "singularityFlow.attachEvidence",
+        "title": "Singularity Flow: Attach Evidence & Designs",
+        "icon": "$(files)"
+      },
+      {
         "command": "singularityFlow.addSource",
         "title": "Singularity Flow: Pin a Source",
         "icon": "$(new-file)"
@@ -367,39 +372,44 @@
           "group": "navigation@0"
         },
         {
-          "command": "singularityFlow.continueSafely",
+          "command": "singularityFlow.attachEvidence",
           "when": "view == singularityFlow.lifecycle",
           "group": "navigation@1"
         },
         {
-          "command": "singularityFlow.openDashboard",
+          "command": "singularityFlow.continueSafely",
           "when": "view == singularityFlow.lifecycle",
           "group": "navigation@2"
         },
         {
-          "command": "singularityFlow.openInbox",
+          "command": "singularityFlow.openDashboard",
           "when": "view == singularityFlow.lifecycle",
           "group": "navigation@3"
         },
         {
-          "command": "singularityFlow.openStories",
+          "command": "singularityFlow.openInbox",
           "when": "view == singularityFlow.lifecycle",
           "group": "navigation@4"
         },
         {
-          "command": "singularityFlow.openImpact",
+          "command": "singularityFlow.openStories",
           "when": "view == singularityFlow.lifecycle",
           "group": "navigation@5"
         },
         {
-          "command": "singularityFlow.openJourney",
+          "command": "singularityFlow.openImpact",
           "when": "view == singularityFlow.lifecycle",
           "group": "navigation@6"
         },
         {
-          "command": "singularityFlow.openReconciliation",
+          "command": "singularityFlow.openJourney",
           "when": "view == singularityFlow.lifecycle",
           "group": "navigation@7"
+        },
+        {
+          "command": "singularityFlow.openReconciliation",
+          "when": "view == singularityFlow.lifecycle",
+          "group": "navigation@8"
         },
         {
           "command": "singularityFlow.refresh",
@@ -504,8 +514,13 @@
           "group": "inline"
         },
         {
-          "command": "singularityFlow.addSource",
+          "command": "singularityFlow.attachEvidence",
           "when": "view == singularityFlow.lifecycle && viewItem == sflow.sources",
+          "group": "inline"
+        },
+        {
+          "command": "singularityFlow.attachEvidence",
+          "when": "view == singularityFlow.lifecycle && viewItem == sflow.story.active",
           "group": "inline"
         },
         {

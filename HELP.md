@@ -1038,6 +1038,8 @@ The plan is committed and pushed before review. Apply requires `jira.writeMode: 
 
 Jira is optional. A manual YAML or JSON story can capture the audience, problem, desired outcome, scope, out-of-scope items, stakeholders, urgency, constraints, dependencies, acceptance criteria, risks, notes, and supporting documents.
 
+In VS Code, use **Lifecycle → Attach evidence & designs**. Choose the governed Story or Epic when both are available, then select multiple files, a Figma export folder, a Figma design link, or another HTTPS reference. Story folders remain one governed package. Epic folders expand into deterministic pinned source records. The screen shows the target before the CLI validates, hashes, commits, and pushes the result. The Copilot equivalent is `/sf-upload`.
+
 Supporting files live under:
 
 ```text
@@ -2005,7 +2007,7 @@ The review bundle contains the artifact in full, input provenance, checks, appro
 
 ## Design package inventory and gallery
 
-`singularity-flow documents upload ./figma-export` recursively preserves paths and hashes and creates committed `PKG-nnn` package records with `manifest.json`, `inventory.md`, and a local `gallery.html`. The inventory reports types, sizes, empty files, and duplicate hashes. VS Code **Lifecycle → Documents** has separate file and folder actions.
+`singularity-flow documents upload ./figma-export` recursively preserves paths and hashes and creates committed `PKG-nnn` package records with `manifest.json`, `inventory.md`, and a local `gallery.html`. The inventory reports types, sizes, empty files, and duplicate hashes. VS Code **Lifecycle → Attach evidence & designs** provides one guided entry point for files, folders, Figma links, and other HTTPS references.
 
 ## Safe recovery and Copilot session guidance
 

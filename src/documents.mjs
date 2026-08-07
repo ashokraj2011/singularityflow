@@ -1,6 +1,6 @@
 import { copyFile, lstat, mkdir, readFile, readdir, realpath, stat, writeFile } from 'node:fs/promises';
 import path from 'node:path';
-import { assertNoPendingPublication, saveWorkflow, workDir, workDirRelative } from './state.mjs';
+import { assertNoPendingPublication, saveStoryDraft, workDir, workDirRelative } from './state-stores.mjs';
 import { loadSession } from './session.mjs';
 import { SingularityFlowError, exists, nowIso, posix, snapshot, writeJson, writeText } from './util.mjs';
 import { assertPhaseSequence, enforceSequenceGate } from './sequence.mjs';
@@ -156,7 +156,7 @@ export async function addDocuments(root, config, workflow, { files = [], url = n
   manifest.updatedAt = nowIso(); await writeJson(manifestPath(root, config, workflow), manifest);
   workflow.documents = { count: manifest.documents.length, updatedAt: manifest.updatedAt };
   workflow.history.push({ at: manifest.updatedAt, actor: session.actor.login ?? session.actor.email ?? session.actor.name, agent: session.agent, event: 'documents_added', phase: phase.id, detail: added.map((item) => item.id).join(', ') });
-  await saveWorkflow(root, config, workflow); return added;
+  await saveStoryDraft(root, config, workflow); return added;
 }
 
 function resolveStorageProvider(config, providerId, workflow = null) {
@@ -210,7 +210,7 @@ export async function fetchRemoteDocument(root, config, workflow, { providerId =
   manifest.updatedAt = nowIso(); await writeJson(manifestPath(root, config, workflow), manifest);
   workflow.documents = { count: manifest.documents.length, updatedAt: manifest.updatedAt };
   workflow.history.push({ at: manifest.updatedAt, actor: session.actor.login ?? session.actor.email ?? session.actor.name, agent: session.agent, event: 'documents_added', phase: phase.id, detail: `${id} ← ${provider.type}:${selectedId}` });
-  await saveWorkflow(root, config, workflow); return [record];
+  await saveStoryDraft(root, config, workflow); return [record];
 }
 
 // Browse a configured storage provider so a picker can list selectable documents.

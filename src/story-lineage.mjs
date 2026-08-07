@@ -4,9 +4,9 @@ import path from 'node:path';
 import { branch, changes, head, identity } from './git.mjs';
 import { loadSession, setAgentSession } from './session.mjs';
 import {
-  commitAndPublish, loadWorkflow, saveWorkflow, sourceTreeHash, workflowBranchAllowed,
+  commitAndPublish, loadWorkflow, saveStoryDraft, sourceTreeHash, workflowBranchAllowed,
   workflowPublicationBranch, workDir
-} from './state.mjs';
+} from './state-stores.mjs';
 import { nowIso, run, SingularityFlowError, snapshot, writeJson } from './util.mjs';
 import { evaluateVisualCoverage } from './visual-coverage.mjs';
 import { listVisualComparisons } from './visual-compare.mjs';
@@ -76,7 +76,7 @@ export async function attachStoryBranch(root, config, {
     phase: workflow.currentPhase,
     detail: `${current} -> ${workflow.workItem.id}`
   });
-  await saveWorkflow(root, config, workflow);
+  await saveStoryDraft(root, config, workflow);
   const publication = await commitAndPublish(root, config, workflow, { type: 'branch-linked', payload: { childBranch: current } }, `[${workflow.workItem.id}][branch:attach] ${current}`);
   await preserveAgent(root, config, workflow);
   return { workflow, branch: current, canonical: false, created: true, record, publication };
@@ -170,7 +170,7 @@ export async function createStoryReviewPacket(root, config, workflow, phase) {
     submittedAt: base.submittedAt,
     projection: structuredClone(base)
   });
-  await saveWorkflow(root, config, workflow);
+  await saveStoryDraft(root, config, workflow);
   return { packet, path: path.relative(root, file).split(path.sep).join('/') };
 }
 
@@ -301,7 +301,7 @@ export async function finalizeStoryDelivery(root, config, workflow) {
     phase: null,
     detail: packetSha256
   });
-  await saveWorkflow(root, config, workflow);
+  await saveStoryDraft(root, config, workflow);
   return {
     packet,
     path: path.relative(root, file).split(path.sep).join('/')

@@ -3,8 +3,8 @@ import path from 'node:path';
 import { branch, identity } from './git.mjs';
 import { run, commandExists, nowIso, SingularityFlowError, writeJson } from './util.mjs';
 import {
-  commitAndPublish, saveWorkflow, workflowPublicationBranch, workDir
-} from './state.mjs';
+  commitAndPublish, saveStoryDraft, workflowPublicationBranch, workDir
+} from './state-stores.mjs';
 import { readStoryReviewPacket } from './story-lineage.mjs';
 import { runGovernanceGate } from './governance.mjs';
 
@@ -172,7 +172,7 @@ export async function runAndRecordStoryChecks(root, config, workflow, {
     phase: packet.phase,
     detail: `${packet.packetSha256.slice(0, 12)} ready=${evidence.ready}`
   });
-  await saveWorkflow(root, config, workflow);
+  await saveStoryDraft(root, config, workflow);
   const publication = await commitAndPublish(root, config, workflow, { type: 'evidence-recorded', phaseId: packet.phase, payload: { packetSha256: packet.packetSha256, evidenceSha256 } }, `[${workflow.workItem.id}][checks] ${packet.packetSha256.slice(0, 12)}`, [path.relative(root, file)]);
   return { evidence, publication, branch: workflowPublicationBranch(root, workflow) };
 }

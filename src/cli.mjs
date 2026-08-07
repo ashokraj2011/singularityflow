@@ -44,7 +44,8 @@ import {
   rejectPhase,
   reopenWorkflow,
   resolveWorkItem,
-  saveWorkflow,
+  saveStoryDraft,
+  transactStory,
   scanArtifacts,
   storyPublicationPending,
   submitPhase,
@@ -1379,7 +1380,7 @@ async function nextCommand(options) {
     await worldModelCommand(root, ['wm', 'compose'], { phase: phase.id, task, evidence: phase.worldModel?.evidence === true });
   }
   const artifact = await preparePhase(root, config, workflow, phase.id);
-  await saveWorkflow(root, config, workflow);
+  await saveStoryDraft(root, config, workflow);
   console.log(`Next step prepared: generate '${phase.id}' using ${artifact}.`);
   console.log(`After authoring and validation, continue in Copilot: /sf-phase ${phase.id}`);
   console.log(`CLI equivalent: singularity-flow phase publish ${phase.id}`);
@@ -1456,7 +1457,7 @@ async function prepareCommand(positionals) {
   const config = await loadConfig(root);
   const workflow = await loadStoryAggregate(root, config);
   console.log(await preparePhase(root, config, workflow, positionals[1]));
-  await saveWorkflow(root, config, workflow);
+  await saveStoryDraft(root, config, workflow);
 }
 
 async function inputsCommand(positionals, options) {
@@ -1465,7 +1466,7 @@ async function inputsCommand(positionals, options) {
   const workflow = await loadStoryAggregate(root, config);
   const dryRun = optionBoolean(options, 'dry-run');
   const result = await preparePhaseInputs(root, config, workflow, positionals[1], { dryRun });
-  if (!dryRun) await saveWorkflow(root, config, workflow);
+  if (!dryRun) await saveStoryDraft(root, config, workflow);
   console.log(`Phase inputs: ${result.phase.id} (${result.mode})${dryRun ? ' [dry-run]' : ''}`);
   if (!result.records.length) console.log(result.mode === 'off' ? 'Input dataflow is disabled for this work item.' : 'This phase declares no phase inputs.');
   else console.log(table(result.records.map((entry) => ({
@@ -1681,7 +1682,7 @@ async function agentsCommand(positionals, options) {
     const refreshed = await prepareRemoteOutputs(root, workflow, phase, session, { itemDirectory, refresh: true, replace: optionBoolean(options, 'replace'), resourceId });
     phase.remoteOutputs = [...(phase.remoteOutputs ?? []).filter((entry) => !refreshed.outputs.some((output) => output.resource === entry.resource && output.generation === entry.generation)), ...refreshed.outputs];
     await preparePhaseInputs(root, config, workflow, phase.id);
-    await saveWorkflow(root, config, workflow);
+    await saveStoryDraft(root, config, workflow);
     refreshed.warnings.forEach((warning) => console.warn(`Warning: ${warning}`));
     return console.log(`Refreshed remote generated artifact '${resourceId}'. It will be committed by the next phase publication.`);
   }
@@ -1994,13 +1995,13 @@ async function artifactCommand(positionals, options) {
     if (!paths.length) throw new SingularityFlowError('Provide at least one artifact path.');
     const records = [];
     for (const candidate of paths) records.push(await registerArtifact(root, workflow, candidate, { phaseId, kind: optionString(options, 'kind') }));
-    await saveWorkflow(root, config, workflow);
+    await saveStoryDraft(root, config, workflow);
     records.forEach((record) => console.log(`${record.kind}\t${record.path}`));
     return;
   }
   if (subcommand === 'scan') {
     const records = await scanArtifacts(root, config, workflow, phaseId);
-    await saveWorkflow(root, config, workflow);
+    await saveStoryDraft(root, config, workflow);
     if (!records.length) console.log('No changed artifacts found.');
     else records.forEach((record) => console.log(`${record.kind}\t${record.path}`));
     return;
@@ -2879,8 +2880,14 @@ async function workflowCommand(positionals, options) {
 async function assignCommand(positionals) {
   const root = repoRoot(); const config = await loadConfig(root); const workflow = await loadStoryAggregate(root, config);
   const phaseId = requirePositional(positionals, 1, 'phase'); const assignee = requirePositional(positionals, 2, 'assignee'); const session = await loadSession(root);
-  const record = await assignPhase(root, config, workflow, phaseId, assignee, session);
-  const result = await commitAndPublish(root, config, workflow, { type: 'configuration-changed', phaseId, payload: { assignee: record.assignee } }, `[${workflow.workItem.id}][phase:${phaseId}][assign] ${record.assignee}`);
+  const { value: record, publication: result } = await transactStory(
+    root,
+    config,
+    workflow,
+    { type: 'configuration-changed', phaseId, payload: { assignee } },
+    `[${workflow.workItem.id}][phase:${phaseId}][assign] ${assignee}`,
+    (aggregate) => assignPhase(aggregate, phaseId, assignee, session)
+  );
   console.log(`Assigned ${phaseId} to ${record.assignee}. Committed ${result.sha.slice(0, 8)}${result.pushed ? ' and pushed' : ''}.`);
 }
 

@@ -3,7 +3,7 @@ import { identity } from './git.mjs';
 import {
   appendInitiativeRecord, authorityDescription, isAuthorized, readInitiativeRecords
 } from './initiative-evidence.mjs';
-import { loadInitiative, saveInitiative } from './initiative-state.mjs';
+import { loadInitiative, saveInitiativeDraft } from './state-stores.mjs';
 import { SingularityFlowError, nowIso } from './util.mjs';
 
 export function initiativeNode(type, ...parts) {
@@ -202,7 +202,7 @@ export async function invalidateInitiativeCone(root, {
     phase: reopenedPhase,
     detail: `${starts.join(', ')} affected ${affected.length} nodes${reopenedPhase ? ` and reopened ${reopenedPhase}` : ''}: ${reason.trim()}`
   });
-  await saveInitiative(root, portfolio, initiative);
+  await saveInitiativeDraft(root, portfolio, initiative);
   return { ...appended, affected, graph, reopenedPhase };
 }
 
@@ -282,6 +282,6 @@ export async function rejectInitiative(root, {
     phase: selectedPhase,
     detail: `${target.type}/${target.id}: ${decision.reason}`
   });
-  await saveInitiative(root, loaded.portfolio, loaded.initiative);
+  await saveInitiativeDraft(root, loaded.portfolio, loaded.initiative);
   return { ...loaded, approval, invalidation, target };
 }

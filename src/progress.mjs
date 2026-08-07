@@ -1,3 +1,10 @@
+export function phaseTokenStatus(usage = []) {
+  if (!usage.length) return 'none';
+  const exact = usage.filter((item) => item.status === 'exact').length;
+  if (!exact) return 'unavailable';
+  return exact === usage.length ? 'exact' : 'partial';
+}
+
 export function progressSnapshot(workflow) {
   const total = workflow.phaseOrder.length;
   const phases = workflow.phaseOrder.map((id, index) => {
@@ -11,8 +18,8 @@ export function progressSnapshot(workflow) {
       generation: phase.generation,
       approvals,
       approvalsRequired: phase.approvalPolicy.minimum ?? 1,
-      tokens: phase.usage.reduce((sum, item) => sum + (item.totalTokens ?? 0), 0),
-      tokenStatus: phase.usage.some((item) => item.status === 'exact') ? 'exact' : 'unavailable'
+      tokens: (phase.usage ?? []).reduce((sum, item) => sum + (item.totalTokens ?? 0), 0),
+      tokenStatus: phaseTokenStatus(phase.usage)
     };
   });
   const approved = phases.filter((phase) => phase.status === 'approved').length;

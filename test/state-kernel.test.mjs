@@ -20,6 +20,7 @@ import {
   findLegacyPendingPublications, localPendingPublicationPath, readPendingPublication
 } from '../src/publication-pending.mjs';
 import { GitPublicationUnitOfWork } from '../src/publication-unit-of-work.mjs';
+import { assignPhase } from '../src/collaboration.mjs';
 
 const packageRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 const bin = path.join(packageRoot, 'bin', 'singularity-flow.mjs');
@@ -163,6 +164,44 @@ test('revisioned stores and state planes distinguish authority from projections'
   });
   assert.equal(repaired.repaired, true);
   assert.equal(repaired.planes.projections.status.current, true);
+});
+
+test('assignment changes are persisted only by publication and roll back on failure', async () => {
+  const root = await repository();
+  const definition = await loadDefinition(root);
+  const store = new StoryStateStore(root, definition);
+  const workflow = await store.loadAggregate('KERNEL-1');
+  const phaseId = workflow.currentPhase;
+  const stateFile = path.join(workDir(root, definition, workflow.workItem.id), 'workflow.json');
+  const beforeText = await readFile(stateFile, 'utf8');
+  const beforeState = JSON.parse(beforeText);
+
+  await assert.rejects(() => store.transact(
+    workflow,
+    { type: 'configuration-changed', phaseId, payload: { assignee: 'mobile-team' } },
+    '[KERNEL-1][phase:intake][assign] mobile-team',
+    (aggregate) => {
+      const assignment = assignPhase(aggregate, phaseId, 'mobile-team', {
+        actor: { name: 'Kernel Tester', email: 'kernel@example.com' },
+        agent: 'developer'
+      });
+      assert.equal(assignment.assignee, 'mobile-team');
+      // Force validation to fail after the publication unit writes the aggregate.
+      aggregate.currentPhase = 'missing-phase';
+      return assignment;
+    }
+  ), /Unknown current phase/);
+  const restored = JSON.parse(await readFile(stateFile, 'utf8'));
+  assert.deepEqual(restored.collaboration, beforeState.collaboration, 'the transaction must restore collaboration state');
+  assert.equal(restored.currentPhase, beforeState.currentPhase, 'the transaction must restore the active phase');
+  assert.deepEqual(restored.history, beforeState.history, 'the transaction must restore lifecycle history');
+  const reloaded = await store.loadAggregate('KERNEL-1');
+  assert.equal(reloaded.collaboration.assignments[phaseId], undefined);
+  assert.equal(
+    (reloaded.publicationProjections ?? []).some((entry) => entry.event?.payload?.assignee === 'mobile-team'),
+    false,
+    'a failed assignment publication must not leave an authoritative event projection'
+  );
 });
 
 test('reconciler repairs every declared Story projection without changing canonical state', async () => {

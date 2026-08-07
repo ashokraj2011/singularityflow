@@ -5,8 +5,8 @@ import YAML from 'yaml';
 import { gitDir, hasRemote, head, identity } from './git.mjs';
 import { findOrCreateIssue } from './jira.mjs';
 import {
-  loadInitiative, saveInitiative, secureInitiativePath
-} from './initiative-state.mjs';
+  loadInitiative, saveInitiativeDraft, secureInitiativePath
+} from './state-stores.mjs';
 import {
   initiativeNode, invalidateInitiativeCone
 } from './initiative-graph.mjs';
@@ -750,7 +750,7 @@ export async function materializeInitiative(root, initiativeId, {
     }
     attempt.stories.push({ storyId: story.id, repository: story.repository, ...receipt });
     await writeJson(journalPath.absolute, { schemaVersion: 1, initiativeId, attempts: initiative.materialization.attempts });
-    await saveInitiative(root, portfolio, initiative);
+    await saveInitiativeDraft(root, portfolio, initiative);
   }
   const failures = attempt.stories.filter((story) => story.status === 'failed');
   attempt.status = failures.length ? 'partial' : 'complete';
@@ -764,7 +764,7 @@ export async function materializeInitiative(root, initiativeId, {
     detail: `${attempt.stories.length - failures.length}/${attempt.stories.length} story branches ready`
   });
   await writeJson(journalPath.absolute, { schemaVersion: 1, initiativeId, attempts: initiative.materialization.attempts });
-  await saveInitiative(root, portfolio, initiative);
+  await saveInitiativeDraft(root, portfolio, initiative);
   return { dryRun: false, review, attempt, failures };
 }
 
@@ -1053,7 +1053,7 @@ export async function syncInitiativeRepositories(root, initiativeId) {
   }
   await writeText(lockPath.absolute, YAML.stringify(lock));
   initiative.history.push({ at: nowIso(), actor: identity(root).email?.toLowerCase() ?? identity(root).name, event: 'initiative_repositories_synchronized', phase: initiative.currentPhase, detail: `${results.filter((item) => item.status === 'synchronized').length}/${results.length} stories synchronized` });
-  await saveInitiative(root, portfolio, initiative);
+  await saveInitiativeDraft(root, portfolio, initiative);
   const invalidations = [];
   for (const regression of regressions) invalidations.push(await invalidateInitiativeCone(root, {
     initiativeId,

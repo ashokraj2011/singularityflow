@@ -8,9 +8,9 @@ import {
 import { validateImpactMap } from './initiative-repositories.mjs';
 import { verifyEpicTraceability } from './epic-traceability.mjs';
 import {
-  initiativeRelative, loadInitiative, saveInitiative, secureInitiativePath,
+  initiativeRelative, loadInitiative, saveInitiativeDraft, secureInitiativePath,
   verifyInitiativePhaseInputs
-} from './initiative-state.mjs';
+} from './state-stores.mjs';
 import {
   initiativeMilestoneReadiness, requiredInitiativeMilestone
 } from './initiative-milestones.mjs';
@@ -317,7 +317,7 @@ export async function registerInitiativeEvidence(root, {
     phase: phaseId,
     detail: `${checkId} ${assurance} ${appended.sha256.slice(0, 12)}`
   });
-  await saveInitiative(root, portfolio, initiative);
+  await saveInitiativeDraft(root, portfolio, initiative);
   return appended;
 }
 
@@ -836,7 +836,7 @@ export async function publishInitiativePhase(root, initiativeId, phaseId, { agen
   phase.status = 'awaiting_approval';
   phase.submittedAt = nowIso();
   initiative.history.push({ at: phase.submittedAt, actor: actorEmail(actor), agent, event: 'initiative_phase_published', phase: phaseId, detail: `generation ${nextGeneration}` });
-  await saveInitiative(root, portfolio, initiative);
+  await saveInitiativeDraft(root, portfolio, initiative);
 
   // Evidence is recorded after the publication is saved: registerInitiativeEvidence reloads state
   // from disk, so registering first would read a pre-publish copy and write it back over this one.
@@ -1001,7 +1001,7 @@ export async function approveInitiative(root, {
     phase: selectedPhase,
     detail: `${target.type}/${target.id} ${reached ? 'threshold reached' : 'approval recorded'}`
   });
-  await saveInitiative(root, portfolio, initiative);
+  await saveInitiativeDraft(root, portfolio, initiative);
 
   // Approval is the moment an artifact's claims become citable, so it is the moment its decisions,
   // learnings and open uncertainties are worth keeping. Harvesting only when somebody remembered to

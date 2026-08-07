@@ -1,7 +1,7 @@
 import path from 'node:path';
 import { readFile } from 'node:fs/promises';
 import { branch } from './git.mjs';
-import { currentPhase, workDir } from './state.mjs';
+import { currentPhase, workDir } from './state-stores.mjs';
 import { documentCatalog } from './documents.mjs';
 import { exists, run, snapshot } from './util.mjs';
 

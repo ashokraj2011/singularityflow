@@ -1,8 +1,10 @@
 import { createHash } from 'node:crypto';
+import { lookup as dnsLookup } from 'node:dns/promises';
 import { copyFile, mkdir, readFile, readdir } from 'node:fs/promises';
+import { request as httpsRequest } from 'node:https';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { isIP } from 'node:net';
+import { BlockList, isIP } from 'node:net';
 import YAML from 'yaml';
 import { exists, nowIso, posix, secureRepositoryPath, snapshot, writeJson, writeText, SingularityFlowError } from './util.mjs';
 
@@ -13,6 +15,19 @@ const DEFAULT_MAX_BYTES = 1024 * 1024;
 const HARD_MAX_BYTES = 10 * 1024 * 1024;
 const TOKEN_PATTERN = /\{([^}]+)\}/g;
 const ALLOWED_TOKENS = new Set(['workId', 'workType', 'phase', 'generation']);
+const BLOCKED_REMOTE_ADDRESSES = new BlockList();
+
+for (const [network, prefix] of [
+  ['0.0.0.0', 8], ['10.0.0.0', 8], ['100.64.0.0', 10], ['127.0.0.0', 8],
+  ['169.254.0.0', 16], ['172.16.0.0', 12], ['192.0.0.0', 24], ['192.0.2.0', 24],
+  ['192.168.0.0', 16], ['198.18.0.0', 15], ['198.51.100.0', 24],
+  ['203.0.113.0', 24], ['224.0.0.0', 4], ['240.0.0.0', 4]
+]) BLOCKED_REMOTE_ADDRESSES.addSubnet(network, prefix, 'ipv4');
+for (const [network, prefix] of [
+  ['::', 128], ['::1', 128], ['64:ff9b:1::', 48], ['100::', 64],
+  ['2001::', 23], ['2001:db8::', 32], ['fc00::', 7], ['fe80::', 10],
+  ['fec0::', 10], ['ff00::', 8]
+]) BLOCKED_REMOTE_ADDRESSES.addSubnet(network, prefix, 'ipv6');
 
 function hash(value) { return createHash('sha256').update(value).digest('hex'); }
 function idPattern(value) { return /^[a-z0-9]+(?:-[a-z0-9]+)*$/.test(value); }
@@ -40,10 +55,87 @@ function validateRemoteUrl(value, label, { dynamic = false } = {}) {
   try { url = new URL(candidate); } catch { throw new SingularityFlowError(`${label} must be a valid public HTTPS URL.`); }
   if (url.protocol !== 'https:' || url.username || url.password) throw new SingularityFlowError(`${label} must be a public HTTPS URL without embedded credentials.`);
   const host = url.hostname.replace(/^\[|\]$/g, '').toLowerCase();
-  const privateIpv4 = isIP(host) === 4 && (/^10\./.test(host) || /^127\./.test(host) || /^169\.254\./.test(host) || /^192\.168\./.test(host) || /^172\.(1[6-9]|2\d|3[01])\./.test(host) || /^0\./.test(host));
-  const privateIpv6 = isIP(host) === 6 && (host === '::1' || host === '::' || /^f[cd]/.test(host) || /^fe[89ab]/.test(host));
-  if (host === 'localhost' || host.endsWith('.localhost') || host.endsWith('.local') || privateIpv4 || privateIpv6) throw new SingularityFlowError(`${label} must use a public Internet host.`);
+  if (host === 'localhost' || host.endsWith('.localhost') || host.endsWith('.local')
+    || (isIP(host) && !isPublicRemoteAddress(host))) {
+    throw new SingularityFlowError(`${label} must use a public Internet host.`);
+  }
   return value;
+}
+
+export function isPublicRemoteAddress(address) {
+  const family = isIP(address);
+  if (family === 6 && address.toLowerCase().startsWith('::ffff:')) return false;
+  return family !== 0 && !BLOCKED_REMOTE_ADDRESSES.check(address, family === 4 ? 'ipv4' : 'ipv6');
+}
+
+export async function resolvePublicRemoteHost(url, { lookupImpl = dnsLookup } = {}) {
+  const parsed = new URL(url);
+  const literal = parsed.hostname.replace(/^\[|\]$/g, '');
+  const literalFamily = isIP(literal);
+  const addresses = literalFamily
+    ? [{ address: literal, family: literalFamily }]
+    : await lookupImpl(parsed.hostname, { all: true, verbatim: true });
+  if (!addresses.length) throw new SingularityFlowError(`Remote Markdown host '${parsed.hostname}' did not resolve to an address.`);
+  const blocked = addresses.find((entry) => !isPublicRemoteAddress(entry.address));
+  if (blocked) {
+    throw new SingularityFlowError(
+      `Remote Markdown host '${parsed.hostname}' resolved to non-public address ${blocked.address}; request blocked.`
+    );
+  }
+  // Every returned address is checked, not merely the selected one. Pinning one
+  // validated result below prevents a second DNS lookup from rebinding the host.
+  return addresses[0];
+}
+
+function pinnedHttpsFetch(url, { signal, headers }, resolved, maxBytes) {
+  return new Promise((resolve, reject) => {
+    const request = httpsRequest(url, {
+      method: 'GET',
+      headers,
+      signal,
+      lookup: (_hostname, _options, callback) => callback(null, resolved.address, resolved.family)
+    }, (response) => {
+      const chunks = [];
+      let size = 0;
+      response.on('data', (chunk) => {
+        size += chunk.length;
+        if (size > maxBytes) {
+          response.destroy(new SingularityFlowError(`Remote Markdown ${url} exceeds its ${maxBytes} byte limit.`));
+          return;
+        }
+        chunks.push(chunk);
+      });
+      response.on('error', reject);
+      response.on('end', () => {
+        const bytes = Buffer.concat(chunks);
+        resolve({
+          ok: (response.statusCode ?? 0) >= 200 && (response.statusCode ?? 0) < 300,
+          status: response.statusCode ?? 0,
+          headers: { get: (name) => response.headers[String(name).toLowerCase()] ?? null },
+          arrayBuffer: async () => bytes
+        });
+      });
+    });
+    request.on('error', reject);
+    request.end();
+  });
+}
+
+async function resolveRemoteHostWithTimeout(url, lookupImpl, timeoutMs) {
+  let timeout;
+  try {
+    return await Promise.race([
+      resolvePublicRemoteHost(url, { lookupImpl }),
+      new Promise((_, reject) => {
+        timeout = setTimeout(() => reject(new SingularityFlowError(`DNS lookup for ${url} timed out.`)), timeoutMs);
+      })
+    ]);
+  } catch (error) {
+    if (error instanceof SingularityFlowError) throw error;
+    throw new SingularityFlowError(`Unable to resolve remote Markdown host for ${url}: ${error.message}`);
+  } finally {
+    clearTimeout(timeout);
+  }
 }
 
 function parseAgentDocument(text, file) {
@@ -271,18 +363,33 @@ async function responseBody(response, maxBytes, label) {
   return { content, size: buffer.length, sha256: hash(buffer) };
 }
 
-export async function fetchRemoteMarkdown(url, { maxBytes = DEFAULT_MAX_BYTES, fetchImpl = globalThis.fetch, timeoutMs = 30000 } = {}) {
+export async function fetchRemoteMarkdown(url, {
+  maxBytes = DEFAULT_MAX_BYTES,
+  fetchImpl = globalThis.fetch,
+  timeoutMs = 30000,
+  lookupImpl = fetchImpl === globalThis.fetch ? dnsLookup : null
+} = {}) {
   if (typeof fetchImpl !== 'function') throw new SingularityFlowError('This Node runtime does not provide HTTPS fetch support.');
+  if (!Number.isInteger(maxBytes) || maxBytes < 1 || maxBytes > HARD_MAX_BYTES) {
+    throw new SingularityFlowError(`Remote Markdown byte limit must be between 1 and ${HARD_MAX_BYTES}.`);
+  }
   let current = validateRemoteUrl(url, 'Remote Markdown URL');
   for (let redirects = 0; redirects <= 3; redirects += 1) {
+    const resolved = lookupImpl ? await resolveRemoteHostWithTimeout(current, lookupImpl, timeoutMs) : null;
     const controller = new AbortController(); const timeout = setTimeout(() => controller.abort(), timeoutMs);
     let response;
-    try { response = await fetchImpl(current, { method: 'GET', redirect: 'manual', signal: controller.signal, headers: { accept: 'text/markdown,text/plain;q=0.9,*/*;q=0.1' } }); }
+    try {
+      const requestOptions = { method: 'GET', redirect: 'manual', signal: controller.signal, headers: { accept: 'text/markdown,text/plain;q=0.9,*/*;q=0.1' } };
+      response = resolved && fetchImpl === globalThis.fetch
+        ? await pinnedHttpsFetch(current, requestOptions, resolved, maxBytes)
+        : await fetchImpl(current, requestOptions);
+    }
     catch (error) { throw new SingularityFlowError(`Unable to fetch ${current}: ${error.name === 'AbortError' ? 'request timed out' : error.message}`); }
     finally { clearTimeout(timeout); }
     if ([301, 302, 303, 307, 308].includes(response.status)) {
       if (redirects === 3) throw new SingularityFlowError(`Remote Markdown URL exceeded 3 redirects: ${url}`);
-      const location = response.headers.get('location');
+      const rawLocation = response.headers.get('location');
+      const location = Array.isArray(rawLocation) ? rawLocation[0] : rawLocation;
       if (!location) throw new SingularityFlowError(`Remote Markdown redirect has no location: ${current}`);
       current = validateRemoteUrl(new URL(location, current).toString(), 'Remote Markdown redirect');
       continue;

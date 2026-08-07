@@ -1,13 +1,13 @@
 import { existsSync } from 'node:fs';
 import { readFile } from 'node:fs/promises';
 import path from 'node:path';
-import { currentPhase } from './state.mjs';
+import { currentPhase } from './state-stores.mjs';
 import { normalizeSessionPolicy } from './config.mjs';
 import { branch } from './git.mjs';
 import { AGENT_MAPPING_PATH, agentStatus, resolveCopilotAgent } from './agents.mjs';
 import { loadPortfolio } from './initiative-config.mjs';
 import { repositoryLogger } from './logging.mjs';
-import { initiativeRelative } from './initiative-state.mjs';
+import { initiativeRelative } from './state-stores.mjs';
 import {
   bindAgentToCopilotSession, loadCopilotSession, loadCopilotTurnIntent, loadSession, agentSessionStatus,
   recordCopilotSession, setAgentSession, setNativeCopilotAgentSession, validAgentSession

@@ -1,6 +1,37 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { progressBar, progressFlow } from '../src/progress.mjs';
+import { phaseTokenStatus, progressBar, progressFlow, progressSnapshot } from '../src/progress.mjs';
+
+test('progress distinguishes absent, unavailable, partial, and exact token telemetry', () => {
+  assert.equal(phaseTokenStatus([]), 'none');
+  assert.equal(phaseTokenStatus([{ status: 'unavailable', totalTokens: null }]), 'unavailable');
+  assert.equal(phaseTokenStatus([
+    { status: 'exact', totalTokens: 100 },
+    { status: 'unavailable', totalTokens: null }
+  ]), 'partial');
+  assert.equal(phaseTokenStatus([
+    { status: 'exact', totalTokens: 100 },
+    { status: 'exact', totalTokens: 25 }
+  ]), 'exact');
+
+  const basePhase = {
+    label: 'Intake', status: 'in_progress', generation: 1, approvals: [],
+    approvalPolicy: { minimum: 1 }
+  };
+  const snapshot = progressSnapshot({
+    phaseOrder: ['none', 'unavailable', 'partial', 'exact'],
+    phases: {
+      none: { ...basePhase, usage: [] },
+      unavailable: { ...basePhase, usage: [{ status: 'unavailable', totalTokens: null }] },
+      partial: { ...basePhase, usage: [{ status: 'exact', totalTokens: 100 }, { status: 'unavailable', totalTokens: null }] },
+      exact: { ...basePhase, usage: [{ status: 'exact', totalTokens: 125 }] }
+    },
+    workItem: { id: 'TOKENS-1', workType: 'feature' },
+    status: 'in_progress', currentPhase: 'none', usage: {}, documents: { count: 0 }
+  });
+  assert.deepEqual(snapshot.phases.map((phase) => phase.tokenStatus), ['none', 'unavailable', 'partial', 'exact']);
+  assert.equal(snapshot.phases[2].tokens, 100);
+});
 
 test('progress flow renders approved, current approval, and pending phases as a connected map', () => {
   const output = progressFlow({

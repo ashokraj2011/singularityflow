@@ -4,7 +4,7 @@ import path from 'node:path';
 import YAML from 'yaml';
 import { identity } from './git.mjs';
 import { downloadJiraAttachment, uploadJiraAttachment } from './jira.mjs';
-import { loadInitiative, saveInitiative, secureInitiativePath } from './initiative-state.mjs';
+import { loadInitiative, saveInitiative as saveInitiativeDraft, secureInitiativePath } from './initiative-state.mjs';
 import {
   extractSourceText, isTextualSource, renderSourceRendition, TEXT_RENDITION_SUFFIX
 } from './source-text.mjs';
@@ -417,7 +417,7 @@ export async function registerEpicSource(root, {
   initiative.sources ??= { records: 0, verifiedAt: null };
   initiative.sources.records = manifest.sources.length;
   initiative.history.push({ at: observedAt, actor: actor.email?.toLowerCase() ?? actor.name, event: 'epic_source_registered', phase: initiative.currentPhase, detail: `${record.sourceId} ${record.sha256.slice(0, 12)}` });
-  await saveInitiative(root, portfolio, initiative);
+  await saveInitiativeDraft(root, portfolio, initiative);
   return { portfolio, initiative, record, recordSha256: recordHash, manifest };
 }
 
@@ -494,7 +494,7 @@ export async function registerEpicTextSource(root, {
     phase: initiative.currentPhase,
     detail: `${sourceId} ${kind}`
   });
-  await saveInitiative(root, portfolio, initiative);
+  await saveInitiativeDraft(root, portfolio, initiative);
   return { portfolio, initiative, record, recordSha256: recordHash, manifest };
 }
 

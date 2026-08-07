@@ -90,7 +90,14 @@ export class GitPublicationUnitOfWork {
     };
 
     try {
-      if (state?.write) { await state.write(envelope); wroteState = true; }
+      // Set before the call, not after. `wroteState` has to mean "the write may have reached disk",
+      // because that is the question rollback answers — and `state.write` is not one write. It saves
+      // `workflow.json` and then `STATUS.md`, and the approval path ahead of those rewrites artifact
+      // metadata, registers a snapshot and writes the decision files. A throw anywhere in there left
+      // the flag false and skipped the undo entirely, which is precisely the durable record of an
+      // event that never happened this block exists to prevent. Rolling back a write that had not
+      // started yet is harmless: it restores the state that is already on disk.
+      if (state?.write) { wroteState = true; await state.write(envelope); }
       if (fault) await fault('after-state-write', { envelope });
       if (state?.validate) await state.validate(envelope);
       if (beforeCommit) await beforeCommit(envelope);

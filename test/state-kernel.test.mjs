@@ -1,6 +1,7 @@
 import assert from 'node:assert/strict';
 import { createHash } from 'node:crypto';
-import { mkdir, mkdtemp, readFile, utimes, writeFile } from 'node:fs/promises';
+import { mkdir, mkdtemp, readFile, rm, utimes, writeFile } from 'node:fs/promises';
+import { existsSync } from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -518,4 +519,79 @@ test('a snapshot does not migrate the file it is reading', async () => {
   const planes = JSON.parse(run(process.execPath, [bin, 'state', 'planes', 'KERNEL-1', '--json'], root).stdout);
   assert.equal(planes.publicationRecovery.pending, true,
     'state planes agrees with the commands that refuse while a publication is pending');
+});
+
+test('a failure inside the state write is unwound, not just one after it', async () => {
+  // `wroteState` was set after `state.write` resolved, so it meant "the write finished" when the
+  // question rollback answers is "may the write have reached disk". `state.write` is several writes
+  // — the approval path rewrites artifact metadata, registers a snapshot and writes both decision
+  // files before saving the aggregate — so a throw partway left every one of them on disk with the
+  // undo skipped entirely.
+  const root = await mkdtemp(path.join(os.tmpdir(), 'sflow-unwind-'));
+  run('git', ['init', '-b', 'main'], root);
+  run('git', ['config', 'user.name', 'Kernel Tester'], root);
+  run('git', ['config', 'user.email', 'kernel@example.com'], root);
+  await writeFile(path.join(root, 'README.md'), '# unwind\n');
+  run('git', ['add', '.'], root);
+  run('git', ['commit', '-m', 'initial'], root);
+
+  const aggregate = path.join(root, 'state.json');
+  const decision = path.join(root, 'approved.json');
+  await writeFile(aggregate, '{"approved":false}\n');
+  run('git', ['add', 'state.json'], root);
+  run('git', ['commit', '-m', 'state'], root);
+
+  const subject = { kind: 'story', id: 'UNWIND-1', branch: 'main' };
+  const event = lifecycleEvent({ type: 'phase-approved', subject, phaseId: 'design', generation: 1 });
+  await assert.rejects(() => new GitPublicationUnitOfWork(root).execute({
+    subject,
+    event,
+    commit: { message: '[UNWIND-1][phase:design][approve]' },
+    publication: { mode: 'off', branch: 'main' },
+    allowedPaths: ['state.json'],
+    state: {
+      // Two writes, and the second throws — exactly the shape of saveWorkflow plus the approval
+      // materialisation that now runs inside it.
+      write: async () => {
+        await writeFile(decision, '{"decision":"approved"}\n');
+        await writeFile(aggregate, '{"approved":true}\n');
+        throw new Error('gpg: signing failed: Inappropriate ioctl for device');
+      },
+      rollback: async () => {
+        await writeFile(aggregate, '{"approved":false}\n');
+        await rm(decision, { force: true });
+      }
+    }
+  }), /signing failed/);
+
+  assert.equal(await readFile(aggregate, 'utf8'), '{"approved":false}\n',
+    'the aggregate is back to what it was');
+  assert.equal(existsSync(decision), false,
+    'and the decision file the half-finished write left behind is gone');
+});
+
+test('cancel and reject mutate inside the transaction, not before it', async () => {
+  // Both used to write workflow.json and publish afterwards, so the rollback snapshot was taken
+  // after the mutation and restored it instead of undoing it. A refusal raised inside the unit of
+  // work — an unreconciled ledger outbox is enough — then reported that the mutation had been
+  // refused while leaving it durable on disk with no commit, no event and no ledger entry. For
+  // cancel that was unrecoverable: cancel refuses an already-cancelled Story, every phase command
+  // fails on a null currentPhase, and reopen only accepts a complete one.
+  //
+  // Asserted on the source because the refusal is impractical to stage through the CLI: a Story
+  // pins its ledger configuration at start, so the preflight this depends on cannot be reached from
+  // a fixture without rebuilding the repository around it. `transactStory` is the guarantee — it
+  // clones the aggregate before running the transition and hands that clone in as the rollback.
+  const cli = await readFile(path.join(packageRoot, 'src', 'cli.mjs'), 'utf8');
+  const body = (name) => {
+    const start = cli.indexOf(`async function ${name}(`);
+    assert.ok(start > 0, `${name} exists`);
+    return cli.slice(start, cli.indexOf('\nasync function ', start + 1));
+  };
+  for (const command of ['cancelCommand', 'rejectCommand']) {
+    const source = body(command);
+    assert.match(source, /transactStory\(/, `${command} publishes through a transaction`);
+    assert.doesNotMatch(source, /await commitAndPublish\(/,
+      `${command} does not mutate and then publish separately`);
+  }
 });

@@ -55,3 +55,43 @@ test('visual comparison reports dimension mismatch without producing a misleadin
   });
   assert.equal(result.diffImage, null);
 });
+
+test('comparison enforce without a threshold is refused, because it could never fail', async () => {
+  // With both thresholds null, thresholdStatus can never mark a comparison as exceeded, so every
+  // comparison returned pass however different the images were and the enforce branch was
+  // unreachable for pixel differences. A team writing `mode: enforce` believes visual regressions
+  // block the gate; they did not. `coverage: enforce` already applies this rule to profiles.
+  const { normalizeVerificationPolicy } = await import('../src/config.mjs');
+  assert.throws(
+    () => normalizeVerificationPolicy({ coverage: 'warn', comparison: { mode: 'enforce', channelTolerance: 8 } }),
+    /enforce requires maxDifferingPixels or maxDifferingPixelRatio/
+  );
+  // A threshold of zero is a threshold: any differing pixel fails.
+  assert.equal(
+    normalizeVerificationPolicy({ coverage: 'warn', comparison: { mode: 'enforce', maxDifferingPixels: 0 } }).comparison.maxDifferingPixels,
+    0
+  );
+  // warn is unaffected: it never claimed to block anything.
+  assert.equal(normalizeVerificationPolicy({ coverage: 'warn', comparison: { mode: 'warn' } }).comparison.mode, 'warn');
+});
+
+test('visual evidence that will not parse fails the gate instead of vanishing', async () => {
+  // This module is the only reader, writer and validator of the evidence tree, so a swallowed parse
+  // error meant a comparison recorded as `fail` could be truncated or edited into invalid JSON and
+  // simply disappear: the gate counted zero failures and passed.
+  const { listVisualComparisons } = await import('../src/visual-compare.mjs');
+  const root = await mkdtemp(path.join(os.tmpdir(), 'sflow-visual-evidence-'));
+  const item = path.join(root, 'singularity/work-items/VIS-1');
+  const evidence = path.join(item, 'artifacts/visual-verification/evidence');
+  await mkdir(evidence, { recursive: true });
+  await writeFile(path.join(evidence, 'good.json'),
+    `${JSON.stringify({ kind: 'visual-comparison', id: 'cmp-1', status: 'pass' })}\n`);
+  await writeFile(path.join(evidence, 'damaged.json'), '{"kind":"visual-comparison","id":"cmp-2","stat');
+
+  const results = await listVisualComparisons(root, workflow(root), { itemDirectory: item });
+  const damaged = results.find((entry) => entry.unreadable);
+  assert.ok(damaged, 'the damaged record is reported rather than discarded');
+  assert.equal(damaged.status, 'fail');
+  assert.match(damaged.path, /damaged\.json$/);
+  assert.equal(results.filter((entry) => !entry.unreadable).length, 1, 'and the readable one still loads');
+});

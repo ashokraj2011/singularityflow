@@ -154,7 +154,10 @@ export async function runGovernanceGate(root, config, workflow, { terminal = fal
   if (visualCoverage.status === 'pass') passes.push(`visual coverage: ${visualCoverage.covered.length}/${visualCoverage.profiles.length} profiles`);
   const comparisons = await listVisualComparisons(root, workflow, { itemDirectory: workDir(root, config, workflow.workItem.id) });
   for (const comparison of comparisons) {
-    if (comparison.status === 'fail' && workflow.resolution?.verification?.comparison?.mode === 'enforce') errors.push(`visual comparison ${comparison.id} exceeds policy thresholds`);
+    // Evidence that will not parse is an integrity failure, not a threshold decision, so it fails
+    // the gate whatever the comparison mode says. Otherwise damaging a record is a way past it.
+    if (comparison.unreadable) errors.push(`visual comparison evidence ${comparison.path} could not be read: ${comparison.error}`);
+    else if (comparison.status === 'fail' && workflow.resolution?.verification?.comparison?.mode === 'enforce') errors.push(`visual comparison ${comparison.id} exceeds policy thresholds`);
     else if (comparison.status !== 'pass') warnings.push(`visual comparison ${comparison.id}: ${comparison.status}`);
   }
   if (comparisons.length) passes.push(`visual comparisons: ${comparisons.length} deterministic result(s)`);

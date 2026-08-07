@@ -109,7 +109,23 @@ export async function listVisualComparisons(root, workflow, { itemDirectory = nu
       const absolute = path.join(current, entry.name);
       if (entry.isDirectory()) await walk(absolute);
       else if (entry.isFile() && entry.name.endsWith('.json')) {
-        try { const value = JSON.parse(await read(absolute, 'utf8')); if (value.kind === 'visual-comparison') results.push({ ...value, path: posix(path.relative(itemRoot(root, workflow, itemDirectory), absolute)) }); } catch { /* governed checks report malformed evidence elsewhere */ }
+        const relative = posix(path.relative(itemRoot(root, workflow, itemDirectory), absolute));
+        /*
+         * Unreadable evidence is reported, not discarded.
+         *
+         * The comment here used to say governed checks report malformed evidence elsewhere. Nothing
+         * does — this module is the only reader, writer and validator of this tree, unlike
+         * `context/mcp`, which `verifyMcpEvidence` audits record by record. So truncating or editing
+         * a comparison recorded as `fail` made it vanish: the gate counted zero failures and passed,
+         * and the dashboard card simply disappeared. Damaging a failing piece of evidence was an
+         * undetectable way through the gate, which is the exact opposite of what this record is for.
+         */
+        try {
+          const value = JSON.parse(await read(absolute, 'utf8'));
+          if (value.kind === 'visual-comparison') results.push({ ...value, path: relative });
+        } catch (error) {
+          results.push({ kind: 'visual-comparison', unreadable: true, status: 'fail', path: relative, error: error.message });
+        }
       }
     }
   }

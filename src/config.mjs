@@ -190,6 +190,17 @@ export function normalizeVerificationPolicy(value = null, { phases = [] } = {}) 
   if (ratio != null && (!Number.isFinite(ratio) || ratio < 0 || ratio > 1)) throw new SingularityFlowError('verification.comparison.maxDifferingPixelRatio must be null or a number from 0 to 1.');
   const pixels = comparison.maxDifferingPixels ?? null;
   if (pixels != null && (!Number.isInteger(pixels) || pixels < 0)) throw new SingularityFlowError('verification.comparison.maxDifferingPixels must be null or a non-negative integer.');
+  // `enforce` has to be able to fail. Both thresholds are optional, and with neither set
+  // `thresholdStatus` can never mark a comparison as exceeded — so every comparison returned `pass`
+  // however different the images were, and the `mode === 'enforce'` branch was unreachable for pixel
+  // differences. A team writing `mode: enforce` believes visual regressions now block the gate; they
+  // never did. This is the same rule `coverage: enforce` already applies to profiles above.
+  if (mode === 'enforce' && ratio == null && pixels == null) {
+    throw new SingularityFlowError(
+      'verification.comparison enforce requires maxDifferingPixels or maxDifferingPixelRatio; '
+      + 'without a threshold no comparison can ever fail.'
+    );
+  }
   const maxPixels = comparison.maxPixels ?? 40_000_000;
   if (!Number.isInteger(maxPixels) || maxPixels < 1 || maxPixels > 100_000_000) throw new SingularityFlowError('verification.comparison.maxPixels must be an integer from 1 to 100000000.');
   return { coverage, profiles: normalizedProfiles, comparison: { mode, channelTolerance, maxDifferingPixelRatio: ratio, maxDifferingPixels: pixels, maxPixels } };

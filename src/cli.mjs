@@ -2353,15 +2353,26 @@ async function rejectCommand(positionals, options) {
   const { root, config, workflow, phase: current, session } = await decisionWorkflow(positionals, options, 'reject');
   const target = optionString(options, 'to') ?? current.id;
   console.log(`Requesting changes to ${current.id}, returning work to ${target} as ${session.actor.name ?? session.actor.email ?? session.actor.login}; governed agent ${session.agent} is audit context only. Approvals from ${target} onward will be invalidated.`);
-  const phase = await rejectPhase(root, config, workflow, {
-    phaseId: current.id,
-    target,
-    reason: optionString(options, 'reason'),
-    clauseIds: optionStrings(options, 'clause'),
-    channel: process.env.SINGULARITY_FLOW_GITHUB_ACTOR ? 'github-pr-comment' : 'terminal',
-    actionContext: activeActionContext()
-  });
-  await commitAndPublish(root, config, workflow, { type: 'phase-rejected', phaseId: current.id, generation: current.generation, actor: session.actor, agent: session.agent, payload: { targetPhaseId: phase.id } }, `[${workflow.workItem.id}][phase:${current.id}][reject] return to ${phase.id}`);
+  // Inside the transaction: rejecting used to write workflow.json and the change-request decision
+  // first and publish afterwards, so a refusal in the publication preflight reported that nothing
+  // had happened while leaving every downstream approval invalidated and the decision durable and
+  // unattested. `target` is resolved before the mutation, so the event needs nothing the transition
+  // produces.
+  const { value: phase } = await transactStory(
+    root,
+    config,
+    workflow,
+    { type: 'phase-rejected', phaseId: current.id, generation: current.generation, actor: session.actor, agent: session.agent, payload: { targetPhaseId: target.id ?? target } },
+    `[${workflow.workItem.id}][phase:${current.id}][reject] return to ${target.id ?? target}`,
+    (aggregate) => rejectPhase(root, config, aggregate, {
+      phaseId: current.id,
+      target,
+      reason: optionString(options, 'reason'),
+      clauseIds: optionStrings(options, 'clause'),
+      channel: process.env.SINGULARITY_FLOW_GITHUB_ACTOR ? 'github-pr-comment' : 'terminal',
+      actionContext: activeActionContext()
+    })
+  );
   console.log(`Recorded ${phase.changeRequest.id}; ${phase.id} is now in progress. Comment: ${phase.changeRequest.comment}`);
   if (phase.changeRequest.clauseIds?.length) console.log(`Clauses requiring revision: ${phase.changeRequest.clauseIds.join(', ')}`);
   formatContextBoundaryHandoff(phase.contextBoundary).forEach((line) => console.log(line));
@@ -2423,19 +2434,39 @@ async function cancelCommand(positionals, options) {
       + `Re-run with --confirm ${workflow.workItem.id} after reviewing the generated artifacts.`
     );
   }
-  const result = await cancelWorkflow(root, config, workflow, {
-    reason: optionString(options, 'reason'),
-    channel: 'terminal',
-    actionContext: activeActionContext()
-  });
-  const publication = await commitAndPublish(root, config, workflow, {
-    type: 'work-cancelled',
-    phaseId: result.phase.id,
-    generation: result.phase.generation,
-    actor: result.cancellation.cancelledBy,
-    agent: result.cancellation.agent,
-    payload: { reason: result.cancellation.reason }
-  }, `[${workflow.workItem.id}][cancel] archive cancelled work`);
+  // Cancelling runs *inside* the transaction, like every other governed mutation.
+  //
+  // It used to write `workflow.json` first and publish afterwards, so the rollback snapshot was
+  // taken after the mutation and restored the cancellation instead of undoing it. Any refusal in the
+  // publication preflight — an unreconciled ledger outbox is enough — reported that the mutation had
+  // been refused while leaving the Story cancelled on disk with no commit, no event and no ledger
+  // entry. Nothing could then recover it: cancel refuses an already-cancelled Story, every phase
+  // command fails on a null currentPhase, and reopen only accepts a complete one.
+  //
+  // Every value the event needs comes from the state before the mutation, so the envelope is built
+  // here and the cancellation itself happens in the transition.
+  const cancelPhase = workflow.currentPhase ? workflow.phases?.[workflow.currentPhase] : null;
+  if (!cancelPhase) throw new SingularityFlowError(`Story '${workflow.workItem.id}' has no active phase to cancel.`);
+  const cancelSession = await loadSession(root);
+  const { value: result, publication } = await transactStory(
+    root,
+    config,
+    workflow,
+    {
+      type: 'work-cancelled',
+      phaseId: cancelPhase.id,
+      generation: cancelPhase.generation,
+      actor: cancelSession.actor,
+      agent: cancelSession.agent ?? null,
+      payload: { reason: String(optionString(options, 'reason') ?? '').trim() }
+    },
+    `[${workflow.workItem.id}][cancel] archive cancelled work`,
+    (aggregate) => cancelWorkflow(root, config, aggregate, {
+      reason: optionString(options, 'reason'),
+      channel: 'terminal',
+      actionContext: activeActionContext()
+    })
+  );
   console.log(`Cancelled ${workflow.workItem.id} during ${result.phase.id}: ${result.cancellation.reason}`);
   console.log(`All generated artifacts and approvals remain on ${workflowPublicationBranch(root, workflow)}.`);
   console.log(publication.pushed

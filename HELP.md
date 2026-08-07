@@ -1056,9 +1056,18 @@ singularity-flow documents upload ./figma-export --kind figma-export
 singularity-flow documents upload \
   --url https://www.figma.com/design/example \
   --label "Checkout design"
+singularity-flow documents detach DOC-001 --reason "Superseded evidence"
+singularity-flow documents detach DOC-002 --scope package --reason "Replace the Figma package"
+singularity-flow documents list --all
+singularity-flow epic sources detach SRC-001 --epic MOB-100 --reason "Source withdrawn"
+singularity-flow epic sources list --epic MOB-100 --all
 ```
 
 Each uploaded file receives a stable ID, content hash, MIME type, actor, agent, and phase. Directories are imported recursively in deterministic relative-path order, with symbolic links rejected. Upload is allowed only during the initial phases configured by the selected profile. Local files are copied and pushed; external Figma or reference URLs are cataloged without being downloaded.
+
+All governed prompt consumers use the same active-evidence renderer. Text is hash-verified and embedded only up to the configured preview limit. Binary evidence is hash-verified and delivered as repository path, MIME type, byte count, and SHA-256 with an instruction to use the host file/image/PDF tools. Evidence is explicitly labeled untrusted source material. Detached records are excluded from prompts and prompt-cache keys.
+
+Detaching requires a reason and exact confirmation. It never deletes bytes. Singularity Flow records an append-only decision, marks affected prompt compositions stale, reopens the earliest dependent phase, invalidates its downstream approval cone, commits, and pushes through the lifecycle publication transaction. Unrelated phases remain valid. Use `/sf-documents` or `/sf-upload` for the same attach/list/view/detach flow in Copilot, or **Lifecycle → Manage evidence & designs** in VS Code.
 
 ### Fetch documents from a storage provider (OneDrive/SharePoint)
 
@@ -2193,9 +2202,12 @@ singularity-flow report [WORK-ID] [--format md|html|json] [--out FILE]
 singularity-flow prompt-log on|off|status|list|view [ID|latest] [--agent AGENT] [--phase PHASE]
 singularity-flow telemetry status [--json]
 singularity-flow telemetry reconcile [PHASE] [--json]
-singularity-flow documents list [WORK-ID] [--json]
-singularity-flow documents view <DOCUMENT-ID|PATH> [--work-id ID]
+singularity-flow documents list [WORK-ID] [--active|--all] [--json]
+singularity-flow documents view <DOCUMENT-ID|PATH> [--work-id ID] [--all]
 singularity-flow documents upload <FILE-OR-DIRECTORY...> [--url URL]
+singularity-flow documents detach <DOCUMENT-ID> [--scope file|package] --reason TEXT [--yes]
+singularity-flow epic sources list --epic <EPIC-ID> [--active|--all]
+singularity-flow epic sources detach <SOURCE-ID> --epic <EPIC-ID> --reason TEXT [--yes]
 singularity-flow documents browse --provider <ID> [--path FOLDER] [--json]
 singularity-flow documents fetch --provider <ID> --ref <ITEM> [--name NAME] [--label TEXT] [--kind KIND]
 singularity-flow prepare [PHASE]

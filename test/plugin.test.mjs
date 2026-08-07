@@ -36,8 +36,21 @@ test('plugin provides one upload-first skill for Epic and Story evidence', async
   assert.match(content, /epic sources add --epic/);
   assert.match(content, /documents upload/);
   assert.match(content, /files, folders, images, PDFs, Figma exports/);
+  assert.match(content, /documents detach/);
+  assert.match(content, /epic sources detach/);
+  assert.match(content, /complete package/i);
+  assert.match(content, /reason/i);
   assert.match(content, /stable source\/document ID/);
   assert.match(content, /commit, and push result/);
+});
+
+test('document skill manages active and detached evidence with explicit consequences', async () => {
+  const content = await readFile(path.join(pluginRoot, 'skills', 'sflow-documents', 'SKILL.md'), 'utf8');
+  assert.match(content, /documents list[\s\S]*--all/);
+  assert.match(content, /documents detach/);
+  assert.match(content, /epic sources detach/);
+  assert.match(content, /invalidated phases/i);
+  assert.match(content, /explicit[\s\S]*confirmation/i);
 });
 
 test('plugin provides direct Jira connection, assigned work, sprint board, and guarded update skills', async () => {

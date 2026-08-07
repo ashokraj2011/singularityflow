@@ -468,9 +468,14 @@ singularity-flow documents upload ./exports --kind directory-import
 singularity-flow documents upload --url https://example.com/design --label "Design"
 singularity-flow documents list WORK-123
 singularity-flow documents view DOC-001 --work-id WORK-123
+singularity-flow documents detach DOC-001 --reason "Superseded by approved evidence"
+singularity-flow documents detach DOC-002 --scope package --reason "Replace the complete export"
+singularity-flow documents list WORK-123 --all
 ```
 
 Uploads require an active work-item session with its current phase agent, and are allowed only in the phases listed by `documents.allowedPhases` — for `feature` that is `intake`, `requirements`, `design`, and `implementation-spec`. Later uploads trigger a soft gate that must be confirmed interactively. `--label` applies to a single document; the per-file limit is `documents.maxFileBytes`.
+
+Detach requires a reason and confirmation, retains the committed file, hides it from the active catalog and all future Copilot prompts, and records a hash-addressed decision. If the evidence was already consumed, only its dependent phase cone is reopened. Use `--all` to inspect detached history. For Epic evidence use `singularity-flow epic sources detach SRC-001 --epic EPIC-123 --reason "..."`; `/sf-documents` and `/sf-upload` provide the same guided actions in Copilot.
 
 ---
 

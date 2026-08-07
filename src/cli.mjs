@@ -71,7 +71,7 @@ import { runGovernanceGate } from './governance.mjs';
 import { worldModelCommand } from './worldmodel.mjs';
 import { initializationStatus, initializeDefinition, resolveWorkType, validateDefinition, WORKFLOW_PATH } from './config.mjs';
 import { activateWorkItemSession, loadCopilotSession, loadSession, agentSessionStatus, restoreAgentSession, restoreCopilotSession, selectIntakeSource, selectAgent, selectWorkType, setAgentSession } from './session.mjs';
-import { addDocuments, documentCatalog, fetchRemoteDocument, listRemoteDocuments, previewDocument, viewDocument } from './documents.mjs';
+import { addDocuments, detachDocuments, documentCatalog, fetchRemoteDocument, listRemoteDocuments, previewDocument, viewDocument } from './documents.mjs';
 import { progressBar, progressFlow, progressSnapshot } from './progress.mjs';
 import { deriveReport, renderHtml, renderMarkdown } from './report.mjs';
 import { loadManualStory, promptManualStory } from './intake.mjs';
@@ -150,7 +150,7 @@ import { composeInitiativeContext, verifyInitiativeContext } from './initiative-
 import { createPlanningContext, promotePlanningArtifact, promotePlanningArtifacts } from './planning.mjs';
 import { formatContextBoundaryHandoff } from './context-policy.mjs';
 import {
-  listEpicSources, registerEpicSource, registerEpicTextSource, verifyEpicSources
+  detachEpicSource, listEpicSources, registerEpicSource, registerEpicTextSource, verifyEpicSources
 } from './epic-sources.mjs';
 import {
   adoptEpicStory, completeEpicIntake, completeEpicPublication, EPIC_PHASES,
@@ -367,10 +367,11 @@ Usage:
   singularity-flow visual status [--json]
   singularity-flow visual compare --expected RECORD-OR-PATH --actual RECORD-OR-PATH [--profile ID] [--json]
   singularity-flow wm design-inventory --from-records [--json]
-  singularity-flow documents list [WORK-ID] [--json]
-  singularity-flow documents view <DOCUMENT-ID|PATH> [--work-id ID] [--json]
+  singularity-flow documents list [WORK-ID] [--active|--all] [--json]
+  singularity-flow documents view <DOCUMENT-ID|PATH> [--work-id ID] [--all] [--json]
   singularity-flow documents preview <DOCUMENT-ID|PATH> [--work-id ID] [--json]
   singularity-flow documents upload <FILE-OR-DIRECTORY...> [--url URL] [--label TEXT] [--kind KIND]
+  singularity-flow documents detach <DOCUMENT-ID> [--scope file|package] --reason TEXT [--yes]
   singularity-flow prepare [PHASE]
   singularity-flow phase show [PHASE] [--json]
   singularity-flow phase publish [PHASE] [--usage-json FILE]
@@ -458,9 +459,10 @@ Usage:
   singularity-flow initiative gate [INIT-ID] [--terminal] [--json]
   singularity-flow epic start <EPIC-KEY> [--selection-receipt TOKEN]
   singularity-flow epic start --local --title "Epic title" --description TEXT --goal TEXT [--agent ID]
-  singularity-flow epic sources [list|add|note|answer|verify|materialize] [--epic EPIC-KEY]
+  singularity-flow epic sources [list|add|note|answer|verify|materialize|detach] [--epic EPIC-KEY]
     [--provider ID] [--file PATH | --url URL] [--label TEXT] [--mime TYPE]
-    [--text TEXT | --text-file FILE]
+    [--text TEXT | --text-file FILE] [--active|--all]
+    detach <SOURCE-ID> --epic EPIC-KEY --reason TEXT [--yes]
   singularity-flow epic requirements prepare|status|publish|approve
   singularity-flow epic planning prepare|status|validate|publish|approve
     Approving the Story plan is an explicit business review: it needs the exact
@@ -614,7 +616,7 @@ async function confirm(phase) {
 async function confirmExact(prompt, expected) {
   if (!input.isTTY || !output.isTTY) {
     if (process.env.NODE_ENV === 'test' && process.env.SINGULARITY_FLOW_TEST_AGENT_CONFIRM === expected) return true;
-    throw new SingularityFlowError(`Trusting agent '${expected}' requires an interactive terminal and exact pack-name confirmation.`);
+    throw new SingularityFlowError(`Confirming '${expected}' requires an interactive terminal; use the command's explicit non-interactive confirmation flag when available.`);
   }
   const io = readline.createInterface({ input, output });
   try { return (await io.question(`${prompt}\nType ${expected} to continue: `)).trim() === expected; }
@@ -1389,21 +1391,70 @@ async function nextCommand(options) {
 async function documentsCommand(positionals, options) {
   const subcommand = requirePositional(positionals, 1, 'documents subcommand'); const root = repoRoot(); const config = await loadConfig(root);
   if (subcommand === 'list') {
-    const workflow = await loadStoryAggregate(root, config, positionals[2]); const records = await documentCatalog(root, config, workflow);
+    if (optionBoolean(options, 'active') && optionBoolean(options, 'all')) throw new SingularityFlowError('Choose either --active or --all, not both.');
+    const workflow = await loadStoryAggregate(root, config, positionals[2]);
+    const records = await documentCatalog(root, config, workflow, { includeDetached: optionBoolean(options, 'all') });
     if (optionBoolean(options, 'json')) return console.log(JSON.stringify(records, null, 2));
     if (!records.length) return console.log('No documents found.');
-    return console.log(table(records.map((item) => ({ id: item.id, type: item.type, phase: item.phase ?? '', label: item.label, location: item.url ?? item.path ?? '' })), [
-      { key: 'id', label: 'ID' }, { key: 'type', label: 'TYPE' }, { key: 'phase', label: 'PHASE' }, { key: 'label', label: 'LABEL' }, { key: 'location', label: 'LOCATION' }
+    return console.log(table(records.map((item) => ({ id: item.id, type: item.type, phase: item.phase ?? '', status: item.status ?? 'active', label: item.label, location: item.url ?? item.path ?? '', reason: item.detachReason ?? '' })), [
+      { key: 'id', label: 'ID' }, { key: 'type', label: 'TYPE' }, { key: 'phase', label: 'PHASE' }, { key: 'status', label: 'STATUS' }, { key: 'label', label: 'LABEL' }, { key: 'location', label: 'LOCATION' }, { key: 'reason', label: 'DETACH REASON' }
     ]));
   }
   if (subcommand === 'view') {
-    const reference = requirePositional(positionals, 2, 'document ID or path'); const workflow = await loadStoryAggregate(root, config, optionString(options, 'work-id')); const result = await viewDocument(root, config, workflow, reference);
+    const reference = requirePositional(positionals, 2, 'document ID or path'); const workflow = await loadStoryAggregate(root, config, optionString(options, 'work-id')); const result = await viewDocument(root, config, workflow, reference, { includeDetached: optionBoolean(options, 'all') });
     if (optionBoolean(options, 'json')) return console.log(JSON.stringify(result, null, 2));
     console.log(`${result.record.id} — ${result.record.label}`); console.log(`Type: ${result.record.type}${result.record.mimeType ? ` (${result.record.mimeType})` : ''}`);
     if (result.record.url) console.log(`URL: ${result.record.url}`);
     else console.log(`Path: ${result.absolutePath ?? pathForDisplay(root, result.record.path)}`);
     if (result.binary) console.log('Binary document: use the path above in an image, PDF, Figma, or local viewer.');
     else if (result.content != null) process.stdout.write(`\n${result.content}`);
+    return;
+  }
+  if (subcommand === 'detach') {
+    const documentId = requirePositional(positionals, 2, 'document ID');
+    const reason = optionString(options, 'reason');
+    if (!reason?.trim()) throw new SingularityFlowError('Document detachment requires --reason "<reason>".');
+    const scope = optionString(options, 'scope', 'file');
+    const workflow = await loadStoryAggregate(root, config, optionString(options, 'work-id'));
+    const records = await documentCatalog(root, config, workflow, { includeDetached: true });
+    const selected = records.find((record) => record.id === documentId);
+    if (!selected) throw new SingularityFlowError(`Supporting document '${documentId}' was not found.`);
+    const targets = scope === 'package' && selected.packageId
+      ? records.filter((record) => record.packageId === selected.packageId && (record.status == null || ['active', 'pinned'].includes(record.status)))
+      : [selected];
+    const json = optionBoolean(options, 'json');
+    if (!json) {
+      console.log(`Detach ${scope === 'package' ? `package ${selected.packageId} (${targets.length} files)` : `${selected.id} — ${selected.label}`}.`);
+      console.log('Committed bytes and audit history will be preserved. Future governed prompts will omit the evidence; dependent generated work and approvals may be invalidated.');
+    }
+    if (!optionBoolean(options, 'yes') && !(await confirmExact('Confirm this governed evidence detachment.', documentId))) {
+      console.log('No state changed.');
+      return;
+    }
+    let detached;
+    const publication = await commitAndPublish(
+      root,
+      config,
+      workflow,
+      { type: 'evidence-recorded', phaseId: workflow.currentPhase, payload: { action: 'detached', documentId, scope } },
+      `[${workflow.workItem.id}][evidence:detach] ${documentId}`,
+      [],
+      { beforeStateWrite: async () => { detached = await detachDocuments(root, config, workflow, { documentId, scope, reason }); } }
+    );
+    const reloaded = await loadStoryAggregate(root, config, workflow.workItem.id);
+    const next = nextStepsSnapshot({
+      branch: branch(root),
+      workflow: reloaded,
+      publicationPending: await storyPublicationPending(root, config, reloaded.workItem.id)
+    });
+    const result = { ...detached, publication, next };
+    if (json) return console.log(JSON.stringify(result, null, 2));
+    console.log(`Decision: ${detached.decision.sha256}`);
+    console.log(`Commit: ${publication.sha.slice(0, 8)}${publication.pushed ? ' pushed' : ' retained locally; run singularity-flow sync'}`);
+    console.log(`Invalidated phases: ${detached.affectedPhases.length ? detached.affectedPhases.join(', ') : 'none'}`);
+    if (detached.reopenedPhase) console.log(`Reopened phase: ${detached.reopenedPhase}`);
+    console.log(`Next in Copilot: /sf-nextsteps`);
+    console.log(`CLI equivalent: singularity-flow nextsteps`);
     return;
   }
   if (subcommand === 'preview') {
@@ -5594,6 +5645,43 @@ async function epicCommand(positionals, options) {
     const root = repoRoot();
     const initiativeId = optionString(options, 'epic') ?? branch(root);
     const action = positionals[2] ?? 'list';
+    if (action === 'detach') {
+      const sourceId = requirePositional(positionals, 3, 'Epic source ID');
+      const reason = optionString(options, 'reason');
+      if (!reason?.trim()) throw new SingularityFlowError('Epic source detachment requires --reason "<reason>".');
+      const loaded = await loadInitiativeAggregate(root, initiativeId);
+      const catalog = await listEpicSources(root, initiativeId, { includeDetached: true });
+      const selected = catalog.manifest.sources.find((source) => source.sourceId === sourceId);
+      if (!selected) throw new SingularityFlowError(`Epic source '${sourceId}' was not found.`);
+      const json = optionBoolean(options, 'json');
+      if (!json) {
+        console.log(`Detach ${sourceId} — ${selected.name}.`);
+        console.log('Committed bytes and audit history will be preserved. Future governed prompts will omit this source; dependent generated work and approvals may be invalidated.');
+      }
+      if (!optionBoolean(options, 'yes') && !(await confirmExact('Confirm this governed Epic source detachment.', sourceId))) {
+        console.log('No state changed.');
+        return;
+      }
+      const session = await loadSession(root).catch(() => ({}));
+      let detached;
+      const publication = await commitInitiativeChange(
+        root,
+        loaded.portfolio,
+        loaded.initiative,
+        { type: 'evidence-recorded', phaseId: loaded.initiative.currentPhase, payload: { action: 'detached', sourceId } },
+        `[${initiativeId}][epic:evidence:detach] ${sourceId}`,
+        { beforeStateWrite: async () => { detached = await detachEpicSource(root, loaded.portfolio, loaded.initiative, { sourceId, reason, agent: session.agent ?? null }); } }
+      );
+      const result = { ...detached, publication };
+      if (json) return console.log(JSON.stringify(result, null, 2));
+      console.log(`Decision: ${detached.decision.sha256}`);
+      console.log(`Commit: ${publication.sha.slice(0, 8)}${publication.pushed ? ' pushed' : ' retained locally; run singularity-flow initiative sync'}`);
+      console.log(`Invalidated phases: ${detached.affectedPhases.length ? detached.affectedPhases.join(', ') : 'none'}`);
+      if (detached.reopenedPhase) console.log(`Reopened phase: ${detached.reopenedPhase}`);
+      console.log(`Next in Copilot: /sf-initiative-next`);
+      console.log(`CLI equivalent: singularity-flow initiative next ${initiativeId}`);
+      return;
+    }
     if (action === 'note' || action === 'answer') {
       const textFile = optionString(options, 'text-file');
       const text = textFile ? await readFile(path.resolve(textFile), 'utf8') : optionString(options, 'text');
@@ -5664,14 +5752,16 @@ async function epicCommand(positionals, options) {
       return;
     }
     if (action !== 'list') throw new SingularityFlowError(`Unknown Epic sources action '${action}'.`);
-    const result = await listEpicSources(root, initiativeId);
+    if (optionBoolean(options, 'active') && optionBoolean(options, 'all')) throw new SingularityFlowError('Choose either --active or --all, not both.');
+    const result = await listEpicSources(root, initiativeId, { includeDetached: optionBoolean(options, 'all') });
     if (optionBoolean(options, 'json')) return console.log(JSON.stringify(result.manifest, null, 2));
     return console.log(table(result.manifest.sources, [
       { key: 'sourceId', label: 'SOURCE' },
       { key: 'name', label: 'NAME' },
       { key: 'provider', label: 'PROVIDER' },
       { key: 'bytes', label: 'BYTES' },
-      { key: 'status', label: 'STATUS' }
+      { key: 'status', label: 'STATUS' },
+      { key: 'detachReason', label: 'DETACH REASON' }
     ]));
   }
   if (['requirements', 'planning'].includes(subcommand)) {

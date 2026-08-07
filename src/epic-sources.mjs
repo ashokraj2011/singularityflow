@@ -1,5 +1,5 @@
 import { createHash, randomUUID } from 'node:crypto';
-import { lstat, mkdir, readFile, realpath, rename, rm } from 'node:fs/promises';
+import { lstat, mkdir, readFile, readdir, realpath, rename, rm } from 'node:fs/promises';
 import path from 'node:path';
 import YAML from 'yaml';
 import { identity } from './git.mjs';
@@ -9,7 +9,7 @@ import {
   extractSourceText, isTextualSource, renderSourceRendition, TEXT_RENDITION_SUFFIX
 } from './source-text.mjs';
 import {
-  commandExists, nowIso, posix, run, SingularityFlowError, snapshot, writeAtomic, writeJson, writeText
+  commandExists, exists, nowIso, posix, run, SingularityFlowError, snapshot, writeAtomic, writeJson, writeText
 } from './util.mjs';
 
 const SOURCE_RECORD_VERSION = 1;
@@ -317,6 +317,71 @@ function sourceRecordHash(record) {
   return sha256(JSON.stringify(record));
 }
 
+export function epicSourceIsActive(record) {
+  return record?.status == null || ['active', 'pinned'].includes(record.status);
+}
+
+async function sourceContextFiles(directory) {
+  if (!(await exists(directory))) return [];
+  const files = [];
+  for (const entry of await readdir(directory, { withFileTypes: true })) {
+    const absolute = path.join(directory, entry.name);
+    if (entry.isDirectory()) files.push(...await sourceContextFiles(absolute));
+    else if (entry.isFile() && entry.name.endsWith('.json')) files.push(absolute);
+  }
+  return files.sort();
+}
+
+async function epicSourceDependencies(root, portfolio, initiative, entry) {
+  const initiativeRoot = await secureInitiativePath(root, portfolio, initiative.initiative.id, 'context', {
+    label: `Epic '${initiative.initiative.id}' prompt context`
+  });
+  const needles = [entry.sourceId, entry.sha256, entry.recordSha256, entry.recordPath].filter(Boolean);
+  const phases = new Set();
+  const records = [];
+  for (const file of await sourceContextFiles(initiativeRoot.absolute)) {
+    let parsed;
+    try { parsed = JSON.parse(await readFile(file, 'utf8')); } catch { continue; }
+    if (!needles.some((needle) => JSON.stringify(parsed).includes(needle))) continue;
+    if (parsed.phase && initiative.phases?.[parsed.phase]) phases.add(parsed.phase);
+    parsed.stale = true;
+    parsed.staleReason = `Epic source detached: ${entry.sourceId}`;
+    parsed.staleAt = nowIso();
+    await writeJson(file, parsed);
+    records.push(posix(path.relative(root, file)));
+  }
+  return { phases: [...phases], records };
+}
+
+function initiativeSourceCone(initiative, phaseIds) {
+  const indexes = phaseIds.map((phaseId) => initiative.phaseOrder.indexOf(phaseId)).filter((index) => index >= 0);
+  if (!indexes.length) return { affectedPhases: [], reopenedPhase: null, earliest: -1 };
+  const earliest = Math.min(...indexes);
+  return {
+    earliest,
+    reopenedPhase: initiative.phaseOrder[earliest],
+    affectedPhases: initiative.phaseOrder.slice(earliest)
+  };
+}
+
+function invalidateInitiativeSourceCone(initiative, cone, decisionSha256, at) {
+  if (cone.earliest < 0) return;
+  for (let index = cone.earliest; index < initiative.phaseOrder.length; index += 1) {
+    const phase = initiative.phases[initiative.phaseOrder[index]];
+    phase.status = index === cone.earliest ? 'in_progress' : 'not_started';
+    phase.submittedAt = null;
+    phase.approvedAt = null;
+    phase.invalidatedAt = at;
+    phase.invalidatedBy = decisionSha256;
+    for (const output of Object.values(phase.outputs ?? {})) {
+      if (output.status !== 'not_generated') output.status = 'stale';
+      output.invalidatedBy = decisionSha256;
+    }
+  }
+  initiative.currentPhase = cone.reopenedPhase;
+  initiative.status = 'in_progress';
+}
+
 export function sourceRuntime(runtime, providerId) {
   const envName = `SINGULARITY_FLOW_STORAGE_TOKEN_${providerId.toUpperCase().replace(/[^A-Z0-9]/g, '_')}`;
   return { ...runtime, token: runtime.token ?? process.env[envName] ?? null };
@@ -498,14 +563,20 @@ export async function registerEpicTextSource(root, {
   return { portfolio, initiative, record, recordSha256: recordHash, manifest };
 }
 
-export async function listEpicSources(root, initiativeId) {
+export async function listEpicSources(root, initiativeId, { includeDetached = false } = {}) {
   const { portfolio, initiative } = await loadInitiative(root, initiativeId);
   const manifest = await readSourceManifest(root, portfolio, initiativeId);
-  return { portfolio, initiative, manifest };
+  return {
+    portfolio,
+    initiative,
+    manifest: includeDetached
+      ? manifest
+      : { ...manifest, sources: manifest.sources.filter(epicSourceIsActive) }
+  };
 }
 
-export async function verifyEpicSources(root, initiativeId, { runtime = {}, materialize = false } = {}) {
-  const { portfolio, initiative, manifest } = await listEpicSources(root, initiativeId);
+export async function verifyEpicSources(root, initiativeId, { runtime = {}, materialize = false, includeDetached = false } = {}) {
+  const { portfolio, initiative, manifest } = await listEpicSources(root, initiativeId, { includeDetached });
   const storage = initiative.resolution.storage ?? portfolio.storage;
   const results = [];
   for (const entry of manifest.sources) {
@@ -617,6 +688,81 @@ export async function verifyEpicSources(root, initiativeId, { runtime = {}, mate
   }
   const valid = results.every((entry) => entry.status === 'verified');
   return { initiativeId, valid, results };
+}
+
+/**
+ * Detach an Epic source without deleting its committed source record or bytes. Call this from
+ * commitInitiativeChange.beforeStateWrite so the manifest, decision, invalidation, commit, and
+ * push share the initiative publication lock and optimistic revision check.
+ */
+export async function detachEpicSource(root, portfolio, initiative, {
+  sourceId,
+  reason,
+  agent = null
+} = {}) {
+  const comment = String(reason ?? '').trim();
+  if (!comment) throw new SingularityFlowError('A detachment reason is required.');
+  const manifest = await readSourceManifest(root, portfolio, initiative.initiative.id);
+  const entry = manifest.sources.find((candidate) => candidate.sourceId === sourceId);
+  if (!entry) throw new SingularityFlowError(`Epic source '${sourceId}' was not found.`);
+  if (!epicSourceIsActive(entry)) throw new SingularityFlowError(`Epic source '${sourceId}' is already detached.`);
+  const at = nowIso();
+  const dependencies = await epicSourceDependencies(root, portfolio, initiative, entry);
+  const cone = initiativeSourceCone(initiative, dependencies.phases);
+  const actor = identity(root);
+  const decision = {
+    schemaVersion: 1,
+    type: 'evidence-detachment',
+    subject: { kind: 'initiative', id: initiative.initiative.id },
+    target: { sourceId },
+    reason: comment,
+    actor,
+    agent,
+    at,
+    previousHash: entry.recordSha256,
+    sourceSha256: entry.sha256,
+    dependentContextRecords: dependencies.records,
+    affectedPhases: cone.affectedPhases,
+    reopenedPhase: cone.reopenedPhase
+  };
+  const decisionSha256 = sha256(JSON.stringify(decision));
+  decision.sha256 = decisionSha256;
+  invalidateInitiativeSourceCone(initiative, cone, decisionSha256, at);
+  Object.assign(entry, {
+    status: 'detached',
+    detachedAt: at,
+    detachedBy: actor,
+    detachReason: comment,
+    detachDecisionSha256: decisionSha256
+  });
+  const decisionTarget = await secureInitiativePath(
+    root,
+    portfolio,
+    initiative.initiative.id,
+    `sources/detachments/${decisionSha256}.json`,
+    { label: `Epic source detachment '${sourceId}'` }
+  );
+  await writeJson(decisionTarget.absolute, decision);
+  const target = await sourceManifestPath(root, portfolio, initiative.initiative.id);
+  await writeText(target.absolute, YAML.stringify(manifest));
+  initiative.sources ??= { records: 0, verifiedAt: null };
+  initiative.sources.records = manifest.sources.filter(epicSourceIsActive).length;
+  initiative.sources.totalRecords = manifest.sources.length;
+  initiative.history.push({
+    at,
+    actor: actor.email?.toLowerCase() ?? actor.name,
+    agent,
+    event: 'epic_source_detached',
+    phase: cone.reopenedPhase ?? initiative.currentPhase,
+    detail: `${sourceId} detached: ${comment}`
+  });
+  return {
+    decision,
+    decisionPath: decisionTarget.relative,
+    source: entry,
+    affectedPhases: cone.affectedPhases,
+    reopenedPhase: cone.reopenedPhase
+  };
 }
 
 /**

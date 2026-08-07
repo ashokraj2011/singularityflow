@@ -50,8 +50,9 @@ import {
 } from './views/navigation-trees.ts';
 import { SecureCredentials } from './credentials.ts';
 import {
-  evidenceCommands, evidenceTargets, expandEpicEvidenceDirectory, validateEvidenceUrl,
-  type EvidenceTarget
+  evidenceCatalog, evidenceCommands, evidenceDetachCommand, evidenceTargets,
+  expandEpicEvidenceDirectory, validateEvidenceUrl,
+  type EvidenceCatalogItem, type EvidenceTarget
 } from './evidence.ts';
 
 /** Injected by esbuild: the commit and time this bundle was built from. */
@@ -215,7 +216,8 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
   const REPOSITORY_COMMANDS = [
     'singularityFlow.openCapabilities', 'singularityFlow.openImpact', 'singularityFlow.openStories',
     'singularityFlow.openApprovals', 'singularityFlow.openInbox', 'singularityFlow.startWork',
-    'singularityFlow.attachEvidence', 'singularityFlow.addSource',
+    'singularityFlow.attachEvidence', 'singularityFlow.manageEvidence',
+    'singularityFlow.detachEvidence', 'singularityFlow.addSource',
     'singularityFlow.refresh', 'singularityFlow.openArtifact', 'singularityFlow.runAction',
     'singularityFlow.continueSafely',
     'singularityFlow.prepareStoryPhase', 'singularityFlow.publishStoryPhase',
@@ -1244,6 +1246,147 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
       `Attached ${summary} to ${target.label}. Open Lifecycle to review the governed IDs and artifacts.`);
   };
 
+  const openEvidence = async (item: EvidenceCatalogItem): Promise<void> => {
+    if (item.url) {
+      await vscode.env.openExternal(vscode.Uri.parse(item.url));
+      return;
+    }
+    if (!item.path) {
+      void vscode.window.showInformationMessage(
+        `${item.id} has no locally committed preview. Its verified metadata remains available in Lifecycle.`);
+      return;
+    }
+    if (item.mimeType?.startsWith('image/') || item.mimeType === 'application/pdf') {
+      const absolute = path.resolve(client.repository, item.path);
+      const relative = path.relative(client.repository, absolute);
+      if (relative.startsWith('..') || path.isAbsolute(relative)) {
+        void vscode.window.showErrorMessage(`Refusing to preview evidence outside the repository: ${item.path}`);
+        return;
+      }
+      await vscode.commands.executeCommand('vscode.open', vscode.Uri.file(absolute));
+      return;
+    }
+    await openArtifact(client.repository, {
+      kind: 'source', id: `evidence:${item.target.kind}:${item.id}`,
+      label: item.label, path: item.path, readOnly: item.status === 'detached'
+    });
+  };
+
+  const detachEvidenceItem = async (item: EvidenceCatalogItem): Promise<void> => {
+    if (item.status === 'detached') {
+      void vscode.window.showInformationMessage(`${item.id} is already detached. Its committed evidence remains read-only.`);
+      return;
+    }
+    let scope: 'file' | 'package' = 'file';
+    if (item.target.kind === 'story' && item.packageId) {
+      const selected = await vscode.window.showQuickPick([{
+        label: 'Detach this file', description: item.id, scope: 'file' as const
+      }, {
+        label: 'Detach complete package', description: item.packageId, scope: 'package' as const
+      }], {
+        title: `Detach ${item.label}`,
+        placeHolder: 'Choose how much of this governed Figma/design package to detach'
+      });
+      if (!selected) return;
+      scope = selected.scope;
+    }
+    const reason = await vscode.window.showInputBox({
+      title: scope === 'package' ? `Why is package ${item.packageId} being detached?` : `Why is ${item.id} being detached?`,
+      prompt: 'This reason is committed in the append-only evidence decision record.',
+      placeHolder: 'Superseded, incorrect, out of scope…',
+      ignoreFocusOut: true,
+      validateInput: (value) => value.trim() ? null : 'A detachment reason is required.'
+    });
+    if (!reason?.trim()) return;
+    const target = scope === 'package' ? `package ${item.packageId}` : `${item.id} — ${item.label}`;
+    const confirmed = await vscode.window.showWarningMessage(
+      `Detach ${target}?`,
+      {
+        modal: true,
+        detail: 'Committed bytes and audit history will be preserved. The evidence will be omitted from future Copilot prompts. Any phase and approval that depended on it will be invalidated and the earliest dependent phase reopened.'
+      },
+      'Detach evidence'
+    );
+    if (confirmed !== 'Detach evidence') return;
+
+    const command = evidenceDetachCommand(item, scope, reason.trim());
+    output.appendLine(`\n$ singularity-flow ${command.join(' ')}`);
+    try {
+      const result = await vscode.window.withProgress(
+        { location: vscode.ProgressLocation.Notification, title: `Detaching ${target}`, cancellable: false },
+        () => client.runText(command)
+      );
+      output.appendLine(result.trim());
+      await store.refresh();
+      const meaningful = result.split(/\r?\n/).filter((line) =>
+        /^(Commit|Invalidated phases|Reopened phase|Next in Copilot|CLI equivalent):/.test(line));
+      const action = await vscode.window.showInformationMessage(
+        `Detached ${target}. ${meaningful.slice(0, 2).join(' · ') || 'The decision was committed through the governed publication transaction.'}`,
+        'Show complete result'
+      );
+      if (action === 'Show complete result') output.show(true);
+    } catch (error) {
+      output.appendLine(`  refused: ${(error as Error).message}`);
+      void vscode.window.showErrorMessage(`Could not detach ${target}: ${(error as Error).message}`);
+    }
+  };
+
+  const resolveEvidenceNode = (node?: TreeNode): EvidenceCatalogItem | undefined => {
+    if (!node?.evidence) return undefined;
+    return evidenceCatalog(store.current.snapshot).find((item) =>
+      item.target.kind === node.evidence?.ownerKind
+      && item.target.id === node.evidence.ownerId
+      && item.id === node.evidence.evidenceId);
+  };
+
+  const manageEvidence = async (node?: TreeNode): Promise<void> => {
+    const catalog = evidenceCatalog(store.current.snapshot);
+    if (!catalog.length) {
+      const action = await vscode.window.showInformationMessage(
+        'No governed evidence is attached to the active Story or Epic.', 'Attach evidence & designs');
+      if (action === 'Attach evidence & designs') await attachEvidence();
+      return;
+    }
+    const direct = resolveEvidenceNode(node);
+    const picked = direct ?? (await vscode.window.showQuickPick(catalog.map((item) => ({
+      label: item.label,
+      description: `${item.target.label} · ${item.id} · ${item.status}`,
+      detail: item.status === 'detached'
+        ? `${item.detachReason ?? 'Detached'}${item.detachedBy ? ` · ${item.detachedBy}` : ''}`
+        : `${item.mimeType ?? item.kind}${item.sha256 ? ` · sha256 ${item.sha256.slice(0, 12)}` : ''}`,
+      item
+    })), {
+      title: 'Manage evidence & designs',
+      placeHolder: 'Choose active evidence or inspect detached history',
+      matchOnDescription: true,
+      matchOnDetail: true
+    }))?.item;
+    if (!picked) return;
+    const actions = picked.status === 'active'
+      ? [{ label: 'Open or preview', value: 'open' as const }, { label: 'Detach evidence…', value: 'detach' as const }]
+      : [{ label: 'Open detached evidence (read-only)', value: 'open' as const }];
+    const action = await vscode.window.showQuickPick(actions, {
+      title: `${picked.id} — ${picked.label}`,
+      placeHolder: picked.status === 'active' ? 'Choose an action' : `Detached: ${picked.detachReason ?? 'reason unavailable'}`
+    });
+    if (action?.value === 'open') await openEvidence(picked);
+    else if (action?.value === 'detach') await detachEvidenceItem(picked);
+  };
+
+  const detachEvidence = async (node?: TreeNode): Promise<void> => {
+    const direct = resolveEvidenceNode(node);
+    if (direct) return detachEvidenceItem(direct);
+    const active = evidenceCatalog(store.current.snapshot).filter((item) => item.status === 'active');
+    if (!active.length) {
+      void vscode.window.showInformationMessage('No active governed evidence is available to detach.');
+      return;
+    }
+    const picked = await vscode.window.showQuickPick(active.map((item) => ({
+      label: item.label, description: `${item.target.label} · ${item.id}`, item
+    })), { title: 'Detach evidence', placeHolder: 'Choose the exact governed evidence' });
+    if (picked) await detachEvidenceItem(picked.item);
+  };
+
   /**
    * Acting on an approval card.
    *
@@ -1521,6 +1664,8 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
     },
     'singularityFlow.startWork': startWork,
     'singularityFlow.attachEvidence': attachEvidence,
+    'singularityFlow.manageEvidence': manageEvidence as never,
+    'singularityFlow.detachEvidence': detachEvidence as never,
     'singularityFlow.addSource': addSource,
     'singularityFlow.refresh': async () => { await store.refresh(); void refreshReadiness(); },
     'singularityFlow.openArtifact':

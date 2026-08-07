@@ -29,6 +29,7 @@ import { recordPromptAudit } from './prompt-audit.mjs';
 import { normalizeClarificationPolicy, renderClarificationProtocol } from './clarifications.mjs';
 import { generateLightWorldModel } from './worldmodel-light.mjs';
 import { renderDesignSourcePromptContext } from './design-sources.mjs';
+import { renderActiveStoryEvidence } from './evidence-context.mjs';
 import {
   clearCompositionCache, compositionCacheEnabled, compositionCacheStatus, memoizeComposition
 } from './composition-cache.mjs';
@@ -1106,7 +1107,7 @@ function groundingSectionsText(selected, rulePaths) {
 }
 
 async function workflowPromptContext(root, definition, workflow, phase, workItemRoot) {
-  if (!workflow || !phase) return { contract: '', inputs: '', warnings: [] };
+  if (!workflow || !phase) return { contract: '', inputs: '', evidence: '', evidenceFiles: [], evidenceEntries: [], warnings: [] };
   const resolvedPhase = workflow.resolution?.phases?.find((candidate) => candidate.id === phase.id);
   let template = '';
   if (resolvedPhase) {
@@ -1149,7 +1150,15 @@ async function workflowPromptContext(root, definition, workflow, phase, workItem
         rendered.text
       ].join('\n')
     : '';
-  return { contract, inputs, warnings: collected.warnings };
+  const evidence = await renderActiveStoryEvidence(root, definition, workflow);
+  return {
+    contract,
+    inputs,
+    evidence: evidence.markdown,
+    evidenceFiles: evidence.files,
+    evidenceEntries: evidence.entries,
+    warnings: [...collected.warnings, ...evidence.warnings]
+  };
 }
 
 async function compose(root, options) {
@@ -1259,6 +1268,7 @@ async function compose(root, options) {
     requiredText,
     capability.text,
     remote.text,
+    governed.evidence,
     changeRequestContext,
     governed.inputs
   ].filter((part) => part?.trim());
@@ -1283,6 +1293,7 @@ async function compose(root, options) {
       reason: `capability ${workflow?.resolution?.capability?.id}`
     })),
     ...designSources.files
+    , ...governed.evidenceFiles
   ]
     .filter((section, index, all) => all.findIndex((candidate) => candidate.path === section.path) === index);
   const specPolicy = workflow?.resolution?.spec ?? definition.spec ?? { compositionCache: 'local' };
@@ -1302,6 +1313,7 @@ async function compose(root, options) {
     clarification: clarificationPolicy,
     files: files.map((file) => ({ path: file.path, sha256: file.sha256, injectedBytes: file.injectedBytes })),
     remoteSkills: remote.skills.map((skill) => ({ id: skill.id, sha256: skill.sha256 })),
+    supportingEvidence: governed.evidenceEntries,
     changeRequests: openChangeRequests.map((request) => ({ id: request.id, clauseIds: request.clauseIds ?? [], comment: request.comment }))
   }, candidateText, { enabled: cacheEnabled });
   const composedText = cached.text;
@@ -1326,6 +1338,7 @@ async function compose(root, options) {
       renderedText: composedText,
       requiredViews: config.phases[signals.phase]?.views ?? [],
       task: optionString(options, 'task') ?? null,
+      supportingEvidence: governed.evidenceEntries,
       compositionCache: { key: cached.key, hit: cached.hit }
     }, { workDir: path.join(root, workItemRoot, workflow.workItem.id) });
     console.error(`Grounding composition recorded: ${file}`);
@@ -1340,6 +1353,7 @@ async function compose(root, options) {
       workType: workflow?.workItem?.workType ?? null,
       task: optionString(options, 'task') ?? null,
       source: 'wm-compose',
+      supportingEvidence: governed.evidenceEntries,
       compositionCache: { key: cached.key, hit: cached.hit }
     });
     if (audit) console.error(`Prompt audit recorded: ${audit.id} (${audit.promptSha256.slice(0, 12)}).`);

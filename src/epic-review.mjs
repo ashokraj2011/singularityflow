@@ -3,14 +3,14 @@ import { mkdir } from 'node:fs/promises';
 import { branch, gitDir, identity } from './git.mjs';
 import {
   approvePhase, commitAndPublish, loadConfig, loadWorkflow, rejectPhase
-} from './state.mjs';
-import { loadInitiative } from './initiative-state.mjs';
+} from './state-stores.mjs';
+import { loadInitiative } from './state-stores.mjs';
 import { loadInitiativeBreakdown, syncInitiativeRepositories } from './initiative-repositories.mjs';
 import { readStoryReviewPacket } from './story-lineage.mjs';
 import { runAndRecordStoryChecks } from './github-evidence.mjs';
 import { documentCatalog } from './documents.mjs';
 import { createReviewBundle, reviewMarkdown } from './review.mjs';
-import { commitInitiativeChange } from './initiative-state.mjs';
+import { commitInitiativeChange } from './state-stores.mjs';
 import { setAgentSession } from './session.mjs';
 import { exists, run, SingularityFlowError } from './util.mjs';
 import { matchApprovalAuthority } from './approval-authority.mjs';

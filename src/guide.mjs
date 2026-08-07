@@ -1,4 +1,4 @@
-import { currentPhase } from './state.mjs';
+import { currentPhase } from './state-stores.mjs';
 import { phaseNeedsGeneration } from './sequence.mjs';
 import { copilotAction } from './copilot-guidance.mjs';
 

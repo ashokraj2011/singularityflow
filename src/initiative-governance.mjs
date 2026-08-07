@@ -1,7 +1,7 @@
 import { branch, head } from './git.mjs';
 import { interfaceContractStatus } from './initiative-contracts.mjs';
 import { evaluateInitiativePhase, readInitiativeRecords } from './initiative-evidence.mjs';
-import { loadInitiative } from './initiative-state.mjs';
+import { loadInitiative } from './state-stores.mjs';
 import { verifyInitiativeContext } from './initiative-context.mjs';
 import { verifyEpicSources } from './epic-sources.mjs';
 import { verifyEpicTraceability } from './epic-traceability.mjs';

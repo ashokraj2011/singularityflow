@@ -1532,6 +1532,8 @@ Sync retries the existing history without rebasing, resetting, or force-pushing.
 
 The world model grounds phase generation in repository facts:
 
+> **Security boundary:** semantic world-model runners are trusted local commands, not sandboxed code. The detached worktree protects the governed checkout and constrains accepted output; it does not remove the runner's access to the current user's filesystem, environment, network, or processes. Only configure trusted runners. Use `singularity-flow wm light` where policy requires deterministic execution without a model runner.
+
 For a deterministic zero-token baseline, run this inside the application
 repository:
 

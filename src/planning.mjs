@@ -26,9 +26,9 @@ import {
   commitInitiativeChange,
   loadInitiative,
   prepareInitiativePhase,
-  saveInitiative,
+  saveInitiativeDraft,
   secureInitiativePath
-} from './initiative-state.mjs';
+} from './state-stores.mjs';
 import { collectInputs, renderInputsBlock } from './inputs.mjs';
 import { loadSession } from './session.mjs';
 import {
@@ -36,10 +36,10 @@ import {
   loadWorkflow,
   preparePhaseInputs,
   registerArtifact,
-  saveWorkflow,
+  saveStoryDraft,
   workDir,
   workDirRelative
-} from './state.mjs';
+} from './state-stores.mjs';
 import {
   secureRepositoryPath,
   SingularityFlowError,
@@ -820,7 +820,7 @@ export async function promotePlanningArtifacts(root, { sessionId, artifacts = []
       ...portableAuditManifest(pack.manifest, committedContextPath.relative),
       promotion: { at: promotedAt, actor, agent: selectedAgent, artifacts: promoted, breakdown: breakdownPath?.relative ?? null }
     });
-    await saveInitiative(root, portfolio, fresh);
+    await saveInitiativeDraft(root, portfolio, fresh);
     const summary = promoted.map((item) => item.target).join(', ');
     const publication = await commitInitiativeChange(root, portfolio, fresh, { type: 'artifact-generated', phaseId: definition.id, payload: { targets: promoted.map((item) => item.target) } }, `[${fresh.initiative.id}][initiative:${definition.id}][planning] promote ${summary}`);
     return {
@@ -877,7 +877,7 @@ export async function promotePlanningArtifacts(root, { sessionId, artifacts = []
     phase: phase.id,
     detail: `${current.sha256.slice(0, 12)}`
   });
-  await saveWorkflow(root, definition, workflow);
+  await saveStoryDraft(root, definition, workflow);
   const publication = await commitAndPublish(
     root,
     definition,

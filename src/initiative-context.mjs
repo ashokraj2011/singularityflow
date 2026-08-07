@@ -14,7 +14,7 @@ import {
   loadInitiative,
   secureInitiativePath,
   verifyInitiativePhaseInputs
-} from './initiative-state.mjs';
+} from './state-stores.mjs';
 import { initiativeCheckRequirement, initiativeOutputRequired } from './initiative-policy.mjs';
 import { currentKnowledge, readKnowledge } from './knowledge.mjs';
 import { loadSession } from './session.mjs';

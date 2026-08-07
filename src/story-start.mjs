@@ -14,7 +14,7 @@ import {
   createWorkflow,
   loadWorkflow,
   validateId
-} from './state.mjs';
+} from './state-stores.mjs';
 import { SingularityFlowError } from './util.mjs';
 
 function lines(value) {

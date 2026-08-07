@@ -17,7 +17,7 @@ import { injectAgentPrompt, recordInjection } from './inject.mjs';
 import { loadSession } from './session.mjs';
 import { renderAgentSkills } from './agents.mjs';
 import { collectInputs, renderInputsBlock } from './inputs.mjs';
-import { assertNoPendingPublication, pendingPublicationPath, saveWorkflow } from './state.mjs';
+import { assertNoPendingPublication, pendingPublicationPath, saveStoryDraft } from './state-stores.mjs';
 import { assertPhaseSequence } from './sequence.mjs';
 import { publishToStateBranch } from './ledger.mjs';
 import {
@@ -1171,7 +1171,7 @@ async function compose(root, options) {
     const overridesBefore = workflow.sequenceOverrides?.length ?? 0;
     await assertNoPendingPublication(root, definition, workflow, 'compose and record a generation prompt');
     await assertPhaseSequence(root, workflow, 'compose and record a generation prompt', { requestedPhase });
-    if ((workflow.sequenceOverrides?.length ?? 0) > overridesBefore) await saveWorkflow(root, definition, workflow);
+    if ((workflow.sequenceOverrides?.length ?? 0) > overridesBefore) await saveStoryDraft(root, definition, workflow);
   }
   const sourcePath = workflow ? path.join(root, workItemRoot, workflow.workItem.id, 'source.json') : null;
   const source = sourcePath && existsSync(sourcePath) ? JSON.parse(readFileSync(sourcePath, 'utf8')) : null;

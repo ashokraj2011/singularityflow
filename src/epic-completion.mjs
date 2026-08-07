@@ -3,8 +3,8 @@ import path from 'node:path';
 import { identity } from './git.mjs';
 import { loadInitiativeBreakdown } from './initiative-repositories.mjs';
 import {
-  loadInitiative, saveInitiative, secureInitiativePath
-} from './initiative-state.mjs';
+  loadInitiative, saveInitiativeDraft, secureInitiativePath
+} from './state-stores.mjs';
 import {
   SingularityFlowError, nowIso, writeJson, writeText
 } from './util.mjs';
@@ -186,6 +186,6 @@ export async function completeEpicDelivery(root, initiativeId, {
     phase: null,
     detail: `${readiness.readyStories}/${readiness.requiredStories} blocking Stories matched; ${record.sha256.slice(0, 12)}`
   });
-  await saveInitiative(root, portfolio, initiative);
+  await saveInitiativeDraft(root, portfolio, initiative);
   return { portfolio, initiative, readiness, record, reportPath: reportPath.relative };
 }

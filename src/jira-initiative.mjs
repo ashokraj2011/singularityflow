@@ -12,8 +12,8 @@ import {
   initiativeBreakdownDocument, loadInitiativeBreakdown, validateInitiativeBreakdown
 } from './initiative-repositories.mjs';
 import {
-  loadInitiative, saveInitiative, secureInitiativePath
-} from './initiative-state.mjs';
+  loadInitiative, saveInitiativeDraft, secureInitiativePath
+} from './state-stores.mjs';
 import {
   SingularityFlowError, nowIso, run, snapshot, writeJson, writeText
 } from './util.mjs';
@@ -371,7 +371,7 @@ export async function adoptJiraEpic(root, initiativeId, epicKey, options = {}) {
     phase: materializationPhase(initiative),
     detail: `${epicKey}; ${validated.stories.length} stories; source ${preview.sourceSha256.slice(0, 12)}`
   });
-  await saveInitiative(root, portfolio, initiative);
+  await saveInitiativeDraft(root, portfolio, initiative);
   return { ...preview, portfolio, initiative, breakdown: validated };
 }
 
@@ -677,7 +677,7 @@ export async function createJiraWritePlan(root, initiativeId, {
     phase: materializationPhase(initiative),
     detail: `${operations.length} operations; ${artifacts.length} selected artifacts; ${plan.sha256.slice(0, 12)}`
   });
-  await saveInitiative(root, portfolio, initiative);
+  await saveInitiativeDraft(root, portfolio, initiative);
   return { portfolio, initiative, plan };
 }
 
@@ -920,7 +920,7 @@ export async function applyJiraWritePlan(root, initiativeId, {
     phase: phaseId,
     detail: `${results.length} operations; ${plan.sha256.slice(0, 12)}`
   });
-  await saveInitiative(root, portfolio, initiative);
+  await saveInitiativeDraft(root, portfolio, initiative);
   return { portfolio, initiative, plan, application, results };
 }
 
@@ -997,7 +997,7 @@ export async function observeJiraDrift(root, initiativeId, {
     phase: initiative.currentPhase,
     detail: `${initiative.jiraDrift.drifted}/${observations.length} issues drifted`
   });
-  await saveInitiative(root, portfolio, initiative);
+  await saveInitiativeDraft(root, portfolio, initiative);
   return { portfolio, initiative, record };
 }
 
@@ -1045,6 +1045,6 @@ export async function adoptJiraDrift(root, initiativeId, {
     phase: initiative.currentPhase,
     detail: selected.slice(0, 12)
   });
-  await saveInitiative(root, portfolio, initiative);
+  await saveInitiativeDraft(root, portfolio, initiative);
   return { portfolio, initiative, breakdown, observation: record };
 }

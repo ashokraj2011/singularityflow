@@ -10,6 +10,7 @@ import {
   agentMappingStatus,
   agentStatus,
   fetchRemoteMarkdown,
+  isPublicRemoteAddress,
   loadAgentMappings,
   lockAgent,
   materializeAgentTemplate,
@@ -17,6 +18,7 @@ import {
   prepareRemoteOutputs,
   renderAgentSkills,
   resolveCopilotAgent,
+  resolvePublicRemoteHost,
   syncAgent
 } from '../src/agents.mjs';
 import { setAgentSession, loadSession } from '../src/session.mjs';
@@ -133,6 +135,42 @@ test('remote fetch enforces redirects, UTF-8 content, emptiness, and byte ceilin
   await assert.rejects(() => fetchRemoteMarkdown('https://example.com/empty.md', { fetchImpl: async () => response('') }), /empty Markdown/);
   await assert.rejects(() => fetchRemoteMarkdown('https://example.com/large.md', { maxBytes: 2, fetchImpl: async () => response('large') }), /byte limit/);
   await assert.rejects(() => fetchRemoteMarkdown('https://example.com/bad.md', { fetchImpl: async () => response(Buffer.from([0xc3, 0x28])) }), /UTF-8/);
+});
+
+test('remote Markdown DNS resolution rejects private, link-local, and mixed public/private answers', async () => {
+  assert.equal(isPublicRemoteAddress('8.8.8.8'), true);
+  assert.equal(isPublicRemoteAddress('10.0.0.8'), false);
+  assert.equal(isPublicRemoteAddress('169.254.169.254'), false);
+  assert.equal(isPublicRemoteAddress('::1'), false);
+  assert.equal(isPublicRemoteAddress('2001:4860:4860::8888'), true);
+
+  await assert.rejects(() => resolvePublicRemoteHost('https://private.example/skill.md', {
+    lookupImpl: async () => [{ address: '10.10.0.5', family: 4 }]
+  }), /non-public address 10\.10\.0\.5/);
+  await assert.rejects(() => resolvePublicRemoteHost('https://metadata.example/skill.md', {
+    lookupImpl: async () => [{ address: '169.254.169.254', family: 4 }]
+  }), /non-public address 169\.254\.169\.254/);
+  await assert.rejects(() => resolvePublicRemoteHost('https://mixed.example/skill.md', {
+    lookupImpl: async () => [
+      { address: '8.8.4.4', family: 4 },
+      { address: '127.0.0.1', family: 4 }
+    ]
+  }), /non-public address/);
+});
+
+test('remote Markdown validates DNS again after every redirect', async () => {
+  const lookups = [];
+  const lookupImpl = async (hostname) => {
+    lookups.push(hostname);
+    return hostname === 'public.example'
+      ? [{ address: '8.8.8.8', family: 4 }]
+      : [{ address: '127.0.0.1', family: 4 }];
+  };
+  await assert.rejects(() => fetchRemoteMarkdown('https://public.example/start.md', {
+    lookupImpl,
+    fetchImpl: async () => response('', { status: 302, location: 'https://internal.example/final.md' })
+  }), /non-public address/);
+  assert.deepEqual(lookups, ['public.example', 'internal.example']);
 });
 
 test('TOFU locks hashes, sync reuses verified cache, and changed agent content requires update', async () => {

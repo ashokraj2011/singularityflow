@@ -1,10 +1,16 @@
 import { branch, changes, fetchOrigin, hasUpstream, pullFastForward } from './git.mjs';
-import { currentPhase, saveWorkflow, storyPublicationPending, syncPublication } from './state.mjs';
+import { currentPhase, storyPublicationPending, syncPublication } from './state-stores.mjs';
 import { nowIso } from './util.mjs';
 
 function actorKey(actor) { return actor?.login ?? actor?.email ?? actor?.name ?? 'unknown'; }
 
-export async function assignPhase(root, config, workflow, phaseId, assignee, session) {
+/**
+ * Apply an assignment to the in-memory Story aggregate.
+ *
+ * Persistence belongs to the publication transaction. Keeping this reducer pure
+ * prevents a failed commit or push from leaving workflow.json ahead of Git.
+ */
+export function assignPhase(workflow, phaseId, assignee, session) {
   const phase = workflow.phases[phaseId];
   if (!phase) throw new Error(`Unknown phase '${phaseId}'.`);
   if (!assignee?.trim()) throw new Error('Assignee must not be empty.');
@@ -13,7 +19,6 @@ export async function assignPhase(root, config, workflow, phaseId, assignee, ses
   workflow.collaboration.assignments[phaseId] = record;
   workflow.collaboration.notifications.push({ at: record.assignedAt, type: 'assignment', phase: phaseId, message: `${phase.label} assigned to ${record.assignee}`, read: false });
   workflow.history.push({ at: record.assignedAt, actor: actorKey(session?.actor), agent: session?.agent ?? null, event: 'phase_assigned', phase: phaseId, detail: record.assignee });
-  await saveWorkflow(root, config, workflow);
   return record;
 }
 

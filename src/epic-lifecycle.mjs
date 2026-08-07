@@ -7,8 +7,8 @@ import {
   initiativeBreakdownDocument, loadInitiativeBreakdown, validateInitiativeBreakdown
 } from './initiative-repositories.mjs';
 import {
-  loadInitiative, saveInitiative, secureInitiativePath
-} from './initiative-state.mjs';
+  loadInitiative, saveInitiativeDraft, secureInitiativePath
+} from './state-stores.mjs';
 import {
   nowIso, SingularityFlowError, snapshot, writeText
 } from './util.mjs';
@@ -59,7 +59,7 @@ export async function completeEpicIntake(root, initiativeId, { agent = null } = 
     phase: EPIC_PHASES.intake,
     detail: 'Epic identity and pinned source catalog accepted; repository grounding is deferred to Story intake'
   });
-  await saveInitiative(root, portfolio, initiative);
+  await saveInitiativeDraft(root, portfolio, initiative);
   return { portfolio, initiative, advanced: true };
 }
 
@@ -246,7 +246,7 @@ async function persistEpicStoryPlan(root, portfolio, initiative, breakdown, {
     phase: EPIC_PHASES.planning,
     detail
   });
-  await saveInitiative(root, portfolio, initiative);
+  await saveInitiativeDraft(root, portfolio, initiative);
   const specifications = await prepareEpicStorySpecifications(root, initiative.initiative.id);
   const fresh = await loadInitiative(root, initiative.initiative.id);
   return { ...fresh, breakdown: normalized, specifications };
@@ -595,6 +595,6 @@ export async function completeEpicPublication(root, initiativeId) {
     phase: EPIC_PHASES.publish,
     detail: `${breakdown.stories.length} Stories and canonical branches published; downstream delivery tracking opened`
   });
-  await saveInitiative(root, portfolio, initiative);
+  await saveInitiativeDraft(root, portfolio, initiative);
   return { portfolio, initiative, completed: true, generation, stories: breakdown.stories.length };
 }

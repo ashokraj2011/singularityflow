@@ -12,7 +12,7 @@ import {
 } from './initiative-milestones.mjs';
 import {
   loadInitiative
-} from './initiative-state.mjs';
+} from './state-stores.mjs';
 import { nowIso } from './util.mjs';
 import { listEpicSources } from './epic-sources.mjs';
 import { initiativeOutputRequired } from './initiative-policy.mjs';

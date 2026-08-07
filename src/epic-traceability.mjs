@@ -2,7 +2,7 @@ import { readFile } from 'node:fs/promises';
 import YAML from 'yaml';
 import { jiraSnapshotSource, listEpicSources } from './epic-sources.mjs';
 import { loadInitiativeBreakdown } from './initiative-repositories.mjs';
-import { secureInitiativePath } from './initiative-state.mjs';
+import { secureInitiativePath } from './state-stores.mjs';
 
 function sourceReference(value) {
   if (typeof value === 'string') {

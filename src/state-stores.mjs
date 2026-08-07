@@ -64,9 +64,21 @@ export class StoryStateStore {
   }
   async loadAggregate(id) { return (await this.load(id)).aggregate; }
   resolve(reference, options) { return resolveWorkItem(this.root, this.definition, reference, options); }
-  save(workflow) { return saveWorkflow(this.root, this.definition, workflow); }
-  publish(workflow, event, message, paths = []) {
-    return commitAndPublish(this.root, this.definition, workflow, event, message, paths);
+  /** Compatibility path for draft authoring; new governed mutations use transact(). */
+  saveDraft(workflow) { return saveWorkflow(this.root, this.definition, workflow); }
+  publish(workflow, event, message, paths = [], options = {}) {
+    return commitAndPublish(this.root, this.definition, workflow, event, message, paths, options);
+  }
+  async transact(workflow, event, message, transition, { paths = [], ...options } = {}) {
+    if (typeof transition !== 'function') throw new TypeError('Story transaction requires a transition function.');
+    const prior = structuredClone(workflow);
+    let value;
+    const publication = await this.publish(workflow, event, message, paths, {
+      ...options,
+      rollbackWorkflow: prior,
+      beforeStateWrite: async () => { value = await transition(workflow); }
+    });
+    return { value, publication };
   }
   sync(workflow) { return syncPublication(this.root, this.definition, workflow); }
   validate(workflow, options) { return validateWorkflow(this.root, this.definition, workflow, options); }
@@ -96,9 +108,21 @@ export class InitiativeStateStore {
     return { aggregate, revision: current, definition };
   }
   async loadAggregate(id) { return (await this.load(id)).aggregate; }
-  save(initiative) { return saveInitiative(this.root, this.portfolio, initiative); }
+  /** Compatibility path for draft authoring; new governed mutations use transact(). */
+  saveDraft(initiative) { return saveInitiative(this.root, this.portfolio, initiative); }
   publish(initiative, event, message, options) {
     return commitInitiativeChange(this.root, this.portfolio, initiative, event, message, options);
+  }
+  async transact(initiative, event, message, transition, options = {}) {
+    if (typeof transition !== 'function') throw new TypeError('Initiative transaction requires a transition function.');
+    const prior = structuredClone(initiative);
+    let value;
+    const publication = await this.publish(initiative, event, message, {
+      ...options,
+      rollbackInitiative: prior,
+      beforeStateWrite: async () => { value = await transition(initiative); }
+    });
+    return { value, publication };
   }
   sync(initiative) { return syncInitiativePublication(this.root, this.portfolio, initiative); }
 }
@@ -129,6 +153,15 @@ export async function loadStoryAggregate(root, definition, id) {
   return new StoryStateStore(root, definition).loadAggregate(id);
 }
 
+/**
+ * Explicit non-publication persistence for draft authoring/preparation commands.
+ * New governed mutations must use transact(); remaining compatibility callers are
+ * intentionally named as drafts so they are visible during transaction migration.
+ */
+export async function saveStoryDraft(root, definition, workflow) {
+  return new StoryStateStore(root, definition).saveDraft(workflow);
+}
+
 export async function loadInitiativeAggregate(root, id, portfolio = null) {
   const loaded = await new InitiativeStateStore(root, portfolio).load(id);
   // Preserve the established Initiative helper contract used by CLI/editor
@@ -138,6 +171,18 @@ export async function loadInitiativeAggregate(root, id, portfolio = null) {
     initiative: loaded.aggregate,
     revision: loaded.revision
   };
+}
+
+export async function saveInitiativeDraft(root, portfolio, initiative) {
+  return new InitiativeStateStore(root, portfolio).saveDraft(initiative);
+}
+
+export async function transactStory(root, definition, workflow, event, message, transition, options = {}) {
+  return new StoryStateStore(root, definition).transact(workflow, event, message, transition, options);
+}
+
+export async function transactInitiative(root, portfolio, initiative, event, message, transition, options = {}) {
+  return new InitiativeStateStore(root, portfolio).transact(initiative, event, message, transition, options);
 }
 
 /**
@@ -166,23 +211,24 @@ export class LedgerSink {
 // doctor, and editor orchestration from reaching around the stores and silently
 // reintroducing a second state-access path.
 export {
-  commitAndPublish, loadWorkflow, resolveWorkItem, saveWorkflow, syncPublication,
+  commitAndPublish, loadWorkflow, resolveWorkItem, syncPublication,
   validateWorkflow, workflowPath
 };
 export {
   approvePhase, assertNoPendingPublication, cancelWorkflow, CONFIG_PATH, createWorkflow, currentPhase,
   loadConfig, preparePhase, preparePhaseInputs, publishGeneration,
   promoteDesignSource, reconcilePhaseTelemetry, registerArtifact, rejectPhase, reopenWorkflow, scanArtifacts,
-  storyPublicationPending, submitPhase, validateId, workflowBranchAllowed,
-  workflowPublicationBranch, workDir
+  sourceTreeHash, storyPublicationPending, submitPhase, validateId, workflowBranchAllowed,
+  workflowPublicationBranch, workDir, workDirRelative, pendingPublicationPath
 } from './state.mjs';
 export {
-  commitInitiativeChange, initiativeStatePath, loadInitiative, saveInitiative,
+  commitInitiativeChange, initiativeStatePath, loadInitiative,
   syncInitiativePublication
 };
 export {
   availableInitiativeOutputs, createInitiative, initiativeApplicabilityState,
-  initiativeProgress, initiativeStartPreflight, listInitiatives,
+  initiativeProgress, initiativeRelative, initiativeStartPreflight, listInitiatives,
   prepareInitiativePhase, restartInitiative, secureInitiativePath,
-  selectInitiativePhaseOutputs, setInitiativeApplicability, validateInitiativeId
+  selectInitiativePhaseOutputs, setInitiativeApplicability, validateInitiativeId,
+  verifyInitiativePhaseInputs
 } from './initiative-state.mjs';

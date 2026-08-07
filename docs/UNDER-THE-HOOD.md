@@ -124,6 +124,8 @@ complete governed prompt without replacing either with a summary.
 
 The world model is repository-owned evidence:
 
+Semantic world-model generation deliberately crosses a trust boundary. Its configured runner is executed as a local command with the current user's operating-system permissions. The detached analysis worktree isolates the Git checkout and the validator rejects unexpected generated output, but neither mechanism is an OS sandbox: the runner can still access the user's environment, filesystem, processes, and network. Repositories must treat runner configuration as executable code and review it accordingly; `wm light` avoids semantic runner execution entirely.
+
 ```text
 singularity/world-model/
 ├── manifest.json

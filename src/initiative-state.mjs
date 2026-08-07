@@ -1214,7 +1214,9 @@ export function initiativeDefinitionHash(value) {
 
 export async function commitInitiativeChange(root, portfolio, initiative, event, message, {
   extraPaths = [],
-  appendOnly = false
+  appendOnly = false,
+  beforeStateWrite = null,
+  rollbackInitiative = null
 } = {}) {
   if (branch(root) !== initiative.initiative.branch) throw new SingularityFlowError(`Current branch ${branch(root)} must match initiative branch ${initiative.initiative.branch}.`);
   const pending = await readPendingPublication(root, {
@@ -1261,7 +1263,7 @@ export async function commitInitiativeChange(root, portfolio, initiative, event,
   }
   const mode = initiativePublicationMode(portfolio, initiative);
   const remote = portfolio.git?.remote ?? 'origin';
-  const priorInitiative = structuredClone(initiative);
+  const priorInitiative = rollbackInitiative ?? structuredClone(initiative);
   const result = await publishLifecycleChange(root, {
     subject: envelope.subject,
     expectedRevision: initiative[Symbol.for('singularity-flow.state-revision')] ?? null,
@@ -1271,7 +1273,8 @@ export async function commitInitiativeChange(root, portfolio, initiative, event,
     state: {
       // saveInitiative revalidates the runtime aggregate and regenerates STATUS.md,
       // so the authoritative state and its projection enter the commit together.
-      write: (publicationEvent) => {
+      write: async (publicationEvent) => {
+        if (beforeStateWrite) await beforeStateWrite();
         recordPublicationProjection(initiative, publicationEvent, ledgerIntent);
         return saveInitiative(root, portfolio, initiative);
       },

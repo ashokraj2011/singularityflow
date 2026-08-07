@@ -1,8 +1,8 @@
 import { readFile } from 'node:fs/promises';
 import path from 'node:path';
 import {
-  loadInitiative, saveInitiative, secureInitiativePath
-} from './initiative-state.mjs';
+  loadInitiative, saveInitiativeDraft, secureInitiativePath
+} from './state-stores.mjs';
 import {
   initiativeNode, invalidateInitiativeCone
 } from './initiative-graph.mjs';
@@ -93,7 +93,7 @@ export async function registerInterfaceContract(root, {
     phase: initiative.currentPhase,
     detail: `${key} ${record.sha256.slice(0, 12)}`
   });
-  await saveInitiative(root, portfolio, initiative);
+  await saveInitiativeDraft(root, portfolio, initiative);
   const invalidations = [];
   for (const prior of previous) {
     invalidations.push(await invalidateInitiativeCone(root, {

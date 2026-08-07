@@ -49,6 +49,10 @@ import {
   buildWorkspaceTree, capabilityIdOf, workspacePathOf, type CapabilityReadiness
 } from './views/navigation-trees.ts';
 import { SecureCredentials } from './credentials.ts';
+import {
+  evidenceCommands, evidenceTargets, expandEpicEvidenceDirectory, validateEvidenceUrl,
+  type EvidenceTarget
+} from './evidence.ts';
 
 /** Injected by esbuild: the commit and time this bundle was built from. */
 declare const __SFLOW_BUILD__: string;
@@ -210,7 +214,8 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
    */
   const REPOSITORY_COMMANDS = [
     'singularityFlow.openCapabilities', 'singularityFlow.openImpact', 'singularityFlow.openStories',
-    'singularityFlow.openApprovals', 'singularityFlow.openInbox', 'singularityFlow.startWork', 'singularityFlow.addSource',
+    'singularityFlow.openApprovals', 'singularityFlow.openInbox', 'singularityFlow.startWork',
+    'singularityFlow.attachEvidence', 'singularityFlow.addSource',
     'singularityFlow.refresh', 'singularityFlow.openArtifact', 'singularityFlow.runAction',
     'singularityFlow.continueSafely',
     'singularityFlow.prepareStoryPhase', 'singularityFlow.publishStoryPhase',
@@ -1118,6 +1123,128 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
   };
 
   /**
+   * Attach governed evidence without making people translate a design asset into CLI syntax.
+   *
+   * The selected Story or Epic is resolved from the same coherent snapshot used by Lifecycle. The
+   * CLI performs every mutation, so files, folders and links receive the same hashes, receipts,
+   * commits, pushes and sequence checks as `/sf-upload` in Copilot.
+   */
+  const attachEvidence = async (): Promise<void> => {
+    const available = evidenceTargets(store.current.snapshot);
+    if (!available.length) {
+      void vscode.window.showWarningMessage(
+        'Start or resume an Epic or Story before attaching evidence. The evidence must have a governed owner.');
+      return;
+    }
+    let target: EvidenceTarget | undefined = available[0];
+    if (available.length > 1) {
+      const picked = await vscode.window.showQuickPick(
+        available.map((candidate) => ({
+          label: candidate.label,
+          description: candidate.kind === 'story'
+            ? 'available to this Story workflow'
+            : 'available to Epic requirements and planning',
+          target: candidate
+        })),
+        { title: 'Attach evidence & designs', placeHolder: 'Choose the governed owner' }
+      );
+      target = picked?.target;
+    }
+    if (!target) return;
+
+    const source = await vscode.window.showQuickPick([{
+      label: 'Files, images or PDFs', value: 'files' as const,
+      description: 'Select one or more local files'
+    }, {
+      label: 'Figma export folder', value: 'figma-export' as const,
+      description: target.kind === 'story'
+        ? 'Preserve the export as one governed Story package'
+        : 'Pin every exported file to the Epic in deterministic order'
+    }, {
+      label: 'Figma design link', value: 'figma-link' as const,
+      description: 'Pin the HTTPS reference; no Figma credentials are stored'
+    }, {
+      label: 'Other HTTPS reference', value: 'url' as const,
+      description: 'Pin a document or design-system link'
+    }], { title: `Attach evidence to ${target.label}`, placeHolder: 'Choose the source type' });
+    if (!source) return;
+
+    let input: Parameters<typeof evidenceCommands>[1] | null = null;
+    if (source.value === 'files') {
+      const picked = await vscode.window.showOpenDialog({
+        title: `Attach files to ${target.label}`,
+        openLabel: 'Attach selected files',
+        canSelectFiles: true,
+        canSelectFolders: false,
+        canSelectMany: true,
+        filters: {
+          'Evidence and designs': ['md', 'txt', 'pdf', 'png', 'jpg', 'jpeg', 'gif', 'svg', 'json', 'yaml', 'yml', 'csv', 'xlsx', 'docx', 'pptx'],
+          'All files': ['*']
+        }
+      });
+      if (!picked?.length) return;
+      input = { kind: 'files', paths: picked.map((entry) => entry.fsPath) };
+    } else if (source.value === 'figma-export') {
+      const picked = await vscode.window.showOpenDialog({
+        title: `Attach a Figma export folder to ${target.label}`,
+        openLabel: 'Attach Figma export',
+        canSelectFiles: false,
+        canSelectFolders: true,
+        canSelectMany: false
+      });
+      if (!picked?.[0]) return;
+      const paths = target.kind === 'epic'
+        ? await expandEpicEvidenceDirectory(picked[0].fsPath)
+        : [picked[0].fsPath];
+      if (!paths.length) {
+        void vscode.window.showWarningMessage('The selected Figma export folder contains no files. Nothing was attached.');
+        return;
+      }
+      input = { kind: 'figma-export', paths };
+    } else {
+      const figmaOnly = source.value === 'figma-link';
+      const url = await vscode.window.showInputBox({
+        title: figmaOnly ? 'Figma design link' : 'Evidence link',
+        prompt: `Pin an HTTPS reference to ${target.label}. The link is recorded; it is not opened or followed.`,
+        placeHolder: figmaOnly ? 'https://www.figma.com/design/…' : 'https://…',
+        ignoreFocusOut: true,
+        validateInput: (value) => validateEvidenceUrl(value, figmaOnly)
+      });
+      if (!url) return;
+      const label = await vscode.window.showInputBox({
+        title: 'Evidence label',
+        value: figmaOnly ? 'Figma design' : '',
+        prompt: 'Use a name reviewers will recognize.',
+        ignoreFocusOut: true,
+        validateInput: (value) => value.trim() ? null : 'A label is required.'
+      });
+      if (!label?.trim()) return;
+      input = { kind: 'url', url: url.trim(), label: label.trim() };
+    }
+
+    const commands = evidenceCommands(target, input);
+    const summary = input.kind === 'url'
+      ? input.label
+      : `${input.paths.length} ${input.paths.length === 1 ? 'path' : 'paths'}`;
+    const confirmation = await vscode.window.showInformationMessage(
+      `Attach ${summary} to ${target.label}? The governed record will be committed and pushed.`,
+      { modal: true }, 'Attach evidence');
+    if (confirmation !== 'Attach evidence') return;
+    for (const [index, command] of commands.entries()) {
+      const ran = await runGovernedAction(client, {
+        command,
+        title: commands.length > 1
+          ? `Attaching evidence ${index + 1} of ${commands.length}`
+          : `Attaching evidence to ${target.label}`
+      }, output);
+      if (!ran) return;
+    }
+    await store.refresh();
+    void vscode.window.showInformationMessage(
+      `Attached ${summary} to ${target.label}. Open Lifecycle to review the governed IDs and artifacts.`);
+  };
+
+  /**
    * Acting on an approval card.
    *
    * The page names a card; which approval that is was resolved from the snapshot before this runs,
@@ -1393,6 +1520,7 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
       if (await runPlannedAction(client, output)) await store.refresh();
     },
     'singularityFlow.startWork': startWork,
+    'singularityFlow.attachEvidence': attachEvidence,
     'singularityFlow.addSource': addSource,
     'singularityFlow.refresh': async () => { await store.refresh(); void refreshReadiness(); },
     'singularityFlow.openArtifact':

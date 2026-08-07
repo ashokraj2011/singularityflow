@@ -658,6 +658,10 @@ function storyWorkflowNode(workflow: StoryWorkflow, documents: StoryArtifact[]):
       description: 'review exact next action', icon: 'play-circle',
       runCommand: 'singularityFlow.continueSafely', contextValue: 'sflow.action.plan'
     }, {
+      kind: 'action', id: 'story:attach-evidence', label: 'Attach evidence & designs',
+      description: 'files · Figma exports · HTTPS links', icon: 'visual',
+      runCommand: 'singularityFlow.attachEvidence', contextValue: 'sflow.story.evidence'
+    }, {
       kind: 'action', id: 'story:cancel', label: 'Cancel and archive work',
       description: 'reason required · artifacts preserved', icon: 'archive',
       runCommand: 'singularityFlow.cancelWork', contextValue: 'sflow.story.cancel'
@@ -1261,7 +1265,7 @@ function initiativeNode(initiative: InitiativeSnapshot): TreeNode {
       ? 'Requirements may cite only these.'
       : 'Requirements have no cited source to rest on. Pin the brief, research, or designs.',
     contextValue: 'sflow.sources',
-    children: sources.length
+    children: [...(sources.length
       ? sources.map((source) => ({
         kind: 'source' as const,
         id: `source:${String(source.sourceId ?? source.id ?? '')}`,
@@ -1279,6 +1283,14 @@ function initiativeNode(initiative: InitiativeSnapshot): TreeNode {
         id: 'sources-empty',
         label: 'Nothing is pinned yet',
         icon: 'warning'
+      }]), {
+        kind: 'action' as const,
+        id: 'sources-attach',
+        label: 'Attach evidence & designs',
+        description: 'files · Figma exports · HTTPS links',
+        icon: 'visual',
+        runCommand: 'singularityFlow.attachEvidence',
+        contextValue: 'sflow.sources.attach'
       }]
   });
 

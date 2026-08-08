@@ -284,8 +284,34 @@ workTypes:
         approval: { authorities: [design-reviewers, architecture-reviewers, quality-reviewers], minimum: 2, rejectTo: [design-inventory, component-mapping, mobile-spec, implementation, visual-verification, conformance] }
     sequenceGates:
       documentPhase: hard
+  quick-fix:
+    label: Quick fix
+    phases: [implement, verify]
+    templateOverrides:
+      implement: quick-fix/implement.md
+      verify: quick-fix/verify.md
+    phaseOverrides:
+      verify: { inputs: [implement] }
 
 phases:
+  implement:
+    label: Implement
+    defaultTemplate: quick-fix/implement.md
+    artifact: { path: artifacts/implement/implementation-summary.md, kind: implementation-summary, minimumBytes: 200 }
+    generation: { requirement: required, producer: deterministic }
+    worldModel: { views: [development], depth: quick }
+    writeScope: source-and-artifact
+    approval: none
+    qualityCommands: []
+  verify:
+    label: Verify
+    defaultTemplate: quick-fix/verify.md
+    artifact: { path: artifacts/verify/verification-summary.md, kind: test-evidence, minimumBytes: 200 }
+    generation: { requirement: required, producer: deterministic }
+    worldModel: { views: [testing], depth: quick, evidence: true }
+    writeScope: source-and-artifact
+    approval: { mode: policy, policy: quick-fix-low-risk-v1, maximumChangedPaths: 5, authorities: [quality-reviewers], minimum: 1, rejectTo: [implement, verify] }
+    qualityCommands: []
   intake:
     label: Intake
     defaultTemplate: common/intake.md

@@ -84,6 +84,7 @@ import { progressBar, progressFlow, progressSnapshot } from './progress.mjs';
 import { deriveReport, renderHtml, renderMarkdown } from './report.mjs';
 import { loadManualStory, promptManualStory } from './intake.mjs';
 import { guideText, phaseNeedsGeneration, workflowGuide } from './guide.mjs';
+import { runFirstRunGuide } from './first-run-guide.mjs';
 import { nextStepsSnapshot, nextStepsText } from './nextsteps.mjs';
 import { loadHelpDocument } from './help.mjs';
 import { agentMappingStatus, agentStatus, discoverAgents, lockAgent, prepareRemoteOutputs, remoteOutputConflicts, syncAgent } from './agents.mjs';
@@ -169,7 +170,8 @@ import {
   promoteStoryBranch, storyBranchStatus
 } from './story-lineage.mjs';
 import { runAndRecordStoryChecks } from './github-evidence.mjs';
-import { createStoryPullRequest, storyPullRequestPlan } from './pull-request.mjs';
+import { createStoryPullRequest, storyPullRequestPlan, updateStoryPullRequest } from './pull-request.mjs';
+import { copyToClipboard } from './clipboard.mjs';
 import { epicCheckStory, epicReviewDecision, epicReviewStory, listEpicReviewInbox } from './epic-review.mjs';
 import { completeEpicDelivery, epicDeliveryReadiness } from './epic-completion.mjs';
 import { verifyEpicTraceability } from './epic-traceability.mjs';
@@ -221,6 +223,7 @@ import {
   InitiativeStateStore, StoryStateStore, loadInitiativeAggregate, loadStoryAggregate
 } from './state-stores.mjs';
 import { SnapshotCoordinator } from './snapshot-coordinator.mjs';
+import { TimingCollector, writeHumanTimings } from './dx-timings.mjs';
 import {
   assertActionPlanFresh,
   createActionPlan,
@@ -306,7 +309,7 @@ Usage:
   singularity-flow inbox [--offline] [--json]
   singularity-flow status [WORK-ID] [--json]
   singularity-flow progress [WORK-ID] [--json]
-  singularity-flow report [WORK-ID] [--format md|html|json] [--out FILE]
+  singularity-flow report [WORK-ID] [--format md|html|json] [--out FILE] [--timings]
   singularity-flow impact study list|show [STUDY] [--json]
   singularity-flow impact enroll [WORK-ID] --complexity BAND --risk BAND --confirm
   singularity-flow impact enroll [WORK-ID] --opt-out --reason TEXT --confirm
@@ -340,6 +343,7 @@ Usage:
   singularity-flow capabilities lease grant <ID> --expires ISO --reason TEXT --policy FILE_OR_JSON --confirm <ID>
   singularity-flow capabilities lease revoke <ID> <LEASE-ID> --reason TEXT --confirm <ID>
   singularity-flow guide [WORK-ID] [--json]
+  singularity-flow guide --first-run [--keep] [--json]
   singularity-flow nextsteps [WORK-ID] [--json]
   singularity-flow action plan [STORY-OR-INITIATIVE] [--ttl-ms N] [--json]
   singularity-flow action authorize <PLAN-ID> --action ACTION-ID --confirm ACTION-ID [--channel terminal|vscode] [--json]
@@ -400,6 +404,8 @@ Usage:
   singularity-flow phase publish [PHASE] [--usage-json FILE]
   singularity-flow artifact add <PATH...> [--kind KIND] [--phase PHASE]
   singularity-flow artifact scan [--phase PHASE]
+  singularity-flow pr describe [WORK-ID] [--format markdown|json] [--clipboard] [--write] [--yes]
+  singularity-flow pr [WORK-ID] [--json] [--create] [--yes]
   singularity-flow submit [PHASE] [--phase PHASE] [--skip-checks]
   singularity-flow approve [PHASE] [--work-id WORK-ID] [--fetch] [--phase PHASE] [--yes]
   singularity-flow reject [PHASE] [--work-id WORK-ID] [--fetch] --reason TEXT [--to PHASE] [--clause ID]...
@@ -439,7 +445,7 @@ Usage:
   singularity-flow jira comment <WORK-ID> --text TEXT --confirm <WORK-ID> [--json]
   singularity-flow plugin install                     Installs plugin plus direct /sf-* personal skills
   singularity-flow plugin uninstall | list | path
-  singularity-flow snapshot [WORK-ID] --json
+  singularity-flow snapshot [WORK-ID] [--include SLICE] [--if-revision HASH] [--timings] --json
   singularity-flow configuration validate --json
   singularity-flow configuration save <PATH>    Reads replacement content from stdin
   singularity-flow state planes [WORK-ID] [--json]
@@ -1164,23 +1170,32 @@ async function progressCommand(positionals, options) {
 }
 
 async function reportCommand(positionals, options) {
+  const timingsEnabled = optionBoolean(options, 'timings');
+  const timer = new TimingCollector({ enabled: timingsEnabled });
   const root = repoRoot();
-  const config = await loadConfig(root);
-  const workflow = await loadStoryAggregate(root, config, positionals[1]);
+  const config = await timer.measure('configuration', () => loadConfig(root));
+  const workflow = await timer.measure('workflow', () => loadStoryAggregate(root, config, positionals[1]));
   const format = optionString(options, 'format', 'md').toLowerCase();
   if (!['md', 'html', 'json'].includes(format)) throw new SingularityFlowError(`Unknown report format: ${format}. Use md, html, or json.`);
-  const report = deriveReport(workflow, { pricing: config.tokens?.pricing ?? null });
-  const rendered = format === 'json'
+  const report = await timer.measure('derive', async () => deriveReport(workflow, { pricing: config.tokens?.pricing ?? null }));
+  let rendered = await timer.measure('render', async () => format === 'json'
     ? `${JSON.stringify(report, null, 2)}\n`
-    : format === 'html' ? renderHtml(report) : renderMarkdown(report);
+    : format === 'html' ? renderHtml(report) : renderMarkdown(report));
+  const timings = timer.finish();
+  if (format === 'json' && timings) {
+    report.timings = timings;
+    rendered = `${JSON.stringify(report, null, 2)}\n`;
+  }
   const outputFile = optionString(options, 'out');
   if (outputFile) {
     const absolute = path.resolve(root, outputFile);
     await writeText(absolute, rendered);
     console.log(`Report written to ${absolute}`);
+    if (format !== 'json') writeHumanTimings(timings);
     return;
   }
   process.stdout.write(rendered);
+  if (format !== 'json') writeHumanTimings(timings);
 }
 
 function impactFilters(values) {
@@ -1350,6 +1365,21 @@ async function impactCommand(positionals, options) {
 }
 
 async function guideCommand(positionals, options) {
+  if (optionBoolean(options, 'first-run')) {
+    const json = optionBoolean(options, 'json');
+    const result = await runFirstRunGuide({
+      keep: optionBoolean(options, 'keep'),
+      onBoundary: json ? undefined : (directory) => console.log(`Guide sandbox: ${directory}`)
+    });
+    if (json) return console.log(JSON.stringify(result, null, 2));
+    console.log('Singularity Flow first run completed.');
+    console.log(`Work item: ${result.workId} · model invocations: ${result.modelInvocations} · network access: ${result.networkAccess ? 'yes' : 'no'} · interactions: ${result.interactionCount}`);
+    console.log(`Final state: ${result.finalStateSha256.slice(0, 12)}`);
+    for (const step of result.steps) console.log(`✓ ${step.command}`);
+    if (result.retained) console.log(`Guide repository retained at ${result.repository}`);
+    else console.log('Guide sandbox removed after successful completion.');
+    return;
+  }
   const root = repoRoot();
   const config = await loadConfig(root);
   const workflow = await loadStoryAggregate(root, config, positionals[1]);
@@ -2282,9 +2312,32 @@ async function artifactCommand(positionals, options) {
 async function pullRequestCommand(positionals, options) {
   const root = repoRoot();
   const config = await loadConfig(root);
-  const workflow = await loadStoryAggregate(root, config, positionals[1]);
+  const describe = positionals[1] === 'describe';
+  const workflow = await loadStoryAggregate(root, config, describe ? positionals[2] : positionals[1]);
   const mergeSequence = await publishedStackForStory(root, config, workflow);
   const plan = await storyPullRequestPlan(root, config, workflow, { mergeSequence });
+
+  if (describe) {
+    const format = optionString(options, 'format', 'markdown').toLowerCase();
+    if (!['markdown', 'json'].includes(format)) throw new SingularityFlowError(`Unknown PR description format '${format}'. Use markdown or json.`);
+    const result = { ...plan, deterministic: true, subjectRevision: workflow.revision?.subjectRevision ?? null };
+    if (optionBoolean(options, 'clipboard')) result.clipboard = copyToClipboard(plan.body);
+    if (optionBoolean(options, 'write')) {
+      if (!optionBoolean(options, 'yes') && !(await confirmExact(`Type ${plan.workId} to update the existing pull request description: `, plan.workId))) {
+        throw new SingularityFlowError('Pull request update cancelled.');
+      }
+      result.write = updateStoryPullRequest(root, plan);
+    }
+    if (format === 'json') console.log(JSON.stringify(result, null, 2));
+    else {
+      process.stdout.write(`${plan.body}\n`);
+      if (result.clipboard?.status === 'unavailable') console.error(`Clipboard unavailable: ${result.clipboard.reason}`);
+      else if (result.clipboard) console.error(`Copied with ${result.clipboard.provider}.`);
+      if (result.write?.status === 'unavailable') console.error(`PR update unavailable: ${result.write.reason}`);
+      else if (result.write) console.error(`Updated ${result.write.url}`);
+    }
+    return;
+  }
 
   if (optionBoolean(options, 'json')) console.log(JSON.stringify(plan, null, 2));
   else {
@@ -2475,14 +2528,26 @@ async function submitCommand(positionals, options) {
     }
   );
   if (!reviewPacket) throw new SingularityFlowError('Submission review packet was not created.');
-  console.log(`\nSubmitted ${phase.id} phase for approval.`);
-  console.log(`Commit: ${publication.sha.slice(0, 8)} — request approval (${workflow.workItem.id})`);
+  const approvalMode = phase.approvalPolicy?.mode ?? 'required';
+  const completedWithoutReview = phase.status === 'approved' && approvalMode === 'none';
+  const completedByPolicy = phase.status === 'approved' && approvalMode === 'policy';
+  if (completedWithoutReview) console.log(`\nCompleted ${phase.id} phase (configured approval mode: none).`);
+  else if (completedByPolicy) console.log(`\nCompleted ${phase.id} phase using its deterministic policy waiver.`);
+  else console.log(`\nSubmitted ${phase.id} phase for approval.`);
+  console.log(`Commit: ${publication.sha.slice(0, 8)} — ${phase.status === 'approved' ? 'complete phase' : 'request approval'} (${workflow.workItem.id})`);
   console.log(`Push: ${publication.pushed ? `${config.git?.remote ?? 'origin'}/${workflowPublicationBranch(root, workflow)}` : 'disabled by git.publish: off'}`);
   console.log(`Review packet: ${reviewPacket.path} (${reviewPacket.packet.packetSha256.slice(0, 12)})`);
   printPhaseReview(await phaseReview(root, config, workflow, phase));
-  console.log(`\nStatus: ${phase.id} is awaiting approval with ${phase.artifacts.length} generated document(s).`);
-  console.log(`Next in Copilot: /sf-approve ${phase.id}`);
-  console.log(`CLI equivalent: singularity-flow approve ${phase.id} --work-id ${workflow.workItem.id} --fetch`);
+  if (phase.status === 'approved') {
+    const next = currentPhase(workflow);
+    console.log(`\nStatus: ${phase.id} is complete with ${phase.artifacts.length} generated document(s).`);
+    console.log(`Next in Copilot: ${next ? '/sf-next' : '/sf-status'}`);
+    console.log(`CLI equivalent: ${next ? 'singularity-flow next' : `singularity-flow status ${workflow.workItem.id}`}`);
+  } else {
+    console.log(`\nStatus: ${phase.id} is awaiting approval with ${phase.artifacts.length} generated document(s).`);
+    console.log(`Next in Copilot: /sf-approve ${phase.id}`);
+    console.log(`CLI equivalent: singularity-flow approve ${phase.id} --work-id ${workflow.workItem.id} --fetch`);
+  }
 }
 
 async function telemetryCommand(positionals, options) {
@@ -5072,6 +5137,7 @@ async function promptLogCommand(positionals, options) {
 async function snapshotCommand(positionals, options) {
   const root = repoRoot();
   const included = optionStrings(options, 'include');
+  const timings = optionBoolean(options, 'timings');
   const result = await new SnapshotCoordinator(root).capture(
     ({ included: requested }) => repositorySnapshot(
       root,
@@ -5079,10 +5145,17 @@ async function snapshotCommand(positionals, options) {
       optionString(options, 'initiative'),
       { included: requested }
     ),
-    { included: included.length ? included : undefined }
+    {
+      included: included.length ? included : undefined,
+      ifRevision: optionString(options, 'if-revision'),
+      timings
+    }
   );
   if (optionBoolean(options, 'json')) console.log(JSON.stringify(result, null, 2));
-  else console.log(JSON.stringify(result, null, 2));
+  else {
+    console.log(JSON.stringify(result, null, 2));
+    writeHumanTimings(result.timings);
+  }
 }
 
 async function stateCommand(positionals, options) {

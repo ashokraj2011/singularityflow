@@ -4,8 +4,8 @@ description: Implements scoped changes and tests using repository-native pattern
 tools: [read, search, edit, bash]
 metadata:
   sflow-label: "Developer"
-  sflow-phases: "implementation"
-  sflow-default-for: "implementation"
+  sflow-phases: "implement,implementation"
+  sflow-default-for: "implement,implementation"
   sflow-world-model-views: "development,testing,architecture"
 ---
 

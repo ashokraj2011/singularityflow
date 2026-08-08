@@ -292,10 +292,41 @@ test('snapshot coordinator rejects a mixed repository revision', async () => {
   assert.deepEqual(stable.included, ['lifecycle']);
   assert.deepEqual(stable.lifecycle, { id: 'KERNEL-1' });
   assert.match(stable.revision.subjectRevision, /^[0-9a-f]{64}$/);
+  assert.match(stable.revision.slices.lifecycle, /^[0-9a-f]{64}$/);
+  const unchanged = await coordinator.capture(async () => ({
+    lifecycle: { id: 'KERNEL-1' }, configuration: { version: 2 }
+  }), {
+    included: ['lifecycle'],
+    ifRevision: stable.revision.subjectRevision,
+    timings: true
+  });
+  assert.equal(unchanged.notModified, true);
+  assert.equal(unchanged.lifecycle, undefined, 'an unchanged conditional snapshot omits its payload');
+  assert.deepEqual(unchanged.included, ['lifecycle']);
+  assert.equal(unchanged.timings.unit, 'milliseconds');
+  assert.ok(unchanged.timings.total >= 0);
   await assert.rejects(() => coordinator.capture(async () => {
     await writeFile(path.join(root, 'mixed-revision.txt'), 'changed\n');
     return {};
   }), /changed while the snapshot was being assembled/i);
+});
+
+test('snapshot worktree fingerprints include dirty file bytes, not only status shape', async () => {
+  const root = await repository();
+  const coordinator = new SnapshotCoordinator(root);
+  const dirty = path.join(root, 'README.md');
+  await writeFile(dirty, '# first dirty value\n');
+  const first = await coordinator.capture(async () => ({ lifecycle: { id: 'KERNEL-1' } }), {
+    included: ['lifecycle']
+  });
+  await writeFile(dirty, '# second dirty value\n');
+  const second = await coordinator.capture(async () => ({ lifecycle: { id: 'KERNEL-1' } }), {
+    included: ['lifecycle']
+  });
+  assert.notEqual(first.revision.worktreeHash, second.revision.worktreeHash,
+    'two modifications with the same porcelain status must have different revisions');
+  assert.equal(first.revision.subjectRevision, second.revision.subjectRevision,
+    'an unrelated worktree change does not invalidate a selected read-model slice');
 });
 
 test('sequence evaluation and reduction are pure', () => {

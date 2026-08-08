@@ -51,6 +51,7 @@ import { buildSpecIndex, loadActiveSpecRecords, predecessorSpecClauses } from '.
 import {
   hydrateImpactPlan, impactImplementationGate, initializeStoryImpact, invalidateImpactReceipt
 } from './impact.mjs';
+import { evaluateQuickFixWaiver } from './quick-fix-policy.mjs';
 
 export const CONFIG_PATH = WORKFLOW_PATH;
 export const loadConfig = loadDefinition;
@@ -166,6 +167,7 @@ function phaseState(definition, index) {
     writeScope: definition.writeScope ?? 'artifact-only',
     comparison: structuredClone(definition.comparison ?? {}),
     inputs: structuredClone(definition.inputs ?? []),
+    generationPolicy: structuredClone(definition.generation ?? { requirement: 'required', producer: 'agent' }),
     approvalPolicy: structuredClone(definition.approval ?? { authorities: [DEFAULT_APPROVAL_AUTHORITY], minimum: 1, rejectTo: [definition.id] }),
     qualityCommands: [...(definition.qualityCommands ?? [])],
     startedAt: index === 0 ? nowIso() : null,
@@ -350,7 +352,19 @@ export async function createWorkflow(root, config, { id, title, source, baseBran
   const createdAt = nowIso();
   const workflow = {
     schemaVersion: 2,
-    workItem: { id, title: title || id, workType: selectedType, workTypeLabel: resolution.label, branch: branch(root), baseBranch, createdAt, createdBy: actor, source: { type: source.type, key: source.key ?? null, url: source.url ?? null } },
+    workItem: { id, title: title || id, workType: selectedType, workTypeLabel: resolution.label, branch: branch(root), baseBranch, createdAt, createdBy: actor, source: {
+      type: source.type,
+      key: source.key ?? null,
+      url: source.url ?? null,
+      risk: source.risk ?? null,
+      repositoryCount: source.repositoryCount ?? 1,
+      publicInterfaceChange: source.publicInterfaceChange ?? null,
+      dataMigration: source.dataMigration ?? null,
+      securityBoundaryChange: source.securityBoundaryChange ?? null,
+      regulatedDataChange: source.regulatedDataChange ?? null,
+      deploymentPolicyChange: source.deploymentPolicyChange ?? null,
+      crossRepositoryChange: source.crossRepositoryChange ?? null
+    } },
     lineage: {
       schemaVersion: 1,
       canonicalBranch: branch(root),
@@ -460,7 +474,9 @@ function normalizeCurrentWorkflow(workflow) {
     if (phase.owner != null || phase.suggestedAgents != null) throw new SingularityFlowError(`Workflow phase '${id}' contains removed role-selection state. Recreate this development work item with the current agent-only workflow.`);
     phase.defaultAgent ??= workflow.resolution.phases?.find((item) => item.id === id)?.defaultAgent ?? null;
     phase.approvalPolicy ??= { authorities: [DEFAULT_APPROVAL_AUTHORITY], minimum: 1, rejectTo: [id] };
-    phase.approvalPolicy.authorities ??= [DEFAULT_APPROVAL_AUTHORITY];
+    phase.approvalPolicy.mode ??= 'required';
+    if (phase.approvalPolicy.mode !== 'none') phase.approvalPolicy.authorities ??= [DEFAULT_APPROVAL_AUTHORITY];
+    phase.generationPolicy ??= workflow.resolution.phases?.find((item) => item.id === id)?.generation ?? { requirement: 'required', producer: 'agent' };
     delete phase.approvalPolicy.agents;
     phase.writeScope ??= 'source-and-artifact'; phase.comparison ??= {};
     phase.inputs ??= workflow.resolution.phases?.find((item) => item.id === id)?.inputs ?? [];
@@ -596,7 +612,45 @@ export async function preparePhaseInputs(root, config, workflow, requested = und
   const rendered = renderInputsBlock(inputs);
   if (!dryRun) {
     let text;
-    if (await exists(target)) text = await readFile(target, 'utf8');
+    if (phase.generationPolicy?.producer === 'deterministic') {
+      const paths = changedFiles(root).filter((file) => !file.startsWith('singularity/'));
+      const checks = (phase.qualityCommands ?? []).length
+        ? phase.qualityCommands.map((command) => `- \`${command}\``).join('\n')
+        : '- No mandatory commands are configured for this phase.';
+      const claims = Object.values(workflow.spec?.claims ?? {})
+        .flatMap((value) => Array.isArray(value) ? value : [value])
+        .filter(Boolean);
+      text = [
+        `# ${phase.label}`,
+        '',
+        '> Deterministically assembled by Singularity Flow. No model call was used.',
+        '',
+        '## Work item',
+        '',
+        `- ID: **${workflow.workItem.id}**`,
+        `- Title: ${workflow.workItem.title}`,
+        `- Work type: ${workflow.workItem.workType}`,
+        `- Phase: ${phase.id}`,
+        `- Source commit: \`${head(root)}\``,
+        '',
+        '## Changed paths',
+        '',
+        ...(paths.length ? paths.map((file) => `- \`${file}\``) : ['- No source paths are currently changed.']),
+        '',
+        '## Configured checks',
+        '',
+        checks,
+        '',
+        '## Specification claims',
+        '',
+        ...(claims.length ? claims.map((claim) => `- ${claim.id ?? claim.clauseId ?? 'claim'}: ${claim.verdict ?? claim.kind ?? 'recorded'}`) : ['- No clause claims are currently recorded.']),
+        '',
+        '## Governed inputs',
+        '',
+        rendered.text || '_No phase inputs are declared._',
+        ''
+      ].join('\n');
+    } else if (await exists(target)) text = await readFile(target, 'utf8');
     else text = await renderArtifactTemplate(root, config, workflow.resolution.phases.find((item) => item.id === phase.id), {
       id: workflow.workItem.id,
       title: workflow.workItem.title,
@@ -757,7 +811,9 @@ export async function publishGeneration(root, config, workflow, { phaseId, usage
   const phase = await assertPhaseSequence(root, workflow, 'publish a generation', { requestedPhase: phaseId }); const session = await loadSession(root);
   assertRequiredAssignment(workflow, phase);
   await preparePhaseInputs(root, config, workflow, phase.id);
-  const grounding = await verifyGroundingRecord(root, config, workflow, phase, { agent: session.agent });
+  const grounding = phase.generationPolicy?.producer === 'deterministic'
+    ? { warnings: [], errors: [] }
+    : await verifyGroundingRecord(root, config, workflow, phase, { agent: session.agent });
   grounding.warnings.forEach((warning) => console.warn(`Warning: ${warning}`));
   if (grounding.errors.length) throw new SingularityFlowError(`Phase ${phase.id} grounding is not ready:\n- ${grounding.errors.join('\n- ')}`);
   const changed = changedFiles(root);
@@ -923,8 +979,41 @@ export async function submitPhase(root, config, workflow, { phaseId, runChecks =
   const errors = await validatePhase(root, config, workflow, phase); const failed = phase.checks.filter((check) => check.status !== 'passed');
   if (failed.length) errors.push(`Quality command failed: ${failed.map((check) => check.command).join(', ')}`);
   if (errors.length) throw new SingularityFlowError(`Phase ${phase.id} is not ready:\n- ${errors.join('\n- ')}`);
-  phase.status = 'awaiting_approval'; phase.submittedAt = nowIso(); await updateArtifactMetadata(root, config, workflow, phase); await refreshRequiredArtifact(root, config, workflow, phase);
-  workflow.history.push({ at: phase.submittedAt, actor: actorKey(session.actor), agent: session.agent, event: 'phase_submitted', phase: phase.id, detail: `${phase.artifacts.length} artifacts` });
+  phase.submittedAt = nowIso();
+  const waiver = phase.approvalPolicy.mode === 'policy'
+    ? evaluateQuickFixWaiver(root, config, workflow, phase)
+    : null;
+  if (phase.approvalPolicy.mode === 'none' || waiver?.eligible) {
+    phase.status = 'approved';
+    phase.approvedAt = phase.submittedAt;
+    phase.approvedBy = null;
+    const upcoming = nextPhase(workflow, phase);
+    if (upcoming) { upcoming.status = 'in_progress'; upcoming.startedAt = phase.submittedAt; workflow.currentPhase = upcoming.id; }
+    else { workflow.currentPhase = null; workflow.status = 'complete'; }
+    workflow.history.push(waiver?.eligible ? {
+      at: phase.submittedAt,
+      actor: actorKey(session.actor),
+      agent: session.agent,
+      event: 'phase-approval-waived',
+      phase: phase.id,
+      policyId: waiver.policyId,
+      policyHash: waiver.policyHash,
+      sourceCommit: waiver.sourceCommit,
+      changedPathsHash: waiver.changedPathsHash,
+      predicates: waiver.predicates,
+      detail: `deterministic policy waiver${workflow.currentPhase ? `; advanced to ${workflow.currentPhase}` : '; complete'}`
+    } : { at: phase.submittedAt, actor: actorKey(session.actor), agent: session.agent, event: 'phase_completed_without_approval', phase: phase.id, detail: `approval mode none${workflow.currentPhase ? `; advanced to ${workflow.currentPhase}` : '; complete'}` });
+  } else {
+    phase.status = 'awaiting_approval';
+    workflow.history.push({ at: phase.submittedAt, actor: actorKey(session.actor), agent: session.agent, event: 'phase_submitted', phase: phase.id, detail: `${phase.artifacts.length} artifacts` });
+  }
+  await updateArtifactMetadata(root, config, workflow, phase);
+  await refreshRequiredArtifact(root, config, workflow, phase);
+  // A phase completed by an explicit no-approval contract or deterministic policy is still an
+  // approved producer for downstream dataflow. Bind the final managed artifact bytes exactly as a
+  // human approval would; otherwise an approved phase paradoxically appears "unapproved" to its
+  // consumer because no artifact hash was promoted.
+  if (phase.status === 'approved') await registerApprovedSnapshot(root, config, workflow, phase);
   if (persist) await saveWorkflow(root, config, workflow);
   return phase;
 }

@@ -1,5 +1,20 @@
 import { SingularityFlowError } from './util.mjs';
 
+const READ_ONLY = new Set(['about', 'help', 'show', 'choices', 'inbox', 'status', 'progress', 'report', 'telemetry', 'guide', 'logs', 'doctor', 'review', 'nextsteps', 'inputs', 'spec', 'visual', 'snapshot', 'validate']);
+const MODEL_OPTIONAL = new Set(['impact', 'prepare', 'next', 'run', 'wm']);
+const STRUCTURED = new Set(['status', 'progress', 'report', 'impact', 'telemetry', 'doctor', 'inputs', 'snapshot', 'validate', 'gate']);
+
+function command([name, aliases = []]) {
+  return Object.freeze({
+    name,
+    aliases: Object.freeze(aliases),
+    modulePath: './cli.mjs',
+    classification: READ_ONLY.has(name) ? 'read' : 'mutation',
+    modelPolicy: MODEL_OPTIONAL.has(name) ? 'optional' : 'none',
+    output: STRUCTURED.has(name) ? 'human-or-json' : 'human'
+  });
+}
+
 export const COMMAND_REGISTRY = Object.freeze([
   ['about'], ['help'], ['show'], ['harness'], ['init'], ['factory-reset'], ['reset-all'], ['fresh-install'], ['choices'], ['start'], ['resume'], ['agent'], ['session'],
   ['inbox'], ['finalize'], ['status'], ['progress'], ['report'], ['impact'], ['telemetry'], ['prompt-log'], ['guide'], ['refresh-branch'],
@@ -9,7 +24,7 @@ export const COMMAND_REGISTRY = Object.freeze([
   ['approve'], ['reject'], ['reopen'], ['cancel'], ['sync'], ['ledger'], ['capabilities'], ['state'],
   ['validate'], ['gate'], ['wm'], ['jira'], ['plugin'], ['snapshot'], ['configuration'], ['initiative'], ['epic'],
   ['story'], ['workspace'], ['knowledge'], ['capability'], ['hook'], ['bootstrap']
-].map(([name, aliases = []]) => Object.freeze({ name, aliases: Object.freeze(aliases) })));
+].map(command));
 
 const canonical = new Map(COMMAND_REGISTRY.flatMap((entry) => [
   [entry.name, entry.name],

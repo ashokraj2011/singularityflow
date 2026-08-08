@@ -26,9 +26,11 @@ import {
   CAPABILITIES_PATH, editCapability, validateCapabilities, capabilityTree
 } from './capabilities.mjs';
 import { atomicJson, remoteDefaultBranch } from './workspace.mjs';
-import { identity } from './git.mjs';
+import { defaultBranchName, head, identity } from './git.mjs';
 import { initializeDefinition, loadDefinition } from './config.mjs';
-import { describeRepository, enableLedger, repositoryIdFromUrl } from './bootstrap.mjs';
+import {
+  describeRepository, enableLedger, repositoryIdFromUrl, setDefaultBaseBranch
+} from './bootstrap.mjs';
 import { initializeLedger, publishToStateBranch } from './ledger.mjs';
 import {
   CONFIGURATION_BRANCH, ensureConfigurationBranch, remoteHasConfigurationBranch
@@ -660,12 +662,50 @@ export async function initializeWorkspaceState(leadDirectory, { branch = 'state'
       + 'This usually means the clone landed on a branch the remote does not have.');
   }
 
-  const governed = existsSync(path.join(root, 'singularity/workflow.yml'));
-  if (!governed) {
-    await initializeDefinition(root);
+  const workflowPath = path.join(root, 'singularity/workflow.yml');
+  const governed = existsSync(workflowPath);
+  const workflowText = governed ? await readFile(workflowPath, 'utf8') : '';
+  const needsGovernanceProposal = !governed || !/^ledger:\s*$/m.test(workflowText);
+  let governanceBranch = current;
+  let governancePublished = true;
+  let publicationError = null;
+  if (needsGovernanceProposal) {
+    const applicationBranch = defaultBranchName(root);
+    if (current !== applicationBranch) {
+      throw new SingularityFlowError(
+        `Cannot initialize repository governance from '${current}'. Switch to the application branch '${applicationBranch}' first.`
+      );
+    }
+    const repositoryId = repositoryIdFromUrl(
+      run('git', ['remote', 'get-url', 'origin'], { cwd: root, allowFailure: true }).stdout.trim() || path.basename(root)
+    );
+    governanceBranch = `sflow/govern/${repositoryId}-${head(root).slice(0, 8)}`;
+    const remoteReview = run('git', ['ls-remote', '--heads', 'origin', `refs/heads/${governanceBranch}`], {
+      cwd: root, allowFailure: true
+    }).stdout.trim();
+    if (remoteReview) {
+      throw new SingularityFlowError(
+        `Governance review branch '${governanceBranch}' already exists. Review or remove that proposal before retrying.`
+      );
+    }
+    const localReview = run('git', ['show-ref', '--verify', '--quiet', `refs/heads/${governanceBranch}`], {
+      cwd: root, allowFailure: true
+    });
+    if (localReview.status === 0) {
+      throw new SingularityFlowError(
+        `Local governance review branch '${governanceBranch}' already exists. Resume or remove it before retrying.`
+      );
+    }
+    run('git', ['switch', '-c', governanceBranch], { cwd: root });
+    if (!governed) {
+      await initializeDefinition(root);
+      await setDefaultBaseBranch(root, applicationBranch);
+    }
     const actor = identity(root);
     const url = run('git', ['remote', 'get-url', 'origin'], { cwd: root, allowFailure: true }).stdout.trim();
-    if (url) await describeRepository(root, repositoryIdFromUrl(url), url, current, actor);
+    if (!governed && url) {
+      await describeRepository(root, repositoryIdFromUrl(url), url, applicationBranch, actor);
+    }
     await enableLedger(root, branch);
     run('git', ['add', 'singularity'], { cwd: root });
     if (run('git', ['diff', '--cached', '--name-only'], { cwd: root }).stdout.trim()) {
@@ -673,13 +713,34 @@ export async function initializeWorkspaceState(leadDirectory, { branch = 'state'
         '-c', `user.email=${actor.email || 'unknown@invalid'}`,
         'commit', '-m', 'Govern this repository with Singularity Flow'], { cwd: root });
     }
-    if (push) run('git', ['push', 'origin', `HEAD:${current}`], { cwd: root, allowFailure: true });
-  } else {
-    await enableLedger(root, branch);
+    if (push) {
+      const pushed = run('git', ['push', '-u', 'origin', `HEAD:refs/heads/${governanceBranch}`], {
+        cwd: root, allowFailure: true
+      });
+      governancePublished = pushed.status === 0;
+      publicationError = governancePublished ? null : (pushed.stderr || pushed.stdout).trim().split('\n')[0];
+      if (governancePublished && url) {
+        await ensureConfigurationBranch(url, { sourceBranch: governanceBranch });
+      }
+    }
   }
 
   const existed = run('git', ['ls-remote', '--heads', 'origin', branch], { cwd: root, allowFailure: true })
     .stdout.includes(`refs/heads/${branch}`);
-  const ledger = await initializeLedger(root, { enabled: true, branch, remote: push ? 'origin' : null });
-  return { root, branch, governed, existed, created: Boolean(ledger?.created) };
+  const ledger = await initializeLedger(
+    root,
+    { enabled: true, branch, remote: push ? 'origin' : null },
+    { publish: push && governancePublished }
+  );
+  return {
+    root,
+    branch,
+    governed,
+    existed,
+    created: Boolean(ledger?.created),
+    governanceBranch,
+    reviewRequired: needsGovernanceProposal,
+    governancePublished: push ? governancePublished : false,
+    publicationError
+  };
 }

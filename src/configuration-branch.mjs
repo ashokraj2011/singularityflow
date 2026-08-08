@@ -88,8 +88,8 @@ export function remoteHasConfigurationBranch(remote) {
   return result.status === 0 && Boolean(result.stdout.trim());
 }
 
-/** Create the configuration authority once, importing only configuration from the code branch. */
-export async function ensureConfigurationBranch(remote) {
+/** Create the configuration authority once, importing only configuration from an approved source. */
+export async function ensureConfigurationBranch(remote, { sourceBranch = null } = {}) {
   const url = String(remote ?? '').trim();
   if (!url) throw new SingularityFlowError('A configuration repository URL is required.');
   if (remoteHasConfigurationBranch(url)) return { branch: CONFIGURATION_BRANCH, created: false };
@@ -97,10 +97,11 @@ export async function ensureConfigurationBranch(remote) {
   const defaultBranch = remoteDefaultBranch(
     url, run('git', ['ls-remote', '--symref', url, 'HEAD'], { allowFailure: true }).stdout
   );
+  const importBranch = String(sourceBranch ?? defaultBranch).trim() || defaultBranch;
   const scratch = await mkdtemp(path.join(os.tmpdir(), 'sflow-config-bootstrap-'));
   const seed = await mkdtemp(path.join(os.tmpdir(), 'sflow-config-seed-'));
   try {
-    const clone = run('git', ['clone', '--quiet', '--depth', '1', '--branch', defaultBranch, url, scratch], {
+    const clone = run('git', ['clone', '--quiet', '--depth', '1', '--branch', importBranch, url, scratch], {
       allowFailure: true
     });
     if (clone.status !== 0) {
@@ -138,7 +139,7 @@ export async function ensureConfigurationBranch(remote) {
       throw new SingularityFlowError(
         `Cannot create '${CONFIGURATION_BRANCH}' on '${url}': ${(push.stderr || push.stdout).trim().split('\n')[0]}`);
     }
-    return { branch: CONFIGURATION_BRANCH, commit, created: true, importedFrom: defaultBranch };
+    return { branch: CONFIGURATION_BRANCH, commit, created: true, importedFrom: importBranch };
   } finally {
     await rm(scratch, { recursive: true, force: true });
     await rm(seed, { recursive: true, force: true });

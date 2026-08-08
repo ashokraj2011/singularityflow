@@ -6,7 +6,8 @@ import os from 'node:os';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import {
-  add, branch, changedFiles, fetchRemote, gitDir, hasRemote, head, pushBranch, refExists, validBranch
+  add, assertNotDefaultBranch, branch, changedFiles, fetchRemote, gitDir, hasRemote, head, pushBranch,
+  refExists, validBranch
 } from './git.mjs';
 import {
   SingularityFlowError, optionBoolean, optionNumber, optionString, platformShell, posix, run, snapshot,
@@ -319,6 +320,8 @@ async function installWorldModel(staging, target) {
 }
 
 async function publishWorldModel(root, config, workflow, sourceHash, phase = 'repository', { local = false } = {}) {
+  const publishing = !local && (config.definition?.git?.publish ?? 'required') !== 'off';
+  if (publishing) assertNotDefaultBranch(root, config, 'World-model publication');
   add(root, [config.outputDir]);
   const staged = run('git', ['diff', '--cached', '--quiet', '--', config.outputDir], { cwd: root, allowFailure: true }).status !== 0;
   let commit = worldModelCommit(root, config.outputDir);
@@ -328,7 +331,7 @@ async function publishWorldModel(root, config, workflow, sourceHash, phase = 're
   }
   // --local (or git.publish: off): commit to the current branch but do not push. The commit rides
   // the first work-item branch forked from this branch and is pushed with it, never on origin/main.
-  if (local || (config.definition?.git?.publish ?? 'required') === 'off') return { commit, pushed: false, changed: staged };
+  if (!publishing) return { commit, pushed: false, changed: staged };
   const remote = config.definition?.git?.remote ?? 'origin';
   const result = pushBranch(root, remote, branch(root));
   if (result.status !== 0) {
@@ -780,6 +783,10 @@ async function buildLight(root, config, options) {
   if (optionBoolean(options, 'parallel') || options.workers !== undefined) {
     throw new SingularityFlowError('Light world-model mode does not start discovery workers. Remove --parallel and --workers.');
   }
+  const local = optionBoolean(options, 'local');
+  if (!local && (config.definition?.git?.publish ?? 'required') !== 'off') {
+    assertNotDefaultBranch(root, config, 'World-model publication');
+  }
   const temporary = await mkdtemp(path.join(os.tmpdir(), 'singularity-flow-world-model-light-'));
   const staging = path.join(temporary, 'output');
   await mkdir(staging, { recursive: true });
@@ -817,7 +824,6 @@ async function buildLight(root, config, options) {
     });
     await installWorldModel(staging, path.join(root, config.outputDir));
     const phase = optionString(options, 'phase');
-    const local = optionBoolean(options, 'local');
     const publication = await publishWorldModel(
       root, config, config.workflow, sourceState.sha256, phase ?? 'repository-light', { local }
     );
@@ -847,6 +853,10 @@ async function build(root, config, options) {
     throw new SingularityFlowError('--depth must be light, quick, standard, or deep.');
   }
   if (depth === 'light') return buildLight(root, config, { ...options, depth: 'light' });
+  const local = optionBoolean(options, 'local');
+  if (!local && (config.definition?.git?.publish ?? 'required') !== 'off') {
+    assertNotDefaultBranch(root, config, 'World-model publication');
+  }
   const cacheRoot = path.join(gitDir(root), 'singularity-flow');
   await mkdir(cacheRoot, { recursive: true });
   const temporary = await mkdtemp(path.join(os.tmpdir(), 'singularity-flow-world-model-'));
@@ -1009,7 +1019,6 @@ async function build(root, config, options) {
       expectedCommit: sourceCommit, expectedTask: optionString(options, 'task'), requiredViews, requireEvidence: true
     });
     await installWorldModel(staging, path.join(root, config.outputDir));
-    const local = optionBoolean(options, 'local');
     const publication = await publishWorldModel(root, config, config.workflow, sourceState.sha256, phase ?? 'repository', { local });
     console.log(`World model built from source ${sourceState.sha256.slice(7, 19)} and recorded in ${publication.commit?.slice(0, 10) ?? 'the working tree'}${publication.pushed ? ' (pushed)' : local ? ' (local, not pushed)' : ''}.`);
     // The governed copy, which is the one every reader prefers. Not attempted for --local: that

@@ -23,6 +23,37 @@ export function branch(root) {
   return value;
 }
 
+/** Resolve the application branch without contacting the remote. */
+export function defaultBranchName(root, config = {}, remote = null) {
+  const configured = String(
+    config?.defaultBaseBranch ?? config?.definition?.defaultBaseBranch ?? ''
+  ).trim();
+  if (configured) return configured;
+  const remoteName = remote
+    ?? config?.git?.remote
+    ?? config?.definition?.git?.remote
+    ?? 'origin';
+  const symbolic = git(['symbolic-ref', '--quiet', '--short', `refs/remotes/${remoteName}/HEAD`], {
+    cwd: root,
+    allowFailure: true
+  }).stdout.trim();
+  const prefix = `${remoteName}/`;
+  return (symbolic.startsWith(prefix) ? symbolic.slice(prefix.length) : symbolic) || 'main';
+}
+
+/** Refuse an operation before it writes or commits on the application branch. */
+export function assertNotDefaultBranch(root, config = {}, action = 'This operation') {
+  const current = branch(root);
+  const applicationBranch = defaultBranchName(root, config);
+  if (current === applicationBranch) {
+    throw new SingularityFlowError(
+      `${action} cannot run on protected application branch '${applicationBranch}'. `
+      + 'Switch to a governed Story, Epic, or configuration review branch first.'
+    );
+  }
+  return current;
+}
+
 export function head(root) {
   return git(['rev-parse', 'HEAD'], { cwd: root }).stdout.trim();
 }

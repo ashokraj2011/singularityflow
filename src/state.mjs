@@ -59,6 +59,10 @@ export const loadConfig = loadDefinition;
 export function validateId(config, id) {
   if (!id || id === '.' || id === '..' || id.includes('/') || id.includes('\\')) throw new SingularityFlowError('Work ID must be one safe identifier without slashes.');
   if (!(new RegExp(config.idPattern ?? '^[A-Za-z0-9][A-Za-z0-9._-]{0,63}$')).test(id)) throw new SingularityFlowError(`Work ID ${id} does not match ${config.idPattern}.`);
+  const reserved = new Set(['main', 'master', String(config.defaultBaseBranch ?? '').trim()].filter(Boolean));
+  if (reserved.has(id)) {
+    throw new SingularityFlowError(`Work ID '${id}' is reserved for application integration and cannot identify governed work.`);
+  }
 }
 
 export function workDir(root, config, id) { return path.join(root, config.workItemRoot ?? 'singularity/work-items', id); }

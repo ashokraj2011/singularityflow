@@ -1,7 +1,7 @@
 import { createHash } from 'node:crypto';
 import { readFile } from 'node:fs/promises';
 import path from 'node:path';
-import { branch, changes, head, identity } from './git.mjs';
+import { assertNotDefaultBranch, branch, changes, defaultBranchName, head, identity } from './git.mjs';
 import { loadSession, setAgentSession } from './session.mjs';
 import {
   commitAndPublish, loadWorkflow, saveStoryDraft, sourceTreeHash, workflowBranchAllowed,
@@ -32,11 +32,15 @@ function repositoryOrigin(root) {
   return result.status === 0 ? result.stdout.trim() || null : null;
 }
 
-function validateBranchName(root, value) {
+function validateBranchName(root, value, config = {}) {
   const name = String(value ?? '').trim();
   if (!name) throw new SingularityFlowError('A child branch name is required.');
   const result = run('git', ['check-ref-format', '--branch', name], { cwd: root, allowFailure: true });
   if (result.status !== 0) throw new SingularityFlowError(`Invalid Git branch name '${name}'.`);
+  const applicationBranch = defaultBranchName(root, config);
+  if (name === applicationBranch || name === 'main' || name === 'master') {
+    throw new SingularityFlowError(`Branch '${name}' is reserved for application integration and cannot be registered as a Story branch.`);
+  }
   return name;
 }
 
@@ -63,9 +67,10 @@ export async function attachStoryBranch(root, config, {
   parentStoryId,
   branchName = branch(root)
 } = {}) {
+  assertNotDefaultBranch(root, config, 'Story branch attachment');
   if (!parentStoryId) throw new SingularityFlowError('Attaching a child branch requires --parent with the canonical Story Work ID.');
   const workflow = await loadWorkflow(root, config, parentStoryId);
-  const current = validateBranchName(root, branchName);
+  const current = validateBranchName(root, branchName, config);
   if (current !== branch(root)) throw new SingularityFlowError(`Current branch is '${branch(root)}'; cannot attach '${current}' without checking it out.`);
   if (current === workflow.workItem.branch) {
     await preserveAgent(root, config, workflow);
@@ -108,7 +113,7 @@ export async function createStoryBranch(root, config, {
   if (branch(root) !== workflow.workItem.branch) {
     throw new SingularityFlowError(`Child branches must start from canonical Story branch '${workflow.workItem.branch}'.`);
   }
-  const name = validateBranchName(root, branchName);
+  const name = validateBranchName(root, branchName, config);
   if (workflowBranchAllowed(workflow, name)) throw new SingularityFlowError(`Branch '${name}' is already registered for Story '${parentStoryId}'.`);
   const switched = run('git', ['switch', '-c', name], { cwd: root, allowFailure: true });
   if (switched.status !== 0) throw new SingularityFlowError(`Unable to create child branch '${name}': ${(switched.stderr || switched.stdout).trim()}`);

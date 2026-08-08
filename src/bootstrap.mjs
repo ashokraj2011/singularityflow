@@ -17,7 +17,7 @@
  *   4. Name the person running this as an approval authority, because an Epic cannot start until
  *      at least one authority has a member and discovering that later is a poor greeting.
  *   5. Write the capability map with the capability described.
- *   6. Commit, create the orphan state branch, and push both.
+ *   6. Commit on a review branch, establish the orphan configuration and state branches, and push.
  *
  * Step six is why this is one operation rather than a checklist: the state branch has no shared
  * ancestry with the code branch, so creating it is not something a person stumbles into.
@@ -87,6 +87,14 @@ export async function describeRepository(root, repositoryId, url, defaultBranch,
   return { declared: repositoryId };
 }
 
+/** Pin a freshly initialized workflow to the application's detected integration branch. */
+export async function setDefaultBaseBranch(root, defaultBranch) {
+  const file = path.join(root, 'singularity/workflow.yml');
+  const document = YAML.parseDocument(await readFile(file, 'utf8'));
+  document.set('defaultBaseBranch', String(defaultBranch).trim());
+  await writeFile(file, document.toString(YAML_OUTPUT), 'utf8');
+}
+
 /**
  * Write the capability map, with the capability this bootstrap was given as its only root.
  *
@@ -139,6 +147,7 @@ export async function enableLedger(root, branch) {
  * @param into where to clone. Defaults to a directory named after the repository.
  * @param stateBranch the orphan branch recording workflow progress; null to skip it.
  * @param push whether to publish. False is for trying this out, and for tests.
+ * @param direct whether to commit to the application branch instead of proposing a review branch.
  */
 export async function bootstrapRepository(url, {
   capabilityId,
@@ -149,7 +158,8 @@ export async function bootstrapRepository(url, {
   into = null,
   base = null,
   stateBranch = 'state',
-  push = true
+  push = true,
+  direct = false
 } = {}) {
   const remote = String(url ?? '').trim();
   if (!remote) throw new SingularityFlowError('A repository URL is required.');
@@ -186,8 +196,45 @@ export async function bootstrapRepository(url, {
     }
   }
   const actor = identity(root);
+  const current = run('git', ['branch', '--show-current'], { cwd: root }).stdout.trim();
+  const reviewPrefix = `sflow/govern/${repositoryId}-`;
+  const resumingReview = !direct && current.startsWith(reviewPrefix);
+  if (current !== branch && !resumingReview) {
+    const dirty = run('git', ['status', '--porcelain'], { cwd: root }).stdout.trim();
+    if (dirty) throw new SingularityFlowError(`Cannot bootstrap from '${current}' with uncommitted changes.`);
+    const switched = run('git', ['switch', branch], { cwd: root, allowFailure: true });
+    if (switched.status !== 0) {
+      throw new SingularityFlowError(`Cannot switch to application branch '${branch}': ${(switched.stderr || switched.stdout).trim()}`);
+    }
+  }
+  const baseCommit = resumingReview
+    ? run('git', ['merge-base', 'HEAD', `origin/${branch}`], { cwd: root }).stdout.trim()
+    : run('git', ['rev-parse', 'HEAD'], { cwd: root }).stdout.trim();
+  const reviewBranch = direct ? branch : (resumingReview ? current : `${reviewPrefix}${baseCommit.slice(0, 8)}`);
+  if (!direct && !resumingReview) {
+    const remoteReview = run('git', ['ls-remote', '--heads', 'origin', `refs/heads/${reviewBranch}`], {
+      cwd: root,
+      allowFailure: true
+    }).stdout.trim();
+    if (remoteReview) {
+      throw new SingularityFlowError(
+        `Governance review branch '${reviewBranch}' already exists. Review or remove that proposal before retrying.`
+      );
+    }
+    const localReview = run('git', ['show-ref', '--verify', '--quiet', `refs/heads/${reviewBranch}`], {
+      cwd: root,
+      allowFailure: true
+    });
+    if (localReview.status === 0) {
+      throw new SingularityFlowError(
+        `Local governance review branch '${reviewBranch}' already exists. Resume or remove it before retrying.`
+      );
+    }
+    run('git', ['switch', '-c', reviewBranch], { cwd: root });
+  }
 
   const wrote = await initializeDefinition(root);
+  if (wrote.includes('singularity/workflow.yml')) await setDefaultBaseBranch(root, branch);
   await describeRepository(root, repositoryId, remote, branch, actor);
   await describeCapability(root, {
     capabilityId, capabilityName, kind, repositoryId, jiraProject, teams
@@ -205,23 +252,31 @@ export async function bootstrapRepository(url, {
     commit = run('git', ['rev-parse', 'HEAD'], { cwd: root }).stdout.trim();
   }
 
-  // The orphan branch comes after the commit: it is initialized from a worktree of this repository,
-  // and it records that this repository is now governed.
-  let ledger = null;
-  if (stateBranch) {
-    ledger = await initializeLedger(root, { enabled: true, branch: stateBranch, remote: 'origin' });
-  }
-
-  const published = { branch: false, state: false, error: null };
+  const published = { branch: false, configuration: false, state: false, error: null };
   if (push) {
-    const pushed = run('git', ['push', 'origin', `HEAD:${branch}`], { cwd: root, allowFailure: true });
+    const pushed = run('git', ['push', '-u', 'origin', `HEAD:refs/heads/${reviewBranch}`], { cwd: root, allowFailure: true });
     published.branch = pushed.status === 0;
-    // The ledger pushes itself during initialization, so the state branch is already published when
-    // there is a remote; this only records what happened.
-    published.state = Boolean(ledger && !ledger.created ? true : ledger?.created);
     if (!published.branch) {
       published.error = (pushed.stderr || pushed.stdout).trim().split('\n')[0];
+    } else {
+      // Imported from the proposal rather than unchanged application history: otherwise moving the
+      // bootstrap commit off main would create an empty authority branch and lose this definition.
+      const { ensureConfigurationBranch } = await import('./configuration-branch.mjs');
+      await ensureConfigurationBranch(remote, { sourceBranch: reviewBranch });
+      published.configuration = true;
     }
+  }
+
+  // The ledger is branch-independent. Keep it local when --no-push is used, and do not publish it
+  // ahead of a governance proposal that failed to reach the remote.
+  let ledger = null;
+  if (stateBranch) {
+    ledger = await initializeLedger(
+      root,
+      { enabled: true, branch: stateBranch, remote: 'origin' },
+      { publish: push && published.branch }
+    );
+    published.state = Boolean(push && published.branch && ledger);
   }
 
   return {
@@ -229,6 +284,8 @@ export async function bootstrapRepository(url, {
     repositoryId,
     url: remote,
     branch,
+    reviewBranch,
+    reviewRequired: !direct,
     cloned,
     capability: capabilityId,
     stateBranch: stateBranch ?? null,

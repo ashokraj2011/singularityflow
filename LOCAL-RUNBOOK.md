@@ -126,6 +126,21 @@ during the POC. If this repository has version 1, use the factory-reset flow bel
 on a disposable or deliberately chosen branch, then review and commit the new v2
 configuration.
 
+### Bootstrap a previously ungoverned remote
+
+From any directory, the organisation bootstrap leaves the detected application
+branch untouched and proposes its initial configuration for review:
+
+```bash
+singularity-flow bootstrap <REPOSITORY-URL> --capability platform --name "Platform"
+```
+
+The result includes the detected application branch, a collision-safe
+`sflow/govern/<repository>-<base-sha>` review branch, and the orphan
+`sflow/config` and `state` branches. Follow the exact pull-request command printed
+by the CLI. Use `--direct` only when direct application-branch publication is an
+intentional repository policy.
+
 ### Factory reset
 
 Use factory reset only when you intentionally want to discard every governed

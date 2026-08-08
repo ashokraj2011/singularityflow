@@ -534,6 +534,7 @@ test('configuration publish --json emits machine-readable stdout even when git c
   git(['commit', '-m', 'initialize'], root);
   git(['remote', 'add', 'origin', remote], root);
   git(['push', '-u', 'origin', 'main'], root);
+  git(['switch', '-c', 'sflow/config-change/test-publish'], root);
 
   const definitionPath = path.join(root, 'singularity/workflow.yml');
   await writeFile(definitionPath, `${await readFile(definitionPath, 'utf8')}\n# publishable tweak\n`);
@@ -545,5 +546,5 @@ test('configuration publish --json emits machine-readable stdout even when git c
   assert.equal(parsed.pushed, true);
   assert.deepEqual(parsed.files, ['singularity/workflow.yml']);
   // The human-readable git output is still emitted, on stderr.
-  assert.match(execution.stderr, /\[main [0-9a-f]+\]/);
+  assert.match(execution.stderr, /\[sflow\/config-change\/test-publish [0-9a-f]+\]/);
 });

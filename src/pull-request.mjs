@@ -3,14 +3,15 @@ import { readFile } from 'node:fs/promises';
 import YAML from 'yaml';
 import { run, commandExists, exists, SingularityFlowError } from './util.mjs';
 import { githubAuthStatus } from './github-evidence.mjs';
+import { defaultBranchName } from './git.mjs';
 
 // Where the story's pull request goes. Materialization records the branch the story was cut from;
 // for a story in the epic's own repository that is the epic branch, so the pull request targets the
 // epic branch and the epic lands on the default branch once every blocking story has merged.
-export function pullRequestTarget(workflow, seed = null) {
+export function pullRequestTarget(workflow, seed = null, { root = null, config = {} } = {}) {
   const base = seed?.story?.parentBranch
     ?? workflow.workItem.baseBranch
-    ?? 'main';
+    ?? (root ? defaultBranchName(root, config) : config.defaultBaseBranch ?? 'main');
   return { base, head: workflow.workItem.branch ?? workflow.workItem.id };
 }
 
@@ -86,6 +87,38 @@ export function storyPullRequestBody(workflow, seed = null, { mergeSequence = nu
   return lines.join('\n');
 }
 
+// The final Epic pull request is equally deterministic. It contains no generated prose: its title,
+// lifecycle state, Story merge sequence, and blockers all come from committed initiative state and
+// live Git ancestry observations.
+export function epicPullRequestBody(initiative, mergeSequence) {
+  const id = initiative.initiative.id;
+  const lines = [
+    `## ${id} — ${initiative.initiative.title}`,
+    '',
+    '### Initiative',
+    '',
+    `- Profile: \`${initiative.initiative.profile}\``,
+    `- Status: **${initiative.status}**`,
+    `- Epic branch: \`${mergeSequence.epicBranch}\``,
+    '',
+    '### Story delivery',
+    ''
+  ];
+  lines.push(...mergeSequence.stories.map((story) => {
+    const blockers = [...new Set([...(story.blockedBy ?? []), ...(story.mergeBlockedBy ?? [])])];
+    return `- ${story.workId ?? story.id}: **${story.status}**${story.blocking ? ' · blocking' : ''}${blockers.length ? ` · waits for ${blockers.join(', ')}` : ''}`;
+  }));
+  lines.push('', '### Landing readiness', '');
+  lines.push(mergeSequence.epicReady
+    ? '- Every blocking Story has merged into the Epic branch.'
+    : `- Not ready: ${(mergeSequence.outstanding ?? []).join(', ') || 'blocking Story state is incomplete'}.`);
+  if (mergeSequence.unreachable?.length) {
+    lines.push(`- Unreachable Story branches: ${mergeSequence.unreachable.join(', ')}.`);
+  }
+  lines.push('', '---', '', 'Generated deterministically by Singularity Flow from committed Initiative state and observed Git ancestry.');
+  return lines.join('\n');
+}
+
 export async function readStorySeed(root, workflow) {
   const relative = workflow.source?.seed ?? path.posix.join('singularity', 'seeds', `${workflow.workItem.id}.yml`);
   const absolute = path.join(root, relative);
@@ -97,7 +130,7 @@ export async function readStorySeed(root, workflow) {
 // Build the complete pull request without contacting GitHub. Always safe to run.
 export async function storyPullRequestPlan(root, config, workflow, { mergeSequence = null } = {}) {
   const seed = await readStorySeed(root, workflow);
-  const { base, head } = pullRequestTarget(workflow, seed);
+  const { base, head } = pullRequestTarget(workflow, seed, { root, config });
   const policy = seed?.story?.branchCompletionPolicy ?? workflow.source?.branchCompletionPolicy ?? 'pr';
   if (policy === 'direct') {
     throw new SingularityFlowError(`Repository policy for ${workflow.workItem.id} is 'direct'; it does not use pull requests.`);
@@ -121,10 +154,33 @@ export async function storyPullRequestPlan(root, config, workflow, { mergeSequen
   };
 }
 
+export function epicPullRequestPlan(root, config, initiative, mergeSequence) {
+  const subjectId = initiative.initiative.id;
+  const base = defaultBranchName(root, config);
+  const head = initiative.initiative.branch ?? subjectId;
+  if (base === head) throw new SingularityFlowError(`Pull request base and head are both '${base}'.`);
+  const blockedBy = [
+    ...(mergeSequence.epicReady ? [] : (mergeSequence.outstanding ?? [])),
+    ...(mergeSequence.unreachable ?? []).map((id) => `${id} is unreachable`)
+  ];
+  return {
+    subjectKind: 'Epic',
+    subjectId,
+    workId: subjectId,
+    base,
+    head,
+    policy: 'pr',
+    title: `${subjectId}: ${initiative.initiative.title}`,
+    body: epicPullRequestBody(initiative, mergeSequence),
+    requiredChecks: [],
+    blockedBy: [...new Set(blockedBy)]
+  };
+}
+
 // Create the pull request. Outward action: callers must obtain explicit confirmation first.
-export function createStoryPullRequest(root, plan, { remote = 'origin', runCommand = run } = {}) {
-  if (plan.blockedBy.length) {
-    throw new SingularityFlowError(`${plan.workId} cannot open a pull request yet: ${plan.blockedBy.join(', ')} must merge or otherwise become ready first.`);
+export function createPullRequest(root, plan, { remote = 'origin', runCommand = run } = {}) {
+  if ((plan.blockedBy ?? []).length) {
+    throw new SingularityFlowError(`${plan.subjectId ?? plan.workId} cannot open a pull request yet: ${plan.blockedBy.join(', ')} must merge or otherwise become ready first.`);
   }
   if (runCommand === run && !commandExists('gh')) {
     throw new SingularityFlowError('Opening a pull request requires the GitHub CLI. Install gh and run gh auth login, or open the pull request manually using the generated body.');
@@ -140,6 +196,10 @@ export function createStoryPullRequest(root, plan, { remote = 'origin', runComma
   const created = runCommand('gh', ['pr', 'create', '--base', plan.base, '--head', plan.head, '--title', plan.title, '--body', plan.body], { cwd: root, allowFailure: true });
   if (created.status !== 0) throw new SingularityFlowError(`Unable to open the pull request: ${(created.stderr || created.stdout).trim()}`);
   return { status: 'created', url: created.stdout.trim().split(/\s+/).pop(), base: plan.base, head: plan.head };
+}
+
+export function createStoryPullRequest(root, plan, options = {}) {
+  return createPullRequest(root, plan, options);
 }
 
 // Update is deliberately separate from creation: `pr describe --write` can never create a PR.

@@ -4,7 +4,8 @@ import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import YAML from 'yaml';
 import {
-  add, branch, changedFiles, commit, head, identity, localBranches, pushBranch, remoteBranches
+  add, assertNotDefaultBranch, branch, changedFiles, commit, head, identity, localBranches, pushBranch,
+  remoteBranches
 } from './git.mjs';
 import {
   DEFAULT_PLANNING_PROMPT,
@@ -1200,6 +1201,8 @@ export async function validateEditorConfiguration(root) {
 
 export async function publishEditorConfiguration(root, message = 'Configure Singularity Flow workflow') {
   const definition = await loadDefinition(root);
+  const publishing = (definition.git?.publish ?? 'required') !== 'off';
+  if (publishing) assertNotDefaultBranch(root, definition, 'Configuration publication');
   const portfolio = await loadPortfolio(root, { required: false });
   const changed = changedFiles(root);
   const configurationChanges = changed.filter((file) => allowedConfigurationPath(definition, file, portfolio, root));
@@ -1212,7 +1215,7 @@ export async function publishEditorConfiguration(root, message = 'Configure Sing
   // Bounded by the same set the guards above checked, so the commit cannot exceed what was approved
   // even if those guards are ever loosened.
   const sha = commit(root, message.trim() || 'Configure Singularity Flow workflow', configurationChanges);
-  if ((definition.git?.publish ?? 'required') === 'off') return { sha, pushed: false, files: configurationChanges };
+  if (!publishing) return { sha, pushed: false, files: configurationChanges };
   const remote = definition.git?.remote ?? 'origin';
   const result = pushBranch(root, remote, branch(root));
   if (result.status !== 0) throw new SingularityFlowError(`Commit ${sha.slice(0, 8)} was created but push failed: ${(result.stderr || result.stdout).trim()}`);

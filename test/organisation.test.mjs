@@ -295,9 +295,28 @@ test('initialising a workspace creates the orphan state branch, and checks befor
   assert.equal(first.governed, false, 'a delivery repository is not governed in its own right');
   assert.equal(first.existed, false);
   assert.equal(first.created, true);
+  assert.equal(first.governancePublished, true);
+  assert.match(first.governanceBranch, /^sflow\/govern\/api-/);
   assert.ok(existsSync(path.join(work, 'singularity/workflow.yml')));
   assert.match(run('git', ['ls-remote', '--heads', 'origin', 'state'], { cwd: work }).stdout,
     /refs\/heads\/state/, 'and it reached the remote');
+  assert.equal(
+    run('git', ['cat-file', '-e', 'origin/main:singularity/workflow.yml'], { cwd: work, allowFailure: true }).status,
+    128,
+    'workspace initialization does not commit governance onto the application branch'
+  );
+  assert.equal(
+    run('git', ['cat-file', '-e', `origin/${first.governanceBranch}:singularity/workflow.yml`], { cwd: work, allowFailure: true }).status,
+    0,
+    'the governance proposal contains the initialized definition'
+  );
+  assert.equal(
+    run('git', ['--git-dir', org.api, 'cat-file', '-e', 'sflow/config:singularity/workflow.yml'], {
+      allowFailure: true
+    }).status,
+    0,
+    'configuration authority is seeded from the proposal rather than from main'
+  );
 
   // The branch is an orphan: no shared ancestry with the code branch, so a rebase of the work
   // cannot rewrite the record of it.

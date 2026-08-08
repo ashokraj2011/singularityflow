@@ -1,0 +1,31 @@
+{
+  "schemaVersion": 1,
+  "runtime": {
+    "nodeMajor": 22,
+    "runner": "ubuntu-latest",
+    "platform": "linux",
+    "architecture": "x64"
+  },
+  "protocol": {
+    "warmupRuns": 1,
+    "samples": 30,
+    "network": "disabled",
+    "modelCalls": "disabled"
+  },
+  "topology": {
+    "trackedFiles": 500,
+    "untrackedFiles": 4,
+    "localBranches": 4,
+    "stories": 1,
+    "initiatives": 0,
+    "specifications": 0,
+    "knowledgeDocuments": 0,
+    "localSubjectIndex": "absent"
+  },
+  "budgets": {
+    "about": { "p50Ms": 150 },
+    "status": { "p50Ms": 150 },
+    "nextsteps": { "p50Ms": 150 },
+    "snapshot": { "p50Ms": 150, "p95Ms": 250 }
+  }
+}

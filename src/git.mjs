@@ -33,13 +33,15 @@ export function gitDir(root) {
   return path.resolve(value);
 }
 
-export function identity(root) {
+export function identity(root, { offline = false } = {}) {
   if (process.env.NODE_ENV === 'test' && process.env.SINGULARITY_FLOW_TEST_IDENTITY) {
     return { name: process.env.SINGULARITY_FLOW_TEST_IDENTITY, email: `${process.env.SINGULARITY_FLOW_TEST_IDENTITY.toLowerCase().replace(/\s+/g, '.')}@example.com`, login: null };
   }
   const name = git(['config', '--get', 'user.name'], { cwd: root, allowFailure: true }).stdout.trim();
   const email = git(['config', '--get', 'user.email'], { cwd: root, allowFailure: true }).stdout.trim();
-  const github = run('gh', ['api', 'user', '--jq', '{login: .login, name: .name}'], { cwd: root, allowFailure: true });
+  const github = offline
+    ? { status: 1, stdout: '' }
+    : run('gh', ['api', 'user', '--jq', '{login: .login, name: .name}'], { cwd: root, allowFailure: true });
   let account = {};
   if (github.status === 0) { try { account = JSON.parse(github.stdout); } catch { account = {}; } }
   return {

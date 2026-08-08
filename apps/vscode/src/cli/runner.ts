@@ -149,6 +149,8 @@ export interface InvokeOptions {
   timeoutMs?: number;
   spawnImpl?: typeof spawn;
   onOutput?: (text: string, stream: OutputStream) => void;
+  /** Completion telemetry is separate from the child process' stdout/stderr stream. */
+  onTiming?: (event: { command: string; durationMs: number; exitCode: number | null }) => void;
   /** Aborting a run the user cancelled, or that a newer refresh has superseded. */
   signal?: AbortSignal;
 }
@@ -163,9 +165,10 @@ export interface InvokeOptions {
 export function invokeCli<T = unknown>(options: InvokeOptions): Promise<T> {
   const {
     executable, cli, repository, args, input = null, json = true,
-    env = process.env, timeoutMs = CLI_TIMEOUT_MS, spawnImpl = spawn, onOutput, signal
+    env = process.env, timeoutMs = CLI_TIMEOUT_MS, spawnImpl = spawn, onOutput, onTiming, signal
   } = options;
 
+  const startedAt = process.hrtime.bigint();
   return new Promise<T>((resolve, reject) => {
     let child: ChildProcess | undefined;
     let stdout = '';
@@ -233,6 +236,8 @@ export function invokeCli<T = unknown>(options: InvokeOptions): Promise<T> {
     child.on('error', fail);
     child.on('close', (code) => {
       if (settled) return;
+      const durationMs = Number(process.hrtime.bigint() - startedAt) / 1e6;
+      try { onTiming?.({ command: args[0] ?? 'command', durationMs, exitCode: code }); } catch { /* diagnostic only */ }
       if (code !== 0) {
         const message = humanError(stderr)
           || stdout.trim()

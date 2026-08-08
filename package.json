@@ -65,7 +65,9 @@
     "vscode:package": "node scripts/vscode-dev.mjs --package",
     "vscode:visual-fixtures": "node --experimental-strip-types scripts/render-vscode-visual-fixtures.mjs",
     "release": "node scripts/release.mjs",
-    "release:dry": "node scripts/release.mjs --dry-run"
+    "release:dry": "node scripts/release.mjs --dry-run",
+    "benchmark:dx": "node scripts/dx-benchmark.mjs",
+    "benchmark:dx:enforce": "node scripts/dx-benchmark.mjs --enforce"
   },
   "engines": {
     "node": ">=20"

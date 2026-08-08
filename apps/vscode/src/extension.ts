@@ -14,29 +14,18 @@ import { validateRepositoryDirectory } from './cli/runner.ts';
 import { WorkspaceStore } from './state.ts';
 import { ConfigurationValidator } from './validation.ts';
 import { approveWithReceipt, resolvePlaceholders, runGovernedAction, runPlannedAction } from './actions.ts';
-import { WorkspacePanel } from './views/workspace-panel.ts';
 import { LifecycleTreeProvider } from './views/lifecycle.ts';
-import { JourneyPanel, type JourneyMessage } from './views/journey.ts';
-import { ReconciliationPanel } from './views/reconciliation.ts';
-import { ApprovalsPanel, type ApprovalsMessage } from './views/approvals.ts';
-import { InboxPanel, type InboxMessage } from './views/inbox.ts';
+import type { JourneyMessage } from './views/journey.ts';
+import type { ApprovalsMessage } from './views/approvals.ts';
+import type { InboxMessage } from './views/inbox.ts';
 import { buildInboxTree } from './views/inbox-model.ts';
-import { StoriesPanel, type StoriesMessage } from './views/stories.ts';
-import { ImpactPanel } from './views/impact.ts';
-import { CapabilitiesPanel, type CapabilitiesMessage } from './views/capabilities.ts';
-import { IntakePanel } from './views/intake-panel.ts';
-import { DashboardPanel } from './views/dashboard.ts';
-import { FlowImpactPanel } from './views/flow-impact.ts';
-import { DesignerPanel, type DesignerMessage } from './views/designer.ts';
-import { InstructionDesignerPanel } from './views/instruction-designer.ts';
-import { PromptAuditPanel } from './views/prompt-audit.ts';
-import { SpecificationTracePanel } from './views/specification-trace.ts';
-import { VisualAssurancePanel } from './views/visual-assurance.ts';
-import { ConfigurationCenterPanel, type ConfigurationCenterMessage } from './views/configuration-center.ts';
-import { HelpPanel } from './views/help.ts';
+import type { StoriesMessage } from './views/stories.ts';
+import type { CapabilitiesMessage } from './views/capabilities.ts';
+import type { DesignerMessage } from './views/designer.ts';
+import type { ConfigurationCenterMessage } from './views/configuration-center.ts';
 import type { HelpDocument } from './views/help-page.ts';
-import { WorkspacesPanel, type WorkspacesMessage } from './views/workspaces-panel.ts';
-import { BootstrapPanel, type Mapped } from './views/bootstrap-panel.ts';
+import type { WorkspacesMessage } from './views/workspaces-panel.ts';
+import type { Mapped } from './views/bootstrap-panel.ts';
 import {
   archiveCommand, restoreCommand, type WorkspaceArchiveReadiness,
   type WorkspaceEntry, type WorkspaceStatus
@@ -311,6 +300,7 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
       }).run<HelpDocument>(['help', '--json']);
       const topic = node?.id.startsWith('help:') && !['help:start', 'help:reference', 'help:all'].includes(node.id)
         ? node.id.slice('help:'.length) : null;
+      const { HelpPanel } = await import('./views/help.ts');
       HelpPanel.show(context, manual, topic, path.resolve(path.dirname(location.cli), '..'));
     } catch (error) {
       void vscode.window.showErrorMessage(`Could not open Singularity Flow Help: ${(error as Error).message}`);
@@ -390,7 +380,7 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
    * Registered before any early return: this is the command for when there is no repository to
    * serve yet, which is precisely when activation stops early.
    */
-  context.subscriptions.push(vscode.commands.registerCommand('singularityFlow.createWorkspace', () => {
+  context.subscriptions.push(vscode.commands.registerCommand('singularityFlow.createWorkspace', async () => {
     let location;
     try {
       location = resolveCli({ extensionPath: context.extensionPath });
@@ -398,8 +388,8 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
       return void vscode.window.showErrorMessage((error as Error).message);
     }
 
-    let workspacePanel: WorkspacePanel;
-    workspacePanel = WorkspacePanel.show(context, location, output, async (created) => {
+    const { WorkspacePanel } = await import('./views/workspace-panel.ts');
+    WorkspacePanel.show(context, location, output, async (created) => {
       // The state branch is not created here. `workspace create` does it, in the repository the lead
       // capability ships from — one owner, so the editor and the CLI cannot disagree about where the
       // branch goes, and the editor's copy cannot silently skip a repository the CLI would govern.
@@ -456,6 +446,7 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
       .run<Array<{ url: string }>>(['capability', 'leads', '--json'])
       .catch(() => []);
 
+    const { BootstrapPanel } = await import('./views/bootstrap-panel.ts');
     BootstrapPanel.show(context, leads.map((lead) => lead.url), run, async (mapped: Mapped) => {
       if (typeof returnToWorkspace === 'function') {
         await returnToWorkspace(mapped);
@@ -590,6 +581,7 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
       }
     };
 
+    const { WorkspacesPanel } = await import('./views/workspaces-panel.ts');
     WorkspacesPanel.show(context, await list(), list, async (message) => {
       const failure = await onMessage(message);
       // Anything that changes the registry changes the tree beside it.
@@ -1193,6 +1185,7 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
     // One screen for six paths. An Initiative, an Epic or a Story, each with or without a tracker,
     // used to be six commands you had to already know the names of — which meant the product's front
     // door was documentation rather than a screen.
+    const { IntakePanel } = await import('./views/intake-panel.ts');
     IntakePanel.show(context, client, output, async (started) => {
       await store.refresh();
       const open = await vscode.window.showInformationMessage(
@@ -1605,6 +1598,7 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
    * notification the reader has to hold in their head while fixing the form.
    */
   const onCapabilitiesMessage = async (message: CapabilitiesMessage): Promise<void> => {
+    const { CapabilitiesPanel } = await import('./views/capabilities.ts');
     const panel = CapabilitiesPanel.show(context, store, (next) => { void onCapabilitiesMessage(next); });
     if (message.type === 'remove') {
       const confirmed = await vscode.window.showWarningMessage(
@@ -1715,8 +1709,8 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
     if (message.action === 'capabilities') await vscode.commands.executeCommand('singularityFlow.openCapabilities');
     else if (message.action === 'workflow') await vscode.commands.executeCommand('singularityFlow.openDesigner');
     else if (message.action === 'instructions') await vscode.commands.executeCommand('singularityFlow.openInstructionDesigner');
-    else if (message.action === 'people') { openConfigurationCenter('people'); return null; }
-    else if (message.action === 'mcp') { openConfigurationCenter('mcp'); return null; }
+    else if (message.action === 'people') { await openConfigurationCenter('people'); return null; }
+    else if (message.action === 'mcp') { await openConfigurationCenter('mcp'); return null; }
     else if (message.action === 'prompt-audit') await vscode.commands.executeCommand('singularityFlow.openPromptAudit');
     else if (message.action === 'visual-assurance') await vscode.commands.executeCommand('singularityFlow.openVisualAssurance');
     else if (message.action === 'jira') await vscode.commands.executeCommand('singularityFlow.connectJira');
@@ -1737,7 +1731,8 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
     return null;
   };
 
-  const openConfigurationCenter = (tab: 'overview' | 'people' | 'mcp' = 'overview'): void => {
+  const openConfigurationCenter = async (tab: 'overview' | 'people' | 'mcp' = 'overview'): Promise<void> => {
+    const { ConfigurationCenterPanel } = await import('./views/configuration-center.ts');
     ConfigurationCenterPanel.show(context, store, () => {
       const settings = vscode.workspace.getConfiguration('singularityFlow');
       return { name: settings.get<string>('userName') ?? '', role: settings.get<string>('role') || 'other' };
@@ -1748,15 +1743,33 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
   // repository to do it against.
   const registered: Record<string, (...args: never[]) => unknown> = {
     'singularityFlow.openCapabilities':
-      () => CapabilitiesPanel.show(context, store, (message) => { void onCapabilitiesMessage(message); }),
-    'singularityFlow.openImpact': () => ImpactPanel.show(context, store, client),
-    'singularityFlow.openFlowImpact': () => FlowImpactPanel.show(context, store, client),
+      async () => {
+        const { CapabilitiesPanel } = await import('./views/capabilities.ts');
+        return CapabilitiesPanel.show(context, store, (message) => { void onCapabilitiesMessage(message); });
+      },
+    'singularityFlow.openImpact': async () => {
+      const { ImpactPanel } = await import('./views/impact.ts');
+      return ImpactPanel.show(context, store, client);
+    },
+    'singularityFlow.openFlowImpact': async () => {
+      const { FlowImpactPanel } = await import('./views/flow-impact.ts');
+      return FlowImpactPanel.show(context, store, client);
+    },
     'singularityFlow.openStories':
-      () => StoriesPanel.show(context, store, (message) => { void onStoriesMessage(message); }),
+      async () => {
+        const { StoriesPanel } = await import('./views/stories.ts');
+        return StoriesPanel.show(context, store, (message) => { void onStoriesMessage(message); });
+      },
     'singularityFlow.openApprovals':
-      () => ApprovalsPanel.show(context, store, (message) => { void onApprovalsMessage(message); }),
+      async () => {
+        const { ApprovalsPanel } = await import('./views/approvals.ts');
+        return ApprovalsPanel.show(context, store, (message) => { void onApprovalsMessage(message); });
+      },
     'singularityFlow.openInbox':
-      () => InboxPanel.show(context, store, (message) => { void onInboxMessage(message); }),
+      async () => {
+        const { InboxPanel } = await import('./views/inbox.ts');
+        return InboxPanel.show(context, store, (message) => { void onInboxMessage(message); });
+      },
     'singularityFlow.expandReference': expandReference as never,
     'singularityFlow.openHarnessReport': openHarnessReport,
     'singularityFlow.continueSafely': async () => {
@@ -1775,10 +1788,19 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
     'singularityFlow.publishStoryPhase': ((node?: TreeNode) => runStoryPhase('publish', node)) as never,
     'singularityFlow.submitStoryPhase': ((node?: TreeNode) => runStoryPhase('submit', node)) as never,
     'singularityFlow.approve': runNode as never,
-    'singularityFlow.openJourney': () => JourneyPanel.show(context, store, onJourneyMessage),
-    'singularityFlow.openReconciliation': () => ReconciliationPanel.show(context, store, client),
+    'singularityFlow.openJourney': async () => {
+      const { JourneyPanel } = await import('./views/journey.ts');
+      return JourneyPanel.show(context, store, onJourneyMessage);
+    },
+    'singularityFlow.openReconciliation': async () => {
+      const { ReconciliationPanel } = await import('./views/reconciliation.ts');
+      return ReconciliationPanel.show(context, store, client);
+    },
     'singularityFlow.showImpact': () => showImpact(client, output),
-    'singularityFlow.openDashboard': () => DashboardPanel.show(context, store),
+    'singularityFlow.openDashboard': async () => {
+      const { DashboardPanel } = await import('./views/dashboard.ts');
+      return DashboardPanel.show(context, store);
+    },
     'singularityFlow.cancelWork': async () => {
       const workflow = store.current.snapshot?.workflow;
       if (!workflow || workflow.status !== 'in_progress') {
@@ -1844,7 +1866,9 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
         void vscode.window.showErrorMessage(`Could not reopen ${workflow.workItem.id}: ${(error as Error).message}`);
       }
     },
-    'singularityFlow.openDesigner': () => DesignerPanel.show(context, store, async (message) => {
+    'singularityFlow.openDesigner': async () => {
+      const { DesignerPanel } = await import('./views/designer.ts');
+      return DesignerPanel.show(context, store, async (message) => {
       if (message.type === 'open') {
         await openArtifact(repository, { kind: 'artifact', id: message.path, label: message.path, path: message.path });
         return null;
@@ -1868,8 +1892,11 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
         output.appendLine(`  refused: ${(error as Error).message}`);
         return (error as Error).message;
       }
-    }),
-    'singularityFlow.openInstructionDesigner': () => InstructionDesignerPanel.show(context, store, async (message) => {
+      });
+    },
+    'singularityFlow.openInstructionDesigner': async () => {
+      const { InstructionDesignerPanel } = await import('./views/instruction-designer.ts');
+      return InstructionDesignerPanel.show(context, store, async (message) => {
       if (message.type === 'agent-action') {
         if (message.action === 'refresh') {
           await store.refresh();
@@ -1915,12 +1942,19 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
         output.appendLine(`  refused: ${(error as Error).message}`);
         return (error as Error).message;
       }
-    }),
+      });
+    },
     'singularityFlow.openConfigurationCenter': () => openConfigurationCenter('overview'),
     'singularityFlow.configurePeople': () => openConfigurationCenter('people'),
     'singularityFlow.configureMcp': () => openConfigurationCenter('mcp'),
-    'singularityFlow.openPromptAudit': () => PromptAuditPanel.show(context, client),
-    'singularityFlow.openSpecificationTrace': () => SpecificationTracePanel.show(context, client),
+    'singularityFlow.openPromptAudit': async () => {
+      const { PromptAuditPanel } = await import('./views/prompt-audit.ts');
+      return PromptAuditPanel.show(context, client);
+    },
+    'singularityFlow.openSpecificationTrace': async () => {
+      const { SpecificationTracePanel } = await import('./views/specification-trace.ts');
+      return SpecificationTracePanel.show(context, client);
+    },
     'singularityFlow.inspectCompositionCache': async () => {
       const status = await client.run<{ entries: number; bytes: number }>(['wm', 'cache', 'status', '--json']);
       void vscode.window.showInformationMessage(`Composition cache: ${status.entries} exact prompt(s), ${status.bytes.toLocaleString()} bytes.`);
@@ -1930,7 +1964,10 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
       const failed = result.checks.filter((check) => check.status === 'fail').length;
       void vscode.window.showInformationMessage(result.valid ? 'Ledger deployment checks passed.' : `Ledger deployment needs attention: ${failed} failed check(s).`);
     },
-    'singularityFlow.openVisualAssurance': () => VisualAssurancePanel.show(context, store, client),
+    'singularityFlow.openVisualAssurance': async () => {
+      const { VisualAssurancePanel } = await import('./views/visual-assurance.ts');
+      return VisualAssurancePanel.show(context, store, client);
+    },
     'singularityFlow.openCopilot': async () => {
       try {
         const target = path.resolve(client.repository);
@@ -1958,11 +1995,13 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
     },
     // Both open the same screen, positioned: adding lands on the form for a new capability under
     // whatever was clicked, editing lands on the capability itself.
-    'singularityFlow.addCapability': ((node?: TreeNode) => {
+    'singularityFlow.addCapability': (async (node?: TreeNode) => {
+      const { CapabilitiesPanel } = await import('./views/capabilities.ts');
       const panel = CapabilitiesPanel.show(context, store, (message) => { void onCapabilitiesMessage(message); });
       panel.beginAdd(capabilityIdOf(node));
     }) as never,
-    'singularityFlow.editCapability': ((node?: TreeNode) => {
+    'singularityFlow.editCapability': (async (node?: TreeNode) => {
+      const { CapabilitiesPanel } = await import('./views/capabilities.ts');
       const panel = CapabilitiesPanel.show(context, store, (message) => { void onCapabilitiesMessage(message); });
       const capability = capabilityIdOf(node);
       if (capability) panel.focus(capability);

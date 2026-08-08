@@ -16,6 +16,40 @@ const samples = Number(option('samples') ?? fixtureManifest.protocol.samples);
 const enforce = process.argv.includes('--enforce');
 const json = process.argv.includes('--json');
 const writeBaseline = process.argv.includes('--write-baseline');
+const acceptedReportPath = option('accept-report');
+
+function assertBaselineCandidate(report) {
+  const expectedRuntime = fixtureManifest.runtime;
+  const actualRuntime = report.runtime ?? {};
+  for (const key of ['nodeMajor', 'platform', 'architecture']) {
+    if (actualRuntime[key] !== expectedRuntime[key]) {
+      throw new Error(`Baseline candidate ${key} is ${actualRuntime[key] ?? 'missing'}; expected ${expectedRuntime[key]}.`);
+    }
+  }
+  if (report.protocol?.samples !== fixtureManifest.protocol.samples) {
+    throw new Error(`Baseline candidate must contain ${fixtureManifest.protocol.samples} measured runs per command.`);
+  }
+  for (const key of ['network', 'modelCalls']) {
+    if (report.protocol?.[key] !== fixtureManifest.protocol[key]) throw new Error(`Baseline candidate protocol.${key} does not match the reference fixture.`);
+  }
+  for (const [key, expected] of Object.entries(fixtureManifest.topology)) {
+    if (report.topology?.[key] !== expected) throw new Error(`Baseline candidate topology.${key} does not match the reference fixture.`);
+  }
+  if (report.passed !== true || (report.failures?.length ?? 0) !== 0) throw new Error('A failing benchmark report cannot become the accepted baseline.');
+  for (const command of Object.keys(commands)) {
+    if (!report.commands?.[command] || report.commands[command].samples !== fixtureManifest.protocol.samples) {
+      throw new Error(`Baseline candidate is missing the complete ${command} sample summary.`);
+    }
+  }
+  return {
+    schemaVersion: 1,
+    status: 'accepted',
+    acceptedAt: new Date().toISOString(),
+    sourceRecordedAt: report.recordedAt,
+    runtime: { ...fixtureManifest.runtime },
+    commands: report.commands
+  };
+}
 
 function git(root, args) {
   return execFileSync('git', args, { cwd: root, encoding: 'utf8', stdio: ['ignore', 'pipe', 'pipe'] }).trim();
@@ -81,6 +115,27 @@ const commands = {
   snapshot: ['snapshot', '--include', 'repository']
 };
 
+if (acceptedReportPath) {
+  const candidate = JSON.parse(await readFile(path.resolve(acceptedReportPath), 'utf8'));
+  const baseline = assertBaselineCandidate(candidate);
+  await writeFile(baselinePath, `${JSON.stringify(baseline, null, 2)}\n`, 'utf8');
+  console.log(`Accepted DX baseline from ${path.resolve(acceptedReportPath)}.`);
+  process.exit(0);
+}
+
+if (writeBaseline) {
+  const local = {
+    nodeMajor: Number(process.versions.node.split('.')[0]),
+    platform: process.platform,
+    architecture: process.arch
+  };
+  for (const key of ['nodeMajor', 'platform', 'architecture']) {
+    if (local[key] !== fixtureManifest.runtime[key]) {
+      throw new Error(`--write-baseline is restricted to ${fixtureManifest.runtime.nodeMajor ? `Node ${fixtureManifest.runtime.nodeMajor}` : 'the pinned Node runtime'} on ${fixtureManifest.runtime.platform}/${fixtureManifest.runtime.architecture}; this host is Node ${local.nodeMajor} on ${local.platform}/${local.architecture}. Run the benchmark on the pinned runner and import its JSON with --accept-report=<path>.`);
+    }
+  }
+}
+
 const fixture = await createFixture();
 try {
   const topology = verifyTopology(fixture);
@@ -106,7 +161,10 @@ try {
     failures,
     passed: failures.length === 0
   };
-  if (writeBaseline) await writeFile(baselinePath, `${JSON.stringify({ schemaVersion: 1, status: 'accepted', runtime: { ...fixtureManifest.runtime }, commands: commandResults }, null, 2)}\n`, 'utf8');
+  if (writeBaseline) {
+    const candidate = assertBaselineCandidate(report);
+    await writeFile(baselinePath, `${JSON.stringify(candidate, null, 2)}\n`, 'utf8');
+  }
   if (json) console.log(JSON.stringify(report, null, 2));
   else {
     console.log(`Singularity Flow DX benchmark · ${samples} measured run(s) after one discarded warm-up`);

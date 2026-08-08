@@ -138,6 +138,20 @@ export function humanError(stderr: string): string {
 
 export type OutputStream = 'stdout' | 'stderr';
 
+export interface CliCommandTiming {
+  schemaVersion: 2;
+  event: 'dx.vscode-command-timing';
+  command: string;
+  commandClass: 'read' | 'mutation' | 'unknown';
+  startedAt: string;
+  durationMs: number;
+  outcome: 'success' | 'error' | 'cancelled';
+  cancelled: boolean;
+  exitCode: number | null;
+  fallback: 'none';
+  stages: { spawnMs: number };
+}
+
 export interface InvokeOptions {
   executable: string;
   cli: string;
@@ -149,8 +163,9 @@ export interface InvokeOptions {
   timeoutMs?: number;
   spawnImpl?: typeof spawn;
   onOutput?: (text: string, stream: OutputStream) => void;
+  commandClass?: 'read' | 'mutation' | 'unknown';
   /** Completion telemetry is separate from the child process' stdout/stderr stream. */
-  onTiming?: (event: { command: string; durationMs: number; exitCode: number | null }) => void;
+  onTiming?: (event: CliCommandTiming) => void;
   /** Aborting a run the user cancelled, or that a newer refresh has superseded. */
   signal?: AbortSignal;
 }
@@ -165,21 +180,46 @@ export interface InvokeOptions {
 export function invokeCli<T = unknown>(options: InvokeOptions): Promise<T> {
   const {
     executable, cli, repository, args, input = null, json = true,
-    env = process.env, timeoutMs = CLI_TIMEOUT_MS, spawnImpl = spawn, onOutput, onTiming, signal
+    env = process.env, timeoutMs = CLI_TIMEOUT_MS, spawnImpl = spawn, onOutput, onTiming,
+    commandClass = 'unknown', signal
   } = options;
 
   const startedAt = process.hrtime.bigint();
+  const startedAtWall = new Date().toISOString();
   return new Promise<T>((resolve, reject) => {
     let child: ChildProcess | undefined;
     let stdout = '';
     let stderr = '';
     let outputBytes = 0;
     let settled = false;
+    let timingReported = false;
     let timer: NodeJS.Timeout | undefined;
 
     const cleanup = () => {
       if (timer) clearTimeout(timer);
       signal?.removeEventListener('abort', onAbort);
+    };
+    const reportTiming = (
+      outcome: CliCommandTiming['outcome'], exitCode: number | null, cancelled = false
+    ) => {
+      if (timingReported) return;
+      timingReported = true;
+      const durationMs = Number(process.hrtime.bigint() - startedAt) / 1e6;
+      try {
+        onTiming?.({
+          schemaVersion: 2,
+          event: 'dx.vscode-command-timing',
+          command: args[0] ?? 'command',
+          commandClass,
+          startedAt: startedAtWall,
+          durationMs,
+          outcome,
+          cancelled,
+          exitCode,
+          fallback: 'none',
+          stages: { spawnMs: durationMs }
+        });
+      } catch { /* diagnostic only */ }
     };
     const succeed = (value: T) => {
       if (settled) return;
@@ -187,18 +227,19 @@ export function invokeCli<T = unknown>(options: InvokeOptions): Promise<T> {
       cleanup();
       resolve(value);
     };
-    const fail = (error: unknown) => {
+    const fail = (error: unknown, outcome: CliCommandTiming['outcome'] = 'error', cancelled = false) => {
       if (settled) return;
       settled = true;
       cleanup();
+      reportTiming(outcome, child?.exitCode ?? null, cancelled);
       reject(error instanceof Error ? error : new Error(String(error)));
     };
     function onAbort() {
       child?.kill('SIGTERM');
-      fail(new Error('The Singularity Flow command was cancelled.'));
+      fail(new Error('The Singularity Flow command was cancelled.'), 'cancelled', true);
     }
 
-    if (signal?.aborted) return fail(new Error('The Singularity Flow command was cancelled.'));
+    if (signal?.aborted) return fail(new Error('The Singularity Flow command was cancelled.'), 'cancelled', true);
 
     const collect = (target: string, chunk: Buffer, stream: OutputStream): string => {
       outputBytes += chunk.length;
@@ -236,17 +277,20 @@ export function invokeCli<T = unknown>(options: InvokeOptions): Promise<T> {
     child.on('error', fail);
     child.on('close', (code) => {
       if (settled) return;
-      const durationMs = Number(process.hrtime.bigint() - startedAt) / 1e6;
-      try { onTiming?.({ command: args[0] ?? 'command', durationMs, exitCode: code }); } catch { /* diagnostic only */ }
       if (code !== 0) {
         const message = humanError(stderr)
           || stdout.trim()
           || `The Singularity Flow CLI exited with ${code}.`;
         return fail(new CliError(message, code, stderr));
       }
-      if (!json) return succeed({ output: stdout.trim() } as T);
+      if (!json) {
+        reportTiming('success', code);
+        return succeed({ output: stdout.trim() } as T);
+      }
       try {
-        succeed(JSON.parse(stdout) as T);
+        const value = JSON.parse(stdout) as T;
+        reportTiming('success', code);
+        succeed(value);
       } catch {
         fail(new Error(`The CLI returned data this extension could not read: ${stdout.slice(0, 500)}`));
       }

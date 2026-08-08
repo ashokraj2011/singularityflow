@@ -50,6 +50,22 @@ process.env.SINGULARITY_FLOW_VSCODE_RESET_MARKER = path.join(machineState, 'vsco
 const packageRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 const bundle = path.join(packageRoot, 'apps', 'vscode', 'dist', 'extension.cjs');
 
+/*
+ * The extension deliberately loads heavyweight webview modules only when their command runs. Those
+ * modules import `vscode` after activation has returned, so the host substitution must live for the
+ * lifetime of this isolated test process rather than only around the initial `require(bundle)`.
+ * Each test file has its own Node process; updating this pointer between tests cannot leak into a
+ * different suite or a real extension host.
+ */
+const hostRequire = createRequire(import.meta.url);
+const HostModule = hostRequire('node:module');
+const originalHostLoad = HostModule._load;
+let activeVscodeApi = null;
+HostModule._load = function loadWithVscodeHost(request, parent, isMain) {
+  if (request === 'vscode' && activeVscodeApi) return activeVscodeApi;
+  return originalHostLoad.call(this, request, parent, isMain);
+};
+
 
 /**
  * The bundle these tests load must match the sources they are testing.
@@ -308,19 +324,9 @@ function stubVscode() {
 
 /** Load the shipped bundle with `vscode` swapped for the stub. */
 function loadExtension(api) {
-  const require = createRequire(import.meta.url);
-  const Module = require('node:module');
-  const original = Module._load;
-  Module._load = function load(request, parent, isMain) {
-    if (request === 'vscode') return api;
-    return original.call(this, request, parent, isMain);
-  };
-  try {
-    delete require.cache[require.resolve(bundle)];
-    return require(bundle);
-  } finally {
-    Module._load = original;
-  }
+  activeVscodeApi = api;
+  delete hostRequire.cache[hostRequire.resolve(bundle)];
+  return hostRequire(bundle);
 }
 
 /** A real repository with an enterprise-delivery Epic, generated artifacts, and Stories. */

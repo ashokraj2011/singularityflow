@@ -777,17 +777,24 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
 
   /** Diagnostics, as the CLI reports them. */
   context.subscriptions.push(vscode.commands.registerCommand('singularityFlow.doctor', async () => {
-    const folder = vscode.workspace.workspaceFolders?.[0];
-    if (!folder) return void vscode.window.showWarningMessage('Open a repository first.');
     try {
+      // Diagnostics follow the same repository resolver as Lifecycle, Inbox, and Configuration.
+      // Requiring an open editor folder here made a selected workspace appear healthy everywhere
+      // except its own "Run diagnostics" recovery action.
+      const target = await resolveGovernedRepository(context, output);
+      if ('reason' in target) {
+        return void vscode.window.showWarningMessage(`Singularity Flow: ${target.reason}`);
+      }
       const client = new SingularityFlowClient({
         location: resolveCli({ extensionPath: context.extensionPath }),
-        repository: folder.uri.fsPath,
+        repository: target.repository,
+        environment: cliEnvironment,
         onOutput: (text) => output.append(text)
       });
       const [repositoryReport, capabilityReport] = await Promise.all([
-        client.runText(['doctor']),
-        client.runText(['capabilities', 'doctor']).catch((error) => `Capability diagnostics unavailable: ${(error as Error).message}`)
+        client.runText(['doctor', '--offline']),
+        client.runText(['capabilities', 'doctor', '--offline'])
+          .catch((error) => `Capability diagnostics unavailable: ${(error as Error).message}`)
       ]);
       const report = `${repositoryReport.trim()}\n\nCAPABILITY AND STATE DIAGNOSTICS\n${capabilityReport.trim()}\n`;
       const document = await vscode.workspace.openTextDocument({ content: report, language: 'plaintext' });

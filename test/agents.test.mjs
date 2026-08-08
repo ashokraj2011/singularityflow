@@ -19,7 +19,8 @@ import {
   renderAgentSkills,
   resolveCopilotAgent,
   resolvePublicRemoteHost,
-  syncAgent
+  syncAgent,
+  validateAgentCatalog
 } from '../src/agents.mjs';
 import { setAgentSession, loadSession } from '../src/session.mjs';
 import { initializeDefinition, loadDefinition, resolveWorkType } from '../src/config.mjs';
@@ -28,6 +29,41 @@ import YAML from 'yaml';
 
 const packageRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 const bin = path.join(packageRoot, 'bin/singularity-flow.mjs');
+
+test('packaged agents may advertise optional phases absent from an older workflow-v2 repository', () => {
+  const definition = {
+    phases: { implementation: {} },
+    worldModel: { views: ['development'] }
+  };
+  const packaged = {
+    id: 'developer',
+    scope: 'bundled',
+    phases: ['implement', 'implementation'],
+    defaultFor: ['implement', 'implementation'],
+    worldModelViews: ['development']
+  };
+
+  assert.doesNotThrow(() => validateAgentCatalog([packaged], definition));
+});
+
+test('repository agents still reject misspelled or removed phases', () => {
+  const definition = {
+    phases: { implementation: {} },
+    worldModel: { views: ['development'] }
+  };
+  const repositoryAgent = {
+    id: 'developer',
+    scope: 'repository',
+    phases: ['implement', 'implementation'],
+    defaultFor: ['implementation'],
+    worldModelViews: ['development']
+  };
+
+  assert.throws(
+    () => validateAgentCatalog([repositoryAgent], definition),
+    /Agent 'developer' references unknown phase 'implement'/
+  );
+});
 
 const agentMarkdown = `---
 name: architecture

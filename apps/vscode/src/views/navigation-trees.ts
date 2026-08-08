@@ -17,10 +17,10 @@ import type { TreeNode } from './tree-model.ts';
 /**
  * The workspaces on this machine, each opening its local details.
  *
- * A workspace row used to be an expandable group. That made its chevron look like the primary
- * action and hid the actual switch command behind VS Code's tree-item behaviour. A workspace is a
- * choice, not a folder browser: one click now shows the working directory, repositories,
- * capabilities and tracker context. Selecting it for work remains an explicit check action.
+ * A workspace row used to open its details even when it was not selected. That made the most
+ * common action—choosing where to work—look successful while Lifecycle and Configuration stayed
+ * bound to the previous repository. One click now selects an inactive workspace. Clicking the
+ * already-active workspace opens its details; the context menu keeps both actions explicit.
  */
 export function buildWorkspaceTree(entries: WorkspaceEntry[]): TreeNode[] {
   const rows = workspaceRows(entries);
@@ -58,7 +58,7 @@ export function buildWorkspaceTree(entries: WorkspaceEntry[]): TreeNode[] {
           ? unavailable
             ? `This workspace is selected, but its repository is ${row.repositoryState}. Repair the workspace before opening Lifecycle, Inbox, or Configuration.`
             : 'Every screen is scoped to this workspace. Click to inspect its full details.'
-          : 'Click to inspect this workspace. Use the check action to work in it.'}`,
+          : 'Click to select this workspace and load its Lifecycle, Inbox, and Configuration.'}`,
       icon: row.archived ? 'archive'
         : row.collides || row.sharesId || unavailable ? 'statusWarning' : row.active ? 'statusSuccess' : 'workspace',
       contextValue: row.archived ? 'sflow.workspace.archived'
@@ -69,7 +69,9 @@ export function buildWorkspaceTree(entries: WorkspaceEntry[]): TreeNode[] {
       // the map, the governed state and every command's configuration live.
       path: row.directory,
       openPath: row.leadRepositoryPath || row.directory,
-      runCommand: 'singularityFlow.openWorkspaces'
+      runCommand: row.active || row.archived
+        ? 'singularityFlow.openWorkspaces'
+        : 'singularityFlow.switchWorkspace'
     };
   };
 

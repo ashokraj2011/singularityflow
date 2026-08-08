@@ -1,5 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
+import { existsSync } from 'node:fs';
 import { lstat, mkdtemp, mkdir, readFile, writeFile } from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
@@ -292,6 +293,28 @@ test('wm build isolates the generator, commits a validated model, and tracks sou
   const stale = result(process.execPath, [bin, 'wm', 'check'], root);
   assert.equal(stale.status, 2);
   assert.match(`${stale.stdout}${stale.stderr}`, /World model is stale/);
+});
+
+test('wm build refuses a protected application branch before starting the generator', async () => {
+  const root = await mkdtemp(path.join(os.tmpdir(), 'sflow-worldmodel-protected-'));
+  run('git', ['init', '-b', 'main'], root);
+  run('git', ['config', 'user.name', 'Protected Branch Tester'], root);
+  run('git', ['config', 'user.email', 'protected@example.com'], root);
+  await initializeDefinition(root);
+  const builder = path.join(root, 'should-not-run.mjs');
+  const marker = path.join(root, 'generator-ran.txt');
+  await writeFile(builder, `import { writeFile } from 'node:fs/promises';\nawait writeFile(${JSON.stringify(marker)}, 'ran');\n`);
+  await writeFile(path.join(root, 'README.md'), '# Protected branch\n');
+  run('git', ['add', '.'], root);
+  run('git', ['commit', '-m', 'initialize'], root);
+
+  const attempted = result(process.execPath, [
+    bin, 'wm', 'build', '--phase', 'design', '--runner', `${process.execPath} ${builder} "{prompt_file}"`
+  ], root);
+  assert.equal(attempted.status, 1);
+  assert.match(`${attempted.stdout}${attempted.stderr}`, /cannot run on protected application branch 'main'/);
+  assert.equal(existsSync(marker), false, 'the model runner was never started');
+  assert.equal(existsSync(path.join(root, 'singularity/world-model')), false, 'no generated output was installed');
 });
 
 test('wm light creates a compact validated repository inventory with zero model tokens', async () => {

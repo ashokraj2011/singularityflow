@@ -142,6 +142,15 @@ transition, validates projections, stages an allowlist, creates one commit, and
 performs a normal fast-forward push. A failed push retains the local commit and
 writes recovery state below `.git/singularity-flow/pending-publication/`.
 
+Application integration branches are never implicit publication targets. The
+default branch is resolved from configuration or the local remote-HEAD symbolic
+reference. Initial governance is committed to a review branch; shared configuration
+and proof live on the orphan `sflow/config` and `state` branches; Story and Initiative
+transactions publish only their registered lifecycle branches. World-model,
+configuration-editor, and Story-branch attachment publishers fail before staging or
+committing when invoked on the application branch. The final integration action is
+an explicit, human-merged `singularity-flow epic pr` after the Story stack is ready.
+
 ## Repository definition and immutable resolution
 
 `singularity/workflow.yml` on `sflow/config` is the editable definition for new

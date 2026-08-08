@@ -8,7 +8,7 @@
  */
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { mkdtemp, readFile, writeFile, mkdir } from 'node:fs/promises';
+import { chmod, mkdtemp, readFile, writeFile, mkdir } from 'node:fs/promises';
 import { existsSync } from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
@@ -54,6 +54,8 @@ test('bootstrapping governs a repository that knew nothing about any of this', a
   assert.equal(result.cloned, true);
   assert.equal(result.repositoryId, 'acme-platform');
   assert.equal(result.branch, 'main');
+  assert.match(result.reviewBranch, /^sflow\/govern\/acme-platform-/);
+  assert.equal(result.reviewRequired, true);
   assert.ok(result.commit, 'the governed configuration was committed');
 
   // singularity/ exists, with the three files everything else reads.
@@ -87,12 +89,31 @@ test('bootstrapping governs a repository that knew nothing about any of this', a
   const heads = run('git', ['ls-remote', '--heads', bare], { allowFailure: true }).stdout;
   assert.match(heads, /refs\/heads\/state/);
   assert.match(heads, /refs\/heads\/main/);
+  assert.match(heads, /refs\/heads\/sflow\/config/);
+  assert.match(heads, new RegExp(`refs/heads/${result.reviewBranch}`));
+  assert.notEqual(
+    run('git', ['cat-file', '-e', 'main:singularity/workflow.yml'], { cwd: result.root, allowFailure: true }).status,
+    0,
+    'application history stays unchanged until the governance proposal is reviewed'
+  );
+  assert.equal(
+    run('git', ['--git-dir', bare, 'cat-file', '-e', 'sflow/config:singularity/workflow.yml'], {
+      allowFailure: true
+    }).status,
+    0,
+    'the orphan configuration authority is seeded from the review proposal'
+  );
 
   // The state branch shares no ancestry with the code branch — that is what makes governance
   // history un-rewritable by a rebase of the work it records.
   const merged = run('git', ['merge-base', 'main', 'state'],
     { cwd: result.root, allowFailure: true });
   assert.notEqual(merged.status, 0, 'the state branch is an orphan');
+
+  const configurationMergeBase = run('git', ['merge-base', 'main', 'sflow/config'],
+    { cwd: result.root, allowFailure: true });
+  assert.notEqual(configurationMergeBase.status, 0,
+    'sflow/config is an orphan configuration authority');
 });
 
 test('a remote whose HEAD points nowhere is still bootstrapped onto its real branch', async () => {
@@ -105,8 +126,40 @@ test('a remote whose HEAD points nowhere is still bootstrapped onto its real bra
   assert.equal(result.branch, 'trunk');
   const portfolio = YAML.parse(await readFile(path.join(result.root, 'singularity/portfolio.yml'), 'utf8'));
   assert.equal(portfolio.repositories['acme-platform'].defaultBranch, 'trunk');
+  const workflow = YAML.parse(await readFile(path.join(result.root, 'singularity/workflow.yml'), 'utf8'));
+  assert.equal(workflow.defaultBaseBranch, 'trunk', 'lifecycle guards use the detected application branch');
   assert.equal(
-    run('git', ['rev-parse', '--abbrev-ref', 'HEAD'], { cwd: result.root }).stdout.trim(), 'trunk');
+    run('git', ['rev-parse', '--abbrev-ref', 'HEAD'], { cwd: result.root }).stdout.trim(), result.reviewBranch);
+});
+
+test('bootstrap never attempts to update a protected application branch', async () => {
+  const { base, bare } = await remote();
+  const hookLog = path.join(base, 'received-refs.log');
+  const hook = path.join(bare, 'hooks', 'pre-receive');
+  await writeFile(hook, `#!/bin/sh
+while read old new ref
+do
+  printf '%s\\n' "$ref" >> "${hookLog}"
+  if [ "$ref" = refs/heads/main ]; then
+    echo "application branch is protected" >&2
+    exit 1
+  fi
+done
+`, 'utf8');
+  await chmod(hook, 0o755);
+  const before = run('git', ['--git-dir', bare, 'rev-parse', 'refs/heads/main']).stdout.trim();
+
+  const result = await bootstrapRepository(bare, {
+    capabilityId: 'commerce', base: path.join(base, 'work')
+  });
+
+  const received = await readFile(hookLog, 'utf8');
+  assert.doesNotMatch(received, /^refs\/heads\/main$/m,
+    'the protected application branch was never presented to the remote hook');
+  assert.match(received, new RegExp(`^refs/heads/${result.reviewBranch}$`, 'm'));
+  assert.match(received, /^refs\/heads\/sflow\/config$/m);
+  assert.match(received, /^refs\/heads\/state$/m);
+  assert.equal(run('git', ['--git-dir', bare, 'rev-parse', 'refs/heads/main']).stdout.trim(), before);
 });
 
 test('the portfolio still parses, and still reads as the commented file it is', async () => {

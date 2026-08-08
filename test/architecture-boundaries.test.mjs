@@ -60,3 +60,36 @@ test('the revisioned store boundary does not expose raw persistence primitives',
   assert.match(content, /saveStoryDraft/);
   assert.match(content, /saveInitiativeDraft/);
 });
+
+test('source code cannot hard-code a direct push to an application branch', async () => {
+  const violations = [];
+  for (const relative of await sourceFiles('src')) {
+    const lines = (await readFile(path.join(packageRoot, relative), 'utf8')).split('\n');
+    lines.forEach((line, index) => {
+      if (/(?:\[['"]push['"]|pushBranch\()/.test(line)
+        && /(?:refs\/heads\/|HEAD:)?(?:main|master)\b/.test(line)) {
+        violations.push(`${relative}:${index + 1}`);
+      }
+    });
+  }
+  assert.deepEqual(violations, [], 'application branches may be resolved, but never literal push targets');
+});
+
+test('unscoped publishers guard before they stage or commit', async () => {
+  const publishers = [
+    ['src/worldmodel.mjs', 'async function publishWorldModel'],
+    ['src/editor.mjs', 'export async function publishEditorConfiguration'],
+    ['src/story-lineage.mjs', 'export async function attachStoryBranch']
+  ];
+  for (const [relative, marker] of publishers) {
+    const content = await readFile(path.join(packageRoot, relative), 'utf8');
+    const start = content.indexOf(marker);
+    assert.notEqual(start, -1, `${relative} publisher exists`);
+    const nextExport = content.indexOf('\nexport ', start + marker.length);
+    const body = content.slice(start, nextExport < 0 ? content.length : nextExport);
+    const guard = body.indexOf('assertNotDefaultBranch(');
+    const mutation = Math.min(...['add(', "run('git', ['add'", 'saveStoryDraft(', 'commit(']
+      .map((needle) => body.indexOf(needle)).filter((index) => index >= 0));
+    assert.ok(guard >= 0 && guard < mutation, `${relative} must guard before its first mutation`);
+  }
+});

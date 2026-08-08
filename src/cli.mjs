@@ -170,7 +170,10 @@ import {
   promoteStoryBranch, storyBranchStatus
 } from './story-lineage.mjs';
 import { runAndRecordStoryChecks } from './github-evidence.mjs';
-import { createStoryPullRequest, storyPullRequestPlan, updateStoryPullRequest } from './pull-request.mjs';
+import {
+  createPullRequest, createStoryPullRequest, epicPullRequestPlan, storyPullRequestPlan,
+  updateStoryPullRequest
+} from './pull-request.mjs';
 import { copyToClipboard } from './clipboard.mjs';
 import { epicCheckStory, epicReviewDecision, epicReviewStory, listEpicReviewInbox } from './epic-review.mjs';
 import { completeEpicDelivery, epicDeliveryReadiness } from './epic-completion.mjs';
@@ -258,7 +261,7 @@ Usage:
   singularity-flow harness report [--json]
   singularity-flow bootstrap <REPOSITORY-URL> --capability ID [--name TEXT] [--kind collection|delivery]
     [--jira-project KEY] [--teams A,B] [--into DIRECTORY] [--base DIRECTORY]
-    [--state-branch NAME | --no-state-branch] [--no-push] [--json]
+    [--state-branch NAME | --no-state-branch] [--direct] [--no-push] [--json]
   singularity-flow init [--repair] [--work-id WORK-ID] [--base BRANCH] [--fetch]
   singularity-flow init --check [--json]
   singularity-flow refresh-branch [--remote origin] [--branch CURRENT] [--json]
@@ -485,6 +488,7 @@ Usage:
     [--artifact PHASE/OUTPUT]... [--artifact-to epic|stories|both]
   singularity-flow epic status|sync|next|report|resume|journey [EPIC-KEY]
   singularity-flow epic merge-plan [--epic EPIC-KEY]
+  singularity-flow epic pr [--epic EPIC-KEY] [--create] [--yes] [--json]
   singularity-flow epic impact [--epic EPIC-KEY] [--json] [--markdown]
   singularity-flow epic complete [EPIC-KEY] [--dry-run] [--json] [--confirm EPIC-KEY]
   singularity-flow epic review [STORY-KEY] [--epic EPIC-KEY] [--packet SHA256]
@@ -4297,12 +4301,14 @@ async function bootstrapCommand(positionals, options) {
     into: optionString(options, 'into'),
     base: optionString(options, 'base'),
     stateBranch,
-    push: optionBoolean(options, 'push', true)
+    push: optionBoolean(options, 'push', true),
+    direct: optionBoolean(options, 'direct', false)
   });
 
   if (optionBoolean(options, 'json')) return console.log(JSON.stringify(result, null, 2));
   console.log(`${result.cloned ? 'Cloned' : 'Adopted'} ${result.url} at ${result.root}.`);
   console.log(`  repository   ${result.repositoryId} on ${result.branch}`);
+  if (result.reviewRequired) console.log(`  review       ${result.reviewBranch} → ${result.branch}`);
   console.log(`  capability   ${result.capability}`);
   if (result.stateBranch) {
     console.log(`  state branch ${result.stateBranch} ${result.ledgerCreated ? 'created' : 'already existed'}`);
@@ -4312,7 +4318,12 @@ async function bootstrapCommand(positionals, options) {
     console.log(`\nCommitted locally but the push failed: ${result.published.error}`);
     console.log('Push when you have access; nothing is lost.');
   } else if (result.published.branch) {
-    console.log('\nPushed. Open this directory to start.');
+    if (result.reviewRequired) {
+      console.log(`\nPushed the governance proposal. Open its pull request with:`);
+      console.log(`  gh pr create --base ${result.branch} --head ${result.reviewBranch}`);
+    } else {
+      console.log('\nPushed directly. Open this directory to start.');
+    }
   } else {
     console.log('\nNot pushed. Open this directory to start.');
   }
@@ -5933,6 +5944,36 @@ async function epicCommand(positionals, options) {
       profile: optionString(options, 'profile', 'epic-planning'),
       jira: options.jira ?? true
     });
+  }
+  if (subcommand === 'pr') {
+    const root = repoRoot();
+    const config = await loadConfig(root);
+    const initiativeId = optionString(options, 'epic') ?? branch(root);
+    const [{ initiative }, mergeSequence] = await Promise.all([
+      loadInitiativeAggregate(root, initiativeId),
+      initiativeMergeState(root, initiativeId)
+    ]);
+    const plan = epicPullRequestPlan(root, config, initiative, mergeSequence);
+    if (optionBoolean(options, 'json')) console.log(JSON.stringify(plan, null, 2));
+    else {
+      console.log(`Epic pull request for ${plan.subjectId}\n`);
+      console.log(`  ${plan.head} → ${plan.base}`);
+      if (plan.blockedBy.length) console.log(`  Blocked by: ${plan.blockedBy.join(', ')}`);
+      console.log(`\n--- title ---\n${plan.title}\n\n--- body ---\n${plan.body}\n`);
+    }
+    if (!optionBoolean(options, 'create')) {
+      if (!optionBoolean(options, 'json')) console.log('Preview only. Re-run with --create to open this pull request.');
+      return;
+    }
+    if (!optionBoolean(options, 'yes')
+      && !(await confirmExact(`Type ${plan.subjectId} to open the Epic pull request into ${plan.base}: `, plan.subjectId))) {
+      throw new SingularityFlowError('Epic pull request cancelled.');
+    }
+    const result = createPullRequest(root, plan, { remote: config.git?.remote ?? 'origin' });
+    console.log(result.status === 'existing'
+      ? `A pull request already exists: ${result.url}`
+      : `Opened ${result.url}`);
+    return;
   }
   if (subcommand === 'sources') {
     const root = repoRoot();

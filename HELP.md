@@ -81,6 +81,18 @@ branch before writing any files. Initialization therefore does not modify or pus
 `main`. Merge the configuration through an approved pull request only when the
 team wants later Work IDs to inherit it as their shared baseline.
 
+To govern an organisation's first repository from its URL without writing the
+application branch, run:
+
+```bash
+singularity-flow bootstrap <REPOSITORY-URL> --capability platform --name "Platform"
+```
+
+The default path pushes a collision-safe `sflow/govern/<repository>-<base-sha>`
+proposal and creates the orphan `sflow/config` and `state` authorities. The command
+prints the exact pull-request command. `--direct` is an explicit opt-out for a
+repository that deliberately permits direct application-branch publication.
+
 Install or refresh the GitHub Copilot plugin:
 
 ```bash
@@ -400,13 +412,16 @@ already have one. The seed records `story.parentBranch` and `story.baseCommit`,
 and `singularity-flow start <STORY-ID>` follows `parentBranch` so a fresh clone
 forks from the same commit.
 
-Story pull requests therefore target the Epic branch, and one final pull request
-`MOB-100 → main` lands the Epic once every blocking Story has merged:
+Story pull requests therefore target the Epic branch. Once every blocking Story
+has merged, `epic pr` previews and opens the final pull request to the repository's
+detected application branch:
 
 ```bash
 singularity-flow epic merge-plan --epic MOB-100    # ordered sequence and next action
 singularity-flow pr MOB-123                        # preview the Story pull request
 singularity-flow pr MOB-123 --create               # open it, after typed confirmation
+singularity-flow epic pr --epic MOB-100             # preview the final Epic pull request
+singularity-flow epic pr --epic MOB-100 --create    # open it, after typed confirmation
 ```
 
 `epic merge-plan` derives the order from the `dependsOn` graph already committed

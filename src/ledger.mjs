@@ -5,7 +5,7 @@ import path from 'node:path';
 import {
   SingularityFlowError, ensureDir, exists, nowIso, readJson, run, writeAtomic, writeJson
 } from './util.mjs';
-import { gitDir, hasRemote, identity, refExists } from './git.mjs';
+import { defaultBranchName, gitDir, hasRemote, identity, refExists } from './git.mjs';
 import { normalizeLedgerConfig } from './ledger-config.mjs';
 import { LIFECYCLE_EVENT_TYPES } from './lifecycle-event.mjs';
 
@@ -135,7 +135,7 @@ function initialHead() {
   };
 }
 
-export async function initializeLedger(root, rawConfig = {}) {
+export async function initializeLedger(root, rawConfig = {}, { publish = true } = {}) {
   const config = normalizeLedgerConfig(rawConfig);
   const refspecInstalled = installPinRefspec(root, config);
   ensureRemoteBranchFetched(root, config);
@@ -154,7 +154,7 @@ export async function initializeLedger(root, rawConfig = {}) {
     // If the first push fails, `ledger init` can be retried without losing the commit
     // when this temporary worktree is removed.
     git(root, ['update-ref', localRef(config), sha]);
-    if (hasRemote(root, config.remote)) {
+    if (publish && hasRemote(root, config.remote)) {
       const pushed = pushLedger(worktree, config);
       if (pushed.status !== 0) throw new SingularityFlowError(`Ledger root commit ${sha.slice(0, 8)} was retained locally but push failed: ${(pushed.stderr || pushed.stdout).trim()}`);
     }
@@ -172,8 +172,9 @@ export async function ledgerDoctor(root, rawConfig = {}) {
   const ref = ledgerHead(root, config);
   checks.push({ id: 'branch', status: ref ? 'pass' : 'fail', detail: ref ? `${config.branch} exists` : `${config.branch} is not initialized` });
   if (ref) {
-    const applicationRef = refExists(root, 'refs/heads/main')
-      ? 'refs/heads/main'
+    const applicationBranch = defaultBranchName(root, rawConfig, config.remote);
+    const applicationRef = refExists(root, `refs/heads/${applicationBranch}`)
+      ? `refs/heads/${applicationBranch}`
       : git(root, ['rev-parse', '--verify', 'HEAD']).stdout.trim();
     const mergeBase = git(root, ['merge-base', applicationRef, ref], { allowFailure: true });
     checks.push({

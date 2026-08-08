@@ -323,6 +323,57 @@ test('story pull request targets the epic branch and is built from committed sta
   assert.ok(!updateCalls.some((args) => args.includes('create')), 'description updates never create a pull request');
 });
 
+test('Epic pull requests land only after the blocking Story stack has merged', async () => {
+  const { root } = await soloRepository(['APP-1', 'APP-2']);
+  const {
+    createPullRequest, epicPullRequestBody, epicPullRequestPlan
+  } = await import('../src/pull-request.mjs');
+  const initiative = {
+    initiative: { id: EPIC, title: 'Single repository feature', profile: 'initiative-lite', branch: EPIC },
+    status: 'in_progress'
+  };
+  const blockedSequence = {
+    initiativeId: EPIC,
+    epicBranch: EPIC,
+    epicReady: false,
+    outstanding: ['APP-2'],
+    unreachable: [],
+    stories: [
+      { id: 'APP-1', workId: 'APP-1', blocking: true, status: 'merged' },
+      { id: 'APP-2', workId: 'APP-2', blocking: true, status: 'in-progress' }
+    ]
+  };
+  const blocked = epicPullRequestPlan(root, {}, initiative, blockedSequence);
+  assert.equal(blocked.base, 'main');
+  assert.equal(blocked.head, EPIC);
+  assert.deepEqual(blocked.blockedBy, ['APP-2']);
+  assert.match(blocked.body, /APP-1: \*\*merged\*\*/);
+  assert.match(epicPullRequestBody(initiative, blockedSequence), /Not ready: APP-2/);
+  assert.throws(
+    () => createPullRequest(root, blocked, { runCommand: () => ({ status: 0, stdout: '', stderr: '' }) }),
+    /APP-2 must merge/
+  );
+
+  const ready = epicPullRequestPlan(root, {}, initiative, {
+    ...blockedSequence,
+    epicReady: true,
+    outstanding: [],
+    stories: blockedSequence.stories.map((story) => ({ ...story, status: 'merged' }))
+  });
+  const calls = [];
+  const result = createPullRequest(root, ready, { runCommand: (command, args) => {
+    calls.push([command, ...args]);
+    if (command === 'git') return { status: 0, stdout: 'git@git.example.corp:acme/app.git', stderr: '' };
+    if (args[0] === 'auth') return { status: 0, stdout: '', stderr: '' };
+    if (args[0] === 'pr' && args[1] === 'list') return { status: 0, stdout: '', stderr: '' };
+    if (args[0] === 'pr' && args[1] === 'create') return { status: 0, stdout: 'https://git.example.corp/acme/app/pull/9\n', stderr: '' };
+    return { status: 0, stdout: '', stderr: '' };
+  } });
+  assert.equal(result.status, 'created');
+  assert.equal(result.url, 'https://git.example.corp/acme/app/pull/9');
+  assert.ok(calls.some((args) => args[0] === 'gh' && args[1] === 'pr' && args[2] === 'create'));
+});
+
 test('impact map validation rejects unknown repositories and undeclared world-model views', async () => {
   const { validateImpactMap } = await import('../src/initiative-repositories.mjs');
   const portfolio = { repositories: { api: { url: 'x' }, web: { url: 'y' } } };

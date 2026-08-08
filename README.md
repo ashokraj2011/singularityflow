@@ -75,6 +75,19 @@ branch, and never pushes or modifies `main`. If the process configuration should
 become the shared default for later Work IDs, raise a normal reviewed pull request
 from the bootstrap branch; direct access to `main` is not required.
 
+For the first governed repository in an organisation, use the URL-based bootstrap.
+It clones the detected application branch, publishes a collision-safe
+`sflow/govern/<repository>-<base-sha>` proposal, seeds the independent
+`sflow/config` and `state` branches, and leaves the application branch unchanged:
+
+```bash
+singularity-flow bootstrap <REPOSITORY-URL> --capability platform --name "Platform"
+# The command prints the exact pull-request command for the governance proposal.
+```
+
+Use `--direct` only as an explicit opt-out in a repository whose application
+branch intentionally accepts direct configuration pushes.
+
 Initialization installs:
 
 ```text
@@ -426,8 +439,15 @@ main
 Story pull requests target the Epic branch and merge in a dependency-safe stack.
 `singularity-flow stack sync --epic MOB-100` publishes the current order to the
 orphan `state` branch in every participating repository; `singularity-flow pr`
-reads it and refuses out-of-order work. One final pull request `MOB-100 → main`
-lands the Epic once every blocking Story has merged. Stories in other
+reads it and refuses out-of-order work. After every blocking Story has merged,
+preview and open the final Epic pull request with:
+
+```bash
+singularity-flow epic pr --epic MOB-100
+singularity-flow epic pr --epic MOB-100 --create
+```
+
+The detected application branch—not a hard-coded `main`—is the base. Stories in other
 repositories keep branching from that repository's own default branch — an Epic
 branch is never created where one does not already exist. See
 [INITIATIVE-ORCHESTRATION.md](INITIATIVE-ORCHESTRATION.md) for the full topology.

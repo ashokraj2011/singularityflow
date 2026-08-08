@@ -2457,10 +2457,14 @@ test('a workspace chosen while the views are already bound re-points them withou
     const nodes = provider.getChildren();
     return nodes[0]?.label === 'here' ? nodes : null;
   });
-  await registered.commands.get('singularityFlow.switchWorkspace')(rows[0]);
+  // Command Palette invocation has no tree node. It must ask which workspace to use rather than
+  // silently doing nothing (the row-click path is covered by the first-selection test above).
+  await registered.commands.get('singularityFlow.switchWorkspace')();
 
   assert.equal(issued.includes('workbench.action.reloadWindow'), false,
     'the window is not reloaded once the views are already bound');
   assert.equal(issued.includes('vscode.openFolder'), false, 'and no folder is opened');
+  assert.equal(registered.quickPicks.at(-1)?.options?.title,
+    'Work in a Singularity Flow workspace');
   assert.deepEqual(registered.errors, []);
 });

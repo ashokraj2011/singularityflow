@@ -666,8 +666,34 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
 
   context.subscriptions.push(vscode.commands.registerCommand('singularityFlow.switchWorkspace',
     async (node?: TreeNode) => {
-      const chosen = nodeWorkspace(node);
-      if (chosen) await selectWorkspace(chosen.path, chosen.lead, chosen.name);
+      let chosen = nodeWorkspace(node);
+      if (!chosen) {
+        // Commands invoked from the palette do not receive a tree node. Previously that made
+        // "Work in This Workspace" silently return without doing anything, even though the same
+        // command worked when invoked from a workspace row.
+        await refreshWorkspaceTree();
+        const candidates = workspaceEntries.filter((entry) => !entry.archivedAt);
+        if (!candidates.length) {
+          return void vscode.window.showWarningMessage(
+            'No active Singularity Flow workspaces are available. Create or restore one first.');
+        }
+        const picked = await vscode.window.showQuickPick(candidates.map((entry) => ({
+          label: entry.name,
+          description: entry.active ? 'working here' : (entry.anchorKey || entry.id),
+          detail: entry.path,
+          entry
+        })), {
+          title: 'Work in a Singularity Flow workspace',
+          placeHolder: 'Choose the workspace Lifecycle, Inbox, and Configuration should use'
+        });
+        if (!picked) return;
+        chosen = {
+          path: picked.entry.path,
+          lead: picked.entry.leadRepositoryPath || picked.entry.path,
+          name: picked.entry.name
+        };
+      }
+      await selectWorkspace(chosen.path, chosen.lead, chosen.name);
     }));
 
   /**
@@ -785,17 +811,28 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
       if ('reason' in target) {
         return void vscode.window.showWarningMessage(`Singularity Flow: ${target.reason}`);
       }
+      const diagnosticSettings = vscode.workspace.getConfiguration('singularityFlow');
       const client = new SingularityFlowClient({
-        location: resolveCli({ extensionPath: context.extensionPath }),
+        // Diagnostics must use the same configured runtime as Lifecycle. Otherwise a corporate
+        // CLI override can make the product work while "Run diagnostics" executes the bundled
+        // copy and reports unrelated results.
+        location: resolveCli({
+          configuredCli: diagnosticSettings.get<string>('cliPath'),
+          configuredNode: diagnosticSettings.get<string>('nodePath'),
+          extensionPath: context.extensionPath
+        }),
         repository: target.repository,
         environment: cliEnvironment,
         onOutput: (text) => output.append(text)
       });
-      const [repositoryReport, capabilityReport] = await Promise.all([
-        client.runText(['doctor', '--offline']),
-        client.runText(['capabilities', 'doctor', '--offline'])
-          .catch((error) => `Capability diagnostics unavailable: ${(error as Error).message}`)
-      ]);
+      const [repositoryReport, capabilityReport] = await vscode.window.withProgress(
+        { location: vscode.ProgressLocation.Notification, title: 'Running Singularity Flow diagnostics' },
+        () => Promise.all([
+          client.runText(['doctor', '--offline']),
+          client.runText(['capabilities', 'doctor', '--offline'])
+            .catch((error) => `Capability diagnostics unavailable: ${(error as Error).message}`)
+        ])
+      );
       const report = `${repositoryReport.trim()}\n\nCAPABILITY AND STATE DIAGNOSTICS\n${capabilityReport.trim()}\n`;
       const document = await vscode.workspace.openTextDocument({ content: report, language: 'plaintext' });
       await vscode.window.showTextDocument(document, { preview: true });
@@ -1061,7 +1098,6 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
    */
   workspaceSelected.push(async (lead, name) => {
     const target = path.resolve(lead);
-    if (path.resolve(repository) === target) return;
     try {
       await validateRepositoryDirectory(target);
     } catch (error) {

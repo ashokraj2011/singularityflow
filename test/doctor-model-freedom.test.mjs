@@ -21,3 +21,17 @@ test('doctor model-freedom reports a model-only phase as blocked', () => {
   assert.equal(report.currentWorkflow.status, 'blocked');
   assert.equal(report.modelFreeLifecycleReady, false);
 });
+
+test('doctor model-freedom checks the configured logical provider and executable', () => {
+  const report = modelFreedomSnapshot({
+    definition: {
+      models: {
+        defaultProvider: 'corporate-copilot',
+        providers: { 'corporate-copilot': { type: 'copilot-cli', executable: process.execPath } }
+      }
+    }
+  });
+  assert.deepEqual(report.provider, {
+    id: 'corporate-copilot', type: 'copilot-cli', executable: process.execPath, available: true
+  });
+});

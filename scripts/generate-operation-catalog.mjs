@@ -27,8 +27,7 @@ const content = `${[
   '',
   '| Operation | Class | Model policy | Guided fallback | External dependencies |',
   '|---|---|---|---|---|',
-  ...rows.map((row) => `| ${row.map(cell).join(' | ')} |`),
-  ''
+  ...rows.map((row) => `| ${row.map(cell).join(' | ')} |`)
 ].join('\n')}\n`;
 
 if (write) {

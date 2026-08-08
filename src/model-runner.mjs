@@ -63,6 +63,9 @@ async function normalizeRequest(request, context) {
   if (toolMode === 'none' && toolNames.length) {
     throw new SingularityFlowError('Model request tools.names must be empty when tools.mode is none.', { code: 'MODEL_REQUEST_INVALID' });
   }
+  if (toolMode === 'allowlist' && !toolNames.length) {
+    throw new SingularityFlowError('Model request tools.names must not be empty when tools.mode is allowlist.', { code: 'MODEL_REQUEST_INVALID' });
+  }
   const limits = {
     timeoutMs: positiveInteger(request.limits?.timeoutMs, 'limits.timeoutMs'),
     outputBytes: positiveInteger(request.limits?.outputBytes, 'limits.outputBytes')

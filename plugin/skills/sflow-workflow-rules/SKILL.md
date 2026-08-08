@@ -22,7 +22,7 @@ user-invocable: false
 7. Never edit `workflow.json`, `STATUS.md`, or approval snapshots by hand.
 8. Never store Jira credentials, API tokens, passwords, or secrets in the repository.
 9. Treat approved artifacts as durable inputs. Document later deviations in the active phase artifact.
-10. End generation with `phase publish`; it is incomplete until pushed. Run `phase show <phase> --json` and reproduce text documents in full visibly. Shell output does not count; never say “shown above” or substitute a summary.
+10. End governed-agent generation with `phase publish <phase> --authored governed-agent --channel copilot-host`; it is incomplete until pushed. Run `phase show <phase> --json` and reproduce text documents in full visibly. Shell output does not count; never say “shown above” or substitute a summary.
 11. Run `singularity-flow gate` before requesting review. A merge-ready pull request must pass `singularity-flow gate --terminal`.
 12. Tag tests with `@ac:AC-n` for every `AC-n` identifier in the requirements artifact.
 13. Before reasoning, compose the exact phase/task prompt; if stale, build and recompose identically. Add `--evidence` for verification/review/release.

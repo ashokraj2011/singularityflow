@@ -96,6 +96,14 @@ const allFiles = repositoryFiles();
 const codeowners = spawnSync(process.execPath, ['scripts/generate-codeowners.mjs'], { cwd: root, encoding: 'utf8' });
 if (codeowners.status !== 0) fail(codeowners.stderr.trim() || 'Generated CODEOWNERS check failed');
 checked.push('.github/CODEOWNERS', 'scripts/generate-codeowners.mjs');
+for (const [script, label] of [
+  ['scripts/audit-model-boundary.mjs', 'Model-boundary audit'],
+  ['scripts/generate-operation-catalog.mjs', 'Operation model-policy catalog']
+]) {
+  const result = spawnSync(process.execPath, [script], { cwd: root, encoding: 'utf8' });
+  if (result.status !== 0) fail(result.stderr.trim() || `${label} failed`);
+  checked.push(script);
+}
 const legacyModelReferences = [['clau', 'de'].join(''), ['anthro', 'pic'].join(''), ['calu', 'de'].join('')].join('|');
 const legacyReferenceCheck = spawnSync('git', ['grep', '-n', '-i', '-E', legacyModelReferences, '--', '.'], {
   cwd: root,
@@ -199,7 +207,12 @@ for (const schemaFile of [
   'schemas/reference-record.schema.json',
   'schemas/harness-event.schema.json',
   'schemas/harness-checker-result.schema.json',
-  'schemas/knowledge-record.schema.json'
+  'schemas/knowledge-record.schema.json',
+  'schemas/operation-definition.schema.json',
+  'schemas/model-invocation-request.schema.json',
+  'schemas/model-invocation-event.schema.json',
+  'schemas/generation-authorship.schema.json',
+  'schemas/artifact-validation.schema.json'
 ]) {
   JSON.parse(await readFile(path.join(root, schemaFile), 'utf8'));
   checked.push(schemaFile);

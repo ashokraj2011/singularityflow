@@ -18,6 +18,6 @@ argument-hint: "[additional business context]"
 6. Inspect additional repository files only when the world-model evidence points to them. Do not implement code.
 7. Complete the document with the problem, desired outcome, in/out scope, measurable `AC-n` acceptance criteria, dependencies, assumptions, risks, confirmed clarification decisions, and explicitly deferred open questions.
 8. Remove every `TODO`, `TBD`, template instruction, and unsupported claim.
-9. Run `singularity-flow phase publish requirements` to register, commit, and push the generated artifact.
+9. Run `singularity-flow phase publish requirements --authored governed-agent --channel copilot-host` to register, commit, and push the generated artifact.
 10. Run `singularity-flow phase show requirements --json`, then reproduce every published text document in full in the visible assistant response between `--- BEGIN <path> ---` and `--- END <path> ---`, with its ID, kind, byte count, and hash. A collapsible Shell/tool block does not count. Never say “shown above.” Never replace it with a summary. For binary documents, show the absolute path, metadata, and open instruction.
 11. Summarize confirmed clarification decisions, unresolved decisions, token status, and publication commit. Do not submit or approve automatically.

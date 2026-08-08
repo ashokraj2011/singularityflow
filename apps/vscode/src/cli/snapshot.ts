@@ -168,6 +168,20 @@ export interface NextAction {
   command: string;
   /** Why the engine is asking for this, shown as-is: it is already written for a human. */
   reason: string;
+  modelPolicy?: 'never' | 'optional' | 'required';
+  availability?: 'available' | 'fallback' | 'blocked';
+  route?: 'model' | 'manual' | 'deterministic';
+}
+
+export interface ModelFreedomSnapshot {
+  schemaVersion: number;
+  mode: 'auto' | 'disabled';
+  modeSource: string;
+  modelFreeLifecycleReady: boolean;
+  blockers: string[];
+  warnings?: string[];
+  summary?: { status: 'complete' | 'partial' | 'blocked'; modelFreeLifecycleReady: boolean };
+  surfaces?: Record<string, { status: 'complete' | 'partial' | 'blocked' | 'outside-guarantee'; control?: string; reason?: string }>;
 }
 
 export interface InitiativeSnapshot {
@@ -406,6 +420,7 @@ export interface RepositorySnapshot {
    */
   visualAssurance?: VisualAssuranceSnapshot | null;
   report?: StoryWorkflowReport | null;
+  modelFreedom?: ModelFreedomSnapshot;
   documents?: StoryArtifact[];
   detachedDocuments?: StoryArtifact[];
   worldModel?: {

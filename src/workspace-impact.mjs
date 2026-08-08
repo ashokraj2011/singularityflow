@@ -1,5 +1,4 @@
 import { createHash, randomUUID } from 'node:crypto';
-import { spawn } from 'node:child_process';
 import {
   copyFile, lstat, mkdir, mkdtemp, readFile, readdir, rm, stat, writeFile
 } from 'node:fs/promises';
@@ -9,6 +8,7 @@ import {
   atomicJson, listWorkspaceDocuments, readWorkspace, stageWorkspaceDocuments
 } from './workspace.mjs';
 import { nowIso, run, SingularityFlowError } from './util.mjs';
+import { invokeModel } from './model-runner.mjs';
 
 export const WORKSPACE_IMPACT_SCHEMA_VERSION = 1;
 const MAX_COPILOT_OUTPUT_BYTES = 8 * 1024 * 1024;
@@ -183,25 +183,15 @@ async function materializeSandbox(workspace, record) {
   }
 }
 
-function defaultCopilotRunner({ cwd, prompt, model = null }) {
-  return new Promise((resolve, reject) => {
-    const command = process.platform === 'win32' ? 'copilot.cmd' : 'copilot';
-    const args = ['-C', cwd, '-p', prompt, '--allow-all-tools'];
-    if (model) args.push('--model', model);
-    const child = spawn(command, args, { cwd, env: process.env, stdio: ['ignore', 'pipe', 'pipe'] });
-    let stdout = '';
-    let stderr = '';
-    const append = (current, chunk) => {
-      const next = current + chunk.toString('utf8');
-      return next.length > MAX_COPILOT_OUTPUT_BYTES ? next.slice(-MAX_COPILOT_OUTPUT_BYTES) : next;
-    };
-    child.stdout?.on('data', (chunk) => { stdout = append(stdout, chunk); });
-    child.stderr?.on('data', (chunk) => { stderr = append(stderr, chunk); process.stderr.write(chunk); });
-    child.once('error', (error) => reject(new SingularityFlowError(`Unable to start GitHub Copilot: ${error.message}`)));
-    child.once('close', (status) => {
-      if (status !== 0) return reject(new SingularityFlowError(`GitHub Copilot impact analysis exited with status ${status}: ${stderr.trim() || stdout.trim()}`));
-      resolve({ output: stdout.trim(), diagnostics: stderr.trim() });
-    });
+function defaultCopilotRunner({ cwd, prompt, model = null, provider = 'copilot-cli', providerConfig = null }) {
+  return invokeModel({
+    provider, providerConfig, model, cwd,
+    allowedRoots: [cwd],
+    prompt: { text: prompt },
+    channel: 'workspace-impact-analysis',
+    subject: { kind: 'workspace-impact' },
+    tools: { mode: 'all' },
+    limits: { timeoutMs: 15 * 60 * 1000, outputBytes: MAX_COPILOT_OUTPUT_BYTES }
   });
 }
 

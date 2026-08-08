@@ -78,6 +78,8 @@ import { evaluateVisualCoverage } from './visual-coverage.mjs';
 import { listVisualComparisons } from './visual-compare.mjs';
 import { verifyMcpEvidence } from './mcp-evidence.mjs';
 import { IMPACT_CONFIG_PATH, normalizeImpactDefinition } from './impact-config.mjs';
+import { modelFreedomSnapshot } from './model-freedom.mjs';
+import { operationContext } from './operation-context.mjs';
 
 const packageRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 export const REPOSITORY_SKILLS_ROOT = '.github/skills';
@@ -568,6 +570,11 @@ async function fullRepositorySnapshot(root, requestedWorkId = null, requestedIni
     },
     telemetry,
     ledger,
+    modelFreedom: modelFreedomSnapshot({
+      definition,
+      workflow,
+      modelMode: operationContext()?.modelMode ?? { enabled: true, source: 'default' }
+    }),
     definition,
     definitionPath: WORKFLOW_PATH,
     definitionText: await readFile(path.join(root, WORKFLOW_PATH), 'utf8'),
@@ -828,6 +835,10 @@ async function configurationSlice(root) {
         ? await readFile(agentLock.absolute, 'utf8')
         : '# No remote agents are trusted yet.\n'
     },
+    modelFreedom: modelFreedomSnapshot({
+      definition,
+      modelMode: operationContext()?.modelMode ?? { enabled: true, source: 'default' }
+    }),
     mcp: await mcpConfigurationStatus(root, definition)
   };
 }

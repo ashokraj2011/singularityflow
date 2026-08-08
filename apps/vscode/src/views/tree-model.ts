@@ -1053,6 +1053,24 @@ function configurationNode(snapshot: RepositorySnapshot, readiness: CapabilityRe
       // recreates the onboarding circle the standalone mapper exists to remove.
       capabilityConfigurationNode(snapshot, readiness),
       {
+        kind: 'group', id: 'config:model-freedom', label: 'Model independence',
+        description: snapshot.modelFreedom?.summary?.status ?? 'unknown', icon: 'agent',
+        tooltip: snapshot.modelFreedom
+          ? `Mode: ${snapshot.modelFreedom.mode}. ${snapshot.modelFreedom.modelFreeLifecycleReady ? 'This lifecycle has a model-free route.' : snapshot.modelFreedom.blockers.join(' ')}`
+          : 'Model-independence status has not been reported by the CLI.',
+        children: [{
+          kind: 'action', id: 'config:model-mode', label: 'Model mode',
+          description: snapshot.modelFreedom?.mode ?? 'auto', icon: 'settings-gear',
+          runCommand: 'singularityFlow.configureModelMode'
+        }, ...((snapshot.modelFreedom?.blockers ?? []).map((message, index) => ({
+          kind: 'message' as const, id: `config:model-freedom:blocker:${index}`, label: message,
+          description: 'blocked', icon: 'error'
+        }))), ...((snapshot.modelFreedom?.warnings ?? []).map((message, index) => ({
+          kind: 'message' as const, id: `config:model-freedom:warning:${index}`, label: message,
+          description: 'warning', icon: 'warning'
+        })))]
+      },
+      {
         kind: 'group', id: 'config:local-profile', label: 'People and integrations',
         description: 'humans · local secrets', icon: 'account',
         children: [{

@@ -14,13 +14,13 @@ const packageRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '
 const bin = path.join(packageRoot, 'bin', 'singularity-flow.mjs');
 
 function run(command, args, cwd) {
-  const result = spawnSync(command, args, { cwd, encoding: 'utf8' });
+  const result = spawnSync(command, args, { cwd, encoding: 'utf8', env: { ...process.env, NODE_ENV: 'test' } });
   assert.equal(result.status, 0, `${command} ${args.join(' ')}\n${result.stdout}\n${result.stderr}`);
   return result.stdout;
 }
 
 function result(command, args, cwd, env = process.env) {
-  return spawnSync(command, args, { cwd, encoding: 'utf8', env });
+  return spawnSync(command, args, { cwd, encoding: 'utf8', env: { ...env, NODE_ENV: 'test' } });
 }
 
 function flow(args, cwd, { allowFailure = false, agent = 'product-owner', workType = 'feature' } = {}) {
@@ -35,11 +35,29 @@ function flow(args, cwd, { allowFailure = false, agent = 'product-owner', workTy
   return execution;
 }
 
+async function configureMockProvider(root, builder, extraArguments = []) {
+  const definitionPath = path.join(root, 'singularity/workflow.yml');
+  const definition = YAML.parse(await readFile(definitionPath, 'utf8'));
+  definition.models = {
+    defaultProvider: 'mock-world-model',
+    providers: {
+      'mock-world-model': {
+        type: 'copilot-cli',
+        executable: process.execPath,
+        arguments: [builder, ...extraArguments]
+      }
+    }
+  };
+  await writeFile(definitionPath, YAML.stringify(definition));
+}
+
 const mockBuilderSource = `
 import { appendFile, mkdir, readFile, writeFile } from 'node:fs/promises';
 import { spawnSync } from 'node:child_process';
 import path from 'node:path';
-const prompt = await readFile(process.argv[2], 'utf8');
+const promptArgument = process.argv[process.argv.indexOf('-p') + 1] ?? process.argv[2];
+let prompt;
+try { prompt = await readFile(promptArgument, 'utf8'); } catch { prompt = promptArgument; }
 const packet = prompt.match(/Packet file:\\s+([^\\n]+)/)?.[1].trim();
 const assignedView = prompt.match(/Assigned view:\\s+([^\\n]+)/)?.[1].trim();
 if (packet) {
@@ -269,11 +287,12 @@ test('wm build isolates the generator, commits a validated model, and tracks sou
   await writeFile(path.join(root, 'README.md'), '# Builder test\n');
   const builder = path.join(root, 'mock-worldmodel-builder.mjs');
   await writeFile(builder, mockBuilderSource);
+  await configureMockProvider(root, builder);
   run('git', ['add', '.'], root);
   run('git', ['commit', '-m', 'initialize'], root);
 
   const task = 'Design the evaluation pipeline';
-  const output = run(process.execPath, [bin, 'wm', 'build', '--phase', 'design', '--task', task, '--runner', `${process.execPath} ${builder} "{prompt_file}"`], root);
+  const output = run(process.execPath, [bin, 'wm', 'build', '--phase', 'design', '--task', task], root);
   assert.match(output, /World model built from source/);
   const manifest = JSON.parse(await readFile(path.join(root, 'singularity/world-model/manifest.json'), 'utf8'));
   assert.match(manifest.generated_at, /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}\.\d{3}Z$/);
@@ -308,9 +327,7 @@ test('wm build refuses a protected application branch before starting the genera
   run('git', ['add', '.'], root);
   run('git', ['commit', '-m', 'initialize'], root);
 
-  const attempted = result(process.execPath, [
-    bin, 'wm', 'build', '--phase', 'design', '--runner', `${process.execPath} ${builder} "{prompt_file}"`
-  ], root);
+  const attempted = result(process.execPath, [bin, 'wm', 'build', '--phase', 'design'], root);
   assert.equal(attempted.status, 1);
   assert.match(`${attempted.stdout}${attempted.stderr}`, /cannot run on protected application branch 'main'/);
   assert.equal(existsSync(marker), false, 'the model runner was never started');
@@ -399,12 +416,12 @@ test('wm build discovers requested views concurrently and synthesizes one valida
   await writeFile(path.join(root, 'README.md'), '# Parallel world-model test\n');
   const builder = path.join(root, 'mock-worldmodel-builder.mjs');
   await writeFile(builder, mockBuilderSource);
+  await configureMockProvider(root, builder);
   run('git', ['add', '.'], root);
   run('git', ['commit', '-m', 'initialize'], root);
 
   const execution = result(process.execPath, [
-    bin, 'wm', 'build', '--phase', 'verification', '--views', 'business', '--parallel', '--workers', '2',
-    '--runner', `${process.execPath} ${builder} "{prompt_file}"`
+    bin, 'wm', 'build', '--phase', 'verification', '--views', 'business', '--parallel', '--workers', '2'
   ], root, { ...process.env, SFLOW_PARALLEL_TEST_LOG: activityLog });
   assert.equal(execution.status, 0, `${execution.stdout}\n${execution.stderr}`);
   assert.match(execution.stderr, /4 pending view workers, up to 2 concurrent/);
@@ -439,13 +456,13 @@ test('wm build checkpoints completed discovery and resumes only pending views af
   await writeFile(definitionPath, YAML.stringify(definition));
   const builder = path.join(root, 'mock-worldmodel-builder.mjs');
   await writeFile(builder, mockBuilderSource);
+  await configureMockProvider(root, builder);
   await writeFile(path.join(root, 'README.md'), '# Resumable world-model test\n');
   run('git', ['add', '.'], root);
   run('git', ['commit', '-m', 'initialize'], root);
 
   const args = [
-    bin, 'wm', 'build', '--phase', 'design', '--parallel', '--workers', '2',
-    '--runner', `${process.execPath} ${builder} "{prompt_file}"`
+    bin, 'wm', 'build', '--phase', 'design', '--parallel', '--workers', '2'
   ];
   const first = result(process.execPath, args, root, {
     ...process.env,
@@ -454,7 +471,7 @@ test('wm build checkpoints completed discovery and resumes only pending views af
     SFLOW_MOCK_SKIP_PACKET_VIEW: 'architecture'
   });
   assert.notEqual(first.status, 0);
-  assert.match(`${first.stdout}${first.stderr}`, /World-model builder exited with status 9/);
+  assert.match(`${first.stdout}${first.stderr}`, /Model provider 'mock-world-model' exited with status 9/);
   assert.match(first.stderr, /checkpoint retained in the repository: 1 completed, 1 pending/);
   assert.equal((await lstat(path.join(root, 'singularity/world-model/.checkpoints'))).isDirectory(), true);
   const firstEvents = (await readFile(activityLog, 'utf8')).trim().split(/\r?\n/).map(JSON.parse);
@@ -489,13 +506,13 @@ test('wm build falls back to final synthesis when an optional discovery worker o
   await writeFile(definitionPath, YAML.stringify(definition));
   const builder = path.join(root, 'mock-worldmodel-builder.mjs');
   await writeFile(builder, mockBuilderSource);
+  await configureMockProvider(root, builder);
   await writeFile(path.join(root, 'README.md'), '# Discovery fallback test\n');
   run('git', ['add', '.'], root);
   run('git', ['commit', '-m', 'initialize'], root);
 
   const execution = result(process.execPath, [
-    bin, 'wm', 'build', '--phase', 'design', '--parallel', '--workers', '2',
-    '--runner', `${process.execPath} ${builder} "{prompt_file}"`
+    bin, 'wm', 'build', '--phase', 'design', '--parallel', '--workers', '2'
   ], root, { ...process.env, SFLOW_MOCK_SKIP_PACKET_VIEW: 'architecture' });
   assert.equal(execution.status, 0, `${execution.stdout}\n${execution.stderr}`);
   assert.match(execution.stderr, /architecture discovery worker did not create its analysis packet/);
@@ -519,13 +536,13 @@ test('wm build retries final synthesis once when the builder omits manifest.json
   await writeFile(definitionPath, YAML.stringify(definition));
   const builder = path.join(root, 'mock-worldmodel-builder.mjs');
   await writeFile(builder, mockBuilderSource);
+  await configureMockProvider(root, builder);
   await writeFile(path.join(root, 'README.md'), '# Synthesis retry test\n');
   run('git', ['add', '.'], root);
   run('git', ['commit', '-m', 'initialize'], root);
 
   const execution = result(process.execPath, [
-    bin, 'wm', 'build', '--phase', 'intake', '--no-parallel',
-    '--runner', `${process.execPath} ${builder} "{prompt_file}"`
+    bin, 'wm', 'build', '--phase', 'intake', '--no-parallel'
   ], root, { ...process.env, SFLOW_MOCK_MANIFEST_RETRY_MARKER: marker });
   assert.equal(execution.status, 0, `${execution.stdout}\n${execution.stderr}`);
   assert.match(execution.stderr, /did not create manifest\.json; retrying final synthesis once/);
@@ -545,13 +562,13 @@ test('wm build retries final synthesis when a declared view is a directory', asy
   await writeFile(definitionPath, YAML.stringify(definition));
   const builder = path.join(root, 'mock-worldmodel-builder.mjs');
   await writeFile(builder, mockBuilderSource);
+  await configureMockProvider(root, builder);
   await writeFile(path.join(root, 'README.md'), '# View recovery test\n');
   run('git', ['add', '.'], root);
   run('git', ['commit', '-m', 'initialize'], root);
 
   const execution = result(process.execPath, [
-    bin, 'wm', 'build', '--phase', 'intake', '--no-parallel',
-    '--runner', `${process.execPath} ${builder} "{prompt_file}"`
+    bin, 'wm', 'build', '--phase', 'intake', '--no-parallel'
   ], root, { ...process.env, SFLOW_MOCK_DIRECTORY_VIEW_RETRY_MARKER: marker });
   assert.equal(execution.status, 0, `${execution.stdout}\n${execution.stderr}`);
   assert.match(execution.stderr, /view 'business' must be a regular file.*retrying final synthesis once without repeating discovery/s);
@@ -573,13 +590,13 @@ test('wm build replaces a model-supplied short commit with CLI-owned full proven
   await writeFile(path.join(root, 'README.md'), '# Manifest provenance test\n');
   const builder = path.join(root, 'mock-worldmodel-builder.mjs');
   await writeFile(builder, mockBuilderSource);
+  await configureMockProvider(root, builder);
   run('git', ['add', '.'], root);
   run('git', ['commit', '-m', 'initialize'], root);
   const sourceCommit = run('git', ['rev-parse', 'HEAD'], root).trim();
 
   const execution = result(process.execPath, [
-    bin, 'wm', 'build', '--phase', 'requirements', '--no-parallel',
-    '--runner', `${process.execPath} ${builder} "{prompt_file}"`
+    bin, 'wm', 'build', '--phase', 'requirements', '--no-parallel'
   ], root, { ...process.env, SFLOW_MOCK_SHORT_SHA: '1' });
   assert.equal(execution.status, 0, `${execution.stdout}\n${execution.stderr}`);
 
@@ -596,6 +613,7 @@ test('wm build targets an existing branch without a work item or switching the a
   await initializeDefinition(root);
   const builder = path.join(root, 'mock-worldmodel-builder.mjs');
   await writeFile(builder, mockBuilderSource);
+  await configureMockProvider(root, builder);
   await writeFile(path.join(root, 'README.md'), '# Main branch\n');
   run('git', ['add', '.'], root);
   run('git', ['commit', '-m', 'initialize'], root);
@@ -609,8 +627,7 @@ test('wm build targets an existing branch without a work item or switching the a
   const releaseBefore = run('git', ['rev-parse', 'release/2026.07'], root).trim();
   const execution = result(process.execPath, [
     bin, 'wm', 'build', '--branch', 'release/2026.07', '--local',
-    '--phase', 'design', '--task', 'Ground the release',
-    '--runner', `${process.execPath} ${builder} "{prompt_file}"`
+    '--phase', 'design', '--task', 'Ground the release'
   ], root);
   assert.equal(execution.status, 0, `${execution.stdout}\n${execution.stderr}`);
   assert.match(execution.stderr, /World-model target: release\/2026\.07 .*active checkout unchanged/);
@@ -645,6 +662,7 @@ test('wm build discovers and models a remote-only branch without creating govern
   await initializeDefinition(root);
   const builder = path.join(root, 'mock-worldmodel-builder.mjs');
   await writeFile(builder, mockBuilderSource);
+  await configureMockProvider(root, builder);
   await writeFile(path.join(root, 'README.md'), '# Main\n');
   run('git', ['add', '.'], root);
   run('git', ['commit', '-m', 'initialize'], root);
@@ -659,8 +677,7 @@ test('wm build discovers and models a remote-only branch without creating govern
   run('git', ['branch', '--delete', '--force', 'remote/model'], root);
 
   const execution = result(process.execPath, [
-    bin, 'wm', 'build', '--branch', 'remote/model', '--local',
-    '--runner', `${process.execPath} ${builder} "{prompt_file}"`
+    bin, 'wm', 'build', '--branch', 'remote/model', '--local'
   ], root);
   assert.equal(execution.status, 0, `${execution.stdout}\n${execution.stderr}`);
   assert.equal(run('git', ['branch', '--show-current'], root).trim(), 'main');
@@ -718,9 +735,10 @@ test('wm build rejects generator writes outside the isolated output', async () =
   run(process.execPath, [bin, 'wm', 'init'], root);
   const builder = path.join(root, 'mock-worldmodel-builder.mjs');
   await writeFile(builder, mockBuilderSource);
+  await configureMockProvider(root, builder, ['--mutate']);
   run('git', ['add', '.'], root);
   run('git', ['commit', '-m', 'initialize'], root);
-  const attempted = result(process.execPath, [bin, 'wm', 'build', '--phase', 'design', '--runner', `${process.execPath} ${builder} "{prompt_file}" --mutate`], root);
+  const attempted = result(process.execPath, [bin, 'wm', 'build', '--phase', 'design'], root);
   assert.notEqual(attempted.status, 0);
   assert.match(`${attempted.stdout}${attempted.stderr}`, /modified files outside its isolated output directory: MUTATED\.txt/);
   assert.equal(result('git', ['status', '--porcelain'], root).stdout, '');
@@ -739,11 +757,12 @@ test('enforced workflows block generation until the governed prompt is composed'
   run(process.execPath, [bin, 'wm', 'init'], root);
   const builder = path.join(root, 'mock-worldmodel-builder.mjs');
   await writeFile(builder, mockBuilderSource);
+  await configureMockProvider(root, builder);
   await writeFile(path.join(root, 'README.md'), '# Grounding gate test\n');
   run('git', ['add', '.'], root);
   run('git', ['commit', '-m', 'initialize'], root);
   const task = 'Capture governed intake';
-  run(process.execPath, [bin, 'wm', 'build', '--phase', 'intake', '--task', task, '--runner', `${process.execPath} ${builder} "{prompt_file}"`], root);
+  run(process.execPath, [bin, 'wm', 'build', '--phase', 'intake', '--task', task], root);
 
   flow(['start', 'GROUND-1', '--title', 'Grounded work'], root);
   const workflowPath = path.join(root, 'singularity/work-items/GROUND-1/workflow.json');
@@ -778,6 +797,7 @@ test('wm build --local commits the world model but does not push, and a new bran
   await initializeDefinition(root);
   const builder = path.join(root, 'mock-worldmodel-builder.mjs');
   await writeFile(builder, mockBuilderSource);
+  await configureMockProvider(root, builder);
   await writeFile(path.join(root, 'README.md'), '# Local build\n');
   run('git', ['add', '.'], root);
   run('git', ['commit', '-m', 'initialize'], root);
@@ -786,7 +806,7 @@ test('wm build --local commits the world model but does not push, and a new bran
   const remoteMainBefore = run('git', ['ls-remote', remote, 'refs/heads/main'], root).trim();
 
   // git.publish stays at its default (required); --local must still skip the push.
-  const output = run(process.execPath, [bin, 'wm', 'build', '--local', '--phase', 'design', '--task', 'Design it', '--runner', `${process.execPath} ${builder} "{prompt_file}"`], root);
+  const output = run(process.execPath, [bin, 'wm', 'build', '--local', '--phase', 'design', '--task', 'Design it'], root);
   assert.match(output, /local, not pushed/);
 
   const localHead = run('git', ['rev-parse', 'HEAD'], root).trim();

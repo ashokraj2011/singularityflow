@@ -1,0 +1,31 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://example.invalid/singularity-flow/operation-definition.schema.json",
+  "title": "Singularity Flow operation definition",
+  "type": "object",
+  "required": ["id", "command", "classification", "modelPolicy", "fallback", "output", "externalDependencies", "noModelFixture"],
+  "properties": {
+    "id": { "type": "string", "pattern": "^[a-z0-9]+(?:[.-][a-z0-9]+)*$" },
+    "command": { "type": "string", "pattern": "^[a-z0-9]+(?:-[a-z0-9]+)*$" },
+    "classification": { "enum": ["read", "mutation"] },
+    "modelPolicy": { "enum": ["never", "optional", "required"] },
+    "fallback": {
+      "oneOf": [
+        { "type": "null" },
+        {
+          "type": "object",
+          "required": ["operationId", "mode"],
+          "properties": {
+            "operationId": { "type": "string", "pattern": "^[a-z0-9]+(?:[.-][a-z0-9]+)*$" },
+            "mode": { "enum": ["automatic", "guided"] }
+          },
+          "additionalProperties": false
+        }
+      ]
+    },
+    "output": { "enum": ["human", "human-or-json", "json"] },
+    "externalDependencies": { "type": "array", "uniqueItems": true, "items": { "type": "string", "minLength": 1 } },
+    "noModelFixture": { "type": "string", "minLength": 1 }
+  },
+  "additionalProperties": false
+}

@@ -81,10 +81,10 @@ export async function runFirstRunGuide({ keep = false, onBoundary } = {}) {
     steps.push(command(cli, repository, ['start', 'TOY-001', '--story-file', story, '--work-type', 'quick-fix', '--agent', 'developer'], env));
     await writeFile(path.join(repository, 'greeting.txt'), 'Hello, Singularity Flow!\n');
     steps.push(command(cli, repository, ['prepare', 'implement'], env));
-    steps.push(command(cli, repository, ['phase', 'publish', 'implement'], env));
+    steps.push(command(cli, repository, ['phase', 'publish', 'implement', '--authored', 'deterministic'], env));
     steps.push(command(cli, repository, ['submit', 'implement'], env));
     steps.push(command(cli, repository, ['prepare', 'verify'], env));
-    steps.push(command(cli, repository, ['phase', 'publish', 'verify'], env));
+    steps.push(command(cli, repository, ['phase', 'publish', 'verify', '--authored', 'deterministic'], env));
     steps.push(command(cli, repository, ['submit', 'verify'], env));
     const status = command(cli, repository, ['status', 'TOY-001', '--json'], env);
     steps.push(status);

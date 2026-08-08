@@ -38,7 +38,9 @@ export function evaluateQuickFixWaiver(root, config, workflow, phase, policy = D
     ...(workflow.resolution?.capability?.policy?.protectedPaths ?? [])
   ])];
   const prohibitedFlags = ['publicInterfaceChange', 'dataMigration', 'securityBoundaryChange', 'regulatedDataChange', 'deploymentPolicyChange', 'crossRepositoryChange'];
-  const requiredCheckIds = [...new Set((phase.qualityCommands ?? []).map((value) => String(value).trim()).filter(Boolean))];
+  const requiredCheckIds = [...new Set((phase.qualityCommands ?? [])
+    .map((value) => typeof value === 'string' ? value.trim() : String(value?.id ?? value?.command ?? '').trim())
+    .filter(Boolean))];
   const executedChecks = new Map((phase.checks ?? []).map((check) => [check.id ?? check.command, check]));
   const reconciliation = phase.workIntervalReconciliation;
   const predicates = {

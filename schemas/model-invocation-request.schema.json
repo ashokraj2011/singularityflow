@@ -1,0 +1,33 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://example.invalid/singularity-flow/model-invocation-request.schema.json",
+  "title": "Normalized kernel model invocation request",
+  "type": "object",
+  "required": ["provider", "prompt", "cwd", "channel", "tools", "limits"],
+  "properties": {
+    "provider": { "type": "string", "minLength": 1 },
+    "providerConfig": { "type": "object" },
+    "model": { "type": ["string", "null"] },
+    "prompt": {
+      "oneOf": [
+        { "type": "object", "required": ["text"], "properties": { "text": { "type": "string" } }, "additionalProperties": false },
+        { "type": "object", "required": ["file"], "properties": { "file": { "type": "string", "minLength": 1 } }, "additionalProperties": false }
+      ]
+    },
+    "cwd": { "type": "string", "minLength": 1 },
+    "channel": { "type": "string", "minLength": 1 },
+    "subject": { "type": ["object", "null"] },
+    "allowedRoots": { "type": "array", "minItems": 1, "uniqueItems": true, "items": { "type": "string", "minLength": 1 } },
+    "tools": {
+      "type": "object", "required": ["mode", "names"],
+      "properties": { "mode": { "enum": ["none", "allowlist", "all"] }, "names": { "type": "array", "uniqueItems": true, "items": { "type": "string", "minLength": 1 } } },
+      "additionalProperties": false
+    },
+    "limits": {
+      "type": "object", "required": ["timeoutMs", "outputBytes"],
+      "properties": { "timeoutMs": { "type": "integer", "minimum": 1 }, "outputBytes": { "type": "integer", "minimum": 1 } },
+      "additionalProperties": false
+    }
+  },
+  "additionalProperties": true
+}

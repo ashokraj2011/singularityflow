@@ -1,0 +1,22 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://example.invalid/singularity-flow/generation-authorship.schema.json",
+  "title": "Generation authorship evidence",
+  "type": "object",
+  "required": ["schemaVersion", "producer", "channel", "actor", "kernelModel", "externalAiUse", "source"],
+  "properties": {
+    "schemaVersion": { "const": 1 },
+    "producer": { "enum": ["human", "governed-agent", "deterministic", "external-tool", "legacy-unspecified"] },
+    "channel": { "enum": ["manual-in-place", "manual-import", "copilot-host", "kernel-model", "kernel-generator", "external-tool", "legacy"] },
+    "actor": { "type": ["object", "null"] },
+    "governedAgentContext": { "type": ["object", "null"] },
+    "kernelModel": {
+      "type": "object", "required": ["invoked", "status", "invocationIds"],
+      "properties": { "invoked": { "type": "boolean" }, "status": { "enum": ["exact", "unavailable"] }, "invocationIds": { "type": "array", "items": { "type": "string", "minLength": 1 } } },
+      "additionalProperties": false
+    },
+    "externalAiUse": { "type": "object" },
+    "source": { "type": ["object", "null"] }
+  },
+  "additionalProperties": true
+}

@@ -24,6 +24,7 @@ scripts and documentation.
 The package contains:
 
 - A deterministic Node.js CLI (`singularity-flow` or `sflow`).
+- Explicit model-independent operation policies, a strict `--no-model` mode, deterministic `wm light`, and governed manual artifact publication.
 - A VS Code extension for workspaces, intake, workflow configuration, progress, documents, and approvals.
 - A GitHub Copilot plugin with collision-safe skills and a bundled workflow runtime.
 - A canonical searchable help manual shared by the CLI, Copilot, and VS Code.
@@ -49,6 +50,9 @@ VS Code, telemetry, and security boundaries, read
 path from `/sf-*` through the Node.js launcher, command dispatcher, prompt
 composer, question bridge, and Git publication, read
 [Singularity Flow under the hood](docs/UNDER-THE-HOOD.md).
+For the exact model boundary, model-disabled execution, external-command policy,
+and human-authored artifact flow, read
+[Model independence and manual authorship](docs/MODEL-INDEPENDENCE.md).
 
 ## Requirements
 

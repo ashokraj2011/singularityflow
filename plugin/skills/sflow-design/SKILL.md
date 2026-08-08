@@ -16,6 +16,6 @@ argument-hint: "[design constraints or emphasis]"
 4. Run `singularity-flow prepare design` and complete the returned document.
 5. Cover components, interfaces, data flow, alternatives, compatibility, security, privacy, observability, migration, rollout, rollback, risks, and an ordered implementation plan.
 6. State assumptions and tradeoffs. Do not implement production code.
-7. Remove every placeholder and run `singularity-flow phase publish design`.
+7. Remove every placeholder and run `singularity-flow phase publish design --authored governed-agent --channel copilot-host`.
 8. Run `singularity-flow phase show design --json`, then reproduce every published text document in full in the visible assistant response between `--- BEGIN <path> ---` and `--- END <path> ---`, with its ID, kind, byte count, and hash. A collapsible Shell/tool block does not count. Never say “shown above.” Never replace it with a summary. For binary documents, show the absolute path, metadata, and open instruction.
 9. Report the publication commit and token status. Do not submit or approve automatically.

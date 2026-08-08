@@ -59,6 +59,11 @@ ledger:
 
 templatesRoot: singularity/templates
 
+noModel:
+  # Legacy string commands have unknown model behavior. Skip them with a visible
+  # warning in model-disabled mode; set this to block for stricter repositories.
+  unknownExternalCommands: warn
+
 planning:
   enabled: true
   promptSource: singularity/prompts/copilot-planning.md
@@ -87,6 +92,16 @@ worldModel:
     #   include: [domains/api.md]
     # - when: { labels: security }
     #   include: [views/security.md]
+
+# Trusted kernel-owned model providers. Arguments are passed directly without a
+# shell; credentials remain in the provider/host environment and are never stored here.
+models:
+  defaultProvider: copilot-cli
+  providers:
+    copilot-cli:
+      type: copilot-cli
+      executable: copilot
+      arguments: []
 
 tokens:
   mode: exact-or-unavailable
@@ -314,7 +329,10 @@ phases:
     approval: { mode: policy, policy: quick-fix-low-risk-v1, maximumChangedPaths: 5, authorities: [quality-reviewers], minimum: 1, rejectTo: [implement, verify] }
     # A policy waiver is impossible without at least one required check. Repositories
     # should replace or extend this deterministic baseline with their own test command.
-    qualityCommands: [git diff --check]
+    qualityCommands:
+      - id: git-diff-check
+        argv: [git, diff, --check]
+        modelPolicy: never
   intake:
     label: Intake
     defaultTemplate: common/intake.md

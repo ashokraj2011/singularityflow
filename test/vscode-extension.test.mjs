@@ -1041,8 +1041,8 @@ test('configuration is shown whether or not an Epic is checked out', () => {
     const children = configuration.children.map((child) => child.id);
     // Capabilities lead because they decide which repositories a workspace will contain; local
     // identity, grounding and governed design follow.
-    assert.deepEqual(children.slice(0, 5),
-      ['config:capabilities', 'config:local-profile', 'config:mcp', 'world-model', 'config:workflow-design']);
+    assert.deepEqual(children.slice(0, 6),
+      ['config:capabilities', 'config:model-freedom', 'config:local-profile', 'config:mcp', 'world-model', 'config:workflow-design']);
     const design = find(tree, 'config:workflow-design');
     assert.deepEqual(design.children.map((child) => child.id),
       [
@@ -1777,9 +1777,10 @@ test('Lifecycle owns intake and active phases; Configuration owns their design',
   // than edited.
   const configuration = find(configurationTree, 'configuration');
   assert.equal(configuration.children[0].id, 'config:capabilities');
-  assert.equal(configuration.children[1].id, 'config:local-profile');
-  assert.equal(configuration.children[2].id, 'config:mcp');
-  assert.equal(configuration.children[3].id, 'world-model');
+  assert.equal(configuration.children[1].id, 'config:model-freedom');
+  assert.equal(configuration.children[2].id, 'config:local-profile');
+  assert.equal(configuration.children[3].id, 'config:mcp');
+  assert.equal(configuration.children[4].id, 'world-model');
   assert.ok(find(configurationTree, 'config:workflow-design'), 'workflow definitions are designed here');
   const capabilities = find(configurationTree, 'config:capabilities');
   assert.ok(capabilities, 'the capability map is configuration rather than workspace identity');

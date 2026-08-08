@@ -118,6 +118,44 @@ The normal phase loop is:
 
 Use `/sf-progress` for deterministic completion and `/sf-report` for timing, waiting, rework, and token metrics.
 
+### Disposable first-run guide
+
+Before connecting a real repository, rehearse the actual lifecycle locally:
+
+```bash
+singularity-flow guide --first-run
+singularity-flow guide --first-run --keep   # retain the toy repository
+```
+
+This is one typed command and one interaction. It prints its temporary sandbox
+boundary, initializes a toy Git repository, starts the built-in `quick-fix`
+workflow, changes one file, and completes its deterministic Implement and Verify
+phases. Network access and model invocation are both disabled. Successful runs
+are removed unless `--keep` is present; failed runs remain with `failure.json`.
+
+The quick-fix policy is deliberately narrow. Implement has explicit approval
+mode `none`. Verify records a deterministic policy waiver—not a human approval—
+only for a declared low-risk, single-repository, bounded change that touches no
+protected path or semantic boundary and whose checks pass. Every other case waits
+for the configured human authority.
+
+### Bounded diagnostics and PR text
+
+```bash
+singularity-flow snapshot WORK-123 --include lifecycle --timings --json
+singularity-flow snapshot WORK-123 --include lifecycle --if-revision <HASH> --json
+singularity-flow report WORK-123 --timings
+singularity-flow pr describe WORK-123 --format markdown
+singularity-flow pr describe WORK-123 --clipboard
+singularity-flow pr describe WORK-123 --write --yes
+```
+
+Snapshot revisions cover committed HEAD, staged and unstaged bytes, untracked
+file bytes, and selected lifecycle state. Matching `--if-revision` requests return
+`notModified` without a payload. Timing data contains stage names and durations,
+not source content. PR descriptions are deterministic local projections. `--write`
+can edit an existing PR through `gh`; the command never creates one.
+
 ## Reset and fresh reinstall
 
 There are three intentionally different reset boundaries:
@@ -2193,6 +2231,7 @@ singularity-flow session status|attach|clear [WORK-ID] [--json]
 singularity-flow inbox [--fetch] [--json]
 singularity-flow finalize [--json]
 singularity-flow guide [WORK-ID] [--json]
+singularity-flow guide --first-run [--keep] [--json]
 singularity-flow nextsteps [WORK-ID] [--json]
 singularity-flow action plan [STORY-OR-INITIATIVE] [--ttl-ms N] [--json]
 singularity-flow action authorize <PLAN-ID> [--action ACTION-ID] --confirm ACTION-ID [--channel terminal|vscode] [--json]
@@ -2202,6 +2241,7 @@ singularity-flow run [--task TEXT] [--yes]
 singularity-flow cockpit
 singularity-flow doctor [WORK-ID] [--offline] [--json]
 singularity-flow review [PHASE] [--phase PHASE] [--format md|html|json] [--out FILE]
+singularity-flow pr describe [WORK-ID] [--format markdown|json] [--clipboard] [--write] [--yes]
 singularity-flow workflow list|simulate|diff|add|upgrade
 singularity-flow assign <PHASE> <ASSIGNEE>
 singularity-flow watch [WORK-ID] [--once] [--fetch] [--interval SECONDS]
@@ -2223,7 +2263,7 @@ singularity-flow visual status [--json]
 singularity-flow visual compare --expected RECORD-OR-PATH --actual RECORD-OR-PATH [--profile ID] [--json]
 singularity-flow status [WORK-ID] [--json]
 singularity-flow progress [WORK-ID] [--json]
-singularity-flow report [WORK-ID] [--format md|html|json] [--out FILE]
+singularity-flow report [WORK-ID] [--format md|html|json] [--out FILE] [--timings]
 singularity-flow impact status [WORK-ID] [--json]
 singularity-flow impact study list|show [STUDY-ID] [--json]
 singularity-flow impact enroll [WORK-ID] (--complexity BAND --risk BAND | --opt-out --reason TEXT) --confirm
@@ -2282,7 +2322,7 @@ singularity-flow jira status|projects|epics|children|permissions|boards|board
 singularity-flow jira transitions|transition|assign|priority|sprint|comment
 singularity-flow plugin install|uninstall|list|path
 singularity-flow configuration save <PATH>
-singularity-flow snapshot [WORK-ID] --json
+singularity-flow snapshot [WORK-ID] [--include SLICE] [--if-revision HASH] [--timings] --json
 singularity-flow state planes [WORK-ID] [--json]
 singularity-flow state reconcile [WORK-ID] --check|--repair-projections [--json]
 singularity-flow logs [--tail N] [--level LEVEL] [--event PATTERN] [--since WHEN] [--json]

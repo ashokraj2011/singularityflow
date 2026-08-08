@@ -262,7 +262,7 @@ test('Epic stack sync publishes an orphan control-plane manifest to participatin
 });
 
 test('story pull request targets the epic branch and is built from committed state', async () => {
-  const { pullRequestTarget, storyPullRequestBody, createStoryPullRequest } = await import('../src/pull-request.mjs');
+  const { pullRequestTarget, storyPullRequestBody, createStoryPullRequest, updateStoryPullRequest } = await import('../src/pull-request.mjs');
   const workflow = {
     workItem: { id: 'APP-1', title: 'Add priority', branch: 'APP-1', baseBranch: 'main', workType: 'feature' },
     source: {}
@@ -290,6 +290,8 @@ test('story pull request targets the epic branch and is built from committed sta
   assert.match(body, /Branched from: `INIT-SOLO` at `aaaaaaaa`/);
   assert.match(body, /Priority is persisted/);
   assert.match(body, /business-case\.md` — define\/business-case @ `bbbbbbbbbbbb`/);
+  assert.match(body, /Editable draft generated deterministically/);
+  assert.match(body, /not a governed lifecycle artifact/);
 
   // A story whose dependencies have not merged cannot open a pull request.
   const blocked = { workId: 'APP-2', base: EPIC, head: 'APP-2', title: 't', body: 'b', requiredChecks: [], blockedBy: ['APP-1'] };
@@ -309,6 +311,16 @@ test('story pull request targets the epic branch and is built from committed sta
   assert.equal(result.status, 'existing');
   assert.equal(result.url, 'https://git.example.corp/acme/app/pull/7');
   assert.ok(!calls.includes('gh pr create'));
+
+  const updateCalls = [];
+  const updateResult = updateStoryPullRequest('/tmp', ready, { runCommand: (command, args) => {
+    updateCalls.push([command, ...args]);
+    if (args[0] === 'pr' && args[1] === 'list') return { status: 0, stdout: '{"number":7,"url":"https://git.example.corp/acme/app/pull/7"}', stderr: '' };
+    return { status: 0, stdout: '', stderr: '' };
+  } });
+  assert.equal(updateResult.status, 'updated');
+  assert.ok(updateCalls.some((args) => args[0] === 'gh' && args[1] === 'pr' && args[2] === 'edit'));
+  assert.ok(!updateCalls.some((args) => args.includes('create')), 'description updates never create a pull request');
 });
 
 test('impact map validation rejects unknown repositories and undeclared world-model views', async () => {

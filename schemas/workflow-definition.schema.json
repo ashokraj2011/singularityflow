@@ -218,6 +218,7 @@
           "writeScope": { "enum": ["artifact-only", "source-and-artifact"] },
           "inputs": { "$ref": "#/$defs/phaseInputs" },
           "clarification": { "$ref": "#/$defs/clarificationPolicy" },
+          "generation": { "$ref": "#/$defs/generationPolicy" },
           "approval": { "$ref": "#/$defs/approvalPolicy" }
         }
       }
@@ -429,10 +430,27 @@
         ]
       }
     },
+    "generationPolicy": {
+      "oneOf": [
+        { "enum": ["required", "optional", "none"] },
+        {
+          "type": "object",
+          "properties": {
+            "requirement": { "enum": ["required", "optional", "none"] },
+            "producer": { "enum": ["agent", "deterministic", "manual"] }
+          },
+          "additionalProperties": false
+        }
+      ]
+    },
     "approvalPolicy": {
-      "type": "object",
-      "required": ["authorities"],
+      "oneOf": [
+      { "const": "none" },
+      { "type": "object",
       "properties": {
+        "mode": { "enum": ["required", "none", "policy"] },
+        "policy": { "type": "string", "minLength": 1 },
+        "maximumChangedPaths": { "type": "integer", "minimum": 1 },
         "authorities": {
           "type": "array",
           "minItems": 1,
@@ -455,7 +473,8 @@
           "additionalProperties": false
         }
       },
-      "additionalProperties": false
+      "additionalProperties": false }
+      ]
     }
   }
 }

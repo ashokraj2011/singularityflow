@@ -18,6 +18,7 @@ export function sequenceGateMode(workflow, gate) {
 }
 
 export function phaseNeedsGeneration(workflow, phase) {
+  if (phase?.generationPolicy?.requirement === 'none') return false;
   if (!phase || phase.generation < 1) return true;
   if (!phase.rejectedAt) return false;
   return !(workflow.history ?? []).some((event) =>

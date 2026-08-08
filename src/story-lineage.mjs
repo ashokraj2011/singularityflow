@@ -204,7 +204,11 @@ export async function createStoryReviewPacket(root, config, workflow, phase) {
     visualAssurance,
     submittedAt: phase.submittedAt ?? nowIso(),
     submittedBy: identity(root),
-    status: 'awaiting_review'
+    status: phase.status === 'approved'
+      ? phase.approvalPolicy?.mode === 'policy'
+        ? 'policy_waived'
+        : 'complete_no_review'
+      : 'awaiting_review'
   };
   const packetSha256 = hash(base);
   const packet = { ...base, packetSha256 };

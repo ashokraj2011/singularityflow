@@ -63,6 +63,23 @@ export function normalizeApprovalAuthorities(value = null) {
 }
 
 export function normalizeApprovalPolicy(value = {}, authorities, phaseId) {
+  if (value === 'none' || value?.mode === 'none') {
+    return {
+      mode: 'none',
+      authorities: [],
+      minimum: 0,
+      rejectTo: [phaseId],
+      allowSelfApproval: false,
+      changeRequests: { commentRequired: true, reopenCompleted: true }
+    };
+  }
+  if (!value || typeof value !== 'object' || Array.isArray(value)) {
+    throw new SingularityFlowError(`Phase '${phaseId}' approval must be none or an approval policy object.`);
+  }
+  const mode = value.mode ?? 'required';
+  if (!['required', 'policy'].includes(mode)) {
+    throw new SingularityFlowError(`Phase '${phaseId}' approval.mode must be required, none, or policy.`);
+  }
   const registry = normalizeApprovalAuthorities(authorities);
   const configured = value.authorities ?? [Object.keys(registry)[0]];
   if (!Array.isArray(configured) || !configured.length) {
@@ -78,6 +95,9 @@ export function normalizeApprovalPolicy(value = {}, authorities, phaseId) {
   if (!Number.isInteger(minimum) || minimum < 1) {
     throw new SingularityFlowError(`Phase '${phaseId}' approval.minimum must be a positive integer.`);
   }
+  if (value.maximumChangedPaths != null && (!Number.isInteger(value.maximumChangedPaths) || value.maximumChangedPaths < 1)) {
+    throw new SingularityFlowError(`Phase '${phaseId}' approval.maximumChangedPaths must be a positive integer.`);
+  }
   const rejectTo = [...new Set(value.rejectTo ?? [phaseId])];
   if (value.allowSelfApproval != null && typeof value.allowSelfApproval !== 'boolean') {
     throw new SingularityFlowError(`Phase '${phaseId}' approval.allowSelfApproval must be boolean.`);
@@ -90,6 +110,11 @@ export function normalizeApprovalPolicy(value = {}, authorities, phaseId) {
     throw new SingularityFlowError(`Phase '${phaseId}' approval.changeRequests.reopenCompleted must be boolean.`);
   }
   return {
+    mode,
+    policy: mode === 'policy' ? (value.policy?.trim() || null) : null,
+    maximumChangedPaths: mode === 'policy' && value.maximumChangedPaths != null
+      ? value.maximumChangedPaths
+      : null,
     authorities: authorityIds,
     minimum,
     rejectTo,

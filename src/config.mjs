@@ -130,6 +130,22 @@ export function normalizePhaseInputs(value, label = 'Phase inputs') {
   });
 }
 
+export function normalizeGenerationPolicy(value = null, phaseId = 'phase') {
+  const source = typeof value === 'string' ? { requirement: value } : (value ?? {});
+  if (!source || typeof source !== 'object' || Array.isArray(source)) {
+    throw new SingularityFlowError(`Phase '${phaseId}' generation must be a mode or an object.`);
+  }
+  const requirement = source.requirement ?? source.mode ?? 'required';
+  const producer = source.producer ?? 'agent';
+  if (!['required', 'optional', 'none'].includes(requirement)) {
+    throw new SingularityFlowError(`Phase '${phaseId}' generation requirement must be required, optional, or none.`);
+  }
+  if (!['agent', 'deterministic', 'manual'].includes(producer)) {
+    throw new SingularityFlowError(`Phase '${phaseId}' generation producer must be agent, deterministic, or manual.`);
+  }
+  return { requirement, producer };
+}
+
 export function normalizeDesignSourcePolicy(value = null, { phases = [] } = {}) {
   if (value == null) return null;
   if (!value || typeof value !== 'object' || Array.isArray(value)) throw new SingularityFlowError('designSources must be an object.');
@@ -323,6 +339,7 @@ export function validateDefinition(definition) {
     for (const [workTypeId, workType] of Object.entries(definition.workTypes)) if (workType.templateOverrides?.[id]) assertTemplate(workType.templateOverrides[id], `Work type '${workTypeId}' template override for '${id}'`);
     if (!template && !Object.values(definition.workTypes).some((type) => type.templateOverrides?.[id])) throw new SingularityFlowError(`Phase '${id}' has no default or work-type template.`);
     normalizeApprovalPolicy(phase.approval ?? {}, definition.approvalAuthorities, id);
+    normalizeGenerationPolicy(phase.generation, id);
     normalizePhaseInputs(phase.inputs, `Phase '${id}' inputs`);
     normalizeClarificationPolicy(phase.clarification);
   }
@@ -581,14 +598,24 @@ export function resolveWorkType(definition, workTypeId) {
       ...override,
       artifact: { ...(phase.artifact ?? {}), ...(override.artifact ?? {}) },
       worldModel: { ...(phase.worldModel ?? {}), ...(override.worldModel ?? {}) },
-      approval: { ...(phase.approval ?? {}), ...(override.approval ?? {}) },
+      approval: override.approval === undefined
+        ? phase.approval
+        : typeof override.approval === 'string'
+          ? override.approval
+          : { ...(phase.approval ?? {}), ...override.approval },
+      generation: override.generation === undefined
+        ? phase.generation
+        : typeof override.generation === 'string'
+          ? override.generation
+          : { ...(phase.generation ?? {}), ...override.generation },
       comparison: { ...(phase.comparison ?? {}), ...(override.comparison ?? {}) }
     };
     const template = workType.templateOverrides?.[id] ?? phase.defaultTemplate;
     const inputs = normalizePhaseInputs(merged.inputs, `Work type '${workTypeId}' phase '${id}' inputs`);
     const approval = normalizeApprovalPolicy(merged.approval ?? {}, definition.approvalAuthorities, id);
+    const generation = normalizeGenerationPolicy(merged.generation, id);
     const clarification = normalizeClarificationPolicy(merged.clarification);
-    return { id, order, ...merged, approval, clarification, inputs, template };
+    return { id, order, ...merged, approval, generation, clarification, inputs, template };
   });
   const phaseById = Object.fromEntries(phases.map((phase) => [phase.id, phase]));
   phases = phases.map((phase) => ({

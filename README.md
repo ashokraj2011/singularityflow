@@ -519,6 +519,40 @@ singularity-flow help troubleshooting
 singularity-flow help --json
 ```
 
+For a safe first experience, run the complete two-phase quick-fix rehearsal:
+
+```bash
+singularity-flow guide --first-run
+# Preserve the isolated toy repository for inspection:
+singularity-flow guide --first-run --keep
+```
+
+The guide creates a temporary Git repository, runs the real `start → prepare →
+publish → submit` lifecycle through deterministic **Implement** and **Verify**
+phases, prints the sandbox boundary before execution, and removes it after
+success unless `--keep` is supplied. It makes no network request and invokes no
+model. A failure is retained with `failure.json` so it can be reproduced.
+
+Low-risk repository work can select the built-in `quick-fix` work type. Its
+two-phase rail uses deterministic evidence, no human approval for Implement,
+and a hash-bound verification policy waiver only when every declared predicate
+passes. Unknown risk, protected paths, semantic boundary changes, failed checks,
+multiple repositories, or an oversized change fall back to normal human review.
+
+Developer-experience diagnostics are opt-in and bounded:
+
+```bash
+singularity-flow snapshot WORK-123 --include lifecycle --timings --json
+singularity-flow snapshot WORK-123 --include lifecycle --if-revision <HASH> --json
+singularity-flow report WORK-123 --timings
+singularity-flow pr describe WORK-123 --format markdown
+```
+
+`--if-revision` returns a `notModified` envelope without repeating snapshot
+payload. `pr describe` generates deterministic Markdown locally; it may copy the
+text to the clipboard or update an existing PR only when those actions are
+explicitly requested. It never creates a PR implicitly.
+
 In Copilot, `/sf-help` loads the manual for general questions; `/sf-help WORK-123` loads the selected work item's immutable workflow guide. VS Code includes the same manual in the always-available **Help** view and searchable **Help Center**, bundled for offline use. It has focused entries for capabilities, workspaces, Story intake, workflow state, agents, prompts, world-model composition, troubleshooting, every `/sf-*` skill, and every top-level CLI command.
 
 Copilot start, resume, approval, rejection, and governed-agent flows use its
@@ -1441,6 +1475,7 @@ evidence workflow.
 | `singularity-flow progress [ID]` | Show deterministic completion percentage and phase/approval progress. |
 | `singularity-flow report [ID] [--format md\|html\|json]` | Derive wall-clock timing, approval latency, rework, token, cost, and bottleneck metrics. |
 | `singularity-flow guide [ID]` | Explain the selected workflow template and show the exact next valid skill and CLI command. |
+| `singularity-flow guide --first-run [--keep]` | Run a disposable, zero-model, zero-network quick-fix lifecycle and clean it up after success. |
 | `singularity-flow nextsteps [ID]` | Show ordered `NOW`, `THEN`, and `ALTERNATIVE` actions without changing state. |
 | `singularity-flow action plan [STORY-OR-INITIATIVE]` | Create a short-lived action plan bound to subject kind, branch, HEAD, index, working-tree, and lifecycle hashes. |
 | `singularity-flow action authorize <PLAN-ID> --action <ACTION-ID> --confirm <ACTION-ID>` | Record one short-lived, machine-local authorization after reviewing that exact action. |

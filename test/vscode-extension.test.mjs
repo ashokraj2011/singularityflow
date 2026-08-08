@@ -419,6 +419,8 @@ test('a checked-out Story gets a phase rail with named prepare publish and submi
   assert.equal(find(tree, 'story:continue-safely').runCommand, 'singularityFlow.continueSafely');
   assert.equal(find(tree, 'story:analytics').runCommand, 'singularityFlow.openDashboard');
   assert.match(find(tree, 'story:analytics').description, /time · tokens · cost/);
+  assert.equal(find(tree, 'story:flow-impact').runCommand, 'singularityFlow.openFlowImpact');
+  assert.match(find(tree, 'story:flow-impact').description, /classification · evidence · receipt/);
   assert.equal(find(tree, 'story:phase-rail').description, '1/2 approved');
   assert.equal(find(tree, 'story-phase:design').description, 'in progress · current');
   assert.equal(find(tree, 'story:design:prepare').runCommand, 'singularityFlow.prepareStoryPhase');
@@ -3233,4 +3235,19 @@ test('VS Code exposes workspace prompt auditing and records the governed Copilot
   const panel = await readFile(source('views/prompt-audit.ts'), 'utf8');
   assert.match(panel, /\['prompt-log', 'list', '--include-prompt'/);
   assert.match(panel, /\['prompt-log', this\.snapshot\?\.enabled \? 'off' : 'on'/);
+});
+
+test('Flow Impact has a dedicated configuration and reporting entry point', async () => {
+  const packageJson = JSON.parse(await readFile(path.join(packageRoot, 'apps', 'vscode', 'package.json'), 'utf8'));
+  assert.ok(packageJson.contributes.commands.some((entry) => entry.command === 'singularityFlow.openFlowImpact'));
+  const configuration = buildConfigurationTree(snapshot);
+  assert.equal(find(configuration, 'config:flow-impact:open').runCommand, 'singularityFlow.openFlowImpact');
+  assert.equal(find(configuration, 'config:flow-impact:file').path, 'singularity/impact.yml');
+  const panel = await readFile(source('views/flow-impact.ts'), 'utf8');
+  assert.match(panel, /Governed delivery measurement/);
+  assert.match(panel, /Story measurement/);
+  assert.match(panel, /Cohort comparison/);
+  assert.match(panel, /minimumCohortSize/);
+  assert.match(panel, /impact', 'doctor'/);
+  assert.match(panel, /impact', 'export'/);
 });

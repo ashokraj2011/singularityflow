@@ -407,6 +407,7 @@ export const STYLE = `
   .audit-list { display:grid; gap:.4rem; }
   .audit-record { display:grid; gap:.2rem; width:100%; padding:.75rem; text-align:left; color:var(--vscode-foreground); background:var(--sf-surface); border:var(--sf-border); border-radius:var(--sf-radius); }
   .audit-record:hover, .audit-record.selected { border-color:var(--sf-accent); background:var(--sf-accent-quiet); }
+  button.artifact-card.selected { border-color:var(--sf-accent); background:var(--sf-accent-quiet); }
   .audit-record span, .audit-record small { color:var(--sf-dim); }
   .audit-meta { display:grid; grid-template-columns:repeat(4,minmax(0,1fr)); gap:.5rem; }
   .audit-meta div { padding:.6rem; border:var(--sf-border); border-radius:var(--sf-radius); }

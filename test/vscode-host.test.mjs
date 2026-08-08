@@ -1215,6 +1215,21 @@ test('the impact panel supports workspace advisory analysis and governed plan re
   assert.match(panel.webview.html, /Computing impact|Reconciliation|Nothing governed/);
 });
 
+test('the Flow Impact panel exposes governed measurement and aggregate reporting', async (t) => {
+  if (!requireBundle(t)) return;
+  const { registered } = await activated();
+  await registered.commands.get('singularityFlow.openFlowImpact')();
+
+  const panel = registered.panels.find((entry) => entry.id === 'singularityFlow.flowImpact');
+  assert.ok(panel, 'a dedicated Flow Impact panel was created');
+  assert.match(panel.webview.html, /default-src 'none'/);
+  assert.doesNotMatch(panel.webview.html, /unsafe-inline|unsafe-eval/);
+  assert.match(panel.webview.html, /Flow Impact/);
+  assert.match(panel.webview.html, /Story measurement/);
+  assert.match(panel.webview.html, /Study reports/);
+  assert.match(panel.webview.html, /Configuration/);
+});
+
 test('the capability tree can be grown entirely from the editor', async (t) => {
   if (!requireBundle(t)) return;
   // The map is the lead repository's record of what the organisation builds, and until now the only

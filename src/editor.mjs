@@ -76,6 +76,7 @@ import { readDesignInventory } from './design-inventory.mjs';
 import { evaluateVisualCoverage } from './visual-coverage.mjs';
 import { listVisualComparisons } from './visual-compare.mjs';
 import { verifyMcpEvidence } from './mcp-evidence.mjs';
+import { IMPACT_CONFIG_PATH, normalizeImpactDefinition } from './impact-config.mjs';
 
 const packageRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 export const REPOSITORY_SKILLS_ROOT = '.github/skills';
@@ -1006,6 +1007,7 @@ function allowedConfigurationPath(definition, relative, portfolio = null, root =
   return relative === WORKFLOW_PATH
     || relative === PORTFOLIO_PATH
     || relative === CAPABILITIES_PATH
+    || relative === IMPACT_CONFIG_PATH
     || relative === AGENT_MAPPING_PATH
     || relative.startsWith(`${posix(definition.templatesRoot).replace(/\/$/, '')}/`)
     || (portfolio && relative.startsWith(`${posix(portfolio.templatesRoot).replace(/\/$/, '')}/`))
@@ -1056,6 +1058,10 @@ export async function saveConfigurationFile(root, requestedPath, content) {
       const agents = await discoverAgents(root);
       validateAgentMappings(YAML.parse(content), { agentIds: agents.map((agent) => agent.id) });
     } catch (error) { throw new SingularityFlowError(`Change was not saved because agent mapping validation failed: ${error.message}`); }
+  }
+  if (relative === IMPACT_CONFIG_PATH) {
+    try { normalizeImpactDefinition(YAML.parse(content)); }
+    catch (error) { throw new SingularityFlowError(`Change was not saved because Flow Impact configuration validation failed: ${error.message}`); }
   }
   const target = await secureRepositoryPath(root, relative, {
     label: 'Editor configuration target',

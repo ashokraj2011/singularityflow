@@ -400,6 +400,22 @@ test('visual editor configuration saves validate atomically and publish scoped c
   assert.match(run('git', ['log', '-1', '--format=%s'], root).stdout, /Configure visual editor template/);
 });
 
+test('Flow Impact configuration is editable through the governed configuration API', async () => {
+  const root = await repository();
+  const impactPath = path.join(root, 'singularity/impact.yml');
+  const original = await readFile(impactPath, 'utf8');
+  const definition = YAML.parse(original);
+  definition.studies[0].enabled = true;
+  await saveConfigurationFile(root, 'singularity/impact.yml', YAML.stringify(definition));
+  assert.equal(YAML.parse(await readFile(impactPath, 'utf8')).studies[0].enabled, true);
+  await assert.rejects(
+    () => saveConfigurationFile(root, 'singularity/impact.yml', 'version: 1\nstudies: []\nunknown: true\n'),
+    /Flow Impact configuration validation failed/i
+  );
+  assert.equal(YAML.parse(await readFile(impactPath, 'utf8')).studies[0].enabled, true,
+    'an invalid replacement leaves the last valid configuration untouched');
+});
+
 test('visual editor rolls back world-model view deletions while YAML or Markdown still refers to the view', async () => {
   const root = await repository();
   const workflowPath = path.join(root, 'singularity/workflow.yml');

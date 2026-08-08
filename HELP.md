@@ -2218,6 +2218,15 @@ singularity-flow impact evidence collect <PROVIDER> <FILE> [WORK-ID] --commit SH
 singularity-flow impact finalize|verify|doctor [WORK-ID] [--json]
 singularity-flow impact compare <STUDY-ID> [--filter DIMENSION=VALUE]... [--json]
 singularity-flow impact export [--study STUDY-ID] --out FILE [--json]
+
+VS Code: run **Singularity Flow: Flow Impact Studies & Reports**, or open
+**Configuration → Flow Impact studies**. The dedicated screen covers study YAML,
+Story classification and exposure, evidence, receipt verification, privacy-safe
+cohort comparisons, confidence intervals, guardrails, and JSONL export. Lifecycle
+links to the same screen from active, completed, and archived Stories. This is
+delivery measurement; **Impact Analysis** is the separate repository change-impact
+tool.
+
 singularity-flow prompt-log on|off|status|list|view [ID|latest] [--agent AGENT] [--phase PHASE]
 singularity-flow telemetry status [--json]
 singularity-flow telemetry reconcile [PHASE] [--json]

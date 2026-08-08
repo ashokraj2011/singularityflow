@@ -488,6 +488,10 @@ function completedStoryNode(workflow: StoryWorkflow, documents: StoryArtifact[])
       description: 'phases · time · tokens · cost', icon: 'impact',
       runCommand: 'singularityFlow.openDashboard', contextValue: 'sflow.story.analytics'
     }, {
+      kind: 'action', id: 'completed-story:flow-impact', label: 'Open Flow Impact measurement',
+      description: 'receipt · evidence · study report', icon: 'impact',
+      runCommand: 'singularityFlow.openFlowImpact', contextValue: 'sflow.story.impact'
+    }, {
       kind: 'group', id: 'completed-story:artifacts', label: 'All generated artifacts',
       description: String(count), icon: 'pack',
       children: artifacts.length ? artifacts : [{
@@ -520,6 +524,10 @@ function cancelledStoryNode(workflow: StoryWorkflow, documents: StoryArtifact[])
       kind: 'action', id: 'archived-story:analytics', label: 'Open lifecycle analytics',
       description: 'phases · time · tokens · cost', icon: 'impact',
       runCommand: 'singularityFlow.openDashboard', contextValue: 'sflow.story.analytics'
+    }, {
+      kind: 'action', id: 'archived-story:flow-impact', label: 'Open Flow Impact measurement',
+      description: 'enrollment · evidence · retained receipt', icon: 'impact',
+      runCommand: 'singularityFlow.openFlowImpact', contextValue: 'sflow.story.impact'
     }, {
       kind: 'group', id: 'archived-story:artifacts', label: 'Preserved generated artifacts',
       description: String(count), icon: 'pack', children: artifacts.length ? artifacts : [{
@@ -720,6 +728,10 @@ function storyWorkflowNode(workflow: StoryWorkflow, documents: StoryArtifact[], 
       kind: 'action', id: 'story:analytics', label: 'Open lifecycle analytics',
       description: 'phases · time · tokens · cost', icon: 'impact',
       runCommand: 'singularityFlow.openDashboard', contextValue: 'sflow.story.analytics'
+    }, {
+      kind: 'action', id: 'story:flow-impact', label: 'Open Flow Impact measurement',
+      description: 'classification · evidence · receipt', icon: 'impact',
+      runCommand: 'singularityFlow.openFlowImpact', contextValue: 'sflow.story.impact'
     }, ...(openChangeRequests.length ? [{
       kind: 'group' as const, id: 'story:change-requests', label: 'Changes requested',
       description: `${openChangeRequests.length} open`, icon: 'prompt',
@@ -1095,6 +1107,19 @@ function configurationNode(snapshot: RepositorySnapshot, readiness: CapabilityRe
           kind: 'artifact', id: 'config:portfolio', label: 'portfolio.yml',
           description: 'Initiative profiles, gates, approvers, repositories', icon: 'organization',
           path: snapshot.portfolioPath ?? 'singularity/portfolio.yml', contextValue: 'sflow.config'
+        }]
+      },
+      {
+        kind: 'group', id: 'config:flow-impact', label: 'Flow Impact studies',
+        description: 'measurement · privacy-safe reporting', icon: 'impact',
+        tooltip: 'Configure governed delivery studies, inspect Story enrollment and evidence, compare cohorts, and export normalized receipts.',
+        children: [{
+          kind: 'action', id: 'config:flow-impact:open', label: 'Open Flow Impact',
+          description: 'studies · evidence · reports', icon: 'impact', runCommand: 'singularityFlow.openFlowImpact'
+        }, {
+          kind: 'artifact', id: 'config:flow-impact:file', label: 'impact.yml',
+          description: 'study methods, cohorts, metrics, guardrails, privacy', icon: 'configuration',
+          path: 'singularity/impact.yml', contextValue: 'sflow.config'
         }]
       },
       {

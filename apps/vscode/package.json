@@ -271,6 +271,11 @@
         "icon": "$(graph)"
       },
       {
+        "command": "singularityFlow.openFlowImpact",
+        "title": "Singularity Flow: Flow Impact Studies & Reports",
+        "icon": "$(pulse)"
+      },
+      {
         "command": "singularityFlow.attachEvidence",
         "title": "Singularity Flow: Attach Evidence & Designs",
         "icon": "$(files)"

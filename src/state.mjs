@@ -52,6 +52,9 @@ import {
   hydrateImpactPlan, impactImplementationGate, initializeStoryImpact, invalidateImpactReceipt
 } from './impact.mjs';
 import { evaluateQuickFixWaiver } from './quick-fix-policy.mjs';
+import {
+  closeWorkInterval, ensureWorkIntervalBaseline, phaseUsesWorkInterval, reconcileWorkInterval, recordFinalReconciliation
+} from './work-intervals.mjs';
 
 export const CONFIG_PATH = WORKFLOW_PATH;
 export const loadConfig = loadDefinition;
@@ -440,6 +443,11 @@ export async function createWorkflow(root, config, { id, title, source, baseBran
   await writeJson(sourcePath(root, config, id), source);
   await writeText(userStoryPath(root, config, id), sourceMarkdown(source));
   await writeText(path.join(workDir(root, config, id), 'README.md'), `# ${id} — ${workflow.workItem.title}\n\nDurable ${selectedType} workflow state for branch \`${id}\`.\n\n- [workflow.json](./workflow.json) — machine state\n- [STATUS.md](./STATUS.md) — human status\n- [source.json](./source.json) — source context\n- [USER-STORY.md](./USER-STORY.md) — ${source.type === 'jira' ? 'Jira' : 'manual'} story snapshot\n- [documents.json](./documents.json) — supporting-document catalog (created on first upload)\n- [inputs/](./inputs/) — uploaded files (created on first upload)\n- [context/](./context/) — per-generation prompt-grounding audit records\n- [telemetry/](./telemetry/) — sanitized per-generation model, token, and cost records\n- [artifacts/](./artifacts/) — generated phase artifacts\n- [approvals/](./approvals/) — append-only decisions\n`);
+  await ensureWorkIntervalBaseline(root, config, workflow, {
+    phaseId: phases[0]?.id,
+    itemDirectory: workDir(root, config, id),
+    itemRelative: workDirRelative(config, id)
+  });
   await saveWorkflow(root, config, workflow);
   await preparePhase(root, config, workflow, phases[0]?.id);
   await saveWorkflow(root, config, workflow);
@@ -471,6 +479,9 @@ function normalizeCurrentWorkflow(workflow) {
   workflow.collaboration.notifications ??= [];
   workflow.sequenceOverrides ??= [];
   workflow.changeRequests ??= [];
+  workflow.workIntervals ??= { schemaVersion: 1, current: null, history: [], escalations: [] };
+  workflow.workIntervals.history ??= [];
+  workflow.workIntervals.escalations ??= [];
   workflow.usage.exactRecords ??= 0; workflow.usage.unavailableRecords ??= 0;
   workflow.usage.byPhase ??= {}; workflow.usage.byAgent ??= {}; workflow.usage.byWorkType ??= {}; workflow.usage.byWorkItem ??= {};
   for (const id of workflow.phaseOrder) {
@@ -605,6 +616,13 @@ export async function preparePhaseInputs(root, config, workflow, requested = und
   if (!dryRun) await beginTelemetryCapture(root, workflow, phase);
   const itemDirectory = workDir(root, config, workflow.workItem.id);
   const itemRelative = workDirRelative(config, workflow.workItem.id);
+  if (!dryRun) {
+    await ensureWorkIntervalBaseline(root, config, workflow, {
+      phaseId: phase.id,
+      itemDirectory,
+      itemRelative
+    });
+  }
   const target = path.join(itemDirectory, phase.requiredArtifact.path);
   const session = await loadSession(root, { required: false });
   const remote = dryRun ? { outputs: [], warnings: [] } : await prepareRemoteOutputs(root, workflow, phase, session, { itemDirectory });
@@ -983,6 +1001,39 @@ export async function submitPhase(root, config, workflow, { phaseId, runChecks =
   const errors = await validatePhase(root, config, workflow, phase); const failed = phase.checks.filter((check) => check.status !== 'passed');
   if (failed.length) errors.push(`Quality command failed: ${failed.map((check) => check.command).join(', ')}`);
   if (errors.length) throw new SingularityFlowError(`Phase ${phase.id} is not ready:\n- ${errors.join('\n- ')}`);
+  if (phaseUsesWorkInterval(phase)) {
+    const itemDirectory = workDir(root, config, workflow.workItem.id);
+    const itemRelative = workDirRelative(config, workflow.workItem.id);
+    const interval = workflow.workIntervals?.current;
+    if (!interval || interval.phaseId !== phase.id || interval.status !== 'open') {
+      throw new SingularityFlowError(
+        `Phase '${phase.id}' has no open governed work interval. Run singularity-flow prepare ${phase.id} before changing source or submitting.`
+      );
+    }
+    const reconciliation = await reconcileWorkInterval(root, config, workflow, {
+      phaseId: phase.id,
+      itemDirectory,
+      requireCleanTarget: true
+    });
+    if (!reconciliation.decision.eligibleForSubmission) {
+      const target = reconciliation.decision.escalationTarget;
+      throw new SingularityFlowError(
+        `Phase ${phase.id} exceeds its governed work interval:\n- ${reconciliation.decision.reasons.join('\n- ')}\n`
+        + (target
+          ? `Review the non-destructive escalation plan with singularity-flow story interval escalate --to ${target}.`
+          : 'Use a stronger configured workflow before submitting.')
+      );
+    }
+    const final = await recordFinalReconciliation(root, workflow, reconciliation, { itemRelative });
+    phase.workIntervalReconciliation = {
+      reconciliationSha256: final.reconciliationSha256,
+      baselineSha256: final.baselineSha256,
+      path: final.path,
+      status: final.decision.status,
+      summaryStatus: final.decision.summaryStatus,
+      targetHead: final.target.head
+    };
+  }
   phase.submittedAt = nowIso();
   const waiver = phase.approvalPolicy.mode === 'policy'
     ? evaluateQuickFixWaiver(root, config, workflow, phase)
@@ -991,8 +1042,21 @@ export async function submitPhase(root, config, workflow, { phaseId, runChecks =
     phase.status = 'approved';
     phase.approvedAt = phase.submittedAt;
     phase.approvedBy = null;
+    closeWorkInterval(workflow, {
+      phaseId: phase.id,
+      at: phase.submittedAt,
+      actor: actorKey(session.actor),
+      agent: session.agent
+    });
     const upcoming = nextPhase(workflow, phase);
-    if (upcoming) { upcoming.status = 'in_progress'; upcoming.startedAt = phase.submittedAt; workflow.currentPhase = upcoming.id; }
+    if (upcoming) {
+      upcoming.status = 'in_progress'; upcoming.startedAt = phase.submittedAt; workflow.currentPhase = upcoming.id;
+      await ensureWorkIntervalBaseline(root, config, workflow, {
+        phaseId: upcoming.id,
+        itemDirectory: workDir(root, config, workflow.workItem.id),
+        itemRelative: workDirRelative(config, workflow.workItem.id)
+      });
+    }
     else { workflow.currentPhase = null; workflow.status = 'complete'; }
     workflow.history.push(waiver?.eligible ? {
       at: phase.submittedAt,
@@ -1073,6 +1137,12 @@ export async function approvePhase(root, config, workflow, {
   phase.approvals.push(decision); const reached = phase.approvals.filter((item) => !item.invalidatedAt && item.decision === 'approved').length >= (phase.approvalPolicy.minimum ?? 1);
   if (reached) {
     phase.status = 'approved'; phase.approvedAt = decision.at; phase.approvedBy = key;
+    closeWorkInterval(workflow, {
+      phaseId: phase.id,
+      at: decision.at,
+      actor: key,
+      agent: session.agent
+    });
     const resolved = (workflow.changeRequests ?? []).filter((request) =>
       request.status === 'open' && request.targetPhase === phase.id
     );
@@ -1089,7 +1159,14 @@ export async function approvePhase(root, config, workflow, {
     }
     if (resolved.length) decision.resolvedChangeRequests = resolved.map((request) => request.id);
     const upcoming = nextPhase(workflow, phase);
-    if (upcoming) { upcoming.status = 'in_progress'; upcoming.startedAt = decision.at; workflow.currentPhase = upcoming.id; }
+    if (upcoming) {
+      upcoming.status = 'in_progress'; upcoming.startedAt = decision.at; workflow.currentPhase = upcoming.id;
+      await ensureWorkIntervalBaseline(root, config, workflow, {
+        phaseId: upcoming.id,
+        itemDirectory: workDir(root, config, workflow.workItem.id),
+        itemRelative: workDirRelative(config, workflow.workItem.id)
+      });
+    }
     else { workflow.currentPhase = null; workflow.status = 'complete'; }
   }
   workflow.history.push({ at: decision.at, actor: key, agent: session.agent, event: decision.selfApproval ? 'phase_self_approved' : 'phase_approved', phase: phase.id, detail: reached ? `threshold reached${workflow.currentPhase ? `; advanced to ${workflow.currentPhase}` : '; complete'}` : 'approval recorded' });
@@ -1173,6 +1250,11 @@ export async function rejectPhase(root, config, workflow, { phaseId, target, rea
     await updateArtifactMetadata(root, config, workflow, affected);
   }
   workflow.currentPhase = targetId; workflow.status = 'in_progress';
+  await ensureWorkIntervalBaseline(root, config, workflow, {
+    phaseId: targetId,
+    itemDirectory: workDir(root, config, workflow.workItem.id),
+    itemRelative: workDirRelative(config, workflow.workItem.id)
+  });
   const packet = workflow.lineage?.submissions?.findLast?.((entry) =>
     entry.phase === phase.id && entry.generation === phase.generation
   ) ?? [...(workflow.lineage?.submissions ?? [])].reverse().find((entry) =>
@@ -1269,6 +1351,11 @@ export async function reopenWorkflow(root, config, workflow, { target, reason, c
   }
   workflow.currentPhase = targetId;
   workflow.status = 'in_progress';
+  await ensureWorkIntervalBaseline(root, config, workflow, {
+    phaseId: targetId,
+    itemDirectory: workDir(root, config, workflow.workItem.id),
+    itemRelative: workDirRelative(config, workflow.workItem.id)
+  });
   await invalidateImpactReceipt(root, config, workflow, {
     reason: changeRequest.comment,
     cause: 'workflow-reopened',

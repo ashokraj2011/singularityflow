@@ -471,6 +471,29 @@ singularity-flow story branch status --parent MOB-123
 singularity-flow story submit
 ```
 
+### Governed work intervals
+
+Source-writing phases open a hash-bound work interval before source changes begin.
+The baseline is committed with lifecycle state; intermediate checkpoints are local
+fingerprints under `.git/singularity-flow/checkpoints/` and never commit unfinished
+source. Preview reconciliation compares changed paths with specification claims and
+protected-path policy. Submission repeats that comparison and records the final
+report in the same atomic lifecycle publication.
+
+```bash
+singularity-flow story interval status
+singularity-flow story interval checkpoint --name "before refactor" --note "tests pass"
+singularity-flow story interval reconcile
+singularity-flow story interval escalate --to feature
+# Copilot: /sf-work-interval reconcile
+```
+
+Protected or over-broad quick fixes require a stronger workflow plan rather than
+silently weakening policy. Escalation is read-only and preserves branch history;
+it does not rewrite the Story's immutable work type. This feature is local-first
+and creates no CI or Git-host workflow files. See
+`docs/GOVERNED-WORK-INTERVALS.md` for the state boundaries.
+
 ### Clause-driven specifications
 
 Enable the feature per repository with `spec.mode: record` while adopting it, then
@@ -2349,6 +2372,7 @@ singularity-flow capability tree|show|of|add|set|remove|map|edit|world-model|org
 singularity-flow hook install|uninstall|status
 singularity-flow bootstrap inspect|apply ...
 singularity-flow story branch create|attach|status|promote
+singularity-flow story interval status|checkpoint|reconcile|escalate
 singularity-flow story start|inbox|fetch|checks|finalize
 singularity-flow story submit
 singularity-flow initiative start|resume|phase|context|documents|checklist

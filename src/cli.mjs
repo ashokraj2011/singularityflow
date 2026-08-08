@@ -114,6 +114,9 @@ import {
 } from './logging.mjs';
 import { doctorSnapshot, doctorText } from './doctor.mjs';
 import { createReviewBundle, reviewHtml, reviewMarkdown } from './review.mjs';
+import {
+  createLocalCheckpoint, escalationPlan, reconcileWorkInterval
+} from './work-intervals.mjs';
 import { installWorkflow, simulateWorkflow, simulationText, workflowCatalog, workflowDiff } from './workflow-catalog.mjs';
 import { applyRecovery, assignPhase, recoveryPlan, recoveryText, watchSnapshot, watchText } from './collaboration.mjs';
 import { copilotAgentStartHook, agentGuardHook, sessionStartAgentHook } from './agent-hooks.mjs';
@@ -504,6 +507,10 @@ Usage:
   singularity-flow story start <STORY-KEY> [--selection-receipt TOKEN] [--fetch]
   singularity-flow story inbox [--assigned-to-me] [--project KEY] [--json]
   singularity-flow story fetch <STORY-KEY> [--directory PATH] [--json]
+  singularity-flow story interval status|checkpoint|reconcile|escalate [--parent STORY-KEY]
+    checkpoint [--name TEXT] [--note TEXT]       (local only; never commits unfinished source)
+    reconcile [--json]                          (deterministic local baseline/spec comparison)
+    escalate [--to WORK-TYPE] [--json]          (non-destructive plan; immutable work type is preserved)
   singularity-flow story submit
   singularity-flow story checks [--parent STORY-KEY] [--packet SHA256]
   singularity-flow story finalize [--json]
@@ -6910,6 +6917,53 @@ async function storyCommand(positionals, options) {
   if (subcommand === 'inbox') return storyInboxCommand(options);
   if (subcommand === 'fetch') return storyFetchCommand(positionals, options);
   const config = await loadConfig(root);
+  if (subcommand === 'interval') {
+    const action = positionals[2] ?? 'status';
+    const workflow = await loadStoryAggregate(root, config, optionString(options, 'parent'));
+    const current = workflow.workIntervals?.current ?? null;
+    if (action === 'status') {
+      const result = { workId: workflow.workItem.id, workType: workflow.workItem.workType, current };
+      if (optionBoolean(options, 'json')) return console.log(JSON.stringify(result, null, 2));
+      if (!current) return console.log(`Story ${workflow.workItem.id} has no open governed work interval in phase ${workflow.currentPhase ?? 'complete'}.`);
+      console.log(`Story ${workflow.workItem.id} · ${current.phaseId} generation ${current.generation}`);
+      console.log(`Baseline: ${current.baselineSha256.slice(0, 12)} · source ${current.sourceBaseCommit.slice(0, 12)} · ${current.status}`);
+      if (current.finalReconciliation) console.log(`Final reconciliation: ${current.finalReconciliation.reconciliationSha256.slice(0, 12)}`);
+      return;
+    }
+    if (action === 'checkpoint') {
+      const result = await createLocalCheckpoint(root, workflow, {
+        name: optionString(options, 'name'),
+        note: optionString(options, 'note')
+      });
+      if (optionBoolean(options, 'json')) return console.log(JSON.stringify(result, null, 2));
+      console.log(`Local checkpoint ${result.checkpointSha256.slice(0, 12)} recorded for ${workflow.workItem.id}.`);
+      console.log(`Files fingerprinted: ${result.files.length}. No source file was staged, committed, or pushed.`);
+      console.log(`Record: ${result.path}`);
+      return;
+    }
+    if (action === 'reconcile') {
+      const result = await reconcileWorkInterval(root, config, workflow, {
+        itemDirectory: workDir(root, config, workflow.workItem.id)
+      });
+      if (optionBoolean(options, 'json')) return console.log(JSON.stringify(result, null, 2));
+      console.log(`Reconciliation ${result.reconciliationSha256.slice(0, 12)} · ${result.decision.status}`);
+      console.log(`Changed: ${result.summary.changedPaths} · planned: ${result.summary.planned} · unplanned: ${result.summary.unplanned} · protected: ${result.summary.protected}`);
+      result.decision.reasons.forEach((reason) => console.warn(`Escalation: ${reason}`));
+      console.log(`Local report: ${result.localPath}`);
+      console.log('This preview changed no governed state. Submission records the final reconciliation atomically.');
+      return;
+    }
+    if (action === 'escalate') {
+      const result = escalationPlan(config, workflow, { target: optionString(options, 'to') });
+      if (optionBoolean(options, 'json')) return console.log(JSON.stringify(result, null, 2));
+      console.log(`Escalation plan ${result.planSha256.slice(0, 12)}: ${result.fromWorkType} → ${result.toWorkType}`);
+      console.log(`Preserves: ${result.preserves.join(', ')}.`);
+      console.log(`Next: ${result.action}.`);
+      console.log('No branch, source, workflow state, commit, or remote was changed.');
+      return;
+    }
+    throw new SingularityFlowError(`Unknown Story interval action '${action}'.`);
+  }
   if (subcommand === 'branch') {
     const action = positionals[2] ?? 'status';
     if (action === 'create') {

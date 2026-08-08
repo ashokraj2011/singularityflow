@@ -1,6 +1,13 @@
 version: 1
 automaticEnrollment: true
 
+# Metrics derived by the Singularity Flow kernel remain kernel-authoritative.
+# External outcomes must explicitly name trusted provider IDs before evidence is accepted.
+metricAuthorities:
+  escaped-defects:
+    authority: external-provider
+    providers: [quality-system]
+
 studies:
   - id: governed-ai-delivery
     label: Governed AI delivery
@@ -23,6 +30,7 @@ studies:
       dimensions: [capability, repository-class, work-type, complexity, risk, time-period]
       timePeriod: quarter
       seed: governed-ai-delivery-v1
+      weighting: minimum-cohort-count
     primaryMetric:
       id: flow-time-excluding-approval-wait-ms
       direction: lower
@@ -39,4 +47,3 @@ studies:
       minimumCohortSize: 5
       pseudonymizeContributors: true
       allowedDimensions: [capability, repository-class, work-type, complexity, risk, time-period]
-

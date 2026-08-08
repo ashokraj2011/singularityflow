@@ -659,7 +659,8 @@ Add an optional section to `singularity/workflow.yml`:
 ```yaml
 harnessImports:
   mode: record            # off | record | enforce
-  defaultPreviewBytes: 16384
+  previewTextBytes: 16384 # maximum text preview within one reference envelope
+  totalEnvelopeBytes: 32768 # hard bound for the complete canonical envelope
   knowledge:
     enabled: true
     maximumBytes: 8192
@@ -675,6 +676,8 @@ Rules:
 - Missing `harnessImports` means `off` for existing repositories.
 - Starter repositories use `record`.
 - Work-item and Initiative creation snapshots the resolved policy.
+- `previewTextBytes` must be smaller than `totalEnvelopeBytes`, leaving room for
+  identity, revision, trust-boundary, truncation, and structure metadata.
 - The hard 65536-byte limit is not configurable.
 - `enforce` is rejected when required host instrumentation coverage is
   unavailable.

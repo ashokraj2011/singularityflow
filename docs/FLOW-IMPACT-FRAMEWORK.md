@@ -30,6 +30,9 @@ Automatic enrollment remains explicit at the configuration level:
 ```yaml
 version: 1
 automaticEnrollment: true
+metricAuthorities:
+  elapsed-ms: { authority: kernel-only }
+  escaped-defects: { authority: external-provider, providers: [quality-system] }
 studies:
   - id: governed-ai-delivery
     label: Governed AI delivery
@@ -52,6 +55,7 @@ studies:
       dimensions: [capability, repository-class, work-type, complexity, risk, time-period]
       timePeriod: quarter
       seed: governed-ai-delivery-v1
+      weighting: minimum-cohort-count
     primaryMetric:
       id: flow-time-excluding-approval-wait-ms
       direction: lower
@@ -73,7 +77,27 @@ Supported methods are:
 - `matched-observational`: reports a quality-gated observed association.
 - `before-after`: reports observed change, not causality.
 - `phased-rollout`: may report a causal estimate when the configured design and
-  quality guardrails pass.
+  observed rollout receipts prove every predeclared wave, treatment exposure,
+  adherence, crossover decision, concurrent control, and pre-trend check, and
+  the quality guardrails pass. Otherwise it reports an observed association.
+
+## Metric authority and assurance
+
+Every metric has one pinned authority: `kernel-only`, `external-provider`,
+`attested`, or `composite`. Kernel timing and governance metrics cannot be
+overridden by imported files. External-provider authority requires an explicit
+provider allowlist. Conflicting authoritative observations fail verification
+instead of being silently selected.
+
+Assurance labels describe what was actually proven: `kernel-derived`,
+`provider-signed`, `attested`, or `unverified-import`. A local JSON import is
+never presented as provider-verified evidence merely because its envelope names
+a provider.
+
+Comparisons match within configured strata, weight those strata explicitly, and
+bootstrap inside the same strata. Reports distinguish eligible, matched, and
+excluded observations. Empty or unavailable guardrails never pass the quality
+gate.
 
 ## Story lifecycle
 

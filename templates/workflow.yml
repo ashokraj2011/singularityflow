@@ -5,7 +5,8 @@ inputsMode: enforce
 # only through registered, hash-bound sfref handles.
 harnessImports:
   mode: record
-  defaultPreviewBytes: 16384
+  previewTextBytes: 16384
+  totalEnvelopeBytes: 32768
   knowledge:
     enabled: true
     maximumBytes: 8192
@@ -311,7 +312,9 @@ phases:
     worldModel: { views: [testing], depth: quick, evidence: true }
     writeScope: source-and-artifact
     approval: { mode: policy, policy: quick-fix-low-risk-v1, maximumChangedPaths: 5, authorities: [quality-reviewers], minimum: 1, rejectTo: [implement, verify] }
-    qualityCommands: []
+    # A policy waiver is impossible without at least one required check. Repositories
+    # should replace or extend this deterministic baseline with their own test command.
+    qualityCommands: [git diff --check]
   intake:
     label: Intake
     defaultTemplate: common/intake.md

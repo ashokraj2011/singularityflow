@@ -2,18 +2,60 @@
   "$schema": "https://json-schema.org/draft/2020-12/schema",
   "$id": "https://example.invalid/singularity-flow/reference-envelope.schema.json",
   "type": "object",
-  "required": ["schemaVersion", "resultType", "mediaType", "renderer", "source", "preview", "handle", "truncated", "warnings"],
+  "required": ["schemaVersion", "resultType", "mediaType", "reference", "resolvedRevision", "currentPath", "renderer", "source", "preview", "handle", "truncated", "warnings", "envelope"],
   "properties": {
     "schemaVersion": { "const": 1 },
     "resultType": { "const": "reference-preview" },
     "mediaType": { "type": "string", "minLength": 1 },
+    "reference": {
+      "type": "object",
+      "required": ["recordHash", "artifact", "revision"],
+      "properties": {
+        "recordHash": { "$ref": "#/$defs/hash" },
+        "artifact": { "type": "object" },
+        "revision": { "$ref": "#/$defs/revision" }
+      },
+      "additionalProperties": false
+    },
+    "resolvedRevision": { "$ref": "#/$defs/revision" },
+    "currentPath": {
+      "type": "object",
+      "required": ["status", "sha256", "bytes"],
+      "properties": {
+        "status": { "enum": ["matches", "diverged", "missing"] },
+        "sha256": { "anyOf": [{ "$ref": "#/$defs/hash" }, { "type": "null" }] },
+        "bytes": { "anyOf": [{ "type": "integer", "minimum": 0 }, { "type": "null" }] }
+      },
+      "additionalProperties": false
+    },
     "renderer": { "type": "object", "required": ["id", "version"], "properties": { "id": { "type": "string", "minLength": 1 }, "version": { "type": "integer", "minimum": 1 } }, "additionalProperties": false },
     "source": { "type": "object", "required": ["rawSha256", "rawBytes"], "properties": { "rawSha256": { "$ref": "#/$defs/hash" }, "rawBytes": { "type": "integer", "minimum": 0 } }, "additionalProperties": false },
     "preview": { "type": "object", "required": ["text", "bytes", "sha256", "summary"], "properties": { "text": { "type": "string", "maxLength": 65536 }, "bytes": { "type": "integer", "minimum": 0, "maximum": 65536 }, "sha256": { "$ref": "#/$defs/hash" }, "summary": { "type": "object" } }, "additionalProperties": false },
     "handle": { "type": "string", "pattern": "^sfref:v1:(story|initiative):[A-Za-z0-9][A-Za-z0-9._-]{0,127}:[a-f0-9]{64}$" },
     "truncated": { "type": "boolean" },
-    "warnings": { "type": "array", "items": { "type": "string" } }
+    "warnings": { "type": "array", "items": { "type": "string" } },
+    "envelope": {
+      "type": "object",
+      "required": ["bytes", "maximumBytes"],
+      "properties": {
+        "bytes": { "type": "integer", "minimum": 1, "maximum": 65536 },
+        "maximumBytes": { "type": "integer", "minimum": 1024, "maximum": 65536 }
+      },
+      "additionalProperties": false
+    }
   },
   "additionalProperties": false,
-  "$defs": { "hash": { "type": "string", "pattern": "^[a-f0-9]{64}$" } }
+  "$defs": {
+    "hash": { "type": "string", "pattern": "^[a-f0-9]{64}$" },
+    "revision": {
+      "type": "object",
+      "required": ["commitSha", "sha256", "bytes"],
+      "properties": {
+        "commitSha": { "type": "string", "pattern": "^[a-f0-9]{40,64}$" },
+        "sha256": { "$ref": "#/$defs/hash" },
+        "bytes": { "type": "integer", "minimum": 0 }
+      },
+      "additionalProperties": false
+    }
+  }
 }

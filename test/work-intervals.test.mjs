@@ -9,7 +9,8 @@ import {
   ensureWorkIntervalBaseline,
   escalationPlan,
   reconcileWorkInterval,
-  recordFinalReconciliation
+  recordFinalReconciliation,
+  verifyWorkIntervalBaseline
 } from '../src/work-intervals.mjs';
 import { run } from '../src/util.mjs';
 
@@ -68,6 +69,8 @@ test('a work interval keeps checkpoints local and records a final governed recon
   assert.match(checkpoint.durabilityNotice, /not remotely durable/);
 
   const preview = await reconcileWorkInterval(context.root, context.config, context.workflow, context);
+  assert.equal(preview.baseline.verified, true);
+  assert.equal(preview.baseline.sha256, baseline.baselineSha256);
   assert.equal(preview.summary.changedPaths, 1);
   assert.equal(preview.decision.status, 'review');
   assert.equal(preview.decision.summaryStatus, 'attention');
@@ -85,6 +88,44 @@ test('a work interval keeps checkpoints local and records a final governed recon
   assert.equal(context.workflow.workIntervals.current.status, 'closed');
   assert.equal(context.workflow.workIntervals.current.closedAt, '2026-08-08T00:00:00.000Z');
   assert.equal(JSON.parse(await readFile(path.join(context.root, final.path), 'utf8')).final, true);
+});
+
+test('reconciliation refuses deleted or tampered governed baselines', async () => {
+  const deleted = await fixture();
+  const first = await ensureWorkIntervalBaseline(deleted.root, deleted.config, deleted.workflow, deleted);
+  await import('node:fs/promises').then(({ rm }) => rm(path.join(deleted.root, first.path)));
+  await assert.rejects(
+    reconcileWorkInterval(deleted.root, deleted.config, deleted.workflow, deleted),
+    /baseline does not exist/
+  );
+
+  const modified = await fixture();
+  const second = await ensureWorkIntervalBaseline(modified.root, modified.config, modified.workflow, modified);
+  const record = JSON.parse(await readFile(path.join(modified.root, second.path), 'utf8'));
+  record.workId = 'OTHER';
+  await writeFile(path.join(modified.root, second.path), `${JSON.stringify(record, null, 2)}\n`);
+  await assert.rejects(
+    verifyWorkIntervalBaseline(modified.root, modified.config, modified.workflow, modified),
+    /work ID changed|content hash/
+  );
+});
+
+test('reconciliation refuses baseline path escapes and policy drift', async () => {
+  const escaped = await fixture();
+  await ensureWorkIntervalBaseline(escaped.root, escaped.config, escaped.workflow, escaped);
+  escaped.workflow.workIntervals.current.path = 'README.md';
+  await assert.rejects(
+    reconcileWorkInterval(escaped.root, escaped.config, escaped.workflow, escaped),
+    /inside the Story directory/
+  );
+
+  const drifted = await fixture();
+  await ensureWorkIntervalBaseline(drifted.root, drifted.config, drifted.workflow, drifted);
+  drifted.workflow.phases.implement.approvalPolicy.maximumChangedPaths = 2;
+  await assert.rejects(
+    reconcileWorkInterval(drifted.root, drifted.config, drifted.workflow, drifted),
+    /work-interval policy changed/
+  );
 });
 
 test('final reconciliation refuses an uncommitted application target', async () => {

@@ -31,19 +31,29 @@ function truthy(value) {
 
 export function evaluateQuickFixWaiver(root, config, workflow, phase, policy = DEFAULT_QUICK_FIX_POLICY) {
   const actual = changedPaths(root, workflow);
+  const submittedCommit = run('git', ['rev-parse', 'HEAD'], { cwd: root }).stdout.trim();
   const source = workflow.workItem.source ?? {};
   const protectedPaths = [...new Set([
     ...(config.governance?.protectedPaths ?? []),
     ...(workflow.resolution?.capability?.policy?.protectedPaths ?? [])
   ])];
   const prohibitedFlags = ['publicInterfaceChange', 'dataMigration', 'securityBoundaryChange', 'regulatedDataChange', 'deploymentPolicyChange', 'crossRepositoryChange'];
+  const requiredCheckIds = [...new Set((phase.qualityCommands ?? []).map((value) => String(value).trim()).filter(Boolean))];
+  const executedChecks = new Map((phase.checks ?? []).map((check) => [check.id ?? check.command, check]));
+  const reconciliation = phase.workIntervalReconciliation;
   const predicates = {
     declaredLowRisk: String(source.risk ?? '').toLowerCase() === 'low',
     changedPathsAvailable: actual.available,
     changedPathLimit: actual.available && actual.paths.length <= (phase.approvalPolicy.maximumChangedPaths ?? policy.maximumChangedPaths),
     noProtectedPaths: actual.available && !actual.paths.some((file) => protectedPaths.some((guard) => file === guard || file.startsWith(`${guard}/`))),
     oneRepository: Number(source.repositoryCount ?? 1) === 1 && !truthy(source.crossRepositoryChange),
-    checksPassing: (phase.checks ?? []).every((check) => check.status === 'passed'),
+    checksConfigured: requiredCheckIds.length > 0,
+    checksPassing: requiredCheckIds.length > 0 && requiredCheckIds.every((id) => {
+      const check = executedChecks.get(id);
+      return check?.status === 'passed' && check.sourceCommit === submittedCommit;
+    }),
+    noUndisposedUnplannedPaths: reconciliation?.summary?.unplanned === 0
+      && reconciliation?.decision?.status === 'aligned',
     noProhibitedClassification: !prohibitedFlags.some((flag) => truthy(source[flag]))
       && !actual.paths.some((file) => policy.prohibitedPathPatterns.some((pattern) => pattern.test(file)))
   };
@@ -58,7 +68,7 @@ export function evaluateQuickFixWaiver(root, config, workflow, phase, policy = D
     eligible,
     policyId: policyDocument.id,
     policyHash: hash(policyDocument),
-    sourceCommit: run('git', ['rev-parse', 'HEAD'], { cwd: root }).stdout.trim(),
+    sourceCommit: submittedCommit,
     changedPaths: actual.paths,
     changedPathsHash: hash(actual.paths),
     predicates

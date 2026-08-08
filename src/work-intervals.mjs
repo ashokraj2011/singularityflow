@@ -4,7 +4,7 @@ import { lstat, readFile } from 'node:fs/promises';
 import { branch, changedFiles, gitDir, head } from './git.mjs';
 import { loadActiveSpecRecords } from './specifications.mjs';
 import {
-  SingularityFlowError, nowIso, posix, run, writeJson
+  SingularityFlowError, nowIso, posix, readJson, run, secureRepositoryPath, writeJson
 } from './util.mjs';
 
 const SCHEMA_VERSION = 1;
@@ -66,6 +66,69 @@ function workflowSubjectRevision(workflow, phase) {
   });
 }
 
+function intervalPolicy(config, workflow, phase) {
+  const guards = protectedPaths(config, workflow);
+  return {
+    protectedPaths: guards,
+    approvalPolicy: phase.approvalPolicy ?? {},
+    reconciliation: {
+      changedPathLimit: Number(phase.approvalPolicy?.maximumChangedPaths ?? 5),
+      escalationTarget: workflow.workItem.workType === 'quick-fix' && config.workTypes?.feature ? 'feature' : null,
+      localProvidersOnly: true
+    }
+  };
+}
+
+function baselineCore(record) {
+  const core = { ...record };
+  for (const key of ['baselineSha256', 'createdAt', 'path', 'status']) delete core[key];
+  return core;
+}
+
+export async function verifyWorkIntervalBaseline(root, config, workflow, {
+  phaseId = workflow.currentPhase,
+  itemDirectory
+} = {}) {
+  const phase = activePhase(workflow, phaseId);
+  const current = workflow.workIntervals?.current;
+  if (!current || current.phaseId !== phase.id || current.status !== 'open') {
+    throw new SingularityFlowError(`Phase '${phase.id}' has no open governed work interval.`);
+  }
+  const itemTarget = await secureRepositoryPath(root, itemDirectory, { label: 'Story directory', type: 'directory' });
+  const itemAbsolute = itemTarget.absolute;
+  const target = await secureRepositoryPath(root, current.path, { label: 'Work-interval baseline', type: 'file' });
+  const relativeToItem = path.relative(itemAbsolute, target.absolute);
+  if (!relativeToItem || relativeToItem.startsWith('..') || path.isAbsolute(relativeToItem)) {
+    throw new SingularityFlowError(`Work-interval baseline must remain inside the Story directory: ${current.path}`);
+  }
+  if (!target.exists) throw new SingularityFlowError(`Work-interval baseline does not exist: ${current.path}`);
+  const record = await readJson(target.absolute);
+  const expectedPolicy = intervalPolicy(config, workflow, phase);
+  const expectedChecks = requiredChecks(workflow);
+  const failures = [];
+  const expect = (condition, message) => { if (!condition) failures.push(message); };
+  expect(record.kind === 'work-interval-baseline', 'record kind changed');
+  expect(record.path === current.path, 'record path changed');
+  expect(record.workId === workflow.workItem.id, 'work ID changed');
+  expect(record.intervalId === current.intervalId, 'interval ID changed');
+  expect(record.phaseId === phase.id, 'phase changed');
+  expect(Number(record.generation) === Number(current.generation), 'generation changed');
+  expect(record.sourceBaseCommit === current.sourceBaseCommit, 'source base commit changed');
+  expect(record.baselineSha256 === current.baselineSha256, 'state baseline hash changed');
+  expect(record.requiredChecksSha256 === prefixedHash(expectedChecks), 'required-check policy changed');
+  expect(record.policySha256 === prefixedHash(expectedPolicy), 'work-interval policy changed');
+  expect(record.baselineSha256 === hash(baselineCore(record)), 'baseline content hash cannot be reproduced');
+  if (failures.length) {
+    throw new SingularityFlowError(`Work-interval baseline integrity check failed for ${current.path}:\n- ${failures.join('\n- ')}`);
+  }
+  return {
+    path: current.path,
+    sha256: record.baselineSha256,
+    verified: true,
+    sourceBaseCommit: record.sourceBaseCommit
+  };
+}
+
 export async function ensureWorkIntervalBaseline(root, config, workflow, {
   phaseId = workflow.currentPhase,
   itemDirectory,
@@ -86,16 +149,8 @@ export async function ensureWorkIntervalBaseline(root, config, workflow, {
   const ordinal = (workflow.workIntervals.history?.length ?? 0) + 1;
   const intervalId = `INT-${phase.id}-G${generation}-${String(ordinal).padStart(3, '0')}`;
   const checks = requiredChecks(workflow);
-  const guards = protectedPaths(config, workflow);
-  const policy = {
-    protectedPaths: guards,
-    approvalPolicy: phase.approvalPolicy ?? {},
-    reconciliation: {
-      changedPathLimit: Number(phase.approvalPolicy?.maximumChangedPaths ?? 5),
-      escalationTarget: workflow.workItem.workType === 'quick-fix' && config.workTypes?.feature ? 'feature' : null,
-      localProvidersOnly: true
-    }
-  };
+  const policy = intervalPolicy(config, workflow, phase);
+  const guards = policy.protectedPaths;
   const core = {
     schemaVersion: SCHEMA_VERSION,
     kind: 'work-interval-baseline',
@@ -213,6 +268,7 @@ export async function reconcileWorkInterval(root, config, workflow, {
   if (!current || current.phaseId !== phase.id || current.status !== 'open') {
     throw new SingularityFlowError(`Phase '${phase.id}' has no open governed work interval.`);
   }
+  const baseline = await verifyWorkIntervalBaseline(root, config, workflow, { phaseId: phase.id, itemDirectory });
   const paths = pathsSince(root, current.sourceBaseCommit);
   const evidence = await fileEvidence(root, paths);
   const planned = await plannedPaths(itemDirectory, workflow);
@@ -249,6 +305,7 @@ export async function reconcileWorkInterval(root, config, workflow, {
     phaseId: phase.id,
     generation: current.generation,
     baselineSha256: current.baselineSha256,
+    baseline,
     sourceBaseCommit: current.sourceBaseCommit,
     target: {
       branch: branch(root),

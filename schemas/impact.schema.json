@@ -44,11 +44,43 @@
         "id": { "$ref": "#/$defs/metricId" },
         "maximumRegressionPercent": { "type": "number", "minimum": 0 }
       }
+    },
+    "metricAuthority": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["authority"],
+      "properties": {
+        "authority": { "enum": ["kernel-only", "external-provider", "attested", "composite"] },
+        "providers": { "type": "array", "uniqueItems": true, "items": { "type": "string", "minLength": 1 } },
+        "reducer": { "const": "prefer-kernel" }
+      }
     }
   },
   "properties": {
     "version": { "const": 1 },
     "automaticEnrollment": { "type": "boolean" },
+    "metricAuthorities": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "flow-time-excluding-approval-wait-ms": { "$ref": "#/$defs/metricAuthority" },
+        "elapsed-ms": { "$ref": "#/$defs/metricAuthority" },
+        "approval-wait-ms": { "$ref": "#/$defs/metricAuthority" },
+        "rework-cycles": { "$ref": "#/$defs/metricAuthority" },
+        "rejections": { "$ref": "#/$defs/metricAuthority" },
+        "self-approvals": { "$ref": "#/$defs/metricAuthority" },
+        "sequence-overrides": { "$ref": "#/$defs/metricAuthority" },
+        "input-tokens": { "$ref": "#/$defs/metricAuthority" },
+        "output-tokens": { "$ref": "#/$defs/metricAuthority" },
+        "cached-input-tokens": { "$ref": "#/$defs/metricAuthority" },
+        "total-tokens": { "$ref": "#/$defs/metricAuthority" },
+        "cost-usd": { "$ref": "#/$defs/metricAuthority" },
+        "first-pass-approval-rate": { "$ref": "#/$defs/metricAuthority" },
+        "required-check-pass-rate": { "$ref": "#/$defs/metricAuthority" },
+        "conformance-gap-count": { "$ref": "#/$defs/metricAuthority" },
+        "escaped-defects": { "$ref": "#/$defs/metricAuthority" }
+      }
+    },
     "studies": {
       "type": "array",
       "items": {
@@ -80,11 +112,40 @@
                 "items": { "enum": ["capability", "repository-class", "work-type", "complexity", "risk", "time-period"] }
               },
               "timePeriod": { "enum": ["month", "quarter", "half-year", "year"] },
-              "seed": { "type": "string" }
+              "seed": { "type": "string" },
+              "weighting": { "enum": ["equal-stratum", "minimum-cohort-count"] }
             }
           },
           "primaryMetric": { "$ref": "#/$defs/primaryMetric" },
           "guardrails": { "type": "array", "items": { "$ref": "#/$defs/guardrail" } },
+          "rollout": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": ["declaredAt", "waves", "prePeriodDays", "postPeriodDays", "crossover", "minimumAdherencePercent"],
+            "properties": {
+              "declaredAt": { "type": "string", "format": "date-time" },
+              "waves": {
+                "type": "array",
+                "minItems": 2,
+                "items": {
+                  "type": "object",
+                  "additionalProperties": false,
+                  "required": ["id", "activatedAt"],
+                  "properties": {
+                    "id": { "$ref": "#/$defs/id" },
+                    "activatedAt": { "type": "string", "format": "date-time" },
+                    "capabilities": { "type": "array", "uniqueItems": true, "items": { "$ref": "#/$defs/id" } }
+                  }
+                }
+              },
+              "prePeriodDays": { "type": "integer", "minimum": 1 },
+              "postPeriodDays": { "type": "integer", "minimum": 1 },
+              "crossover": { "enum": ["exclude", "as-treated", "intention-to-treat"] },
+              "minimumAdherencePercent": { "type": "number", "minimum": 0, "maximum": 100 },
+              "requireConcurrentControl": { "type": "boolean" },
+              "requirePreTrendCheck": { "type": "boolean" }
+            }
+          },
           "reporting": {
             "type": "object",
             "additionalProperties": false,

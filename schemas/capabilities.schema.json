@@ -173,6 +173,15 @@
             "type": "string",
             "minLength": 1
           },
+          "metadata": {
+            "description": "Organisation-defined key/value attributes such as application ID, cost centre, owner code, or service tier.",
+            "type": "object",
+            "propertyNames": { "minLength": 1 },
+            "additionalProperties": {
+              "type": "string",
+              "minLength": 1
+            }
+          },
           "documentation": {
             "description": "Confluence pages, design docs, anything written about this capability. Free-form key/value, because every organisation names these differently.",
             "type": "object",

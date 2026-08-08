@@ -219,7 +219,8 @@ checkout. It never writes the lead repository's application default branch.
 
 ```
 singularity-flow capability map payments-api --lead https://git.example.corp/acme/platform.git \
-  --name "Payments API" --kind delivery --parent payments --repository https://git.example.corp/acme/api.git
+  --name "Payments API" --kind delivery --parent payments --repository https://git.example.corp/acme/api.git \
+  --metadata applicationId=APP-1001 --metadata costCenter=PAYMENTS
 
 # After the review branch is merged into sflow/config through normal controls:
 singularity-flow capability publish --lead https://git.example.corp/acme/platform.git
@@ -230,6 +231,14 @@ imports any existing reusable configuration as its seed, declares the repository
 and names the orphan `state` proof branch. Existing configuration files are
 preserved; runtime state, evidence, telemetry, and world-model output are not
 imported into shared configuration.
+
+Capabilities may carry any number of organisation-defined text attributes under
+`metadata`, for example application IDs, cost centres, owner codes, or service tiers.
+The CLI accepts repeatable `--metadata KEY=VALUE`; the VS Code capability screens
+provide matching key/value rows. These values are stored with the capability in
+`singularity/capabilities.yml`—the approved authority is the lead repository's
+`sflow/config` branch, and the reviewed map is projected to the orphan state branch.
+Use `--metadata KEY=` with `capability edit` or `capability set` to remove one key.
 
 When a Story starts, Flow copies one exact approved `sflow/config` revision onto
 the new Story branch and commits `singularity/configuration-source.json`. That

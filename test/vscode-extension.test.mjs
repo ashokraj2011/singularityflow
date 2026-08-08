@@ -1775,17 +1775,18 @@ const { capabilityDetail, capabilityArgv, parentChoices, flattenCapabilities } =
   await import(source('views/capability-model.ts'));
 const { bodyHtml: capabilitiesHtml, readEdits } = await import(source('views/capability-page.ts'));
 const { buildCapabilityDashboard } = await import(source('views/capability-dashboard-model.ts'));
-const { EMPTY_MAP_FORM, MAP_CAPABILITY_SCRIPT, capabilityIdentifierProblem, mapCapabilityHtml, mapProblems } =
+const { EMPTY_MAP_FORM, MAP_CAPABILITY_SCRIPT, capabilityIdentifierProblem, mapCapabilityHtml, mapCommand, mapProblems } =
   await import(source('views/map-capability-form.ts'));
 
 /** The tree the engine emits, with both policies on every node, as capabilityTree() produces it. */
 const capabilityFixture = [{
   id: 'commerce', name: 'Commerce', kind: 'collection', delivery: false, repository: null,
-  jira: null, teams: ['Commerce leadership'], owns: [],
+  metadata: {}, jira: null, teams: ['Commerce leadership'], owns: [],
   policy: { gateSeverity: 'block', approvalMinimum: 2, protectedPaths: ['singularity/workflow.yml'] },
   effectivePolicy: { gateSeverity: 'block', approvalMinimum: 2, protectedPaths: ['singularity/workflow.yml'] },
   children: [{
     id: 'payments', name: 'Payments', kind: 'collection', delivery: false, repository: null,
+    metadata: { applicationId: 'APP-1001', costCenter: 'CC-42' },
     jira: { projectKey: 'PAY', board: 'Payments board' }, teams: ['Payments squad'], owns: [],
     policy: { approvalMinimum: 1, protectedPaths: ['src/payments/**'] },
     effectivePolicy: {
@@ -1794,7 +1795,7 @@ const capabilityFixture = [{
     },
     children: [{
       id: 'payments-api', name: 'Payments API', kind: 'delivery', delivery: true, repository: 'api',
-      jira: null, teams: [], owns: [],
+      metadata: {}, jira: null, teams: [], owns: [],
       policy: {},
       effectivePolicy: {
         gateSeverity: 'block', approvalMinimum: 2,
@@ -1815,6 +1816,26 @@ test('mapping a capability selects the only map repository without a separate re
   assert.doesNotMatch(html, /Read the map/);
   assert.match(html, /Selected automatically because it is the only available capability map/);
   assert.match(html, /Only available capability-map repository/);
+});
+
+test('capability metadata is included in remote map proposals and incomplete pairs are blocked', () => {
+  const form = {
+    ...EMPTY_MAP_FORM,
+    lead: 'https://git.example/platform.git', loaded: true,
+    capabilityId: 'commerce', metadata: [
+      { key: 'applicationId', value: 'APP-1001' },
+      { key: 'costCenter', value: 'CC-42' }
+    ]
+  };
+  assert.deepEqual(mapCommand(form).slice(-4),
+    ['--metadata', 'applicationId=APP-1001', '--metadata', 'costCenter=CC-42']);
+  const html = mapCapabilityHtml(form);
+  assert.match(html, /Additional metadata/);
+  assert.match(html, /APP-1001/);
+  assert.match(html, /singularity\/capabilities\.yml/);
+  assert.match(html, /sflow\/config/);
+  assert.ok(mapProblems({ ...form, metadata: [{ key: 'applicationId', value: '' }] })
+    .includes('Metadata row 1 requires both a key and a value.'));
 });
 
 test('mapping a capability asks which map to use only when multiple maps exist', () => {
@@ -1908,6 +1929,7 @@ test('a capability reports what it ships, at any depth beneath it', () => {
 
 test('Jira and teams are read from the capability, which is where they belong', () => {
   const detail = capabilityDetail(capabilityFixture, 'payments');
+  assert.deepEqual(detail.metadata, { applicationId: 'APP-1001', costCenter: 'CC-42' });
   assert.deepEqual(detail.jira, { projectKey: 'PAY', board: 'Payments board' });
   assert.deepEqual(detail.teams, ['Payments squad']);
   assert.equal(detail.delivery, false);
@@ -1939,6 +1961,11 @@ test('the capability form uses controlled kinds and makes its relationship edita
   assert.match(edit, /Relink this capability at any time/);
   assert.match(edit, /<option value="commerce">Commerce<\/option>/);
   assert.match(edit, /<option value="payments" selected>/);
+  const metadata = capabilitiesHtml(capabilityFixture, 'payments', null, null);
+  assert.match(metadata, /Additional metadata/);
+  assert.match(metadata, /applicationId/);
+  assert.match(metadata, /APP-1001/);
+  assert.match(metadata, /lead repository's <code>sflow\/config<\/code> branch/);
 });
 
 test('an empty field is sent as a clearance, and an untouched one is not sent at all', () => {
@@ -1951,13 +1978,19 @@ test('an empty field is sent as a clearance, and an untouched one is not sent at
   assert.deepEqual(capabilityArgv('remove', 'payments'), ['capability', 'remove', 'payments']);
   assert.deepEqual(capabilityArgv('add', 'ledger', { parent: 'payments', kind: 'collection' }),
     ['capability', 'add', 'ledger', '--kind', 'collection', '--parent', 'payments']);
+  assert.deepEqual(capabilityArgv('set', 'payments', {
+    metadata: JSON.stringify([['costCenter', ''], ['ownerCode', 'PZN']])
+  }), ['capability', 'set', 'payments', '--metadata', 'costCenter=', '--metadata', 'ownerCode=PZN']);
+  assert.throws(() => capabilityArgv('set', 'payments', { metadata: '{bad' }),
+    /metadata must be a JSON array/);
 });
 
 test('the page cannot widen what an edit writes', () => {
   // Messages from a webview are claims, not instructions. Only the named fields survive.
   assert.deepEqual(
-    readEdits({ name: 'Payments', policy: 'gateSeverity: off', __proto__: 'x', teams: 42 }),
-    { name: 'Payments' });
+    readEdits({ name: 'Payments', metadata: '[["applicationId","APP-1001"]]',
+      policy: 'gateSeverity: off', __proto__: 'x', teams: 42 }),
+    { name: 'Payments', metadata: '[["applicationId","APP-1001"]]' });
   assert.deepEqual(readEdits(null), {});
 });
 

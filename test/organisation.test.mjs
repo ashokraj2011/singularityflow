@@ -75,7 +75,8 @@ test('the first capability governs the repository it is mapped into', async () =
   process.env.SINGULARITY_FLOW_LEAD_REGISTRY = registry(org.base);
 
   const first = await mapCapability(org.platform, {
-    capabilityId: 'commerce', name: 'Commerce', kind: 'collection'
+    capabilityId: 'commerce', name: 'Commerce', kind: 'collection',
+    metadata: { applicationId: 'APP-1001', costCenter: 'CC-42' }
   });
   assert.equal(first.capabilityId, 'commerce');
 
@@ -96,6 +97,8 @@ test('the first capability governs the repository it is mapped into', async () =
   assert.match(governed, /branch: state/, 'the orphan branch is named for a workspace to create');
   const map = run('git', ['show', 'sflow/config:singularity/capabilities.yml'], { cwd: org.platform }).stdout;
   assert.match(map, /commerce:/);
+  assert.match(map, /applicationId: APP-1001/);
+  assert.match(map, /costCenter: CC-42/);
   // The placeholder root `init` writes gives way to the capability actually being mapped, rather
   // than colliding with it — a tree may have exactly one root.
   assert.doesNotMatch(map, /placeholder|your-capability/i);

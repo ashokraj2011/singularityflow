@@ -539,17 +539,20 @@ Usage:
   singularity-flow capability show <CAPABILITY-ID> [--json]
   singularity-flow capability of <REPOSITORY-ID> [--json]
   singularity-flow capability add|set <CAPABILITY-ID> [--name TEXT] [--kind collection|delivery] [--parent ID]
-    [--repository ID] [--jira-project KEY] [--jira-board TEXT] [--teams A,B] [--owns A,B] [--json]
+    [--repository ID] [--metadata KEY=VALUE]... [--jira-project KEY] [--jira-board TEXT]
+    [--teams A,B] [--owns A,B] [--json]
   singularity-flow capability remove <CAPABILITY-ID> [--json]
   singularity-flow capability map <CAPABILITY-ID> [--lead URL] [--repository URL]... [--name TEXT]
     [--kind collection|delivery] [--type tech|business] [--parent ID] [--lead-repository URL]
-    [--doc KEY=VALUE]... [--resource KEY=VALUE]... [--jira-project KEY] [--teams A,B] [--json]
+    [--metadata KEY=VALUE]... [--doc KEY=VALUE]... [--resource KEY=VALUE]...
+    [--jira-project KEY] [--teams A,B] [--json]
     (--repository is repeatable and required for delivery; omit it for collection. --lead-repository
      says which delivery repository holds governed state when there are several. Remote mapping
      pushes a review branch against sflow/config and never writes an application branch.)
   singularity-flow capability edit <CAPABILITY-ID> [--lead URL] [--name TEXT] [--kind collection|delivery]
     [--type tech|business] [--parent ID] [--repositories A,B] [--lead-repository ID]
-    [--doc KEY=VALUE]... [--resource KEY=VALUE]... [--json]   (no checkout needed)
+    [--metadata KEY=VALUE]... [--doc KEY=VALUE]... [--resource KEY=VALUE]...
+    [--json]   (no checkout needed)
   singularity-flow capability publish [--lead URL] [--json]
     (after a capability review branch is merged, refresh its orphan state projection)
   singularity-flow capability world-model <CAPABILITY-ID> [--lead URL] [--json]
@@ -3941,9 +3944,11 @@ function capabilityChanges(options) {
   put('lead-repository', 'leadRepository', (value) => value || null);
   // Merged rather than replaced: `--doc runbook=...` adds or changes that one key and leaves the
   // rest, which is what editing a set of links means. Clearing one is `--doc runbook=`.
-  for (const [option, field] of [['doc', 'documentation'], ['resource', 'resources']]) {
+  for (const [option, field] of [
+    ['metadata', 'metadata'], ['doc', 'documentation'], ['resource', 'resources']
+  ]) {
     const pairs = optionStrings(options, option);
-    if (pairs.length) changes[field] = optionMap(pairs, `Capability ${field}`);
+    if (pairs.length) changes[field] = optionMap(pairs, `Capability ${field}`, { allowEmpty: true });
   }
   put('jira-project', 'jira.projectKey');
   put('jira-board', 'jira.board');
@@ -3998,6 +4003,7 @@ async function capabilityCommand(positionals, options) {
       // which of them holds its governed state.
       repositoryUrls: optionStrings(options, 'repository'),
       leadRepositoryUrl: optionString(options, 'lead-repository'),
+      metadata: optionMap(optionStrings(options, 'metadata'), 'Capability metadata'),
       // Free-form key/value, because every organisation names its documentation and its
       // infrastructure differently. `--doc confluence=<url>`, `--resource aws=<arn>`.
       documentation: optionMap(optionStrings(options, 'doc'), 'Capability documentation'),
@@ -5134,12 +5140,17 @@ async function stateCommand(positionals, options) {
   console.log(JSON.stringify(result, null, 2));
 }
 
-function optionMap(values, label) {
+function optionMap(values, label, { allowEmpty = false } = {}) {
   const result = {};
   for (const value of values) {
     const split = String(value).indexOf('=');
-    if (split <= 0 || split === String(value).length - 1) throw new SingularityFlowError(`${label} must use ID=VALUE.`);
-    result[String(value).slice(0, split).trim()] = String(value).slice(split + 1).trim();
+    if (split <= 0 || (!allowEmpty && split === String(value).length - 1)) {
+      throw new SingularityFlowError(`${label} must use ID=VALUE.`);
+    }
+    const key = String(value).slice(0, split).trim();
+    const entry = String(value).slice(split + 1).trim();
+    if (!key || (!allowEmpty && !entry)) throw new SingularityFlowError(`${label} must use ID=VALUE.`);
+    result[key] = entry;
   }
   return result;
 }

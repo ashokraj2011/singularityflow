@@ -18,5 +18,8 @@ capabilities:
   product:
     kind: collection
     parent: enterprise
+    # Optional organisation-defined attributes. Keys are free-form and values are text.
+    metadata:
+      serviceTier: standard
     owns: [initiatives, stories]
     policy: {}

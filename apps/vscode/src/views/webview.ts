@@ -313,11 +313,21 @@ export const STYLE = `
     border-radius: var(--sf-radius); background: var(--sf-accent-quiet);
   }
   .subsection { margin-top: 1.25rem; padding-top: .25rem; border-top: var(--sf-border); }
+  .metadata-editor { padding-top: 1rem; }
+  .metadata-editor .card-head { align-items: flex-start; margin-bottom: .75rem; }
+  .metadata-editor .card-head h2 { margin: 0 0 .2rem; }
+  .metadata-editor .card-head p { margin: 0; }
+  .metadata-list { display: grid; gap: .55rem; }
+  .metadata-row { display: grid; grid-template-columns: minmax(10rem, .7fr) minmax(14rem, 1.3fr) 2rem; gap: .6rem; align-items: end; }
+  .metadata-row .field { min-width: 0; }
+  .metadata-row .icon-button { margin-bottom: 1px; }
   @media (max-width: 680px) {
     body { padding-inline: 1rem; }
     .form-grid { grid-template-columns: 1fr; }
     .span-2 { grid-column: auto; }
     .editor-card { padding-inline: .85rem; }
+    .metadata-row { grid-template-columns: 1fr 2rem; }
+    .metadata-row .field:first-child { grid-column: 1 / -1; }
   }
 
   .rail { list-style: none; padding: 0; margin: 0; display: flex; flex-wrap: wrap; gap: .2rem 1.5rem; }

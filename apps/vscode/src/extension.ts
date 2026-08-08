@@ -1614,12 +1614,11 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
       );
       if (confirmed !== 'Remove') return;
     }
-    const argv = message.type === 'remove'
-      ? capabilityArgv('remove', message.id)
-      : capabilityArgv(message.type === 'create' ? 'add' : 'set', message.id, message.edits);
-
-    output.appendLine(`\n$ singularity-flow ${argv.join(' ')}`);
     try {
+      const argv = message.type === 'remove'
+        ? capabilityArgv('remove', message.id)
+        : capabilityArgv(message.type === 'create' ? 'add' : 'set', message.id, message.edits);
+      output.appendLine(`\n$ singularity-flow ${argv.join(' ')}`);
       await client.runText(argv);
     } catch (error) {
       output.appendLine(`  refused: ${(error as Error).message}`);

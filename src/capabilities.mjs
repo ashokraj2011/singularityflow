@@ -133,7 +133,19 @@ export const CAPABILITY_KINDS = Object.freeze(['collection', 'delivery']);
 export const CAPABILITY_TYPES = Object.freeze(['tech', 'business']);
 
 /** Fields that are sets of named links, where an edit changes entries rather than replacing all. */
-const MERGED_MAPS = Object.freeze(['documentation', 'resources']);
+const MERGED_MAPS = Object.freeze(['metadata', 'documentation', 'resources']);
+
+function validateCapabilityTextMap(id, field, value) {
+  if (value == null) return;
+  object(value, `Capability '${id}'.${field}`);
+  for (const [key, entry] of Object.entries(value)) {
+    if (!key.trim()) throw new SingularityFlowError(`Capability '${id}'.${field} keys must be non-empty text.`);
+    if (typeof entry !== 'string' || !entry.trim()) {
+      throw new SingularityFlowError(
+        `Capability '${id}'.${field}.${key} must be non-empty text.`);
+    }
+  }
+}
 
 /**
  * Every repository a capability ships from.
@@ -200,16 +212,7 @@ function validateCapabilityDelivery(id, capability, capabilities, portfolio) {
     }
   }
 
-  for (const field of ['documentation', 'resources']) {
-    if (capability[field] == null) continue;
-    object(capability[field], `Capability '${id}'.${field}`);
-    for (const [key, value] of Object.entries(capability[field])) {
-      if (typeof value !== 'string' || !value.trim()) {
-        throw new SingularityFlowError(
-          `Capability '${id}'.${field}.${key} must be text — a URL, a page reference or an identifier.`);
-      }
-    }
-  }
+  for (const field of MERGED_MAPS) validateCapabilityTextMap(id, field, capability[field]);
 
   if (capability.jira != null) {
     object(capability.jira, `Capability '${id}'.jira`);
@@ -308,7 +311,7 @@ export async function editCapability(root, capabilityId, changes = {}, { mode = 
     for (const [key, value] of Object.entries(changes)) {
       if (value === undefined) continue;
 
-      // `documentation` and `resources` are sets of links, and editing a set means changing the
+      // Metadata and named links are maps, and editing a map means changing the
       // entries you named — not replacing the set. Adding a runbook should not silently drop the
       // Confluence page somebody recorded last month. An entry given an empty value is removed,
       // which is how one is cleared.
@@ -445,6 +448,7 @@ export function capabilityTree(definition) {
       repository: capabilityRepositories(capability)[0] ?? null,
       repositories: capabilityRepositories(capability),
       leadRepository: capabilityLeadRepository(capability),
+      metadata: capability.metadata ?? {},
       documentation: capability.documentation ?? {},
       resources: capability.resources ?? {},
       jira: capability.jira ?? null,

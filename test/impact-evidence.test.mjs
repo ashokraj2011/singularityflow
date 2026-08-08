@@ -3,8 +3,9 @@ import assert from 'node:assert/strict';
 import { mkdtemp } from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
-import { collectImpactEvidence, impactSha256, validateImpactEvidence } from '../src/impact.mjs';
-import { writeJson } from '../src/util.mjs';
+import { collectImpactEvidence, impactSha256, importImpactEvidence, validateImpactEvidence } from '../src/impact.mjs';
+import { normalizeImpactDefinition } from '../src/impact-config.mjs';
+import { run, writeJson } from '../src/util.mjs';
 
 function evidence(overrides = {}) {
   const core = {
@@ -55,17 +56,28 @@ test('evidence without a provider ID receives a stable verifiable ID', () => {
 
 test('provider collection wraps a raw observation in a strict hash-bound envelope', async () => {
   const root = await mkdtemp(path.join(os.tmpdir(), 'sflow-impact-provider-'));
+  run('git', ['init'], { cwd: root });
+  run('git', ['config', 'user.name', 'Impact Tester'], { cwd: root });
+  run('git', ['config', 'user.email', 'impact@example.com'], { cwd: root });
   const input = path.join(root, 'observation.json');
-  await writeJson(input, { metric: 'required-check-pass-rate', value: 1, unit: 'ratio', status: 'exact' });
+  await writeJson(input, { metric: 'escaped-defects', value: 1, unit: 'count', status: 'exact' });
+  const impact = normalizeImpactDefinition({
+    version: 1,
+    metricAuthorities: { 'escaped-defects': { authority: 'attested' } },
+    studies: []
+  });
   const workflow = {
     workItem: { id: 'STORY-7' }, currentPhase: 'verification',
+    resolution: { impact },
     measurement: { schemaVersion: 1, exposures: [], evidence: [], invalidations: [] }
   };
   const collected = await collectImpactEvidence(root, { workItemRoot: 'singularity/work-items' }, workflow, {
     providerId: 'build-system', providerVersion: '2', runId: 'run-99', file: input,
     commitSha: 'c'.repeat(40), capturedAt: '2026-08-07T00:00:00.000Z'
   });
-  assert.equal(collected.record.provider.assurance, 'provider-verified');
+  assert.equal(collected.record.provider.assurance, 'attested');
+  assert.equal(collected.record.actor.email, 'impact@example.com');
+  assert.ok(collected.record.actor.name);
   assert.equal(collected.record.subject.phaseId, 'verification');
   assert.equal(collected.record.source.id, 'run-99');
   assert.equal(workflow.measurement.evidence[0].evidenceId, collected.record.evidenceId);
@@ -75,4 +87,19 @@ test('provider collection wraps a raw observation in a strict hash-bound envelop
     }),
     /full Git SHA/
   );
+});
+
+test('files cannot claim provider verification or override kernel-owned metrics', async () => {
+  const root = await mkdtemp(path.join(os.tmpdir(), 'sflow-impact-import-'));
+  run('git', ['init'], { cwd: root });
+  run('git', ['config', 'user.name', 'Impact Tester'], { cwd: root });
+  run('git', ['config', 'user.email', 'impact@example.com'], { cwd: root });
+  const file = path.join(root, 'evidence.json');
+  await writeJson(file, evidence());
+  const workflow = {
+    workItem: { id: 'STORY-7' },
+    resolution: { impact: normalizeImpactDefinition({ version: 1, studies: [] }) },
+    measurement: { schemaVersion: 1, exposures: [], evidence: [], invalidations: [] }
+  };
+  await assert.rejects(importImpactEvidence(root, { workItemRoot: 'singularity/work-items' }, workflow, file), /kernel-only/);
 });

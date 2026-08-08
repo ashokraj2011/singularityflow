@@ -7,6 +7,7 @@ export const IMPACT_CONFIG_PATH = 'singularity/impact.yml';
 export const IMPACT_SCHEMA_VERSION = 1;
 export const IMPACT_BANDS = Object.freeze(['small', 'medium', 'large', 'extra-large']);
 export const IMPACT_METHODS = Object.freeze(['matched-observational', 'phased-rollout', 'before-after']);
+export const IMPACT_AUTHORITY_MODES = Object.freeze(['kernel-only', 'external-provider', 'attested', 'composite']);
 
 export const IMPACT_METRICS = Object.freeze({
   'flow-time-excluding-approval-wait-ms': { unit: 'milliseconds', direction: 'lower' },
@@ -26,6 +27,12 @@ export const IMPACT_METRICS = Object.freeze({
   'conformance-gap-count': { unit: 'count', direction: 'lower' },
   'escaped-defects': { unit: 'count', direction: 'lower' }
 });
+
+export const DEFAULT_IMPACT_METRIC_AUTHORITIES = Object.freeze(Object.fromEntries(
+  Object.keys(IMPACT_METRICS).map((metric) => [metric, metric === 'escaped-defects'
+    ? Object.freeze({ authority: 'external-provider', providers: Object.freeze([]) })
+    : Object.freeze({ authority: 'kernel-only' })])
+));
 
 function sha256(value) {
   return createHash('sha256').update(value).digest('hex');
@@ -61,10 +68,59 @@ function normalizeMetric(value, label, { guardrail = false } = {}) {
     : { id: value.id, direction, unit: IMPACT_METRICS[value.id].unit };
 }
 
+function normalizeMetricAuthority(value, metric) {
+  const label = `impact.yml metricAuthorities.${metric}`;
+  object(value, label);
+  only(value, ['authority', 'providers', 'reducer'], label);
+  if (!IMPACT_AUTHORITY_MODES.includes(value.authority)) throw new SingularityFlowError(`${label}.authority must be ${IMPACT_AUTHORITY_MODES.join(', ')}.`);
+  const providers = ids(value.providers ?? [], `${label}.providers`);
+  if (value.authority === 'external-provider' && !providers.length) {
+    throw new SingularityFlowError(`${label}.providers must allowlist at least one provider.`);
+  }
+  if (value.authority === 'composite' && value.reducer !== 'prefer-kernel') {
+    throw new SingularityFlowError(`${label}.reducer must be 'prefer-kernel'.`);
+  }
+  if (value.authority !== 'composite' && value.reducer != null) throw new SingularityFlowError(`${label}.reducer is only valid for composite authority.`);
+  return {
+    authority: value.authority,
+    ...(providers.length ? { providers } : {}),
+    ...(value.reducer ? { reducer: value.reducer } : {})
+  };
+}
+
+function normalizeRollout(value, label) {
+  if (value == null) return null;
+  object(value, label);
+  only(value, ['declaredAt', 'waves', 'prePeriodDays', 'postPeriodDays', 'crossover', 'minimumAdherencePercent', 'requireConcurrentControl', 'requirePreTrendCheck'], label);
+  const waves = (value.waves ?? []).map((wave, index) => {
+    const waveLabel = `${label}.waves[${index}]`;
+    object(wave, waveLabel);
+    only(wave, ['id', 'activatedAt', 'capabilities'], waveLabel);
+    if (!wave.id?.trim()) throw new SingularityFlowError(`${waveLabel}.id is required.`);
+    if (!wave.activatedAt || Number.isNaN(Date.parse(wave.activatedAt))) throw new SingularityFlowError(`${waveLabel}.activatedAt must be an ISO timestamp.`);
+    return { id: wave.id.trim(), activatedAt: wave.activatedAt, capabilities: ids(wave.capabilities ?? [], `${waveLabel}.capabilities`) };
+  });
+  if (waves.length < 2) throw new SingularityFlowError(`${label}.waves must contain at least two declared waves.`);
+  if (!value.declaredAt || Number.isNaN(Date.parse(value.declaredAt))) throw new SingularityFlowError(`${label}.declaredAt must be an ISO timestamp.`);
+  if (waves.some((wave) => Date.parse(value.declaredAt) >= Date.parse(wave.activatedAt))) throw new SingularityFlowError(`${label}.declaredAt must precede every activation.`);
+  const prePeriodDays = Number(value.prePeriodDays);
+  const postPeriodDays = Number(value.postPeriodDays);
+  const minimumAdherencePercent = Number(value.minimumAdherencePercent);
+  if (!Number.isInteger(prePeriodDays) || prePeriodDays < 1 || !Number.isInteger(postPeriodDays) || postPeriodDays < 1) throw new SingularityFlowError(`${label} pre/post periods must be positive whole days.`);
+  if (!Number.isFinite(minimumAdherencePercent) || minimumAdherencePercent < 0 || minimumAdherencePercent > 100) throw new SingularityFlowError(`${label}.minimumAdherencePercent must be 0..100.`);
+  if (!['exclude', 'as-treated', 'intention-to-treat'].includes(value.crossover)) throw new SingularityFlowError(`${label}.crossover is invalid.`);
+  return {
+    declaredAt: value.declaredAt, waves, prePeriodDays, postPeriodDays,
+    crossover: value.crossover, minimumAdherencePercent,
+    requireConcurrentControl: value.requireConcurrentControl !== false,
+    requirePreTrendCheck: value.requirePreTrendCheck !== false
+  };
+}
+
 function normalizeStudy(study, index) {
   const label = `impact studies[${index}]`;
   object(study, label);
-  only(study, ['id', 'label', 'enabled', 'unit', 'method', 'eligibility', 'groups', 'matching', 'primaryMetric', 'guardrails', 'reporting', 'privacy'], label);
+  only(study, ['id', 'label', 'enabled', 'unit', 'method', 'eligibility', 'groups', 'matching', 'primaryMetric', 'guardrails', 'reporting', 'privacy', 'rollout'], label);
   if (!/^[a-z0-9]+(?:-[a-z0-9]+)*$/.test(study.id ?? '')) throw new SingularityFlowError(`${label}.id must be lower-case kebab-case.`);
   if (!study.label?.trim()) throw new SingularityFlowError(`${label}.label is required.`);
   if (study.enabled != null && typeof study.enabled !== 'boolean') throw new SingularityFlowError(`${label}.enabled must be boolean.`);
@@ -87,11 +143,13 @@ function normalizeStudy(study, index) {
   if (new Set(groups.map((group) => group.id)).size !== groups.length) throw new SingularityFlowError(`${label}.groups contains duplicate ids.`);
 
   const matching = object(study.matching ?? {}, `${label}.matching`);
-  only(matching, ['dimensions', 'timePeriod', 'seed'], `${label}.matching`);
+  only(matching, ['dimensions', 'timePeriod', 'seed', 'weighting'], `${label}.matching`);
   const dimensions = ids(matching.dimensions ?? ['capability', 'repository-class', 'work-type', 'complexity', 'risk', 'time-period'], `${label}.matching.dimensions`);
   for (const required of ['complexity', 'risk', 'time-period']) if (!dimensions.includes(required)) throw new SingularityFlowError(`${label}.matching.dimensions must include '${required}'.`);
   const timePeriod = matching.timePeriod ?? 'quarter';
   if (!['month', 'quarter', 'half-year', 'year'].includes(timePeriod)) throw new SingularityFlowError(`${label}.matching.timePeriod is invalid.`);
+  const weighting = matching.weighting ?? 'minimum-cohort-count';
+  if (!['equal-stratum', 'minimum-cohort-count'].includes(weighting)) throw new SingularityFlowError(`${label}.matching.weighting is invalid.`);
 
   const reporting = object(study.reporting ?? {}, `${label}.reporting`);
   only(reporting, ['bootstrapSamples', 'confidenceLevel'], `${label}.reporting`);
@@ -110,6 +168,10 @@ function normalizeStudy(study, index) {
     if (!dimensions.includes(dimension)) throw new SingularityFlowError(`${label}.privacy.allowedDimensions may only contain configured matching dimensions; '${dimension}' is not configured.`);
   }
 
+  const rollout = normalizeRollout(study.rollout, `${label}.rollout`);
+  if (study.method === 'phased-rollout' && !rollout) throw new SingularityFlowError(`${label}.rollout is required for phased-rollout studies.`);
+  if (study.method !== 'phased-rollout' && rollout) throw new SingularityFlowError(`${label}.rollout is only valid for phased-rollout studies.`);
+
   return {
     id: study.id,
     label: study.label,
@@ -121,9 +183,10 @@ function normalizeStudy(study, index) {
       capabilities: ids(eligibility.capabilities ?? [], `${label}.eligibility.capabilities`)
     },
     groups,
-    matching: { dimensions, timePeriod, seed: String(matching.seed ?? study.id) },
+    matching: { dimensions, timePeriod, seed: String(matching.seed ?? study.id), weighting },
     primaryMetric: normalizeMetric(study.primaryMetric, `${label}.primaryMetric`),
     guardrails: (study.guardrails ?? []).map((metric, metricIndex) => normalizeMetric(metric, `${label}.guardrails[${metricIndex}]`, { guardrail: true })),
+    rollout,
     reporting: { bootstrapSamples, confidenceLevel },
     privacy: {
       individualReporting: false,
@@ -136,12 +199,20 @@ function normalizeStudy(study, index) {
 
 export function normalizeImpactDefinition(value) {
   object(value, 'impact.yml');
-  only(value, ['version', 'automaticEnrollment', 'studies'], 'impact.yml');
+  only(value, ['version', 'automaticEnrollment', 'metricAuthorities', 'studies'], 'impact.yml');
   if (value.version !== IMPACT_SCHEMA_VERSION) throw new SingularityFlowError(`impact.yml version must be ${IMPACT_SCHEMA_VERSION}.`);
   if (value.automaticEnrollment != null && typeof value.automaticEnrollment !== 'boolean') throw new SingularityFlowError('impact.yml automaticEnrollment must be boolean.');
   const studies = (value.studies ?? []).map(normalizeStudy);
   if (new Set(studies.map((study) => study.id)).size !== studies.length) throw new SingularityFlowError('impact.yml contains duplicate study ids.');
-  return { version: IMPACT_SCHEMA_VERSION, automaticEnrollment: value.automaticEnrollment !== false, studies };
+  const configuredAuthorities = object(value.metricAuthorities ?? {}, 'impact.yml metricAuthorities');
+  for (const metric of Object.keys(configuredAuthorities)) if (!IMPACT_METRICS[metric]) throw new SingularityFlowError(`impact.yml metricAuthorities references unknown metric '${metric}'.`);
+  const metricAuthorities = Object.fromEntries(Object.keys(IMPACT_METRICS).map((metric) => [
+    metric,
+    configuredAuthorities[metric]
+      ? normalizeMetricAuthority(configuredAuthorities[metric], metric)
+      : structuredClone(DEFAULT_IMPACT_METRIC_AUTHORITIES[metric])
+  ]));
+  return { version: IMPACT_SCHEMA_VERSION, automaticEnrollment: value.automaticEnrollment !== false, metricAuthorities, studies };
 }
 
 export async function loadImpactDefinition(root, { required = false } = {}) {

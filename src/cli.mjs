@@ -7049,7 +7049,8 @@ async function showCommand(positionals, options) {
     section: optionString(options, 'section'),
     jsonPointer: optionString(options, 'json-pointer'),
     range: optionString(options, 'range'),
-    maxBytes: optionNumber(options, 'max-bytes')
+    maxBytes: optionNumber(options, 'max-bytes'),
+    totalEnvelopeBytes: optionNumber(options, 'max-envelope-bytes')
   });
   if (optionBoolean(options, 'json')) console.log(JSON.stringify(result, null, 2));
   else console.log(result.preview.text);

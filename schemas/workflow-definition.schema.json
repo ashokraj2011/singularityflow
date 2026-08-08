@@ -11,7 +11,8 @@
       "type": "object",
       "properties": {
         "mode": { "enum": ["off", "record", "enforce"], "default": "off" },
-        "defaultPreviewBytes": { "type": "integer", "minimum": 1, "maximum": 65536, "default": 16384 },
+        "previewTextBytes": { "type": "integer", "minimum": 1, "maximum": 65536, "default": 16384 },
+        "totalEnvelopeBytes": { "type": "integer", "minimum": 1024, "maximum": 65536, "default": 32768 },
         "knowledge": {
           "type": "object",
           "properties": { "enabled": { "type": "boolean", "default": false }, "maximumBytes": { "type": "integer", "minimum": 1, "maximum": 65536, "default": 8192 } },

@@ -969,9 +969,10 @@ export async function reconcilePhaseTelemetry(root, config, workflow, { phaseId 
 
 async function qualityChecks(root, phase) {
   const checks = [];
+  const sourceCommit = head(root);
   for (const command of phase.qualityCommands ?? []) {
     const startedAt = nowIso(); const result = run(command, [], { cwd: root, shell: true, allowFailure: true });
-    checks.push({ command, startedAt, completedAt: nowIso(), status: result.status === 0 ? 'passed' : 'failed', exitCode: result.status, stdout: truncate(result.stdout), stderr: truncate(result.stderr) });
+    checks.push({ id: command, command, sourceCommit, startedAt, completedAt: nowIso(), status: result.status === 0 ? 'passed' : 'failed', exitCode: result.status, stdout: truncate(result.stdout), stderr: truncate(result.stderr) });
   }
   return checks;
 }
@@ -1031,7 +1032,10 @@ export async function submitPhase(root, config, workflow, { phaseId, runChecks =
       path: final.path,
       status: final.decision.status,
       summaryStatus: final.decision.summaryStatus,
-      targetHead: final.target.head
+      targetHead: final.target.head,
+      summary: final.summary,
+      decision: final.decision,
+      baseline: final.baseline
     };
   }
   phase.submittedAt = nowIso();
@@ -1042,6 +1046,15 @@ export async function submitPhase(root, config, workflow, { phaseId, runChecks =
     phase.status = 'approved';
     phase.approvedAt = phase.submittedAt;
     phase.approvedBy = null;
+    phase.approvalDisposition = waiver?.eligible ? 'policy_waived' : 'not_required';
+    phase.approvalWaiver = waiver?.eligible ? {
+      policyId: waiver.policyId,
+      policySha256: waiver.policyHash,
+      sourceCommit: waiver.sourceCommit,
+      reconciliationSha256: phase.workIntervalReconciliation?.reconciliationSha256 ?? null,
+      predicates: waiver.predicates,
+      waivedAt: phase.submittedAt
+    } : null;
     closeWorkInterval(workflow, {
       phaseId: phase.id,
       at: phase.submittedAt,
@@ -1067,6 +1080,7 @@ export async function submitPhase(root, config, workflow, { phaseId, runChecks =
       policyId: waiver.policyId,
       policyHash: waiver.policyHash,
       sourceCommit: waiver.sourceCommit,
+      reconciliationSha256: phase.workIntervalReconciliation?.reconciliationSha256 ?? null,
       changedPathsHash: waiver.changedPathsHash,
       predicates: waiver.predicates,
       detail: `deterministic policy waiver${workflow.currentPhase ? `; advanced to ${workflow.currentPhase}` : '; complete'}`

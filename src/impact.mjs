@@ -6,12 +6,15 @@ import { deriveReport } from './report.mjs';
 import { identity } from './git.mjs';
 import { nowIso, readJson, secureRepositoryPath, SingularityFlowError, snapshot, writeJson, writeText } from './util.mjs';
 import {
-  deterministicStudyGroup, eligibleImpactStudies, IMPACT_BANDS, IMPACT_METRICS
+  DEFAULT_IMPACT_METRIC_AUTHORITIES, deterministicStudyGroup, eligibleImpactStudies, IMPACT_BANDS, IMPACT_METRICS
 } from './impact-config.mjs';
 
 export const IMPACT_EVIDENCE_STATUSES = Object.freeze(['exact', 'partial', 'self-reported', 'unavailable']);
 export const IMPACT_EXPOSURE_LEVELS = Object.freeze(['available', 'invoked', 'artifact-assisted', 'code-assisted', 'agent-executed', 'unknown']);
 export const IMPACT_ASSURANCE_LEVELS = Object.freeze(['host-observed', 'provider-verified', 'attested', 'unknown']);
+export const IMPACT_EVIDENCE_ASSURANCE_LEVELS = Object.freeze([
+  ...IMPACT_ASSURANCE_LEVELS, 'provider-signed', 'unverified-import', 'kernel-derived'
+]);
 
 function stable(value) {
   if (Array.isArray(value)) return value.map(stable);
@@ -116,7 +119,7 @@ export async function confirmImpactEnrollment(root, config, workflow, { complexi
   const plan = await readPlan(root, workflow);
   if (!plan) throw new SingularityFlowError(`Story '${workflow.workItem.id}' is not enrolled in an impact study.`);
   if (workflow.lineage?.deliveryStatus === 'finalized_for_review') throw new SingularityFlowError('Impact enrollment cannot be changed after Story finalization.');
-  const actor = identity(root);
+  const actor = identity(root, { offline: true });
   const at = nowIso();
   if (optOut) {
     if (!reason?.trim()) throw new SingularityFlowError('Impact study opt-out requires --reason.');
@@ -209,7 +212,7 @@ export async function recordImpactExposure(root, config, workflow, { phaseId, le
 
 export function validateImpactEvidence(value, { expectedWorkId = null } = {}) {
   if (!value || typeof value !== 'object' || Array.isArray(value)) throw new SingularityFlowError('Impact evidence must be an object.');
-  const permitted = ['schemaVersion', 'evidenceId', 'kind', 'provider', 'subject', 'observation', 'source', 'capturedAt', 'integrity'];
+  const permitted = ['schemaVersion', 'evidenceId', 'kind', 'provider', 'subject', 'observation', 'source', 'actor', 'capturedAt', 'integrity'];
   for (const key of Object.keys(value)) if (!permitted.includes(key)) throw new SingularityFlowError(`Impact evidence contains forbidden field '${key}'. Providers may submit observations only.`);
   if (value.schemaVersion !== 1) throw new SingularityFlowError('Impact evidence schemaVersion must be 1.');
   const strictObject = (candidate, fields, label) => {
@@ -220,8 +223,12 @@ export function validateImpactEvidence(value, { expectedWorkId = null } = {}) {
   strictObject(value.subject, ['workId', 'phaseId', 'generation', 'commitSha'], 'subject');
   strictObject(value.observation, ['metric', 'value', 'unit', 'status'], 'observation');
   strictObject(value.source, ['type', 'id', 'sha256', 'url', 'path'], 'source');
+  if (value.actor != null) strictObject(value.actor, ['name', 'email'], 'actor');
   if (!value.provider?.id || !value.provider?.version) throw new SingularityFlowError('Impact evidence requires provider id and version.');
-  if (value.provider.assurance != null && ![...IMPACT_ASSURANCE_LEVELS, 'kernel-derived'].includes(value.provider.assurance)) throw new SingularityFlowError('Impact evidence provider assurance is invalid.');
+  if (value.provider.assurance != null && !IMPACT_EVIDENCE_ASSURANCE_LEVELS.includes(value.provider.assurance)) throw new SingularityFlowError('Impact evidence provider assurance is invalid.');
+  if (['attested', 'unverified-import'].includes(value.provider.assurance) && (!value.actor?.name?.trim() || !value.actor?.email?.trim())) {
+    throw new SingularityFlowError(`${value.provider.assurance} impact evidence requires actor name and email provenance.`);
+  }
   if (!value.subject?.workId || (expectedWorkId && value.subject.workId !== expectedWorkId)) throw new SingularityFlowError(`Impact evidence subject must be Story '${expectedWorkId ?? '<work-id>'}'.`);
   if (value.subject.commitSha && !/^[a-f0-9]{40}$/.test(value.subject.commitSha)) throw new SingularityFlowError('Impact evidence commitSha must be a full Git SHA.');
   if (value.subject.generation != null && (!Number.isInteger(value.subject.generation) || value.subject.generation < 0)) throw new SingularityFlowError('Impact evidence generation must be a non-negative integer.');
@@ -243,11 +250,62 @@ export function validateImpactEvidence(value, { expectedWorkId = null } = {}) {
   return { ...core, integrity: { sha256: expected } };
 }
 
+function authorityFor(workflow, metric) {
+  return workflow.resolution?.impact?.metricAuthorities?.[metric] ?? DEFAULT_IMPACT_METRIC_AUTHORITIES[metric];
+}
+
+function assertEvidenceAuthority(workflow, record) {
+  const metric = record.observation.metric;
+  const authority = authorityFor(workflow, metric);
+  const assurance = record.provider.assurance ?? 'unknown';
+  const providerAllowed = (authority.providers ?? []).includes(record.provider.id);
+  const kernel = assurance === 'kernel-derived' && record.provider.id === 'singularity-flow';
+  const external = providerAllowed && ['provider-verified', 'provider-signed'].includes(assurance);
+  const attested = ['attested', 'unverified-import'].includes(assurance) && record.actor?.name && record.actor?.email;
+  const accepted = authority.authority === 'kernel-only' ? kernel
+    : authority.authority === 'external-provider' ? external
+      : authority.authority === 'attested' ? attested
+        : kernel || external;
+  if (!accepted) {
+    throw new SingularityFlowError(`Impact metric '${metric}' is governed by '${authority.authority}' authority; evidence from '${record.provider.id}' with '${assurance}' assurance is not authoritative.`);
+  }
+  return authority;
+}
+
+function oneConsistentObservation(metric, records) {
+  const values = new Set(records.map((record) => canonicalJson(record.observation)));
+  if (values.size > 1) throw new SingularityFlowError(`Conflicting authoritative observations exist for impact metric '${metric}'. Resolve the conflict explicitly; evidence ID ordering is not an authority rule.`);
+  return records.toSorted((a, b) => a.evidenceId.localeCompare(b.evidenceId))[0];
+}
+
+export function selectAuthoritativeImpactEvidence(workflow, records) {
+  const unique = [...new Map(records.map((record) => [record.evidenceId, record])).values()];
+  const byMetric = new Map();
+  for (const record of unique) byMetric.set(record.observation.metric, [...(byMetric.get(record.observation.metric) ?? []), record]);
+  const selected = new Map();
+  for (const [metric, candidates] of byMetric) {
+    const authority = authorityFor(workflow, metric);
+    for (const candidate of candidates) assertEvidenceAuthority(workflow, candidate);
+    const kernel = candidates.filter((record) => record.provider.assurance === 'kernel-derived');
+    const preferred = authority.authority === 'composite' && authority.reducer === 'prefer-kernel' && kernel.length ? kernel : candidates;
+    selected.set(metric, oneConsistentObservation(metric, preferred));
+  }
+  return { observations: unique.toSorted((a, b) => `${a.observation.metric}:${a.evidenceId}`.localeCompare(`${b.observation.metric}:${b.evidenceId}`)), selected };
+}
+
 export async function importImpactEvidence(root, config, workflow, file) {
   const text = await readFile(file, 'utf8');
   let parsed;
   try { parsed = /\.ya?ml$/i.test(file) ? YAML.parse(text) : JSON.parse(text); } catch (error) { throw new SingularityFlowError(`Cannot parse impact evidence ${file}: ${error.message}`); }
-  const record = validateImpactEvidence(parsed, { expectedWorkId: workflow.workItem.id });
+  const supplied = validateImpactEvidence(parsed, { expectedWorkId: workflow.workItem.id });
+  const actor = identity(root, { offline: true });
+  const { integrity: _integrity, ...suppliedCore } = supplied;
+  const record = validateImpactEvidence({
+    ...suppliedCore,
+    provider: { ...supplied.provider, assurance: 'unverified-import' },
+    actor: { name: actor.name, email: actor.email }
+  }, { expectedWorkId: workflow.workItem.id });
+  assertEvidenceAuthority(workflow, record);
   const target = path.join(measurementRoot(root, config, workflow), 'evidence', `${record.evidenceId}.json`);
   await writeJson(target, record);
   workflow.measurement ??= { schemaVersion: 1, exposures: [], evidence: [], invalidations: [] };
@@ -274,10 +332,12 @@ export async function collectImpactEvidence(root, config, workflow, {
   const permitted = ['metric', 'value', 'unit', 'status'];
   if (!observation || typeof observation !== 'object' || Array.isArray(observation)) throw new SingularityFlowError('Provider observation must be an object.');
   for (const key of Object.keys(observation)) if (!permitted.includes(key)) throw new SingularityFlowError(`Provider observation contains forbidden field '${key}'.`);
+  const actor = identity(root);
   const core = {
     schemaVersion: 1,
     kind: kind?.trim() || `${providerId.trim()}-observation`,
-    provider: { id: providerId.trim(), version: providerVersion.trim(), assurance: 'provider-verified' },
+    provider: { id: providerId.trim(), version: providerVersion.trim(), assurance: 'attested' },
+    actor: { name: actor.name, email: actor.email },
     subject: {
       workId: workflow.workItem.id,
       phaseId: phaseId || workflow.currentPhase || null,
@@ -289,6 +349,7 @@ export async function collectImpactEvidence(root, config, workflow, {
     capturedAt: capturedAt || nowIso()
   };
   const record = validateImpactEvidence(core, { expectedWorkId: workflow.workItem.id });
+  assertEvidenceAuthority(workflow, record);
   const target = path.join(measurementRoot(root, config, workflow), 'evidence', `${record.evidenceId}.json`);
   await writeJson(target, record);
   workflow.measurement ??= { schemaVersion: 1, exposures: [], evidence: [], invalidations: [] };
@@ -331,8 +392,7 @@ function nativeMetricRecords(workflow, report, finalization) {
       const checks = report.phases.flatMap((phase) => phase.checks);
       return checks.length ? checks.filter((check) => check.status === 'passed').length / checks.length : null;
     })() },
-    'conformance-gap-count': { value: null },
-    'escaped-defects': { value: null }
+    'conformance-gap-count': { value: null }
   };
   return Object.entries(metrics).map(([metric, measurement]) => {
     const { value } = measurement;
@@ -406,9 +466,7 @@ export async function createImpactReceipt(root, config, workflow, finalization) 
   // Finalization is retryable. A previous attempt may already have registered the
   // kernel-derived records, so collapse by the content-addressed evidence ID before
   // constructing the receipt. This keeps an identical retry byte-for-byte stable.
-  const observations = [...new Map([...native, ...imported].map((item) => [item.evidenceId, item])).values()]
-    .toSorted((a, b) => `${a.observation.metric}:${a.evidenceId}`.localeCompare(`${b.observation.metric}:${b.evidenceId}`));
-  const selected = new Map(observations.map((item) => [item.observation.metric, item]));
+  const { observations, selected } = selectAuthoritativeImpactEvidence(workflow, [...native, ...imported]);
   const exposures = exposureSummary(workflow);
   const core = {
     schemaVersion: 1,
@@ -425,7 +483,9 @@ export async function createImpactReceipt(root, config, workflow, finalization) 
     },
     study: { id: study.id, method: study.method, configurationSha256: plan.study.configurationSha256, groupId: plan.group.id },
     assistance: { planned: plan.group.plannedAssistanceMode, actual: actualAssistance(exposures), exposure: exposures },
-    metrics: Object.fromEntries([...selected].map(([metric, evidence]) => [metric, evidence.observation])),
+    metrics: Object.fromEntries([...selected].map(([metric, evidence]) => [metric, {
+      ...evidence.observation, assurance: evidence.provider.assurance
+    }])),
     completeness: receiptCompleteness(selected),
     evidence: observations.map((item) => ({ evidenceId: item.evidenceId, sha256: item.integrity.sha256, metric: item.observation.metric })),
     economics: {
@@ -506,9 +566,12 @@ export async function verifyImpactReceipt(root, workflow) {
       errors.push('Receipt study or cohort does not match the governed measurement plan.');
     }
   }
-  const ordered = records.toSorted((a, b) => `${a.observation.metric}:${a.evidenceId}`.localeCompare(`${b.observation.metric}:${b.evidenceId}`));
-  const selected = new Map(ordered.map((item) => [item.observation.metric, item]));
-  const expectedMetrics = Object.fromEntries([...selected].map(([metric, evidence]) => [metric, evidence.observation]));
+  let selected = new Map();
+  try { ({ selected } = selectAuthoritativeImpactEvidence(workflow, records)); }
+  catch (error) { errors.push(error.message); }
+  const expectedMetrics = Object.fromEntries([...selected].map(([metric, evidence]) => [metric, {
+    ...evidence.observation, assurance: evidence.provider.assurance
+  }]));
   if (canonicalJson(receipt.metrics ?? {}) !== canonicalJson(expectedMetrics)) errors.push('Receipt metrics do not match the referenced evidence observations.');
   if (canonicalJson(receipt.completeness ?? {}) !== canonicalJson(receiptCompleteness(selected))) errors.push('Receipt completeness does not match the referenced evidence statuses.');
   const expectedExposure = exposureSummary(workflow);
@@ -559,16 +622,64 @@ function seeded(seed) {
   return () => { state ^= state << 13; state ^= state >>> 17; state ^= state << 5; return (state >>> 0) / 4294967296; };
 }
 
-function bootstrapGain(baseline, treatment, direction, samples, level, seed) {
+function effectPercent(baseline, treatment, direction) {
+  return baseline === 0 ? 0 : (direction === 'lower' ? baseline - treatment : treatment - baseline) / Math.abs(baseline) * 100;
+}
+
+function stratumWeight(stratum, weighting) {
+  return weighting === 'equal-stratum' ? 1 : Math.min(stratum.baselineValues.length, stratum.treatmentValues.length);
+}
+
+function weightedEffect(strata, direction, weighting) {
+  const effects = strata.map((stratum) => {
+    const baselineMedian = median(stratum.baselineValues);
+    const treatmentMedian = median(stratum.treatmentValues);
+    const weight = stratumWeight(stratum, weighting);
+    return { key: stratum.key, baselineMedian, treatmentMedian, weight, gainPercent: effectPercent(baselineMedian, treatmentMedian, direction) };
+  });
+  const totalWeight = effects.reduce((sum, item) => sum + item.weight, 0);
+  return { effects, combined: totalWeight ? effects.reduce((sum, item) => sum + item.gainPercent * item.weight, 0) / totalWeight : null };
+}
+
+function bootstrapStratifiedGain(strata, direction, weighting, samples, level, seed) {
   const random = seeded(seed); const gains = [];
   for (let index = 0; index < samples; index += 1) {
-    const b = Array.from({ length: baseline.length }, () => baseline[Math.floor(random() * baseline.length)]);
-    const t = Array.from({ length: treatment.length }, () => treatment[Math.floor(random() * treatment.length)]);
-    const base = median(b); const treated = median(t);
-    gains.push(base === 0 ? 0 : (direction === 'lower' ? (base - treated) / Math.abs(base) : (treated - base) / Math.abs(base)) * 100);
+    const sampled = strata.map((stratum) => ({
+      ...stratum,
+      baselineValues: Array.from({ length: stratum.baselineValues.length }, () => stratum.baselineValues[Math.floor(random() * stratum.baselineValues.length)]),
+      treatmentValues: Array.from({ length: stratum.treatmentValues.length }, () => stratum.treatmentValues[Math.floor(random() * stratum.treatmentValues.length)])
+    }));
+    gains.push(weightedEffect(sampled, direction, weighting).combined);
   }
   const alpha = (1 - level) / 2;
   return { lower: percentile(gains, alpha), upper: percentile(gains, 1 - alpha) };
+}
+
+function dimensionBalance(receipts, dimensions) {
+  const values = (dimension, group) => Object.fromEntries([...group.reduce((counts, receipt) => {
+    const key = cohortKey(receipt, [dimension]).split('=').slice(1).join('=');
+    counts.set(key, (counts.get(key) ?? 0) + 1); return counts;
+  }, new Map())].sort(([left], [right]) => left.localeCompare(right)));
+  return dimensions.map((dimension) => ({ dimension, baseline: values(dimension, receipts.baseline), treatment: values(dimension, receipts.treatment) }));
+}
+
+function verifyRolloutDesign(receipts, study, floor) {
+  const reasons = [];
+  const rollout = study.rollout;
+  if (!rollout) reasons.push('No predeclared rollout design is pinned.');
+  const eligible = rollout ? receipts.filter((receipt) => receipt.rollout?.waveId) : [];
+  if (rollout) {
+    for (const wave of rollout.waves) if (!eligible.some((receipt) => receipt.rollout.waveId === wave.id)) reasons.push(`Wave '${wave.id}' has no observed receipt.`);
+    if (eligible.length < floor * 2) reasons.push(`Observed rollout sample ${eligible.length} is below ${floor * 2}.`);
+    for (const receipt of eligible) {
+      if (receipt.rollout.exposureObserved !== true) reasons.push(`${receipt.subject.workId} has no observed treatment exposure.`);
+      if (rollout.requireConcurrentControl && receipt.rollout.concurrentControl !== true) reasons.push(`${receipt.subject.workId} has no concurrent control.`);
+      if (Number(receipt.rollout.adherencePercent) < rollout.minimumAdherencePercent) reasons.push(`${receipt.subject.workId} is below minimum adherence.`);
+      if (rollout.requirePreTrendCheck && receipt.rollout.preTrendPassed !== true) reasons.push(`${receipt.subject.workId} has no passing pre-trend check.`);
+      if (receipt.rollout.crossoverApplied !== true) reasons.push(`${receipt.subject.workId} has no applied crossover decision.`);
+    }
+  }
+  return { valid: reasons.length === 0, reasons, observedReceipts: eligible.length };
 }
 
 function metricValue(receipt, metric) {
@@ -603,31 +714,60 @@ export function compareImpactReceipts(receipts, study, { filters = {} } = {}) {
   const byKey = new Map();
   for (const receipt of baseline) { const key = cohortKey(receipt, study.matching.dimensions); const pair = byKey.get(key) ?? { baseline: [], treatment: [] }; pair.baseline.push(receipt); byKey.set(key, pair); }
   for (const receipt of treatment) { const key = cohortKey(receipt, study.matching.dimensions); const pair = byKey.get(key) ?? { baseline: [], treatment: [] }; pair.treatment.push(receipt); byKey.set(key, pair); }
-  const matched = [...byKey.values()].filter((pair) => pair.baseline.length && pair.treatment.length);
-  const baseValues = matched.flatMap((pair) => pair.baseline.map((receipt) => metricValue(receipt, study.primaryMetric.id)).filter(Number.isFinite));
-  const treatmentValues = matched.flatMap((pair) => pair.treatment.map((receipt) => metricValue(receipt, study.primaryMetric.id)).filter(Number.isFinite));
+  const matched = [...byKey].map(([key, pair]) => ({
+    key,
+    ...pair,
+    baselineValues: pair.baseline.map((receipt) => metricValue(receipt, study.primaryMetric.id)).filter(Number.isFinite),
+    treatmentValues: pair.treatment.map((receipt) => metricValue(receipt, study.primaryMetric.id)).filter(Number.isFinite)
+  })).filter((pair) => pair.baselineValues.length && pair.treatmentValues.length);
+  const baseValues = matched.flatMap((pair) => pair.baselineValues);
+  const treatmentValues = matched.flatMap((pair) => pair.treatmentValues);
   if (baseValues.length < floor || treatmentValues.length < floor) throw new SingularityFlowError(`Impact comparison refused: matched metric cohorts require at least ${floor} usable observations each.`);
   const baselineMedian = median(baseValues); const treatmentMedian = median(treatmentValues);
-  const gainPercent = baselineMedian === 0 ? 0 : (study.primaryMetric.direction === 'lower' ? (baselineMedian - treatmentMedian) : (treatmentMedian - baselineMedian)) / Math.abs(baselineMedian) * 100;
+  const primary = weightedEffect(matched, study.primaryMetric.direction, study.matching.weighting);
+  const gainPercent = primary.combined;
   const guardrails = study.guardrails.map((guardrail) => {
-    const base = median(matched.flatMap((pair) => pair.baseline.map((receipt) => metricValue(receipt, guardrail.id)).filter(Number.isFinite)));
-    const treated = median(matched.flatMap((pair) => pair.treatment.map((receipt) => metricValue(receipt, guardrail.id)).filter(Number.isFinite)));
-    const regressionPercent = base == null || treated == null || base === 0 ? null : (guardrail.direction === 'lower' ? (treated - base) : (base - treated)) / Math.abs(base) * 100;
+    const guardrailStrata = matched.map((pair) => ({
+      key: pair.key,
+      baselineValues: pair.baseline.map((receipt) => metricValue(receipt, guardrail.id)).filter(Number.isFinite),
+      treatmentValues: pair.treatment.map((receipt) => metricValue(receipt, guardrail.id)).filter(Number.isFinite)
+    })).filter((pair) => pair.baselineValues.length && pair.treatmentValues.length);
+    const base = median(guardrailStrata.flatMap((pair) => pair.baselineValues));
+    const treated = median(guardrailStrata.flatMap((pair) => pair.treatmentValues));
+    const guarded = guardrailStrata.length ? weightedEffect(guardrailStrata, guardrail.direction === 'lower' ? 'higher' : 'lower', study.matching.weighting) : { combined: null };
+    const regressionPercent = guarded.combined;
     return { metric: guardrail.id, baselineMedian: base, treatmentMedian: treated, regressionPercent, maximumRegressionPercent: guardrail.maximumRegressionPercent, passed: regressionPercent != null && regressionPercent <= guardrail.maximumRegressionPercent };
   });
-  const qualityPassed = guardrails.every((item) => item.passed);
-  const causal = study.method === 'phased-rollout';
+  const qualityPassed = guardrails.length > 0 && guardrails.every((item) => item.passed);
+  const rolloutVerification = study.method === 'phased-rollout' ? verifyRolloutDesign(selected, study, floor) : null;
+  const causal = study.method === 'phased-rollout' && rolloutVerification.valid;
+  const label = !guardrails.length ? 'observed acceleration; quality validation incomplete'
+    : !qualityPassed ? 'observed acceleration; quality guardrails failed'
+      : causal ? 'validated causal gain' : 'quality-gated matched-cohort association';
   return {
     schemaVersion: 1,
     study: study.id,
     method: study.method,
-    evidenceGrade: study.method === 'phased-rollout' ? 'A' : study.method === 'matched-observational' ? 'B' : 'C',
-    inference: causal ? 'causal-estimate' : study.method === 'matched-observational' ? 'quality-gated-observed-association' : 'observed-change',
-    label: qualityPassed ? (causal ? 'validated causal delivery gain' : 'validated observed delivery association') : 'observed acceleration, not validated delivery gain',
+    evidenceGrade: causal ? 'A' : ['matched-observational', 'phased-rollout'].includes(study.method) ? 'B' : 'C',
+    inference: causal ? 'causal-estimate' : study.method === 'phased-rollout' ? 'observed-phased-rollout-association' : study.method === 'matched-observational' ? 'quality-gated-observed-association' : 'observed-change',
+    label,
     primaryMetric: study.primaryMetric,
-    cohorts: { baseline: baselineGroup.id, treatment: treatmentGroup.id, matchedBaseline: baseValues.length, matchedTreatment: treatmentValues.length, privacyFloor: floor },
-    result: { baselineMedian, treatmentMedian, baselineP25: percentile(baseValues, 0.25), baselineP75: percentile(baseValues, 0.75), treatmentP25: percentile(treatmentValues, 0.25), treatmentP75: percentile(treatmentValues, 0.75), gainPercent, confidenceInterval: bootstrapGain(baseValues, treatmentValues, study.primaryMetric.direction, study.reporting.bootstrapSamples, study.reporting.confidenceLevel, study.matching.seed) },
+    cohorts: {
+      baseline: baselineGroup.id, treatment: treatmentGroup.id,
+      eligibleBaseline: baseline.length, eligibleTreatment: treatment.length,
+      matchedBaseline: baseValues.length, matchedTreatment: treatmentValues.length,
+      excludedBaseline: baseline.length - baseValues.length, excludedTreatment: treatment.length - treatmentValues.length,
+      privacyFloor: floor, strata: matched.length,
+      balance: dimensionBalance({ baseline, treatment }, study.matching.dimensions)
+    },
+    result: {
+      baselineMedian, treatmentMedian, baselineP25: percentile(baseValues, 0.25), baselineP75: percentile(baseValues, 0.75),
+      treatmentP25: percentile(treatmentValues, 0.25), treatmentP75: percentile(treatmentValues, 0.75), gainPercent,
+      weighting: study.matching.weighting, effectsByStratum: primary.effects,
+      confidenceInterval: bootstrapStratifiedGain(matched, study.primaryMetric.direction, study.matching.weighting, study.reporting.bootstrapSamples, study.reporting.confidenceLevel, study.matching.seed)
+    },
     guardrails,
+    rollout: rolloutVerification,
     qualityGatePassed: qualityPassed,
     completeness: { eligibleReceipts: selected.length, matchedStrata: matched.length, usableBaseline: baseValues.length, usableTreatment: treatmentValues.length }
   };

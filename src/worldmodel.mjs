@@ -70,7 +70,8 @@ async function renderApprovedReferenceContext(root, definition, workflow, active
   for (const descriptor of descriptors) {
     try {
       const resolved = await resolveReference(root, descriptor.handle, {
-        maxBytes: policy?.defaultPreviewBytes
+        maxBytes: policy?.previewTextBytes,
+        totalEnvelopeBytes: policy?.totalEnvelopeBytes
       });
       previews.push({
         handle: descriptor.handle,

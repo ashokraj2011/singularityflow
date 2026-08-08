@@ -1,6 +1,6 @@
 import { nowIso } from './util.mjs';
 
-const DECISION_EVENTS = new Set(['phase_approved', 'phase_self_approved', 'phase_rejected']);
+const DECISION_EVENTS = new Set(['phase_approved', 'phase_self_approved', 'phase_rejected', 'phase-approval-waived']);
 
 function timestamp(value) {
   const parsed = value ? Date.parse(value) : NaN;
@@ -149,7 +149,13 @@ export function deriveReport(workflow, { pricing = null, now = nowIso() } = {}) 
   const phases = workflow.phaseOrder.map((id) => {
     const phase = workflow.phases[id];
     const events = phaseEvents(history, id);
-    const wait = waitingTime(events, reportTime);
+    const measuredWait = waitingTime(events, reportTime);
+    // A deterministic policy waiver is not a human review queue. Older event streams may contain
+    // a submission immediately before the waiver, so make the reporting distinction explicit
+    // instead of allowing that interval to inflate approval latency.
+    const wait = phase.approvalDisposition === 'policy_waived'
+      ? { waitingMs: 0, cycles: [], openSubmission: null }
+      : measuredWait;
     const window = phaseWindow(phase, events, reportTime);
     const activeMs = window.elapsedMs != null ? Math.max(0, window.elapsedMs - wait.waitingMs) : null;
     const usage = phase.usage ?? [];
@@ -175,6 +181,8 @@ export function deriveReport(workflow, { pricing = null, now = nowIso() } = {}) 
       id,
       label: phase.label,
       status: phase.status,
+      approvalDisposition: phase.approvalDisposition
+        ?? ((phase.approvals ?? []).some((item) => !item.invalidatedAt && item.decision === 'approved') ? 'human_approved' : null),
       generations: phase.generation ?? 0,
       elapsedMs: window.elapsedMs,
       activeMs,
@@ -288,6 +296,14 @@ function costCell(phase) {
   return `${money(phase.cost)}${phase.costStatus === 'partial' ? '*' : ''}`;
 }
 
+function approvalDispositionLabel(phase) {
+  return ({
+    human_approved: 'human approved',
+    policy_waived: 'policy waived',
+    not_required: 'not required'
+  })[phase.approvalDisposition] ?? '—';
+}
+
 export function renderMarkdown(report) {
   const item = report.workItem;
   const lines = [`# ${item.id}${item.title ? ` — ${item.title}` : ''}${item.workType ? ` (${item.workType})` : ''}`, ''];
@@ -299,10 +315,10 @@ export function renderMarkdown(report) {
     `${report.reworkCycles} rework cycle${report.reworkCycles === 1 ? '' : 's'}`,
     `${report.tokens.total.toLocaleString('en-US')} exact tokens${report.cost != null ? ` (~${money(report.cost)}${report.costStatus === 'partial' ? ', partial pricing' : ''})` : ''}`
   ].join(' · '), '');
-  lines.push('| Phase | Status | Active | Waiting | Gens | Provider / model | Tokens | Cost |');
-  lines.push('|-------|--------|--------|---------|------|------------------|--------|------|');
+  lines.push('| Phase | Status | Decision | Active | Waiting | Gens | Provider / model | Tokens | Cost |');
+  lines.push('|-------|--------|----------|--------|---------|------|------------------|--------|------|');
   for (const phase of report.phases) {
-    lines.push(`| ${phase.label} (\`${phase.id}\`) | ${phase.status} | ${humanizeDuration(phase.activeMs)} | ${humanizeDuration(phase.waitingMs)} | ${phase.generations} | ${modelCell(phase)} | ${tokenCell(phase)} | ${costCell(phase)} |`);
+    lines.push(`| ${phase.label} (\`${phase.id}\`) | ${phase.status} | ${approvalDispositionLabel(phase)} | ${humanizeDuration(phase.activeMs)} | ${humanizeDuration(phase.waitingMs)} | ${phase.generations} | ${modelCell(phase)} | ${tokenCell(phase)} | ${costCell(phase)} |`);
   }
   lines.push('');
   if (report.bottleneck) {
@@ -365,7 +381,7 @@ export function renderHtml(report) {
   const item = report.workItem;
   const elapsedChart = barChart(report.phases, { valueKey: 'elapsedMs', labelKey: 'label', formatValue: humanizeDuration, color: '#4f6df5' });
   const tokenChart = barChart(report.phases, { valueKey: 'tokens', labelKey: 'label', formatValue: (value) => value.toLocaleString('en-US'), color: '#2fa66a' });
-  const rows = report.phases.map((phase) => `<tr><td>${escapeHtml(phase.label)}</td><td>${escapeHtml(phase.status)}</td><td>${humanizeDuration(phase.activeMs)}</td><td>${humanizeDuration(phase.waitingMs)}</td><td>${phase.generations}</td><td>${escapeHtml(modelCell(phase))}</td><td>${escapeHtml(tokenCell(phase))}</td><td>${escapeHtml(costCell(phase))}</td></tr>`).join('');
+  const rows = report.phases.map((phase) => `<tr><td>${escapeHtml(phase.label)}</td><td>${escapeHtml(phase.status)}</td><td>${escapeHtml(approvalDispositionLabel(phase))}</td><td>${humanizeDuration(phase.activeMs)}</td><td>${humanizeDuration(phase.waitingMs)}</td><td>${phase.generations}</td><td>${escapeHtml(modelCell(phase))}</td><td>${escapeHtml(tokenCell(phase))}</td><td>${escapeHtml(costCell(phase))}</td></tr>`).join('');
   const modelRows = report.tokens.byModel.map((aggregate) => `<tr><td>${escapeHtml(aggregate.provider)}</td><td>${escapeHtml(aggregate.model)}</td><td>${aggregate.records}</td><td>${aggregate.exactRecords}</td><td>${aggregate.unavailableRecords}</td><td>${aggregate.totalTokens.toLocaleString('en-US')}</td></tr>`).join('');
   const modelTable = modelRows ? `<h2>Token usage by model</h2>\n<table><thead><tr><th>Provider</th><th>Model</th><th>Records</th><th>Exact</th><th>Unavailable</th><th>Tokens</th></tr></thead><tbody>${modelRows}</tbody></table>` : '';
   const bottleneck = report.bottleneck ? `<p><strong>Bottleneck:</strong> approval latency on <code>${escapeHtml(report.bottleneck.phase)}</code> (${humanizeDuration(report.bottleneck.waitingMs)}${report.bottleneck.share != null ? `, ${report.bottleneck.share}% of elapsed` : ''}).</p>` : '';
@@ -396,7 +412,7 @@ footer { color: #777; font-size: 12px; margin-top: 2rem; }
 ${bottleneck}
 ${governance}
 <h2>Phases</h2>
-<table><thead><tr><th>Phase</th><th>Status</th><th>Active</th><th>Waiting</th><th>Gens</th><th>Provider / model</th><th>Tokens</th><th>Cost</th></tr></thead><tbody>${rows}</tbody></table>
+<table><thead><tr><th>Phase</th><th>Status</th><th>Decision</th><th>Active</th><th>Waiting</th><th>Gens</th><th>Provider / model</th><th>Tokens</th><th>Cost</th></tr></thead><tbody>${rows}</tbody></table>
 <h2>Elapsed time by phase</h2>
 ${elapsedChart}
 <h2>Tokens by phase</h2>

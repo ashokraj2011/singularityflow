@@ -37,7 +37,32 @@ test('impact configuration normalizes a strict version-1 study and deterministic
   const [study] = normalizeImpactDefinition(definition()).studies;
   assert.equal(study.primaryMetric.unit, 'milliseconds');
   assert.equal(study.privacy.minimumCohortSize, 3);
+  assert.equal(study.matching.weighting, 'minimum-cohort-count');
+  assert.equal(normalizeImpactDefinition(definition()).metricAuthorities['elapsed-ms'].authority, 'kernel-only');
   assert.deepEqual(deterministicStudyGroup(study, 'STORY-101'), deterministicStudyGroup(study, 'STORY-101'));
+});
+
+test('metric authorities and phased-rollout designs are explicit and predeclared', () => {
+  assert.throws(() => normalizeImpactDefinition({
+    ...definition(), metricAuthorities: { 'escaped-defects': { authority: 'external-provider' } }
+  }), /allowlist at least one provider/);
+  assert.throws(() => normalizeImpactDefinition(definition({ method: 'phased-rollout' })), /rollout/);
+  const configured = normalizeImpactDefinition({
+    ...definition({
+      method: 'phased-rollout',
+      rollout: {
+        declaredAt: '2026-01-01T00:00:00.000Z', prePeriodDays: 14, postPeriodDays: 14,
+        crossover: 'intention-to-treat', minimumAdherencePercent: 90,
+        waves: [
+          { id: 'wave-one', activatedAt: '2026-02-01T00:00:00.000Z' },
+          { id: 'wave-two', activatedAt: '2026-03-01T00:00:00.000Z' }
+        ]
+      }
+    }),
+    metricAuthorities: { 'escaped-defects': { authority: 'external-provider', providers: ['quality-system'] } }
+  });
+  assert.equal(configured.metricAuthorities['escaped-defects'].providers[0], 'quality-system');
+  assert.equal(configured.studies[0].rollout.requireConcurrentControl, true);
 });
 
 test('impact configuration rejects unknown metrics, unsafe cohorts, and incomplete matching', () => {

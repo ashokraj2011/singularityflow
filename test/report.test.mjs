@@ -140,6 +140,21 @@ test('deriveReport includes an open approval wait through report generation time
   assert.equal(report.phases[1].waitingMs, 120 * 60_000);
 });
 
+test('policy waivers are reported distinctly and never count as human approval waiting', () => {
+  const workflow = fixtureWorkflow();
+  workflow.phases.requirements.approvalDisposition = 'policy_waived';
+  workflow.phases.requirements.approvals = [];
+  workflow.history = workflow.history
+    .filter((event) => !(event.phase === 'requirements' && event.event === 'phase_approved'))
+    .concat({ at: at(120), actor: 'engine', agent: 'developer', event: 'phase-approval-waived', phase: 'requirements' });
+  const report = deriveReport(workflow, { now: at(480) });
+  assert.equal(report.phases[0].approvalDisposition, 'policy_waived');
+  assert.equal(report.phases[0].approvals, 0);
+  assert.equal(report.phases[0].waitingMs, 0);
+  assert.match(renderMarkdown(report), /policy waived/);
+  assert.match(renderHtml(report), /policy waived/);
+});
+
 test('markdown and HTML render escaped, script-free report summaries and limitations', () => {
   const report = deriveReport(fixtureWorkflow(), { now: at(480) });
   const markdown = renderMarkdown(report);

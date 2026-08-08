@@ -26,6 +26,7 @@ import { ImpactPanel } from './views/impact.ts';
 import { CapabilitiesPanel, type CapabilitiesMessage } from './views/capabilities.ts';
 import { IntakePanel } from './views/intake-panel.ts';
 import { DashboardPanel } from './views/dashboard.ts';
+import { FlowImpactPanel } from './views/flow-impact.ts';
 import { DesignerPanel, type DesignerMessage } from './views/designer.ts';
 import { InstructionDesignerPanel } from './views/instruction-designer.ts';
 import { PromptAuditPanel } from './views/prompt-audit.ts';
@@ -238,7 +239,7 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
    * view is showing.
    */
   const REPOSITORY_COMMANDS = [
-    'singularityFlow.openCapabilities', 'singularityFlow.openImpact', 'singularityFlow.openStories',
+    'singularityFlow.openCapabilities', 'singularityFlow.openImpact', 'singularityFlow.openFlowImpact', 'singularityFlow.openStories',
     'singularityFlow.openApprovals', 'singularityFlow.openInbox', 'singularityFlow.startWork',
     'singularityFlow.attachEvidence', 'singularityFlow.manageEvidence',
     'singularityFlow.detachEvidence', 'singularityFlow.addSource',
@@ -1750,6 +1751,7 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
     'singularityFlow.openCapabilities':
       () => CapabilitiesPanel.show(context, store, (message) => { void onCapabilitiesMessage(message); }),
     'singularityFlow.openImpact': () => ImpactPanel.show(context, store, client),
+    'singularityFlow.openFlowImpact': () => FlowImpactPanel.show(context, store, client),
     'singularityFlow.openStories':
       () => StoriesPanel.show(context, store, (message) => { void onStoriesMessage(message); }),
     'singularityFlow.openApprovals':

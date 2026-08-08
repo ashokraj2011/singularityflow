@@ -116,6 +116,31 @@ In Copilot use `/sf-impact` with the same arguments. The skill relays determinis
 engine output and cannot weaken classification, privacy, quality, or publication
 rules.
 
+## VS Code experience
+
+Open **Configuration → Flow Impact studies → Open Flow Impact**, or run
+**Singularity Flow: Flow Impact Studies & Reports** from the Command Palette. An
+active, completed, or archived Story also offers **Open Flow Impact measurement**
+inside Lifecycle.
+
+The dedicated screen has four sections:
+
+- **Overview** shows configured studies and the selected Story's enrollment.
+- **Story measurement** confirms complexity/risk, records exposure attestations,
+  imports provider evidence, verifies the final receipt, and runs measurement
+  diagnostics. Mutating actions still use the CLI publication transaction.
+- **Study reports** runs the engine's privacy-safe cohort comparison and shows the
+  evidence grade, matched cohorts, confidence interval, quality guardrails, and
+  result label. It can export normalized receipts as JSON Lines.
+- **Configuration** edits `singularity/impact.yml` through the governed
+  configuration API. The engine validates the YAML before changing the working
+  tree; it is not committed automatically and should follow the normal
+  configuration review path.
+
+This screen is intentionally separate from **Impact Analysis**, which predicts
+which repositories a proposed change touches. Flow Impact measures observed
+delivery outcomes across completed Story receipts.
+
 ## Evidence envelope
 
 External evidence is JSON or YAML with schema version 1, provider identity and

@@ -24,6 +24,8 @@ is not part of the current product.
 | Create and manage workspaces | [Workspaces](../WORKSPACES.md) |
 | Configure workflows, agents, prompts, skills, and templates | [Framework guide](../FRAMEWORK-GUIDE.md) |
 | Look up commands and configuration keys | [Help reference](../HELP.md) |
+| Run without a model or publish human-authored artifacts | [Model independence](MODEL-INDEPENDENCE.md) |
+| Audit model policy for every operation | [Operation model-policy catalog](OPERATION-MODEL-POLICY.md) |
 
 ## Architecture and governance
 

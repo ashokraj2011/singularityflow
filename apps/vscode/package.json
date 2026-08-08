@@ -40,6 +40,16 @@
           "default": "",
           "description": "Node executable used to run the CLI. Leave empty to use the Node running the extension host."
         },
+        "singularityFlow.modelMode": {
+          "type": "string",
+          "default": "auto",
+          "enum": ["auto", "disabled"],
+          "enumDescriptions": [
+            "Allow operations whose declared policy permits or requires a model.",
+            "Disable all kernel-owned model invocation; model-required operations fail before their handler loads."
+          ],
+          "description": "Controls kernel-owned model invocation for every Singularity Flow command launched by this VS Code window."
+        },
         "singularityFlow.userName": {
           "type": "string",
           "default": "",
@@ -114,6 +124,11 @@
         "command": "singularityFlow.openWorkspaces",
         "title": "Singularity Flow: Workspaces",
         "icon": "$(list-unordered)"
+      },
+      {
+        "command": "singularityFlow.configureModelMode",
+        "title": "Singularity Flow: Configure Model Mode",
+        "icon": "$(settings-gear)"
       },
       {
         "command": "singularityFlow.mapCapability",

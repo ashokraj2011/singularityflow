@@ -67,7 +67,14 @@ async function main() {
   must('npm', ['run', 'check']);
 
   if (skipTests) console.warn('  Warning: --skip-tests was passed. This release has not been tested.');
-  else { step('Running the test suite'); must('npm', ['test']); }
+  else {
+    step('Running the test suite');
+    must('npm', ['test']);
+    step('Proving model-independent operation and lifecycle paths');
+    must('npm', ['run', 'test:no-model']);
+    step('Proving manual authorship and import paths');
+    must('npm', ['run', 'test:manual-authorship']);
+  }
 
   const manifest = JSON.parse(await readFile(path.join(root, 'package.json'), 'utf8'));
   const { version } = manifest;

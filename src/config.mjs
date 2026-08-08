@@ -33,6 +33,7 @@ import { normalizeMcpServers, validateMcpAgentTools } from './mcp.mjs';
 import { normalizeSpecPolicy } from './specifications.mjs';
 import { normalizeHarnessImports } from './harness-imports.mjs';
 import { loadImpactDefinition } from './impact-config.mjs';
+import { normalizeExternalCommand } from './external-command-policy.mjs';
 
 export const WORKFLOW_PATH = 'singularity/workflow.yml';
 export const CONTROL_ROOT = 'singularity';
@@ -136,14 +137,34 @@ export function normalizeGenerationPolicy(value = null, phaseId = 'phase') {
     throw new SingularityFlowError(`Phase '${phaseId}' generation must be a mode or an object.`);
   }
   const requirement = source.requirement ?? source.mode ?? 'required';
-  const producer = source.producer ?? 'agent';
+  const legacyProducer = source.producer ?? null;
+  const mappedProducer = legacyProducer === 'agent' ? 'governed-agent' : legacyProducer === 'manual' ? 'human' : legacyProducer;
+  const defaultProducer = source.defaultProducer ?? mappedProducer ?? 'governed-agent';
+  const allowedProducers = source.allowedProducers ?? (
+    legacyProducer === 'manual' ? ['human']
+      : legacyProducer === 'deterministic' ? ['deterministic']
+        : ['governed-agent', 'human']
+  );
   if (!['required', 'optional', 'none'].includes(requirement)) {
     throw new SingularityFlowError(`Phase '${phaseId}' generation requirement must be required, optional, or none.`);
   }
-  if (!['agent', 'deterministic', 'manual'].includes(producer)) {
-    throw new SingularityFlowError(`Phase '${phaseId}' generation producer must be agent, deterministic, or manual.`);
+  const producers = ['human', 'governed-agent', 'deterministic', 'external-tool'];
+  if (!producers.includes(defaultProducer)) {
+    throw new SingularityFlowError(`Phase '${phaseId}' generation defaultProducer must be ${producers.join(', ')}.`);
   }
-  return { requirement, producer };
+  if (!Array.isArray(allowedProducers) || !allowedProducers.length || allowedProducers.some((producer) => !producers.includes(producer))) {
+    throw new SingularityFlowError(`Phase '${phaseId}' generation allowedProducers must be a non-empty array containing ${producers.join(', ')}.`);
+  }
+  if (!allowedProducers.includes(defaultProducer)) {
+    throw new SingularityFlowError(`Phase '${phaseId}' generation defaultProducer '${defaultProducer}' must be included in allowedProducers.`);
+  }
+  return {
+    requirement,
+    defaultProducer,
+    allowedProducers: [...new Set(allowedProducers)],
+    // Temporary internal compatibility for deterministic preparation paths.
+    producer: defaultProducer === 'deterministic' ? 'deterministic' : defaultProducer === 'human' ? 'manual' : 'agent'
+  };
 }
 
 export function normalizeDesignSourcePolicy(value = null, { phases = [] } = {}) {
@@ -250,6 +271,34 @@ export function normalizePlanning(value = {}) {
   return { enabled: value.enabled !== false, promptSource, maxContextBytes };
 }
 
+export function normalizeModelProviders(value = {}) {
+  if (!value || typeof value !== 'object' || Array.isArray(value)) throw new SingularityFlowError('models must be an object.');
+  for (const key of Object.keys(value)) if (!['defaultProvider', 'providers'].includes(key)) throw new SingularityFlowError(`models contains unknown field '${key}'.`);
+  const providers = value.providers ?? { 'copilot-cli': { type: 'copilot-cli' } };
+  if (!providers || typeof providers !== 'object' || Array.isArray(providers) || !Object.keys(providers).length) {
+    throw new SingularityFlowError('models.providers must contain at least one provider.');
+  }
+  const normalized = {};
+  for (const [id, provider] of Object.entries(providers)) {
+    assertId(id, 'Model provider');
+    if (!provider || typeof provider !== 'object' || Array.isArray(provider)) throw new SingularityFlowError(`models.providers.${id} must be an object.`);
+    for (const key of Object.keys(provider)) if (!['type', 'executable', 'arguments', 'model'].includes(key)) throw new SingularityFlowError(`models.providers.${id} contains unknown field '${key}'.`);
+    if (provider.type !== 'copilot-cli') throw new SingularityFlowError(`models.providers.${id}.type '${provider.type}' is not supported.`);
+    if (provider.executable != null && (typeof provider.executable !== 'string' || !provider.executable.trim())) throw new SingularityFlowError(`models.providers.${id}.executable must be a non-empty string.`);
+    if (provider.arguments != null && (!Array.isArray(provider.arguments) || provider.arguments.some((item) => typeof item !== 'string'))) throw new SingularityFlowError(`models.providers.${id}.arguments must be an array of strings.`);
+    if (provider.model != null && (typeof provider.model !== 'string' || !provider.model.trim())) throw new SingularityFlowError(`models.providers.${id}.model must be a non-empty string.`);
+    normalized[id] = {
+      type: provider.type,
+      ...(provider.executable ? { executable: provider.executable.trim() } : {}),
+      arguments: [...(provider.arguments ?? [])],
+      ...(provider.model ? { model: provider.model.trim() } : {})
+    };
+  }
+  const defaultProvider = value.defaultProvider ?? Object.keys(normalized)[0];
+  if (!normalized[defaultProvider]) throw new SingularityFlowError(`models.defaultProvider references unknown provider '${defaultProvider}'.`);
+  return { defaultProvider, providers: normalized };
+}
+
 export function validateDefinition(definition) {
   if (definition?.version !== 2) throw new SingularityFlowError('workflow.yml version must be 2. Version 1 is not supported and is not migrated. Run singularity-flow factory-reset --dry-run, review the reset plan, then apply its exact confirmation to install the current version-2 configuration.');
   if (Object.hasOwn(definition, 'personas') || Object.hasOwn(definition, 'personaPromptsRoot')) throw new SingularityFlowError('Legacy role-prompt configuration is no longer supported. Define governed Agent Markdown under .github/agents.');
@@ -262,6 +311,7 @@ export function validateDefinition(definition) {
   normalizeSessionPolicy(definition.session ?? {});
   normalizeContextPolicy(definition.contextPolicy ?? {}, { phaseIds: Object.keys(definition.phases) });
   normalizePlanning(definition.planning ?? {});
+  definition.models = normalizeModelProviders(definition.models ?? {});
   definition.harnessImports = normalizeHarnessImports(definition.harnessImports);
   normalizeLogging(definition.logging ?? {});
   definition.mcpServers = normalizeMcpServers(definition.mcpServers ?? {}, {
@@ -273,6 +323,7 @@ export function validateDefinition(definition) {
   definition.spec = normalizeSpecPolicy(definition.spec ?? {});
   definition.approvalAuthorities = normalizeApprovalAuthorities(definition.approvalAuthorities);
   groundingMode(definition);
+  if (definition.worldModel?.runner != null) throw new SingularityFlowError('worldModel.runner is not supported. Configure models.providers with a trusted executable and argument array.');
   if (definition.worldModel?.outputDir) assertRelative(definition.worldModel.outputDir, 'worldModel.outputDir');
   if (definition.worldModel?.promptSource && definition.worldModel.promptSource !== 'builtin') assertRelative(definition.worldModel.promptSource, 'worldModel.promptSource');
   if (definition.worldModel?.views != null) {
@@ -330,16 +381,39 @@ export function validateDefinition(definition) {
     workType.designSources = normalizeDesignSourcePolicy(workType.designSources, { phases: workType.phases });
     workType.verification = normalizeVerificationPolicy(workType.verification, { phases: workType.phases });
   }
+  if (definition.noModel != null) {
+    if (!definition.noModel || typeof definition.noModel !== 'object' || Array.isArray(definition.noModel)) throw new SingularityFlowError('noModel must be an object.');
+    if (!['warn', 'block'].includes(definition.noModel.unknownExternalCommands ?? 'warn')) throw new SingularityFlowError('noModel.unknownExternalCommands must be warn or block.');
+  }
   for (const [id, phase] of Object.entries(definition.phases)) {
     assertId(id, 'Phase');
     if (!phase.label || !phase.artifact?.path) throw new SingularityFlowError(`Phase '${id}' requires label and artifact.path.`);
     assertRelative(phase.artifact.path, `Phase '${id}' artifact.path`);
+    if (phase.artifact.maximumBytes != null && phase.artifact.maximumBytes < (phase.artifact.minimumBytes ?? 1)) {
+      throw new SingularityFlowError(`Phase '${id}' artifact.maximumBytes must be greater than or equal to artifact.minimumBytes.`);
+    }
+    for (const [field, pattern] of [
+      ['allowedExtensions', /^\.[A-Za-z0-9]+$/],
+      ['allowedMediaTypes', /^[A-Za-z0-9!#$&^_.+-]+\/[A-Za-z0-9!#$&^_.+-]+$/]
+    ]) {
+      const values = phase.artifact[field];
+      if (values != null && (!Array.isArray(values) || !values.length || new Set(values).size !== values.length || values.some((value) => typeof value !== 'string' || !pattern.test(value)))) {
+        throw new SingularityFlowError(`Phase '${id}' artifact.${field} must be a non-empty unique array of valid values.`);
+      }
+    }
+    if (phase.artifact.validation?.requiredHeadings != null && !Array.isArray(phase.artifact.validation.requiredHeadings)) {
+      throw new SingularityFlowError(`Phase '${id}' artifact.validation.requiredHeadings must be an array.`);
+    }
+    if (phase.artifact.validation?.forbiddenPlaceholders != null && !Array.isArray(phase.artifact.validation.forbiddenPlaceholders)) {
+      throw new SingularityFlowError(`Phase '${id}' artifact.validation.forbiddenPlaceholders must be an array.`);
+    }
     const template = phase.defaultTemplate;
     if (template) assertTemplate(template, `Phase '${id}' defaultTemplate`);
     for (const [workTypeId, workType] of Object.entries(definition.workTypes)) if (workType.templateOverrides?.[id]) assertTemplate(workType.templateOverrides[id], `Work type '${workTypeId}' template override for '${id}'`);
     if (!template && !Object.values(definition.workTypes).some((type) => type.templateOverrides?.[id])) throw new SingularityFlowError(`Phase '${id}' has no default or work-type template.`);
     normalizeApprovalPolicy(phase.approval ?? {}, definition.approvalAuthorities, id);
     normalizeGenerationPolicy(phase.generation, id);
+    for (const [index, command] of (phase.qualityCommands ?? []).entries()) normalizeExternalCommand(command, index);
     normalizePhaseInputs(phase.inputs, `Phase '${id}' inputs`);
     normalizeClarificationPolicy(phase.clarification);
   }

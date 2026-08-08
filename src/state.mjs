@@ -55,6 +55,9 @@ import { evaluateQuickFixWaiver } from './quick-fix-policy.mjs';
 import {
   closeWorkInterval, ensureWorkIntervalBaseline, phaseUsesWorkInterval, reconcileWorkInterval, recordFinalReconciliation
 } from './work-intervals.mjs';
+import { operationContext } from './operation-context.mjs';
+import { evaluateExternalCommandForModelMode, externalCommandText } from './external-command-policy.mjs';
+import { assertProducerAllowed } from './manual-authorship.mjs';
 
 export const CONFIG_PATH = WORKFLOW_PATH;
 export const loadConfig = loadDefinition;
@@ -187,6 +190,7 @@ function phaseState(definition, index) {
     generation: 0,
     generatedBy: null,
     generatedAgent: null,
+    authorship: [],
     usage: [],
     telemetry: [],
     approvals: [],
@@ -206,6 +210,11 @@ export function storyArtifactMetadata(workflow, phase) {
     status: phase.status,
     generatedBy: phase.generatedBy,
     generatedAgent: phase.generatedAgent,
+    authorship: [...(phase.authorship ?? [])].reverse().find((record) => record.generation === phase.generation) ?? {
+      schemaVersion: 1, producer: 'legacy-unspecified', channel: 'legacy', governedAgentContext: null,
+      kernelModel: { invoked: false, status: 'unavailable', invocationIds: [] },
+      externalAiUse: { value: 'unknown', status: 'unavailable' }, source: null
+    },
     sourceCommit: phase.sourceCommit ?? null,
     generationCommit: phase.generationCommit ?? null,
     publicationCommit: phase.publicationCommit ?? null,
@@ -637,7 +646,7 @@ export async function preparePhaseInputs(root, config, workflow, requested = und
     if (phase.generationPolicy?.producer === 'deterministic') {
       const paths = changedFiles(root).filter((file) => !file.startsWith('singularity/'));
       const checks = (phase.qualityCommands ?? []).length
-        ? phase.qualityCommands.map((command) => `- \`${command}\``).join('\n')
+        ? phase.qualityCommands.map((command, index) => `- \`${externalCommandText(command, index)}\``).join('\n')
         : '- No mandatory commands are configured for this phase.';
       const claims = Object.values(workflow.spec?.claims ?? {})
         .flatMap((value) => Array.isArray(value) ? value : [value])
@@ -828,14 +837,22 @@ function assertRequiredAssignment(workflow, phase) {
   }
 }
 
-export async function publishGeneration(root, config, workflow, { phaseId, usage: rawUsage, persist = true } = {}) {
+export async function publishGeneration(root, config, workflow, { phaseId, usage: rawUsage, authorship = null, persist = true } = {}) {
   await assertNoPendingPublication(root, config, workflow, 'publish a generation');
   const phase = await assertPhaseSequence(root, workflow, 'publish a generation', { requestedPhase: phaseId }); const session = await loadSession(root);
   assertRequiredAssignment(workflow, phase);
   await preparePhaseInputs(root, config, workflow, phase.id);
-  const grounding = phase.generationPolicy?.producer === 'deterministic'
-    ? { warnings: [], errors: [] }
-    : await verifyGroundingRecord(root, config, workflow, phase, { agent: session.agent });
+  const effectiveAuthorship = authorship ?? {
+    schemaVersion: 1, producer: 'legacy-unspecified', channel: 'legacy', actor: structuredClone(session.actor),
+    governedAgentContext: session.agent ? { agentId: session.agent } : null,
+    kernelModel: { invoked: false, status: 'unavailable', invocationIds: [] },
+    externalAiUse: { value: 'unknown', status: 'unavailable' }, source: null
+  };
+  assertProducerAllowed(phase, effectiveAuthorship.producer);
+  const modelAssisted = ['governed-agent', 'legacy-unspecified'].includes(effectiveAuthorship.producer);
+  const grounding = modelAssisted
+    ? await verifyGroundingRecord(root, config, workflow, phase, { agent: session.agent })
+    : { warnings: [], errors: [] };
   grounding.warnings.forEach((warning) => console.warn(`Warning: ${warning}`));
   if (grounding.errors.length) throw new SingularityFlowError(`Phase ${phase.id} grounding is not ready:\n- ${grounding.errors.join('\n- ')}`);
   const changed = changedFiles(root);
@@ -850,13 +867,17 @@ export async function publishGeneration(root, config, workflow, { phaseId, usage
     const outside = changed.filter((file) => !ignored(config, workflow, file) && !file.startsWith(allowed));
     if (outside.length) throw new SingularityFlowError(`Phase ${phase.id} is artifact-only; move these changes to implementation/verification: ${outside.join(', ')}`);
   }
-  const capture = rawUsage
+  const capture = !modelAssisted
+    ? { source: 'not-invoked', usage: [], spans: 0, rawBytes: 0, pending: false, warnings: [] }
+    : rawUsage
     ? { source: 'usage-json', usage: Array.isArray(rawUsage) ? rawUsage : [rawUsage], spans: 0, rawBytes: 0, startedAt: rawUsage.startedAt, completedAt: rawUsage.completedAt, warnings: [] }
     : { source: 'copilot-otel', ...await collectCopilotUsage(root, workflow, phase) };
-  capture.pending = !rawUsage && capture.usage.length === 0;
+  capture.pending = modelAssisted && !rawUsage && capture.usage.length === 0;
   if (capture.pending) capture.warnings.push('The active Copilot turn has not been exported yet; telemetry will be reconciled automatically before submission.');
   capture.warnings.forEach((warning) => console.warn(`Telemetry warning: ${warning}`));
-  const normalizedUsage = (capture.usage.length ? capture.usage : [{ source: 'copilot-otel-unavailable' }]).map((record) => normalizeUsage(record, session, phase.generation + 1));
+  const normalizedUsage = modelAssisted
+    ? (capture.usage.length ? capture.usage : [{ source: 'copilot-otel-unavailable' }]).map((record) => normalizeUsage(record, session, phase.generation + 1))
+    : [];
   const capabilityBudget = workflow.resolution?.capability?.policy?.tokenBudget;
   if (capabilityBudget) {
     const used = Object.values(workflow.phases).flatMap((entry) => entry.usage ?? [])
@@ -866,7 +887,11 @@ export async function publishGeneration(root, config, workflow, { phaseId, usage
       throw new SingularityFlowError(`Capability '${workflow.resolution.capability.id}' token budget exceeded: ${used}/${capabilityBudget}.`);
     }
   }
-  phase.generation += 1; phase.generatedBy = session.actor; phase.generatedAgent = session.agent; phase.sourceCommit = head(root);
+  phase.generation += 1; phase.generatedBy = session.actor;
+  phase.generatedAgent = effectiveAuthorship.producer === 'governed-agent' ? session.agent : null;
+  phase.authorship ??= [];
+  phase.authorship.push({ ...structuredClone(effectiveAuthorship), generation: phase.generation, publishedAt: nowIso() });
+  phase.sourceCommit = head(root);
   if (phase.id === 'conformance') phase.conformanceTree = await sourceTreeHash(root);
   phase.usage.push(...normalizedUsage);
   const telemetry = await recordPhaseTelemetry(root, workflow, phase, normalizedUsage, capture, {
@@ -967,12 +992,24 @@ export async function reconcilePhaseTelemetry(root, config, workflow, { phaseId 
   };
 }
 
-async function qualityChecks(root, phase) {
+async function qualityChecks(root, phase, config) {
   const checks = [];
   const sourceCommit = head(root);
-  for (const command of phase.qualityCommands ?? []) {
-    const startedAt = nowIso(); const result = run(command, [], { cwd: root, shell: true, allowFailure: true });
-    checks.push({ id: command, command, sourceCommit, startedAt, completedAt: nowIso(), status: result.status === 0 ? 'passed' : 'failed', exitCode: result.status, stdout: truncate(result.stdout), stderr: truncate(result.stderr) });
+  const modelEnabled = operationContext()?.modelMode?.enabled !== false;
+  const unknownStrictness = config.noModel?.unknownExternalCommands ?? 'warn';
+  for (const [index, value] of (phase.qualityCommands ?? []).entries()) {
+    const policy = evaluateExternalCommandForModelMode(value, { modelEnabled, unknownStrictness, index });
+    const command = policy.command ?? policy.argv.join(' ');
+    const startedAt = nowIso();
+    if (policy.action === 'block') throw new SingularityFlowError(policy.reason, { code: 'EXTERNAL_MODEL_POLICY_BLOCKED' });
+    if (policy.action === 'skip') {
+      checks.push({ id: policy.id, command, externalModelPolicy: policy.modelPolicy, sourceCommit, startedAt, completedAt: nowIso(), status: 'skipped-warning', exitCode: null, stdout: '', stderr: policy.reason });
+      continue;
+    }
+    const result = policy.argv
+      ? run(policy.argv[0], policy.argv.slice(1), { cwd: root, allowFailure: true })
+      : run(policy.command, [], { cwd: root, shell: true, allowFailure: true });
+    checks.push({ id: policy.id, command, externalModelPolicy: policy.modelPolicy, sourceCommit, startedAt, completedAt: nowIso(), status: result.status === 0 ? 'passed' : 'failed', exitCode: result.status, stdout: truncate(result.stdout), stderr: truncate(result.stderr) });
   }
   return checks;
 }
@@ -997,9 +1034,9 @@ export async function submitPhase(root, config, workflow, { phaseId, runChecks =
     requestedPhase: phase.id,
     reason: phase.generationCommit ? `Generation commit ${phase.generationCommit.slice(0, 8)} is not published.` : 'No generation commit is available on the configured remote.'
   });
-  phase.checks = runChecks ? await qualityChecks(root, phase) : [];
+  phase.checks = runChecks ? await qualityChecks(root, phase, config) : [];
   if (phase.id === 'visual-verification') await assertVisualCoverage(root, workflow, { itemDirectory: workDir(root, config, workflow.workItem.id) });
-  const errors = await validatePhase(root, config, workflow, phase); const failed = phase.checks.filter((check) => check.status !== 'passed');
+  const errors = await validatePhase(root, config, workflow, phase); const failed = phase.checks.filter((check) => check.status === 'failed' || check.status === 'blocked');
   if (failed.length) errors.push(`Quality command failed: ${failed.map((check) => check.command).join(', ')}`);
   if (errors.length) throw new SingularityFlowError(`Phase ${phase.id} is not ready:\n- ${errors.join('\n- ')}`);
   if (phaseUsesWorkInterval(phase)) {

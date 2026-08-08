@@ -1,7 +1,6 @@
 import { cp, lstat, mkdtemp, copyFile, mkdir, readFile, readdir, rename, rm, writeFile } from 'node:fs/promises';
 import { existsSync, readFileSync, realpathSync } from 'node:fs';
 import { createHash } from 'node:crypto';
-import { spawn } from 'node:child_process';
 import os from 'node:os';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -10,9 +9,10 @@ import {
   refExists, validBranch
 } from './git.mjs';
 import {
-  SingularityFlowError, optionBoolean, optionNumber, optionString, platformShell, posix, run, snapshot,
+  SingularityFlowError, optionBoolean, optionNumber, optionString, posix, run, snapshot,
   writeJson
 } from './util.mjs';
+import { invokeModel } from './model-runner.mjs';
 import { loadDefinition, renderArtifactTemplate, WORKFLOW_PATH } from './config.mjs';
 import { renderMcpPromptPolicy } from './mcp.mjs';
 import { injectAgentPrompt, recordInjection } from './inject.mjs';
@@ -221,7 +221,9 @@ async function load(root, { agent: selectedAgent = null, workId = null } = {}) {
       workItemRoot: definition.workItemRoot ?? 'singularity/work-items',
       outputDir: definition.worldModel?.outputDir ?? 'singularity/world-model',
       promptSource: definition.worldModel?.promptSource ?? 'singularity/prompts/worldmodel-builder.md',
-      runner: definition.worldModel?.runner ?? 'copilot -p "$(cat {prompt_file})" --allow-all-tools',
+      provider: definition.models.defaultProvider,
+      providerConfig: definition.models.providers[definition.models.defaultProvider],
+      model: definition.models.providers[definition.models.defaultProvider]?.model ?? null,
       generation: {
         parallel: definition.worldModel?.generation?.parallel ?? true,
         maxWorkers: definition.worldModel?.generation?.maxWorkers ?? 4,
@@ -585,38 +587,6 @@ async function recordDiscoveryCheckpoint(checkpoint, view, packetFile) {
   await writeJson(checkpoint.stateFile, checkpoint.state);
 }
 
-// A captured worker's stdout is kept so a packet the agent printed instead of writing can still be
-// recovered. Bound it: the agent may stream far more than a packet, and only the tail carries the
-// final answer. 4 MiB is generous next to the 24 KiB packet limit and cannot exhaust memory.
-const CAPTURED_OUTPUT_LIMIT = 4 * 1024 * 1024;
-
-function runShellAsync(command, cwd, { capture = false } = {}) {
-  return new Promise((resolve, reject) => {
-    // Preserve the caller's PATH and environment without loading interactive/login-shell
-    // startup files. Corporate Conda, SDK, or shell hooks must not be able to break an
-    // otherwise valid world-model runner before it starts.
-    //
-    // When capturing, stdout is piped so it can be inspected for a printed packet, but every chunk
-    // is still written through to the parent so the live desktop run log is unchanged. stderr stays
-    // inherited so agent progress keeps streaming.
-    const shell = platformShell();
-    const child = spawn(shell.command, [shell.flag, command], {
-      cwd, env: process.env,
-      stdio: capture ? ['inherit', 'pipe', 'inherit'] : 'inherit'
-    });
-    let stdout = '';
-    if (capture && child.stdout) {
-      child.stdout.on('data', (chunk) => {
-        process.stdout.write(chunk);
-        stdout += chunk.toString('utf8');
-        if (stdout.length > CAPTURED_OUTPUT_LIMIT) stdout = stdout.slice(-CAPTURED_OUTPUT_LIMIT);
-      });
-    }
-    child.once('error', (error) => reject(new SingularityFlowError(`Unable to start world-model worker: ${error.message}`)));
-    child.once('close', (status, signal) => resolve({ status: status ?? 1, signal, stdout }));
-  });
-}
-
 // Recover a discovery packet an agent printed to stdout instead of writing to disk. Packets begin
 // with a known header ("# <view> discovery packet"); extract from that header to the end, unwrapping
 // a surrounding Markdown code fence if the agent wrapped its answer. Returns '' when nothing usable
@@ -633,7 +603,7 @@ export function recoverPacketFromOutput(output, view) {
   return candidate;
 }
 
-async function runParallelDiscovery(analysisRoot, temporary, config, options, views, metadata, checkpoint) {
+async function runParallelDiscovery(_auditRoot, analysisRoot, temporary, config, options, views, metadata, checkpoint) {
   const generation = parallelGeneration(config, options, views);
   if (!generation.enabled) {
     return { ...generation, packets: [], degradedViews: [], resumedViews: [], pendingViews: [] };
@@ -645,7 +615,7 @@ async function runParallelDiscovery(analysisRoot, temporary, config, options, vi
   const task = optionString(options, 'task');
   const focus = optionString(options, 'focus');
   const depth = optionString(options, 'depth', 'standard');
-  const runner = optionString(options, 'runner') ?? config.runner;
+  if (optionString(options, 'runner')) throw new SingularityFlowError('--runner is no longer supported. Configure a trusted model provider instead.');
   const resumedPackets = checkpoint?.packets ?? [];
   const resumedByView = new Map(resumedPackets.map((packet) => [packet.view, packet]));
   const pendingViews = views.filter((view) => !resumedByView.has(view));
@@ -659,14 +629,26 @@ async function runParallelDiscovery(analysisRoot, temporary, config, options, vi
   // { reason, retryable } to describe why this view has no usable packet yet.
   const attemptView = async (view, packetFile, promptFile) => {
     await rm(packetFile, { force: true }); // never accept a stale packet from an earlier attempt
-    const command = runner.replaceAll('{prompt_file}', promptFile);
-    const result = await runShellAsync(command, analysisRoot, { capture: true });
-    if (result.status !== 0) {
-      return { reason: `exited with status ${result.status}${result.signal ? ` (${result.signal})` : ''}`, retryable: true };
+    let result;
+    try {
+      result = await invokeModel({
+        provider: config.provider,
+        providerConfig: config.providerConfig,
+        model: optionString(options, 'model') ?? config.model,
+        cwd: analysisRoot,
+        allowedRoots: [analysisRoot, temporary],
+        prompt: { file: promptFile },
+        channel: 'world-model-discovery',
+        subject: { kind: 'repository-world-model', view },
+        tools: { mode: 'all' },
+        limits: { timeoutMs: optionNumber(options, 'timeout-ms', 15 * 60 * 1000), outputBytes: 8 * 1024 * 1024 }
+      });
+    } catch (error) {
+      return { reason: error.message, retryable: true };
     }
     let packet = existsSync(packetFile) ? await readFile(packetFile, 'utf8') : '';
     if (!packet.trim()) {
-      const recovered = recoverPacketFromOutput(result.stdout, view);
+      const recovered = recoverPacketFromOutput(result.output, view);
       if (recovered) {
         packet = recovered;
         await writeFile(packetFile, packet);
@@ -921,7 +903,7 @@ async function build(root, config, options) {
       ? await prepareDiscoveryCheckpoint(root, config, options, views, metadata, sourceState)
       : null;
     const discovery = await runParallelDiscovery(
-      analysisRoot, temporary, config, options, views, metadata, checkpoint
+      root, analysisRoot, temporary, config, options, views, metadata, checkpoint
     );
     const afterDiscovery = await repositoryContentSnapshot(analysisRoot);
     // The checkpoint is the builder's own scratch space and it lives under the world-model output
@@ -932,20 +914,40 @@ async function build(root, config, options) {
     const discoveryChanges = outsideBuilderScratch(changedSnapshotPaths(before, afterDiscovery), config);
     if (head(analysisRoot) !== sourceCommit) discoveryChanges.push('Git history (discovery worker created a commit)');
     if (discoveryChanges.length) {
+      if (checkpoint) {
+        await rm(checkpoint.directory, { recursive: true, force: true });
+        checkpoint = null;
+      }
       throw new SingularityFlowError(`World-model discovery workers modified files outside their isolated packets: ${[...new Set(discoveryChanges)].join(', ')}`);
     }
     const renderedPrompt = render(await readFile(source, 'utf8'), analysisRoot, buildConfig, renderOptions);
     const synthesisPrompt = appendDiscoveryPackets(renderedPrompt, discovery);
     await writeFile(promptFile, synthesisPrompt);
-    const command = (optionString(options, 'runner') ?? config.runner).replaceAll('{prompt_file}', promptFile);
-    const shell = platformShell();
-    let result = run(shell.command, [shell.flag, command], { cwd: analysisRoot, stdio: 'inherit', allowFailure: true });
-    if (result.status !== 0) throw new SingularityFlowError(`World-model builder exited with status ${result.status}.`);
+    if (optionString(options, 'runner')) throw new SingularityFlowError('--runner is no longer supported. Configure a trusted model provider instead.');
+    const invokeSynthesis = () => invokeModel({
+        provider: config.provider,
+        providerConfig: config.providerConfig,
+        model: optionString(options, 'model') ?? config.model,
+        cwd: analysisRoot,
+        allowedRoots: [analysisRoot, temporary],
+        prompt: { file: promptFile },
+        channel: 'world-model-synthesis',
+        subject: { kind: 'repository-world-model' },
+        tools: { mode: 'all' },
+        limits: { timeoutMs: optionNumber(options, 'timeout-ms', 20 * 60 * 1000), outputBytes: 8 * 1024 * 1024 }
+      });
+    await invokeSynthesis();
     const draftManifestPath = path.join(staging, 'manifest.json');
     const after = await repositoryContentSnapshot(analysisRoot);
     const unexpected = outsideBuilderScratch(changedSnapshotPaths(before, after), config);
     if (head(analysisRoot) !== sourceCommit) unexpected.push('Git history (builder created a commit)');
-    if (unexpected.length) throw new SingularityFlowError(`World-model builder modified files outside its isolated output directory: ${unexpected.join(', ')}`);
+    if (unexpected.length) {
+      if (checkpoint) {
+        await rm(checkpoint.directory, { recursive: true, force: true });
+        checkpoint = null;
+      }
+      throw new SingularityFlowError(`World-model builder modified files outside its isolated output directory: ${unexpected.join(', ')}`);
+    }
     const phase = optionString(options, 'phase');
     const requiredViews = views;
     // Copilot owns the model content, but it does not own provenance. Canonicalize the
@@ -985,8 +987,7 @@ async function build(root, config, options) {
       await rm(staging, { recursive: true, force: true });
       await mkdir(staging, { recursive: true });
       await writeFile(promptFile, synthesisRecoveryPrompt(synthesisPrompt, error.message));
-      result = run(shell.command, [shell.flag, command], { cwd: analysisRoot, stdio: 'inherit', allowFailure: true });
-      if (result.status !== 0) throw new SingularityFlowError(`World-model builder recovery exited with status ${result.status}.`);
+      await invokeSynthesis();
       try {
         validated = await validateDraft();
       } catch (recoveryError) {

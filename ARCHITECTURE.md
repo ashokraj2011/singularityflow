@@ -104,6 +104,21 @@ See [INITIATIVE-ORCHESTRATION.md](INITIATIVE-ORCHESTRATION.md).
 
 ## System boundary
 
+### Model invocation boundary
+
+The lifecycle kernel is model-independent. The command registry assigns every
+operation `never`, `optional`, or `required` before loading its implementation.
+Only `model-runner.mjs` may cross the bounded provider interface; nested calls
+inherit the strictest active policy. Audit intent is written under `.git/` before
+provider startup and completed with output and usage hashes afterward. Interactive
+Copilot sessions are host-owned and explicitly outside this guarantee.
+
+Human, governed-agent, deterministic, and external-tool authorship share the same
+artifact contracts and Git publication transaction. Provenance records who
+published, through which channel, whether the kernel invoked a model, and any
+self-reported external AI assistance. See
+[`docs/MODEL-INDEPENDENCE.md`](docs/MODEL-INDEPENDENCE.md).
+
 Singularity Flow separates probabilistic generation from deterministic lifecycle
 control:
 

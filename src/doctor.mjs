@@ -11,6 +11,8 @@ import { commandExists, platformShell, run } from './util.mjs';
 import { copilotTelemetryStatus } from './telemetry.mjs';
 import { buildRepositorySubjectIndex, resolveContext } from './repository-subject-index.mjs';
 import { mcpDoctor } from './mcp-readiness.mjs';
+import { modelFreedomSnapshot, modelFreedomText } from './model-freedom.mjs';
+import { operationContext } from './operation-context.mjs';
 
 function check(id, status, message, fix = null) { return { id, status, message, fix }; }
 
@@ -50,7 +52,7 @@ export async function doctorSnapshot(root, { workId = null, offline = false } = 
   const workflowConfig = path.join(root, WORKFLOW_PATH);
   if (!existsSync(workflowConfig)) {
     checks.push(check('configuration', 'fail', `${WORKFLOW_PATH} is missing.`, 'Run singularity-flow init.'));
-    return summarize(root, checks, null, null);
+    return summarize(root, checks, null, null, null);
   }
   let definition;
   try {
@@ -58,7 +60,7 @@ export async function doctorSnapshot(root, { workId = null, offline = false } = 
     checks.push(check('configuration', 'pass', `${WORKFLOW_PATH} is valid (${Object.keys(definition.workTypes).length} workflows, ${Object.keys(definition.agents).length} agents).`));
   } catch (error) {
     checks.push(check('configuration', 'fail', error.message, `Repair ${WORKFLOW_PATH} or restore it from version control.`));
-    return summarize(root, checks, null, null);
+    return summarize(root, checks, null, null, definition);
   }
   const mcpReadiness = await mcpDoctor(root, definition);
   for (const server of mcpReadiness.servers) {
@@ -189,17 +191,23 @@ export async function doctorSnapshot(root, { workId = null, offline = false } = 
     ));
   }
   checks.push(check('upstream', hasUpstream(root) ? 'pass' : 'warn', hasUpstream(root) ? `Branch '${currentBranch}' tracks an upstream.` : `Branch '${currentBranch}' has no upstream.`, hasUpstream(root) ? null : 'The first successful lifecycle publication will establish it.'));
-  return summarize(root, checks, workflow, session);
+  return summarize(root, checks, workflow, session, definition);
 }
 
-function summarize(root, checks, workflow, session) {
+function summarize(root, checks, workflow, session, definition) {
   const counts = Object.fromEntries(['pass', 'warn', 'fail', 'skip'].map((status) => [status, checks.filter((item) => item.status === status).length]));
-  return { schemaVersion: 1, repository: root, branch: branch(root), head: head(root), workId: workflow?.workItem.id ?? null, agent: session?.agent ?? null, healthy: counts.fail === 0, counts, checks };
+  const modelFreedom = modelFreedomSnapshot({
+    definition,
+    workflow,
+    modelMode: operationContext()?.modelMode ?? { enabled: true, source: 'default' }
+  });
+  return { schemaVersion: 1, repository: root, branch: branch(root), head: head(root), workId: workflow?.workItem.id ?? null, agent: session?.agent ?? null, healthy: counts.fail === 0, counts, modelFreedom, checks };
 }
 
 export function doctorText(report) {
   const icon = { pass: '✓', warn: '!', fail: '✗', skip: '·' };
   const lines = [`Singularity Flow doctor — ${report.healthy ? 'ready' : 'attention required'}`, `Repository: ${report.repository}`, `Branch: ${report.branch}`, ''];
+  lines.push(modelFreedomText(report.modelFreedom), '');
   for (const item of report.checks) {
     lines.push(`${icon[item.status]} ${item.id}: ${item.message}`);
     if (item.fix) lines.push(`  Fix: ${item.fix}`);

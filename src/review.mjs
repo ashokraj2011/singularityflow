@@ -36,7 +36,10 @@ export async function createReviewBundle(root, config, workflow, requestedPhase 
   }) => ({ id, type, label, kind, phase: sourcePhase, path: file, url, mimeType, size, sha256, status, generation }));
   return {
     schemaVersion: 1, generatedAt: new Date().toISOString(), workItem: workflow.workItem, branch: branch(root), workflowStatus: workflow.status,
-    phase: { id: phase.id, label: phase.label, status: phase.status, generation: phase.generation, approvalMinimum: phase.approvalPolicy.minimum ?? 1 },
+    phase: {
+      id: phase.id, label: phase.label, status: phase.status, generation: phase.generation, approvalMinimum: phase.approvalPolicy.minimum ?? 1,
+      authorship: [...(phase.authorship ?? [])].reverse().find((record) => record.generation === phase.generation) ?? { producer: 'legacy-unspecified', channel: 'legacy' }
+    },
     artifact, inputs, documents, approvals, selfApprovalWarning: approvals.some((item) => item.selfApproval), checks: phase.checks ?? [], usage: phase.usage ?? [], changeSummary: diff.status === 0 ? diff.stdout.trim() : 'Unavailable'
   };
 }
@@ -44,6 +47,7 @@ export async function createReviewBundle(root, config, workflow, requestedPhase 
 export function reviewMarkdown(bundle) {
   const lines = [`# Review bundle — ${bundle.workItem.id} / ${bundle.phase.label}`, '', `- Status: **${bundle.phase.status}**`, `- Generation: **${bundle.phase.generation}**`, `- Branch: \`${bundle.branch}\``, `- Generated: ${bundle.generatedAt}`, ''];
   if (bundle.selfApprovalWarning) lines.push('> ⚠ This phase contains self-approval. It is not independent review.', '');
+  lines.push('## Authorship', '', `- Producer: **${bundle.phase.authorship?.producer ?? 'legacy-unspecified'}**`, `- Channel: **${bundle.phase.authorship?.channel ?? 'legacy'}**`, `- Kernel model invoked: **${bundle.phase.authorship?.kernelModel?.invoked === true ? 'yes' : bundle.phase.authorship?.kernelModel?.invoked === false ? 'no' : 'unknown'}**`, '');
   lines.push('## Required artifact', '', bundle.artifact ? `- [${bundle.artifact.path}](../../../../${bundle.artifact.path}) — \`${bundle.artifact.sha256}\`` : '_Not generated._', '');
   if (bundle.artifact) lines.push('### Artifact content', '', bundle.artifact.content, '');
   lines.push('## Approved input provenance', '', ...(bundle.inputs.length ? bundle.inputs.map((item) => `- ${item.phase}: ${item.status}${item.sha256 ? ` @ \`${item.sha256.slice(0, 12)}\`` : ''}${item.optional ? ' (optional)' : ''}`) : ['_No phase inputs._']), '');

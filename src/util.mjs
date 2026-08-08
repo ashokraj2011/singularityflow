@@ -197,6 +197,14 @@ export async function writeText(filePath, value) {
   await writeAtomic(filePath, value.endsWith('\n') ? value : `${value}\n`);
 }
 
+/** Atomically writes opaque bytes without UTF-8 conversion or newline mutation. */
+export async function writeBytes(filePath, value) {
+  if (!Buffer.isBuffer(value) && !(value instanceof Uint8Array)) {
+    throw new SingularityFlowError('writeBytes expects a Buffer or Uint8Array.');
+  }
+  await writeAtomic(filePath, value);
+}
+
 export async function snapshot(filePath) {
   try {
     const info = await stat(filePath);

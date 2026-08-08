@@ -338,7 +338,7 @@ test('next executes one valid lifecycle action at a time', async () => {
   assert.equal(execute('git', ['log', '-1', '--format=%s'], root).stdout.trim(), `[${workId}][phase:intake][approve] product-approvers`);
 });
 
-test('next never launches a missing world-model agent unattended without --yes', async () => {
+test('next never launches a missing world-model agent unattended', async () => {
   const root = await repository();
   const definitionPath = path.join(root, 'singularity/workflow.yml');
   const definition = YAML.parse(await readFile(definitionPath, 'utf8'));
@@ -349,9 +349,10 @@ test('next never launches a missing world-model agent unattended without --yes',
   flow(root, ['start', 'NEXT-CONSENT-1', '--work-type', 'feature', '--agent', 'product-owner', '--title', 'Consent test', '--description', 'Do not run a model unattended.']);
 
   const result = flow(root, ['next', '--task', 'Consent test'], { allowFailure: true });
-  assert.notEqual(result.status, 0);
+  assert.equal(result.status, 0);
   assert.match(result.stdout, /Next step prerequisite:/);
-  assert.match(result.stderr, /interactive terminal or the explicit --yes flag/);
+  assert.match(result.stdout, /No model was started/);
+  assert.match(result.stdout, /singularity-flow wm build/);
   assert.equal(execute('git', ['worktree', 'list', '--porcelain'], root).stdout.match(/^worktree /gm)?.length, 1);
   assert.equal(execute('git', ['status', '--short'], root).stdout.trim(), '');
   const workflow = JSON.parse(await readFile(path.join(root, 'singularity/work-items/NEXT-CONSENT-1/workflow.json'), 'utf8'));
@@ -372,7 +373,7 @@ test('feature profile publishes generations, records tokens, approvals, and conf
       await writeFile(path.join(root, 'src/feature.mjs'), 'export const feature = true; // SPEC-001\n'); await writeFile(path.join(root, 'tests/feature.test.mjs'), '// @ac:AC-001 SPEC-001\n');
     }
     const usagePath = path.join(root, '.git/usage.json'); await writeFile(usagePath, JSON.stringify({ provider: 'test', model: 'test-model', inputTokens: 10, outputTokens: 5, totalTokens: 15 }));
-    flow(root, ['phase', 'publish', phaseId, '--usage-json', usagePath], { selection: selection('feature', agents[phaseId]) });
+    flow(root, ['phase', 'publish', phaseId, '--authored', 'governed-agent', '--channel', 'copilot-host', '--usage-json', usagePath], { selection: selection('feature', agents[phaseId]) });
     flow(root, ['submit'], { selection: selection('feature', agents[phaseId]) });
     flow(root, ['approve', '--yes'], { selection: selection('feature', agents[phaseId]) });
   }

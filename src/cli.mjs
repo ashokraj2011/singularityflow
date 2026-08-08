@@ -69,6 +69,12 @@ import { jiraDoctor, jiraDoctorText } from './jira-doctor.mjs';
 import { installPlugin, listPlugins, pluginPath, uninstallPlugin } from './plugin.mjs';
 import { runGovernanceGate } from './governance.mjs';
 import { worldModelCommand } from './worldmodel.mjs';
+import { launchHostSession } from './host-session-launcher.mjs';
+import { operationContext } from './operation-context.mjs';
+import { invokeModel } from './model-runner.mjs';
+import {
+  assertProducerAllowed, buildGenerationAuthorship, importManualArtifact, inspectInPlaceArtifact, normalizeAuthorshipOptions
+} from './manual-authorship.mjs';
 import { initializationStatus, initializeDefinition, loadDefinition, resolveWorkType, validateDefinition, WORKFLOW_PATH } from './config.mjs';
 import { loadImpactDefinition } from './impact-config.mjs';
 import {
@@ -257,6 +263,8 @@ const HELP = `Singularity Flow ${VERSION}
 Personal Copilot skills plus a deterministic Git-native SDLC utility.
 
 Usage:
+  singularity-flow [--no-model] <command> [options]
+    --no-model disables every kernel-owned model invocation. Equivalent: SINGULARITY_FLOW_NO_MODEL=1.
   singularity-flow about
   singularity-flow help [TOPIC] [--json]
   singularity-flow show <SFREF-HANDLE> [--section HEADING | --json-pointer POINTER | --range RANGE]
@@ -381,7 +389,10 @@ Usage:
   singularity-flow documents detach <DOCUMENT-ID> [--scope file|package] --reason TEXT [--yes]
   singularity-flow prepare [PHASE]
   singularity-flow phase show [PHASE] [--json]
-  singularity-flow phase publish [PHASE] [--usage-json FILE]
+  singularity-flow phase publish [PHASE]
+    [--authored human|governed-agent|deterministic|external-tool]
+    [--from FILE] [--channel manual-in-place|manual-import|copilot-host|kernel-model|kernel-generator|external-tool]
+    [--external-ai none|assisted] [--usage-json FILE]
   singularity-flow artifact add <PATH...> [--kind KIND] [--phase PHASE]
   singularity-flow artifact scan [--phase PHASE]
   singularity-flow pr describe [WORK-ID] [--format markdown|json] [--clipboard] [--write] [--yes]
@@ -1596,24 +1607,24 @@ async function nextCommand(options) {
     const rebuildReason = await worldModelRebuildReason(root, config);
     if (rebuildReason) {
       console.log(`Next step prerequisite: ${rebuildReason}`);
-      if (!optionBoolean(options, 'yes')) {
-        const approved = await confirmYesNo('Building the repository world model starts a governed model agent that reads the repository and writes model files. Continue?');
-        if (!approved) {
-          console.log('No state changed.');
-          console.log('Copilot: /sf-next');
-          console.log('CLI equivalent: singularity-flow next --yes');
-          return;
-        }
+      if (operationContext()?.modelMode.enabled !== false) {
+        console.log('No model was started. Build explicitly, then continue:');
+        console.log(`Copilot: /sf-worldmodel --phase ${phase.id}`);
+        console.log(`CLI equivalent: singularity-flow wm build --phase ${phase.id} --task ${JSON.stringify(task)}`);
+        console.log('Model-free alternative: author the prepared artifact manually and publish with --authored human.');
+        return;
       }
-      await worldModelCommand(root, ['wm', 'build'], { phase: phase.id, task });
+      console.warn('Model mode is disabled; continuing with the manual-authorship path. No world model will be built or composed.');
+    } else {
+      await worldModelCommand(root, ['wm', 'compose'], { phase: phase.id, task, evidence: phase.worldModel?.evidence === true });
     }
-    await worldModelCommand(root, ['wm', 'compose'], { phase: phase.id, task, evidence: phase.worldModel?.evidence === true });
   }
   const artifact = await preparePhase(root, config, workflow, phase.id);
   await saveStoryDraft(root, config, workflow);
   console.log(`Next step prepared: generate '${phase.id}' using ${artifact}.`);
   console.log(`After authoring and validation, continue in Copilot: /sf-phase ${phase.id}`);
-  console.log(`CLI equivalent: singularity-flow phase publish ${phase.id}`);
+  console.log(`CLI equivalent (human): singularity-flow phase publish ${phase.id} --authored human`);
+  console.log(`CLI equivalent (Copilot-hosted): singularity-flow phase publish ${phase.id} --authored governed-agent --channel copilot-host`);
 }
 
 async function documentsCommand(positionals, options) {
@@ -2233,6 +2244,25 @@ async function phaseCommand(positionals, options) {
   const phaseId = positionals[2] ?? workflow.currentPhase;
   const requestedPhase = workflow.phases[phaseId];
   if (!requestedPhase) throw new SingularityFlowError(`Unknown or unavailable phase '${phaseId ?? ''}'. Provide a phase ID.`);
+  const sourcePath = optionString(options, 'from');
+  const authored = optionString(options, 'authored');
+  const authorshipOptions = normalizeAuthorshipOptions({
+    producer: authored,
+    channel: optionString(options, 'channel'),
+    imported: Boolean(sourcePath),
+    externalAiUse: optionString(options, 'external-ai')
+  });
+  if (!authored) console.warn('Deprecation warning: phase publish without --authored records legacy-unspecified. Pass --authored human or --authored governed-agent.');
+  if (sourcePath && !['human', 'external-tool'].includes(authorshipOptions.producer)) {
+    throw new SingularityFlowError('--from requires --authored human or --authored external-tool.', { code: 'MANUAL_AUTHORSHIP_REQUIRED' });
+  }
+  if (usageFile && authorshipOptions.producer !== 'governed-agent') {
+    throw new SingularityFlowError('--usage-json is valid only with --authored governed-agent. Manual and deterministic publication record model usage as not-invoked.');
+  }
+  assertProducerAllowed(requestedPhase, authorshipOptions.producer);
+  const session = await loadSession(root);
+  const targetPath = path.join(workDir(root, config, workflow.workItem.id), requestedPhase.requiredArtifact.path);
+  const targetRelative = path.relative(root, targetPath).replaceAll(path.sep, '/');
   // Discover the prospective generation's artifact set before opening the publication unit. This
   // changes only the in-memory aggregate; the unit below still owns every durable write. Without
   // this preflight, implementation source/tests first discovered inside `publishGeneration` were
@@ -2247,10 +2277,20 @@ async function phaseCommand(positionals, options) {
     workflow,
     { type: 'artifact-generated', phaseId, generation },
     `[${workflow.workItem.id}][phase:${phaseId}][generated:${generation}] publish artifacts`,
-    requestedPhase.artifacts.map((item) => item.path),
+    [...new Set([...requestedPhase.artifacts.map((item) => item.path), targetRelative])],
     {
       beforeStateWrite: async () => {
-        phase = await publishGeneration(root, config, workflow, { phaseId, usage, persist: false });
+        const source = sourcePath
+          ? await importManualArtifact({ sourcePath: path.resolve(sourcePath), targetPath, contract: requestedPhase.requiredArtifact })
+          : await inspectInPlaceArtifact(targetPath, requestedPhase.requiredArtifact);
+        const authorship = buildGenerationAuthorship({
+          options: authorshipOptions,
+          actor: session.actor,
+          governedAgentContext: session.agent,
+          source
+        });
+        await scanArtifacts(root, config, workflow, phaseId);
+        phase = await publishGeneration(root, config, workflow, { phaseId, usage, authorship, persist: false });
       }
     }
   );
@@ -2261,7 +2301,7 @@ async function phaseCommand(positionals, options) {
   const costs = generationUsage.map((item) => item.providerCost).filter(Number.isFinite);
   const providerCost = costs.length ? costs.reduce((sum, value) => sum + value, 0) : null;
   if (telemetry) {
-    console.log(`Telemetry: ${telemetry.status} | Models: ${telemetry.models.join(', ') || 'unavailable'} | Tokens: ${tokens || 'unavailable'} | Provider cost: ${providerCost == null ? 'unavailable' : `$${providerCost.toFixed(6)}`}`);
+    console.log(`Telemetry: ${telemetry.status} | Models: ${telemetry.models.join(', ') || (telemetry.status === 'not-invoked' ? 'not invoked' : 'unavailable')} | Tokens: ${tokens || (telemetry.status === 'not-invoked' ? 'not invoked' : 'unavailable')} | Provider cost: ${providerCost == null ? (telemetry.status === 'not-invoked' ? 'not invoked' : 'unavailable') : `$${providerCost.toFixed(6)}`}`);
     console.log(`Telemetry record: ${telemetry.path}`);
     if (telemetry.status === 'pending') console.log('Telemetry will be reconciled automatically on the next submit action, after Copilot exports this completed turn.');
   }
@@ -2305,17 +2345,63 @@ async function pullRequestCommand(positionals, options) {
   if (describe) {
     const format = optionString(options, 'format', 'markdown').toLowerCase();
     if (!['markdown', 'json'].includes(format)) throw new SingularityFlowError(`Unknown PR description format '${format}'. Use markdown or json.`);
-    const result = { ...plan, deterministic: true, subjectRevision: workflow.revision?.subjectRevision ?? null };
-    if (optionBoolean(options, 'clipboard')) result.clipboard = copyToClipboard(plan.body);
+    const context = operationContext();
+    const polishRequested = optionBoolean(options, 'polish');
+    let body = plan.body;
+    let polishApplied = false;
+    let modelInvocation = null;
+    if (polishRequested && context?.fallbackFrom !== 'pr.describe.polish') {
+      const provider = config.models?.defaultProvider ?? 'copilot-cli';
+      const providerConfig = config.models?.providers?.[provider] ?? null;
+      const response = await invokeModel({
+        provider,
+        providerConfig,
+        model: providerConfig?.model ?? null,
+        cwd: root,
+        allowedRoots: [root],
+        channel: 'pr-description-polish',
+        subject: { kind: 'story', id: workflow.workItem.id },
+        prompt: { text: [
+          'Polish the following pull-request description for clarity and brevity.',
+          'Preserve every factual claim, identifier, checkbox, code span, and Markdown link.',
+          'Do not add evidence, claims, or implementation details. Return Markdown only.',
+          '', plan.body
+        ].join('\n') },
+        tools: { mode: 'none', names: [] },
+        limits: { timeoutMs: 60_000, outputBytes: 512 * 1024 }
+      });
+      body = response.output;
+      polishApplied = true;
+      modelInvocation = {
+        id: response.invocationId,
+        provider: response.provider,
+        model: response.model,
+        outputSha256: response.outputSha256
+      };
+    }
+    const fallback = context?.fallbackFrom === 'pr.describe.polish'
+      ? { requestedOperationId: context.fallbackFrom, operationId: context.operation.id, enhancementOmitted: true }
+      : null;
+    const result = {
+      ...plan,
+      body,
+      deterministic: !polishApplied,
+      polishApplied,
+      fallback,
+      modelInvocation,
+      subjectRevision: workflow.revision?.subjectRevision ?? null
+    };
+    if (optionBoolean(options, 'clipboard')) result.clipboard = copyToClipboard(result.body);
     if (optionBoolean(options, 'write')) {
       if (!optionBoolean(options, 'yes') && !(await confirmExact(`Type ${plan.workId} to update the existing pull request description: `, plan.workId))) {
         throw new SingularityFlowError('Pull request update cancelled.');
       }
-      result.write = updateStoryPullRequest(root, plan);
+      result.write = updateStoryPullRequest(root, { ...plan, body: result.body });
     }
     if (format === 'json') console.log(JSON.stringify(result, null, 2));
     else {
-      process.stdout.write(`${plan.body}\n`);
+      process.stdout.write(`${result.body}\n`);
+      if (fallback) console.error('Model enhancement omitted; returned the deterministic pr.describe result.');
       if (result.clipboard?.status === 'unavailable') console.error(`Clipboard unavailable: ${result.clipboard.reason}`);
       else if (result.clipboard) console.error(`Copied with ${result.clipboard.provider}.`);
       if (result.write?.status === 'unavailable') console.error(`PR update unavailable: ${result.write.reason}`);
@@ -5478,13 +5564,7 @@ async function workspaceCommand(positionals, options) {
     if (optionBoolean(options, 'dry-run')) return console.log(JSON.stringify(launch, null, 2));
     console.log(`\n${launch.prompt}`);
     console.log(`Starting GitHub Copilot in ${context.repositoryPath}`);
-    const result = run(process.platform === 'win32' ? 'copilot.cmd' : 'copilot', args, {
-      cwd: context.repositoryPath,
-      stdio: 'inherit',
-      allowFailure: true
-    });
-    if (result.error) throw new SingularityFlowError(`Unable to start GitHub Copilot: ${result.error.message}`);
-    if (result.status !== 0) throw new SingularityFlowError(`GitHub Copilot exited with status ${result.status}.`);
+    launchHostSession({ cwd: context.repositoryPath, args });
     return;
   }
   if (subcommand === 'create') {

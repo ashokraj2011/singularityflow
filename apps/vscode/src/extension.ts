@@ -88,6 +88,13 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
   // The version does not change between development reinstalls, so it cannot answer this.
   output.appendLine(`Singularity Flow — build ${typeof __SFLOW_BUILD__ === 'string' ? __SFLOW_BUILD__ : 'unstamped'}`);
   const secureCredentials = new SecureCredentials(context.secrets);
+  const resolvedCliEnvironment = async (): Promise<NodeJS.ProcessEnv> => {
+    const environment = await secureCredentials.environment();
+    const mode = vscode.workspace.getConfiguration('singularityFlow').get<'auto' | 'disabled'>('modelMode', 'auto');
+    if (mode === 'disabled') environment.SINGULARITY_FLOW_NO_MODEL = '1';
+    else delete environment.SINGULARITY_FLOW_NO_MODEL;
+    return environment;
+  };
   const resetMarker = path.resolve(process.env.SINGULARITY_FLOW_VSCODE_RESET_MARKER
     || path.join(os.homedir(), '.singularity-flow', 'vscode-fresh-reset-pending.json'));
   const pendingFreshReset = await readFile(resetMarker, 'utf8').then(() => true).catch((error: NodeJS.ErrnoException) => {
@@ -109,7 +116,24 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
     await rm(resetMarker, { force: true });
     output.appendLine('Fresh-install reset: cleared Singularity Flow credentials, profile, and extension global state.');
   }
-  let cliEnvironment = await secureCredentials.environment();
+  let cliEnvironment = await resolvedCliEnvironment();
+
+  context.subscriptions.push(vscode.commands.registerCommand('singularityFlow.configureModelMode', async () => {
+    const setting = await vscode.window.showQuickPick([
+      { label: 'Auto', description: 'Allow operations whose policy permits or requires a model', value: 'auto' as const },
+      { label: 'Disabled', description: 'No kernel-owned model invocation; required operations fail before loading', value: 'disabled' as const }
+    ], { title: 'Singularity Flow model mode' });
+    if (!setting) return;
+    await vscode.workspace.getConfiguration('singularityFlow').update('modelMode', setting.value, vscode.ConfigurationTarget.Workspace);
+    cliEnvironment = await resolvedCliEnvironment();
+    await vscode.commands.executeCommand('singularityFlow.refresh');
+  }));
+
+  const configurationListener = vscode.workspace.onDidChangeConfiguration?.(async (event) => {
+    if (!event.affectsConfiguration('singularityFlow.modelMode')) return;
+    cliEnvironment = await resolvedCliEnvironment();
+  });
+  if (configurationListener) context.subscriptions.push(configurationListener);
 
   context.subscriptions.push(vscode.commands.registerCommand('singularityFlow.configureProfile', async () => {
     const settings = vscode.workspace.getConfiguration('singularityFlow');
@@ -161,7 +185,7 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
       const repository = vscode.workspace.workspaceFolders?.[0]?.uri.fsPath ?? process.cwd();
       await new SingularityFlowClient({ location, repository, environment: candidate }).run(['jira', 'status', '--json']);
       await secureCredentials.saveJira({ deployment: deployment.value, baseUrl, username, connectionName: 'vscode' }, token);
-      cliEnvironment = await secureCredentials.environment();
+      cliEnvironment = await resolvedCliEnvironment();
       void vscode.window.showInformationMessage('Jira connected securely. Reload this window to apply it to every view.', 'Reload')
         .then((choice) => choice === 'Reload' ? vscode.commands.executeCommand('workbench.action.reloadWindow') : undefined);
     } catch (error) {
@@ -174,7 +198,7 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
       'Remove the saved Jira connection from the operating-system keychain?', { modal: true }, 'Reset Jira');
     if (choice !== 'Reset Jira') return;
     await secureCredentials.resetJira();
-    cliEnvironment = await secureCredentials.environment();
+    cliEnvironment = await resolvedCliEnvironment();
     void vscode.window.showInformationMessage('Saved Jira credentials removed.');
   }));
 
@@ -193,7 +217,7 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
     });
     if (!webhook) return;
     await secureCredentials.saveTeamsWebhook(webhook);
-    cliEnvironment = await secureCredentials.environment();
+    cliEnvironment = await resolvedCliEnvironment();
     void vscode.window.showInformationMessage('Teams notifications configured. Reload this window to apply the secret to every command.', 'Reload')
       .then((choice) => choice === 'Reload' ? vscode.commands.executeCommand('workbench.action.reloadWindow') : undefined);
   }));
@@ -203,7 +227,7 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
       'Remove the saved Teams webhook from the operating-system keychain?', { modal: true }, 'Reset Teams');
     if (choice !== 'Reset Teams') return;
     await secureCredentials.resetTeamsWebhook();
-    cliEnvironment = await secureCredentials.environment();
+    cliEnvironment = await resolvedCliEnvironment();
     void vscode.window.showInformationMessage('Saved Teams webhook removed.');
   }));
 

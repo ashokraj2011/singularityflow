@@ -1,0 +1,30 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://example.invalid/singularity-flow/model-invocation-event.schema.json",
+  "title": "Local model invocation evidence",
+  "type": "object",
+  "required": ["schemaVersion", "id", "operationId", "policy", "modelMode", "provider", "promptSha256", "promptBytes", "channel", "toolPolicy", "limits", "status", "startedAt"],
+  "properties": {
+    "schemaVersion": { "const": 1 },
+    "id": { "type": "string", "minLength": 1 },
+    "operationId": { "type": "string", "minLength": 1 },
+    "policy": { "enum": ["optional", "required"] },
+    "modelMode": { "enum": ["enabled", "disabled"] },
+    "provider": { "type": "string", "minLength": 1 },
+    "model": { "type": ["string", "null"] },
+    "promptSha256": { "type": "string", "pattern": "^[a-f0-9]{64}$" },
+    "promptBytes": { "type": "integer", "minimum": 0 },
+    "channel": { "type": "string", "minLength": 1 },
+    "subject": { "type": ["object", "null"] },
+    "toolPolicy": { "type": "object" },
+    "limits": { "type": "object" },
+    "status": { "enum": ["started", "completed", "failed"] },
+    "startedAt": { "type": "string", "format": "date-time" },
+    "completedAt": { "type": ["string", "null"], "format": "date-time" },
+    "outputSha256": { "type": "string", "pattern": "^[a-f0-9]{64}$" },
+    "outputBytes": { "type": "integer", "minimum": 0 },
+    "usage": { "type": "object" },
+    "error": { "type": "object" }
+  },
+  "additionalProperties": true
+}

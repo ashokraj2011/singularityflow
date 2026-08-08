@@ -1,0 +1,21 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://example.invalid/singularity-flow/artifact-validation.schema.json",
+  "title": "Deterministic artifact validation contract",
+  "type": "object",
+  "properties": {
+    "minimumBytes": { "type": "integer", "minimum": 0 },
+    "maximumBytes": { "type": "integer", "minimum": 1 },
+    "allowedExtensions": { "type": "array", "minItems": 1, "uniqueItems": true, "items": { "type": "string", "pattern": "^\\.[A-Za-z0-9]+$" } },
+    "allowedMediaTypes": { "type": "array", "minItems": 1, "uniqueItems": true, "items": { "type": "string", "minLength": 3 } },
+    "validation": {
+      "type": "object",
+      "properties": {
+        "requiredHeadings": { "type": "array", "uniqueItems": true, "items": { "type": "string", "minLength": 1 } },
+        "forbiddenPlaceholders": { "type": "array", "uniqueItems": true, "items": { "type": "string", "minLength": 1 } }
+      },
+      "additionalProperties": false
+    }
+  },
+  "additionalProperties": false
+}

@@ -1383,6 +1383,22 @@ Multi-approval thresholds require distinct authenticated identities. Switching t
 
 ## Generating and publishing a phase
 
+The kernel can publish a phase without invoking a model. Use `--no-model` globally
+or `SINGULARITY_FLOW_NO_MODEL=1`, then author the prepared artifact in place or
+import an existing file:
+
+```bash
+singularity-flow --no-model prepare intake
+singularity-flow --no-model phase publish intake --authored human --channel manual-in-place
+singularity-flow --no-model phase publish intake --authored human --from ./intake.md --channel manual-import --external-ai none
+```
+
+Manual artifacts pass the same resolved file, content, quality, write-scope, input,
+commit, and push gates as governed-agent artifacts. `wm light` is the deterministic
+model-free world-model route; `wm build` requires a model and fails fast when model
+mode is disabled. See `docs/MODEL-INDEPENDENCE.md` and the generated
+`docs/OPERATION-MODEL-POLICY.md` for the complete boundary.
+
 In Copilot, use `/sf-phase`. It loads the current phase contract, active governed Agent Markdown, required world-model views, agent-added views, and evidence ledger when needed.
 
 The equivalent CLI sequence is:

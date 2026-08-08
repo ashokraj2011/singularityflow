@@ -201,6 +201,7 @@ export async function createStoryReviewPacket(root, config, workflow, phase) {
     sourceTreeSha256: await sourceTreeHash(root),
     phase: phase.id,
     generation: phase.generation,
+    authorship: [...(phase.authorship ?? [])].reverse().find((record) => record.generation === phase.generation) ?? { producer: 'legacy-unspecified', channel: 'legacy' },
     artifacts,
     references,
     checks: phase.checks ?? [],

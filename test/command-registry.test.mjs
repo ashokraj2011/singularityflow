@@ -11,11 +11,11 @@ test('command registry resolves compatibility aliases without duplicating handle
   for (const entry of COMMAND_REGISTRY) {
     assert.match(entry.modulePath, /^\.\//);
     assert.ok(['read', 'mutation'].includes(entry.classification));
-    assert.ok(['none', 'optional', 'required'].includes(entry.modelPolicy));
+    assert.ok(['never', 'optional', 'required', 'mixed'].includes(entry.modelPolicy));
     assert.ok(['human', 'human-or-json', 'json'].includes(entry.output));
   }
   assert.equal(COMMAND_REGISTRY.find((entry) => entry.name === 'snapshot').classification, 'read');
-  assert.equal(COMMAND_REGISTRY.find((entry) => entry.name === 'wm').modelPolicy, 'optional');
+  assert.equal(COMMAND_REGISTRY.find((entry) => entry.name === 'wm').modelPolicy, 'mixed');
 });
 
 test('command registry detects missing and unregistered handlers', () => {

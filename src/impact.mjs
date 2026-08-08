@@ -417,13 +417,36 @@ function exposureSummary(workflow) {
   const recorded = workflow.measurement?.exposures ?? [];
   const rank = new Map(IMPACT_EXPOSURE_LEVELS.map((level, index) => [level, index]));
   return workflow.phaseOrder.map((phaseId) => {
+    const phase = workflow.phases[phaseId];
     const candidates = recorded.filter((item) => item.phaseId === phaseId).sort((a, b) => (rank.get(b.level) ?? -1) - (rank.get(a.level) ?? -1));
-    const telemetry = workflow.phases[phaseId]?.usage ?? [];
+    const telemetry = phase?.usage ?? [];
     if (candidates[0]) return { phaseId, level: candidates[0].level, assurance: candidates[0].assurance, observationStatus: candidates[0].assurance === 'attested' ? 'self-reported' : 'exact' };
     if (telemetry.length) return { phaseId, level: 'invoked', assurance: 'host-observed', observationStatus: 'exact' };
+    const authorship = [...(phase?.authorship ?? [])].reverse().find((record) => record.generation === phase.generation);
+    if (authorship) {
+      const kernelInvoked = authorship.kernelModel?.invoked === true;
+      const externalAiUse = authorship.externalAiUse?.value ?? 'unknown';
+      const externalAiUseStatus = authorship.externalAiUse?.status ?? 'unavailable';
+      const hosted = authorship.producer === 'governed-agent' && authorship.channel === 'copilot-host';
+      return {
+        phaseId,
+        level: kernelInvoked ? 'invoked' : hosted || externalAiUse === 'assisted' ? 'artifact-assisted' : 'unknown',
+        assurance: kernelInvoked ? 'provider-verified' : hosted || externalAiUseStatus === 'self-reported' ? 'attested' : 'unknown',
+        observationStatus: kernelInvoked ? 'exact' : hosted || externalAiUseStatus === 'self-reported' ? 'self-reported' : 'unavailable',
+        kernelModelInvoked: kernelInvoked,
+        kernelModelStatus: authorship.kernelModel?.status ?? 'unavailable',
+        kernelInvocationIds: [...(authorship.kernelModel?.invocationIds ?? [])],
+        externalAiUse,
+        externalAiUseStatus,
+        producer: authorship.producer,
+        channel: authorship.channel
+      };
+    }
     return { phaseId, level: 'unknown', assurance: 'unknown', observationStatus: 'unavailable' };
   });
 }
+
+export function storyModelExposure(workflow) { return exposureSummary(workflow); }
 
 function actualAssistance(exposures) {
   if (exposures.some((item) => item.level === 'agent-executed')) return 'governed-agent';

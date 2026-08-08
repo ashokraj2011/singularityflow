@@ -5,6 +5,7 @@ import { nextStepsSnapshot, nextStepsText } from '../nextsteps.mjs';
 import { readPendingPublication } from '../publication-pending.mjs';
 import { buildRepositorySubjectIndex, resolveContext } from '../repository-subject-index.mjs';
 import { exists, optionBoolean, readJson } from '../util.mjs';
+import { operationContext } from '../operation-context.mjs';
 
 async function localSession(root) {
   const target = path.join(gitDir(root), 'singularity-flow', 'session.json');
@@ -30,7 +31,7 @@ async function initiativeSnapshot(root, selected) {
   };
 }
 
-async function storyPrerequisites(root, workflow, selected) {
+async function storyPrerequisites(root, workflow, selected, modelMode = { enabled: true }) {
   const prerequisites = [];
   const active = activePhase(workflow);
   const session = await localSession(root);
@@ -46,7 +47,7 @@ async function storyPrerequisites(root, workflow, selected) {
 
   const generationRequired = active && (active.generationPolicy?.requirement !== 'none')
     && (active.generation < 1 || (active.rejectedAt && !(workflow.history ?? []).some((event) => event.phase === active.id && event.event === 'phase_generated' && event.at > active.rejectedAt)));
-  if (active?.status === 'in_progress' && generationRequired && (workflow.resolution?.worldModelGrounding ?? 'off') !== 'off') {
+  if (modelMode.enabled && active?.status === 'in_progress' && generationRequired && (workflow.resolution?.worldModelGrounding ?? 'off') !== 'off') {
     const { loadDefinition } = await import('../config.mjs');
     const { verifyGroundingRecord, worldModelRebuildReason } = await import('../grounding.mjs');
     const definition = await loadDefinition(root);
@@ -86,6 +87,7 @@ export async function resolveSnapshot(positionals) {
   if (selected?.kind === 'initiative') return initiativeSnapshot(root, selected);
   if (selected?.kind !== 'story') return nextStepsSnapshot({ branch: branch(root), requestedWorkId });
   const workflow = selected.state;
+  const modelMode = operationContext()?.modelMode ?? { enabled: true, source: 'default' };
   return nextStepsSnapshot({
     branch: branch(root),
     workflow,
@@ -93,7 +95,8 @@ export async function resolveSnapshot(positionals) {
       kind: 'story', id: selected.id, migrate: false,
       roots: { workItemRoot: path.dirname(path.dirname(selected.location.path)) }
     })),
-    prerequisites: await storyPrerequisites(root, workflow, selected)
+    prerequisites: await storyPrerequisites(root, workflow, selected, modelMode),
+    modelMode
   });
 }
 

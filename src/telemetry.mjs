@@ -213,7 +213,7 @@ export async function recordPhaseTelemetry(root, workflow, phase, usage, capture
   const costs = usage.map((item) => item.providerCost).filter(Number.isFinite);
   return {
     generation: phase.generation, path: relative, sha256: info.sha256,
-    status: capture.pending ? 'pending' : !exact ? 'unavailable' : exact === usage.length ? 'exact' : 'partial',
+    status: capture.source === 'not-invoked' ? 'not-invoked' : capture.pending ? 'pending' : !exact ? 'unavailable' : exact === usage.length ? 'exact' : 'partial',
     models: [...new Set(usage.map((item) => item.model).filter(Boolean))],
     providerCost: costs.length ? costs.reduce((sum, value) => sum + value, 0) : null,
     record

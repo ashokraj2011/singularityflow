@@ -1,8 +1,8 @@
 import { phaseNeedsGeneration, workflowGuide } from './guide.mjs';
 import { copilotAction } from './copilot-guidance.mjs';
 
-function action(timing, skill, command, reason) {
-  return copilotAction({ timing, skill, command, reason });
+function action(timing, skill, command, reason, metadata = {}) {
+  return copilotAction({ timing, skill, command, reason, modelPolicy: 'never', availability: 'available', ...metadata });
 }
 
 function nextPhase(workflow, currentId) {
@@ -32,7 +32,7 @@ function afterApprovalActions(workflow, phase) {
   return [action('then', '/sflow-phase', `singularity-flow prepare ${upcoming.id}`, `After ${phase.id} approval advances the workflow, generate and publish ${upcoming.label}.`)];
 }
 
-export function workflowNextSteps(workflow, { publicationPending = false, prerequisites = [] } = {}) {
+export function workflowNextSteps(workflow, { publicationPending = false, prerequisites = [], modelMode = { enabled: true } } = {}) {
   const workId = workflow.workItem.id;
   const phase = workflow.currentPhase ? workflow.phases[workflow.currentPhase] : null;
   if (publicationPending) return [
@@ -51,6 +51,25 @@ export function workflowNextSteps(workflow, { publicationPending = false, prereq
 
   const needsGeneration = phaseNeedsGeneration(workflow, phase);
   const actions = [...prerequisites.map(copilotAction), ...immediate];
+  const generationPolicy = phase.generationPolicy ?? { allowedProducers: ['governed-agent', 'human'], defaultProducer: 'governed-agent' };
+  const modelFreeProducer = generationPolicy.allowedProducers?.find((producer) => ['human', 'deterministic', 'external-tool'].includes(producer));
+  if (needsGeneration && !modelMode.enabled) {
+    if (modelFreeProducer === 'human') actions.unshift(action(
+      'now', '/sf-phase', `singularity-flow phase publish ${phase.id} --authored human --from <FILE> --channel manual-import --no-model`,
+      `Import and publish ${phase.label} without invoking a model.`,
+      { operationId: 'phase', modelPolicy: 'never', route: 'manual' }
+    ));
+    else if (modelFreeProducer === 'deterministic') actions.unshift(action(
+      'now', '/sf-phase', `singularity-flow prepare ${phase.id} --no-model`,
+      `Generate ${phase.label} deterministically without invoking a model.`,
+      { operationId: 'prepare', modelPolicy: 'never', route: 'deterministic' }
+    ));
+    else actions.unshift(action(
+      'blocked', '/sf-nextsteps', `singularity-flow nextsteps ${workId} --no-model`,
+      `${phase.label} has no configured model-free producer.`,
+      { operationId: 'phase', modelPolicy: 'required', availability: 'blocked', route: 'none' }
+    ));
+  }
   const resolvedPhase = workflow.resolution?.phases?.find((item) => item.id === phase.id);
   if (needsGeneration && workflow.resolution?.inputsMode === 'enforce' && resolvedPhase?.inputs?.length && phase.inputContext?.generation !== phase.generation + 1) {
     actions.unshift(action('now', '/sflow-inputs', `singularity-flow inputs ${phase.id}`, 'Resolve and render every enforced approved phase input before generation.'));
@@ -65,7 +84,7 @@ export function workflowNextSteps(workflow, { publicationPending = false, prereq
   return actions;
 }
 
-export function nextStepsSnapshot({ initialized = true, branch = null, requestedWorkId = null, workflow = null, publicationPending = false, prerequisites = [] } = {}) {
+export function nextStepsSnapshot({ initialized = true, branch = null, requestedWorkId = null, workflow = null, publicationPending = false, prerequisites = [], modelMode = { enabled: true } } = {}) {
   if (!initialized) return {
     schemaVersion: 1,
     state: 'not_initialized',
@@ -99,7 +118,8 @@ export function nextStepsSnapshot({ initialized = true, branch = null, requested
     workId: workflow.workItem.id,
     workType: workflow.workItem.workType,
     currentPhase: workflow.currentPhase,
-    actions: workflowNextSteps(workflow, { publicationPending, prerequisites })
+    modelMode: modelMode.enabled ? 'auto' : 'disabled',
+    actions: workflowNextSteps(workflow, { publicationPending, prerequisites, modelMode })
   };
 }
 

@@ -24,7 +24,10 @@ export async function main(argv) {
 
   const definition = commandDefinition(requested);
   if (!definition) throw new SingularityFlowError(`Unknown command: ${requested}`);
-  const timer = commandTimer(definition.name, globalThis.__SINGULARITY_FLOW_PROCESS_STARTED_AT ?? process.hrtime.bigint());
+  const timer = commandTimer(definition.name, {
+    started: globalThis.__SINGULARITY_FLOW_PROCESS_STARTED_AT ?? process.hrtime.bigint(),
+    commandClass: definition.classification
+  });
   timer.stage('root-dispatch');
   const root = rootIfAvailable();
   try {
@@ -32,13 +35,13 @@ export async function main(argv) {
     timer.stage('module-load');
     const result = await module.run(argv, { positionals: [definition.name, ...positionals.slice(1)], options, definition });
     timer.stage('execute');
-    const event = timer.finish({ outcome: 'ok' });
+    const event = timer.finish({ outcome: 'success' });
     if (!LOCAL_STATE_RESET_COMMANDS.has(definition.name)) await recordCommandTiming(root, event);
     if (options.timings === true) writeCommandTimings(event);
     return result;
   } catch (error) {
     timer.stage('execute');
-    const event = timer.finish({ outcome: 'error', error: error?.name ?? 'Error' });
+    const event = timer.finish({ outcome: 'error', errorClass: error?.name ?? 'Error' });
     if (!LOCAL_STATE_RESET_COMMANDS.has(definition.name)) await recordCommandTiming(root, event);
     if (options.timings === true) writeCommandTimings(event);
     throw error;

@@ -58,6 +58,64 @@ test('a successful run resolves the parsed JSON', async () => {
   assert.deepEqual(result, { ready: true, errors: [] });
 });
 
+test('every VS Code CLI completion reports one privacy-safe timing envelope', async () => {
+  const events = [];
+  await invoke({
+    args: ['status', 'SECRET-WORK-ID', '--json'],
+    commandClass: 'read',
+    onTiming: (event) => events.push(event),
+    spawnImpl: fakeSpawn({ stdout: '{"ready":true}' })
+  });
+  assert.equal(events.length, 1);
+  assert.deepEqual(
+    {
+      schemaVersion: events[0].schemaVersion,
+      event: events[0].event,
+      command: events[0].command,
+      commandClass: events[0].commandClass,
+      outcome: events[0].outcome,
+      cancelled: events[0].cancelled,
+      fallback: events[0].fallback
+    },
+    {
+      schemaVersion: 2,
+      event: 'dx.vscode-command-timing',
+      command: 'status',
+      commandClass: 'read',
+      outcome: 'success',
+      cancelled: false,
+      fallback: 'none'
+    }
+  );
+  assert.equal(typeof events[0].durationMs, 'number');
+  assert.equal(typeof events[0].stages.spawnMs, 'number');
+  assert.doesNotMatch(JSON.stringify(events[0]), /SECRET-WORK-ID/);
+});
+
+test('VS Code CLI errors and cancellations are distinguishable in timing diagnostics', async () => {
+  const failed = [];
+  await assert.rejects(invoke({
+    onTiming: (event) => failed.push(event),
+    spawnImpl: fakeSpawn({ stderr: 'Singularity Flow error: refused', code: 1 })
+  }), /refused/);
+  assert.equal(failed.length, 1);
+  assert.equal(failed[0].outcome, 'error');
+  assert.equal(failed[0].cancelled, false);
+
+  const cancelled = [];
+  const controller = new AbortController();
+  const pending = invoke({
+    signal: controller.signal,
+    onTiming: (event) => cancelled.push(event),
+    spawnImpl: fakeSpawn({ stdout: '{}', delayMs: 5_000 })
+  });
+  controller.abort();
+  await assert.rejects(pending, /cancelled/);
+  assert.equal(cancelled.length, 1);
+  assert.equal(cancelled[0].outcome, 'cancelled');
+  assert.equal(cancelled[0].cancelled, true);
+});
+
 test('a non-zero exit rejects with the CLI message, stripped of its prefix', async () => {
   // The CLI's own wording is already written for a human; rewording it here would lose the remedy
   // the engine deliberately names.

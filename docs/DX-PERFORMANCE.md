@@ -31,11 +31,22 @@ of variation. `--enforce` exits non-zero on a budget or comparable-baseline regr
 
 The checked-in baseline starts as `unestablished`. The first release run is therefore explicit:
 it evaluates absolute budgets and prints a warning, but does not claim a relative comparison.
-After reviewing a stable pinned-runner result, establish it with:
+After reviewing a stable pinned-runner result, establish it on the pinned runner with:
 
 ```bash
 node scripts/dx-benchmark.mjs --write-baseline --json
 ```
+
+Or save the pinned runner's complete JSON report and import it on another host:
+
+```bash
+node scripts/dx-benchmark.mjs --json > /tmp/sflow-dx-report.json
+node scripts/dx-benchmark.mjs --accept-report=/tmp/sflow-dx-report.json
+```
+
+Both paths validate the exact Node major, platform, architecture, sample count, disabled-network
+protocol, fixture topology, and passing outcome. A developer laptop cannot accidentally replace a
+Linux/Node-22 accepted baseline.
 
 Do not update the baseline merely to make a regression pass. Review topology, runner load,
 dependency changes, and the lazy import graph first.
@@ -49,8 +60,12 @@ singularity-flow status WORK-123 --timings
 ```
 
 Commands also append machine-local timing events under
-`.git/singularity-flow/performance/commands.jsonl`. This file is never committed. The VS Code
-extension writes each CLI duration to its Singularity Flow Output channel.
+`.git/singularity-flow/dx/timings.jsonl`. This file is never committed, contains no command
+arguments, rotates at 5 MiB, and retains rotated logs for 90 days by default. The limits can be
+changed with `SINGULARITY_FLOW_DX_TIMING_MAX_BYTES` and
+`SINGULARITY_FLOW_DX_TIMING_RETENTION_DAYS`. The VS Code extension writes the same versioned,
+privacy-safe duration envelope to its Singularity Flow Output channel, including successful,
+failed, timed-out, and cancelled commands.
 
 The test suite locks the lazy boundary: fast commands may not statically import unrelated Jira,
 model, provider, visual, workspace, Initiative, or remote-agent modules.

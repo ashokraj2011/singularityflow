@@ -15,6 +15,17 @@ import {
 } from './runner.ts';
 import type { RepositorySnapshot } from './snapshot.ts';
 
+const READ_ONLY_COMMANDS = new Set([
+  'about', 'help', 'show', 'choices', 'inbox', 'status', 'progress', 'report', 'telemetry',
+  'guide', 'logs', 'doctor', 'review', 'nextsteps', 'inputs', 'spec', 'visual', 'snapshot', 'validate'
+]);
+
+function commandClass(args: string[]): 'read' | 'mutation' | 'unknown' {
+  if (!args[0]) return 'unknown';
+  if (args[0] === 'configuration' && args[1] !== 'save') return 'read';
+  return READ_ONLY_COMMANDS.has(args[0]) ? 'read' : 'mutation';
+}
+
 export interface CliLocation {
   /** The Node executable used to run the CLI. */
   executable: string;
@@ -117,11 +128,12 @@ export class SingularityFlowClient {
       input,
       env: this.options.environment,
       timeoutMs,
+      commandClass: commandClass(args),
       onOutput: this.options.onOutput,
-      onTiming: ({ command, durationMs }) => {
+      onTiming: (event) => {
         try {
           this.options.onOutput?.(
-            `[Singularity Flow] ${command} finished in ${durationMs.toFixed(1)}ms\n`,
+            `[Singularity Flow timing] ${JSON.stringify(event)}\n`,
             'stderr'
           );
         } catch { /* timing diagnostics must never fail a command */ }

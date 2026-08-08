@@ -559,6 +559,14 @@ and a hash-bound verification policy waiver only when every declared predicate
 passes. Unknown risk, protected paths, semantic boundary changes, failed checks,
 multiple repositories, or an oversized change fall back to normal human review.
 
+Source-writing phases also use governed work intervals. The committed baseline
+pins the phase's starting source/configuration state; optional local checkpoints
+store only hashes under `.git`; and submission atomically records a final
+specification-to-change reconciliation. Protected or oversized quick fixes are
+blocked with a non-destructive escalation plan. No CI provider or Git-host
+workflow file is required. See
+[Governed work intervals](docs/GOVERNED-WORK-INTERVALS.md).
+
 Developer-experience diagnostics are opt-in and bounded:
 
 ```bash

@@ -132,6 +132,7 @@ skills:
   sflow-story-checks: { class: mutation }
   sflow-story-fetch: { class: interactive }
   sflow-story-inbox: { class: echo }
+  sflow-work-interval: { class: mutation }
   sflow-story-start: { class: interactive }
   sflow-submit: { class: review }
   sflow-telemetry: { class: echo }

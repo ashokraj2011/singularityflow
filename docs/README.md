@@ -41,6 +41,7 @@ is not part of the current product.
 | Connect governed agents to MCP tools such as Playwright | [Governed MCP tools](MCP-INTEGRATION.md) |
 | Pin Figma MCP metadata into approved downstream design context | [Mobile model intake](MOBILE-MODEL-INTAKE.md) |
 | Measure aggregate Story delivery outcomes with privacy and quality gates | [Flow Impact Framework](FLOW-IMPACT-FRAMEWORK.md) |
+| Preserve creative freedom while reconciling source changes at governed boundaries | [Governed work intervals](GOVERNED-WORK-INTERVALS.md) |
 | Configure people, approvals, workflows, agents, and MCP visually | [VS Code Configuration Center](CONFIGURATION-CENTER.md) |
 
 ## Operations and delivery

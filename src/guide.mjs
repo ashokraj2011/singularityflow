@@ -1,8 +1,11 @@
-import { currentPhase } from './state-stores.mjs';
 import { phaseNeedsGeneration } from './sequence.mjs';
 import { copilotAction } from './copilot-guidance.mjs';
 
 export { phaseNeedsGeneration } from './sequence.mjs';
+
+function currentPhase(workflow) {
+  return workflow.currentPhase ? workflow.phases?.[workflow.currentPhase] ?? null : null;
+}
 
 function nextActions(workflow, phase) {
   if (workflow.status === 'cancelled') return [

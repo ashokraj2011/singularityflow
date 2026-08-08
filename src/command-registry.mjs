@@ -4,11 +4,18 @@ const READ_ONLY = new Set(['about', 'help', 'show', 'choices', 'inbox', 'status'
 const MODEL_OPTIONAL = new Set(['impact', 'prepare', 'next', 'run', 'wm']);
 const STRUCTURED = new Set(['status', 'progress', 'report', 'impact', 'telemetry', 'doctor', 'inputs', 'snapshot', 'validate', 'gate']);
 
+const LAZY_MODULES = Object.freeze({
+  about: './commands/about.mjs',
+  status: './commands/status.mjs',
+  nextsteps: './commands/nextsteps.mjs',
+  snapshot: './commands/snapshot.mjs'
+});
+
 function command([name, aliases = []]) {
   return Object.freeze({
     name,
     aliases: Object.freeze(aliases),
-    modulePath: './cli.mjs',
+    modulePath: LAZY_MODULES[name] ?? './commands/legacy.mjs',
     classification: READ_ONLY.has(name) ? 'read' : 'mutation',
     modelPolicy: MODEL_OPTIONAL.has(name) ? 'optional' : 'none',
     output: STRUCTURED.has(name) ? 'human-or-json' : 'human'
@@ -35,6 +42,11 @@ export function canonicalCommand(name) {
   const result = canonical.get(name);
   if (!result) throw new SingularityFlowError(`Unknown command: ${name}`);
   return result;
+}
+
+export function commandDefinition(name) {
+  const normalized = canonicalCommand(name);
+  return COMMAND_REGISTRY.find((entry) => entry.name === normalized);
 }
 
 export function validateCommandHandlers(handlers) {

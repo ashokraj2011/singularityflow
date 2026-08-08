@@ -1,0 +1,12 @@
+{
+  "schemaVersion": 1,
+  "status": "unestablished",
+  "message": "The first enforced CI run establishes the accepted platform baseline after review.",
+  "runtime": {
+    "nodeMajor": 22,
+    "runner": "ubuntu-latest",
+    "platform": "linux",
+    "architecture": "x64"
+  },
+  "commands": {}
+}

@@ -1,5 +1,6 @@
 #!/usr/bin/env node
-import { main } from '../src/cli.mjs';
+globalThis.__SINGULARITY_FLOW_PROCESS_STARTED_AT = process.hrtime.bigint();
+const { main } = await import('../src/cli-entry.mjs');
 
 main(process.argv.slice(2)).catch((error) => {
   console.error(`\nSingularity Flow error: ${error?.message ?? String(error)}`);

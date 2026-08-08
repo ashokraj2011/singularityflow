@@ -930,6 +930,10 @@ singularity-flow report ENG-142 --format html --out workflow-report.html
 
 From Copilot, use `/sf-report ENG-142`. Markdown is the default; JSON exposes the derived data and HTML includes script-free inline charts. Reports show total and per-phase wall-clock duration, approval waiting, active time, generation/rework count, rejections, self-approvals, provider/model identity, exact token usage with per-model totals, quality-check duration, and the largest approval-latency bottleneck. An open approval request accumulates waiting time through report generation.
 
+CLI responsiveness is governed separately from workflow duration. Run `npm run benchmark:dx`
+to measure the pinned reference fixture, or add `--timings` to a command to see dispatch, module
+load, and execution stages. See [Developer-experience performance](docs/DX-PERFORMANCE.md).
+
 Durations include nights and weekends; they are not business-hours or developer-productivity estimates. Reports are derived views, not authoritative workflow state. Standard output is read-only, while `--out` writes only the requested report file and does not commit or push it automatically.
 
 ## Supporting documents and designs

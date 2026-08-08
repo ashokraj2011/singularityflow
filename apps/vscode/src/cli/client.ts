@@ -118,6 +118,14 @@ export class SingularityFlowClient {
       env: this.options.environment,
       timeoutMs,
       onOutput: this.options.onOutput,
+      onTiming: ({ command, durationMs }) => {
+        try {
+          this.options.onOutput?.(
+            `[Singularity Flow] ${command} finished in ${durationMs.toFixed(1)}ms\n`,
+            'stderr'
+          );
+        } catch { /* timing diagnostics must never fail a command */ }
+      },
       signal
     });
   }

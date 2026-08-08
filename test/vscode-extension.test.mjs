@@ -2714,9 +2714,9 @@ test('the page carries the directories it needs to answer without a round trip',
 const { buildWorkspaceTree, capabilityIdOf, workspacePathOf } =
   await import(source('views/navigation-trees.ts'));
 
-test('workspace rows open their details while selection remains a separate action', () => {
-  // A row answers what the workspace contains. Selecting it for governed work is deliberately a
-  // separate action, so inspecting another workspace does not change Lifecycle or Configuration.
+test('inactive workspace rows select their scope while the active row opens its details', () => {
+  // A person clicking another workspace is choosing where to work. Making that click open details
+  // left Lifecycle, Inbox, and Configuration bound to the old selection with no visible feedback.
   const [commerce, payments] = buildWorkspaceTree(REGISTRY);
   assert.equal(commerce.label, 'commerce');
   assert.equal(commerce.kind, 'action');
@@ -2733,6 +2733,9 @@ test('workspace rows open their details while selection remains a separate actio
   assert.equal(commerce.children, undefined, 'there is no disclosure chevron competing with selection');
   assert.match(commerce.tooltip, /Lead repository: platform/);
   assert.equal(payments.description, undefined, 'only one workspace is being worked in');
+  assert.equal(payments.runCommand, 'singularityFlow.switchWorkspace',
+    'clicking an inactive workspace changes the active governed scope');
+  assert.match(payments.tooltip, /select this workspace/i);
   // The one being worked in is distinguishable to a menu, not just to a reader.
   assert.equal(commerce.contextValue, 'sflow.workspace.active');
   assert.equal(payments.contextValue, 'sflow.workspace');

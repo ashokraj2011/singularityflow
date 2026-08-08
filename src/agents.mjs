@@ -263,7 +263,16 @@ export function validateAgentCatalog(agents, definition) {
   const phaseIds = new Set(Object.keys(definition.phases ?? {}));
   const viewIds = new Set(definition.worldModel?.views ?? []);
   for (const agent of agents) {
-    for (const phase of [...agent.phases, ...agent.defaultFor]) if (!phaseIds.has(phase)) throw new SingularityFlowError(`Agent '${agent.id}' references unknown phase '${phase}'.`);
+    // Repository agents are part of this repository's contract, so a misspelled or removed phase
+    // must fail validation. Packaged agents are a catalog shared by every valid workflow-v2
+    // repository, including repositories created before an optional profile/phase was added to the
+    // package. Their extra declarations are dormant unless that phase exists locally; rejecting
+    // them made an otherwise valid older v2 workflow unload when the extension was upgraded.
+    if (agent.scope === 'repository') {
+      for (const phase of [...agent.phases, ...agent.defaultFor]) {
+        if (!phaseIds.has(phase)) throw new SingularityFlowError(`Agent '${agent.id}' references unknown phase '${phase}'.`);
+      }
+    }
     for (const view of agent.worldModelViews) if (!viewIds.has(view)) throw new SingularityFlowError(`Agent '${agent.id}' references undeclared world-model view '${view}'.`);
   }
   for (const phaseId of phaseIds) {

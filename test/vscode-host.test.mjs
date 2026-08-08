@@ -2000,11 +2000,10 @@ test('the first explicit workspace selection loads Lifecycle in the same window'
     const nodes = provider.getChildren();
     return nodes[0]?.label === 'commerce' ? nodes : null;
   });
-  assert.equal(provider.getTreeItem(rows[0]).command.command, 'singularityFlow.openWorkspaces',
-    'clicking the row inspects its workspace details without changing the active scope');
-  // The check action is the deliberate scope-changing operation. It is invoked separately here,
-  // just as it is separately contributed on an inactive workspace row in the real tree.
-  await registered.commands.get('singularityFlow.switchWorkspace')(rows[0]);
+  const item = provider.getTreeItem(rows[0]);
+  assert.equal(item.command.command, 'singularityFlow.switchWorkspace',
+    'clicking an inactive workspace selects its governed scope');
+  await registered.commands.get(item.command.command)(...item.command.arguments);
 
   assert.equal(issued.includes('vscode.openFolder'), false, 'no folder was opened');
   assert.equal(issued.includes('workbench.action.reloadWindow'), true,
@@ -2014,6 +2013,17 @@ test('the first explicit workspace selection loads Lifecycle in the same window'
   const chosen = await until(() =>
     provider.getChildren().find((row) => row.description === 'working here') ?? null);
   assert.equal(chosen.label, 'commerce');
+
+  // Diagnostics must follow that machine-wide choice too. This window deliberately has no open
+  // folder—the exact state that used to stop here with "Open a repository first" even though every
+  // other Singularity view had already resolved the selected workspace.
+  await initializeDefinition(chosen.openPath);
+  await registered.commands.get('singularityFlow.doctor')();
+  const report = await until(() => registered.openedDocuments
+    .find((document) => typeof document?.content === 'string'
+      && document.content.includes('CAPABILITY AND STATE DIAGNOSTICS')) ?? null);
+  assert.match(report.content, /CAPABILITY AND STATE DIAGNOSTICS/);
+  assert.equal(registered.warnings.some((message) => /Open a repository first/i.test(message)), false);
 });
 
 test('the Copilot handoff switches this window to the governed repository before opening chat', async (t) => {
@@ -2216,8 +2226,8 @@ test('opening a workspace explicitly replaces the current window rather than sca
   const item = provider.getTreeItem(rows[0]);
   assert.equal(item.collapsibleState, api.TreeItemCollapsibleState.None,
     'a workspace is a choice, not an expandable folder');
-  assert.equal(item.command.command, 'singularityFlow.openWorkspaces',
-    'clicking the visible row shows details; opening code remains a separate action');
+  assert.equal(item.command.command, 'singularityFlow.switchWorkspace',
+    'clicking an inactive workspace selects it; opening code remains a separate action');
   await registered.commands.get('singularityFlow.openWorkspace')(rows[0]);
 
   const folder = opened.find((entry) => entry.command === 'vscode.openFolder');

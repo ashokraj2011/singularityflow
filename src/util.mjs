@@ -126,6 +126,20 @@ export function run(command, args = [], {
   return { status, stdout, stderr, error: result.error };
 }
 
+/**
+ * The shell a configured runner command should be handed to.
+ *
+ * The world-model runner is a command line a repository configures, so it genuinely needs a shell to
+ * interpret. It was always `bash`, which simply is not present on a stock Windows machine — the
+ * build failed there with a spawn error rather than anything explaining why. `cmd.exe` is the
+ * equivalent, and `/c` is its `-c`.
+ */
+export function platformShell() {
+  return process.platform === 'win32'
+    ? { command: process.env.ComSpec || 'cmd.exe', flag: '/c' }
+    : { command: 'bash', flag: '-c' };
+}
+
 export function commandExists(command) {
   const result = process.platform === 'win32'
     ? run('where', [command], { allowFailure: true })

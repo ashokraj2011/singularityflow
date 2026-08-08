@@ -433,7 +433,10 @@ async function packageExtension() {
     await rm(staged, { recursive: true, force: true });
   }
 
-  const vsix = path.join(extension, 'singularity-flow-vscode-0.9.0.vsix');
+  // Read, not hardcoded. This said `singularity-flow-vscode-0.9.0.vsix` literally, so the first
+  // version bump would have printed an install command for a file that does not exist.
+  const { name, version } = JSON.parse(await readFile(path.join(extension, 'package.json'), 'utf8'));
+  const vsix = path.join(extension, `${name}-${version}.vsix`);
   console.log([
     '',
     'Install or re-install it with:',

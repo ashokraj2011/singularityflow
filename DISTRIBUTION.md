@@ -9,6 +9,45 @@ Singularity Flow is distributed as two artifacts:
 The retired Electron app is preserved at Git tag `desktop-final-v0.9.0` and branch
 `archive/desktop-app`; it is not built, installed, or supported by current releases.
 
+## Cut a release
+
+```bash
+npm run release            # or: npm run release:dry
+```
+
+`scripts/release.mjs` refuses a dirty tree, runs `npm run check` (which asserts one version across
+every manifest) and the full test suite, packs the CLI tarball, builds the VSIX through the staging
+script, and leaves `dist/` holding both artifacts, a `SHA256SUMS` file, and a `RELEASE.json`
+recording the version and commit they were built from.
+
+It deliberately stops there. Uploading to the approved internal registry is the one step that
+differs per organization, so it is left to whoever knows the destination.
+
+Build the VSIX through `npm run vscode:package` or the release script — never `vsce package`
+directly, which produces a `.vsix` with no CLI staged inside it. That extension installs cleanly and
+then cannot run a single command.
+
+## Installing — Windows, macOS, and Linux
+
+Both artifacts install with the same two commands on every platform. Prerequisites are Node.js 20 or
+newer, Git, and VS Code.
+
+```bash
+npm install --global <registry-or-path>/singularity-flow-<version>.tgz
+singularity-flow plugin install
+code --install-extension <path>/singularity-flow-vscode-<version>.vsix --force
+```
+
+Nothing here needs a POSIX shell. `install.sh` does — it is the build-from-source bootstrap for
+people working on Singularity Flow itself, and it is macOS and Linux only. Windows users install the
+artifacts above instead.
+
+One Windows note: reading and publishing governed state needs no shell, but **building a world
+model** hands the configured runner command to `cmd.exe`, and `sflow-wm-minimal` wraps a shell
+script. Installing Git for Windows provides the shell both want. `singularity-flow doctor` reports
+this as its `platform` check, so a machine that cannot build models says so rather than failing
+later.
+
 ## Build and verify
 
 Select the approved registry once for every npm subprocess in the build:

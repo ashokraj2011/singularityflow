@@ -1,5 +1,5 @@
 import { createHash } from 'node:crypto';
-import { lstat, mkdir, readFile, readdir, realpath } from 'node:fs/promises';
+import { lstat, mkdir, readFile, readdir, realpath, rm } from 'node:fs/promises';
 import { existsSync } from 'node:fs';
 import path from 'node:path';
 import os from 'node:os';
@@ -260,8 +260,19 @@ export async function resolveWorldModelSource(root, config, { stateBranch = null
     await mkdir(cached, { recursive: true });
     // Extracted rather than checked out: a checkout would move the working tree out from under
     // whoever is using it, to read something they did not ask to switch to.
-    const extracted = run('bash', ['-c',
-      `git archive ${treeSha} | tar -x -C ${JSON.stringify(cached)}`], { cwd: root, allowFailure: true });
+    //
+    // Two spawns rather than a shell pipeline. This was `bash -c 'git archive … | tar -x'`, and the
+    // failure is silent by design — it falls back to the working tree. On a machine with no bash on
+    // PATH that fallback fired every single time, so "the state branch wins" quietly stopped being
+    // true: two people on the same commit ground a phase from different bytes and nothing said so.
+    // `git archive -o` writes the file itself and `tar -xf` reads it, so no shell is involved and
+    // Windows works the same as everywhere else.
+    const archive = path.join(cached, '.singularity-world-model.tar');
+    const written = run('git', ['archive', '--format=tar', '--output', archive, treeSha], { cwd: root, allowFailure: true });
+    const extracted = written.status === 0
+      ? run('tar', ['-xf', archive, '-C', cached], { cwd: root, allowFailure: true })
+      : written;
+    await rm(archive, { force: true });
     if (extracted.status !== 0) return { directory: worktree, source: 'worktree', branch };
   }
   return { directory: cached, source: 'state-branch', branch };

@@ -9,7 +9,8 @@ import {
   add, branch, changedFiles, fetchRemote, gitDir, hasRemote, head, pushBranch, refExists, validBranch
 } from './git.mjs';
 import {
-  SingularityFlowError, optionBoolean, optionNumber, optionString, posix, run, snapshot, writeJson
+  SingularityFlowError, optionBoolean, optionNumber, optionString, platformShell, posix, run, snapshot,
+  writeJson
 } from './util.mjs';
 import { loadDefinition, renderArtifactTemplate, WORKFLOW_PATH } from './config.mjs';
 import { renderMcpPromptPolicy } from './mcp.mjs';
@@ -594,7 +595,8 @@ function runShellAsync(command, cwd, { capture = false } = {}) {
     // When capturing, stdout is piped so it can be inspected for a printed packet, but every chunk
     // is still written through to the parent so the live desktop run log is unchanged. stderr stays
     // inherited so agent progress keeps streaming.
-    const child = spawn('bash', ['-c', command], {
+    const shell = platformShell();
+    const child = spawn(shell.command, [shell.flag, command], {
       cwd, env: process.env,
       stdio: capture ? ['inherit', 'pipe', 'inherit'] : 'inherit'
     });
@@ -925,7 +927,8 @@ async function build(root, config, options) {
     const synthesisPrompt = appendDiscoveryPackets(renderedPrompt, discovery);
     await writeFile(promptFile, synthesisPrompt);
     const command = (optionString(options, 'runner') ?? config.runner).replaceAll('{prompt_file}', promptFile);
-    let result = run('bash', ['-c', command], { cwd: analysisRoot, stdio: 'inherit', allowFailure: true });
+    const shell = platformShell();
+    let result = run(shell.command, [shell.flag, command], { cwd: analysisRoot, stdio: 'inherit', allowFailure: true });
     if (result.status !== 0) throw new SingularityFlowError(`World-model builder exited with status ${result.status}.`);
     const draftManifestPath = path.join(staging, 'manifest.json');
     const after = await repositoryContentSnapshot(analysisRoot);
@@ -971,7 +974,7 @@ async function build(root, config, options) {
       await rm(staging, { recursive: true, force: true });
       await mkdir(staging, { recursive: true });
       await writeFile(promptFile, synthesisRecoveryPrompt(synthesisPrompt, error.message));
-      result = run('bash', ['-c', command], { cwd: analysisRoot, stdio: 'inherit', allowFailure: true });
+      result = run(shell.command, [shell.flag, command], { cwd: analysisRoot, stdio: 'inherit', allowFailure: true });
       if (result.status !== 0) throw new SingularityFlowError(`World-model builder recovery exited with status ${result.status}.`);
       try {
         validated = await validateDraft();

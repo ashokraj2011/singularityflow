@@ -11,7 +11,7 @@
  */
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { chmod, mkdir, mkdtemp, readdir, readFile, writeFile, rm } from 'node:fs/promises';
+import { chmod, mkdir, mkdtemp, readdir, readFile, symlink, writeFile, rm } from 'node:fs/promises';
 import { existsSync } from 'node:fs';
 import { execFileSync } from 'node:child_process';
 import { fileURLToPath } from 'node:url';
@@ -850,4 +850,52 @@ test('a published world model is the one that gets read, including from a clone 
   const elsewhere = await resolveWorldModelSource(fresh, { outputDir, ledger });
   assert.equal(elsewhere.source, 'state-branch');
   assert.equal(await summary(elsewhere), 'from the state branch');
+});
+
+test('the state-branch world model resolves without a shell on PATH', async () => {
+  // This read used `bash -c 'git archive … | tar -x'` and falls back to the working tree on
+  // failure by design. On a machine with no bash — every stock Windows one — that fallback fired
+  // every time, so "the state branch wins" quietly stopped holding: two people on the same commit
+  // grounded a phase from different bytes and nothing reported it.
+  const { resolveWorldModelSource } = await import('../src/grounding.mjs');
+  const { publishToStateBranch } = await import('../src/ledger.mjs');
+  const org = await remotes('api');
+  const repo = path.join(org.base, 'work');
+  run('git', ['clone', '-q', org.api, repo], { cwd: org.base });
+  run('git', ['config', 'user.email', 'a@b.com'], { cwd: repo });
+  run('git', ['config', 'user.name', 'A B'], { cwd: repo });
+
+  const outputDir = 'singularity/world-model';
+  const ledger = { enabled: true, branch: 'state', remote: 'origin' };
+  await mkdir(path.join(repo, outputDir), { recursive: true });
+  await writeFile(path.join(repo, outputDir, 'manifest.json'), '{"schema_version":1}');
+  await writeFile(path.join(repo, outputDir, 'summary.md'), 'from the working tree\n');
+  await publishToStateBranch(repo, ledger, {
+    [`${outputDir}/manifest.json`]: '{"schema_version":1}',
+    [`${outputDir}/summary.md`]: 'from the state branch\n'
+  }, '[world-model] repository');
+
+  // The extraction is cached in the temp directory by tree hash, so a previous run would answer
+  // this test instead of the code under it.
+  const treeSha = run('git', ['rev-parse', `state:${outputDir}`], { cwd: repo }).stdout.trim();
+  await rm(path.join(os.tmpdir(), `singularity-flow-world-model-${treeSha.slice(0, 16)}`),
+    { recursive: true, force: true });
+
+  // A PATH with none of the usual shells on it. `git` and `tar` are resolved from their real
+  // locations, so the only thing missing is the shell the old implementation needed.
+  const shellless = await mkdtemp(path.join(os.tmpdir(), 'sflow-noshell-'));
+  for (const tool of ['git', 'tar']) {
+    const resolved = execFileSync('which', [tool], { encoding: 'utf8' }).trim();
+    await symlink(resolved, path.join(shellless, tool));
+  }
+  const realPath = process.env.PATH;
+  process.env.PATH = shellless;
+  try {
+    const found = await resolveWorldModelSource(repo, { outputDir, ledger });
+    assert.equal(found.source, 'state-branch', 'the governed copy is what gets read');
+    assert.equal((await readFile(path.join(found.directory, 'summary.md'), 'utf8')).trim(),
+      'from the state branch');
+  } finally {
+    process.env.PATH = realPath;
+  }
 });

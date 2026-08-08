@@ -11,7 +11,7 @@
     "sflow-next": "bin/sflow-next.mjs",
     "sflow-agent": "bin/sflow-agent.mjs",
     "sf-reset-all": "bin/sf-reset-all.mjs",
-    "sflow-wm-minimal": "scripts/worldmodel-minimal.sh"
+    "sflow-wm-minimal": "bin/sflow-wm-minimal.mjs"
   },
   "files": [
     "bin/",
@@ -63,7 +63,9 @@
     "vscode:demo:github": "node scripts/vscode-dev.mjs --github",
     "vscode:demo:clean": "node scripts/vscode-dev.mjs --clean-github",
     "vscode:package": "node scripts/vscode-dev.mjs --package",
-    "vscode:visual-fixtures": "node --experimental-strip-types scripts/render-vscode-visual-fixtures.mjs"
+    "vscode:visual-fixtures": "node --experimental-strip-types scripts/render-vscode-visual-fixtures.mjs",
+    "release": "node scripts/release.mjs",
+    "release:dry": "node scripts/release.mjs --dry-run"
   },
   "engines": {
     "node": ">=20"

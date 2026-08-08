@@ -7,7 +7,7 @@ import { loadSession } from './session.mjs';
 import { storyPublicationPending, validateWorkflow, workflowPath, loadStoryAggregate } from './state-stores.mjs';
 import { findLegacyPendingPublications } from './publication-pending.mjs';
 import { inspectStatePlanes } from './state-planes.mjs';
-import { run } from './util.mjs';
+import { commandExists, platformShell, run } from './util.mjs';
 import { copilotTelemetryStatus } from './telemetry.mjs';
 import { buildRepositorySubjectIndex, resolveContext } from './repository-subject-index.mjs';
 import { mcpDoctor } from './mcp-readiness.mjs';
@@ -19,6 +19,22 @@ export async function doctorSnapshot(root, { workId = null, offline = false } = 
   const major = Number(process.versions.node.split('.')[0]);
   checks.push(check('node', major >= 20 ? 'pass' : 'fail', `Node.js ${process.versions.node}`, major >= 20 ? null : 'Install Node.js 20 or newer.'));
   checks.push(check('git', 'pass', `Git repository ${root}`));
+  // The world-model build hands a configured runner command to a shell, so a machine without one
+  // can read and publish governed state but cannot build a model. That used to surface as a spawn
+  // error deep in a build; naming the platform and the missing tool here is the difference between
+  // a five-minute fix and an afternoon.
+  const buildShell = platformShell();
+  const shellReady = commandExists(buildShell.command);
+  checks.push(check(
+    'platform',
+    shellReady ? 'pass' : 'warn',
+    `${process.platform} · world-model builds run through ${buildShell.command}${shellReady ? '' : ', which was not found'}.`,
+    shellReady
+      ? null
+      : process.platform === 'win32'
+        ? 'Governed state still works. To build world models, install Git for Windows so a shell is available.'
+        : `Governed state still works. To build world models, install ${buildShell.command}.`
+  ));
   const gitName = run('git', ['config', '--get', 'user.name'], { cwd: root, allowFailure: true }).stdout.trim();
   const gitEmail = run('git', ['config', '--get', 'user.email'], { cwd: root, allowFailure: true }).stdout.trim();
   checks.push(check('git-identity', gitName && gitEmail ? 'pass' : 'fail', gitName && gitEmail ? `Git identity ${gitName} <${gitEmail}>.` : 'Git user.name and/or user.email is missing.', gitName && gitEmail ? null : 'Configure git user.name and git user.email before creating lifecycle commits.'));

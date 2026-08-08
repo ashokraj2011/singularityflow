@@ -29,6 +29,7 @@ export interface MapCapabilityForm {
   parent: string;
   parents: ParentChoice[];
   repositoryUrl: string;
+  metadata: Array<{ key: string; value: string }>;
   jiraProject: string;
   teams: string;
   /** Null until the lead has been read; the map is what the parent list is made of. */
@@ -40,7 +41,7 @@ export interface MapCapabilityForm {
 
 export const EMPTY_MAP_FORM: MapCapabilityForm = {
   lead: '', leads: [], capabilityId: '', name: '', kind: 'collection',
-  parent: '', parents: [], repositoryUrl: '', jiraProject: '', teams: '',
+  parent: '', parents: [], repositoryUrl: '', metadata: [], jiraProject: '', teams: '',
   loaded: false, busy: false, notice: null, error: null
 };
 
@@ -74,6 +75,12 @@ export function mapProblems(form: MapCapabilityForm): string[] {
   if (form.kind === 'collection' && form.repositoryUrl.trim()) {
     problems.push('A Collection cannot name a repository. Choose Delivery or clear the clone URL.');
   }
+  for (const [index, entry] of form.metadata.entries()) {
+    if (!entry.key.trim() && !entry.value.trim()) continue;
+    if (!entry.key.trim() || !entry.value.trim()) {
+      problems.push(`Metadata row ${index + 1} requires both a key and a value.`);
+    }
+  }
   return problems;
 }
 
@@ -83,6 +90,9 @@ export function mapCommand(form: MapCapabilityForm): string[] {
   if (form.name.trim()) args.push('--name', form.name.trim());
   if (form.parent) args.push('--parent', form.parent);
   if (form.repositoryUrl.trim()) args.push('--repository', form.repositoryUrl.trim());
+  for (const entry of form.metadata) {
+    if (entry.key.trim() && entry.value.trim()) args.push('--metadata', `${entry.key.trim()}=${entry.value.trim()}`);
+  }
   if (form.jiraProject.trim()) args.push('--jira-project', form.jiraProject.trim());
   if (form.teams.trim()) args.push('--teams', form.teams.trim());
   return args;
@@ -125,6 +135,23 @@ export function mapCapabilityHtml(form: MapCapabilityForm): string {
         ${parents.map((parent) => `<option value="${escape(parent.id)}"${parent.id === form.parent ? ' selected' : ''}>${'&nbsp;&nbsp;'.repeat(parent.depth)}${escape(parent.name)}</option>`).join('')}
       </select><small>You can change this relationship later.</small></label>
     </div>
+  </section>
+
+  <section>
+    <div class="card-head">
+      <div><h2>${icon('configuration')}Additional metadata</h2>
+        <p class="muted">Organisation-specific key/value pairs such as application ID, cost centre, owner code, or service tier.</p></div>
+      <span class="grow"></span>
+      <button type="button" class="secondary" data-map-metadata-add>Add key/value pair</button>
+    </div>
+    <div class="metadata-list">${form.metadata.length ? form.metadata.map((entry, index) => `
+      <div class="metadata-row" data-map-metadata-index="${index}">
+        <label class="field"><span>Key</span><input type="text" data-map-metadata-field="key" value="${escape(entry.key)}" placeholder="applicationId"></label>
+        <label class="field"><span>Value</span><input type="text" data-map-metadata-field="value" value="${escape(entry.value)}" placeholder="APP-1001"></label>
+        <button type="button" class="icon-button danger" data-map-metadata-remove="${index}" title="Remove metadata" aria-label="Remove metadata pair">${icon('remove')}</button>
+      </div>`).join('') : '<p class="muted">No additional metadata yet.</p>'}</div>
+    <p class="remedy">Stored in <code>singularity/capabilities.yml</code> in the lead repository.
+      The proposal uses a capability review branch and never writes to the application main branch.</p>
   </section>
 
   <section>
@@ -210,6 +237,10 @@ export function mapCapabilityHtml(form: MapCapabilityForm): string {
 export const MAP_CAPABILITY_SCRIPT = `
   const vscode = acquireVsCodeApi();
   document.addEventListener('click', (event) => {
+    const addMetadata = event.target.closest('[data-map-metadata-add]');
+    if (addMetadata) return vscode.postMessage({ type: 'metadataAdd' });
+    const removeMetadata = event.target.closest('[data-map-metadata-remove]');
+    if (removeMetadata) return vscode.postMessage({ type: 'metadataRemove', index: Number(removeMetadata.dataset.mapMetadataRemove) });
     const target = event.target.closest('[data-map-submit]');
     if (!target) return;
     vscode.postMessage({ type: 'map' });
@@ -245,6 +276,11 @@ export const MAP_CAPABILITY_SCRIPT = `
     submit.disabled = hasProblems || submit.dataset.mapBusy === 'true';
   };
   document.addEventListener('input', (event) => {
+    const row = event.target.closest('[data-map-metadata-index]');
+    const metadataField = event.target.dataset?.mapMetadataField;
+    if (row && metadataField) {
+      vscode.postMessage({ type: 'metadataField', index: Number(row.dataset.mapMetadataIndex), field: metadataField, value: event.target.value });
+    }
     report(event);
     if (event.target.dataset?.map === 'capabilityId') syncIdentifierValidation(event.target);
   });

@@ -58,6 +58,7 @@ export class BootstrapPanel {
     const uniqueLeads = [...new Set(leads.filter((lead) => lead.trim()))];
     this.form = {
       ...EMPTY_MAP_FORM,
+      metadata: [],
       leads: uniqueLeads,
       // One available map is not a meaningful choice. More than one is, so do not silently pick
       // the first entry in an organisation whose capability map is split across repositories.
@@ -140,7 +141,27 @@ export class BootstrapPanel {
   }
 
   private async receive(raw: unknown): Promise<void> {
-    const message = raw as { type?: unknown; field?: unknown; value?: unknown; checked?: unknown };
+    const message = raw as {
+      type?: unknown; field?: unknown; value?: unknown; checked?: unknown; index?: unknown
+    };
+
+    if (message?.type === 'metadataAdd') {
+      this.update({ metadata: [...this.form.metadata, { key: '', value: '' }] });
+      return;
+    }
+    if (message?.type === 'metadataRemove' && Number.isInteger(message.index)) {
+      const index = message.index as number;
+      this.update({ metadata: this.form.metadata.filter((_, at) => at !== index) });
+      return;
+    }
+    if (message?.type === 'metadataField' && Number.isInteger(message.index)
+      && (message.field === 'key' || message.field === 'value') && typeof message.value === 'string') {
+      const index = message.index as number;
+      this.form.metadata = this.form.metadata.map((entry, at) => at === index
+        ? { ...entry, [message.field as 'key' | 'value']: message.value as string }
+        : entry);
+      return;
+    }
 
     // Recorded without re-rendering: replacing the document on every keystroke would take the caret.
     if (message?.type === 'field' && typeof message.value === 'string') {

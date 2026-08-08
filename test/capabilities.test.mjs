@@ -221,7 +221,7 @@ test('optional capability type is tech or business and remains separate from kin
   }
 });
 
-test('documentation and resources are free-form links, checked only for being text', () => {
+test('metadata, documentation and resources are free-form maps checked as non-empty text', () => {
   // Every organisation names these differently, so the keys are theirs; what cannot vary is that a
   // link is something you can follow.
   const definition = {
@@ -229,6 +229,7 @@ test('documentation and resources are free-form links, checked only for being te
     capabilities: {
       payments: {
         kind: 'collection', type: 'business', parent: null,
+        metadata: { applicationId: 'APP-1001', costCenter: 'CC-42' },
         documentation: { confluence: 'https://wiki.example/payments', runbook: 'docs/runbook.md' },
         resources: { aws: 'arn:aws:iam::1234:role/payments', dashboard: 'https://grafana/payments' }
       }
@@ -236,13 +237,18 @@ test('documentation and resources are free-form links, checked only for being te
   };
   validateCapabilities(definition);
   const [root] = capabilityTree(definition);
+  assert.equal(root.metadata.applicationId, 'APP-1001');
   assert.equal(root.documentation.confluence, 'https://wiki.example/payments');
   assert.equal(root.resources.aws, 'arn:aws:iam::1234:role/payments');
 
   assert.throws(() => validateCapabilities({
     version: 1,
     capabilities: { payments: { kind: 'collection', parent: null, documentation: { confluence: 42 } } }
-  }), /documentation\.confluence must be text/);
+  }), /documentation\.confluence must be non-empty text/);
+  assert.throws(() => validateCapabilities({
+    version: 1,
+    capabilities: { payments: { kind: 'collection', parent: null, metadata: { applicationId: '' } } }
+  }), /metadata\.applicationId must be non-empty text/);
 });
 
 test('a delivery capability must name a repository the portfolio declares', () => {
@@ -398,6 +404,7 @@ test('an empty value clears a field, and an omitted one leaves it alone', async 
       '    kind: delivery',
       '    parent: commerce',
       '    repository: api',
+      '    metadata: { applicationId: APP-1001, costCenter: CC-42 }',
       '    teams: [Payments squad]',
       '    jira: { projectKey: PAY }',
       ''
@@ -410,7 +417,15 @@ test('an empty value clears a field, and an omitted one leaves it alone', async 
     assert.equal(cleared.capabilities['payments-api'].repository, undefined);
     assert.equal(cleared.capabilities['payments-api'].teams, undefined);
     assert.deepEqual(cleared.capabilities['payments-api'].jira, { projectKey: 'PAY' }, 'untouched');
+    assert.deepEqual(cleared.capabilities['payments-api'].metadata,
+      { applicationId: 'APP-1001', costCenter: 'CC-42' }, 'untouched');
     assert.equal(cleared.capabilities['payments-api'].kind, 'collection');
+
+    const metadataEdited = await editCapability(root, 'payments-api', {
+      metadata: { applicationId: 'APP-2002', costCenter: '', ownerCode: 'PZN' }
+    }, { portfolio });
+    assert.deepEqual(metadataEdited.capabilities['payments-api'].metadata,
+      { applicationId: 'APP-2002', ownerCode: 'PZN' }, 'entries merge and empty values delete');
 
     const added = await editCapability(root, 'payments-web',
       { name: 'Payments Web', kind: 'delivery', parent: 'commerce', repository: 'api' },

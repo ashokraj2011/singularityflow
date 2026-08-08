@@ -37,6 +37,7 @@ export interface CapabilityDetail {
   ancestors: string[];
   delivery: boolean;
   repository: string | null;
+  metadata: Record<string, string>;
   jira: { projectKey?: string; board?: string; component?: string } | null;
   teams: string[];
   owns: string[];
@@ -128,6 +129,7 @@ export function capabilityDetail(tree: CapabilityNode[], capabilityId: string): 
     ancestors: row.ancestors,
     delivery: row.kind === 'delivery',
     repository: row.repository ?? null,
+    metadata: row.metadata ?? {},
     jira: row.jira ?? null,
     teams: row.teams ?? [],
     owns: row.owns ?? [],
@@ -158,6 +160,22 @@ export function capabilityArgv(
   for (const [field, flag] of EDIT_FLAGS) {
     if (edits[field] === undefined) continue;
     argv.push(flag, edits[field].trim());
+  }
+  if (edits.metadata !== undefined) {
+    let pairs: unknown;
+    try {
+      pairs = JSON.parse(edits.metadata);
+    } catch {
+      throw new Error('Capability metadata must be a JSON array of key/value pairs.');
+    }
+    if (!Array.isArray(pairs)) throw new Error('Capability metadata must be a JSON array of key/value pairs.');
+    for (const pair of pairs) {
+      if (!Array.isArray(pair) || pair.length !== 2
+        || typeof pair[0] !== 'string' || typeof pair[1] !== 'string' || !pair[0].trim()) {
+        throw new Error('Every capability metadata entry must contain a non-empty key and a text value.');
+      }
+      argv.push('--metadata', `${pair[0].trim()}=${pair[1].trim()}`);
+    }
   }
   return argv;
 }

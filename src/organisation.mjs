@@ -193,6 +193,7 @@ export async function mapCapability(leadUrl, {
   repositoryUrl = null,
   repositoryUrls = [],
   leadRepositoryUrl = null,
+  metadata = {},
   documentation = {},
   resources = {},
   jiraProject = null,
@@ -267,6 +268,7 @@ export async function mapCapability(leadUrl, {
       set('repositories', repositoryIds);
       if (leadRepositoryId) set('leadRepository', leadRepositoryId);
     }
+    if (Object.keys(metadata).length) set('metadata', metadata);
     if (Object.keys(documentation).length) set('documentation', documentation);
     if (Object.keys(resources).length) set('resources', resources);
     if (jiraProject) set('jira.projectKey', jiraProject);

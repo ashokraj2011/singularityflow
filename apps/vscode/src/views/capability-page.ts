@@ -13,7 +13,35 @@ import type { CapabilityNode } from '../cli/snapshot.ts';
 import type { CapabilityDashboard } from './capability-dashboard-model.ts';
 
 /** Editable fields, named once. The page cannot introduce a key that is not on this list. */
-const FIELDS = ['name', 'kind', 'parent', 'repository', 'jira.projectKey', 'jira.board', 'teams'] as const;
+const FIELDS = ['name', 'kind', 'parent', 'repository', 'metadata', 'jira.projectKey', 'jira.board', 'teams'] as const;
+
+function metadataRow(key = '', value = ''): string {
+  return `<div class="metadata-row" data-metadata-row data-original-key="${escape(key)}">
+    <label class="field"><span>Key</span><input type="text" data-metadata-key value="${escape(key)}"
+      placeholder="applicationId"></label>
+    <label class="field"><span>Value</span><input type="text" data-metadata-value value="${escape(value)}"
+      placeholder="APP-1001"></label>
+    <button type="button" class="icon-button danger" data-metadata-remove title="Remove metadata"
+      aria-label="Remove metadata pair">${icon('remove')}</button>
+  </div>`;
+}
+
+function metadataEditor(metadata: Record<string, string> = {}): string {
+  const rows = Object.entries(metadata);
+  return `<div class="subsection metadata-editor">
+    <div class="card-head">
+      <div><h2>${icon('configuration')}Additional metadata</h2>
+        <p class="muted">Organisation-specific attributes such as application ID, cost centre, owner code, or service tier.</p></div>
+      <span class="grow"></span>
+      <button type="button" class="secondary" data-metadata-add>Add key/value pair</button>
+    </div>
+    <div class="metadata-list" data-metadata-list>${rows.length
+      ? rows.map(([key, value]) => metadataRow(key, value)).join('')
+      : metadataRow()}</div>
+    <p class="remedy">Stored in <code>singularity/capabilities.yml</code>. In a governed organisation,
+      the authoritative copy is the lead repository's <code>sflow/config</code> branch.</p>
+  </div>`;
+}
 
 function treeHtml(tree: CapabilityNode[], selected: string | null): string {
   const rows = flattenCapabilities(tree);
@@ -118,6 +146,7 @@ function newHtml(tree: CapabilityNode[], parent: string | null): string {
       <small>Required for Delivery; leave empty for Collection.</small>
     </label>
   </div>
+  ${metadataEditor()}
   <p class="card-foot">
     <button data-create="1">Create capability</button>
     <button class="link" data-cancel="1">Cancel</button>
@@ -155,6 +184,8 @@ function detailHtml(tree: CapabilityNode[], selected: string): string {
       <small>Required for Delivery and unavailable to Collection. A Delivery may still contain children.</small>
     </label>
   </div>
+
+  ${metadataEditor(detail.metadata)}
 
   <div class="subsection">
     <h2>${icon('jira')}Tracking and ownership</h2>
@@ -244,6 +275,16 @@ export const SCRIPT = `
   const read = () => {
     const edits = {};
     for (const field of document.querySelectorAll('[data-field]')) edits[field.dataset.field] = field.value;
+    const metadata = [];
+    for (const row of document.querySelectorAll('[data-metadata-row]')) {
+      const original = row.dataset.originalKey || '';
+      const key = row.querySelector('[data-metadata-key]')?.value?.trim() || '';
+      const value = row.querySelector('[data-metadata-value]')?.value?.trim() || '';
+      const removed = row.dataset.removed === 'true';
+      if (original && (removed || key !== original)) metadata.push([original, '']);
+      if (!removed && key) metadata.push([key, value]);
+    }
+    edits.metadata = JSON.stringify(metadata);
     return edits;
   };
   const synchronizeKind = () => {
@@ -258,11 +299,19 @@ export const SCRIPT = `
     if (event.target.dataset?.field === 'kind') synchronizeKind();
   });
   document.addEventListener('click', (event) => {
-    const target = event.target.closest('[data-select],[data-add],[data-save],[data-create],[data-remove],[data-cancel]');
+    const target = event.target.closest('[data-select],[data-add],[data-save],[data-create],[data-remove],[data-cancel],[data-metadata-add],[data-metadata-remove]');
     if (!target) return;
     event.preventDefault();
     const data = target.dataset;
-    if (data.select !== undefined) vscode.postMessage({ type: 'select', id: data.select });
+    if (data.metadataAdd !== undefined) {
+      document.querySelector('[data-metadata-list]')?.insertAdjacentHTML('beforeend',
+        '<div class="metadata-row" data-metadata-row data-original-key=""><label class="field"><span>Key</span><input type="text" data-metadata-key placeholder="applicationId"></label><label class="field"><span>Value</span><input type="text" data-metadata-value placeholder="APP-1001"></label><button type="button" class="icon-button danger" data-metadata-remove title="Remove metadata" aria-label="Remove metadata pair">${icon('remove')}</button></div>');
+    } else if (data.metadataRemove !== undefined) {
+      const row = target.closest('[data-metadata-row]');
+      if (!row) return;
+      if (row.dataset.originalKey) { row.dataset.removed = 'true'; row.hidden = true; }
+      else row.remove();
+    } else if (data.select !== undefined) vscode.postMessage({ type: 'select', id: data.select });
     else if (data.add !== undefined) vscode.postMessage({ type: 'add', parent: data.add });
     else if (data.cancel !== undefined) vscode.postMessage({ type: 'cancel' });
     else if (data.create !== undefined) vscode.postMessage({ type: 'create', edits: read() });

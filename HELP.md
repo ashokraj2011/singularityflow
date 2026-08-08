@@ -746,6 +746,21 @@ singularity-flow workspace archive <DIRECTORY> --confirm <WORKSPACE-ID>
 singularity-flow workspace restore <DIRECTORY>
 ```
 
+Add organisation-specific attributes with repeatable key/value options:
+
+```bash
+singularity-flow capability map payments-api --lead <URL> --kind delivery \
+  --repository <REPOSITORY-URL> --metadata applicationId=APP-1001 \
+  --metadata costCenter=PAYMENTS
+```
+
+Metadata values are text and keys are organisation-defined. They are stored under
+the capability in `singularity/capabilities.yml`; the authoritative reviewed copy
+lives on the lead repository's `sflow/config` branch. In VS Code, open
+**Configuration → Capabilities** and use **Additional metadata**. To remove one key,
+pass an empty value to `capability edit` or `capability set`, for example
+`--metadata costCenter=`.
+
 Approved organisation configuration lives on the dedicated `sflow/config` branch.
 `capability map` and remote `capability edit` create a review branch named under
 `sflow/config-change/capability/`; they never push an application branch. Merge

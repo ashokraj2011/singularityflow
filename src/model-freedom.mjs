@@ -35,13 +35,17 @@ export function modelFreedomSnapshot({ definition = null, workflow = null, model
   if (externalCounts.unknown && unknownStrictness === 'block') blockers.push(`${externalCounts.unknown} quality command(s) have unknown model behavior and strict no-model policy blocks them.`);
   if (externalCounts.unknown && unknownStrictness !== 'block') warnings.push(`${externalCounts.unknown} quality command(s) have unknown model behavior and will be skipped in model-disabled mode.`);
   const lifecycleStatus = blockers.length ? 'blocked' : warnings.length ? 'partial' : 'complete';
-  const providerAvailable = commandExists(process.platform === 'win32' ? 'copilot.cmd' : 'copilot');
+  const providerId = definition?.models?.defaultProvider ?? 'copilot-cli';
+  const providerConfig = definition?.models?.providers?.[providerId] ?? {};
+  const providerType = providerConfig.type ?? 'copilot-cli';
+  const providerExecutable = providerConfig.executable ?? (process.platform === 'win32' ? 'copilot.cmd' : 'copilot');
+  const providerAvailable = commandExists(providerExecutable);
   return {
     schemaVersion: 2,
     runtime: { mode: modelMode.enabled ? 'enabled' : 'disabled', source: modelMode.source ?? 'default' },
     mode: modelMode.enabled ? 'auto' : 'disabled',
     modeSource: modelMode.source ?? 'default',
-    provider: { id: 'copilot-cli', available: providerAvailable },
+    provider: { id: providerId, type: providerType, executable: providerExecutable, available: providerAvailable },
     operations: { total: catalog.length, ...operationCounts, unclassified: 0 },
     currentPhase: phase ? { id: phase.id, generation, modelFreeProducer } : null,
     qualityCommands: { total: qualityCommands.length, ...externalCounts, unknownStrictness },
@@ -80,7 +84,7 @@ export function modelFreedomText(report) {
   const readiness = report.modelFreeLifecycleReady ? 'ready' : 'blocked';
   return [
     `Model mode: ${report.mode} (${report.modeSource})`,
-    `Copilot provider: ${provider}`,
+    `Model provider: ${report.provider.id} (${report.provider.executable}) — ${provider}`,
     `Operation policy: ${report.operations.never} never · ${report.operations.optional} optional · ${report.operations.required} required · ${report.operations.unclassified} unclassified`,
     `Model-free lifecycle: ${readiness}`,
     ...report.blockers.map((item) => `  - BLOCKED: ${item}`),

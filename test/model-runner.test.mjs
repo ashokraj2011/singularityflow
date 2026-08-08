@@ -34,3 +34,12 @@ test('an invocation cannot redirect its audit record outside the trusted operati
     operation: { id: 'model.test', modelPolicy: 'required' }, modelMode: { enabled: true }, root, command: 'test'
   }, () => invokeModel(request(root, { auditRoot: other }))), (error) => error.code === 'MODEL_AUDIT_ROOT_INVALID');
 });
+
+test('an allowlist tool policy must name at least one tool', async () => {
+  const root = await mkdtemp(path.join(os.tmpdir(), 'sflow-model-tools-'));
+  await assert.rejects(() => withOperationContext({
+    operation: { id: 'model.test', modelPolicy: 'required' }, modelMode: { enabled: true }, root, command: 'test'
+  }, () => invokeModel(request(root, {
+    tools: { mode: 'allowlist', names: [] }
+  }))), (error) => error.code === 'MODEL_REQUEST_INVALID' && /must not be empty/.test(error.message));
+});

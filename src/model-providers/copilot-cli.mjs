@@ -3,6 +3,7 @@ import { readFile } from 'node:fs/promises';
 import { SingularityFlowError } from '../util.mjs';
 
 const DEFAULT_OUTPUT_LIMIT = 8 * 1024 * 1024;
+const TERMINATION_GRACE_MS = 250;
 const SAFE_ENVIRONMENT = [
   'PATH', 'HOME', 'USERPROFILE', 'TMPDIR', 'TEMP', 'TMP', 'SHELL', 'COMSPEC',
   'LANG', 'LC_ALL', 'TERM', 'XDG_CONFIG_HOME', 'XDG_CACHE_HOME', 'XDG_DATA_HOME',
@@ -41,6 +42,11 @@ export async function invokeCopilotCli(request) {
   const command = process.platform === 'win32' && executable === 'copilot' ? 'copilot.cmd' : executable;
   const providerLabel = request.provider === 'copilot-cli' ? 'Copilot CLI' : `Model provider '${request.provider}'`;
   const args = [...(configured.arguments ?? []), '-C', request.cwd, '-p', prompt];
+  if (request.tools?.mode === 'none') args.push('--available-tools=');
+  if (request.tools?.mode === 'allowlist') {
+    const tools = request.tools.names.join(',');
+    args.push(`--available-tools=${tools}`, `--allow-tool=${tools}`);
+  }
   if (request.tools?.mode === 'all') args.push('--allow-all-tools');
   if (request.model ?? configured.model) args.push('--model', request.model ?? configured.model);
   const timeoutMs = request.limits.timeoutMs;
@@ -52,39 +58,55 @@ export async function invokeCopilotCli(request) {
       shell: false,
       stdio: ['ignore', 'pipe', 'pipe']
     });
-    let stdout = ''; let stderr = ''; let outputBytes = 0; let settled = false; let timer;
-    const onAbort = () => fail(new SingularityFlowError('Model invocation was cancelled.', { code: 'MODEL_CANCELLED' }));
+    let stdout = ''; let stderr = ''; let outputBytes = 0; let finished = false; let failure = null; let timer; let terminationTimer;
+    const onAbort = () => terminate(new SingularityFlowError('Model invocation was cancelled.', { code: 'MODEL_CANCELLED' }));
     const cleanup = () => {
       if (timer) clearTimeout(timer);
       request.signal?.removeEventListener('abort', onAbort);
     };
-    const fail = (error) => {
-      if (settled) return;
-      settled = true;
+    const terminate = (error) => {
+      if (finished || failure) return;
+      failure = error;
       cleanup();
-      child.kill('SIGTERM');
-      reject(error);
+      const signalled = child.kill('SIGTERM');
+      if (!signalled) {
+        finished = true;
+        reject(error);
+        return;
+      }
+      terminationTimer = setTimeout(() => {
+        if (child.exitCode == null && child.signalCode == null) child.kill('SIGKILL');
+      }, TERMINATION_GRACE_MS);
+      terminationTimer.unref?.();
     };
     const append = (current, chunk) => {
       outputBytes += chunk.length;
       if (outputBytes > outputLimit) {
-        fail(new SingularityFlowError(`${providerLabel} output exceeded ${outputLimit} bytes.`, { code: 'MODEL_OUTPUT_LIMIT' }));
+        terminate(new SingularityFlowError(`${providerLabel} output exceeded ${outputLimit} bytes.`, { code: 'MODEL_OUTPUT_LIMIT' }));
         return current;
       }
       return `${current}${chunk.toString('utf8')}`;
     };
     timer = setTimeout(() => {
-      fail(new SingularityFlowError(`${providerLabel} invocation exceeded ${timeoutMs}ms.`, { code: 'MODEL_TIMEOUT' }));
+      terminate(new SingularityFlowError(`${providerLabel} invocation exceeded ${timeoutMs}ms.`, { code: 'MODEL_TIMEOUT' }));
     }, timeoutMs);
     if (request.signal?.aborted) return onAbort();
     request.signal?.addEventListener('abort', onAbort, { once: true });
     child.stdout?.on('data', (chunk) => { stdout = append(stdout, chunk); });
     child.stderr?.on('data', (chunk) => { stderr = append(stderr, chunk); });
     child.once('error', (error) => {
-      fail(new SingularityFlowError(`Unable to start ${providerLabel}: ${error.message}`, { code: 'MODEL_PROVIDER_UNAVAILABLE', cause: error }));
+      if (finished) return;
+      finished = true;
+      cleanup();
+      if (terminationTimer) clearTimeout(terminationTimer);
+      reject(new SingularityFlowError(`Unable to start ${providerLabel}: ${error.message}`, { code: 'MODEL_PROVIDER_UNAVAILABLE', cause: error }));
     });
     child.once('close', (status, signal) => {
-      if (settled) return; settled = true; cleanup();
+      if (finished) return;
+      finished = true;
+      cleanup();
+      if (terminationTimer) clearTimeout(terminationTimer);
+      if (failure) return reject(failure);
       if (status !== 0) {
         return reject(new SingularityFlowError(`${providerLabel} exited with status ${status}${signal ? ` (${signal})` : ''}.`, {
           code: 'MODEL_EXIT_NONZERO', details: { status, signal }

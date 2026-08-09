@@ -250,6 +250,11 @@ function nullList(value) {
   return value.split('\0').filter(Boolean);
 }
 
+/** Files Git does not track and `.gitignore` does not exclude. */
+export function untrackedFiles(root) {
+  return nullList(git(['ls-files', '--others', '--exclude-standard', '-z'], { cwd: root }).stdout);
+}
+
 export function changedFiles(root) {
   const unstaged = nullList(git(['diff', '--name-only', '-z', 'HEAD'], { cwd: root }).stdout);
   const staged = nullList(git(['diff', '--name-only', '-z', '--cached', 'HEAD'], { cwd: root }).stdout);

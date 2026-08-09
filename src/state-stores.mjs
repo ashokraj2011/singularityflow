@@ -15,6 +15,7 @@ import {
   activateWorkspaceContext, readActiveWorkspaceContext
 } from './workspace-context.mjs';
 import { loadSession } from './session.mjs';
+import { stateFingerprint } from './util.mjs';
 
 function stable(value) {
   if (Array.isArray(value)) return value.map(stable);
@@ -31,7 +32,8 @@ function revision(root, aggregate, statePath) {
     branch: branch(root),
     head: head(root),
     subjectRevision: subjectRevision(aggregate),
-    statePath
+    statePath,
+    stateSha256: stateFingerprint(statePath)
   };
 }
 

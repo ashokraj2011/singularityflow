@@ -252,5 +252,11 @@ export async function readConfigurationSource(root, { verify = false } = {}) {
         `Pinned configuration asset changed after materialization: ${relative}. Start from the approved configuration again.`);
     }
   }
-  return structuredClone(record);
+  // Derived, never stored. The loop above compares each asset to a hash held in the very file it is
+  // verifying, so editing an asset and repasting its hash passes — the record attests to itself.
+  // This digest of the whole pinned set is what the Story's immutable resolution compares against,
+  // and because it is computed rather than read, it cannot be edited alongside the map.
+  const files = Object.entries(record.files ?? {}).sort(([a], [b]) => a.localeCompare(b));
+  const filesSha256 = createHash('sha256').update(JSON.stringify(files)).digest('hex');
+  return { ...structuredClone(record), filesSha256 };
 }

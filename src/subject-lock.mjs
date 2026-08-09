@@ -51,9 +51,38 @@ const ACQUISITION_GRACE_MS = 30 * 1000;
 
 function stale(owner, ttlMs, directoryAgeMs) {
   if (owner === undefined || owner === null) return directoryAgeMs > ACQUISITION_GRACE_MS;
-  if (owner.host === os.hostname() && pidAlive(owner.pid)) return false;
   const acquired = Date.parse(owner.acquiredAt ?? '');
-  return !Number.isFinite(acquired) || Date.now() - acquired > ttlMs;
+  if (!Number.isFinite(acquired)) return true;
+  const expiry = Date.parse(owner.expiresAt ?? '');
+  const deadline = Number.isFinite(expiry) ? expiry : acquired + ttlMs;
+  // Liveness shortens the wait; it does not grant an indefinite hold. This check used to come first
+  // and return "held" outright, so a PID the OS had recycled to an unrelated live process satisfied
+  // it forever: the TTL never applied, and the only way out was deleting a file inside `.git` by
+  // hand. A dead local holder is still reclaimed immediately, which is the useful half.
+  if (owner.host === os.hostname() && !pidAlive(owner.pid)) return true;
+  return Date.now() > deadline;
+}
+
+/**
+ * Take a lock we have judged stale, or lose the race and say so.
+ *
+ * Read-decide-delete is not atomic: two processes could both judge the same abandoned lock stale,
+ * and the second would delete the *live* lock the first had just created in its place — after which
+ * both believed they held it and ran a publication against the same subject. `rename` is the atomic
+ * primitive here. Exactly one process can move a given directory; the loser gets ENOENT and retries
+ * against whatever is there now.
+ */
+async function reclaim(directory, seen) {
+  const current = await readOwner(directory);
+  if (JSON.stringify(current ?? null) !== JSON.stringify(seen ?? null)) return false;
+  const condemned = `${directory}.stale-${randomUUID()}`;
+  try { await rename(directory, condemned); }
+  catch (error) {
+    if (error?.code === 'ENOENT' || error?.code === 'ENOTEMPTY' || error?.code === 'EEXIST') return false;
+    throw error;
+  }
+  await rm(condemned, { recursive: true, force: true });
+  return true;
 }
 
 async function directoryAge(directory) {
@@ -75,7 +104,9 @@ export async function acquireSubjectLock(root, subject, { ttlMs = DEFAULT_TTL_MS
     acquiredAt: nowIso(),
     expiresAt: new Date(Date.now() + ttlMs).toISOString()
   };
-  for (let attempt = 0; attempt < 2; attempt += 1) {
+  // Three attempts rather than two: losing the reclaim race to another process is a normal outcome
+  // now, and costs one extra turn round the loop.
+  for (let attempt = 0; attempt < 3; attempt += 1) {
     try {
       await mkdir(directory, { recursive: false });
       // Written whole and then moved into place. A plain write leaves a truncated record if the
@@ -91,9 +122,12 @@ export async function acquireSubjectLock(root, subject, { ttlMs = DEFAULT_TTL_MS
         const held = existing
           ? `PID ${existing.pid ?? 'unknown'} on ${existing.host ?? 'unknown'} since ${existing.acquiredAt ?? 'unknown'}`
           : 'another process that is still acquiring it';
-        throw new SingularityFlowError(`${subject.kind} '${subject.id}' is locked by ${held}.`);
+        throw new SingularityFlowError(
+          `${subject.kind} '${subject.id}' is locked by ${held}. `
+          + `The lock is ${directory}; it is reclaimed automatically once it expires.`
+        );
       }
-      await rm(directory, { recursive: true, force: true });
+      await reclaim(directory, existing);
     }
   }
   throw new SingularityFlowError(`Unable to acquire the ${subject.kind} '${subject.id}' mutation lock.`);

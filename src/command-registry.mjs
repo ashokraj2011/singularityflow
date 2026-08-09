@@ -1,8 +1,8 @@
 import { didYouMean, optionBoolean, SingularityFlowError } from './util.mjs';
 
 const READ_ONLY = new Set(['about', 'help', 'show', 'choices', 'inbox', 'status', 'progress', 'guide', 'logs', 'doctor', 'nextsteps', 'snapshot', 'validate']);
-const STRUCTURED = new Set(['status', 'progress', 'report', 'impact', 'telemetry', 'doctor', 'inputs', 'snapshot', 'validate', 'gate']);
-const MODEL_FREE_MIXED_COMMANDS = new Set(['report', 'telemetry', 'review', 'inputs', 'spec', 'visual']);
+const STRUCTURED = new Set(['status', 'progress', 'report', 'impact', 'telemetry', 'doctor', 'inputs', 'snapshot', 'validate', 'gate', 'clarification']);
+const MODEL_FREE_MIXED_COMMANDS = new Set(['report', 'telemetry', 'review', 'inputs', 'spec', 'visual', 'clarification']);
 
 const LAZY_MODULES = Object.freeze({
   about: './commands/about.mjs',
@@ -47,6 +47,7 @@ export const COMMAND_REGISTRY = Object.freeze([
   ['next'], ['run'], ['cockpit', ['home']], ['logs'], ['doctor'], ['review'], ['workflow'],
   ['assign'], ['watch'], ['recover'], ['nextsteps', ['next-steps']], ['action'], ['inputs'], ['spec'],
   ['agents'], ['mcp'], ['visual'], ['documents'], ['prepare'], ['phase'], ['artifact'], ['pr'], ['stack'], ['regression'], ['submit'],
+  ['clarification'],
   ['approve'], ['reject'], ['reopen'], ['cancel'], ['sync'], ['ledger'], ['capabilities'], ['state'],
   ['validate'], ['gate'], ['wm'], ['jira'], ['plugin'], ['snapshot'], ['configuration'], ['initiative'], ['epic'],
   ['story'], ['workspace'], ['knowledge'], ['capability'], ['hook'], ['bootstrap'],
@@ -142,6 +143,13 @@ function resolveVisualOperation(definition, positionals) {
   return unclassified(`visual.${subcommand}`);
 }
 
+function resolveClarificationOperation(definition, positionals) {
+  const subcommand = positionals[1] ?? 'status';
+  if (subcommand === 'status') return never('clarification.status', definition, 'read');
+  if (subcommand === 'record') return never('clarification.record', definition, 'mutation');
+  return unclassified(`clarification.${subcommand}`);
+}
+
 function optional(id, fallbackOperationId, definition) {
   return operation(id, 'optional', {
     classification: definition.classification,
@@ -205,6 +213,7 @@ export function resolveOperation({ requestedCommand, positionals, options = {} }
   if (definition.name === 'inputs') return resolveInputsOperation(definition, options);
   if (definition.name === 'spec') return resolveSpecOperation(definition, positionals, options);
   if (definition.name === 'visual') return resolveVisualOperation(definition, positionals);
+  if (definition.name === 'clarification') return resolveClarificationOperation(definition, positionals);
   return unclassified(definition.name);
 }
 
@@ -229,6 +238,7 @@ export function operationCatalog() {
   const inputsDefinition = commandDefinition('inputs');
   const specDefinition = commandDefinition('spec');
   const visualDefinition = commandDefinition('visual');
+  const clarificationDefinition = commandDefinition('clarification');
   const modelFreeMixed = [
     never('report.render', reportDefinition, 'read'),
     never('report.write', reportDefinition, 'mutation'),
@@ -246,7 +256,9 @@ export function operationCatalog() {
     never('spec.acceptance.dry-run', specDefinition, 'read'),
     never('spec.trace', specDefinition, 'read'),
     never('visual.status', visualDefinition, 'read'),
-    never('visual.compare', visualDefinition, 'mutation')
+    never('visual.compare', visualDefinition, 'mutation'),
+    never('clarification.status', clarificationDefinition, 'read'),
+    never('clarification.record', clarificationDefinition, 'mutation')
   ];
   return Object.freeze([
     operation('help.root', 'never', { classification: 'read' }),

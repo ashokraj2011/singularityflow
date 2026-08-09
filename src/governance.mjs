@@ -6,6 +6,7 @@ import { verifyInputsIntegrity } from './inputs.mjs';
 import { verifyAgentIntegrity } from './agents.mjs';
 import { matchApprovalAuthority } from './approval-authority.mjs';
 import { verifyGroundingRecord } from './grounding.mjs';
+import { verifyClarificationRecord } from './clarifications.mjs';
 import { verifyPhaseTelemetry } from './telemetry.mjs';
 import { verifyMcpEvidence } from './mcp.mjs';
 import { verifyDesignSourceLifecycle } from './design-sources.mjs';
@@ -106,6 +107,15 @@ export async function runGovernanceGate(root, config, workflow, { terminal = fal
         if (run('git', ['cat-file', '-e', `${found[0]}:${grounding.path}`], { cwd: root, allowFailure: true }).status !== 0) errors.push(`grounding composition was not committed with ${phaseId} generation ${generation}`);
         else passes.push(`grounding audit committed: ${phaseId} generation ${generation}`);
         if (grounding.record?.promptPath && run('git', ['cat-file', '-e', `${found[0]}:${grounding.record.promptPath}`], { cwd: root, allowFailure: true }).status !== 0) errors.push(`grounding prompt snapshot was not committed with ${phaseId} generation ${generation}`);
+      }
+      const authorship = (phase.authorship ?? []).find((record) => record.generation === generation);
+      if (authorship?.producer === 'governed-agent') {
+        const clarification = await verifyClarificationRecord(root, config, workflow, phase, { generation, groundingRecord: grounding.record });
+        errors.push(...clarification.errors); warnings.push(...clarification.warnings); passes.push(...clarification.passes);
+        if (clarification.path && clarification.record && found) {
+          if (run('git', ['cat-file', '-e', `${found[0]}:${clarification.path}`], { cwd: root, allowFailure: true }).status !== 0) errors.push(`clarification record was not committed with ${phaseId} generation ${generation}`);
+          else passes.push(`clarification audit committed: ${phaseId} generation ${generation}`);
+        }
       }
       if (workflow.telemetry?.mode === 'work-item-sanitized' || (phase.telemetry ?? []).some((item) => item.generation === generation)) {
         const telemetry = await verifyPhaseTelemetry(root, workflow, phase, generation);

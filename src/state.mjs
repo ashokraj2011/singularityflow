@@ -19,6 +19,7 @@ import {
   assertPhaseSequence, enforceSequenceGate, phaseNeedsGeneration
 } from './sequence.mjs';
 import { verifyGroundingRecord } from './grounding.mjs';
+import { verifyClarificationRecord } from './clarifications.mjs';
 import { beginTelemetryCapture, collectCopilotUsage, recordPhaseTelemetry } from './telemetry.mjs';
 import { contextBoundaryHandoff, normalizeContextPolicy } from './context-policy.mjs';
 import {
@@ -227,6 +228,7 @@ export function storyArtifactMetadata(workflow, phase) {
       approved: [...(phase.approvals ?? [])].reverse().find((approval) => !approval.invalidatedAt && approval.designSourceSet)?.designSourceSet ?? null
     },
     remoteAgent: phase.agentContext ?? null,
+    clarification: [...(phase.clarifications ?? [])].reverse().find((record) => record.generation === phase.generation) ?? null,
     telemetry: phase.telemetry ?? [],
     remoteOutputs: (phase.remoteOutputs ?? []).map((output) => ({
       agent: output.agent,
@@ -871,12 +873,21 @@ export async function publishGeneration(root, config, workflow, { phaseId, usage
     externalAiUse: { value: 'unknown', status: 'unavailable' }, source: null
   };
   assertProducerAllowed(phase, effectiveAuthorship.producer);
+  // Grounding and telemetry preserve the existing legacy behavior. Clarification is narrower:
+  // only explicit governed-agent authorship proves that an interactive model path ran and must
+  // therefore carry a generation-bound human response. Never guess that from legacy provenance.
   const modelAssisted = ['governed-agent', 'legacy-unspecified'].includes(effectiveAuthorship.producer);
+  const clarificationRequired = effectiveAuthorship.producer === 'governed-agent';
   const grounding = modelAssisted
     ? await verifyGroundingRecord(root, config, workflow, phase, { agent: session.agent })
     : { warnings: [], errors: [] };
   grounding.warnings.forEach((warning) => console.warn(`Warning: ${warning}`));
   if (grounding.errors.length) throw new SingularityFlowError(`Phase ${phase.id} grounding is not ready:\n- ${grounding.errors.join('\n- ')}`);
+  const clarification = clarificationRequired
+    ? await verifyClarificationRecord(root, config, workflow, phase, { groundingRecord: grounding.record })
+    : { warnings: [], errors: [], record: null, path: null, sha256: null };
+  clarification.warnings.forEach((warning) => console.warn(`Warning: ${warning}`));
+  if (clarification.errors.length) throw new SingularityFlowError(`Phase ${phase.id} clarification is not ready:\n- ${clarification.errors.join('\n- ')}`);
   const changed = changedFiles(root);
   const protectedPaths = [...new Set([
     ...(config.governance?.protectedPaths ?? []),
@@ -913,6 +924,21 @@ export async function publishGeneration(root, config, workflow, { phaseId, usage
   phase.generatedAgent = effectiveAuthorship.producer === 'governed-agent' ? session.agent : null;
   phase.authorship ??= [];
   phase.authorship.push({ ...structuredClone(effectiveAuthorship), generation: phase.generation, publishedAt: nowIso() });
+  if (clarification.record) {
+    phase.clarifications ??= [];
+    phase.clarifications = [
+      ...phase.clarifications.filter((record) => record.generation !== phase.generation),
+      {
+        generation: phase.generation,
+        path: clarification.path,
+        sha256: clarification.sha256,
+        promptSha256: clarification.record.promptSha256,
+        responses: clarification.record.responses.length,
+        recordedAt: clarification.record.recordedAt,
+        recordedBy: structuredClone(clarification.record.recordedBy)
+      }
+    ];
+  }
   phase.sourceCommit = head(root);
   if (phase.id === 'conformance') phase.conformanceTree = await sourceTreeHash(root);
   phase.usage.push(...normalizedUsage);

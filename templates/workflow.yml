@@ -364,6 +364,10 @@ phases:
     defaultTemplate: feature/design.md
     artifact: { path: artifacts/design/design.md, kind: design, minimumBytes: 300 }
     worldModel: { views: [architecture, security], depth: standard }
+    clarification:
+      mode: required
+      maxQuestions: 5
+      topics: [boundaries, contracts, failure behavior, security, migration]
     writeScope: artifact-only
     approval: { authorities: [architecture-reviewers], minimum: 1, rejectTo: [requirements, design] }
   implementation-spec:
@@ -371,6 +375,10 @@ phases:
     defaultTemplate: feature/implementation-spec.md
     artifact: { path: artifacts/implementation-spec/implementation-spec.md, kind: implementation-spec, minimumBytes: 400 }
     worldModel: { views: [architecture, development, testing, security], depth: deep }
+    clarification:
+      mode: required
+      maxQuestions: 5
+      topics: [interfaces, data, security, observability, migration, tests]
     writeScope: artifact-only
     approval: { authorities: [architecture-reviewers], minimum: 1, rejectTo: [requirements, design, implementation-spec] }
   reproduction:
@@ -389,6 +397,10 @@ phases:
     defaultTemplate: bugfix/fix-design.md
     artifact: { path: artifacts/fix-design/fix-design.md, kind: fix-design, minimumBytes: 250 }
     worldModel: { views: [architecture, development, security], depth: standard }
+    clarification:
+      mode: required
+      maxQuestions: 5
+      topics: [root cause, scope, regression risk, compatibility, rollback]
     writeScope: artifact-only
     approval: { authorities: [architecture-reviewers], minimum: 1, rejectTo: [reproduction, fix-design] }
   fix-spec:
@@ -396,6 +408,10 @@ phases:
     defaultTemplate: bugfix/fix-spec.md
     artifact: { path: artifacts/fix-spec/fix-spec.md, kind: implementation-spec, minimumBytes: 300 }
     worldModel: { views: [development, testing, security], depth: standard }
+    clarification:
+      mode: required
+      maxQuestions: 5
+      topics: [changed behavior, test expectations, compatibility, failure behavior, rollback]
     writeScope: artifact-only
     approval: { authorities: [architecture-reviewers], minimum: 1, rejectTo: [reproduction, fix-design, fix-spec] }
   design-intake:
@@ -414,6 +430,10 @@ phases:
     defaultTemplate: figma-mobile/design-inventory.md
     artifact: { path: artifacts/design-inventory/design-inventory.md, kind: design-inventory, minimumBytes: 500 }
     worldModel: { views: [business, architecture], depth: standard }
+    clarification:
+      mode: required
+      maxQuestions: 5
+      topics: [screen states, transitions, assets, responsive behavior, evidence gaps]
     writeScope: artifact-only
     approval: { authorities: [design-reviewers], minimum: 1, rejectTo: [design-intake, design-inventory] }
   component-mapping:
@@ -421,6 +441,10 @@ phases:
     defaultTemplate: figma-mobile/component-mapping.md
     artifact: { path: artifacts/component-mapping/component-mapping.md, kind: component-mapping, minimumBytes: 500 }
     worldModel: { views: [architecture, development, security], depth: deep }
+    clarification:
+      mode: required
+      maxQuestions: 5
+      topics: [component ownership, navigation, state, data contracts, accessibility]
     writeScope: artifact-only
     approval: { authorities: [architecture-reviewers], minimum: 1, rejectTo: [design-inventory, component-mapping] }
   mobile-spec:
@@ -428,6 +452,10 @@ phases:
     defaultTemplate: figma-mobile/mobile-spec.md
     artifact: { path: artifacts/mobile-spec/mobile-spec.md, kind: implementation-spec, minimumBytes: 700 }
     worldModel: { views: [architecture, development, testing, security], depth: deep }
+    clarification:
+      mode: required
+      maxQuestions: 5
+      topics: [behavior, interfaces, failure states, analytics, testing]
     writeScope: artifact-only
     approval: { authorities: [architecture-reviewers], minimum: 1, rejectTo: [design-inventory, component-mapping, mobile-spec] }
   implementation:
@@ -435,6 +463,7 @@ phases:
     defaultTemplate: common/implementation.md
     artifact: { path: artifacts/implementation/implementation-summary.md, kind: implementation-summary, minimumBytes: 250 }
     worldModel: { views: [development, testing], depth: standard }
+    clarification: { mode: when-needed, maxQuestions: 3, topics: [approved deviations, implementation blockers] }
     writeScope: source-and-artifact
     approval: { authorities: [engineering-reviewers], minimum: 1, rejectTo: [implementation] }
     qualityCommands: []
@@ -443,6 +472,7 @@ phases:
     defaultTemplate: common/verification.md
     artifact: { path: artifacts/verification/test-evidence.md, kind: test-evidence, minimumBytes: 300 }
     worldModel: { views: [testing, development, security], depth: standard, evidence: true }
+    clarification: { mode: when-needed, maxQuestions: 3, topics: [test gaps, environment, evidence, deviations] }
     writeScope: source-and-artifact
     approval: { authorities: [quality-reviewers], minimum: 1, rejectTo: [implementation, verification] }
     qualityCommands: []
@@ -451,6 +481,7 @@ phases:
     defaultTemplate: figma-mobile/visual-verification.md
     artifact: { path: artifacts/visual-verification/visual-comparison.md, kind: visual-test-evidence, minimumBytes: 600 }
     worldModel: { views: [testing, development, security], depth: deep, evidence: true }
+    clarification: { mode: when-needed, maxQuestions: 3, topics: [visual tolerance, device evidence, accessibility, deviations] }
     writeScope: source-and-artifact
     approval: { authorities: [design-reviewers, quality-reviewers], minimum: 2, rejectTo: [component-mapping, mobile-spec, implementation, visual-verification] }
     qualityCommands: []
@@ -458,6 +489,7 @@ phases:
     label: Spec-to-code conformance
     defaultTemplate: common/conformance.md
     artifact: { path: artifacts/conformance/spec-code-comparison.md, kind: conformance-report, minimumBytes: 400 }
+    clarification: { mode: when-needed, maxQuestions: 3, topics: [approved deviations, missing evidence, unplanned work] }
     worldModel: { views: [architecture, development, testing, security], depth: deep, evidence: true }
     writeScope: artifact-only
     comparison: { identifiers: [acceptance-criteria, specification], verdicts: [matched, partial, missing, deviated, unplanned], exactFileLineEvidence: true }

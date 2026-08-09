@@ -97,11 +97,15 @@ export async function doctorSnapshot(root, { workId = null, offline = false } = 
   const requested = workId ?? currentBranch;
   let workflow = null;
   const subjectIndex = await buildRepositorySubjectIndex(root, { definition });
-  const selected = resolveContext(subjectIndex, {
+  // With an explicit --work-id, doctor remains Story-specific. Without one, resolve the current
+  // branch across both lifecycle kinds so an active Initiative is not misreported as a missing
+  // Story and its valid governed-agent session is not called stale.
+  const activeSubject = resolveContext(subjectIndex, {
     reference: requested,
-    kind: 'story',
+    kind: workId ? 'story' : null,
     required: Boolean(workId)
   });
+  const selected = activeSubject?.kind === 'story' ? activeSubject : null;
   if (selected) {
     try {
       workflow = await loadStoryAggregate(root, definition, selected.id);
@@ -132,6 +136,13 @@ export async function doctorSnapshot(root, { workId = null, offline = false } = 
     } catch (error) {
       checks.push(check('workflow-state', 'fail', error.message, `Inspect ${workflowPath(root, definition, selected.id)} in Git history.`));
     }
+  } else if (activeSubject?.kind === 'initiative') {
+    checks.push(check(
+      'workflow-state',
+      'skip',
+      `Initiative ${activeSubject.id} is active; Story workflow checks are not applicable.`,
+      `Run singularity-flow initiative status ${activeSubject.id} for Initiative phase checks.`
+    ));
   } else if (subjectIndex.unreadable?.length) {
     // A state file that exists and will not parse is a failure, not an absence. This reported
     // "skip — no work item is associated with this branch", so the diagnostic built to find
@@ -162,7 +173,9 @@ export async function doctorSnapshot(root, { workId = null, offline = false } = 
       : null
   ));
   const session = await loadSession(root, { required: false });
-  if (!workflow) checks.push(check('session', session ? 'warn' : 'skip', session ? `Session selects ${session.agent} for ${session.workId}, but that work item is not open.` : 'No agent session is active.'));
+  if (!workflow && session && activeSubject?.id === session.workId) {
+    checks.push(check('session', 'pass', `governed agent '${session.agent}' is active for ${activeSubject.kind} ${session.workId}.`));
+  } else if (!workflow) checks.push(check('session', session ? 'warn' : 'skip', session ? `Session selects ${session.agent} for ${session.workId}, but that subject is not open.` : 'No agent session is active.'));
   else if (!session) checks.push(check('session', 'warn', 'No agent is selected for this terminal.', `Run singularity-flow resume ${workflow.workItem.id}.`));
   else if (session.workId !== workflow.workItem.id) checks.push(check('session', 'warn', `Session belongs to ${session.workId}, not ${workflow.workItem.id}.`, `Run singularity-flow resume ${workflow.workItem.id}.`));
   else checks.push(check('session', 'pass', `governed agent '${session.agent}' is active for ${session.workId}.`));
@@ -191,17 +204,20 @@ export async function doctorSnapshot(root, { workId = null, offline = false } = 
     ));
   }
   checks.push(check('upstream', hasUpstream(root) ? 'pass' : 'warn', hasUpstream(root) ? `Branch '${currentBranch}' tracks an upstream.` : `Branch '${currentBranch}' has no upstream.`, hasUpstream(root) ? null : 'The first successful lifecycle publication will establish it.'));
-  return summarize(root, checks, workflow, session, definition);
+  return summarize(root, checks, workflow, session, definition, activeSubject);
 }
 
-function summarize(root, checks, workflow, session, definition) {
+function summarize(root, checks, workflow, session, definition, activeSubject = null) {
   const counts = Object.fromEntries(['pass', 'warn', 'fail', 'skip'].map((status) => [status, checks.filter((item) => item.status === status).length]));
   const modelFreedom = modelFreedomSnapshot({
     definition,
     workflow,
     modelMode: operationContext()?.modelMode ?? { enabled: true, source: 'default' }
   });
-  return { schemaVersion: 1, repository: root, branch: branch(root), head: head(root), workId: workflow?.workItem.id ?? null, agent: session?.agent ?? null, healthy: counts.fail === 0, counts, modelFreedom, checks };
+  const subject = workflow
+    ? { kind: 'story', id: workflow.workItem.id }
+    : activeSubject ? { kind: activeSubject.kind, id: activeSubject.id } : null;
+  return { schemaVersion: 1, repository: root, branch: branch(root), head: head(root), workId: subject?.id ?? null, subject, agent: session?.agent ?? null, healthy: counts.fail === 0, counts, modelFreedom, checks };
 }
 
 export function doctorText(report) {

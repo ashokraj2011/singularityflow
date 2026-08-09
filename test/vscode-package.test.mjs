@@ -5,7 +5,7 @@ import { mkdtemp } from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { CLI_PAYLOAD, stageCli } from '../scripts/vscode-dev.mjs';
+import { CLI_PAYLOAD, configureLocalDemoWorkflow, stageCli } from '../scripts/vscode-dev.mjs';
 
 const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 
@@ -23,4 +23,17 @@ test('the installed VS Code CLI carries the canonical Help manual', async () => 
   assert.equal(manual.title, 'Singularity Flow Help');
   assert.ok(manual.topics.some((topic) => topic.id === 'story-intake'));
   assert.ok(manual.topics.some((topic) => topic.id === 'workspaces-and-capabilities'));
+});
+
+test('the local VS Code demo does not require a remote it deliberately omits', () => {
+  const configured = configureLocalDemoWorkflow([
+    'git:',
+    '  remote: origin',
+    '  publish: required',
+    'worldModel:',
+    '  grounding: warn'
+  ].join('\n'));
+  assert.match(configured, /publish: off/);
+  assert.match(configured, /grounding: off/);
+  assert.doesNotMatch(configured, /publish: required/);
 });

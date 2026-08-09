@@ -37,6 +37,13 @@ const value = (name) => {
   return index >= 0 ? argv[index + 1] : null;
 };
 
+/** Local demo repositories have no origin, so both lifecycle definitions must stay local-only. */
+export function configureLocalDemoWorkflow(source) {
+  return source
+    .replace(/^  publish: required$/m, '  publish: off')
+    .replace(/grounding: \w+/, 'grounding: off');
+}
+
 /** Editor binaries, in the order they are tried. Both are VS Code forks and take the same flags. */
 const EDITORS = {
   code: [
@@ -248,7 +255,7 @@ async function demoRepository({ github = false } = {}) {
   await writeFile(portfolioPath, portfolio);
 
   const workflowPath = path.join(lead, 'singularity/workflow.yml');
-  await writeFile(workflowPath, (await readFile(workflowPath, 'utf8')).replace(/grounding: \w+/, 'grounding: off'));
+  await writeFile(workflowPath, configureLocalDemoWorkflow(await readFile(workflowPath, 'utf8')));
   git(['add', '.'], lead);
   git(['commit', '-m', 'Configure repositories and approvers'], lead);
 

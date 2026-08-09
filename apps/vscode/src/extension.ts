@@ -386,6 +386,11 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
       kind: 'action', id: 'configuration:choose-workspace',
       label: 'Choose a workspace', description: 'load its configuration',
       tooltip: detail, icon: 'workspace', runCommand: recoveryCommand
+    }, {
+      kind: 'action', id: 'configuration:review-proposals',
+      label: 'Review capability proposals', description: 'inspect pending organisation changes',
+      tooltip: 'List pending capability-map proposals across every registered lead repository.',
+      icon: 'merge', runCommand: 'singularityFlow.reviewCapabilityProposals'
     }]);
     context.subscriptions.push(provider, inbox, configuration);
     sidebar.bind('lifecycle', provider);
@@ -500,39 +505,12 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
         try { return { result: await registry.run<unknown>(argv), error: null }; }
         catch (error) { return { result: null, error: (error as Error).message }; }
       };
-      const leads = await registry.run<Array<{ url: string }>>(['capability', 'leads', '--json'])
-        .catch(() => []);
-      if (!leads.length) {
-        void vscode.window.showInformationMessage('No capability-map lead repositories are registered yet.');
-        return;
-      }
-      const selectedLead = leads.length === 1 ? leads[0] : await vscode.window.showQuickPick(
-        leads.map((lead) => ({ label: lead.url, lead })), {
-          title: 'Review capability proposals', placeHolder: 'Choose the organisation lead repository'
-        }).then((choice) => choice?.lead);
-      if (!selectedLead) return;
-      const response = await registry.run<{ lead: string; proposals: Array<{
-        branch: string; proposalCommit: string; changedFiles: unknown[]; valid: boolean
-      }> }>(['capability', 'proposals', '--lead', selectedLead.url, '--json']).catch((error) => {
-        void vscode.window.showErrorMessage(`Could not list capability proposals: ${(error as Error).message}`);
-        return { lead: selectedLead.url, proposals: [] };
+      const { CapabilityProposalsPanel } = await import('./views/capability-proposals.ts');
+      CapabilityProposalsPanel.show(context, run, (lead, branch) => {
+        void import('./views/capability-proposal.ts').then(({ CapabilityProposalPanel }) => {
+          CapabilityProposalPanel.show(context, lead, branch, run);
+        });
       });
-      const proposals = response.proposals;
-      if (!proposals.length) {
-        void vscode.window.showInformationMessage('No pending capability proposals require review.');
-        return;
-      }
-      const selected = proposals.length === 1 ? proposals[0] : await vscode.window.showQuickPick(
-        proposals.map((proposal) => ({
-          label: proposal.branch.replace('sflow/config-change/capability/map-', ''),
-          description: proposal.proposalCommit.slice(0, 12),
-          detail: `${proposal.changedFiles.length} changed configuration file(s)${proposal.valid ? '' : ' - blocked'}`,
-          proposal
-        })), { title: 'Review capability proposals', placeHolder: 'Choose an exact proposal' }
-      ).then((choice) => choice?.proposal);
-      if (!selected) return;
-      const { CapabilityProposalPanel } = await import('./views/capability-proposal.ts');
-      CapabilityProposalPanel.show(context, selectedLead.url, selected.branch, run);
     }
   ));
 
@@ -1855,6 +1833,7 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
     }
 
     if (message.action === 'capabilities') await vscode.commands.executeCommand('singularityFlow.openCapabilities');
+    else if (message.action === 'proposals') await vscode.commands.executeCommand('singularityFlow.reviewCapabilityProposals');
     else if (message.action === 'workflow') await vscode.commands.executeCommand('singularityFlow.openDesigner');
     else if (message.action === 'instructions') await vscode.commands.executeCommand('singularityFlow.openInstructionDesigner');
     else if (message.action === 'people') { await openConfigurationCenter('people'); return null; }

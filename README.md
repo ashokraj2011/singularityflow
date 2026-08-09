@@ -265,6 +265,10 @@ singularity-flow capability activate <REVIEW-BRANCH> \
   --lead https://git.example.corp/acme/platform.git --confirm <FULL-PROPOSAL-COMMIT>
 ```
 
+In VS Code, open **Configuration → Review proposals**. The dashboard lists pending
+changes across all registered lead repositories and works without an active
+workspace. Select a row to inspect the exact diff and activate the reviewed commit.
+
 The first capability mapped into a repository creates `sflow/config` if needed,
 imports any existing reusable configuration as its seed, declares the repository,
 and names the orphan `state` proof branch. Existing configuration files are

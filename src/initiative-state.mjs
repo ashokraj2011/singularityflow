@@ -14,7 +14,7 @@ import { initiativeOutputRequired } from './initiative-policy.mjs';
 import { groundingMode } from './grounding.mjs';
 import { normalizeContextPolicy } from './context-policy.mjs';
 import {
-  secureRepositoryPath, SingularityFlowError, nowIso, posix, readJson, run, snapshot, writeAtomic, writeJson, writeText
+  secureRepositoryPath, SingularityFlowError, nowIso, posix, readJson, run, snapshot, stateFingerprint, writeAtomic, writeJson, writeText
 } from './util.mjs';
 import { createLedgerIntent, reconcileLedger } from './ledger.mjs';
 import { normalizeLedgerConfig } from './ledger-config.mjs';
@@ -497,6 +497,10 @@ export async function saveInitiative(root, portfolio, initiative) {
   });
   await writeJson(state.absolute, initiative);
   await writeText(status.absolute, initiativeStatusMarkdown(initiative));
+  // Mirror of `saveWorkflow`: every legitimate write by this process refreshes the aggregate's idea
+  // of what is on disk, so the publication check can treat a remaining mismatch as another process.
+  const tracked = initiative[Symbol.for('singularity-flow.state-revision')];
+  if (tracked) tracked.stateSha256 = stateFingerprint(state.absolute);
 }
 
 export async function createInitiative(root, {

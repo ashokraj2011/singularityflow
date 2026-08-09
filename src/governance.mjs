@@ -194,7 +194,21 @@ export async function runGovernanceGate(root, config, workflow, { terminal = fal
         continue;
       }
       const artifact = await snapshot(path.join(root, index.source.path));
+      // `phase.specIndex` is the same fact recorded in the aggregate when the generation was
+      // published — a different file, written by the publication and never edited afterwards. It was
+      // written and read by nothing, which left this check comparing a hash to the artifact it was
+      // computed from and to the index file it lives inside: edit both together and everything
+      // passes. Comparing against the aggregate is what makes that edit detectable.
+      const anchor = phase.specIndex?.generation === phase.generation ? phase.specIndex : null;
+      const drift = anchor && (anchor.sourceSha256 !== index.source.sha256
+        || anchor.clauses !== index.clauses.length
+        || (anchor.indexSha256 && index.indexSha256 && anchor.indexSha256 !== index.indexSha256));
       if (!artifact.exists || artifact.sha256 !== index.source.sha256) fail(`${phaseId} specification index is stale for ${index.source.path}`);
+      else if (drift) {
+        fail(`${phaseId} specification index does not match the generation recorded in the workflow: `
+          + `expected ${anchor.clauses} clause(s) for source ${String(anchor.sourceSha256).slice(0, 12)}, `
+          + `found ${index.clauses.length} for ${String(index.source.sha256).slice(0, 12)}`);
+      }
       else passes.push(`specification clauses: ${phaseId} generation ${phase.generation} · ${index.clauses.length}`);
     }
     if (specPolicy.coverage !== 'off') {

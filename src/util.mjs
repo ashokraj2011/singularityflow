@@ -1,4 +1,5 @@
 import { createHash, randomUUID } from 'node:crypto';
+import { readFileSync } from 'node:fs';
 import { spawnSync } from 'node:child_process';
 import { lstat, mkdir, readFile, realpath, rename, rm, stat, writeFile } from 'node:fs/promises';
 import path from 'node:path';
@@ -145,6 +146,18 @@ export function commandExists(command) {
     ? run('where', [command], { allowFailure: true })
     : run('sh', ['-lc', `command -v ${JSON.stringify(command)}`], { allowFailure: true });
   return result.status === 0;
+}
+
+/**
+ * The bytes on disk at `file`, hashed; null when the file does not exist.
+ *
+ * Lives here so the state store, the aggregate writer and the publication kernel all compare the
+ * same thing. It is how a concurrent writer is detected: `head` only moves on a commit, and several
+ * commands write governed state without committing.
+ */
+export function stateFingerprint(file) {
+  try { return createHash('sha256').update(readFileSync(file)).digest('hex'); }
+  catch (error) { if (error?.code === 'ENOENT') return null; throw error; }
 }
 
 export function nowIso() {

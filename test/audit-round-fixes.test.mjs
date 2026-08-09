@@ -6,11 +6,12 @@
  * Each test here fails against the code as it was, which is the only reason to keep it.
  */
 import assert from 'node:assert/strict';
-import { mkdtemp, readdir, rm, writeFile } from 'node:fs/promises';
+import { mkdir, mkdtemp, readFile, readdir, rm, writeFile } from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
 import test from 'node:test';
 
+import { acquireSubjectLock, subjectLockPath } from '../src/subject-lock.mjs';
 import { GOVERNED_ROOTS, initializeDefinition } from '../src/config.mjs';
 import { assertNotDefaultBranch, defaultBranchName, protectedBranchNames } from '../src/git.mjs';
 import { DEFAULT_IMPACT_METRIC_AUTHORITIES } from '../src/impact-config.mjs';
@@ -91,6 +92,94 @@ test('the reset guard refuses rather than reporting a clean tree it could not re
     () => factoryResetPlan(root),
     /Cannot determine whether .* has uncommitted governed changes/
   );
+});
+
+test('an expired lock whose PID has been recycled is still reclaimable', async (t) => {
+  const root = await repository('main');
+  t.after(() => rm(root, { recursive: true, force: true }));
+  const subject = { kind: 'story', id: 'LOCK-1', branch: 'main' };
+  const directory = subjectLockPath(root, subject);
+  await mkdir(directory, { recursive: true });
+
+  // `process.pid` stands in for a PID the OS recycled to an unrelated live process: the owner is
+  // long expired, but `pidAlive` says yes. The liveness check used to run before the TTL and return
+  // "held" outright, so this lock could never be broken except by hand.
+  const past = new Date(Date.now() - 60 * 60 * 1000).toISOString();
+  await writeFile(path.join(directory, 'owner.json'), `${JSON.stringify({
+    schemaVersion: 1, subject, pid: process.pid, host: os.hostname(),
+    processToken: 'gone', lockToken: 'gone', acquiredAt: past, expiresAt: past
+  })}\n`);
+
+  const owner = await acquireSubjectLock(root, subject);
+  assert.equal(owner.subject.id, 'LOCK-1');
+  assert.notEqual(owner.lockToken, 'gone');
+});
+
+test('a live holder still keeps its lock until the lock expires', async (t) => {
+  const root = await repository('main');
+  t.after(() => rm(root, { recursive: true, force: true }));
+  const subject = { kind: 'story', id: 'LOCK-2', branch: 'main' };
+  await acquireSubjectLock(root, subject);
+  await assert.rejects(() => acquireSubjectLock(root, subject), /is locked by PID/);
+});
+
+test('two processes cannot both reclaim the same abandoned lock', async (t) => {
+  const root = await repository('main');
+  t.after(() => rm(root, { recursive: true, force: true }));
+  const subject = { kind: 'story', id: 'LOCK-3', branch: 'main' };
+  const directory = subjectLockPath(root, subject);
+  await mkdir(directory, { recursive: true });
+  const past = new Date(Date.now() - 60 * 60 * 1000).toISOString();
+  await writeFile(path.join(directory, 'owner.json'), `${JSON.stringify({
+    schemaVersion: 1, subject, pid: 999_999, host: 'a-machine-that-is-not-this-one',
+    processToken: 'dead', lockToken: 'dead', acquiredAt: past, expiresAt: past
+  })}\n`);
+
+  // Read-decide-delete let both callers judge the lock stale and both delete — the second removing
+  // the live replacement the first had just written. The reclaim is an atomic rename now, so exactly
+  // one caller can win and the other is told the lock is held.
+  const results = await Promise.allSettled([
+    acquireSubjectLock(root, subject),
+    acquireSubjectLock(root, subject)
+  ]);
+  const granted = results.filter((entry) => entry.status === 'fulfilled');
+  assert.equal(granted.length, 1, 'exactly one caller may hold the lock');
+});
+
+test('a publication refuses when another process wrote the aggregate uncommitted', async (t) => {
+  const root = await repository('main');
+  t.after(() => rm(root, { recursive: true, force: true }));
+  const { GitPublicationUnitOfWork } = await import('../src/publication-unit-of-work.mjs');
+  const { lifecycleEvent } = await import('../src/lifecycle-event.mjs');
+  const { stateFingerprint } = await import('../src/util.mjs');
+
+  const target = 'story-state.json';
+  const statePath = path.join(root, target);
+  await writeFile(statePath, '{"status":"loaded"}\n');
+  run('git', ['add', target], { cwd: root });
+  run('git', ['commit', '-qm', 'canonical state'], { cwd: root });
+
+  const subject = { kind: 'story', id: 'RACE-1', branch: 'main' };
+  const head = run('git', ['rev-parse', 'HEAD'], { cwd: root }).stdout.trim();
+  const expectedRevision = { branch: 'main', head, statePath, stateSha256: stateFingerprint(statePath) };
+
+  // A second process edits the work item and does not commit. HEAD is unchanged, so the old CAS saw
+  // nothing and this publication would have saved its stale in-memory copy straight over that work.
+  await writeFile(statePath, '{"status":"written by someone else"}\n');
+
+  await assert.rejects(() => new GitPublicationUnitOfWork(root).execute({
+    subject,
+    expectedRevision,
+    event: lifecycleEvent({ type: 'artifact-generated', subject, phaseId: 'intake', generation: 1 }),
+    commit: { message: '[RACE-1] publish' },
+    publication: { mode: 'off', branch: 'main' },
+    allowedPaths: [target],
+    state: { write: () => writeFile(statePath, '{"status":"mine"}\n') }
+  }), /was modified by another process/);
+
+  // And it refused before writing: the other process's work is still there.
+  assert.match(await readFile(statePath, 'utf8'), /written by someone else/);
+  assert.equal(run('git', ['rev-parse', 'HEAD'], { cwd: root }).stdout.trim(), head, 'no commit was made');
 });
 
 test('the escaped-defects default is a shape its own validator accepts', () => {

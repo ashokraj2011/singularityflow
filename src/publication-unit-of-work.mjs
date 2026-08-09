@@ -14,7 +14,7 @@ import {
   beginPublicationJournal, clearPublicationJournal, updatePublicationJournal
 } from './publication-journal.mjs';
 import { withSubjectLock } from './subject-lock.mjs';
-import { SingularityFlowError, nowIso } from './util.mjs';
+import { SingularityFlowError, nowIso, stateFingerprint } from './util.mjs';
 
 export class GitPublicationUnitOfWork {
   constructor(root) { this.root = root; }
@@ -43,6 +43,21 @@ export class GitPublicationUnitOfWork {
     }
     if (expectedRevision?.head && head(root) !== expectedRevision.head) {
       throw new SingularityFlowError(`${subject.kind} '${subject.id}' changed before publication. Reload it and retry.`);
+    }
+    // HEAD only moves on a commit, and plenty of commands write the aggregate without committing —
+    // `artifact scan`, `documents upload`, packet submission. So the check above could not see a
+    // second process editing the same work item, and this process would then save its own stale
+    // in-memory copy over that work and attest to the artifact set as it was before. The fingerprint
+    // is refreshed by `saveWorkflow` on every write this process makes, so a mismatch here means
+    // somebody else wrote the file.
+    if (expectedRevision?.statePath && expectedRevision.stateSha256 !== undefined) {
+      const current = stateFingerprint(expectedRevision.statePath);
+      if (current !== expectedRevision.stateSha256) {
+        throw new SingularityFlowError(
+          `${subject.kind} '${subject.id}' was modified by another process while this command was running `
+          + `(${expectedRevision.statePath}). Reload it and retry; nothing was changed.`
+        );
+      }
     }
     if (await readPendingPublication(root, { kind: subject.kind, id: subject.id })) {
       throw new SingularityFlowError(`${subject.kind} '${subject.id}' has a pending publication. Synchronize it before another mutation.`);
@@ -77,15 +92,24 @@ export class GitPublicationUnitOfWork {
     let ledgerIntentPath = null;
     const unwind = async (error) => {
       if (ledgerIntentPath) await rm(path.join(root, ledgerIntentPath), { force: true });
+      let restoreFailure = null;
       if (wroteState && state?.rollback) {
-        try { await state.rollback(); } catch (failure) {
-          throw new SingularityFlowError(
-            `${subject.kind} '${subject.id}' failed to publish and its state could not be restored: ${failure.message}. `
-            + `The original failure was: ${error.message}`
-          );
-        }
+        try { await state.rollback(); } catch (failure) { restoreFailure = failure; }
       }
+      // The journal is cleared on every path out, including a failed restore. Rethrowing before this
+      // left a `prepared` journal whose expectedHead still matched HEAD, which every later process
+      // reads as an interrupted publication: `assertNoPendingPublication` then blocks every mutation
+      // and `syncPublication` hard-refuses. Combined with a half-restored working tree, that left
+      // the subject unusable with no route out except deleting a file inside `.git` by hand — the
+      // worst possible response to a rollback that had already gone wrong.
       await clearPublicationJournal(root, subject);
+      if (restoreFailure) {
+        throw new SingularityFlowError(
+          `${subject.kind} '${subject.id}' failed to publish and its state could not be restored: ${restoreFailure.message}. `
+          + `Inspect the work item before running another governed command. `
+          + `The original failure was: ${error.message}`
+        );
+      }
       throw error;
     };
 
@@ -208,12 +232,31 @@ export class GitPublicationUnitOfWork {
         await clearLedgerOutbox(root, ledger.intent.eventId);
       } catch (error) {
         await recordLedgerOutbox(root, ledgerIntentPath, publishedCommit, error);
-        ledgerResult = { pending: true, eventId: ledger.intent.eventId, error: error.message };
-        if (ledger.config.behind === 'block') {
-          throw new SingularityFlowError(
-            `${subject.kind} commit ${publishedCommit.slice(0, 8)} is published, but its required ledger mirror is pending. Reconcile the ledger before another mutation.`
-          );
-        }
+        const blocking = ledger.config.behind === 'block';
+        const detail = `${subject.kind} commit ${publishedCommit.slice(0, 8)} is published, but its ledger mirror is pending: ${error.message}`;
+        ledgerResult = {
+          pending: true,
+          blocking,
+          eventId: ledger.intent.eventId,
+          error: error.message,
+          message: blocking
+            ? `${detail} Reconcile the ledger before another mutation.`
+            : `${detail} Run 'singularity-flow ledger reconcile' to complete the attestation.`
+        };
+        // Reported, not thrown, and never silent.
+        //
+        // Under `behind: block` this used to throw — after the commit had landed, after the push had
+        // succeeded and after the journal was cleared. That skipped the caller's whole tail: the
+        // revision update, `clearPendingPublication`, and the lifecycle notifications. The reviewer
+        // saw a red error and reasonably concluded the approval had failed, while it sat on the
+        // remote for CI and the pull-request gate to act on. What `behind: block` actually
+        // guarantees is that the *next* mutation is refused, and the preflight above already
+        // enforces that from the outbox — the throw was never what provided it.
+        //
+        // The warning matters just as much: no caller inspects `result.ledger`, so a non-blocking
+        // append failure left the operator told the transition succeeded while the append-only
+        // attestation quietly had not happened.
+        console.warn(`Warning: ${ledgerResult.message}`);
       }
     }
     if (fault) await fault('after-ledger', { envelope, sourceCommit, publishedCommit, ledgerResult });

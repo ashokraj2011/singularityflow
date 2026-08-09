@@ -4,9 +4,9 @@ import { createHash } from 'node:crypto';
 import path from 'node:path';
 import {
   SingularityFlowError, exists, invariant, nowIso, posix, readJson, repoRelative,
-  run, snapshot, truncate, writeAtomic, writeJson, writeText
+  run, snapshot, stateFingerprint, truncate, writeAtomic, writeJson, writeText
 } from './util.mjs';
-import { branch, changedFiles, head, identity, pushBranch, remoteContains } from './git.mjs';
+import { branch, changedFiles, head, identity, pushBranch, remoteContains, untrackedFiles } from './git.mjs';
 import {
   WORKFLOW_PATH, loadDefinition, normalizeSequenceGates, normalizeSessionPolicy, renderArtifactTemplate, resolveWorkType, snapshotResolution
 } from './config.mjs';
@@ -339,8 +339,14 @@ async function restoreDirectory(directory, captured) {
 }
 
 export async function saveWorkflow(root, config, workflow) {
-  await writeJson(workflowPath(root, config, workflow.workItem.id), workflow);
+  const file = workflowPath(root, config, workflow.workItem.id);
+  await writeJson(file, workflow);
   await writeText(statusPath(root, config, workflow.workItem.id), storyStatusMarkdown(workflow));
+  // Keep the aggregate's idea of what is on disk current. Every legitimate write by this process
+  // goes through here, so refreshing the fingerprint means the publication check ahead can treat any
+  // remaining mismatch as what it is: a different process writing the same work item.
+  const tracked = workflow[Symbol.for('singularity-flow.state-revision')];
+  if (tracked) tracked.stateSha256 = stateFingerprint(file);
 }
 
 export async function createWorkflow(root, config, { id, title, source, baseBranch, canonicalBranch = id, workType, agent, resolved, capabilityId = null } = {}) {
@@ -740,7 +746,23 @@ function ignored(config, workflow, relativePath) {
 export async function scanArtifacts(root, config, workflow, phaseId = undefined) {
   await assertNoPendingPublication(root, config, workflow, 'scan or register artifacts');
   const phase = await assertPhaseSequence(root, workflow, 'scan artifacts', { requestedPhase: phaseId }); const records = [];
-  for (const file of changedFiles(root).filter((item) => !ignored(config, workflow, item))) records.push(await registerArtifact(root, workflow, file, { phaseId: phase.id }));
+  const untracked = new Set(untrackedFiles(root));
+  const adopted = [];
+  for (const file of changedFiles(root).filter((item) => !ignored(config, workflow, item))) {
+    records.push(await registerArtifact(root, workflow, file, { phaseId: phase.id }));
+    if (untracked.has(file)) adopted.push(file);
+  }
+  // Untracked files are registered on purpose: a brand-new source file is a legitimate part of a
+  // source-and-artifact generation, and excluding it would silently drop real work from the governed
+  // commit — a worse failure than including scratch. But this is also exactly how a stray notes file
+  // or an un-ignored output directory becomes a phase artifact: committed, pinned, and attested by
+  // the approval's `artifactSha256`. Name them, so adopting them is a decision rather than an
+  // accident.
+  if (adopted.length) {
+    console.warn(`Warning: ${phase.id} is adopting ${adopted.length} untracked file(s) as governed artifacts:`);
+    adopted.forEach((file) => console.warn(`  ${file}`));
+    console.warn('Delete or .gitignore anything above that is not part of this change, then scan again.');
+  }
   return records;
 }
 
@@ -1729,9 +1751,15 @@ export async function validateWorkflow(root, config, workflow, { strict = false 
   if (workflow.resolution?.configurationSource) {
     try {
       const currentSource = await readConfigurationSource(root, { verify: true });
-      if (!currentSource || currentSource.commit !== workflow.resolution.configurationSource.commit
-        || currentSource.repository !== workflow.resolution.configurationSource.repository) {
+      const pinned = workflow.resolution.configurationSource;
+      if (!currentSource || currentSource.commit !== pinned.commit
+        || currentSource.repository !== pinned.repository) {
         errors.push('Configuration provenance differs from the immutable Story snapshot.');
+      } else if (pinned.filesSha256 && currentSource.filesSha256 !== pinned.filesSha256) {
+        // Only `commit` and `repository` used to be pinned, so the asset hash map could be rewritten
+        // wholesale — change `approval.minimum`, repaste its hash — and both the self-check and this
+        // comparison passed while the record still attested to the approved commit.
+        errors.push('Configuration asset set differs from the immutable Story snapshot.');
       }
     } catch (error) {
       errors.push(`Configuration provenance: ${error.message}`);

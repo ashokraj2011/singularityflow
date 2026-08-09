@@ -1,3 +1,4 @@
+import { recap } from './narration/recap.mjs';
 import path from 'node:path';
 import { readFile } from 'node:fs/promises';
 import { branch } from './git.mjs';
@@ -9,6 +10,12 @@ function escapeHtml(value) { return String(value).replaceAll('&', '&amp;').repla
 function activeApprovals(phase) { return phase.approvals.filter((item) => !item.invalidatedAt); }
 
 export async function createReviewBundle(root, config, workflow, requestedPhase = null) {
+  // The account belongs here, in the rendering, and deliberately NOT in the review packet.
+  // `readStoryReviewPacket` hashes every field of the packet it reads back, so a recap stored there
+  // would put derived narrative text inside the evidence hash — and improving the wording would
+  // then invalidate packets and the approvals bound to them. Narration explains the evidence; it
+  // must never become part of what the evidence is.
+  const narrative = recap(workflow, { locale: 'en-GB', timeZone: 'UTC', length: 'standard' });
   const phase = requestedPhase ? workflow.phases[requestedPhase] : currentPhase(workflow) ?? workflow.phases[workflow.phaseOrder.at(-1)];
   if (!phase) throw new Error('Workflow has no phases to review.');
   if (requestedPhase && !workflow.phases[requestedPhase]) throw new Error(`Unknown phase '${requestedPhase}'.`);
@@ -40,7 +47,7 @@ export async function createReviewBundle(root, config, workflow, requestedPhase 
       id: phase.id, label: phase.label, status: phase.status, generation: phase.generation, approvalMinimum: phase.approvalPolicy.minimum ?? 1,
       authorship: [...(phase.authorship ?? [])].reverse().find((record) => record.generation === phase.generation) ?? { producer: 'legacy-unspecified', channel: 'legacy' }
     },
-    artifact, inputs, documents, approvals, selfApprovalWarning: approvals.some((item) => item.selfApproval), checks: phase.checks ?? [], usage: phase.usage ?? [], changeSummary: diff.status === 0 ? diff.stdout.trim() : 'Unavailable'
+    artifact, inputs, documents, approvals, narrative, selfApprovalWarning: approvals.some((item) => item.selfApproval), checks: phase.checks ?? [], usage: phase.usage ?? [], changeSummary: diff.status === 0 ? diff.stdout.trim() : 'Unavailable'
   };
 }
 
@@ -52,6 +59,7 @@ export function reviewMarkdown(bundle) {
   if (bundle.artifact) lines.push('### Artifact content', '', bundle.artifact.content, '');
   lines.push('## Approved input provenance', '', ...(bundle.inputs.length ? bundle.inputs.map((item) => `- ${item.phase}: ${item.status}${item.sha256 ? ` @ \`${item.sha256.slice(0, 12)}\`` : ''}${item.optional ? ' (optional)' : ''}`) : ['_No phase inputs._']), '');
   lines.push('## Checks and approvals', '', ...(bundle.checks.length ? bundle.checks.map((item) => `- ${item.status ?? 'recorded'} — ${item.command ?? item.name ?? JSON.stringify(item)}`) : ['- No quality-command results recorded.']), ...(bundle.approvals.length ? bundle.approvals.map((item) => `- ${item.decision} by ${item.actor} via ${item.authorityGroup ?? 'unrecorded authority'} (${item.identityAssurance ?? 'unknown assurance'}); governed agent ${item.agent ?? 'unavailable'}${item.selfApproval ? ' ⚠ self-approval' : ''}`) : ['- No decisions recorded.']), '');
+  if (bundle.narrative) lines.push('## How this Story got here', '', '```text', bundle.narrative, '```', '');
   lines.push('## Source change summary', '', '```text', bundle.changeSummary || 'No source changes.', '```', '', '## Supporting evidence', '', ...(bundle.documents.length ? bundle.documents.map((item) => `- ${item.id} — ${item.label} (${item.path ?? item.url})`) : ['_No supporting evidence._']), '');
   return `${lines.join('\n')}\n`;
 }

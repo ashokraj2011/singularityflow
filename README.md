@@ -1,9 +1,33 @@
 # Singularity Flow 0.9.0
 
-The optional [Capability Ledger](./CAPABILITY-LEDGER.md) records high-value Story
-and Initiative lifecycle events on an unrelated `state` orphan branch.
-Durable work-branch intents let another machine reconcile a missing ledger append
-after partial publication.
+Singularity Flow runs a governed software development lifecycle out of Git
+itself. Work items move through declared phases; every artifact and every
+approval is a commit, so any machine can pick the work up from the repository
+alone.
+
+## Start here
+
+```bash
+singularity-flow quickstart
+```
+
+Eight seconds, entirely offline, no model invoked, and your own repository is
+untouched — it builds a throwaway one, takes a work item through every governed
+step, and removes it. It is the fastest way to see what the rest of this document
+describes.
+
+Then, on a repository you care about:
+
+| You want to | Run |
+| --- | --- |
+| Set up a repository you already have | `singularity-flow init` |
+| Set up a new capability, with its configuration branch and ledger | `singularity-flow bootstrap <REPOSITORY-URL>` |
+| Find out what to do next, at any point | `singularity-flow next` |
+| See what a command does, with examples | `singularity-flow <command> --help` |
+
+The full documentation map is in [docs/README.md](./docs/README.md).
+
+## What it is
 
 Singularity Flow is a Git-native SDLC workflow for GitHub Copilot. A
 repository-owned YAML file defines work types, phase sequences, artifact
@@ -17,6 +41,11 @@ the short `sf-` prefix.
 creates personal aliases such as `/sf-start`, `/sf-submit`, and `/sf-about`, so
 normal use has no plugin namespace. The packaged `sflow-*` skills remain available
 for compatibility, including the qualified `/singularity-flow/sflow-*` form.
+
+The optional [Capability Ledger](./CAPABILITY-LEDGER.md) records high-value Story
+and Initiative lifecycle events on an unrelated `state` orphan branch.
+Durable work-branch intents let another machine reconcile a missing ledger append
+after partial publication.
 Run `/sf-about` for the installed version and a concise capability summary. The full
 `singularity-flow <action>` executable remains a compatible CLI for existing
 scripts and documentation.

@@ -1,7 +1,6 @@
 ---
 name: sflow-doctor
-description: Diagnose Singularity Flow repository, workflow, governed-agent, human-identity authority, publication, working-tree, and remote readiness without changing state.
-disable-model-invocation: true
+description: Check whether this repository is healthy, and what to fix.
 argument-hint: "[work ID]"
 
 ---

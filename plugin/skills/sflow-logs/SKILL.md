@@ -1,7 +1,6 @@
 ---
 name: sflow-logs
-description: Read the Singularity Flow activity log to explain what a command, hook, or native Copilot handoff actually did, including failures and refused tool calls.
-disable-model-invocation: true
+description: Explain what a Singularity Flow command actually did.
 argument-hint: "[--level error|warn|info|debug|all] [--event PATTERN] [--tail N] [--since WHEN]"
 
 ---

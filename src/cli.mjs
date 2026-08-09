@@ -230,7 +230,9 @@ import {
   readOrganisation, rememberLeadRepository, resolveWorkspacePlan
 } from './organisation.mjs';
 import { canonicalCommand, commandDefinition, validateCommandHandlers } from './command-registry.mjs';
-import { commandResult, effects, succeeded } from './narration/command-result.mjs';
+// `action` is already a command name in this file, so the narration constructor is renamed rather
+// than shadowing it.
+import { action as narrationAction, commandResult, effects, noEffects, succeeded } from './narration/command-result.mjs';
 import { emitCommandResult } from './narration/emit.mjs';
 import { factoryResetAll, factoryResetAllPlan, factoryResetPlan, factoryResetRepository } from './factory-reset.mjs';
 import { capabilityDoctor } from './capability-doctor.mjs';
@@ -1159,7 +1161,27 @@ async function guideCommand(positionals, options) {
       outcome: succeeded('quickstart.completed', { steps: result.steps.length }),
       // The walkthrough runs entirely inside a sandbox it creates and removes. Nothing in the
       // reader's own repository is touched, which is what makes this safe as a first command.
-      effects: noEffects()
+      effects: noEffects(),
+      // The sandbox is finished; the reader is not. Reporting a rest state here would answer the
+      // newcomer's very first command with "there is nothing further to do".
+      next: [
+        narrationAction({
+          id: 'quickstart.init',
+          label: 'Set up a repository you already have',
+          command: 'singularity-flow init'
+        }),
+        narrationAction({
+          id: 'quickstart.bootstrap',
+          label: 'Set up a new capability, with its configuration branch and ledger',
+          command: 'singularity-flow bootstrap <REPOSITORY-URL>'
+        }),
+        narrationAction({
+          id: 'quickstart.help',
+          label: 'See what the other commands do',
+          command: 'singularity-flow --help',
+          rank: 'LATER'
+        })
+      ]
     }));
     return;
   }
@@ -3302,7 +3324,24 @@ async function runCommand(options) {
 async function cockpitCommand() {
   const root = repoRoot();
   if (!existsSync(path.join(root, WORKFLOW_PATH)) && !existsSync(path.join(root, 'singularity/config.json'))) {
-    console.log('Singularity Flow is not initialized in this repository.\n\nRun: singularity-flow init'); return;
+    // The bare command in an uninitialised repository is, for most people, their first contact with
+    // the product. It said what was absent and gave one command, with no way to find out what any of
+    // it means or to see it work before committing a real repository to it.
+    console.log(style.heading('Singularity Flow is not set up in this repository.'));
+    const entries = [
+      ['singularity-flow quickstart', [
+        'See one complete governed change in a throwaway repository.',
+        'About 8 seconds, offline, and nothing here is touched.'
+      ]],
+      ['singularity-flow init', ['Set this repository up.']],
+      ['singularity-flow --help', ['What the other commands do.']]
+    ];
+    const column = Math.max(...entries.map(([command]) => command.length));
+    for (const [command, lines] of entries) {
+      console.log(`\n  ${style.action(command.padEnd(column))}  ${lines[0]}`);
+      for (const line of lines.slice(1)) console.log(`  ${' '.repeat(column)}  ${style.detail(line)}`);
+    }
+    return;
   }
   const config = await loadConfig(root); let workflow;
   try { workflow = await loadStoryAggregate(root, config); }

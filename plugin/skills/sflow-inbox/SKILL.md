@@ -1,6 +1,6 @@
 ---
 name: sflow-inbox
-description: Fetch and display the repository-wide inbox of committed work-item phases awaiting approval, then safely open a selected review.
+description: Show what is waiting for your approval.
 disable-model-invocation: true
 
 ---

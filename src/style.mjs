@@ -181,3 +181,41 @@ export function terminalWidth(stream = process.stdout, fallback = 100) {
   const columns = Number(stream?.columns);
   return Number.isFinite(columns) && columns >= 40 ? columns : fallback;
 }
+
+function humanDuration(ms) {
+  const seconds = Math.round(ms / 1000);
+  if (seconds < 60) return `${seconds}s`;
+  const minutes = Math.floor(seconds / 60);
+  return `${minutes}m ${String(seconds % 60).padStart(2, '0')}s`;
+}
+
+/**
+ * Announce a long operation and keep saying it is alive.
+ *
+ * `wm build` allows twenty minutes and captures the provider's output, so the product's most
+ * impressive feature printed nothing at all while it ran: silence meant success and output meant
+ * trouble, backwards from every other command. Returns a function to call when the work finishes.
+ *
+ * On a terminal this rewrites one line. Everywhere else — a pipe, CI, the VS Code adapter — it emits
+ * a start line and a finish line and nothing in between, so no log ends up full of carriage returns.
+ * It writes to stderr, never stdout, because stdout may be carrying JSON.
+ */
+export function heartbeat(label, { stream = process.stderr, intervalMs = 15_000 } = {}) {
+  const started = Date.now();
+  const interactive = Boolean(stream?.isTTY) && active();
+  stream.write(`${label}\n`);
+  const timer = interactive
+    ? setInterval(() => {
+      stream.write(`\r${dim(`  … still working (${humanDuration(Date.now() - started)})`)}\x1b[K`);
+    }, intervalMs)
+    : null;
+  // Never hold the event loop open on account of a progress indicator.
+  timer?.unref?.();
+  return (outcome = 'done') => {
+    if (timer) {
+      clearInterval(timer);
+      stream.write('\r\x1b[K');
+    }
+    stream.write(`${dim(`  ${outcome} in ${humanDuration(Date.now() - started)}`)}\n`);
+  };
+}

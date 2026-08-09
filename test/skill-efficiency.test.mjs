@@ -15,13 +15,39 @@ test('every public skill has a bounded class and output contract', async () => {
   assert.ok(result.rows.every((row) => row.class && row.bodyTokens <= 800));
 });
 
-test('only low-risk conversational skills may trigger automatically', async () => {
+/**
+ * The bar for automatic invocation is not "useful", it is "cannot change governed state".
+ *
+ * The list is asserted so widening it stays a deliberate edit with a reviewer on it, and the property
+ * is asserted because that is the part that actually matters: no phrasing of a question should be
+ * able to cause an approval or a publication. `interactive`, `review`, `generative` and `mutation`
+ * all write something; only `echo` and `conversational` are safe for the model to choose by itself.
+ */
+const NON_MUTATING_CLASSES = new Set(['echo', 'conversational']);
+
+test('only low-risk read-only skills may trigger automatically', async () => {
   const { policy } = await loadSkillPolicy(root);
-  assert.deepEqual(policy.automaticInvocationAllowlist, ['sflow-help', 'sflow-nextsteps', 'sflow-status']);
+  assert.deepEqual(policy.automaticInvocationAllowlist, [
+    'sflow-doctor', 'sflow-help', 'sflow-logs',
+    'sflow-nextsteps', 'sflow-progress', 'sflow-quickstart', 'sflow-status'
+  ]);
+  // Listing approvals is read-only; opening one is not. sflow-inbox asks the reviewer a question and
+  // attaches a session, so it stays user-invoked however tempting it is as a natural-language target.
+  assert.ok(!policy.automaticInvocationAllowlist.includes('sflow-inbox'));
   const result = await auditSkillPolicy(root);
-  assert.deepEqual(result.automatic, ['sflow-help', 'sflow-nextsteps', 'sflow-status']);
-  assert.equal(result.rows.filter((row) => row.automatic).length, 3);
-  assert.ok(result.rows.filter((row) => row.automatic).every((row) => row.descriptionTokens <= 15));
+  assert.deepEqual(result.automatic, policy.automaticInvocationAllowlist);
+
+  for (const name of policy.automaticInvocationAllowlist) {
+    const declared = policy.skills[name]?.class;
+    assert.ok(NON_MUTATING_CLASSES.has(declared),
+      `${name} is '${declared}'; only ${[...NON_MUTATING_CLASSES].join(' and ')} skills may be chosen by the model`);
+  }
+
+  const automatic = result.rows.filter((row) => row.automatic);
+  assert.equal(automatic.length, policy.automaticInvocationAllowlist.length);
+  // A description is routing input. Past 15 tokens it stops being a label and becomes a spec, and
+  // the model has 98 of them to choose between.
+  assert.ok(automatic.every((row) => row.descriptionTokens <= 15));
 });
 
 test('generative requirements retains interactive clarification and governed publication', async () => {

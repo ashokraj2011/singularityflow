@@ -115,7 +115,11 @@ loaded ones, with legacy modules explicitly exempt until their turn.
 4. Vertical Story slice: `resume`, `submit`, `approve`, `reject` — **done** (`status` deferred to the read-command migration)
 5. Planner-derived NEXT and no-dead-ends conformance across the slice — **done**
 6. Normalized narration beats and deterministic recap — **done**
-7. Review packet, pull-request description and continuation reuse — **partly done**: the recap reaches the pull-request body and `report --recap`; the review packet still does not
+7. Review packet, pull-request description and continuation reuse — **done**: the recap reaches the
+   pull-request body, `report --recap`, and the review bundle. It deliberately does **not** enter the
+   review *packet*: `readStoryReviewPacket` hashes every field it reads back, so storing derived
+   narrative there would put wording inside the evidence hash and let a copy-edit invalidate
+   approvals. The packet holds evidence; the bundle renders it.
 8. Story and Initiative Journey adapters
 9. Callbacks
 10. Foreshadowing

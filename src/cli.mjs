@@ -1013,7 +1013,6 @@ async function startCommand(positionals, options) {
     resolved: resolvedWorkType,
     capabilityId: optionString(options, 'capability')
   });
-  if (receiptToken) await consumeSelectionReceipt(root, receiptToken);
   await commitAndPublish(
     root,
     config,
@@ -1025,6 +1024,8 @@ async function startCommand(positionals, options) {
     `[${id}][init] start ${workType} workflow`,
     configurationSnapshot?.paths ?? []
   );
+  // Spent once the start has landed, not before it is attempted.
+  if (receiptToken) await consumeSelectionReceipt(root, receiptToken);
   for (const document of supportingDocuments) {
     const records = await addDocuments(root, config, workflow, {
       files: document.type === 'file' ? [document.path] : [],
@@ -2799,7 +2800,6 @@ async function approveCommand(positionals, options) {
   console.log(`Tokens: ${phase.usage.map((item) => item.totalTokens ?? item.status).join(', ') || 'unavailable'}`);
   console.log(`Prior approvals: ${phase.approvals.filter((item) => !item.invalidatedAt).map((item) => `${item.actor?.name ?? item.actor?.email ?? 'unknown'} via ${item.authorityGroup ?? 'unrecorded authority'}; agent ${item.agent ?? 'unavailable'} (${item.decision})`).join(', ') || 'none'}`);
   if (selfApproval) console.warn('Warning: this identity generated the phase; approval will be recorded as self-approval.');
-  if (receiptToken) await consumeSelectionReceipt(root, receiptToken);
   if (!receipt && !optionBoolean(options, 'yes') && !(await confirm(phase))) throw new SingularityFlowError('Approval cancelled.');
   const workflowBeforeApproval = structuredClone(workflow);
   const result = await approvePhase(root, config, workflow, {
@@ -2817,6 +2817,10 @@ async function approveCommand(positionals, options) {
     phase.artifacts.map((item) => item.path),
     { rollbackWorkflow: workflowBeforeApproval }
   );
+  // Spent once the approval has actually landed. Consuming it up front — before the confirmation
+  // prompt, let alone the publication — meant declining at the prompt or hitting any refusal burned
+  // the reviewer's one-shot receipt, and a new one had to be issued before they could try again.
+  if (receiptToken) await consumeSelectionReceipt(root, receiptToken);
   console.log(publication.pushed
     ? `Approval decision committed ${publication.sha.slice(0, 8)} and pushed to ${config.git?.remote ?? 'origin'}/${workflowPublicationBranch(root, workflow)}.`
     : `Approval decision committed ${publication.sha.slice(0, 8)} locally; push is disabled by git.publish: off.`);
@@ -4723,7 +4727,6 @@ async function initiativeCommand(positionals, options) {
     const selectedAgent = await activateInitiativeAgent(
       root, config, initiativeId, portfolio.initiativePhases[startPhaseId], optionString(options, 'agent') ?? null
     );
-    if (receiptToken) await consumeSelectionReceipt(root, receiptToken);
     const source = optionBoolean(options, 'jira')
       ? await getIssue(initiativeId)
       : { type: 'manual', id: initiativeId, title: optionString(options, 'title', initiativeId), description: optionString(options, 'description', '') };
@@ -4755,6 +4758,9 @@ async function initiativeCommand(positionals, options) {
     }
     const started = await loadInitiativeAggregate(root, initiativeId);
     const publication = await commitInitiativeChange(root, started.portfolio, started.initiative, { type: 'binding' }, `[${initiativeId}][initiative:init] start ${profile}`);
+    // Spent once the start has landed. Consumed before the Jira read and the creation, a network
+    // failure or any refusal burned the one-shot receipt and a new one was needed to retry.
+    if (receiptToken) await consumeSelectionReceipt(root, receiptToken);
     let current = started;
     if (profile === 'epic-planning') {
       const completed = await completeEpicIntake(root, initiativeId, { agent: selectedAgent.agent });
@@ -5065,7 +5071,6 @@ async function initiativeCommand(positionals, options) {
       root, config, initiativeId, initiative.resolution.phases[phaseId], optionString(options, 'agent') ?? null
     );
     if (!receipt && !(await confirmInitiativeExact(`Approve exact initiative subject ${expected}?`, expected, options))) throw new SingularityFlowError('Initiative approval cancelled.');
-    if (receiptToken) await consumeSelectionReceipt(root, receiptToken);
     const result = await approveInitiative(root, { initiativeId, phaseId, subject, agent: session.agent, channel: receipt ? 'copilot-selection-receipt' : 'terminal' });
     // Knowledge harvested by this approval is committed with it. Two commits would let one land
     // without the other, and leaving it unstaged left the working tree dirty — which the next
@@ -5073,6 +5078,8 @@ async function initiativeCommand(positionals, options) {
     const publication = await commitInitiativeChange(root, result.portfolio, result.initiative, { type: 'phase-approved', phaseId, agent: session?.agent ?? null, payload: { approvalSubject: subject } }, `[${initiativeId}][initiative:${phaseId}][approve] ${subject}`, {
       extraPaths: result.knowledge?.harvested?.length ? [KNOWLEDGE_ROOT] : []
     });
+    // Spent once the approval has landed, not before it is attempted.
+    if (receiptToken) await consumeSelectionReceipt(root, receiptToken);
     console.log(`Approved ${phaseId}:${subject}. Commit ${publication.sha.slice(0, 8)}${publication.pushed ? ' pushed' : ''}.`);
     if (result.knowledge?.harvested?.length) {
       console.log(`Recorded ${result.knowledge.harvested.length} knowledge ${result.knowledge.harvested.length === 1 ? 'entry' : 'entries'} from the editorroved artifacts.`);

@@ -855,14 +855,16 @@ export async function promotePlanningArtifacts(root, { sessionId, artifacts = []
     phase: phase.id,
     detail: `${current.sha256.slice(0, 12)}`
   });
-  await saveStoryDraft(root, definition, workflow);
   const publication = await commitAndPublish(
     root,
     definition,
     workflow,
     { type: 'artifact-generated', phaseId: phase.id, generation: phase.generation, payload: { planningArtifactSha256: current.sha256 } },
     `[${workflow.workItem.id}][phase:${phase.id}][planning] promote reviewed plan`,
-    [posix(path.relative(root, target)), posix(path.relative(root, auditDirectory))]
+    [posix(path.relative(root, target)), posix(path.relative(root, auditDirectory))],
+    // Inside the unit, so a refused publication does not leave the promotion recorded in the
+    // aggregate with no commit behind it.
+    { beforeStateWrite: async () => { await saveStoryDraft(root, definition, workflow); } }
   );
   return {
     scope: 'work-item',

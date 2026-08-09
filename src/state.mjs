@@ -1212,16 +1212,16 @@ export async function approvePhase(root, config, workflow, {
     const upcoming = nextPhase(workflow, phase);
     if (upcoming) {
       upcoming.status = 'in_progress'; upcoming.startedAt = decision.at; workflow.currentPhase = upcoming.id;
-      // Known gap, deliberately left: this write ignores `persist`, so a rolled-back approval leaves
-      // the next phase's interval baseline on disk as an orphan that workflow.json no longer
-      // references. Gating it on `persist` is not the fix on its own — the `phase-approved` branch
-      // of the state write does not write the baseline, so gating alone would drop it from the
-      // approve path entirely. Moving it there is the real change and wants its own test.
-      await ensureWorkIntervalBaseline(root, config, workflow, {
-        phaseId: upcoming.id,
-        itemDirectory: workDir(root, config, workflow.workItem.id),
-        itemRelative: workDirRelative(config, workflow.workItem.id)
-      });
+      // Gated with every other durable write here. Under `persist: false` the caller owns
+      // persistence, and the publication unit's `phase-approved` branch writes this baseline inside
+      // the transaction instead.
+      if (persist) {
+        await ensureWorkIntervalBaseline(root, config, workflow, {
+          phaseId: upcoming.id,
+          itemDirectory: workDir(root, config, workflow.workItem.id),
+          itemRelative: workDirRelative(config, workflow.workItem.id)
+        });
+      }
     }
     else { workflow.currentPhase = null; workflow.status = 'complete'; }
   }
@@ -1655,6 +1655,17 @@ export async function commitAndPublish(root, config, workflow, event, message, e
             // managed approval metadata. Do not rewrite it after this point.
             await registerApprovedSnapshot(root, config, workflow, requestedPhase);
             await writeDecision(root, config, workflow, requestedPhase, approval);
+            // The advancing phase's interval baseline is a durable write like the three above, and
+            // it belongs here for the same reason. `approvePhase` used to write it before the unit
+            // opened, which put the baseline file inside the snapshot the rollback restores — so a
+            // failed approval left the file on disk with a workflow.json that no longer referenced
+            // it. `currentPhase` has already advanced in memory by this point, and the helper is a
+            // no-op for a phase that does not use intervals or already has an open one.
+            await ensureWorkIntervalBaseline(root, config, workflow, {
+              phaseId: workflow.currentPhase,
+              itemDirectory: workDir(root, config, workflow.workItem.id),
+              itemRelative: workDirRelative(config, workflow.workItem.id)
+            });
           }
         }
         recordPublicationProjection(workflow, publicationEvent, ledgerIntent);

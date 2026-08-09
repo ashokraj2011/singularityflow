@@ -6,6 +6,7 @@ import { loadActiveSpecRecords } from './specifications.mjs';
 import {
   SingularityFlowError, nowIso, posix, readJson, run, secureRepositoryPath, writeJson
 } from './util.mjs';
+import { GOVERNED_ROOTS } from './config.mjs';
 
 const SCHEMA_VERSION = 1;
 
@@ -199,10 +200,25 @@ export async function ensureWorkIntervalBaseline(root, config, workflow, {
   return workflow.workIntervals.current;
 }
 
-function applicationPath(candidate) {
+/**
+ * Whether a path counts as application source for work-interval accounting.
+ *
+ * Governance material does not. This excluded `singularity/` but not `.github/agents/`, while
+ * `isConfigurationAsset` claims both — so once `start` began materializing the approved
+ * configuration from `sflow/config`, six agent prompts landed in the Story branch and the interval
+ * counted them as the developer's changes, then flagged them as protected paths modified. A
+ * quick-fix, limit five, was over budget before anyone had written a line.
+ *
+ * Derived from `GOVERNED_ROOTS` rather than restating the list, so a future governed root cannot
+ * silently become "application source" that eats somebody's interval.
+ */
+export function isApplicationPath(candidate) {
   const normalized = posix(candidate);
-  return normalized && normalized !== 'singularity' && !normalized.startsWith('singularity/') && !normalized.startsWith('.git/');
+  if (!normalized || normalized.startsWith('.git/')) return false;
+  return !GOVERNED_ROOTS.some((root) => normalized === root || normalized.startsWith(`${root}/`));
 }
+
+const applicationPath = isApplicationPath;
 
 function splitNull(value) {
   return value.split('\0').map((item) => item.trim()).filter(Boolean);

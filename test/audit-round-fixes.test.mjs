@@ -13,6 +13,7 @@ import test from 'node:test';
 
 import { acquireSubjectLock, subjectLockPath } from '../src/subject-lock.mjs';
 import { GOVERNED_ROOTS, initializeDefinition } from '../src/config.mjs';
+import { isApplicationPath } from '../src/work-intervals.mjs';
 import { assertNotDefaultBranch, defaultBranchName, protectedBranchNames } from '../src/git.mjs';
 import { DEFAULT_IMPACT_METRIC_AUTHORITIES } from '../src/impact-config.mjs';
 import { selectAuthoritativeImpactEvidence } from '../src/impact.mjs';
@@ -215,4 +216,22 @@ test('external-provider authority accepts an allowlisted provider observation', 
     }]),
     /is not authoritative/
   );
+});
+
+test('governance material does not consume a work interval', () => {
+  // `start` materializes the approved configuration from `sflow/config` into the Story branch, so
+  // `singularity/**` and `.github/agents/**` arrive as changes the developer did not make. The
+  // interval excluded the first and not the second, which put a fresh quick-fix over its five-path
+  // limit — and flagged the agent prompts as protected paths modified — before any work was done.
+  for (const governed of ['singularity', 'singularity/workflow.yml', '.github/agents', '.github/agents/qa.agent.md']) {
+    assert.equal(isApplicationPath(governed), false, `${governed} is governance material`);
+  }
+  // Real source still counts, including the rest of .github.
+  for (const source of ['src/app.js', 'greeting.txt', '.github/workflows/ci.yml']) {
+    assert.equal(isApplicationPath(source), true, `${source} is application source`);
+  }
+  assert.equal(isApplicationPath('.git/index'), false);
+
+  // Derived from the one list, so a new governed root cannot silently become application source.
+  for (const root of GOVERNED_ROOTS) assert.equal(isApplicationPath(`${root}/anything.md`), false);
 });

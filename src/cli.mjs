@@ -4244,6 +4244,17 @@ async function capabilityCommand(positionals, options) {
  * The one operation that cannot assume a governed repository, because it is the one that makes one.
  * Everything else in this CLI runs inside a repository; this runs from anywhere and produces one.
  */
+// Rejected here rather than at first use: an unknown mode written into the configuration authority
+// would only surface later, as a confusing failure in a Story that did nothing wrong.
+function groundingOption(options) {
+  const requested = optionString(options, 'grounding');
+  if (requested == null) return null;
+  if (!['off', 'warn', 'enforce'].includes(requested)) {
+    throw new SingularityFlowError(`--grounding must be off, warn, or enforce; got '${requested}'.`);
+  }
+  return requested;
+}
+
 async function bootstrapCommand(positionals, options) {
   const url = requirePositional(positionals, 1, 'repository URL');
   const capabilityId = optionString(options, 'capability');
@@ -4269,6 +4280,7 @@ async function bootstrapCommand(positionals, options) {
     into: optionString(options, 'into'),
     base: optionString(options, 'base'),
     stateBranch,
+    grounding: groundingOption(options),
     push: optionBoolean(options, 'push', true)
   });
 

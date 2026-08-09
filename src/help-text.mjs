@@ -26,7 +26,7 @@ Usage:
   singularity-flow harness report [--json]
   singularity-flow bootstrap <REPOSITORY-URL> --capability ID [--name TEXT] [--kind collection|delivery]
     [--jira-project KEY] [--teams A,B] [--into DIRECTORY] [--base DIRECTORY]
-    [--state-branch NAME | --no-state-branch] [--no-push] [--json]
+    [--state-branch NAME | --no-state-branch] [--grounding off|warn|enforce] [--no-push] [--json]
   singularity-flow init [--repair] [--work-id WORK-ID] [--base BRANCH] [--fetch]
   singularity-flow init --check [--json]
   singularity-flow refresh-branch [--remote origin] [--branch CURRENT] [--json]

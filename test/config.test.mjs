@@ -33,7 +33,9 @@ test('starter YAML resolves feature, bugfix, and Figma-mobile templates and agen
   assert.deepEqual(feature.contextPolicy, { onApproval: 'new', onRejection: 'keep', phaseOverrides: {} });
   assert.match(await agentPrompt(root, definition, 'architect'), /boundaries, contracts/);
   assert.equal(definition.inputsMode, 'enforce');
-  assert.equal(definition.worldModel.grounding, 'enforce');
+  // The shipped default reports rather than blocks: a repository with no world model yet, or no
+  // model provider at all, must still be able to run its lifecycle.
+  assert.equal(definition.worldModel.grounding, 'warn');
   assert.deepEqual(definition.session, { workItemSelection: 'prompt', requireBeforeTools: false });
   assert.equal(feature.sequenceGates.phaseStatus, 'soft');
   assert.equal(feature.sequenceGates.documentPhase, 'soft');

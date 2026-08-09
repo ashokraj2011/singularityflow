@@ -1,4 +1,6 @@
 import { readdir, readFile } from 'node:fs/promises';
+import { mkdtempSync, rmSync } from 'node:fs';
+import { tmpdir } from 'node:os';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { spawnSync } from 'node:child_process';
@@ -46,9 +48,36 @@ if (!selected.length) {
 
 const flags = needsStripping ? ['--experimental-strip-types', '--no-warnings=ExperimentalWarning'] : [];
 
-const result = spawnSync(process.execPath, [...flags, '--test', ...selected], {
-  cwd: root,
-  stdio: 'inherit',
-  env: process.env
-});
-process.exitCode = result.status ?? 1;
+/**
+ * Run against a throwaway machine-state root, never the developer's own.
+ *
+ * These three pointers live in `~/.singularity-flow` and are read by any repository the CLI is
+ * pointed at. Each already has an environment override, added — as the comment on
+ * `leadRegistryFile` says — "so tests never touch a real machine's list"; the suite simply never set
+ * them. The consequence was not a test touching the developer's files but the reverse: selecting a
+ * workspace in the extension made that workspace's capability policy resolve inside every temporary
+ * fixture repository, overriding each one's own `git.publish: off` and pushing to an `origin` that
+ * fixtures deliberately do not have. Fifteen unrelated tests failed, on unchanged code, because of a
+ * file outside the repository.
+ *
+ * Isolating the runner is enough: every fixture spawns the CLI with `{ ...process.env }`, so the
+ * children inherit these.
+ */
+const machineState = mkdtempSync(path.join(tmpdir(), 'sflow-test-machine-state-'));
+const isolated = {
+  ...process.env,
+  SINGULARITY_FLOW_WORKSPACE_REGISTRY: path.join(machineState, 'workspaces.json'),
+  SINGULARITY_FLOW_ACTIVE_WORKSPACE: path.join(machineState, 'active-workspace.json'),
+  SINGULARITY_FLOW_LEAD_REGISTRY: path.join(machineState, 'leads.json')
+};
+
+try {
+  const result = spawnSync(process.execPath, [...flags, '--test', ...selected], {
+    cwd: root,
+    stdio: 'inherit',
+    env: isolated
+  });
+  process.exitCode = result.status ?? 1;
+} finally {
+  rmSync(machineState, { recursive: true, force: true });
+}

@@ -386,6 +386,10 @@ export const STYLE = `
   .rail-node { display: grid; grid-template-columns: auto 1fr; align-items: center; gap: .45rem; white-space: nowrap; padding: .45rem .75rem; border: var(--sf-border); border-radius: 999px; background: var(--vscode-editor-background); }
   .rail-node b, .step-number { display: inline-grid; place-items: center; width: 1.55rem; height: 1.55rem; border-radius: 50%; color: var(--sf-on-accent); background: var(--sf-accent); font-size: .75rem; flex: 0 0 auto; }
   .rail-arrow { color: var(--sf-dim); }
+  /* The exact command behind a button, for anyone who wants to run or script it. Supporting
+     detail — the button says what it does. */
+  .command-hint { margin: .4rem 0 0; color: var(--sf-dim); font-size: .78rem; }
+  .command-hint code { font-family: var(--vscode-editor-font-family, monospace); user-select: all; }
   .sequence-builder { display: grid; gap: .45rem; }
   .sequence-row { display: flex; align-items: center; gap: .65rem; padding: .55rem .65rem; border: var(--sf-border); border-radius: var(--sf-radius); background: var(--vscode-editor-background); }
   .icon-button { width: 2rem; height: 2rem; min-width: 2rem; min-height: 2rem; padding: 0; border-radius: 5px; background: transparent; border-color: var(--vscode-input-border, rgba(128,128,128,.35)); color: var(--vscode-foreground); }

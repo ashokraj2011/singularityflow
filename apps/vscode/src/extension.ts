@@ -156,6 +156,34 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
     void vscode.window.showInformationMessage(`Singularity Flow profile saved for ${name.trim() || role}.`);
   }));
 
+  /**
+   * Open the getting-started walkthrough.
+   *
+   * The walkthrough was written, shipped in the manifest, and opened by nothing — there was no
+   * command for it and no code path that called `openWalkthrough`. `onboardingComplete` was written
+   * by the profile command above and never read by anything, so the extension recorded that
+   * onboarding had happened without ever offering it.
+   */
+  context.subscriptions.push(vscode.commands.registerCommand('singularityFlow.openWalkthrough', async () => {
+    await vscode.commands.executeCommand(
+      'workbench.action.openWalkthrough',
+      `${context.extension.id}#singularityFlow.gettingStarted`,
+      false
+    );
+  }));
+
+  // Offer it once, on the first activation that has never seen it. Offer, not force: an unprompted
+  // full-screen takeover is its own kind of rude, and a notification can be dismissed for good.
+  if (!context.globalState.get<boolean>('onboardingComplete') && !context.globalState.get<boolean>('walkthroughOffered')) {
+    void context.globalState.update('walkthroughOffered', true);
+    void vscode.window.showInformationMessage(
+      'New to Singularity Flow? The walkthrough sets up your profile and first governed workspace.',
+      'Show me', 'Not now'
+    ).then((choice) => {
+      if (choice === 'Show me') void vscode.commands.executeCommand('singularityFlow.openWalkthrough');
+    });
+  }
+
   context.subscriptions.push(vscode.commands.registerCommand('singularityFlow.connectJira', async () => {
     const deployment = await vscode.window.showQuickPick([
       { label: 'Jira Cloud', value: 'cloud' as const },
@@ -776,9 +804,40 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
    * Separate from selecting it, and deliberately so: this one costs you the window. It is for going
    * to edit the code, not for choosing what the governed screens act on.
    */
+  /**
+   * Resolve a workspace from a clicked node, or ask.
+   *
+   * Node-only commands were reachable exactly once — from a context menu on a view that is never
+   * rendered. Falling back to the picker is what `attachSessionToWorkspace` already did; this is the
+   * same behaviour, shared, so a command works whether it arrives from a click or the palette.
+   */
+  const chooseWorkspace = async (
+    node: TreeNode | undefined, title: string, placeHolder: string
+  ): Promise<{ path: string; lead: string; name: string } | null> => {
+    const fromNode = nodeWorkspace(node);
+    if (fromNode) return fromNode;
+    await refreshWorkspaceTree();
+    const picked = await vscode.window.showQuickPick(workspaceEntries.map((entry) => ({
+      label: entry.name,
+      description: entry.anchorKey || entry.id,
+      detail: entry.path,
+      entry
+    })), { title, placeHolder });
+    if (!picked) return null;
+    return {
+      path: picked.entry.path,
+      lead: picked.entry.leadRepositoryPath || picked.entry.path,
+      name: picked.entry.name
+    };
+  };
+
   context.subscriptions.push(vscode.commands.registerCommand('singularityFlow.openWorkspace',
     async (node?: TreeNode) => {
-      const chosen = nodeWorkspace(node);
+      const chosen = await chooseWorkspace(
+        node,
+        'Open a Singularity Flow workspace',
+        'Choose the workspace whose repository should open in this window'
+      );
       if (!chosen) return;
       const open = vscode.workspace.workspaceFolders?.[0]?.uri.fsPath;
       if (open && path.resolve(open) === path.resolve(chosen.lead)) {
@@ -792,25 +851,12 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
 
   context.subscriptions.push(vscode.commands.registerCommand('singularityFlow.attachSessionToWorkspace',
     async (node?: TreeNode) => {
-      let chosen = nodeWorkspace(node);
-      if (!chosen) {
-        await refreshWorkspaceTree();
-        const picked = await vscode.window.showQuickPick(workspaceEntries.map((entry) => ({
-          label: entry.name,
-          description: entry.anchorKey || entry.id,
-          detail: entry.path,
-          entry
-        })), {
-          title: 'Attach Copilot to a Singularity Flow workspace',
-          placeHolder: 'Choose the workspace whose governed repository Copilot should use'
-        });
-        if (!picked) return;
-        chosen = {
-          path: picked.entry.path,
-          lead: picked.entry.leadRepositoryPath || picked.entry.path,
-          name: picked.entry.name
-        };
-      }
+      const chosen = await chooseWorkspace(
+        node,
+        'Attach Copilot to a Singularity Flow workspace',
+        'Choose the workspace whose governed repository Copilot should use'
+      );
+      if (!chosen) return;
       try {
         const chooser = new SingularityFlowClient({
           location: resolveCli({ extensionPath: context.extensionPath }),
@@ -939,7 +985,13 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
     }
   }));
 
-  const resolved = await resolveGovernedRepository(context, output);
+  // Resolving the repository spawns the CLI, which on a cold start can take a noticeable while.
+  // Without this the sidebar sat empty and silent for the whole of it, which reads as broken rather
+  // than as busy. ProgressLocation.Window is the status-bar spinner: present, not in the way.
+  const resolved = await vscode.window.withProgress(
+    { location: vscode.ProgressLocation.Window, title: 'Singularity Flow: finding the governed repository…' },
+    () => resolveGovernedRepository(context, output)
+  );
   if ('reason' in resolved) {
     return unavailable(resolved.label, resolved.reason, resolved.contextValue, resolved.lead);
   }

@@ -16,27 +16,50 @@ interface TreeSource {
   snapshot(): readonly TreeNode[];
 }
 
+/**
+ * `empty` is the sentence a section shows when it has nothing, plus the one action that resolves it.
+ *
+ * All five sections rendered the same four words — "Nothing to show yet." — with nothing to click.
+ * The tree models state the principle exactly right and follow it: an empty view in a governance
+ * tool reads as "nothing to do", which is the most expensive thing it could wrongly say. This is
+ * that principle applied to the surface that contradicted it.
+ */
 const SECTION_META: Record<SidebarSection, {
-  label: string; icon: IconName; actions: Array<{ id: string; label: string; icon: IconName }>;
+  label: string;
+  icon: IconName;
+  actions: Array<{ id: string; label: string; icon: IconName }>;
+  empty: { text: string; action: string; actionLabel: string };
 }> = {
   workspaces: {
     label: 'Workspaces', icon: 'workspace', actions: [
       { id: 'workspace-create', label: 'Create workspace', icon: 'workspaceAdd' },
       { id: 'workspace-manage', label: 'Manage workspaces', icon: 'workspaceManage' }
-    ]
+    ],
+    empty: {
+      text: 'No workspace is selected. A workspace points at the governed repository whose lifecycle you want to see.',
+      action: 'workspace-manage', actionLabel: 'Choose a workspace'
+    }
   },
   lifecycle: {
     label: 'Lifecycle', icon: 'workflow', actions: [
       { id: 'work-start', label: 'Start intake', icon: 'start' },
       { id: 'visual-assurance', label: 'Open visual assurance', icon: 'visual' },
       { id: 'refresh', label: 'Refresh lifecycle', icon: 'refresh' }
-    ]
+    ],
+    empty: {
+      text: 'No work item is in flight in this workspace.',
+      action: 'work-start', actionLabel: 'Start intake'
+    }
   },
   inbox: {
     label: 'Inbox', icon: 'inbox', actions: [
       { id: 'inbox-open', label: 'Open inbox', icon: 'inbox' },
       { id: 'visual-assurance', label: 'Review visual evidence', icon: 'compare' }
-    ]
+    ],
+    empty: {
+      text: 'Nothing is waiting on you. Submitted phases appear here for approval.',
+      action: 'inbox-open', actionLabel: 'Open the inbox'
+    }
   },
   configuration: {
     label: 'Configuration', icon: 'configuration', actions: [
@@ -44,12 +67,20 @@ const SECTION_META: Record<SidebarSection, {
       { id: 'workflow-design', label: 'Design workflow', icon: 'workflow' },
       { id: 'instruction-design', label: 'Design agents and prompts', icon: 'agent' },
       { id: 'prompt-audit', label: 'Open prompt audit', icon: 'prompt' }
-    ]
+    ],
+    empty: {
+      text: 'No governed configuration is loaded. It lives on the capability’s configuration branch, not on main.',
+      action: 'capability-map', actionLabel: 'Map a capability'
+    }
   },
   help: {
     label: 'Help', icon: 'help', actions: [
       { id: 'help-open', label: 'Open Help Center', icon: 'search' }
-    ]
+    ],
+    empty: {
+      text: 'Guides, the command reference, and the getting-started walkthrough.',
+      action: 'help-open', actionLabel: 'Open the Help Center'
+    }
   }
 };
 
@@ -93,9 +124,13 @@ export class SidebarViewProvider implements vscode.WebviewViewProvider, vscode.D
   };
   private readonly subscriptions: vscode.Disposable[] = [];
   private readonly nodeIndex = new Map<string, TreeNode>();
+  private readonly bound = new Set<SidebarSection>();
   private view: vscode.WebviewView | null = null;
 
   bind(section: SidebarSection, source: TreeSource): void {
+    // Until a section is bound it has no data source at all, which is a different thing from having
+    // a source that returned nothing — and the reader deserves to be told which.
+    this.bound.add(section);
     this.roots[section] = source.snapshot();
     this.subscriptions.push(source.onDidChangeTreeData(() => {
       this.roots[section] = source.snapshot();
@@ -168,7 +203,13 @@ export class SidebarViewProvider implements vscode.WebviewViewProvider, vscode.D
     const nodes = this.roots[section];
     const content = nodes.length
       ? nodes.map((node, index) => this.renderNode(section, node, [index])).join('')
-      : `<div class="empty">Nothing to show yet.</div>`;
+      : this.bound.has(section)
+        ? `<div class="empty"><p>${escape(meta.empty.text)}</p>
+            <button class="empty-action" type="button" data-action="${escape(meta.empty.action)}">${escape(meta.empty.actionLabel)}</button>
+          </div>`
+        // Bound but not yet reported, versus never connected: saying "nothing here" while the CLI is
+        // still being spawned is a lie the reader has no way to detect.
+        : `<div class="empty"><p>Connecting to the Singularity Flow CLI…</p></div>`;
     return `<details class="section" data-section="${section}" open>
       <summary class="section-heading">
         <span class="section-title">${icon(meta.icon, { size: 16 })}<span>${escape(meta.label)}</span></span>
@@ -187,7 +228,15 @@ export class SidebarViewProvider implements vscode.WebviewViewProvider, vscode.D
       <meta name="viewport" content="width=device-width,initial-scale=1">
       <meta http-equiv="Content-Security-Policy" content="${contentSecurityPolicy(this.view.webview, token)}">
       <style nonce="${token}">
-        :root { color-scheme: light dark; --accent:#2f9e44; --quiet:color-mix(in srgb,var(--accent) 13%,transparent); }
+        /* The same accent the full-page views use. The sidebar had its own #2f9e44, which matched
+           neither the light nor the dark value in webview.ts, and had no dark or forced-colors
+           handling at all — so one product had three greens depending on where you looked. */
+        :root { color-scheme: light dark; --accent:#2e7d32; --quiet:color-mix(in srgb,var(--accent) 13%,transparent); }
+        @media (prefers-color-scheme: dark) { :root { --accent:#3d9a42; } }
+        @media (forced-colors: active) {
+          :root { --accent:LinkText; --quiet:transparent; }
+          .empty-action,button.node-open { border:1px solid ButtonText; }
+        }
         * { box-sizing:border-box; }
         body { margin:0; padding:0 0 18px; color:var(--vscode-sideBar-foreground); background:var(--vscode-sideBar-background);
           font:var(--vscode-font-size)/1.35 var(--vscode-font-family); }
@@ -231,8 +280,17 @@ export class SidebarViewProvider implements vscode.WebviewViewProvider, vscode.D
         .node-open { display:grid; place-items:center; width:25px; height:25px; padding:0; border:0; border-radius:4px; opacity:0; color:var(--accent); background:transparent; }
         button.node-open:hover { opacity:1; background:var(--vscode-toolbar-hoverBackground); }
         .actionable:hover .node-open,.actionable:focus-visible .node-open { opacity:1; }
+        /* A focused control at zero opacity is an invisible focus target: keyboard users tabbed onto
+           a button they could not see. The row's own :focus-visible covered the row, not the button
+           inside it, so the button had to claim its own. */
+        button.node-open:focus-visible { opacity:1; outline:1px solid var(--vscode-focusBorder); outline-offset:1px; }
         .children { margin-left:1px; border-left:1px solid var(--vscode-tree-indentGuidesStroke,transparent); }
-        .empty { padding:9px 12px 10px 28px; color:var(--vscode-descriptionForeground); font-size:11px; }
+        .empty { padding:9px 12px 12px 28px; color:var(--vscode-descriptionForeground); font-size:11px; }
+        .empty p { margin:0 0 8px; max-width:34em; line-height:1.45; }
+        .empty-action { padding:4px 10px; border:0; border-radius:3px; cursor:pointer;
+          color:var(--vscode-button-foreground); background:var(--vscode-button-background); font-size:11px; }
+        .empty-action:hover { background:var(--vscode-button-hoverBackground); }
+        .empty-action:focus-visible { outline:1px solid var(--vscode-focusBorder); outline-offset:2px; }
         @media (prefers-reduced-motion:reduce) { * { transition:none!important; } }
       </style></head><body>
       <header class="brand"><span class="brand-mark">${icon('workflow', { size: 20 })}</span>

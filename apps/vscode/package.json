@@ -43,7 +43,10 @@
         "singularityFlow.modelMode": {
           "type": "string",
           "default": "auto",
-          "enum": ["auto", "disabled"],
+          "enum": [
+            "auto",
+            "disabled"
+          ],
           "enumDescriptions": [
             "Allow operations whose declared policy permits or requires a model.",
             "Disable all kernel-owned model invocation; model-required operations fail before their handler loads."
@@ -58,7 +61,19 @@
         "singularityFlow.role": {
           "type": "string",
           "default": "",
-          "enum": ["", "product-owner", "business-analyst", "product-designer", "architect", "developer", "qa", "security", "delivery-manager", "operations", "other"],
+          "enum": [
+            "",
+            "product-owner",
+            "business-analyst",
+            "product-designer",
+            "architect",
+            "developer",
+            "qa",
+            "security",
+            "delivery-manager",
+            "operations",
+            "other"
+          ],
           "description": "Local role used to simplify guidance. The active governed agent is selected by the workflow phase."
         }
       }
@@ -69,10 +84,51 @@
         "title": "Get started with Singularity Flow",
         "description": "Configure your profile, secure integrations, and first governed workspace.",
         "steps": [
-          { "id": "profile", "title": "Set your name and role", "description": "Choose the local guidance appropriate for your work.", "media": { "markdown": "media/walkthrough/profile.md" }, "completionEvents": ["onCommand:singularityFlow.configureProfile"] },
-          { "id": "jira", "title": "Connect Jira securely", "description": "Store the token in the operating-system keychain through VS Code SecretStorage.", "media": { "markdown": "media/walkthrough/jira.md" }, "completionEvents": ["onCommand:singularityFlow.connectJira"] },
-          { "id": "workspace", "title": "Choose or create a workspace", "description": "Workspaces bind a local directory to capabilities and repositories.", "media": { "markdown": "media/walkthrough/workspace.md" }, "completionEvents": ["onCommand:singularityFlow.switchWorkspace", "onCommand:singularityFlow.createWorkspace"] },
-          { "id": "intake", "title": "Start intake", "description": "Choose the work shape and workflow, then hand governed context to native Copilot.", "media": { "markdown": "media/walkthrough/intake.md" }, "completionEvents": ["onCommand:singularityFlow.startWork"] }
+          {
+            "id": "profile",
+            "title": "Set your name and role",
+            "description": "Choose the local guidance appropriate for your work.",
+            "media": {
+              "markdown": "media/walkthrough/profile.md"
+            },
+            "completionEvents": [
+              "onCommand:singularityFlow.configureProfile"
+            ]
+          },
+          {
+            "id": "jira",
+            "title": "Connect Jira securely",
+            "description": "Store the token in the operating-system keychain through VS Code SecretStorage.",
+            "media": {
+              "markdown": "media/walkthrough/jira.md"
+            },
+            "completionEvents": [
+              "onCommand:singularityFlow.connectJira"
+            ]
+          },
+          {
+            "id": "workspace",
+            "title": "Choose or create a workspace",
+            "description": "Workspaces bind a local directory to capabilities and repositories.",
+            "media": {
+              "markdown": "media/walkthrough/workspace.md"
+            },
+            "completionEvents": [
+              "onCommand:singularityFlow.switchWorkspace",
+              "onCommand:singularityFlow.createWorkspace"
+            ]
+          },
+          {
+            "id": "intake",
+            "title": "Start intake",
+            "description": "Choose the work shape and workflow, then hand governed context to native Copilot.",
+            "media": {
+              "markdown": "media/walkthrough/intake.md"
+            },
+            "completionEvents": [
+              "onCommand:singularityFlow.startWork"
+            ]
+          }
         ]
       }
     ],
@@ -124,6 +180,11 @@
         "command": "singularityFlow.openWorkspaces",
         "title": "Singularity Flow: Workspaces",
         "icon": "$(list-unordered)"
+      },
+      {
+        "command": "singularityFlow.openWalkthrough",
+        "title": "Singularity Flow: Get Started (Walkthrough)",
+        "icon": "$(rocket)"
       },
       {
         "command": "singularityFlow.configureModelMode",
@@ -371,7 +432,7 @@
       },
       {
         "command": "singularityFlow.approve",
-        "title": "Singularity Flow: Approve\u2026",
+        "title": "Singularity Flow: Approve…",
         "icon": "$(check)"
       },
       {
@@ -410,235 +471,6 @@
       }
     ],
     "menus": {
-      "view/title": [
-        {
-          "command": "singularityFlow.attachSessionToWorkspace",
-          "when": "view == singularityFlow.workspaces",
-          "group": "navigation@0"
-        },
-        {
-          "command": "singularityFlow.startWork",
-          "when": "view == singularityFlow.lifecycle",
-          "group": "navigation@0"
-        },
-        {
-          "command": "singularityFlow.attachEvidence",
-          "when": "view == singularityFlow.lifecycle",
-          "group": "navigation@1"
-        },
-        {
-          "command": "singularityFlow.manageEvidence",
-          "when": "view == singularityFlow.lifecycle",
-          "group": "navigation@1.5"
-        },
-        {
-          "command": "singularityFlow.continueSafely",
-          "when": "view == singularityFlow.lifecycle",
-          "group": "navigation@2"
-        },
-        {
-          "command": "singularityFlow.openDashboard",
-          "when": "view == singularityFlow.lifecycle",
-          "group": "navigation@3"
-        },
-        {
-          "command": "singularityFlow.openInbox",
-          "when": "view == singularityFlow.lifecycle",
-          "group": "navigation@4"
-        },
-        {
-          "command": "singularityFlow.openStories",
-          "when": "view == singularityFlow.lifecycle",
-          "group": "navigation@5"
-        },
-        {
-          "command": "singularityFlow.openImpact",
-          "when": "view == singularityFlow.lifecycle",
-          "group": "navigation@6"
-        },
-        {
-          "command": "singularityFlow.openJourney",
-          "when": "view == singularityFlow.lifecycle",
-          "group": "navigation@7"
-        },
-        {
-          "command": "singularityFlow.openReconciliation",
-          "when": "view == singularityFlow.lifecycle",
-          "group": "navigation@8"
-        },
-        {
-          "command": "singularityFlow.refresh",
-          "when": "view == singularityFlow.lifecycle",
-          "group": "navigation@9"
-        },
-        {
-          "command": "singularityFlow.openInbox",
-          "when": "view == singularityFlow.inbox",
-          "group": "navigation@0"
-        },
-        {
-          "command": "singularityFlow.refresh",
-          "when": "view == singularityFlow.inbox",
-          "group": "navigation@9"
-        },
-        {
-          "command": "singularityFlow.addCapability",
-          "when": "view == singularityFlow.configuration",
-          "group": "navigation@0"
-        },
-        {
-          "command": "singularityFlow.openCapabilities",
-          "when": "view == singularityFlow.configuration",
-          "group": "navigation@1"
-        },
-        {
-          "command": "singularityFlow.createWorkspace",
-          "when": "view == singularityFlow.workspaces",
-          "group": "navigation@0"
-        },
-        {
-          "command": "singularityFlow.openWorkspaces",
-          "when": "view == singularityFlow.workspaces",
-          "group": "navigation@1"
-        },
-        {
-          "command": "singularityFlow.openDesigner",
-          "when": "view == singularityFlow.configuration",
-          "group": "navigation@0"
-        },
-        {
-          "command": "singularityFlow.openInstructionDesigner",
-          "when": "view == singularityFlow.configuration",
-          "group": "navigation@1"
-        },
-        {
-          "command": "singularityFlow.doctor",
-          "when": "view == singularityFlow.configuration",
-          "group": "navigation@2"
-        },
-        {
-          "command": "singularityFlow.refresh",
-          "when": "view == singularityFlow.configuration",
-          "group": "navigation@9"
-        },
-        {
-          "command": "singularityFlow.mapCapability",
-          "when": "view == singularityFlow.configuration",
-          "group": "9_setup@0"
-        },
-        {
-          "command": "singularityFlow.reviewCapabilityProposals",
-          "when": "view == singularityFlow.configuration",
-          "group": "9_setup@1"
-        },
-        {
-          "command": "singularityFlow.openHelp",
-          "when": "view == singularityFlow.help",
-          "group": "navigation@0"
-        }
-      ],
-      "view/item/context": [
-        {
-          "command": "singularityFlow.runAction",
-          "when": "view == singularityFlow.lifecycle && viewItem == sflow.action",
-          "group": "inline"
-        },
-        {
-          "command": "singularityFlow.approve",
-          "when": "view == singularityFlow.lifecycle && viewItem == sflow.artifact.approvable",
-          "group": "inline"
-        },
-        {
-          "command": "singularityFlow.approve",
-          "when": "view == singularityFlow.lifecycle && viewItem == sflow.pack.approvable",
-          "group": "inline"
-        },
-        {
-          "command": "singularityFlow.approve",
-          "when": "view == singularityFlow.lifecycle && viewItem == sflow.story.approval",
-          "group": "inline"
-        },
-        {
-          "command": "singularityFlow.prepareStoryPhase",
-          "when": "view == singularityFlow.lifecycle && viewItem == sflow.story.prepare",
-          "group": "inline"
-        },
-        {
-          "command": "singularityFlow.publishStoryPhase",
-          "when": "view == singularityFlow.lifecycle && viewItem == sflow.story.publish",
-          "group": "inline"
-        },
-        {
-          "command": "singularityFlow.submitStoryPhase",
-          "when": "view == singularityFlow.lifecycle && viewItem == sflow.story.submit",
-          "group": "inline"
-        },
-        {
-          "command": "singularityFlow.attachEvidence",
-          "when": "view == singularityFlow.lifecycle && viewItem == sflow.sources",
-          "group": "inline"
-        },
-        {
-          "command": "singularityFlow.attachEvidence",
-          "when": "view == singularityFlow.lifecycle && viewItem == sflow.story.active",
-          "group": "inline"
-        },
-        {
-          "command": "singularityFlow.manageEvidence",
-          "when": "view == singularityFlow.lifecycle && (viewItem == sflow.evidence.group || viewItem == sflow.evidence.manage || viewItem == sflow.evidence.detached.group)",
-          "group": "inline"
-        },
-        {
-          "command": "singularityFlow.detachEvidence",
-          "when": "view == singularityFlow.lifecycle && viewItem == sflow.evidence.active",
-          "group": "inline"
-        },
-        {
-          "command": "singularityFlow.startWork",
-          "when": "view == singularityFlow.lifecycle && viewItem == sflow.start",
-          "group": "inline"
-        },
-        {
-          "command": "singularityFlow.init",
-          "when": "view == singularityFlow.lifecycle && viewItem == sflow.uninitialized",
-          "group": "inline"
-        },
-        {
-          "command": "singularityFlow.addCapability",
-          "when": "view == singularityFlow.configuration && viewItem =~ /^sflow\\.capabilit(y|ies(\\.empty)?)$/",
-          "group": "inline@0"
-        },
-        {
-          "command": "singularityFlow.editCapability",
-          "when": "view == singularityFlow.configuration && viewItem == sflow.capability",
-          "group": "inline@1"
-        },
-        {
-          "command": "singularityFlow.createWorkspace",
-          "when": "view == singularityFlow.workspaces && viewItem == sflow.workspaces.empty",
-          "group": "inline"
-        },
-        {
-          "command": "singularityFlow.switchWorkspace",
-          "when": "view == singularityFlow.workspaces && viewItem == sflow.workspace",
-          "group": "inline@0"
-        },
-        {
-          "command": "singularityFlow.openWorkspace",
-          "when": "view == singularityFlow.workspaces && viewItem =~ /^sflow\\.workspace(\\.active(\\.unavailable)?)?$/",
-          "group": "navigation@1"
-        },
-        {
-          "command": "singularityFlow.repairWorkspace",
-          "when": "view == singularityFlow.workspaces && viewItem == sflow.workspace.active.unavailable",
-          "group": "inline@0"
-        },
-        {
-          "command": "singularityFlow.runAction",
-          "when": "view == singularityFlow.configuration && viewItem == sflow.action",
-          "group": "inline"
-        }
-      ],
       "commandPalette": [
         {
           "command": "singularityFlow.openArtifact",
@@ -650,14 +482,6 @@
         },
         {
           "command": "singularityFlow.approve",
-          "when": "false"
-        },
-        {
-          "command": "singularityFlow.editCapability",
-          "when": "false"
-        },
-        {
-          "command": "singularityFlow.openWorkspace",
           "when": "false"
         }
       ]

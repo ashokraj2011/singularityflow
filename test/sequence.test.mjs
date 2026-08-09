@@ -49,11 +49,23 @@ function assertSequenceFailure(result, ...patterns) {
   assert.equal(result.status, 2);
   assert.match(result.stderr, /(?:Out of sequence|Soft sequence warning) \[[A-Za-z]+\]:/);
   assert.match(result.stderr, /Current state:/);
-  assert.match(result.stderr, /Required next action:/);
-  assert.match(result.stderr, /Run next in Copilot: \/sf-/);
-  assert.match(result.stderr, /CLI equivalent: singularity-flow/);
-  assert.match(result.stderr, /singularity-flow nextsteps SEQ-1/);
-  assert.match(result.stderr, /(?:No workflow files, commits, or remote state were changed|Nothing was changed)/);
+
+  // The guidance moved from hand-written prose into the narrated result, so these assert the
+  // guarantees rather than the old wording: the refusal explains itself with a cataloged reason,
+  // states what it preserved — derived from declared effects, not a sentence beside the throw — and
+  // offers at least one runnable command instead of a Copilot skill name.
+  if (/Out of sequence/.test(result.stderr)) {
+    // Hard refusals carry a narrated result. Soft warnings do not yet, and still use the legacy
+    // guidance prose; they are asserted below on the wording they still own.
+    assert.match(result.stderr, /\nWhy:\n/);
+    assert.match(result.stderr, /\nNext:\n/);
+    assert.match(result.stderr, /^ {2}NOW\s+\S/m, 'a ranked next action is offered');
+    assert.match(result.stderr, /^ {8}singularity-flow \S/m, 'the next action is a runnable command');
+    assert.match(result.stderr, /No governed state, files, publications or external systems were changed\./);
+  } else {
+    assert.match(result.stderr, /Required next action:/);
+    assert.match(result.stderr, /CLI equivalent: singularity-flow/);
+  }
   for (const pattern of patterns) assert.match(result.stderr, pattern);
 }
 

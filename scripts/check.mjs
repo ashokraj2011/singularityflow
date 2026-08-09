@@ -6,6 +6,8 @@ import { fileURLToPath } from 'node:url';
 import YAML from 'yaml';
 import { validateDefinition } from '../src/config.mjs';
 import { discoverAgents, validateAgentCatalog } from '../src/agents.mjs';
+import { allCommands, documentedCommands, synopsisFor } from '../src/help-pages.mjs';
+import { canonicalCommand } from '../src/command-registry.mjs';
 import { validatePortfolio, validatePortfolioWorldModelViews } from '../src/initiative-config.mjs';
 import { auditSkillPolicy } from './skill-policy.mjs';
 
@@ -140,6 +142,19 @@ else if (publicSourceCheck.status !== 1) fail(`Unable to scan public repository 
 if (existsSync(path.join(root, 'examples', 'singularity-flow-approve.yml'))) {
   fail('Hosted approval workflow example must remain absent; use the local Git publication path.');
 }
+// Every command the CLI dispatches must publish a synopsis, and every authored help page must name
+// a command that exists. Both directions matter: `cockpit`, `logs` and `hook` all dispatched while
+// absent from the overview, and `HELP.md` advertised six subcommand families that did not.
+{
+  const commands = allCommands();
+  const missing = commands.filter((name) => synopsisFor(name).length === 0);
+  if (missing.length) fail(`Commands dispatch but publish no usage synopsis: ${missing.join(', ')}`);
+  const unknown = documentedCommands().filter((name) => {
+    try { return !commands.includes(canonicalCommand(name)); } catch { return true; }
+  });
+  if (unknown.length) fail(`Help pages describe commands that do not exist: ${unknown.join(', ')}`);
+}
+
 const hostedAutomationRoot = ['.github', 'workflows'].join('/');
 if (allFiles.some((file) => path.relative(root, file).startsWith(`${hostedAutomationRoot}/`))) {
   fail(`${hostedAutomationRoot}/ must remain absent; use the local release and verification scripts.`);

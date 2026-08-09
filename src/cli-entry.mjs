@@ -51,6 +51,18 @@ export async function main(argv) {
 
   const definition = commandDefinition(requested);
   if (!definition) throw new SingularityFlowError(`Unknown command: ${requested}`);
+  // Before the operation is resolved and long before the handler loads. `--help` used to be parsed
+  // into `options` and then ignored — and because unknown options are accepted silently, the command
+  // simply ran. `singularity-flow status --help` printed a status; `singularity-flow approve --help`
+  // would have attempted an approval. Asking a governance tool what a command does must never be the
+  // thing that performs it.
+  if (options.help === true || options.h === true) {
+    const { renderCommandHelp } = await import('./help-pages.mjs');
+    return withOperationContext({
+      operation: { id: 'help.command', modelPolicy: 'never', classification: 'read', output: 'human' },
+      modelMode, root, argvSha256, argvHash: `sha256:${argvSha256}`, command: 'help', startedAt: new Date().toISOString()
+    }, () => console.log(renderCommandHelp(definition.name)));
+  }
   const requestedOperation = resolveOperation({ requestedCommand: requested, positionals: [definition.name, ...positionals.slice(1)], options });
   const operation = requestedOperation.modelPolicy === 'optional' && !modelMode.enabled
     ? operationById(requestedOperation.fallback.operationId)

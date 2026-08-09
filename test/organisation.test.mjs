@@ -413,7 +413,12 @@ test('initialising a workspace creates the orphan state branch, and checks befor
  * is being built on.
  */
 test('no governed command is reachable only from a terminal', async () => {
-  const cli = await readFile(new URL('../src/cli.mjs', import.meta.url), 'utf8');
+  // The usage block now lives in help-text.mjs so per-command `--help` can read it without importing
+  // the CLI. Together these two files are what cli.mjs used to be, which is what this test scans.
+  const cli = [
+    await readFile(new URL('../src/cli.mjs', import.meta.url), 'utf8'),
+    await readFile(new URL('../src/help-text.mjs', import.meta.url), 'utf8')
+  ].join('\n');
   const lines = cli.split('\n');
 
   const missing = [];
@@ -498,7 +503,12 @@ test('the story plan is validated, so an unfilled template cannot be published',
  * Asking twice also invites a second, divergent answer to a settled question.
  */
 test('a seeded Story supplies its own intake, work type and lens', async () => {
-  const cli = await readFile(new URL('../src/cli.mjs', import.meta.url), 'utf8');
+  // The usage block now lives in help-text.mjs so per-command `--help` can read it without importing
+  // the CLI. Together these two files are what cli.mjs used to be, which is what this test scans.
+  const cli = [
+    await readFile(new URL('../src/cli.mjs', import.meta.url), 'utf8'),
+    await readFile(new URL('../src/help-text.mjs', import.meta.url), 'utf8')
+  ].join('\n');
 
   // The seed is read, and it decides the intake source rather than a prompt.
   assert.match(cli, /const seeded = existsSync\(path\.join\(root, 'singularity', 'seeds', `\$\{id\}\.yml`\)\)/);
@@ -527,7 +537,12 @@ test('a seeded Story supplies its own intake, work type and lens', async () => {
  */
 test('epic stories add creates the first planned Story without a tracker', async () => {
   const lifecycle = await readFile(new URL('../src/epic-lifecycle.mjs', import.meta.url), 'utf8');
-  const cli = await readFile(new URL('../src/cli.mjs', import.meta.url), 'utf8');
+  // The usage block now lives in help-text.mjs so per-command `--help` can read it without importing
+  // the CLI. Together these two files are what cli.mjs used to be, which is what this test scans.
+  const cli = [
+    await readFile(new URL('../src/cli.mjs', import.meta.url), 'utf8'),
+    await readFile(new URL('../src/help-text.mjs', import.meta.url), 'utf8')
+  ].join('\n');
 
   assert.match(lifecycle, /export async function addEpicStory\(/);
   // The epic is created on demand: a plan with no epic is where every new Epic starts.
@@ -659,7 +674,12 @@ test('choosing a workspace is what scopes the rest', async () => {
  * to answer. The selection records the path too, so matching on both is exact.
  */
 test('the active workspace is matched on identifier and path, not identifier alone', async () => {
-  const cli = await readFile(new URL('../src/cli.mjs', import.meta.url), 'utf8');
+  // The usage block now lives in help-text.mjs so per-command `--help` can read it without importing
+  // the CLI. Together these two files are what cli.mjs used to be, which is what this test scans.
+  const cli = [
+    await readFile(new URL('../src/cli.mjs', import.meta.url), 'utf8'),
+    await readFile(new URL('../src/help-text.mjs', import.meta.url), 'utf8')
+  ].join('\n');
   assert.match(cli, /workspace\.id === active\?\.workspaceId/);
   assert.match(cli, /path\.resolve\(workspace\.path\) === path\.resolve\(active\.workspacePath\)/);
 
@@ -844,7 +864,12 @@ test('an initiative can enter its lifecycle at a later phase', async () => {
   assert.match(source, /has no phase '\$\{startPhase\}'\. Its phases are:/);
 
   // And a skipped phase reads differently from a completed one.
-  const cli = await readFile(new URL('../src/cli.mjs', import.meta.url), 'utf8');
+  // The usage block now lives in help-text.mjs so per-command `--help` can read it without importing
+  // the CLI. Together these two files are what cli.mjs used to be, which is what this test scans.
+  const cli = [
+    await readFile(new URL('../src/cli.mjs', import.meta.url), 'utf8'),
+    await readFile(new URL('../src/help-text.mjs', import.meta.url), 'utf8')
+  ].join('\n');
   assert.match(cli, /skipped: '–'/);
   assert.match(cli, /\[--start-phase ID\]/);
 });

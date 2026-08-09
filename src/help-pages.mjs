@@ -1,0 +1,431 @@
+/**
+ * Per-command help, in the shape of a man page.
+ *
+ * Two rules hold this together, both of them reactions to how help went wrong here before.
+ *
+ * The synopsis is never restated. It is read out of `HELP`, which is the overview every user
+ * already sees, so a command cannot describe itself one way in the listing and another on its own
+ * page. The `HELP.md` reference had drifted far enough to list six subcommand families that did not
+ * exist and to name four flags no code read; duplicating the synopsis a third time would have been
+ * the same mistake with more surface.
+ *
+ * And a command with no authored page still gets a page — its real synopsis, plus a plain statement
+ * that the detail has not been written yet. A help system that answers "unknown command" for
+ * something the CLI happily runs teaches people not to trust it.
+ */
+import { HELP } from './help-text.mjs';
+import { canonicalCommand, commandDefinition, COMMAND_REGISTRY } from './command-registry.mjs';
+
+const BIN_ALIASES = new Map([
+  ['about', ['sflow-about']],
+  ['inbox', ['sflow-inbox']],
+  ['next', ['sflow-next']],
+  ['agent', ['sflow-agent']],
+  ['reset-all', ['sf-reset-all']],
+  ['wm', ['sflow-wm-minimal']]
+]);
+
+function usagePrefixes(command) {
+  const definition = commandDefinition(command);
+  const names = [command, ...(definition?.aliases ?? [])];
+  // `sflow` is the short bin name and the usage block uses it interchangeably, so a command
+  // documented only as `sflow reset-all` must still resolve to a synopsis.
+  return [
+    ...names.flatMap((name) => [`singularity-flow ${name}`, `sflow ${name}`]),
+    ...(BIN_ALIASES.get(command) ?? [])
+  ];
+}
+
+/** The `Usage:` listing, which runs until the next column-zero heading. */
+function usageSection(lines) {
+  const start = lines.findIndex((line) => line === 'Usage:');
+  if (start < 0) return lines;
+  const rest = lines.slice(start + 1);
+  const end = rest.findIndex((line) => /^\S.*:\s*$/.test(line));
+  return end < 0 ? rest : rest.slice(0, end);
+}
+
+/**
+ * The synopsis lines `HELP` already publishes for a command, with their continuation lines.
+ *
+ * A usage line is two-space indented; anything indented further immediately after it continues it.
+ */
+export function synopsisFor(command) {
+  const prefixes = usagePrefixes(command);
+  const matches = (line) => prefixes.some((prefix) => line === `  ${prefix}` || line.startsWith(`  ${prefix} `));
+  // Only the `Usage:` listing. The sections after it — the Jira environment, the worked "Typical
+  // flow" — contain invocations too, and scanning the whole document pulled a walkthrough step into
+  // `start`'s synopsis as though it were a distinct form of the command.
+  const lines = usageSection(HELP.split('\n'));
+  const collected = [];
+  for (let index = 0; index < lines.length; index += 1) {
+    if (!matches(lines[index])) continue;
+    collected.push(lines[index].slice(2));
+    for (let next = index + 1; next < lines.length; next += 1) {
+      const continuation = lines[next];
+      if (!/^ {4,}\S/.test(continuation) || matches(continuation)) break;
+      collected.push(continuation.trim());
+      index = next;
+    }
+  }
+  return collected;
+}
+
+/**
+ * Authored detail. Everything here is prose a synopsis line cannot carry: what the command is for,
+ * what it refuses and why, and a worked example. Commands absent from this map still render.
+ */
+const PAGES = Object.freeze({
+  bootstrap: {
+    summary: 'Put an existing repository under governance without pushing to its protected branch.',
+    description: [
+      'Clones the repository, writes the governed definition and the capability record, creates the',
+      'orphan `state` ledger branch, and pushes the whole thing as a review branch — never to the',
+      'application branch. The command prints the pull request to open.',
+      '',
+      'That pull request is a prerequisite, not a formality. Story branches are cut from the',
+      'application branch, so until the proposal merges there is no definition there to cut from and',
+      '`start` will refuse.'
+    ],
+    options: [
+      ['--capability ID', 'The capability this repository delivers. Required.'],
+      ['--name TEXT', 'Human-readable capability name.'],
+      ['--kind collection|delivery', 'Whether the capability collects work or delivers it.'],
+      ['--into DIRECTORY', 'Where to clone. Defaults to a directory named after the repository.'],
+      ['--direct', 'Publish straight to the application branch. Only for repositories that permit it.'],
+      ['--no-push', 'Do everything locally and push nothing.']
+    ],
+    examples: [
+      ['singularity-flow bootstrap git@example.com:team/payments.git --capability payments --name Payments --kind delivery',
+        'Governs the repository and opens a review branch for the change.']
+    ],
+    seeAlso: ['init', 'capability', 'start']
+  },
+  start: {
+    summary: 'Begin governed work on a Story and create its lifecycle branch.',
+    description: [
+      'Creates the Story branch from the application branch, pins the configuration and work-type',
+      'resolution that will govern the whole Story, and publishes the opening commit.',
+      '',
+      'The resolution is pinned once, here. Later edits to the configuration do not reach a Story',
+      'that has already started — they stop it instead, which is the point: what governed the work',
+      'is what governed it when the work began.'
+    ],
+    options: [
+      ['--work-type ID', 'Which workflow to run. Required when the terminal is not interactive.'],
+      ['--title TEXT', 'Story title, when there is no tracker to read it from.'],
+      ['--jira', 'Read the Story from Jira instead of the command line.'],
+      ['--story-file FILE', 'Read the Story from a YAML file.'],
+      ['--base BRANCH', 'Cut from this branch instead of the configured default.'],
+      ['--fetch', 'Fetch the remote before creating the branch.'],
+      ['--json', 'Emit the created Story as JSON.']
+    ],
+    examples: [
+      ['singularity-flow start PAY-1 --work-type feature --title "Add refunds"',
+        'Starts a feature Story on branch PAY-1.'],
+      ['singularity-flow start PAY-2 --jira --fetch',
+        'Starts a Story from its Jira issue, refreshing remote branches first.']
+    ],
+    seeAlso: ['prepare', 'phase', 'submit', 'resume', 'status']
+  },
+  prepare: {
+    summary: 'Materialise the current phase\'s artifact template so it can be filled in.',
+    description: [
+      'Writes the phase\'s required artifact from its template if it is not already there, and',
+      'reports what the phase expects. Safe to run repeatedly; it never overwrites your work.'
+    ],
+    examples: [['singularity-flow prepare intake', 'Prepares the intake artifact for the current Story.']],
+    seeAlso: ['phase', 'artifact', 'nextsteps']
+  },
+  phase: {
+    summary: 'Publish a generation of the current phase\'s artifact.',
+    description: [
+      'Records a new generation: it registers the artifacts, captures authorship and model usage,',
+      'and commits the result as one governed transition.',
+      '',
+      'Publication refuses when the phase is not ready — a missing artifact, an unmet world-model',
+      'grounding policy, or a phase out of sequence. Nothing is written when it refuses.'
+    ],
+    options: [
+      ['--authored human|governed-agent|external-tool', 'Who produced the artifact. Record it explicitly.'],
+      ['--from FILE', 'Import the artifact from a file authored elsewhere.'],
+      ['--usage-json FILE', 'Attach model usage for a governed-agent generation.']
+    ],
+    examples: [
+      ['singularity-flow phase publish intake --authored human',
+        'Publishes generation N+1 of the intake artifact.']
+    ],
+    seeAlso: ['prepare', 'submit', 'artifact', 'wm']
+  },
+  submit: {
+    summary: 'Submit the current phase for approval and publish its review packet.',
+    description: [
+      'Builds a hash-bound review packet from the published generation and moves the phase to',
+      'awaiting approval. Phases with no approval policy advance immediately.'
+    ],
+    examples: [['singularity-flow submit', 'Submits the current phase of the checked-out Story.']],
+    seeAlso: ['approve', 'reject', 'review', 'story']
+  },
+  approve: {
+    summary: 'Approve the phase awaiting review and advance the Story.',
+    description: [
+      'Records an approval decision against the exact artifact hashes that were submitted, advances',
+      'to the next phase, and commits the decision as one governed transition.',
+      '',
+      'Approval is an outward, attributed act: it is recorded against your Git identity and the',
+      'authority group that permits it, and self-approval is reported as such.'
+    ],
+    options: [
+      ['--yes', 'Skip the interactive confirmation.'],
+      ['--selection-receipt TOKEN', 'Approve using a Copilot selection receipt.']
+    ],
+    examples: [['singularity-flow approve --yes', 'Approves the phase currently awaiting review.']],
+    seeAlso: ['submit', 'reject', 'reopen']
+  },
+  reject: {
+    summary: 'Request changes and return the Story to an earlier phase.',
+    description: [
+      'Records a change request, invalidates every approval from the target phase onward, and',
+      'returns the Story there. A reason is required.'
+    ],
+    options: [
+      ['--reason TEXT', 'Why the change is needed. Required.'],
+      ['--to PHASE', 'Which phase to return to. Defaults to the phase under review.']
+    ],
+    examples: [
+      ['singularity-flow reject --reason "Acceptance criteria are ambiguous" --to requirements',
+        'Sends the Story back to requirements with a recorded reason.']
+    ],
+    seeAlso: ['approve', 'reopen', 'submit']
+  },
+  status: {
+    summary: 'Show where a Story is and what it needs next.',
+    examples: [
+      ['singularity-flow status', 'Status of the checked-out Story.'],
+      ['singularity-flow status PAY-1 --json', 'Machine-readable status of a named Story.']
+    ],
+    seeAlso: ['nextsteps', 'progress', 'doctor']
+  },
+  nextsteps: {
+    summary: 'List the actions that are valid right now, and the command for each.',
+    description: [
+      'Reads the governed state and reports only transitions the Story can actually take, so it is',
+      'the fastest way out of "what am I allowed to do here".'
+    ],
+    examples: [['singularity-flow nextsteps PAY-1', 'Valid next actions for PAY-1.']],
+    seeAlso: ['status', 'next', 'doctor']
+  },
+  doctor: {
+    summary: 'Diagnose the repository, the Story, and the tooling around them.',
+    description: [
+      'Reports on Git identity, remote access, model provider availability, platform shell support,',
+      'the capability ledger, and the governed state of the current Story. Exits non-zero when it',
+      'finds something blocking.'
+    ],
+    examples: [
+      ['singularity-flow doctor', 'Full diagnosis of the current repository.'],
+      ['singularity-flow doctor --offline', 'Skip every check that needs the network.']
+    ],
+    seeAlso: ['validate', 'gate', 'status']
+  },
+  pr: {
+    summary: 'Preview or open the pull request for a Story.',
+    description: [
+      'Builds the pull-request body entirely from governed state — the approved artifacts and the',
+      'hashes they were approved at — and targets the Epic branch when the Story belongs to one.',
+      '',
+      'Preview is the default. Opening it requires --create and a typed confirmation, because it is',
+      'an outward action. Requires the GitHub CLI.'
+    ],
+    options: [
+      ['--create', 'Actually open the pull request.'],
+      ['--yes', 'Skip the typed confirmation.'],
+      ['--json', 'Emit the plan as JSON.']
+    ],
+    examples: [
+      ['singularity-flow pr PAY-1', 'Preview the pull request without opening it.'],
+      ['singularity-flow pr PAY-1 --create', 'Open it, after confirming.']
+    ],
+    seeAlso: ['submit', 'epic', 'stack']
+  },
+  wm: {
+    summary: 'Build, inspect, and compose the repository world model that grounds each phase.',
+    description: [
+      'The world model is the grounding a phase is checked against. `wm build` invokes the',
+      'configured model provider; every other subcommand is deterministic and needs no model.',
+      '',
+      'If a phase refuses to publish with "grounding is not ready", this is the command that fixes',
+      'it — and note that the grounding policy is pinned from the configuration branch, not from the',
+      'branch you are standing on.'
+    ],
+    examples: [
+      ['singularity-flow wm build --depth quick', 'Build the world model at quick depth.'],
+      ['singularity-flow wm compose --phase intake', 'Compose the grounding for a phase.'],
+      ['singularity-flow wm light --local', 'Deterministic lightweight model, no provider needed.']
+    ],
+    seeAlso: ['phase', 'doctor', 'capability']
+  },
+  epic: {
+    summary: 'Run an Epic: sources, planning, Story creation, merge order, and completion.',
+    description: [
+      'An Epic governs a set of Stories across one or more repositories. Its own lifecycle mirrors a',
+      'Story\'s — phases, submission, approval — and it additionally owns the merge sequence its',
+      'Stories must follow.'
+    ],
+    examples: [
+      ['singularity-flow epic start MOB-100', 'Start an Epic from its tracker issue.'],
+      ['singularity-flow epic jira preview', 'Preview the Story-creation plan. Writes nothing.'],
+      ['singularity-flow epic merge-plan --json', 'The order the Stories must merge in.'],
+      ['singularity-flow epic pr --epic MOB-100', 'Preview the Epic pull request into the default branch.']
+    ],
+    seeAlso: ['story', 'stack', 'pr', 'initiative']
+  },
+  workspace: {
+    summary: 'Manage the set of repositories you work across, and which one is active.',
+    examples: [
+      ['singularity-flow workspace list', 'Every registered workspace.'],
+      ['singularity-flow workspace use payments', 'Make a workspace the active one for this session.']
+    ],
+    seeAlso: ['capability', 'session', 'bootstrap']
+  },
+  capability: {
+    summary: 'Map, review, and publish the capabilities an organisation governs.',
+    description: [
+      'Capability changes are proposed on a review branch and merged, never written straight to the',
+      'configuration authority. `capability map` proposes; `capability activate` merges an approved',
+      'proposal; `capability publish` mirrors the result to the state branch.'
+    ],
+    examples: [
+      ['singularity-flow capability map payments --repository payments-api', 'Propose a capability.'],
+      ['singularity-flow capability tree', 'The capability map as a tree.']
+    ],
+    seeAlso: ['capabilities', 'workspace', 'bootstrap']
+  },
+  ledger: {
+    summary: 'Inspect and repair the append-only capability ledger.',
+    description: [
+      'The ledger is an orphan branch with no shared ancestry with application branches, and it must',
+      'never be merged into one. Every governed publication appends to it.',
+      '',
+      'When a publication reports that its ledger mirror is pending, `ledger reconcile` is what',
+      'completes the attestation.'
+    ],
+    examples: [
+      ['singularity-flow ledger status', 'Ledger health and any unpublished intents.'],
+      ['singularity-flow ledger verify', 'Verify the chain end to end.'],
+      ['singularity-flow ledger reconcile', 'Publish intents that could not be appended earlier.']
+    ],
+    seeAlso: ['doctor', 'validate', 'sync']
+  },
+  validate: {
+    summary: 'Check the governed state of the current Story against its pinned configuration.',
+    examples: [['singularity-flow validate --strict', 'Fail on warnings as well as errors.']],
+    seeAlso: ['gate', 'doctor', 'status']
+  },
+  gate: {
+    summary: 'Run the release gate for the current Story and report whether it passes.',
+    examples: [['singularity-flow gate', 'Evaluate every gate the Story must satisfy.']],
+    seeAlso: ['validate', 'doctor', 'submit']
+  },
+  init: {
+    summary: 'Initialise Singularity Flow inside a repository you already have.',
+    description: [
+      'Writes the governed definition, templates, and agent prompts. It stages and commits nothing —',
+      'review what it wrote, then commit it yourself. Use `bootstrap` to govern a repository from its',
+      'URL instead.'
+    ],
+    examples: [['singularity-flow init', 'Initialise governance in the current repository.']],
+    seeAlso: ['bootstrap', 'doctor', 'start']
+  },
+  resume: {
+    summary: 'Return to a Story already in flight.',
+    examples: [['singularity-flow resume PAY-1 --fetch', 'Check out PAY-1, refreshing from the remote.']],
+    seeAlso: ['start', 'status', 'inbox']
+  },
+  story: {
+    summary: 'Story-level operations: branches, intervals, checks, and finalisation.',
+    examples: [
+      ['singularity-flow story branch create --parent PAY-1 --name PAY-1-ui', 'Create a governed child branch.'],
+      ['singularity-flow story checks PAY-1', 'Record CI evidence against the submitted packet.']
+    ],
+    seeAlso: ['start', 'submit', 'epic']
+  },
+  cancel: {
+    summary: 'Cancel a Story and archive it, with a recorded reason.',
+    options: [
+      ['--reason TEXT', 'Why the work is being cancelled. Required.'],
+      ['--confirm WORK-ID', 'Type the Work ID to confirm.']
+    ],
+    examples: [['singularity-flow cancel PAY-1 --reason "Superseded by PAY-9" --confirm PAY-1', '']],
+    seeAlso: ['reopen', 'reject']
+  },
+  reopen: {
+    summary: 'Reopen completed work and return it to an earlier phase.',
+    options: [
+      ['--reason TEXT', 'Why it is being reopened. Required.'],
+      ['--to PHASE', 'Which phase to return to.']
+    ],
+    examples: [['singularity-flow reopen PAY-1 --to implementation --reason "Regression found"', '']],
+    seeAlso: ['reject', 'cancel', 'approve']
+  },
+  sync: {
+    summary: 'Complete a publication that was interrupted after its commit.',
+    description: [
+      'When a governed commit landed but its push did not, the Story is left with a pending',
+      'publication and every later mutation is refused. This publishes the retained commit.'
+    ],
+    examples: [['singularity-flow sync', '']],
+    seeAlso: ['doctor', 'ledger', 'status']
+  }
+});
+
+function section(title, body) {
+  return body.length ? [title, ...body.map((line) => (line ? `    ${line}` : '')), ''] : [];
+}
+
+/** Render one command's help in the shape of a man page. */
+export function renderCommandHelp(name) {
+  const command = canonicalCommand(name);
+  const definition = commandDefinition(command);
+  const page = PAGES[command] ?? null;
+  const synopsis = synopsisFor(command);
+  const aliases = definition?.aliases ?? [];
+
+  const out = [
+    'NAME',
+    `    singularity-flow ${command}${page?.summary ? ` — ${page.summary}` : ''}`,
+    ''
+  ];
+  out.push(...section('SYNOPSIS', synopsis.length ? synopsis : [`singularity-flow ${command} ...`]));
+  if (page?.description) out.push(...section('DESCRIPTION', page.description));
+  else {
+    out.push(...section('DESCRIPTION', [
+      'No detailed page has been written for this command yet. The synopsis above is complete and',
+      'current — it is the same text `singularity-flow --help` publishes.'
+    ]));
+  }
+  if (page?.options?.length) {
+    out.push(...section('OPTIONS', page.options.flatMap(([flag, detail]) => [flag, `  ${detail}`, ''])));
+  }
+  if (page?.examples?.length) {
+    out.push(...section('EXAMPLES', page.examples.flatMap(([example, detail]) => (detail
+      ? [`$ ${example}`, `  ${detail}`, '']
+      : [`$ ${example}`, '']))));
+  }
+  if (aliases.length) out.push(...section('ALIASES', [aliases.join(', ')]));
+  const related = page?.seeAlso ?? [];
+  if (related.length) {
+    out.push(...section('SEE ALSO', [related.map((item) => `singularity-flow ${item}`).join(', ')]));
+  }
+  out.push(...section('MORE', [
+    `singularity-flow help ${command}   topic documentation, when one exists`,
+    'singularity-flow --help            every command'
+  ]));
+  return `${out.join('\n').replace(/\n{3,}$/, '\n')}`;
+}
+
+/** Commands that have an authored page, for coverage checks. */
+export function documentedCommands() { return Object.keys(PAGES); }
+
+/** Every command the CLI dispatches, for coverage checks. */
+export function allCommands() { return COMMAND_REGISTRY.map((entry) => entry.name); }

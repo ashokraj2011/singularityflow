@@ -100,6 +100,7 @@ export const TREE_ICONS = {
   workflow: { id: 'list-tree', color: 'charts.green' },
   configuration: { id: 'settings-gear', color: 'charts.green' },
   collection: { id: 'type-hierarchy' }, delivery: { id: 'repo' },
+  directory: { id: 'folder' },
   team: { id: 'organization' },
   phase: { id: 'symbol-event' }, artifact: { id: 'file' },
   agent: { id: 'hubot' }, prompt: { id: 'comment-discussion' }, skill: { id: 'sparkle' },

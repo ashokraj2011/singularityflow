@@ -13,16 +13,20 @@ function artifactRows(inbox: Inbox): string {
   if (!inbox.artifacts.length) {
     return '<div class="empty-state">No generated artifacts yet. Declared but unwritten templates are intentionally not counted.</div>';
   }
-  return inbox.groups.map((group) => `
-    <section class="inbox-phase">
-      <div class="section-heading"><h2>${icon('document')}${escape(group.label)}</h2><span class="count-badge">${group.artifacts.length}</span></div>
-      <div class="artifact-cards">${group.artifacts.map((artifact) => `
+  return inbox.workItems.map((work) => `
+    <section class="inbox-work">
+      <div class="section-heading"><h2>${icon(work.source === 'initiative' ? 'initiative' : 'story')}${escape(work.workId)}</h2><span class="count-badge">${work.artifacts.length}</span></div>
+      ${work.label && work.label !== work.workId ? `<p class="muted">${escape(work.label)}</p>` : ''}
+      ${work.groups.map((group) => `<section class="inbox-phase">
+        <div class="section-heading"><h3>${icon('directory')}${escape(group.label)}</h3><span class="count-badge">${group.artifacts.length}</span></div>
+        <div class="artifact-cards">${group.artifacts.map((artifact) => `
         <button class="artifact-card" data-artifact="${escape(artifact.id)}">
           <span class="artifact-title">${icon('document')}${escape(artifact.label)}</span>
           <span class="pill ${STATUS_CLASS[artifact.status] ?? 'idle'}">${escape(artifact.status.replace(/_/g, ' '))}</span>
           <span class="artifact-meta">${escape(artifact.kind)}${artifact.generation != null ? ` · generation ${artifact.generation}` : ''}</span>
           <span class="artifact-meta">${artifact.generatedBy ? `by ${escape(artifact.generatedBy)} · ` : ''}<code>${escape((artifact.sha256 ?? '').slice(0, 12))}</code></span>
         </button>`).join('')}</div>
+      </section>`).join('')}
     </section>`).join('');
 }
 

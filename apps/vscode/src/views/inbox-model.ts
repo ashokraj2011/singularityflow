@@ -22,6 +22,18 @@ export interface InboxArtifact {
   generatedBy: string | null;
   readOnly: boolean;
   source: 'initiative' | 'story';
+  /** The governed Work/Initiative ID that owns this artifact. */
+  workId: string;
+  /** Human-readable title for the owning Work/Initiative. */
+  workLabel: string;
+}
+
+export interface InboxWorkItem {
+  workId: string;
+  label: string;
+  source: 'initiative' | 'story';
+  artifacts: InboxArtifact[];
+  groups: Array<{ phase: string; label: string; artifacts: InboxArtifact[] }>;
 }
 
 export interface Inbox {
@@ -29,6 +41,9 @@ export interface Inbox {
   subjectLabel: string;
   approvals: Approvals;
   artifacts: InboxArtifact[];
+  /** Generated artifacts grouped by their owning Work ID, then by lifecycle phase. */
+  workItems: InboxWorkItem[];
+  /** Flattened phase groups retained for callers that only render the active subject. */
   groups: Array<{ phase: string; label: string; artifacts: InboxArtifact[] }>;
   empty: string | null;
 }
@@ -46,10 +61,10 @@ interface StoryDocument {
   generatedBy?: string | null;
 }
 
-function initiativeArtifact(output: InitiativeOutput): InboxArtifact | null {
+function initiativeArtifact(output: InitiativeOutput, workId: string, workLabel: string): InboxArtifact | null {
   if (!output.sha256 || !output.repositoryPath) return null;
   return {
-    id: `initiative:${output.phase ?? 'unknown'}/${output.id}`,
+    id: `initiative:${workId}:${output.phase ?? 'unknown'}/${output.id}`,
     label: output.label ?? output.id,
     phase: output.phase ?? 'unknown',
     kind: output.kind,
@@ -59,15 +74,17 @@ function initiativeArtifact(output: InitiativeOutput): InboxArtifact | null {
     sha256: output.sha256,
     generatedBy: output.generatedBy ?? output.generatedPersona ?? null,
     readOnly: output.status === 'approved',
-    source: 'initiative'
+    source: 'initiative',
+    workId,
+    workLabel
   };
 }
 
-function storyArtifact(document: StoryDocument): InboxArtifact | null {
+function storyArtifact(document: StoryDocument, workId: string, workLabel: string): InboxArtifact | null {
   if (!document.path || !document.sha256) return null;
   const phase = document.phase ?? (document.type === 'system' ? 'work item' : 'sources');
   return {
-    id: `story:${document.id ?? document.path}`,
+    id: `story:${workId}:${document.id ?? document.path}`,
     label: document.label ?? document.id ?? document.path,
     phase,
     kind: document.kind ?? document.type ?? 'document',
@@ -77,64 +94,120 @@ function storyArtifact(document: StoryDocument): InboxArtifact | null {
     sha256: document.sha256,
     generatedBy: document.generatedBy ?? null,
     readOnly: document.status === 'approved',
-    source: 'story'
+    source: 'story',
+    workId,
+    workLabel
   };
 }
 
-export function buildInbox(snapshot: RepositorySnapshot | null): Inbox {
-  const approvals = buildApprovals(snapshot);
-  if (!snapshot) {
-    return {
-      subjectId: '', subjectLabel: '', approvals, artifacts: [], groups: [],
-      empty: 'Reading the repository…'
-    };
-  }
+function storyDocumentWorkId(document: StoryDocument, fallback: string): string {
+  const match = document.path?.match(/(?:^|\/)singularity\/work-items\/([^/]+)\//);
+  return match?.[1] ?? fallback;
+}
 
-  const initiative = snapshot.initiative;
-  const initiativeArtifacts = (initiative?.documents ?? [])
-    .map(initiativeArtifact)
-    .filter((artifact): artifact is InboxArtifact => Boolean(artifact));
-  const storyArtifacts = (snapshot.documents ?? [])
-    .map((document) => storyArtifact(document as StoryDocument))
-    .filter((artifact): artifact is InboxArtifact => Boolean(artifact));
-
-  // A phase artifact can also appear in a Story's general document catalog. Keep the governed path
-  // as the identity so the inbox never shows the same bytes twice under two labels.
-  const unique = new Map<string, InboxArtifact>();
-  for (const artifact of [...initiativeArtifacts, ...storyArtifacts]) unique.set(artifact.path, artifact);
-  const artifacts = [...unique.values()].sort((left, right) =>
-    left.phase.localeCompare(right.phase) || left.label.localeCompare(right.label));
-
-  const phaseLabels = new Map((initiative?.state.resolution.phases ?? [])
-    .map((phase) => [phase.id, phase.label] as const));
-  for (const phase of Object.values(snapshot.workflow?.phases ?? {})) {
-    phaseLabels.set(phase.id, phase.label);
-  }
+function phaseGroups(
+  artifacts: InboxArtifact[],
+  labels: Map<string, string>,
+  order: string[]
+): InboxWorkItem['groups'] {
   const grouped = new Map<string, InboxArtifact[]>();
   for (const artifact of artifacts) {
-    const current = grouped.get(artifact.phase) ?? [];
-    current.push(artifact);
-    grouped.set(artifact.phase, current);
+    grouped.set(artifact.phase, [...(grouped.get(artifact.phase) ?? []), artifact]);
   }
-  const order = initiative?.state.phaseOrder ?? snapshot.workflow?.phaseOrder ?? [];
-  const groups = [...grouped.entries()]
+  return [...grouped.entries()]
     .sort(([left], [right]) => {
       const leftOrder = order.indexOf(left); const rightOrder = order.indexOf(right);
       if (leftOrder >= 0 || rightOrder >= 0) return (leftOrder < 0 ? Number.MAX_SAFE_INTEGER : leftOrder)
         - (rightOrder < 0 ? Number.MAX_SAFE_INTEGER : rightOrder);
       return left.localeCompare(right);
     })
-    .map(([phase, entries]) => ({ phase, label: phaseLabels.get(phase) ?? phase, artifacts: entries }));
+    .map(([phase, entries]) => ({
+      phase,
+      label: labels.get(phase) ?? phase,
+      artifacts: entries.sort((left, right) => left.label.localeCompare(right.label))
+    }));
+}
 
-  const subjectId = initiative?.state.initiative.id ?? snapshot.workflow?.workItem.id
-    ?? snapshot.selectedWorkId ?? '';
-  const subjectLabel = initiative?.state.initiative.title ?? snapshot.workflow?.workItem.title ?? snapshot.workItems
-    .find((item) => item.id === snapshot.selectedWorkId)?.title ?? subjectId;
+export function buildInbox(snapshot: RepositorySnapshot | null): Inbox {
+  const approvals = buildApprovals(snapshot);
+  if (!snapshot) {
+    return {
+      subjectId: '', subjectLabel: '', approvals, artifacts: [], workItems: [], groups: [],
+      empty: 'Reading the repository…'
+    };
+  }
+
+  const initiative = snapshot.initiative;
+  const initiativeId = initiative?.state.initiative.id ?? '';
+  const initiativeLabel = initiative?.state.initiative.title ?? initiativeId;
+  const storyId = snapshot.workflow?.workItem.id ?? snapshot.selectedWorkId ?? '';
+  const storyLabel = snapshot.workflow?.workItem.title ?? snapshot.workItems
+    .find((item) => item.id === storyId)?.title ?? storyId;
+  const initiativeArtifacts = (initiative?.documents ?? [])
+    .map((output) => initiativeArtifact(output, initiativeId, initiativeLabel))
+    .filter((artifact): artifact is InboxArtifact => Boolean(artifact));
+  const storyArtifacts = (snapshot.documents ?? [])
+    .map((entry) => {
+      const document = entry as StoryDocument;
+      const workId = storyDocumentWorkId(document, storyId);
+      const workLabel = workId === storyId
+        ? storyLabel
+        : snapshot.workItems.find((item) => item.id === workId)?.title ?? workId;
+      return storyArtifact(document, workId, workLabel);
+    })
+    .filter((artifact): artifact is InboxArtifact => Boolean(artifact));
+
+  // A phase artifact can also appear in a Story's general document catalog. Keep the governed path
+  // as the identity so the inbox never shows the same bytes twice under two labels.
+  const unique = new Map<string, InboxArtifact>();
+  for (const artifact of [...initiativeArtifacts, ...storyArtifacts]) {
+    unique.set(`${artifact.workId}:${artifact.path}`, artifact);
+  }
+  const artifacts = [...unique.values()].sort((left, right) =>
+    left.workId.localeCompare(right.workId)
+      || left.phase.localeCompare(right.phase)
+      || left.label.localeCompare(right.label));
+
+  const initiativePhaseLabels = new Map((initiative?.state.resolution.phases ?? [])
+    .map((phase) => [phase.id, phase.label] as const));
+  const storyPhaseLabels = new Map<string, string>();
+  for (const phase of Object.values(snapshot.workflow?.phases ?? {})) {
+    storyPhaseLabels.set(phase.id, phase.label);
+  }
+  const byWorkId = new Map<string, InboxArtifact[]>();
+  for (const artifact of artifacts) {
+    byWorkId.set(artifact.workId, [...(byWorkId.get(artifact.workId) ?? []), artifact]);
+  }
+
+  const subjectId = initiativeId || storyId;
+  const subjectLabel = initiativeId ? initiativeLabel : storyLabel;
+  const workItems = [...byWorkId.entries()].map(([workId, entries]): InboxWorkItem => {
+    const source = entries[0]?.source ?? 'story';
+    return {
+      workId,
+      label: entries[0]?.workLabel ?? workId,
+      source,
+      artifacts: entries,
+      groups: phaseGroups(
+        entries,
+        source === 'initiative' ? initiativePhaseLabels : storyPhaseLabels,
+        source === 'initiative' ? (initiative?.state.phaseOrder ?? []) : (snapshot.workflow?.phaseOrder ?? [])
+      )
+    };
+  }).sort((left, right) => {
+    if (left.workId === subjectId) return -1;
+    if (right.workId === subjectId) return 1;
+    return left.workId.localeCompare(right.workId);
+  });
+  // Compatibility for consumers that still expect one flat phase list. New renderers use
+  // workItems, which prevents identical phase names from different Stories being conflated.
+  const groups = workItems.flatMap((item) => item.groups);
   return {
     subjectId,
     subjectLabel,
     approvals,
     artifacts,
+    workItems,
     groups,
     empty: subjectId || artifacts.length || approvals.pending.length
       ? null
@@ -164,15 +237,20 @@ export function buildInboxTree(snapshot: RepositorySnapshot | null, error?: Erro
   }, {
     kind: 'group', id: 'inbox:generated', label: 'Generated artifacts',
     description: String(inbox.artifacts.length), icon: 'files',
-    children: inbox.groups.map((group) => ({
-      kind: 'group', id: `inbox:phase:${group.phase}`, label: group.label,
-      description: String(group.artifacts.length), icon: 'folder',
-      children: group.artifacts.map((artifact) => ({
-        kind: 'artifact', id: `inbox:artifact:${artifact.id}`, label: artifact.label,
-        description: artifact.status.replace(/_/g, ' '), icon: artifact.readOnly ? 'lock-small' : 'file',
-        path: artifact.path, readOnly: artifact.readOnly,
-        tooltip: `${artifact.path}\nsha256 ${artifact.sha256 ?? 'unavailable'}`,
-        contextValue: artifact.readOnly ? 'sflow.artifact.pinned' : 'sflow.artifact'
+    children: inbox.workItems.map((work) => ({
+      kind: 'group', id: `inbox:work:${work.workId}`, label: work.workId,
+      description: `${work.artifacts.length} generated`, icon: 'directory',
+      tooltip: work.label && work.label !== work.workId ? work.label : `Generated artifacts for ${work.workId}`,
+      children: work.groups.map((group) => ({
+        kind: 'group', id: `inbox:work:${work.workId}:phase:${group.phase}`, label: group.label,
+        description: String(group.artifacts.length), icon: 'directory',
+        children: group.artifacts.map((artifact) => ({
+          kind: 'artifact', id: `inbox:artifact:${artifact.id}`, label: artifact.label,
+          description: artifact.status.replace(/_/g, ' '), icon: artifact.readOnly ? 'lock-small' : 'file',
+          path: artifact.path, readOnly: artifact.readOnly,
+          tooltip: `${artifact.path}\nsha256 ${artifact.sha256 ?? 'unavailable'}`,
+          contextValue: artifact.readOnly ? 'sflow.artifact.pinned' : 'sflow.artifact'
+        }))
       }))
     }))
   }];

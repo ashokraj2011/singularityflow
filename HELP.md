@@ -865,8 +865,10 @@ Approved organisation configuration lives on the dedicated `sflow/config` branch
 create, edit, delete, and initial mapping all use this same proposal transaction and
 automatically open the review screen; no designer action writes through the currently
 checked-out Story or application branch.
-**Configuration → Capabilities → Review capability proposals** opens the exact diff
-and offers **Merge and activate**. The action requires the exact proposal commit,
+**Configuration → Review proposals** opens a dashboard of pending changes across
+every registered lead repository; it is available even when no workspace is active.
+Select a proposal to open its exact diff and **Merge and activate** action. The
+action requires the exact proposal commit,
 uses a normal non-force merge into `sflow/config`, and refreshes the orphan state
 projection. Branch protection remains authoritative: when it refuses the push, merge
 the proposal through the repository's normal review controls, then run the same

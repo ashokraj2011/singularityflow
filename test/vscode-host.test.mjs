@@ -563,6 +563,10 @@ test('a window with nothing open and no active workspace says which of the two t
   assert.equal(configurationActions[1].label, 'Choose a workspace');
   assert.equal(configuration.getTreeItem(configurationActions[1]).command.command,
     'singularityFlow.openWorkspaces');
+  assert.equal(configurationActions[2].label, 'Review capability proposals');
+  assert.equal(configuration.getTreeItem(configurationActions[2]).command.command,
+    'singularityFlow.reviewCapabilityProposals',
+    'pending organisation changes remain reviewable without an active workspace');
 });
 
 test('a selected workspace with a missing lead repository offers repair instead of claiming no workspace is active', async (t) => {

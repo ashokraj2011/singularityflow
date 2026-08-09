@@ -86,6 +86,7 @@ import { registerReference, resolveReference } from './harness-imports.mjs';
 import { beginHarnessInvocation, completeHarnessInvocation, harnessReport } from './harness-events.mjs';
 import { activateWorkItemSession, loadCopilotSession, loadSession, agentSessionStatus, restoreAgentSession, restoreCopilotSession, selectIntakeSource, selectAgent, selectWorkType, setAgentSession } from './session.mjs';
 import { addDocuments, detachDocuments, documentCatalog, fetchRemoteDocument, listRemoteDocuments, previewDocument, viewDocument } from './documents.mjs';
+import { recordClarificationResponses, verifyClarificationRecord } from './clarifications.mjs';
 import { progressBar, progressFlow, progressSnapshot } from './progress.mjs';
 import { deriveReport, renderHtml, renderMarkdown } from './report.mjs';
 import { loadManualStory, promptManualStory } from './intake.mjs';
@@ -229,7 +230,7 @@ import {
   readOrganisation, rememberLeadRepository, resolveWorkspacePlan
 } from './organisation.mjs';
 import { canonicalCommand, commandDefinition, validateCommandHandlers } from './command-registry.mjs';
-import { commandResult, effects, noop, succeeded } from './narration/command-result.mjs';
+import { commandResult, effects, noEffects, noop, succeeded } from './narration/command-result.mjs';
 import { emitCommandResult } from './narration/emit.mjs';
 import { factoryResetAll, factoryResetAllPlan, factoryResetPlan, factoryResetRepository } from './factory-reset.mjs';
 import { localReset, localResetPlan } from './fresh-install-reset.mjs';
@@ -1550,6 +1551,83 @@ async function prepareCommand(positionals) {
   const workflow = await loadStoryAggregate(root, config);
   console.log(await preparePhase(root, config, workflow, positionals[1]));
   await saveStoryDraft(root, config, workflow);
+}
+
+async function clarificationCommand(positionals, options) {
+  const root = repoRoot();
+  const config = await loadConfig(root);
+  const workflow = await loadStoryAggregate(root, config);
+  const subcommand = positionals[1] ?? 'status';
+  const phaseId = positionals[2] ?? workflow.currentPhase;
+  const phase = workflow.phases[phaseId];
+  if (!phase) throw new SingularityFlowError(`Unknown or unavailable phase '${phaseId ?? ''}'. Provide a phase ID.`);
+  if (subcommand === 'status') {
+    const result = await verifyClarificationRecord(root, config, workflow, phase);
+    const json = optionBoolean(options, 'json');
+    if (!json) {
+      console.log(`Clarification checkpoint: ${phase.id} generation ${phase.generation + 1} (${result.mode})`);
+      if (result.record) {
+        console.log(`Status: ${result.errors.length ? 'not ready' : 'ready'} · Responses: ${result.record.responses.length} · Recorded by: ${result.record.recordedBy?.name ?? result.record.recordedBy?.email ?? 'unknown'}`);
+        console.log(`Record: ${result.path} · Prompt: ${result.record.promptSha256.slice(0, 12)}`);
+      } else console.log(result.mode === 'off' ? 'This phase has no clarification checkpoint.' : 'No response record exists for the prospective generation.');
+      result.passes.forEach((message) => console.log(`PASS ${message}`));
+      result.warnings.forEach((message) => console.warn(`Warning: ${message}`));
+      result.errors.forEach((message) => console.error(`BLOCKED ${message}`));
+    }
+    emitCommandResult(commandResult({
+      operation: { id: 'clarification.status', classification: 'read' },
+      subject: { kind: 'story', id: workflow.workItem.id },
+      outcome: noop('clarification.reported', { phase: phase.id, generation: phase.generation + 1 }),
+      effects: noEffects(),
+      restState: 'informational',
+      data: result
+    }), { json });
+    return;
+  }
+  if (subcommand !== 'record') throw new SingularityFlowError(`Unknown clarification subcommand '${subcommand}'. Use record or status.`);
+  const responseFile = optionString(options, 'response-file');
+  let responses;
+  if (responseFile) {
+    const payload = await readJson(path.resolve(responseFile));
+    responses = Array.isArray(payload) ? payload : payload.responses ?? payload.questions;
+  } else {
+    const question = optionString(options, 'question');
+    const answer = optionString(options, 'answer');
+    if (!question || !answer) throw new SingularityFlowError('clarification record requires --question and --answer, or --response-file JSON.');
+    responses = [{
+      question,
+      answer,
+      why: optionString(options, 'why'),
+      status: optionString(options, 'status', 'answered'),
+      blocking: optionBoolean(options, 'blocking'),
+      owner: optionString(options, 'owner'),
+      impact: optionString(options, 'impact')
+    }];
+  }
+  const session = await loadSession(root);
+  const result = await recordClarificationResponses(root, config, workflow, phase, {
+    responses,
+    actor: session.actor,
+    agent: session.agent,
+    replace: optionBoolean(options, 'replace')
+  });
+  console.log(`Recorded ${result.record.responses.length} human clarification response${result.record.responses.length === 1 ? '' : 's'} for ${phase.id} generation ${result.record.generation}.`);
+  console.log(`Record: ${result.path} · SHA-256: ${result.sha256}`);
+  console.log(result.record.completed
+    ? `Next: author the phase artifact, then run singularity-flow phase publish ${phase.id} --authored governed-agent --channel copilot-host`
+    : 'Publication remains blocked because at least one material decision is unresolved.');
+  emitCommandResult(commandResult({
+    operation: { id: 'clarification.record', classification: 'mutation' },
+    subject: { kind: 'story', id: workflow.workItem.id },
+    outcome: succeeded('clarification.recorded', {
+      phase: phase.id,
+      generation: result.record.generation,
+      responses: result.record.responses.length
+    }),
+    effects: effects({ filesChanged: true }),
+    restState: 'informational',
+    data: { path: result.path, sha256: result.sha256, completed: result.record.completed }
+  }));
 }
 
 async function inputsCommand(positionals, options) {
@@ -7336,6 +7414,7 @@ async function dispatch(command, positionals, options) {
     visual: () => visualCommand(positionals, options),
     documents: () => documentsCommand(positionals, options),
     prepare: () => prepareCommand(positionals, options),
+    clarification: () => clarificationCommand(positionals, options),
     phase: () => phaseCommand(positionals, options),
     artifact: () => artifactCommand(positionals, options),
     pr: () => pullRequestCommand(positionals, options),

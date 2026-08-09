@@ -63,6 +63,14 @@ export const MESSAGES = Object.freeze({
     headline: (s) => `Selected ${slot(s.agent)} for ${slot(s.workId)}.`,
     preserves: false
   },
+  'clarification.reported': {
+    headline: (s) => `Checked clarification readiness for ${slot(s.phase)} generation ${slot(s.generation)}.`,
+    preserves: true
+  },
+  'clarification.recorded': {
+    headline: (s) => `Recorded ${slot(s.responses, '0')} clarification response(s) for ${slot(s.phase)} generation ${slot(s.generation)}.`,
+    preserves: false
+  },
   'local-reset.previewed': {
     headline: (s) => `Previewed local reset for ${slot(s.workspaces, '0')} registered workspace(s).`,
     preserves: true

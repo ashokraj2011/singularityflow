@@ -18,6 +18,8 @@ Every public operation is classified before its implementation module is importe
 | capabilities | mutation | never | — | — |
 | capability | mutation | never | — | — |
 | choices | read | never | — | — |
+| clarification.record | mutation | never | — | — |
+| clarification.status | read | never | — | — |
 | cockpit | mutation | never | — | — |
 | configuration | mutation | never | — | — |
 | doctor | read | never | — | — |

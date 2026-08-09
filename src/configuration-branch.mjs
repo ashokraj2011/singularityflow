@@ -13,7 +13,7 @@ import {
   copyFile, lstat, mkdir, mkdtemp, readFile, readdir, rm, writeFile
 } from 'node:fs/promises';
 import { initializeDefinition } from './config.mjs';
-import { describeRepository, enableLedger, repositoryIdFromUrl } from './bootstrap.mjs';
+import { describeCapability, describeRepository, enableLedger, repositoryIdFromUrl } from './bootstrap.mjs';
 import { identity } from './git.mjs';
 import { activeWorkspaceFile, readActiveWorkspaceContext, workspaceRegistryFile } from './workspace-context.mjs';
 import { readWorkspace, remoteDefaultBranch } from './workspace.mjs';
@@ -89,7 +89,15 @@ export function remoteHasConfigurationBranch(remote) {
 }
 
 /** Create the configuration authority once, importing only configuration from an approved source. */
-export async function ensureConfigurationBranch(remote, { sourceBranch = null } = {}) {
+/**
+ * Establish the configuration authority on a remote, seeded entirely in a scratch clone.
+ *
+ * `capability` describes the capability this repository delivers. It is written here rather than on
+ * a code branch because this branch *is* the authority: `start` materializes the approved
+ * configuration from it into each Story branch, so nothing governed ever needs to live on the
+ * application branch. That is what makes a protected `main` a non-issue rather than an obstacle.
+ */
+export async function ensureConfigurationBranch(remote, { sourceBranch = null, capability = null } = {}) {
   const url = String(remote ?? '').trim();
   if (!url) throw new SingularityFlowError('A configuration repository URL is required.');
   if (remoteHasConfigurationBranch(url)) return { branch: CONFIGURATION_BRANCH, created: false };
@@ -123,6 +131,7 @@ export async function ensureConfigurationBranch(remote, { sourceBranch = null } 
     await describeRepository(
       scratch, repositoryIdFromUrl(url), url, defaultBranch, identity(scratch)
     );
+    if (capability) await describeCapability(scratch, capability);
     await enableLedger(scratch, 'state');
     run('git', ['add', '-A'], { cwd: scratch });
     const actor = identity(scratch);

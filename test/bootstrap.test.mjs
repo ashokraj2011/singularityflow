@@ -54,17 +54,25 @@ test('bootstrapping governs a repository that knew nothing about any of this', a
   assert.equal(result.cloned, true);
   assert.equal(result.repositoryId, 'acme-platform');
   assert.equal(result.branch, 'main');
-  assert.match(result.reviewBranch, /^sflow\/govern\/acme-platform-/);
-  assert.equal(result.reviewRequired, true);
-  assert.ok(result.commit, 'the governed configuration was committed');
+  assert.equal(result.configurationBranch, 'sflow/config');
+  assert.equal(result.configurationCreated, true);
 
-  // singularity/ exists, with the three files everything else reads.
+  // Nothing was written to the checkout. The definition lives on the configuration branch, and
+  // `start` materializes it into each Story branch — so a protected application branch is never a
+  // participant and there is no proposal to merge before work begins.
+  assert.ok(!existsSync(path.join(result.root, 'singularity')), 'the checkout carries no governance');
+  assert.equal(run('git', ['status', '--porcelain'], { cwd: result.root }).stdout.trim(), '');
+  assert.equal(run('git', ['rev-parse', '--abbrev-ref', 'HEAD'], { cwd: result.root }).stdout.trim(), 'main');
+
+  // …and the three files everything else reads are on the configuration branch.
+  const configFile = (file) =>
+    run('git', ['--git-dir', bare, 'show', `sflow/config:singularity/${file}`]).stdout;
   for (const file of ['workflow.yml', 'portfolio.yml', 'capabilities.yml']) {
-    assert.ok(existsSync(path.join(result.root, 'singularity', file)), `singularity/${file}`);
+    assert.ok(configFile(file).trim(), `sflow/config carries singularity/${file}`);
   }
 
   // The capability the person named is the map's only root — not the placeholder init writes.
-  const map = YAML.parse(await readFile(path.join(result.root, 'singularity/capabilities.yml'), 'utf8'));
+  const map = YAML.parse(configFile('capabilities.yml'));
   assert.deepEqual(Object.keys(map.capabilities), ['commerce']);
   assert.equal(map.capabilities.commerce.name, 'Commerce');
   assert.equal(map.capabilities.commerce.kind, 'collection');
@@ -74,7 +82,7 @@ test('bootstrapping governs a repository that knew nothing about any of this', a
   assert.deepEqual(map.capabilities.commerce.teams, ['Platform', 'Payments']);
 
   // The repository is declared, so a capability may deliver from it.
-  const portfolio = YAML.parse(await readFile(path.join(result.root, 'singularity/portfolio.yml'), 'utf8'));
+  const portfolio = YAML.parse(configFile('portfolio.yml'));
   assert.equal(portfolio.repositories['acme-platform'].url, bare);
   assert.equal(portfolio.repositories['acme-platform'].defaultBranch, 'main');
 
@@ -90,7 +98,7 @@ test('bootstrapping governs a repository that knew nothing about any of this', a
   assert.match(heads, /refs\/heads\/state/);
   assert.match(heads, /refs\/heads\/main/);
   assert.match(heads, /refs\/heads\/sflow\/config/);
-  assert.match(heads, new RegExp(`refs/heads/${result.reviewBranch}`));
+  assert.doesNotMatch(heads, /refs\/heads\/sflow\/govern\//, 'no review branch is created');
   assert.notEqual(
     run('git', ['cat-file', '-e', 'main:singularity/workflow.yml'], { cwd: result.root, allowFailure: true }).status,
     0,
@@ -129,7 +137,7 @@ test('a remote whose HEAD points nowhere is still bootstrapped onto its real bra
   const workflow = YAML.parse(await readFile(path.join(result.root, 'singularity/workflow.yml'), 'utf8'));
   assert.equal(workflow.defaultBaseBranch, 'trunk', 'lifecycle guards use the detected application branch');
   assert.equal(
-    run('git', ['rev-parse', '--abbrev-ref', 'HEAD'], { cwd: result.root }).stdout.trim(), result.reviewBranch);
+    run('git', ['rev-parse', '--abbrev-ref', 'HEAD'], { cwd: result.root }).stdout.trim(), 'trunk');
 });
 
 test('bootstrap never attempts to update a protected application branch', async () => {
@@ -156,7 +164,6 @@ done
   const received = await readFile(hookLog, 'utf8');
   assert.doesNotMatch(received, /^refs\/heads\/main$/m,
     'the protected application branch was never presented to the remote hook');
-  assert.match(received, new RegExp(`^refs/heads/${result.reviewBranch}$`, 'm'));
   assert.match(received, /^refs\/heads\/sflow\/config$/m);
   assert.match(received, /^refs\/heads\/state$/m);
   assert.equal(run('git', ['--git-dir', bare, 'rev-parse', 'refs/heads/main']).stdout.trim(), before);

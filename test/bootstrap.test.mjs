@@ -140,6 +140,36 @@ test('a remote whose HEAD points nowhere is still bootstrapped onto its real bra
     run('git', ['rev-parse', '--abbrev-ref', 'HEAD'], { cwd: result.root }).stdout.trim(), 'trunk');
 });
 
+test('pushed bootstrap pins the detected non-main branch in approved configuration', async () => {
+  const { base, bare } = await remote({ branch: 'trunk' });
+  const result = await bootstrapRepository(bare, {
+    capabilityId: 'commerce', base: path.join(base, 'work'), stateBranch: null
+  });
+  assert.equal(result.branch, 'trunk');
+  const workflow = YAML.parse(run('git', [
+    '--git-dir', bare, 'show', 'sflow/config:singularity/workflow.yml'
+  ]).stdout);
+  assert.equal(workflow.defaultBaseBranch, 'trunk');
+});
+
+test('repeat bootstrap rejects a requested capability absent from approved configuration', async () => {
+  const { base, bare } = await remote();
+  const into = path.join(base, 'work', 'acme-platform');
+  await bootstrapRepository(bare, {
+    capabilityId: 'alpha', capabilityName: 'ALPHA', into, stateBranch: null
+  });
+  await assert.rejects(
+    () => bootstrapRepository(bare, {
+      capabilityId: 'beta', capabilityName: 'BETA', into, stateBranch: null
+    }),
+    /does not define requested capability 'beta'/
+  );
+  const map = YAML.parse(run('git', [
+    '--git-dir', bare, 'show', 'sflow/config:singularity/capabilities.yml'
+  ]).stdout);
+  assert.deepEqual(Object.keys(map.capabilities), ['alpha']);
+});
+
 test('bootstrap never attempts to update a protected application branch', async () => {
   const { base, bare } = await remote();
   const hookLog = path.join(base, 'received-refs.log');

@@ -13,7 +13,11 @@ import {
   copyFile, lstat, mkdir, mkdtemp, readFile, readdir, rm, writeFile
 } from 'node:fs/promises';
 import { initializeDefinition } from './config.mjs';
-import { describeCapability, describeRepository, enableLedger, repositoryIdFromUrl, setGroundingMode } from './bootstrap.mjs';
+import {
+  describeCapability, describeRepository, enableLedger, repositoryIdFromUrl,
+  setDefaultBaseBranch, setGroundingMode
+} from './bootstrap.mjs';
+import { loadCapabilities } from './capabilities.mjs';
 import { identity } from './git.mjs';
 import { activeWorkspaceFile, readActiveWorkspaceContext, workspaceRegistryFile } from './workspace-context.mjs';
 import { readWorkspace, remoteDefaultBranch } from './workspace.mjs';
@@ -88,6 +92,50 @@ export function remoteHasConfigurationBranch(remote) {
   return result.status === 0 && Boolean(result.stdout.trim());
 }
 
+function sameStrings(left = [], right = []) {
+  return JSON.stringify([...left].sort()) === JSON.stringify([...right].sort());
+}
+
+function assertRequestedCapability(capabilities, capability, remote) {
+  if (!capability) return;
+  const id = String(capability.capabilityId ?? '').trim();
+  const configured = capabilities?.capabilities?.[id];
+  if (!configured) {
+    throw new SingularityFlowError(
+      `${CONFIGURATION_BRANCH} already exists on '${remote}' but does not define requested capability '${id}'. `
+      + 'Propose the capability through the governed capability-map workflow instead of re-running bootstrap.');
+  }
+  const expected = {
+    name: capability.capabilityName ?? id,
+    kind: capability.kind,
+    repository: capability.kind === 'delivery' ? capability.repositoryId : undefined,
+    jiraProject: capability.jiraProject ?? null,
+    teams: capability.teams ?? []
+  };
+  const matches = configured.name === expected.name
+    && configured.kind === expected.kind
+    && configured.repository === expected.repository
+    && (configured.jira?.projectKey ?? null) === expected.jiraProject
+    && sameStrings(configured.teams ?? [], expected.teams);
+  if (!matches) {
+    throw new SingularityFlowError(
+      `${CONFIGURATION_BRANCH} already defines capability '${id}', but its governed values differ from this bootstrap request. `
+      + 'Inspect the approved capability map and propose changes through the capability-map workflow.');
+  }
+}
+
+async function inspectApprovedConfiguration(remote, capability = null) {
+  const scratch = await mkdtemp(path.join(os.tmpdir(), 'sflow-config-inspect-'));
+  try {
+    const commit = await cloneConfiguration(remote, scratch);
+    const capabilities = await loadCapabilities(scratch, { required: Boolean(capability) });
+    assertRequestedCapability(capabilities, capability, remote);
+    return { branch: CONFIGURATION_BRANCH, commit, created: false };
+  } finally {
+    await rm(scratch, { recursive: true, force: true });
+  }
+}
+
 /** Create the configuration authority once, importing only configuration from an approved source. */
 /**
  * Establish the configuration authority on a remote, seeded entirely in a scratch clone.
@@ -100,7 +148,7 @@ export function remoteHasConfigurationBranch(remote) {
 export async function ensureConfigurationBranch(remote, { sourceBranch = null, capability = null, grounding = null } = {}) {
   const url = String(remote ?? '').trim();
   if (!url) throw new SingularityFlowError('A configuration repository URL is required.');
-  if (remoteHasConfigurationBranch(url)) return { branch: CONFIGURATION_BRANCH, created: false };
+  if (remoteHasConfigurationBranch(url)) return await inspectApprovedConfiguration(url, capability);
 
   const defaultBranch = remoteDefaultBranch(
     url, run('git', ['ls-remote', '--symref', url, 'HEAD'], { allowFailure: true }).stdout
@@ -122,7 +170,8 @@ export async function ensureConfigurationBranch(remote, { sourceBranch = null, c
     run('git', ['switch', '--quiet', '--orphan', CONFIGURATION_BRANCH], { cwd: scratch });
     await clearScratchWorktree(scratch);
     await copyAssets(seed, scratch);
-    await initializeDefinition(scratch);
+    const wrote = await initializeDefinition(scratch);
+    if (wrote.includes('singularity/workflow.yml')) await setDefaultBaseBranch(scratch, defaultBranch);
     // The packaged map is an instructional placeholder. A new organisation does not have a map
     // until its first real capability is proposed; otherwise the first capability collides with a
     // fictional root. An existing map imported from the code branch is real configuration and is
@@ -145,9 +194,14 @@ export async function ensureConfigurationBranch(remote, { sourceBranch = null, c
     const push = run('git', ['push', 'origin', `HEAD:refs/heads/${CONFIGURATION_BRANCH}`], {
       cwd: scratch, allowFailure: true
     });
-    if (push.status !== 0 && !remoteHasConfigurationBranch(url)) {
-      throw new SingularityFlowError(
-        `Cannot create '${CONFIGURATION_BRANCH}' on '${url}': ${(push.stderr || push.stdout).trim().split('\n')[0]}`);
+    if (push.status !== 0) {
+      if (!remoteHasConfigurationBranch(url)) {
+        throw new SingularityFlowError(
+          `Cannot create '${CONFIGURATION_BRANCH}' on '${url}': ${(push.stderr || push.stdout).trim().split('\n')[0]}`);
+      }
+      // Another bootstrap won the create race. It is success only when the winning authority
+      // contains the exact capability this caller requested; branch existence alone proves nothing.
+      return await inspectApprovedConfiguration(url, capability);
     }
     return { branch: CONFIGURATION_BRANCH, commit, created: true, importedFrom: importBranch };
   } finally {

@@ -35,14 +35,31 @@ const FILE_FLAGS = new Set(['--file', '--path', '--out', '--plan-file', '--usage
 export function commandArgv(command: string): string[] {
   const source = String(command ?? '').trim().replace(/^singularity-flow\s+/, '');
   const argv: string[] = [];
-  let token = '', quote: '"' | "'" | null = null, escaped = false, started = false;
+  let token = '', quote: '"' | "'" | null = null, started = false;
   const finish = () => {
     if (!started) return;
     argv.push(token); token = ''; started = false;
   };
-  for (const character of source) {
-    if (escaped) { token += character; started = true; escaped = false; continue; }
-    if (character === '\\' && quote !== "'") { escaped = true; started = true; continue; }
+  for (let index = 0; index < source.length; index += 1) {
+    const character = source[index]!;
+    const next = source[index + 1];
+    if (character === '\\' && quote !== "'") {
+      // Backslash is a path separator on Windows, not a universal escape. Only consume it where
+      // this deliberately small grammar needs escaping: a quote inside double quotes, or a token
+      // separator/quote outside quotes. All other backslashes survive verbatim.
+      const escapesNext = quote === '"'
+        ? next === '"'
+        : quote === null && Boolean(next && (/\s/.test(next) || next === '"' || next === "'"));
+      if (escapesNext) {
+        token += next;
+        started = true;
+        index += 1;
+      } else {
+        token += '\\';
+        started = true;
+      }
+      continue;
+    }
     if (quote) {
       if (character === quote) quote = null;
       else token += character;
@@ -53,7 +70,6 @@ export function commandArgv(command: string): string[] {
     if (/\s/.test(character)) { finish(); continue; }
     token += character; started = true;
   }
-  if (escaped) token += '\\';
   if (quote) throw new Error(`Suggested command contains an unterminated ${quote} quote.`);
   finish();
   return argv;

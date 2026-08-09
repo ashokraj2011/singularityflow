@@ -5,6 +5,7 @@ import path from 'node:path';
 import test from 'node:test';
 import { spawnSync } from 'node:child_process';
 import { fileURLToPath } from 'node:url';
+import YAML from 'yaml';
 import {
   CONFIGURATION_BRANCH, CONFIGURATION_SOURCE_PATH, ensureConfigurationBranch,
   isConfigurationAsset, materializeConfigurationSnapshot, readConfigurationSource
@@ -22,11 +23,11 @@ test('configuration asset paths cannot traverse the repository', () => {
   assert.equal(isConfigurationAsset('/singularity/workflow.yml'), false);
 });
 
-async function repositoryFixture() {
+async function repositoryFixture({ branch = 'main' } = {}) {
   const root = await mkdtemp(path.join(os.tmpdir(), 'sflow-configuration-branch-'));
   const source = path.join(root, 'source');
   const remote = path.join(root, 'application.git');
-  run('git', ['init', '-q', '-b', 'main', source], { cwd: root });
+  run('git', ['init', '-q', '-b', branch, source], { cwd: root });
   run('git', ['config', 'user.name', 'Configuration Tester'], { cwd: source });
   run('git', ['config', 'user.email', 'configuration@example.com'], { cwd: source });
   await mkdir(path.join(source, 'singularity', 'work-items', 'OLD-1'), { recursive: true });
@@ -39,6 +40,44 @@ async function repositoryFixture() {
   run('git', ['clone', '-q', '--bare', source, remote], { cwd: root });
   return { root, source, remote };
 }
+
+test('configuration authority pins a non-main application default branch', async () => {
+  const fixture = await repositoryFixture({ branch: 'trunk' });
+  try {
+    await ensureConfigurationBranch(fixture.remote);
+    const workflow = YAML.parse(run('git', [
+      'show', `${CONFIGURATION_BRANCH}:singularity/workflow.yml`
+    ], { cwd: fixture.remote }).stdout);
+    assert.equal(workflow.defaultBaseBranch, 'trunk');
+  } finally {
+    await rm(fixture.root, { recursive: true, force: true });
+  }
+});
+
+test('concurrent configuration bootstrap never reports a losing capability as published', async () => {
+  const fixture = await repositoryFixture();
+  const capability = (capabilityId) => ({
+    capabilityId, capabilityName: capabilityId.toUpperCase(), kind: 'collection',
+    repositoryId: 'application', jiraProject: null, teams: []
+  });
+  try {
+    const results = await Promise.allSettled([
+      ensureConfigurationBranch(fixture.remote, { capability: capability('alpha') }),
+      ensureConfigurationBranch(fixture.remote, { capability: capability('beta') })
+    ]);
+    assert.equal(results.filter((result) => result.status === 'fulfilled').length, 1);
+    assert.equal(results.filter((result) => result.status === 'rejected').length, 1);
+    assert.match(results.find((result) => result.status === 'rejected').reason.message,
+      /does not define requested capability/);
+    const map = YAML.parse(run('git', [
+      'show', `${CONFIGURATION_BRANCH}:singularity/capabilities.yml`
+    ], { cwd: fixture.remote }).stdout);
+    assert.equal(Object.keys(map.capabilities).length, 1, 'only the winning capability is governed');
+    assert.ok(['alpha', 'beta'].includes(Object.keys(map.capabilities)[0]));
+  } finally {
+    await rm(fixture.root, { recursive: true, force: true });
+  }
+});
 
 test('configuration authority is bootstrapped without changing application history', async () => {
   const fixture = await repositoryFixture();

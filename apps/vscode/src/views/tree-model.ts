@@ -239,6 +239,9 @@ function configurationFailure(error: Error, view: 'lifecycle' | 'configuration')
       ? 'portfolio'
       : /\bwork type\b/i.test(error.message) ? 'workflow' : null);
 
+  const workflowVersionUnsupported = /workflow\.yml version must be 2|Version 1 is not supported/i
+    .test(error.message);
+
   return [{
     kind: 'message',
     id: view === 'lifecycle' ? 'error' : 'configuration:error',
@@ -255,6 +258,14 @@ function configurationFailure(error: Error, view: 'lifecycle' | 'configuration')
     icon: 'go-to-file',
     path: `singularity/${named}.yml`,
     contextValue: 'sflow.config'
+  }] : []), ...(workflowVersionUnsupported ? [{
+    kind: 'action' as const,
+    id: `${view}:error:reinitialize`,
+    label: 'Reset and reinitialize workflow v2',
+    description: 'no migration',
+    tooltip: 'Preview the repository-scoped reset, type its exact confirmation, and install the packaged workflow v2 configuration.',
+    icon: 'debug-restart',
+    runCommand: 'singularityFlow.reinitialize'
   }] : []), {
     kind: 'action',
     id: `${view}:error:doctor`,

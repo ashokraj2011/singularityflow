@@ -22,6 +22,7 @@ const BIN_ALIASES = new Map([
   ['next', ['sflow-next']],
   ['agent', ['sflow-agent']],
   ['reset-all', ['sf-reset-all']],
+  ['local-reset', ['sf-local-reset']],
   ['wm', ['sflow-wm-minimal']]
 ]);
 

@@ -477,8 +477,11 @@ test('Configuration keeps workflows agents prompts and skills visible while Life
   };
   const lifecycle = buildTree(recovery, refused);
   assert.equal(find(lifecycle, 'configuration'), undefined, 'invalid configuration still blocks lifecycle authority');
+  assert.equal(find(lifecycle, 'lifecycle:error:reinitialize')?.runCommand, 'singularityFlow.reinitialize',
+    'an unsupported workflow has a direct no-migration recovery action');
 
   const configuration = buildConfigurationTree(recovery, refused);
+  assert.equal(find(configuration, 'configuration:error:reinitialize')?.runCommand, 'singularityFlow.reinitialize');
   assert.ok(find(configuration, 'configuration'), 'the configuration inventory remains available');
   assert.ok(find(configuration, 'config:workflow-design'));
   assert.ok(find(configuration, 'config:templates'));
@@ -3448,8 +3451,19 @@ test('capability proposals have an exact review and activation UI', async () => 
     (entry) => entry.command === 'singularityFlow.reviewCapabilityProposals'));
 
   const extension = await readFile(source('extension.ts'), 'utf8');
+  assert.match(extension, /CapabilityProposalsPanel\.show/,
+    'the command opens a first-class proposal dashboard rather than a sequence of quick picks');
   assert.match(extension, /CapabilityProposalPanel\.show/);
-  assert.match(extension, /capability', 'proposals'/);
+  const dashboard = await readFile(source('views/capability-proposals.ts'), 'utf8');
+  assert.match(dashboard, /capability', 'leads'/,
+    'the dashboard discovers every registered organisation lead');
+  assert.match(dashboard, /capability', 'proposals'/,
+    'the dashboard lists pending proposals for each lead');
+  assert.match(dashboard, /No proposals waiting/);
+  assert.match(dashboard, /ready for exact review/);
+  assert.match(dashboard, /blocked by validation/);
+  assert.match(dashboard, /data-review/,
+    'each proposal opens the exact review screen');
   const panel = await readFile(source('views/capability-proposal.ts'), 'utf8');
   assert.match(panel, /capability', 'proposal'/);
   assert.match(panel, /capability', 'activate'/);
@@ -3457,6 +3471,9 @@ test('capability proposals have an exact review and activation UI', async () => 
     'activation is bound to the complete reviewed proposal commit');
   assert.match(panel, /application default branch is not part of this operation/i);
   assert.match(panel, /normal non-force Git push/i);
+  const center = await readFile(source('views/configuration-center-page.ts'), 'utf8');
+  assert.match(center, /Review proposals/,
+    'the Configuration Center exposes the dashboard directly');
 });
 
 test('configuration recovery stays inside VS Code for conflicting MCP host entries', async () => {

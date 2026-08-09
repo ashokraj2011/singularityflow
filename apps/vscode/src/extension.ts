@@ -82,6 +82,17 @@ interface HarnessReport {
   }>;
 }
 
+interface FactoryResetPlan {
+  repository: string;
+  branch: string | null;
+  head: string | null;
+  confirmation: string;
+  remove: string[];
+  replace: string[];
+  preserve: string[];
+  uncommittedResetPaths: string[];
+}
+
 export async function activate(context: vscode.ExtensionContext): Promise<void> {
   const output = vscode.window.createOutputChannel('Singularity Flow');
   context.subscriptions.push(output);
@@ -414,6 +425,11 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
       kind: 'action', id: 'configuration:choose-workspace',
       label: 'Choose a workspace', description: 'load its configuration',
       tooltip: detail, icon: 'workspace', runCommand: recoveryCommand
+    }, {
+      kind: 'action', id: 'configuration:review-proposals',
+      label: 'Review capability proposals', description: 'inspect pending organisation changes',
+      tooltip: 'List pending capability-map proposals across every registered lead repository.',
+      icon: 'merge', runCommand: 'singularityFlow.reviewCapabilityProposals'
     }]);
     context.subscriptions.push(provider, inbox, configuration);
     sidebar.bind('lifecycle', provider);
@@ -528,39 +544,12 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
         try { return { result: await registry.run<unknown>(argv), error: null }; }
         catch (error) { return { result: null, error: (error as Error).message }; }
       };
-      const leads = await registry.run<Array<{ url: string }>>(['capability', 'leads', '--json'])
-        .catch(() => []);
-      if (!leads.length) {
-        void vscode.window.showInformationMessage('No capability-map lead repositories are registered yet.');
-        return;
-      }
-      const selectedLead = leads.length === 1 ? leads[0] : await vscode.window.showQuickPick(
-        leads.map((lead) => ({ label: lead.url, lead })), {
-          title: 'Review capability proposals', placeHolder: 'Choose the organisation lead repository'
-        }).then((choice) => choice?.lead);
-      if (!selectedLead) return;
-      const response = await registry.run<{ lead: string; proposals: Array<{
-        branch: string; proposalCommit: string; changedFiles: unknown[]; valid: boolean
-      }> }>(['capability', 'proposals', '--lead', selectedLead.url, '--json']).catch((error) => {
-        void vscode.window.showErrorMessage(`Could not list capability proposals: ${(error as Error).message}`);
-        return { lead: selectedLead.url, proposals: [] };
+      const { CapabilityProposalsPanel } = await import('./views/capability-proposals.ts');
+      CapabilityProposalsPanel.show(context, run, (lead, branch) => {
+        void import('./views/capability-proposal.ts').then(({ CapabilityProposalPanel }) => {
+          CapabilityProposalPanel.show(context, lead, branch, run);
+        });
       });
-      const proposals = response.proposals;
-      if (!proposals.length) {
-        void vscode.window.showInformationMessage('No pending capability proposals require review.');
-        return;
-      }
-      const selected = proposals.length === 1 ? proposals[0] : await vscode.window.showQuickPick(
-        proposals.map((proposal) => ({
-          label: proposal.branch.replace('sflow/config-change/capability/map-', ''),
-          description: proposal.proposalCommit.slice(0, 12),
-          detail: `${proposal.changedFiles.length} changed configuration file(s)${proposal.valid ? '' : ' - blocked'}`,
-          proposal
-        })), { title: 'Review capability proposals', placeHolder: 'Choose an exact proposal' }
-      ).then((choice) => choice?.proposal);
-      if (!selected) return;
-      const { CapabilityProposalPanel } = await import('./views/capability-proposal.ts');
-      CapabilityProposalPanel.show(context, selectedLead.url, selected.branch, run);
     }
   ));
 
@@ -985,6 +974,74 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
     }
   }));
 
+  // Version 1 is deliberately not migrated. This is the editor equivalent of /sf-factory-reset:
+  // the engine creates the preview and owns the mutation, while VS Code only presents the exact
+  // confirmation to the person. Registered before repository activation succeeds so the action is
+  // still available in the incompatible-workflow state it exists to repair.
+  context.subscriptions.push(vscode.commands.registerCommand('singularityFlow.reinitialize', async () => {
+    try {
+      const target = await resolveGovernedRepository(context, output);
+      if ('reason' in target) {
+        return void vscode.window.showWarningMessage(`Singularity Flow: ${target.reason}`);
+      }
+      const settings = vscode.workspace.getConfiguration('singularityFlow');
+      const location = resolveCli({
+        configuredCli: settings.get<string>('cliPath'),
+        configuredNode: settings.get<string>('nodePath'),
+        extensionPath: context.extensionPath
+      });
+      const client = new SingularityFlowClient({
+        location, repository: target.repository, environment: cliEnvironment,
+        onOutput: (text) => output.append(text)
+      });
+      const plan = await vscode.window.withProgress(
+        { location: vscode.ProgressLocation.Notification, title: 'Preparing the workflow v2 reset preview' },
+        () => client.run<FactoryResetPlan>(['factory-reset', '--dry-run', '--json'])
+      );
+      if (plan.uncommittedResetPaths.length) {
+        return void vscode.window.showWarningMessage(
+          'Reset cannot continue because governed files have uncommitted changes. Commit or stash them first. '
+          + 'Use the CLI with --allow-dirty only when you deliberately want to discard them.'
+        );
+      }
+      const review = await vscode.window.showWarningMessage(
+        'Reset and reinitialize this repository with workflow v2?',
+        {
+          modal: true,
+          detail: `Repository: ${plan.repository}\nBranch: ${plan.branch ?? 'detached'}\n\n`
+            + `Remove: ${plan.remove.join('; ')}\n\nReplace: ${plan.replace.join('; ')}\n\n`
+            + 'Application source and Git history are preserved. The replacement remains uncommitted for review.'
+        },
+        'Reset and reinitialize'
+      );
+      if (review !== 'Reset and reinitialize') return;
+      const confirmation = await vscode.window.showInputBox({
+        title: 'Confirm repository reset',
+        prompt: `Type exactly: ${plan.confirmation}`,
+        placeHolder: plan.confirmation,
+        ignoreFocusOut: true,
+        validateInput: (value) => value === plan.confirmation ? null : 'The confirmation does not match the reset preview.'
+      });
+      if (confirmation !== plan.confirmation) return;
+
+      await vscode.window.withProgress(
+        { location: vscode.ProgressLocation.Notification, title: 'Installing Singularity Flow workflow v2' },
+        async () => {
+          await client.run(['factory-reset', '--confirm', confirmation, '--json']);
+          await client.run(['init', '--check', '--json']);
+        }
+      );
+      const next = await vscode.window.showInformationMessage(
+        'Workflow v2 is installed locally. Review and commit the generated singularity/ files, then publish the configuration through your normal review path.',
+        'Open Source Control', 'Reload Window'
+      );
+      if (next === 'Open Source Control') await vscode.commands.executeCommand('workbench.view.scm');
+      else if (next === 'Reload Window') await vscode.commands.executeCommand('workbench.action.reloadWindow');
+    } catch (error) {
+      void vscode.window.showErrorMessage(`Could not reset and reinitialize the repository: ${(error as Error).message}`);
+    }
+  }));
+
   // Resolving the repository spawns the CLI, which on a cold start can take a noticeable while.
   // Without this the sidebar sat empty and silent for the whole of it, which reads as broken rather
   // than as busy. ProgressLocation.Window is the status-bar spinner: present, not in the way.
@@ -1357,9 +1414,14 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
     const { IntakePanel } = await import('./views/intake-panel.ts');
     IntakePanel.show(context, client, output, async (started) => {
       await store.refresh();
+      const subject = started.shape === 'story' ? 'Story'
+        : started.shape === 'epic' ? 'Epic' : 'Initiative';
+      const next = started.currentPhase
+        ? ` Next: prepare ${started.currentPhase.replaceAll('-', ' ')}.` : '';
       const open = await vscode.window.showInformationMessage(
-        `Started ${started.shape} ${started.id}.`, 'Open the journey', 'Show status');
-      if (open === 'Open the journey') await vscode.commands.executeCommand('singularityFlow.openJourney');
+        `${subject} ${started.id} started.${next}`, 'Continue safely', 'Open the journey', 'Show status');
+      if (open === 'Continue safely') await vscode.commands.executeCommand('singularityFlow.continueSafely');
+      else if (open === 'Open the journey') await vscode.commands.executeCommand('singularityFlow.openJourney');
       else if (open === 'Show status') await vscode.commands.executeCommand('singularityFlow.openDashboard');
     });
   };
@@ -1907,6 +1969,7 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
     }
 
     if (message.action === 'capabilities') await vscode.commands.executeCommand('singularityFlow.openCapabilities');
+    else if (message.action === 'proposals') await vscode.commands.executeCommand('singularityFlow.reviewCapabilityProposals');
     else if (message.action === 'workflow') await vscode.commands.executeCommand('singularityFlow.openDesigner');
     else if (message.action === 'instructions') await vscode.commands.executeCommand('singularityFlow.openInstructionDesigner');
     else if (message.action === 'people') { await openConfigurationCenter('people'); return null; }

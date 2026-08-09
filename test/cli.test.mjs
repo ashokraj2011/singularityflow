@@ -67,6 +67,14 @@ test('package exposes the one-shot sf-reset-all executable', async () => {
   assert.match(await readFile(path.join(root, 'bin/sf-reset-all.mjs'), 'utf8'), /main\(\['reset-all'/);
 });
 
+test('package exposes the guarded sf-local-reset executable', async () => {
+  const packageJson = JSON.parse(await readFile(path.join(root, 'package.json'), 'utf8'));
+  const lock = JSON.parse(await readFile(path.join(root, 'package-lock.json'), 'utf8'));
+  assert.equal(packageJson.bin['sf-local-reset'], 'bin/sf-local-reset.mjs');
+  assert.equal(lock.packages[''].bin['sf-local-reset'], 'bin/sf-local-reset.mjs');
+  assert.match(await readFile(path.join(root, 'bin/sf-local-reset.mjs'), 'utf8'), /main\(\['local-reset'/);
+});
+
 test('package exposes the standalone sflow-inbox executable', async () => {
   const packageJson = JSON.parse(await readFile(path.join(root, 'package.json'), 'utf8'));
   assert.equal(packageJson.bin['sflow-inbox'], 'bin/sflow-inbox.mjs');

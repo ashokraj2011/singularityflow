@@ -76,6 +76,14 @@ export const MESSAGES = Object.freeze({
     headline: (s) => `${slot(s.phase)} was already prepared; your work is untouched.`,
     preserves: true
   },
+  'local-reset.previewed': {
+    headline: (s) => `Previewed local reset for ${slot(s.workspaces, '0')} registered workspace(s).`,
+    preserves: true
+  },
+  'local-reset.completed': {
+    headline: (s) => `Removed ${slot(s.workspaces, '0')} registered workspace(s) and reset local Singularity state.`,
+    preserves: false
+  },
   'quickstart.completed': {
     headline: (s) => `Walked one Story through ${slot(s.steps, 'every')} governed ${Number(s.steps) === 1 ? 'step' : 'steps'} in a throwaway repository.`,
     // The sandbox is created and removed inside the command. The repository the reader is standing

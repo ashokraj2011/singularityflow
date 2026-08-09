@@ -232,9 +232,12 @@ import {
 import { canonicalCommand, commandDefinition, validateCommandHandlers } from './command-registry.mjs';
 // `action` is already a command name in this file, so the narration constructor is renamed rather
 // than shadowing it.
-import { action as narrationAction, commandResult, effects, noEffects, succeeded } from './narration/command-result.mjs';
+import {
+  action as narrationAction, commandResult, effects, noEffects, noop, succeeded
+} from './narration/command-result.mjs';
 import { emitCommandResult } from './narration/emit.mjs';
 import { factoryResetAll, factoryResetAllPlan, factoryResetPlan, factoryResetRepository } from './factory-reset.mjs';
+import { localReset, localResetPlan } from './fresh-install-reset.mjs';
 import { capabilityDoctor } from './capability-doctor.mjs';
 import { inspectStatePlanes, reconcileStateProjections } from './state-planes.mjs';
 import {
@@ -431,6 +434,59 @@ async function resetAllCommand(options) {
   return result;
 }
 
+function renderLocalResetPlan(plan) {
+  console.log(`Singularity Flow local reset — ${plan.completed ? 'complete' : 'preview'}`);
+  console.log(`Registered workspace directories: ${plan.workspaces.length}`);
+  if (plan.workspaces.length) {
+    for (const workspace of plan.workspaces) console.log(`- ${workspace.name} (${workspace.id}): ${workspace.path}`);
+  } else {
+    console.log('- none');
+  }
+  if (plan.missingRegistrations.length) {
+    console.log(`Stale missing registrations: ${plan.missingRegistrations.length} (forgotten with local state)`);
+    for (const target of plan.missingRegistrations) console.log(`- ${target}`);
+  }
+  console.log('\nRemove:');
+  for (const item of plan.remove) console.log(`- ${item}`);
+  console.log('\nPreserve:');
+  for (const item of plan.preserve) console.log(`- ${item}`);
+  if (!plan.completed) {
+    console.log(`\nConfirmation required: ${plan.confirmation}`);
+    console.log(`Run: singularity-flow local-reset --confirm ${JSON.stringify(plan.confirmation)}`);
+    console.log(`Short command: sf-local-reset --confirm ${JSON.stringify(plan.confirmation)}`);
+  } else {
+    console.log('\nLocal Singularity state is clean. The installed product remains ready to create a new workspace.');
+    console.log('Next: open VS Code or run singularity-flow workspace create ...');
+  }
+}
+
+async function localResetCommand(options) {
+  const dryRun = optionBoolean(options, 'dry-run');
+  if (dryRun && options.confirm != null) {
+    throw new SingularityFlowError('local-reset --dry-run does not accept --confirm. Review the preview first.');
+  }
+  const resetOptions = {
+    homeDirectory: os.homedir(),
+    projectDirectory: process.cwd(),
+    environment: process.env
+  };
+  const result = dryRun
+    ? await localResetPlan(resetOptions)
+    : await localReset({ ...resetOptions, confirmation: optionString(options, 'confirm') });
+  const narration = commandResult({
+    operation: { id: 'local-reset', classification: 'mutation' },
+    outcome: dryRun
+      ? noop('local-reset.previewed', { workspaces: result.workspaces.length })
+      : succeeded('local-reset.completed', { workspaces: result.workspaces.length }),
+    effects: effects(dryRun ? {} : { stateChanged: true, filesChanged: true }),
+    restState: 'informational',
+    data: result
+  });
+  if (!optionBoolean(options, 'json')) renderLocalResetPlan(result);
+  emitCommandResult(narration, { json: optionBoolean(options, 'json') });
+  return result;
+}
+
 async function freshInstallCommand(options) {
   if (optionBoolean(options, 'json')) {
     throw new SingularityFlowError('fresh-install streams the installer output and does not support --json. Run it without --json.');
@@ -497,23 +553,23 @@ async function helpCommand(positionals, options) {
 
 /**
  * Refuse to cut a Story branch from an application branch that does not carry the governed
- * definition yet.
+ * definition and has no approved configuration authority to materialize.
  *
- * `bootstrap` now leaves the definition on an unmerged `sflow/govern/...` proposal, which is what
- * makes a protected application branch workable. But a Story branch is cut from the application
- * branch, so until that proposal merges every governed file becomes untracked the moment the branch
- * switches — and the restore-on-failure checkout then cannot run, because returning would overwrite
- * those untracked files. The caller is left on a half-created branch with the governance folder
- * unowned. Checking here costs one `git show` and refuses while nothing has moved.
+ * Approved configuration belongs to `sflow/config`, not application main. When that authority is
+ * available, start deliberately cuts the Story from the application base and materializes the exact
+ * approved revision into it. This guard is therefore only for the older branch-local case where the
+ * current checkout has governance but no approved configuration authority exists anywhere.
  */
-function assertBaseCarriesGovernance(root, { config, branchName, base, remote, currentBranch }) {
+function assertBaseCarriesGovernance(root, {
+  config, branchName, base, remote, currentBranch, configurationRemote
+}) {
   // Reached only when this repository carries its own governance in the working tree — the `init`
   // path. A bootstrapped repository has no local definition at all: it resolves configuration from
   // the `sflow/config` branch and materializes it into the Story branch at start, so `config` is
   // null here and the guard correctly does nothing.
   // Only meaningful when the definition is in this working tree. A repository governed from the
   // workspace lead's `sflow/config` branch legitimately has no definition on its own base branch.
-  if (!config || !base) return;
+  if (configurationRemote || !config || !base) return;
   if (refExists(root, `refs/heads/${branchName}`)) return;
   const baseRef = [`refs/heads/${base}`, `refs/remotes/${remote}/${base}`]
     .find((ref) => refExists(root, ref));
@@ -521,7 +577,8 @@ function assertBaseCarriesGovernance(root, { config, branchName, base, remote, c
   throw new SingularityFlowError(
     `Base branch '${base}' does not carry ${WORKFLOW_PATH} yet, so a Story branch cut from it would `
     + `lose the governed definition currently on '${currentBranch}'.\n`
-    + `Merge the governance proposal into '${base}' first, then run this again. Nothing was changed.`
+    + `Publish the reviewed governance to 'sflow/config' first, then run this again. `
+    + `The application branch '${base}' does not need to change. Nothing was changed.`
   );
 }
 
@@ -562,7 +619,8 @@ async function startCommand(positionals, options) {
   }
   const originalBranch = branch(root);
   assertBaseCarriesGovernance(root, {
-    config, branchName: canonicalBranch, base: baseAtStart, remote, currentBranch: originalBranch
+    config, branchName: canonicalBranch, base: baseAtStart, remote, currentBranch: originalBranch,
+    configurationRemote
   });
   const originalSession = await loadSession(root, { required: false });
   const originalCopilotSession = await loadCopilotSession(root);
@@ -7375,7 +7433,7 @@ export async function main(argv) {
   if (!command) return cockpitCommand();
   if (command === 'version') return console.log(VERSION);
   // `logs` reads the file; logging its own invocation would append noise to what it is showing.
-  if (!['logs', 'factory-reset', 'reset-all', 'fresh-install'].includes(command)) {
+  if (!['logs', 'factory-reset', 'reset-all', 'local-reset', 'fresh-install'].includes(command)) {
     const log = await commandLogger(command, argv, { json: options.json, verbose: options.verbose });
     const harness = await harnessInvocation(command, argv);
     const started = Date.now();
@@ -7408,6 +7466,7 @@ async function dispatch(command, positionals, options) {
     init: () => initCommand(options),
     'factory-reset': () => factoryResetCommand(options),
     'reset-all': () => resetAllCommand(options),
+    'local-reset': () => localResetCommand(options),
     'fresh-install': () => freshInstallCommand(options),
     choices: () => choicesCommand(positionals, options),
     start: () => startCommand(positionals, options),

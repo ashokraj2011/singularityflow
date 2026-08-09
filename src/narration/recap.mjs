@@ -75,7 +75,12 @@ function actorName(actor) {
 
 const LINES = Object.freeze({
   'story.started': (b) => `started${b.phase ? ` at ${b.phase}` : ''}`,
-  'generation.published': (b) => `published generation ${b.generation ?? '?'} of ${b.phase ?? 'a phase'}`,
+  // Only the lifecycle stream records which generation it was. When a beat came from the operational
+  // log alone the number is genuinely unknown, and printing "generation ?" states a gap as if it
+  // were a fact.
+  'generation.published': (b) => (b.generation
+    ? `published generation ${b.generation} of ${b.phase ?? 'a phase'}`
+    : `published a generation of ${b.phase ?? 'a phase'}`),
   'phase.submitted': (b) => `submitted ${b.phase ?? 'a phase'} for approval`,
   'phase.approved': (b) => `approved ${b.phase ?? 'a phase'}${b.authority ? ` through ${b.authority}` : ''}`,
   'phase.rejected': (b) => `returned ${b.phase ?? 'a phase'} for changes`,

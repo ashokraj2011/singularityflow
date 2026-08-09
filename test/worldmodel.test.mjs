@@ -764,6 +764,15 @@ test('enforced workflows block generation until the governed prompt is composed'
   const task = 'Capture governed intake';
   run(process.execPath, [bin, 'wm', 'build', '--phase', 'intake', '--task', task], root);
 
+  // Pinned here, immediately before the Story snapshots it. The shipped default is `warn`, and this
+  // test is about the enforcing mode, so it says so rather than depending on the template — and it
+  // must be set after `wm init` and the provider setup, both of which rewrite workflow.yml.
+  const enforcing = YAML.parse(await readFile(definitionPath, 'utf8'));
+  enforcing.worldModel.grounding = 'enforce';
+  await writeFile(definitionPath, YAML.stringify(enforcing));
+  run('git', ['add', '.'], root);
+  run('git', ['commit', '-m', 'enforce grounding'], root);
+
   flow(['start', 'GROUND-1', '--title', 'Grounded work'], root);
   const workflowPath = path.join(root, 'singularity/work-items/GROUND-1/workflow.json');
   const workflow = JSON.parse(await readFile(workflowPath, 'utf8'));

@@ -92,6 +92,7 @@ const PAGES = Object.freeze({
       ['--name TEXT', 'Human-readable capability name.'],
       ['--kind collection|delivery', 'Whether the capability collects work or delivers it.'],
       ['--into DIRECTORY', 'Where to clone. Defaults to a directory named after the repository.'],
+      ['--grounding off|warn|enforce', 'World-model grounding policy. Defaults to warn, which reports without blocking; enforce refuses to publish a phase with no grounding.'],
       ['--no-push', 'Do everything locally and push nothing.']
     ],
     examples: [

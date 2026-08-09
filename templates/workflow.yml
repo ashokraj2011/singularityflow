@@ -77,7 +77,11 @@ worldModel:
     parallel: true
     maxWorkers: 4
     strategy: view
-  grounding: enforce
+  # warn, not enforce. Grounding is a quality signal, and a repository that has not built a world
+  # model yet — or has no model provider configured at all — must still be able to run its
+  # lifecycle. Under `warn` the check runs and reports; under `enforce` it blocks publication.
+  # Raise this to enforce once `wm build` is part of your normal flow.
+  grounding: warn
   staleness: warn
   injection:
     placeholder: "{{WORLD_MODEL}}"

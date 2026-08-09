@@ -49,8 +49,9 @@ export async function main(argv) {
     }, () => console.log(VERSION));
   }
 
+  // Rejects an unknown name with a correction and two entry points. It throws rather than returning
+  // nothing, so there is no falsy case to test for here.
   const definition = commandDefinition(requested);
-  if (!definition) throw new SingularityFlowError(`Unknown command: ${requested}`);
   // Before the operation is resolved and long before the handler loads. `--help` used to be parsed
   // into `options` and then ignored — and because unknown options are accepted silently, the command
   // simply ran. `singularity-flow status --help` printed a status; `singularity-flow approve --help`

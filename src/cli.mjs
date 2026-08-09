@@ -7188,10 +7188,14 @@ async function harnessInvocation(command, argv) {
 // Log every command's outcome. This is the spine of the activity log: without it a failure leaves
 // only the message printed to the terminal, and the sequence that produced it is gone. Building the
 // logger must never break a command, so a repository that cannot be resolved simply gets no file.
-async function commandLogger(command, argv, { json = false } = {}) {
+async function commandLogger(command, argv, { json = false, verbose = false } = {}) {
   // Machine-readable commands still keep their durable activity log, but their stderr transport
   // must contain only the JSON result. Suppress only the console sink for those invocations.
-  const env = json ? { ...process.env, SINGULARITY_FLOW_LOG_CONSOLE: 'off' } : process.env;
+  // `--verbose` is the opposite request: put the diagnostics that are always written to the log file
+  // on screen as well. It cannot override `--json`, because that would corrupt the transport.
+  const env = json ? { ...process.env, SINGULARITY_FLOW_LOG_CONSOLE: 'off' }
+    : verbose ? { ...process.env, SINGULARITY_FLOW_LOG_CONSOLE: 'debug' }
+      : process.env;
   try {
     const root = repoRoot();
     const config = await loadConfig(root).catch(() => null);
@@ -7212,7 +7216,7 @@ export async function main(argv) {
   if (command === 'version') return console.log(VERSION);
   // `logs` reads the file; logging its own invocation would append noise to what it is showing.
   if (!['logs', 'factory-reset', 'reset-all', 'fresh-install'].includes(command)) {
-    const log = await commandLogger(command, argv, { json: options.json });
+    const log = await commandLogger(command, argv, { json: options.json, verbose: options.verbose });
     const harness = await harnessInvocation(command, argv);
     const started = Date.now();
     log.info('command.start', null, { argv: argv.slice(0, 24) });
@@ -7320,9 +7324,9 @@ async function dispatch(command, positionals, options) {
     }
     return invoke();
   } catch (error) {
-    if (error instanceof SingularityFlowError && error.message === `Unknown command: ${command}`) {
-      throw new SingularityFlowError(`${error.message}\n\n${HELP}`);
-    }
+    // An unknown command is rejected by the registry with a correction and two entry points, before
+    // dispatch is ever reached. This used to catch that message and append all 2,450 lines of HELP
+    // to it, which was both unreachable — the registry throws first — and the wrong answer to a typo.
     throw error;
   }
 }

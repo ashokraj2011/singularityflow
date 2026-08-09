@@ -1,4 +1,4 @@
-import { optionBoolean, SingularityFlowError } from './util.mjs';
+import { didYouMean, optionBoolean, SingularityFlowError } from './util.mjs';
 
 const READ_ONLY = new Set(['about', 'help', 'show', 'choices', 'inbox', 'status', 'progress', 'guide', 'logs', 'doctor', 'nextsteps', 'snapshot', 'validate']);
 const STRUCTURED = new Set(['status', 'progress', 'report', 'impact', 'telemetry', 'doctor', 'inputs', 'snapshot', 'validate', 'gate']);
@@ -59,7 +59,12 @@ const canonical = new Map(COMMAND_REGISTRY.flatMap((entry) => [
 
 export function canonicalCommand(name) {
   const result = canonical.get(name);
-  if (!result) throw new SingularityFlowError(`Unknown command: ${name}`);
+  // A mistyped command used to be answered with three words and nothing to do next. The correction
+  // is almost always one edit away, and the two entry points below are the ones a newcomer needs.
+  if (!result) throw new SingularityFlowError(
+    `Unknown command '${name}'.${didYouMean(name, [...canonical.keys()])}`
+    + " Run 'singularity-flow --help' for the command list, or 'singularity-flow quickstart' to be walked through one.",
+    { code: 'UNKNOWN_COMMAND' });
   return result;
 }
 

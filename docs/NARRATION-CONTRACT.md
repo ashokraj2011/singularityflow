@@ -48,12 +48,12 @@ Clauses marked **enforced** have a mechanical test in `test/narration-contract.t
 | NCL-008 | NEXT is derived from post-command state. | **enforced** |
 | NCL-009 | Terminal prose is rendered only at the output boundary. | in migration |
 | NCL-010 | JSON output contains no terminal-only formatting. | **enforced** |
-| NCL-011 | Recap consumes normalized beats, not storage events directly. | not started |
-| NCL-012 | Beat normalization is deterministic and deduplicated. | not started |
-| NCL-013 | Brief recap uses deterministic selection, never a model. | not started |
-| NCL-014 | Recap ordering has a stable tie-break rule. | not started |
-| NCL-015 | Timezone and locale are pinned rendering inputs. | not started |
-| NCL-016 | Quoted user content is normalized, escaped and bounded. | not started |
+| NCL-011 | Recap consumes normalized beats, not storage events directly. | **enforced** |
+| NCL-012 | Beat normalization is deterministic and deduplicated. | **enforced** |
+| NCL-013 | Brief recap uses deterministic selection, never a model. | **enforced** |
+| NCL-014 | Recap ordering has a stable tie-break rule. | **enforced** |
+| NCL-015 | Timezone and locale are pinned rendering inputs. | **enforced** |
+| NCL-016 | Quoted user content is normalized, escaped and bounded. | **enforced** |
 | NCL-017 | Friendly callbacks retain their immutable provenance reference. | **enforced** |
 | NCL-018 | Journey and CLI share planners, not transient envelopes. | partial |
 | NCL-019 | Derived forecasts declare source, sample and coverage. | not started |
@@ -112,9 +112,9 @@ loaded ones, with legacy modules explicitly exempt until their turn.
 1. NCL specification and command-result schema — **done**
 2. Result constructors and one output boundary — **done**
 3. Message catalog and refusal-effects law — **done**
-4. Vertical Story slice: `resume`, `submit`, `approve`, `reject`, `status`
-5. Planner-derived NEXT and no-dead-ends conformance across the slice
-6. Normalized narration beats and deterministic recap
+4. Vertical Story slice: `resume`, `submit`, `approve`, `reject` — **done** (`status` deferred to the read-command migration)
+5. Planner-derived NEXT and no-dead-ends conformance across the slice — **done**
+6. Normalized narration beats and deterministic recap — **done**
 7. Review packet, pull-request description and continuation reuse
 8. Story and Initiative Journey adapters
 9. Callbacks

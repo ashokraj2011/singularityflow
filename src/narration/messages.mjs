@@ -17,6 +17,10 @@ function slot(value, fallback = '') {
 }
 
 export const MESSAGES = Object.freeze({
+  'sequence.refused': {
+    headline: (s) => `Cannot ${slot(s.action, 'do that')}${s.phase ? ` for ${slot(s.phase)}` : ''} yet.`,
+    preserves: true
+  },
   'submit.refused': {
     headline: (s) => `Cannot submit ${slot(s.phase, 'this phase')} for approval.`,
     preserves: true

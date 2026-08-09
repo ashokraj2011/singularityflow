@@ -4,6 +4,8 @@ import { readFile } from 'node:fs/promises';
 import path from 'node:path';
 import { exists, nowIso, SingularityFlowError } from './util.mjs';
 import { actionCommandLines, copilotAction } from './copilot-guidance.mjs';
+import { action, because, commandResult, noEffects, refused } from './narration/command-result.mjs';
+import { withCommandResult } from './narration/emit.mjs';
 
 const confirmed = new WeakMap();
 let activeConfirmationPort = null;
@@ -68,7 +70,7 @@ function commandLines(actions, alternativeSecond = false) {
   ));
 }
 
-function sequenceMessage(workflow, gate, action, { requestedPhase = null, reason = null, mode = sequenceGateMode(workflow, gate) } = {}) {
+function sequenceMessage(workflow, gate, action, { requestedPhase = null, reason = null, mode = sequenceGateMode(workflow, gate), guidance: withGuidance = true } = {}) {
   const phase = activePhase(workflow);
   const target = requestedPhase ?? phase?.id ?? null;
   const current = phase
@@ -85,15 +87,89 @@ function sequenceMessage(workflow, gate, action, { requestedPhase = null, reason
     `Current state: ${current}.`,
     reason ? `Reason: ${reason}` : null,
     `Gate mode: ${mode}.`,
-    `Required next action: ${guidance.summary}`,
-    ...commandLines(guidance.actions, guidance.alternativeSecond),
-    `See all valid actions in Copilot: /sf-nextsteps ${workflow.workItem.id}`,
-    `CLI equivalent: singularity-flow nextsteps ${workflow.workItem.id}`
+    // Hard refusals carry a narrated result whose NEXT owns the guidance, so repeating it here would
+    // print the same advice twice in two different vocabularies. The soft-warning path has no
+    // narrated result yet and still needs it.
+    ...(withGuidance ? [
+      `Required next action: ${guidance.summary}`,
+      ...commandLines(guidance.actions, guidance.alternativeSecond),
+      `See all valid actions in Copilot: /sf-nextsteps ${workflow.workItem.id}`,
+      `CLI equivalent: singularity-flow nextsteps ${workflow.workItem.id}`
+    ] : [])
   ].filter(Boolean).join('\n');
 }
 
+/**
+ * Which cataloged reason a failed gate corresponds to.
+ *
+ * Gates are the kernel's vocabulary; reason codes are the narration plane's. Mapping them here
+ * keeps handlers out of the business of explaining themselves in prose.
+ */
+const GATE_REASONS = Object.freeze({
+  publicationPending: 'publication.pending',
+  freshGeneration: 'generation.not-published',
+  generationCommit: 'generation.not-published',
+  remoteGeneration: 'generation.not-published',
+  documentPhase: 'artifact.missing'
+});
+
+/**
+ * The way forward from a failed gate, taken from the planner that already knows it.
+ *
+ * `sequenceGuidance` is this module's deterministic answer to "what should happen next", and it is
+ * what the prose used to print. Reusing it keeps one opinion about valid continuation instead of a
+ * second, quietly diverging list — and it stays phase-aware, which a hand-rolled gate map was not.
+ *
+ * Supplied at construction because `commandResult` refuses to build a result with no continuation:
+ * a refusal that stops someone without telling them how to proceed is not constructible.
+ */
+function gateRemediation(workflow, gate) {
+  const guidance = gate === 'publicationPending'
+    ? {
+        summary: 'Publish the retained local lifecycle commit before any further mutation.',
+        actions: [copilotAction({ command: 'singularity-flow sync' })]
+      }
+    : sequenceGuidance(workflow);
+  const commands = guidance.actions.map((entry) => entry.command).filter(Boolean);
+  if (!commands.length) {
+    return [action({
+      id: 'list-valid-actions',
+      label: 'See every action this Story can take right now',
+      command: `singularity-flow nextsteps ${workflow.workItem.id}`,
+      rank: 'NOW',
+      kind: 'remediation'
+    })];
+  }
+  return commands.map((command, index) => action({
+    id: `sequence-step-${index + 1}`,
+    label: index === 0 ? guidance.summary : `Then: ${command}`,
+    command,
+    rank: index === 0 ? 'NOW' : 'SOON',
+    kind: 'remediation'
+  }));
+}
+
 export function sequenceError(workflow, action, { gate = 'phaseStatus', requestedPhase = null, reason = null } = {}) {
-  return new SingularityFlowError(`${sequenceMessage(workflow, gate, action, { requestedPhase, reason, mode: 'hard' })}\nNo workflow files, commits, or remote state were changed.`, { exitCode: 2 });
+  // The reassurance sentence used to be concatenated onto this message by hand. It is now derived
+  // from `effects` at the renderer, so it cannot survive a future change that makes this path touch
+  // something. The prose body stays for now: converting every refusal's detail into catalog slots is
+  // the migration, not this change.
+  const error = new SingularityFlowError(
+    sequenceMessage(workflow, gate, action, { requestedPhase, reason, mode: 'hard', guidance: false }), { exitCode: 2 });
+  const phase = requestedPhase ?? workflow.currentPhase ?? null;
+  return withCommandResult(error, commandResult({
+    operation: { id: action.replace(/\s+/g, '-'), classification: 'mutation' },
+    subject: { kind: 'story', id: workflow.workItem.id },
+    outcome: refused('sequence.refused', { action, phase, gate }),
+    // A sequence gate refuses before the unit of work opens, so nothing has moved. Declared, not
+    // asserted in prose.
+    effects: noEffects(),
+    why: [because(GATE_REASONS[gate] ?? 'sequence.gate-failed', 'sequence', {
+      ref: `gate:${gate}`,
+      slots: { gate, phase, action }
+    })],
+    next: gateRemediation(workflow, gate)
+  }));
 }
 
 async function sessionAudit(root) {

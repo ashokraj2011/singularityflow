@@ -1,0 +1,94 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://singularity-flow.local/schemas/command-result.schema.json",
+  "title": "Command result",
+  "description": "The outcome of one governed command: what happened, why, what it preserved, and what the caller may do next. Deliberately separate from schemas/reference-envelope.schema.json, which is an evidence-transport boundary with byte limits and preview safety and has no business carrying explanation or continuation. A command result may carry a reference envelope inside `data`; it must never become one.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["schemaVersion", "resultType", "operation", "outcome", "effects", "why", "next"],
+  "properties": {
+    "schemaVersion": { "const": 1 },
+    "resultType": { "const": "command-result" },
+    "operation": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["id", "classification"],
+      "properties": {
+        "id": { "type": "string", "minLength": 1 },
+        "classification": { "enum": ["read", "mutation"] }
+      }
+    },
+    "subject": {
+      "type": ["object", "null"],
+      "additionalProperties": false,
+      "required": ["kind", "id"],
+      "properties": {
+        "kind": { "enum": ["story", "initiative", "capability", "workspace", "repository"] },
+        "id": { "type": "string", "minLength": 1 }
+      }
+    },
+    "outcome": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["status", "messageId"],
+      "properties": {
+        "status": { "enum": ["succeeded", "refused", "failed", "noop"] },
+        "messageId": { "type": "string", "pattern": "^[a-z0-9-]+(\\.[a-z0-9-]+)+$" },
+        "slots": { "type": "object" }
+      }
+    },
+    "effects": {
+      "description": "What this command actually changed. Machine-readable so reassurance cannot drift from the truth: a refusal must declare every effect false, and the renderer's 'nothing was changed' line is derived from these, never authored beside them.",
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["stateChanged", "filesChanged", "publicationCreated", "externalSystemsChanged"],
+      "properties": {
+        "stateChanged": { "type": "boolean" },
+        "filesChanged": { "type": "boolean" },
+        "publicationCreated": { "type": "boolean" },
+        "externalSystemsChanged": { "type": "boolean" }
+      }
+    },
+    "why": {
+      "description": "Why the outcome is what it is. Reason codes, never handler-authored prose: the wording lives in the catalog so it stays consistent, testable, translatable and stable for JSON clients even when the English improves.",
+      "type": "array",
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["code", "source"],
+        "properties": {
+          "code": { "type": "string", "pattern": "^[a-z0-9-]+(\\.[a-z0-9-]+)+$" },
+          "source": { "enum": ["pin", "policy", "gate", "sequence", "evidence", "config", "remote", "telemetry", "identity"] },
+          "ref": { "type": ["string", "null"] },
+          "slots": { "type": "object" }
+        }
+      }
+    },
+    "next": {
+      "description": "Valid continuations, derived from the deterministic planners against post-command state.",
+      "type": "array",
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["id", "label", "command", "rank", "kind"],
+        "properties": {
+          "id": { "type": "string", "minLength": 1 },
+          "label": { "type": "string", "minLength": 1 },
+          "command": { "type": "string", "minLength": 1 },
+          "rank": { "enum": ["NOW", "SOON", "LATER"] },
+          "kind": { "enum": ["workflow", "remediation", "review", "informational"] },
+          "modelPolicy": { "enum": ["never", "optional", "required"] }
+        }
+      }
+    },
+    "restState": {
+      "description": "Set only when there is legitimately nothing to do next. A result with neither `next` nor `restState` is a dead end.",
+      "type": ["string", "null"],
+      "enum": ["complete", "cancelled", "awaiting-others", "informational", null]
+    },
+    "data": {
+      "description": "Command-specific payload. A reference-preview envelope may travel here.",
+      "type": "object"
+    }
+  }
+}

@@ -63,6 +63,14 @@ export const MESSAGES = Object.freeze({
     headline: (s) => `Selected ${slot(s.agent)} for ${slot(s.workId)}.`,
     preserves: false
   },
+  'clarification.reported': {
+    headline: (s) => `Checked clarification readiness for ${slot(s.phase)} generation ${slot(s.generation)}.`,
+    preserves: true
+  },
+  'clarification.recorded': {
+    headline: (s) => `Recorded ${slot(s.responses, '0')} clarification response(s) for ${slot(s.phase)} generation ${slot(s.generation)}.`,
+    preserves: false
+  },
   'start.succeeded': {
     // The branch is usually named after the work ID, so naming both says the same thing twice.
     headline: (s) => `Started ${slot(s.workId)}${s.branch && s.branch !== s.workId ? ` on ${slot(s.branch)}` : ''}. Its first phase is ${slot(s.phase)}.`,

@@ -520,6 +520,12 @@ test('a checked-out Story gets a phase rail with named prepare publish and submi
   assert.equal(find(tree, 'story:design:submit').runCommand, 'singularityFlow.submitStoryPhase');
   assert.equal(find(tree, 'story-document:design:PHASE-DESIGN').path,
     'singularity/work-items/STORY-42/artifacts/design/design.md');
+  const generated = find(tree, 'story:STORY-42:generated-artifacts');
+  assert.equal(generated.label, 'Generated artifacts');
+  assert.equal(generated.description, '1');
+  assert.equal(find(generated.children, 'story:STORY-42:artifacts:design').label, 'Design');
+  assert.equal(find(generated.children, 'story-document:design:PHASE-DESIGN').path,
+    'singularity/work-items/STORY-42/artifacts/design/design.md');
 });
 
 test('an open stakeholder change request is visible beside the reopened Story', () => {
@@ -1643,6 +1649,9 @@ test('the business inbox joins decisions to every generated artifact without lis
   assert.equal(inbox.artifacts.some((artifact) => artifact.label === 'Scope and outcomes'), false,
     'declared but unwritten templates are not presented as generated output');
   assert.deepEqual(inbox.groups.map((group) => group.phase), ['define', 'implementation']);
+  assert.deepEqual(inbox.workItems.map((item) => item.workId), ['INIT-MULTI', 'WORK-123']);
+  assert.deepEqual(inbox.workItems.find((item) => item.workId === 'WORK-123').groups
+    .map((group) => group.phase), ['implementation']);
 });
 
 test('the sidebar inbox exposes the combined page and opens exact generated paths', () => {
@@ -1652,7 +1661,9 @@ test('the sidebar inbox exposes the combined page and opens exact generated path
   const tree = buildInboxTree(shot);
   assert.equal(tree[0].runCommand, 'singularityFlow.openInbox');
   assert.match(tree[0].description, /1 generated/);
-  const artifact = tree[1].children[0].children[0];
+  const work = tree[1].children[0];
+  assert.equal(work.label, 'INIT-MULTI');
+  const artifact = work.children[0].children[0];
   assert.equal(artifact.path, output.repositoryPath);
   assert.equal(artifact.readOnly, true);
 });

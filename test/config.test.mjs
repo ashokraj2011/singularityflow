@@ -45,9 +45,11 @@ test('starter YAML resolves feature, bugfix, and Figma-mobile templates and agen
     mode: 'required', maxQuestions: 5, topics: ['problem', 'outcome', 'users', 'scope', 'constraints']
   });
   assert.equal(feature.phases.find((item) => item.id === 'requirements').clarification.mode, 'required');
-  assert.equal(feature.phases.find((item) => item.id === 'design').clarification.mode, 'off');
+  assert.equal(feature.phases.find((item) => item.id === 'design').clarification.mode, 'required');
+  assert.equal(feature.phases.find((item) => item.id === 'implementation-spec').clarification.mode, 'required');
   assert.equal(bugfix.phases.find((item) => item.id === 'reproduction').clarification.mode, 'required');
   assert.equal(figmaMobile.phases.find((item) => item.id === 'design-intake').clarification.mode, 'required');
+  assert.equal(figmaMobile.phases.find((item) => item.id === 'mobile-spec').clarification.mode, 'required');
   assert.deepEqual(bugfix.phases.find((item) => item.id === 'verification').inputs.map((item) => item.phase), ['fix-spec', 'implementation']);
   assert.deepEqual(figmaMobile.phases.map((item) => item.id), ['design-intake', 'design-inventory', 'component-mapping', 'mobile-spec', 'implementation', 'visual-verification', 'conformance']);
   assert.deepEqual(figmaMobile.documents.allowedPhases, ['design-intake', 'design-inventory']);

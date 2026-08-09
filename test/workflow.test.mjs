@@ -362,12 +362,21 @@ test('next never launches a missing world-model agent unattended', async () => {
 test('feature profile publishes generations, records tokens, approvals, and conformance', async () => {
   const root = await repository(); const workId = 'FEATURE-101';
   flow(root, ['start', workId, '--title', 'Configurable workflow'], { selection: selection('feature', 'product-owner') });
+  flow(root, ['wm', 'light', '--views', 'business,architecture,development,testing,release,operations,security', '--local']);
   const workflowFile = path.join(root, 'singularity/work-items', workId, 'workflow.json');
   const agents = { intake: 'product-owner', requirements: 'product-owner', design: 'architect', 'implementation-spec': 'architect', implementation: 'developer', verification: 'qa', conformance: 'qa' };
   for (const phaseId of ['intake', 'requirements', 'design', 'implementation-spec', 'implementation', 'verification', 'conformance']) {
     let workflow = JSON.parse(await readFile(workflowFile, 'utf8')); assert.equal(workflow.currentPhase, phaseId); flow(root, ['prepare', phaseId], { selection: selection('feature', agents[phaseId]) });
     flow(root, ['resume', workId], { selection: selection('feature', agents[phaseId]) });
     await completeArtifact(root, workflow, phaseId);
+    flow(root, ['wm', 'compose', '--phase', phaseId]);
+    workflow = JSON.parse(await readFile(workflowFile, 'utf8'));
+    if (workflow.resolution.phases.find((entry) => entry.id === phaseId)?.clarification?.mode === 'required') {
+      flow(root, ['clarification', 'record', phaseId,
+        '--question', `Are the governed ${phaseId} decisions complete and supported by the recorded evidence?`,
+        '--answer', 'Yes. Use the pinned evidence and approved upstream artifacts; no additional assumption is authorized.'
+      ]);
+    }
     if (phaseId === 'implementation') {
       await mkdir(path.join(root, 'src'), { recursive: true }); await mkdir(path.join(root, 'tests'), { recursive: true });
       await writeFile(path.join(root, 'src/feature.mjs'), 'export const feature = true; // SPEC-001\n'); await writeFile(path.join(root, 'tests/feature.test.mjs'), '// @ac:AC-001 SPEC-001\n');

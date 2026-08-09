@@ -150,6 +150,9 @@ Usage:
   singularity-flow documents upload <FILE-OR-DIRECTORY...> [--url URL] [--label TEXT] [--kind KIND]
   singularity-flow documents detach <DOCUMENT-ID> [--scope file|package] --reason TEXT [--yes]
   singularity-flow prepare [PHASE]
+  singularity-flow clarification status [PHASE] [--json]
+  singularity-flow clarification record [PHASE] (--question TEXT --answer TEXT | --response-file FILE)
+    [--why TEXT] [--status answered|deferred] [--blocking] [--owner TEXT] [--impact TEXT] [--replace]
   singularity-flow phase show [PHASE] [--json]
   singularity-flow phase publish [PHASE]
     [--authored human|governed-agent|deterministic|external-tool]

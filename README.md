@@ -1156,7 +1156,16 @@ phases:
 - `when-needed` asks only when governed sources, approved inputs, and the world model leave a material ambiguity.
 - `required` always pauses for at least one human response. If the evidence appears complete, Copilot asks the contributor to confirm its concise interpretation instead of silently continuing.
 
-The bundled intake, requirements, reproduction, and design-intake phases use `required`. Copilot asks one concise batch through `ask_user`, waits, incorporates confirmed answers as artifact decisions, and leaves only explicitly deferred items under Open questions. If the client does not expose `ask_user`, the skill prints the numbered questions and stops before authoring or publication. The CLI never guesses an answer.
+The starter workflows use `required` from initial intake through Design and specification creation (including bug-fix and mobile-design equivalents), then `when-needed` during implementation, verification, and conformance. Copilot asks one concise batch through `ask_user`, waits, and records the human response against the exact prompt and prospective generation before it authors. It incorporates confirmed answers as artifact decisions and leaves only explicitly deferred, non-blocking items under Open questions. If questions cannot be asked or recorded, the skill prints them and stops. The CLI never guesses an answer.
+
+```bash
+singularity-flow clarification record requirements \
+  --question "Is this outcome and scope correct?" \
+  --answer "Yes; exclude historical migration."
+singularity-flow clarification status requirements
+```
+
+For a batch, pass `--response-file responses.json`. A model-assisted publication in a `required` phase fails when the response record is missing, bound to an older prompt/generation, or contains a material unresolved decision. Explicit `--authored human` work remains the intentional manual path and does not claim that Copilot asked questions.
 
 ## Token usage
 

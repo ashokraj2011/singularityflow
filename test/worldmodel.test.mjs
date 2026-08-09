@@ -789,9 +789,14 @@ test('enforced workflows block generation until the governed prompt is composed'
   assert.match(composed.stdout, /Human clarification checkpoint/);
   assert.match(composed.stdout, /clarification mode `required`/);
   assert.match(composed.stdout, /interactive `ask_user` tool/);
-  flow(['phase', 'publish', 'intake'], root);
+  const unanswered = flow(['phase', 'publish', 'intake', '--authored', 'governed-agent', '--channel', 'copilot-host'], root, { allowFailure: true });
+  assert.notEqual(unanswered.status, 0);
+  assert.match(`${unanswered.stdout}${unanswered.stderr}`, /clarification response is missing/);
+  flow(['clarification', 'record', 'intake', '--question', 'Is this objective and scope correct?', '--answer', 'Yes; use the stated outcome and boundaries.'], root);
+  flow(['phase', 'publish', 'intake', '--authored', 'governed-agent', '--channel', 'copilot-host'], root);
   const published = JSON.parse(await readFile(workflowPath, 'utf8'));
   assert.equal(published.phases.intake.generation, 1);
+  assert.equal(published.phases.intake.clarifications[0].responses, 1);
   assert.match(run('git', ['log', '-1', '--format=%s'], root), /^\[GROUND-1\]\[phase:intake\]\[generated:1\]/);
 });
 

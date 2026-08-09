@@ -1332,7 +1332,19 @@ phases:
 
 `off` adds no checkpoint. `when-needed` asks only for material ambiguities that remain after pinned sources, approved inputs, and world-model evidence have been read. `required` always pauses for a human response; when nothing appears ambiguous, Copilot asks the contributor to confirm its concise interpretation of outcome, boundaries, and acceptance criteria.
 
-The checkpoint is included in the immutable phase resolution and exact recorded prompt. The bundled `/sf-phase`, `/sf-next`, and `/sf-requirements` skills use `ask_user`, wait for the response, and incorporate accepted answers into the governed artifact. A client without `ask_user` must display the questions and stop before authoring or publication. It must not convert missing interactivity into silent assumptions. Work types may replace the phase policy through `phaseOverrides.<phase>.clarification`.
+The checkpoint is included in the immutable phase resolution and exact recorded prompt. The bundled `/sf-phase`, `/sf-next`, and `/sf-requirements` skills use `ask_user`, wait, and durably record accepted answers before authoring. A client without interactive questions must display them and stop. It must not convert missing interactivity into silent assumptions. Work types may replace the phase policy through `phaseOverrides.<phase>.clarification`.
+
+Record one answer or a bounded JSON batch, then inspect the checkpoint:
+
+```bash
+singularity-flow clarification record requirements \
+  --question "Is this interpretation complete?" \
+  --answer "Yes; exclude historical migration."
+singularity-flow clarification record requirements --response-file responses.json
+singularity-flow clarification status requirements --json
+```
+
+The record contains the human actor, governed agent, prompt hash, grounding-record hash, phase, and prospective generation. Required model-assisted publication rejects a missing or stale record and rejects a materially deferred decision. Human-authored artifacts use the explicit `--authored human` path instead of fabricating a Copilot checkpoint.
 
 ## governed agents and approval authority
 
@@ -1868,6 +1880,10 @@ SHA-256 hashes, byte counts, and truncation flags. It also writes the exact
 rendered prompt to `context/prompts/<phase>-gen<n>.md`. The next `phase publish`
 commit carries both files with the generation.
 
+For a configured clarification checkpoint, the accepted human response is separately
+stored in `context/clarifications-<phase>-gen<n>.json`. Its prompt and composition
+hashes prevent an answer from an older prompt or generation from satisfying a new one.
+
 In `enforce` mode, publication fails if composition is absent, stale, uncommitted,
 uses the wrong governed agent, omits a required view, or differs from its committed
 manifest/prompt snapshot. `warn` reports the same problems without blocking.
@@ -2339,6 +2355,8 @@ singularity-flow local-reset [--dry-run | --confirm "RESET LOCAL"] [--json]
 sf-local-reset [--dry-run | --confirm "RESET LOCAL"] [--json]
 singularity-flow fresh-install [--checkout DIRECTORY] [--yes] [--registry URL] [--cli-only] [--no-copilot-telemetry]
 singularity-flow choices begin|answer|status ...
+singularity-flow clarification status [PHASE] [--json]
+singularity-flow clarification record [PHASE] (--question TEXT --answer TEXT | --response-file FILE) [--json]
 singularity-flow start <WORK-ID> [--jira | --story-file FILE] [--work-type ID] [--agent ID] [--ref CANONICAL-BRANCH]
 singularity-flow resume <WORK-ID|BRANCH> [--fetch]
 singularity-flow agent [WORK-ID]

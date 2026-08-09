@@ -477,8 +477,11 @@ test('Configuration keeps workflows agents prompts and skills visible while Life
   };
   const lifecycle = buildTree(recovery, refused);
   assert.equal(find(lifecycle, 'configuration'), undefined, 'invalid configuration still blocks lifecycle authority');
+  assert.equal(find(lifecycle, 'lifecycle:error:reinitialize')?.runCommand, 'singularityFlow.reinitialize',
+    'an unsupported workflow has a direct no-migration recovery action');
 
   const configuration = buildConfigurationTree(recovery, refused);
+  assert.equal(find(configuration, 'configuration:error:reinitialize')?.runCommand, 'singularityFlow.reinitialize');
   assert.ok(find(configuration, 'configuration'), 'the configuration inventory remains available');
   assert.ok(find(configuration, 'config:workflow-design'));
   assert.ok(find(configuration, 'config:templates'));

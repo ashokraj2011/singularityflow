@@ -156,6 +156,11 @@
         "icon": "$(add)"
       },
       {
+        "command": "singularityFlow.reinitialize",
+        "title": "Singularity Flow: Reset & Reinitialize Repository (Workflow v2)",
+        "icon": "$(debug-restart)"
+      },
+      {
         "command": "singularityFlow.startWork",
         "title": "Singularity Flow: Start Work",
         "icon": "$(add)"
@@ -530,6 +535,11 @@
           "command": "singularityFlow.reviewCapabilityProposals",
           "when": "view == singularityFlow.configuration",
           "group": "9_setup@1"
+        },
+        {
+          "command": "singularityFlow.reinitialize",
+          "when": "view == singularityFlow.configuration",
+          "group": "9_setup@2"
         },
         {
           "command": "singularityFlow.openHelp",

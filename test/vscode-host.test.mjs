@@ -488,6 +488,8 @@ test('a legacy workflow blocks Lifecycle but leaves all repairable configuration
   const workflow = YAML.parse(await readFile(workflowFile, 'utf8'));
   workflow.version = 1;
   await writeFile(workflowFile, YAML.stringify(workflow));
+  run('git', ['add', 'singularity/workflow.yml'], { cwd: root });
+  run('git', ['commit', '-m', 'Use retired workflow schema'], { cwd: root });
 
   const { api, registered } = stubVscode();
   api.workspace.workspaceFolders = [{ uri: { fsPath: root } }];
@@ -496,6 +498,9 @@ test('a legacy workflow blocks Lifecycle but leaves all repairable configuration
 
   const lifecycleProvider = registered.trees.get('singularityFlow.lifecycle').treeDataProvider;
   assert.match(lifecycleProvider.getChildren()[0].label, /version must be 2/);
+  const lifecycleReset = lifecycleProvider.getChildren()
+    .find((node) => node.id === 'lifecycle:error:reinitialize');
+  assert.equal(lifecycleProvider.getTreeItem(lifecycleReset).command.command, 'singularityFlow.reinitialize');
 
   const configurationProvider = registered.trees.get('singularityFlow.configuration').treeDataProvider;
   const roots = configurationProvider.getChildren();
@@ -508,6 +513,14 @@ test('a legacy workflow blocks Lifecycle but leaves all repairable configuration
   assert.ok(groups.includes('config:prompts'), 'prompts remain visible');
   assert.ok(groups.includes('config:skills'), 'skills and prompt packs remain visible');
   assert.ok(groups.includes('config:agents'), 'agents remain visible');
+  assert.ok(registered.commands.has('singularityFlow.reinitialize'), 'the no-migration recovery command is registered');
+
+  registered.selfApprovalAnswer = 'Reset and reinitialize';
+  registered.typed = `RESET ${path.basename(root)} ${run('git', ['rev-parse', '--short=7', 'HEAD'], { cwd: root }).stdout.trim()}`;
+  await registered.commands.get('singularityFlow.reinitialize')();
+  assert.equal(YAML.parse(await readFile(workflowFile, 'utf8')).version, 2,
+    'the guarded editor action installs workflow v2 from the bundled CLI');
+  assert.equal(registered.errors.length, 0, registered.errors.join('\n'));
   assert.deepEqual(registered.errors, [], 'degraded configuration is rendered rather than raised as an editor error');
 });
 
@@ -1101,7 +1114,7 @@ test('creating a workspace is possible before any repository is open', async (t)
   const extension = loadExtension(api);
   await extension.activate(context());
 
-  for (const id of ['singularityFlow.createWorkspace', 'singularityFlow.init', 'singularityFlow.doctor']) {
+  for (const id of ['singularityFlow.createWorkspace', 'singularityFlow.init', 'singularityFlow.reinitialize', 'singularityFlow.doctor']) {
     assert.ok(registered.commands.has(id), `${id} is reachable with no repository open`);
   }
 });

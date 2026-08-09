@@ -2185,6 +2185,16 @@ without deleting their directories. Use `singularity-flow workspace prune --json
 to inspect that cleanup. Use
 `/sf-factory-reset` in Copilot for the same guarded flow.
 
+VS Code provides the same no-migration operation. In the Singularity Flow
+**Configuration** section choose **Reset and reinitialize workflow v2**, or run
+**Singularity Flow: Reset & Reinitialize Repository (Workflow v2)** from the
+Command Palette. Review the engine-generated reset plan, select **Reset and
+reinitialize**, and type the exact confirmation shown. The extension refuses to
+continue while governed reset-scope files have uncommitted changes. A successful
+reset installs and validates workflow v2 but deliberately leaves the new files
+uncommitted for Source Control review and publication through the configured
+review path.
+
 To reset the current repository configuration and all machine-local Singularity
 Flow registration/session state in one command:
 

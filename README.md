@@ -162,6 +162,14 @@ and custom `.github/agents` files not supplied by the package. The replacement
 is left uncommitted for review. In Copilot, `/sf-factory-reset` enforces the
 same preview and contributor-entered confirmation sequence.
 
+In VS Code, open the Singularity Flow **Configuration** section and select
+**Reset and reinitialize workflow v2**, or run **Singularity Flow: Reset &
+Reinitialize Repository (Workflow v2)** from the Command Palette. The editor
+shows the same engine-generated preview, requires the same exact confirmation,
+installs the bundled version-2 files, validates them, and leaves the replacement
+uncommitted. It does not migrate version-1 state. If governed files have local
+changes, the editor refuses the reset so they cannot be discarded accidentally.
+
 For a complete local restart of the current repository and this machine's
 Singularity Flow registry, use the short one-shot command:
 

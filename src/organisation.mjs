@@ -33,10 +33,65 @@ import {
 } from './bootstrap.mjs';
 import { initializeLedger, publishToStateBranch } from './ledger.mjs';
 import {
-  CONFIGURATION_BRANCH, ensureConfigurationBranch, remoteHasConfigurationBranch
+  CONFIGURATION_BRANCH, ensureConfigurationBranch, isConfigurationAsset,
+  remoteHasConfigurationBranch
 } from './configuration-branch.mjs';
 
 const PORTFOLIO_PATH = 'singularity/portfolio.yml';
+const CAPABILITY_PROPOSAL_PREFIX = 'sflow/config-change/capability/';
+
+function capabilityProposalBranch(value) {
+  const branch = String(value ?? '').trim();
+  if (!branch.startsWith(CAPABILITY_PROPOSAL_PREFIX)
+    || !/^sflow\/config-change\/capability\/[a-z0-9._/-]+$/.test(branch)
+    || branch.includes('..') || branch.endsWith('/') || branch.includes('//')) {
+    throw new SingularityFlowError(
+      `Capability proposal must be a branch beneath '${CAPABILITY_PROPOSAL_PREFIX}'.`);
+  }
+  return branch;
+}
+
+function proposalChangedFiles(root, base, proposal) {
+  const names = run('git', ['diff', '--name-only', `${base}..${proposal}`], { cwd: root })
+    .stdout.split('\n').map((entry) => entry.trim()).filter(Boolean);
+  const statuses = run('git', ['diff', '--name-status', `${base}..${proposal}`], { cwd: root })
+    .stdout.split('\n').map((entry) => entry.trim()).filter(Boolean).map((entry) => {
+      const [status, ...paths] = entry.split('\t');
+      return { status, paths };
+    });
+  return { names, statuses };
+}
+
+async function withCapabilityProposalCheckout(url, branch, operation) {
+  const remote = String(url ?? '').trim();
+  if (!remote) throw new SingularityFlowError('A lead repository URL is required.');
+  if (!remoteHasConfigurationBranch(remote)) {
+    throw new SingularityFlowError(`'${remote}' has no '${CONFIGURATION_BRANCH}' branch.`);
+  }
+  const proposalBranch = capabilityProposalBranch(branch);
+  const scratch = await mkdtemp(path.join(os.tmpdir(), 'sflow-capability-review-'));
+  try {
+    const cloned = run('git', ['clone', '--quiet', '--branch', CONFIGURATION_BRANCH, remote, scratch], {
+      allowFailure: true
+    });
+    if (cloned.status !== 0) {
+      throw new SingularityFlowError(
+        `Cannot read '${remote}': ${(cloned.stderr || cloned.stdout).trim().split('\n')[0]}`);
+    }
+    const fetched = run('git', ['fetch', '--quiet', 'origin',
+      `refs/heads/${proposalBranch}:refs/remotes/origin/${proposalBranch}`], {
+      cwd: scratch, allowFailure: true
+    });
+    if (fetched.status !== 0) {
+      throw new SingularityFlowError(
+        `Capability proposal '${proposalBranch}' does not exist on '${remote}'.`);
+    }
+    return await operation(scratch, remote, proposalBranch,
+      `refs/remotes/origin/${proposalBranch}`);
+  } finally {
+    await rm(scratch, { recursive: true, force: true });
+  }
+}
 
 /** Where the pointers live. Overridable so tests never touch a real machine's list. */
 export function leadRegistryFile() {
@@ -355,6 +410,140 @@ export async function publishOrganisationCapabilityMap(url) {
   } finally {
     await rm(scratch, { recursive: true, force: true });
   }
+}
+
+/** Pending capability proposals on a lead repository, without changing either authority branch. */
+export async function listCapabilityProposals(url, { includeMerged = false } = {}) {
+  const remote = String(url ?? '').trim();
+  if (!remote) throw new SingularityFlowError('A lead repository URL is required.');
+  if (!remoteHasConfigurationBranch(remote)) return [];
+  const heads = run('git', ['ls-remote', '--heads', remote,
+    `refs/heads/${CAPABILITY_PROPOSAL_PREFIX}*`], { allowFailure: true });
+  if (heads.status !== 0) {
+    throw new SingularityFlowError(
+      `Cannot list capability proposals on '${remote}': ${(heads.stderr || heads.stdout).trim().split('\n')[0]}`);
+  }
+  const branches = heads.stdout.split('\n').map((line) => line.trim()).filter(Boolean)
+    .map((line) => line.split(/\s+/)[1]?.replace(/^refs\/heads\//, '')).filter(Boolean).sort();
+  const proposals = [];
+  for (const branch of branches) {
+    const proposal = await inspectCapabilityProposal(remote, branch);
+    if (includeMerged || !proposal.merged) proposals.push(proposal);
+  }
+  return proposals;
+}
+
+/** Exact commits, file set, and diff a reviewer is being asked to activate. */
+export async function inspectCapabilityProposal(url, branch) {
+  return withCapabilityProposalCheckout(url, branch, async (root, remote, proposalBranch, ref) => {
+    const targetCommit = run('git', ['rev-parse', 'HEAD'], { cwd: root }).stdout.trim();
+    const proposalCommit = run('git', ['rev-parse', ref], { cwd: root }).stdout.trim();
+    const proposalBase = run('git', ['rev-parse', `${ref}^`], { cwd: root }).stdout.trim();
+    const mergeBaseResult = run('git', ['merge-base', 'HEAD', ref], { cwd: root, allowFailure: true });
+    if (mergeBaseResult.status !== 0 || !mergeBaseResult.stdout.trim()) {
+      throw new SingularityFlowError(
+        `Capability proposal '${proposalBranch}' does not share history with '${CONFIGURATION_BRANCH}'.`);
+    }
+    const mergeBase = mergeBaseResult.stdout.trim();
+    const changed = proposalChangedFiles(root, proposalBase, ref);
+    const invalidFiles = changed.names.filter((file) => !isConfigurationAsset(file));
+    const merged = run('git', ['merge-base', '--is-ancestor', ref, 'HEAD'], {
+      cwd: root, allowFailure: true
+    }).status === 0;
+    // A merged proposal is an ancestor of HEAD, so mergeBase..proposal would be empty. The review
+    // must always show what that proposal itself introduced, before or after activation.
+    const diff = run('git', ['diff', '--no-ext-diff', '--unified=3', `${proposalBase}..${ref}`], {
+      cwd: root
+    }).stdout;
+    return {
+      remote,
+      branch: proposalBranch,
+      targetBranch: CONFIGURATION_BRANCH,
+      targetCommit,
+      proposalCommit,
+      proposalBase,
+      mergeBase,
+      merged,
+      valid: invalidFiles.length === 0 && changed.names.length > 0,
+      invalidFiles,
+      changedFiles: changed.statuses,
+      diff: diff.length > 200_000 ? `${diff.slice(0, 200_000)}\n… diff truncated …\n` : diff
+    };
+  });
+}
+
+/**
+ * Merge one exact reviewed proposal into the configuration authority, then refresh its projection.
+ *
+ * This is a normal non-force push. A protected `sflow/config` branch therefore refuses the push
+ * and retains the proposal for the repository's PR controls instead of bypassing them.
+ */
+export async function activateCapabilityProposal(url, branch, { confirm = null } = {}) {
+  const reviewed = await withCapabilityProposalCheckout(
+    url, branch, async (root, remote, proposalBranch, ref) => {
+      const targetBefore = run('git', ['rev-parse', 'HEAD'], { cwd: root }).stdout.trim();
+      const proposalCommit = run('git', ['rev-parse', ref], { cwd: root }).stdout.trim();
+      const proposalBase = run('git', ['rev-parse', `${ref}^`], { cwd: root }).stdout.trim();
+      if (String(confirm ?? '').trim() !== proposalCommit) {
+        throw new SingularityFlowError(
+          `Confirmation must be the exact proposal commit '${proposalCommit}'. Nothing was changed.`);
+      }
+      const mergeBaseResult = run('git', ['merge-base', 'HEAD', ref], { cwd: root, allowFailure: true });
+      if (mergeBaseResult.status !== 0 || !mergeBaseResult.stdout.trim()) {
+        throw new SingularityFlowError(
+          `Capability proposal '${proposalBranch}' does not share history with '${CONFIGURATION_BRANCH}'.`);
+      }
+      const changed = proposalChangedFiles(root, proposalBase, ref);
+      if (!changed.names.length) {
+        throw new SingularityFlowError(`Capability proposal '${proposalBranch}' contains no changes.`);
+      }
+      const invalidFiles = changed.names.filter((file) => !isConfigurationAsset(file));
+      if (invalidFiles.length) {
+        throw new SingularityFlowError(
+          `Capability proposal contains non-configuration files: ${invalidFiles.join(', ')}.`);
+      }
+      const alreadyMerged = run('git', ['merge-base', '--is-ancestor', ref, 'HEAD'], {
+        cwd: root, allowFailure: true
+      }).status === 0;
+      if (!alreadyMerged) {
+        const actor = identity(root);
+        const merged = run('git', [
+          '-c', `user.name=${actor.name || 'Singularity Flow'}`,
+          '-c', `user.email=${actor.email || 'unknown@invalid'}`,
+          'merge', '--no-ff', '--no-edit', ref
+        ], { cwd: root, allowFailure: true });
+        if (merged.status !== 0) {
+          throw new SingularityFlowError(
+            `Capability proposal cannot be merged cleanly into '${CONFIGURATION_BRANCH}'. `
+            + `The proposal remains on '${proposalBranch}' for review.`);
+        }
+        const capabilities = YAML.parse(await readFile(path.join(root, CAPABILITIES_PATH), 'utf8'));
+        const portfolio = existsSync(path.join(root, PORTFOLIO_PATH))
+          ? YAML.parse(await readFile(path.join(root, PORTFOLIO_PATH), 'utf8')) : null;
+        validateCapabilities(capabilities, portfolio);
+        const pushed = run('git', ['push', 'origin', `HEAD:refs/heads/${CONFIGURATION_BRANCH}`], {
+          cwd: root, allowFailure: true
+        });
+        if (pushed.status !== 0) {
+          throw new SingularityFlowError(
+            `The proposal remains on '${proposalBranch}', but '${CONFIGURATION_BRANCH}' rejected the normal push: `
+            + `${(pushed.stderr || pushed.stdout).trim().split('\n')[0]}. `
+            + 'Merge it through the repository review controls, then publish the capability projection.');
+        }
+      }
+      return {
+        remote,
+        branch: proposalBranch,
+        proposalCommit,
+        targetBranch: CONFIGURATION_BRANCH,
+        targetBefore,
+        targetCommit: run('git', ['rev-parse', 'HEAD'], { cwd: root }).stdout.trim(),
+        alreadyMerged,
+        changedFiles: changed.statuses
+      };
+    });
+  const projection = await publishOrganisationCapabilityMap(url);
+  return { ...reviewed, projection };
 }
 
 /**

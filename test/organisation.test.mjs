@@ -19,7 +19,8 @@ import os from 'node:os';
 import path from 'node:path';
 import { run } from '../src/util.mjs';
 import {
-  editCapabilityInOrganisation, initializeWorkspaceState, mapCapability, readOrganisation,
+  activateCapabilityProposal, editCapabilityInOrganisation, initializeWorkspaceState,
+  inspectCapabilityProposal, listCapabilityProposals, mapCapability, readOrganisation,
   publishOrganisationCapabilityMap, resolveWorkspacePlan
 } from '../src/organisation.mjs';
 
@@ -109,6 +110,79 @@ test('the first capability governs the repository it is mapped into', async () =
   });
   const both = run('git', ['show', 'sflow/config:singularity/capabilities.yml'], { cwd: org.platform }).stdout;
   assert.match(both, /parent: commerce/);
+});
+
+test('an exact capability proposal can be reviewed, activated, and projected without touching main', async () => {
+  const org = await remotes('platform');
+  process.env.SINGULARITY_FLOW_LEAD_REGISTRY = registry(org.base);
+  const mainBefore = run('git', ['rev-parse', 'main'], { cwd: org.platform }).stdout.trim();
+  const proposed = await mapCapability(org.platform, {
+    capabilityId: 'calculator', name: 'Calculator', kind: 'delivery',
+    repositoryUrl: org.platform
+  });
+
+  const pending = await listCapabilityProposals(org.platform);
+  assert.equal(pending.length, 1);
+  assert.equal(pending[0].branch, proposed.branch);
+  assert.equal(pending[0].merged, false);
+  assert.equal(pending[0].valid, true);
+  assert.ok(pending[0].changedFiles.some((file) => file.paths.includes('singularity/capabilities.yml')));
+
+  const inspected = await inspectCapabilityProposal(org.platform, proposed.branch);
+  assert.equal(inspected.proposalCommit, proposed.commit);
+  assert.match(inspected.diff, /calculator/);
+  await assert.rejects(
+    activateCapabilityProposal(org.platform, proposed.branch, { confirm: inspected.proposalCommit.slice(0, 12) }),
+    /Confirmation must be the exact proposal commit/
+  );
+  assert.equal(run('git', ['rev-parse', 'main'], { cwd: org.platform }).stdout.trim(), mainBefore);
+
+  const activated = await activateCapabilityProposal(org.platform, proposed.branch, {
+    confirm: inspected.proposalCommit
+  });
+  assert.equal(activated.alreadyMerged, false);
+  assert.equal(activated.targetBranch, 'sflow/config');
+  assert.match(run('git', ['show', 'sflow/config:singularity/capabilities.yml'], {
+    cwd: org.platform
+  }).stdout, /calculator/);
+  assert.equal(run('git', ['rev-parse', 'main'], { cwd: org.platform }).stdout.trim(), mainBefore,
+    'activating governed configuration never writes the application default branch');
+  assert.equal(activated.projection.published, true);
+  assert.match(run('git', ['show', 'state:singularity/capabilities.yml'], {
+    cwd: org.platform
+  }).stdout, /calculator/);
+  assert.deepEqual(await listCapabilityProposals(org.platform), []);
+  const history = await listCapabilityProposals(org.platform, { includeMerged: true });
+  assert.equal(history[0].merged, true);
+  assert.match(history[0].diff, /calculator/, 'an activated proposal retains a reviewable exact diff');
+});
+
+test('capability activation respects configuration branch protection and retains the proposal', async () => {
+  const org = await remotes('platform');
+  process.env.SINGULARITY_FLOW_LEAD_REGISTRY = registry(org.base);
+  const proposed = await mapCapability(org.platform, {
+    capabilityId: 'calculator', name: 'Calculator', kind: 'collection'
+  });
+  const configBefore = run('git', ['rev-parse', 'sflow/config'], { cwd: org.platform }).stdout.trim();
+  const hook = path.join(org.platform, 'hooks', 'pre-receive');
+  await writeFile(hook, `#!/bin/sh
+while read old new ref; do
+  if [ "$ref" = "refs/heads/sflow/config" ]; then
+    echo "configuration review required" >&2
+    exit 1
+  fi
+done
+exit 0
+`);
+  await chmod(hook, 0o755);
+
+  await assert.rejects(activateCapabilityProposal(org.platform, proposed.branch, {
+    confirm: proposed.commit
+  }), /rejected the normal push.*review controls/s);
+  assert.equal(run('git', ['rev-parse', 'sflow/config'], { cwd: org.platform }).stdout.trim(), configBefore);
+  const pending = await listCapabilityProposals(org.platform);
+  assert.equal(pending.length, 1);
+  assert.equal(pending[0].branch, proposed.branch);
 });
 
 test('mapping leaves nothing behind: the lead is borrowed, not checked out', async () => {

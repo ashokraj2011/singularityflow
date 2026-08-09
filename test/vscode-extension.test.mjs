@@ -3346,3 +3346,21 @@ test('Flow Impact has a dedicated configuration and reporting entry point', asyn
   assert.match(panel, /impact', 'doctor'/);
   assert.match(panel, /impact', 'export'/);
 });
+
+test('capability proposals have an exact review and activation UI', async () => {
+  const packageJson = JSON.parse(await readFile(
+    path.join(packageRoot, 'apps', 'vscode', 'package.json'), 'utf8'));
+  assert.ok(packageJson.contributes.commands.some(
+    (entry) => entry.command === 'singularityFlow.reviewCapabilityProposals'));
+
+  const extension = await readFile(source('extension.ts'), 'utf8');
+  assert.match(extension, /CapabilityProposalPanel\.show/);
+  assert.match(extension, /capability', 'proposals'/);
+  const panel = await readFile(source('views/capability-proposal.ts'), 'utf8');
+  assert.match(panel, /capability', 'proposal'/);
+  assert.match(panel, /capability', 'activate'/);
+  assert.match(panel, /--confirm', proposal\.proposalCommit/,
+    'activation is bound to the complete reviewed proposal commit');
+  assert.match(panel, /application default branch is not part of this operation/i);
+  assert.match(panel, /normal non-force Git push/i);
+});

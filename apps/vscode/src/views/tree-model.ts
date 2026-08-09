@@ -1232,6 +1232,14 @@ function capabilityConfigurationNode(snapshot: RepositorySnapshot, readiness: Ca
       icon: 'type-hierarchy',
       runCommand: 'singularityFlow.openCapabilities'
     }, {
+      kind: 'action',
+      id: 'config:capabilities:review',
+      label: 'Review capability proposals',
+      description: 'activate approved changes',
+      tooltip: 'Inspect the exact configuration diff, merge it to sflow/config, and publish the capability projection.',
+      icon: 'merge',
+      runCommand: 'singularityFlow.reviewCapabilityProposals'
+    }, {
       kind: 'artifact',
       id: 'config:capabilities:file',
       label: 'capabilities.yml',

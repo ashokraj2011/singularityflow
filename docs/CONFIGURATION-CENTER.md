@@ -22,6 +22,14 @@ Singularity Flow configuration has one visual entry point in VS Code: **Configur
 
 Every governed save goes through `singularity-flow configuration save`. The CLI validates the complete resulting file before writing it, so a visual edit cannot leave an unknown phase, authority, agent, or MCP policy behind. YAML comments and unrelated keys are retained.
 
+Saving is authoring, not publication. Once one or more files change, the
+Configuration tree adds **Unpublished configuration**, shows the exact paths, and
+offers **Review & publish configuration**. The preview names the current branch
+and complete commit scope. Publication calls the same scoped engine transaction as
+`singularity-flow configuration publish`: it refuses unrelated working-tree or
+staged files, refuses the protected application branch, creates one commit, and
+pushes only the current governed review branch.
+
 ## Agents and remote Markdown delivery
 
 **Configuration → Agents & delivery** separates authoring from trust:

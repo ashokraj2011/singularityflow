@@ -407,7 +407,15 @@ export interface InitiativeSummary {
 }
 
 export interface RepositorySnapshot {
-  repository?: { root?: string; branch?: string; [key: string]: unknown };
+  repository?: {
+    root?: string;
+    branch?: string;
+    changes?: string[];
+    configurationChanges?: string[];
+    unrelatedChanges?: string[];
+    publishReady?: boolean;
+    [key: string]: unknown;
+  };
   workItems: WorkItemSummary[];
   initiatives: InitiativeSummary[];
   selectedWorkId: string | null;

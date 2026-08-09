@@ -553,6 +553,7 @@ Usage:
      says which delivery repository holds governed state when there are several. Remote mapping
      pushes a review branch against sflow/config and never writes an application branch.)
   singularity-flow capability edit <CAPABILITY-ID> [--lead URL] [--name TEXT] [--kind collection|delivery]
+    [--mode add|set|remove]
     [--type tech|business] [--parent ID] [--repositories A,B] [--lead-repository ID]
     [--metadata KEY=VALUE]... [--doc KEY=VALUE]... [--resource KEY=VALUE]...
     [--json]   (no checkout needed)
@@ -4163,9 +4164,11 @@ async function capabilityCommand(positionals, options) {
       console.log(`  review branch: ${mapped.branch}`);
       console.log(`  base: ${mapped.baseBranch}@${mapped.baseCommit.slice(0, 8)}`);
       console.log(`  commit: ${mapped.commit.slice(0, 8)}`);
-      console.log(`  approved ${mapped.baseBranch} was not changed; review and merge the proposal into that branch.`);
+      console.log(`  approved ${mapped.baseBranch} was not changed.`);
       console.log('  the application default branch is not part of this configuration change.');
-      console.log(`  after merge: singularity-flow capability publish --lead ${leadUrl}`);
+      console.log(`  review: singularity-flow capability proposal ${mapped.branch} --lead ${leadUrl}`);
+      console.log(`  activate: singularity-flow capability activate ${mapped.branch} --lead ${leadUrl} --confirm ${mapped.commit}`);
+      console.log('  if branch protection requires external review, merge there first and run the same activate command to publish the projection.');
     }
     return;
   }
@@ -4180,21 +4183,29 @@ async function capabilityCommand(positionals, options) {
         'No lead repository is known. Pass --lead <URL>, or map a capability first.');
     }
     const id = requirePositional(positionals, 2, 'capability ID');
+    const mode = optionString(options, 'mode') ?? 'set';
+    if (!['add', 'set', 'remove'].includes(mode)) {
+      throw new SingularityFlowError("--mode must be one of: add, set, remove.");
+    }
     const type = optionString(options, 'type');
     if (type && !CAPABILITY_TYPES.includes(type)) {
       throw new SingularityFlowError(`--type must be one of: ${CAPABILITY_TYPES.join(', ')}.`);
     }
-    const edited = await editCapabilityInOrganisation(leadUrl, id, capabilityChanges(options));
+    const edited = await editCapabilityInOrganisation(
+      leadUrl, id, mode === 'remove' ? {} : capabilityChanges(options), { mode });
     await rememberLeadRepository(leadUrl);
     if (optionBoolean(options, 'json')) return console.log(JSON.stringify({ lead: leadUrl, ...edited }, null, 2));
-    console.log(`Proposed an update to ${id} in ${leadUrl}.`);
+    const action = mode === 'add' ? 'addition of' : mode === 'remove' ? 'removal of' : 'update to';
+    console.log(`Proposed the ${action} ${id} in ${leadUrl}.`);
     if (edited.commit) {
       console.log(`  review branch: ${edited.branch}`);
       console.log(`  base: ${edited.baseBranch}@${edited.baseCommit.slice(0, 8)}`);
       console.log(`  commit: ${edited.commit.slice(0, 8)}`);
-      console.log(`  approved ${edited.baseBranch} was not changed; review and merge the proposal into that branch.`);
+      console.log(`  approved ${edited.baseBranch} was not changed.`);
       console.log('  the application default branch is not part of this configuration change.');
-      console.log(`  after merge: singularity-flow capability publish --lead ${leadUrl}`);
+      console.log(`  review: singularity-flow capability proposal ${edited.branch} --lead ${leadUrl}`);
+      console.log(`  activate: singularity-flow capability activate ${edited.branch} --lead ${leadUrl} --confirm ${edited.commit}`);
+      console.log('  if branch protection requires external review, merge there first and run the same activate command to publish the projection.');
     }
     return;
   }

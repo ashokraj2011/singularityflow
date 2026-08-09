@@ -1036,6 +1036,8 @@ function fileSetNodes(snapshot: RepositorySnapshot): TreeNode[] {
 
 function configurationNode(snapshot: RepositorySnapshot, readiness: CapabilityReadiness = {}): TreeNode {
   const ledger = snapshot.definition?.ledger as { enabled?: boolean; branch?: string } | undefined;
+  const configurationChanges = snapshot.repository?.configurationChanges ?? [];
+  const unrelatedChanges = snapshot.repository?.unrelatedChanges ?? [];
   return {
     kind: 'group',
     id: 'configuration',
@@ -1049,9 +1051,41 @@ function configurationNode(snapshot: RepositorySnapshot, readiness: CapabilityRe
       : 'No append-only workflow ledger is enabled for this repository.',
     children: [
       // Capabilities come first because they define what the organisation builds and which
-      // repositories a workspace will contain. Hiding them behind workspace and workflow settings
-      // recreates the onboarding circle the standalone mapper exists to remove.
+      // repositories a workspace will contain. Even unpublished file warnings must not recreate
+      // the onboarding circle by pushing the first configuration action below a maintenance row.
       capabilityConfigurationNode(snapshot, readiness),
+      ...(configurationChanges.length ? [{
+        kind: 'group' as const,
+        id: 'config:unpublished',
+        label: 'Unpublished configuration',
+        description: `${configurationChanges.length} file${configurationChanges.length === 1 ? '' : 's'} · ${snapshot.repository?.branch ?? 'current branch'}`,
+        icon: unrelatedChanges.length ? 'warning' : 'cloud-upload',
+        tooltip: unrelatedChanges.length
+          ? `Publishing is blocked by unrelated working-tree changes: ${unrelatedChanges.join(', ')}`
+          : 'Review, commit, and push these validated configuration changes as one scoped transaction.',
+        children: [
+          ...configurationChanges.map((file) => ({
+            kind: 'message' as const,
+            id: `config:unpublished:${file}`,
+            label: file,
+            icon: 'configuration'
+          })),
+          ...(unrelatedChanges.length ? [{
+            kind: 'message' as const,
+            id: 'config:unpublished:blocked',
+            label: 'Separate unrelated changes before publishing',
+            description: unrelatedChanges.join(', '),
+            icon: 'warning'
+          }] : [{
+            kind: 'action' as const,
+            id: 'config:publish',
+            label: 'Review & publish configuration',
+            description: 'one scoped commit · current branch',
+            icon: 'cloud-upload',
+            runCommand: 'singularityFlow.publishConfiguration'
+          }])
+        ]
+      }] : []),
       {
         kind: 'group', id: 'config:model-freedom', label: 'Model independence',
         description: snapshot.modelFreedom?.summary?.status ?? 'unknown', icon: 'agent',

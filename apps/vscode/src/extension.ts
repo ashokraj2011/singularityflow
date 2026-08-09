@@ -31,7 +31,7 @@ import {
   type WorkspaceEntry, type WorkspaceStatus
 } from './views/workspaces-model.ts';
 import { capabilityChoices, type RemoteCapability } from './views/workspace-form.ts';
-import { capabilityArgv } from './views/capability-model.ts';
+import { capabilityProposalArgv } from './views/capability-model.ts';
 import { buildConfigurationTree, unavailableTree, type TreeNode } from './views/tree-model.ts';
 import { NodeTreeProvider } from './views/navigation.ts';
 import { SidebarViewProvider } from './views/sidebar.ts';
@@ -263,6 +263,7 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
     'singularityFlow.approve', 'singularityFlow.openJourney', 'singularityFlow.openReconciliation',
     'singularityFlow.showImpact', 'singularityFlow.addCapability', 'singularityFlow.editCapability',
     'singularityFlow.openDashboard', 'singularityFlow.openDesigner',
+    'singularityFlow.publishConfiguration',
     'singularityFlow.openInstructionDesigner', 'singularityFlow.openPromptAudit', 'singularityFlow.openSpecificationTrace',
     'singularityFlow.inspectCompositionCache', 'singularityFlow.checkLedgerDeployment', 'singularityFlow.openCopilot',
     'singularityFlow.openVisualAssurance',
@@ -1724,17 +1725,48 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
       if (confirmed !== 'Remove') return;
     }
     try {
-      const argv = message.type === 'remove'
-        ? capabilityArgv('remove', message.id)
-        : capabilityArgv(message.type === 'create' ? 'add' : 'set', message.id, message.edits);
+      const leads = await client.run<Array<{ url?: string }>>(['capability', 'leads', '--json']);
+      const available = leads.filter((entry): entry is { url: string } =>
+        typeof entry.url === 'string' && entry.url.length > 0);
+      if (!available.length) {
+        throw new Error('No organisation lead repository is registered. Map the first capability before editing the organisation map.');
+      }
+      const selected = available.length === 1 ? available[0] : await vscode.window.showQuickPick(
+        available.map((entry) => ({ label: entry.url, entry })), {
+          title: 'Edit the governed capability map',
+          placeHolder: 'Choose the lead repository whose sflow/config branch owns this map'
+        }).then((choice) => choice?.entry);
+      if (!selected) return;
+      const mode = message.type === 'remove' ? 'remove' : message.type === 'create' ? 'add' : 'set';
+      const argv = capabilityProposalArgv(mode, message.id, selected.url,
+        message.type === 'remove' ? {} : message.edits);
       output.appendLine(`\n$ singularity-flow ${argv.join(' ')}`);
-      await client.runText(argv);
+      const proposed = await client.run<{
+        branch?: string | null; reviewRequired?: boolean; capabilityId?: string
+      }>(argv);
+      if (!proposed.reviewRequired || !proposed.branch) {
+        await store.refresh();
+        panel.settled(message.type === 'remove' ? '' : message.id);
+        return;
+      }
+      const run = async (command: string[]): Promise<{ result: unknown; error: string | null }> => {
+        output.appendLine(`\n$ singularity-flow ${command.join(' ')}`);
+        try { return { result: await client.run<unknown>(command), error: null }; }
+        catch (error) {
+          output.appendLine(`  failed: ${(error as Error).message}`);
+          return { result: null, error: (error as Error).message };
+        }
+      };
+      const { CapabilityProposalPanel } = await import('./views/capability-proposal.ts');
+      CapabilityProposalPanel.show(context, selected.url, proposed.branch, run, async () => {
+        await store.refresh();
+        panel.settled(message.type === 'remove' ? '' : message.id);
+      });
+      return;
     } catch (error) {
       output.appendLine(`  refused: ${(error as Error).message}`);
       return panel.report((error as Error).message);
     }
-    await store.refresh();
-    panel.settled(message.type === 'remove' ? '' : message.id);
   };
 
   /**
@@ -1837,7 +1869,27 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
         await client.runText(['mcp', 'scaffold', 'playwright']);
         await store.refresh();
         void vscode.window.showInformationMessage('Playwright MCP host configuration created. Review it, then trust and start it through VS Code MCP: List Servers.');
-      } catch (error) { return (error as Error).message; }
+      } catch (error) {
+        const detail = (error as Error).message;
+        // A differing entry is not a terminal-only recovery exercise. Keep unrelated MCP servers,
+        // show exactly what replacement means, and let the contributor make the same explicit
+        // decision the CLI's --replace-server flag represents without leaving Configuration Center.
+        if (!detail.includes('--replace-server')) return detail;
+        const confirmed = await vscode.window.showWarningMessage(
+          'Replace the existing Playwright MCP host entry?',
+          {
+            modal: true,
+            detail: 'Only the Playwright server entry in .vscode/mcp.json will be replaced with the release-pinned starter. Other MCP servers and inputs are preserved.'
+          },
+          'Replace Playwright entry'
+        );
+        if (confirmed !== 'Replace Playwright entry') return 'The existing Playwright MCP host entry was left unchanged.';
+        try {
+          await client.runText(['mcp', 'scaffold', 'playwright', '--replace-server']);
+          await store.refresh();
+          void vscode.window.showInformationMessage('Playwright MCP host entry replaced. Review it, then trust and start it through VS Code MCP: List Servers.');
+        } catch (replacementError) { return (replacementError as Error).message; }
+      }
     } else if (message.action === 'open-mcp-host') {
       const hostFile = vscode.Uri.file(path.join(client.repository, '.vscode', 'mcp.json'));
       try { await vscode.window.showTextDocument(await vscode.workspace.openTextDocument(hostFile), { preview: false }); }
@@ -2060,6 +2112,45 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
       });
     },
     'singularityFlow.openConfigurationCenter': () => openConfigurationCenter('overview'),
+    'singularityFlow.publishConfiguration': async () => {
+      const repository = store.current.snapshot?.repository;
+      const files = repository?.configurationChanges ?? [];
+      if (!files.length) {
+        void vscode.window.showInformationMessage('No validated configuration changes are ready to publish.');
+        return;
+      }
+      const unrelated = repository?.unrelatedChanges ?? [];
+      if (unrelated.length) {
+        void vscode.window.showWarningMessage(
+          `Configuration publication is blocked by unrelated changes: ${unrelated.join(', ')}. Commit or set them aside, then refresh.`
+        );
+        return;
+      }
+      const branchName = repository?.branch ?? 'current branch';
+      const choice = await vscode.window.showWarningMessage(
+        `Publish ${files.length} configuration file${files.length === 1 ? '' : 's'} from ${branchName}?`,
+        {
+          modal: true,
+          detail: `${files.join('\n')}\n\nFlow will validate the complete configuration, create one scoped commit, and push only this branch. The engine refuses publication from the protected application branch.`
+        },
+        'Commit & push configuration'
+      );
+      if (choice !== 'Commit & push configuration') return;
+      output.appendLine('\n$ singularity-flow configuration publish --json');
+      try {
+        const published = await client.run<{ sha?: string; pushed?: boolean; remote?: string; files?: string[] }>([
+          'configuration', 'publish', '--message', 'Configure Singularity Flow', '--json'
+        ]);
+        await store.refresh();
+        const destination = published.pushed ? `${published.remote ?? 'remote'}/${branchName}` : 'the local repository';
+        void vscode.window.showInformationMessage(
+          `Configuration published to ${destination}${published.sha ? ` at ${published.sha.slice(0, 8)}` : ''}.`
+        );
+      } catch (error) {
+        output.appendLine(`  refused: ${(error as Error).message}`);
+        void vscode.window.showErrorMessage(`Could not publish configuration: ${(error as Error).message}`);
+      }
+    },
     'singularityFlow.configurePeople': () => openConfigurationCenter('people'),
     'singularityFlow.configureMcp': () => openConfigurationCenter('mcp'),
     'singularityFlow.openPromptAudit': async () => {

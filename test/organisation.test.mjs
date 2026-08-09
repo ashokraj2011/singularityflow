@@ -901,6 +901,26 @@ test('only reviewed capability configuration can be published to the state branc
   run('git', ['fetch', '-q', 'origin', '+refs/heads/sflow/config:refs/remotes/origin/sflow/config'], { cwd: lead });
   assert.match(run('git', ['show', 'origin/sflow/config:singularity/capabilities.yml'], { cwd: lead }).stdout,
     /Commerce platform/);
+
+  // Create and remove use the same reviewed authority path. The VS Code designer must not fall
+  // back to editing whichever application branch happens to be checked out for these operations.
+  const added = await editCapabilityInOrganisation(org.platform, 'catalog', {
+    name: 'Catalog', kind: 'collection', parent: 'commerce'
+  }, { mode: 'add' });
+  assert.equal(added.reviewRequired, true);
+  await mergeProposal(org.platform, added);
+  await publishOrganisationCapabilityMap(org.platform);
+  assert.match((await readOrganisation(org.platform)).capabilities[0].children[0].name, /Catalog/);
+
+  const removed = await editCapabilityInOrganisation(org.platform, 'catalog', {}, { mode: 'remove' });
+  assert.equal(removed.reviewRequired, true);
+  await mergeProposal(org.platform, removed);
+  await publishOrganisationCapabilityMap(org.platform);
+  assert.equal((await readOrganisation(org.platform)).capabilities[0].children.length, 0);
+
+  await assert.rejects(
+    () => editCapabilityInOrganisation(org.platform, 'commerce', {}, { mode: 'overwrite' }),
+    /must be 'add', 'set', or 'remove'/);
 });
 
 test('a published world model is the one that gets read, including from a clone that only fetched', async () => {

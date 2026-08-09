@@ -4,9 +4,9 @@
  * Jira and teams live here rather than on a workspace because they are properties of the thing being
  * built, not of who has cloned what. A workspace is a local grouping; a capability outlives it.
  *
- * Editing goes through `capability add|set|remove`, which validates the whole map before writing —
- * so the screen cannot save a tree the engine would reject, and does not need a second copy of the
- * rules to know that. Refusals come back as the engine's own sentence.
+ * Editing goes through a reviewed proposal against the lead repository's `sflow/config` branch.
+ * The engine validates the whole map before proposing it, so the screen cannot save a tree the
+ * engine would reject and cannot bypass the organisation's configuration authority.
  */
 import * as vscode from 'vscode';
 import { bodyHtml, readEdits, SCRIPT } from './capability-page.ts';

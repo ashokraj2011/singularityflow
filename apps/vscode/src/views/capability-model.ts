@@ -181,6 +181,23 @@ export function capabilityArgv(
 }
 
 /**
+ * The reviewed, remote-authority form of a capability edit.
+ *
+ * The plain add/set/remove commands deliberately edit the checkout they run in. The VS Code
+ * designer represents the organisation map instead, whose authority is the lead repository's
+ * sflow/config branch, so it must never use those local commands by accident.
+ */
+export function capabilityProposalArgv(
+  mode: 'add' | 'set' | 'remove',
+  capabilityId: string,
+  lead: string,
+  edits: Record<string, string> = {}
+): string[] {
+  const local = capabilityArgv(mode, capabilityId, edits);
+  return ['capability', 'edit', capabilityId, '--lead', lead, '--mode', mode, ...local.slice(3), '--json'];
+}
+
+/**
  * Where a capability may sit.
  *
  * A capability cannot be moved beneath itself or one of its descendants because that would create a

@@ -19,10 +19,19 @@ const READ_ONLY_COMMANDS = new Set([
   'about', 'help', 'show', 'choices', 'inbox', 'status', 'progress', 'report', 'telemetry',
   'guide', 'logs', 'doctor', 'review', 'nextsteps', 'inputs', 'spec', 'visual', 'snapshot', 'validate'
 ]);
+const READ_ONLY_CONFIGURATION_COMMANDS = new Set([
+  'snapshot', 'validate', 'read', 'export-bundle', 'initiative-materialize-preview'
+]);
 
-function commandClass(args: string[]): 'read' | 'mutation' | 'unknown' {
+export function commandClass(args: string[]): 'read' | 'mutation' | 'unknown' {
   if (!args[0]) return 'unknown';
-  if (args[0] === 'configuration' && args[1] !== 'save') return 'read';
+  // Configuration inventory and previews are read-only. Every other configuration subcommand is
+  // conservative-by-default because it either writes a governed file, changes the local session,
+  // promotes planning output, materializes Jira/Git state, or commits and pushes. The previous
+  // inverse test classified all new subcommands as reads until somebody remembered this adapter.
+  if (args[0] === 'configuration') {
+    return READ_ONLY_CONFIGURATION_COMMANDS.has(args[1] ?? '') ? 'read' : 'mutation';
+  }
   return READ_ONLY_COMMANDS.has(args[0]) ? 'read' : 'mutation';
 }
 

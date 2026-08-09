@@ -1236,13 +1236,27 @@ test('the Flow Impact panel exposes governed measurement and aggregate reporting
   assert.match(panel.webview.html, /Configuration/);
 });
 
-test('the capability tree can be grown entirely from the editor', async (t) => {
+test('the capability editor proposes and activates organisation changes without writing the application branch', async (t) => {
   if (!requireBundle(t)) return;
-  // The map is the lead repository's record of what the organisation builds, and until now the only
-  // way to change it was to write YAML. This drives the whole loop — page message, CLI, file,
-  // snapshot, re-render — because every step in it has been the one that silently did nothing.
-  const { root, registered } = await activated();
+  // The designer runs in an application checkout, but the map's authority is the lead repository's
+  // sflow/config branch. Prove the complete reviewed path and, critically, prove that the Story or
+  // Initiative checkout was not used as a convenient back door around that authority.
+  const root = await demoRepository();
   const capabilitiesFile = path.join(root, 'singularity/capabilities.yml');
+  const before = await readFile(capabilitiesFile, 'utf8');
+  const remote = path.join(path.dirname(root), 'organisation.git');
+  await mkdir(remote);
+  run('git', ['init', '-b', 'main', '--bare', remote], { cwd: path.dirname(root) });
+  run('git', ['push', '-q', remote, 'main:refs/heads/sflow/config'], { cwd: root });
+  const registry = path.join(path.dirname(root), 'leads.json');
+  await writeFile(registry, JSON.stringify(
+    { schemaVersion: 1, leads: [{ url: remote, usedAt: '2026-01-01T00:00:00.000Z' }] }));
+  process.env.SINGULARITY_FLOW_LEAD_REGISTRY = registry;
+  const { api, registered } = stubVscode();
+  api.workspace.workspaceFolders = [{ uri: { fsPath: root } }];
+  const extension = loadExtension(api);
+  await extension.activate(context());
+
   await registered.commands.get('singularityFlow.openCapabilities')();
   const panel = registered.panels.find((entry) => entry.id === 'singularityFlow.capabilities');
   assert.ok(panel, 'a capabilities panel was created');
@@ -1256,10 +1270,6 @@ test('the capability tree can be grown entirely from the editor', async (t) => {
   assert.match(panel.webview.html, /data-select="enterprise"/);
   assert.match(panel.webview.html, /data-select="product"/);
 
-  // Panel messages are handled fire-and-forget, as VS Code delivers them, so each step waits for the
-  // page to actually change rather than assuming the round trip finished.
-  const shows = (pattern) => until(() => (pattern.test(panel.webview.html) ? panel.webview.html : null));
-
   await panel.post({ type: 'add', parent: 'product' });
   assert.match(panel.webview.html, /New capability/, 'the form for a capability that does not exist yet');
 
@@ -1268,47 +1278,33 @@ test('the capability tree can be grown entirely from the editor', async (t) => {
     type: 'create',
     edits: { id: 'checkout-api', name: 'Checkout API', kind: 'delivery', parent: 'product', repository: 'api' }
   });
-  assert.match(await shows(/Checkout API/), /Checkout API/);
-  assert.match(await readFile(capabilitiesFile, 'utf8'), /name: Checkout API/);
-  assert.match(panel.webview.html, /delivery/);
-  assert.match(panel.webview.html, /Ships from/);
-  assert.doesNotMatch(panel.webview.html, /New capability/, 'the form closed once the edit landed');
 
-  // The relationship remains editable after creation. A repository-owning capability can move
-  // beneath any other capability; only self-links and cycles are excluded by the selector.
-  await panel.post({ type: 'save', id: 'checkout-api', edits: { parent: 'enterprise' } });
-  await until(() => (/parent: enterprise/.test(readFileSync(capabilitiesFile, 'utf8')) ? true : null));
-  await until(() => (/<option value="enterprise" selected>/.test(panel.webview.html) ? true : null));
-
-  // Jira and teams belong to the capability. They round-trip through the engine and back onto the
-  // page rather than being held in the panel.
-  await panel.post({
-    type: 'save',
-    id: 'checkout-api',
-    edits: { 'jira.projectKey': 'CHK', teams: 'Checkout squad, Platform' }
+  const outcome = await until(() => {
+    const review = registered.panels.find((entry) => entry.id === 'singularityFlow.capabilityProposal');
+    if (review) return { review, error: null };
+    const error = registered.output.find((entry) => /refused:|failed:/.test(entry));
+    return error ? { review: null, error } : null;
   });
-  assert.match(await shows(/CHK/), /Checkout squad, Platform/);
+  assert.ok(outcome.review, `the proposal review opened: ${outcome.error ?? panel.webview.html}`);
+  const review = outcome.review;
+  const reviewHtml = await until(() => review.webview.html.includes('Checkout API')
+    ? review.webview.html : null);
+  assert.match(reviewHtml, /Capability proposal review/);
+  assert.equal(await readFile(capabilitiesFile, 'utf8'), before,
+    'creating the proposal did not edit the application checkout');
 
-  // A refusal is the engine's own sentence, on the screen that caused it.
-  await panel.post({ type: 'save', id: 'checkout-api', edits: { repository: 'nowhere' } });
-  assert.match(await shows(/does not declare/), /which the portfolio does not declare/);
-  assert.match(await readFile(capabilitiesFile, 'utf8'), /repository: api/,
-    'the refused edit left the file alone');
-
-  // Removing asks first, and a declined confirmation removes nothing.
-  registered.selfApprovalAnswer = undefined;
-  await panel.post({ type: 'remove', id: 'checkout-api' });
-  await settle();
-  assert.match(await readFile(capabilitiesFile, 'utf8'), /checkout-api/);
-  assert.match(registered.warnings.at(-1) ?? '', /Remove checkout-api/);
-
-  registered.selfApprovalAnswer = 'Remove';
-  await panel.post({ type: 'remove', id: 'checkout-api' });
-  // `until` reads synchronously; a promise would always look truthy on the first attempt and prove
-  // nothing. The file is read here and the predicate applied to the text.
-  await until(() => (existsSync(capabilitiesFile)
-    && !readFileSync(capabilitiesFile, 'utf8').includes('checkout-api')) || null);
-  assert.doesNotMatch(await readFile(capabilitiesFile, 'utf8'), /checkout-api/);
+  registered.selfApprovalAnswer = 'Merge and activate';
+  await review.post({ type: 'activate' });
+  await until(() => run('git', ['show', 'sflow/config:singularity/capabilities.yml'], {
+    cwd: remote, allowFailure: true
+  }).stdout.includes('checkout-api') || null);
+  assert.match(run('git', ['show', 'sflow/config:singularity/capabilities.yml'], { cwd: remote }).stdout,
+    /name: Checkout API/);
+  assert.equal(await readFile(capabilitiesFile, 'utf8'), before,
+    'activation still did not rewrite the pinned application-branch configuration');
+  const activatedNotice = await until(() => registered.infos.find((message) =>
+    /activated on sflow\/config/.test(message)) ?? null);
+  assert.match(activatedNotice, /activated on sflow\/config/);
 });
 
 test('the capability screen shows the policy that applies, not only the policy that was written', async (t) => {

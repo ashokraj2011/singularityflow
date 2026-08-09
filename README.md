@@ -267,14 +267,18 @@ copied configuration asset. Later phases therefore cannot silently change when
 shared configuration advances. Application `main` remains application code and
 never receives capability, workflow, agent, prompt, skill, or template edits from
 this path.
-In VS Code, mapping automatically opens **Review capability proposal**. That screen
+In VS Code, creating, editing, deleting, or initially mapping a capability automatically
+opens **Review capability proposal**. That screen
 shows the exact source and target commits, changed files, and diff. **Merge and
 activate** performs a normal non-force merge into `sflow/config`, publishes the
 orphan state projection, and refreshes any retained Workspace form. If branch
 protection rejects that normal push, the proposal remains intact for the repository's
 normal pull-request controls; the application default branch is never changed.
 
-After an external review merge, `capability publish` can still refresh the orphan state projection.
+After an external review merge, run the proposal's same exact-hash
+`capability activate ... --confirm <FULL-PROPOSAL-COMMIT>` action; it detects that the
+commit is already present and publishes the orphan state projection. `capability publish`
+remains a projection-repair command, not a substitute for exact proposal activation.
 Unreviewed configuration is never copied to an application branch or the state
 proof branch.
 
@@ -724,7 +728,12 @@ overview. **People & approvals** manages real human Git identities and authority
 groups; **MCP tools** manages agent/phase/tool policy and reports whether the
 matching VS Code or Copilot host server is configured. These are deliberately
 separate from governed AI agents. All visual saves are validated by the CLI and
-preserve unrelated YAML content. See
+preserve unrelated YAML content. After a save, **Configuration → Unpublished
+configuration** lists every changed file and provides **Review & publish
+configuration**. That action previews the exact scope, creates one commit, and
+pushes the current governed configuration-review branch; unrelated working-tree
+changes block it, and the engine never publishes configuration from the protected
+application branch. See
 [`docs/CONFIGURATION-CENTER.md`](docs/CONFIGURATION-CENTER.md).
 
 `singularity/workflow.yml` is the definition for new work items. It contains:

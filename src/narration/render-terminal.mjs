@@ -7,6 +7,7 @@
  */
 import { MESSAGES, REASONS } from './messages.mjs';
 import { preservedEverything } from './command-result.mjs';
+import * as style from '../style.mjs';
 
 /**
  * The reassurance line, derived from declared effects rather than authored.
@@ -43,7 +44,8 @@ function nextLines(result) {
   const order = { NOW: 0, SOON: 1, LATER: 2 };
   return [...result.next]
     .sort((a, b) => (order[a.rank] - order[b.rank]) || a.id.localeCompare(b.id))
-    .map((entry) => `  ${entry.rank.padEnd(5)} ${entry.label}\n        ${entry.command}`);
+    // The command is the thing the reader came for, so it is the thing that carries the emphasis.
+    .map((entry) => `  ${style.detail(entry.rank.padEnd(5))} ${entry.label}\n        ${style.action(entry.command)}`);
 }
 
 const REST_STATE_LINES = Object.freeze({
@@ -54,16 +56,18 @@ const REST_STATE_LINES = Object.freeze({
 });
 
 export function renderCommandResult(result) {
-  const lines = [headline(result)];
+  // A refusal is the one outcome the reader must not skim past, so it is the one that gets weight.
+  const emphasise = ['refused', 'failed'].includes(result.outcome.status) ? style.failure : style.heading;
+  const lines = [emphasise(headline(result))];
 
   const preservation = preservationLine(result);
-  if (preservation) lines.push(preservation);
+  if (preservation) lines.push(style.detail(preservation));
 
   const why = whyLines(result);
-  if (why.length) lines.push('', 'Why:', ...why);
+  if (why.length) lines.push('', style.heading('Why:'), ...why);
 
   const next = nextLines(result);
-  if (next.length) lines.push('', 'Next:', ...next);
+  if (next.length) lines.push('', style.heading('Next:'), ...next);
   else if (result.restState) {
     const rest = REST_STATE_LINES[result.restState];
     if (rest) lines.push('', rest);

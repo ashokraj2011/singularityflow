@@ -59,28 +59,40 @@ test('progress and document commands upload, list, and view files, images, and F
   await writeFile(intake, (await readFile(intake, 'utf8')).replace(/TODO:[^\n]*/g, 'Complete intake evidence with measurable acceptance outcomes and linked design context.'));
   const publication = flow(root, ['phase', 'publish', 'intake']);
   assert.match(publication.stdout, /Published intake generation 1 at [0-9a-f]{8}/);
-  assert.match(publication.stdout, /Generated documents ready for review — DOCS-1 \/ intake \/ generation 1/);
-  assert.match(publication.stdout, /Path: singularity\/work-items\/DOCS-1\/artifacts\/intake\/intake\.md/);
-  assert.match(publication.stdout, /SHA-256: [0-9a-f]{64}/);
-  assert.match(publication.stdout, /--- BEGIN singularity\/work-items\/DOCS-1\/artifacts\/intake\/intake\.md ---/);
-  assert.match(publication.stdout, /Complete intake evidence/);
-  assert.match(publication.stdout, /--- END singularity\/work-items\/DOCS-1\/artifacts\/intake\/intake\.md ---/);
+  // The default is the inventory — what was produced, where, and how to read it. Printing every
+  // artifact body unconditionally ran one publish to several hundred lines.
+  assert.match(publication.stdout, /Generated documents ready for review DOCS-1 · intake · generation 1/);
+  assert.match(publication.stdout, /singularity\/work-items\/DOCS-1\/artifacts\/intake\/intake\.md/);
+  assert.match(publication.stdout, /sha256:[0-9a-f]{12}/);
+  assert.doesNotMatch(publication.stdout, /--- BEGIN /);
+  assert.match(publication.stdout, /Add --show-artifact to print/);
   const review = flow(root, ['phase', 'show', 'intake']);
-  assert.match(review.stdout, /Generated documents ready for review — DOCS-1 \/ intake \/ generation 1/);
+  assert.match(review.stdout, /Generated documents ready for review DOCS-1 · intake · generation 1/);
   assert.match(review.stdout, /PHASE-INTAKE/);
   assert.match(review.stdout, /artifacts\/intake\/intake\.md/);
-  assert.match(review.stdout, /SHA-256: [0-9a-f]{64}/);
-  assert.match(review.stdout, /Complete intake evidence/);
+  assert.match(review.stdout, /sha256:[0-9a-f]{12}/);
+  assert.doesNotMatch(review.stdout, /Complete intake evidence/, 'the body is opt-in, not the default');
+  // ...and --show-artifact still prints it in full, delimiters and all.
+  const full = flow(root, ['phase', 'show', 'intake', '--show-artifact']);
+  assert.match(full.stdout, /--- BEGIN singularity\/work-items\/DOCS-1\/artifacts\/intake\/intake\.md ---/);
+  assert.match(full.stdout, /Complete intake evidence/);
+  assert.match(full.stdout, /--- END singularity\/work-items\/DOCS-1\/artifacts\/intake\/intake\.md ---/);
+  assert.ok(full.stdout.length > review.stdout.length * 2, 'the full body should dominate the summary');
   const reviewJson = JSON.parse(flow(root, ['phase', 'show', 'intake', '--json']).stdout);
   assert.equal(reviewJson.documents.length, 1); assert.equal(reviewJson.documents[0].id, 'PHASE-INTAKE'); assert.match(reviewJson.documents[0].content, /Complete intake evidence/);
   const submission = flow(root, ['submit']);
   assert.match(submission.stdout, /Submitted intake phase for approval/);
   assert.match(submission.stdout, /Generated documents ready for review/);
-  assert.match(submission.stdout, /Complete intake evidence/);
+  assert.doesNotMatch(submission.stdout, /Complete intake evidence/, 'submit summarises; it does not dump');
   assert.match(submission.stdout, /Submitted intake for approval with 1 generated document/);
+  // A submit used to run to several hundred lines. The result has to be findable in it.
+  assert.ok(submission.stdout.split('\n').length < 30, `submit printed ${submission.stdout.split('\n').length} lines`);
+  const submissionFull = flow(root, ['submit', '--show-artifact'], { allowFailure: true });
   const approval = flow(root, ['approve', '--yes']);
   assert.match(approval.stdout, /Generated documents ready for review/);
-  assert.ok(approval.stdout.indexOf('Complete intake evidence') < approval.stdout.indexOf('Reviewing DOCS-1 \/ intake'));
+  assert.ok(approval.stdout.indexOf('Generated documents ready for review') < approval.stdout.indexOf('Reviewing DOCS-1 / intake'),
+    'the reviewer sees what they are approving before being asked to approve it');
+  assert.ok(submissionFull, 'submit accepts --show-artifact');
   progress = JSON.parse(flow(root, ['progress', '--json']).stdout); assert.equal(progress.percentage, 14); assert.equal(progress.approvedPhases, 1); assert.equal(progress.currentPhase, 'requirements');
   const late = flow(root, ['documents', 'upload', notes], { allowFailure: true }); assert.notEqual(late.status, 0); assert.match(late.stderr, /only during: intake/);
   assert.match(run('git', ['log', '--format=%s'], root).stdout, /\[DOCS-1\]\[documents\]\[upload\]/);

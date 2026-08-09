@@ -49,7 +49,11 @@ export const COMMAND_REGISTRY = Object.freeze([
   ['agents'], ['mcp'], ['visual'], ['documents'], ['prepare'], ['phase'], ['artifact'], ['pr'], ['stack'], ['regression'], ['submit'],
   ['approve'], ['reject'], ['reopen'], ['cancel'], ['sync'], ['ledger'], ['capabilities'], ['state'],
   ['validate'], ['gate'], ['wm'], ['jira'], ['plugin'], ['snapshot'], ['configuration'], ['initiative'], ['epic'],
-  ['story'], ['workspace'], ['knowledge'], ['capability'], ['hook'], ['bootstrap']
+  ['story'], ['workspace'], ['knowledge'], ['capability'], ['hook'], ['bootstrap'],
+  // The first-run walkthrough already existed as `guide --first-run` and was the best teaching asset
+  // in the product, buried behind a flag on a verb that also means something else. This is the front
+  // door; the flag still works.
+  ['quickstart', ['first-run']]
 ].map(command));
 
 const canonical = new Map(COMMAND_REGISTRY.flatMap((entry) => [

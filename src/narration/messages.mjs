@@ -62,6 +62,12 @@ export const MESSAGES = Object.freeze({
   'agent.selected': {
     headline: (s) => `Selected ${slot(s.agent)} for ${slot(s.workId)}.`,
     preserves: false
+  },
+  'quickstart.completed': {
+    headline: (s) => `Walked one work item through ${slot(s.steps, 'every')} governed step in a throwaway repository.`,
+    // The sandbox is created and removed inside the command. The repository the reader is standing
+    // in is untouched, which is the whole reason this is safe to run first.
+    preserves: true
   }
 });
 

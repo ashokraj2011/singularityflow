@@ -85,6 +85,7 @@ Usage:
   singularity-flow capabilities doctor [ID] [--offline] [--json]
   singularity-flow capabilities lease grant <ID> --expires ISO --reason TEXT --policy FILE_OR_JSON --confirm <ID>
   singularity-flow capabilities lease revoke <ID> <LEASE-ID> --reason TEXT --confirm <ID>
+  singularity-flow quickstart [--keep] [--json]
   singularity-flow guide [WORK-ID] [--json]
   singularity-flow guide --first-run [--keep] [--json]
   singularity-flow nextsteps [WORK-ID] [--json]

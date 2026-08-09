@@ -3,6 +3,7 @@ import { readFileSync } from 'node:fs';
 import { spawnSync } from 'node:child_process';
 import { lstat, mkdir, readFile, realpath, rename, rm, stat, writeFile } from 'node:fs/promises';
 import path from 'node:path';
+import { displayWidth, padDisplay, terminalWidth, truncateDisplay } from './style.mjs';
 
 export class SingularityFlowError extends Error {
   constructor(message, { exitCode = 1, code = null, details = null, cause = undefined } = {}) {
@@ -28,6 +29,10 @@ export class SingularityFlowError extends Error {
 export function invariant(condition, message) {
   if (!condition) throw new SingularityFlowError(message);
 }
+
+// Presentation primitives live in style.mjs. Imported for `table` and re-exported because every
+// existing caller already reaches for its formatting helpers here.
+export { displayWidth, padDisplay, terminalWidth, truncateDisplay };
 
 /**
  * Flags that never take a value.
@@ -387,10 +392,47 @@ export function truncate(value, max = 2000) {
   return text.length <= max ? text : `${text.slice(0, max)}\n… truncated …`;
 }
 
-export function table(rows, columns) {
-  const widths = columns.map((column) => Math.max(column.label.length, ...rows.map((row) => String(row[column.key] ?? '').length)));
-  const line = (row) => columns.map((column, index) => String(row[column.key] ?? '').padEnd(widths[index])).join('  ');
-  return [line(Object.fromEntries(columns.map((column) => [column.key, column.label]))), widths.map((width) => '-'.repeat(width)).join('  '), ...rows.map(line)].join('\n');
+/**
+ * Render rows as a fixed-width table.
+ *
+ * Widths were measured with `String.length` and never bounded, so one long title pushed the table
+ * past the terminal and every row wrapped into rubble, and a single CJK cell — two columns wide,
+ * one code unit long — misaligned everything after it. Width is now printable width, and the table
+ * is fitted to the terminal.
+ *
+ * Columns shrink from the widest first, and never below `min` (default 8). The first column is left
+ * alone: it holds the ID or name you would copy into the next command, and a truncated identifier
+ * is worse than a wrapped row.
+ */
+export function table(rows, columns, { width = terminalWidth(), min = 8 } = {}) {
+  const natural = columns.map((column) => Math.max(
+    displayWidth(column.label),
+    ...rows.map((row) => displayWidth(String(row[column.key] ?? '')))
+  ));
+  const gutters = (columns.length - 1) * 2;
+  const widths = [...natural];
+  // Reclaim the overflow from the widest shrinkable column, one column at a time, so a single long
+  // free-text field gives way before several short ones do.
+  let overflow = widths.reduce((total, value) => total + value, 0) + gutters - width;
+  while (overflow > 0) {
+    let target = -1;
+    for (let index = 1; index < widths.length; index += 1) {
+      if (widths[index] > min && (target === -1 || widths[index] > widths[target])) target = index;
+    }
+    if (target === -1) break;
+    const reduction = Math.min(overflow, widths[target] - min);
+    widths[target] -= reduction;
+    overflow -= reduction;
+  }
+  const line = (row) => columns
+    .map((column, index) => padDisplay(truncateDisplay(String(row[column.key] ?? ''), widths[index]), widths[index]))
+    .join('  ')
+    .replace(/\s+$/, '');
+  return [
+    line(Object.fromEntries(columns.map((column) => [column.key, column.label]))),
+    widths.map((value) => '-'.repeat(value)).join('  '),
+    ...rows.map(line)
+  ].join('\n');
 }
 
 /**

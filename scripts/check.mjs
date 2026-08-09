@@ -6,7 +6,7 @@ import { fileURLToPath } from 'node:url';
 import YAML from 'yaml';
 import { validateDefinition } from '../src/config.mjs';
 import { discoverAgents, validateAgentCatalog } from '../src/agents.mjs';
-import { allCommands, documentedCommands, synopsisFor } from '../src/help-pages.mjs';
+import { allCommands, documentedCommands, overviewCommands, synopsisFor } from '../src/help-pages.mjs';
 import { canonicalCommand } from '../src/command-registry.mjs';
 import { BOOLEAN_OPTIONS } from '../src/util.mjs';
 import { validatePortfolio, validatePortfolioWorldModelViews } from '../src/initiative-config.mjs';
@@ -195,6 +195,16 @@ for (const file of allFiles.filter((candidate) => candidate.endsWith('.mjs'))) {
   if (missing.length) fail(`BOOLEAN_OPTIONS is missing flags that are only ever read as booleans: ${missing.join(', ')}`);
   if (contradicted.length) fail(`BOOLEAN_OPTIONS declares flags that are read for a value: ${contradicted.join(', ')}`);
   checked.push('boolean option declaration');
+}
+
+// The `--help` overview is curated by hand — the value is the ordering and the omission — so it can
+// drift into naming commands that no longer dispatch. Every name it shows must be a real command.
+{
+  const unknown = overviewCommands().filter((name) => {
+    try { canonicalCommand(name); return false; } catch { return true; }
+  });
+  if (unknown.length) fail(`The --help overview names commands that do not dispatch: ${unknown.join(', ')}`);
+  checked.push('--help overview commands');
 }
 
 const skillRoot = path.join(root, 'plugin', 'skills');

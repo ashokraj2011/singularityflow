@@ -696,7 +696,29 @@ export const NAV_SCRIPT = `
   });
 `;
 
-export function page(title: string, body: string, csp: string, token: string, script = ''): string {
+/**
+ * Compose a full-page view.
+ *
+ * The footer is added here rather than by each page, because the defect it fixes was every page
+ * having to remember. Nineteen of twenty-one views ended with their own content and no way onward,
+ * and an editor tab has no browser chrome to fall back on — so "remember to add navigation" was
+ * exactly the instruction that did not scale. Now a page cannot be built without it.
+ *
+ * `nav` names the destination this page *is*, so it renders as text rather than a link to itself.
+ * Pages that are not one of the five destinations pass nothing and get all five as links.
+ * `nav: false` is the deliberate opt-out, for a page with no editor to navigate — the offline
+ * visual fixtures, where a dead button would be misleading.
+ */
+export function page(
+  title: string,
+  body: string,
+  csp: string,
+  token: string,
+  script = '',
+  { nav = null }: { nav?: NavDestination | null | false } = {}
+): string {
+  const footer = nav === false ? '' : footerNav(nav);
+  const scripts = nav === false ? script : `${script}${NAV_SCRIPT}`;
   return `<!DOCTYPE html><html lang="en"><head>
 <meta charset="utf-8">
 <meta http-equiv="Content-Security-Policy" content="${csp}">
@@ -704,6 +726,7 @@ export function page(title: string, body: string, csp: string, token: string, sc
 <style nonce="${token}">${STYLE}</style>
 </head><body>
 ${body}
-${script ? `<script nonce="${token}">${script}</script>` : ''}
+${footer}
+${scripts ? `<script nonce="${token}">${scripts}</script>` : ''}
 </body></html>`;
 }

@@ -11,7 +11,7 @@
  */
 import * as vscode from 'vscode';
 import { buildJourney, type Journey } from './journey-model.ts';
-import { contentSecurityPolicy, escape, footerNav, navigationTarget, nonce, page, icon, NAV_SCRIPT } from './webview.ts';
+import { contentSecurityPolicy, escape, navigationTarget, nonce, page, icon } from './webview.ts';
 import type { WorkspaceStore } from '../state.ts';
 
 const STATUS_CLASS: Record<string, string> = {
@@ -163,8 +163,7 @@ function bodyHtml(journey: Journey): string {
 
     <section><h2>${icon('document')}Artifact packs</h2>${packsHtml(journey)}</section>
     <section><h2>${icon('document')}Pinned sources</h2>${sources}</section>
-    <section><h2>${icon('story')}Stories</h2>${stories}</section>
-    ${footerNav('journey')}`;
+    <section><h2>${icon('story')}Stories</h2>${stories}</section>`;
 }
 
 /** The page can only name an action and an id. What either means is decided by the extension. */
@@ -249,7 +248,8 @@ export class JourneyPanel {
       bodyHtml(buildJourney(this.store.current.snapshot)),
       contentSecurityPolicy(this.panel.webview, token),
       token,
-      `${SCRIPT}${NAV_SCRIPT}`
+      SCRIPT,
+      { nav: 'journey' }
     );
   }
 

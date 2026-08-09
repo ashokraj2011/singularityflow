@@ -11,7 +11,7 @@
 import * as vscode from 'vscode';
 import { bodyHtml, readEdits, SCRIPT } from './capability-page.ts';
 import { buildCapabilityDashboard } from './capability-dashboard-model.ts';
-import { contentSecurityPolicy, nonce, page } from './webview.ts';
+import { contentSecurityPolicy, navigationTarget, nonce, page } from './webview.ts';
 import type { WorkspaceStore } from '../state.ts';
 
 export type CapabilitiesMessage =
@@ -40,6 +40,11 @@ export class CapabilitiesPanel {
     this.subscription = store.onDidChange(() => this.render());
 
     this.panel.webview.onDidReceiveMessage((raw: unknown) => {
+      // The shared footer is the one way out of a full-page view. Handled here rather than through
+      // this panel's own message contract, because "go to another page" is not this panel's business.
+      const navigation = navigationTarget(raw);
+      if (navigation) return void vscode.commands.executeCommand(navigation);
+
       const message = raw as { type?: unknown; id?: unknown; parent?: unknown; edits?: unknown };
       // Selecting and cancelling are the panel's own state; only the three that touch the map leave.
       if (message?.type === 'select' && typeof message.id === 'string') {

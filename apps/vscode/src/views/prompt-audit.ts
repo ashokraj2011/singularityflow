@@ -1,7 +1,7 @@
 /** Workspace-local governed-prompt audit viewer and controls. */
 import * as vscode from 'vscode';
 import type { SingularityFlowClient } from '../cli/client.ts';
-import { contentSecurityPolicy, escape, icon, nonce, page } from './webview.ts';
+import { contentSecurityPolicy, escape, icon, navigationTarget, nonce, page } from './webview.ts';
 
 interface PromptRecord {
   id: string;
@@ -74,7 +74,13 @@ export class PromptAuditPanel {
   private error: string | null = null;
 
   private constructor(private readonly panel: vscode.WebviewPanel, private readonly client: SingularityFlowClient) {
-    panel.webview.onDidReceiveMessage((raw: unknown) => { void this.receive(raw); });
+    panel.webview.onDidReceiveMessage((raw: unknown) => {
+      // The shared footer is the one way out of a full-page view. Handled here rather than through
+      // this panel's own message contract, because "go to another page" is not this panel's business.
+      const navigation = navigationTarget(raw);
+      if (navigation) return void vscode.commands.executeCommand(navigation);
+      void this.receive(raw);
+    });
     panel.onDidDispose(() => { PromptAuditPanel.current = null; });
     void this.refresh();
   }

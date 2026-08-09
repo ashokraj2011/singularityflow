@@ -1,7 +1,7 @@
 /** Clause-level specification traceability for the active Story. */
 import * as vscode from 'vscode';
 import type { SingularityFlowClient } from '../cli/client.ts';
-import { contentSecurityPolicy, escape, icon, nonce, page } from './webview.ts';
+import { contentSecurityPolicy, escape, icon, navigationTarget, nonce, page } from './webview.ts';
 
 interface TraceRow {
   id: string;
@@ -63,6 +63,9 @@ export class SpecificationTracePanel {
     try { rows = await this.client.run<TraceRow[]>(['spec', 'trace', '--format', 'json']); }
     catch (cause) { error = (cause as Error).message; }
     const token = nonce();
-    this.panel.webview.html = page('Specification traceability', body(rows, error), contentSecurityPolicy(this.panel.webview, token), token);
+    this.panel.webview.html = page('Specification traceability', body(rows, error), contentSecurityPolicy(this.panel.webview, token), token, '',
+      // This panel runs with scripts disabled on purpose. The shared footer needs one to post its
+      // message, so it is omitted rather than rendered as buttons that do nothing.
+      { nav: false });
   }
 }

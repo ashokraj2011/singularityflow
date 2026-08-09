@@ -12,7 +12,7 @@ import {
   buildDashboard, dashboardHealth, humanizeDuration,
   type Check, type Dashboard, type LifecycleAnalytics, type LifecyclePhaseMetric
 } from './dashboard-model.ts';
-import { contentSecurityPolicy, escape, icon, nonce, page } from './webview.ts';
+import { contentSecurityPolicy, escape, icon, navigationTarget, nonce, page } from './webview.ts';
 import type { IconName } from './webview.ts';
 import type { WorkspaceStore } from '../state.ts';
 
@@ -236,6 +236,11 @@ export class DashboardPanel {
     this.store = store;
     this.subscription = store.onDidChange(() => this.render());
     this.panel.webview.onDidReceiveMessage((raw: unknown) => {
+      // The shared footer is the one way out of a full-page view. Handled here rather than through
+      // this panel's own message contract, because "go to another page" is not this panel's business.
+      const navigation = navigationTarget(raw);
+      if (navigation) return void vscode.commands.executeCommand(navigation);
+
       const what = (raw as { what?: unknown })?.what;
       const command = typeof what === 'string' ? DESTINATIONS[what] : undefined;
       // Only a destination this file names; the page cannot ask for an arbitrary command.

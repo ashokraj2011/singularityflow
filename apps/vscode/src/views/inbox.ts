@@ -2,7 +2,7 @@
 import * as vscode from 'vscode';
 import { buildInbox, type Inbox, type InboxArtifact } from './inbox-model.ts';
 import { buildApprovals, type PendingApproval } from './approvals-model.ts';
-import { contentSecurityPolicy, escape, nonce, page, icon } from './webview.ts';
+import { contentSecurityPolicy, escape, icon, navigationTarget, nonce, page } from './webview.ts';
 import type { WorkspaceStore } from '../state.ts';
 
 const STATUS_CLASS: Record<string, string> = {
@@ -102,6 +102,11 @@ export class InboxPanel {
   ) {
     this.subscription = store.onDidChange(() => this.render());
     panel.webview.onDidReceiveMessage((raw: unknown) => {
+      // The shared footer is the one way out of a full-page view. Handled here rather than through
+      // this panel's own message contract, because "go to another page" is not this panel's business.
+      const navigation = navigationTarget(raw);
+      if (navigation) return void vscode.commands.executeCommand(navigation);
+
       const message = raw as { type?: unknown; id?: unknown };
       if (typeof message.id !== 'string') return;
       if (message.type === 'open-artifact') {

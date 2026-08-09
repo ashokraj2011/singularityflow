@@ -7,7 +7,7 @@
  */
 import * as vscode from 'vscode';
 import { buildReconciliation, type MergePlan, type Reconciliation, type ReconciliationLevel } from './reconciliation-model.ts';
-import { contentSecurityPolicy, escape, nonce, page, icon } from './webview.ts';
+import { contentSecurityPolicy, escape, icon, navigationTarget, nonce, page } from './webview.ts';
 import type { IconName } from './webview.ts';
 import type { SingularityFlowClient } from '../cli/client.ts';
 import type { WorkspaceStore } from '../state.ts';
@@ -81,6 +81,12 @@ export class ReconciliationPanel {
     // The merge plan is re-read whenever the snapshot changes, so the two never describe different
     // moments of the same repository.
     this.subscription = store.onDidChange(() => { void this.reload(); });
+    // Nothing else on this page talks back, but the shared footer does, and a button that cannot
+    // reach the extension is worse than no button.
+    this.panel.webview.onDidReceiveMessage((raw: unknown) => {
+      const navigation = navigationTarget(raw);
+      if (navigation) void vscode.commands.executeCommand(navigation);
+    }, null, this.disposables);
     this.panel.onDidDispose(() => this.dispose(), null, this.disposables);
     // Render what the snapshot already knows before waiting on the merge plan. Three of the four
     // levels need no extra call, and a panel that is blank until a subprocess returns reads as a

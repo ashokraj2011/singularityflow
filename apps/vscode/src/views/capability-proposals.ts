@@ -1,6 +1,6 @@
 /** Pending capability proposals across every registered organisation lead repository. */
 import * as vscode from 'vscode';
-import { contentSecurityPolicy, escape, icon, nonce, page } from './webview.ts';
+import { contentSecurityPolicy, escape, icon, navigationTarget, nonce, page } from './webview.ts';
 
 interface LeadRepository { url: string }
 
@@ -86,7 +86,12 @@ export class CapabilityProposalsPanel {
       { enableScripts: true, retainContextWhenHidden: true,
         localResourceRoots: [vscode.Uri.joinPath(context.extensionUri, 'media')] }
     );
-    this.panel.webview.onDidReceiveMessage((message: { type?: string; index?: number }) => {
+    this.panel.webview.onDidReceiveMessage((raw: unknown) => {
+      // The shared footer is the one way out of a full-page view. Handled here rather than through
+      // this panel's own message contract, because "go to another page" is not this panel's business.
+      const navigation = navigationTarget(raw);
+      if (navigation) return void vscode.commands.executeCommand(navigation);
+      const message = raw as { type?: string; index?: number };
       if (message.type === 'refresh') void this.load();
       if (message.type === 'review' && Number.isInteger(message.index)) {
         const entry = this.entries[message.index as number];

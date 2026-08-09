@@ -1,7 +1,7 @@
 /** VS Code host for the offline, searchable Singularity Flow Help Center. */
 import * as vscode from 'vscode';
 import path from 'node:path';
-import { contentSecurityPolicy, nonce, page } from './webview.ts';
+import { contentSecurityPolicy, navigationTarget, nonce, page } from './webview.ts';
 import { HELP_CENTER_SCRIPT, helpCenterHtml, type HelpDocument } from './help-page.ts';
 
 export class HelpPanel {
@@ -13,7 +13,13 @@ export class HelpPanel {
     private requested: string | null,
     private manualRoot: string
   ) {
-    panel.webview.onDidReceiveMessage((raw: unknown) => { void this.receive(raw); });
+    panel.webview.onDidReceiveMessage((raw: unknown) => {
+      // The shared footer is the one way out of a full-page view. Handled here rather than through
+      // this panel's own message contract, because "go to another page" is not this panel's business.
+      const navigation = navigationTarget(raw);
+      if (navigation) return void vscode.commands.executeCommand(navigation);
+      void this.receive(raw);
+    });
     panel.onDidDispose(() => { HelpPanel.current = null; });
     this.render();
   }
@@ -61,6 +67,6 @@ export class HelpPanel {
   private render(): void {
     const token = nonce();
     this.panel.webview.html = page('Singularity Flow Help', helpCenterHtml(this.document, this.requested),
-      contentSecurityPolicy(this.panel.webview, token), token, HELP_CENTER_SCRIPT);
+      contentSecurityPolicy(this.panel.webview, token), token, HELP_CENTER_SCRIPT, { nav: 'help' });
   }
 }

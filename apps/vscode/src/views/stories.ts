@@ -7,7 +7,7 @@
  */
 import * as vscode from 'vscode';
 import { buildStories, type StoryView, type Stories } from './stories-model.ts';
-import { contentSecurityPolicy, escape, icon, nonce, page } from './webview.ts';
+import { contentSecurityPolicy, escape, icon, navigationTarget, nonce, page } from './webview.ts';
 import type { WorkspaceStore } from '../state.ts';
 
 const STATE_PILL: Record<string, { className: string; label: string }> = {
@@ -132,6 +132,11 @@ export class StoriesPanel {
     this.subscription = store.onDidChange(() => this.render());
 
     this.panel.webview.onDidReceiveMessage((raw: unknown) => {
+      // The shared footer is the one way out of a full-page view. Handled here rather than through
+      // this panel's own message contract, because "go to another page" is not this panel's business.
+      const navigation = navigationTarget(raw);
+      if (navigation) return void vscode.commands.executeCommand(navigation);
+
       const message = raw as { type?: unknown; id?: unknown };
       if (message?.type === 'materialize') return onMessage({ type: 'materialize' });
       if (typeof message?.id !== 'string') return;

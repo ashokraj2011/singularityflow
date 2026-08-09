@@ -10,7 +10,7 @@ import { readFile } from 'node:fs/promises';
 import path from 'node:path';
 import type { SingularityFlowClient } from '../cli/client.ts';
 import type { WorkspaceStore } from '../state.ts';
-import { contentSecurityPolicy, escape, icon, nonce, page } from './webview.ts';
+import { contentSecurityPolicy, escape, icon, navigationTarget, nonce, page } from './webview.ts';
 
 interface ImpactGroup { id: string; label: string; assistanceMode: string }
 export interface ImpactStudy {
@@ -236,7 +236,13 @@ export class FlowImpactPanel {
     private readonly client: SingularityFlowClient
   ) {
     this.subscription = store.onDidChange(() => { void this.refresh(); });
-    panel.webview.onDidReceiveMessage((message: Message) => { void this.onMessage(message); }, null, this.disposables);
+    panel.webview.onDidReceiveMessage((raw: unknown) => {
+      // The shared footer is the one way out of a full-page view. Handled here rather than through
+      // this panel's own message contract, because "go to another page" is not this panel's business.
+      const navigation = navigationTarget(raw);
+      if (navigation) return void vscode.commands.executeCommand(navigation);
+      void this.onMessage(raw as Message);
+    }, null, this.disposables);
     panel.onDidDispose(() => this.dispose(), null, this.disposables);
     void this.refresh();
   }

@@ -7,7 +7,7 @@
  * actually touches is the part that changes decisions, so it comes first and the inventory follows.
  */
 import * as vscode from 'vscode';
-import { contentSecurityPolicy, escape, icon, nonce, page } from './webview.ts';
+import { contentSecurityPolicy, escape, icon, navigationTarget, nonce, page } from './webview.ts';
 import type { SingularityFlowClient } from '../cli/client.ts';
 import type { WorkspaceStore } from '../state.ts';
 
@@ -263,6 +263,11 @@ export class ImpactPanel {
     // describe different moments.
     this.subscription = store.onDidChange(() => { void this.reload(); });
     this.panel.webview.onDidReceiveMessage((raw: unknown) => {
+      // The shared footer is the one way out of a full-page view. Handled here rather than through
+      // this panel's own message contract, because "go to another page" is not this panel's business.
+      const navigation = navigationTarget(raw);
+      if (navigation) return void vscode.commands.executeCommand(navigation);
+
       void this.receive(raw as WorkspaceImpactMessage);
     }, null, this.disposables);
     this.panel.onDidDispose(() => this.dispose(), null, this.disposables);

@@ -111,7 +111,11 @@
   button.artifact-card:hover { border-color: var(--sf-accent); background: var(--sf-accent-quiet); }
   .artifact-title { font-weight: 650; min-width: 0; overflow-wrap: anywhere; }
   .artifact-meta { grid-column: 1 / -1; color: var(--sf-dim); font-size: .76rem; }
-  .inbox-phase { border: 0; margin-top: .6rem; }
+  .inbox-work { margin-top: 1rem; padding: .85rem 1rem 1rem; border: var(--sf-border); border-radius: var(--sf-radius); background: var(--sf-surface); }
+  .inbox-work > .section-heading h2 { margin: .1rem 0; }
+  .inbox-work > .muted { margin: .15rem 0 .5rem; }
+  .inbox-phase { border: 0; border-top: 1px solid var(--sf-border-color); margin-top: .7rem; padding-top: .25rem; }
+  .inbox-phase .section-heading h3 { display: flex; align-items: center; gap: .45rem; margin: .65rem 0 .45rem; font-size: .82rem; }
   .warning-text { color: var(--sf-wait); }
   * { box-sizing: border-box; }
   body {
@@ -629,5 +633,6 @@
     <tr><td><svg class="ico" width="16" height="16" viewBox="0 0 24 24" aria-hidden="true"
     fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><path d="M6 2h8l4 4v16H6zM14 2v5h5M9 12h6M9 16h6"/></svg>Implementation specification</td><td><span class="pill bad"><svg class="ico" width="16" height="16" viewBox="0 0 24 24" aria-hidden="true"
     fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="9"/><path d="m8 8 8 8M16 8l-8 8"/></svg>Blocked</span></td><td>Architect</td></tr></tbody></table></section>
+
 
 </body></html>

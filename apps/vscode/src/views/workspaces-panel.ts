@@ -7,7 +7,7 @@
  * two of them occupy the same directory, and it enforces it by refusing before the command runs.
  */
 import * as vscode from 'vscode';
-import { contentSecurityPolicy, nonce, page } from './webview.ts';
+import { contentSecurityPolicy, navigationTarget, nonce, page } from './webview.ts';
 import {
   EMPTY_DRAFT, EMPTY_EDIT_DRAFT, workspacesHtml, WORKSPACES_SCRIPT,
   type DuplicateDraft, type WorkspaceEditDraft
@@ -60,7 +60,13 @@ export class WorkspacesPanel {
     // Return the promise so sequential UI events (typing, then immediately saving) are observed in
     // order by hosts and test doubles that support async listeners. VS Code itself ignores the
     // return value, but the edit-save message also carries the current field value as a safeguard.
-    this.panel.webview.onDidReceiveMessage((raw: unknown) => this.receive(raw), null, this.disposables);
+    this.panel.webview.onDidReceiveMessage((raw: unknown) => {
+      // The shared footer is the one way out of a full-page view. Handled here rather than through
+      // this panel's own message contract, because "go to another page" is not this panel's business.
+      const navigation = navigationTarget(raw);
+      if (navigation) return void vscode.commands.executeCommand(navigation);
+      return this.receive(raw);
+    }, null, this.disposables);
     this.panel.onDidDispose(() => this.dispose(), null, this.disposables);
     this.render();
     if (selected) void this.select(selected);

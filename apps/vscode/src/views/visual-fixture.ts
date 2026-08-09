@@ -58,6 +58,8 @@ export function enterpriseVisualFixture(review: VisualReviewCase): string {
   return page(
     `Singularity Flow ${review.theme} ${review.width}`,
     `${overrides}${fixtureBody(review.theme)}`,
-    `default-src 'none'; style-src 'nonce-${token}'`, token
+    // No script-src at all: this opens in a browser with no extension behind it, so the shared
+    // footer is omitted rather than rendered as navigation that leads nowhere.
+    `default-src 'none'; style-src 'nonce-${token}'`, token, '', { nav: false }
   );
 }

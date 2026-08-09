@@ -1,6 +1,6 @@
 /** Review and activate a capability proposal without leaving VS Code. */
 import * as vscode from 'vscode';
-import { contentSecurityPolicy, escape, icon, nonce, page } from './webview.ts';
+import { contentSecurityPolicy, escape, icon, navigationTarget, nonce, page } from './webview.ts';
 
 export interface CapabilityProposal {
   remote: string;
@@ -111,7 +111,12 @@ export class CapabilityProposalPanel {
       { enableScripts: true, retainContextWhenHidden: true,
         localResourceRoots: [vscode.Uri.joinPath(context.extensionUri, 'media')] }
     );
-    this.panel.webview.onDidReceiveMessage((message: { type?: string }) => {
+    this.panel.webview.onDidReceiveMessage((raw: unknown) => {
+      // The shared footer is the one way out of a full-page view. Handled here rather than through
+      // this panel's own message contract, because "go to another page" is not this panel's business.
+      const navigation = navigationTarget(raw);
+      if (navigation) return void vscode.commands.executeCommand(navigation);
+      const message = raw as { type?: string };
       void this.receive(message);
     }, null, this.disposables);
     this.panel.onDidDispose(() => this.dispose(), null, this.disposables);

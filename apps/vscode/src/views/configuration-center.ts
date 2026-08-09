@@ -1,7 +1,7 @@
 /** First-class VS Code configuration for humans, approvals, MCP, and the other designers. */
 import * as vscode from 'vscode';
 import type { WorkspaceStore } from '../state.ts';
-import { contentSecurityPolicy, nonce, page } from './webview.ts';
+import { contentSecurityPolicy, navigationTarget, nonce, page } from './webview.ts';
 import {
   configurationCenterView, updateAuthorityYaml, updateMcpYaml, validateAuthorityDraft, validateMcpDraft,
   type AuthorityDraft, type AuthorityScope, type AuthorityView, type ConfigurationTab, type McpDraft, type McpServerView
@@ -35,7 +35,13 @@ export class ConfigurationCenterPanel {
     private readonly onMessage: (message: ConfigurationCenterMessage) => Promise<string | null>
   ) {
     this.subscription = store.onDidChange(() => this.render());
-    panel.webview.onDidReceiveMessage((message: unknown) => { void this.receive(message); }, null, this.disposables);
+    panel.webview.onDidReceiveMessage((raw: unknown) => {
+      // The shared footer is the one way out of a full-page view. Handled here rather than through
+      // this panel's own message contract, because "go to another page" is not this panel's business.
+      const navigation = navigationTarget(raw);
+      if (navigation) return void vscode.commands.executeCommand(navigation);
+      void this.receive(raw);
+    }, null, this.disposables);
     panel.onDidDispose(() => this.dispose(), null, this.disposables);
     this.render();
   }
@@ -126,10 +132,10 @@ export class ConfigurationCenterPanel {
 
   private render(): void {
     const view = this.view(); const token = nonce();
-    if (!view) { this.panel.webview.html = page('Configuration Center', '<p class="empty">Choose a governed workspace to configure it.</p>', contentSecurityPolicy(this.panel.webview, token), token); return; }
+    if (!view) { this.panel.webview.html = page('Configuration Center', '<p class="empty">Choose a governed workspace to configure it.</p>', contentSecurityPolicy(this.panel.webview, token), token, '', { nav: 'configuration' }); return; }
     const selectedAuthority = this.newAuthority ? emptyAuthority() : view.authorities.find((entry) => `${entry.scope}:${entry.id}` === this.authorityKey) ?? null;
     const selectedMcp = this.newMcp ? emptyMcp() : view.mcpServers.find((entry) => entry.id === this.mcpId) ?? null;
-    this.panel.webview.html = page('Configuration Center', configurationCenterHtml(view, this.tab, selectedAuthority, selectedMcp, this.notice, this.errors), contentSecurityPolicy(this.panel.webview, token), token, CONFIGURATION_CENTER_SCRIPT);
+    this.panel.webview.html = page('Configuration Center', configurationCenterHtml(view, this.tab, selectedAuthority, selectedMcp, this.notice, this.errors), contentSecurityPolicy(this.panel.webview, token), token, CONFIGURATION_CENTER_SCRIPT, { nav: 'configuration' });
   }
 
   private dispose(): void { this.subscription.dispose(); this.disposables.forEach((item) => item.dispose()); ConfigurationCenterPanel.current = null; }

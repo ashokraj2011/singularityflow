@@ -10,7 +10,7 @@
  */
 import * as vscode from 'vscode';
 import { buildApprovals, type Approvals, type PendingApproval } from './approvals-model.ts';
-import { contentSecurityPolicy, escape, footerNav, navigationTarget, nonce, page, icon, NAV_SCRIPT } from './webview.ts';
+import { contentSecurityPolicy, escape, navigationTarget, nonce, page, icon } from './webview.ts';
 import type { WorkspaceStore } from '../state.ts';
 
 const STANDING_PILL: Record<string, { className: string; label: string }> = {
@@ -75,8 +75,7 @@ function groupHtml(title: string, approvals: PendingApproval[]): string {
 function bodyHtml(approvals: Approvals): string {
   if (approvals.empty) {
     return `<header><h1>${icon('approval', { size: 20 })}Approvals</h1></header>
-      <div class="empty"><p>${escape(approvals.empty)}</p></div>
-      ${footerNav('approvals')}`;
+      <div class="empty"><p>${escape(approvals.empty)}</p></div>`;
   }
 
   const yours = approvals.pending.filter((approval) => approval.standing === 'yours');
@@ -101,8 +100,7 @@ function bodyHtml(approvals: Approvals): string {
   <section>
     <h2>${icon('gate')}Before this phase can close</h2>
     <ul class="blockers">${approvals.obstacles.map((obstacle) => `<li>${escape(obstacle)}</li>`).join('')}</ul>
-  </section>` : ''}
-  ${footerNav('approvals')}`;
+  </section>` : ''}`;
 }
 
 const SCRIPT = `
@@ -184,7 +182,8 @@ export class ApprovalsPanel {
       bodyHtml(buildApprovals(this.store.current.snapshot)),
       contentSecurityPolicy(this.panel.webview, token),
       token,
-      `${SCRIPT}${NAV_SCRIPT}`
+      SCRIPT,
+      { nav: 'approvals' }
     );
   }
 

@@ -6,7 +6,7 @@
  * changes nothing.
  */
 import * as vscode from 'vscode';
-import { contentSecurityPolicy, nonce, page } from './webview.ts';
+import { contentSecurityPolicy, navigationTarget, nonce, page } from './webview.ts';
 import {
   EMPTY_INTAKE_FORM, intakeCommand, intakeHtml, intakeProblems, INTAKE_SCRIPT, SHAPES,
   type InFlight, type IntakeForm, type ProfileChoice, type Shape, type Tracker
@@ -40,7 +40,12 @@ export class IntakePanel {
     this.client = client;
     this.output = output;
     this.onStarted = onStarted;
-    this.panel.webview.onDidReceiveMessage((raw: unknown) => { void this.receive(raw); }, null, this.disposables);
+    this.panel.webview.onDidReceiveMessage((raw: unknown) => {
+      // The shared footer is the one way out of a full-page view. Handled here rather than through
+      // this panel's own message contract, because "go to another page" is not this panel's business.
+      const navigation = navigationTarget(raw);
+      if (navigation) return void vscode.commands.executeCommand(navigation);
+ void this.receive(raw); }, null, this.disposables);
     this.panel.onDidDispose(() => this.dispose(), null, this.disposables);
     this.render();
     void this.load();

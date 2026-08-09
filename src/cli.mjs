@@ -816,6 +816,13 @@ async function resumeCommand(positionals, options) {
     console.log(`\nResume in Copilot: /sf-${command}`);
     console.log(`CLI equivalent: singularity-flow prepare ${active.id}`);
   }
+  emitCommandResult(commandResult({
+    operation: { id: 'resume', classification: 'mutation' },
+    subject: { kind: 'story', id: workflow.workItem.id },
+    outcome: succeeded('resume.succeeded', { workId: workflow.workItem.id, branch: branch(root) }),
+    // Resume may check out a different branch and records the local governed-agent selection.
+    effects: effects({ filesChanged: true })
+  }), { postState: workflow });
 }
 
 async function agentCommand(positionals, options = {}) {
@@ -835,11 +842,11 @@ async function agentCommand(positionals, options = {}) {
   console.log('The selection is local to this checkout and will be recorded with the next workflow action.');
   if (session.phaseCompatibilityOverride) console.warn(`Warning: ${session.agent} is not declared for phase '${session.phaseCompatibilityOverride.phase}'. This is an audited prompt override, not approval authority.`);
   emitCommandResult(commandResult({
-    operation: { id: 'resume', classification: 'mutation' },
+    operation: { id: 'agent', classification: 'mutation' },
     subject: { kind: 'story', id: workflow.workItem.id },
-    outcome: succeeded('resume.succeeded', { workId: workflow.workItem.id, branch: branch(root) }),
-    // Resuming checks out a branch and records a local agent selection. Neither is governed state
-    // and neither publishes, but files on disk did move, so say so rather than imply nothing did.
+    outcome: succeeded('agent.selected', { workId: workflow.workItem.id, agent: session.agent }),
+    // Agent selection is local to this checkout. It changes the session record but not governed
+    // lifecycle state and does not publish anything.
     effects: effects({ filesChanged: true })
   }), { postState: workflow });
 }
@@ -1520,6 +1527,43 @@ async function inputsCommand(positionals, options) {
 
 async function specCommand(positionals, options) {
   const root = repoRoot();
+  const subcommand = positionals[1] ?? 'trace';
+  const supplied = subcommand === 'index' ? positionals[2] : null;
+
+  // Indexing a repository file is useful before a Story exists (for example while evaluating a
+  // candidate specification). Keep that local index outside governed state. A valid workflow
+  // configuration is still honoured when present; malformed configuration is never masked.
+  if (subcommand === 'index' && supplied && !optionString(options, 'work-id') && !optionString(options, 'phase')) {
+    let standalone = !existsSync(path.join(root, CONFIG_PATH));
+    let standaloneConfig = null;
+    if (!standalone) {
+      standaloneConfig = await loadConfig(root);
+      try { await loadStoryAggregate(root, standaloneConfig); }
+      catch (error) {
+        if (/^No workflow found for /.test(error.message)) standalone = true;
+        else throw error;
+      }
+    }
+    if (standalone) {
+      const artifact = posix(path.relative(root, path.resolve(root, supplied)));
+      const name = path.basename(supplied).replace(/[^A-Za-z0-9._-]/g, '-');
+      const outputPath = optionString(options, 'out')
+        ?? posix(path.join('.git', 'singularity-flow', 'spec-indexes', `${name}.json`));
+      const index = await buildSpecIndex(root, artifact, {
+        workId: null,
+        phase: null,
+        generation: 0,
+        outputPath,
+        policy: standaloneConfig?.spec ?? {},
+        write: !optionBoolean(options, 'dry-run')
+      });
+      if (optionBoolean(options, 'json')) return console.log(JSON.stringify(index, null, 2));
+      console.log(`${optionBoolean(options, 'dry-run') ? 'Validated' : 'Indexed'} ${index.clauses.length} standalone clause(s) from ${index.source.path}.`);
+      if (!optionBoolean(options, 'dry-run')) console.log(`Local index: ${outputPath} (${index.indexSha256.slice(0, 12)})`);
+      return;
+    }
+  }
+
   const config = await loadConfig(root);
   const workflow = await loadStoryAggregate(root, config, optionString(options, 'work-id'));
   const itemDirectory = workDir(root, config, workflow.workItem.id);
@@ -1529,10 +1573,8 @@ async function specCommand(positionals, options) {
   if (!phase) throw new SingularityFlowError(`Unknown Story phase '${phaseId}'.`);
   const generation = Math.max(1, Number(phase.generation ?? 0));
   const policy = workflow.resolution?.spec ?? config.spec;
-  const subcommand = positionals[1] ?? 'trace';
 
   if (subcommand === 'index') {
-    const supplied = positionals[2];
     const artifact = supplied
       ? posix(path.relative(root, path.resolve(root, supplied)))
       : posix(path.join(itemRelative, phase.requiredArtifact?.path ?? ''));

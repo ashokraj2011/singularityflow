@@ -1,5 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
+import { spawnSync } from 'node:child_process';
+import { fileURLToPath } from 'node:url';
 import { mkdtemp, mkdir, readFile, writeFile } from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
@@ -24,6 +26,8 @@ The service accepts a rule request.
 [APP:AC-001]
 Depends on APP:REQ-001. A valid request returns a result.
 `;
+
+const cli = fileURLToPath(new URL('../bin/singularity-flow.mjs', import.meta.url));
 
 test('specification clauses are stable, typed, and dependency checked', () => {
   const clauses = extractClauses(markdown, { sourcePath: 'spec.md', namespace: 'APP' });
@@ -56,6 +60,22 @@ test('a specification index binds clauses to the exact source bytes', async () =
   assert.match(index.indexSha256, /^[0-9a-f]{64}$/);
   const stored = JSON.parse(await readFile(path.join(root, 'context/spec-indexes/requirements-gen1.json'), 'utf8'));
   assert.equal(stored.source.sha256, index.source.sha256);
+});
+
+test('spec index can inspect a standalone repository file before a Story exists', async () => {
+  const root = await mkdtemp(path.join(os.tmpdir(), 'sflow-standalone-spec-'));
+  run('git', ['init', '-b', 'main'], { cwd: root });
+  await writeFile(path.join(root, 'candidate.md'), markdown);
+  const result = spawnSync(process.execPath, [cli, 'spec', 'index', 'candidate.md'], {
+    cwd: root,
+    encoding: 'utf8'
+  });
+  assert.equal(result.status, 0, result.stderr);
+  assert.match(result.stdout, /Indexed 2 standalone clause/);
+  const stored = JSON.parse(await readFile(path.join(root, '.git', 'singularity-flow', 'spec-indexes', 'candidate.md.json'), 'utf8'));
+  assert.equal(stored.workId, null);
+  assert.equal(stored.phase, null);
+  assert.equal(stored.clauses.length, 2);
 });
 
 test('claim maps, coverage, and clause-scoped context preserve traceability', () => {

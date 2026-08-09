@@ -10,10 +10,18 @@ import { allCommands, documentedCommands, synopsisFor } from '../src/help-pages.
 import { canonicalCommand } from '../src/command-registry.mjs';
 import { validatePortfolio, validatePortfolioWorldModelViews } from '../src/initiative-config.mjs';
 import { auditSkillPolicy } from './skill-policy.mjs';
+import { validateNarrationMigrationStatus } from '../src/narration/migration-status.mjs';
 
 const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 const failures = [];
 const checked = [];
+
+try {
+  validateNarrationMigrationStatus();
+  checked.push('src/narration/migration-status.mjs');
+} catch (error) {
+  fail(error.message);
+}
 
 function fail(message) {
   failures.push(message);

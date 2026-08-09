@@ -5,12 +5,15 @@
  * continuation from post-command state, and prints. Nothing upstream of here formats anything.
  */
 import { attachContinuation } from './continuation.mjs';
-import { assertContinuation } from './command-result.mjs';
+import { assertContinuation, validateCommandResult } from './command-result.mjs';
 import { renderCommandResult } from './render-terminal.mjs';
 import { renderCommandResultJson } from './render-json.mjs';
 
 export function emitCommandResult(result, { json = false, postState = null, publicationPending = false, modelMode, restStateWhenIdle = null } = {}) {
-  const complete = assertContinuation(attachContinuation(result, { postState, publicationPending, modelMode, restStateWhenIdle }));
+  const complete = assertContinuation(validateCommandResult(
+    attachContinuation(result, { postState, publicationPending, modelMode, restStateWhenIdle }),
+    { requireEnvelope: true }
+  ));
   console.log(json ? renderCommandResultJson(complete) : renderCommandResult(complete));
   return complete;
 }

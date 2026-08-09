@@ -70,7 +70,7 @@
       "items": {
         "type": "object",
         "additionalProperties": false,
-        "required": ["id", "label", "command", "rank", "kind"],
+        "required": ["id", "label", "command", "rank", "kind", "modelPolicy"],
         "properties": {
           "id": { "type": "string", "minLength": 1 },
           "label": { "type": "string", "minLength": 1 },

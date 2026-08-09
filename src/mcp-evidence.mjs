@@ -32,16 +32,37 @@ function safeOutputUrl(value) {
   return url;
 }
 
-async function downloadOutput(value) {
+/** Read a response incrementally so an untrusted MCP server cannot force an unbounded allocation. */
+export async function readResponseWithLimit(response, maxBytes = MAX_OUTPUT_BYTES) {
+  if (!response.body) throw new SingularityFlowError('MCP output response has no body.', { code: 'MCP_EVIDENCE_DOWNLOAD_FAILED' });
+  const chunks = [];
+  let total = 0;
+  try {
+    for await (const chunk of response.body) {
+      const bytes = Buffer.from(chunk);
+      total += bytes.length;
+      if (total > maxBytes) {
+        await response.body.cancel?.().catch?.(() => {});
+        throw new SingularityFlowError(`MCP evidence output exceeds ${maxBytes} bytes.`, { code: 'MCP_EVIDENCE_LIMIT' });
+      }
+      chunks.push(bytes);
+    }
+  } catch (error) {
+    if (error?.code === 'MCP_EVIDENCE_LIMIT') throw error;
+    throw new SingularityFlowError(`MCP output stream failed: ${error.message}`, { code: 'MCP_EVIDENCE_DOWNLOAD_FAILED' });
+  }
+  return Buffer.concat(chunks, total);
+}
+
+async function downloadOutput(value, { fetchImpl = globalThis.fetch } = {}) {
   let url = safeOutputUrl(value), redirects = 0;
   while (redirects <= 5) {
-    const response = await fetch(url, { redirect: 'manual', signal: AbortSignal.timeout(20_000), headers: { accept: 'application/octet-stream,*/*;q=0.1' } });
+    const response = await fetchImpl(url, { redirect: 'manual', signal: AbortSignal.timeout(20_000), headers: { accept: 'application/octet-stream,*/*;q=0.1' } });
     if ([301, 302, 303, 307, 308].includes(response.status)) { const location = response.headers.get('location'); if (!location) break; url = safeOutputUrl(new URL(location, url)); redirects += 1; continue; }
     if (!response.ok) throw new SingularityFlowError(`MCP output download failed with HTTP ${response.status}.`, { code: 'MCP_EVIDENCE_DOWNLOAD_FAILED' });
     const declared = Number(response.headers.get('content-length'));
     if (Number.isFinite(declared) && declared > MAX_OUTPUT_BYTES) throw new SingularityFlowError(`MCP evidence output exceeds ${MAX_OUTPUT_BYTES} bytes.`, { code: 'MCP_EVIDENCE_LIMIT' });
-    const bytes = Buffer.from(await response.arrayBuffer());
-    if (bytes.length > MAX_OUTPUT_BYTES) throw new SingularityFlowError(`MCP evidence output exceeds ${MAX_OUTPUT_BYTES} bytes.`, { code: 'MCP_EVIDENCE_LIMIT' });
+    const bytes = await readResponseWithLimit(response, MAX_OUTPUT_BYTES);
     const persisted = new URL(url); persisted.search = ''; persisted.hash = '';
     return { bytes, name: sanitizeName(path.basename(url.pathname) || 'remote-output.bin'), mediaType: response.headers.get('content-type')?.split(';')[0] || mediaType(url.pathname), sourceUrl: persisted.toString(), redirects };
   }

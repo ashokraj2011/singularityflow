@@ -58,6 +58,10 @@ export const MESSAGES = Object.freeze({
   'resume.succeeded': {
     headline: (s) => `Resumed ${slot(s.workId)} on ${slot(s.branch)}.`,
     preserves: false
+  },
+  'agent.selected': {
+    headline: (s) => `Selected ${slot(s.agent)} for ${slot(s.workId)}.`,
+    preserves: false
   }
 });
 

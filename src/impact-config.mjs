@@ -28,10 +28,20 @@ export const IMPACT_METRICS = Object.freeze({
   'escaped-defects': { unit: 'count', direction: 'lower' }
 });
 
+/**
+ * Built through `normalizeMetricAuthority` rather than written as literals, so a default can never
+ * again be a shape the validator rejects. The previous `escaped-defects` default was exactly that:
+ * `external-provider` with an empty allowlist, which `normalizeMetricAuthority` refuses and which
+ * only survived because the defaults bypassed it. With no allowlisted provider and no kernel
+ * producer for the metric, every attempt to record it threw, and any study naming it as a guardrail
+ * failed permanently regardless of the data. `attested` is what a repository can satisfy on day one;
+ * `templates/impact.yml` shows how to raise it to a named provider.
+ */
 export const DEFAULT_IMPACT_METRIC_AUTHORITIES = Object.freeze(Object.fromEntries(
-  Object.keys(IMPACT_METRICS).map((metric) => [metric, metric === 'escaped-defects'
-    ? Object.freeze({ authority: 'external-provider', providers: Object.freeze([]) })
-    : Object.freeze({ authority: 'kernel-only' })])
+  Object.keys(IMPACT_METRICS).map((metric) => [metric, Object.freeze(normalizeMetricAuthority(
+    metric === 'escaped-defects' ? { authority: 'attested' } : { authority: 'kernel-only' },
+    metric
+  ))])
 ));
 
 function sha256(value) {

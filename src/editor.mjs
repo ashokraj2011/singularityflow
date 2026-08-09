@@ -1199,10 +1199,14 @@ export async function validateEditorConfiguration(root) {
   const agents = await discoverAgents(root);
   await loadAgentMappings(root, { agents });
   return {
+    // `valid` is always true because this function signals failure by throwing; it is kept so the
+    // JSON shape does not change under callers that read it.
     valid: true,
     workTypes: Object.keys(definition.workTypes).length,
-    agents: Object.keys(definition.agents).length,
     phases: Object.keys(definition.phases).length,
+    // Two keys named `agents` used to sit in this literal, so the declared count was silently
+    // overwritten by the discovered one and never reported at all. Both are useful; name them.
+    declaredAgents: Object.keys(definition.agents).length,
     agents: agents.length,
     initiativeProfiles: Object.keys(portfolio?.initiativeProfiles ?? {}).length,
     initiativePhases: Object.keys(portfolio?.initiativePhases ?? {}).length,

@@ -81,6 +81,14 @@ export async function attachStoryBranch(root, config, {
     await preserveAgent(root, config, workflow);
     return { workflow, branch: current, canonical: false, created: false, record: existing, publication: null };
   }
+  const actor = identity(root);
+  const record = childRecord(workflow, current, actor, head(root));
+  // The in-memory registration has to happen first: `commitAndPublish` resolves the publication
+  // branch eagerly through `workflowPublicationBranch`, which refuses a branch the aggregate does
+  // not list. Only the durable write moves inside the transaction — that is where the bug was. A
+  // failed publication used to leave the child branch recorded in the on-disk workflow but in no
+  // commit, and the retry then took the already-registered early return and published nothing, so
+  // the registration stayed local and unattested while every other clone rejected work on it.
   workflow.lineage ??= {
     schemaVersion: 1,
     canonicalBranch: workflow.workItem.branch,
@@ -88,8 +96,6 @@ export async function attachStoryBranch(root, config, {
     childBranches: []
   };
   workflow.lineage.childBranches ??= [];
-  const actor = identity(root);
-  const record = childRecord(workflow, current, actor, head(root));
   workflow.lineage.childBranches.push(record);
   workflow.history.push({
     at: record.registeredAt,
@@ -98,8 +104,15 @@ export async function attachStoryBranch(root, config, {
     phase: workflow.currentPhase,
     detail: `${current} -> ${workflow.workItem.id}`
   });
-  await saveStoryDraft(root, config, workflow);
-  const publication = await commitAndPublish(root, config, workflow, { type: 'branch-linked', payload: { childBranch: current } }, `[${workflow.workItem.id}][branch:attach] ${current}`);
+  const publication = await commitAndPublish(
+    root,
+    config,
+    workflow,
+    { type: 'branch-linked', payload: { childBranch: current } },
+    `[${workflow.workItem.id}][branch:attach] ${current}`,
+    [],
+    { beforeStateWrite: async () => { await saveStoryDraft(root, config, workflow); } }
+  );
   await preserveAgent(root, config, workflow);
   return { workflow, branch: current, canonical: false, created: true, record, publication };
 }
@@ -115,9 +128,21 @@ export async function createStoryBranch(root, config, {
   }
   const name = validateBranchName(root, branchName, config);
   if (workflowBranchAllowed(workflow, name)) throw new SingularityFlowError(`Branch '${name}' is already registered for Story '${parentStoryId}'.`);
+  const canonical = branch(root);
   const switched = run('git', ['switch', '-c', name], { cwd: root, allowFailure: true });
   if (switched.status !== 0) throw new SingularityFlowError(`Unable to create child branch '${name}': ${(switched.stderr || switched.stdout).trim()}`);
-  return attachStoryBranch(root, config, { parentStoryId, branchName: name });
+  try {
+    return await attachStoryBranch(root, config, { parentStoryId, branchName: name });
+  } catch (error) {
+    // The ref moves before the transaction opens and nothing else unwinds it. Without this, a failed
+    // attach left the caller on a branch that existed in the on-disk workflow but in no commit — and
+    // retrying was worse than useless: `attachStoryBranch` takes its already-registered early return,
+    // reports success, and publishes nothing, so the registration stays local and unattested forever
+    // while every other clone refuses work on that branch.
+    run('git', ['switch', canonical], { cwd: root, allowFailure: true });
+    run('git', ['branch', '-D', name], { cwd: root, allowFailure: true });
+    throw error;
+  }
 }
 
 export async function storyBranchStatus(root, config, parentStoryId = null) {

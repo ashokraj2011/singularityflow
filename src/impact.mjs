@@ -15,6 +15,13 @@ export const IMPACT_ASSURANCE_LEVELS = Object.freeze(['host-observed', 'provider
 export const IMPACT_EVIDENCE_ASSURANCE_LEVELS = Object.freeze([
   ...IMPACT_ASSURANCE_LEVELS, 'provider-signed', 'unverified-import', 'kernel-derived'
 ]);
+/**
+ * Assurance levels an allowlisted external provider's observation can carry. `attested` is what
+ * `collectImpactEvidence` stamps today; the two provider-* levels are reserved for a future
+ * signature check and rank above it. Deliberately excludes `unverified-import` — a hand-edited file
+ * is not a provider observation however trusted the provider ID it names.
+ */
+export const PROVIDER_ASSURANCE_LEVELS = Object.freeze(['provider-signed', 'provider-verified', 'attested']);
 
 function stable(value) {
   if (Array.isArray(value)) return value.map(stable);
@@ -260,7 +267,13 @@ function assertEvidenceAuthority(workflow, record) {
   const assurance = record.provider.assurance ?? 'unknown';
   const providerAllowed = (authority.providers ?? []).includes(record.provider.id);
   const kernel = assurance === 'kernel-derived' && record.provider.id === 'singularity-flow';
-  const external = providerAllowed && ['provider-verified', 'provider-signed'].includes(assurance);
+  // The governance property `external-provider` asserts is that the observation came from a provider
+  // the configuration allowlists — that is what `providerAllowed` checks. The assurance floor only
+  // has to exclude evidence a provider did not produce: a hand-edited import, or an unknown level.
+  // Requiring `provider-verified`/`provider-signed` made the mode unsatisfiable, because the only
+  // two producers stamp `attested` (collect) and `unverified-import` (import), so no user action
+  // could ever satisfy it — and `composite` silently degraded to `kernel-only` for the same reason.
+  const external = providerAllowed && PROVIDER_ASSURANCE_LEVELS.includes(assurance);
   const attested = ['attested', 'unverified-import'].includes(assurance) && record.actor?.name && record.actor?.email;
   const accepted = authority.authority === 'kernel-only' ? kernel
     : authority.authority === 'external-provider' ? external

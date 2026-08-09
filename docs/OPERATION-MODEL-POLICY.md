@@ -95,6 +95,7 @@ Every public operation is classified before its implementation module is importe
 | wm.cleanup | mutation | never | — | — |
 | wm.compose | mutation | never | — | — |
 | wm.context | mutation | never | — | — |
+| wm.design-inventory | mutation | never | — | — |
 | wm.init | mutation | never | — | — |
 | wm.inject | mutation | never | — | — |
 | wm.light | mutation | never | — | — |

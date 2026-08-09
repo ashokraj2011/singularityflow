@@ -1,5 +1,5 @@
 import { createHash, randomUUID } from 'node:crypto';
-import { lstat, mkdir, readFile, realpath } from 'node:fs/promises';
+import { lstat, mkdir, readFile, readdir, realpath } from 'node:fs/promises';
 import path from 'node:path';
 import { gitDir } from './git.mjs';
 import { assertModelInvocationAllowed } from './operation-context.mjs';
@@ -94,6 +94,44 @@ async function normalizeRequest(request, context) {
     tools: Object.freeze({ mode: toolMode, names: Object.freeze([...toolNames]) }),
     limits: Object.freeze(limits)
   });
+}
+
+/**
+ * The configured model provider, resolved the one way for every caller.
+ *
+ * Call sites used to each spell this out, and one of them — `workspace impact analyze` — never did,
+ * so it silently spawned bare `copilot` from PATH while `doctor` reported the configured corporate
+ * binary as the provider in use.
+ */
+export function resolveModelProvider(definition) {
+  const provider = definition?.models?.defaultProvider ?? 'copilot-cli';
+  const providerConfig = definition?.models?.providers?.[provider] ?? null;
+  return { provider, providerConfig, model: providerConfig?.model ?? null };
+}
+
+/**
+ * Completed model invocations recorded for a subject, oldest first.
+ *
+ * The audit store has been written on every invocation since it was introduced and read by nothing,
+ * so `authorship.kernelModel.invoked` was a constant `false` — including for phases where the
+ * kernel model demonstrably ran — and that constant was then sealed into the immutable review
+ * packet. This is the reader that closes the loop.
+ */
+export async function listModelInvocations(root, { subjectId = null } = {}) {
+  const directory = path.join(gitDir(root), 'singularity-flow', 'model-invocations');
+  const names = await readdir(directory).catch(() => []);
+  const records = [];
+  for (const name of names) {
+    if (!name.endsWith('.json')) continue;
+    const text = await readFile(path.join(directory, name), 'utf8').catch(() => null);
+    if (text === null) continue;
+    let record = null;
+    try { record = JSON.parse(text); } catch { continue; }
+    if (record?.status !== 'completed') continue;
+    if (subjectId && record.subject?.id !== subjectId) continue;
+    records.push(record);
+  }
+  return records.sort((a, b) => String(a.completedAt).localeCompare(String(b.completedAt)));
 }
 
 export async function invokeModel(request) {

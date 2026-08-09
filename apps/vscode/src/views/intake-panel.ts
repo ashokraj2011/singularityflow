@@ -253,9 +253,18 @@ export class IntakePanel {
     try {
       const result = await vscode.window.withProgress(
         { location: vscode.ProgressLocation.Notification, title: `Starting ${this.form.shape}…` },
-        () => this.client.run<{ id?: string; workItem?: { id?: string }; initiative?: { id?: string } }>(args));
-      // The identifier a local Epic minted is only knowable from what came back.
-      const id = result.workItem?.id ?? result.initiative?.id ?? result.id
+        () => this.client.run<{
+          id?: string;
+          initiativeId?: string;
+          workItem?: { id?: string };
+          initiative?: { id?: string };
+          reservation?: { id?: string };
+        }>(args));
+      // The identifier a local Epic minted is only knowable from what came back — and `epic start
+      // --local --json` reports it as `initiativeId`, which was not among the names read here, so
+      // the fallback produced the empty string and the new Epic was never selected.
+      const id = result.workItem?.id ?? result.initiative?.id ?? result.initiativeId
+        ?? result.reservation?.id ?? result.id
         ?? (this.form.tracker === 'jira' ? this.form.key.trim() : this.form.id.trim());
       const shape = this.form.shape;
       this.dispose();

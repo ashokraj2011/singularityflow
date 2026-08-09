@@ -155,7 +155,6 @@ export async function runAndRecordStoryChecks(root, config, workflow, {
   const evidenceSha256 = hash(base);
   const evidence = { ...base, evidenceSha256, ready: github.ready && base.governance.valid && (base.conformance.phaseStatus == null || base.conformance.fresh) };
   const file = path.join(workDir(root, config, workflow.workItem.id), 'evidence', 'github', `${evidenceSha256}.json`);
-  await writeJson(file, evidence);
   workflow.lineage.reviewEvidence ??= [];
   workflow.lineage.reviewEvidence.push({
     evidenceSha256,
@@ -172,7 +171,23 @@ export async function runAndRecordStoryChecks(root, config, workflow, {
     phase: packet.phase,
     detail: `${packet.packetSha256.slice(0, 12)} ready=${evidence.ready}`
   });
-  await saveStoryDraft(root, config, workflow);
-  const publication = await commitAndPublish(root, config, workflow, { type: 'evidence-recorded', phaseId: packet.phase, payload: { packetSha256: packet.packetSha256, evidenceSha256 } }, `[${workflow.workItem.id}][checks] ${packet.packetSha256.slice(0, 12)}`, [path.relative(root, file)]);
+  // Both durable writes run inside the unit. The evidence file and the aggregate that references it
+  // used to be written before publication, so a refusal left the recorded checks on disk with no
+  // commit — and the aggregate's own rollback snapshot, captured after them, restored the version
+  // that already contained them.
+  const publication = await commitAndPublish(
+    root,
+    config,
+    workflow,
+    { type: 'evidence-recorded', phaseId: packet.phase, payload: { packetSha256: packet.packetSha256, evidenceSha256 } },
+    `[${workflow.workItem.id}][checks] ${packet.packetSha256.slice(0, 12)}`,
+    [path.relative(root, file)],
+    {
+      beforeStateWrite: async () => {
+        await writeJson(file, evidence);
+        await saveStoryDraft(root, config, workflow);
+      }
+    }
+  );
   return { evidence, publication, branch: workflowPublicationBranch(root, workflow) };
 }

@@ -888,6 +888,19 @@ async function reportCommand(positionals, options) {
   const root = repoRoot();
   const config = await timer.measure('configuration', () => loadConfig(root));
   const workflow = await timer.measure('workflow', () => loadStoryAggregate(root, config, positionals[1]));
+  // `report --recap` is the same account the pull-request body carries, from the same beats. Kept on
+  // `report` rather than given its own verb: it answers "what happened here", which is the question
+  // report already exists to answer, and one surface is one thing to keep true.
+  if (optionBoolean(options, 'recap')) {
+    const { recap } = await import('./narration/recap.mjs');
+    const length = optionString(options, 'length', 'standard');
+    const account = recap(workflow, {
+      length,
+      locale: optionString(options, 'locale', 'en-GB'),
+      timeZone: optionString(options, 'timezone', 'UTC')
+    });
+    return console.log(account || `No recorded beats for ${workflow.workItem.id} yet.`);
+  }
   const format = optionString(options, 'format', 'md').toLowerCase();
   if (!['md', 'html', 'json'].includes(format)) throw new SingularityFlowError(`Unknown report format: ${format}. Use md, html, or json.`);
   const report = await timer.measure('derive', async () => deriveReport(workflow, { pricing: config.tokens?.pricing ?? null }));

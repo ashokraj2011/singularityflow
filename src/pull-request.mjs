@@ -4,6 +4,7 @@ import YAML from 'yaml';
 import { run, commandExists, exists, SingularityFlowError } from './util.mjs';
 import { githubAuthStatus } from './github-evidence.mjs';
 import { defaultBranchName } from './git.mjs';
+import { recap } from './narration/recap.mjs';
 
 // Where the story's pull request goes. Materialization records the branch the story was cut from;
 // for a story in the epic's own repository that is the epic branch, so the pull request targets the
@@ -44,6 +45,13 @@ export function storyPullRequestBody(workflow, seed = null, { mergeSequence = nu
     const approvals = (phase.approvals ?? []).filter((item) => !item.invalidatedAt && item.decision === 'approved');
     return `- ${phase.label ?? phase.id}: **${phase.status}** · generation ${phase.generation ?? 0} · ${approvals.length} approval${approvals.length === 1 ? '' : 's'}`;
   }), '');
+
+  // How the work actually went, from the same normalized beats the CLI recap reads. Rendered with a
+  // pinned locale and timezone so two people generating this body from the same history get the
+  // same bytes — a reviewer comparing it against the branch must not find drift that is only
+  // formatting. The phase table above says where the Story ended; this says how it got there.
+  const account = recap(workflow, { locale: 'en-GB', timeZone: 'UTC', length: 'brief' });
+  if (account) lines.push('### How this Story got here', '', '```', account, '```', '');
 
   lines.push('### Acceptance criteria', '', bulleted(story.acceptanceCriteria, 'None recorded in the story seed.'), '');
 

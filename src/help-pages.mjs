@@ -198,6 +198,26 @@ const PAGES = Object.freeze({
     ],
     seeAlso: ['approve', 'reopen', 'submit']
   },
+  report: {
+    summary: 'Report on a Story: timing, usage, approvals — or the account of how it got here.',
+    description: [
+      '`--recap` renders the Story\'s history as readable beats, normalized from the lifecycle and',
+      'operational event streams. It is the same account the pull-request body carries, and it is',
+      'deterministic: the same history and the same locale and timezone produce identical output on',
+      'any machine.'
+    ],
+    options: [
+      ['--recap', 'Render the account of what happened instead of the metrics report.'],
+      ['--length brief|standard|full', 'How much of the account to include. Brief keeps the beats that shape the story.'],
+      ['--locale TAG', 'Rendering locale. Defaults to en-GB and is pinned, never read from the environment.'],
+      ['--timezone ZONE', 'Rendering timezone. Defaults to UTC for the same reason.']
+    ],
+    examples: [
+      ['singularity-flow report PAY-1 --recap --length brief', 'The shape of the Story in a few beats.'],
+      ['singularity-flow report PAY-1 --recap --timezone Asia/Kolkata', 'The same beats, rendered in another zone.']
+    ],
+    seeAlso: ['status', 'progress', 'pr']
+  },
   status: {
     summary: 'Show where a Story is and what it needs next.',
     examples: [

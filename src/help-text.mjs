@@ -32,6 +32,8 @@ Usage:
   singularity-flow refresh-branch [--remote origin] [--branch CURRENT] [--json]
   singularity-flow factory-reset [--dry-run] [--confirm "RESET REPOSITORY COMMIT"] [--allow-dirty] [--json]
   sflow reset-all [--yes] [--json]
+  singularity-flow local-reset [--dry-run] [--confirm "RESET LOCAL"] [--json]
+  sf-local-reset [--dry-run] [--confirm "RESET LOCAL"] [--json]
   singularity-flow fresh-install [--checkout DIRECTORY] [--yes] [--registry URL] [--cli-only] [--no-copilot-telemetry]
   singularity-flow stack status [--epic EPIC-ID] [--json]
   singularity-flow stack sync --epic EPIC-ID [--json]

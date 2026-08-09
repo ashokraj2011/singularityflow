@@ -8,6 +8,7 @@ import { activeWorkspaceFile, workspaceRegistryFile } from './workspace-context.
 import { run, SingularityFlowError } from './util.mjs';
 
 export const FRESH_INSTALL_CONFIRMATION = 'RESET EVERYTHING';
+export const LOCAL_RESET_CONFIRMATION = 'RESET LOCAL';
 export const VSCODE_RESET_MARKER = 'vscode-fresh-reset-pending.json';
 const INSTALLER_GENERATED_ROOTS = ['singularity', '.singularity', '.github/agents'];
 
@@ -24,7 +25,12 @@ async function existingDirectory(target, label) {
   return info;
 }
 
-function assertNarrowWorkspaceRoot(target, { homeDirectory, projectDirectory }) {
+function assertNarrowWorkspaceRoot(target, {
+  homeDirectory,
+  projectDirectory,
+  protectedDirectoryLabel = 'installer checkout',
+  protectedDirectoryInstruction = 'Move or clone Singularity Flow outside that workspace before a full reset.'
+}) {
   const resolved = path.resolve(target);
   const filesystemRoot = path.parse(resolved).root;
   for (const forbidden of [filesystemRoot, path.resolve(homeDirectory), path.resolve(projectDirectory)]) {
@@ -32,7 +38,7 @@ function assertNarrowWorkspaceRoot(target, { homeDirectory, projectDirectory }) 
   }
   if (inside(resolved, path.resolve(projectDirectory))) {
     throw new SingularityFlowError(
-      `The installer checkout is inside registered workspace ${resolved}. Move or clone Singularity Flow outside that workspace before a full reset.`
+      `The ${protectedDirectoryLabel} is inside registered workspace ${resolved}. ${protectedDirectoryInstruction}`
     );
   }
 }
@@ -105,10 +111,16 @@ async function installerGeneratedState(project) {
  * deletable only when its own regular workspace.json validates and resolves back to that exact
  * directory. A stale missing registration is harmless; an existing ambiguous path blocks reset.
  */
-export async function freshInstallResetPlan({
+async function machineResetPlan({
   homeDirectory = os.homedir(),
   projectDirectory = process.cwd(),
-  environment = process.env
+  environment = process.env,
+  operation,
+  confirmation,
+  includeInstallerState,
+  removeDirectSkills,
+  protectedDirectoryLabel,
+  protectedDirectoryInstruction
 } = {}) {
   const home = path.resolve(homeDirectory);
   const project = path.resolve(projectDirectory);
@@ -141,7 +153,12 @@ export async function freshInstallResetPlan({
     if (info.isSymbolicLink() || !info.isDirectory()) {
       throw new SingularityFlowError(`Registered workspace is not a real directory: ${target}`);
     }
-    assertNarrowWorkspaceRoot(target, { homeDirectory: home, projectDirectory: project });
+    assertNarrowWorkspaceRoot(target, {
+      homeDirectory: home,
+      projectDirectory: project,
+      protectedDirectoryLabel,
+      protectedDirectoryInstruction
+    });
     let manifest;
     try { manifest = await readWorkspace(target); }
     catch (error) {
@@ -169,11 +186,11 @@ export async function freshInstallResetPlan({
   const copilotSessionRoot = path.join(home, '.copilot', 'session-state');
   const copilotSessions = await managedCopilotSessions(copilotSessionRoot);
   const directSkillsRoot = copilotSkillsDirectory({ env: environment, homeDirectory: home });
-  const installerGeneratedPaths = await installerGeneratedState(project);
+  const installerGeneratedPaths = includeInstallerState ? await installerGeneratedState(project) : [];
   return {
     schemaVersion: 1,
-    operation: 'fresh-install-reset',
-    confirmation: FRESH_INSTALL_CONFIRMATION,
+    operation,
+    confirmation,
     projectDirectory: project,
     registryFile,
     selectionFile,
@@ -182,6 +199,7 @@ export async function freshInstallResetPlan({
     missingRegistrations,
     copilotSessions,
     directSkillsRoot,
+    removeDirectSkills,
     installerGeneratedPaths,
     remove: [
       ...installerGeneratedPaths.map((target) => `${target} (untracked Singularity state generated inside the installer checkout)`),
@@ -190,16 +208,51 @@ export async function freshInstallResetPlan({
       ...(registryFile === path.join(localStateRoot, 'workspaces.json') ? [] : [`${registryFile} (custom workspace registry)`]),
       ...(selectionFile === path.join(localStateRoot, 'active-workspace.json') ? [] : [`${selectionFile} (custom active-workspace selection)`]),
       ...copilotSessions.map((session) => `${session} (Singularity-named Copilot session state)`),
-      `${directSkillsRoot}/sf-* managed skill aliases`,
-      'installed singularity-flow Copilot plugin copies, global npm package, and VS Code extension (removed by install.sh before reinstall)',
-      'Singularity Flow Jira, Teams, indexed provider credentials, onboarding profile, and extension global state (cleared when the reinstalled VS Code extension next activates)'
+      ...(removeDirectSkills ? [`${directSkillsRoot}/sf-* managed skill aliases`] : []),
+      ...(includeInstallerState
+        ? ['installed singularity-flow Copilot plugin copies, global npm package, and VS Code extension (removed by install.sh before reinstall)']
+        : []),
+      `Singularity Flow Jira, Teams, indexed provider credentials, onboarding profile, and extension global state (cleared when the ${includeInstallerState ? 'reinstalled ' : ''}VS Code extension next activates)`
     ],
     preserve: [
-      'this installer checkout, its tracked source, and its Git history',
+      includeInstallerState
+        ? 'this installer checkout, its tracked source, and its Git history'
+        : 'the current directory and every repository outside validated registered workspace roots',
       'unregistered application directories and repositories',
-      'personal Copilot skills without the Singularity managed marker'
+      'personal Copilot skills without the Singularity managed marker',
+      ...(!removeDirectSkills
+        ? ['the installed CLI, VS Code extension, Copilot plugin, and managed /sf-* skills']
+        : [])
     ]
   };
+}
+
+export async function freshInstallResetPlan(options = {}) {
+  return machineResetPlan({
+    ...options,
+    operation: 'fresh-install-reset',
+    confirmation: FRESH_INSTALL_CONFIRMATION,
+    includeInstallerState: true,
+    removeDirectSkills: true,
+    protectedDirectoryLabel: 'installer checkout',
+    protectedDirectoryInstruction: 'Move or clone Singularity Flow outside that workspace before a full reset.'
+  });
+}
+
+/**
+ * Preview a clean local Singularity state without uninstalling the product. Only workspace roots
+ * proven by their registry entry and matching workspace.json are eligible for deletion.
+ */
+export async function localResetPlan(options = {}) {
+  return machineResetPlan({
+    ...options,
+    operation: 'local-reset',
+    confirmation: LOCAL_RESET_CONFIRMATION,
+    includeInstallerState: false,
+    removeDirectSkills: false,
+    protectedDirectoryLabel: 'current working directory',
+    protectedDirectoryInstruction: 'Run local-reset from a directory outside every managed workspace.'
+  });
 }
 
 async function moveToStaging(target, records) {
@@ -224,12 +277,10 @@ async function restoreMoved(records) {
   return failures;
 }
 
-/** Delete only the boundary proven by freshInstallResetPlan. Reinstallation remains install.sh's job. */
-export async function freshInstallReset(options = {}) {
-  const plan = await freshInstallResetPlan(options);
-  if (options.confirmation !== FRESH_INSTALL_CONFIRMATION) {
+async function applyMachineReset(plan, { confirmation }) {
+  if (confirmation !== plan.confirmation) {
     throw new SingularityFlowError(
-      `Fresh install reset requires exact confirmation '${FRESH_INSTALL_CONFIRMATION}'. Preview it without --yes first.`
+      `${plan.operation === 'local-reset' ? 'Local reset' : 'Fresh install reset'} requires exact confirmation '${plan.confirmation}'. Run with --dry-run first.`
     );
   }
   const moved = [];
@@ -240,7 +291,7 @@ export async function freshInstallReset(options = {}) {
     if (!inside(plan.localStateRoot, plan.registryFile)) await moveToStaging(plan.registryFile, moved);
     if (!inside(plan.localStateRoot, plan.selectionFile)) await moveToStaging(plan.selectionFile, moved);
     for (const session of plan.copilotSessions) await moveToStaging(session, moved);
-    uninstallDirectSkills({ targetRoot: plan.directSkillsRoot });
+    if (plan.removeDirectSkills) uninstallDirectSkills({ targetRoot: plan.directSkillsRoot });
     await mkdir(plan.localStateRoot, { recursive: true, mode: 0o700 });
     const vscodeResetMarker = path.join(plan.localStateRoot, VSCODE_RESET_MARKER);
     await writeFile(vscodeResetMarker, `${JSON.stringify({
@@ -254,9 +305,21 @@ export async function freshInstallReset(options = {}) {
     const failures = await restoreMoved(moved);
     if (failures.length) {
       throw new SingularityFlowError(
-        `Fresh reset failed and rollback was incomplete (${failures.join('; ')}). Original error: ${error.message}`
+        `${plan.operation === 'local-reset' ? 'Local reset' : 'Fresh reset'} failed and rollback was incomplete (${failures.join('; ')}). Original error: ${error.message}`
       );
     }
     throw error;
   }
+}
+
+/** Delete only the boundary proven by freshInstallResetPlan. Reinstallation remains install.sh's job. */
+export async function freshInstallReset(options = {}) {
+  const plan = await freshInstallResetPlan(options);
+  return applyMachineReset(plan, options);
+}
+
+/** Delete validated workspaces and local runtime state while preserving every installed surface. */
+export async function localReset(options = {}) {
+  const plan = await localResetPlan(options);
+  return applyMachineReset(plan, options);
 }

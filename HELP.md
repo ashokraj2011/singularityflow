@@ -171,12 +171,16 @@ can edit an existing PR through `gh`; the command never creates one.
 
 ## Reset and fresh reinstall
 
-There are three intentionally different reset boundaries:
+There are four intentionally different reset boundaries:
 
 - `singularity-flow factory-reset --dry-run` resets one application repository's
   governed configuration and lifecycle state while preserving its source and Git.
 - `sf-reset-all` resets that repository plus the machine registry, but preserves
   every physical workspace and clone.
+- `singularity-flow local-reset --dry-run` previews a clean local-machine reset:
+  every validated registered workspace directory and local Singularity state is
+  removed, while the installed CLI, VS Code extension, Copilot plugin, and skills
+  remain ready to use.
 - `singularity-flow fresh-install` previews a true fresh machine install. After
   reviewing the exact paths, `singularity-flow fresh-install --yes` deletes all
   validated registered workspace roots and clones, clears Singularity local and
@@ -189,6 +193,19 @@ It preserves the installer checkout, unregistered repositories, and personal
 skills. A one-time marker makes the reinstalled extension clear its Singularity
 Flow SecretStorage credentials, onboarding profile, and global state on first
 activation.
+
+The local reset uses the same proven workspace boundary without uninstalling or
+reinstalling anything:
+
+```bash
+singularity-flow local-reset --dry-run --json
+singularity-flow local-reset --confirm "RESET LOCAL"
+```
+
+Run it from outside every workspace listed in the preview. A stale registration
+whose directory no longer exists is forgotten with machine state; an existing
+directory without an exact matching `workspace.json` stops the reset. In Copilot,
+use `/sf-local-reset` for the same preview and contributor-entered confirmation.
 
 ## Multi-repository initiatives
 
@@ -2179,6 +2196,19 @@ from the installed npm package and clears both `.git/singularity-flow/` and
 preserves their physical directories and repository clones, application source,
 Git history, and VS Code keychain credentials.
 
+To delete all validated physical workspace directories as well as the local
+registry and sessions, while keeping the installed product ready for immediate
+reuse:
+
+```bash
+singularity-flow local-reset --dry-run
+singularity-flow local-reset --confirm "RESET LOCAL"
+```
+
+This does not modify an application repository in place; it removes the complete
+validated workspace root containing its clones and documents. Run the command
+from a directory outside those workspace roots.
+
 ```bash
 singularity-flow recover WORK-123 --fetch
 singularity-flow recover WORK-123 --fetch --apply
@@ -2289,6 +2319,8 @@ singularity-flow init [--work-id ID --base BRANCH --fetch] [--check|--repair]
 singularity-flow factory-reset [--dry-run | --confirm TEXT] [--allow-dirty]
 singularity-flow reset-all [--yes]
 sf-reset-all [--yes]
+singularity-flow local-reset [--dry-run | --confirm "RESET LOCAL"] [--json]
+sf-local-reset [--dry-run | --confirm "RESET LOCAL"] [--json]
 singularity-flow fresh-install [--checkout DIRECTORY] [--yes] [--registry URL] [--cli-only] [--no-copilot-telemetry]
 singularity-flow choices begin|answer|status ...
 singularity-flow start <WORK-ID> [--jira | --story-file FILE] [--work-type ID] [--agent ID] [--ref CANONICAL-BRANCH]

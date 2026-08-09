@@ -177,6 +177,25 @@ physical workspace and repository clones. VS Code keychain credentials are
 also preserved; reset Jira or Teams credentials separately in VS Code. Run
 `sf-reset-all` without `--yes` to preview the exact boundary.
 
+To remove every validated Singularity-managed workspace directory and clear the
+machine's local Singularity state **without uninstalling the product**, use:
+
+```bash
+singularity-flow local-reset --dry-run
+# Review the exact workspace paths and preserved components, then:
+singularity-flow local-reset --confirm "RESET LOCAL"
+# Short equivalent:
+sf-local-reset --confirm "RESET LOCAL"
+```
+
+`local-reset` removes only workspace roots proven by both the machine registry
+and a matching regular `workspace.json`. It also clears local sessions, caches,
+telemetry configuration, recovery state, Singularity-named Copilot sessions,
+and the VS Code extension's Singularity credentials/settings on next activation.
+It preserves the installed CLI, VS Code extension, Copilot plugin, `/sf-*`
+skills, unregistered repositories, and personal skills. Run it from outside the
+workspace directories listed by the preview.
+
 For a genuinely fresh Singularity installation across the machine, run the
 installer from a clean Singularity Flow source checkout. Preview first:
 
@@ -1519,6 +1538,7 @@ evidence workflow.
 | `sflow-about` | Describe the Singularity Flow product, version, capabilities, and `sflow-` namespace. |
 | `singularity-flow init` | Install editable YAML, templates, agent prompts, and world-model builder prompt. |
 | `singularity-flow factory-reset --dry-run` | Preview a destructive reset of repository Singularity state and local runtime data before reinstalling current npm-package defaults. |
+| `singularity-flow local-reset --dry-run` | Preview removal of every validated local workspace and machine state while preserving installed product surfaces. |
 | `singularity-flow start <ID> [--jira \| --story-file FILE] [--work-type ID] [--agent ID] [--ref BRANCH]` | Import Jira or manual story details, attach optional documents, choose a workflow, and create/push the canonical branch. Non-interactive callers must pass `--work-type`; a failed preflight restores the original branch and removes only the empty branch created by that attempt. The branch defaults to the Work ID; `--ref` decouples its name. |
 | `singularity-flow choices begin\|answer\|status` | Bridge explicit Copilot start and approval choices through a short-lived one-time receipt when persistent terminal stdin is unavailable. |
 | `singularity-flow resume <ID\|BRANCH> --fetch` | Resolve the Work ID/canonical-branch binding, fast-forward it, and activate the current phase agent. |

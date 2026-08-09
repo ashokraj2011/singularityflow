@@ -9,7 +9,7 @@ import { withOperationContext } from './operation-context.mjs';
 
 // These commands promise to remove machine-local Singularity state. Recording their own duration
 // after they finish would immediately recreate `.git/singularity-flow/` and make that promise false.
-const LOCAL_STATE_RESET_COMMANDS = new Set(['factory-reset', 'reset-all']);
+const LOCAL_STATE_RESET_COMMANDS = new Set(['factory-reset', 'reset-all', 'local-reset']);
 
 function rootIfAvailable() {
   try { return repoRoot(); } catch { return null; }

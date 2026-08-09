@@ -183,6 +183,24 @@ singularity-flow fresh-install --yes
 From another directory, add `--checkout ~/src/singularityflow` to either command.
 `./install.sh --factory-reset [--yes]` remains the low-level equivalent.
 
+### Clean local workspaces without reinstalling
+
+Use this when the machine should behave as if no Singularity workspace has ever
+been created, but the CLI, VS Code extension, Copilot plugin, and skills are
+already installed correctly:
+
+```bash
+cd /path/outside/all/singularity/workspaces
+singularity-flow local-reset --dry-run
+# Review every workspace path in the preview.
+singularity-flow local-reset --confirm "RESET LOCAL"
+```
+
+The command deletes only registered workspace roots whose own `workspace.json`
+matches the registry. It clears sessions, caches, recovery data, and extension
+state, but leaves installed product surfaces and unregistered repositories alone.
+Afterward, create a new workspace from VS Code or the CLI.
+
 The first command is a read-only preview. The second requires the explicit
 `--yes`, deletes only registry entries proven by a matching `workspace.json`,
 uninstalls old CLI/plugin/VS Code copies, and installs current CLI, plugin,

@@ -299,6 +299,104 @@ test('fresh install reset deletes every proven registered workspace and only man
   assert.equal(await readFile(path.join(skills, 'sf-personal', 'SKILL.md'), 'utf8'), 'personal\n');
 });
 
+test('local reset deletes validated workspaces and local state but preserves the installed skills and checkout', async () => {
+  const home = await mkdtemp(path.join(os.tmpdir(), 'sflow-local-reset-home-'));
+  const checkout = await mkdtemp(path.join(os.tmpdir(), 'sflow-local-reset-checkout-'));
+  const unregistered = await mkdtemp(path.join(os.tmpdir(), 'sflow-local-reset-unregistered-'));
+  await writeFile(path.join(checkout, 'product.txt'), 'installed product remains\n');
+  await writeFile(path.join(unregistered, 'source.txt'), 'unregistered source remains\n');
+  const { createWorkspaceConfiguration } = await import('../src/workspace.mjs');
+  const created = await createWorkspaceConfiguration({
+    baseDirectory: path.join(home, 'workspaces'),
+    id: 'local-reset-demo',
+    name: 'Local reset demo',
+    leadRepository: 'platform',
+    repositories: {
+      platform: {
+        url: 'https://example.invalid/platform.git',
+        defaultBranch: 'main',
+        required: true,
+        metadata: { appId: 'APP-LOCAL-RESET', name: 'Local reset platform' }
+      }
+    }
+  }, { confirmation: 'local-reset-demo', clone: false });
+  await writeFile(path.join(created.workspace.path, 'documents', 'proof.txt'), 'delete workspace bytes\n');
+
+  const machine = path.join(home, '.singularity-flow');
+  await mkdir(machine, { recursive: true });
+  await writeFile(path.join(machine, 'workspaces.json'), `${JSON.stringify({
+    schemaVersion: 1,
+    workspaces: [{
+      id: created.workspace.id,
+      path: created.workspace.path,
+      name: created.workspace.name,
+      openedAt: new Date().toISOString()
+    }]
+  })}\n`);
+  await writeFile(path.join(machine, 'active-workspace.json'), '{}\n');
+  const sessionRoot = path.join(home, '.copilot', 'session-state');
+  await mkdir(path.join(sessionRoot, 'singularity-local-reset'), { recursive: true });
+  await mkdir(path.join(sessionRoot, 'unrelated-session'), { recursive: true });
+  const skillsRoot = path.join(home, '.copilot', 'skills');
+  await mkdir(path.join(skillsRoot, 'sf-managed'), { recursive: true });
+  await writeFile(path.join(skillsRoot, 'sf-managed', 'SKILL.md'), '<!-- managed-by: singularity-flow direct-skill-alias -->\n');
+
+  const { localReset, localResetPlan } = await import('../src/fresh-install-reset.mjs');
+  const preview = await localResetPlan({ homeDirectory: home, projectDirectory: checkout, environment: {} });
+  assert.equal(preview.operation, 'local-reset');
+  assert.equal(preview.confirmation, 'RESET LOCAL');
+  assert.deepEqual(preview.workspaces.map((item) => item.path), [created.workspace.path]);
+  assert.deepEqual(preview.installerGeneratedPaths, []);
+  assert.equal(preview.removeDirectSkills, false);
+  assert.match(preview.preserve.join('\n'), /installed CLI, VS Code extension, Copilot plugin/);
+
+  await assert.rejects(() => localReset({
+    homeDirectory: home, projectDirectory: checkout, environment: {}, confirmation: 'WRONG'
+  }), /Local reset requires exact confirmation 'RESET LOCAL'/);
+  const result = await localReset({
+    homeDirectory: home, projectDirectory: checkout, environment: {}, confirmation: 'RESET LOCAL'
+  });
+  assert.equal(result.completed, true);
+  assert.equal(await missing(created.workspace.path), true);
+  assert.equal(await missing(path.join(sessionRoot, 'singularity-local-reset')), true);
+  assert.equal(await missing(path.join(sessionRoot, 'unrelated-session')), false);
+  assert.equal(await readFile(path.join(skillsRoot, 'sf-managed', 'SKILL.md'), 'utf8'),
+    '<!-- managed-by: singularity-flow direct-skill-alias -->\n');
+  assert.equal(await readFile(path.join(checkout, 'product.txt'), 'utf8'), 'installed product remains\n');
+  assert.equal(await readFile(path.join(unregistered, 'source.txt'), 'utf8'), 'unregistered source remains\n');
+  assert.equal(await missing(path.join(machine, 'vscode-fresh-reset-pending.json')), false);
+});
+
+test('local reset from inside a managed workspace refuses before deleting anything', async () => {
+  const home = await mkdtemp(path.join(os.tmpdir(), 'sflow-local-reset-inside-home-'));
+  const { createWorkspaceConfiguration } = await import('../src/workspace.mjs');
+  const created = await createWorkspaceConfiguration({
+    baseDirectory: path.join(home, 'workspaces'),
+    id: 'inside-demo',
+    name: 'Inside demo',
+    leadRepository: 'platform',
+    repositories: {
+      platform: {
+        url: 'https://example.invalid/platform.git', defaultBranch: 'main', required: true,
+        metadata: { appId: 'APP-INSIDE', name: 'Inside platform' }
+      }
+    }
+  }, { confirmation: 'inside-demo', clone: false });
+  const machine = path.join(home, '.singularity-flow');
+  await mkdir(machine, { recursive: true });
+  await writeFile(path.join(machine, 'workspaces.json'), `${JSON.stringify({
+    schemaVersion: 1,
+    workspaces: [{ id: created.workspace.id, path: created.workspace.path, name: created.workspace.name }]
+  })}\n`);
+  const { localResetPlan } = await import('../src/fresh-install-reset.mjs');
+  await assert.rejects(() => localResetPlan({
+    homeDirectory: home,
+    projectDirectory: path.join(created.workspace.path, 'repos'),
+    environment: {}
+  }), /current working directory is inside registered workspace.*Run local-reset from a directory outside/s);
+  assert.equal(await missing(created.workspace.path), false);
+});
+
 test('fresh install reset refuses existing registered paths without a matching workspace manifest', async () => {
   const home = await mkdtemp(path.join(os.tmpdir(), 'sflow-fresh-refuse-home-'));
   const checkout = await mkdtemp(path.join(os.tmpdir(), 'sflow-fresh-refuse-checkout-'));

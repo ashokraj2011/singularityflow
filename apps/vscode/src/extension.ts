@@ -82,6 +82,17 @@ interface HarnessReport {
   }>;
 }
 
+interface FactoryResetPlan {
+  repository: string;
+  branch: string | null;
+  head: string | null;
+  confirmation: string;
+  remove: string[];
+  replace: string[];
+  preserve: string[];
+  uncommittedResetPaths: string[];
+}
+
 export async function activate(context: vscode.ExtensionContext): Promise<void> {
   const output = vscode.window.createOutputChannel('Singularity Flow');
   context.subscriptions.push(output);
@@ -914,6 +925,74 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
       if (reload === 'Reload') await vscode.commands.executeCommand('workbench.action.reloadWindow');
     } catch (error) {
       void vscode.window.showErrorMessage((error as Error).message);
+    }
+  }));
+
+  // Version 1 is deliberately not migrated. This is the editor equivalent of /sf-factory-reset:
+  // the engine creates the preview and owns the mutation, while VS Code only presents the exact
+  // confirmation to the person. Registered before repository activation succeeds so the action is
+  // still available in the incompatible-workflow state it exists to repair.
+  context.subscriptions.push(vscode.commands.registerCommand('singularityFlow.reinitialize', async () => {
+    try {
+      const target = await resolveGovernedRepository(context, output);
+      if ('reason' in target) {
+        return void vscode.window.showWarningMessage(`Singularity Flow: ${target.reason}`);
+      }
+      const settings = vscode.workspace.getConfiguration('singularityFlow');
+      const location = resolveCli({
+        configuredCli: settings.get<string>('cliPath'),
+        configuredNode: settings.get<string>('nodePath'),
+        extensionPath: context.extensionPath
+      });
+      const client = new SingularityFlowClient({
+        location, repository: target.repository, environment: cliEnvironment,
+        onOutput: (text) => output.append(text)
+      });
+      const plan = await vscode.window.withProgress(
+        { location: vscode.ProgressLocation.Notification, title: 'Preparing the workflow v2 reset preview' },
+        () => client.run<FactoryResetPlan>(['factory-reset', '--dry-run', '--json'])
+      );
+      if (plan.uncommittedResetPaths.length) {
+        return void vscode.window.showWarningMessage(
+          'Reset cannot continue because governed files have uncommitted changes. Commit or stash them first. '
+          + 'Use the CLI with --allow-dirty only when you deliberately want to discard them.'
+        );
+      }
+      const review = await vscode.window.showWarningMessage(
+        'Reset and reinitialize this repository with workflow v2?',
+        {
+          modal: true,
+          detail: `Repository: ${plan.repository}\nBranch: ${plan.branch ?? 'detached'}\n\n`
+            + `Remove: ${plan.remove.join('; ')}\n\nReplace: ${plan.replace.join('; ')}\n\n`
+            + 'Application source and Git history are preserved. The replacement remains uncommitted for review.'
+        },
+        'Reset and reinitialize'
+      );
+      if (review !== 'Reset and reinitialize') return;
+      const confirmation = await vscode.window.showInputBox({
+        title: 'Confirm repository reset',
+        prompt: `Type exactly: ${plan.confirmation}`,
+        placeHolder: plan.confirmation,
+        ignoreFocusOut: true,
+        validateInput: (value) => value === plan.confirmation ? null : 'The confirmation does not match the reset preview.'
+      });
+      if (confirmation !== plan.confirmation) return;
+
+      await vscode.window.withProgress(
+        { location: vscode.ProgressLocation.Notification, title: 'Installing Singularity Flow workflow v2' },
+        async () => {
+          await client.run(['factory-reset', '--confirm', confirmation, '--json']);
+          await client.run(['init', '--check', '--json']);
+        }
+      );
+      const next = await vscode.window.showInformationMessage(
+        'Workflow v2 is installed locally. Review and commit the generated singularity/ files, then publish the configuration through your normal review path.',
+        'Open Source Control', 'Reload Window'
+      );
+      if (next === 'Open Source Control') await vscode.commands.executeCommand('workbench.view.scm');
+      else if (next === 'Reload Window') await vscode.commands.executeCommand('workbench.action.reloadWindow');
+    } catch (error) {
+      void vscode.window.showErrorMessage(`Could not reset and reinitialize the repository: ${(error as Error).message}`);
     }
   }));
 

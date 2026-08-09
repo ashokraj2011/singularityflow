@@ -1212,6 +1212,11 @@ export async function approvePhase(root, config, workflow, {
     const upcoming = nextPhase(workflow, phase);
     if (upcoming) {
       upcoming.status = 'in_progress'; upcoming.startedAt = decision.at; workflow.currentPhase = upcoming.id;
+      // Known gap, deliberately left: this write ignores `persist`, so a rolled-back approval leaves
+      // the next phase's interval baseline on disk as an orphan that workflow.json no longer
+      // references. Gating it on `persist` is not the fix on its own — the `phase-approved` branch
+      // of the state write does not write the baseline, so gating alone would drop it from the
+      // approve path entirely. Moving it there is the real change and wants its own test.
       await ensureWorkIntervalBaseline(root, config, workflow, {
         phaseId: upcoming.id,
         itemDirectory: workDir(root, config, workflow.workItem.id),

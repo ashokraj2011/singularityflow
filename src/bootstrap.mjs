@@ -27,7 +27,7 @@ import { readFile, writeFile, mkdir, readdir } from 'node:fs/promises';
 import { existsSync } from 'node:fs';
 import YAML from 'yaml';
 import { SingularityFlowError, run, YAML_OUTPUT } from './util.mjs';
-import { initializeDefinition } from './config.mjs';
+import { GOVERNED_ROOTS, initializeDefinition } from './config.mjs';
 import { CAPABILITIES_PATH, CAPABILITY_KINDS, validateCapabilities } from './capabilities.mjs';
 import { initializeLedger } from './ledger.mjs';
 import { remoteDefaultBranch } from './workspace.mjs';
@@ -242,7 +242,7 @@ export async function bootstrapRepository(url, {
 
   if (stateBranch) await enableLedger(root, stateBranch);
 
-  run('git', ['add', 'singularity'], { cwd: root });
+  run('git', ['add', '--', ...GOVERNED_ROOTS], { cwd: root });
   const staged = run('git', ['diff', '--cached', '--name-only'], { cwd: root }).stdout.trim();
   let commit = null;
   if (staged) {

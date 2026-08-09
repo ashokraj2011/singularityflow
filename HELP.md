@@ -2288,13 +2288,13 @@ singularity-flow factory-reset [--dry-run | --confirm TEXT] [--allow-dirty]
 singularity-flow reset-all [--yes]
 sf-reset-all [--yes]
 singularity-flow fresh-install [--checkout DIRECTORY] [--yes] [--registry URL] [--cli-only] [--no-copilot-telemetry]
-singularity-flow choices start|resume|approve|reject ...
+singularity-flow choices begin|answer|status ...
 singularity-flow start <WORK-ID> [--jira | --story-file FILE] [--work-type ID] [--agent ID] [--ref CANONICAL-BRANCH]
 singularity-flow resume <WORK-ID|BRANCH> [--fetch]
 singularity-flow agent [WORK-ID]
 sflow-agent [WORK-ID]
-singularity-flow session status|attach|clear [WORK-ID] [--json]
-singularity-flow inbox [--fetch] [--json]
+singularity-flow session status|attach|candidates|workspace [WORK-ID] [--json]
+singularity-flow inbox [--offline] [--json]
 singularity-flow finalize [--json]
 singularity-flow guide [WORK-ID] [--json]
 singularity-flow guide --first-run [--keep] [--json]
@@ -2372,8 +2372,8 @@ singularity-flow cancel [WORK-ID] [--fetch] --reason TEXT --confirm WORK-ID
 singularity-flow pr [WORK-ID] [--create] [--yes] [--json]
 singularity-flow sync
 singularity-flow spec index|claims|coverage|acceptance|trace ...
-singularity-flow ledger status|verify|publish|deployment-check ...
-singularity-flow capabilities inspect|request|approve|revoke ...
+singularity-flow ledger init|doctor|status|log|show|verify|reconcile|archive|deployment-check ...
+singularity-flow capabilities list|show|doctor|lease ...
 singularity-flow validate [--strict]
 singularity-flow gate [--terminal]
 singularity-flow wm light [--branch BRANCH] [--remote REMOTE] [--phase PHASE] [--views LIST] [--task TEXT] [--local]
@@ -2396,10 +2396,10 @@ singularity-flow logs [--tail N] [--level LEVEL] [--event PATTERN] [--since WHEN
 singularity-flow logs path|level
 singularity-flow home [--json]
 singularity-flow workspace list|current|use|prompt|copilot
-singularity-flow knowledge inspect|sync ...
+singularity-flow knowledge list|show|record|harvest|resolve ...
 singularity-flow capability tree|show|of|add|set|remove|map|edit|world-model|organisation|leads
-singularity-flow hook install|uninstall|status
-singularity-flow bootstrap inspect|apply ...
+singularity-flow hook turn-intent|turn-end|agent-start|session-start|agent-guard
+singularity-flow bootstrap <REPOSITORY-URL> --capability ID [--name TEXT] [--kind collection|delivery] [--into DIR] [--direct]
 singularity-flow story branch create|attach|status|promote
 singularity-flow story interval status|checkpoint|reconcile|escalate
 singularity-flow story start|inbox|fetch|checks|finalize
@@ -2407,7 +2407,7 @@ singularity-flow story submit
 singularity-flow initiative start|resume|phase|context|documents|checklist
 singularity-flow initiative evidence|approve|reject|breakdown|materialize|sync
 singularity-flow initiative jira-adopt|jira-plan|jira-apply
-singularity-flow epic start|sources|generate|submit|create-stories
+singularity-flow epic start|sources|create-stories|jira|pr
 singularity-flow epic review|checks|status|complete
 singularity-flow epic journey [INIT-ID] [--json]
 singularity-flow epic merge-plan [--epic INIT-ID] [--json]

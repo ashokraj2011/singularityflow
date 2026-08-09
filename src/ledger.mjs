@@ -748,8 +748,17 @@ export async function verifyLedger(root, rawConfig, { offline = false } = {}) {
       }
     }
     if (config.signing === 'commit') {
-      const commits = git(worktree, ['rev-list', '--reverse', 'HEAD'], { allowFailure: true })
-        .stdout.split(/\r?\n/).map((item) => item.trim()).filter(Boolean);
+      // Fail closed. A failed `rev-list` used to yield an empty list, so the loop verified nothing
+      // and the ledger still reported `valid: true` — "every commit is signature-verified" and "we
+      // could not check" produced the same green answer for the trust tier that most depends on the
+      // difference.
+      const listed = git(worktree, ['rev-list', '--reverse', 'HEAD'], { allowFailure: true });
+      const commits = listed.stdout.split(/\r?\n/).map((item) => item.trim()).filter(Boolean);
+      if (listed.status !== 0) {
+        errors.push(`Ledger commits could not be enumerated for signature verification: ${(listed.stderr || listed.stdout).trim().split('\n')[0] || 'rev-list failed'}.`);
+      } else if (!commits.length) {
+        errors.push('Ledger signing is required but the branch has no commits to verify.');
+      }
       for (const commit of commits) {
         const verified = git(worktree, ['verify-commit', commit], { allowFailure: true });
         if (verified.status !== 0) errors.push(`Ledger commit ${commit} signature could not be verified.`);

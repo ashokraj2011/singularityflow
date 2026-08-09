@@ -27,7 +27,7 @@ import {
 } from './capabilities.mjs';
 import { atomicJson, remoteDefaultBranch } from './workspace.mjs';
 import { defaultBranchName, head, identity } from './git.mjs';
-import { initializeDefinition, loadDefinition } from './config.mjs';
+import { GOVERNED_ROOTS, initializeDefinition, loadDefinition } from './config.mjs';
 import {
   describeRepository, enableLedger, repositoryIdFromUrl, setDefaultBaseBranch
 } from './bootstrap.mjs';
@@ -445,14 +445,18 @@ export async function inspectCapabilityProposal(url, branch) {
         `Capability proposal '${proposalBranch}' does not share history with '${CONFIGURATION_BRANCH}'.`);
     }
     const mergeBase = mergeBaseResult.stdout.trim();
-    const changed = proposalChangedFiles(root, proposalBase, ref);
-    const invalidFiles = changed.names.filter((file) => !isConfigurationAsset(file));
     const merged = run('git', ['merge-base', '--is-ancestor', ref, 'HEAD'], {
       cwd: root, allowFailure: true
     }).status === 0;
-    // A merged proposal is an ancestor of HEAD, so mergeBase..proposal would be empty. The review
-    // must always show what that proposal itself introduced, before or after activation.
-    const diff = run('git', ['diff', '--no-ext-diff', '--unified=3', `${proposalBase}..${ref}`], {
+    // Review the range the merge will actually apply: everything the proposal adds on top of the
+    // branch point. `ref^..ref` is only the tip commit, so a proposal with an earlier commit could
+    // carry a non-configuration file straight past the guard and into the configuration branch,
+    // with the reviewer's diff never showing it. A merged proposal is already an ancestor of HEAD,
+    // making mergeBase..ref empty, so the retrospective review keeps showing the commit itself.
+    const reviewBase = merged ? proposalBase : mergeBase;
+    const changed = proposalChangedFiles(root, reviewBase, ref);
+    const invalidFiles = changed.names.filter((file) => !isConfigurationAsset(file));
+    const diff = run('git', ['diff', '--no-ext-diff', '--unified=3', `${reviewBase}..${ref}`], {
       cwd: root
     }).stdout;
     return {
@@ -483,7 +487,6 @@ export async function activateCapabilityProposal(url, branch, { confirm = null }
     url, branch, async (root, remote, proposalBranch, ref) => {
       const targetBefore = run('git', ['rev-parse', 'HEAD'], { cwd: root }).stdout.trim();
       const proposalCommit = run('git', ['rev-parse', ref], { cwd: root }).stdout.trim();
-      const proposalBase = run('git', ['rev-parse', `${ref}^`], { cwd: root }).stdout.trim();
       if (String(confirm ?? '').trim() !== proposalCommit) {
         throw new SingularityFlowError(
           `Confirmation must be the exact proposal commit '${proposalCommit}'. Nothing was changed.`);
@@ -493,7 +496,9 @@ export async function activateCapabilityProposal(url, branch, { confirm = null }
         throw new SingularityFlowError(
           `Capability proposal '${proposalBranch}' does not share history with '${CONFIGURATION_BRANCH}'.`);
       }
-      const changed = proposalChangedFiles(root, proposalBase, ref);
+      // The merge below takes the whole branch, so the guard has to see the whole branch. This value
+      // was computed and discarded, leaving validation scoped to the tip commit alone.
+      const changed = proposalChangedFiles(root, mergeBaseResult.stdout.trim(), ref);
       if (!changed.names.length) {
         throw new SingularityFlowError(`Capability proposal '${proposalBranch}' contains no changes.`);
       }
@@ -900,7 +905,7 @@ export async function initializeWorkspaceState(leadDirectory, { branch = 'state'
       await describeRepository(root, repositoryIdFromUrl(url), url, applicationBranch, actor);
     }
     await enableLedger(root, branch);
-    run('git', ['add', 'singularity'], { cwd: root });
+    run('git', ['add', '--', ...GOVERNED_ROOTS], { cwd: root });
     if (run('git', ['diff', '--cached', '--name-only'], { cwd: root }).stdout.trim()) {
       run('git', ['-c', `user.name=${actor.name || 'Singularity Flow'}`,
         '-c', `user.email=${actor.email || 'unknown@invalid'}`,

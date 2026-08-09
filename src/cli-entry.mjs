@@ -65,7 +65,11 @@ export async function main(argv) {
   }
   const timer = commandTimer(definition.name, {
     started: globalThis.__SINGULARITY_FLOW_PROCESS_STARTED_AT ?? process.hrtime.bigint(),
-    commandClass: definition.classification
+    // The resolved operation, not the command. `report`, `telemetry`, `review`, `inputs`, `spec` and
+    // `visual` each carry both read and mutating subcommands, so the command-level value calls every
+    // one of them a mutation and mis-partitions the DX timing dataset. The VS Code adapter already
+    // classifies per subcommand; this keeps the two surfaces telling the same story.
+    commandClass: operation.classification
   });
   timer.stage('root-dispatch');
   try {

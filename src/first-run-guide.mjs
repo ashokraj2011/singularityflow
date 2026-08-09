@@ -4,7 +4,7 @@ import { fileURLToPath } from 'node:url';
 import { createHash } from 'node:crypto';
 import { mkdtemp, mkdir, readFile, rm, writeFile } from 'node:fs/promises';
 import YAML from 'yaml';
-import { initializeDefinition } from './config.mjs';
+import { GOVERNED_ROOTS, initializeDefinition } from './config.mjs';
 import { nowIso, run, SingularityFlowError } from './util.mjs';
 
 function boundedOutput(text, limit = 4_000) {
@@ -65,7 +65,7 @@ export async function runFirstRunGuide({ keep = false, onBoundary } = {}) {
 
     await initializeDefinition(repository);
     await configureRepository(repository);
-    run('git', ['add', 'singularity', '.github/agents'], { cwd: repository });
+    run('git', ['add', '--', ...GOVERNED_ROOTS], { cwd: repository });
     run('git', ['commit', '-m', 'Initialize Singularity Flow'], { cwd: repository });
 
     const story = path.join(directory, 'story.yml');

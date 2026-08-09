@@ -69,11 +69,14 @@ export function commandDefinition(name) {
 }
 
 const WM_MODEL_OPERATIONS = new Set(['build']);
-const WM_NEVER_OPERATIONS = new Set(['init', 'inject', 'compose', 'show-prompt', 'cleanup', 'prompt', 'context', 'check', 'cache', 'light']);
+const WM_NEVER_OPERATIONS = new Set(['init', 'inject', 'compose', 'show-prompt', 'cleanup', 'prompt', 'context', 'check', 'cache', 'light', 'design-inventory']);
 const WORKSPACE_NEVER_OPERATIONS = new Set([
   'prune', 'list', 'current', 'prompt', 'create', 'open', 'archive-status', 'rename', 'archive',
   'restore', 'inspect', 'duplicate', 'capabilities', 'update', 'status', 'sync', 'repair', 'documents', 'forget', 'use'
 ]);
+// `workspace switch` is a live alias the handler accepts. Resolved to the operation it aliases
+// rather than classified separately, so the registry and the dispatcher cannot drift apart again.
+const WORKSPACE_SUBCOMMAND_ALIASES = new Map([['switch', 'use']]);
 const WORKSPACE_IMPACT_OPERATIONS = new Set(['analyze', 'list', 'show', 'promote']);
 
 function required(id) {
@@ -155,7 +158,8 @@ function resolveWorldModelOperation(definition, positionals) {
 }
 
 function resolveWorkspaceOperation(definition, positionals, options) {
-  const subcommand = positionals[1] ?? 'list';
+  const requested = positionals[1] ?? 'list';
+  const subcommand = WORKSPACE_SUBCOMMAND_ALIASES.get(requested) ?? requested;
   if (subcommand === 'copilot') return required('workspace.copilot');
   if (subcommand === 'impact') {
     const action = positionals[2] ?? 'list';
@@ -174,8 +178,11 @@ function resolvePullRequestOperation(definition, positionals, options) {
       ? optional('pr.describe.polish', 'pr.describe', definition)
       : never('pr.describe', definition);
   }
-  if (subcommand === 'plan') return never('pr.plan', definition);
-  return unclassified(`pr.${subcommand}`);
+  // Everything else in this slot is a Work ID, not a subcommand — `pr [WORK-ID] [--create]` is the
+  // documented form and the handler reads positionals[1] as the ID. Treating an ID as an unknown
+  // subcommand refused every explicit-ID invocation before the handler could load, and the error
+  // named a model-policy concept that appears in no documentation.
+  return never('pr.plan', definition);
 }
 
 export function resolveOperation({ requestedCommand, positionals, options = {} }) {

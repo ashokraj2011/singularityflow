@@ -51,6 +51,25 @@ const INITIALIZATION_MAPPINGS = [
   ['worldmodel-builder.md', 'singularity/prompts/worldmodel-builder.md'],
   ['copilot-planning.md', DEFAULT_PLANNING_PROMPT]
 ];
+
+function governedRoot(destination) {
+  // `.github` also holds files Singularity Flow does not own, so its governed root is one level
+  // deeper. Every other destination is owned wholesale by its first segment.
+  const segments = destination.split('/');
+  return segments[0] === '.github' ? segments.slice(0, 2).join('/') : segments[0];
+}
+
+/**
+ * Everything `initializeDefinition` writes, expressed as the paths a caller must stage to commit
+ * all of it. Derived from the mappings rather than restated beside them: `.github/agents` was
+ * written from the beginning and staged by only one of the three call sites, which left the agent
+ * definitions untracked after `bootstrap` — enough to fail the very next command's clean-tree check
+ * and to omit them from the governance proposal. A new mapping under a new root now reaches every
+ * stager automatically.
+ */
+export const GOVERNED_ROOTS = Object.freeze([
+  ...new Set(INITIALIZATION_MAPPINGS.map(([, destination]) => governedRoot(destination)))
+]);
 const INPUT_MODES = new Set(['off', 'record', 'enforce']);
 export const SEQUENCE_GATE_IDS = [
   'completion', 'currentPhase', 'phaseStatus', 'freshGeneration',

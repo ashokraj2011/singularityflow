@@ -1214,7 +1214,9 @@ normal prompt-injection routing. Its content is intentionally limited to a
 compact path/build-manifest inventory; it does not claim source behavior,
 architecture, security, or impact analysis. Add `--publish` for the configured
 publication policy. From a source checkout the equivalent command is
-`./scripts/worldmodel-minimal.sh`.
+`npm run wm:minimal`, which works on Windows as well as macOS and Linux. (The
+underlying `scripts/worldmodel-minimal.sh` needs a POSIX shell; the wrapper finds
+one, including a Git for Windows install, and says so plainly when it cannot.)
 
 ```bash
 singularity-flow wm light --local

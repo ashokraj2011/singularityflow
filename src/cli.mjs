@@ -24,7 +24,7 @@ import {
   writeJson,
   writeText
 } from './util.mjs';
-import { add, assertClean, branch, changes, checkout, commit, fastForwardTo, fetchOrigin, fetchRemote, fileAtRef, gitDir, hasUpstream, head, identity, localBranches, pullFastForward, refHead, remoteBranches, repoRoot } from './git.mjs';
+import { add, assertClean, branch, changes, checkout, commit, fastForwardTo, fetchOrigin, fetchRemote, fileAtRef, gitDir, hasUpstream, head, identity, localBranches, pullFastForward, refExists, refHead, remoteBranches, repoRoot } from './git.mjs';
 import { buildRepositorySubjectIndex, buildRepositorySubjectIndexFromRefs, resolveContext } from './repository-subject-index.mjs';
 import {
   approvePhase,
@@ -71,7 +71,7 @@ import { runGovernanceGate } from './governance.mjs';
 import { worldModelCommand } from './worldmodel.mjs';
 import { launchHostSession } from './host-session-launcher.mjs';
 import { operationContext } from './operation-context.mjs';
-import { invokeModel } from './model-runner.mjs';
+import { invokeModel, listModelInvocations, resolveModelProvider } from './model-runner.mjs';
 import {
   assertProducerAllowed, buildGenerationAuthorship, importManualArtifact, inspectInPlaceArtifact, normalizeAuthorshipOptions
 } from './manual-authorship.mjs';
@@ -340,6 +340,10 @@ Usage:
   singularity-flow next [--task TEXT] [--fetch] [--yes] [--skip-checks]
   singularity-flow run [--task TEXT] [--yes]
   singularity-flow doctor [WORK-ID] [--offline] [--json]
+  singularity-flow home                                    the cockpit view (alias: cockpit)
+  singularity-flow logs [--tail N] [--level LEVEL] [--event PATTERN] [--since WHEN] [--json]
+  singularity-flow logs path|level
+  singularity-flow hook <turn-intent|turn-end|agent-start|session-start|agent-guard>
   singularity-flow review [PHASE] [--phase PHASE] [--format md|html|json] [--out FILE]
   singularity-flow workflow list [--json]                  every workflow, Story and Initiative
   singularity-flow workflow create <ID> --phases a,b,c [--label TEXT] [--governs story|initiative]
@@ -451,7 +455,7 @@ Usage:
   singularity-flow initiative restart <INIT-ID> [--reason TEXT] [--confirm INIT-ID]
   singularity-flow knowledge [list] [--type TYPE] [--status open|resolved] [--tag TAG] [--query TEXT] [--json]
   singularity-flow knowledge show <SHA256> [--json]
-  singularity-flow knowledge record <decision|learning|uncertainty|result> --title TEXT [--detail TEXT] [--tags a,b]
+  singularity-flow knowledge record <decision|learning|uncertainty|result> --title TEXT [--detail TEXT]
   singularity-flow knowledge harvest [--initiative INIT-ID] [--phase PHASE] [--dry-run] [--json]
   singularity-flow knowledge resolve <SHA256> --resolution TEXT [--json]
 
@@ -832,6 +836,32 @@ async function helpCommand(positionals, options) {
   else process.stdout.write(document.content.endsWith('\n') ? document.content : `${document.content}\n`);
 }
 
+/**
+ * Refuse to cut a Story branch from an application branch that does not carry the governed
+ * definition yet.
+ *
+ * `bootstrap` now leaves the definition on an unmerged `sflow/govern/...` proposal, which is what
+ * makes a protected application branch workable. But a Story branch is cut from the application
+ * branch, so until that proposal merges every governed file becomes untracked the moment the branch
+ * switches — and the restore-on-failure checkout then cannot run, because returning would overwrite
+ * those untracked files. The caller is left on a half-created branch with the governance folder
+ * unowned. Checking here costs one `git show` and refuses while nothing has moved.
+ */
+function assertBaseCarriesGovernance(root, { config, branchName, base, remote, currentBranch }) {
+  // Only meaningful when the definition is in this working tree. A repository governed from the
+  // workspace lead's `sflow/config` branch legitimately has no definition on its own base branch.
+  if (!config || !base) return;
+  if (refExists(root, `refs/heads/${branchName}`)) return;
+  const baseRef = [`refs/heads/${base}`, `refs/remotes/${remote}/${base}`]
+    .find((ref) => refExists(root, ref));
+  if (!baseRef || fileAtRef(root, baseRef, WORKFLOW_PATH) !== null) return;
+  throw new SingularityFlowError(
+    `Base branch '${base}' does not carry ${WORKFLOW_PATH} yet, so a Story branch cut from it would `
+    + `lose the governed definition currently on '${currentBranch}'.\n`
+    + `Merge the governance proposal into '${base}' first, then run this again. Nothing was changed.`
+  );
+}
+
 async function startCommand(positionals, options) {
   const id = requirePositional(positionals, 1, 'work ID');
   const root = repoRoot();
@@ -868,6 +898,9 @@ async function startCommand(positionals, options) {
       + `repository has the approved sflow/config branch. Map and approve the workspace capability first.`);
   }
   const originalBranch = branch(root);
+  assertBaseCarriesGovernance(root, {
+    config, branchName: canonicalBranch, base: baseAtStart, remote, currentBranch: originalBranch
+  });
   const originalSession = await loadSession(root, { required: false });
   const originalCopilotSession = await loadCopilotSession(root);
   const checkoutResult = checkout(root, canonicalBranch, {
@@ -1001,12 +1034,24 @@ async function startCommand(positionals, options) {
     });
     await commitAndPublish(root, config, workflow, { type: 'evidence-recorded', payload: { documents: records.map((item) => item.id) } }, `[${id}][documents][upload] ${records.map((item) => item.id).join(',')}`);
   }
+  // Same contract as `initiative start --json`: the VS Code intake form sends `--json` here and
+  // parses stdout, and a human-only response made a successful start look like a failure.
+  if (optionBoolean(options, 'json')) {
+    console.log(JSON.stringify({
+      workItem: { id: workflow.workItem.id, branch: workflow.workItem.branch, title: workflow.workItem.title },
+      id: workflow.workItem.id,
+      workType,
+      currentPhase: workflow.currentPhase,
+      documents: supportingDocuments.length
+    }, null, 2));
+  } else {
   summary(workflow);
   if (supportingDocuments.length) console.log(`Supporting documents: ${supportingDocuments.length} uploaded and published.`);
   console.log('\nTemplate help in Copilot: /sf-help');
   console.log('CLI equivalent: singularity-flow help');
   console.log('\nNext in Copilot: /sf-phase');
   console.log(`CLI equivalent: singularity-flow prepare ${workflow.currentPhase}`);
+  }
   } catch (error) {
     // Selection and validation happen against the lifecycle branch because that branch owns the
     // workflow definition and any governed Story seed. If those preflight steps fail before state
@@ -1349,17 +1394,22 @@ async function impactCommand(positionals, options) {
   }
   if (action === 'verify') {
     const result = await verifyImpactReceipt(root, workflow);
-    if (optionBoolean(options, 'json')) return console.log(JSON.stringify(result, null, 2));
-    console.log(result.valid ? `Impact Receipt verified for ${workflow.workItem.id}.` : `Impact Receipt is invalid for ${workflow.workItem.id}.`);
-    for (const error of result.errors) console.warn(`- ${error}`);
+    // `--json` reports; it does not decide whether the command succeeded. Returning early from the
+    // JSON branch skipped the exit code below, so the same failure exited 1 for a human and 0 for
+    // the pipeline that asked for machine-readable output — which is where it matters most.
+    if (optionBoolean(options, 'json')) console.log(JSON.stringify(result, null, 2));
+    else {
+      console.log(result.valid ? `Impact Receipt verified for ${workflow.workItem.id}.` : `Impact Receipt is invalid for ${workflow.workItem.id}.`);
+      for (const error of result.errors) console.warn(`- ${error}`);
+    }
     if (!result.valid) process.exitCode = 1;
     return;
   }
   if (action === 'doctor') {
     const result = await impactDoctor(root, config, workflow);
-    if (optionBoolean(options, 'json')) return console.log(JSON.stringify(result, null, 2));
-    if (!result.findings.length) return console.log(`Impact measurement is healthy for ${workflow.workItem.id}.`);
-    for (const item of result.findings) console.log(`${item.severity.toUpperCase()} ${item.code}: ${item.message}`);
+    if (optionBoolean(options, 'json')) console.log(JSON.stringify(result, null, 2));
+    else if (!result.findings.length) console.log(`Impact measurement is healthy for ${workflow.workItem.id}.`);
+    else for (const item of result.findings) console.log(`${item.severity.toUpperCase()} ${item.code}: ${item.message}`);
     if (!result.valid) process.exitCode = 1;
     return;
   }
@@ -1843,12 +1893,14 @@ async function specCommand(positionals, options) {
     const base = optionString(options, 'base') ?? workflow.phases[workflow.phaseOrder[0]]?.sourceCommit ?? null;
     const target = optionString(options, 'target', 'HEAD');
     const coverage = evaluateSpecCoverage(records, changedRepositoryPaths(root, { base, target }), policy, { root });
-    if (optionBoolean(options, 'json')) return console.log(JSON.stringify(coverage, null, 2));
-    console.log(`Clause coverage: ${coverage.complete ? 'complete' : coverage.severity} · ${coverage.totals.observed}/${coverage.totals.clauses} observed · ${coverage.totals.changedPaths} changed path(s).`);
-    coverage.unimplemented.forEach((id) => console.log(`  missing ${id}`));
-    coverage.unclaimedChangedPaths.forEach((file) => console.log(`  unclaimed ${file}`));
-    coverage.withdrawnButClaimed.forEach((id) => console.log(`  withdrawn-but-claimed ${id}`));
-    coverage.invalidEvidence.forEach((message) => console.log(`  invalid-evidence ${message}`));
+    if (optionBoolean(options, 'json')) console.log(JSON.stringify(coverage, null, 2));
+    else {
+      console.log(`Clause coverage: ${coverage.complete ? 'complete' : coverage.severity} · ${coverage.totals.observed}/${coverage.totals.clauses} observed · ${coverage.totals.changedPaths} changed path(s).`);
+      coverage.unimplemented.forEach((id) => console.log(`  missing ${id}`));
+      coverage.unclaimedChangedPaths.forEach((file) => console.log(`  unclaimed ${file}`));
+      coverage.withdrawnButClaimed.forEach((id) => console.log(`  withdrawn-but-claimed ${id}`));
+      coverage.invalidEvidence.forEach((message) => console.log(`  invalid-evidence ${message}`));
+    }
     if (coverage.severity === 'error') throw new SingularityFlowError('Clause coverage is incomplete.', { exitCode: 2 });
     return;
   }
@@ -1884,13 +1936,15 @@ async function specCommand(positionals, options) {
       // policy that configures a larger command set.
       commandSetSha256: configuredAcceptanceCommandSetSha256(policy)
     });
-    if (optionBoolean(options, 'json')) return console.log(JSON.stringify({ record: result, evaluation }, null, 2));
-    console.log(`Specification acceptance: ${result.status} · ${result.commands.length} allowlisted command(s).`);
-    result.commands.forEach((entry) => console.log(`  ${entry.status === 'passed' ? 'PASS' : 'FAIL'} ${entry.id} (exit ${entry.exitCode})`));
-    if (!evaluation.complete) {
-      evaluation.missingPlannedTests.forEach((id) => console.warn(`  missing planned test evidence: ${id}`));
-      evaluation.missingObservedTests.forEach((id) => console.warn(`  missing observed test evidence: ${id}`));
-      evaluation.staleRunReasons.forEach((reason) => console.warn(`  stale acceptance evidence: ${reason}`));
+    if (optionBoolean(options, 'json')) console.log(JSON.stringify({ record: result, evaluation }, null, 2));
+    else {
+      console.log(`Specification acceptance: ${result.status} · ${result.commands.length} allowlisted command(s).`);
+      result.commands.forEach((entry) => console.log(`  ${entry.status === 'passed' ? 'PASS' : 'FAIL'} ${entry.id} (exit ${entry.exitCode})`));
+      if (!evaluation.complete) {
+        evaluation.missingPlannedTests.forEach((id) => console.warn(`  missing planned test evidence: ${id}`));
+        evaluation.missingObservedTests.forEach((id) => console.warn(`  missing observed test evidence: ${id}`));
+        evaluation.staleRunReasons.forEach((reason) => console.warn(`  stale acceptance evidence: ${reason}`));
+      }
     }
     if (result.status !== 'passed') throw new SingularityFlowError('One or more allowlisted specification acceptance commands failed.', { exitCode: 2 });
     return;
@@ -2276,6 +2330,15 @@ async function phaseCommand(positionals, options) {
   // absent from the transaction's immutable path allowlist and therefore absent from the exact
   // generation commit later used by governed references and review packets.
   await scanArtifacts(root, config, workflow, phaseId);
+  // Attribute the kernel-model invocations this generation actually made. Reading the audit store is
+  // what makes `kernelModel.invoked` a fact rather than the constant `false` it has always been.
+  // Invocations already claimed by an earlier generation are excluded, so each is attributed once.
+  const attributedInvocations = new Set(Object.values(workflow.phases ?? {})
+    .flatMap((item) => item.authorship ?? [])
+    .flatMap((record) => record.kernelModel?.invocationIds ?? []));
+  const kernelInvocationIds = (await listModelInvocations(root, { subjectId: workflow.workItem.id }))
+    .map((record) => record.id)
+    .filter((invocationId) => !attributedInvocations.has(invocationId));
   const generation = requestedPhase.generation + 1;
   let phase = requestedPhase;
   const result = await commitAndPublish(
@@ -2294,7 +2357,8 @@ async function phaseCommand(positionals, options) {
           options: authorshipOptions,
           actor: session.actor,
           governedAgentContext: session.agent,
-          source
+          source,
+          kernelInvocationIds
         });
         await scanArtifacts(root, config, workflow, phaseId);
         phase = await publishGeneration(root, config, workflow, { phaseId, usage, authorship, persist: false });
@@ -2805,21 +2869,44 @@ async function reopenCommand(positionals, options) {
   }
   config = await loadConfig(root);
   const workflow = await loadStoryAggregate(root, config, requestedId);
-  const result = await reopenWorkflow(root, config, workflow, {
-    target: optionString(options, 'to'),
-    reason: optionString(options, 'reason'),
-    channel: 'terminal',
-    actionContext: activeActionContext()
-  });
-  const publication = await commitAndPublish(root, config, workflow, {
-    type: 'workflow-reopened',
-    phaseId: result.decision.phase,
-    generation: result.decision.generation,
-    actor: result.decision.actor,
-    agent: result.decision.agent,
-    authorityGroup: result.decision.authorityGroup,
-    payload: { targetPhaseId: result.phase.id, changeRequestId: result.changeRequest.id }
-  }, `[${workflow.workItem.id}][reopen:${result.phase.id}] ${result.changeRequest.id}`);
+  // Inside the transaction, like reject and cancel. Reopening used to invalidate every downstream
+  // approval, write a durable `reopened` decision, invalidate the impact receipt and save
+  // workflow.json *before* publishing — so a refusal in the publication preflight (an unreconciled
+  // ledger is enough) reported that nothing had happened while leaving all of it on disk with no
+  // commit, no event and no ledger entry. The next successful publication then swept that wreckage
+  // into a commit describing something else.
+  //
+  // The event was what blocked this: it read values the mutation mints. Each one is resolvable
+  // beforehand — the completion phase is the last phase in order, and the authority is a pure
+  // function of the resolved authorities, that phase's policy, and the session actor.
+  const completionPhase = workflow.phases[workflow.phaseOrder.at(-1)];
+  const session = await loadSession(root);
+  const authority = requireApprovalAuthority(
+    workflow.resolution.approvalAuthorities ?? config.approvalAuthorities,
+    completionPhase.approvalPolicy,
+    session.actor
+  );
+  const { value: result, publication } = await transactStory(
+    root,
+    config,
+    workflow,
+    {
+      type: 'workflow-reopened',
+      phaseId: completionPhase.id,
+      generation: completionPhase.generation,
+      actor: session.actor,
+      agent: session.agent,
+      authorityGroup: authority.authorityGroup,
+      payload: { targetPhaseId: optionString(options, 'to') ?? completionPhase.id }
+    },
+    `[${workflow.workItem.id}][reopen:${optionString(options, 'to') ?? completionPhase.id}] change request`,
+    (aggregate) => reopenWorkflow(root, config, aggregate, {
+      target: optionString(options, 'to'),
+      reason: optionString(options, 'reason'),
+      channel: 'terminal',
+      actionContext: activeActionContext()
+    })
+  );
   console.log(`Reopened ${workflow.workItem.id} at ${result.phase.id} with ${result.changeRequest.id}.`);
   console.log(publication.pushed
     ? `Decision committed ${publication.sha.slice(0, 8)} and pushed.`
@@ -2944,7 +3031,13 @@ async function ledgerCommand(positionals, options) {
     });
   }
   else throw new SingularityFlowError(`Unknown ledger subcommand '${subcommand}'. Use init, doctor, status, log, show, verify, reconcile, archive, or deployment-check.`);
-  if (optionBoolean(options, 'json')) return console.log(JSON.stringify(result, null, 2));
+  if (optionBoolean(options, 'json')) {
+    console.log(JSON.stringify(result, null, 2));
+    // The verdict is the same whichever way it is rendered. `doctor` and `verify` are gates, and
+    // returning here used to hand a pipeline exit 0 for a ledger that had just failed verification.
+    if (['doctor', 'verify'].includes(subcommand) && !result.valid) process.exitCode = 2;
+    return;
+  }
   if (subcommand === 'init') {
     console.log(result.created
       ? `Created orphan ledger branch ${result.branch} at ${result.commit.slice(0, 8)}.`
@@ -3018,12 +3111,14 @@ async function capabilitiesCommand(positionals, options) {
       capabilityId: positionals[2] ?? optionString(options, 'capability'),
       offline: optionBoolean(options, 'offline')
     });
-    if (optionBoolean(options, 'json')) return console.log(JSON.stringify(result, null, 2));
-    for (const item of result.checks) {
-      const mark = item.status === 'pass' ? '✓' : item.status === 'warn' ? '!' : '✗';
-      console.log(`${mark} ${item.id}: ${item.summary}${item.detail ? `\n  ${item.detail}` : ''}`);
+    if (optionBoolean(options, 'json')) console.log(JSON.stringify(result, null, 2));
+    else {
+      for (const item of result.checks) {
+        const mark = item.status === 'pass' ? '✓' : item.status === 'warn' ? '!' : '✗';
+        console.log(`${mark} ${item.id}: ${item.summary}${item.detail ? `\n  ${item.detail}` : ''}`);
+      }
+      console.log(`\n${result.summary.passed} passed · ${result.summary.warnings} warnings · ${result.summary.failures} failures`);
     }
-    console.log(`\n${result.summary.passed} passed · ${result.summary.warnings} warnings · ${result.summary.failures} failures`);
     if (!result.valid) process.exitCode = 1;
     return;
   }
@@ -3448,8 +3543,17 @@ export function isWorldModelBuildContext(root, payload) {
   return paths.some(isBuilderWorktree);
 }
 
+const HOOK_EVENTS = ['turn-intent', 'turn-end', 'agent-start', 'session-start', 'agent-guard'];
+
 async function hookCommand(positionals) {
   const event = requirePositional(positionals, 1, 'hook event');
+  // Checked before the catch-all below. Swallowing runtime failures is deliberate — a hook must
+  // never break the host turn that invoked it — but it also swallowed `hook install`, a name the
+  // documentation told people to type, answering `{}` with exit 0. An unrecognised event is a
+  // caller mistake, not a runtime failure, and there is no host turn to protect yet.
+  if (!HOOK_EVENTS.includes(event)) {
+    throw new SingularityFlowError(`Unknown hook event '${event}'. Use ${HOOK_EVENTS.join(', ')}.`);
+  }
   let payload = {};
   try { payload = JSON.parse(await stdinText() || '{}'); } catch { payload = {}; }
   try {
@@ -3471,7 +3575,6 @@ async function hookCommand(positionals) {
     try { workflow = await loadStoryAggregate(root, config); } catch { workflow = null; }
     if (event === 'session-start') return console.log(JSON.stringify(await sessionStartAgentHook(root, config, workflow, payload)));
     if (event === 'agent-guard') return console.log(JSON.stringify(await agentGuardHook(root, config, workflow, payload)));
-    throw new SingularityFlowError(`Unknown hook event: ${event}`);
   } catch { console.log('{}'); }
 }
 
@@ -4486,6 +4589,10 @@ async function bootstrapCommand(positionals, options) {
     if (result.reviewRequired) {
       console.log(`\nPushed the governance proposal. Open its pull request with:`);
       console.log(`  gh pr create --base ${result.branch} --head ${result.reviewBranch}`);
+      // Said plainly because it is a prerequisite, not an afterthought: Story branches are cut from
+      // the application branch, so until this merges there is no governed definition to cut from.
+      console.log(`\nMerge that pull request before starting work. Story branches are cut from`);
+      console.log(`'${result.branch}', which does not carry the definition until the merge lands.`);
     } else {
       console.log('\nPushed directly. Open this directory to start.');
     }
@@ -4501,7 +4608,12 @@ async function knowledgeCommand(positionals, options) {
   if (subcommand === 'record') {
     const result = await recordKnowledge(root, {
       type: requirePositional(positionals, 2, 'knowledge type'),
-      text: optionString(options, 'text') ?? optionString(options, 'title') ?? positionals.slice(3).join(' '),
+      // `--detail` is documented and `recordKnowledge` has always accepted it; the CLI simply never
+      // passed it, so the text it was meant to contribute was silently dropped. Passing title and
+      // detail separately lets `recordKnowledge` compose them as it was written to.
+      text: optionString(options, 'text') ?? (positionals.slice(3).join(' ') || null),
+      title: optionString(options, 'title'),
+      detail: optionString(options, 'detail'),
       provenance: [{
         workId: optionString(options, 'work-id'), artifact: optionString(options, 'artifact'),
         sha256: optionString(options, 'sha256'), approvedRevision: optionNumber(options, 'approved-revision')
@@ -4652,6 +4764,14 @@ async function initiativeCommand(positionals, options) {
       }
     }
     const progress = initiativeProgress(current.initiative);
+    // The VS Code intake form runs this with `--json` and parses stdout. Without a JSON branch the
+    // parse failed *after* the Initiative had been created, committed and pushed, so the person who
+    // clicked Start saw an error for work that had actually succeeded.
+    if (optionBoolean(options, 'json')) {
+      return console.log(JSON.stringify({
+        initiativeId, id: initiativeId, profile, progress, publication
+      }, null, 2));
+    }
     console.log(`Initiative ${initiativeId} started as ${profile}.`);
     console.log(initiativeFlowText(progress));
     console.log(`Commit: ${publication.sha.slice(0, 8)}${publication.pushed ? ' pushed' : ' local'}`);
@@ -5774,6 +5894,11 @@ async function workspaceCommand(positionals, options) {
       const description = descriptionFile
         ? await readFile(path.resolve(descriptionFile), 'utf8')
         : optionString(options, 'description');
+      // Resolved from the governed definition the same way every other model call site does, so a
+      // repository configured with its own provider executable is honoured here too. Workspace
+      // commands can legitimately run outside a governed checkout; the shared default covers that.
+      let models = { provider: 'copilot-cli', providerConfig: null, model: null };
+      try { models = resolveModelProvider(await loadConfig(repoRoot())); } catch { /* not in a governed repository */ }
       const request = {
         id: optionString(options, 'id'),
         title: optionString(options, 'title'),
@@ -5781,7 +5906,9 @@ async function workspaceCommand(positionals, options) {
         repositories: optionStrings(options, 'repository'),
         capabilities: optionStrings(options, 'capability'),
         documents: optionStrings(options, 'document'),
-        model: optionString(options, 'model')
+        provider: models.provider,
+        providerConfig: models.providerConfig,
+        model: optionString(options, 'model') ?? models.model
       };
       const result = optionBoolean(options, 'dry-run')
         ? await previewWorkspaceImpact(workspacePath, request)
@@ -6233,14 +6360,16 @@ async function epicCommand(positionals, options) {
         const verifiedState = await loadInitiativeAggregate(root, initiativeId);
         publication = await commitInitiativeChange(root, verifiedState.portfolio, verifiedState.initiative, { type: 'evidence-recorded', phaseId: verifiedState.initiative.currentPhase, payload: { verifiedSources: result.results.length } }, `[${initiativeId}][epic:sources] verify ${result.results.length}`, { appendOnly: true });
       }
-      if (optionBoolean(options, 'json')) return console.log(JSON.stringify(result, null, 2));
-      console.log(table(result.results, [
-        { key: 'sourceId', label: 'SOURCE' },
-        { key: 'status', label: 'STATUS' },
-        { key: 'version', label: 'VERSION' },
-        { key: 'cachePath', label: 'LOCAL CACHE' }
-      ]));
-      if (publication) console.log(`Verification evidence committed ${publication.sha.slice(0, 8)}${publication.pushed ? ' and pushed' : ''}.`);
+      if (optionBoolean(options, 'json')) console.log(JSON.stringify(result, null, 2));
+      else {
+        console.log(table(result.results, [
+          { key: 'sourceId', label: 'SOURCE' },
+          { key: 'status', label: 'STATUS' },
+          { key: 'version', label: 'VERSION' },
+          { key: 'cachePath', label: 'LOCAL CACHE' }
+        ]));
+        if (publication) console.log(`Verification evidence committed ${publication.sha.slice(0, 8)}${publication.pushed ? ' and pushed' : ''}.`);
+      }
       if (!result.valid) process.exitCode = 2;
       return;
     }
@@ -6290,9 +6419,11 @@ async function epicCommand(positionals, options) {
     if (action === 'prepare') return initiativeCommand(['initiative', 'phase', phaseId], options);
     if (action === 'validate' && subcommand === 'planning') {
       const verification = await verifyEpicPlanningPackage(root, loaded.portfolio, loaded.initiative);
-      if (optionBoolean(options, 'json')) return console.log(JSON.stringify(verification, null, 2));
-      verification.passes.forEach((line) => console.log(`PASS: ${line}`));
-      verification.errors.forEach((line) => console.error(`BLOCK: ${line}`));
+      if (optionBoolean(options, 'json')) console.log(JSON.stringify(verification, null, 2));
+      else {
+        verification.passes.forEach((line) => console.log(`PASS: ${line}`));
+        verification.errors.forEach((line) => console.error(`BLOCK: ${line}`));
+      }
       if (!verification.valid) process.exitCode = 2;
       return;
     }
@@ -6333,9 +6464,11 @@ async function epicCommand(positionals, options) {
     }
     if (action === 'validate') {
       const verification = await verifyEpicPlanningPackage(root, portfolio, initiative);
-      if (optionBoolean(options, 'json')) return console.log(JSON.stringify(verification, null, 2));
-      verification.passes.forEach((line) => console.log(`PASS: ${line}`));
-      verification.errors.forEach((line) => console.error(`BLOCK: ${line}`));
+      if (optionBoolean(options, 'json')) console.log(JSON.stringify(verification, null, 2));
+      else {
+        verification.passes.forEach((line) => console.log(`PASS: ${line}`));
+        verification.errors.forEach((line) => console.error(`BLOCK: ${line}`));
+      }
       if (!verification.valid) process.exitCode = 2;
       return;
     }
@@ -6497,7 +6630,9 @@ async function epicCommand(positionals, options) {
   }
   if (subcommand === 'jira') {
     const action = positionals[2] ?? 'preview';
-    if (action === 'preview') return epicCommand(['epic', 'create-stories'], options);
+    // These two branches used to be byte-identical, so typing the word "preview" committed and
+    // pushed governed state. Preview delegates with the dry run the same handler already honours.
+    if (action === 'preview') return epicCommand(['epic', 'create-stories'], { ...options, 'dry-run': true });
     if (action === 'apply') return epicCommand(['epic', 'create-stories'], options);
     throw new SingularityFlowError(`Unknown Epic Jira action '${action}'. Use preview or apply.`);
   }
@@ -6562,11 +6697,24 @@ async function epicCommand(positionals, options) {
       const result = await createJiraWritePlan(root, initiativeId, {
         artifactSelections: selectedJiraArtifacts(options)
       });
+      // `createJiraWritePlan` builds the plan in memory; the commit below is what persists it. So a
+      // dry run can return the real plan and leave the repository untouched.
+      if (optionBoolean(options, 'dry-run')) {
+        if (optionBoolean(options, 'json')) return console.log(JSON.stringify({ plan: result.plan, publication: null }, null, 2));
+        console.log(`Jira write plan ${result.plan.sha256} previewed. Nothing was committed or pushed.`);
+        console.log(`Publish it with singularity-flow epic jira apply.`);
+        return;
+      }
       const publication = await commitInitiativeChange(root, result.portfolio, result.initiative, { type: 'external-synchronized', payload: { system: 'jira', operation: 'plan', planSha256: result.plan.sha256 } }, `[${initiativeId}][epic:jira-plan] ${result.plan.sha256.slice(0, 12)}`);
       if (optionBoolean(options, 'json')) return console.log(JSON.stringify({ plan: result.plan, publication }, null, 2));
       console.log(`Created and published Jira write plan ${result.plan.sha256}.`);
       console.log(`Review it, then run singularity-flow epic create-stories --plan ${result.plan.sha256}.`);
       return;
+    }
+    if (optionBoolean(options, 'dry-run')) {
+      throw new SingularityFlowError(
+        `Applying reviewed plan ${planSha256} writes to Jira and cannot be previewed. `
+        + 'Run singularity-flow epic jira apply --plan <sha256> when you are ready.');
     }
     if (!(await confirmInitiativeExact(`Create the reviewed Jira Stories and canonical Git branches for ${initiativeId}?`, initiativeId, options))) throw new SingularityFlowError('Epic Story creation cancelled.');
     const applied = await applyJiraWritePlan(root, initiativeId, {
@@ -6827,10 +6975,13 @@ async function epicCommand(positionals, options) {
     const result = await epicCheckStory(root, initiativeId, story, {
       packetSha256: optionString(options, 'packet')
     });
-    if (optionBoolean(options, 'json')) return console.log(JSON.stringify(result, null, 2));
-    console.log(`Recorded checks for ${story} packet ${result.packet.packetSha256.slice(0, 12)}.`);
-    console.log(`Ready: ${result.checks.evidence.ready ? 'yes' : 'no'} · evidence ${result.checks.evidence.evidenceSha256.slice(0, 12)}`);
-    console.log(`Story commit ${result.checks.publication.sha.slice(0, 8)}; Epic commit ${result.publication.sha.slice(0, 8)}.`);
+    if (optionBoolean(options, 'json')) console.log(JSON.stringify(result, null, 2));
+    else {
+      console.log(`Recorded checks for ${story} packet ${result.packet.packetSha256.slice(0, 12)}.`);
+      console.log(`Ready: ${result.checks.evidence.ready ? 'yes' : 'no'} · evidence ${result.checks.evidence.evidenceSha256.slice(0, 12)}`);
+      console.log(`Story commit ${result.checks.publication.sha.slice(0, 8)}; Epic commit ${result.publication.sha.slice(0, 8)}.`);
+    }
+    if (!result.checks.evidence.ready) process.exitCode = 2;
     return;
   }
   if (subcommand === 'drift') {
@@ -7153,11 +7304,15 @@ async function storyCommand(positionals, options) {
       packetSha256: optionString(options, 'packet'),
       requiredChecks: optionStrings(options, 'required-check')
     });
-    if (optionBoolean(options, 'json')) return console.log(JSON.stringify(result, null, 2));
-    console.log(`Story checks ${result.evidence.ready ? 'passed' : 'need attention'} for ${result.evidence.packetSha256.slice(0, 12)}.`);
-    console.log(`GitHub Actions: ${result.evidence.github.required.map((entry) => `${entry.name}=${entry.status}`).join(', ') || 'no required checks configured'}`);
-    result.evidence.governance.errors.forEach((error) => console.warn(`BLOCK: ${error}`));
-    console.log(`Evidence committed ${result.publication.sha.slice(0, 8)}${result.publication.pushed ? ' and pushed' : ''}.`);
+    if (optionBoolean(options, 'json')) console.log(JSON.stringify(result, null, 2));
+    else {
+      console.log(`Story checks ${result.evidence.ready ? 'passed' : 'need attention'} for ${result.evidence.packetSha256.slice(0, 12)}.`);
+      console.log(`GitHub Actions: ${result.evidence.github.required.map((entry) => `${entry.name}=${entry.status}`).join(', ') || 'no required checks configured'}`);
+      result.evidence.governance.errors.forEach((error) => console.warn(`BLOCK: ${error}`));
+      console.log(`Evidence committed ${result.publication.sha.slice(0, 8)}${result.publication.pushed ? ' and pushed' : ''}.`);
+    }
+    // This is the pipeline's gate command. Printing BLOCK lines and exiting 0 let a red build pass.
+    if (!result.evidence.ready) process.exitCode = 2;
     return;
   }
   if (subcommand === 'status') return statusCommand([positionals[0], positionals[2]], options);

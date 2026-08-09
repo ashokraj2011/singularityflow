@@ -231,18 +231,21 @@ export async function epicReviewDecision(root, initiativeId, storyReference, {
     selected.workflow.workItem.id
   );
   const workflowBeforeDecision = structuredClone(selected.workflow);
-  const outcome = decision === 'approve'
+  // Approval defers its durable writes to the state write's `phase-approved` branch, so `persist:
+  // false` outside the unit is correct and matches the CLI. Rejection has no such branch —
+  // `rejectPhase` writes its own decision file, artifact metadata and workflow.json — so it has to
+  // run inside `beforeStateWrite` to sit within the rollback boundary. It previously ran before the
+  // unit opened, which meant a refusal anywhere in the publication preflight left the Story clone
+  // with the rejection fully persisted, every approval from the target phase onward invalidated,
+  // and no audit commit. The CLI's own reject has always run inside the transaction; this was the
+  // same operation with the boundary in the wrong place.
+  let outcome = decision === 'approve'
     ? await approvePhase(selected.clone, selected.config, selected.workflow, {
       phaseId: preview.phase,
       channel,
       persist: false
     })
-    : await rejectPhase(selected.clone, selected.config, selected.workflow, {
-      phaseId: preview.phase,
-      target: target ?? preview.phase,
-      reason,
-      channel
-    });
+    : null;
   const publication = await commitAndPublish(
     selected.clone,
     selected.config,
@@ -250,7 +253,18 @@ export async function epicReviewDecision(root, initiativeId, storyReference, {
     { type: decision === 'approve' ? 'phase-approved' : 'phase-rejected', phaseId: preview.phase, payload: { packetSha256 } },
     `[${selected.workflow.workItem.id}][review:${decision}] ${packetSha256.slice(0, 12)}`,
     [],
-    { rollbackWorkflow: workflowBeforeDecision }
+    {
+      rollbackWorkflow: workflowBeforeDecision,
+      beforeStateWrite: async () => {
+        if (decision === 'approve') return;
+        outcome = await rejectPhase(selected.clone, selected.config, selected.workflow, {
+          phaseId: preview.phase,
+          target: target ?? preview.phase,
+          reason,
+          channel
+        });
+      }
+    }
   );
   const synchronized = await syncInitiativeRepositories(root, initiativeId);
   const refreshed = await loadInitiative(root, initiativeId);

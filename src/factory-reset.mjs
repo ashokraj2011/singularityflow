@@ -42,7 +42,19 @@ function changedResetPaths(root) {
     cwd: root,
     allowFailure: true
   });
-  return result.status === 0 ? result.stdout.split(/\r?\n/).filter(Boolean) : [];
+  // Fail closed. This list is the only thing standing between an operator's uncommitted work and an
+  // `rm -rf` of the control root, and the guard's premise is that Git history is the recovery path —
+  // which is exactly the claim that does not hold for uncommitted files. Returning an empty list on
+  // a failed `git status` (a concurrent operation holding index.lock is enough) reported "nothing
+  // uncommitted" and deleted the work anyway.
+  if (result.status !== 0) {
+    throw new SingularityFlowError(
+      `Cannot determine whether ${root} has uncommitted governed changes: `
+      + `${(result.stderr || result.stdout).trim().split('\n')[0] || 'git status failed'}. `
+      + 'Refusing to reset without that answer.'
+    );
+  }
+  return result.stdout.split(/\r?\n/).filter(Boolean);
 }
 
 export async function factoryResetPlan(root, { packageVersion = null } = {}) {

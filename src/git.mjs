@@ -23,12 +23,15 @@ export function branch(root) {
   return value;
 }
 
-/** Resolve the application branch without contacting the remote. */
-export function defaultBranchName(root, config = {}, remote = null) {
-  const configured = String(
-    config?.defaultBaseBranch ?? config?.definition?.defaultBaseBranch ?? ''
-  ).trim();
-  if (configured) return configured;
+/** Branch names that are an application integration target in essentially every repository. */
+export const RESERVED_APPLICATION_BRANCHES = Object.freeze(['main', 'master']);
+
+function configuredDefaultBranch(config = {}) {
+  return String(config?.defaultBaseBranch ?? config?.definition?.defaultBaseBranch ?? '').trim();
+}
+
+/** The remote's own default branch, or null when the clone does not record one. */
+export function remoteDefaultBranchName(root, config = {}, remote = null) {
   const remoteName = remote
     ?? config?.git?.remote
     ?? config?.definition?.git?.remote
@@ -38,16 +41,37 @@ export function defaultBranchName(root, config = {}, remote = null) {
     allowFailure: true
   }).stdout.trim();
   const prefix = `${remoteName}/`;
-  return (symbolic.startsWith(prefix) ? symbolic.slice(prefix.length) : symbolic) || 'main';
+  return (symbolic.startsWith(prefix) ? symbolic.slice(prefix.length) : symbolic) || null;
 }
 
-/** Refuse an operation before it writes or commits on the application branch. */
+/** Resolve the branch work is cut from, without contacting the remote. */
+export function defaultBranchName(root, config = {}, remote = null) {
+  return configuredDefaultBranch(config) || remoteDefaultBranchName(root, config, remote) || 'main';
+}
+
+/**
+ * Every branch that must never receive a governed commit directly.
+ *
+ * Deliberately a set rather than the single answer `defaultBranchName` gives. Those are different
+ * questions: `defaultBaseBranch` says what work is *cut from*, which under gitflow is `develop` —
+ * and `main` is still the protected one. Resolving only the configured value left `main` unguarded
+ * in exactly the repositories most likely to protect it. `validateId` already reserved a set for
+ * the same reason; this is the same vocabulary for the branch guard.
+ */
+export function protectedBranchNames(root, config = {}, remote = null) {
+  return new Set([
+    ...RESERVED_APPLICATION_BRANCHES,
+    configuredDefaultBranch(config),
+    remoteDefaultBranchName(root, config, remote)
+  ].filter(Boolean));
+}
+
+/** Refuse an operation before it writes or commits on a protected application branch. */
 export function assertNotDefaultBranch(root, config = {}, action = 'This operation') {
   const current = branch(root);
-  const applicationBranch = defaultBranchName(root, config);
-  if (current === applicationBranch) {
+  if (protectedBranchNames(root, config).has(current)) {
     throw new SingularityFlowError(
-      `${action} cannot run on protected application branch '${applicationBranch}'. `
+      `${action} cannot run on protected application branch '${current}'. `
       + 'Switch to a governed Story, Epic, or configuration review branch first.'
     );
   }

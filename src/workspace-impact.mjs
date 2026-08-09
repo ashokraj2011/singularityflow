@@ -211,7 +211,16 @@ export async function analyzeWorkspaceImpact(workspacePath, options = {}, { runn
   try {
     sandbox = await materializeSandbox(workspace, record);
     process.stderr.write(`Workspace impact ${record.id}: Copilot is analyzing ${record.repositories.length} detached repository snapshot${record.repositories.length === 1 ? '' : 's'}.\n`);
-    const result = await runner({ cwd: sandbox, prompt, model: options.model ?? null });
+    const result = await runner({
+      cwd: sandbox,
+      prompt,
+      // Threaded rather than left to the runner's defaults. `defaultCopilotRunner` declares
+      // `provider`/`providerConfig` parameters that no caller supplied, so a repository configured
+      // to use a specific executable and arguments got bare `copilot` from PATH here alone.
+      provider: options.provider ?? 'copilot-cli',
+      providerConfig: options.providerConfig ?? null,
+      model: options.model ?? options.providerConfig?.model ?? null
+    });
     const summary = String(result?.output ?? '').trim();
     if (!summary) throw new SingularityFlowError('GitHub Copilot returned an empty impact analysis.');
     const summaryFile = `${summary}\n`;

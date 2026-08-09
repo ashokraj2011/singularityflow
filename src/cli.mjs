@@ -222,7 +222,8 @@ import {
 } from './capabilities.mjs';
 import { bootstrapRepository } from './bootstrap.mjs';
 import {
-  capabilityReadiness, composeCapabilityWorldModel, editCapabilityInOrganisation,
+  activateCapabilityProposal, capabilityReadiness, composeCapabilityWorldModel,
+  editCapabilityInOrganisation, inspectCapabilityProposal, listCapabilityProposals,
   initializeWorkspaceState, listLeadRepositories, mapCapability, publishCapabilityMap,
   publishOrganisationCapabilityMap,
   readOrganisation, rememberLeadRepository, resolveWorkspacePlan
@@ -557,6 +558,11 @@ Usage:
     [--json]   (no checkout needed)
   singularity-flow capability publish [--lead URL] [--json]
     (after a capability review branch is merged, refresh its orphan state projection)
+  singularity-flow capability proposals [--lead URL] [--all] [--json]
+  singularity-flow capability proposal <REVIEW-BRANCH> [--lead URL] [--json]
+  singularity-flow capability activate <REVIEW-BRANCH> [--lead URL] --confirm <FULL-COMMIT> [--json]
+    (review and normally merge one exact proposal into sflow/config, then refresh its projection;
+     branch protection is respected and application main is never written)
   singularity-flow capability world-model <CAPABILITY-ID> [--lead URL] [--json]
     (a capability that ships has its lead's model; one that groups others composes theirs)
   singularity-flow capability organisation [LEAD-URL] [--readiness] [--json]
@@ -4205,6 +4211,61 @@ async function capabilityCommand(positionals, options) {
     return console.log(state.branch
       ? `The ${state.branch} capability projection is already current.`
       : `Capability projection not published: ${state.reason}.`);
+  }
+
+  if (subcommandForWrite === 'proposals') {
+    const leadUrl = optionString(options, 'lead') ?? (await listLeadRepositories())[0]?.url;
+    if (!leadUrl) throw new SingularityFlowError('No lead repository is known. Pass --lead <URL>.');
+    const proposals = await listCapabilityProposals(leadUrl, {
+      includeMerged: optionBoolean(options, 'all')
+    });
+    await rememberLeadRepository(leadUrl);
+    if (optionBoolean(options, 'json')) {
+      return console.log(JSON.stringify({ lead: leadUrl, proposals }, null, 2));
+    }
+    if (!proposals.length) return console.log('No pending capability proposals.');
+    for (const proposal of proposals) {
+      console.log(`${proposal.branch}  ${proposal.proposalCommit.slice(0, 12)}  `
+        + `${proposal.merged ? 'merged' : proposal.valid ? 'ready for review' : 'invalid'}`);
+    }
+    return;
+  }
+
+  if (subcommandForWrite === 'proposal') {
+    const leadUrl = optionString(options, 'lead') ?? (await listLeadRepositories())[0]?.url;
+    if (!leadUrl) throw new SingularityFlowError('No lead repository is known. Pass --lead <URL>.');
+    const branch = requirePositional(positionals, 2, 'capability proposal branch');
+    const proposal = await inspectCapabilityProposal(leadUrl, branch);
+    await rememberLeadRepository(leadUrl);
+    if (optionBoolean(options, 'json')) return console.log(JSON.stringify(proposal, null, 2));
+    console.log(`${proposal.branch} (${proposal.proposalCommit})`);
+    console.log(`  target: ${proposal.targetBranch}@${proposal.targetCommit}`);
+    console.log(`  status: ${proposal.merged ? 'already merged' : proposal.valid ? 'ready for review' : 'invalid'}`);
+    for (const file of proposal.changedFiles) console.log(`  ${file.status.padEnd(4)} ${file.paths.join(' -> ')}`);
+    if (proposal.invalidFiles.length) console.log(`  refused files: ${proposal.invalidFiles.join(', ')}`);
+    return;
+  }
+
+  if (subcommandForWrite === 'activate') {
+    const leadUrl = optionString(options, 'lead') ?? (await listLeadRepositories())[0]?.url;
+    if (!leadUrl) throw new SingularityFlowError('No lead repository is known. Pass --lead <URL>.');
+    const branch = requirePositional(positionals, 2, 'capability proposal branch');
+    const result = await activateCapabilityProposal(leadUrl, branch, {
+      confirm: optionString(options, 'confirm')
+    });
+    await rememberLeadRepository(leadUrl);
+    if (optionBoolean(options, 'json')) return console.log(JSON.stringify(result, null, 2));
+    console.log(result.alreadyMerged
+      ? `${branch} was already merged into ${result.targetBranch}.`
+      : `Merged ${branch}@${result.proposalCommit.slice(0, 12)} into ${result.targetBranch} at ${result.targetCommit.slice(0, 12)}.`);
+    if (result.projection?.published) {
+      console.log(`Published the capability projection to ${result.projection.branch} at ${result.projection.commit.slice(0, 12)}.`);
+    } else {
+      console.log(result.projection?.branch
+        ? `The ${result.projection.branch} capability projection is already current.`
+        : `Capability projection not published: ${result.projection?.reason}.`);
+    }
+    return;
   }
 
   if (subcommandForWrite === 'world-model') {

@@ -810,6 +810,9 @@ Useful commands:
 singularity-flow capability tree --json
 singularity-flow capability show <CAPABILITY-ID> --json
 singularity-flow capability map <CAPABILITY-ID> --lead <URL> --repository <URL>
+singularity-flow capability proposals --lead <URL>
+singularity-flow capability proposal <REVIEW-BRANCH> --lead <URL>
+singularity-flow capability activate <REVIEW-BRANCH> --lead <URL> --confirm <FULL-COMMIT>
 singularity-flow capability publish --lead <URL>
 singularity-flow capability world-model <CAPABILITY-ID> --json
 singularity-flow workspace create --local --id <ID> --organisation <LEAD-URL> --capability <CAPABILITY-ID>
@@ -839,9 +842,13 @@ pass an empty value to `capability edit` or `capability set`, for example
 
 Approved organisation configuration lives on the dedicated `sflow/config` branch.
 `capability map` and remote `capability edit` create a review branch named under
-`sflow/config-change/capability/`; they never push an application branch. Merge
-that proposal into `sflow/config` using the repository's normal review process,
-then run `capability publish` to refresh the orphan state projection. The first
+`sflow/config-change/capability/`; they never push an application branch. In VS Code,
+**Configuration → Capabilities → Review capability proposals** opens the exact diff
+and offers **Merge and activate**. The action requires the exact proposal commit,
+uses a normal non-force merge into `sflow/config`, and refreshes the orphan state
+projection. Branch protection remains authoritative: when it refuses the push, merge
+the proposal through the repository's normal review controls and run `capability
+publish`. The first
 proposal may seed `sflow/config` from reusable configuration already present in the
 repository, but excludes runtime work, evidence, telemetry, and world-model output.
 

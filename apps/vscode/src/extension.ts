@@ -413,24 +413,18 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
     }
 
     const { WorkspacePanel } = await import('./views/workspace-panel.ts');
-    WorkspacePanel.show(context, location, output, async (created) => {
+    const workspacePanel = WorkspacePanel.show(context, location, output, async (created) => {
       // The state branch is not created here. `workspace create` does it, in the repository the lead
       // capability ships from — one owner, so the editor and the CLI cannot disagree about where the
       // branch goes, and the editor's copy cannot silently skip a repository the CLI would govern.
       void vscode.window.showInformationMessage(`Workspace created. Now working in ${created.lead}.`);
       await selectWorkspace(created.directory, created.leadDirectory, created.lead);
     }, async () => {
-      // Keep the workspace draft open. Capability setup creates a review proposal; it cannot be
-      // loaded into this draft until the organisation's normal review controls merge that branch.
+      // Keep the workspace draft open. Capability setup creates a review proposal; the proposal
+      // review panel activates it on the protected configuration branch and then reloads this draft.
       await vscode.commands.executeCommand(
         'singularityFlow.mapCapability',
-        async (mapped: Mapped) => {
-          const chosen = await vscode.window.showInformationMessage(
-            `${mapped.capabilityId} is proposed on ${mapped.branch}. Approved ${mapped.baseBranch} was not changed. `
-            + 'Merge the review branch into sflow/config, publish the capability projection, then reopen or refresh the workspace form.',
-            'Copy branch');
-          if (chosen === 'Copy branch') await vscode.env.clipboard.writeText(mapped.branch ?? '');
-        }
+        async () => workspacePanel.refreshCapabilityMap()
       );
     });
   }));
@@ -472,19 +466,73 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
 
     const { BootstrapPanel } = await import('./views/bootstrap-panel.ts');
     BootstrapPanel.show(context, leads.map((lead) => lead.url), run, async (mapped: Mapped) => {
-      if (typeof returnToWorkspace === 'function') {
-        await returnToWorkspace(mapped);
+      if (!mapped.reviewRequired || !mapped.branch) {
+        void vscode.window.showInformationMessage(`${mapped.capabilityId} is already active on ${mapped.baseBranch}.`);
+        if (typeof returnToWorkspace === 'function') await returnToWorkspace(mapped);
         return;
       }
-      void vscode.window.showInformationMessage(
-        `${mapped.capabilityId} is ready for review on ${mapped.branch}. `
-        + `Approved ${mapped.baseBranch} was not changed. Merge the proposal into sflow/config, then run capability publish before creating a workspace on it.`,
-        'Copy branch')
-        .then((chosen) => (chosen
-          ? vscode.env.clipboard.writeText(mapped.branch ?? '')
-          : undefined));
+      const { CapabilityProposalPanel } = await import('./views/capability-proposal.ts');
+      CapabilityProposalPanel.show(context, mapped.lead, mapped.branch, run, async () => {
+        // A retained workspace form contains the user's unsaved directory and identity choices.
+        // Refresh that form only after activation, when the capability is genuinely selectable.
+        if (typeof returnToWorkspace === 'function') await returnToWorkspace(mapped);
+      });
     });
   }));
+
+  /** Reopen any pending capability proposal without finding its branch in a terminal. */
+  context.subscriptions.push(vscode.commands.registerCommand(
+    'singularityFlow.reviewCapabilityProposals',
+    async () => {
+      let location;
+      try {
+        location = resolveCli({ extensionPath: context.extensionPath });
+      } catch (error) {
+        return void vscode.window.showErrorMessage((error as Error).message);
+      }
+      const registry = new SingularityFlowClient({
+        location, repository: process.cwd(), onOutput: (text) => output.append(text)
+      });
+      const run = async (argv: string[]): Promise<{ result: unknown; error: string | null }> => {
+        output.appendLine(`\n$ singularity-flow ${argv.join(' ')}`);
+        try { return { result: await registry.run<unknown>(argv), error: null }; }
+        catch (error) { return { result: null, error: (error as Error).message }; }
+      };
+      const leads = await registry.run<Array<{ url: string }>>(['capability', 'leads', '--json'])
+        .catch(() => []);
+      if (!leads.length) {
+        void vscode.window.showInformationMessage('No capability-map lead repositories are registered yet.');
+        return;
+      }
+      const selectedLead = leads.length === 1 ? leads[0] : await vscode.window.showQuickPick(
+        leads.map((lead) => ({ label: lead.url, lead })), {
+          title: 'Review capability proposals', placeHolder: 'Choose the organisation lead repository'
+        }).then((choice) => choice?.lead);
+      if (!selectedLead) return;
+      const response = await registry.run<{ lead: string; proposals: Array<{
+        branch: string; proposalCommit: string; changedFiles: unknown[]; valid: boolean
+      }> }>(['capability', 'proposals', '--lead', selectedLead.url, '--json']).catch((error) => {
+        void vscode.window.showErrorMessage(`Could not list capability proposals: ${(error as Error).message}`);
+        return { lead: selectedLead.url, proposals: [] };
+      });
+      const proposals = response.proposals;
+      if (!proposals.length) {
+        void vscode.window.showInformationMessage('No pending capability proposals require review.');
+        return;
+      }
+      const selected = proposals.length === 1 ? proposals[0] : await vscode.window.showQuickPick(
+        proposals.map((proposal) => ({
+          label: proposal.branch.replace('sflow/config-change/capability/map-', ''),
+          description: proposal.proposalCommit.slice(0, 12),
+          detail: `${proposal.changedFiles.length} changed configuration file(s)${proposal.valid ? '' : ' - blocked'}`,
+          proposal
+        })), { title: 'Review capability proposals', placeHolder: 'Choose an exact proposal' }
+      ).then((choice) => choice?.proposal);
+      if (!selected) return;
+      const { CapabilityProposalPanel } = await import('./views/capability-proposal.ts');
+      CapabilityProposalPanel.show(context, selectedLead.url, selected.branch, run);
+    }
+  ));
 
   /**
    * The workspaces on this machine, and the three things you can do to one.

@@ -239,8 +239,11 @@ singularity-flow capability map payments-api --lead https://git.example.corp/acm
   --name "Payments API" --kind delivery --parent payments --repository https://git.example.corp/acme/api.git \
   --metadata applicationId=APP-1001 --metadata costCenter=PAYMENTS
 
-# After the review branch is merged into sflow/config through normal controls:
-singularity-flow capability publish --lead https://git.example.corp/acme/platform.git
+# Review the exact proposal, then activate it with its full commit SHA:
+singularity-flow capability proposals --lead https://git.example.corp/acme/platform.git
+singularity-flow capability proposal <REVIEW-BRANCH> --lead https://git.example.corp/acme/platform.git
+singularity-flow capability activate <REVIEW-BRANCH> \
+  --lead https://git.example.corp/acme/platform.git --confirm <FULL-PROPOSAL-COMMIT>
 ```
 
 The first capability mapped into a repository creates `sflow/config` if needed,
@@ -264,7 +267,14 @@ copied configuration asset. Later phases therefore cannot silently change when
 shared configuration advances. Application `main` remains application code and
 never receives capability, workflow, agent, prompt, skill, or template edits from
 this path.
-After review and merge, `capability publish` refreshes the orphan state projection.
+In VS Code, mapping automatically opens **Review capability proposal**. That screen
+shows the exact source and target commits, changed files, and diff. **Merge and
+activate** performs a normal non-force merge into `sflow/config`, publishes the
+orphan state projection, and refreshes any retained Workspace form. If branch
+protection rejects that normal push, the proposal remains intact for the repository's
+normal pull-request controls; the application default branch is never changed.
+
+After an external review merge, `capability publish` can still refresh the orphan state projection.
 Unreviewed configuration is never copied to an application branch or the state
 proof branch.
 

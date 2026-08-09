@@ -136,6 +136,11 @@
         "icon": "$(type-hierarchy)"
       },
       {
+        "command": "singularityFlow.reviewCapabilityProposals",
+        "title": "Singularity Flow: Review Capability Proposals",
+        "icon": "$(git-merge)"
+      },
+      {
         "command": "singularityFlow.createWorkspace",
         "title": "Singularity Flow: Create a Workspace",
         "icon": "$(root-folder)"
@@ -515,6 +520,11 @@
           "command": "singularityFlow.mapCapability",
           "when": "view == singularityFlow.configuration",
           "group": "9_setup@0"
+        },
+        {
+          "command": "singularityFlow.reviewCapabilityProposals",
+          "when": "view == singularityFlow.configuration",
+          "group": "9_setup@1"
         },
         {
           "command": "singularityFlow.openHelp",

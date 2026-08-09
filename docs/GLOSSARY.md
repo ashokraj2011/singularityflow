@@ -3,6 +3,21 @@
 This page distinguishes the product concepts that appear together during prompt
 composition but serve different purposes.
 
+## One word per thing
+
+The product accumulated several words for the same concept. These are the decisions. The **canonical**
+word is the one to use in prose, help text, labels and commit messages; the others still appear in
+flags, directory names, phase IDs and skill names, where renaming them would break repositories that
+already exist.
+
+| Canonical | Also written as | Where the other words legitimately survive |
+|---|---|---|
+| **Initiative** | Epic | `--epic`, the `epic-*` phase IDs, `sflow-epic-*` skills, `epicBranch`. Same record, at `singularity/initiatives/<ID>/`. There is no separate Epic level — an Initiative decomposes directly into Stories. |
+| **Story** | work item | Storage is `singularity/work-items/<ID>/`, and `--work-id` names it. A Story *is* a work item; prefer Story when talking to a person. |
+| **Workflow** | work type, profile, template | `--work-type` selects which workflow applies. "Profile" means a named workflow in `singularity/workflow.yml`; "template" means an artifact template and is a different thing entirely — do not use it for a workflow. |
+| **Phase sequence** | rail, phase graph | "Rail" is the visual presentation of a phase sequence, not a separate concept. |
+| **Next step** | next action, what's next, continuation | The narration plane calls this `next`. One label: **Next**. |
+
 ## Core concepts
 
 | Term | Meaning | Stored in | Authoritative for |
@@ -23,6 +38,12 @@ composition but serve different purposes.
 | Phase input | An approved artifact from an earlier phase injected into a later phase | Phase definition and per-generation `context/inputs-*.json` | Traceable upstream decisions supplied to generation |
 | Approval authority | A configured group of real identities permitted to approve | `approvalAuthorities` in workflow/portfolio configuration | Whether an approval decision is valid |
 | Capability ledger | Optional append-only proof/mirror of high-value lifecycle events on an orphan `state` branch | Orphan Git branch | Audit proof and reconciliation, never active operational state |
+| Generation | One numbered attempt at a phase. Rejecting a phase and reworking it produces generation 2, and so on; artifacts, telemetry and review packets are all recorded per generation | `phases.<id>.generation` in the work item, and `-gen<N>` suffixes on stored records | Which attempt an artifact, approval or telemetry record belongs to |
+| Publication | The atomic unit of a governed change: take the subject lock, run preflight, write state, commit, push, append to the ledger. Either all of it happens or none of it does | `src/publication-unit-of-work.mjs` | Whether a lifecycle transition actually took effect |
+| Configuration branch | The orphan `sflow/config` branch holding governed configuration, with no shared history with any code branch. A Story pins its hashes at start, so later edits stop it rather than silently change it | Orphan Git branch | What configuration a Story is judged against |
+| Grounding | Whether a phase requires a current world-model composition before it may generate. `off`, `warn` or `enforce` | `worldModel.grounding` | Whether generation may proceed without repository facts |
+| Pinned resolution | The snapshot of configuration hashes a Story takes when it starts | `resolution` in the work item | Why an old Story is unaffected by today's configuration edit |
+| Review packet | The hashed record of exactly what a reviewer was shown when they approved | `singularity/work-items/<ID>/submissions/` | That an approval refers to specific bytes, not to a moving artifact |
 
 ## How the concepts combine
 

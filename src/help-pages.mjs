@@ -463,11 +463,11 @@ export const OVERVIEW_GROUPS = Object.freeze([
     ['next', 'What to do next, here, right now.']
   ]],
   ['One governed change, in order', [
-    ['start <WORK-ID>', 'Open a work item and pin the configuration it will be judged against.'],
+    ['start <WORK-ID>', 'Open a Story and pin the configuration it will be judged against.'],
     ['agent <PHASE>', 'Run the governed agent for a phase and register what it produced.'],
     ['submit', 'Submit the current phase for approval.'],
     ['approve', 'Approve a submitted phase. Also: reject, reopen, cancel.'],
-    ['finalize', 'Complete the work item and open its pull request.']
+    ['finalize', 'Complete the Story and open its pull request.']
   ]],
   ['Knowing where you are', [
     ['status', 'Current phase, approvals, branch.'],

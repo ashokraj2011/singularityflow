@@ -64,7 +64,7 @@ export const MESSAGES = Object.freeze({
     preserves: false
   },
   'quickstart.completed': {
-    headline: (s) => `Walked one work item through ${slot(s.steps, 'every')} governed ${Number(s.steps) === 1 ? 'step' : 'steps'} in a throwaway repository.`,
+    headline: (s) => `Walked one Story through ${slot(s.steps, 'every')} governed ${Number(s.steps) === 1 ? 'step' : 'steps'} in a throwaway repository.`,
     // The sandbox is created and removed inside the command. The repository the reader is standing
     // in is untouched, which is the whole reason this is safe to run first.
     preserves: true

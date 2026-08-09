@@ -197,6 +197,43 @@ for (const file of allFiles.filter((candidate) => candidate.endsWith('.mjs'))) {
   checked.push('boolean option declaration');
 }
 
+/**
+ * Vocabulary drift, reported but not yet fatal.
+ *
+ * The glossary now names one canonical word per concept. Enforcing that as an error today would fail
+ * the build on 300-odd historical uses across 11,740 lines of Markdown, which is a migration and not
+ * a gate. So this counts the non-canonical uses in user-facing help and prints them. Turn it into a
+ * `fail` once the count reaches zero — the point of a ratchet is that it can only tighten.
+ */
+{
+  const canonical = [
+    { prefer: 'Initiative', avoid: /\bEpics?\b/g, allow: /--epic|epic-[a-z]|sflow-epic|epicBranch|epicId/ },
+    { prefer: 'Story', avoid: /\bwork items?\b/gi, allow: /work-items|--work-id|workItem/ },
+    { prefer: 'workflow', avoid: /\bprofiles?\b/gi, allow: /portfolio|--profile|profiles\.|userProfile/ }
+  ];
+  // docs/GLOSSARY.md is the dictionary: it has to name the words it is resolving. Blockquotes are
+  // excluded for the same reason — that is where a page states which older name still appears where.
+  const surfaces = ['HELP.md', 'README.md', 'INITIATIVE-ORCHESTRATION.md'];
+  const drift = [];
+  for (const relative of surfaces) {
+    const file = path.join(root, relative);
+    if (!existsSync(file)) continue;
+    const text = await readFile(file, 'utf8');
+    const lines = text.split('\n').filter((line) => !line.trimStart().startsWith('>'));
+    for (const { prefer, avoid, allow } of canonical) {
+      const hits = lines.filter((line) => {
+        avoid.lastIndex = 0;
+        return avoid.test(line) && !allow.test(line);
+      }).length;
+      if (hits) drift.push(`${relative}: ${hits} line(s) using a non-canonical word for '${prefer}'`);
+    }
+  }
+  if (drift.length) {
+    console.warn(`Vocabulary drift (advisory, see docs/GLOSSARY.md):\n${drift.map((line) => `  - ${line}`).join('\n')}`);
+  }
+  checked.push('glossary vocabulary');
+}
+
 // The `--help` overview is curated by hand — the value is the ordering and the omission — so it can
 // drift into naming commands that no longer dispatch. Every name it shows must be a real command.
 {

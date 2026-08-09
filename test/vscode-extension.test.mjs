@@ -1037,6 +1037,21 @@ test('suggested commands preserve quoted values and multi-word placeholders with
   assert.throws(() => commandArgv('singularity-flow reject intake --reason "unfinished'), /unterminated/);
 });
 
+test('suggested commands preserve Windows path separators', () => {
+  assert.deepEqual(
+    commandArgv('singularity-flow documents upload --file "C:\\Users\\Ashok\\brief.md"'),
+    ['documents', 'upload', '--file', 'C:\\Users\\Ashok\\brief.md']
+  );
+  assert.deepEqual(
+    commandArgv('singularity-flow documents upload --file C:\\Users\\Ashok\\brief.md'),
+    ['documents', 'upload', '--file', 'C:\\Users\\Ashok\\brief.md']
+  );
+  assert.deepEqual(
+    commandArgv('singularity-flow documents upload --file C:\\Program\\ Files\\brief.md'),
+    ['documents', 'upload', '--file', 'C:\\Program Files\\brief.md']
+  );
+});
+
 test('answers are substituted positionally, leaving everything else alone', () => {
   const argv = commandArgv('singularity-flow epic sources add --epic SF-E-001 --file <PATH>');
   const filled = fillPlaceholders(argv, new Map([[6, '/tmp/brief.md']]));

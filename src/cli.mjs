@@ -7146,15 +7146,18 @@ async function harnessInvocation(command, argv) {
 // Log every command's outcome. This is the spine of the activity log: without it a failure leaves
 // only the message printed to the terminal, and the sequence that produced it is gone. Building the
 // logger must never break a command, so a repository that cannot be resolved simply gets no file.
-async function commandLogger(command, argv) {
+async function commandLogger(command, argv, { json = false } = {}) {
+  // Machine-readable commands still keep their durable activity log, but their stderr transport
+  // must contain only the JSON result. Suppress only the console sink for those invocations.
+  const env = json ? { ...process.env, SINGULARITY_FLOW_LOG_CONSOLE: 'off' } : process.env;
   try {
     const root = repoRoot();
     const config = await loadConfig(root).catch(() => null);
     return repositoryLogger(root, config, {
-      context: { command, pid: process.pid, cwd: root, branch: branch(root) ?? null }
+      context: { command, pid: process.pid, cwd: root, branch: branch(root) ?? null }, env
     });
   } catch {
-    return repositoryLogger(null, null, { context: { command, pid: process.pid } });
+    return repositoryLogger(null, null, { context: { command, pid: process.pid }, env });
   }
 }
 
@@ -7167,7 +7170,7 @@ export async function main(argv) {
   if (command === 'version') return console.log(VERSION);
   // `logs` reads the file; logging its own invocation would append noise to what it is showing.
   if (!['logs', 'factory-reset', 'reset-all', 'fresh-install'].includes(command)) {
-    const log = await commandLogger(command, argv);
+    const log = await commandLogger(command, argv, { json: options.json });
     const harness = await harnessInvocation(command, argv);
     const started = Date.now();
     log.info('command.start', null, { argv: argv.slice(0, 24) });

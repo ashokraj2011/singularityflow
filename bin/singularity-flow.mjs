@@ -8,13 +8,19 @@ main(process.argv.slice(2)).catch(async (error) => {
   // next to the throw, and what gives it a real next action instead of a Copilot skill name.
   const { commandResultOf } = await import('../src/narration/emit.mjs');
   const result = commandResultOf(error);
+  const json = process.argv.slice(2).some((argument) => argument === '--json' || argument.startsWith('--json='));
   if (result) {
-    const { renderCommandResult } = await import('../src/narration/render-terminal.mjs');
-    console.error(`\n${error.message}`);
-    console.error(`\n${renderCommandResult(result)}`);
+    if (json) {
+      const { renderCommandResultJson } = await import('../src/narration/render-json.mjs');
+      console.error(renderCommandResultJson(result));
+    } else {
+      const { renderCommandResult } = await import('../src/narration/render-terminal.mjs');
+      console.error(`\n${error.message}`);
+      console.error(`\n${renderCommandResult(result)}`);
+    }
   } else {
     console.error(`\nSingularity Flow error: ${error?.message ?? String(error)}`);
   }
-  if (process.env.SINGULARITY_FLOW_DEBUG === '1' && error?.stack) console.error(error.stack);
+  if (!json && process.env.SINGULARITY_FLOW_DEBUG === '1' && error?.stack) console.error(error.stack);
   process.exitCode = Number.isInteger(error?.exitCode) ? error.exitCode : 1;
 });

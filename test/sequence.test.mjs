@@ -91,6 +91,18 @@ test('out-of-sequence commands exit before changing workflow, session, or Git st
   assert.equal(execute('git', ['status', '--porcelain'], root).stdout.trim(), '');
 });
 
+test('--json emits one parseable structured refusal without terminal logs', async () => {
+  const root = await repository();
+  const result = flow(root, ['submit', '--json'], { allowFailure: true });
+  assert.equal(result.status, 2);
+  assert.equal(result.stdout, '');
+  const refusal = JSON.parse(result.stderr);
+  assert.equal(refusal.resultType, 'command-result');
+  assert.equal(refusal.outcome.status, 'refused');
+  assert.equal(refusal.effects.stateChanged, false);
+  assert.doesNotMatch(result.stderr, /command\.failed|Out of sequence|\bNOW\s{2,}/);
+});
+
 test('review, submit, and approve use the same positional phase grammar', async () => {
   const root = await repository();
   const initialBranch = execute('git', ['branch', '--show-current'], root).stdout.trim();

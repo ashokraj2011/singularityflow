@@ -71,6 +71,15 @@ const isolated = {
   SINGULARITY_FLOW_LEAD_REGISTRY: path.join(machineState, 'leads.json')
 };
 
+/**
+ * npm sets these for the children of a lifecycle script when its own output is a terminal, so
+ * `npm test` behaved differently in a terminal than in a pipe — which is the worst way for a test
+ * suite to differ. `colorEnabled` no longer honours FORCE_COLOR, but clearing it here means no
+ * other tool in the tree can reintroduce the difference either.
+ */
+delete isolated.FORCE_COLOR;
+delete isolated.SINGULARITY_FLOW_COLOR;
+
 try {
   const result = spawnSync(process.execPath, [...flags, '--test', ...selected], {
     cwd: root,

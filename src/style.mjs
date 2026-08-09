@@ -25,14 +25,21 @@ const CODES = Object.freeze({
 /**
  * Decide once whether this process should emit escape codes.
  *
- * NO_COLOR wins over everything (https://no-color.org). FORCE_COLOR exists so tests and CI can
- * assert the styled form without attaching a pseudo-terminal.
+ * Attached terminal, or nothing. NO_COLOR (https://no-color.org) and TERM=dumb turn it off even
+ * there; `SINGULARITY_FLOW_COLOR=1` is the only way to turn it on without one.
+ *
+ * `FORCE_COLOR` is deliberately NOT honoured, and that is not an oversight. npm sets it for the
+ * children of a lifecycle script whenever its own output is a terminal, so `npm test` in a real
+ * terminal handed it to every spawned CLI, which then wrote escape codes into output the test was
+ * capturing and comparing. The same mechanism would put them into anything else that captures this
+ * tool while running under such a parent — the VS Code adapter, a CI log, a governed transcript.
+ * A convention owned by another program must not be able to decide what lands in ours.
  */
 export function colorEnabled(env = process.env, stream = process.stdout) {
   if (env.NO_COLOR !== undefined && env.NO_COLOR !== '') return false;
-  if (env.FORCE_COLOR !== undefined && env.FORCE_COLOR !== '' && env.FORCE_COLOR !== '0') return true;
-  if (env.TERM === 'dumb') return false;
   if (env.SINGULARITY_FLOW_NO_COLOR === '1') return false;
+  if (env.TERM === 'dumb') return false;
+  if (env.SINGULARITY_FLOW_COLOR === '1') return true;
   return Boolean(stream?.isTTY);
 }
 

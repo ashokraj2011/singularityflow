@@ -25,9 +25,20 @@ test('colour is off when nothing is attached, and NO_COLOR always wins', () => {
   assert.equal(colorEnabled({}, { isTTY: false }), false);
   assert.equal(colorEnabled({}, { isTTY: true }), true);
   assert.equal(colorEnabled({ NO_COLOR: '1' }, { isTTY: true }), false);
-  assert.equal(colorEnabled({ NO_COLOR: '1', FORCE_COLOR: '1' }, { isTTY: true }), false);
   assert.equal(colorEnabled({ TERM: 'dumb' }, { isTTY: true }), false);
-  assert.equal(colorEnabled({ FORCE_COLOR: '1' }, { isTTY: false }), true);
+  assert.equal(colorEnabled({ SINGULARITY_FLOW_NO_COLOR: '1' }, { isTTY: true }), false);
+  assert.equal(colorEnabled({ SINGULARITY_FLOW_COLOR: '1' }, { isTTY: false }), true);
+  assert.equal(colorEnabled({ NO_COLOR: '1', SINGULARITY_FLOW_COLOR: '1' }, { isTTY: true }), false);
+});
+
+test('FORCE_COLOR cannot switch colour on for a stream that is not a terminal', () => {
+  // npm sets FORCE_COLOR for the children of a lifecycle script whenever its own output is a
+  // terminal. Honouring it meant `npm test` from a real terminal wrote escape codes into output the
+  // tests were capturing — and would do the same to the VS Code adapter, a CI log, or any other
+  // consumer running under such a parent. A convention owned by another program does not get to
+  // decide what lands in ours.
+  assert.equal(colorEnabled({ FORCE_COLOR: '1' }, { isTTY: false }), false);
+  assert.equal(colorEnabled({ FORCE_COLOR: '3' }, { isTTY: false }), false);
 });
 
 test('a piped run is byte-identical to the unstyled output', () => {

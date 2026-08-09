@@ -11,7 +11,7 @@
  */
 import * as vscode from 'vscode';
 import { buildJourney, type Journey } from './journey-model.ts';
-import { contentSecurityPolicy, escape, nonce, page, icon } from './webview.ts';
+import { contentSecurityPolicy, escape, footerNav, navigationTarget, nonce, page, icon, NAV_SCRIPT } from './webview.ts';
 import type { WorkspaceStore } from '../state.ts';
 
 const STATUS_CLASS: Record<string, string> = {
@@ -163,7 +163,8 @@ function bodyHtml(journey: Journey): string {
 
     <section><h2>${icon('document')}Artifact packs</h2>${packsHtml(journey)}</section>
     <section><h2>${icon('document')}Pinned sources</h2>${sources}</section>
-    <section><h2>${icon('story')}Stories</h2>${stories}</section>`;
+    <section><h2>${icon('story')}Stories</h2>${stories}</section>
+    ${footerNav('journey')}`;
 }
 
 /** The page can only name an action and an id. What either means is decided by the extension. */
@@ -206,6 +207,10 @@ export class JourneyPanel {
     this.panel.webview.onDidReceiveMessage((raw: unknown) => {
       // Treated as untrusted input: only the shapes below are recognised, and an id is looked up
       // against the snapshot rather than used as a path.
+      // The shared footer is the one way out of a full-page view. Handled here rather than through
+      // each panel's own callback contract, because "go to another page" is not this panel's business.
+      const navigation = navigationTarget(raw);
+      if (navigation) return void vscode.commands.executeCommand(navigation);
       const message = raw as { type?: unknown; id?: unknown };
       if (message?.type === 'run') return onMessage({ type: 'run' });
       if (message?.type === 'pin') return onMessage({ type: 'pin' });
@@ -244,7 +249,7 @@ export class JourneyPanel {
       bodyHtml(buildJourney(this.store.current.snapshot)),
       contentSecurityPolicy(this.panel.webview, token),
       token,
-      SCRIPT
+      `${SCRIPT}${NAV_SCRIPT}`
     );
   }
 

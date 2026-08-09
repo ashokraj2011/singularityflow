@@ -224,6 +224,9 @@ export class SidebarViewProvider implements vscode.WebviewViewProvider, vscode.D
     this.nodeIndex.clear();
     const token = nonce();
     const sections = SECTION_ORDER.map((section) => this.renderSection(section)).join('');
+    // The status dot was hard-coded green, so it said "ready" while the CLI was still being found —
+    // and said it just as confidently when resolution had failed.
+    const ready = SECTION_ORDER.every((section) => this.bound.has(section));
     this.view.webview.html = `<!doctype html><html><head><meta charset="utf-8">
       <meta name="viewport" content="width=device-width,initial-scale=1">
       <meta http-equiv="Content-Security-Policy" content="${contentSecurityPolicy(this.view.webview, token)}">
@@ -247,6 +250,8 @@ export class SidebarViewProvider implements vscode.WebviewViewProvider, vscode.D
         .brand-copy small { display:block; color:var(--accent); font-size:9px; font-weight:700; letter-spacing:.16em; text-transform:uppercase; }
         .brand-copy strong { display:block; margin-top:3px; font-size:15px; font-weight:650; letter-spacing:.01em; }
         .brand-status { margin-left:auto; width:7px; height:7px; border-radius:50%; background:var(--accent); box-shadow:0 0 0 3px var(--quiet); }
+        .brand-status.connecting { background:var(--vscode-descriptionForeground); box-shadow:0 0 0 3px transparent; }
+        main { overflow-y:auto; }
         details { margin:0; }
         summary { list-style:none; }
         summary::-webkit-details-marker { display:none; }
@@ -294,13 +299,28 @@ export class SidebarViewProvider implements vscode.WebviewViewProvider, vscode.D
         @media (prefers-reduced-motion:reduce) { * { transition:none!important; } }
       </style></head><body>
       <header class="brand"><span class="brand-mark">${icon('workflow', { size: 20 })}</span>
-        <span class="brand-copy"><small>Singularity</small><strong>Flow</strong></span><span class="brand-status" title="Extension ready"></span></header>
+        <span class="brand-copy"><small>Singularity</small><strong>Flow</strong></span>
+        <span class="brand-status${ready ? '' : ' connecting'}" role="img"
+          aria-label="${ready ? 'Connected' : 'Connecting'}"
+          title="${ready ? 'Connected to the Singularity Flow CLI' : 'Connecting to the Singularity Flow CLI…'}"></span></header>
       <main>${sections}</main>
       <script nonce="${token}">
         const vscode=acquireVsCodeApi(); const prior=vscode.getState()||{};
         for(const section of document.querySelectorAll('[data-section]')){
           if(Object.prototype.hasOwnProperty.call(prior,section.dataset.section)) section.open=Boolean(prior[section.dataset.section]);
           section.addEventListener('toggle',()=>{const state=vscode.getState()||{};state[section.dataset.section]=section.open;vscode.setState(state);});
+        }
+        // The whole document is replaced on every refresh, and a refresh happens several times per
+        // change under singularity/. Without this, reading the tree while anything was publishing
+        // threw the reader back to the top repeatedly.
+        const main=document.querySelector('main');
+        if(main){
+          if(typeof prior.__scroll==='number') main.scrollTop=prior.__scroll;
+          let pending=null;
+          main.addEventListener('scroll',()=>{
+            if(pending) return;
+            pending=setTimeout(()=>{pending=null;const state=vscode.getState()||{};state.__scroll=main.scrollTop;vscode.setState(state);},120);
+          });
         }
         document.addEventListener('click',(event)=>{
           const action=event.target.closest('[data-action]'); if(action){event.preventDefault();event.stopPropagation();vscode.postMessage({type:'action',action:action.dataset.action});return;}

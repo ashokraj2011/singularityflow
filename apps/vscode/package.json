@@ -338,12 +338,12 @@
       },
       {
         "command": "singularityFlow.openInbox",
-        "title": "Singularity Flow: Inbox",
+        "title": "Singularity Flow: Inbox (work summary)",
         "icon": "$(inbox)"
       },
       {
         "command": "singularityFlow.openApprovals",
-        "title": "Singularity Flow: Approvals (Inbox)",
+        "title": "Singularity Flow: Approvals",
         "icon": "$(verified)"
       },
       {
@@ -432,7 +432,7 @@
       },
       {
         "command": "singularityFlow.approve",
-        "title": "Singularity Flow: Approve…",
+        "title": "Singularity Flow: Approve\u2026",
         "icon": "$(check)"
       },
       {

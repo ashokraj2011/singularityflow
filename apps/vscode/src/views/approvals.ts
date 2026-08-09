@@ -10,7 +10,7 @@
  */
 import * as vscode from 'vscode';
 import { buildApprovals, type Approvals, type PendingApproval } from './approvals-model.ts';
-import { contentSecurityPolicy, escape, nonce, page, icon } from './webview.ts';
+import { contentSecurityPolicy, escape, footerNav, navigationTarget, nonce, page, icon, NAV_SCRIPT } from './webview.ts';
 import type { WorkspaceStore } from '../state.ts';
 
 const STANDING_PILL: Record<string, { className: string; label: string }> = {
@@ -75,7 +75,8 @@ function groupHtml(title: string, approvals: PendingApproval[]): string {
 function bodyHtml(approvals: Approvals): string {
   if (approvals.empty) {
     return `<header><h1>${icon('approval', { size: 20 })}Approvals</h1></header>
-      <div class="empty"><p>${escape(approvals.empty)}</p></div>`;
+      <div class="empty"><p>${escape(approvals.empty)}</p></div>
+      ${footerNav('approvals')}`;
   }
 
   const yours = approvals.pending.filter((approval) => approval.standing === 'yours');
@@ -100,7 +101,8 @@ function bodyHtml(approvals: Approvals): string {
   <section>
     <h2>${icon('gate')}Before this phase can close</h2>
     <ul class="blockers">${approvals.obstacles.map((obstacle) => `<li>${escape(obstacle)}</li>`).join('')}</ul>
-  </section>` : ''}`;
+  </section>` : ''}
+  ${footerNav('approvals')}`;
 }
 
 const SCRIPT = `
@@ -137,6 +139,10 @@ export class ApprovalsPanel {
     this.subscription = store.onDidChange(() => this.render());
 
     this.panel.webview.onDidReceiveMessage((raw: unknown) => {
+      // The shared footer is the one way out of a full-page view. Handled here rather than through
+      // each panel's own callback contract, because "go to another page" is not this panel's business.
+      const navigation = navigationTarget(raw);
+      if (navigation) return void vscode.commands.executeCommand(navigation);
       const message = raw as { type?: unknown; id?: unknown };
       if (typeof message?.id !== 'string') return;
       // The page names a card; which approval that is comes from the snapshot, not the page.
@@ -178,7 +184,7 @@ export class ApprovalsPanel {
       bodyHtml(buildApprovals(this.store.current.snapshot)),
       contentSecurityPolicy(this.panel.webview, token),
       token,
-      SCRIPT
+      `${SCRIPT}${NAV_SCRIPT}`
     );
   }
 

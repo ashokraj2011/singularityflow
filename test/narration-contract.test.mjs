@@ -10,7 +10,7 @@ import { readFile } from 'node:fs/promises';
 import test from 'node:test';
 
 import {
-  action, because, commandResult, effects, failed, noEffects, noop, preservedEverything, refused, succeeded
+  action, assertContinuation, because, commandResult, effects, failed, noEffects, noop, preservedEverything, refused, succeeded
 } from '../src/narration/command-result.mjs';
 import { MESSAGES, REASONS, preservingMessageIds } from '../src/narration/messages.mjs';
 import { renderCommandResult } from '../src/narration/render-terminal.mjs';
@@ -28,6 +28,7 @@ function base(overrides = {}) {
     effects: noEffects(),
     why: [because('sequence.gate-failed', 'gate', { slots: { failed: 2, total: 8 } })],
     next: [action({ id: 'x', label: 'Do the thing', command: 'singularity-flow validate' })],
+    restState: null,
     ...overrides
   });
 }
@@ -103,9 +104,12 @@ test('NCL-005 a WHY reference stays resolvable beside its friendly wording', () 
   assert.match(rendered, /↳ pin:workflow@4af71c2/, 'the immutable reference survives the friendly line');
 });
 
-test('NCL-006 a result with neither continuation nor rest state is refused', () => {
+test('NCL-006 a result with neither continuation nor rest state is refused at the boundary', () => {
+  // Checked on the way out, not at construction: the planner resolves continuation against
+  // post-command state, which a handler cannot know while it is still building its result.
+  const stranded = base({ next: [], restState: 'informational' });
   assert.throws(
-    () => base({ next: [], restState: null }),
+    () => assertContinuation({ ...stranded, next: [], restState: null }),
     /offers no next action and declares no rest state/
   );
 });

@@ -107,13 +107,6 @@ export function commandResult({
     invalid(`restState '${restState}' must be null or one of ${[...REST_STATES].join(', ')}`);
   }
 
-  // NCL-006. A refusal with no remediation is the worst dead end there is: the person is stopped and
-  // not told how to proceed. Continuation is attached by the planner at the boundary, so this only
-  // fires when nothing supplied one.
-  if (!next.length && restState === null) {
-    invalid(`${outcome.messageId} offers no next action and declares no rest state`);
-  }
-
   return Object.freeze({
     schemaVersion: COMMAND_RESULT_SCHEMA_VERSION,
     resultType: 'command-result',
@@ -126,6 +119,20 @@ export function commandResult({
     restState,
     data
   });
+}
+
+/**
+ * NCL-006, enforced where a result becomes final.
+ *
+ * Not at construction: continuation is resolved by the planner against post-command state, which by
+ * definition is not known while the handler is still building its result. Checking it here means a
+ * dead end is caught on the way out, which is the only moment the question can honestly be asked.
+ */
+export function assertContinuation(result) {
+  if (!result.next.length && result.restState === null) {
+    invalid(`${result.outcome.messageId} offers no next action and declares no rest state`);
+  }
+  return result;
 }
 
 /** True when a result reports that it left everything as it was. */

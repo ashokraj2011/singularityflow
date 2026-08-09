@@ -229,6 +229,8 @@ import {
   readOrganisation, rememberLeadRepository, resolveWorkspacePlan
 } from './organisation.mjs';
 import { canonicalCommand, commandDefinition, validateCommandHandlers } from './command-registry.mjs';
+import { commandResult, effects, succeeded } from './narration/command-result.mjs';
+import { emitCommandResult } from './narration/emit.mjs';
 import { factoryResetAll, factoryResetAllPlan, factoryResetPlan, factoryResetRepository } from './factory-reset.mjs';
 import { capabilityDoctor } from './capability-doctor.mjs';
 import { inspectStatePlanes, reconcileStateProjections } from './state-planes.mjs';
@@ -828,6 +830,14 @@ async function agentCommand(positionals, options = {}) {
   console.log(`Session scope: ${workflow.workItem.id} on branch ${branch(root)} (canonical ${workflow.workItem.branch})`);
   console.log('The selection is local to this checkout and will be recorded with the next workflow action.');
   if (session.phaseCompatibilityOverride) console.warn(`Warning: ${session.agent} is not declared for phase '${session.phaseCompatibilityOverride.phase}'. This is an audited prompt override, not approval authority.`);
+  emitCommandResult(commandResult({
+    operation: { id: 'resume', classification: 'mutation' },
+    subject: { kind: 'story', id: workflow.workItem.id },
+    outcome: succeeded('resume.succeeded', { workId: workflow.workItem.id, branch: branch(root) }),
+    // Resuming checks out a branch and records a local agent selection. Neither is governed state
+    // and neither publishes, but files on disk did move, so say so rather than imply nothing did.
+    effects: effects({ filesChanged: true })
+  }), { postState: workflow });
 }
 
 async function statusCommand(positionals, options) {
@@ -2335,16 +2345,18 @@ async function submitCommand(positionals, options) {
   console.log(`Push: ${publication.pushed ? `${config.git?.remote ?? 'origin'}/${workflowPublicationBranch(root, workflow)}` : 'disabled by git.publish: off'}`);
   console.log(`Review packet: ${reviewPacket.path} (${reviewPacket.packet.packetSha256.slice(0, 12)})`);
   printPhaseReview(await phaseReview(root, config, workflow, phase));
-  if (phase.status === 'approved') {
-    const next = currentPhase(workflow);
-    console.log(`\nStatus: ${phase.id} is complete with ${phase.artifacts.length} generated document(s).`);
-    console.log(`Next in Copilot: ${next ? '/sf-next' : '/sf-status'}`);
-    console.log(`CLI equivalent: ${next ? 'singularity-flow next' : `singularity-flow status ${workflow.workItem.id}`}`);
-  } else {
-    console.log(`\nStatus: ${phase.id} is awaiting approval with ${phase.artifacts.length} generated document(s).`);
-    console.log(`Next in Copilot: /sf-approve ${phase.id}`);
-    console.log(`CLI equivalent: singularity-flow approve ${phase.id} --work-id ${workflow.workItem.id} --fetch`);
-  }
+  // The trailer is narrated. It used to name a Copilot skill and a CLI equivalent chosen by hand
+  // here; NEXT now comes from the deterministic planner against the state the submission left.
+  const advanced = currentPhase(workflow);
+  emitCommandResult(commandResult({
+    operation: { id: 'submit', classification: 'mutation' },
+    subject: { kind: 'story', id: workflow.workItem.id },
+    outcome: succeeded(phase.status === 'approved' ? 'submit.completed' : 'submit.succeeded', {
+      phase: phase.id, documents: phase.artifacts.length
+    }),
+    effects: effects({ stateChanged: true, filesChanged: true, publicationCreated: true }),
+    data: { commit: publication.sha, pushed: publication.pushed, reviewPacket: reviewPacket.packet.packetSha256 }
+  }), { postState: workflow, restStateWhenIdle: advanced ? null : 'complete' });
 }
 
 async function telemetryCommand(positionals, options) {
@@ -2480,8 +2492,14 @@ async function approveCommand(positionals, options) {
     : `Approval decision committed ${publication.sha.slice(0, 8)} locally; push is disabled by git.publish: off.`);
   console.log(`Approved ${result.phase.id} by ${result.approval.approvedBy} through ${result.approval.authorityGroup}; governed agent ${result.approval.agent}.`);
   if (result.approval.selfApproval) console.warn(`Warning: ${result.phase.id} was self-approved; this is not independent review.`);
-  console.log(result.next ? `Current phase is now ${result.next.id}.` : 'Workflow is complete.');
   formatContextBoundaryHandoff(result.contextBoundary).forEach((line) => console.log(line));
+  emitCommandResult(commandResult({
+    operation: { id: 'approve', classification: 'mutation' },
+    subject: { kind: 'story', id: workflow.workItem.id },
+    outcome: succeeded('approve.succeeded', { phase: result.phase.id, next: result.next?.id ?? null }),
+    effects: effects({ stateChanged: true, filesChanged: true, publicationCreated: true }),
+    data: { commit: publication.sha, pushed: publication.pushed, authorityGroup: result.approval.authorityGroup }
+  }), { postState: workflow, restStateWhenIdle: result.next ? null : 'complete' });
 }
 
 async function rejectCommand(positionals, options) {
@@ -2508,9 +2526,16 @@ async function rejectCommand(positionals, options) {
       actionContext: activeActionContext()
     })
   );
-  console.log(`Recorded ${phase.changeRequest.id}; ${phase.id} is now in progress. Comment: ${phase.changeRequest.comment}`);
+  console.log(`Recorded ${phase.changeRequest.id}. Comment: ${phase.changeRequest.comment}`);
   if (phase.changeRequest.clauseIds?.length) console.log(`Clauses requiring revision: ${phase.changeRequest.clauseIds.join(', ')}`);
   formatContextBoundaryHandoff(phase.contextBoundary).forEach((line) => console.log(line));
+  emitCommandResult(commandResult({
+    operation: { id: 'reject', classification: 'mutation' },
+    subject: { kind: 'story', id: workflow.workItem.id },
+    outcome: succeeded('reject.succeeded', { phase: current.id, target: phase.id }),
+    effects: effects({ stateChanged: true, filesChanged: true, publicationCreated: true }),
+    data: { changeRequestId: phase.changeRequest.id }
+  }), { postState: workflow });
 }
 
 async function reopenCommand(positionals, options) {

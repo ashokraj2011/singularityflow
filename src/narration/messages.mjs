@@ -26,7 +26,11 @@ export const MESSAGES = Object.freeze({
     preserves: true
   },
   'submit.succeeded': {
-    headline: (s) => `Submitted ${slot(s.phase)} for approval.`,
+    headline: (s) => `Submitted ${slot(s.phase)} for approval with ${slot(s.documents, '0')} generated document(s).`,
+    preserves: false
+  },
+  'submit.completed': {
+    headline: (s) => `Completed ${slot(s.phase)} with ${slot(s.documents, '0')} generated document(s); its approval policy required no review.`,
     preserves: false
   },
   'submit.noop': {

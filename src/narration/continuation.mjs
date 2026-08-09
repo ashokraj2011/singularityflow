@@ -69,13 +69,22 @@ export function remediationActions(result) {
     .filter((entry) => (seen.has(entry.id) ? false : seen.add(entry.id)));
 }
 
+const PLANNER_RANKS = Object.freeze({ now: 'NOW', alternative: 'NOW', then: 'SOON', later: 'LATER' });
+
+/**
+ * The planner's own vocabulary, translated rather than re-invented.
+ *
+ * `workflowNextSteps` emits `{ rank, skill, command, reason }`, where `reason` is the sentence
+ * explaining why the step is the right one. That sentence is the label; guessing at `label`/`title`
+ * produced a list of steps all captioned "Continue", which is worse than no caption at all.
+ */
 function fromWorkflowPlanner(workflow, { publicationPending = false, modelMode } = {}) {
   return workflowNextSteps(workflow, { publicationPending, modelMode })
     .map((step, index) => action({
-      id: step.id ?? `step-${index}`,
-      label: step.label ?? step.title ?? step.id ?? 'Continue',
-      command: step.command ?? step.cli ?? 'singularity-flow nextsteps',
-      rank: index === 0 ? 'NOW' : 'SOON',
+      id: step.command ? step.command.replace(/[^a-z0-9]+/gi, '-').replace(/^-+|-+$/g, '').slice(0, 64) : `step-${index}`,
+      label: step.reason ?? step.command ?? 'Continue',
+      command: step.command ?? `singularity-flow nextsteps ${workflow.workItem.id}`,
+      rank: PLANNER_RANKS[step.rank] ?? (index === 0 ? 'NOW' : 'SOON'),
       kind: 'workflow',
       modelPolicy: step.modelPolicy ?? 'never'
     }));
@@ -89,7 +98,7 @@ function fromWorkflowPlanner(workflow, { publicationPending = false, modelMode }
  * rest-state branch is a bug in the reason codes — it means we stopped someone without telling them
  * how to proceed.
  */
-export function attachContinuation(result, { postState = null, publicationPending = false, modelMode } = {}) {
+export function attachContinuation(result, { postState = null, publicationPending = false, modelMode, restStateWhenIdle = null } = {}) {
   if (result.next.length || result.restState) return result;
 
   const remediation = remediationActions(result);
@@ -100,5 +109,8 @@ export function attachContinuation(result, { postState = null, publicationPendin
     if (planned.length) return { ...result, next: Object.freeze(planned) };
   }
 
+  // A caller that knows the work finished can say so; otherwise a succeeded command with nothing
+  // planned is complete and anything else is merely informational.
+  if (restStateWhenIdle) return { ...result, restState: restStateWhenIdle };
   return { ...result, restState: result.outcome.status === 'succeeded' ? 'complete' : 'informational' };
 }

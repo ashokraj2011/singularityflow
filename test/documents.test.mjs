@@ -77,7 +77,7 @@ test('progress and document commands upload, list, and view files, images, and F
   assert.match(submission.stdout, /Submitted intake phase for approval/);
   assert.match(submission.stdout, /Generated documents ready for review/);
   assert.match(submission.stdout, /Complete intake evidence/);
-  assert.match(submission.stdout, /Status: intake is awaiting approval with 1 generated document/);
+  assert.match(submission.stdout, /Submitted intake for approval with 1 generated document/);
   const approval = flow(root, ['approve', '--yes']);
   assert.match(approval.stdout, /Generated documents ready for review/);
   assert.ok(approval.stdout.indexOf('Complete intake evidence') < approval.stdout.indexOf('Reviewing DOCS-1 \/ intake'));

@@ -10,7 +10,7 @@ import path from 'node:path';
 import os from 'node:os';
 import { createHash } from 'node:crypto';
 import {
-  copyFile, lstat, mkdir, mkdtemp, readFile, readdir, rm, writeFile
+  copyFile, lstat, mkdir, mkdtemp, readFile, readdir, realpath, rm, writeFile
 } from 'node:fs/promises';
 import { initializeDefinition } from './config.mjs';
 import {
@@ -232,6 +232,17 @@ export async function resolveConfigurationRemote(root, remoteName = 'origin') {
   ).catch(() => null);
   if (active?.workspacePath) {
     const workspace = await readWorkspace(active.workspacePath).catch(() => null);
+    // A machine-wide active workspace is navigation context, not authority for every repository
+    // on the machine. Without this membership check a standalone checkout could silently import
+    // prompts, policies and publication settings from an unrelated workspace merely because that
+    // workspace was selected last in VS Code.
+    const canonical = async (value) => realpath(value).catch(() => path.resolve(value));
+    const repositoryRoot = await canonical(root);
+    const memberRoots = workspace
+      ? await Promise.all(Object.values(workspace.repositories).map((repository) =>
+        canonical(path.join(workspace.path, repository.path))))
+      : [];
+    if (!memberRoots.includes(repositoryRoot)) return null;
     const lead = workspace?.repositories?.[workspace.leadRepository]?.url;
     if (lead && remoteHasConfigurationBranch(lead)) return lead;
   }

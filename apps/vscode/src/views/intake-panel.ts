@@ -17,6 +17,7 @@ import { SingularityFlowClient } from '../cli/client.ts';
 export interface Started {
   shape: Shape;
   id: string;
+  currentPhase?: string;
 }
 
 export class IntakePanel {
@@ -259,6 +260,7 @@ export class IntakePanel {
           workItem?: { id?: string };
           initiative?: { id?: string };
           reservation?: { id?: string };
+          currentPhase?: string;
         }>(args));
       // The identifier a local Epic minted is only knowable from what came back — and `epic start
       // --local --json` reports it as `initiativeId`, which was not among the names read here, so
@@ -268,7 +270,7 @@ export class IntakePanel {
         ?? (this.form.tracker === 'jira' ? this.form.key.trim() : this.form.id.trim());
       const shape = this.form.shape;
       this.dispose();
-      await this.onStarted({ shape, id });
+      await this.onStarted({ shape, id, currentPhase: result.currentPhase });
     } catch (error) {
       this.update({ busy: false, error: (error as Error).message });
     }

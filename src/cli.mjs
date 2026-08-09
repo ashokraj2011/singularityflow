@@ -548,23 +548,23 @@ async function helpCommand(positionals, options) {
 
 /**
  * Refuse to cut a Story branch from an application branch that does not carry the governed
- * definition yet.
+ * definition and has no approved configuration authority to materialize.
  *
- * `bootstrap` now leaves the definition on an unmerged `sflow/govern/...` proposal, which is what
- * makes a protected application branch workable. But a Story branch is cut from the application
- * branch, so until that proposal merges every governed file becomes untracked the moment the branch
- * switches — and the restore-on-failure checkout then cannot run, because returning would overwrite
- * those untracked files. The caller is left on a half-created branch with the governance folder
- * unowned. Checking here costs one `git show` and refuses while nothing has moved.
+ * Approved configuration belongs to `sflow/config`, not application main. When that authority is
+ * available, start deliberately cuts the Story from the application base and materializes the exact
+ * approved revision into it. This guard is therefore only for the older branch-local case where the
+ * current checkout has governance but no approved configuration authority exists anywhere.
  */
-function assertBaseCarriesGovernance(root, { config, branchName, base, remote, currentBranch }) {
+function assertBaseCarriesGovernance(root, {
+  config, branchName, base, remote, currentBranch, configurationRemote
+}) {
   // Reached only when this repository carries its own governance in the working tree — the `init`
   // path. A bootstrapped repository has no local definition at all: it resolves configuration from
   // the `sflow/config` branch and materializes it into the Story branch at start, so `config` is
   // null here and the guard correctly does nothing.
   // Only meaningful when the definition is in this working tree. A repository governed from the
   // workspace lead's `sflow/config` branch legitimately has no definition on its own base branch.
-  if (!config || !base) return;
+  if (configurationRemote || !config || !base) return;
   if (refExists(root, `refs/heads/${branchName}`)) return;
   const baseRef = [`refs/heads/${base}`, `refs/remotes/${remote}/${base}`]
     .find((ref) => refExists(root, ref));
@@ -572,7 +572,8 @@ function assertBaseCarriesGovernance(root, { config, branchName, base, remote, c
   throw new SingularityFlowError(
     `Base branch '${base}' does not carry ${WORKFLOW_PATH} yet, so a Story branch cut from it would `
     + `lose the governed definition currently on '${currentBranch}'.\n`
-    + `Merge the governance proposal into '${base}' first, then run this again. Nothing was changed.`
+    + `Publish the reviewed governance to 'sflow/config' first, then run this again. `
+    + `The application branch '${base}' does not need to change. Nothing was changed.`
   );
 }
 
@@ -613,7 +614,8 @@ async function startCommand(positionals, options) {
   }
   const originalBranch = branch(root);
   assertBaseCarriesGovernance(root, {
-    config, branchName: canonicalBranch, base: baseAtStart, remote, currentBranch: originalBranch
+    config, branchName: canonicalBranch, base: baseAtStart, remote, currentBranch: originalBranch,
+    configurationRemote
   });
   const originalSession = await loadSession(root, { required: false });
   const originalCopilotSession = await loadCopilotSession(root);

@@ -1283,9 +1283,14 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
     const { IntakePanel } = await import('./views/intake-panel.ts');
     IntakePanel.show(context, client, output, async (started) => {
       await store.refresh();
+      const subject = started.shape === 'story' ? 'Story'
+        : started.shape === 'epic' ? 'Epic' : 'Initiative';
+      const next = started.currentPhase
+        ? ` Next: prepare ${started.currentPhase.replaceAll('-', ' ')}.` : '';
       const open = await vscode.window.showInformationMessage(
-        `Started ${started.shape} ${started.id}.`, 'Open the journey', 'Show status');
-      if (open === 'Open the journey') await vscode.commands.executeCommand('singularityFlow.openJourney');
+        `${subject} ${started.id} started.${next}`, 'Continue safely', 'Open the journey', 'Show status');
+      if (open === 'Continue safely') await vscode.commands.executeCommand('singularityFlow.continueSafely');
+      else if (open === 'Open the journey') await vscode.commands.executeCommand('singularityFlow.openJourney');
       else if (open === 'Show status') await vscode.commands.executeCommand('singularityFlow.openDashboard');
     });
   };

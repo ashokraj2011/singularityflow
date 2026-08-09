@@ -88,10 +88,11 @@ application branch, run:
 singularity-flow bootstrap <REPOSITORY-URL> --capability platform --name "Platform"
 ```
 
-The default path pushes a collision-safe `sflow/govern/<repository>-<base-sha>`
-proposal and creates the orphan `sflow/config` and `state` authorities. The command
-prints the exact pull-request command. `--direct` is an explicit opt-out for a
-repository that deliberately permits direct application-branch publication.
+Bootstrap writes nothing to the application branch. It establishes the orphan
+`sflow/config` authority — which carries the definition and this repository's
+capability — and the orphan `state` ledger. `start` materializes the approved
+configuration from `sflow/config` into each Story branch, so a protected default
+branch is simply never a participant.
 
 Install or refresh the GitHub Copilot plugin:
 
@@ -2399,7 +2400,7 @@ singularity-flow workspace list|current|use|prompt|copilot
 singularity-flow knowledge list|show|record|harvest|resolve ...
 singularity-flow capability tree|show|of|add|set|remove|map|edit|world-model|organisation|leads
 singularity-flow hook turn-intent|turn-end|agent-start|session-start|agent-guard
-singularity-flow bootstrap <REPOSITORY-URL> --capability ID [--name TEXT] [--kind collection|delivery] [--into DIR] [--direct]
+singularity-flow bootstrap <REPOSITORY-URL> --capability ID [--name TEXT] [--kind collection|delivery] [--into DIR] [--no-push]
 singularity-flow story branch create|attach|status|promote
 singularity-flow story interval status|checkpoint|reconcile|escalate
 singularity-flow story start|inbox|fetch|checks|finalize

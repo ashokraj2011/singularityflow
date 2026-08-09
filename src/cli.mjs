@@ -504,6 +504,10 @@ async function helpCommand(positionals, options) {
  * unowned. Checking here costs one `git show` and refuses while nothing has moved.
  */
 function assertBaseCarriesGovernance(root, { config, branchName, base, remote, currentBranch }) {
+  // Reached only when this repository carries its own governance in the working tree — the `init`
+  // path. A bootstrapped repository has no local definition at all: it resolves configuration from
+  // the `sflow/config` branch and materializes it into the Story branch at start, so `config` is
+  // null here and the guard correctly does nothing.
   // Only meaningful when the definition is in this working tree. A repository governed from the
   // workspace lead's `sflow/config` branch legitimately has no definition on its own base branch.
   if (!config || !base) return;
@@ -4265,36 +4269,24 @@ async function bootstrapCommand(positionals, options) {
     into: optionString(options, 'into'),
     base: optionString(options, 'base'),
     stateBranch,
-    push: optionBoolean(options, 'push', true),
-    direct: optionBoolean(options, 'direct', false)
+    push: optionBoolean(options, 'push', true)
   });
 
   if (optionBoolean(options, 'json')) return console.log(JSON.stringify(result, null, 2));
   console.log(`${result.cloned ? 'Cloned' : 'Adopted'} ${result.url} at ${result.root}.`);
   console.log(`  repository   ${result.repositoryId} on ${result.branch}`);
-  if (result.reviewRequired) console.log(`  review       ${result.reviewBranch} → ${result.branch}`);
   console.log(`  capability   ${result.capability}`);
+  if (result.configurationBranch) {
+    console.log(`  configuration ${result.configurationBranch} ${result.configurationCreated ? 'created' : 'already existed'}`);
+  }
   if (result.stateBranch) {
     console.log(`  state branch ${result.stateBranch} ${result.ledgerCreated ? 'created' : 'already existed'}`);
   }
-  if (result.commit) console.log(`  commit       ${result.commit.slice(0, 8)}`);
-  if (result.published.error) {
-    console.log(`\nCommitted locally but the push failed: ${result.published.error}`);
-    console.log('Push when you have access; nothing is lost.');
-  } else if (result.published.branch) {
-    if (result.reviewRequired) {
-      console.log(`\nPushed the governance proposal. Open its pull request with:`);
-      console.log(`  gh pr create --base ${result.branch} --head ${result.reviewBranch}`);
-      // Said plainly because it is a prerequisite, not an afterthought: Story branches are cut from
-      // the application branch, so until this merges there is no governed definition to cut from.
-      console.log(`\nMerge that pull request before starting work. Story branches are cut from`);
-      console.log(`'${result.branch}', which does not carry the definition until the merge lands.`);
-    } else {
-      console.log('\nPushed directly. Open this directory to start.');
-    }
-  } else {
-    console.log('\nNot pushed. Open this directory to start.');
-  }
+  // No pull request, and nothing to merge. The definition lives on the configuration branch, and
+  // `start` materializes it into each Story branch, so the application branch is never touched.
+  console.log(result.published.configuration
+    ? '\nGoverned. Nothing was written to the application branch; start work with singularity-flow start <WORK-ID>.'
+    : '\nNot published. Re-run without --no-push to establish the configuration and state branches.');
 }
 
 async function knowledgeCommand(positionals, options) {

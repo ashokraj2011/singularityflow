@@ -79,25 +79,24 @@ const PAGES = Object.freeze({
   bootstrap: {
     summary: 'Put an existing repository under governance without pushing to its protected branch.',
     description: [
-      'Clones the repository, writes the governed definition and the capability record, creates the',
-      'orphan `state` ledger branch, and pushes the whole thing as a review branch — never to the',
-      'application branch. The command prints the pull request to open.',
+      'Clones the repository and establishes two orphan branches: `sflow/config`, which carries the',
+      'governed definition and this repository\'s capability, and `state`, the append-only ledger.',
       '',
-      'That pull request is a prerequisite, not a formality. Story branches are cut from the',
-      'application branch, so until the proposal merges there is no definition there to cut from and',
-      '`start` will refuse.'
+      'Nothing is written to the application branch — not the definition, not a review branch, not a',
+      'commit. `start` materializes the approved configuration from `sflow/config` into each Story',
+      'branch, so a protected default branch is never a participant and there is no pull request to',
+      'merge before work can begin.'
     ],
     options: [
       ['--capability ID', 'The capability this repository delivers. Required.'],
       ['--name TEXT', 'Human-readable capability name.'],
       ['--kind collection|delivery', 'Whether the capability collects work or delivers it.'],
       ['--into DIRECTORY', 'Where to clone. Defaults to a directory named after the repository.'],
-      ['--direct', 'Publish straight to the application branch. Only for repositories that permit it.'],
       ['--no-push', 'Do everything locally and push nothing.']
     ],
     examples: [
       ['singularity-flow bootstrap git@example.com:team/payments.git --capability payments --name Payments --kind delivery',
-        'Governs the repository and opens a review branch for the change.']
+        'Establishes the configuration and ledger authorities; start work immediately afterwards.']
     ],
     seeAlso: ['init', 'capability', 'start']
   },

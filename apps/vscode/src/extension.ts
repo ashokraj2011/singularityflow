@@ -1579,7 +1579,7 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
       output.appendLine(result.trim());
       await store.refresh();
       const meaningful = result.split(/\r?\n/).filter((line) =>
-        /^(Commit|Invalidated phases|Reopened phase|Next in Copilot|CLI equivalent):/.test(line));
+        /^(Commit|Invalidated phases|Reopened phase|Next in Copilot|Run|In Copilot):/.test(line));
       const action = await vscode.window.showInformationMessage(
         `Detached ${target}. ${meaningful.slice(0, 2).join(' · ') || 'The decision was committed through the governed publication transaction.'}`,
         'Show complete result'

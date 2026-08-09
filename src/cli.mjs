@@ -370,7 +370,7 @@ async function initCommand(options) {
   if (workId) {
     console.log(`Initialized Singularity Flow on Work-ID branch ${workId}; the base branch was not modified.`);
     console.log(`Next in Copilot: /sf-start ${workId}`);
-    console.log(`CLI equivalent after reviewing, committing, and pushing singularity/: singularity-flow start ${workId}`);
+    console.log(`After reviewing, committing and pushing singularity/, run: singularity-flow start ${workId}`);
   }
 }
 
@@ -709,12 +709,32 @@ async function startCommand(positionals, options) {
       documents: supportingDocuments.length
     }, null, 2));
   } else {
-  summary(workflow);
-  if (supportingDocuments.length) console.log(`Supporting documents: ${supportingDocuments.length} uploaded and published.`);
-  console.log('\nTemplate help in Copilot: /sf-help');
-  console.log('CLI equivalent: singularity-flow help');
-  console.log('\nNext in Copilot: /sf-phase');
-  console.log(`CLI equivalent: singularity-flow prepare ${workflow.currentPhase}`);
+    summary(workflow);
+    if (supportingDocuments.length) console.log(`Supporting documents: ${supportingDocuments.length} uploaded and published.`);
+    emitCommandResult(commandResult({
+      operation: { id: 'start', classification: 'mutation' },
+      subject: { kind: 'story', id: workflow.workItem.id },
+      outcome: succeeded('start.succeeded', {
+        workId: workflow.workItem.id,
+        branch: workflow.workItem.branch,
+        phase: workflow.currentPhase
+      }),
+      // Creates the branch, writes the pinned resolution, and publishes the opening commit.
+      effects: effects({ filesChanged: true, stateChanged: true, published: true }),
+      next: [
+        narrationAction({
+          id: 'start.prepare',
+          label: `Materialise the ${workflow.currentPhase} artifact so it can be filled in`,
+          command: `singularity-flow prepare ${workflow.currentPhase}`
+        }),
+        narrationAction({
+          id: 'start.help',
+          label: 'See what this phase expects',
+          command: `singularity-flow phase show ${workflow.currentPhase}`,
+          rank: 'LATER'
+        })
+      ]
+    }), { postState: workflow });
   }
   } catch (error) {
     // Selection and validation happen against the lifecycle branch because that branch owns the
@@ -817,7 +837,7 @@ async function resumeCommand(positionals, options) {
   if (active) {
     const command = active.id === 'implementation' ? 'implement' : active.id === 'verification' ? 'verify' : active.id;
     console.log(`\nResume in Copilot: /sf-${command}`);
-    console.log(`CLI equivalent: singularity-flow prepare ${active.id}`);
+    console.log(`Run: singularity-flow prepare ${active.id}`);
   }
   emitCommandResult(commandResult({
     operation: { id: 'resume', classification: 'mutation' },
@@ -1385,27 +1405,27 @@ async function nextCommand(options) {
   const root = repoRoot(); const config = await loadConfig(root); const workflow = await loadStoryAggregate(root, config);
   if (await storyPublicationPending(root, config, workflow.workItem.id)) {
     console.log('Next action in Copilot: /sf-next');
-    console.log('CLI equivalent: singularity-flow sync');
+    console.log('Run: singularity-flow sync');
     console.log('Publish the retained local commit.');
     return syncCommand();
   }
   const phase = currentPhase(workflow);
   if (!phase) {
     console.log('Next action in Copilot: /sf-next');
-    console.log('CLI equivalent: singularity-flow gate --terminal');
+    console.log('Run: singularity-flow gate --terminal');
     console.log('Run the governance gate for the completed workflow.');
     return gateCommand({ ...options, terminal: true });
   }
   if (phase.status === 'awaiting_approval') {
     console.log(`Next action in Copilot: /sf-approve ${phase.id}`);
-    console.log(`CLI equivalent: singularity-flow approve ${phase.id} --work-id ${workflow.workItem.id} --fetch`);
+    console.log(`Run: singularity-flow approve ${phase.id} --work-id ${workflow.workItem.id} --fetch`);
     console.log(`Review and decide submitted phase '${phase.id}'.`);
     return approveCommand(['approve', workflow.workItem.id], { ...options, fetch: optionBoolean(options, 'fetch', true) });
   }
-  if (phase.status !== 'in_progress') throw new SingularityFlowError(`Cannot automatically continue phase '${phase.id}' while it is ${phase.status}.\nCopilot: /sf-nextsteps ${workflow.workItem.id}\nCLI equivalent: singularity-flow nextsteps ${workflow.workItem.id}`);
+  if (phase.status !== 'in_progress') throw new SingularityFlowError(`Cannot automatically continue phase '${phase.id}' while it is ${phase.status}.\nCopilot: /sf-nextsteps ${workflow.workItem.id}\nRun: singularity-flow nextsteps ${workflow.workItem.id}`);
   if (!phaseNeedsGeneration(workflow, phase)) {
     console.log(`Next action in Copilot: /sf-submit ${phase.id}`);
-    console.log(`CLI equivalent: singularity-flow submit ${phase.id}`);
+    console.log(`Run: singularity-flow submit ${phase.id}`);
     console.log(`Submit published phase '${phase.id}' for approval.`);
     return submitCommand(['submit', phase.id], options);
   }
@@ -1419,7 +1439,7 @@ async function nextCommand(options) {
       if (operationContext()?.modelMode.enabled !== false) {
         console.log('No model was started. Build explicitly, then continue:');
         console.log(`Copilot: /sf-worldmodel --phase ${phase.id}`);
-        console.log(`CLI equivalent: singularity-flow wm build --phase ${phase.id} --task ${JSON.stringify(task)}`);
+        console.log(`Run: singularity-flow wm build --phase ${phase.id} --task ${JSON.stringify(task)}`);
         console.log('Model-free alternative: author the prepared artifact manually and publish with --authored human.');
         return;
       }
@@ -1432,8 +1452,8 @@ async function nextCommand(options) {
   await saveStoryDraft(root, config, workflow);
   console.log(`Next step prepared: generate '${phase.id}' using ${artifact}.`);
   console.log(`After authoring and validation, continue in Copilot: /sf-phase ${phase.id}`);
-  console.log(`CLI equivalent (human): singularity-flow phase publish ${phase.id} --authored human`);
-  console.log(`CLI equivalent (Copilot-hosted): singularity-flow phase publish ${phase.id} --authored governed-agent --channel copilot-host`);
+  console.log(`Run (authored by you): singularity-flow phase publish ${phase.id} --authored human`);
+  console.log(`Run (authored by Copilot): singularity-flow phase publish ${phase.id} --authored governed-agent --channel copilot-host`);
 }
 
 async function documentsCommand(positionals, options) {
@@ -1502,7 +1522,7 @@ async function documentsCommand(positionals, options) {
     console.log(`Invalidated phases: ${detached.affectedPhases.length ? detached.affectedPhases.join(', ') : 'none'}`);
     if (detached.reopenedPhase) console.log(`Reopened phase: ${detached.reopenedPhase}`);
     console.log(`Next in Copilot: /sf-nextsteps`);
-    console.log(`CLI equivalent: singularity-flow nextsteps`);
+    console.log(`Run: singularity-flow nextsteps`);
     return;
   }
   if (subcommand === 'preview') {
@@ -1555,8 +1575,30 @@ async function prepareCommand(positionals) {
   const root = repoRoot();
   const config = await loadConfig(root);
   const workflow = await loadStoryAggregate(root, config);
-  console.log(await preparePhase(root, config, workflow, positionals[1]));
+  const artifact = await preparePhase(root, config, workflow, positionals[1]);
   await saveStoryDraft(root, config, workflow);
+  const phase = positionals[1] ?? workflow.currentPhase;
+  emitCommandResult(commandResult({
+    operation: { id: 'prepare', classification: 'mutation' },
+    subject: { kind: 'story', id: workflow.workItem.id },
+    outcome: succeeded('prepare.succeeded', { phase, path: artifact }),
+    // Materialises the artifact from its template and captures the interval baseline. Nothing is
+    // committed or pushed: preparing is not a governed transition.
+    effects: effects({ filesChanged: true }),
+    next: [
+      narrationAction({
+        id: 'prepare.author',
+        label: 'Fill the artifact in, then publish this generation of it',
+        command: `singularity-flow phase publish ${phase} --authored human`
+      }),
+      narrationAction({
+        id: 'prepare.inputs',
+        label: 'See the approved upstream decisions this phase was given',
+        command: `singularity-flow inputs ${phase}`,
+        rank: 'LATER'
+      })
+    ]
+  }), { postState: workflow });
 }
 
 async function inputsCommand(positionals, options) {
@@ -3297,28 +3339,28 @@ async function runCommand(options) {
   if (phase.status === 'awaiting_approval') {
     console.log(`Guided run stopped: '${phase.id}' is awaiting human review and approval.`);
     console.log(`Review in Copilot: /sf-review ${phase.id}`);
-    console.log(`CLI equivalent: singularity-flow review ${phase.id}`);
+    console.log(`Run: singularity-flow review ${phase.id}`);
     console.log(`Decide in Copilot: /sf-approve ${phase.id}`);
-    console.log(`CLI equivalent: singularity-flow approve ${phase.id} --work-id ${workflow.workItem.id} --fetch`);
+    console.log(`Run: singularity-flow approve ${phase.id} --work-id ${workflow.workItem.id} --fetch`);
     return;
   }
   if (phaseNeedsGeneration(workflow, phase)) {
     await nextCommand(options);
     console.log(`Guided run stopped at the authoring boundary. Complete ${phase.requiredArtifact.path}.`);
     console.log(`Continue in Copilot: /sf-phase ${phase.id}`);
-    console.log(`CLI equivalent: singularity-flow phase publish ${phase.id}`);
+    console.log(`Run: singularity-flow phase publish ${phase.id}`);
     return;
   }
   const submit = optionBoolean(options, 'yes') || await confirmYesNo(`Generation ${phase.generation} is published. Submit '${phase.id}' for approval?`);
   if (!submit) {
     console.log('No state changed.');
     console.log(`Submit later in Copilot: /sf-submit ${phase.id}`);
-    console.log(`CLI equivalent: singularity-flow submit ${phase.id}`);
+    console.log(`Run: singularity-flow submit ${phase.id}`);
     return;
   }
   await submitCommand(['submit', phase.id], options);
   console.log(`Guided run stopped at the approval boundary. Review in Copilot: /sf-review ${phase.id}`);
-  console.log(`CLI equivalent: singularity-flow review ${phase.id}`);
+  console.log(`Run: singularity-flow review ${phase.id}`);
 }
 
 async function cockpitCommand() {
@@ -3580,7 +3622,7 @@ async function sessionCommand(positionals, options) {
   console.log(`Copilot session: ${status.copilotSessionId ?? 'not bound'}`);
   console.log(`Work-item selection: ${status.workItemSelectionRequired ? 'required' : 'complete'} · governed agent: ${status.activeAgent ?? 'phase default pending'}`);
   console.log(`Policy: work item ${status.policy.workItemSelection ?? 'off'} · phase agent automatic · before tools: ${status.policy.requireBeforeTools ? 'required' : 'not required'}`);
-  if (status.workItemSelectionRequired) console.log('Copilot: /sf-session\nCLI equivalent: singularity-flow session attach <WORK-ID>');
+  if (status.workItemSelectionRequired) console.log('Copilot: /sf-session\nRun: singularity-flow session attach <WORK-ID>');
 }
 
 async function inboxCommand(options) {
@@ -4633,7 +4675,7 @@ async function initiativeCommand(positionals, options) {
     console.log(initiativeFlowText(progress));
     console.log(`Commit: ${publication.sha.slice(0, 8)}${publication.pushed ? ' pushed' : ' local'}`);
     console.log('Next in Copilot: /sf-epic-requirements');
-    console.log('CLI equivalent: singularity-flow epic requirements prepare');
+    console.log('Run: singularity-flow epic requirements prepare');
     if (profile === 'epic-planning') console.log('Repository world-model generation is deferred until each Jira Story has its canonical branch.');
     return;
   }
@@ -5080,7 +5122,7 @@ async function initiativeCommand(positionals, options) {
   if (subcommand === 'next') {
     const actions = await initiativeNextActions(root, initiativeId);
     if (optionBoolean(options, 'json')) console.log(JSON.stringify(actions, null, 2));
-    else actions.forEach((action, index) => console.log(`${index + 1}. ${action.action}\n   Copilot: ${action.skill}\n   CLI equivalent: ${action.command}\n   ${action.reason}`));
+    else actions.forEach((action, index) => console.log(`${index + 1}. ${action.action}\n   Copilot: ${action.skill}\n   Run: ${action.command}\n   ${action.reason}`));
     return;
   }
   if (subcommand === 'journey') {
@@ -6080,7 +6122,7 @@ async function epicCommand(positionals, options) {
       if (optionBoolean(options, 'json')) return console.log(JSON.stringify(result, null, 2));
       console.log(`Local Epic ${reservation.id} reserved, created, committed, and ${publication.pushed ? 'pushed' : 'recorded locally'}.`);
       console.log(`Next in Copilot: /sf-epic-sources ${reservation.id}`);
-      console.log(`CLI equivalent: singularity-flow epic sources --epic ${reservation.id}`);
+      console.log(`Run: singularity-flow epic sources --epic ${reservation.id}`);
       return;
     }
     return initiativeCommand(['initiative', 'start', requirePositional(positionals, 2, 'Jira Epic key')], {
@@ -6157,7 +6199,7 @@ async function epicCommand(positionals, options) {
       console.log(`Invalidated phases: ${detached.affectedPhases.length ? detached.affectedPhases.join(', ') : 'none'}`);
       if (detached.reopenedPhase) console.log(`Reopened phase: ${detached.reopenedPhase}`);
       console.log(`Next in Copilot: /sf-initiative-next`);
-      console.log(`CLI equivalent: singularity-flow initiative next ${initiativeId}`);
+      console.log(`Run: singularity-flow initiative next ${initiativeId}`);
       return;
     }
     if (action === 'note' || action === 'answer') {
@@ -7065,7 +7107,7 @@ async function storyFetchCommand(positionals, options) {
   console.log(`Lineage: ${property.epic?.jiraKey ?? property.epic?.id} → ${seed.story.planId} → ${storyKey}`);
   console.log(`Workflow: ${workflow.workItem.workType} · current phase ${workflow.currentPhase ?? 'complete'}`);
   console.log('Next in Copilot: /sf-next');
-  console.log('CLI equivalent: singularity-flow next');
+  console.log('Run: singularity-flow next');
 }
 
 async function storyCommand(positionals, options) {

@@ -64,7 +64,7 @@ function assertSequenceFailure(result, ...patterns) {
     assert.match(result.stderr, /No governed state, files, publications or external systems were changed\./);
   } else {
     assert.match(result.stderr, /Required next action:/);
-    assert.match(result.stderr, /CLI equivalent: singularity-flow/);
+    assert.match(result.stderr, /Run: singularity-flow/);
   }
   for (const pattern of patterns) assert.match(result.stderr, pattern);
 }

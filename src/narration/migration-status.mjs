@@ -8,7 +8,7 @@ import { COMMAND_REGISTRY } from '../command-registry.mjs';
 import { SingularityFlowError } from '../util.mjs';
 
 export const MIGRATED_NARRATION_COMMANDS = Object.freeze([
-  'agent', 'approve', 'quickstart', 'reject', 'resume', 'submit'
+  'agent', 'approve', 'prepare', 'quickstart', 'reject', 'resume', 'start', 'submit'
 ]);
 
 export const LEGACY_NARRATION_COMMANDS = Object.freeze([
@@ -17,16 +17,16 @@ export const LEGACY_NARRATION_COMMANDS = Object.freeze([
   'documents', 'epic', 'factory-reset', 'finalize', 'fresh-install', 'gate', 'guide',
   'harness', 'help', 'hook', 'impact', 'inbox', 'init', 'initiative', 'inputs', 'jira',
   'knowledge', 'ledger', 'logs', 'mcp', 'next', 'nextsteps', 'phase', 'plugin', 'pr',
-  'prepare', 'progress', 'prompt-log', 'recover', 'refresh-branch', 'regression',
+  'progress', 'prompt-log', 'recover', 'refresh-branch', 'regression',
   'reopen', 'report', 'reset-all', 'review', 'run', 'session', 'show', 'snapshot',
-  'spec', 'stack', 'start', 'state', 'status', 'story', 'sync', 'telemetry',
+  'spec', 'stack', 'state', 'status', 'story', 'sync', 'telemetry',
   'validate', 'visual', 'watch', 'wm', 'workflow', 'workspace'
 ]);
 
 // This is a ratchet, not a target. New commands must use CommandResult from day one. Lower this
 // ceiling whenever another legacy command is converted so the unstructured-output surface can
 // only shrink.
-export const MAX_LEGACY_NARRATION_COMMANDS = 66;
+export const MAX_LEGACY_NARRATION_COMMANDS = 64;
 
 export function validateNarrationMigrationStatus() {
   const registered = new Set(COMMAND_REGISTRY.map((entry) => entry.name));

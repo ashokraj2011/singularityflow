@@ -25,6 +25,6 @@ test('rendered action guidance pairs Copilot and CLI commands', () => {
   const action = copilotAction({ skill: '/sflow-phase', command: 'singularity-flow prepare intake' });
   assert.deepEqual(actionCommandLines(action), [
     'Next action in Copilot: /sf-phase',
-    'CLI equivalent: singularity-flow prepare intake'
+    'Run: singularity-flow prepare intake'
   ]);
 });

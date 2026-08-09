@@ -63,6 +63,19 @@ export const MESSAGES = Object.freeze({
     headline: (s) => `Selected ${slot(s.agent)} for ${slot(s.workId)}.`,
     preserves: false
   },
+  'start.succeeded': {
+    // The branch is usually named after the work ID, so naming both says the same thing twice.
+    headline: (s) => `Started ${slot(s.workId)}${s.branch && s.branch !== s.workId ? ` on ${slot(s.branch)}` : ''}. Its first phase is ${slot(s.phase)}.`,
+    preserves: false
+  },
+  'prepare.succeeded': {
+    headline: (s) => `${slot(s.phase)} is ready to author in ${slot(s.path)}.`,
+    preserves: false
+  },
+  'prepare.noop': {
+    headline: (s) => `${slot(s.phase)} was already prepared; your work is untouched.`,
+    preserves: true
+  },
   'quickstart.completed': {
     headline: (s) => `Walked one Story through ${slot(s.steps, 'every')} governed ${Number(s.steps) === 1 ? 'step' : 'steps'} in a throwaway repository.`,
     // The sandbox is created and removed inside the command. The repository the reader is standing

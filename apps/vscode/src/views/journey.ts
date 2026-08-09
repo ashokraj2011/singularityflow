@@ -11,7 +11,7 @@
  */
 import * as vscode from 'vscode';
 import { buildJourney, type Journey } from './journey-model.ts';
-import { contentSecurityPolicy, escape, nonce, page, icon } from './webview.ts';
+import { contentSecurityPolicy, escape, footerNav, navigationTarget, nonce, page, icon, NAV_SCRIPT } from './webview.ts';
 import type { WorkspaceStore } from '../state.ts';
 
 const STATUS_CLASS: Record<string, string> = {
@@ -23,13 +23,68 @@ const STATUS_CLASS: Record<string, string> = {
   not_started: 'idle'
 };
 
+/**
+ * A human label for the next action.
+ *
+ * The engine hands back a command line. Putting that on a button asks the reader to parse argv to
+ * find out what the button does. The verb is the second token, and it is a small closed set, so it
+ * can simply be said in words.
+ */
+const ACTION_VERBS: Record<string, string> = {
+  start: 'Start this work item',
+  resume: 'Resume this work item',
+  agent: 'Run the governed agent',
+  prepare: 'Prepare this phase',
+  submit: 'Submit for approval',
+  approve: 'Approve this phase',
+  reject: 'Request changes',
+  reopen: 'Reopen this phase',
+  finalize: 'Finalize and open the pull request',
+  publish: 'Publish this phase',
+  define: 'Define this phase',
+  sync: 'Sync with the remote',
+  next: 'Do the next step'
+};
+
+export function actionLabel(nextAction: { command: string; reason?: string }): string {
+  const tokens = String(nextAction.command).trim().split(/\s+/);
+  // Skip the binary name, then take the first token that is a word rather than a flag or a value.
+  const verb = tokens.slice(1).find((token) => /^[a-z][a-z-]*$/.test(token));
+  const phase = tokens.slice(1).find((token, index) => index > 0 && /^[a-z][a-z-]*$/.test(token) && token !== verb);
+  const base = (verb && ACTION_VERBS[verb]) ?? 'Run the next step';
+  return verb === 'agent' || verb === 'submit' || verb === 'prepare'
+    ? (phase ? `${base} for ${phase}` : base)
+    : base;
+}
+
+/**
+ * The phase rail.
+ *
+ * This drew wrapped dots with a bare `3/5` beside each one, while the shared design system already
+ * carried a numbered rail with connectors and done/current/attention markers — `.phase-rail`, used
+ * by the other views. Same information, one vocabulary, and the counter now says what it counts.
+ */
+const RAIL_STATE: Record<string, string> = {
+  approved: 'done',
+  awaiting_approval: 'attention',
+  rejected: 'attention',
+  stale: 'attention',
+  in_progress: 'current',
+  not_started: ''
+};
+
 function railHtml(journey: Journey): string {
-  return journey.stages.map((stage) => `
-    <li class="stage ${STATUS_CLASS[stage.status] ?? 'idle'}${stage.current ? ' current' : ''}">
-      <span class="dot"></span>
-      <span class="name">${escape(stage.label)}</span>
-      <span class="count">${stage.authored}/${stage.declared}</span>
-    </li>`).join('');
+  return journey.stages.map((stage, index) => {
+    const state = stage.current ? 'current' : (RAIL_STATE[stage.status] ?? '');
+    const marker = state === 'done' ? icon('ok', { size: 14 }) : String(index + 1);
+    return `
+    <li class="phase-node ${state}">
+      <span class="phase-marker">${marker}</span>
+      <span class="phase-name">${escape(stage.label)}</span>
+      <span class="phase-state">${escape(String(stage.status).replaceAll('_', ' '))} ·
+        ${stage.authored}/${stage.declared} artifacts</span>
+    </li>`;
+  }).join('');
 }
 
 function artifactsHtml(journey: Journey): string {
@@ -81,17 +136,23 @@ function bodyHtml(journey: Journey): string {
   return `
     <header>
       <h1>${icon('initiative', { size: 20 })}${escape(journey.title)}</h1>
-      <p class="meta">${escape(journey.id)} · ${escape(journey.profile)} · branch ${escape(journey.branch ?? 'unknown')} · ${escape(journey.status)}</p>
+      <p class="meta">${escape(journey.id)} · ${escape(journey.profile)} ·
+        branch ${escape(journey.branch ?? 'unknown')} ·
+        ${escape(String(journey.status).replaceAll('_', ' '))}</p>
     </header>
 
     ${journey.nextAction ? `
     <section class="next">
       <h2>${icon('ok')}Next</h2>
       <p>${escape(journey.nextAction.reason)}</p>
-      <button data-run="next">${escape(journey.nextAction.command)}</button>
+      <!-- The button says what pressing it does; the argv is the supporting detail beneath it. It
+           was the other way round, so the only filled button on the page was labelled with a raw
+           command line and the readable sentence sat above it doing nothing. -->
+      <button data-run="next">${escape(actionLabel(journey.nextAction))}</button>
+      <p class="command-hint"><code>${escape(journey.nextAction.command)}</code></p>
     </section>` : ''}
 
-    <section><h2>${icon('epic')}Lifecycle</h2><ul class="rail">${railHtml(journey)}</ul></section>
+    <section><h2>${icon('epic')}Lifecycle</h2><ol class="phase-rail">${railHtml(journey)}</ol></section>
 
     <section>
       <h2>${escape(journey.currentStage?.label ?? 'Current phase')}</h2>
@@ -102,7 +163,8 @@ function bodyHtml(journey: Journey): string {
 
     <section><h2>${icon('document')}Artifact packs</h2>${packsHtml(journey)}</section>
     <section><h2>${icon('document')}Pinned sources</h2>${sources}</section>
-    <section><h2>${icon('story')}Stories</h2>${stories}</section>`;
+    <section><h2>${icon('story')}Stories</h2>${stories}</section>
+    ${footerNav('journey')}`;
 }
 
 /** The page can only name an action and an id. What either means is decided by the extension. */
@@ -145,6 +207,10 @@ export class JourneyPanel {
     this.panel.webview.onDidReceiveMessage((raw: unknown) => {
       // Treated as untrusted input: only the shapes below are recognised, and an id is looked up
       // against the snapshot rather than used as a path.
+      // The shared footer is the one way out of a full-page view. Handled here rather than through
+      // each panel's own callback contract, because "go to another page" is not this panel's business.
+      const navigation = navigationTarget(raw);
+      if (navigation) return void vscode.commands.executeCommand(navigation);
       const message = raw as { type?: unknown; id?: unknown };
       if (message?.type === 'run') return onMessage({ type: 'run' });
       if (message?.type === 'pin') return onMessage({ type: 'pin' });
@@ -183,7 +249,7 @@ export class JourneyPanel {
       bodyHtml(buildJourney(this.store.current.snapshot)),
       contentSecurityPolicy(this.panel.webview, token),
       token,
-      SCRIPT
+      `${SCRIPT}${NAV_SCRIPT}`
     );
   }
 

@@ -1,13 +1,17 @@
 # Initiative orchestration
 
-Singularity Flow can govern a delivery initiative above the existing repository story workflow. The initiative lives in a lead repository on a branch named exactly after the initiative ID. It decomposes into Epics and repository-specific stories, then aggregates approved story milestones back into Construction and Delivery gates.
+Singularity Flow can govern a delivery initiative above the existing repository story workflow. The initiative lives in a lead repository on a branch named exactly after the initiative ID. It decomposes into repository-specific Stories, then aggregates approved Story milestones back into Construction and Delivery gates.
+
+> **Initiative and Epic are the same thing.** There are two levels, not three: an Initiative, and the
+> Stories it creates. "Epic" is the older name for an Initiative and survives in the `--epic` flag,
+> the `epic-*` phase IDs, and the `sflow-epic-*` skills, all of which act on exactly the same record
+> at `singularity/initiatives/<ID>/`. Prose in this repository says Initiative.
 
 ```mermaid
 flowchart LR
-  I["Initiative · lead repository"] --> E["Epics"]
-  E --> M["Mobile story branch"]
-  E --> A["API story branch"]
-  E --> P["Platform story branch"]
+  I["Initiative · lead repository"] --> M["Mobile Story branch"]
+  I --> A["API Story branch"]
+  I --> P["Platform Story branch"]
   M --> G["Construction and Delivery gates"]
   A --> G
   P --> G

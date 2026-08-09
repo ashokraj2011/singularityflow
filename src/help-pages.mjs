@@ -445,8 +445,68 @@ export function renderCommandHelp(name) {
   return `${out.join('\n').replace(/\n{3,}$/, '\n')}`;
 }
 
+/**
+ * What `singularity-flow --help` shows.
+ *
+ * It used to print all 365 usage lines, and `singularity-flow help` printed 2,450 — two near-identical
+ * invocations, six times apart, neither paged, and neither answering the question a newcomer actually
+ * has. This answers that question in about a screen: where to start, what a governed change looks
+ * like in order, and how to find the detail. The complete synopsis is one flag away.
+ *
+ * The groups are curated, not generated — the value here is the ordering and the omission. A check in
+ * `scripts/check.mjs` asserts every command named below is a real registry command, so curation
+ * cannot rot into a list of names that no longer dispatch.
+ */
+export const OVERVIEW_GROUPS = Object.freeze([
+  ['Start here', [
+    ['quickstart', 'Walk through one complete governed change. Offline, no model, about 8 seconds.'],
+    ['bootstrap <REPOSITORY-URL>', 'Set up a capability, its configuration branch and its ledger.'],
+    ['next', 'What to do next, here, right now.']
+  ]],
+  ['One governed change, in order', [
+    ['start <WORK-ID>', 'Open a Story and pin the configuration it will be judged against.'],
+    ['agent <PHASE>', 'Run the governed agent for a phase and register what it produced.'],
+    ['submit', 'Submit the current phase for approval.'],
+    ['approve', 'Approve a submitted phase. Also: reject, reopen, cancel.'],
+    ['finalize', 'Complete the Story and open its pull request.']
+  ]],
+  ['Knowing where you are', [
+    ['status', 'Current phase, approvals, branch.'],
+    ['progress', 'The whole phase rail and what each phase is waiting on.'],
+    ['inbox', 'Everything waiting on you.'],
+    ['doctor', 'Check the repository, its branches and its ledger are healthy.']
+  ]]
+]);
+
+/** Render the one-screen overview shown by bare `--help`. */
+export function renderOverview(version) {
+  const width = Math.max(...OVERVIEW_GROUPS.flatMap(([, rows]) => rows.map(([usage]) => usage.length)));
+  const out = [
+    `Singularity Flow ${version} — a deterministic, Git-native SDLC utility.`,
+    ''
+  ];
+  for (const [title, rows] of OVERVIEW_GROUPS) {
+    out.push(`${title}`);
+    for (const [usage, summary] of rows) out.push(`  singularity-flow ${usage.padEnd(width)}  ${summary}`);
+    out.push('');
+  }
+  out.push('Finding the detail');
+  for (const [usage, summary] of [
+    ['<command> --help', 'Options and worked examples for one command.'],
+    ['--help --all', 'Every command and every option.'],
+    ['help <topic>', 'Longer guides.']
+  ]) out.push(`  singularity-flow ${usage.padEnd(width)}  ${summary}`);
+  out.push('', `${COMMAND_REGISTRY.length} commands in total. --no-model disables every kernel-owned model invocation.`);
+  return out.join('\n');
+}
+
 /** Commands that have an authored page, for coverage checks. */
 export function documentedCommands() { return Object.keys(PAGES); }
+
+/** Command names referenced by the overview, for the drift check. */
+export function overviewCommands() {
+  return OVERVIEW_GROUPS.flatMap(([, rows]) => rows.map(([usage]) => usage.split(' ')[0]));
+}
 
 /** Every command the CLI dispatches, for coverage checks. */
 export function allCommands() { return COMMAND_REGISTRY.map((entry) => entry.name); }

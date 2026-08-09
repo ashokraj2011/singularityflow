@@ -95,11 +95,31 @@ function rotate(file, maxBytes, keep) {
 
 const CONSOLE_LABEL = Object.freeze({ error: 'ERROR', warn: 'WARN ', info: 'INFO ', debug: 'DEBUG', trace: 'TRACE' });
 
-function consoleLine(entry) {
+/**
+ * Events whose console presentation belongs to someone else.
+ *
+ * The CLI's own error handler prints a human sentence — and, for a refusal, a narrated next action —
+ * immediately after `command.failed`. Echoing the raw event first said the same thing twice with a
+ * timestamp in front of the worse copy. The file sink still records these in full; that is where
+ * diagnosis happens, and `singularity-flow logs` is how you read them.
+ */
+const CONSOLE_SUPPRESSED_EVENTS = new Set(['command.failed']);
+
+/**
+ * Render one entry for stderr.
+ *
+ * Without `detail`, the structured context is omitted entirely. That context routinely includes the
+ * whole error — message, code, and a full stack — and `JSON.stringify` put it on a single physical
+ * line, so the most common beginner mistake answered with two kilobytes of wrapped JSON before the
+ * sentence explaining it. The terminal gets the sentence; the log file gets the evidence.
+ */
+function consoleLine(entry, detail = false) {
   const context = { ...entry };
   for (const key of ['ts', 'level', 'event', 'msg']) delete context[key];
-  const detail = Object.keys(context).length ? ` ${JSON.stringify(context)}` : '';
-  return `${entry.ts} ${CONSOLE_LABEL[entry.level] ?? entry.level} ${entry.event}${entry.msg ? ` — ${entry.msg}` : ''}${detail}\n`;
+  const head = `${entry.ts} ${CONSOLE_LABEL[entry.level] ?? entry.level} ${entry.event}${entry.msg ? ` — ${entry.msg}` : ''}`;
+  if (!detail || !Object.keys(context).length) return `${head}\n`;
+  // Raised verbosity is a request to read the context, so format it to be read rather than parsed.
+  return `${head}\n${JSON.stringify(context, null, 2).split('\n').map((line) => `  ${line}`).join('\n')}\n`;
 }
 
 /**
@@ -116,6 +136,7 @@ export function createLogger({
   gitDirectory = null,
   level = 'info',
   consoleLevel = 'warn',
+  consoleDetail = false,
   context = {},
   now = () => new Date().toISOString(),
   maxBytes = DEFAULT_MAX_BYTES,
@@ -137,8 +158,8 @@ export function createLogger({
       ...(message ? { msg: redactText(String(message)) } : {}),
       ...redact({ ...context, ...(detail ?? {}) })
     };
-    if (severity <= stderrLevel) {
-      try { writeSync(STDERR_FD, consoleLine(entry)); } catch { /* a closed stderr must not throw */ }
+    if (severity <= stderrLevel && (consoleDetail || !CONSOLE_SUPPRESSED_EVENTS.has(event))) {
+      try { writeSync(STDERR_FD, consoleLine(entry, consoleDetail)); } catch { /* a closed stderr must not throw */ }
     }
     if (file && severity <= fileLevel) {
       try {
@@ -152,11 +173,12 @@ export function createLogger({
 
   const logger = {
     levels: { file: normalizeLogLevel(level), console: normalizeLogLevel(consoleLevel, 'warn') },
+    consoleDetail,
     file,
     context,
     enabled: (levelName) => LOG_LEVELS[normalizeLogLevel(levelName)] <= Math.max(fileLevel, stderrLevel),
     child: (extra = {}) => createLogger({
-      gitDirectory, level, consoleLevel, context: { ...context, ...extra }, now, maxBytes, keep, write
+      gitDirectory, level, consoleLevel, consoleDetail, context: { ...context, ...extra }, now, maxBytes, keep, write
     }),
     // Time an operation and record its outcome. A failure is logged with the elapsed time and
     // rethrown untouched, so callers keep their own error handling.
@@ -201,14 +223,27 @@ export function normalizeLogging(value = {}) {
  *
  *   SINGULARITY_FLOW_LOG_LEVEL=all      both sinks
  *   SINGULARITY_FLOW_LOG_CONSOLE=debug  stderr only
+ *   SINGULARITY_FLOW_DEBUG=1            everything, on screen, with context and stacks
+ *
+ * `consoleDetail` decides whether stderr carries the structured context at all. It is off unless the
+ * caller asked for diagnostics, because the context holds whole error objects and stacks. It is not
+ * a committed configuration field: turning it on is a thing you do to one invocation, not a property
+ * of the repository.
  */
 export function resolveLogging(definition = null, env = process.env) {
   const configured = normalizeLogging(definition?.logging ?? {});
-  const level = env.SINGULARITY_FLOW_LOG_LEVEL ? normalizeLogLevel(env.SINGULARITY_FLOW_LOG_LEVEL, configured.level) : configured.level;
+  const debug = env.SINGULARITY_FLOW_DEBUG === '1';
+  const level = env.SINGULARITY_FLOW_LOG_LEVEL
+    ? normalizeLogLevel(env.SINGULARITY_FLOW_LOG_LEVEL, configured.level)
+    : debug ? 'debug' : configured.level;
+  // An explicit console setting always wins, including the `off` that machine-readable invocations
+  // set to keep stderr clean — debugging must not be able to corrupt a JSON transport.
   const console = env.SINGULARITY_FLOW_LOG_CONSOLE
     ? normalizeLogLevel(env.SINGULARITY_FLOW_LOG_CONSOLE, configured.console)
-    : env.SINGULARITY_FLOW_LOG_LEVEL ? level : configured.console;
-  return { ...configured, level, console };
+    : env.SINGULARITY_FLOW_LOG_LEVEL ? level : debug ? 'debug' : configured.console;
+  const consoleDetail = console !== 'off'
+    && Boolean(debug || env.SINGULARITY_FLOW_LOG_CONSOLE || env.SINGULARITY_FLOW_LOG_LEVEL);
+  return { ...configured, level, console, consoleDetail };
 }
 
 // Parse the JSON-lines log back into entries. Malformed lines are surfaced rather than dropped:
@@ -249,6 +284,7 @@ export function repositoryLogger(root, definition = null, { context = {}, env = 
     gitDirectory: directory,
     level: resolved.level,
     consoleLevel: resolved.console,
+    consoleDetail: resolved.consoleDetail,
     maxBytes: resolved.maxBytes,
     keep: resolved.keep,
     context

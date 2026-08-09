@@ -1,4 +1,4 @@
-import { optionBoolean, SingularityFlowError } from './util.mjs';
+import { didYouMean, optionBoolean, SingularityFlowError } from './util.mjs';
 
 const READ_ONLY = new Set(['about', 'help', 'show', 'choices', 'inbox', 'status', 'progress', 'guide', 'logs', 'doctor', 'nextsteps', 'snapshot', 'validate']);
 const STRUCTURED = new Set(['status', 'progress', 'report', 'impact', 'telemetry', 'doctor', 'inputs', 'snapshot', 'validate', 'gate', 'clarification']);
@@ -50,7 +50,11 @@ export const COMMAND_REGISTRY = Object.freeze([
   ['clarification'],
   ['approve'], ['reject'], ['reopen'], ['cancel'], ['sync'], ['ledger'], ['capabilities'], ['state'],
   ['validate'], ['gate'], ['wm'], ['jira'], ['plugin'], ['snapshot'], ['configuration'], ['initiative'], ['epic'],
-  ['story'], ['workspace'], ['knowledge'], ['capability'], ['hook'], ['bootstrap']
+  ['story'], ['workspace'], ['knowledge'], ['capability'], ['hook'], ['bootstrap'],
+  // The first-run walkthrough already existed as `guide --first-run` and was the best teaching asset
+  // in the product, buried behind a flag on a verb that also means something else. This is the front
+  // door; the flag still works.
+  ['quickstart', ['first-run']]
 ].map(command));
 
 const canonical = new Map(COMMAND_REGISTRY.flatMap((entry) => [
@@ -60,7 +64,12 @@ const canonical = new Map(COMMAND_REGISTRY.flatMap((entry) => [
 
 export function canonicalCommand(name) {
   const result = canonical.get(name);
-  if (!result) throw new SingularityFlowError(`Unknown command: ${name}`);
+  // A mistyped command used to be answered with three words and nothing to do next. The correction
+  // is almost always one edit away, and the two entry points below are the ones a newcomer needs.
+  if (!result) throw new SingularityFlowError(
+    `Unknown command '${name}'.${didYouMean(name, [...canonical.keys()])}`
+    + " Run 'singularity-flow --help' for the command list, or 'singularity-flow quickstart' to be walked through one.",
+    { code: 'UNKNOWN_COMMAND' });
   return result;
 }
 

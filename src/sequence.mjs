@@ -94,7 +94,7 @@ function sequenceMessage(workflow, gate, action, { requestedPhase = null, reason
       `Required next action: ${guidance.summary}`,
       ...commandLines(guidance.actions, guidance.alternativeSecond),
       `See all valid actions in Copilot: /sf-nextsteps ${workflow.workItem.id}`,
-      `CLI equivalent: singularity-flow nextsteps ${workflow.workItem.id}`
+      `Run: singularity-flow nextsteps ${workflow.workItem.id}`
     ] : [])
   ].filter(Boolean).join('\n');
 }

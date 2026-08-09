@@ -52,6 +52,6 @@ export function copilotAction({ skill = null, command, ...rest }) {
 export function actionCommandLines({ skill, command }, label = 'Next action') {
   return [
     `${label} in Copilot: ${directCopilotSkill(skill) ?? copilotSkillForCommand(command)}`,
-    `CLI equivalent: ${command}`
+    `Run: ${command}`
   ];
 }

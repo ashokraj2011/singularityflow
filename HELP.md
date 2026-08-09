@@ -136,9 +136,13 @@ Use `/sf-progress` for deterministic completion and `/sf-report` for timing, wai
 Before connecting a real repository, rehearse the actual lifecycle locally:
 
 ```bash
-singularity-flow guide --first-run
-singularity-flow guide --first-run --keep   # retain the toy repository
+singularity-flow quickstart
+singularity-flow quickstart --keep          # retain the toy repository
 ```
+
+`singularity-flow guide --first-run` is the same command under its original
+name and still works. `quickstart` is the name to reach for: bare `guide`
+means something else — the walkthrough of one existing work item.
 
 This is one typed command and one interaction. It prints its temporary sandbox
 boundary, initializes a toy Git repository, starts the built-in `quick-fix`
@@ -2360,6 +2364,7 @@ sflow-agent [WORK-ID]
 singularity-flow session status|attach|candidates|workspace [WORK-ID] [--json]
 singularity-flow inbox [--offline] [--json]
 singularity-flow finalize [--json]
+singularity-flow quickstart [--keep] [--json]
 singularity-flow guide [WORK-ID] [--json]
 singularity-flow guide --first-run [--keep] [--json]
 singularity-flow nextsteps [WORK-ID] [--json]

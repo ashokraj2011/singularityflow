@@ -3,6 +3,7 @@ import { readFileSync } from 'node:fs';
 import { spawnSync } from 'node:child_process';
 import { lstat, mkdir, readFile, realpath, rename, rm, stat, writeFile } from 'node:fs/promises';
 import path from 'node:path';
+import { displayWidth, padDisplay, terminalWidth, truncateDisplay } from './style.mjs';
 
 export class SingularityFlowError extends Error {
   constructor(message, { exitCode = 1, code = null, details = null, cause = undefined } = {}) {
@@ -28,6 +29,38 @@ export class SingularityFlowError extends Error {
 export function invariant(condition, message) {
   if (!condition) throw new SingularityFlowError(message);
 }
+
+// Presentation primitives live in style.mjs. Imported for `table` and re-exported because every
+// existing caller already reaches for its formatting helpers here.
+export { displayWidth, padDisplay, terminalWidth, truncateDisplay };
+
+/**
+ * Flags that never take a value.
+ *
+ * Without this, `parseArgs` gave every flag the next token — so `submit --skip-checks design` set
+ * `skip-checks` to `"design"` and dropped the phase, then failed with a type error naming a flag the
+ * user had used correctly. The list is derived from how the code actually reads each flag
+ * (`optionBoolean` and nothing else); `scripts/check.mjs` re-derives it and fails on drift, so a flag
+ * that changes shape cannot silently start eating its neighbour again.
+ *
+ * `agent`, `confirm` and `jira` are read both ways in different commands. Ambiguous means greedy:
+ * guessing wrong would swallow a real value, which is the worse failure.
+ */
+export const BOOLEAN_OPTIONS = Object.freeze(new Set([
+  'acknowledge-self-approval', 'active', 'all', 'allow-dirty', 'apply', 'assigned-to-me',
+  'blocking', 'check', 'cli-only', 'clipboard', 'clone', 'concat',
+  'confirm-pin-retention', 'confirm-protected', 'confirm-push-policy', 'create', 'dry-run', 'evidence',
+  'fetch', 'first-run', 'force', 'from-records', 'include-prompt', 'json',
+  'keep', 'local', 'markdown', 'network', 'offline', 'once',
+  'opt-out', 'optional', 'parallel', 'polish', 'probe', 'push',
+  'readiness', 'recap', 'record', 'record-audit', 'render-only', 'repair',
+  'repair-projections', 'replace', 'replace-server', 'resume', 'set', 'sign',
+  'skip-checks', 'strict', 'terminal', 'timings', 'update', 'write',
+  'yes',
+  // Presentation flags introduced with the narration and output work. They are parsed here before
+  // any command reads them, so they must be declared here too.
+  'verbose', 'show-artifact', 'brief'
+]));
 
 export function parseArgs(argv) {
   const positionals = [];
@@ -62,12 +95,70 @@ export function parseArgs(argv) {
     }
     const key = token.slice(2);
     const next = argv[index + 1];
-    if (next !== undefined && !next.startsWith('--')) {
+    if (next !== undefined && !next.startsWith('--') && !BOOLEAN_OPTIONS.has(key)) {
       put(key, next);
       index += 1;
     } else put(key, true);
   }
   return { positionals, options };
+}
+
+// Damerau-style edit distance, bounded so a wildly different word costs nothing to reject.
+function editDistance(a, b, ceiling) {
+  if (Math.abs(a.length - b.length) > ceiling) return ceiling + 1;
+  let previous = Array.from({ length: b.length + 1 }, (_, index) => index);
+  for (let i = 1; i <= a.length; i += 1) {
+    const current = [i];
+    let best = i;
+    for (let j = 1; j <= b.length; j += 1) {
+      const substitute = previous[j - 1] + (a[i - 1] === b[j - 1] ? 0 : 1);
+      const transpose = i > 1 && j > 1 && a[i - 1] === b[j - 2] && a[i - 2] === b[j - 1]
+        ? previous[j - 2] : Infinity;
+      current[j] = Math.min(previous[j] + 1, current[j - 1] + 1, substitute, transpose);
+      if (current[j] < best) best = current[j];
+    }
+    if (best > ceiling) return ceiling + 1;
+    previous = current;
+  }
+  return previous[b.length];
+}
+
+/**
+ * Rank known names by how plausibly they are what someone meant to type.
+ *
+ * A typo should cost one line of correction, not a search through 2,450 lines of help. Prefix
+ * matches come first because that is how people abbreviate; near-spellings follow. Returns at most
+ * `limit`, and nothing at all when nothing is close — a wrong guess is worse than no guess.
+ */
+export function nearestNames(candidate, known, { limit = 3 } = {}) {
+  const needle = String(candidate ?? '').toLowerCase();
+  if (!needle) return [];
+  const ceiling = needle.length <= 4 ? 1 : needle.length <= 8 ? 2 : 3;
+  return [...new Set(known)]
+    .map((name) => {
+      const value = String(name).toLowerCase();
+      if (value.startsWith(needle) || needle.startsWith(value)) return { name, score: -1 };
+      if (value.includes(needle)) return { name, score: -0.5 };
+      return { name, score: editDistance(needle, value, ceiling) };
+    })
+    .filter((entry) => entry.score <= ceiling)
+    .sort((a, b) => a.score - b.score || String(a.name).localeCompare(String(b.name)))
+    .slice(0, limit)
+    .map((entry) => entry.name);
+}
+
+// Join a list the way a sentence does: commas, and one conjunction before the last item.
+export function sentenceList(items, conjunction = 'or') {
+  const values = items.map(String);
+  if (values.length <= 1) return values.join('');
+  return `${values.slice(0, -1).join(', ')} ${conjunction} ${values.at(-1)}`;
+}
+
+// Render a suggestion clause, or nothing when there is no honest suggestion to make.
+export function didYouMean(candidate, known, { limit = 3 } = {}) {
+  const matches = nearestNames(candidate, known, { limit });
+  if (!matches.length) return '';
+  return ` Did you mean ${sentenceList(matches.map((name) => `'${name}'`))}?`;
 }
 
 export function optionString(options, key, fallback = undefined) {
@@ -104,8 +195,23 @@ export function optionNumber(options, key, fallback = undefined) {
   return number;
 }
 
+/**
+ * Read a required positional, or refuse with something the reader can act on.
+ *
+ * This is the most common way to get a refusal out of the tool — 113 call sites — and it used to say
+ * only what was absent, never where it goes. The tokens already consumed are the command path, so
+ * the usage line can be reconstructed exactly, and the per-command man page is one flag away.
+ */
 export function requirePositional(positionals, index, label) {
-  if (!positionals[index]) throw new SingularityFlowError(`Missing ${label}.`);
+  if (!positionals[index]) {
+    const path = positionals.slice(0, index).filter(Boolean).join(' ');
+    const placeholder = `<${String(label).toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-|-$/g, '')}>`;
+    throw new SingularityFlowError([
+      `Missing ${label}.`,
+      path ? `Usage: singularity-flow ${path} ${placeholder}` : null,
+      positionals[0] ? `Run 'singularity-flow ${positionals[0]} --help' for details and examples.` : null
+    ].filter(Boolean).join(' '), { code: 'MISSING_ARGUMENT' });
+  }
   return positionals[index];
 }
 
@@ -286,10 +392,47 @@ export function truncate(value, max = 2000) {
   return text.length <= max ? text : `${text.slice(0, max)}\n… truncated …`;
 }
 
-export function table(rows, columns) {
-  const widths = columns.map((column) => Math.max(column.label.length, ...rows.map((row) => String(row[column.key] ?? '').length)));
-  const line = (row) => columns.map((column, index) => String(row[column.key] ?? '').padEnd(widths[index])).join('  ');
-  return [line(Object.fromEntries(columns.map((column) => [column.key, column.label]))), widths.map((width) => '-'.repeat(width)).join('  '), ...rows.map(line)].join('\n');
+/**
+ * Render rows as a fixed-width table.
+ *
+ * Widths were measured with `String.length` and never bounded, so one long title pushed the table
+ * past the terminal and every row wrapped into rubble, and a single CJK cell — two columns wide,
+ * one code unit long — misaligned everything after it. Width is now printable width, and the table
+ * is fitted to the terminal.
+ *
+ * Columns shrink from the widest first, and never below `min` (default 8). The first column is left
+ * alone: it holds the ID or name you would copy into the next command, and a truncated identifier
+ * is worse than a wrapped row.
+ */
+export function table(rows, columns, { width = terminalWidth(), min = 8 } = {}) {
+  const natural = columns.map((column) => Math.max(
+    displayWidth(column.label),
+    ...rows.map((row) => displayWidth(String(row[column.key] ?? '')))
+  ));
+  const gutters = (columns.length - 1) * 2;
+  const widths = [...natural];
+  // Reclaim the overflow from the widest shrinkable column, one column at a time, so a single long
+  // free-text field gives way before several short ones do.
+  let overflow = widths.reduce((total, value) => total + value, 0) + gutters - width;
+  while (overflow > 0) {
+    let target = -1;
+    for (let index = 1; index < widths.length; index += 1) {
+      if (widths[index] > min && (target === -1 || widths[index] > widths[target])) target = index;
+    }
+    if (target === -1) break;
+    const reduction = Math.min(overflow, widths[target] - min);
+    widths[target] -= reduction;
+    overflow -= reduction;
+  }
+  const line = (row) => columns
+    .map((column, index) => padDisplay(truncateDisplay(String(row[column.key] ?? ''), widths[index]), widths[index]))
+    .join('  ')
+    .replace(/\s+$/, '');
+  return [
+    line(Object.fromEntries(columns.map((column) => [column.key, column.label]))),
+    widths.map((value) => '-'.repeat(value)).join('  '),
+    ...rows.map(line)
+  ].join('\n');
 }
 
 /**

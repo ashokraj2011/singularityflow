@@ -1,6 +1,7 @@
 import readline from 'node:readline/promises';
 import os from 'node:os';
 import path from 'node:path';
+import * as style from './style.mjs';
 import { stdin as input, stdout as output } from 'node:process';
 import { existsSync } from 'node:fs';
 import {
@@ -230,7 +231,11 @@ import {
   readOrganisation, rememberLeadRepository, resolveWorkspacePlan
 } from './organisation.mjs';
 import { canonicalCommand, commandDefinition, validateCommandHandlers } from './command-registry.mjs';
-import { commandResult, effects, noEffects, noop, succeeded } from './narration/command-result.mjs';
+// `action` is already a command name in this file, so the narration constructor is renamed rather
+// than shadowing it.
+import {
+  action as narrationAction, commandResult, effects, noEffects, noop, succeeded
+} from './narration/command-result.mjs';
 import { emitCommandResult } from './narration/emit.mjs';
 import { factoryResetAll, factoryResetAllPlan, factoryResetPlan, factoryResetRepository } from './factory-reset.mjs';
 import { localReset, localResetPlan } from './fresh-install-reset.mjs';
@@ -369,7 +374,7 @@ async function initCommand(options) {
   if (workId) {
     console.log(`Initialized Singularity Flow on Work-ID branch ${workId}; the base branch was not modified.`);
     console.log(`Next in Copilot: /sf-start ${workId}`);
-    console.log(`CLI equivalent after reviewing, committing, and pushing singularity/: singularity-flow start ${workId}`);
+    console.log(`After reviewing, committing and pushing singularity/, run: singularity-flow start ${workId}`);
   }
 }
 
@@ -763,12 +768,32 @@ async function startCommand(positionals, options) {
       documents: supportingDocuments.length
     }, null, 2));
   } else {
-  summary(workflow);
-  if (supportingDocuments.length) console.log(`Supporting documents: ${supportingDocuments.length} uploaded and published.`);
-  console.log('\nTemplate help in Copilot: /sf-help');
-  console.log('CLI equivalent: singularity-flow help');
-  console.log('\nNext in Copilot: /sf-phase');
-  console.log(`CLI equivalent: singularity-flow prepare ${workflow.currentPhase}`);
+    summary(workflow);
+    if (supportingDocuments.length) console.log(`Supporting documents: ${supportingDocuments.length} uploaded and published.`);
+    emitCommandResult(commandResult({
+      operation: { id: 'start', classification: 'mutation' },
+      subject: { kind: 'story', id: workflow.workItem.id },
+      outcome: succeeded('start.succeeded', {
+        workId: workflow.workItem.id,
+        branch: workflow.workItem.branch,
+        phase: workflow.currentPhase
+      }),
+      // Creates the branch, writes the pinned resolution, and publishes the opening commit.
+      effects: effects({ filesChanged: true, stateChanged: true, published: true }),
+      next: [
+        narrationAction({
+          id: 'start.prepare',
+          label: `Materialise the ${workflow.currentPhase} artifact so it can be filled in`,
+          command: `singularity-flow prepare ${workflow.currentPhase}`
+        }),
+        narrationAction({
+          id: 'start.help',
+          label: 'See what this phase expects',
+          command: `singularity-flow phase show ${workflow.currentPhase}`,
+          rank: 'LATER'
+        })
+      ]
+    }), { postState: workflow });
   }
   } catch (error) {
     // Selection and validation happen against the lifecycle branch because that branch owns the
@@ -871,7 +896,7 @@ async function resumeCommand(positionals, options) {
   if (active) {
     const command = active.id === 'implementation' ? 'implement' : active.id === 'verification' ? 'verify' : active.id;
     console.log(`\nResume in Copilot: /sf-${command}`);
-    console.log(`CLI equivalent: singularity-flow prepare ${active.id}`);
+    console.log(`Run: singularity-flow prepare ${active.id}`);
   }
   emitCommandResult(commandResult({
     operation: { id: 'resume', classification: 'mutation' },
@@ -988,8 +1013,35 @@ async function reportCommand(positionals, options) {
     if (format !== 'json') writeHumanTimings(timings);
     return;
   }
+  // stdout stays the default. The extension classifies `report` as a read precisely when `--out` is
+  // absent and calls it that way, and `singularity-flow report > notes.md` is how everyone else uses
+  // it — so `--brief` is opt-in rather than the other way round.
+  if (optionBoolean(options, 'brief') && format !== 'json') {
+    console.log(summariseRendered(rendered, `report for ${workflow.workItem.id}`));
+    if (format !== 'json') writeHumanTimings(timings);
+    return;
+  }
   process.stdout.write(rendered);
   if (format !== 'json') writeHumanTimings(timings);
+}
+
+/**
+ * Describe a rendered document instead of printing it.
+ *
+ * Enough to know it is the right one and what to do with it: how big it is, how it starts, and the
+ * flag that prints the rest. Used by the two commands that otherwise put a whole document on screen.
+ */
+function summariseRendered(rendered, label) {
+  const lines = String(rendered).split('\n');
+  const heading = lines.find((line) => line.trim().startsWith('#'))?.replace(/^#+\s*/, '').trim();
+  return [
+    `${style.heading(label)} ${style.detail(style.fields(
+      `${lines.length} lines`,
+      `${Buffer.byteLength(rendered)} bytes`,
+      heading ? `starts: ${heading}` : null
+    ))}`,
+    style.detail('Printed in full without --brief; redirect to a file with --out <path>.')
+  ].join('\n');
 }
 
 function impactFilters(values) {
@@ -1171,12 +1223,45 @@ async function guideCommand(positionals, options) {
       onBoundary: json ? undefined : (directory) => console.log(`Guide sandbox: ${directory}`)
     });
     if (json) return console.log(JSON.stringify(result, null, 2));
-    console.log('Singularity Flow first run completed.');
-    console.log(`Work item: ${result.workId} · model invocations: ${result.modelInvocations} · network access: ${result.networkAccess ? 'yes' : 'no'} · interactions: ${result.interactionCount}`);
-    console.log(`Final state: ${result.finalStateSha256.slice(0, 12)}`);
-    for (const step of result.steps) console.log(`✓ ${step.command}`);
-    if (result.retained) console.log(`Guide repository retained at ${result.repository}`);
-    else console.log('Guide sandbox removed after successful completion.');
+    console.log(`\n${style.heading('Singularity Flow first run completed.')}`);
+    for (const step of result.steps) console.log(`  ${style.pass()} ${step.command}`);
+    console.log(`\n${style.detail(style.fields(
+      `work item ${result.workId}`,
+      `${result.modelInvocations} model invocation(s)`,
+      `network access: ${result.networkAccess ? 'yes' : 'no'}`,
+      `final state ${result.finalStateSha256.slice(0, 12)}`
+    ))}`);
+    console.log(style.detail(result.retained
+      ? `Guide repository retained at ${result.repository}`
+      : 'Guide sandbox removed after successful completion.'));
+    emitCommandResult(commandResult({
+      operation: { id: 'quickstart', classification: 'read' },
+      subject: { kind: 'repository', id: result.workId },
+      outcome: succeeded('quickstart.completed', { steps: result.steps.length }),
+      // The walkthrough runs entirely inside a sandbox it creates and removes. Nothing in the
+      // reader's own repository is touched, which is what makes this safe as a first command.
+      effects: noEffects(),
+      // The sandbox is finished; the reader is not. Reporting a rest state here would answer the
+      // newcomer's very first command with "there is nothing further to do".
+      next: [
+        narrationAction({
+          id: 'quickstart.init',
+          label: 'Set up a repository you already have',
+          command: 'singularity-flow init'
+        }),
+        narrationAction({
+          id: 'quickstart.bootstrap',
+          label: 'Set up a new capability, with its configuration branch and ledger',
+          command: 'singularity-flow bootstrap <REPOSITORY-URL>'
+        }),
+        narrationAction({
+          id: 'quickstart.help',
+          label: 'See what the other commands do',
+          command: 'singularity-flow --help',
+          rank: 'LATER'
+        })
+      ]
+    }));
     return;
   }
   const root = repoRoot();
@@ -1379,27 +1464,27 @@ async function nextCommand(options) {
   const root = repoRoot(); const config = await loadConfig(root); const workflow = await loadStoryAggregate(root, config);
   if (await storyPublicationPending(root, config, workflow.workItem.id)) {
     console.log('Next action in Copilot: /sf-next');
-    console.log('CLI equivalent: singularity-flow sync');
+    console.log('Run: singularity-flow sync');
     console.log('Publish the retained local commit.');
     return syncCommand();
   }
   const phase = currentPhase(workflow);
   if (!phase) {
     console.log('Next action in Copilot: /sf-next');
-    console.log('CLI equivalent: singularity-flow gate --terminal');
+    console.log('Run: singularity-flow gate --terminal');
     console.log('Run the governance gate for the completed workflow.');
     return gateCommand({ ...options, terminal: true });
   }
   if (phase.status === 'awaiting_approval') {
     console.log(`Next action in Copilot: /sf-approve ${phase.id}`);
-    console.log(`CLI equivalent: singularity-flow approve ${phase.id} --work-id ${workflow.workItem.id} --fetch`);
+    console.log(`Run: singularity-flow approve ${phase.id} --work-id ${workflow.workItem.id} --fetch`);
     console.log(`Review and decide submitted phase '${phase.id}'.`);
     return approveCommand(['approve', workflow.workItem.id], { ...options, fetch: optionBoolean(options, 'fetch', true) });
   }
-  if (phase.status !== 'in_progress') throw new SingularityFlowError(`Cannot automatically continue phase '${phase.id}' while it is ${phase.status}.\nCopilot: /sf-nextsteps ${workflow.workItem.id}\nCLI equivalent: singularity-flow nextsteps ${workflow.workItem.id}`);
+  if (phase.status !== 'in_progress') throw new SingularityFlowError(`Cannot automatically continue phase '${phase.id}' while it is ${phase.status}.\nCopilot: /sf-nextsteps ${workflow.workItem.id}\nRun: singularity-flow nextsteps ${workflow.workItem.id}`);
   if (!phaseNeedsGeneration(workflow, phase)) {
     console.log(`Next action in Copilot: /sf-submit ${phase.id}`);
-    console.log(`CLI equivalent: singularity-flow submit ${phase.id}`);
+    console.log(`Run: singularity-flow submit ${phase.id}`);
     console.log(`Submit published phase '${phase.id}' for approval.`);
     return submitCommand(['submit', phase.id], options);
   }
@@ -1413,7 +1498,7 @@ async function nextCommand(options) {
       if (operationContext()?.modelMode.enabled !== false) {
         console.log('No model was started. Build explicitly, then continue:');
         console.log(`Copilot: /sf-worldmodel --phase ${phase.id}`);
-        console.log(`CLI equivalent: singularity-flow wm build --phase ${phase.id} --task ${JSON.stringify(task)}`);
+        console.log(`Run: singularity-flow wm build --phase ${phase.id} --task ${JSON.stringify(task)}`);
         console.log('Model-free alternative: author the prepared artifact manually and publish with --authored human.');
         return;
       }
@@ -1426,8 +1511,8 @@ async function nextCommand(options) {
   await saveStoryDraft(root, config, workflow);
   console.log(`Next step prepared: generate '${phase.id}' using ${artifact}.`);
   console.log(`After authoring and validation, continue in Copilot: /sf-phase ${phase.id}`);
-  console.log(`CLI equivalent (human): singularity-flow phase publish ${phase.id} --authored human`);
-  console.log(`CLI equivalent (Copilot-hosted): singularity-flow phase publish ${phase.id} --authored governed-agent --channel copilot-host`);
+  console.log(`Run (authored by you): singularity-flow phase publish ${phase.id} --authored human`);
+  console.log(`Run (authored by Copilot): singularity-flow phase publish ${phase.id} --authored governed-agent --channel copilot-host`);
 }
 
 async function documentsCommand(positionals, options) {
@@ -1496,7 +1581,7 @@ async function documentsCommand(positionals, options) {
     console.log(`Invalidated phases: ${detached.affectedPhases.length ? detached.affectedPhases.join(', ') : 'none'}`);
     if (detached.reopenedPhase) console.log(`Reopened phase: ${detached.reopenedPhase}`);
     console.log(`Next in Copilot: /sf-nextsteps`);
-    console.log(`CLI equivalent: singularity-flow nextsteps`);
+    console.log(`Run: singularity-flow nextsteps`);
     return;
   }
   if (subcommand === 'preview') {
@@ -1549,8 +1634,30 @@ async function prepareCommand(positionals) {
   const root = repoRoot();
   const config = await loadConfig(root);
   const workflow = await loadStoryAggregate(root, config);
-  console.log(await preparePhase(root, config, workflow, positionals[1]));
+  const artifact = await preparePhase(root, config, workflow, positionals[1]);
   await saveStoryDraft(root, config, workflow);
+  const phase = positionals[1] ?? workflow.currentPhase;
+  emitCommandResult(commandResult({
+    operation: { id: 'prepare', classification: 'mutation' },
+    subject: { kind: 'story', id: workflow.workItem.id },
+    outcome: succeeded('prepare.succeeded', { phase, path: artifact }),
+    // Materialises the artifact from its template and captures the interval baseline. Nothing is
+    // committed or pushed: preparing is not a governed transition.
+    effects: effects({ filesChanged: true }),
+    next: [
+      narrationAction({
+        id: 'prepare.author',
+        label: 'Fill the artifact in, then publish this generation of it',
+        command: `singularity-flow phase publish ${phase} --authored human`
+      }),
+      narrationAction({
+        id: 'prepare.inputs',
+        label: 'See the approved upstream decisions this phase was given',
+        command: `singularity-flow inputs ${phase}`,
+        rank: 'LATER'
+      })
+    ]
+  }), { postState: workflow });
 }
 
 async function clarificationCommand(positionals, options) {
@@ -2125,24 +2232,43 @@ async function phaseReview(root, config, workflow, phase) {
   };
 }
 
-function printPhaseReview(review) {
-  console.log(`\nGenerated documents ready for review — ${review.workId} / ${review.phase} / generation ${review.generation}`);
+/**
+ * Report the artifacts a phase produced.
+ *
+ * The full body used to be printed unconditionally, and `viewDocument` allows a megabyte, so one
+ * `submit` ran to several hundred lines of which about twenty-five were the result — the commit SHA
+ * and the next step at opposite ends of the wall. The default is now the inventory: what was
+ * produced, where it is, and how to read it. `--show-artifact` prints the bodies.
+ *
+ * Only the terminal is affected. `--json` never reached this function.
+ */
+function printPhaseReview(review, { showArtifact = false } = {}) {
+  console.log(`\n${style.heading('Generated documents ready for review')} ${style.detail(style.fields(review.workId, review.phase, `generation ${review.generation}`))}`);
   if (!review.documents.length) {
     console.log('No generated documents are registered for this phase.');
     return;
   }
   for (const [index, document] of review.documents.entries()) {
-    console.log(`\n[${index + 1}] ${document.label} (${document.id})`);
-    console.log(`Path: ${document.path}`);
-    console.log(`Kind: ${document.kind ?? 'artifact'} | Type: ${document.mimeType ?? 'unknown'} | Bytes: ${document.size ?? 'unknown'} | SHA-256: ${document.sha256 ?? 'unavailable'}`);
-    console.log(`View again: singularity-flow documents view ${document.id} --work-id ${review.workId}`);
-    if (document.error) console.warn(`Warning: document preview unavailable: ${document.error}`);
-    else if (document.binary) console.log(`Binary document: open ${document.absolutePath}`);
-    else if (document.content != null) {
+    console.log(`\n${style.bold(`[${index + 1}] ${document.label}`)} ${style.detail(`(${document.id})`)}`);
+    console.log(`  ${document.path}`);
+    console.log(`  ${style.detail(style.fields(
+      document.kind ?? 'artifact',
+      document.mimeType ?? 'unknown',
+      `${document.size ?? 'unknown'} bytes`,
+      document.sha256 ? `sha256:${String(document.sha256).slice(0, 12)}` : 'sha256 unavailable'
+    ))}`);
+    if (document.error) console.warn(`  Warning: document preview unavailable: ${document.error}`);
+    else if (document.binary) console.log(`  Binary document: open ${document.absolutePath}`);
+    else if (document.content != null && showArtifact) {
       console.log(`\n--- BEGIN ${document.path} ---`);
       process.stdout.write(document.content.endsWith('\n') ? document.content : `${document.content}\n`);
       console.log(`--- END ${document.path} ---`);
     }
+  }
+  const readable = review.documents.filter((document) => !document.error && !document.binary && document.content != null);
+  if (readable.length && !showArtifact) {
+    console.log(`\n${style.action('Read them:')} singularity-flow documents view <id> --work-id ${review.workId}`);
+    console.log(style.detail(`Add --show-artifact to print ${readable.length === 1 ? 'the document' : `all ${readable.length} documents`} here instead.`));
   }
 }
 
@@ -2155,7 +2281,7 @@ async function phaseCommand(positionals, options) {
     if (!phase) throw new SingularityFlowError(`Unknown or unavailable phase '${phaseId ?? ''}'. Provide a phase ID.`);
     const review = await phaseReview(root, config, workflow, phase);
     if (optionBoolean(options, 'json')) console.log(JSON.stringify(review, null, 2));
-    else printPhaseReview(review);
+    else printPhaseReview(review, { showArtifact: optionBoolean(options, 'show-artifact') });
     return;
   }
   if (subcommand !== 'publish') throw new SingularityFlowError(`Unknown phase subcommand: ${subcommand}`);
@@ -2230,11 +2356,17 @@ async function phaseCommand(positionals, options) {
   const costs = generationUsage.map((item) => item.providerCost).filter(Number.isFinite);
   const providerCost = costs.length ? costs.reduce((sum, value) => sum + value, 0) : null;
   if (telemetry) {
-    console.log(`Telemetry: ${telemetry.status} | Models: ${telemetry.models.join(', ') || (telemetry.status === 'not-invoked' ? 'not invoked' : 'unavailable')} | Tokens: ${tokens || (telemetry.status === 'not-invoked' ? 'not invoked' : 'unavailable')} | Provider cost: ${providerCost == null ? (telemetry.status === 'not-invoked' ? 'not invoked' : 'unavailable') : `$${providerCost.toFixed(6)}`}`);
+    const unavailable = telemetry.status === 'not-invoked' ? 'not invoked' : 'unavailable';
+    console.log(style.fields(
+      `Telemetry: ${telemetry.status}`,
+      `models: ${telemetry.models.join(', ') || unavailable}`,
+      `tokens: ${tokens || unavailable}`,
+      `provider cost: ${providerCost == null ? unavailable : `$${providerCost.toFixed(6)}`}`
+    ));
     console.log(`Telemetry record: ${telemetry.path}`);
     if (telemetry.status === 'pending') console.log('Telemetry will be reconciled automatically on the next submit action, after Copilot exports this completed turn.');
   }
-  printPhaseReview(await phaseReview(root, config, workflow, phase));
+  printPhaseReview(await phaseReview(root, config, workflow, phase), { showArtifact: optionBoolean(options, 'show-artifact') });
 }
 
 async function artifactCommand(positionals, options) {
@@ -2537,7 +2669,7 @@ async function submitCommand(positionals, options) {
   console.log(`Commit: ${publication.sha.slice(0, 8)} — ${phase.status === 'approved' ? 'complete phase' : 'request approval'} (${workflow.workItem.id})`);
   console.log(`Push: ${publication.pushed ? `${config.git?.remote ?? 'origin'}/${workflowPublicationBranch(root, workflow)}` : 'disabled by git.publish: off'}`);
   console.log(`Review packet: ${reviewPacket.path} (${reviewPacket.packet.packetSha256.slice(0, 12)})`);
-  printPhaseReview(await phaseReview(root, config, workflow, phase));
+  printPhaseReview(await phaseReview(root, config, workflow, phase), { showArtifact: optionBoolean(options, 'show-artifact') });
   // The trailer is narrated. It used to name a Copilot skill and a CLI equivalent chosen by hand
   // here; NEXT now comes from the deterministic planner against the state the submission left.
   const advanced = currentPhase(workflow);
@@ -2645,7 +2777,7 @@ async function approveCommand(positionals, options) {
   }
   const { root, config, workflow, phase, session, receipt, receiptToken } = await decisionWorkflow(positionals, options, 'approve');
   const selfApproval = (phase.generatedBy?.login ?? phase.generatedBy?.email ?? phase.generatedBy?.name) === (session.actor.login ?? session.actor.email ?? session.actor.name);
-  printPhaseReview(await phaseReview(root, config, workflow, phase));
+  printPhaseReview(await phaseReview(root, config, workflow, phase), { showArtifact: optionBoolean(options, 'show-artifact') });
   const approvalAuthority = requireApprovalAuthority(
     workflow.resolution.approvalAuthorities ?? config.approvalAuthorities,
     phase.approvalPolicy,
@@ -2921,7 +3053,7 @@ async function ledgerCommand(positionals, options) {
     return;
   }
   if (subcommand === 'doctor') {
-    result.checks.forEach((check) => console.log(`  ${check.status === 'pass' ? '✓' : check.status === 'warn' ? '~' : '✗'} ${check.id}: ${check.detail}`));
+    result.checks.forEach((check) => console.log(`  ${style.mark(check.status)} ${check.id}: ${check.detail}`));
     if (!result.valid) throw new SingularityFlowError('Capability ledger doctor found blocking problems.', { exitCode: 2 });
     return;
   }
@@ -2990,10 +3122,13 @@ async function capabilitiesCommand(positionals, options) {
     if (optionBoolean(options, 'json')) console.log(JSON.stringify(result, null, 2));
     else {
       for (const item of result.checks) {
-        const mark = item.status === 'pass' ? '✓' : item.status === 'warn' ? '!' : '✗';
-        console.log(`${mark} ${item.id}: ${item.summary}${item.detail ? `\n  ${item.detail}` : ''}`);
+        console.log(`${style.mark(item.status)} ${item.id}: ${item.summary}${item.detail ? `\n  ${style.detail(item.detail)}` : ''}`);
       }
-      console.log(`\n${result.summary.passed} passed · ${result.summary.warnings} warnings · ${result.summary.failures} failures`);
+      console.log(`\n${style.fields(
+        `${result.summary.passed} passed`,
+        `${result.summary.warnings} warnings`,
+        `${result.summary.failures} failures`
+      )}`);
     }
     if (!result.valid) process.exitCode = 1;
     return;
@@ -3162,6 +3297,11 @@ async function reviewCommand(positionals, options) {
   const outputFile = optionString(options, 'out');
   if (outputFile) {
     const absolute = path.resolve(root, outputFile); await writeText(absolute, rendered); console.log(`Review bundle written to ${absolute}`); return;
+  }
+  // Same rule as `report`: stdout is the default because piping it is the common case and the
+  // extension depends on it. `--brief` describes the bundle instead of printing it.
+  if (optionBoolean(options, 'brief') && format !== 'json') {
+    return console.log(summariseRendered(rendered, `review bundle for ${workflow.workItem.id}`));
   }
   process.stdout.write(rendered);
 }
@@ -3335,34 +3475,51 @@ async function runCommand(options) {
   if (phase.status === 'awaiting_approval') {
     console.log(`Guided run stopped: '${phase.id}' is awaiting human review and approval.`);
     console.log(`Review in Copilot: /sf-review ${phase.id}`);
-    console.log(`CLI equivalent: singularity-flow review ${phase.id}`);
+    console.log(`Run: singularity-flow review ${phase.id}`);
     console.log(`Decide in Copilot: /sf-approve ${phase.id}`);
-    console.log(`CLI equivalent: singularity-flow approve ${phase.id} --work-id ${workflow.workItem.id} --fetch`);
+    console.log(`Run: singularity-flow approve ${phase.id} --work-id ${workflow.workItem.id} --fetch`);
     return;
   }
   if (phaseNeedsGeneration(workflow, phase)) {
     await nextCommand(options);
     console.log(`Guided run stopped at the authoring boundary. Complete ${phase.requiredArtifact.path}.`);
     console.log(`Continue in Copilot: /sf-phase ${phase.id}`);
-    console.log(`CLI equivalent: singularity-flow phase publish ${phase.id}`);
+    console.log(`Run: singularity-flow phase publish ${phase.id}`);
     return;
   }
   const submit = optionBoolean(options, 'yes') || await confirmYesNo(`Generation ${phase.generation} is published. Submit '${phase.id}' for approval?`);
   if (!submit) {
     console.log('No state changed.');
     console.log(`Submit later in Copilot: /sf-submit ${phase.id}`);
-    console.log(`CLI equivalent: singularity-flow submit ${phase.id}`);
+    console.log(`Run: singularity-flow submit ${phase.id}`);
     return;
   }
   await submitCommand(['submit', phase.id], options);
   console.log(`Guided run stopped at the approval boundary. Review in Copilot: /sf-review ${phase.id}`);
-  console.log(`CLI equivalent: singularity-flow review ${phase.id}`);
+  console.log(`Run: singularity-flow review ${phase.id}`);
 }
 
 async function cockpitCommand() {
   const root = repoRoot();
   if (!existsSync(path.join(root, WORKFLOW_PATH)) && !existsSync(path.join(root, 'singularity/config.json'))) {
-    console.log('Singularity Flow is not initialized in this repository.\n\nRun: singularity-flow init'); return;
+    // The bare command in an uninitialised repository is, for most people, their first contact with
+    // the product. It said what was absent and gave one command, with no way to find out what any of
+    // it means or to see it work before committing a real repository to it.
+    console.log(style.heading('Singularity Flow is not set up in this repository.'));
+    const entries = [
+      ['singularity-flow quickstart', [
+        'See one complete governed change in a throwaway repository.',
+        'About 8 seconds, offline, and nothing here is touched.'
+      ]],
+      ['singularity-flow init', ['Set this repository up.']],
+      ['singularity-flow --help', ['What the other commands do.']]
+    ];
+    const column = Math.max(...entries.map(([command]) => command.length));
+    for (const [command, lines] of entries) {
+      console.log(`\n  ${style.action(command.padEnd(column))}  ${lines[0]}`);
+      for (const line of lines.slice(1)) console.log(`  ${' '.repeat(column)}  ${style.detail(line)}`);
+    }
+    return;
   }
   const config = await loadConfig(root); let workflow;
   try { workflow = await loadStoryAggregate(root, config); }
@@ -3601,7 +3758,7 @@ async function sessionCommand(positionals, options) {
   console.log(`Copilot session: ${status.copilotSessionId ?? 'not bound'}`);
   console.log(`Work-item selection: ${status.workItemSelectionRequired ? 'required' : 'complete'} · governed agent: ${status.activeAgent ?? 'phase default pending'}`);
   console.log(`Policy: work item ${status.policy.workItemSelection ?? 'off'} · phase agent automatic · before tools: ${status.policy.requireBeforeTools ? 'required' : 'not required'}`);
-  if (status.workItemSelectionRequired) console.log('Copilot: /sf-session\nCLI equivalent: singularity-flow session attach <WORK-ID>');
+  if (status.workItemSelectionRequired) console.log('Copilot: /sf-session\nRun: singularity-flow session attach <WORK-ID>');
 }
 
 async function inboxCommand(options) {
@@ -3629,8 +3786,8 @@ async function gateCommand(options) {
   const result = await runGovernanceGate(root, config, workflow, {
     terminal: optionBoolean(options, 'terminal') || process.env.SINGULARITY_FLOW_ENFORCE_TERMINAL === '1'
   });
-  result.passes.forEach((message) => console.log(`  ✓ ${message}`));
-  result.warnings.forEach((message) => console.warn(`  ~ ${message}`));
+  result.passes.forEach((message) => console.log(`  ${style.mark('pass')} ${message}`));
+  result.warnings.forEach((message) => console.warn(`  ${style.mark('warn')} ${message}`));
   if (result.errors.length) throw new SingularityFlowError(`Governance gate failed:\n- ${result.errors.join('\n- ')}`, { exitCode: 2 });
   console.log('Singularity Flow governance gate passed.');
 }
@@ -4654,7 +4811,7 @@ async function initiativeCommand(positionals, options) {
     console.log(initiativeFlowText(progress));
     console.log(`Commit: ${publication.sha.slice(0, 8)}${publication.pushed ? ' pushed' : ' local'}`);
     console.log('Next in Copilot: /sf-epic-requirements');
-    console.log('CLI equivalent: singularity-flow epic requirements prepare');
+    console.log('Run: singularity-flow epic requirements prepare');
     if (profile === 'epic-planning') console.log('Repository world-model generation is deferred until each Jira Story has its canonical branch.');
     return;
   }
@@ -5101,7 +5258,7 @@ async function initiativeCommand(positionals, options) {
   if (subcommand === 'next') {
     const actions = await initiativeNextActions(root, initiativeId);
     if (optionBoolean(options, 'json')) console.log(JSON.stringify(actions, null, 2));
-    else actions.forEach((action, index) => console.log(`${index + 1}. ${action.action}\n   Copilot: ${action.skill}\n   CLI equivalent: ${action.command}\n   ${action.reason}`));
+    else actions.forEach((action, index) => console.log(`${index + 1}. ${action.action}\n   Copilot: ${action.skill}\n   Run: ${action.command}\n   ${action.reason}`));
     return;
   }
   if (subcommand === 'journey') {
@@ -6101,7 +6258,7 @@ async function epicCommand(positionals, options) {
       if (optionBoolean(options, 'json')) return console.log(JSON.stringify(result, null, 2));
       console.log(`Local Epic ${reservation.id} reserved, created, committed, and ${publication.pushed ? 'pushed' : 'recorded locally'}.`);
       console.log(`Next in Copilot: /sf-epic-sources ${reservation.id}`);
-      console.log(`CLI equivalent: singularity-flow epic sources --epic ${reservation.id}`);
+      console.log(`Run: singularity-flow epic sources --epic ${reservation.id}`);
       return;
     }
     return initiativeCommand(['initiative', 'start', requirePositional(positionals, 2, 'Jira Epic key')], {
@@ -6178,7 +6335,7 @@ async function epicCommand(positionals, options) {
       console.log(`Invalidated phases: ${detached.affectedPhases.length ? detached.affectedPhases.join(', ') : 'none'}`);
       if (detached.reopenedPhase) console.log(`Reopened phase: ${detached.reopenedPhase}`);
       console.log(`Next in Copilot: /sf-initiative-next`);
-      console.log(`CLI equivalent: singularity-flow initiative next ${initiativeId}`);
+      console.log(`Run: singularity-flow initiative next ${initiativeId}`);
       return;
     }
     if (action === 'note' || action === 'answer') {
@@ -7086,7 +7243,7 @@ async function storyFetchCommand(positionals, options) {
   console.log(`Lineage: ${property.epic?.jiraKey ?? property.epic?.id} → ${seed.story.planId} → ${storyKey}`);
   console.log(`Workflow: ${workflow.workItem.workType} · current phase ${workflow.currentPhase ?? 'complete'}`);
   console.log('Next in Copilot: /sf-next');
-  console.log('CLI equivalent: singularity-flow next');
+  console.log('Run: singularity-flow next');
 }
 
 async function storyCommand(positionals, options) {
@@ -7322,10 +7479,14 @@ async function harnessInvocation(command, argv) {
 // Log every command's outcome. This is the spine of the activity log: without it a failure leaves
 // only the message printed to the terminal, and the sequence that produced it is gone. Building the
 // logger must never break a command, so a repository that cannot be resolved simply gets no file.
-async function commandLogger(command, argv, { json = false } = {}) {
+async function commandLogger(command, argv, { json = false, verbose = false } = {}) {
   // Machine-readable commands still keep their durable activity log, but their stderr transport
   // must contain only the JSON result. Suppress only the console sink for those invocations.
-  const env = json ? { ...process.env, SINGULARITY_FLOW_LOG_CONSOLE: 'off' } : process.env;
+  // `--verbose` is the opposite request: put the diagnostics that are always written to the log file
+  // on screen as well. It cannot override `--json`, because that would corrupt the transport.
+  const env = json ? { ...process.env, SINGULARITY_FLOW_LOG_CONSOLE: 'off' }
+    : verbose ? { ...process.env, SINGULARITY_FLOW_LOG_CONSOLE: 'debug' }
+      : process.env;
   try {
     const root = repoRoot();
     const config = await loadConfig(root).catch(() => null);
@@ -7339,14 +7500,19 @@ async function commandLogger(command, argv, { json = false } = {}) {
 
 export async function main(argv) {
   if (argv.length === 1 && ['--version', '-v'].includes(argv[0])) return console.log(VERSION);
-  if (argv.length === 1 && ['--help', '-h'].includes(argv[0])) return console.log(HELP);
+  // Bare `--help` answers the question a newcomer has in about a screen; `--help --all` is the
+  // complete 365-line synopsis, which is a reference and not an introduction.
+  if (argv.every((token) => ['--help', '-h', '--all'].includes(token)) && argv.some((token) => ['--help', '-h'].includes(token))) {
+    const { renderOverview } = await import('./help-pages.mjs');
+    return console.log(argv.includes('--all') ? HELP : renderOverview(VERSION));
+  }
   const { positionals, options } = parseArgs(argv);
   const command = positionals[0];
   if (!command) return cockpitCommand();
   if (command === 'version') return console.log(VERSION);
   // `logs` reads the file; logging its own invocation would append noise to what it is showing.
   if (!['logs', 'factory-reset', 'reset-all', 'local-reset', 'fresh-install'].includes(command)) {
-    const log = await commandLogger(command, argv, { json: options.json });
+    const log = await commandLogger(command, argv, { json: options.json, verbose: options.verbose });
     const harness = await harnessInvocation(command, argv);
     const started = Date.now();
     log.info('command.start', null, { argv: argv.slice(0, 24) });
@@ -7394,6 +7560,9 @@ async function dispatch(command, positionals, options) {
     telemetry: () => telemetryCommand(positionals, options),
     'prompt-log': () => promptLogCommand(positionals, options),
     guide: () => guideCommand(positionals, options),
+    // The front door to the first-run walkthrough. `guide --first-run` still works and does the same
+    // thing; this is the name someone can guess.
+    quickstart: () => guideCommand(['guide'], { ...options, 'first-run': true }),
     'refresh-branch': () => refreshBranchCommand(options),
     next: () => nextCommand(options),
     run: () => runCommand(options),
@@ -7456,9 +7625,9 @@ async function dispatch(command, positionals, options) {
     }
     return invoke();
   } catch (error) {
-    if (error instanceof SingularityFlowError && error.message === `Unknown command: ${command}`) {
-      throw new SingularityFlowError(`${error.message}\n\n${HELP}`);
-    }
+    // An unknown command is rejected by the registry with a correction and two entry points, before
+    // dispatch is ever reached. This used to catch that message and append all 2,450 lines of HELP
+    // to it, which was both unreachable — the registry throws first — and the wrong answer to a typo.
     throw error;
   }
 }

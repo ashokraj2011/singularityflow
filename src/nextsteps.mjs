@@ -132,10 +132,13 @@ export function nextStepsText(snapshot) {
     snapshot.workId ? 'Automatic next action in Copilot: /sf-next' : null,
     ''
   ].filter((line) => line !== null);
+  // The command first, the skill after it. This read the other way round — Copilot's skill name as
+  // the headline and the command as its "CLI equivalent" — which told someone reading a terminal
+  // that the thing they are using is the secondary way to use the product.
   snapshot.actions.forEach((item, index) => {
-    lines.push(`${index + 1}. ${item.timing.toUpperCase()} — Copilot: ${item.skill}`);
+    lines.push(`${index + 1}. ${item.timing.toUpperCase()} — ${item.command}`);
     lines.push(`   ${item.reason}`);
-    lines.push(`   CLI equivalent: ${item.command}`);
+    if (item.skill) lines.push(`   In Copilot: ${item.skill}`);
   });
   return `${lines.join('\n')}\n`;
 }

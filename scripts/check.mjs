@@ -6,8 +6,9 @@ import { fileURLToPath } from 'node:url';
 import YAML from 'yaml';
 import { validateDefinition } from '../src/config.mjs';
 import { discoverAgents, validateAgentCatalog } from '../src/agents.mjs';
-import { allCommands, documentedCommands, synopsisFor } from '../src/help-pages.mjs';
+import { allCommands, documentedCommands, overviewCommands, synopsisFor } from '../src/help-pages.mjs';
 import { canonicalCommand } from '../src/command-registry.mjs';
+import { BOOLEAN_OPTIONS } from '../src/util.mjs';
 import { validatePortfolio, validatePortfolioWorldModelViews } from '../src/initiative-config.mjs';
 import { auditSkillPolicy } from './skill-policy.mjs';
 import { validateNarrationMigrationStatus } from '../src/narration/migration-status.mjs';
@@ -171,6 +172,76 @@ for (const file of allFiles.filter((candidate) => candidate.endsWith('.mjs'))) {
   const result = spawnSync(process.execPath, ['--check', file], { encoding: 'utf8' });
   if (result.status !== 0) fail(`${path.relative(root, file)}: JavaScript syntax check failed\n${result.stderr}`);
   checked.push(path.relative(root, file));
+}
+
+// The boolean-flag declaration must keep matching how the code actually reads each flag. A flag that
+// is declared boolean but read for a value would silently stop accepting its argument; one that is
+// read as a boolean but left undeclared goes back to swallowing the token after it. Both are silent,
+// so re-derive the truth from the source and compare.
+{
+  const sources = allFiles.filter((file) => /\.(mjs|ts)$/.test(file) && !/[/\\](test|node_modules)[/\\]/.test(file));
+  const readAsBoolean = new Set();
+  const readAsValue = new Set();
+  for (const file of sources) {
+    const text = await readFile(file, 'utf8');
+    for (const match of text.matchAll(/optionBoolean\(\s*options\s*,\s*'([a-z0-9-]+)'/g)) readAsBoolean.add(match[1]);
+    for (const match of text.matchAll(/option(?:String|Strings|Number|Integer)\(\s*options\s*,\s*'([a-z0-9-]+)'/g)) readAsValue.add(match[1]);
+  }
+  // Flags read both ways cannot be classified, so they stay greedy — guessing wrong would swallow a
+  // real value, which is the worse failure. They are excluded rather than reported.
+  const shouldDeclare = [...readAsBoolean].filter((flag) => !readAsValue.has(flag)).sort();
+  const missing = shouldDeclare.filter((flag) => !BOOLEAN_OPTIONS.has(flag));
+  const contradicted = [...BOOLEAN_OPTIONS].filter((flag) => readAsValue.has(flag)).sort();
+  if (missing.length) fail(`BOOLEAN_OPTIONS is missing flags that are only ever read as booleans: ${missing.join(', ')}`);
+  if (contradicted.length) fail(`BOOLEAN_OPTIONS declares flags that are read for a value: ${contradicted.join(', ')}`);
+  checked.push('boolean option declaration');
+}
+
+/**
+ * Vocabulary drift, reported but not yet fatal.
+ *
+ * The glossary now names one canonical word per concept. Enforcing that as an error today would fail
+ * the build on 300-odd historical uses across 11,740 lines of Markdown, which is a migration and not
+ * a gate. So this counts the non-canonical uses in user-facing help and prints them. Turn it into a
+ * `fail` once the count reaches zero — the point of a ratchet is that it can only tighten.
+ */
+{
+  const canonical = [
+    { prefer: 'Initiative', avoid: /\bEpics?\b/g, allow: /--epic|epic-[a-z]|sflow-epic|epicBranch|epicId/ },
+    { prefer: 'Story', avoid: /\bwork items?\b/gi, allow: /work-items|--work-id|workItem/ },
+    { prefer: 'workflow', avoid: /\bprofiles?\b/gi, allow: /portfolio|--profile|profiles\.|userProfile/ }
+  ];
+  // docs/GLOSSARY.md is the dictionary: it has to name the words it is resolving. Blockquotes are
+  // excluded for the same reason — that is where a page states which older name still appears where.
+  const surfaces = ['HELP.md', 'README.md', 'INITIATIVE-ORCHESTRATION.md'];
+  const drift = [];
+  for (const relative of surfaces) {
+    const file = path.join(root, relative);
+    if (!existsSync(file)) continue;
+    const text = await readFile(file, 'utf8');
+    const lines = text.split('\n').filter((line) => !line.trimStart().startsWith('>'));
+    for (const { prefer, avoid, allow } of canonical) {
+      const hits = lines.filter((line) => {
+        avoid.lastIndex = 0;
+        return avoid.test(line) && !allow.test(line);
+      }).length;
+      if (hits) drift.push(`${relative}: ${hits} line(s) using a non-canonical word for '${prefer}'`);
+    }
+  }
+  if (drift.length) {
+    console.warn(`Vocabulary drift (advisory, see docs/GLOSSARY.md):\n${drift.map((line) => `  - ${line}`).join('\n')}`);
+  }
+  checked.push('glossary vocabulary');
+}
+
+// The `--help` overview is curated by hand — the value is the ordering and the omission — so it can
+// drift into naming commands that no longer dispatch. Every name it shows must be a real command.
+{
+  const unknown = overviewCommands().filter((name) => {
+    try { canonicalCommand(name); return false; } catch { return true; }
+  });
+  if (unknown.length) fail(`The --help overview names commands that do not dispatch: ${unknown.join(', ')}`);
+  checked.push('--help overview commands');
 }
 
 const skillRoot = path.join(root, 'plugin', 'skills');

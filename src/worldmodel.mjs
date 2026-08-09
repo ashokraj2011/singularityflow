@@ -18,6 +18,7 @@ import { renderMcpPromptPolicy } from './mcp.mjs';
 import { injectAgentPrompt, recordInjection } from './inject.mjs';
 import { loadSession } from './session.mjs';
 import { renderAgentSkills } from './agents.mjs';
+import { heartbeat } from './style.mjs';
 import { collectInputs, renderInputsBlock } from './inputs.mjs';
 import { assertNoPendingPublication, pendingPublicationPath, saveStoryDraft } from './state-stores.mjs';
 import { assertPhaseSequence } from './sequence.mjs';
@@ -936,7 +937,16 @@ async function build(root, config, options) {
         tools: { mode: 'all' },
         limits: { timeoutMs: optionNumber(options, 'timeout-ms', 20 * 60 * 1000), outputBytes: 8 * 1024 * 1024 }
       });
-    await invokeSynthesis();
+    // Twenty minutes is the allowance, and the provider's output is captured, so without this the
+    // command shows nothing at all while it does the most interesting thing it does.
+    const synthesisDone = heartbeat(`Building the world model with ${config.model ?? config.provider}. This can take several minutes.`);
+    try {
+      await invokeSynthesis();
+      synthesisDone('synthesis complete');
+    } catch (error) {
+      synthesisDone('synthesis failed');
+      throw error;
+    }
     const draftManifestPath = path.join(staging, 'manifest.json');
     const after = await repositoryContentSnapshot(analysisRoot);
     const unexpected = outsideBuilderScratch(changedSnapshotPaths(before, after), config);

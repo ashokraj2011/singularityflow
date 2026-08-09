@@ -198,6 +198,10 @@ export async function bootstrapRepository(url, {
       throw new SingularityFlowError(`${root} already exists and is not a Git repository.`);
     }
     await mkdir(path.dirname(root), { recursive: true });
+    // Say what is happening before the longest wait in the command. A clone of any size sat behind
+    // piped stdio with nothing on screen, so bootstrap looked hung at exactly the point where it is
+    // doing the most obvious work.
+    console.log(`Cloning ${remote} into ${root} …`);
     const result = run('git', ['clone', '--branch', branch, remote, root], { allowFailure: true });
     if (result.status !== 0) {
       throw new SingularityFlowError(`Cannot clone '${remote}': ${(result.stderr || result.stdout).trim().split('\n')[0]}`);

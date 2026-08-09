@@ -104,5 +104,5 @@ export function approvalInboxText(snapshot) {
     { key: 'waiting', label: 'WAITING' },
     { key: 'authorities', label: 'AUTHORITY GROUPS' },
     { key: 'commit', label: 'REMOTE COMMIT' }
-  ])}\n\nChoose an item in Copilot with /sf-inbox. CLI equivalent: singularity-flow session attach <WORK/JIRA-ID>.\n`;
+  ])}\n\nChoose an item in Copilot with /sf-inbox. Run: singularity-flow session attach <WORK/JIRA-ID>.\n`;
 }

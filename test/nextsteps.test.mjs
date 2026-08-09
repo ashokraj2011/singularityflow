@@ -82,14 +82,17 @@ test('rejection, pending publication, and completion produce safe action plans',
   assert.deepEqual(workflowNextSteps(cancelled).map((item) => item.skill), ['/sf-documents', '/sf-report']);
 });
 
-test('nextsteps text preserves timing, skill, reason, and CLI command', () => {
+test('nextsteps text leads with the command and preserves timing, reason, and skill', () => {
+  // The command is what someone reading a terminal is going to run, so it is the headline. This read
+  // the other way round — the Copilot skill first, the command beneath it as a "CLI equivalent" —
+  // which told the reader that the thing in front of them was the secondary way to use the product.
   const snapshot = nextStepsSnapshot({ workflow: workflow() });
   const text = nextStepsText(snapshot);
   assert.match(text, /NEXT-1 — next actions/);
-  assert.match(text, /NOW — Copilot: \/sf-phase/);
-  assert.match(text, /THEN — Copilot: \/sf-submit/);
-  assert.match(text, /ALTERNATIVE — Copilot: \/sf-reject/);
-  assert.match(text, /CLI equivalent: singularity-flow prepare intake/);
+  assert.match(text, /NOW — singularity-flow prepare intake/);
+  assert.match(text, /THEN — singularity-flow submit intake/);
+  assert.match(text, /ALTERNATIVE — singularity-flow reject/);
+  assert.match(text, /In Copilot: \/sf-phase/);
 });
 
 test('agent trust and synchronization prerequisites precede generation', () => {

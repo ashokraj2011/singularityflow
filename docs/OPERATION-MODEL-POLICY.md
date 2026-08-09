@@ -56,6 +56,7 @@ Every public operation is classified before its implementation module is importe
 | prepare | mutation | never | — | — |
 | progress | read | never | — | — |
 | prompt-log | mutation | never | — | — |
+| quickstart | mutation | never | — | — |
 | recover | mutation | never | — | — |
 | refresh-branch | mutation | never | — | — |
 | regression | mutation | never | — | — |

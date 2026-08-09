@@ -2,9 +2,25 @@ version: 1
 
 # Only these skills may be selected automatically from natural-language requests.
 # Every other skill remains user-invocable through its /sflow-* command.
+#
+# The bar for this list is not "useful" — it is "cannot change governed state". A newcomer should be
+# able to ask what is going on and be answered, without having to recall one of 97 exact slash names;
+# they should never be able to cause an approval or a publication by phrasing a question a particular
+# way. So every entry here reads: status, progress, the inbox, diagnostics, logs, help, and the
+# sandboxed walkthrough. Nothing that submits, approves, publishes, merges, or writes to the ledger
+# belongs here, however convenient it would be.
+#
+# sflow-inbox is deliberately NOT here despite being the obvious candidate. It does not merely list
+# pending approvals: it asks the reviewer a question and attaches a session to open a review. That is
+# a step into a decision, and a decision is precisely what a phrasing of a question must not start.
+# "What is waiting on me?" is answered well enough by status and nextsteps.
 automaticInvocationAllowlist:
+  - sflow-doctor
   - sflow-help
+  - sflow-logs
   - sflow-nextsteps
+  - sflow-progress
+  - sflow-quickstart
   - sflow-status
 
 classes:
@@ -114,6 +130,7 @@ skills:
   sflow-phase: { class: generative }
   sflow-progress: { class: echo }
   sflow-prompt-log: { class: mutation }
+  sflow-quickstart: { class: echo }
   sflow-refresh-branch: { class: mutation }
   sflow-regression-investigate: { class: generative }
   sflow-reject: { class: review }

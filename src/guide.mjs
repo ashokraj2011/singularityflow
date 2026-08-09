@@ -63,7 +63,7 @@ export function guideText(guide) {
     ...guide.phases.map((phase) => `${phase.number}. ${phase.label} (${phase.id}) — ${phase.status}\n   Artifact: ${phase.artifact}\n   Governed agent: ${phase.agent ?? 'unavailable'}; approval authority: ${phase.approvalAuthorities.join(', ') || 'none'} (${phase.approvalsRequired} required)`),
     '',
     'What to do next:',
-    ...guide.nextActions.map((action) => `- Copilot: ${action.skill}\n  ${action.reason}\n  CLI equivalent: ${action.command}`)
+    ...guide.nextActions.map((action) => `- Copilot: ${action.skill}\n  ${action.reason}\n  Run: ${action.command}`)
   ];
   return `${lines.join('\n')}\n`;
 }

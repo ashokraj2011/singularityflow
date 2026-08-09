@@ -23,9 +23,23 @@ test('top-level version flags print only the package version', () => {
   }
 });
 
-test('top-level help flags print usage', () => {
+test('bare help flags print a one-screen orientation', () => {
+  // 365 usage lines is a reference, not an introduction. The complete synopsis moved behind --all.
   for (const argument of ['--help', '-h']) {
     const result = run(argument);
+    assert.equal(result.status, 0, result.stderr);
+    assert.match(result.stdout, /^Singularity Flow 0\.9\.0/m);
+    assert.ok(result.stdout.split('\n').length <= 40, `the overview is ${result.stdout.split('\n').length} lines`);
+    assert.match(result.stdout, /singularity-flow quickstart/);
+    assert.match(result.stdout, /singularity-flow start <WORK-ID>/);
+    assert.match(result.stdout, /singularity-flow approve/);
+    assert.match(result.stdout, /--help --all/);
+  }
+});
+
+test('--help --all prints the complete usage reference', () => {
+  for (const argument of [['--help', '--all'], ['-h', '--all']]) {
+    const result = run(...argument);
     assert.equal(result.status, 0, result.stderr);
     assert.match(result.stdout, /^Singularity Flow 0\.9\.0/m);
     assert.match(result.stdout, /singularity-flow start <WORK-ID>/);

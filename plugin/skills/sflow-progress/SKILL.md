@@ -1,7 +1,6 @@
 ---
 name: sflow-progress
-description: Show how far a Singularity Flow work item has progressed, including percentage, approved phases, current position, approval thresholds, generations, documents, and token usage.
-disable-model-invocation: true
+description: Show how far a work item has got.
 argument-hint: "[WORK-ID] [--json]"
 
 ---

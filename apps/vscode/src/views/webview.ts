@@ -386,6 +386,15 @@ export const STYLE = `
   .rail-node { display: grid; grid-template-columns: auto 1fr; align-items: center; gap: .45rem; white-space: nowrap; padding: .45rem .75rem; border: var(--sf-border); border-radius: 999px; background: var(--vscode-editor-background); }
   .rail-node b, .step-number { display: inline-grid; place-items: center; width: 1.55rem; height: 1.55rem; border-radius: 50%; color: var(--sf-on-accent); background: var(--sf-accent); font-size: .75rem; flex: 0 0 auto; }
   .rail-arrow { color: var(--sf-dim); }
+  /* The exact command behind a button, for anyone who wants to run or script it. Supporting
+     detail — the button says what it does. */
+  .command-hint { margin: .4rem 0 0; color: var(--sf-dim); font-size: .78rem; }
+  .command-hint code { font-family: var(--vscode-editor-font-family, monospace); user-select: all; }
+  /* The one way out of a page. Quiet by design: it is orientation, not an action. */
+  .page-nav { display: flex; flex-wrap: wrap; gap: .25rem 1rem; align-items: center;
+    margin: 2rem 0 .5rem; padding-top: .9rem; border-top: var(--sf-border); font-size: .82rem; }
+  .page-nav .link { padding: 0; color: var(--sf-link); }
+  .nav-current { color: var(--sf-dim); font-weight: 600; }
   .sequence-builder { display: grid; gap: .45rem; }
   .sequence-row { display: flex; align-items: center; gap: .65rem; padding: .55rem .65rem; border: var(--sf-border); border-radius: var(--sf-radius); background: var(--vscode-editor-background); }
   .icon-button { width: 2rem; height: 2rem; min-width: 2rem; min-height: 2rem; padding: 0; border-radius: 5px; background: transparent; border-color: var(--vscode-input-border, rgba(128,128,128,.35)); color: var(--vscode-foreground); }
@@ -620,6 +629,69 @@ export const STYLE = `
   `;
 
 /** Wrap a rendered body in the document shell, with the CSP and nonce already applied. */
+/**
+ * Where else to go from here.
+ *
+ * Nineteen of the twenty-one full-page views ended with their own content and nothing else: no way
+ * onward, no way back, and in an editor tab there is no browser chrome to fall back on. This is one
+ * footer, so every page offers the same handful of destinations in the same place.
+ *
+ * `current` is the page drawing the footer; it is rendered as plain text rather than a button, so a
+ * reader can see where they are without being offered a link to it.
+ */
+export const NAV_DESTINATIONS = Object.freeze({
+  journey: 'Journey',
+  approvals: 'Approvals',
+  configuration: 'Configuration',
+  doctor: 'Diagnostics',
+  help: 'Help'
+});
+
+export type NavDestination = keyof typeof NAV_DESTINATIONS;
+
+/**
+ * What each footer destination means.
+ *
+ * Exported as data rather than executed here: this module is deliberately free of a runtime `vscode`
+ * import so the visual fixtures can render a page without the editor. Panels do the dispatch.
+ */
+export const NAV_COMMANDS: Readonly<Record<NavDestination, string>> = Object.freeze({
+  journey: 'singularityFlow.openJourney',
+  approvals: 'singularityFlow.openApprovals',
+  configuration: 'singularityFlow.openConfigurationCenter',
+  doctor: 'singularityFlow.doctor',
+  help: 'singularityFlow.openHelp'
+});
+
+/** The command a `navigate` message asks for, or null when the message is not one. */
+export function navigationTarget(raw: unknown): string | null {
+  const message = raw as { type?: unknown; to?: unknown };
+  if (message?.type !== 'navigate' || typeof message.to !== 'string') return null;
+  return Object.hasOwn(NAV_COMMANDS, message.to) ? NAV_COMMANDS[message.to as NavDestination] : null;
+}
+
+export function footerNav(current: NavDestination | null = null): string {
+  const links = (Object.entries(NAV_DESTINATIONS) as Array<[NavDestination, string]>)
+    .map(([id, label]) => (id === current
+      ? `<span class="nav-current" aria-current="page">${escape(label)}</span>`
+      : `<button class="link" type="button" data-nav="${id}">${escape(label)}</button>`))
+    .join('');
+  return `<nav class="page-nav" aria-label="Singularity Flow views">${links}</nav>`;
+}
+
+/**
+ * The click handler the footer needs.
+ *
+ * Appended to a page's own script so a panel opts in by rendering `footerNav()` and including this,
+ * rather than by each one reinventing a postMessage convention.
+ */
+export const NAV_SCRIPT = `
+  document.addEventListener('click', (event) => {
+    const target = event.target.closest('.page-nav [data-nav]');
+    if (target) (window.__sfVscode ??= acquireVsCodeApi()).postMessage({ type: 'navigate', to: target.dataset.nav });
+  });
+`;
+
 export function page(title: string, body: string, csp: string, token: string, script = ''): string {
   return `<!DOCTYPE html><html lang="en"><head>
 <meta charset="utf-8">

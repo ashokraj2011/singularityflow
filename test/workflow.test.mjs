@@ -322,8 +322,8 @@ test('next executes one valid lifecycle action at a time', async () => {
   assert.equal(workflow.phases.intake.status, 'in_progress');
 
   const submitted = flow(root, ['next'], { selection: selection('feature', 'product-owner') });
-  assert.match(submitted.stdout, /Next action in Copilot: \/sf-submit intake/);
   assert.match(submitted.stdout, /Run: singularity-flow submit intake/);
+  assert.match(submitted.stdout, /In Copilot: \/sf-submit intake/);
   workflow = JSON.parse(await readFile(workflowFile, 'utf8'));
   assert.equal(workflow.phases.intake.status, 'awaiting_approval');
 

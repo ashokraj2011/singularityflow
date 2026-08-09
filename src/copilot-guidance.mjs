@@ -49,9 +49,16 @@ export function copilotAction({ skill = null, command, ...rest }) {
   };
 }
 
-export function actionCommandLines({ skill, command }, label = 'Next action') {
+/**
+ * The two lines that offer one action: the command, then the Copilot skill that wraps it.
+ *
+ * The command leads. This rendered the other way round — the skill as the headline and the command
+ * beneath it — which told someone reading a terminal that the thing in front of them was the
+ * secondary way to use the product. `label` is retained for callers that introduce the pair.
+ */
+export function actionCommandLines({ skill, command }, label = 'Run') {
   return [
-    `${label} in Copilot: ${directCopilotSkill(skill) ?? copilotSkillForCommand(command)}`,
-    `Run: ${command}`
+    `${label}: ${command}`,
+    `In Copilot: ${directCopilotSkill(skill) ?? copilotSkillForCommand(command)}`
   ];
 }

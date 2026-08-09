@@ -21,10 +21,10 @@ test('CLI lifecycle commands map to installed direct Copilot skills', () => {
   assert.equal(copilotSkillForCommand('singularity-flow gate --terminal'), '/sf-next');
 });
 
-test('rendered action guidance pairs Copilot and CLI commands', () => {
+test('rendered action guidance leads with the command, then the Copilot skill', () => {
   const action = copilotAction({ skill: '/sflow-phase', command: 'singularity-flow prepare intake' });
   assert.deepEqual(actionCommandLines(action), [
-    'Next action in Copilot: /sf-phase',
-    'Run: singularity-flow prepare intake'
+    'Run: singularity-flow prepare intake',
+    'In Copilot: /sf-phase'
   ]);
 });

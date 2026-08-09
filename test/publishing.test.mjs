@@ -49,8 +49,9 @@ test('every approval creates and pushes its own atomic decision commit', async (
   flow(root, ['phase', 'publish', 'intake']);
   flow(root, ['submit']);
   const approval = flow(root, ['next', '--yes'], { actor: 'Independent Reviewer' });
-  assert.match(approval.stdout, /Next action in Copilot: \/sf-approve intake/);
+  // The command leads; the Copilot skill is the note under it.
   assert.match(approval.stdout, /Run: singularity-flow approve intake --work-id APPROVAL-1 --fetch/);
+  assert.match(approval.stdout, /In Copilot: \/sf-approve intake/);
   assert.match(approval.stdout, /Approval decision committed [0-9a-f]{8} and pushed to origin\/APPROVAL-1/);
 
   const local = run('git', ['rev-parse', 'HEAD'], root).stdout.trim();

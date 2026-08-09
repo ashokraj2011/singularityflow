@@ -238,7 +238,12 @@ test('phase output authoring preserves initiative YAML comments and supports Sto
  * Story or an Initiative is an attribute of it, not a different kind of thing, so it is a column.
  */
 test('workflow is the only noun for a named list of phases', async () => {
-  const cli = await readFile(new URL('../src/cli.mjs', import.meta.url), 'utf8');
+  // The usage block now lives in help-text.mjs so per-command `--help` can read it without importing
+  // the CLI. Together these two files are what cli.mjs used to be, which is what this test scans.
+  const cli = [
+    await readFile(new URL('../src/cli.mjs', import.meta.url), 'utf8'),
+    await readFile(new URL('../src/help-text.mjs', import.meta.url), 'utf8')
+  ].join('\n');
   const registry = await readFile(new URL('../src/command-registry.mjs', import.meta.url), 'utf8');
 
   // The invented noun is gone, from the dispatch and from the registry that guards it.

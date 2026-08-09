@@ -634,6 +634,29 @@ function storyDocumentNodes(documents: StoryArtifact[], phaseId: string): TreeNo
     }));
 }
 
+function storyGeneratedArtifacts(workflow: StoryWorkflow, documents: StoryArtifact[]): TreeNode {
+  const phases = workflow.phaseOrder.map((id) => workflow.phases[id])
+    .filter((phase): phase is StoryPhase => Boolean(phase));
+  const groups = phases.map((phase) => ({
+    phase,
+    artifacts: storyDocumentNodes(documents, phase.id)
+  })).filter((entry) => entry.artifacts.length);
+  const count = groups.reduce((total, entry) => total + entry.artifacts.length, 0);
+  return {
+    kind: 'group', id: `story:${workflow.workItem.id}:generated-artifacts`,
+    label: 'Generated artifacts', description: String(count), icon: 'files',
+    tooltip: `Governed outputs generated for ${workflow.workItem.id}, grouped by lifecycle phase.`,
+    contextValue: 'sflow.story.artifacts',
+    children: groups.length ? groups.map(({ phase, artifacts }) => ({
+      kind: 'group' as const, id: `story:${workflow.workItem.id}:artifacts:${phase.id}`,
+      label: phase.label, description: String(artifacts.length), icon: 'directory', children: artifacts
+    })) : [{
+      kind: 'message', id: `story:${workflow.workItem.id}:artifacts:empty`,
+      label: 'No generated artifacts yet', description: 'publish a phase first', icon: 'info'
+    }]
+  };
+}
+
 function storyEvidenceNode(workId: string, document: StoryArtifact, detached = false): TreeNode {
   const id = document.id ?? document.path;
   return {
@@ -732,7 +755,7 @@ function storyWorkflowNode(workflow: StoryWorkflow, documents: StoryArtifact[], 
       kind: 'action', id: 'story:manage-evidence', label: 'Manage evidence & designs',
       description: 'list · preview · detach', icon: 'references',
       runCommand: 'singularityFlow.manageEvidence', contextValue: 'sflow.evidence.manage'
-    }, {
+    }, storyGeneratedArtifacts(workflow, documents), {
       kind: 'action', id: 'story:cancel', label: 'Cancel and archive work',
       description: 'reason required · artifacts preserved', icon: 'archive',
       runCommand: 'singularityFlow.cancelWork', contextValue: 'sflow.story.cancel'
@@ -1360,6 +1383,26 @@ function initiativeNode(initiative: InitiativeSnapshot): TreeNode {
       }))
     });
   }
+
+  const generatedByPhase = phases.map((phase) => ({
+    phase,
+    artifacts: phase.outputs.filter((output) => Boolean(output.sha256))
+      .map((output) => artifactNode(output, phase.id, state.initiative.id))
+  })).filter((entry) => entry.artifacts.length);
+  const generatedCount = generatedByPhase.reduce((total, entry) => total + entry.artifacts.length, 0);
+  children.push({
+    kind: 'group', id: `initiative:${state.initiative.id}:generated-artifacts`,
+    label: 'Generated artifacts', description: String(generatedCount), icon: 'files',
+    tooltip: `Governed outputs generated for ${state.initiative.id}, grouped by lifecycle phase.`,
+    contextValue: 'sflow.initiative.artifacts',
+    children: generatedByPhase.length ? generatedByPhase.map(({ phase, artifacts }) => ({
+      kind: 'group' as const, id: `initiative:${state.initiative.id}:artifacts:${phase.id}`,
+      label: phase.label, description: String(artifacts.length), icon: 'directory', children: artifacts
+    })) : [{
+      kind: 'message', id: `initiative:${state.initiative.id}:artifacts:empty`,
+      label: 'No generated artifacts yet', description: 'complete a phase first', icon: 'info'
+    }]
+  });
 
   children.push({
     kind: 'group',

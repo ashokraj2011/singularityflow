@@ -147,7 +147,11 @@ export const STYLE = `
   button.artifact-card:hover { border-color: var(--sf-accent); background: var(--sf-accent-quiet); }
   .artifact-title { font-weight: 650; min-width: 0; overflow-wrap: anywhere; }
   .artifact-meta { grid-column: 1 / -1; color: var(--sf-dim); font-size: .76rem; }
-  .inbox-phase { border: 0; margin-top: .6rem; }
+  .inbox-work { margin-top: 1rem; padding: .85rem 1rem 1rem; border: var(--sf-border); border-radius: var(--sf-radius); background: var(--sf-surface); }
+  .inbox-work > .section-heading h2 { margin: .1rem 0; }
+  .inbox-work > .muted { margin: .15rem 0 .5rem; }
+  .inbox-phase { border: 0; border-top: 1px solid var(--sf-border-color); margin-top: .7rem; padding-top: .25rem; }
+  .inbox-phase .section-heading h3 { display: flex; align-items: center; gap: .45rem; margin: .65rem 0 .45rem; font-size: .82rem; }
   .warning-text { color: var(--sf-wait); }
   * { box-sizing: border-box; }
   body {

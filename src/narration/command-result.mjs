@@ -10,6 +10,7 @@
  * a ref, or decides a lifecycle question. `effects` reports what the kernel already did.
  */
 import { SingularityFlowError } from '../util.mjs';
+import { MESSAGES, REASONS } from './messages.mjs';
 
 export const COMMAND_RESULT_SCHEMA_VERSION = 1;
 
@@ -18,6 +19,8 @@ const REST_STATES = new Set(['complete', 'cancelled', 'awaiting-others', 'inform
 const WHY_SOURCES = new Set(['pin', 'policy', 'gate', 'sequence', 'evidence', 'config', 'remote', 'telemetry', 'identity']);
 const NEXT_RANKS = new Set(['NOW', 'SOON', 'LATER']);
 const NEXT_KINDS = new Set(['workflow', 'remediation', 'review', 'informational']);
+const MODEL_POLICIES = new Set(['never', 'optional', 'required']);
+const SUBJECT_KINDS = new Set(['story', 'initiative', 'capability', 'workspace', 'repository']);
 const ID_PATTERN = /^[a-z0-9-]+(\.[a-z0-9-]+)+$/;
 
 /** Nothing happened. The only shape a refusal is allowed to declare. */
@@ -64,20 +67,24 @@ function invalid(message) {
  * Validation runs here rather than at the output boundary so a malformed result fails in the
  * handler that produced it, where the fix is, instead of surfacing as odd narration later.
  */
-export function commandResult({
-  operation,
-  subject = null,
-  outcome,
-  effects: declared,
-  why = [],
-  next = [],
-  restState = null,
-  data = {}
-} = {}) {
-  if (!operation?.id) invalid('operation.id is required');
+export function validateCommandResult(result, { requireEnvelope = false } = {}) {
+  if (requireEnvelope) {
+    if (result?.schemaVersion !== COMMAND_RESULT_SCHEMA_VERSION) {
+      invalid(`schemaVersion must be ${COMMAND_RESULT_SCHEMA_VERSION}`);
+    }
+    if (result?.resultType !== 'command-result') invalid("resultType must be 'command-result'");
+  }
+  const { operation, subject, outcome, effects: declared, why = [], next = [], restState = null, data = {} } = result ?? {};
+  if (!String(operation?.id ?? '').trim()) invalid('operation.id is required');
   if (!['read', 'mutation'].includes(operation?.classification)) invalid('operation.classification must be read or mutation');
+  if (subject !== null) {
+    if (!SUBJECT_KINDS.has(subject?.kind)) invalid(`subject.kind '${subject?.kind}' must be one of ${[...SUBJECT_KINDS].join(', ')}`);
+    if (!String(subject?.id ?? '').trim()) invalid('subject.id is required when subject is present');
+  }
   if (!outcome || !STATUSES.has(outcome.status)) invalid(`outcome.status must be one of ${[...STATUSES].join(', ')}`);
   if (!ID_PATTERN.test(outcome.messageId ?? '')) invalid(`outcome.messageId '${outcome.messageId}' must be a dotted lower-case id`);
+  if (!Object.hasOwn(MESSAGES, outcome.messageId)) invalid(`outcome.messageId '${outcome.messageId}' is not in the narration catalog`);
+  if (outcome.slots !== undefined && (outcome.slots === null || Array.isArray(outcome.slots) || typeof outcome.slots !== 'object')) invalid('outcome.slots must be an object');
   if (!declared) invalid('effects are required; a command must say what it changed');
   for (const key of ['stateChanged', 'filesChanged', 'publicationCreated', 'externalSystemsChanged']) {
     if (typeof declared[key] !== 'boolean') invalid(`effects.${key} must be a boolean`);
@@ -91,21 +98,51 @@ export function commandResult({
       Object.entries(declared).filter(([, value]) => value).map(([key]) => key).join(', ')}`);
   }
 
+  if (!Array.isArray(why)) invalid('why must be an array');
   for (const entry of why) {
     if (!ID_PATTERN.test(entry?.code ?? '')) invalid(`why[].code '${entry?.code}' must be a dotted lower-case reason code`);
     if (!WHY_SOURCES.has(entry?.source)) invalid(`why[].source '${entry?.source}' must be one of ${[...WHY_SOURCES].join(', ')}`);
+    if (!Object.hasOwn(REASONS, entry.code)) invalid(`why[].code '${entry.code}' is not in the reason catalog`);
     if ('detail' in (entry ?? {})) invalid(`why[] carries reason codes, not prose (${entry.code} supplied a detail)`);
   }
 
+  if (!Array.isArray(next)) invalid('next must be an array');
   for (const entry of next) {
     if (!entry?.id || !entry?.label || !entry?.command) invalid('next[] entries need id, label and command');
     if (!NEXT_RANKS.has(entry.rank)) invalid(`next[].rank '${entry.rank}' must be one of ${[...NEXT_RANKS].join(', ')}`);
     if (!NEXT_KINDS.has(entry.kind)) invalid(`next[].kind '${entry.kind}' must be one of ${[...NEXT_KINDS].join(', ')}`);
+    if (!MODEL_POLICIES.has(entry.modelPolicy)) invalid(`next[].modelPolicy '${entry.modelPolicy}' must be one of ${[...MODEL_POLICIES].join(', ')}`);
   }
 
   if (restState !== null && !REST_STATES.has(restState)) {
     invalid(`restState '${restState}' must be null or one of ${[...REST_STATES].join(', ')}`);
   }
+  if (data === null || Array.isArray(data) || typeof data !== 'object') invalid('data must be an object');
+
+  return result;
+}
+
+export function commandResult({
+  operation,
+  subject = null,
+  outcome,
+  effects: declared,
+  why = [],
+  next = [],
+  restState = null,
+  data = {}
+} = {}) {
+  const result = {
+    operation,
+    subject,
+    outcome,
+    effects: declared,
+    why,
+    next,
+    restState,
+    data
+  };
+  validateCommandResult(result);
 
   return Object.freeze({
     schemaVersion: COMMAND_RESULT_SCHEMA_VERSION,

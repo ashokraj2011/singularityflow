@@ -85,16 +85,23 @@ function fromLifecycle(projections) {
   return (projections ?? []).flatMap((projection) => {
     const event = projection.event ?? projection;
     const kind = LIFECYCLE_KINDS[event?.type];
-    if (!kind || !event?.at) return [];
+    // LifecycleEvent v1 calls these fields `createdAt` and `sourceCommit`. Keep the older aliases
+    // as read-only compatibility for projections created before the event envelope was formalised.
+    const at = event?.createdAt ?? event?.at;
+    if (!kind || !at) return [];
     return [beat({
       kind,
-      at: event.at,
+      at,
       phase: text(event.phaseId),
       generation: event.generation ?? null,
       actor: event.actor ?? null,
       authority: text(event.authorityGroup),
       detail: null,
-      source: { stream: 'lifecycle', eventId: text(event.eventId), commit: text(projection.commit ?? event.commit) }
+      source: {
+        stream: 'lifecycle',
+        eventId: text(event.eventId),
+        commit: text(event.sourceCommit ?? projection.commit ?? event.commit)
+      }
     })];
   });
 }

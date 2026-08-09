@@ -10,12 +10,17 @@ import { readFile } from 'node:fs/promises';
 import test from 'node:test';
 
 import {
-  action, assertContinuation, because, commandResult, effects, failed, noEffects, noop, preservedEverything, refused, succeeded
+  action, assertContinuation, because, commandResult, effects, failed, noEffects, noop,
+  preservedEverything, refused, succeeded, validateCommandResult
 } from '../src/narration/command-result.mjs';
 import { MESSAGES, REASONS, preservingMessageIds } from '../src/narration/messages.mjs';
 import { renderCommandResult } from '../src/narration/render-terminal.mjs';
 import { renderCommandResultJson } from '../src/narration/render-json.mjs';
 import { attachContinuation, remediationActions } from '../src/narration/continuation.mjs';
+import {
+  LEGACY_NARRATION_COMMANDS, MAX_LEGACY_NARRATION_COMMANDS,
+  MIGRATED_NARRATION_COMMANDS, validateNarrationMigrationStatus
+} from '../src/narration/migration-status.mjs';
 
 const OPERATION = { id: 'submit', classification: 'mutation' };
 const SUBJECT = { kind: 'story', id: 'PAY-1187' };
@@ -124,9 +129,71 @@ test('NCL-006 a refusal is given remediation, not a rest state', () => {
   for (const entry of remediation) assert.equal(entry.kind, 'remediation');
 });
 
+test('NCL-006 an unexplained refusal or failure cannot masquerade as informational rest', () => {
+  for (const outcome of [refused('submit.refused'), failed('submit.refused')]) {
+    const stranded = commandResult({
+      operation: OPERATION,
+      subject: SUBJECT,
+      outcome,
+      effects: noEffects()
+    });
+    const attached = attachContinuation(stranded);
+    assert.equal(attached.restState, null);
+    assert.throws(() => assertContinuation(attached), /offers no next action/);
+  }
+});
+
+test('NCL-005 runtime validation rejects values the JSON schema forbids', () => {
+  assert.throws(() => base({ subject: { kind: 'person', id: 'x' } }), /subject.kind/);
+  assert.throws(() => base({ subject: { kind: 'story', id: '' } }), /subject.id/);
+  assert.throws(() => base({ outcome: refused('missing.message') }), /narration catalog/);
+  assert.throws(() => base({ why: [because('missing.reason', 'gate')] }), /reason catalog/);
+  const result = base();
+  assert.throws(() => validateCommandResult({
+    ...result,
+    next: [{ ...result.next[0], modelPolicy: 'sometimes' }]
+  }), /modelPolicy/);
+});
+
+test('NCL-005 output validation requires the versioned command-result envelope', () => {
+  const result = base();
+  const missingEnvelope = { ...result };
+  delete missingEnvelope.schemaVersion;
+  assert.throws(
+    () => validateCommandResult(missingEnvelope, { requireEnvelope: true }),
+    /schemaVersion must be 1/
+  );
+  assert.throws(
+    () => validateCommandResult({ ...result, resultType: 'something-else' }, { requireEnvelope: true }),
+    /resultType must be 'command-result'/
+  );
+});
+
 test('NCL-008 continuation is derived from post-command state', () => {
   const attached = attachContinuation({ ...base({ next: [], restState: 'informational' }), restState: null, next: [] });
   assert.ok(attached.next.length || attached.restState, 'a continuation is always attached');
+});
+
+test('NCL-008 planner timing maps to command-result ranks', () => {
+  const workflow = {
+    workItem: { id: 'PAY-1187', workType: 'feature', workTypeLabel: 'Feature' },
+    status: 'active',
+    currentPhase: 'requirements',
+    phaseOrder: ['requirements', 'design'],
+    phases: {
+      requirements: { id: 'requirements', label: 'Requirements', status: 'awaiting_approval', generation: 1, artifacts: [], approvalPolicy: {} },
+      design: { id: 'design', label: 'Design', status: 'not_started', generation: 0, artifacts: [], approvalPolicy: {} }
+    }
+  };
+  const result = commandResult({
+    operation: { id: 'status', classification: 'read' },
+    subject: SUBJECT,
+    outcome: succeeded('status.reported', { workId: 'PAY-1187', phase: 'requirements' }),
+    effects: noEffects()
+  });
+  const attached = attachContinuation(result, { postState: workflow });
+  assert.ok(attached.next.some((entry) => entry.rank === 'NOW'));
+  assert.ok(attached.next.some((entry) => entry.rank === 'SOON'));
 });
 
 test('NCL-009 and NCL-010 terminal formatting never reaches JSON', () => {
@@ -178,5 +245,16 @@ test('succeeded, failed and noop outcomes all round-trip', () => {
     assert.equal(result.outcome.status, outcome.status);
     assert.equal(result.schemaVersion, 1);
     assert.equal(result.resultType, 'command-result');
+  }
+});
+
+test('the narration migration catalog classifies every public command explicitly', () => {
+  const status = validateNarrationMigrationStatus();
+  assert.equal(status.registered, status.migrated.length + status.legacy.length);
+  assert.ok(status.legacy.length <= MAX_LEGACY_NARRATION_COMMANDS,
+    'the explicit legacy narration allowlist may shrink but never grow');
+  for (const name of ['agent', 'approve', 'reject', 'resume', 'submit']) {
+    assert.ok(MIGRATED_NARRATION_COMMANDS.includes(name));
+    assert.ok(!LEGACY_NARRATION_COMMANDS.includes(name));
   }
 });

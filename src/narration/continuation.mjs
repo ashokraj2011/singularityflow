@@ -74,7 +74,7 @@ const PLANNER_RANKS = Object.freeze({ now: 'NOW', alternative: 'NOW', then: 'SOO
 /**
  * The planner's own vocabulary, translated rather than re-invented.
  *
- * `workflowNextSteps` emits `{ rank, skill, command, reason }`, where `reason` is the sentence
+ * `workflowNextSteps` emits `{ timing, skill, command, reason }`, where `reason` is the sentence
  * explaining why the step is the right one. That sentence is the label; guessing at `label`/`title`
  * produced a list of steps all captioned "Continue", which is worse than no caption at all.
  */
@@ -84,7 +84,8 @@ function fromWorkflowPlanner(workflow, { publicationPending = false, modelMode }
       id: step.command ? step.command.replace(/[^a-z0-9]+/gi, '-').replace(/^-+|-+$/g, '').slice(0, 64) : `step-${index}`,
       label: step.reason ?? step.command ?? 'Continue',
       command: step.command ?? `singularity-flow nextsteps ${workflow.workItem.id}`,
-      rank: PLANNER_RANKS[step.rank] ?? (index === 0 ? 'NOW' : 'SOON'),
+      // `rank` was used by an early prototype. `timing` is the planner's public field.
+      rank: PLANNER_RANKS[step.timing ?? step.rank] ?? (index === 0 ? 'NOW' : 'SOON'),
       kind: 'workflow',
       modelPolicy: step.modelPolicy ?? 'never'
     }));
@@ -109,8 +110,11 @@ export function attachContinuation(result, { postState = null, publicationPendin
     if (planned.length) return { ...result, next: Object.freeze(planned) };
   }
 
-  // A caller that knows the work finished can say so; otherwise a succeeded command with nothing
-  // planned is complete and anything else is merely informational.
+  // A caller that knows the work finished can say so. A successful read/mutation with no further
+  // work may rest complete. A refusal or failure is never silently converted into informational:
+  // it must carry a remediation or an explicit rest state from the caller.
   if (restStateWhenIdle) return { ...result, restState: restStateWhenIdle };
-  return { ...result, restState: result.outcome.status === 'succeeded' ? 'complete' : 'informational' };
+  if (result.outcome.status === 'succeeded') return { ...result, restState: 'complete' };
+  if (result.outcome.status === 'noop') return { ...result, restState: 'informational' };
+  return result;
 }

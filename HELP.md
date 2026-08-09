@@ -504,6 +504,7 @@ move to `enforce` once artifacts and claim maps are complete. Stable anchors use
 
 ```sh
 sflow spec index --phase requirements
+sflow spec index docs/candidate-spec.md  # before a Story exists; writes a local .git index
 sflow spec claims planned --phase implementation-spec --file planned.yml
 sflow spec claims observed --phase implementation --file observed.yml
 sflow spec coverage --base origin/main
@@ -2372,7 +2373,7 @@ singularity-flow reopen [WORK-ID] [--fetch] --reason TEXT --to PHASE
 singularity-flow cancel [WORK-ID] [--fetch] --reason TEXT --confirm WORK-ID
 singularity-flow pr [WORK-ID] [--create] [--yes] [--json]
 singularity-flow sync
-singularity-flow spec index|claims|coverage|acceptance|trace ...
+singularity-flow spec index [FILE] [--out FILE] [--dry-run]|claims|coverage|acceptance|trace ...
 singularity-flow ledger init|doctor|status|log|show|verify|reconcile|archive|deployment-check ...
 singularity-flow capabilities list|show|doctor|lease ...
 singularity-flow validate [--strict]

@@ -553,10 +553,14 @@ export async function activateCapabilityProposal(url, branch, { confirm = null }
  * add a second repository is exactly why maps go stale: the cost of the edit exceeds the cost of
  * leaving it wrong.
  */
-export async function editCapabilityInOrganisation(leadUrl, capabilityId, changes = {}) {
+export async function editCapabilityInOrganisation(leadUrl, capabilityId, changes = {}, { mode = 'set' } = {}) {
   if (!capabilityId) throw new SingularityFlowError('A capability identifier is required.');
-  return withLeadCheckout(leadUrl, `Update capability ${capabilityId}`,
-    `capability/edit-${capabilityId}`, async (root) => {
+  if (!['add', 'set', 'remove'].includes(mode)) {
+    throw new SingularityFlowError("Capability proposal mode must be 'add', 'set', or 'remove'.");
+  }
+  const action = mode === 'add' ? 'Add' : mode === 'remove' ? 'Remove' : 'Update';
+  return withLeadCheckout(leadUrl, `${action} capability ${capabilityId}`,
+    `capability/${mode}-${capabilityId}`, async (root) => {
     assertGovernanceVisible(root);
     if (!existsSync(path.join(root, CAPABILITIES_PATH))) {
       throw new SingularityFlowError(
@@ -567,7 +571,7 @@ export async function editCapabilityInOrganisation(leadUrl, capabilityId, change
       : null;
     // editCapability validates before it writes, so a refused edit leaves the map exactly as it
     // was — which matters more here than usual, because this checkout is about to be pushed.
-    const result = await editCapability(root, capabilityId, changes, { mode: 'set', portfolio });
+    const result = await editCapability(root, capabilityId, changes, { mode, portfolio });
     return {
       capabilityId, changed: result?.changed ?? true,
       state: { published: false, reason: 'awaiting review and merge' }

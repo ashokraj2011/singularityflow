@@ -843,12 +843,17 @@ pass an empty value to `capability edit` or `capability set`, for example
 Approved organisation configuration lives on the dedicated `sflow/config` branch.
 `capability map` and remote `capability edit` create a review branch named under
 `sflow/config-change/capability/`; they never push an application branch. In VS Code,
+create, edit, delete, and initial mapping all use this same proposal transaction and
+automatically open the review screen; no designer action writes through the currently
+checked-out Story or application branch.
 **Configuration → Capabilities → Review capability proposals** opens the exact diff
 and offers **Merge and activate**. The action requires the exact proposal commit,
 uses a normal non-force merge into `sflow/config`, and refreshes the orphan state
 projection. Branch protection remains authoritative: when it refuses the push, merge
-the proposal through the repository's normal review controls and run `capability
-publish`. The first
+the proposal through the repository's normal review controls, then run the same
+`capability activate ... --confirm <FULL-PROPOSAL-COMMIT>` action. It verifies the
+reviewed commit is present before publishing the projection. `capability publish` is
+reserved for repairing a projection that is already backed by approved configuration. The first
 proposal may seed `sflow/config` from reusable configuration already present in the
 repository, but excludes runtime work, evidence, telemetry, and world-model output.
 
@@ -2383,6 +2388,7 @@ singularity-flow jira status|projects|epics|children|permissions|boards|board
 singularity-flow jira transitions|transition|assign|priority|sprint|comment
 singularity-flow plugin install|uninstall|list|path
 singularity-flow configuration save <PATH>
+singularity-flow configuration publish [--message TEXT] [--json]
 singularity-flow snapshot [WORK-ID] [--include SLICE] [--if-revision HASH] [--timings] --json
 singularity-flow state planes [WORK-ID] [--json]
 singularity-flow state reconcile [WORK-ID] --check|--repair-projections [--json]

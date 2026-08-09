@@ -231,6 +231,11 @@
         "icon": "$(hubot)"
       },
       {
+        "command": "singularityFlow.publishConfiguration",
+        "title": "Singularity Flow: Review & Publish Configuration",
+        "icon": "$(cloud-upload)"
+      },
+      {
         "command": "singularityFlow.openPromptAudit",
         "title": "Singularity Flow: Prompt Audit",
         "icon": "$(comment-discussion)"

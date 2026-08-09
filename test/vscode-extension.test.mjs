@@ -25,7 +25,7 @@ const source = (name) => path.join(packageRoot, 'apps', 'vscode', 'src', name);
 
 const { invokeCli, CliError, validateRepositoryDirectory, UninitializedRepositoryError } =
   await import(source('cli/runner.ts'));
-const { resolveCli, SingularityFlowClient } = await import(source('cli/client.ts'));
+const { resolveCli, SingularityFlowClient, commandClass } = await import(source('cli/client.ts'));
 const { phasesInOrder, packsWithMembers, storiesByRepository, isApprovalPinned } =
   await import(source('cli/snapshot.ts'));
 
@@ -56,6 +56,14 @@ const invoke = (overrides) => invokeCli({
 test('a successful run resolves the parsed JSON', async () => {
   const result = await invoke({ spawnImpl: fakeSpawn({ stdout: '{"ready":true,"errors":[]}' }) });
   assert.deepEqual(result, { ready: true, errors: [] });
+});
+
+test('VS Code classifies configuration publication as a mutation', () => {
+  assert.equal(commandClass(['configuration', 'snapshot']), 'read');
+  assert.equal(commandClass(['configuration', 'validate']), 'read');
+  assert.equal(commandClass(['configuration', 'save', 'singularity/workflow.yml']), 'mutation');
+  assert.equal(commandClass(['configuration', 'publish', '--json']), 'mutation');
+  assert.equal(commandClass(['configuration', 'portfolio-bootstrap']), 'mutation');
 });
 
 test('every VS Code CLI completion reports one privacy-safe timing envelope', async () => {
@@ -1060,6 +1068,29 @@ test('configuration is shown whether or not an Epic is checked out', () => {
   }
 });
 
+test('validated visual-editor changes have a visible review and publish path', () => {
+  const changed = structuredClone(snapshot);
+  changed.repository = {
+    branch: 'sflow/config-change/editor/review',
+    configurationChanges: ['singularity/workflow.yml', 'singularity/templates/feature/design.md'],
+    unrelatedChanges: [],
+    publishReady: true
+  };
+  const tree = buildConfigurationTree(changed);
+  const unpublished = find(tree, 'config:unpublished');
+  assert.equal(unpublished.description, '2 files · sflow/config-change/editor/review');
+  assert.deepEqual(unpublished.children.slice(0, 2).map((child) => child.label), [
+    'singularity/workflow.yml',
+    'singularity/templates/feature/design.md'
+  ]);
+  assert.equal(find(tree, 'config:publish').runCommand, 'singularityFlow.publishConfiguration');
+
+  changed.repository.unrelatedChanges = ['README.md'];
+  const blocked = buildConfigurationTree(changed);
+  assert.equal(find(blocked, 'config:publish'), undefined, 'unrelated changes cannot reach publication');
+  assert.match(find(blocked, 'config:unpublished:blocked').description, /README\.md/);
+});
+
 test('the configuration node says whether workflow progress is recorded, and where', () => {
   const off = find(buildConfigurationTree(snapshot), 'configuration');
   assert.equal(off.description, 'no state branch');
@@ -1830,7 +1861,7 @@ test('every agent is listed, including the ones that ship with the product', () 
   assert.equal(packs.children[1].readOnly, true);
 });
 
-const { capabilityDetail, capabilityArgv, parentChoices, flattenCapabilities } =
+const { capabilityDetail, capabilityArgv, capabilityProposalArgv, parentChoices, flattenCapabilities } =
   await import(source('views/capability-model.ts'));
 const { bodyHtml: capabilitiesHtml, readEdits } = await import(source('views/capability-page.ts'));
 const { buildCapabilityDashboard } = await import(source('views/capability-dashboard-model.ts'));
@@ -1895,6 +1926,20 @@ test('capability metadata is included in remote map proposals and incomplete pai
   assert.match(html, /sflow\/config/);
   assert.ok(mapProblems({ ...form, metadata: [{ key: 'applicationId', value: '' }] })
     .includes('Metadata row 1 requires both a key and a value.'));
+});
+
+test('the capability designer routes every mutation through the reviewed organisation proposal', () => {
+  const lead = 'https://git.example/platform.git';
+  assert.deepEqual(
+    capabilityProposalArgv('set', 'payments', lead, { name: ' Payments ' }),
+    ['capability', 'edit', 'payments', '--lead', lead, '--mode', 'set', '--name', 'Payments', '--json']);
+  assert.deepEqual(
+    capabilityProposalArgv('add', 'ledger', lead, { parent: 'payments', kind: 'collection' }),
+    ['capability', 'edit', 'ledger', '--lead', lead, '--mode', 'add',
+      '--kind', 'collection', '--parent', 'payments', '--json']);
+  assert.deepEqual(
+    capabilityProposalArgv('remove', 'ledger', lead),
+    ['capability', 'edit', 'ledger', '--lead', lead, '--mode', 'remove', '--json']);
 });
 
 test('mapping a capability asks which map to use only when multiple maps exist', () => {
@@ -3363,4 +3408,16 @@ test('capability proposals have an exact review and activation UI', async () => 
     'activation is bound to the complete reviewed proposal commit');
   assert.match(panel, /application default branch is not part of this operation/i);
   assert.match(panel, /normal non-force Git push/i);
+});
+
+test('configuration recovery stays inside VS Code for conflicting MCP host entries', async () => {
+  const extension = await readFile(source('extension.ts'), 'utf8');
+  assert.match(extension, /detail\.includes\('--replace-server'\)/,
+    'the host-entry conflict is distinguished from unrelated failures');
+  assert.match(extension, /Replace the existing Playwright MCP host entry\?/,
+    'the contributor reviews the replacement in a modal UI');
+  assert.match(extension, /\['mcp', 'scaffold', 'playwright', '--replace-server'\]/,
+    'the accepted recovery invokes the engine escape hatch itself');
+  assert.match(extension, /Other MCP servers and inputs are preserved/,
+    'the confirmation explains the bounded write scope');
 });

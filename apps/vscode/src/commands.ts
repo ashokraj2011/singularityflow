@@ -24,13 +24,39 @@ export interface Placeholder {
 /** Flags whose value is a filesystem path, and so deserve a file picker rather than a text box. */
 const FILE_FLAGS = new Set(['--file', '--path', '--out', '--plan-file', '--usage-json']);
 
-/** Strip the binary name and split a suggested command into argv. */
+/**
+ * Strip the binary name and parse a suggested command into argv without invoking a shell.
+ *
+ * Engine suggestions may quote placeholder values such as `"<WHAT WAS REVIEWED>"`. A whitespace
+ * split turns that into three arguments and makes the editor prompt for the wrong value. This small
+ * tokenizer supports the quoting and escaping the engine emits while deliberately doing no shell
+ * expansion, command substitution, or environment interpolation.
+ */
 export function commandArgv(command: string): string[] {
-  return String(command ?? '')
-    .trim()
-    .replace(/^singularity-flow\s+/, '')
-    .split(/\s+/)
-    .filter(Boolean);
+  const source = String(command ?? '').trim().replace(/^singularity-flow\s+/, '');
+  const argv: string[] = [];
+  let token = '', quote: '"' | "'" | null = null, escaped = false, started = false;
+  const finish = () => {
+    if (!started) return;
+    argv.push(token); token = ''; started = false;
+  };
+  for (const character of source) {
+    if (escaped) { token += character; started = true; escaped = false; continue; }
+    if (character === '\\' && quote !== "'") { escaped = true; started = true; continue; }
+    if (quote) {
+      if (character === quote) quote = null;
+      else token += character;
+      started = true;
+      continue;
+    }
+    if (character === '"' || character === "'") { quote = character; started = true; continue; }
+    if (/\s/.test(character)) { finish(); continue; }
+    token += character; started = true;
+  }
+  if (escaped) token += '\\';
+  if (quote) throw new Error(`Suggested command contains an unterminated ${quote} quote.`);
+  finish();
+  return argv;
 }
 
 /**

@@ -14,6 +14,7 @@ import { validateRepositoryDirectory } from './cli/runner.ts';
 import { WorkspaceStore } from './state.ts';
 import { ConfigurationValidator } from './validation.ts';
 import { approveWithReceipt, resolvePlaceholders, runGovernedAction, runPlannedAction } from './actions.ts';
+import { commandArgv } from './commands.ts';
 import { LifecycleTreeProvider } from './views/lifecycle.ts';
 import type { JourneyMessage } from './views/journey.ts';
 import type { ApprovalsMessage } from './views/approvals.ts';
@@ -1267,7 +1268,7 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
       if (!next) return;
       return runNode({
         kind: 'action', id: 'next', label: next.reason,
-        command: next.command.replace(/^singularity-flow\s+/, '').split(/\s+/)
+        command: commandArgv(next.command)
       });
     }
     const node = nodeForOutput(message.outputId);

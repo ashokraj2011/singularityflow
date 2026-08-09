@@ -18,6 +18,7 @@ import {
   type RepositorySnapshot, type PhaseStatus, type StoryArtifact, type StoryPhase,
   type StoryWorkflow
 } from '../cli/snapshot.ts';
+import { commandArgv } from '../commands.ts';
 import { buildCapabilityTree, type CapabilityReadiness } from './navigation-trees.ts';
 
 export type NodeKind =
@@ -1327,7 +1328,7 @@ function initiativeNode(initiative: InitiativeSnapshot): TreeNode {
       description: next.action,
       tooltip: next.command,
       icon: 'play-circle',
-      command: next.command.replace(/^singularity-flow\s+/, '').split(/\s+/),
+      command: commandArgv(next.command),
       contextValue: 'sflow.action'
     });
   }

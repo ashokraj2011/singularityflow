@@ -1,7 +1,8 @@
-import { SingularityFlowError } from './util.mjs';
+import { optionBoolean, SingularityFlowError } from './util.mjs';
 
-const READ_ONLY = new Set(['about', 'help', 'show', 'choices', 'inbox', 'status', 'progress', 'report', 'telemetry', 'guide', 'logs', 'doctor', 'review', 'nextsteps', 'inputs', 'spec', 'visual', 'snapshot', 'validate']);
+const READ_ONLY = new Set(['about', 'help', 'show', 'choices', 'inbox', 'status', 'progress', 'guide', 'logs', 'doctor', 'nextsteps', 'snapshot', 'validate']);
 const STRUCTURED = new Set(['status', 'progress', 'report', 'impact', 'telemetry', 'doctor', 'inputs', 'snapshot', 'validate', 'gate']);
+const MODEL_FREE_MIXED_COMMANDS = new Set(['report', 'telemetry', 'review', 'inputs', 'spec', 'visual']);
 
 const LAZY_MODULES = Object.freeze({
   about: './commands/about.mjs',
@@ -26,14 +27,15 @@ function operation(id, modelPolicy = 'never', overrides = {}) {
 function command([name, aliases = []]) {
   const classification = READ_ONLY.has(name) ? 'read' : 'mutation';
   const output = STRUCTURED.has(name) ? 'human-or-json' : 'human';
+  const mixed = name === 'wm' || name === 'workspace' || name === 'pr' || MODEL_FREE_MIXED_COMMANDS.has(name);
   return Object.freeze({
     name,
     aliases: Object.freeze(aliases),
     modulePath: LAZY_MODULES[name] ?? './commands/legacy.mjs',
     classification,
-    modelPolicy: name === 'wm' || name === 'workspace' || name === 'pr' ? 'mixed' : 'never',
+    modelPolicy: mixed ? 'mixed' : 'never',
     output,
-    operation: name === 'wm' || name === 'workspace' || name === 'pr'
+    operation: mixed
       ? null
       : operation(name, 'never', { classification, output, noModelFixture: `${name}-model-free` })
   });
@@ -81,12 +83,51 @@ function required(id) {
   });
 }
 
-function never(id, definition) {
+function never(id, definition, classification = definition.classification) {
   return operation(id, 'never', {
-    classification: definition.classification,
+    classification,
     output: definition.output,
     noModelFixture: `${id.replaceAll('.', '-')}-model-free`
   });
+}
+
+function resolveTelemetryOperation(definition, positionals) {
+  const subcommand = positionals[1] ?? 'status';
+  if (subcommand === 'status') return never('telemetry.status', definition, 'read');
+  if (subcommand === 'reconcile') return never('telemetry.reconcile', definition, 'mutation');
+  return unclassified(`telemetry.${subcommand}`);
+}
+
+function resolveOptionalOutputOperation(definition, options) {
+  const raw = Array.isArray(options.out) ? options.out.at(-1) : options.out;
+  return raw == null || raw === false || raw === ''
+    ? never(`${definition.name}.render`, definition, 'read')
+    : never(`${definition.name}.write`, definition, 'mutation');
+}
+
+function resolveInputsOperation(definition, options) {
+  return optionBoolean(options, 'dry-run')
+    ? never('inputs.dry-run', definition, 'read')
+    : never('inputs.prepare', definition, 'mutation');
+}
+
+function resolveSpecOperation(definition, positionals, options) {
+  const subcommand = positionals[1] ?? 'trace';
+  if (subcommand === 'coverage' || subcommand === 'trace') return never(`spec.${subcommand}`, definition, 'read');
+  if (subcommand === 'index' || subcommand === 'acceptance') {
+    return optionBoolean(options, 'dry-run')
+      ? never(`spec.${subcommand}.dry-run`, definition, 'read')
+      : never(`spec.${subcommand}`, definition, 'mutation');
+  }
+  if (subcommand === 'claims') return never('spec.claims', definition, 'mutation');
+  return unclassified(`spec.${subcommand}`);
+}
+
+function resolveVisualOperation(definition, positionals) {
+  const subcommand = positionals[1] ?? 'status';
+  if (subcommand === 'status') return never('visual.status', definition, 'read');
+  if (subcommand === 'compare') return never('visual.compare', definition, 'mutation');
+  return unclassified(`visual.${subcommand}`);
 }
 
 function optional(id, fallbackOperationId, definition) {
@@ -119,7 +160,7 @@ function resolveWorkspaceOperation(definition, positionals, options) {
   if (subcommand === 'impact') {
     const action = positionals[2] ?? 'list';
     if (!WORKSPACE_IMPACT_OPERATIONS.has(action)) return unclassified(`workspace.impact.${action}`);
-    if (action === 'analyze' && options['dry-run'] !== true) return required('workspace.impact.analyze');
+    if (action === 'analyze' && !optionBoolean(options, 'dry-run')) return required('workspace.impact.analyze');
     return never(`workspace.impact.${action}`, definition);
   }
   if (WORKSPACE_NEVER_OPERATIONS.has(subcommand)) return never(`workspace.${subcommand}`, definition);
@@ -129,7 +170,7 @@ function resolveWorkspaceOperation(definition, positionals, options) {
 function resolvePullRequestOperation(definition, positionals, options) {
   const subcommand = positionals[1] ?? 'plan';
   if (subcommand === 'describe') {
-    return options.polish === true
+    return optionBoolean(options, 'polish')
       ? optional('pr.describe.polish', 'pr.describe', definition)
       : never('pr.describe', definition);
   }
@@ -143,6 +184,11 @@ export function resolveOperation({ requestedCommand, positionals, options = {} }
   if (definition.name === 'wm') return resolveWorldModelOperation(definition, positionals);
   if (definition.name === 'workspace') return resolveWorkspaceOperation(definition, positionals, options);
   if (definition.name === 'pr') return resolvePullRequestOperation(definition, positionals, options);
+  if (definition.name === 'report' || definition.name === 'review') return resolveOptionalOutputOperation(definition, options);
+  if (definition.name === 'telemetry') return resolveTelemetryOperation(definition, positionals);
+  if (definition.name === 'inputs') return resolveInputsOperation(definition, options);
+  if (definition.name === 'spec') return resolveSpecOperation(definition, positionals, options);
+  if (definition.name === 'visual') return resolveVisualOperation(definition, positionals);
   return unclassified(definition.name);
 }
 
@@ -161,10 +207,35 @@ export function operationCatalog() {
     never('pr.describe', prDefinition),
     optional('pr.describe.polish', 'pr.describe', prDefinition)
   ];
+  const telemetryDefinition = commandDefinition('telemetry');
+  const reportDefinition = commandDefinition('report');
+  const reviewDefinition = commandDefinition('review');
+  const inputsDefinition = commandDefinition('inputs');
+  const specDefinition = commandDefinition('spec');
+  const visualDefinition = commandDefinition('visual');
+  const modelFreeMixed = [
+    never('report.render', reportDefinition, 'read'),
+    never('report.write', reportDefinition, 'mutation'),
+    never('telemetry.status', telemetryDefinition, 'read'),
+    never('telemetry.reconcile', telemetryDefinition, 'mutation'),
+    never('review.render', reviewDefinition, 'read'),
+    never('review.write', reviewDefinition, 'mutation'),
+    never('inputs.dry-run', inputsDefinition, 'read'),
+    never('inputs.prepare', inputsDefinition, 'mutation'),
+    never('spec.index', specDefinition, 'mutation'),
+    never('spec.index.dry-run', specDefinition, 'read'),
+    never('spec.claims', specDefinition, 'mutation'),
+    never('spec.coverage', specDefinition, 'read'),
+    never('spec.acceptance', specDefinition, 'mutation'),
+    never('spec.acceptance.dry-run', specDefinition, 'read'),
+    never('spec.trace', specDefinition, 'read'),
+    never('visual.status', visualDefinition, 'read'),
+    never('visual.compare', visualDefinition, 'mutation')
+  ];
   return Object.freeze([
     operation('help.root', 'never', { classification: 'read' }),
     operation('version', 'never', { classification: 'read' }),
-    ...direct, ...wm, ...workspace, ...pullRequest
+    ...direct, ...wm, ...workspace, ...pullRequest, ...modelFreeMixed
   ].sort((a, b) => a.id.localeCompare(b.id)));
 }
 

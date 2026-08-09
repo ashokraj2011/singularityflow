@@ -16,12 +16,31 @@ import {
 import type { RepositorySnapshot } from './snapshot.ts';
 
 const READ_ONLY_COMMANDS = new Set([
-  'about', 'help', 'show', 'choices', 'inbox', 'status', 'progress', 'report', 'telemetry',
-  'guide', 'logs', 'doctor', 'review', 'nextsteps', 'inputs', 'spec', 'visual', 'snapshot', 'validate'
+  'about', 'help', 'show', 'choices', 'inbox', 'status', 'progress',
+  'guide', 'logs', 'doctor', 'nextsteps', 'snapshot', 'validate'
 ]);
 const READ_ONLY_CONFIGURATION_COMMANDS = new Set([
   'snapshot', 'validate', 'read', 'export-bundle', 'initiative-materialize-preview'
 ]);
+
+function hasOption(args: string[], name: string): boolean {
+  const option = `--${name}`;
+  return args.some((argument) => argument === option || argument.startsWith(`${option}=`));
+}
+
+function enabledBooleanOption(args: string[], name: string): boolean {
+  const option = `--${name}`;
+  for (let index = args.length - 1; index >= 0; index -= 1) {
+    const argument = args[index];
+    if (argument === undefined) continue;
+    if (argument === `--no-${name}`) return false;
+    if (argument === option) return true;
+    if (!argument.startsWith(`${option}=`)) continue;
+    const value = argument.slice(option.length + 1).trim().toLowerCase();
+    return ['1', 'true', 'yes', 'on'].includes(value);
+  }
+  return false;
+}
 
 export function commandClass(args: string[]): 'read' | 'mutation' | 'unknown' {
   if (!args[0]) return 'unknown';
@@ -32,6 +51,16 @@ export function commandClass(args: string[]): 'read' | 'mutation' | 'unknown' {
   if (args[0] === 'configuration') {
     return READ_ONLY_CONFIGURATION_COMMANDS.has(args[1] ?? '') ? 'read' : 'mutation';
   }
+  if (args[0] === 'report' || args[0] === 'review') return hasOption(args, 'out') ? 'mutation' : 'read';
+  if (args[0] === 'telemetry') return (args[1] ?? 'status') === 'status' ? 'read' : 'mutation';
+  if (args[0] === 'inputs') return enabledBooleanOption(args, 'dry-run') ? 'read' : 'mutation';
+  if (args[0] === 'spec') {
+    const action = args[1] ?? 'trace';
+    if (action === 'coverage' || action === 'trace') return 'read';
+    if ((action === 'index' || action === 'acceptance') && enabledBooleanOption(args, 'dry-run')) return 'read';
+    return 'mutation';
+  }
+  if (args[0] === 'visual') return (args[1] ?? 'status') === 'status' ? 'read' : 'mutation';
   return READ_ONLY_COMMANDS.has(args[0]) ? 'read' : 'mutation';
 }
 

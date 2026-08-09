@@ -66,6 +66,29 @@ test('VS Code classifies configuration publication as a mutation', () => {
   assert.equal(commandClass(['configuration', 'portfolio-bootstrap']), 'mutation');
 });
 
+test('VS Code command audit classification follows mixed read and mutation subcommands', () => {
+  assert.equal(commandClass(['report', 'WORK-1']), 'read');
+  assert.equal(commandClass(['report', 'WORK-1', '--out', 'report.html']), 'mutation');
+  assert.equal(commandClass(['report', 'WORK-1', '--out=report.html']), 'mutation');
+  assert.equal(commandClass(['review', 'intake']), 'read');
+  assert.equal(commandClass(['review', 'intake', '--out', 'review.md']), 'mutation');
+  assert.equal(commandClass(['telemetry', 'status']), 'read');
+  assert.equal(commandClass(['telemetry', 'reconcile', 'design']), 'mutation');
+  assert.equal(commandClass(['inputs', 'design']), 'mutation');
+  assert.equal(commandClass(['inputs', 'design', '--dry-run']), 'read');
+  assert.equal(commandClass(['inputs', 'design', '--dry-run=true']), 'read');
+  assert.equal(commandClass(['inputs', 'design', '--dry-run=false']), 'mutation');
+  assert.equal(commandClass(['inputs', 'design', '--no-dry-run']), 'mutation');
+  assert.equal(commandClass(['spec', 'trace']), 'read');
+  assert.equal(commandClass(['spec', 'coverage']), 'read');
+  assert.equal(commandClass(['spec', 'claims', 'planned', '--file', 'claims.yml']), 'mutation');
+  assert.equal(commandClass(['spec', 'index', '--dry-run']), 'read');
+  assert.equal(commandClass(['spec', 'index', '--dry-run=true']), 'read');
+  assert.equal(commandClass(['spec', 'acceptance']), 'mutation');
+  assert.equal(commandClass(['visual', 'status']), 'read');
+  assert.equal(commandClass(['visual', 'compare', '--expected', 'a', '--actual', 'b']), 'mutation');
+});
+
 test('every VS Code CLI completion reports one privacy-safe timing envelope', async () => {
   const events = [];
   await invoke({
@@ -1001,6 +1024,17 @@ test('a placeholder with no flag is asked for as text', () => {
   const [placeholder] = commandPlaceholders(commandArgv('singularity-flow initiative approve <SUBJECT>'));
   assert.equal(placeholder.flag, null);
   assert.equal(placeholder.kind, 'text');
+});
+
+test('suggested commands preserve quoted values and multi-word placeholders without a shell', () => {
+  assert.deepEqual(
+    commandArgv('singularity-flow initiative evidence add check-1 --observed-state "Reviewed by product owner" --reason \'ready for delivery\''),
+    ['initiative', 'evidence', 'add', 'check-1', '--observed-state', 'Reviewed by product owner', '--reason', 'ready for delivery']
+  );
+  const argv = commandArgv('singularity-flow initiative evidence add check-1 --observed-state "<WHAT WAS REVIEWED>"');
+  assert.equal(argv.at(-1), '<WHAT WAS REVIEWED>');
+  assert.equal(commandPlaceholders(argv)[0]?.name, 'WHAT WAS REVIEWED');
+  assert.throws(() => commandArgv('singularity-flow reject intake --reason "unfinished'), /unterminated/);
 });
 
 test('answers are substituted positionally, leaving everything else alone', () => {

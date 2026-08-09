@@ -42,7 +42,7 @@ function command([name, aliases = []]) {
 }
 
 export const COMMAND_REGISTRY = Object.freeze([
-  ['about'], ['help'], ['show'], ['harness'], ['init'], ['factory-reset'], ['reset-all'], ['fresh-install'], ['choices'], ['start'], ['resume'], ['agent'], ['session'],
+  ['about'], ['help'], ['show'], ['harness'], ['init'], ['factory-reset'], ['reset-all'], ['local-reset'], ['fresh-install'], ['choices'], ['start'], ['resume'], ['agent'], ['session'],
   ['inbox'], ['finalize'], ['status'], ['progress'], ['report'], ['impact'], ['telemetry'], ['prompt-log'], ['guide'], ['refresh-branch'],
   ['next'], ['run'], ['cockpit', ['home']], ['logs'], ['doctor'], ['review'], ['workflow'],
   ['assign'], ['watch'], ['recover'], ['nextsteps', ['next-steps']], ['action'], ['inputs'], ['spec'],

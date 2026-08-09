@@ -300,6 +300,15 @@ test('factory-reset skill requires preview and contributor-owned exact confirmat
   assert.match(content, /intentionally uncommitted/);
 });
 
+test('local-reset skill preserves the installation and requires a proven workspace preview', async () => {
+  const content = await readFile(path.join(pluginRoot, 'skills', 'sflow-local-reset', 'SKILL.md'), 'utf8');
+  assert.match(content, /local-reset --dry-run --json/);
+  assert.match(content, /exact number of physical workspace directories/);
+  assert.match(content, /Never generate or supply it yourself/);
+  assert.match(content, /installed CLI, VS Code extension, Copilot/);
+  assert.match(content, /Never delete an unregistered path/);
+});
+
 test('approval skill is explicitly user-invoked', async () => {
   const content = await readFile(path.join(pluginRoot, 'skills', 'sflow-approve', 'SKILL.md'), 'utf8');
   assert.match(content, /disable-model-invocation:\s*true/);

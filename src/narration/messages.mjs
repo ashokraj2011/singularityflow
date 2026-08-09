@@ -62,6 +62,14 @@ export const MESSAGES = Object.freeze({
   'agent.selected': {
     headline: (s) => `Selected ${slot(s.agent)} for ${slot(s.workId)}.`,
     preserves: false
+  },
+  'local-reset.previewed': {
+    headline: (s) => `Previewed local reset for ${slot(s.workspaces, '0')} registered workspace(s).`,
+    preserves: true
+  },
+  'local-reset.completed': {
+    headline: (s) => `Removed ${slot(s.workspaces, '0')} registered workspace(s) and reset local Singularity state.`,
+    preserves: false
   }
 });
 

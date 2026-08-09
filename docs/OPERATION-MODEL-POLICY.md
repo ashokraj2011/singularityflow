@@ -41,6 +41,7 @@ Every public operation is classified before its implementation module is importe
 | jira | mutation | never | — | — |
 | knowledge | mutation | never | — | — |
 | ledger | mutation | never | — | — |
+| local-reset | mutation | never | — | — |
 | logs | read | never | — | — |
 | mcp | mutation | never | — | — |
 | next | mutation | never | — | — |

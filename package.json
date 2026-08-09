@@ -11,6 +11,7 @@
     "sflow-next": "bin/sflow-next.mjs",
     "sflow-agent": "bin/sflow-agent.mjs",
     "sf-reset-all": "bin/sf-reset-all.mjs",
+    "sf-local-reset": "bin/sf-local-reset.mjs",
     "sflow-wm-minimal": "bin/sflow-wm-minimal.mjs"
   },
   "files": [

@@ -229,9 +229,10 @@ import {
   readOrganisation, rememberLeadRepository, resolveWorkspacePlan
 } from './organisation.mjs';
 import { canonicalCommand, commandDefinition, validateCommandHandlers } from './command-registry.mjs';
-import { commandResult, effects, succeeded } from './narration/command-result.mjs';
+import { commandResult, effects, noop, succeeded } from './narration/command-result.mjs';
 import { emitCommandResult } from './narration/emit.mjs';
 import { factoryResetAll, factoryResetAllPlan, factoryResetPlan, factoryResetRepository } from './factory-reset.mjs';
+import { localReset, localResetPlan } from './fresh-install-reset.mjs';
 import { capabilityDoctor } from './capability-doctor.mjs';
 import { inspectStatePlanes, reconcileStateProjections } from './state-planes.mjs';
 import {
@@ -425,6 +426,59 @@ async function resetAllCommand(options) {
   else {
     renderFactoryResetPlan(result);
   }
+  return result;
+}
+
+function renderLocalResetPlan(plan) {
+  console.log(`Singularity Flow local reset — ${plan.completed ? 'complete' : 'preview'}`);
+  console.log(`Registered workspace directories: ${plan.workspaces.length}`);
+  if (plan.workspaces.length) {
+    for (const workspace of plan.workspaces) console.log(`- ${workspace.name} (${workspace.id}): ${workspace.path}`);
+  } else {
+    console.log('- none');
+  }
+  if (plan.missingRegistrations.length) {
+    console.log(`Stale missing registrations: ${plan.missingRegistrations.length} (forgotten with local state)`);
+    for (const target of plan.missingRegistrations) console.log(`- ${target}`);
+  }
+  console.log('\nRemove:');
+  for (const item of plan.remove) console.log(`- ${item}`);
+  console.log('\nPreserve:');
+  for (const item of plan.preserve) console.log(`- ${item}`);
+  if (!plan.completed) {
+    console.log(`\nConfirmation required: ${plan.confirmation}`);
+    console.log(`Run: singularity-flow local-reset --confirm ${JSON.stringify(plan.confirmation)}`);
+    console.log(`Short command: sf-local-reset --confirm ${JSON.stringify(plan.confirmation)}`);
+  } else {
+    console.log('\nLocal Singularity state is clean. The installed product remains ready to create a new workspace.');
+    console.log('Next: open VS Code or run singularity-flow workspace create ...');
+  }
+}
+
+async function localResetCommand(options) {
+  const dryRun = optionBoolean(options, 'dry-run');
+  if (dryRun && options.confirm != null) {
+    throw new SingularityFlowError('local-reset --dry-run does not accept --confirm. Review the preview first.');
+  }
+  const resetOptions = {
+    homeDirectory: os.homedir(),
+    projectDirectory: process.cwd(),
+    environment: process.env
+  };
+  const result = dryRun
+    ? await localResetPlan(resetOptions)
+    : await localReset({ ...resetOptions, confirmation: optionString(options, 'confirm') });
+  const narration = commandResult({
+    operation: { id: 'local-reset', classification: 'mutation' },
+    outcome: dryRun
+      ? noop('local-reset.previewed', { workspaces: result.workspaces.length })
+      : succeeded('local-reset.completed', { workspaces: result.workspaces.length }),
+    effects: effects(dryRun ? {} : { stateChanged: true, filesChanged: true }),
+    restState: 'informational',
+    data: result
+  });
+  if (!optionBoolean(options, 'json')) renderLocalResetPlan(result);
+  emitCommandResult(narration, { json: optionBoolean(options, 'json') });
   return result;
 }
 
@@ -7211,7 +7265,7 @@ export async function main(argv) {
   if (!command) return cockpitCommand();
   if (command === 'version') return console.log(VERSION);
   // `logs` reads the file; logging its own invocation would append noise to what it is showing.
-  if (!['logs', 'factory-reset', 'reset-all', 'fresh-install'].includes(command)) {
+  if (!['logs', 'factory-reset', 'reset-all', 'local-reset', 'fresh-install'].includes(command)) {
     const log = await commandLogger(command, argv, { json: options.json });
     const harness = await harnessInvocation(command, argv);
     const started = Date.now();
@@ -7244,6 +7298,7 @@ async function dispatch(command, positionals, options) {
     init: () => initCommand(options),
     'factory-reset': () => factoryResetCommand(options),
     'reset-all': () => resetAllCommand(options),
+    'local-reset': () => localResetCommand(options),
     'fresh-install': () => freshInstallCommand(options),
     choices: () => choicesCommand(positionals, options),
     start: () => startCommand(positionals, options),

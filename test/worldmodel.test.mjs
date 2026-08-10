@@ -1,5 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
+import { createHash } from 'node:crypto';
 import { existsSync } from 'node:fs';
 import { lstat, mkdtemp, mkdir, readFile, writeFile } from 'node:fs/promises';
 import os from 'node:os';
@@ -9,6 +10,8 @@ import { spawnSync } from 'node:child_process';
 import YAML from 'yaml';
 import { initializeDefinition, loadDefinition } from '../src/config.mjs';
 import { validateWorldModelDirectory, verifyGroundingRecord, worldModelRebuildReason, worldModelSourceSnapshot } from '../src/grounding.mjs';
+import { registerReference, resolveReference } from '../src/harness-imports.mjs';
+import { snapshot } from '../src/util.mjs';
 
 const packageRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 const bin = path.join(packageRoot, 'bin', 'singularity-flow.mjs');
@@ -264,8 +267,59 @@ test('wm inject renders matched agent context and records the generation audit',
   assert.match(audit.renderedSha256, /^[0-9a-f]{64}$/);
   const promptPath = path.join(workDir, 'context/prompts/design-gen1.md');
   assert.ok(await readFile(promptPath, 'utf8'));
+  const priorArtifact = 'singularity/work-items/WM-1/artifacts/intake/intake.md';
+  const priorBytes = Buffer.from('# Approved intake\n\nUse the committed acceptance criteria.\n');
+  await mkdir(path.dirname(path.join(root, priorArtifact)), { recursive: true });
+  await writeFile(path.join(root, priorArtifact), priorBytes);
+  run('git', ['add', priorArtifact], root);
+  run('git', ['commit', '-m', 'approve intake fixture'], root);
+  const priorCommit = run('git', ['rev-parse', 'HEAD'], root).trim();
+  const registered = await registerReference(root, {
+    repository: { id: 'fixture', origin: null },
+    subject: { kind: 'story', id: 'WM-1', branch: 'WM-1', subjectRevision: 1 },
+    artifact: { phaseId: 'intake', generation: 1, outputId: 'intake', path: priorArtifact, mediaType: 'text/markdown' },
+    revision: {
+      commitSha: priorCommit,
+      sha256: createHash('sha256').update(priorBytes).digest('hex'),
+      bytes: priorBytes.length
+    },
+    visibility: 'model'
+  });
+  const resolvedReference = await resolveReference(root, registered.handle);
+  const provenancePath = 'singularity/work-items/WM-1/context/design-sources-design-gen1.json';
+  await writeFile(path.join(root, provenancePath), JSON.stringify({
+    workId: 'WM-1', phase: 'design', generation: 1, sourceSetSha256: 'fixture'
+  }));
+  const provenance = await snapshot(path.join(root, provenancePath));
+  audit.references = [{
+    handle: registered.handle, phase: 'intake', path: priorArtifact,
+    rawSha256: resolvedReference.source.rawSha256, rawBytes: resolvedReference.source.rawBytes,
+    previewSha256: resolvedReference.preview.sha256, previewBytes: resolvedReference.preview.bytes,
+    renderer: resolvedReference.renderer, truncated: resolvedReference.truncated
+  }];
+  audit.files.push({
+    path: priorArtifact, sha256: resolvedReference.source.rawSha256,
+    bytes: resolvedReference.source.rawBytes, injectedBytes: resolvedReference.preview.bytes,
+    truncated: resolvedReference.truncated, category: 'reference', level: null,
+    reason: `intake:${registered.handle}`, handle: registered.handle,
+    previewSha256: resolvedReference.preview.sha256, previewBytes: resolvedReference.preview.bytes,
+    renderer: resolvedReference.renderer
+  }, {
+    path: provenancePath, sha256: provenance.sha256, bytes: provenance.size,
+    injectedBytes: 0, truncated: false, category: 'design-source-provenance', level: 1,
+    reason: 'approved source set fixture'
+  });
+  await writeFile(path.join(workDir, 'context/design-gen1.json'), JSON.stringify(audit));
   const phase = { id: 'design', generation: 0, worldModel: { views: ['architecture', 'security'] } };
-  const verificationWorkflow = { workItem: { id: 'WM-1' }, resolution: { worldModelGrounding: 'enforce' } };
+  const verificationWorkflow = {
+    workItem: { id: 'WM-1' }, currentPhase: 'design', phaseOrder: ['intake', 'design'],
+    phases: { intake: { status: 'approved' }, design: { status: 'in_progress', generation: 0 } },
+    resolution: {
+      worldModelGrounding: 'enforce',
+      harnessImports: { mode: 'record', previewTextBytes: 16384, totalEnvelopeBytes: 32768 }
+    },
+    lineage: { submissions: [{ phase: 'intake', projection: { references: [{ handle: registered.handle, required: true }] } }] }
+  };
   const loadedDefinition = await loadDefinition(root);
   const verified = await verifyGroundingRecord(root, loadedDefinition, verificationWorkflow, phase, { agent: 'developer' });
   assert.deepEqual(verified.errors, []);

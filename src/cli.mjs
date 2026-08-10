@@ -1309,16 +1309,17 @@ async function resolveNextStepsSnapshot(positionals, options) {
         timing: 'now', skill: '/sf-resume', command: `singularity-flow resume ${workflow.workItem.id} --fetch`,
         reason: 'Select the governed agent that will remain active for this terminal session before generation.'
       });
-      if (active?.status === 'in_progress' && phaseNeedsGeneration(workflow, active) && (workflow.resolution?.worldModelGrounding ?? config.worldModel?.grounding ?? 'off') !== 'off') {
+      const groundingMode = workflow.resolution?.worldModelGrounding ?? config.worldModel?.grounding ?? 'off';
+      if (active?.status === 'in_progress' && phaseNeedsGeneration(workflow, active) && groundingMode !== 'off') {
         const rebuildReason = await worldModelRebuildReason(root, config);
         const task = '<current objective>';
         if (rebuildReason) {
-          prerequisites.push({ timing: 'now', skill: null, command: `singularity-flow wm build --phase ${active.id} --task "${task}"`, reason: rebuildReason });
-          prerequisites.push({ timing: 'then', skill: null, command: `singularity-flow wm compose --phase ${active.id} --task "${task}"`, reason: 'Compose and record the governed phase prompt using the exact same task text.' });
+          prerequisites.push({ timing: groundingMode === 'enforce' ? 'now' : 'optional', skill: null, command: `singularity-flow wm build --phase ${active.id} --task "${task}"`, reason: rebuildReason });
+          prerequisites.push({ timing: groundingMode === 'enforce' ? 'then' : 'optional', skill: null, command: `singularity-flow wm compose --phase ${active.id} --task "${task}"`, reason: 'Compose and record the governed phase prompt using the exact same task text.' });
         } else {
           const grounding = await verifyGroundingRecord(root, config, workflow, active, { agent: session?.agent ?? null });
           if (grounding.errors.length || grounding.warnings.length) prerequisites.push({
-            timing: 'now', skill: null, command: `singularity-flow wm compose --phase ${active.id} --task "${task}"`,
+            timing: groundingMode === 'enforce' ? 'now' : 'optional', skill: null, command: `singularity-flow wm compose --phase ${active.id} --task "${task}"`,
             reason: 'Create or refresh the required grounding record and exact prompt snapshot before publishing this generation.'
           });
         }
@@ -1494,17 +1495,24 @@ async function nextCommand(options) {
   if (grounding !== 'off') {
     const rebuildReason = await worldModelRebuildReason(root, config);
     if (rebuildReason) {
-      console.log(`Next step prerequisite: ${rebuildReason}`);
-      if (operationContext()?.modelMode.enabled !== false) {
+      if (grounding === 'enforce' && operationContext()?.modelMode.enabled !== false) {
+        console.log(`Next step prerequisite: ${rebuildReason}`);
         console.log('No model was started. Build explicitly, then continue:');
         console.log(`Copilot: /sf-worldmodel --phase ${phase.id}`);
         console.log(`Run: singularity-flow wm build --phase ${phase.id} --task ${JSON.stringify(task)}`);
         console.log('Model-free alternative: author the prepared artifact manually and publish with --authored human.');
         return;
       }
-      console.warn('Model mode is disabled; continuing with the manual-authorship path. No world model will be built or composed.');
+      console.warn(`Grounding warning: ${rebuildReason}`);
+      console.warn('Continuing because world-model grounding is advisory or model mode is disabled. No model will be built or composed.');
     } else {
-      await worldModelCommand(root, ['wm', 'compose'], { phase: phase.id, task, evidence: phase.worldModel?.evidence === true });
+      try {
+        await worldModelCommand(root, ['wm', 'compose'], { phase: phase.id, task, evidence: phase.worldModel?.evidence === true });
+      } catch (error) {
+        if (grounding === 'enforce') throw error;
+        console.warn(`Grounding warning: ${error.message}`);
+        console.warn('Continuing because world-model grounding is advisory.');
+      }
     }
   }
   const artifact = await preparePhase(root, config, workflow, phase.id);

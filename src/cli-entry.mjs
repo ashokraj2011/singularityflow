@@ -9,7 +9,7 @@ import { withOperationContext } from './operation-context.mjs';
 
 // These commands promise to remove machine-local Singularity state. Recording their own duration
 // after they finish would immediately recreate `.git/singularity-flow/` and make that promise false.
-const LOCAL_STATE_RESET_COMMANDS = new Set(['factory-reset', 'reset-all', 'local-reset']);
+const LOCAL_STATE_RESET_COMMANDS = new Set(['factory-reset', 'reset-all', 'local-reset', 'reinstall']);
 
 function rootIfAvailable() {
   try { return repoRoot(); } catch { return null; }
@@ -18,7 +18,10 @@ function rootIfAvailable() {
 export async function main(argv) {
   const modelMode = resolveModelMode(argv);
   const effectiveArgv = stripGlobalModelOptions(argv);
-  const root = rootIfAvailable();
+  // Product reinstall is intentionally not a repository operation. Resolving a root would invoke
+  // Git before the command even reached its strict no-repository transaction boundary.
+  const localOnlyRequest = effectiveArgv[0] === 'reinstall';
+  const root = localOnlyRequest ? null : rootIfAvailable();
   const argvSha256 = createHash('sha256').update(JSON.stringify(effectiveArgv)).digest('hex');
   if (effectiveArgv.length === 1 && ['--version', '-v'].includes(effectiveArgv[0])) {
     return withOperationContext({

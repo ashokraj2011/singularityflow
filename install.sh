@@ -11,10 +11,15 @@ ENABLE_COPILOT_TELEMETRY="${SINGULARITY_FLOW_COPILOT_TELEMETRY:-on}"
 CLI_ONLY="off"
 FACTORY_RESET="off"
 FACTORY_RESET_CONFIRMED="off"
+CLEAN_REINSTALL="off"
+REINSTALL_DRY_RUN="off"
+REINSTALL_CONFIRM=""
 
 usage() {
   printf '%s\n' \
-    'Usage: ./install.sh [--registry URL] [--no-copilot-telemetry] [--cli-only] [--factory-reset [--yes]]' \
+    'Usage: ./install.sh [--registry URL] [--no-copilot-telemetry] [--cli-only]' \
+    '       ./install.sh --clean-reinstall [--dry-run | --confirm "REINSTALL SINGULARITY FLOW <fingerprint>"] [--registry URL] [--cli-only]' \
+    '       ./install.sh --factory-reset [--yes] [--registry URL] [--cli-only]' \
     '' \
     'Pull, build, test, package, and globally install the Singularity Flow CLI,' \
     'and build the VS Code extension,' \
@@ -23,7 +28,11 @@ usage() {
     '' \
     '--factory-reset previews a machine-wide fresh install. Add --yes to delete' \
     'every validated registered workspace and its clones, all Singularity local' \
-    'state and managed Copilot assets, then reinstall this checkout.'
+    'state and managed Copilot assets, then reinstall this checkout.' \
+    '' \
+    '--clean-reinstall validates and packages this checkout first, then replaces' \
+    'only the installed CLI, VS Code extension, Copilot plugin/direct skills, and' \
+    'managed telemetry wrapper. It never reads or changes Git repositories or workspaces.'
 }
 
 while (($#)); do
@@ -50,6 +59,23 @@ while (($#)); do
       FACTORY_RESET="on"
       shift
       ;;
+    --clean-reinstall)
+      CLEAN_REINSTALL="on"
+      shift
+      ;;
+    --dry-run)
+      REINSTALL_DRY_RUN="on"
+      shift
+      ;;
+    --confirm)
+      [[ $# -ge 2 ]] || { printf '%s\n' 'Error: --confirm requires the exact reinstall confirmation.' >&2; exit 1; }
+      REINSTALL_CONFIRM="$2"
+      shift 2
+      ;;
+    --confirm=*)
+      REINSTALL_CONFIRM="${1#--confirm=}"
+      shift
+      ;;
     --yes)
       FACTORY_RESET_CONFIRMED="on"
       shift
@@ -74,6 +100,36 @@ esac
 if [[ "$FACTORY_RESET_CONFIRMED" == "on" && "$FACTORY_RESET" != "on" ]]; then
   printf '%s\n' 'Error: --yes is valid only with --factory-reset.' >&2
   exit 1
+fi
+
+if [[ "$CLEAN_REINSTALL" != "on" && ( "$REINSTALL_DRY_RUN" == "on" || -n "$REINSTALL_CONFIRM" ) ]]; then
+  printf '%s\n' 'Error: --dry-run and --confirm are valid only with --clean-reinstall.' >&2
+  exit 1
+fi
+if [[ "$CLEAN_REINSTALL" == "on" && "$FACTORY_RESET" == "on" ]]; then
+  printf '%s\n' 'Error: --clean-reinstall and --factory-reset are separate operations and cannot be combined.' >&2
+  exit 1
+fi
+if [[ "$CLEAN_REINSTALL" == "on" && "$REINSTALL_DRY_RUN" == "on" && -n "$REINSTALL_CONFIRM" ]]; then
+  printf '%s\n' 'Error: --dry-run does not accept --confirm. Review the preview first.' >&2
+  exit 1
+fi
+
+# Clean reinstall deliberately delegates before the normal installer asks Git for a checkout
+# status or performs its pull. The Node planner validates source files and packaged artifacts,
+# but neither this path nor its implementation executes Git or discovers workspace repositories.
+if [[ "$CLEAN_REINSTALL" == "on" ]]; then
+  command -v node >/dev/null 2>&1 || { printf '%s\n' 'Error: required command not found: node' >&2; exit 1; }
+  REINSTALL_ARGS=(reinstall --checkout "$PROJECT_DIR")
+  [[ -n "$REGISTRY_OVERRIDE" ]] && REINSTALL_ARGS+=(--registry "$REGISTRY_OVERRIDE")
+  [[ "$CLI_ONLY" == "on" ]] && REINSTALL_ARGS+=(--cli-only)
+  [[ "$ENABLE_COPILOT_TELEMETRY" == "off" ]] && REINSTALL_ARGS+=(--no-copilot-telemetry)
+  if [[ -n "$REINSTALL_CONFIRM" ]]; then
+    REINSTALL_ARGS+=(--confirm "$REINSTALL_CONFIRM")
+  else
+    REINSTALL_ARGS+=(--dry-run)
+  fi
+  exec node "$PROJECT_DIR/bin/singularity-flow.mjs" "${REINSTALL_ARGS[@]}"
 fi
 
 REQUIRED_COMMANDS=(git node npm)

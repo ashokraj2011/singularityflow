@@ -98,6 +98,24 @@ corporate npm registry and builds the VS Code extension sources. The same value 
 subprocess. Repository credentials are never placed in registry URLs; configure approved npm
 authentication in `.npmrc`.
 
+For an already installed machine, use the product-only clean reinstall instead of
+a repository or workspace reset:
+
+```bash
+sf-reinstall --checkout /absolute/path/to/singularityflow --dry-run
+sf-reinstall --checkout /absolute/path/to/singularityflow \
+  --registry https://artifacts.company.example/api/npm/npm-virtual/ \
+  --confirm "REINSTALL SINGULARITY FLOW <fingerprint>"
+```
+
+The preview builds, tests, packages, and hashes the npm tarball and VSIX before any
+installed surface is removed. The confirmed transaction replaces only the global
+npm package, managed Copilot plugin/skills, VS Code extension, and managed telemetry
+wrapper. It performs no Git operation and preserves all repositories, worktrees,
+workspace clones, governed files and state, credentials, settings, and personal
+skills. Receipts are machine-local under `~/.singularity-flow/installations/`.
+`./install.sh --clean-reinstall` delegates to this same planner.
+
 ## Credentials
 
 Jira and provider secrets entered in the VS Code extension are stored through VS Code

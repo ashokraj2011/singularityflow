@@ -175,7 +175,7 @@ can edit an existing PR through `gh`; the command never creates one.
 
 ## Reset and fresh reinstall
 
-There are four intentionally different reset boundaries:
+There are five intentionally different reset and replacement boundaries:
 
 - `singularity-flow factory-reset --dry-run` resets one application repository's
   governed configuration and lifecycle state while preserving its source and Git.
@@ -190,6 +190,9 @@ There are four intentionally different reset boundaries:
   validated registered workspace roots and clones, clears Singularity local and
   managed Copilot state, uninstalls old product copies, and reinstalls the CLI,
   VS Code extension, Copilot plugin, and `/sf-*` skills.
+- `singularity-flow reinstall --checkout <path> --dry-run` replaces only installed
+  product surfaces. It preserves every repository, workspace, workflow state,
+  credential, and user setting.
 
 The full reset will not delete an existing registered path unless a regular,
 valid `workspace.json` proves that the path is a Singularity-managed workspace.
@@ -210,6 +213,26 @@ Run it from outside every workspace listed in the preview. A stale registration
 whose directory no longer exists is forgotten with machine state; an existing
 directory without an exact matching `workspace.json` stops the reset. In Copilot,
 use `/sf-local-reset` for the same preview and contributor-entered confirmation.
+
+For a clean product-only replacement, build and validate the source checkout first:
+
+```bash
+singularity-flow reinstall --checkout /absolute/path/to/singularityflow --dry-run
+singularity-flow reinstall --checkout /absolute/path/to/singularityflow \
+  --confirm "REINSTALL SINGULARITY FLOW <fingerprint>"
+# Short equivalent:
+sf-reinstall --checkout /absolute/path/to/singularityflow --dry-run
+```
+
+Add `--registry https://artifacts.company.example/api/npm/npm-virtual/` for a
+company registry; authentication remains in `.npmrc`. Reinstall never invokes Git,
+does not search the home directory for repositories, and does not alter
+`singularity/`, `.singularity/`, `.git/singularity-flow/`, workspace clones,
+`~/.singularity-flow` workspace registrations, VS Code state, SecretStorage, Jira
+credentials, or personal Copilot skills. It replaces only the global npm package,
+the two Singularity Flow Copilot plugin identities, marker-owned `/sf-*` skills,
+the VS Code extension, and the managed telemetry wrapper. The machine-local receipt
+is stored under `~/.singularity-flow/installations/`.
 
 ## Multi-repository initiatives
 
@@ -2129,6 +2152,15 @@ For a company Artifactory or registry:
 ./install.sh --registry https://artifacts.company.com/artifactory/api/npm/npm-virtual/
 ```
 
+To replace only installed product tooling from this checkout—without `git pull` or
+any repository/workspace mutation—use:
+
+```bash
+./install.sh --clean-reinstall --dry-run
+./install.sh --clean-reinstall --registry https://artifacts.company.com/artifactory/api/npm/npm-virtual/ \
+  --confirm "REINSTALL SINGULARITY FLOW <fingerprint>"
+```
+
 Or set `SINGULARITY_FLOW_NPM_REGISTRY`. Authentication remains in `.npmrc`; do not embed credentials or tokens in the URL. The installer rejects dirty checkouts and never resets, rebases, or force-pushes.
 
 If Copilot telemetry is managed centrally, opt out of the local file exporter:
@@ -2353,6 +2385,8 @@ singularity-flow reset-all [--yes]
 sf-reset-all [--yes]
 singularity-flow local-reset [--dry-run | --confirm "RESET LOCAL"] [--json]
 sf-local-reset [--dry-run | --confirm "RESET LOCAL"] [--json]
+singularity-flow reinstall --checkout DIRECTORY [--dry-run | --confirm TEXT] [--registry URL] [--cli-only] [--no-copilot-telemetry]
+sf-reinstall --checkout DIRECTORY [--dry-run | --confirm TEXT] [--registry URL] [--cli-only] [--no-copilot-telemetry]
 singularity-flow fresh-install [--checkout DIRECTORY] [--yes] [--registry URL] [--cli-only] [--no-copilot-telemetry]
 singularity-flow choices begin|answer|status ...
 singularity-flow clarification status [PHASE] [--json]

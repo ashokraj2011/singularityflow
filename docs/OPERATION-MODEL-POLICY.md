@@ -60,6 +60,7 @@ Every public operation is classified before its implementation module is importe
 | recover | mutation | never | — | — |
 | refresh-branch | mutation | never | — | — |
 | regression | mutation | never | — | — |
+| reinstall | mutation | never | — | — |
 | reject | mutation | never | — | — |
 | reopen | mutation | never | — | — |
 | report.render | read | never | — | — |

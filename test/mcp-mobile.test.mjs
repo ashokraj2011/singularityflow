@@ -75,10 +75,10 @@ test('design-source-pin-round-trip: Figma XML becomes an approval-bound source s
   assert.match(rendered.markdown, /checkout-file @ v17/);
   assert.doesNotMatch(rendered.markdown, /<frame/);
   assert.equal(rendered.files[0].category, 'design-source-provenance');
-  const provenance = JSON.parse(await readFile(path.join(itemDirectory, rendered.files[0].path), 'utf8'));
+  const provenance = JSON.parse(await readFile(path.join(root, rendered.files[0].path), 'utf8'));
   assert.equal(provenance.approvedSet.setSha256, built.binding.setSha256);
   assert.equal(provenance.records[0].outputSha256, recorded.record.outputSha256);
-  const provenanceSnapshot = await snapshot(path.join(itemDirectory, rendered.files[0].path));
+  const provenanceSnapshot = await snapshot(path.join(root, rendered.files[0].path));
   assert.equal(rendered.files[0].sha256, provenanceSnapshot.sha256);
   assert.equal(rendered.files[0].bytes, provenanceSnapshot.size);
 

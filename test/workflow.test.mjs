@@ -359,6 +359,29 @@ test('next never launches a missing world-model agent unattended', async () => {
   assert.equal(workflow.phases.intake.generation, 0);
 });
 
+test('advisory world-model grounding warns and continues without launching a model', async () => {
+  const root = await repository();
+  const definitionPath = path.join(root, 'singularity/workflow.yml');
+  const definition = YAML.parse(await readFile(definitionPath, 'utf8'));
+  definition.worldModel.grounding = 'warn';
+  await writeFile(definitionPath, YAML.stringify(definition));
+  execute('git', ['add', 'singularity/workflow.yml'], root);
+  execute('git', ['commit', '-m', 'make grounding advisory'], root);
+  const workId = 'NEXT-WARN-1';
+  flow(root, ['start', workId, '--work-type', 'feature', '--agent', 'product-owner', '--title', 'Advisory grounding', '--description', 'Continue without an available world model.']);
+
+  const nextsteps = flow(root, ['nextsteps', workId, '--json']);
+  const plan = JSON.parse(nextsteps.stdout);
+  assert.equal(plan.actions.some((action) => action.command.includes('wm build') && action.timing === 'optional'), true);
+  const continued = flow(root, ['next', '--task', 'Advisory grounding']);
+  assert.match(continued.stderr, /Grounding warning:/);
+  assert.match(continued.stdout, /Next step prepared: generate 'intake'/);
+  assert.equal(execute('git', ['worktree', 'list', '--porcelain'], root).stdout.match(/^worktree /gm)?.length, 1);
+  const workflow = JSON.parse(await readFile(path.join(root, 'singularity/work-items', workId, 'workflow.json'), 'utf8'));
+  assert.equal(workflow.phases.intake.generation, 0);
+  assert.equal(await readFile(path.join(root, 'singularity/work-items', workId, 'artifacts/intake/intake.md'), 'utf8').then(Boolean), true);
+});
+
 test('feature profile publishes generations, records tokens, approvals, and conformance', async () => {
   const root = await repository(); const workId = 'FEATURE-101';
   flow(root, ['start', workId, '--title', 'Configurable workflow'], { selection: selection('feature', 'product-owner') });

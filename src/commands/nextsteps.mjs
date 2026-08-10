@@ -47,19 +47,20 @@ async function storyPrerequisites(root, workflow, selected, modelMode = { enable
 
   const generationRequired = active && (active.generationPolicy?.requirement !== 'none')
     && (active.generation < 1 || (active.rejectedAt && !(workflow.history ?? []).some((event) => event.phase === active.id && event.event === 'phase_generated' && event.at > active.rejectedAt)));
-  if (modelMode.enabled && active?.status === 'in_progress' && generationRequired && (workflow.resolution?.worldModelGrounding ?? 'off') !== 'off') {
+  const groundingMode = workflow.resolution?.worldModelGrounding ?? 'off';
+  if (modelMode.enabled && active?.status === 'in_progress' && generationRequired && groundingMode !== 'off') {
     const { loadDefinition } = await import('../config.mjs');
     const { verifyGroundingRecord, worldModelRebuildReason } = await import('../grounding.mjs');
     const definition = await loadDefinition(root);
     const rebuildReason = await worldModelRebuildReason(root, definition);
     const task = '<current objective>';
     if (rebuildReason) {
-      prerequisites.push({ timing: 'now', skill: null, command: `singularity-flow wm build --phase ${active.id} --task "${task}"`, reason: rebuildReason });
-      prerequisites.push({ timing: 'then', skill: null, command: `singularity-flow wm compose --phase ${active.id} --task "${task}"`, reason: 'Compose and record the governed phase prompt using the exact same task text.' });
+      prerequisites.push({ timing: groundingMode === 'enforce' ? 'now' : 'optional', skill: null, command: `singularity-flow wm build --phase ${active.id} --task "${task}"`, reason: rebuildReason });
+      prerequisites.push({ timing: groundingMode === 'enforce' ? 'then' : 'optional', skill: null, command: `singularity-flow wm compose --phase ${active.id} --task "${task}"`, reason: 'Compose and record the governed phase prompt using the exact same task text.' });
     } else {
       const grounding = await verifyGroundingRecord(root, definition, workflow, active, { agent: session?.agent ?? null });
       if (grounding.errors.length || grounding.warnings.length) prerequisites.push({
-        timing: 'now', skill: null, command: `singularity-flow wm compose --phase ${active.id} --task "${task}"`,
+        timing: groundingMode === 'enforce' ? 'now' : 'optional', skill: null, command: `singularity-flow wm compose --phase ${active.id} --task "${task}"`,
         reason: 'Create or refresh the required grounding record and exact prompt snapshot before publishing this generation.'
       });
     }

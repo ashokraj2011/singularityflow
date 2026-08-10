@@ -4,6 +4,7 @@ import { existsSync } from 'node:fs';
 import path from 'node:path';
 import os from 'node:os';
 import { changedFiles, head } from './git.mjs';
+import { resolveReference } from './harness-imports.mjs';
 import { exists, posix, run, SingularityFlowError, snapshot } from './util.mjs';
 
 const GROUNDING_MODES = new Set(['off', 'warn', 'enforce']);
@@ -360,6 +361,61 @@ function severityResult(mode, messages) {
   return mode === 'enforce' ? { errors: messages, warnings: [] } : { errors: [], warnings: messages };
 }
 
+const GROUNDING_FILE_CATEGORIES = new Set([
+  'required', 'rule', 'capability', 'reference', 'supporting-evidence',
+  'design-source-provenance', 'design-inventory'
+]);
+
+function safeGroundingPath(value) {
+  if (typeof value !== 'string' || !value.trim()) return null;
+  const normalized = posix(value.trim());
+  if (path.posix.isAbsolute(normalized) || normalized.split('/').includes('..')) return null;
+  return normalized.replace(/^\.\//, '');
+}
+
+function withinGroundingRoot(value, root) {
+  const normalizedRoot = posix(root).replace(/\/$/, '');
+  return value === normalizedRoot || value.startsWith(`${normalizedRoot}/`);
+}
+
+function recordedReferenceHandle(file, record) {
+  if (file.handle) return file.handle;
+  const byHash = (record.references ?? []).find((reference) =>
+    reference.path === file.path
+    || reference.rawSha256 === file.sha256
+    || reference.previewSha256 === file.previewSha256
+  );
+  if (byHash?.handle) return byHash.handle;
+  const reason = String(file.reason ?? '');
+  const marker = reason.indexOf('sfref:v1:');
+  return marker >= 0 ? reason.slice(marker).trim() : null;
+}
+
+function approvedReferenceHandles(workflow, activePhase) {
+  const order = workflow.phaseOrder ?? Object.keys(workflow.phases ?? {});
+  const activeIndex = order.indexOf(activePhase);
+  const earlierApproved = new Set(order.slice(0, Math.max(0, activeIndex))
+    .filter((phaseId) => workflow.phases?.[phaseId]?.status === 'approved'));
+  return new Set((workflow.lineage?.submissions ?? [])
+    .filter((submission) => earlierApproved.has(submission.phase))
+    .flatMap((submission) => submission.projection?.references ?? [])
+    .map((reference) => reference?.handle)
+    .filter(Boolean));
+}
+
+function currentGroundingPath(definition, workflow, file) {
+  const relative = safeGroundingPath(file.path);
+  if (!relative) return null;
+  // Versions before category-aware recording stored design-source paths relative
+  // to the work item. Accept that precise legacy shape while new records always
+  // carry repository-relative paths.
+  if (['design-source-provenance', 'design-inventory'].includes(file.category)
+      && relative.startsWith('context/')) {
+    return posix(path.join(definition.workItemRoot ?? 'singularity/work-items', workflow.workItem.id, relative));
+  }
+  return relative;
+}
+
 export async function verifyGroundingRecord(root, definition, workflow, phase, { generation = phase.generation + 1, agent = null } = {}) {
   const mode = groundingMode(definition, workflow);
   if (mode === 'off') return { mode, errors: [], warnings: [], passes: [], record: null, path: null };
@@ -385,6 +441,7 @@ export async function verifyGroundingRecord(root, definition, workflow, phase, {
   for (const field of ['modelSourceTreeSha256', 'composedSourceTreeSha256']) if (!/^sha256:[0-9a-f]{64}$/.test(record[field] ?? '')) problems.push(`grounding composition has invalid ${field}: ${relative}`);
   if (record.fresh !== true) problems.push(`grounding composition was created from a stale world model: ${relative}`);
   if (record.modelSourceTreeSha256 && record.composedSourceTreeSha256 && record.modelSourceTreeSha256 !== record.composedSourceTreeSha256) problems.push(`grounding composition source hash does not match its world model: ${relative}`);
+  if (record.stale === true) problems.push(`grounding composition is stale: ${relative}`);
   if (!Array.isArray(record.files) || !record.files.length) problems.push(`grounding composition contains no world-model files: ${relative}`);
   if (!record.promptPath) problems.push(`grounding composition has no committed prompt snapshot: ${relative}`);
   else {
@@ -401,26 +458,101 @@ export async function verifyGroundingRecord(root, definition, workflow, phase, {
     ...(definition.agents?.[agent ?? record.agent]?.worldModelViews ?? [])
   ])];
   for (const view of requiredViews) if (!(record.requiredViews ?? []).includes(view)) problems.push(`grounding composition omitted required view '${view}' for ${phase.id}`);
+  const modelRoot = posix(definition.worldModel?.outputDir ?? 'singularity/world-model').replace(/\/$/, '');
+  const workItemRoot = posix(path.join(definition.workItemRoot ?? 'singularity/work-items', workflow.workItem.id));
+  const capabilityRoot = posix(path.join(workItemRoot, 'context', 'capability-world-model'));
+  const evidenceRoot = posix(path.join(workItemRoot, 'inputs'));
+  const contextRoot = posix(path.join(workItemRoot, 'context'));
+  const approvedHandles = approvedReferenceHandles(workflow, phase.id);
+  let documents = null;
+  const documentsPath = path.join(root, workItemRoot, 'documents.json');
+  if (await exists(documentsPath)) {
+    try { documents = JSON.parse(await readFile(documentsPath, 'utf8')); }
+    catch (error) { problems.push(`supporting-evidence catalog is invalid JSON: ${error.message}`); }
+  }
+  const referencePolicy = workflow.resolution?.harnessImports ?? definition.harnessImports ?? {};
   const seen = new Set();
   for (const file of record.files ?? []) {
-    if (seen.has(file.path)) problems.push(`grounding composition repeats ${file.path}`);
-    seen.add(file.path);
-    const capabilityFile = file.category === 'capability';
-    const modelRoot = `${posix(definition.worldModel?.outputDir ?? 'singularity/world-model').replace(/\/$/, '')}/`;
-    const capabilityRoot = `${posix(path.join(definition.workItemRoot ?? 'singularity/work-items', workflow.workItem.id, 'context', 'capability-world-model'))}/`;
-    if (capabilityFile ? !file.path?.startsWith(capabilityRoot) : !file.path?.startsWith(modelRoot)) problems.push(`grounding composition references a file outside governed model context: ${file.path}`);
+    const recordedPath = currentGroundingPath(definition, workflow, file);
+    const identity = `${file.category ?? 'unknown'}:${recordedPath ?? file.path}`;
+    if (seen.has(identity)) problems.push(`grounding composition repeats ${file.path}`);
+    seen.add(identity);
+    if (!recordedPath) problems.push(`grounding composition has an unsafe or empty path: ${file.path}`);
     if (!/^[0-9a-f]{64}$/.test(file.sha256 ?? '')) problems.push(`grounding composition has invalid hash for ${file.path}`);
-    if (!['required', 'rule', 'capability'].includes(file.category)) problems.push(`grounding composition has invalid category for ${file.path}`);
-    if (!Number.isInteger(file.bytes) || file.bytes < 1 || !Number.isInteger(file.injectedBytes) || file.injectedBytes < 0 || file.injectedBytes > file.bytes) problems.push(`grounding composition has invalid byte accounting for ${file.path}`);
+    if (!GROUNDING_FILE_CATEGORIES.has(file.category)) problems.push(`grounding composition has invalid category for ${file.path}`);
+    if (!Number.isInteger(file.bytes) || file.bytes < 0 || !Number.isInteger(file.injectedBytes) || file.injectedBytes < 0) problems.push(`grounding composition has invalid byte accounting for ${file.path}`);
     if (file.category === 'required' && (file.truncated || file.injectedBytes !== file.bytes)) problems.push(`required grounding was truncated for ${file.path}`);
-    if (!capabilityFile && record.worldModelCommit && file.path && file.sha256) {
-      const content = run('git', ['show', `${record.worldModelCommit}:${file.path}`], { cwd: root, allowFailure: true });
+    if (['required', 'rule'].includes(file.category)) {
+      if (!recordedPath || !withinGroundingRoot(recordedPath, modelRoot)) problems.push(`grounding composition references a file outside the repository world model: ${file.path}`);
+      if (file.injectedBytes > file.bytes) problems.push(`grounding composition has invalid byte accounting for ${file.path}`);
+    }
+    if (['required', 'rule'].includes(file.category) && record.worldModelCommit && recordedPath && file.sha256) {
+      const content = run('git', ['show', `${record.worldModelCommit}:${recordedPath}`], { cwd: root, allowFailure: true });
       if (content.status !== 0) problems.push(`world-model commit ${record.worldModelCommit.slice(0, 8)} does not contain ${file.path}`);
       else if (createHash('sha256').update(content.stdout).digest('hex') !== file.sha256) problems.push(`world-model commit hash differs for ${file.path}`);
     }
-    if (capabilityFile && file.path && file.sha256) {
-      const current = await snapshot(path.join(root, file.path));
-      if (!current.exists || current.sha256 !== file.sha256) problems.push(`capability world-model snapshot hash differs for ${file.path}`);
+    if (file.category === 'capability') {
+      if (!recordedPath || !withinGroundingRoot(recordedPath, capabilityRoot)) problems.push(`capability grounding escapes the work-item context: ${file.path}`);
+      if (file.injectedBytes > file.bytes) problems.push(`grounding composition has invalid byte accounting for ${file.path}`);
+      if (recordedPath && file.sha256) {
+        const current = await snapshot(path.join(root, recordedPath));
+        if (!current.exists || current.sha256 !== file.sha256 || current.size !== file.bytes) problems.push(`capability world-model snapshot differs for ${file.path}`);
+      }
+    }
+    if (file.category === 'supporting-evidence') {
+      if (!recordedPath || !withinGroundingRoot(recordedPath, evidenceRoot)) problems.push(`supporting evidence escapes the work-item inputs: ${file.path}`);
+      if (file.injectedBytes > file.bytes) problems.push(`grounding composition has invalid byte accounting for ${file.path}`);
+      const descriptor = (record.supportingEvidence ?? []).find((entry) => entry.id === file.evidenceId || entry.path === recordedPath);
+      if (!descriptor || descriptor.path !== recordedPath || descriptor.sha256 !== file.sha256 || descriptor.bytes !== file.bytes
+          || descriptor.injectedBytes !== file.injectedBytes || Boolean(descriptor.truncated) !== Boolean(file.truncated)) {
+        problems.push(`supporting-evidence metadata differs for ${file.path}`);
+      }
+      const catalogEntry = documents?.documents?.find((entry) => entry.id === file.evidenceId || entry.path === recordedPath);
+      if (!catalogEntry || ![undefined, null, 'active', 'pinned'].includes(catalogEntry.status)
+          || catalogEntry.path !== recordedPath || catalogEntry.sha256 !== file.sha256 || catalogEntry.size !== file.bytes) {
+        problems.push(`supporting evidence is detached, missing, or differs from documents.json: ${file.path}`);
+      }
+      if (recordedPath && file.sha256) {
+        const current = await snapshot(path.join(root, recordedPath));
+        if (!current.exists || current.sha256 !== file.sha256 || current.size !== file.bytes) problems.push(`supporting-evidence snapshot differs for ${file.path}`);
+      }
+    }
+    if (file.category === 'reference') {
+      const handle = recordedReferenceHandle(file, record);
+      if (!handle) problems.push(`grounding reference has no governed handle for ${file.path}`);
+      else {
+        if (approvedHandles.size && !approvedHandles.has(handle)) problems.push(`grounding reference is not an approved earlier-phase input: ${handle}`);
+        try {
+          const resolved = await resolveReference(root, handle, {
+            maxBytes: referencePolicy.previewTextBytes,
+            totalEnvelopeBytes: referencePolicy.totalEnvelopeBytes
+          });
+          if (resolved.reference.artifact.path !== recordedPath
+              || resolved.source.rawSha256 !== file.sha256 || resolved.source.rawBytes !== file.bytes
+              || (file.previewSha256 && resolved.preview.sha256 !== file.previewSha256)
+              || (file.previewBytes != null && resolved.preview.bytes !== file.previewBytes)
+              || resolved.preview.bytes !== file.injectedBytes
+              || Boolean(resolved.truncated) !== Boolean(file.truncated)
+              || (file.renderer && JSON.stringify(resolved.renderer) !== JSON.stringify(file.renderer))) {
+            problems.push(`grounding reference preview differs for ${file.path}`);
+          }
+        } catch (error) { problems.push(`grounding reference cannot be reproduced for ${file.path}: ${error.message}`); }
+      }
+    }
+    if (['design-source-provenance', 'design-inventory'].includes(file.category)) {
+      if (!recordedPath || !withinGroundingRoot(recordedPath, contextRoot)) problems.push(`design-source grounding escapes the work-item context: ${file.path}`);
+      if (recordedPath && file.sha256) {
+        const current = await snapshot(path.join(root, recordedPath));
+        if (!current.exists || current.sha256 !== file.sha256 || current.size !== file.bytes) problems.push(`design-source snapshot differs for ${file.path}`);
+      }
+      if (file.category === 'design-source-provenance' && recordedPath) {
+        try {
+          const provenance = JSON.parse(await readFile(path.join(root, recordedPath), 'utf8'));
+          if (provenance.workId !== workflow.workItem.id || provenance.phase !== phase.id || provenance.generation !== generation) {
+            problems.push(`design-source provenance identity differs for ${file.path}`);
+          }
+        } catch (error) { problems.push(`design-source provenance is invalid JSON for ${file.path}: ${error.message}`); }
+      }
     }
   }
   let committedManifest = null;

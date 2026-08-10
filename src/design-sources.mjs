@@ -220,11 +220,12 @@ export async function renderDesignSourcePromptContext(root, workflow, phase, {
     'The managed output remains evidence. Do not substitute a newer live design unless a new source set is generated and approved.'
   ].join('\n');
   const body = canonicalJson(provenance);
+  const repositoryRelative = (relativePath) => posix(path.relative(root, path.join(directory, relativePath)));
   return {
     markdown,
     warnings: verification.warnings,
     files: [{
-      path: relative,
+      path: repositoryRelative(relative),
       // Once persisted, provenance uses the hash and byte count of the exact file
       // that downstream prompt records point at. Dry-run composition has no file,
       // so its deterministic canonical hash remains an honest preview value.
@@ -235,7 +236,7 @@ export async function renderDesignSourcePromptContext(root, workflow, phase, {
       category: 'design-source-provenance',
       level: 1,
       reason: `approved source set ${binding.setSha256}`
-    }, ...(inventory ? [{ path: inventory.path, sha256: inventory.sha256, bytes: inventory.bytes, injectedBytes: 0, truncated: false, category: 'design-inventory', level: 1, reason: `approved source set ${binding.setSha256}` }] : [])]
+    }, ...(inventory ? [{ path: repositoryRelative(inventory.path), sha256: inventory.sha256, bytes: inventory.bytes, injectedBytes: 0, truncated: false, category: 'design-inventory', level: 1, reason: `approved source set ${binding.setSha256}` }] : [])]
   };
 }
 

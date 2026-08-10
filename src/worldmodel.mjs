@@ -1397,7 +1397,9 @@ async function compose(root, options) {
       category: 'reference',
       level: null,
       reason: `${preview.phase}:${preview.handle}`,
+      handle: preview.handle,
       previewSha256: preview.previewSha256,
+      previewBytes: preview.previewBytes,
       renderer: preview.renderer
     }))
   ]
@@ -1451,9 +1453,10 @@ async function compose(root, options) {
       task: optionString(options, 'task') ?? null,
       supportingEvidence: governed.evidenceEntries,
       references: approvedReferences.previews.map((preview) => ({
-        handle: preview.handle, rawSha256: preview.rawSha256,
+        handle: preview.handle, phase: preview.phase, path: preview.path,
+        rawSha256: preview.rawSha256, rawBytes: preview.rawBytes,
         previewSha256: preview.previewSha256, previewBytes: preview.previewBytes,
-        renderer: preview.renderer
+        renderer: preview.renderer, truncated: preview.truncated
       })),
       compositionCache: { key: cached.key, hit: cached.hit }
     }, { workDir: path.join(root, workItemRoot, workflow.workItem.id) });

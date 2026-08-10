@@ -2,6 +2,7 @@
 import * as vscode from 'vscode';
 import path from 'node:path';
 import { contentSecurityPolicy, navigationTarget, nonce, page } from './webview.ts';
+import { navigateTo } from './navigate.ts';
 import { HELP_CENTER_SCRIPT, helpCenterHtml, type HelpDocument } from './help-page.ts';
 
 export class HelpPanel {
@@ -17,7 +18,7 @@ export class HelpPanel {
       // The shared footer is the one way out of a full-page view. Handled here rather than through
       // this panel's own message contract, because "go to another page" is not this panel's business.
       const navigation = navigationTarget(raw);
-      if (navigation) return void vscode.commands.executeCommand(navigation);
+      if (navigation) return void navigateTo(navigation);
       void this.receive(raw);
     });
     panel.onDidDispose(() => { HelpPanel.current = null; });

@@ -12,6 +12,7 @@
 import * as vscode from 'vscode';
 import { buildJourney, type Journey } from './journey-model.ts';
 import { contentSecurityPolicy, escape, navigationTarget, nonce, page, icon } from './webview.ts';
+import { navigateTo } from './navigate.ts';
 import type { WorkspaceStore } from '../state.ts';
 
 const STATUS_CLASS: Record<string, string> = {
@@ -209,7 +210,7 @@ export class JourneyPanel {
       // The shared footer is the one way out of a full-page view. Handled here rather than through
       // each panel's own callback contract, because "go to another page" is not this panel's business.
       const navigation = navigationTarget(raw);
-      if (navigation) return void vscode.commands.executeCommand(navigation);
+      if (navigation) return void navigateTo(navigation);
       const message = raw as { type?: unknown; id?: unknown };
       if (message?.type === 'run') return onMessage({ type: 'run' });
       if (message?.type === 'pin') return onMessage({ type: 'pin' });

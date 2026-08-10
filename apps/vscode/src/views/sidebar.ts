@@ -75,10 +75,15 @@ const SECTION_META: Record<SidebarSection, {
   },
   help: {
     label: 'Help', icon: 'help', actions: [
-      { id: 'help-open', label: 'Open Help Center', icon: 'search' }
+      { id: 'help-open', label: 'Open Help Center', icon: 'search' },
+      // "What did it actually do, and what was sent to the model" is a Help question, not a
+      // Configuration one. The prompt audit was reachable only from Configuration, where nobody
+      // asking that question would look, and the activity log was not reachable at all.
+      { id: 'activity-log', label: 'Open the activity log', icon: 'commit' },
+      { id: 'prompt-audit', label: 'Open the prompt audit', icon: 'prompt' }
     ],
     empty: {
-      text: 'Guides, the command reference, and the getting-started walkthrough.',
+      text: 'Guides, the command reference, the activity log, and what was sent to the model.',
       action: 'help-open', actionLabel: 'Open the Help Center'
     }
   }
@@ -95,7 +100,8 @@ const ACTION_COMMANDS: Record<string, string> = {
   'instruction-design': 'singularityFlow.openInstructionDesigner',
   'prompt-audit': 'singularityFlow.openPromptAudit',
   'visual-assurance': 'singularityFlow.openVisualAssurance',
-  'help-open': 'singularityFlow.openHelp'
+  'help-open': 'singularityFlow.openHelp',
+  'activity-log': 'singularityFlow.openActivityLog'
 };
 
 const SECTION_ORDER = Object.freeze(Object.keys(SECTION_META) as SidebarSection[]);
@@ -309,6 +315,27 @@ export class SidebarViewProvider implements vscode.WebviewViewProvider, vscode.D
         for(const section of document.querySelectorAll('[data-section]')){
           if(Object.prototype.hasOwnProperty.call(prior,section.dataset.section)) section.open=Boolean(prior[section.dataset.section]);
           section.addEventListener('toggle',()=>{const state=vscode.getState()||{};state[section.dataset.section]=section.open;vscode.setState(state);});
+        }
+        // Nodes inside a section, on the same terms. Every node already carried data-node-state and
+        // nothing read it, so expanding Capabilities lasted until the next redraw — and the sidebar
+        // redraws on every change under singularity/, which is often. Only nodes the reader has
+        // actually toggled are stored, so this cannot grow without them doing something.
+        const nodeKeys=new Set();
+        for(const node of document.querySelectorAll('[data-node-state]')){
+          const key='node:'+node.dataset.nodeState;
+          nodeKeys.add(key);
+          if(Object.prototype.hasOwnProperty.call(prior,key)) node.open=Boolean(prior[key]);
+          node.addEventListener('toggle',(event)=>{
+            // details/toggle does not bubble in every engine, but a nested one that did would
+            // otherwise record its ancestor's key against its own state.
+            if(event.target!==node) return;
+            const state=vscode.getState()||{};
+            state[key]=node.open;
+            // Drop keys for nodes that no longer exist, so a long session does not accumulate the
+            // state of every Story ever expanded.
+            for(const stale of Object.keys(state)) if(stale.startsWith('node:')&&!nodeKeys.has(stale)) delete state[stale];
+            vscode.setState(state);
+          });
         }
         // The whole document is replaced on every refresh, and a refresh happens several times per
         // change under singularity/. Without this, reading the tree while anything was publishing

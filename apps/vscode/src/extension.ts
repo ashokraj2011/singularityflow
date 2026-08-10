@@ -304,7 +304,7 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
     'singularityFlow.showImpact', 'singularityFlow.addCapability', 'singularityFlow.editCapability',
     'singularityFlow.openDashboard', 'singularityFlow.openDesigner',
     'singularityFlow.publishConfiguration',
-    'singularityFlow.openInstructionDesigner', 'singularityFlow.openPromptAudit', 'singularityFlow.openSpecificationTrace',
+    'singularityFlow.openInstructionDesigner', 'singularityFlow.openPromptAudit', 'singularityFlow.openActivityLog', 'singularityFlow.openSpecificationTrace',
     'singularityFlow.inspectCompositionCache', 'singularityFlow.checkLedgerDeployment', 'singularityFlow.openCopilot',
     'singularityFlow.openVisualAssurance',
     'singularityFlow.openConfigurationCenter', 'singularityFlow.configurePeople', 'singularityFlow.configureMcp',
@@ -2272,6 +2272,10 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
     'singularityFlow.openPromptAudit': async () => {
       const { PromptAuditPanel } = await import('./views/prompt-audit.ts');
       return PromptAuditPanel.show(context, client);
+    },
+    'singularityFlow.openActivityLog': async () => {
+      const { ActivityLogPanel } = await import('./views/activity-log.ts');
+      return ActivityLogPanel.show(context, client);
     },
     'singularityFlow.openSpecificationTrace': async () => {
       const { SpecificationTracePanel } = await import('./views/specification-trace.ts');

@@ -8,6 +8,7 @@
 import * as vscode from 'vscode';
 import { buildReconciliation, type MergePlan, type Reconciliation, type ReconciliationLevel } from './reconciliation-model.ts';
 import { contentSecurityPolicy, escape, icon, navigationTarget, nonce, page } from './webview.ts';
+import { navigateTo } from './navigate.ts';
 import type { IconName } from './webview.ts';
 import type { SingularityFlowClient } from '../cli/client.ts';
 import type { WorkspaceStore } from '../state.ts';
@@ -85,7 +86,7 @@ export class ReconciliationPanel {
     // reach the extension is worse than no button.
     this.panel.webview.onDidReceiveMessage((raw: unknown) => {
       const navigation = navigationTarget(raw);
-      if (navigation) void vscode.commands.executeCommand(navigation);
+      if (navigation) void navigateTo(navigation);
     }, null, this.disposables);
     this.panel.onDidDispose(() => this.dispose(), null, this.disposables);
     // Render what the snapshot already knows before waiting on the merge plan. Three of the four

@@ -2,6 +2,7 @@
 import * as vscode from 'vscode';
 import type { SingularityFlowClient } from '../cli/client.ts';
 import { contentSecurityPolicy, escape, icon, navigationTarget, nonce, page } from './webview.ts';
+import { navigateTo } from './navigate.ts';
 
 interface PromptRecord {
   id: string;
@@ -78,7 +79,7 @@ export class PromptAuditPanel {
       // The shared footer is the one way out of a full-page view. Handled here rather than through
       // this panel's own message contract, because "go to another page" is not this panel's business.
       const navigation = navigationTarget(raw);
-      if (navigation) return void vscode.commands.executeCommand(navigation);
+      if (navigation) return void navigateTo(navigation);
       void this.receive(raw);
     });
     panel.onDidDispose(() => { PromptAuditPanel.current = null; });

@@ -2,6 +2,7 @@
 import * as vscode from 'vscode';
 import type { WorkspaceStore } from '../state.ts';
 import { contentSecurityPolicy, navigationTarget, nonce, page } from './webview.ts';
+import { navigateTo } from './navigate.ts';
 import {
   agentPath, instructionCatalog, parseAgent, parsePrompt, parseSkill, promptPath, renderAgent,
   renderAgentMappings, renderPrompt, renderSkill, skillPath, validateAgent, validateAgentMappingsDraft,
@@ -50,7 +51,7 @@ export class InstructionDesignerPanel {
       // The shared footer is the one way out of a full-page view. Handled here rather than through
       // this panel's own message contract, because "go to another page" is not this panel's business.
       const navigation = navigationTarget(raw);
-      if (navigation) return void vscode.commands.executeCommand(navigation);
+      if (navigation) return void navigateTo(navigation);
       void this.receive(raw);
     }, null, this.disposables);
     panel.onDidDispose(() => this.dispose(), null, this.disposables);

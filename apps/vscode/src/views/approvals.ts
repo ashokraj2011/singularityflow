@@ -11,6 +11,7 @@
 import * as vscode from 'vscode';
 import { buildApprovals, type Approvals, type PendingApproval } from './approvals-model.ts';
 import { contentSecurityPolicy, escape, navigationTarget, nonce, page, icon } from './webview.ts';
+import { navigateTo } from './navigate.ts';
 import type { WorkspaceStore } from '../state.ts';
 
 const STANDING_PILL: Record<string, { className: string; label: string }> = {
@@ -140,7 +141,7 @@ export class ApprovalsPanel {
       // The shared footer is the one way out of a full-page view. Handled here rather than through
       // each panel's own callback contract, because "go to another page" is not this panel's business.
       const navigation = navigationTarget(raw);
-      if (navigation) return void vscode.commands.executeCommand(navigation);
+      if (navigation) return void navigateTo(navigation);
       const message = raw as { type?: unknown; id?: unknown };
       if (typeof message?.id !== 'string') return;
       // The page names a card; which approval that is comes from the snapshot, not the page.

@@ -674,6 +674,36 @@ export function navigationTarget(raw: unknown): string | null {
   return Object.hasOwn(NAV_COMMANDS, message.to) ? NAV_COMMANDS[message.to as NavDestination] : null;
 }
 
+/** Choosing a workspace is what makes the late-registered destinations exist. */
+export const NAV_RESOLVE_COMMAND = 'singularityFlow.openWorkspaces';
+
+export type NavigationPlan =
+  | { kind: 'execute'; command: string }
+  | { kind: 'unavailable'; message: string; action: string; resolve: string };
+
+/**
+ * What to do about a destination, given what is registered right now.
+ *
+ * Journey, Approvals and Configuration are registered only once a governed repository resolves.
+ * Help and Diagnostics are registered before that and can both be opened with no workspace selected,
+ * so their footers can offer a destination that does not exist yet — and executing an unregistered
+ * command raises VS Code's raw "command 'x' not found", which is the same dead control this footer
+ * was added to remove.
+ *
+ * The decision is separated from the doing so it can be tested without an extension host: `vscode`
+ * is an ESM import in navigate.ts, and the CommonJS substitution the host tests use does not reach
+ * it. Keeping the judgement here leaves that module a four-line adapter.
+ */
+export function navigationPlan(command: string, available: readonly string[]): NavigationPlan {
+  if (available.includes(command)) return { kind: 'execute', command };
+  return {
+    kind: 'unavailable',
+    message: 'That view needs a governed repository. Choose a workspace and it will be available.',
+    action: 'Choose a workspace',
+    resolve: NAV_RESOLVE_COMMAND
+  };
+}
+
 export function footerNav(current: NavDestination | null = null): string {
   const links = (Object.entries(NAV_DESTINATIONS) as Array<[NavDestination, string]>)
     .map(([id, label]) => (id === current

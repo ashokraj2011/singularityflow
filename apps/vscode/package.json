@@ -307,6 +307,11 @@
         "icon": "$(comment-discussion)"
       },
       {
+        "command": "singularityFlow.openActivityLog",
+        "title": "Singularity Flow: Activity Log",
+        "icon": "$(output)"
+      },
+      {
         "command": "singularityFlow.openSpecificationTrace",
         "title": "Singularity Flow: Specification Traceability",
         "icon": "$(references)"

@@ -219,6 +219,55 @@ test('a governed file can be published to the state branch, and republishing the
   assert.notEqual(changed.commit, first.commit);
 });
 
+test('an explicit state-branch replacement root prunes stale tracked files and preserves unrelated state', async () => {
+  const { root } = await repository();
+  await initializeLedger(root, enabled);
+
+  await publishToStateBranch(root, enabled, {
+    'singularity/world-model/manifest.json': '{"schema_version":"3.0"}\n',
+    'singularity/world-model/domains/old.md': '# obsolete\n',
+    'singularity/keep.yml': 'preserved: true\n'
+  }, 'Seed state');
+
+  const mirrored = await publishToStateBranch(root, enabled, {
+    'singularity/world-model/manifest.json': '{"schema_version":"3.0"}\n',
+    'singularity/world-model/domains/current.md': '# current\n'
+  }, 'Replace the world model', { replaceRoots: ['singularity/world-model'] });
+
+  assert.equal(mirrored.changed, true);
+  assert.deepEqual(mirrored.removed, ['singularity/world-model/domains/old.md']);
+  assert.equal(run('git', ['show', `${enabled.branch}:singularity/world-model/domains/old.md`], {
+    cwd: root, allowFailure: true
+  }).status, 128);
+  assert.match(run('git', ['show', `${enabled.branch}:singularity/world-model/domains/current.md`], {
+    cwd: root
+  }).stdout, /current/);
+  assert.match(run('git', ['show', `${enabled.branch}:singularity/keep.yml`], { cwd: root }).stdout, /preserved/);
+
+  const unchanged = await publishToStateBranch(root, enabled, {
+    'singularity/world-model/manifest.json': '{"schema_version":"3.0"}\n',
+    'singularity/world-model/domains/current.md': '# current\n'
+  }, 'Replace the world model again', { replaceRoots: ['singularity/world-model'] });
+  assert.equal(unchanged.changed, false);
+  assert.deepEqual(unchanged.removed, []);
+});
+
+test('an explicit replacement root supports deletion-only mirrors', async () => {
+  const { root } = await repository();
+  await initializeLedger(root, enabled);
+  await publishToStateBranch(root, enabled, {
+    'singularity/world-model/stale.md': '# stale\n',
+    'singularity/keep.yml': 'preserved: true\n'
+  }, 'Seed state');
+
+  const cleared = await publishToStateBranch(
+    root, enabled, {}, 'Clear the world model', { replaceRoots: ['singularity/world-model'] });
+  assert.equal(cleared.changed, true);
+  assert.deepEqual(cleared.published, []);
+  assert.deepEqual(cleared.removed, ['singularity/world-model/stale.md']);
+  assert.match(run('git', ['show', `${enabled.branch}:singularity/keep.yml`], { cwd: root }).stdout, /preserved/);
+});
+
 test('a state-branch path that climbs out of the branch is refused', async () => {
   // The files are written into a temporary worktree, so `..` writes into the system temp folder.
   const { root } = await repository();
@@ -229,6 +278,12 @@ test('a state-branch path that climbs out of the branch is refused', async () =>
   await assert.rejects(
     () => publishToStateBranch(root, enabled, { '/etc/passwd': 'x' }, 'Escape'),
     /must stay inside the branch/);
+  await assert.rejects(
+    () => publishToStateBranch(root, enabled, {}, 'Escape', { replaceRoots: ['../outside'] }),
+    /must stay inside the branch/);
+  await assert.rejects(
+    () => publishToStateBranch(root, enabled, {}, 'Escape', { replaceRoots: ['C:\\outside'] }),
+    /must stay inside the branch/);
 });
 
 test('publishing nothing does nothing', async () => {
@@ -236,4 +291,5 @@ test('publishing nothing does nothing', async () => {
   const result = await publishToStateBranch(root, enabled, {}, 'Nothing');
   assert.equal(result.changed, false);
   assert.deepEqual(result.published, []);
+  assert.deepEqual(result.removed, []);
 });

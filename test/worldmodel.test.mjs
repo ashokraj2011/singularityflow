@@ -11,6 +11,7 @@ import YAML from 'yaml';
 import { initializeDefinition, loadDefinition } from '../src/config.mjs';
 import { validateWorldModelDirectory, verifyGroundingRecord, worldModelRebuildReason, worldModelSourceSnapshot } from '../src/grounding.mjs';
 import { registerReference, resolveReference } from '../src/harness-imports.mjs';
+import { publishToStateBranch } from '../src/ledger.mjs';
 import { snapshot } from '../src/util.mjs';
 
 const packageRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
@@ -526,6 +527,23 @@ test('governed materialization publishes to the orphan state branch when ledger 
   assert.match(
     run('git', ['ls-tree', '-r', '--name-only', stateBranch], root),
     /singularity\/world-model\/manifest\.json/
+  );
+
+  // Simulate the old additive publisher leaving a file from an earlier model generation. The next
+  // generated publication must make the configured output directory match its manifest-controlled
+  // source tree, without requiring an operator to edit the orphan branch by hand.
+  await publishToStateBranch(root, configured.ledger, {
+    'singularity/world-model/views/obsolete.md': '# obsolete view\n'
+  }, 'Simulate an obsolete generated view');
+  assert.match(
+    run('git', ['ls-tree', '-r', '--name-only', stateBranch], root),
+    /singularity\/world-model\/views\/obsolete\.md/
+  );
+  const rebuilt = flow(['wm', 'light', '--phase', 'design'], root);
+  assert.match(rebuilt.stdout, /published to the .*state.* branch/i);
+  assert.doesNotMatch(
+    run('git', ['ls-tree', '-r', '--name-only', stateBranch], root),
+    /singularity\/world-model\/views\/obsolete\.md/
   );
 });
 

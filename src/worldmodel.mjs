@@ -466,7 +466,16 @@ async function publishWorldModelToStateBranch(root, config, sourceHash, phase) {
       branch: ledger?.branch ?? config.stateBranch ?? 'state',
       remote: ledger?.remote ?? config.remote ?? config.definition?.git?.remote ?? 'origin'
     };
-    const result = await publishToStateBranch(root, stateConfig, files, `[world-model][source:${source}] ${phase}`);
+    const result = await publishToStateBranch(
+      root,
+      stateConfig,
+      files,
+      `[world-model][source:${source}] ${phase}`,
+      // A generated world model is a complete manifest-controlled snapshot. Mirror this one
+      // directory so renamed domains/views from an earlier build cannot survive on the state
+      // branch and poison later full-integrity composition. Other governed state is untouched.
+      { replaceRoots: [config.outputDir] }
+    );
     // A rebuild that produced the same model is unchanged rather than failed, and saying otherwise
     // would make an ordinary no-op read as a problem.
     if (!result.changed) return { published: false, branch: result.branch, reason: 'it is already current there' };

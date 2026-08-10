@@ -123,7 +123,7 @@ await writeFile(path.join(output, 'manifest.json'), JSON.stringify({
 }));
 `;
 
-test('world-model context combines required phase views, agent views, and agent prompt', async () => {
+test('a phase gets the views it declared, and the agent prompt, but not the agent’s extra views', async () => {
   const root = await mkdtemp(path.join(os.tmpdir(), 'sflow-worldmodel-'));
   run('git', ['init', '-b', 'main'], root);
   run('git', ['config', 'user.name', 'World Model Tester'], root);
@@ -153,11 +153,14 @@ test('world-model context combines required phase views, agent views, and agent 
   }));
   await writeFile(path.join(root, 'singularity/world-model/evidence/evidence.jsonl'), `${JSON.stringify({ id: 'E-1', claim: 'EVIDENCE LEDGER' })}\n`);
 
+  // `design` declares [architecture, security]; the developer agent declares development and
+  // testing. The phase stated a requirement, so the agent's list is not added to it — that union was
+  // how a phase asking for one view quietly received four, with nothing on screen saying so.
   const output = run(process.execPath, [bin, 'wm', 'context', 'design', '--concat'], root);
   assert.match(output, /ARCHITECTURE VIEW/);
   assert.match(output, /SECURITY VIEW/);
-  assert.match(output, /DEVELOPMENT VIEW/);
-  assert.match(output, /TESTING VIEW/);
+  assert.doesNotMatch(output, /DEVELOPMENT VIEW/, 'the agent must not add views to a phase that declared its own');
+  assert.doesNotMatch(output, /TESTING VIEW/);
   assert.match(output, /Developer agent/);
   assert.match(run(process.execPath, [bin, 'wm', 'context', 'verification', '--concat'], root), /EVIDENCE LEDGER/);
   assert.doesNotMatch(run(process.execPath, [bin, 'wm', 'context', 'design', '--concat', '--no-agent'], root), /Developer agent/);

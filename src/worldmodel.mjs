@@ -19,6 +19,7 @@ import { injectAgentPrompt, recordInjection } from './inject.mjs';
 import { loadSession } from './session.mjs';
 import { renderAgentSkills } from './agents.mjs';
 import { heartbeat } from './style.mjs';
+import * as style from './style.mjs';
 import { collectInputs, renderInputsBlock } from './inputs.mjs';
 import { assertNoPendingPublication, pendingPublicationPath, saveStoryDraft } from './state-stores.mjs';
 import { assertPhaseSequence } from './sequence.mjs';
@@ -27,6 +28,7 @@ import {
   changedSnapshotPaths, groundingMode, repositoryContentSnapshot, resolveWorldModelContext,
   validateWorldModelDirectory, worldModelCommit, worldModelFreshness, worldModelSourceSnapshot
 } from './grounding.mjs';
+import { resolveViews, tierForCore } from './world-model-selection.mjs';
 import { renderCapabilityWorldModelPack } from './capability-context.mjs';
 import { recordPromptAudit } from './prompt-audit.mjs';
 import { normalizeClarificationPolicy, renderClarificationProtocol } from './clarifications.mjs';
@@ -212,9 +214,19 @@ async function load(root, { agent: selectedAgent = null, workId = null } = {}) {
       ? activeState.resolution.phases.map((phase) => [phase.id, phase])
       : Object.entries(definition.phases);
     const agent = selectedAgent ?? session?.agent ?? null;
+    const agentViewMode = definition.worldModel?.agentViews ?? 'fallback';
     const phases = Object.fromEntries(phaseEntries.map(([id, phase]) => {
       const agentViews = agent ? definition.agents[agent]?.worldModelViews ?? [] : [];
-      return [id, { views: [...new Set([...(phase.worldModel?.views ?? []), ...agentViews])], depth: phase.worldModel?.depth ?? 'standard', evidence: phase.worldModel?.evidence ?? false }];
+      const resolution = resolveViews(phase.worldModel?.views ?? [], agentViews, { mode: agentViewMode });
+      return [id, {
+        views: resolution.views,
+        // Kept so a reader can be told which views came from the phase and which from the agent.
+        // Without it, a phase that declared one view and received four had no way to say so.
+        viewOrigin: Object.fromEntries(resolution.origin),
+        declaredViews: resolution.declared,
+        depth: phase.worldModel?.depth ?? 'standard',
+        evidence: phase.worldModel?.evidence ?? false
+      }];
     }));
     return {
       definition,
@@ -232,7 +244,13 @@ async function load(root, { agent: selectedAgent = null, workId = null } = {}) {
       },
       grounding: groundingMode(definition, activeState),
       staleness: activeState?.resolution?.worldModelStaleness ?? definition.worldModel?.staleness ?? 'warn', phases,
-      context: { always: ['core/summary.md'], includeDomains: 'matched', includeEvidence: false },
+      // `always` was the literal 'core/summary.md' here and at two other call sites, so no
+      // repository could ask for the brief core even though every model must produce one.
+      context: {
+        always: definition.worldModel?.context?.always ?? null,
+        includeDomains: definition.worldModel?.context?.includeDomains ?? 'matched',
+        includeEvidence: definition.worldModel?.context?.includeEvidence ?? false
+      },
       agentPrompt: agent && definition.agents[agent] ? definition.agents[agent].source : null
     };
   }
@@ -1180,6 +1198,60 @@ async function context(root, config, phase, options) {
   }
 }
 
+/**
+ * What each phase will be given, where each view came from, and what it costs.
+ *
+ * This exists because none of that was visible anywhere. A phase declaring one view could receive
+ * four — the active agent's declarations are merged in — and the only way to discover it was to read
+ * a composed prompt out of the cache directory afterwards. On a thirty-three-file repository that
+ * silently put 38 KB of grounding into a 67 KB prompt.
+ *
+ * Read-only and model-free: it resolves exactly what `compose` would resolve and measures it, so it
+ * can be run at any point, and so a change to the selection can be shown rather than asserted.
+ */
+async function budget(root, config, requestedPhase, options) {
+  const phases = requestedPhase ? [requestedPhase] : Object.keys(config.phases ?? {});
+  if (!phases.length) throw new SingularityFlowError('No phases are declared, so there is nothing to measure.');
+  const rows = [];
+  for (const phase of phases) {
+    if (!config.phases?.[phase]) throw new SingularityFlowError(`Unknown world-model phase: ${phase}`);
+    const resolved = await resolveWorldModelContext(root, config, phase, {
+      evidence: optionBoolean(options, 'evidence')
+    }).catch((error) => ({ error: error.message }));
+    if (resolved.error) {
+      rows.push({ phase, error: resolved.error });
+      continue;
+    }
+    const files = resolved.selected.map((item) => ({
+      path: item.relative, level: item.level, bytes: item.size, reason: item.reason
+    }));
+    const phaseConfig = config.phases[phase];
+    rows.push({
+      phase,
+      depth: phaseConfig.depth ?? 'standard',
+      views: phaseConfig.views ?? [],
+      // Where each view came from is the part that was impossible to see.
+      viewOrigin: phaseConfig.viewOrigin ?? {},
+      files,
+      bytes: files.reduce((total, file) => total + file.bytes, 0)
+    });
+  }
+  const total = rows.reduce((sum, row) => sum + (row.bytes ?? 0), 0);
+  if (optionBoolean(options, 'json')) {
+    console.log(JSON.stringify({ schemaVersion: 1, phases: rows, totalBytes: total }, null, 2));
+    return { phases: rows, totalBytes: total };
+  }
+  for (const row of rows) {
+    if (row.error) { console.log(`${style.mark('fail')} ${row.phase}: ${row.error}`); continue; }
+    const origins = row.views.map((view) => `${view}(${row.viewOrigin[view] ?? 'phase'})`).join(', ') || 'none';
+    console.log(`\n${style.heading(row.phase)} ${style.detail(style.fields(`depth ${row.depth}`, `${row.bytes} bytes`))}`);
+    console.log(`  ${style.detail(`views: ${origins}`)}`);
+    for (const file of row.files) console.log(`  L${file.level}  ${String(file.bytes).padStart(6)}  ${file.path}`);
+  }
+  console.log(`\n${style.detail(`${rows.length} phase(s) · ${total} bytes of grounding in total`)}`);
+  return { phases: rows, totalBytes: total };
+}
+
 function workflowChangedPaths(root, workflow) {
   const pending = changedFiles(root);
   if (!workflow?.workItem?.baseBranch) return pending;
@@ -1591,8 +1663,8 @@ export async function worldModelCommand(root, positionals, options) {
     }
     return result;
   }
-  if (!['prompt', 'build', 'light', 'context', 'check'].includes(command)) {
-    throw new SingularityFlowError('Usage: singularity-flow wm init|prompt|build|light|context <phase>|compose|show-prompt|inject|check|cleanup|cache status|clear');
+  if (!['prompt', 'build', 'light', 'context', 'check', 'budget'].includes(command)) {
+    throw new SingularityFlowError('Usage: singularity-flow wm init|prompt|build|light|context <phase>|budget|compose|show-prompt|inject|check|cleanup|cache status|clear');
   }
   if (command === 'build' || command === 'light') await cleanupStaleWorldModelWorktrees(root);
   return withTargetBranch(root, options, async (targetRoot) => {
@@ -1603,6 +1675,7 @@ export async function worldModelCommand(root, positionals, options) {
     if (command === 'context') {
       return context(targetRoot, config, positionals[2] ?? optionString(options, 'phase'), options);
     }
+    if (command === 'budget') return budget(targetRoot, config, positionals[2] ?? optionString(options, 'phase'), options);
     const model = await manifest(targetRoot, config);
     await validateWorldModelDirectory(path.join(targetRoot, config.outputDir), {
       requiredViews: model.requested_views ?? [], requireEvidence: true

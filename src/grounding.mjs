@@ -6,6 +6,7 @@ import os from 'node:os';
 import { changedFiles, head } from './git.mjs';
 import { resolveReference } from './harness-imports.mjs';
 import { exists, posix, run, SingularityFlowError, snapshot } from './util.mjs';
+import { corePath, resolveViews, tierForCore, tierForView, viewPath } from './world-model-selection.mjs';
 
 const GROUNDING_MODES = new Set(['off', 'warn', 'enforce']);
 
@@ -302,12 +303,21 @@ export async function resolveWorldModelContext(root, config, phase, { task = nul
     const relativePath = posix(relative);
     if (!selected.some((item) => item.relative === relativePath)) selected.push({ relative: relativePath, absolute, level, reason, ...info });
   };
-  for (const relative of config.context?.always ?? ['core/summary.md']) await add(relative, 0, 'shared repository core');
+  // The core and each view are read at the tier the phase's declared depth asks for. Every model is
+  // required to produce a brief of both (see the v2 checks above) and, until this, nothing ever read
+  // one: the full text was taken unconditionally and `depth` changed only the builder's prompt.
+  const depth = phaseConfig.depth ?? 'standard';
+  const declared = phaseConfig.declaredViews ?? phaseConfig.views ?? [];
+  const always = config.context?.always ?? [corePath(manifest, tierForCore(depth))];
+  for (const relative of always) await add(relative, 0, 'shared repository core');
   if (includeAgentPrompt && config.agentPrompt) {
     const info = await snapshot(path.join(root, config.agentPrompt));
     if (!info.exists) throw new SingularityFlowError(`Active governed-agent prompt is missing: ${config.agentPrompt}`);
   }
-  for (const view of phaseConfig.views ?? []) await add(manifest.views?.[view]?.path, 1, `${phase} view: ${view}`);
+  for (const view of phaseConfig.views ?? []) {
+    const tier = tierForView(view, { depth, declared });
+    await add(viewPath(manifest, view, tier), 1, `${phase} view: ${view} (${tier})`);
+  }
   if (config.context?.includeDomains !== 'none') {
     for (const domain of manifest.domains ?? []) {
       if (config.context.includeDomains === 'all' || (domain.relevant_views ?? []).some((view) => phaseConfig.views.includes(view))) await add(domain.path, 2, `domain: ${domain.id}`);
@@ -453,10 +463,13 @@ export async function verifyGroundingRecord(root, definition, workflow, phase, {
       if (!info.exists || info.sha256 !== record.renderedSha256) problems.push(`grounding prompt snapshot hash differs: ${promptRelative}`);
     }
   }
-  const requiredViews = [...new Set([
-    ...(phase.worldModel?.views ?? []),
-    ...(definition.agents?.[agent ?? record.agent]?.worldModelViews ?? [])
-  ])];
+  // Resolved with the same rule the composer used, from the same module. When these two disagreed
+  // the verifier reported views as "omitted" that composition had correctly decided not to include.
+  const requiredViews = resolveViews(
+    phase.worldModel?.views ?? [],
+    definition.agents?.[agent ?? record.agent]?.worldModelViews ?? [],
+    { mode: definition.worldModel?.agentViews ?? 'fallback' }
+  ).views;
   for (const view of requiredViews) if (!(record.requiredViews ?? []).includes(view)) problems.push(`grounding composition omitted required view '${view}' for ${phase.id}`);
   const modelRoot = posix(definition.worldModel?.outputDir ?? 'singularity/world-model').replace(/\/$/, '');
   const workItemRoot = posix(path.join(definition.workItemRoot ?? 'singularity/work-items', workflow.workItem.id));
@@ -569,9 +582,15 @@ export async function verifyGroundingRecord(root, definition, workflow, phase, {
   if (committedManifest) {
     if (committedManifest.source_tree_sha256 !== record.modelSourceTreeSha256) problems.push('world-model source hash differs from the composition record');
     for (const view of requiredViews) {
-      const viewPath = committedManifest.views?.[view]?.path;
-      const recordedPath = viewPath ? posix(path.join(definition.worldModel?.outputDir ?? 'singularity/world-model', viewPath)) : null;
-      if (!recordedPath || !(record.files ?? []).some((file) => file.path === recordedPath)) problems.push(`grounding composition has no committed content for required view '${view}'`);
+      // Either tier satisfies the requirement. A phase at standard depth legitimately receives the
+      // brief of a view it did not name as its subject, and demanding the full path here would fail
+      // a composition that had done exactly what the phase asked for.
+      const outputDir = definition.worldModel?.outputDir ?? 'singularity/world-model';
+      const entry = committedManifest.views?.[view];
+      const candidates = [entry?.path, entry?.brief_path]
+        .filter(Boolean)
+        .map((relative) => posix(path.join(outputDir, relative)));
+      if (!candidates.length || !(record.files ?? []).some((file) => candidates.includes(file.path))) problems.push(`grounding composition has no committed content for required view '${view}'`);
     }
     const requiredContextPaths = [committedManifest.core?.summary];
     if (record.task) {

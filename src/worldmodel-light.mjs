@@ -171,7 +171,8 @@ export async function generateLightWorldModel({ root, staging, metadata, sourceS
 - Languages: ${languageSummary}
 - Likely entry points: ${inventory.entryPoints.slice(0, 5).map((file) => `\`${file}\``).join(', ') || 'none identified'}
 - Validation commands: ${observedCommands.slice(0, 4).map((command) => `\`${command}\``).join(', ') || 'none identified'}
-- Limitation: deterministic inventory only; no source semantics were inferred.
+
+This model was generated locally and consumed **zero model tokens**. It records only deterministic repository metadata. It does not claim runtime behavior, business meaning, ownership, security, test coverage, or architectural intent. Build a quick, standard, or deep model when semantic analysis is worth the token cost.
 `);
   await writeFile(path.join(staging, 'core/summary.md'), `# ${title} — deterministic light world model
 

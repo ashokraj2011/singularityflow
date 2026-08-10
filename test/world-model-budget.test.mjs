@@ -79,6 +79,14 @@ test('a model within its budget validates', async () => {
   assert.equal(manifest.schema_version, '2.0');
 });
 
+test('full integrity reports undeclared files as stale directory content', async () => {
+  const directory = await model();
+  await writeFile(path.join(directory, 'views/stale.md'), '# left by an older build\n');
+  await assert.rejects(
+    () => validateWorldModelDirectory(directory, { requiredViews: ['architecture'] }),
+    /contains files not declared by manifest\.json: views\/stale\.md/);
+});
+
 test('a view that runs long warns but does not fail the build', async () => {
   const directory = await model({ viewProse: `${'The design is cohesive. '.repeat(600)}\n` });
   const { manifest, warnings } = await validateWorldModelDirectory(directory, { requiredViews: ['architecture'] });

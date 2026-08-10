@@ -320,7 +320,9 @@ export async function validateWorldModelDirectory(directory, {
 
   const actual = (await modelFiles(directory)).filter((file) => file !== 'manifest.json');
   const undeclared = integrity === 'full' ? actual.filter((file) => !registered.has(file)) : [];
-  if (undeclared.length) throw new SingularityFlowError(`World-model files are missing from manifest.json: ${undeclared.join(', ')}`);
+  if (undeclared.length) {
+    throw new SingularityFlowError(`World-model directory contains files not declared by manifest.json: ${undeclared.join(', ')}`);
+  }
 
   // Size is an operational signal, not an integrity condition. Record and print precise warnings,
   // but never reject an otherwise valid model: budgets must not block generation or publication.

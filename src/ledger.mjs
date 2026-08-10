@@ -479,17 +479,32 @@ export async function appendLedgerIntent(root, rawConfig, intent, publishedCommi
  * out — nobody's working tree moves because something was published from it.
  *
  * @param files a map of state-branch-relative path to contents; identical contents commit nothing.
+ * @param options.replaceRoots optional state-branch-relative directories whose tracked contents are
+ * authoritative mirrors of `files`. Files previously tracked beneath those roots but absent from
+ * `files` are removed. No path outside an explicitly named replacement root is ever pruned.
  */
-export async function publishToStateBranch(root, rawConfig, files, message) {
+export async function publishToStateBranch(root, rawConfig, files, message, { replaceRoots = [] } = {}) {
   const config = normalizeLedgerConfig(rawConfig);
-  const entries = Object.entries(files ?? {}).filter(([file]) => file);
-  if (!entries.length) return { branch: config.branch, commit: null, changed: false, published: [] };
-  for (const [file] of entries) {
+  const safePath = (value) => {
+    const original = String(value ?? '').trim();
+    const portable = original.replaceAll('\\', '/');
+    const normalized = path.posix.normalize(portable).replace(/\/$/, '');
     // A path that climbs out of the branch would write into whatever the temporary worktree's
     // parent happens to be, which on this path is a directory in the system temp folder.
-    if (path.isAbsolute(file) || path.normalize(file).split(path.sep).includes('..')) {
-      throw new SingularityFlowError(`A state-branch path must stay inside the branch: ${file}`);
+    if (!original || path.isAbsolute(original) || path.win32.isAbsolute(original)
+      || normalized === '.' || normalized === '..' || normalized.startsWith('../')) {
+      throw new SingularityFlowError(`A state-branch path must stay inside the branch: ${value}`);
     }
+    return normalized;
+  };
+  const entries = Object.entries(files ?? {}).filter(([file]) => file)
+    .map(([file, contents]) => [safePath(file), contents]);
+  if (new Set(entries.map(([file]) => file)).size !== entries.length) {
+    throw new SingularityFlowError('State-branch publication contains duplicate normalized paths.');
+  }
+  const replacementRoots = [...new Set((replaceRoots ?? []).map(safePath))].sort();
+  if (!entries.length && !replacementRoots.length) {
+    return { branch: config.branch, commit: null, changed: false, published: [], removed: [] };
   }
 
   ensureRemoteBranchFetched(root, config);
@@ -504,16 +519,27 @@ export async function publishToStateBranch(root, rawConfig, files, message) {
     : null;
 
   return temporaryWorktree(root, ref, async (worktree) => {
+    const desired = new Set(entries.map(([file]) => file));
+    const removed = new Set();
+    for (const replacementRoot of replacementRoots) {
+      const tracked = git(worktree, ['ls-files', '--', replacementRoot]).stdout
+        .split(/\r?\n/).map((file) => file.trim()).filter(Boolean);
+      for (const file of tracked) {
+        if (!desired.has(file)) removed.add(file);
+      }
+    }
+    const removedFiles = [...removed].sort();
+    if (removedFiles.length) git(worktree, ['rm', '-f', '--', ...removedFiles]);
     for (const [file, contents] of entries) {
       const target = path.join(worktree, file);
       await ensureDir(path.dirname(target));
       await writeAtomic(target, contents);
     }
-    git(worktree, ['add', '--', ...entries.map(([file]) => file)]);
+    if (entries.length) git(worktree, ['add', '--', ...entries.map(([file]) => file)]);
     // Publishing the same bytes twice is a no-op rather than an empty commit: this runs on every
     // capability edit, and most edits change one file out of several.
     if (!git(worktree, ['diff', '--cached', '--name-only']).stdout.trim()) {
-      return { branch: config.branch, commit: null, changed: false, published: [] };
+      return { branch: config.branch, commit: null, changed: false, published: [], removed: [] };
     }
     const actor = identity(root);
     git(worktree, ['-c', `user.name=${actor.name || 'Singularity Flow'}`,
@@ -534,7 +560,13 @@ export async function publishToStateBranch(root, rawConfig, files, message) {
     } else {
       git(root, ['update-ref', localRef(config), commit, git(root, ['rev-parse', ref]).stdout.trim()]);
     }
-    return { branch: config.branch, commit, changed: true, published: entries.map(([file]) => file) };
+    return {
+      branch: config.branch,
+      commit,
+      changed: true,
+      published: entries.map(([file]) => file),
+      removed: removedFiles
+    };
   });
 }
 

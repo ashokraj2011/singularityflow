@@ -233,6 +233,33 @@ It preserves the installed CLI, VS Code extension, Copilot plugin, `/sf-*`
 skills, unregistered repositories, and personal skills. Run it from outside the
 workspace directories listed by the preview.
 
+To replace only the locally installed Singularity Flow product while keeping all
+repositories, workspaces, lifecycle state, credentials, and user configuration,
+use the fingerprint-bound clean reinstall:
+
+```bash
+sf-reinstall --checkout /absolute/path/to/singularityflow --dry-run
+# Copy the exact fingerprint confirmation printed by the preview:
+sf-reinstall --checkout /absolute/path/to/singularityflow \
+  --confirm "REINSTALL SINGULARITY FLOW <fingerprint>"
+```
+
+The preview first builds and tests an isolated copy of the selected checkout,
+creates and hashes the npm tarball and VSIX, and only then offers a confirmation.
+Applying it replaces the global `singularity-flow` npm package, both historical
+Copilot plugin identities, marker-owned direct `/sf-*` skills, the VS Code
+extension, and the installer-managed telemetry wrapper. It never runs Git and
+never scans for or changes repository `singularity/`, `.singularity/`,
+`.git/singularity-flow/`, branches, worktrees, artifacts, world models, workspace
+clones, `~/.singularity-flow` workspace selection, VS Code state, SecretStorage,
+Jira credentials, or personal skills. A receipt is written under
+`~/.singularity-flow/installations/`.
+
+For a company registry, add `--registry <URL>`; credentials stay in `.npmrc`.
+If Copilot is unavailable, `--cli-only` replaces just the Node package and command
+shims. A missing `code` executable is reported and the already-built VSIX is
+retained for later installation.
+
 For a genuinely fresh Singularity installation across the machine, run the
 installer from a clean Singularity Flow source checkout. Preview first:
 
@@ -744,6 +771,20 @@ process. It therefore reaches every `npm ci`, `npm run`, lifecycle subprocess,
 packaging helper, and global installation—not only the first dependency install.
 The script rejects credentials embedded in a URL, never prints tokens, and does not
 modify persistent npm configuration.
+
+To reinstall the currently checked-out product without pulling or changing any
+repository, use the same shared planner through the installer:
+
+```bash
+./install.sh --clean-reinstall --dry-run
+./install.sh --clean-reinstall \
+  --registry "https://artifacts.company.com/artifactory/api/npm/npm-virtual/" \
+  --confirm "REINSTALL SINGULARITY FLOW <fingerprint>"
+```
+
+This path delegates to `singularity-flow reinstall` before the normal installer
+performs any Git check. All build and package validation completes before the first
+installed surface is removed.
 
 By default, the installer loads the Copilot plugin bundled inside the installed
 package. To use a company-managed Copilot marketplace instead, provide its

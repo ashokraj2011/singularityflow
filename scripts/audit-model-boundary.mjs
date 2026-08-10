@@ -7,7 +7,9 @@ const allowedCopilotLaunchers = new Set([
   'src/model-providers/copilot-cli.mjs',
   'src/host-session-launcher.mjs',
   // Plugin management invokes `copilot plugin`, not a model.
-  'src/plugin.mjs'
+  'src/plugin.mjs',
+  // Product reinstall replaces plugin registration only; it never opens a model session.
+  'src/reinstall.mjs'
 ]);
 
 async function sourceFiles(directory = path.join(root, 'src')) {

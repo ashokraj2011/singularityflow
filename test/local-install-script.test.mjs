@@ -30,6 +30,10 @@ test('local installer performs a safe ordered pull, pack, global install, and pl
   assert.match(script, /singularity-flow\/copilot-otel\.jsonl/);
   assert.match(script, /--no-copilot-telemetry/);
   assert.match(script, /--factory-reset/);
+  assert.match(script, /--clean-reinstall/);
+  assert.match(script, /REINSTALL_ARGS=\(reinstall --checkout "\$PROJECT_DIR"\)/);
+  assert.ok(script.indexOf('if [[ "$CLEAN_REINSTALL" == "on" ]]') < script.indexOf('REQUIRED_COMMANDS=(git node npm)'),
+    'clean reinstall must delegate before the normal installer can require or execute Git');
   assert.match(script, /fresh-install-reset\.mjs --yes/);
   assert.ok(script.indexOf('fresh-install-reset.mjs --yes') < script.indexOf("git status --porcelain"));
   assert.match(script, /code --uninstall-extension singularityflow\.singularity-flow-vscode/);
@@ -52,6 +56,30 @@ test('single installer supports Artifactory without accepting credentials in URL
   assert.match(script, /registry\.search \|\| registry\.hash/);
   assert.match(script, /http:/);
   assert.match(script, /https:/);
+});
+
+test('clean reinstall delegates before any Git requirement or repository operation', async () => {
+  const fixture = await mkdtemp(path.join(os.tmpdir(), 'sflow-clean-reinstall-script-'));
+  const bin = path.join(fixture, 'bin');
+  const log = path.join(fixture, 'commands.log');
+  await mkdir(bin, { recursive: true });
+  for (const command of ['node', 'git']) {
+    const file = path.join(bin, command);
+    await writeFile(file, `#!/usr/bin/env bash\nprintf '%s\\n' '${command} '"$*" >> "$INSTALL_TEST_LOG"\n${command === 'git' ? 'exit 97' : 'exit 0'}\n`);
+    await chmod(file, 0o755);
+  }
+  const registry = 'https://artifacts.example.test/api/npm/npm-virtual/';
+  const result = spawnSync('bash', [path.join(root, 'install.sh'), '--clean-reinstall', '--registry', registry], {
+    cwd: fixture,
+    encoding: 'utf8',
+    env: { ...process.env, PATH: `${bin}:/bin:/usr/bin`, INSTALL_TEST_LOG: log }
+  });
+  assert.equal(result.status, 0, `${result.stdout}\n${result.stderr}`);
+  const commands = await readFile(log, 'utf8');
+  assert.doesNotMatch(commands, /^git /m);
+  assert.match(commands, /node .*bin\/singularity-flow\.mjs reinstall --checkout/);
+  assert.match(commands, new RegExp(`--registry ${registry.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}`));
+  assert.match(commands, /--dry-run/);
 });
 
 test('standalone install script executes the complete workflow with one invocation', async () => {

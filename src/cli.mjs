@@ -239,6 +239,9 @@ import {
 import { emitCommandResult } from './narration/emit.mjs';
 import { factoryResetAll, factoryResetAllPlan, factoryResetPlan, factoryResetRepository } from './factory-reset.mjs';
 import { localReset, localResetPlan } from './fresh-install-reset.mjs';
+import {
+  applyLocalReinstall, reinstallPlanText, resolveReinstallPlan
+} from './reinstall.mjs';
 import { capabilityDoctor } from './capability-doctor.mjs';
 import { inspectStatePlanes, reconcileStateProjections } from './state-planes.mjs';
 import {
@@ -531,6 +534,32 @@ async function freshInstallCommand(options) {
     throw new SingularityFlowError(`Fresh install failed with exit code ${result.status}. Review the installer output above.`);
   }
   return { checkout, applied: optionBoolean(options, 'yes') };
+}
+
+async function reinstallCommand(options) {
+  const dryRun = optionBoolean(options, 'dry-run');
+  const confirmation = optionString(options, 'confirm');
+  if (dryRun && confirmation) {
+    throw new SingularityFlowError('reinstall --dry-run does not accept --confirm. Review the preview first.');
+  }
+  const checkout = path.resolve(optionString(options, 'checkout', process.cwd()));
+  const cliOnly = optionBoolean(options, 'cli-only');
+  const telemetry = !cliOnly && options['copilot-telemetry'] !== false;
+  const plan = await resolveReinstallPlan({
+    checkout,
+    confirmation,
+    registry: optionString(options, 'registry'),
+    cliOnly,
+    telemetry
+  });
+  // No confirmation is a preview even when --dry-run was omitted. A local product uninstall must
+  // never be the accidental result of forgetting a safety flag.
+  const result = confirmation
+    ? await applyLocalReinstall(plan, { confirmation })
+    : plan;
+  if (optionBoolean(options, 'json')) console.log(JSON.stringify(result, null, 2));
+  else console.log(reinstallPlanText(result));
+  return result;
 }
 
 async function helpCommand(positionals, options) {
@@ -7518,7 +7547,7 @@ export async function main(argv) {
   if (!command) return cockpitCommand();
   if (command === 'version') return console.log(VERSION);
   // `logs` reads the file; logging its own invocation would append noise to what it is showing.
-  if (!['logs', 'factory-reset', 'reset-all', 'local-reset', 'fresh-install'].includes(command)) {
+  if (!['logs', 'factory-reset', 'reset-all', 'local-reset', 'fresh-install', 'reinstall'].includes(command)) {
     const log = await commandLogger(command, argv, { json: options.json, verbose: options.verbose });
     const harness = await harnessInvocation(command, argv);
     const started = Date.now();
@@ -7553,6 +7582,7 @@ async function dispatch(command, positionals, options) {
     'reset-all': () => resetAllCommand(options),
     'local-reset': () => localResetCommand(options),
     'fresh-install': () => freshInstallCommand(options),
+    reinstall: () => reinstallCommand(options),
     choices: () => choicesCommand(positionals, options),
     start: () => startCommand(positionals, options),
     resume: () => resumeCommand(positionals, options),

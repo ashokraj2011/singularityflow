@@ -96,6 +96,7 @@ skills:
   sflow-epic-sync: { class: mutation }
   sflow-factory-reset: { class: mutation }
   sflow-local-reset: { class: mutation }
+  sflow-reinstall: { class: mutation }
   sflow-finalize: { class: mutation }
   sflow-help: { class: conversational }
   sflow-home: { class: echo }

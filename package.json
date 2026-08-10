@@ -12,6 +12,7 @@
     "sflow-agent": "bin/sflow-agent.mjs",
     "sf-reset-all": "bin/sf-reset-all.mjs",
     "sf-local-reset": "bin/sf-local-reset.mjs",
+    "sf-reinstall": "bin/sf-reinstall.mjs",
     "sflow-wm-minimal": "bin/sflow-wm-minimal.mjs"
   },
   "files": [
@@ -47,6 +48,7 @@
     "test:cli": "node scripts/run-test-suite.mjs cli",
     "test:vscode": "node scripts/run-test-suite.mjs vscode",
     "test:all": "node scripts/run-test-suite.mjs all",
+    "test:reinstall": "node --test test/reinstall.test.mjs test/direct-skills.test.mjs test/plugin.test.mjs",
     "test:no-model": "node --test test/model-boundary.test.mjs test/no-model-operations.test.mjs test/no-model-lifecycle.test.mjs",
     "test:manual-authorship": "node --test test/manual-authorship.test.mjs test/manual-import.test.mjs",
     "check": "node scripts/check.mjs",

@@ -23,6 +23,7 @@ const BIN_ALIASES = new Map([
   ['agent', ['sflow-agent']],
   ['reset-all', ['sf-reset-all']],
   ['local-reset', ['sf-local-reset']],
+  ['reinstall', ['sf-reinstall']],
   ['wm', ['sflow-wm-minimal']]
 ]);
 
@@ -337,6 +338,31 @@ const PAGES = Object.freeze({
       ['singularity-flow ledger reconcile', 'Publish intents that could not be appended earlier.']
     ],
     seeAlso: ['doctor', 'validate', 'sync']
+  },
+  reinstall: {
+    summary: 'Cleanly replace only the locally installed Singularity Flow product surfaces.',
+    description: [
+      'Builds and validates the npm tarball and VSIX from the explicitly selected checkout before',
+      'removing anything. It then replaces only the global npm package, the two known Copilot plugin',
+      'identities, marker-owned direct skills, the VS Code extension, and the managed telemetry wrapper.',
+      '',
+      'This is deliberately not a repository command. It runs no Git command, discovers no workspace',
+      'repository, and preserves repository state, workspace registrations, credentials, settings,',
+      'personal skills, Node.js, npm, and unrelated global packages.'
+    ],
+    options: [
+      ['--checkout DIRECTORY', 'The existing Singularity Flow source checkout to build exactly as it is.'],
+      ['--dry-run', 'Build, test, package, and print the fingerprint-bound replacement preview.'],
+      ['--confirm TEXT', 'Apply the exact confirmation printed by the matching preview.'],
+      ['--registry URL', 'Use this npm registry/Artifactory for every npm subprocess.'],
+      ['--cli-only', 'Replace only the global npm package; Copilot and VS Code may be unavailable.'],
+      ['--no-copilot-telemetry', 'Do not recreate the installer-managed telemetry wrapper.']
+    ],
+    examples: [
+      ['sf-reinstall --checkout /opt/src/singularityflow --dry-run', 'Validate everything and print the exact confirmation.'],
+      ['sf-reinstall --checkout /opt/src/singularityflow --registry https://artifactory.example/api/npm/npm-virtual/ --confirm "REINSTALL SINGULARITY FLOW <fingerprint>"', 'Apply a previously reviewed, registry-bound preview.']
+    ],
+    seeAlso: ['factory-reset', 'local-reset', 'fresh-install']
   },
   validate: {
     summary: 'Check the governed state of the current Story against its pinned configuration.',

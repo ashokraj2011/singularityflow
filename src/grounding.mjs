@@ -1,6 +1,6 @@
 import { createHash } from 'node:crypto';
-import { lstat, mkdir, readFile, readdir, realpath, rm } from 'node:fs/promises';
-import { existsSync } from 'node:fs';
+import { lstat, mkdir, mkdtemp, readFile, readdir, realpath, rename, rm } from 'node:fs/promises';
+import { existsSync, readdirSync } from 'node:fs';
 import path from 'node:path';
 import os from 'node:os';
 import { changedFiles, head } from './git.mjs';
@@ -369,7 +369,39 @@ function normalizeTask(value) { return String(value ?? '').trim().toLowerCase().
 export async function resolveWorldModelSource(root, config, { stateBranch = null } = {}) {
   const worktree = path.join(root, config.outputDir);
   const branch = stateBranch ?? config.stateBranch ?? config.ledger?.branch ?? null;
-  if (!branch) return { directory: worktree, source: 'worktree', branch: null, commit: worldModelCommit(root, config.outputDir) };
+  if (!branch) return {
+    directory: worktree, source: 'worktree', branch: null, ref: null,
+    commit: worldModelCommit(root, config.outputDir), treeSha: null,
+    authority: existsSync(path.join(worktree, 'manifest.json')) ? 'local-only' : 'absent',
+    refresh: 'not-configured'
+  };
+
+  const remote = config.remote ?? config.definition?.git?.remote ?? 'origin';
+  const stateFetchTimeoutMs = config.stateFetchTimeoutMs
+    ?? config.definition?.worldModel?.stateFetchTimeoutMs
+    ?? 10_000;
+  const remoteRef = `refs/remotes/${remote}/${branch}`;
+  const localRef = `refs/heads/${branch}`;
+  const remoteConfigured = run('git', ['remote', 'get-url', remote], { cwd: root, allowFailure: true }).status === 0;
+  let refresh = remoteConfigured ? 'refreshed' : 'no-remote';
+  let fetchSucceeded = false;
+  if (remoteConfigured) {
+    const fetched = run('git', ['fetch', '--no-tags', remote, `+refs/heads/${branch}:${remoteRef}`], {
+      cwd: root, allowFailure: true, timeoutMs: stateFetchTimeoutMs
+    });
+    const missingRemoteRef = fetched.status !== 0
+      && /couldn.t find remote ref|remote ref does not exist/i.test(`${fetched.stderr}\n${fetched.stdout}`);
+    // A repository that has never published a state branch is reachable but absent, not offline.
+    // Treating the ordinary first-run case as an offline cache made diagnostics claim a network
+    // problem and could retain a stale remote-tracking ref after the server branch was removed.
+    fetchSucceeded = fetched.status === 0 || missingRemoteRef;
+    if (missingRemoteRef) {
+      refresh = 'remote-absent';
+      run('git', ['update-ref', '-d', remoteRef], { cwd: root, allowFailure: true });
+    } else if (!fetchSucceeded) {
+      refresh = fetched.error?.code === 'ETIMEDOUT' ? 'timeout-cached' : 'offline-cached';
+    }
+  }
 
   // `rev-parse <ref>:<dir>` names the tree; absent from both refs means the branch has no model,
   // which is the ordinary state of a repository whose model has only ever been built locally.
@@ -381,16 +413,81 @@ export async function resolveWorldModelSource(root, config, { stateBranch = null
     const found = run('git', ['rev-parse', `${ref}:${config.outputDir}`], { cwd: root, allowFailure: true });
     return found.status === 0 ? found.stdout.trim() : null;
   };
-  const remoteRef = `refs/remotes/${config.remote ?? config.definition?.git?.remote ?? 'origin'}/${branch}`;
-  const localRef = `refs/heads/${branch}`;
-  const selectedRef = treeOn(remoteRef) ? remoteRef : treeOn(localRef) ? localRef : null;
+  const remoteTree = treeOn(remoteRef);
+  const localTree = treeOn(localRef);
+  const selectedRef = remoteTree ? remoteRef : localTree ? localRef : null;
   const treeSha = selectedRef ? treeOn(selectedRef) : null;
-  if (!treeSha) return { directory: worktree, source: 'worktree', branch, commit: worldModelCommit(root, config.outputDir) };
+  const commitOn = (ref) => {
+    const found = run('git', ['rev-parse', ref], { cwd: root, allowFailure: true });
+    return found.status === 0 ? found.stdout.trim() : null;
+  };
+  const remoteCommit = remoteTree ? commitOn(remoteRef) : null;
+  const localCommit = localTree ? commitOn(localRef) : null;
+  const isAncestor = (ancestor, descendant) => Boolean(ancestor && descendant)
+    && run('git', ['merge-base', '--is-ancestor', ancestor, descendant], { cwd: root, allowFailure: true }).status === 0;
+  const localAhead = Boolean(remoteCommit && localCommit && remoteCommit !== localCommit && isAncestor(remoteCommit, localCommit));
+  const remoteAhead = Boolean(remoteCommit && localCommit && remoteCommit !== localCommit && isAncestor(localCommit, remoteCommit));
+  const diverged = Boolean(remoteCommit && localCommit && remoteCommit !== localCommit && !localAhead && !remoteAhead);
+  let authority;
+  if (diverged) authority = 'diverged';
+  else if (remoteConfigured && !fetchSucceeded) authority = selectedRef ? 'offline-unverified' : 'absent';
+  else if (remoteTree && localAhead) authority = 'unpublished-local-state';
+  else if (remoteTree) authority = 'remote-governed';
+  else if (localTree) authority = remoteConfigured ? 'unpublished-local-state' : 'local-only';
+  else authority = 'absent';
+  if (!treeSha) return {
+    directory: worktree, source: 'worktree', branch, ref: null,
+    commit: worldModelCommit(root, config.outputDir), treeSha: null, authority,
+    refresh: remoteConfigured && ['offline-cached', 'timeout-cached'].includes(refresh)
+      ? 'offline-no-state-copy'
+      : refresh,
+    diverged, stateFetchTimeoutMs
+  };
   const commit = run('git', ['rev-parse', selectedRef], { cwd: root }).stdout.trim();
 
-  const cached = path.join(os.tmpdir(), `singularity-flow-world-model-${treeSha.slice(0, 16)}`);
-  if (!existsSync(path.join(cached, 'manifest.json'))) {
-    await mkdir(cached, { recursive: true });
+  // The full tree identity avoids prefix collisions. Extraction is staged, fully validated, and
+  // atomically renamed so an interrupted or concurrent reader can never bless a partial cache just
+  // because manifest.json happened to arrive first.
+  const cached = path.join(os.tmpdir(), `singularity-flow-world-model-${treeSha}`);
+  // Cache validation is deliberately Git-structural rather than schema-semantic. Historical state
+  // projections can still be read and diagnosed by the normal candidate validator, while a
+  // partial extraction can never be mistaken for the complete immutable tree.
+  const validateExtractedTree = (directory) => {
+    const expected = run('git', ['ls-tree', '-r', treeSha], { cwd: root }).stdout
+      .split('\n').filter(Boolean).map((line) => {
+        const match = line.match(/^\d+\s+blob\s+([0-9a-f]+)\t(.+)$/);
+        return match ? { sha: match[1], file: match[2] } : null;
+      }).filter(Boolean);
+    const actualFiles = [];
+    const visit = (relative = '') => {
+      const directoryPath = path.join(directory, relative);
+      for (const entry of readdirSync(directoryPath, { withFileTypes: true })) {
+        const child = relative ? `${relative}/${entry.name}` : entry.name;
+        if (entry.isDirectory()) visit(child);
+        else if (entry.isFile()) actualFiles.push(child);
+      }
+    };
+    visit();
+    actualFiles.sort();
+    const expectedFiles = expected.map((entry) => entry.file).sort();
+    if (JSON.stringify(actualFiles) !== JSON.stringify(expectedFiles)) {
+      throw new SingularityFlowError(`Governed world-model cache ${treeSha} is incomplete.`);
+    }
+    for (const entry of expected) {
+      const hashed = run('git', ['hash-object', path.join(directory, entry.file)], { cwd: root }).stdout.trim();
+      if (hashed !== entry.sha) {
+        throw new SingularityFlowError(`Governed world-model cache ${treeSha} has invalid bytes for ${entry.file}.`);
+      }
+    }
+  };
+  const validateCache = () => validateExtractedTree(cached);
+  let cacheReady = false;
+  if (existsSync(cached)) {
+    try { await validateCache(); cacheReady = true; }
+    catch { await rm(cached, { recursive: true, force: true }); }
+  }
+  if (!cacheReady) {
+    const staging = await mkdtemp(path.join(os.tmpdir(), `singularity-flow-world-model-${treeSha}-incoming-`));
     // Extracted rather than checked out: a checkout would move the working tree out from under
     // whoever is using it, to read something they did not ask to switch to.
     //
@@ -400,15 +497,39 @@ export async function resolveWorldModelSource(root, config, { stateBranch = null
     // true: two people on the same commit ground a phase from different bytes and nothing said so.
     // `git archive -o` writes the file itself and `tar -xf` reads it, so no shell is involved and
     // Windows works the same as everywhere else.
-    const archive = path.join(cached, '.singularity-world-model.tar');
+    const archive = path.join(staging, '.singularity-world-model.tar');
     const written = run('git', ['archive', '--format=tar', '--output', archive, treeSha], { cwd: root, allowFailure: true });
     const extracted = written.status === 0
-      ? run('tar', ['-xf', archive, '-C', cached], { cwd: root, allowFailure: true })
+      ? run('tar', ['-xf', archive, '-C', staging], { cwd: root, allowFailure: true })
       : written;
     await rm(archive, { force: true });
-    if (extracted.status !== 0) return { directory: worktree, source: 'worktree', branch, commit: worldModelCommit(root, config.outputDir) };
+    if (extracted.status !== 0) {
+      await rm(staging, { recursive: true, force: true });
+      throw new SingularityFlowError(
+        `Could not materialize governed world model ${selectedRef}:${config.outputDir}; `
+        + 'the working-tree copy was not used because that would change grounding authority silently.',
+        { code: 'world_model.state_extraction_failed', details: { branch, ref: selectedRef, treeSha } }
+      );
+    }
+    try {
+      validateExtractedTree(staging);
+      try { await rename(staging, cached); }
+      catch (error) {
+        // Another process may have completed the identical extraction first. Its directory wins
+        // only after the same full validation.
+        if (!existsSync(cached)) throw error;
+        await rm(staging, { recursive: true, force: true });
+        await validateCache();
+      }
+    } catch (error) {
+      await rm(staging, { recursive: true, force: true });
+      throw error;
+    }
   }
-  return { directory: cached, source: 'state-branch', branch, commit };
+  return {
+    directory: cached, source: 'state-branch', branch, ref: selectedRef, commit, treeSha,
+    authority, refresh, diverged, stateFetchTimeoutMs
+  };
 }
 
 export async function resolveWorldModelContext(root, config, phase, {

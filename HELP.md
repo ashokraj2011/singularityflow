@@ -1756,6 +1756,7 @@ singularity-flow wm build --branch release/2026.07 --phase design --task "Ground
 singularity-flow wm build --phase verification --workers 2
 # Resume an interrupted build; completed exact-match view packets are skipped
 singularity-flow wm build --phase verification --workers 2 --resume
+singularity-flow wm status --phase design --task "Design invoice export"
 singularity-flow wm availability --phase design --task "Design invoice export"
 singularity-flow wm ensure --phase design --task "Design invoice export"
 singularity-flow wm check --branch release/2026.07
@@ -1785,7 +1786,7 @@ Only prompts produced by `wm compose` for an actual handoff are captured. Read-o
 `wm show-prompt` previews, Copilot's hidden system prompt, provider messages, and chat history are
 not captured. Open **Configuration → Prompt audit** in VS Code to toggle capture and review records.
 
-`wm availability` performs a read-only exact-tier check and never invokes a model. `wm ensure` is
+`wm status` and its `wm availability` alias perform a read-only exact-tier and governed-state authority check and never invoke a model. `wm ensure` is
 the explicit authorization boundary: it reuses valid v3 selections from the same source snapshot,
 generates only missing selections, and requires governed state-branch publication before a shared
 phase prompt consumes the result. Changed source snapshots never reuse older generated selections.

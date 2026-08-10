@@ -346,6 +346,12 @@ export function validateDefinition(definition) {
   if (definition.worldModel?.runner != null) throw new SingularityFlowError('worldModel.runner is not supported. Configure models.providers with a trusted executable and argument array.');
   if (definition.worldModel?.outputDir) assertRelative(definition.worldModel.outputDir, 'worldModel.outputDir');
   if (definition.worldModel?.promptSource && definition.worldModel.promptSource !== 'builtin') assertRelative(definition.worldModel.promptSource, 'worldModel.promptSource');
+  if (definition.worldModel?.stateFetchTimeoutMs != null
+      && (!Number.isInteger(definition.worldModel.stateFetchTimeoutMs)
+        || definition.worldModel.stateFetchTimeoutMs < 250
+        || definition.worldModel.stateFetchTimeoutMs > 60_000)) {
+    throw new SingularityFlowError('worldModel.stateFetchTimeoutMs must be an integer from 250 through 60000.');
+  }
   if (definition.worldModel?.views != null) {
     if (!Array.isArray(definition.worldModel.views) || !definition.worldModel.views.length) throw new SingularityFlowError('worldModel.views must be a non-empty array when configured.');
     if (new Set(definition.worldModel.views).size !== definition.worldModel.views.length) throw new SingularityFlowError('worldModel.views must not contain duplicates.');

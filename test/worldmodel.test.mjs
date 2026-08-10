@@ -2,11 +2,11 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import { createHash } from 'node:crypto';
 import { existsSync } from 'node:fs';
-import { lstat, mkdtemp, mkdir, readFile, writeFile } from 'node:fs/promises';
+import { chmod, lstat, mkdtemp, mkdir, readFile, writeFile } from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { spawnSync } from 'node:child_process';
+import { spawn, spawnSync } from 'node:child_process';
 import YAML from 'yaml';
 import { initializeDefinition, loadDefinition } from '../src/config.mjs';
 import { validateWorldModelDirectory, verifyGroundingRecord, worldModelRebuildReason, worldModelSourceSnapshot } from '../src/grounding.mjs';
@@ -25,6 +25,21 @@ function run(command, args, cwd) {
 
 function result(command, args, cwd, env = process.env) {
   return spawnSync(command, args, { cwd, encoding: 'utf8', env: { ...env, NODE_ENV: 'test' } });
+}
+
+function resultAsync(command, args, cwd, env = process.env, timeoutMs = 30_000) {
+  return new Promise((resolve) => {
+    const child = spawn(command, args, { cwd, env: { ...env, NODE_ENV: 'test' } });
+    let stdout = '';
+    let stderr = '';
+    child.stdout.setEncoding('utf8').on('data', (chunk) => { stdout += chunk; });
+    child.stderr.setEncoding('utf8').on('data', (chunk) => { stderr += chunk; });
+    const timeout = setTimeout(() => child.kill('SIGKILL'), timeoutMs);
+    child.on('close', (status, signal) => {
+      clearTimeout(timeout);
+      resolve({ status, signal, stdout, stderr });
+    });
+  });
 }
 
 function flow(args, cwd, { allowFailure = false, agent = 'product-owner', workType = 'feature' } = {}) {
@@ -56,7 +71,7 @@ async function configureMockProvider(root, builder, extraArguments = []) {
 }
 
 const mockBuilderSource = `
-import { appendFile, mkdir, readFile, writeFile } from 'node:fs/promises';
+import { appendFile, mkdir, readFile, readdir, writeFile } from 'node:fs/promises';
 import { spawnSync } from 'node:child_process';
 import path from 'node:path';
 const promptArgument = process.argv[process.argv.indexOf('-p') + 1] ?? process.argv[2];
@@ -75,6 +90,18 @@ if (packet) {
   process.exit(0);
 }
 if (process.env.SFLOW_MOCK_FAIL_SYNTHESIS === '1') process.exit(9);
+if (process.env.SFLOW_PARALLEL_TEST_LOG) {
+  await appendFile(process.env.SFLOW_PARALLEL_TEST_LOG, JSON.stringify({ event: 'synthesis', pid: process.pid, at: Date.now() }) + '\\n');
+}
+if (process.env.SFLOW_MOCK_SYNTHESIS_BARRIER_DIR) {
+  await mkdir(process.env.SFLOW_MOCK_SYNTHESIS_BARRIER_DIR, { recursive: true });
+  await writeFile(path.join(process.env.SFLOW_MOCK_SYNTHESIS_BARRIER_DIR, String(process.pid)), 'ready\\n');
+  const deadline = Date.now() + 10_000;
+  while ((await readdir(process.env.SFLOW_MOCK_SYNTHESIS_BARRIER_DIR)).length < 2) {
+    if (Date.now() >= deadline) throw new Error('synthesis barrier timed out');
+    await new Promise((resolve) => setTimeout(resolve, 50));
+  }
+}
 const output = prompt.match(/Output directory:\\s+([^\\n]+)/)?.[1].trim();
 const requested = prompt.match(/Requested views:\\s+([^\\n]+)/)?.[1].trim().split(/,\\s*/).filter(Boolean) ?? [];
 const task = prompt.match(/Optional task:\\s+([^\\n]+)/)?.[1].trim();
@@ -491,6 +518,10 @@ test('wm availability is read-only when required tiers are absent', async () => 
   assert.equal(availability.ready, false);
   assert.equal(availability.status, 'missing');
   assert.match(availability.action.command, /wm ensure --phase design/);
+  const status = JSON.parse(flow(['wm', 'status', '--phase', 'design', '--json'], root).stdout);
+  assert.equal(status.ready, false);
+  assert.equal(status.status, 'missing');
+  assert.equal(status.authority, availability.authority);
   assert.equal(run('git', ['rev-parse', 'HEAD'], root).trim(), beforeHead);
   assert.equal(run('git', ['status', '--porcelain=v1', '--untracked-files=all'], root), beforeStatus);
   assert.equal(run('git', ['for-each-ref', '--format=%(refname):%(objectname)'], root), beforeRefs);
@@ -545,6 +576,206 @@ test('governed materialization publishes to the orphan state branch when ledger 
     run('git', ['ls-tree', '-r', '--name-only', stateBranch], root),
     /singularity\/world-model\/views\/obsolete\.md/
   );
+});
+
+test('progressive governed generation preserves earlier views across independent clones', async () => {
+  const base = await mkdtemp(path.join(os.tmpdir(), 'sflow-worldmodel-cross-clone-'));
+  const remote = path.join(base, 'application.git');
+  const seed = path.join(base, 'seed');
+  run('git', ['init', '-q', '-b', 'main', '--bare', remote], base);
+  run('git', ['init', '-q', '-b', 'main', seed], base);
+  run('git', ['config', 'user.name', 'Seed User'], seed);
+  run('git', ['config', 'user.email', 'seed@example.com'], seed);
+  await initializeDefinition(seed);
+  const definitionPath = path.join(seed, 'singularity/workflow.yml');
+  const definition = YAML.parse(await readFile(definitionPath, 'utf8'));
+  definition.git.publish = 'off';
+  definition.ledger.enabled = false;
+  definition.worldModel.materialization.publish = 'governed';
+  const builder = path.join(seed, 'mock-worldmodel-builder.mjs');
+  await writeFile(builder, mockBuilderSource);
+  await configureMockProvider(seed, builder);
+  // configureMockProvider rewrites the definition, so apply the materialization choices last.
+  const configured = YAML.parse(await readFile(definitionPath, 'utf8'));
+  configured.git.publish = 'off';
+  configured.ledger.enabled = false;
+  configured.worldModel.materialization.publish = 'governed';
+  await writeFile(definitionPath, YAML.stringify(configured));
+  await writeFile(path.join(seed, 'README.md'), '# Cross-clone progressive model\n');
+  run('git', ['add', '.'], seed);
+  run('git', ['commit', '-qm', 'initialize'], seed);
+  run('git', ['remote', 'add', 'origin', remote], seed);
+  run('git', ['push', '-q', '-u', 'origin', 'main'], seed);
+
+  const clone = (name) => {
+    const directory = path.join(base, name);
+    run('git', ['clone', '-q', remote, directory], base);
+    run('git', ['config', 'user.name', `${name} User`], directory);
+    run('git', ['config', 'user.email', `${name}@example.com`], directory);
+    return directory;
+  };
+  const cloneA = clone('clone-a');
+  const cloneB = clone('clone-b');
+  const providerLog = path.join(base, 'provider.jsonl');
+
+  // Contributor A publishes only Intake's deterministic brief selections.
+  const first = flow(['wm', 'light', '--phase', 'intake'], cloneA);
+  assert.match(first.stdout, /published to the .*state.* branch/i);
+  const firstManifest = JSON.parse(run('git', [
+    'show', 'origin/state:singularity/world-model/manifest.json'
+  ], cloneA));
+  assert.equal(firstManifest.views.business.tiers.brief.status, 'ready');
+
+  // Contributor B cloned before A published. Its build must fetch the state branch, use A's exact
+  // same-source snapshot as the extension base, and publish the union rather than replacing it.
+  assert.equal(existsSync(path.join(cloneB, 'singularity/world-model')), false);
+  const second = result(process.execPath, [bin, 'wm', 'build', '--phase', 'design'], cloneB, {
+    ...process.env,
+    SFLOW_PARALLEL_TEST_LOG: providerLog
+  });
+  assert.equal(second.status, 0, `${second.stdout}\n${second.stderr}`);
+  const secondManifest = JSON.parse(run('git', [
+    'show', 'origin/state:singularity/world-model/manifest.json'
+  ], cloneB));
+  assert.equal(secondManifest.views.business.tiers.brief.status, 'ready',
+    'the earlier contributor\'s business brief survives');
+  assert.equal(secondManifest.views.architecture.tiers.full.status, 'ready',
+    'the later contributor adds architecture/full');
+  const providerCallsAfterBuild = existsSync(providerLog)
+    ? (await readFile(providerLog, 'utf8')).trim().split(/\r?\n/).filter(Boolean).length
+    : 0;
+  assert.ok(providerCallsAfterBuild > 0, 'clone B invoked the configured provider');
+
+  // A third contributor consumes both retained selections from the governed branch. Availability
+  // is read-only, so no provider call or worktree model is needed.
+  const cloneC = clone('clone-c');
+  const intake = flow(['wm', 'availability', '--phase', 'intake', '--depth', 'light', '--json'], cloneC);
+  const design = flow(['wm', 'availability', '--phase', 'design', '--json'], cloneC);
+  assert.equal(JSON.parse(intake.stdout).ready, true);
+  assert.equal(JSON.parse(design.stdout).ready, true);
+  assert.equal(JSON.parse(design.stdout).authority, 'remote-governed');
+  assert.equal(existsSync(path.join(cloneC, 'singularity/world-model')), false);
+  const providerCallsAfterAvailability = existsSync(providerLog)
+    ? (await readFile(providerLog, 'utf8')).trim().split(/\r?\n/).filter(Boolean).length
+    : 0;
+  assert.equal(providerCallsAfterAvailability, providerCallsAfterBuild,
+    'clone C required zero provider invocations');
+});
+
+test('concurrent governed publishers preserve both view fragments without a second provider invocation', async () => {
+  const base = await mkdtemp(path.join(os.tmpdir(), 'sflow-worldmodel-cas-'));
+  const remote = path.join(base, 'application.git');
+  const seed = path.join(base, 'seed');
+  run('git', ['init', '-q', '-b', 'main', '--bare', remote], base);
+  run('git', ['init', '-q', '-b', 'main', seed], base);
+  run('git', ['config', 'user.name', 'Seed User'], seed);
+  run('git', ['config', 'user.email', 'seed@example.com'], seed);
+  await initializeDefinition(seed);
+  const builder = path.join(seed, 'mock-worldmodel-builder.mjs');
+  await writeFile(builder, mockBuilderSource);
+  await configureMockProvider(seed, builder);
+  const definitionPath = path.join(seed, 'singularity/workflow.yml');
+  const definition = YAML.parse(await readFile(definitionPath, 'utf8'));
+  definition.git.publish = 'off';
+  definition.ledger.enabled = false;
+  definition.worldModel.materialization.publish = 'governed';
+  await writeFile(definitionPath, YAML.stringify(definition));
+  await writeFile(path.join(seed, 'README.md'), '# Concurrent world-model publication\n');
+  run('git', ['add', '.'], seed);
+  run('git', ['commit', '-qm', 'initialize'], seed);
+  run('git', ['remote', 'add', 'origin', remote], seed);
+  run('git', ['push', '-q', '-u', 'origin', 'main'], seed);
+
+  // Establish a common governed base before cloning the two contributors. Their provider calls
+  // then finish together and race only the compare-and-swap publication, which is the condition
+  // this regression exercises.
+  flow(['wm', 'light', '--phase', 'intake'], seed);
+  const clone = (name) => {
+    const directory = path.join(base, name);
+    run('git', ['clone', '-q', remote, directory], base);
+    run('git', ['config', 'user.name', `${name} User`], directory);
+    run('git', ['config', 'user.email', `${name}@example.com`], directory);
+    return directory;
+  };
+  const cloneA = clone('clone-a');
+  const cloneB = clone('clone-b');
+  const providerLog = path.join(base, 'provider.jsonl');
+  const barrier = path.join(base, 'synthesis-barrier');
+  const environment = {
+    ...process.env,
+    SFLOW_PARALLEL_TEST_LOG: providerLog,
+    SFLOW_MOCK_SYNTHESIS_BARRIER_DIR: barrier
+  };
+  const [architecture, security] = await Promise.all([
+    resultAsync(process.execPath, [bin, 'wm', 'build', '--view', 'architecture', '--tier', 'full'], cloneA, environment),
+    resultAsync(process.execPath, [bin, 'wm', 'build', '--view', 'security', '--tier', 'full'], cloneB, environment)
+  ]);
+  assert.equal(architecture.status, 0, `${architecture.stdout}\n${architecture.stderr}`);
+  assert.equal(security.status, 0, `${security.stdout}\n${security.stderr}`);
+
+  const observer = clone('observer');
+  const manifest = JSON.parse(run('git', ['show', 'origin/state:singularity/world-model/manifest.json'], observer));
+  assert.equal(manifest.views.business.tiers.brief.status, 'ready');
+  assert.equal(manifest.views.architecture.tiers.full.status, 'ready');
+  assert.equal(manifest.views.security.tiers.full.status, 'ready');
+  const events = (await readFile(providerLog, 'utf8')).trim().split(/\r?\n/).map(JSON.parse);
+  assert.equal(events.filter((event) => event.event === 'synthesis').length, 2,
+    'the compare-and-swap loser reuses its validated fragment instead of invoking the provider again');
+});
+
+test('governed world-model publication failure fails build and ensure before local installation', async () => {
+  const base = await mkdtemp(path.join(os.tmpdir(), 'sflow-worldmodel-publish-failure-'));
+  const remote = path.join(base, 'application.git');
+  const seed = path.join(base, 'seed');
+  const work = path.join(base, 'work');
+  run('git', ['init', '-q', '-b', 'main', '--bare', remote], base);
+  run('git', ['init', '-q', '-b', 'main', seed], base);
+  run('git', ['config', 'user.name', 'Seed User'], seed);
+  run('git', ['config', 'user.email', 'seed@example.com'], seed);
+  await initializeDefinition(seed);
+  const definitionPath = path.join(seed, 'singularity/workflow.yml');
+  const definition = YAML.parse(await readFile(definitionPath, 'utf8'));
+  definition.git.publish = 'off';
+  definition.ledger.enabled = false;
+  definition.worldModel.materialization.publish = 'governed';
+  await writeFile(definitionPath, YAML.stringify(definition));
+  await writeFile(path.join(seed, 'README.md'), '# Publication failure test\n');
+  run('git', ['add', '.'], seed);
+  run('git', ['commit', '-qm', 'initialize'], seed);
+  run('git', ['remote', 'add', 'origin', remote], seed);
+  run('git', ['push', '-q', '-u', 'origin', 'main'], seed);
+  run('git', ['clone', '-q', remote, work], base);
+  run('git', ['config', 'user.name', 'Work User'], work);
+  run('git', ['config', 'user.email', 'work@example.com'], work);
+
+  flow(['wm', 'light', '--phase', 'intake'], work);
+  const manifestPath = path.join(work, 'singularity/world-model/manifest.json');
+  const installedBeforeFailure = await readFile(manifestPath, 'utf8');
+  const remoteBeforeFailure = run('git', ['rev-parse', 'refs/heads/state'], remote).trim();
+
+  // Make the existing model stale, then make the remote reject the governed commit point. A
+  // warning followed by local installation would leave this contributor believing it had
+  // published grounding that no other clone can observe.
+  await writeFile(path.join(work, 'README.md'), '# Publication failure test\n\nchanged source\n');
+  run('git', ['add', 'README.md'], work);
+  run('git', ['commit', '-qm', 'change source'], work);
+  const hook = path.join(remote, 'hooks', 'pre-receive');
+  await writeFile(hook, '#!/bin/sh\necho governed state rejected >&2\nexit 1\n');
+  await chmod(hook, 0o755);
+
+  const direct = flow(['wm', 'light', '--phase', 'intake'], work, { allowFailure: true });
+  assert.notEqual(direct.status, 0);
+  assert.match(`${direct.stdout}\n${direct.stderr}`, /Unable to publish to the state branch/);
+  assert.equal(await readFile(manifestPath, 'utf8'), installedBeforeFailure,
+    'failed governed publication does not install a private replacement locally');
+  assert.equal(run('git', ['rev-parse', 'refs/heads/state'], remote).trim(), remoteBeforeFailure,
+    'the remote governed state remains unchanged');
+
+  const ensured = flow(['wm', 'ensure', '--phase', 'intake', '--depth', 'light'], work, { allowFailure: true });
+  assert.notEqual(ensured.status, 0);
+  assert.match(`${ensured.stdout}\n${ensured.stderr}`, /Unable to publish to the state branch/);
+  assert.equal(await readFile(manifestPath, 'utf8'), installedBeforeFailure,
+    'ensure follows the same fail-before-install contract');
 });
 
 test('wm build discovers requested views concurrently and synthesizes one validated model', async () => {

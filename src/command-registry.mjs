@@ -82,7 +82,7 @@ export function commandDefinition(name) {
 }
 
 const WM_MODEL_OPERATIONS = new Set(['build', 'ensure']);
-const WM_NEVER_OPERATIONS = new Set(['init', 'inject', 'compose', 'show-prompt', 'cleanup', 'prompt', 'context', 'budget', 'facts', 'check', 'cache', 'light', 'availability', 'design-inventory']);
+const WM_NEVER_OPERATIONS = new Set(['init', 'inject', 'compose', 'show-prompt', 'cleanup', 'prompt', 'context', 'budget', 'facts', 'check', 'cache', 'light', 'availability', 'status', 'design-inventory']);
 const WORKSPACE_NEVER_OPERATIONS = new Set([
   'prune', 'list', 'current', 'prompt', 'create', 'open', 'archive-status', 'rename', 'archive',
   'restore', 'inspect', 'duplicate', 'capabilities', 'update', 'status', 'sync', 'repair', 'documents', 'forget', 'use'

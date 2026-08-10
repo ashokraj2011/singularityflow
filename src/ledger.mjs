@@ -549,8 +549,14 @@ export async function publishToStateBranch(root, rawConfig, files, message, { re
     if (hasRemote(root, config.remote)) {
       const pushed = pushLedger(worktree, config, expectedRemoteSha);
       if (pushed.status !== 0) {
-        throw new SingularityFlowError(
-          `Unable to publish to the ${config.branch} branch: ${(pushed.stderr || pushed.stdout).trim()}`);
+        const detail = (pushed.stderr || pushed.stdout).trim();
+        const error = new SingularityFlowError(
+          `Unable to publish to the ${config.branch} branch: ${detail}`,
+          { code: 'state_branch.concurrent_publication', details: { branch: config.branch, expectedRemoteSha } });
+        // Callers that can deterministically rebase an immutable payload may retry. Lifecycle
+        // decisions do not use this path and remain fail-fast.
+        error.concurrent = /stale info|fetch first|non-fast-forward|cannot lock ref.*expected|force-with-lease/i.test(detail);
+        throw error;
       }
       // The local branch follows what was just published. Readers name the branch plainly —
       // `git rev-parse state:singularity/world-model` — so a push that left the local ref behind

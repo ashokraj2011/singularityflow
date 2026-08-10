@@ -111,6 +111,7 @@ Every public operation is classified before its implementation module is importe
 | wm.light | mutation | never | — | — |
 | wm.prompt | mutation | never | — | — |
 | wm.show-prompt | mutation | never | — | — |
+| wm.status | mutation | never | — | — |
 | workflow | mutation | never | — | — |
 | workspace.archive | mutation | never | — | — |
 | workspace.archive-status | mutation | never | — | — |

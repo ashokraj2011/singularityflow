@@ -43,6 +43,8 @@ test('materialization policy defaults safely and honors the immutable Story snap
 async function seedModel(directory, sourceTreeSha256, {
   label,
   views = {},
+  domains = [],
+  taskGuides = [],
   materialization = null
 } = {}) {
   await mkdir(path.join(directory, 'core'), { recursive: true });
@@ -66,6 +68,14 @@ async function seedModel(directory, sourceTreeSha256, {
       }
     }
   }
+  for (const domain of domains) {
+    await mkdir(path.dirname(path.join(directory, domain.path)), { recursive: true });
+    await writeFile(path.join(directory, domain.path), `# ${label} domain ${domain.id}\n`);
+  }
+  for (const guide of taskGuides) {
+    await mkdir(path.dirname(path.join(directory, guide.path)), { recursive: true });
+    await writeFile(path.join(directory, guide.path), `# ${label} task guide ${guide.id}\n\n${guide.task}\n`);
+  }
   return writeV3Manifest(directory, {
     schema_version: '3.0',
     generated_at: '2026-08-10T00:00:00.000Z',
@@ -85,8 +95,8 @@ async function seedModel(directory, sourceTreeSha256, {
       model: { path: 'core/model.json' }
     },
     views: manifestViews,
-    domains: [],
-    task_guides: [],
+    domains,
+    task_guides: taskGuides,
     path_index: { path: 'path-index.json' },
     evidence: { path: 'evidence/evidence.jsonl' },
     materializations: []
@@ -145,11 +155,15 @@ test('same-source extension preserves every already-valid selected and unrelated
   await seedModel(existing, source, {
     label: 'original',
     views: { business: ['brief'] },
+    domains: [{ id: 'payments', path: 'domains/payments.md' }],
+    taskGuides: [{ id: 'old-task', path: 'task-guides/old-task.md', task: 'Explain the old flow' }],
     materialization: { id: 'first', selections: ['core/brief', 'business/brief'] }
   });
   await seedModel(fragment, source, {
     label: 'extension',
     views: { architecture: ['full'] },
+    domains: [{ id: 'orders', path: 'domains/orders.md' }],
+    taskGuides: [{ id: 'new-task', path: 'task-guides/new-task.md', task: 'Explain the new flow' }],
     materialization: { id: 'second', selections: ['core/brief', 'architecture/full'] }
   });
   const originalCore = await readFile(path.join(existing, 'core/summary.brief.md'), 'utf8');
@@ -165,6 +179,11 @@ test('same-source extension preserves every already-valid selected and unrelated
   assert.equal(await readFile(path.join(target, 'core/summary.brief.md'), 'utf8'), originalCore);
   assert.equal(await readFile(path.join(target, 'views/business.brief.md'), 'utf8'), originalBusiness);
   assert.match(await readFile(path.join(target, 'views/architecture.md'), 'utf8'), /extension architecture full/);
+  assert.match(await readFile(path.join(target, 'domains/payments.md'), 'utf8'), /original domain payments/);
+  assert.match(await readFile(path.join(target, 'domains/orders.md'), 'utf8'), /extension domain orders/);
+  assert.match(await readFile(path.join(target, 'task-guides/old-task.md'), 'utf8'), /Explain the old flow/);
+  assert.match(await readFile(path.join(target, 'task-guides/new-task.md'), 'utf8'), /Explain the new flow/);
+  await validateWorldModelDirectory(target, { integrity: 'full' });
   assert.deepEqual(manifest.materializations.at(-1).reused, ['core/brief']);
 });
 

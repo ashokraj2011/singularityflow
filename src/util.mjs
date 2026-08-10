@@ -247,9 +247,10 @@ export function run(command, args = [], {
   env = process.env,
   allowFailure = false,
   shell = false,
-  stdio = 'pipe'
+  stdio = 'pipe',
+  timeoutMs = undefined
 } = {}) {
-  const result = spawnSync(command, args, { cwd, env, encoding: 'utf8', shell, stdio });
+  const result = spawnSync(command, args, { cwd, env, encoding: 'utf8', shell, stdio, timeout: timeoutMs });
   const stdout = typeof result.stdout === 'string' ? result.stdout : '';
   const stderr = typeof result.stderr === 'string' ? result.stderr : '';
   const status = result.status ?? (result.error ? 1 : 0);

@@ -379,7 +379,7 @@ export function workspaceFormHtml(form: WorkspaceForm): string {
 
 /** The page reports intent; every value is re-validated here before it reaches the CLI. */
 export const WORKSPACE_FORM_SCRIPT = `
-  const vscode = acquireVsCodeApi();
+  const vscode = window.__sfVscode;
   document.addEventListener('click', (event) => {
     const target = event.target.closest('[data-choose],[data-submit],[data-open],[data-capability-add],[data-capability-remove]');
     if (!target) return;

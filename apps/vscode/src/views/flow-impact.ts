@@ -193,7 +193,7 @@ export function flowImpactBody(state: FlowImpactState, tab = 'overview'): string
 }
 
 const SCRIPT = `
-  const vscode = acquireVsCodeApi();
+  const vscode = window.__sfVscode;
   let tab = 'overview';
   document.addEventListener('click', (event) => {
     const tabTarget = event.target.closest('[data-tab]');

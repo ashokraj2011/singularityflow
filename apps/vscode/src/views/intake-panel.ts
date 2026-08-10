@@ -258,25 +258,27 @@ export class IntakePanel {
     const args = intakeCommand(this.form);
     this.output.appendLine(`\n$ singularity-flow ${args.join(' ')}`);
     try {
+      type StartPayload = {
+        id?: string;
+        initiativeId?: string;
+        workItem?: { id?: string };
+        initiative?: { id?: string };
+        reservation?: { id?: string };
+        currentPhase?: string;
+      };
       const result = await vscode.window.withProgress(
         { location: vscode.ProgressLocation.Notification, title: `Starting ${this.form.shape}…` },
-        () => this.client.run<{
-          id?: string;
-          initiativeId?: string;
-          workItem?: { id?: string };
-          initiative?: { id?: string };
-          reservation?: { id?: string };
-          currentPhase?: string;
-        }>(args));
+        () => this.client.run<StartPayload & { data?: StartPayload }>(args));
+      const payload = result.data ?? result;
       // The identifier a local Epic minted is only knowable from what came back — and `epic start
       // --local --json` reports it as `initiativeId`, which was not among the names read here, so
       // the fallback produced the empty string and the new Epic was never selected.
-      const id = result.workItem?.id ?? result.initiative?.id ?? result.initiativeId
-        ?? result.reservation?.id ?? result.id
+      const id = payload.workItem?.id ?? payload.initiative?.id ?? payload.initiativeId
+        ?? payload.reservation?.id ?? payload.id
         ?? (this.form.tracker === 'jira' ? this.form.key.trim() : this.form.id.trim());
       const shape = this.form.shape;
       this.dispose();
-      await this.onStarted({ shape, id, currentPhase: result.currentPhase });
+      await this.onStarted({ shape, id, currentPhase: payload.currentPhase });
     } catch (error) {
       this.update({ busy: false, error: (error as Error).message });
     }

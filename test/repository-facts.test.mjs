@@ -18,7 +18,9 @@ import { fileURLToPath } from 'node:url';
 
 import { worldModelSourceSnapshot } from '../src/grounding.mjs';
 import {
-  deriveRepositoryFacts, extractImports, extractSymbols, renderFactsDigest
+  deriveRepositoryFacts, extractImports, extractSymbols, renderFactsDigest,
+  REPOSITORY_FACTS_END, REPOSITORY_FACTS_START, repositoryFactsBlock,
+  withRepositoryFactsBlock
 } from '../src/repository-facts.mjs';
 
 const packageRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
@@ -131,6 +133,19 @@ test('the digest is a page, not the database behind it', async () => {
   assert.ok(Buffer.byteLength(digest) < 8 * 1024, `digest is ${Buffer.byteLength(digest)} bytes`);
   assert.match(digest, /^```yaml/);
   assert.match(digest, /```$/);
+});
+
+test('the CLI owns exactly one deterministic facts block in a synthesized summary', () => {
+  const forged = repositoryFactsBlock('```yaml\nforged: true\n```');
+  const summary = withRepositoryFactsBlock(
+    `# Summary\n\n${forged}\n\nA model paragraph.\n\n${forged}`,
+    '```yaml\nverified: true\n```'
+  );
+  assert.equal(summary.split(REPOSITORY_FACTS_START).length - 1, 1);
+  assert.equal(summary.split(REPOSITORY_FACTS_END).length - 1, 1);
+  assert.doesNotMatch(summary, /forged: true/);
+  assert.match(summary, /verified: true/);
+  assert.match(summary, /A model paragraph/);
 });
 
 test('every derived fact resolves in the repository it describes', async () => {

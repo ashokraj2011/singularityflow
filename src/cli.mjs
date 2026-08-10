@@ -757,44 +757,42 @@ async function startCommand(positionals, options) {
     });
     await commitAndPublish(root, config, workflow, { type: 'evidence-recorded', payload: { documents: records.map((item) => item.id) } }, `[${id}][documents][upload] ${records.map((item) => item.id).join(',')}`);
   }
-  // Same contract as `initiative start --json`: the VS Code intake form sends `--json` here and
-  // parses stdout, and a human-only response made a successful start look like a failure.
-  if (optionBoolean(options, 'json')) {
-    console.log(JSON.stringify({
+  const startResult = commandResult({
+    operation: { id: 'start', classification: 'mutation' },
+    subject: { kind: 'story', id: workflow.workItem.id },
+    outcome: succeeded('start.succeeded', {
+      workId: workflow.workItem.id,
+      branch: workflow.workItem.branch,
+      phase: workflow.currentPhase
+    }),
+    // Creates the branch, writes the pinned resolution, and publishes the opening commit.
+    effects: effects({ filesChanged: true, stateChanged: true, publicationCreated: true }),
+    data: {
       workItem: { id: workflow.workItem.id, branch: workflow.workItem.branch, title: workflow.workItem.title },
       id: workflow.workItem.id,
       workType,
       currentPhase: workflow.currentPhase,
       documents: supportingDocuments.length
-    }, null, 2));
-  } else {
+    },
+    next: [
+      narrationAction({
+        id: 'start.prepare',
+        label: `Materialise the ${workflow.currentPhase} artifact so it can be filled in`,
+        command: `singularity-flow prepare ${workflow.currentPhase}`
+      }),
+      narrationAction({
+        id: 'start.help',
+        label: 'See what this phase expects',
+        command: `singularity-flow phase show ${workflow.currentPhase}`,
+        rank: 'LATER'
+      })
+    ]
+  });
+  if (!optionBoolean(options, 'json')) {
     summary(workflow);
     if (supportingDocuments.length) console.log(`Supporting documents: ${supportingDocuments.length} uploaded and published.`);
-    emitCommandResult(commandResult({
-      operation: { id: 'start', classification: 'mutation' },
-      subject: { kind: 'story', id: workflow.workItem.id },
-      outcome: succeeded('start.succeeded', {
-        workId: workflow.workItem.id,
-        branch: workflow.workItem.branch,
-        phase: workflow.currentPhase
-      }),
-      // Creates the branch, writes the pinned resolution, and publishes the opening commit.
-      effects: effects({ filesChanged: true, stateChanged: true, published: true }),
-      next: [
-        narrationAction({
-          id: 'start.prepare',
-          label: `Materialise the ${workflow.currentPhase} artifact so it can be filled in`,
-          command: `singularity-flow prepare ${workflow.currentPhase}`
-        }),
-        narrationAction({
-          id: 'start.help',
-          label: 'See what this phase expects',
-          command: `singularity-flow phase show ${workflow.currentPhase}`,
-          rank: 'LATER'
-        })
-      ]
-    }), { postState: workflow });
   }
+  emitCommandResult(startResult, { json: optionBoolean(options, 'json'), postState: workflow });
   } catch (error) {
     // Selection and validation happen against the lifecycle branch because that branch owns the
     // workflow definition and any governed Story seed. If those preflight steps fail before state

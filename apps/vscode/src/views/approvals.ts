@@ -105,7 +105,7 @@ function bodyHtml(approvals: Approvals): string {
 }
 
 const SCRIPT = `
-  const vscode = acquireVsCodeApi();
+  const vscode = window.__sfVscode;
   document.addEventListener('click', (event) => {
     const target = event.target.closest('[data-approve],[data-reject],[data-open]');
     if (!target) return;

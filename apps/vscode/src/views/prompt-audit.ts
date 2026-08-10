@@ -27,7 +27,7 @@ interface PromptAuditSnapshot {
 }
 
 const SCRIPT = `
-  const vscode = acquireVsCodeApi();
+  const vscode = window.__sfVscode;
   document.addEventListener('click', (event) => {
     const action = event.target.closest('[data-action]');
     if (action) vscode.postMessage({ type: action.dataset.action });

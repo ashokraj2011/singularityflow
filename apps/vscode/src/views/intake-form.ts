@@ -431,7 +431,7 @@ export function intakeHtml(form: IntakeForm): string {
 
 /** The page reports intent; every value is re-validated before it reaches the CLI. */
 export const INTAKE_SCRIPT = `
-  const vscode = acquireVsCodeApi();
+  const vscode = window.__sfVscode;
   document.addEventListener('click', (event) => {
     const target = event.target.closest('[data-submit]');
     if (target) vscode.postMessage({ type: 'start' });

@@ -100,7 +100,7 @@ function bodyHtml(stories: Stories): string {
 }
 
 const SCRIPT = `
-  const vscode = acquireVsCodeApi();
+  const vscode = window.__sfVscode;
   document.addEventListener('click', (event) => {
     const target = event.target.closest('[data-spec],[data-split],[data-materialize]');
     if (!target) return;

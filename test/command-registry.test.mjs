@@ -16,6 +16,7 @@ test('command registry resolves compatibility aliases without duplicating handle
   }
   assert.equal(COMMAND_REGISTRY.find((entry) => entry.name === 'snapshot').classification, 'read');
   assert.equal(COMMAND_REGISTRY.find((entry) => entry.name === 'wm').modelPolicy, 'mixed');
+  assert.equal(COMMAND_REGISTRY.find((entry) => entry.name === 'start').output, 'human-or-json');
 });
 
 test('mixed deterministic commands classify their actual operation rather than their top-level name', () => {

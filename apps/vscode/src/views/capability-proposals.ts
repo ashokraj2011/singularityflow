@@ -62,7 +62,7 @@ function proposalsHtml(entries: ProposalEntry[], leads: number, failures: LeadFa
 }
 
 const SCRIPT = `
-  const vscode = acquireVsCodeApi();
+  const vscode = window.__sfVscode;
   document.addEventListener('click', (event) => {
     const review = event.target.closest('[data-review]');
     if (review) return vscode.postMessage({ type: 'review', index: Number(review.dataset.review) });

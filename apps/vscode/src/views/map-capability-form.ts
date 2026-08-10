@@ -235,7 +235,7 @@ export function mapCapabilityHtml(form: MapCapabilityForm): string {
 }
 
 export const MAP_CAPABILITY_SCRIPT = `
-  const vscode = acquireVsCodeApi();
+  const vscode = window.__sfVscode;
   document.addEventListener('click', (event) => {
     const addMetadata = event.target.closest('[data-map-metadata-add]');
     if (addMetadata) return vscode.postMessage({ type: 'metadataAdd' });

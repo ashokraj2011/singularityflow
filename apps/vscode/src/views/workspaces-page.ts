@@ -317,7 +317,7 @@ export function workspacesHtml(
 }
 
 export const WORKSPACES_SCRIPT = `
-  const vscode = acquireVsCodeApi();
+  const vscode = window.__sfVscode;
   document.addEventListener('click', (event) => {
     const target = event.target.closest('[data-select],[data-switch],[data-rename],[data-duplicate],[data-forget],[data-create],[data-edit],[data-edit-add],[data-edit-remove],[data-edit-save],[data-edit-cancel],[data-archive],[data-restore]');
     if (!target) return;

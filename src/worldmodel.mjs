@@ -20,7 +20,9 @@ import { loadSession } from './session.mjs';
 import { renderAgentSkills } from './agents.mjs';
 import { heartbeat } from './style.mjs';
 import * as style from './style.mjs';
-import { deriveRepositoryFacts, renderFactsDigest } from './repository-facts.mjs';
+import {
+  deriveRepositoryFacts, renderFactsDigest, withRepositoryFactsBlock
+} from './repository-facts.mjs';
 import { collectInputs, renderInputsBlock } from './inputs.mjs';
 import { assertNoPendingPublication, pendingPublicationPath, saveStoryDraft } from './state-stores.mjs';
 import { assertPhaseSequence } from './sequence.mjs';
@@ -940,8 +942,19 @@ async function build(root, config, options) {
       }
       throw new SingularityFlowError(`World-model discovery workers modified files outside their isolated packets: ${[...new Set(discoveryChanges)].join(', ')}`);
     }
+    const repositoryFacts = await deriveRepositoryFacts(analysisRoot, sourceState);
+    const repositoryFactsDigest = renderFactsDigest(repositoryFacts);
     const renderedPrompt = render(await readFile(source, 'utf8'), analysisRoot, buildConfig, renderOptions);
-    const synthesisPrompt = appendDiscoveryPackets(renderedPrompt, discovery);
+    const synthesisPrompt = `${appendDiscoveryPackets(renderedPrompt, discovery)}
+
+## CLI-owned deterministic repository facts
+
+These facts were computed from the exact source snapshot. Use them as immutable grounding; do not
+rewrite, contradict, or claim authorship of them. The CLI will install this exact digest into the
+final core summary after synthesis.
+
+${repositoryFactsDigest}
+`;
     await writeFile(promptFile, synthesisPrompt);
     if (optionString(options, 'runner')) throw new SingularityFlowError('--runner is no longer supported. Configure a trusted model provider instead.');
     const invokeSynthesis = () => invokeModel({
@@ -1027,6 +1040,13 @@ async function build(root, config, options) {
       .filter(([, entry]) => entry?.generated !== false)
       .map(([id]) => id)
       .sort();
+    const summaryRelative = validated.manifest.core?.summary ?? 'core/summary.md';
+    const summaryPath = path.join(staging, summaryRelative);
+    const summary = withRepositoryFactsBlock(await readFile(summaryPath, 'utf8'), repositoryFactsDigest);
+    await writeFile(summaryPath, summary);
+    if (validated.manifest.core?.bytes && typeof validated.manifest.core.bytes === 'object') {
+      validated.manifest.core.bytes.summary = Buffer.byteLength(summary, 'utf8');
+    }
     Object.assign(validated.manifest, metadata, {
       repository_commit: sourceCommit,
       views_generated: generatedViews,

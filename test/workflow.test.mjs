@@ -48,6 +48,22 @@ test('start refuses non-interactive selection without a test or UI selection', a
   assert.notEqual(execute('git', ['show-ref', '--verify', '--quiet', 'refs/heads/NO-SELECT'], root, { allowFailure: true }).status, 0);
 });
 
+test('start JSON uses the same versioned command-result contract as terminal output', async () => {
+  const root = await repository();
+  const result = flow(root, [
+    'start', 'START-CONTRACT-1', '--json', '--work-type', 'chore', '--agent', 'developer',
+    '--title', 'Verify the start contract', '--description', 'One output envelope serves CLI and VS Code.'
+  ]);
+  const parsed = JSON.parse(result.stdout);
+  assert.equal(parsed.schemaVersion, 1);
+  assert.equal(parsed.resultType, 'command-result');
+  assert.equal(parsed.operation.id, 'start');
+  assert.equal(parsed.subject.id, 'START-CONTRACT-1');
+  assert.equal(parsed.effects.publicationCreated, true);
+  assert.equal(parsed.data.id, 'START-CONTRACT-1');
+  assert.equal(parsed.data.currentPhase, 'intake');
+});
+
 test('failed start restores the caller branch and both previous local sessions', async () => {
   const root = await repository();
   const sessionFile = path.join(root, '.git/singularity-flow/session.json');

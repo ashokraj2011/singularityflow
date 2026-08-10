@@ -66,7 +66,7 @@ type WorkspaceImpactMessage =
   | { type: 'startWork'; id?: unknown };
 
 const WORKSPACE_SCRIPT = `
-  const vscode = acquireVsCodeApi();
+  const vscode = window.__sfVscode;
   document.addEventListener('click', (event) => {
     const analyze = event.target.closest('[data-impact-analyze]');
     if (analyze) {

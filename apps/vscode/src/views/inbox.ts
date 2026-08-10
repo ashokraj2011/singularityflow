@@ -74,7 +74,7 @@ function bodyHtml(inbox: Inbox): string {
 }
 
 const SCRIPT = `
-  const vscode = acquireVsCodeApi();
+  const vscode = window.__sfVscode;
   document.addEventListener('click', (event) => {
     const target = event.target.closest('[data-artifact],[data-approve],[data-reject],[data-open-approval]');
     if (!target) return;

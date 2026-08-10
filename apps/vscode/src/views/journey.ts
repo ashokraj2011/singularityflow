@@ -169,7 +169,7 @@ function bodyHtml(journey: Journey): string {
 
 /** The page can only name an action and an id. What either means is decided by the extension. */
 const SCRIPT = `
-  const vscode = acquireVsCodeApi();
+  const vscode = window.__sfVscode;
   document.addEventListener('click', (event) => {
     const target = event.target.closest('[data-open],[data-approve],[data-run],[data-pin]');
     if (!target) return;

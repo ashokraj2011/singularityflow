@@ -21,7 +21,7 @@ const extensionRoot = path.join(root, 'apps', 'vscode');
 
 const manifest = JSON.parse(await readFile(path.join(extensionRoot, 'package.json'), 'utf8'));
 const extensionSource = await readFile(path.join(extensionRoot, 'src', 'extension.ts'), 'utf8');
-const { NAV_COMMANDS, NAV_DESTINATIONS, footerNav, navigationTarget, NAV_SCRIPT } =
+const { NAV_COMMANDS, NAV_DESTINATIONS, footerNav, navigationTarget, NAV_SCRIPT, page, VSCODE_API_SCRIPT } =
   await import('../apps/vscode/src/views/webview.ts');
 
 test('what the page emits is what the script reads', () => {
@@ -30,6 +30,15 @@ test('what the page emits is what the script reads', () => {
   assert.deepEqual(emitted.sort(), Object.keys(NAV_DESTINATIONS).sort());
   assert.match(NAV_SCRIPT, /\.page-nav \[data-nav\]/);
   assert.match(NAV_SCRIPT, /dataset\.nav/);
+});
+
+test('a scripted page acquires the VS Code API exactly once and shares it with footer navigation', () => {
+  const rendered = page('Test', '<main>Body</main>', "default-src 'none'", 'nonce',
+    'const vscode = window.__sfVscode; vscode.postMessage({ type: "ready" });');
+  assert.equal(rendered.split('acquireVsCodeApi()').length - 1, 1);
+  assert.ok(rendered.indexOf(VSCODE_API_SCRIPT.trim()) < rendered.indexOf('const vscode = window.__sfVscode'));
+  assert.match(NAV_SCRIPT, /window\.__sfVscode\.postMessage/);
+  assert.doesNotMatch(NAV_SCRIPT, /acquireVsCodeApi/);
 });
 
 test('what the script posts is what the panels resolve', () => {

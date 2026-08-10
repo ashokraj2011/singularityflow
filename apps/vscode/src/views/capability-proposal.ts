@@ -84,7 +84,7 @@ function reviewHtml(proposal: CapabilityProposal | null, busy: boolean, error: s
 }
 
 const SCRIPT = `
-  const vscode = acquireVsCodeApi();
+  const vscode = window.__sfVscode;
   document.addEventListener('click', (event) => {
     const button = event.target.closest('button[data-action]');
     if (button && !button.disabled) vscode.postMessage({ type: button.dataset.action });

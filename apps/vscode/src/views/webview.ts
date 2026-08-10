@@ -722,8 +722,13 @@ export function footerNav(current: NavDestination | null = null): string {
 export const NAV_SCRIPT = `
   document.addEventListener('click', (event) => {
     const target = event.target.closest('.page-nav [data-nav]');
-    if (target) (window.__sfVscode ??= acquireVsCodeApi()).postMessage({ type: 'navigate', to: target.dataset.nav });
+    if (target) window.__sfVscode.postMessage({ type: 'navigate', to: target.dataset.nav });
   });
+`;
+
+/** Acquire VS Code's single-use webview API once, before page and shared navigation scripts. */
+export const VSCODE_API_SCRIPT = `
+  window.__sfVscode ??= acquireVsCodeApi();
 `;
 
 /**
@@ -748,7 +753,9 @@ export function page(
   { nav = null }: { nav?: NavDestination | null | false } = {}
 ): string {
   const footer = nav === false ? '' : footerNav(nav);
-  const scripts = nav === false ? script : `${script}${NAV_SCRIPT}`;
+  const scripts = (script || nav !== false)
+    ? `${VSCODE_API_SCRIPT}${script}${nav === false ? '' : NAV_SCRIPT}`
+    : '';
   return `<!DOCTYPE html><html lang="en"><head>
 <meta charset="utf-8">
 <meta http-equiv="Content-Security-Policy" content="${csp}">

@@ -16,7 +16,10 @@ export const COMMAND_RESULT_SCHEMA_VERSION = 1;
 
 const STATUSES = new Set(['succeeded', 'refused', 'failed', 'noop']);
 const REST_STATES = new Set(['complete', 'cancelled', 'awaiting-others', 'informational']);
-const WHY_SOURCES = new Set(['pin', 'policy', 'gate', 'sequence', 'evidence', 'config', 'remote', 'telemetry', 'identity']);
+// `docs` is the documentation plane. It is its own source rather than being folded into `config` or
+// `evidence` because NCL-005 asks a WHY entry to name a resolvable source, and "a topic in the
+// shipped package" resolves somewhere neither of those two points at.
+const WHY_SOURCES = new Set(['pin', 'policy', 'gate', 'sequence', 'evidence', 'config', 'remote', 'telemetry', 'identity', 'docs']);
 const NEXT_RANKS = new Set(['NOW', 'SOON', 'LATER']);
 const NEXT_KINDS = new Set(['workflow', 'remediation', 'review', 'informational']);
 const MODEL_POLICIES = new Set(['never', 'optional', 'required']);

@@ -341,6 +341,137 @@ const portfolioSource = await readFile(path.join(root, 'templates', 'portfolio.y
 if (/brokerage/i.test(portfolioSource)) fail('portfolio template contains organization-specific terminology');
 checked.push('templates/portfolio.yml');
 
+/**
+ * The documentation mapping, held closed in both directions `[DOC:REQ-003]` `[DOC:AC-001]`.
+ *
+ * Documentation drifts from software silently — that is its defining failure mode, and no amount of
+ * care at authoring time fixes it. The supplied topic set is the proof: it referenced `sflow me`, a
+ * command that has never existed, and `telemetry report`, which is spelled `reconcile`. Both read
+ * perfectly well. Both would have been relayed to a user, with a citation, as fact.
+ *
+ * So: every user-facing command must be documented by at least one topic, and no topic may name a
+ * command or subcommand the CLI does not have.
+ */
+{
+  const { loadTopics, aliasTable } = await import('../src/docs-topics.mjs');
+  const { COMMAND_REGISTRY } = await import('../src/command-registry.mjs');
+  const { HELP } = await import('../src/help-text.mjs');
+
+  let topics = [];
+  try {
+    topics = await loadTopics();
+  } catch (error) {
+    fail(`Documentation topics do not compile: ${error.message}`);
+  }
+
+  if (topics.length) {
+    const commandNames = new Set();
+    for (const entry of COMMAND_REGISTRY) {
+      commandNames.add(entry.name);
+      for (const alias of entry.aliases) commandNames.add(alias);
+    }
+
+    // Subcommands come from the synopsis, which is already the single source of usage truth. A
+    // `<PLACEHOLDER>` or `[optional]` token is an argument, not a subcommand, so neither counts.
+    const subcommands = new Map();
+    for (const line of HELP.split('\n')) {
+      const match = /^\s{2}(?:singularity-flow|sflow|sf-[a-z-]+)\s+([a-z][a-z-]*)\s+([a-z][a-z-]*)/.exec(line);
+      if (!match) continue;
+      if (!commandNames.has(match[1])) continue;
+      if (!subcommands.has(match[1])) subcommands.set(match[1], new Set());
+      subcommands.get(match[1]).add(match[2]);
+    }
+
+    // Direction one: no topic invents a command.
+    const invented = [];
+    for (const topic of topics) {
+      for (const name of topic.commands) {
+        if (!commandNames.has(name)) invented.push(`${topic.file} declares command '${name}'`);
+      }
+      // Inline `sflow <command> <subcommand>` spans in the body are claims too, and they are the
+      // ones a reader will actually type.
+      for (const [, command, rest] of topic.body.matchAll(/`(?:sflow|singularity-flow)\s+([a-z][a-z-]*)((?:\s+[a-z][a-z/-]*)*)`/g)) {
+        if (!commandNames.has(command)) {
+          invented.push(`${topic.file} shows \`sflow ${command}\``);
+          continue;
+        }
+        const known = subcommands.get(command);
+        if (!known) continue;
+        // Only the first level. The synopsis is parsed one subcommand deep, so `story interval
+        // reconcile` can be checked as far as `story interval` and no further — and a check that
+        // pretended to verify the third token would reject correct documentation, which is a worse
+        // failure than checking less. `status/report` in a code span means "either of these".
+        const [first = ''] = rest.trim().split(/\s+/).filter(Boolean);
+        for (const candidate of first.split('/').filter(Boolean)) {
+          if (!known.has(candidate)) invented.push(`${topic.file} shows \`sflow ${command} ${candidate}\`, which is not in the synopsis`);
+        }
+      }
+      for (const related of topic.related) {
+        if (!topics.some((entry) => entry.id === related)) invented.push(`${topic.file} relates to unknown topic '${related}'`);
+      }
+    }
+    if (invented.length) fail(`Documentation topics reference things that do not exist:\n    ${invented.join('\n    ')}`);
+
+    // Direction two: no user-facing command is undocumented. Internal reset/install plumbing is not
+    // something a person asks a question about, and pretending otherwise would pad the topic set
+    // with pages nobody reads.
+    const notUserFacing = new Set([
+      'about', 'help', 'explain', 'show', 'harness', 'init', 'factory-reset', 'reset-all', 'local-reset',
+      'fresh-install', 'reinstall', 'refresh-branch', 'hook', 'plugin', 'session', 'state', 'watch',
+      'cockpit', 'run', 'assign', 'stack', 'prompt-log', 'logs', 'snapshot', 'choices', 'action',
+      'agent', 'agents', 'workflow', 'workspace', 'capability', 'capabilities', 'configuration',
+      'initiative', 'jira', 'knowledge', 'prepare', 'progress', 'quickstart', 'regression', 'resume',
+      'wm', 'bootstrap', 'next', 'inputs', 'artifact', 'pr', 'stack'
+    ]);
+    const documented = new Set(topics.flatMap((topic) => topic.commands));
+    const undocumented = [...commandNames]
+      .filter((name) => !notUserFacing.has(name) && !documented.has(name))
+      .filter((name) => COMMAND_REGISTRY.some((entry) => entry.name === name))
+      .sort();
+    if (undocumented.length) {
+      fail(`User-facing commands no topic documents: ${undocumented.join(', ')}. Document them, or add them to the not-user-facing list in scripts/check.mjs with a reason.`);
+    }
+
+    // The manifest must describe the topics that are actually on disk `[DOC:REQ-004]`, or `doctor`
+    // reports a version that means nothing and a citation points at bytes nobody shipped.
+    const { buildManifest } = await import('../src/docs-topics.mjs');
+    const { docsManifest } = await import('../src/docs-manifest.mjs');
+    const manifest = docsManifest();
+    if (!manifest) fail('No docs manifest is stamped. Run: node scripts/build-docs-manifest.mjs');
+    else if (manifest.contentSha256 !== buildManifest(topics).contentSha256) {
+      fail('The docs manifest does not match docs/topics. Run: node scripts/build-docs-manifest.mjs');
+    }
+
+    /**
+     * Versions bump with content `[DOC:REQ-001]`.
+     *
+     * Without this the version is decoration: a topic's words change, its version does not, and a
+     * reader who was told "approvals v1" last month and "approvals v1" today has no way to know the
+     * answer moved. Compared against the manifest in HEAD, so the question asked is exactly "did
+     * this commit change a topic without saying so?".
+     */
+    const previous = spawnSync('git', ['show', 'HEAD:src/docs-manifest.json'], { cwd: root, encoding: 'utf8' });
+    if (previous.status === 0) {
+      let baseline = null;
+      try { baseline = JSON.parse(previous.stdout); } catch { baseline = null; }
+      const before = new Map((baseline?.topics ?? []).map((entry) => [entry.id, entry]));
+      const unbumped = topics
+        .filter((topic) => {
+          const prior = before.get(topic.id);
+          return prior && prior.sha256 !== topic.sha256 && prior.version === topic.version;
+        })
+        .map((topic) => `${topic.file} (still v${topic.version})`);
+      if (unbumped.length) {
+        fail(`Topic content changed without a version bump: ${unbumped.join(', ')}. Raise 'version:' in the frontmatter, then rebuild the manifest.`);
+      }
+    }
+
+    // An alias that shadows nothing is dead weight; one that collides is a silent misdirection.
+    // `loadTopics` throws on collisions, so reaching here means only the count is worth recording.
+    checked.push(`docs/topics (${topics.length} topics, ${aliasTable(topics).size} aliases)`);
+  }
+}
+
 const help = spawnSync(process.execPath, [path.join(root, 'bin', 'singularity-flow.mjs'), '--help'], { encoding: 'utf8' });
 if (help.status !== 0 || !help.stdout.includes('singularity-flow approve')) fail('CLI help smoke test failed');
 checked.push('CLI help smoke test');

@@ -4,6 +4,7 @@ import { branch, changes, hasRemote, hasUpstream, head } from './git.mjs';
 import { initializationStatus, loadDefinition, WORKFLOW_PATH } from './config.mjs';
 import { loadPortfolio } from './initiative-config.mjs';
 import { loadSession } from './session.mjs';
+import { VERSION } from './version.mjs';
 import { storyPublicationPending, validateWorkflow, workflowPath, loadStoryAggregate } from './state-stores.mjs';
 import { findLegacyPendingPublications } from './publication-pending.mjs';
 import { inspectStatePlanes } from './state-planes.mjs';
@@ -37,6 +38,37 @@ export async function doctorSnapshot(root, { workId = null, offline = false } = 
         ? 'Governed state still works. To build world models, install Git for Windows so a shell is available.'
         : `Governed state still works. To build world models, install ${buildShell.command}.`
   ));
+  /**
+   * The documentation version, beside the CLI version `[DOC:REQ-004]`.
+   *
+   * A mismatch is `misconfigured` rather than a warning because of what the docs layer is for. Every
+   * `explain` reply carries a citation, and a citation whose bytes came from somewhere other than
+   * the build is worse than no citation at all — it is a confident answer with a false provenance.
+   * Better to say so on the diagnostics page than to keep serving it.
+   */
+  try {
+    const { buildManifest, loadTopics } = await import('./docs-topics.mjs');
+    const { docsManifest } = await import('./docs-manifest.mjs');
+    const manifest = docsManifest();
+    const topics = await loadTopics();
+    const actual = buildManifest(topics).contentSha256;
+    const stamped = manifest?.contentSha256 ?? null;
+    const matches = Boolean(stamped) && stamped === actual;
+    checks.push(check(
+      'documentation',
+      matches ? 'pass' : 'fail',
+      matches
+        ? `CLI ${VERSION} · ${topics.length} documentation topics, content ${actual.slice(0, 12)} from ${manifest.sourceCommit ? manifest.sourceCommit.slice(0, 7) : 'an unstamped build'}.`
+        : stamped
+          ? `CLI ${VERSION} · documentation is misconfigured: ${topics.length} topics hash to ${actual.slice(0, 12)} but the manifest was stamped from ${stamped.slice(0, 12)}.`
+          : `CLI ${VERSION} · ${topics.length} documentation topics are installed with no stamped manifest.`,
+      matches ? null : 'Rebuild it with: node scripts/build-docs-manifest.mjs — until then, sflow explain citations name a version this build did not ship.'
+    ));
+  } catch (error) {
+    checks.push(check('documentation', 'fail', `Documentation topics could not be read: ${error.message}`,
+      'Reinstall the package: the docs/topics directory ships with it.'));
+  }
+
   const gitName = run('git', ['config', '--get', 'user.name'], { cwd: root, allowFailure: true }).stdout.trim();
   const gitEmail = run('git', ['config', '--get', 'user.email'], { cwd: root, allowFailure: true }).stdout.trim();
   checks.push(check('git-identity', gitName && gitEmail ? 'pass' : 'fail', gitName && gitEmail ? `Git identity ${gitName} <${gitEmail}>.` : 'Git user.name and/or user.email is missing.', gitName && gitEmail ? null : 'Configure git user.name and git user.email before creating lifecycle commits.'));

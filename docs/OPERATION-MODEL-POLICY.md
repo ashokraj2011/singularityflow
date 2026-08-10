@@ -25,6 +25,7 @@ Every public operation is classified before its implementation module is importe
 | doctor | read | never | — | — |
 | documents | mutation | never | — | — |
 | epic | mutation | never | — | — |
+| explain | read | never | — | — |
 | factory-reset | mutation | never | — | — |
 | finalize | mutation | never | — | — |
 | fresh-install | mutation | never | — | — |

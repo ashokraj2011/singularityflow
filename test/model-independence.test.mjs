@@ -22,6 +22,7 @@ test('every public operation has an explicit model policy and valid fallback', (
   assert.equal(resolveOperation({ requestedCommand: 'status', positionals: ['status'] }).modelPolicy, 'never');
   assert.equal(resolveOperation({ requestedCommand: 'wm', positionals: ['wm', 'light'] }).modelPolicy, 'never');
   assert.equal(resolveOperation({ requestedCommand: 'wm', positionals: ['wm', 'availability'] }).modelPolicy, 'never');
+  assert.equal(resolveOperation({ requestedCommand: 'wm', positionals: ['wm', 'status'] }).modelPolicy, 'never');
   assert.equal(resolveOperation({ requestedCommand: 'wm', positionals: ['wm', 'build'] }).modelPolicy, 'required');
   assert.equal(resolveOperation({ requestedCommand: 'wm', positionals: ['wm', 'ensure'] }).modelPolicy, 'required');
   assert.throws(() => resolveOperation({ requestedCommand: 'wm', positionals: ['wm', 'surprise'] }), /no model policy classification/);

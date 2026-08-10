@@ -29,7 +29,8 @@ import { assertPhaseSequence } from './sequence.mjs';
 import { publishToStateBranch } from './ledger.mjs';
 import {
   changedSnapshotPaths, groundingMode, repositoryContentSnapshot, resolveWorldModelContext,
-  validateWorldModelDirectory, worldModelCommit, worldModelFreshness, worldModelSourceSnapshot
+  resolveWorldModelSource, validateWorldModelDirectory, worldModelCommit, worldModelFreshness,
+  worldModelSourceSnapshot
 } from './grounding.mjs';
 import {
   corePath, resolveGroundingPlan, resolveViews, selectionId, tierForCore, viewPath
@@ -398,6 +399,32 @@ async function installWorldModel(staging, target) {
   }
 }
 
+async function compatibleWorldModelDirectory(root, config, sourceTreeSha256) {
+  const located = await resolveWorldModelSource(root, config);
+  if (located.diverged) {
+    throw new SingularityFlowError(
+      `Local and remote state branch '${located.branch}' have diverged; synchronize the governed state branch before extending its world model.`,
+      {
+        code: 'world_model.state_diverged',
+        details: { branch: located.branch, ref: located.ref }
+      }
+    );
+  }
+  const manifestPath = path.join(located.directory, 'manifest.json');
+  if (!existsSync(manifestPath)) return null;
+  try {
+    const manifest = JSON.parse(await readFile(manifestPath, 'utf8'));
+    if (manifest.source_tree_sha256 !== sourceTreeSha256) return null;
+    await validateWorldModelDirectory(located.directory, {
+      integrity: 'full',
+      sourceLabel: `${located.source} progressive-generation base`
+    });
+    return located.directory;
+  } catch {
+    return null;
+  }
+}
+
 async function publishWorldModel(root, config, workflow, sourceHash, phase = 'repository', { local = false } = {}) {
   const publishing = !local && (config.definition?.git?.publish ?? 'required') !== 'off';
   if (publishing) assertNotDefaultBranch(root, config, 'World-model publication');
@@ -434,11 +461,13 @@ async function publishWorldModel(root, config, workflow, sourceHash, phase = 're
  * code can rewrite the commit a branch copy sits on. Nothing had ever written that copy, so the
  * preference was inert and every read fell through to the working tree.
  *
- * Best effort, and deliberately after the branch publish rather than instead of it. The model is
- * already committed by the time this runs; a repository not using the state branch, or a remote
- * that cannot be reached, is worth reporting and is not worth failing a build over.
+ * Governed publication is the materialization commit point. A build configured with
+ * `materialization.publish: governed` is not successful until this exact validated snapshot is on
+ * the state branch. Concurrent contributors are reconciled without invoking the provider again.
  */
-async function publishWorldModelToStateBranch(root, config, sourceHash, phase) {
+async function publishWorldModelToStateBranch(root, config, sourceHash, phase, {
+  directory = path.join(root, config.outputDir), plan = null
+} = {}) {
   const ledger = config.definition?.ledger ?? null;
   const materialization = config.materialization ?? materializationPolicy(config.definition ?? config);
   // World-model governance uses the same orphan state-branch transport as the ledger, but does not
@@ -446,45 +475,107 @@ async function publishWorldModelToStateBranch(root, config, sourceHash, phase) {
   // switch made the default configuration impossible: it requested governed model publication
   // while disabling the unrelated event ledger, so every successful build became "local only".
   if (materialization.publish !== 'governed') return { published: false, reason: 'world-model state publication is not required' };
-  if (ledger?.publication === 'off') return { published: false, reason: 'state publication is disabled' };
-  const directory = path.join(root, config.outputDir);
   if (!existsSync(path.join(directory, 'manifest.json'))) {
-    return { published: false, reason: 'there is no built model to publish' };
+    throw new SingularityFlowError('There is no validated world model to publish to the governed state branch.');
   }
 
-  const files = {};
-  const collect = async (from, relative = '') => {
-    for (const entry of await readdir(from, { withFileTypes: true })) {
-      const at = relative ? posix(path.join(relative, entry.name)) : entry.name;
-      if (entry.isDirectory()) await collect(path.join(from, entry.name), at);
-      else if (entry.isFile()) files[posix(path.join(config.outputDir, at))] = await readFile(path.join(from, entry.name));
+  const collectFiles = async (from) => {
+    const files = {};
+    const collect = async (atDirectory, relative = '') => {
+      for (const entry of await readdir(atDirectory, { withFileTypes: true })) {
+        const at = relative ? posix(path.join(relative, entry.name)) : entry.name;
+        if (entry.isDirectory()) await collect(path.join(atDirectory, entry.name), at);
+        else if (entry.isFile()) files[posix(path.join(config.outputDir, at))] = await readFile(path.join(atDirectory, entry.name));
+      }
+    };
+    await collect(from);
+    return files;
+  };
+  const verifyPublishedFiles = (commit, expectedFiles, from) => {
+    if (!commit) return;
+    const outputRoot = posix(config.outputDir).replace(/\/$/, '');
+    const publishedFiles = run(
+      'git', ['ls-tree', '-r', '--name-only', commit, '--', outputRoot], { cwd: root }
+    ).stdout.split(/\r?\n/).filter(Boolean).sort();
+    const expectedPaths = Object.keys(expectedFiles).sort();
+    if (JSON.stringify(publishedFiles) !== JSON.stringify(expectedPaths)) {
+      throw new SingularityFlowError(
+        `Governed world-model commit ${commit.slice(0, 12)} does not contain the exact validated model tree.`,
+        { code: 'world_model.state_publication_mismatch', details: { expectedPaths, publishedFiles } }
+      );
+    }
+    for (const file of expectedPaths) {
+      const relative = file.slice(outputRoot.length + 1);
+      const localFile = path.join(from, ...relative.split('/'));
+      const expectedBlob = run('git', ['hash-object', localFile], { cwd: root }).stdout.trim();
+      const publishedBlob = run('git', ['rev-parse', `${commit}:${file}`], { cwd: root }).stdout.trim();
+      if (publishedBlob !== expectedBlob) {
+        throw new SingularityFlowError(
+          `Governed world-model commit ${commit.slice(0, 12)} changed ${file} after validation.`,
+          { code: 'world_model.state_publication_mismatch', details: { file, expectedBlob, publishedBlob } }
+        );
+      }
     }
   };
+  const stateConfig = {
+    ...(ledger ?? {}),
+    branch: ledger?.branch ?? config.stateBranch ?? 'state',
+    remote: ledger?.remote ?? config.remote ?? config.definition?.git?.remote ?? 'origin'
+  };
+  const source = sourceHash.replace(/^sha256:/, '').slice(0, 12);
+  let candidateDirectory = directory;
+  const retryRoots = [];
   try {
-    await collect(directory);
-    const source = sourceHash.replace(/^sha256:/, '').slice(0, 12);
-    const stateConfig = {
-      ...(ledger ?? {}),
-      branch: ledger?.branch ?? config.stateBranch ?? 'state',
-      remote: ledger?.remote ?? config.remote ?? config.definition?.git?.remote ?? 'origin'
-    };
-    const result = await publishToStateBranch(
-      root,
-      stateConfig,
-      files,
-      `[world-model][source:${source}] ${phase}`,
-      // A generated world model is a complete manifest-controlled snapshot. Mirror this one
-      // directory so renamed domains/views from an earlier build cannot survive on the state
-      // branch and poison later full-integrity composition. Other governed state is untouched.
-      { replaceRoots: [config.outputDir] }
-    );
-    // A rebuild that produced the same model is unchanged rather than failed, and saying otherwise
-    // would make an ordinary no-op read as a problem.
-    if (!result.changed) return { published: false, branch: result.branch, reason: 'it is already current there' };
-    return { published: true, branch: result.branch, commit: result.commit };
-  } catch (error) {
-    if (ledger?.publication === 'required') throw error;
-    return { published: false, reason: error.message };
+    for (let attempt = 1; attempt <= 3; attempt += 1) {
+      const files = await collectFiles(candidateDirectory);
+      try {
+        const result = await publishToStateBranch(
+          root,
+          stateConfig,
+          files,
+          `[world-model][source:${source}] ${phase}`,
+          { replaceRoots: [config.outputDir] }
+        );
+        verifyPublishedFiles(result.commit, files, candidateDirectory);
+        if (candidateDirectory !== directory) {
+          await installWorldModel(candidateDirectory, directory);
+          candidateDirectory = directory;
+        }
+        return {
+          published: result.changed,
+          branch: result.branch,
+          commit: result.commit,
+          directory: candidateDirectory,
+          reason: result.changed ? null : 'it is already current there'
+        };
+      } catch (error) {
+        if (!error.concurrent || attempt === 3 || !plan) throw error;
+        // Fetch the winning snapshot, merge only the retained same-source fragments, validate the
+        // union, and retry the CAS publication. The expensive provider output is never regenerated.
+        const winner = await resolveWorldModelSource(root, config, { stateBranch: stateConfig.branch });
+        if (winner.source !== 'state-branch') throw error;
+        const retryRoot = await mkdtemp(path.join(os.tmpdir(), 'singularity-flow-world-model-remerge-'));
+        retryRoots.push(retryRoot);
+        const merged = path.join(retryRoot, 'merged');
+        await mergeWorldModelSnapshot({
+          existingDirectory: winner.directory,
+          fragmentDirectory: candidateDirectory,
+          targetDirectory: merged,
+          plan,
+          sourceTreeSha256: sourceHash,
+          materialization: null
+        });
+        await validateWorldModelDirectory(merged, {
+          requiredSelections: plan.selections,
+          requireEvidence: true,
+          integrity: 'full',
+          sourceLabel: 'concurrently merged governed world model'
+        });
+        candidateDirectory = merged;
+      }
+    }
+  } finally {
+    for (const retryRoot of retryRoots) await rm(retryRoot, { recursive: true, force: true });
   }
 }
 
@@ -872,6 +963,8 @@ async function buildLight(root, config, options) {
     const generatedAt = new Date().toISOString();
     const sourceCommit = head(root);
     const sourceState = await worldModelSourceSnapshot(root, config.definition ?? config);
+    const existingWorldModelDirectory = options.existingWorldModelDirectory
+      ?? await compatibleWorldModelDirectory(root, config, sourceState.sha256);
     const plan = groundingPlan(config, options);
     const views = plan.views.map((item) => item.view);
     const metadata = {
@@ -914,7 +1007,7 @@ async function buildLight(root, config, options) {
     const target = path.join(root, config.outputDir);
     const merged = path.join(temporary, 'merged');
     await mergeWorldModelSnapshot({
-      existingDirectory: target,
+      existingDirectory: existingWorldModelDirectory ?? target,
       fragmentDirectory: staging,
       targetDirectory: merged,
       plan,
@@ -927,8 +1020,13 @@ async function buildLight(root, config, options) {
       requiredSelections: plan.selections,
       requireEvidence: true
     });
-    await installWorldModel(merged, target);
     const phase = optionString(options, 'phase');
+    const governed = !local
+      ? await publishWorldModelToStateBranch(root, config, sourceState.sha256, phase ?? 'repository-light', {
+          directory: merged, plan
+        })
+      : null;
+    await installWorldModel(governed?.directory ?? merged, target);
     const publication = await publishWorldModel(
       root, config, config.workflow, sourceState.sha256, phase ?? 'repository-light', { local }
     );
@@ -939,7 +1037,6 @@ async function buildLight(root, config, options) {
     );
     console.log(`  views: ${views.join(', ')} · files indexed: ${sourceState.files.length} · semantic analysis: not performed`);
     if (!local) {
-      const governed = await publishWorldModelToStateBranch(root, config, sourceState.sha256, phase ?? 'repository-light');
       console.log(governed.published
         ? `  published to the ${governed.branch} branch at ${governed.commit.slice(0, 10)}.`
         : governed.branch
@@ -976,6 +1073,8 @@ async function build(root, config, options) {
   const promptSha256 = existsSync(source) ? createHash('sha256').update(await readFile(source)).digest('hex') : 'unknown';
   const sourceCommit = head(root);
   const sourceState = await worldModelSourceSnapshot(root, config.definition ?? config);
+  const existingWorldModelDirectory = options.existingWorldModelDirectory
+    ?? await compatibleWorldModelDirectory(root, config, sourceState.sha256);
   const plan = groundingPlan(config, options, phase);
   const metadata = {
     generated_at: generatedAt,
@@ -1185,7 +1284,7 @@ ${repositoryFactsDigest}
     const target = path.join(root, config.outputDir);
     const merged = path.join(temporary, 'merged');
     await mergeWorldModelSnapshot({
-      existingDirectory: target,
+      existingDirectory: existingWorldModelDirectory ?? target,
       fragmentDirectory: staging,
       targetDirectory: merged,
       plan,
@@ -1195,13 +1294,17 @@ ${repositoryFactsDigest}
     await validateWorldModelDirectory(merged, {
       expectedCommit: sourceCommit, expectedTask: optionString(options, 'task'), requiredSelections: plan.selections, requireEvidence: true
     });
-    await installWorldModel(merged, target);
+    const governed = !local
+      ? await publishWorldModelToStateBranch(root, config, sourceState.sha256, phase ?? 'repository', {
+          directory: merged, plan
+        })
+      : null;
+    await installWorldModel(governed?.directory ?? merged, target);
     const publication = await publishWorldModel(root, config, config.workflow, sourceState.sha256, phase ?? 'repository', { local });
     console.log(`World model built from source ${sourceState.sha256.slice(7, 19)} and recorded in ${publication.commit?.slice(0, 10) ?? 'the working tree'}${publication.pushed ? ' (pushed)' : local ? ' (local, not pushed)' : ''}.`);
     // The governed copy, which is the one every reader prefers. Not attempted for --local: that
     // says explicitly that nothing should leave this machine yet.
     if (!local) {
-      const governed = await publishWorldModelToStateBranch(root, config, sourceState.sha256, phase ?? 'repository');
       console.log(governed.published
         ? `  published to the ${governed.branch} branch at ${governed.commit.slice(0, 10)}.`
         : governed.branch
@@ -1447,6 +1550,9 @@ async function availability(root, config, options, requestedPhase = null) {
   if (optionBoolean(options, 'json')) console.log(JSON.stringify({ plan, ...result }, null, 2));
   else {
     console.log(`${result.ready ? style.mark('pass') : style.mark('warn')} world-model grounding ${result.ready ? 'ready' : 'not ready'}${plan.phase ? ` for ${plan.phase}` : ''}`);
+    if (result.stateBranch) {
+      console.log(`  ${style.detail(`authority: ${result.authority ?? 'unknown'} · refresh: ${result.refreshStatus ?? 'unknown'} · ref: ${result.resolvedRef ?? result.stateBranch}`)}`);
+    }
     for (const item of result.selections) {
       console.log(`  ${item.status === 'ready' ? style.mark('pass') : style.mark('warn')} ${item.id}${item.path ? `  ${item.path}` : ''}`);
     }
@@ -1457,13 +1563,14 @@ async function availability(root, config, options, requestedPhase = null) {
 
 async function ensure(root, config, options, requestedPhase = null) {
   const plan = groundingPlan(config, options, requestedPhase);
-  const result = await materializeSelections(root, config, plan, async ({ policy }) => {
+  const result = await materializeSelections(root, config, plan, async ({ policy, availability }) => {
       const buildOptions = {
         ...options,
         phase: plan.phase ?? options.phase,
         depth: plan.depth,
         evidence: plan.includeEvidence,
-        local: policy.publish === 'local'
+        local: policy.publish === 'local',
+        existingWorldModelDirectory: availability.extensionBase?.directory ?? null
       };
       if (plan.views.length === 1) buildOptions.view = plan.views[0].view;
       else if (plan.views.length > 1) buildOptions.views = plan.views.map((entry) => entry.view).join(',');
@@ -1921,8 +2028,8 @@ export async function worldModelCommand(root, positionals, options) {
     }
     return result;
   }
-  if (!['prompt', 'build', 'light', 'context', 'check', 'budget', 'availability', 'ensure'].includes(command)) {
-    throw new SingularityFlowError('Usage: singularity-flow wm init|prompt|build|light|ensure|availability|context <phase>|budget|facts|compose|show-prompt|inject|check|cleanup|cache status|clear');
+  if (!['prompt', 'build', 'light', 'context', 'check', 'budget', 'availability', 'status', 'ensure'].includes(command)) {
+    throw new SingularityFlowError('Usage: singularity-flow wm init|prompt|build|light|ensure|availability|status|context <phase>|budget|facts|compose|show-prompt|inject|check|cleanup|cache status|clear');
   }
   if (command === 'build' || command === 'light') await cleanupStaleWorldModelWorktrees(root);
   return withTargetBranch(root, options, async (targetRoot) => {
@@ -1930,7 +2037,7 @@ export async function worldModelCommand(root, positionals, options) {
     if (command === 'prompt') return prompt(targetRoot, config, options);
     if (command === 'build') return build(targetRoot, config, options);
     if (command === 'light') return build(targetRoot, config, { ...options, depth: 'light' });
-    if (command === 'availability') return availability(targetRoot, config, options, positionals[2] ?? optionString(options, 'phase'));
+    if (command === 'availability' || command === 'status') return availability(targetRoot, config, options, positionals[2] ?? optionString(options, 'phase'));
     if (command === 'ensure') return ensure(targetRoot, config, options, positionals[2] ?? optionString(options, 'phase'));
     if (command === 'context') {
       return context(targetRoot, config, positionals[2] ?? optionString(options, 'phase'), options);

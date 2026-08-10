@@ -30,6 +30,33 @@ export function invariant(condition, message) {
   if (!condition) throw new SingularityFlowError(message);
 }
 
+/**
+ * Map over items with bounded concurrency, preserving input order.
+ *
+ * The codebase had no such primitive, so every bulk operation was either a serial `for … await` or
+ * a bare `Promise.all` over everything at once. The serial form is what made a world-model build
+ * read and hash the whole tree four times in sequence before any model ran; the unbounded form is
+ * not an option for file I/O across a large repository.
+ *
+ * Results come back in input order regardless of completion order, which matters wherever the
+ * output feeds a hash: a snapshot whose digest depended on I/O scheduling would not be a snapshot.
+ */
+export async function mapLimit(items, limit, mapper) {
+  const list = [...items];
+  const results = new Array(list.length);
+  const width = Math.max(1, Math.min(limit, list.length));
+  let next = 0;
+  const worker = async () => {
+    while (next < list.length) {
+      const index = next;
+      next += 1;
+      results[index] = await mapper(list[index], index);
+    }
+  };
+  await Promise.all(Array.from({ length: width }, () => worker()));
+  return results;
+}
+
 // Presentation primitives live in style.mjs. Imported for `table` and re-exported because every
 // existing caller already reaches for its formatting helpers here.
 export { displayWidth, padDisplay, terminalWidth, truncateDisplay };

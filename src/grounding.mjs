@@ -5,10 +5,14 @@ import path from 'node:path';
 import os from 'node:os';
 import { changedFiles, head } from './git.mjs';
 import { resolveReference } from './harness-imports.mjs';
-import { exists, posix, run, SingularityFlowError, snapshot } from './util.mjs';
+import { exists, mapLimit, posix, run, SingularityFlowError, snapshot } from './util.mjs';
 import { corePath, resolveViews, tierForCore, tierForView, viewPath } from './world-model-selection.mjs';
 
 const GROUNDING_MODES = new Set(['off', 'warn', 'enforce']);
+
+// Open file descriptors while hashing a tree. Enough to keep the disk busy, few enough not to
+// exhaust the descriptor table on a large repository.
+const SNAPSHOT_CONCURRENCY = 16;
 
 export function groundingMode(definition, workflow = null) {
   const mode = workflow ? workflow.resolution?.worldModelGrounding ?? 'off' : definition.worldModel?.grounding ?? 'off';
@@ -54,19 +58,25 @@ export async function worldModelSourceSnapshot(root, definition = {}) {
     .map(posix)
     .filter((file) => !excludedSourcePath(file, definition))
     .sort();
+  // Read and hash concurrently, then fold in sorted file order. A build runs this and its sibling
+  // three more times before any model starts, each previously a serial read of the whole tree.
+  // Folding afterwards is what keeps the digest independent of I/O scheduling.
+  const scanned = await mapLimit(files, SNAPSHOT_CONCURRENCY, async (file) => {
+    const absolute = path.join(root, file);
+    if (!existsSync(absolute)) return { file, deleted: true };
+    return { file, deleted: false, info: await snapshot(absolute) };
+  });
   const hash = createHash('sha256');
   const records = [];
-  for (const file of files) {
-    const absolute = path.join(root, file);
-    if (!existsSync(absolute)) {
-      hash.update(file).update('\0deleted\0');
-      records.push({ path: file, status: 'deleted', size: 0, sha256: null });
+  for (const entry of scanned) {
+    if (entry.deleted) {
+      hash.update(entry.file).update('\0deleted\0');
+      records.push({ path: entry.file, status: 'deleted', size: 0, sha256: null });
       continue;
     }
-    const info = await snapshot(absolute);
-    if (!info.sha256) continue;
-    hash.update(file).update('\0').update(info.sha256).update('\0');
-    records.push({ path: file, status: 'present', size: info.size, sha256: info.sha256 });
+    if (!entry.info.sha256) continue;
+    hash.update(entry.file).update('\0').update(entry.info.sha256).update('\0');
+    records.push({ path: entry.file, status: 'present', size: entry.info.size, sha256: entry.info.sha256 });
   }
   return { sha256: `sha256:${hash.digest('hex')}`, files: records };
 }
@@ -84,12 +94,13 @@ function sourcePathsChangedSince(root, definition, ref) {
 export async function repositoryContentSnapshot(root) {
   const tracked = run('git', ['ls-files', '-z'], { cwd: root }).stdout.split('\0').filter(Boolean);
   const files = [...new Set([...tracked, ...changedFiles(root)])].map(posix).sort();
+  const watched = files.filter((file) => !file.startsWith('.git/') && !file.startsWith('node_modules/'));
+  const scanned = await mapLimit(watched, SNAPSHOT_CONCURRENCY, async (file) => (
+    { file, info: await snapshot(path.join(root, file)) }
+  ));
   const records = new Map();
-  for (const file of files) {
-    if (file.startsWith('.git/') || file.startsWith('node_modules/')) continue;
-    const info = await snapshot(path.join(root, file));
-    records.set(file, `${info.exists}:${info.size}:${info.sha256 ?? ''}`);
-  }
+  // Insertion order follows the sorted list, so two snapshots of the same tree iterate identically.
+  for (const { file, info } of scanned) records.set(file, `${info.exists}:${info.size}:${info.sha256 ?? ''}`);
   return records;
 }
 

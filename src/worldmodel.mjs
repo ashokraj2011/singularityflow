@@ -29,7 +29,7 @@ import {
   changedSnapshotPaths, groundingMode, repositoryContentSnapshot, resolveWorldModelContext,
   validateWorldModelDirectory, worldModelCommit, worldModelFreshness, worldModelSourceSnapshot
 } from './grounding.mjs';
-import { resolveViews, tierForCore } from './world-model-selection.mjs';
+import { corePath, resolveViews, tierForCore, viewPath } from './world-model-selection.mjs';
 import { renderCapabilityWorldModelPack } from './capability-context.mjs';
 import { recordPromptAudit } from './prompt-audit.mjs';
 import { normalizeClarificationPolicy, renderClarificationProtocol } from './clarifications.mjs';
@@ -1210,6 +1210,28 @@ async function context(root, config, phase, options) {
  * Read-only and model-free: it resolves exactly what `compose` would resolve and measures it, so it
  * can be run at any point, and so a change to the selection can be shown rather than asserted.
  */
+/**
+ * What this phase would have cost with no tier: the full core plus every view in full.
+ *
+ * Reported next to the actual figure so the effect of `depth` is a number someone can check, rather
+ * than a claim in a commit message.
+ */
+async function fullTierBytes(resolved, phaseConfig, files) {
+  const directory = resolved.directory;
+  const paths = [
+    corePath(resolved.manifest, 'full'),
+    ...(phaseConfig.views ?? []).map((view) => viewPath(resolved.manifest, view, 'full'))
+  ].filter(Boolean);
+  let total = 0;
+  for (const relative of paths) {
+    const info = await snapshot(path.join(directory, relative));
+    total += info.size ?? 0;
+  }
+  // Domains, task guides and the evidence ledger are unaffected by the tier, so carry them across.
+  for (const file of files) if (file.level >= 2) total += file.bytes;
+  return total;
+}
+
 async function budget(root, config, requestedPhase, options) {
   const phases = requestedPhase ? [requestedPhase] : Object.keys(config.phases ?? {});
   if (!phases.length) throw new SingularityFlowError('No phases are declared, so there is nothing to measure.');
@@ -1227,6 +1249,9 @@ async function budget(root, config, requestedPhase, options) {
       path: item.relative, level: item.level, bytes: item.size, reason: item.reason
     }));
     const phaseConfig = config.phases[phase];
+    // What the same phase would have cost before the tier existed: the full core plus the full text
+    // of every view. Reported alongside so the saving is a number rather than a claim.
+    const full = await fullTierBytes(resolved, phaseConfig, files);
     rows.push({
       phase,
       depth: phaseConfig.depth ?? 'standard',
@@ -1234,7 +1259,8 @@ async function budget(root, config, requestedPhase, options) {
       // Where each view came from is the part that was impossible to see.
       viewOrigin: phaseConfig.viewOrigin ?? {},
       files,
-      bytes: files.reduce((total, file) => total + file.bytes, 0)
+      bytes: files.reduce((total, file) => total + file.bytes, 0),
+      bytesAtFullTier: full
     });
   }
   const total = rows.reduce((sum, row) => sum + (row.bytes ?? 0), 0);
@@ -1245,7 +1271,12 @@ async function budget(root, config, requestedPhase, options) {
   for (const row of rows) {
     if (row.error) { console.log(`${style.mark('fail')} ${row.phase}: ${row.error}`); continue; }
     const origins = row.views.map((view) => `${view}(${row.viewOrigin[view] ?? 'phase'})`).join(', ') || 'none';
-    console.log(`\n${style.heading(row.phase)} ${style.detail(style.fields(`depth ${row.depth}`, `${row.bytes} bytes`))}`);
+    const saved = row.bytesAtFullTier - row.bytes;
+    console.log(`\n${style.heading(row.phase)} ${style.detail(style.fields(
+      `depth ${row.depth}`,
+      `${row.bytes} bytes`,
+      saved > 0 ? `${saved} fewer than full tier (${Math.round((saved / row.bytesAtFullTier) * 100)}%)` : 'full tier'
+    ))}`);
     console.log(`  ${style.detail(`views: ${origins}`)}`);
     for (const file of row.files) console.log(`  L${file.level}  ${String(file.bytes).padStart(6)}  ${file.path}`);
   }

@@ -586,7 +586,7 @@ design is cohesive costs you the budget. Write accordingly.
 | Document | Prose bytes (enforced) |
 |---|---|
 | `core/summary.brief.md` | 2,000 |
-| `core/summary.md` | 4,000 |
+| `core/summary.md` | 5,000 |
 | Any `*.brief.md` view | 2,000 |
 | Any view | 8,000 |
 | Domain file | 6,000 |

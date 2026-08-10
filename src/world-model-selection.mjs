@@ -106,12 +106,19 @@ export function corePath(manifest, tier) {
  * a paragraph about cohesion should not be penalised for it. What is being limited is prose — the
  * 92% of the calc model that no reader could falsify.
  *
+ * These are ceilings that catch a document running away, not targets to write up to. They were
+ * calibrated against the one real model available — the calc POC — rather than chosen: its views
+ * are 3,183–4,675 bytes of prose against a budget of 8,000, and its core summary is 4,605, which is
+ * why the core sits at 5,000 rather than the 4,000 I first tried. The previous limits of 15,000 and
+ * 18,000 could not be reached by anything that repository produced, which is why nothing ever
+ * noticed they were unenforced.
+ *
  * Keep this in step with the table in `templates/worldmodel-builder.md`; the builder is told the
  * same numbers it will be measured against.
  */
 export const PROSE_BUDGETS = Object.freeze({
   core_brief: 2_000,
-  core_summary: 4_000,
+  core_summary: 5_000,
   view_brief: 2_000,
   view: 8_000,
   domain: 6_000,

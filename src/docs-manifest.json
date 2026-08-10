@@ -1,9 +1,9 @@
 {
   "schemaVersion": 1,
   "generatedFrom": "docs/topics",
-  "sourceCommit": "b12ca8e80e6bb4010c0d988e8ba98439237cb08c",
+  "sourceCommit": "da4ebcb0e6a06cb25624c07f4cda5260f53d0583",
   "topicCount": 29,
-  "contentSha256": "fb201c0ada48e1afb178db2a2b76c744eab1e1de09b7014f9b79939b9b4fb67f",
+  "contentSha256": "290d30750cbdd062029db8d506b7f4dbd5676cc602cb20c1f00dd97feb811a9c",
   "topics": [
     {
       "id": "approvals",
@@ -176,8 +176,8 @@
     {
       "id": "telemetry-and-cost",
       "title": "Telemetry, tokens, and cost",
-      "version": 1,
-      "sha256": "28982c4ae0ff52d1f80e2d32e0b90bf9a8a3c1c2b39366476357818b6401d34e",
+      "version": 2,
+      "sha256": "53da0299201b23b1027a58d3873e2e8cc55e2246420ec91e8f19588932326ddf",
       "file": "telemetry-and-cost.md"
     },
     {

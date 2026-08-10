@@ -443,6 +443,26 @@ checked.push('templates/portfolio.yml');
     }
 
     /**
+     * Every `topic:` deep link in a WHY entry resolves `[DOC:REQ-041]`.
+     *
+     * `commandResult` validates the shape of that field and deliberately not its target — loading
+     * the topic set on every command result to check one optional string would be a poor trade. So
+     * the target is checked once, here, where the topics are already loaded. A refusal offering
+     * `sflow explain <nothing>` would be a dead end dressed as help.
+     */
+    const ids = new Set(topics.map((topic) => topic.id));
+    const brokenLinks = [];
+    for (const file of allFiles.filter((name) => name.endsWith('.mjs') && name.includes(`${path.sep}src${path.sep}`))) {
+      const source = await readFile(file, 'utf8');
+      // Scoped to `because(...)` on purpose: `topic:` is also a provenance field name, and a check
+      // that matched it everywhere would reject `topic: 'index'` in a citation payload.
+      for (const [, id] of source.matchAll(/\bbecause\([\s\S]{0,400}?\btopic:\s*'([a-z0-9][a-z0-9-]*)'/g)) {
+        if (!ids.has(id)) brokenLinks.push(`${path.relative(root, file)} deep-links topic '${id}'`);
+      }
+    }
+    if (brokenLinks.length) fail(`WHY entries deep-link topics that do not exist:\n    ${brokenLinks.join('\n    ')}`);
+
+    /**
      * Versions bump with content `[DOC:REQ-001]`.
      *
      * Without this the version is decoration: a topic's words change, its version does not, and a

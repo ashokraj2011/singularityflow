@@ -55,8 +55,17 @@ export function failed(messageId, slots = {}) { return { status: 'failed', messa
 export function noop(messageId, slots = {}) { return { status: 'noop', messageId, slots }; }
 
 /** One explained reason. The wording is the catalog's job; this carries the code and its evidence. */
-export function because(code, source, { ref = null, slots = {} } = {}) {
-  return { code, source, ref, slots };
+/**
+ * One WHY entry.
+ *
+ * `topic` is optional and deep-links the reason into the documentation plane `[DOC:REQ-041]`. A
+ * refusal that says "sequence gates have not passed" answers what happened; a reader who does not
+ * yet know what a sequence gate *is* needs a second thing, and making them go and find it is how a
+ * good error message still leaves someone stuck. It is a topic id, not prose, so the renderers can
+ * make it a link where links exist and a command where they do not.
+ */
+export function because(code, source, { ref = null, slots = {}, topic = null } = {}) {
+  return topic ? { code, source, ref, slots, topic } : { code, source, ref, slots };
 }
 
 /** One valid continuation. */
@@ -111,6 +120,12 @@ export function validateCommandResult(result, { requireEnvelope = false } = {}) 
     if (!WHY_SOURCES.has(entry?.source)) invalid(`why[].source '${entry?.source}' must be one of ${[...WHY_SOURCES].join(', ')}`);
     if (!Object.hasOwn(REASONS, entry.code)) invalid(`why[].code '${entry.code}' is not in the reason catalog`);
     if ('detail' in (entry ?? {})) invalid(`why[] carries reason codes, not prose (${entry.code} supplied a detail)`);
+    // Shape only. Whether the topic exists is a build-time question, answered by the gate in
+    // `scripts/check.mjs` that already holds the documentation mapping closed — loading 29 files to
+    // validate one optional field on every command result would be a poor trade.
+    if ('topic' in (entry ?? {}) && !/^[a-z0-9]+(-[a-z0-9]+)*$/.test(entry.topic ?? '')) {
+      invalid(`why[].topic '${entry.topic}' must be a kebab-case documentation topic id`);
+    }
   }
 
   if (!Array.isArray(next)) invalid('next must be an array');

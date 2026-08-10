@@ -99,31 +99,53 @@ export function servedBody(topic, { maxBytes, section } = {}) {
  * or not they happen to be standing in a story.
  */
 async function situationHere() {
+  let root;
   try {
     const { repoRoot } = await import('../git.mjs');
-    const root = repoRoot();
+    root = repoRoot();
+  } catch {
+    // No repository. The overwhelmingly common case, and the only one that is not a defect.
+    return { resolved: false, reason: 'no-repository' };
+  }
+
+  // Everything past this point is a real read that is *expected* to work, so its failure is
+  // reported rather than swallowed. The first version of this function caught everything and asked
+  // for a snapshot slice named `workflow`, which does not exist — the slice is `lifecycle`. The
+  // catch turned that into "no work item resolves here", the degradation looked correct in every
+  // test, and the state plane had never once rendered. Degrading silently is how a feature ships
+  // dead.
+  try {
     const { SnapshotCoordinator } = await import('../snapshot-coordinator.mjs');
-    const { repositorySnapshot } = await import('../repository-snapshot.mjs');
+    const { repositorySnapshot } = await import('../editor.mjs');
     const snapshot = await new SnapshotCoordinator(root).capture(
       ({ included }) => repositorySnapshot(root, undefined, undefined, { included }),
-      { included: ['workflow'], consistency: 'best-effort' }
+      { included: ['lifecycle'], consistency: 'best-effort' }
     );
-    const workflow = snapshot?.workflow;
+    const workflow = snapshot?.lifecycle?.workflow;
     const item = workflow?.workItem;
-    if (!item?.id) return null;
-    const phase = workflow.phases?.find((entry) => entry.id === item.currentPhase) ?? null;
+    if (!item?.id) return { resolved: false, reason: 'no-work-item' };
+
+    const phase = workflow.phases?.[workflow.currentPhase] ?? null;
+    const rail = workflow.phaseOrder ?? [];
+    const position = rail.indexOf(workflow.currentPhase);
     return {
+      resolved: true,
       subject: item.id,
+      title: item.title ?? null,
+      phase: workflow.currentPhase ?? null,
+      status: phase?.status ?? workflow.status ?? null,
       revision: snapshot.revision?.head ?? null,
       branch: snapshot.revision?.branch ?? null,
       lines: [
-        `Work item ${item.id} is at ${item.currentPhase ?? 'an unnamed phase'}${phase?.status ? ` (${phase.status})` : ''}.`,
-        ...(workflow.phases?.length ? [`Its pinned rail has ${workflow.phases.length} phases.`] : [])
+        `${item.id}${item.title ? ` — ${item.title}` : ''} is at ${workflow.currentPhase ?? 'an unnamed phase'}`
+        + `${phase?.status ? ` (${phase.status})` : ''}.`,
+        ...(rail.length
+          ? [`Phase ${position >= 0 ? position + 1 : '?'} of ${rail.length} on its pinned rail: ${rail.join(' → ')}.`]
+          : [])
       ]
     };
-  } catch {
-    // Any failure here is a reason to serve less, never a reason to fail.
-    return null;
+  } catch (error) {
+    return { resolved: false, reason: 'unreadable', detail: error.message };
   }
 }
 
@@ -180,7 +202,7 @@ export async function run(argv, { positionals, options } = { positionals: [], op
       outcome: refused('docs.topic-not-found', { query: resolution.query }),
       effects: noEffects(),
       why: [because('docs.no-such-topic', 'docs',
-        { ref: 'docs/topics', slots: { query: resolution.query } })],
+        { ref: 'docs/topics', slots: { query: resolution.query }, topic: 'help-and-docs' })],
       next: [
         ...fallback.map((id) => action({
           id: `explain.${id}`, label: `Read ${id}`, command: `sflow explain ${id}`, kind: 'informational'
@@ -203,7 +225,9 @@ export async function run(argv, { positionals, options } = { positionals: [], op
     section: optionString(options, 'section')
   });
 
-  const here = optionBoolean(options, 'here') ? await situationHere() : null;
+  const wantsHere = optionBoolean(options, 'here');
+  const situation = wantsHere ? await situationHere() : null;
+  const here = situation?.resolved ? situation : null;
 
   // A topic that names no related reading is a genuine rest state, not a dead end: the reader asked
   // a question and got the whole answer.
@@ -217,7 +241,7 @@ export async function run(argv, { positionals, options } = { positionals: [], op
       : succeeded('docs.served', { topic: topic.id, title: topic.title, version: topic.version }),
     effects: noEffects(),
     // Degrading is explained, not silent: the reader asked for their situation and did not get it.
-    why: optionBoolean(options, 'here') && !here
+    why: wantsHere && !here
       ? [because('docs.subject-unresolved', 'docs', { ref: 'docs/topics' })]
       : [],
     next: related,
@@ -237,7 +261,15 @@ export async function run(argv, { positionals, options } = { positionals: [], op
       // Two planes, two citations, never blended `[DOC:REQ-022]`. The concept cites a topic version;
       // the situation cites a revision. A reader can always tell which sentence came from where.
       here: here
-        ? { plane: 'state', subject: here.subject, revision: here.revision, branch: here.branch, lines: here.lines }
+        ? {
+          plane: 'state', subject: here.subject, phase: here.phase, status: here.status,
+          revision: here.revision, branch: here.branch, lines: here.lines
+        }
+        : null,
+      // Why the state plane is absent, when it was asked for. `unreadable` is not the same as "you
+      // are not in a story", and collapsing the two is what hid this feature being dead.
+      hereUnavailable: wantsHere && !here
+        ? { reason: situation?.reason ?? 'unknown', detail: situation?.detail ?? null }
         : null
     }
   });
@@ -256,9 +288,13 @@ export async function run(argv, { positionals, options } = { positionals: [], op
     if (here) {
       console.log('\nHere');
       for (const line of here.lines) console.log(line);
+      // The state plane cites a revision, never a topic version. That is the whole point of keeping
+      // the two labelled `[DOC:REQ-022]`: a reader can tell which sentence came from which plane.
       console.log(`— ${here.subject} at revision ${here.revision ? here.revision.slice(0, 7) : 'unknown'}`);
-    } else if (optionBoolean(options, 'here')) {
-      console.log('\nHere\nNo work item resolves in this directory, so only the concept is shown.');
+    } else if (wantsHere) {
+      console.log(`\nHere\n${situation?.reason === 'unreadable'
+        ? `The lifecycle could not be read here (${situation.detail}), so only the concept is shown.`
+        : 'No work item resolves in this directory, so only the concept is shown.'}`);
     }
     emitCommandResult(result, { json: false, restStateWhenIdle: null });
   }

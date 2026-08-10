@@ -14,16 +14,35 @@ import { withSubjectLock } from './subject-lock.mjs';
 import { SingularityFlowError, snapshot, writeJson } from './util.mjs';
 
 export const MATERIALIZATION_MODES = Object.freeze(['on-demand', 'explicit', 'disabled']);
+export const MATERIALIZATION_DEPTHS = Object.freeze(['light', 'phase']);
+export const MATERIALIZATION_CONFIRMATIONS = Object.freeze(['prompt', 'automatic']);
 
 export function materializationPolicy(definition = {}) {
   const configured = definition.worldModel?.materialization ?? {};
   const mode = configured.mode ?? 'explicit';
   const publish = configured.publish ?? 'governed';
   const lookahead = configured.lookahead ?? 'none';
+  const depth = configured.depth ?? 'phase';
+  const confirmation = configured.confirmation ?? 'prompt';
   if (!MATERIALIZATION_MODES.includes(mode)) throw new SingularityFlowError(`worldModel.materialization.mode must be ${MATERIALIZATION_MODES.join(', ')}.`);
   if (!['governed', 'local'].includes(publish)) throw new SingularityFlowError("worldModel.materialization.publish must be 'governed' or 'local'.");
   if (!['none', 'next-phase'].includes(lookahead)) throw new SingularityFlowError("worldModel.materialization.lookahead must be 'none' or 'next-phase'.");
-  return { mode, publish, lookahead };
+  if (!MATERIALIZATION_DEPTHS.includes(depth)) throw new SingularityFlowError(`worldModel.materialization.depth must be ${MATERIALIZATION_DEPTHS.join(' or ')}.`);
+  if (!MATERIALIZATION_CONFIRMATIONS.includes(confirmation)) throw new SingularityFlowError(`worldModel.materialization.confirmation must be ${MATERIALIZATION_CONFIRMATIONS.join(' or ')}.`);
+  // A phase-depth ensure may invoke the configured model provider. Automatic materialization is
+  // intentionally limited to the deterministic light builder, which uses zero model tokens.
+  if (confirmation === 'automatic' && depth !== 'light') {
+    throw new SingularityFlowError("worldModel.materialization.confirmation 'automatic' requires depth 'light'; model-driven phase materialization must be confirmed.");
+  }
+  return { mode, publish, lookahead, depth, confirmation };
+}
+
+/** Resolve an immutable work-item snapshot before falling back to the live repository policy. */
+export function effectiveMaterializationPolicy(config = {}, workflow = null) {
+  const pinned = workflow?.resolution?.worldModelMaterialization;
+  return pinned
+    ? materializationPolicy({ worldModel: { materialization: pinned } })
+    : materializationPolicy(config.definition ?? config);
 }
 
 function ensureCommand(plan) {
@@ -73,7 +92,7 @@ async function inspectCandidate(root, config, plan, candidate, sourceState) {
 export async function inspectGroundingAvailability(root, config, plan) {
   const sourceState = await worldModelSourceSnapshot(root, config.definition ?? config);
   const governed = await resolveWorldModelSource(root, config);
-  const policy = materializationPolicy(config.definition ?? config);
+  const policy = config.materialization ?? materializationPolicy(config.definition ?? config);
   const worktree = { directory: path.join(root, config.outputDir), source: 'worktree', branch: null };
   const candidates = [];
   if (governed.source === 'state-branch') candidates.push(await inspectCandidate(root, config, plan, governed, sourceState));
@@ -151,7 +170,7 @@ export async function ensureGrounding(root, config, plan, {
 } = {}) {
   let availability = await inspectGroundingAvailability(root, config, plan);
   if (availability.ready) return { mode: 'reuse', availability, located: availability.selected };
-  const policy = materializationPolicy(config.definition ?? config);
+  const policy = config.materialization ?? materializationPolicy(config.definition ?? config);
   if (policy.mode === 'disabled') {
     throw new SingularityFlowError(`Repository grounding is unavailable and materialization is disabled. Missing: ${availability.missing.map((entry) => entry.id).join(', ')}.`);
   }

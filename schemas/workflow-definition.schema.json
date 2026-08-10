@@ -285,7 +285,9 @@
           "properties": {
             "mode": { "enum": ["explicit", "on-demand", "disabled"], "default": "explicit" },
             "publish": { "enum": ["governed", "local"], "default": "governed" },
-            "lookahead": { "enum": ["none", "next-phase"], "default": "none" }
+            "lookahead": { "enum": ["none", "next-phase"], "default": "none" },
+            "depth": { "enum": ["light", "phase"], "default": "phase", "description": "light uses the deterministic zero-model-token builder; phase uses the phase's configured grounding depth and may invoke a model." },
+            "confirmation": { "enum": ["prompt", "automatic"], "default": "prompt", "description": "automatic is valid only with depth light." }
           },
           "additionalProperties": false
         },

@@ -1790,6 +1790,23 @@ the explicit authorization boundary: it reuses valid v3 selections from the same
 generates only missing selections, and requires governed state-branch publication before a shared
 phase prompt consumes the result. Changed source snapshots never reuse older generated selections.
 
+### Let `next` build deterministic light grounding
+
+The separate `wm light --phase ...` command can be made automatic in
+`singularity/workflow.yml`:
+
+```yaml
+worldModel:
+  materialization:
+    mode: on-demand
+    depth: light
+    confirmation: automatic
+    publish: governed
+    lookahead: none
+```
+
+`singularity-flow next` then builds and publishes the deterministic light model before preparing the current phase. It uses zero model tokens and never launches a model provider. Change `confirmation` to `prompt` to ask first; non-interactive callers must then pass `--yes`. `depth: phase` selects exact phase-depth generation and may invoke the configured provider, so it is valid only with `confirmation: prompt`. `mode: explicit` requires the separate command; `mode: disabled` forbids materialization. Read-only commands never build under any policy. The normalized policy is pinned when the Story starts.
+
 The low-level `wm init`, `wm light`, `wm build`, `wm availability`, `wm ensure`, `wm check`, and `wm context` commands remain
 repository-scoped and do not take a Jira/work-item argument. In the governed UI
 and `/sf-story-start` lifecycle, however, generation is deliberately deferred

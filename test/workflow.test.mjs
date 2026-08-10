@@ -375,6 +375,49 @@ test('next never launches a missing world-model agent unattended', async () => {
   assert.equal(workflow.phases.intake.generation, 0);
 });
 
+test('next can automatically build the configured deterministic light world model', async () => {
+  const root = await repository();
+  const definitionPath = path.join(root, 'singularity/workflow.yml');
+  const definition = YAML.parse(await readFile(definitionPath, 'utf8'));
+  definition.worldModel.grounding = 'enforce';
+  definition.worldModel.materialization = {
+    mode: 'on-demand', publish: 'governed', lookahead: 'none', depth: 'light', confirmation: 'automatic'
+  };
+  await writeFile(definitionPath, YAML.stringify(definition));
+  execute('git', ['add', 'singularity/workflow.yml'], root);
+  execute('git', ['commit', '-m', 'automate deterministic light grounding'], root);
+  const workId = 'NEXT-LIGHT-AUTO-1';
+  flow(root, ['start', workId, '--work-type', 'feature', '--agent', 'product-owner', '--title', 'Automatic light grounding', '--description', 'Build deterministic grounding before intake without a separate command.']);
+
+  const result = flow(root, ['next', '--task', 'Automatic light grounding']);
+  assert.match(result.stdout, /Automatically building the deterministic light world model/);
+  assert.match(result.stdout, /Light world model built with 0 model tokens/);
+  assert.match(result.stdout, /Next step prepared: generate 'intake'/);
+  const workflow = JSON.parse(await readFile(path.join(root, 'singularity/work-items', workId, 'workflow.json'), 'utf8'));
+  assert.deepEqual(workflow.resolution.worldModelMaterialization, definition.worldModel.materialization);
+  assert.equal(workflow.phases.intake.generation, 0);
+  assert.equal(execute('git', ['worktree', 'list', '--porcelain'], root).stdout.match(/^worktree /gm)?.length, 1);
+});
+
+test('prompted on-demand world-model materialization requires a TTY or --yes', async () => {
+  const root = await repository();
+  const definitionPath = path.join(root, 'singularity/workflow.yml');
+  const definition = YAML.parse(await readFile(definitionPath, 'utf8'));
+  definition.worldModel.grounding = 'enforce';
+  definition.worldModel.materialization = {
+    mode: 'on-demand', publish: 'governed', lookahead: 'none', depth: 'light', confirmation: 'prompt'
+  };
+  await writeFile(definitionPath, YAML.stringify(definition));
+  execute('git', ['add', 'singularity/workflow.yml'], root);
+  execute('git', ['commit', '-m', 'prompt before deterministic grounding'], root);
+  flow(root, ['start', 'NEXT-LIGHT-PROMPT-1', '--work-type', 'feature', '--agent', 'product-owner', '--title', 'Prompted light grounding', '--description', 'Require an explicit host decision before deterministic grounding.']);
+
+  const result = flow(root, ['next', '--task', 'Prompted light grounding'], { allowFailure: true });
+  assert.notEqual(result.status, 0);
+  assert.match(result.stderr, /interactive terminal or the explicit --yes flag/);
+  assert.equal(execute('git', ['worktree', 'list', '--porcelain'], root).stdout.match(/^worktree /gm)?.length, 1);
+});
+
 test('advisory world-model grounding warns and continues without launching a model', async () => {
   const root = await repository();
   const definitionPath = path.join(root, 'singularity/workflow.yml');

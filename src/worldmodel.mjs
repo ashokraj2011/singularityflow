@@ -253,7 +253,9 @@ async function load(root, { agent: selectedAgent = null, workId = null } = {}) {
         maxWorkers: definition.worldModel?.generation?.maxWorkers ?? 4,
         strategy: definition.worldModel?.generation?.strategy ?? 'view'
       },
-      materialization: materializationPolicy(definition),
+      materialization: activeState?.resolution?.worldModelMaterialization
+        ? materializationPolicy({ worldModel: { materialization: activeState.resolution.worldModelMaterialization } })
+        : materializationPolicy(definition),
       stateBranch: definition.ledger?.branch ?? null,
       remote: definition.git?.remote ?? 'origin',
       grounding: groundingMode(definition, activeState),
@@ -438,7 +440,7 @@ async function publishWorldModel(root, config, workflow, sourceHash, phase = 're
  */
 async function publishWorldModelToStateBranch(root, config, sourceHash, phase) {
   const ledger = config.definition?.ledger ?? null;
-  const materialization = materializationPolicy(config.definition ?? config);
+  const materialization = config.materialization ?? materializationPolicy(config.definition ?? config);
   // World-model governance uses the same orphan state-branch transport as the ledger, but does not
   // require append-only lifecycle events to be enabled. Treating ledger.enabled as a transport
   // switch made the default configuration impossible: it requested governed model publication

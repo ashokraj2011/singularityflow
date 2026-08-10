@@ -24,7 +24,14 @@ export async function run(argv, { positionals, options }) {
   if (included.length === 1 && included[0] === 'repository') {
     const result = await new SnapshotCoordinator(root).capture(
       async ({ revision }) => ({ repository: await lightweightRepositorySlice(root, revision) }),
-      { included, ifRevision: optionString(options, 'if-revision'), timings: optionBoolean(options, 'timings') }
+      {
+        included,
+        ifRevision: optionString(options, 'if-revision'),
+        timings: optionBoolean(options, 'timings'),
+        // A read model. Nothing here writes, so an edit arriving mid-read makes the answer slightly
+        // old, not wrong — and refusing to answer leaves every view in the extension blank.
+        consistency: 'best-effort'
+      }
     );
     return console.log(JSON.stringify(result, null, 2));
   }

@@ -5490,7 +5490,10 @@ async function snapshotCommand(positionals, options) {
     {
       included: included.length ? included : undefined,
       ifRevision: optionString(options, 'if-revision'),
-      timings
+      timings,
+      // See `src/commands/snapshot.mjs`: this is the read model every view in the extension shares,
+      // and a background write must not empty all of them at once.
+      consistency: 'best-effort'
     }
   );
   if (optionBoolean(options, 'json')) console.log(JSON.stringify(result, null, 2));

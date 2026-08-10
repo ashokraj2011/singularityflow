@@ -1362,6 +1362,21 @@ singularity-flow wm cleanup --force
 
 `wm light` deterministically reads Git paths plus bounded package-manifest metadata and never launches Copilot. `wm build` with `quick`, `standard`, or `deep` runs the semantic model generator in a detached analysis worktree, rejects writes outside its isolated output, validates every manifest entry, records a repository source-tree hash, commits the model, and follows the configured Git publication policy. When a semantic phase requests multiple views, view-scoped read-only discovery workers run concurrently (four by default), write private bounded packets, and feed one final synthesizer. Each completed packet is checkpointed immediately under `singularity/world-model/.checkpoints/`. If the command fails or is stopped, rerun the same command (or add the explicit `--resume` flag): exact source/prompt/options matches are reused and only pending or invalid views run again. `--no-resume` discards the matching checkpoint and rebuilds every view. A successful validated installation removes the checkpoint automatically. Packet ordering, validation, installation, commit, and push remain single-owner operations. Use `--workers N`, `--no-parallel`, or the `worldModel.generation` YAML policy to tune semantic generation. Work-item lifecycle commits, checkpoints, and the model commit itself do not make the model stale; repository source/configuration changes do.
 
+To remove the separate `wm light` step from a Story, configure the lifecycle in
+`singularity/workflow.yml`:
+
+```yaml
+worldModel:
+  materialization:
+    mode: on-demand
+    depth: light
+    confirmation: automatic
+    publish: governed
+    lookahead: none
+```
+
+When `singularity-flow next` reaches a missing or stale model, this runs the deterministic equivalent of `singularity-flow wm light --phase <current-phase>`, publishes it, composes the phase grounding, and continues. It invokes no model provider and records zero model tokens. Set `confirmation: prompt` to ask first. Set `depth: phase` to generate the phase's exact semantic depth; that mode may invoke a provider and therefore cannot use `confirmation: automatic`. Use `mode: explicit` to retain the manual command or `mode: disabled` to prohibit materialization. Read-only status, availability, reporting, and VS Code refresh operations never materialize a model under any mode. The resolved policy is pinned into the Story at start.
+
 Semantic world-model runners are trusted local command execution, not an OS sandbox. The detached worktree isolates Git output, but the configured runner still executes through the user's shell and inherits that user's environment, filesystem, network, and process permissions. Configure semantic runners only from trusted repository configuration and trusted executables. Use `wm light` when deterministic, zero-agent inventory is sufficient or when arbitrary local runner execution is not allowed.
 
 Every semantic build records an owner/PID beside its isolated worktree. The next build automatically removes worktrees whose owning process is no longer alive. `wm cleanup` performs the same recovery explicitly; it preserves active and unowned legacy worktrees, while `wm cleanup --force` removes those too after you have confirmed no build is running.

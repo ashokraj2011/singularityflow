@@ -34,6 +34,7 @@ import { normalizeSpecPolicy } from './specifications.mjs';
 import { normalizeHarnessImports } from './harness-imports.mjs';
 import { loadImpactDefinition } from './impact-config.mjs';
 import { normalizeExternalCommand } from './external-command-policy.mjs';
+import { materializationPolicy } from './world-model-materialization.mjs';
 
 export const WORKFLOW_PATH = 'singularity/workflow.yml';
 export const CONTROL_ROOT = 'singularity';
@@ -363,16 +364,8 @@ export function validateDefinition(definition) {
   if (definition.worldModel?.materialization != null) {
     const materialization = definition.worldModel.materialization;
     if (!materialization || typeof materialization !== 'object' || Array.isArray(materialization)) throw new SingularityFlowError('worldModel.materialization must be an object.');
-    for (const key of Object.keys(materialization)) if (!['mode', 'publish', 'lookahead'].includes(key)) throw new SingularityFlowError(`worldModel.materialization contains unknown field '${key}'.`);
-    if (materialization.mode != null && !['explicit', 'on-demand', 'disabled'].includes(materialization.mode)) {
-      throw new SingularityFlowError("worldModel.materialization.mode must be 'explicit', 'on-demand', or 'disabled'.");
-    }
-    if (materialization.publish != null && !['governed', 'local'].includes(materialization.publish)) {
-      throw new SingularityFlowError("worldModel.materialization.publish must be 'governed' or 'local'.");
-    }
-    if (materialization.lookahead != null && !['none', 'next-phase'].includes(materialization.lookahead)) {
-      throw new SingularityFlowError("worldModel.materialization.lookahead must be 'none' or 'next-phase'.");
-    }
+    for (const key of Object.keys(materialization)) if (!['mode', 'publish', 'lookahead', 'depth', 'confirmation'].includes(key)) throw new SingularityFlowError(`worldModel.materialization contains unknown field '${key}'.`);
+    materializationPolicy(definition);
   }
   // `grounding` throws on an unknown mode when it is read, but `staleness` was only ever compared
   // against the two strings that do something. A typo like `Fail` or `strict` therefore matched
@@ -786,6 +779,7 @@ export async function snapshotResolution(root, definition, resolved) {
     configSha256: definitionSnapshot.sha256,
     inputsMode: resolved.inputsMode ?? configuredInputsMode(definition),
     worldModelGrounding: groundingMode(definition),
+    worldModelMaterialization: materializationPolicy(definition),
     approvalAuthorities: structuredClone(resolved.approvalAuthorities ?? normalizeApprovalAuthorities(definition.approvalAuthorities)),
     sequenceGates: resolved.sequenceGates ?? normalizeSequenceGates(definition.sequenceGates ?? {}),
     contextPolicy: resolved.contextPolicy ?? normalizeContextPolicy(definition.contextPolicy ?? {}, { phaseIds: Object.keys(definition.phases) }),

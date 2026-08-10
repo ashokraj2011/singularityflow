@@ -83,6 +83,11 @@ worldModel:
     mode: explicit
     publish: governed
     lookahead: none
+    # To make `next` run the deterministic equivalent of `wm light --phase <current>`, set:
+    # mode: on-demand, depth: light, confirmation: automatic. That path never invokes a model.
+    # Use depth: phase with confirmation: prompt when exact phase-depth generation is preferred.
+    depth: phase
+    confirmation: prompt
   # warn, not enforce. Grounding is a quality signal, and a repository that has not built a world
   # model yet — or has no model provider configured at all — must still be able to run its
   # lifecycle. Under `warn` the check runs and reports; under `enforce` it blocks publication.

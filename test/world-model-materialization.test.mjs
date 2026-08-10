@@ -10,11 +10,35 @@ import {
   worldModelSelectionEntry
 } from '../src/grounding.mjs';
 import {
+  effectiveMaterializationPolicy,
+  materializationPolicy,
   mergeWorldModelSnapshot,
   writeV3Manifest
 } from '../src/world-model-materialization.mjs';
 
 const COMMIT = '0123456789abcdef0123456789abcdef01234567';
+
+test('materialization policy defaults safely and honors the immutable Story snapshot', () => {
+  assert.deepEqual(materializationPolicy({}), {
+    mode: 'explicit', publish: 'governed', lookahead: 'none', depth: 'phase', confirmation: 'prompt'
+  });
+  const config = {
+    worldModel: { materialization: { mode: 'disabled' } }
+  };
+  const workflow = {
+    resolution: {
+      worldModelMaterialization: {
+        mode: 'on-demand', publish: 'governed', lookahead: 'none', depth: 'light', confirmation: 'automatic'
+      }
+    }
+  };
+  assert.equal(effectiveMaterializationPolicy(config, workflow).mode, 'on-demand');
+  assert.equal(effectiveMaterializationPolicy(config, workflow).depth, 'light');
+  assert.throws(
+    () => materializationPolicy({ worldModel: { materialization: { mode: 'on-demand', depth: 'phase', confirmation: 'automatic' } } }),
+    /model-driven phase materialization must be confirmed/
+  );
+});
 
 async function seedModel(directory, sourceTreeSha256, {
   label,

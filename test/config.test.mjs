@@ -66,9 +66,30 @@ test('starter YAML resolves feature, bugfix, and Figma-mobile templates and agen
     inventoryDigest: 'optional'
   });
   const figmaSnapshot = await snapshotResolution(root, definition, figmaMobile);
+  assert.deepEqual(figmaSnapshot.worldModelMaterialization, {
+    mode: 'explicit', publish: 'governed', lookahead: 'none', depth: 'phase', confirmation: 'prompt'
+  });
   assert.deepEqual(figmaSnapshot.designSources, figmaMobile.designSources);
   assert.match(await agentPrompt(root, definition, 'product-designer'), /hash-pinned exports/i);
   assert.match(await readFile(path.join(root, 'singularity/templates/figma-mobile/visual-verification.md'), 'utf8'), /Screen comparison/);
+});
+
+test('world-model on-demand policy permits automatic deterministic light builds only', async () => {
+  const root = await mkdtemp(path.join(os.tmpdir(), 'sflow-world-model-materialization-config-'));
+  await initializeDefinition(root);
+  const definition = await loadDefinition(root);
+  definition.worldModel.materialization = {
+    mode: 'on-demand', publish: 'governed', lookahead: 'none', depth: 'light', confirmation: 'automatic'
+  };
+  assert.doesNotThrow(() => validateDefinition(definition));
+  const resolution = await snapshotResolution(root, definition, resolveWorkType(definition, 'feature'));
+  assert.deepEqual(resolution.worldModelMaterialization, definition.worldModel.materialization);
+
+  definition.worldModel.materialization.depth = 'phase';
+  assert.throws(
+    () => validateDefinition(definition),
+    /automatic.*requires depth 'light'/
+  );
 });
 
 test('design-source policy rejects inactive, duplicate, and invalid lifecycle declarations', async () => {

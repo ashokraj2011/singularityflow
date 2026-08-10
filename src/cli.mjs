@@ -70,6 +70,7 @@ import { jiraDoctor, jiraDoctorText } from './jira-doctor.mjs';
 import { installPlugin, listPlugins, pluginPath, uninstallPlugin } from './plugin.mjs';
 import { runGovernanceGate } from './governance.mjs';
 import { worldModelCommand } from './worldmodel.mjs';
+import { effectiveMaterializationPolicy } from './world-model-materialization.mjs';
 import { launchHostSession } from './host-session-launcher.mjs';
 import { operationContext } from './operation-context.mjs';
 import { invokeModel, listModelInvocations, resolveModelProvider } from './model-runner.mjs';
@@ -1488,6 +1489,30 @@ function activeActionContext() {
   return planId && planHash && actionId ? { planId, planHash, actionId } : null;
 }
 
+async function materializeWorldModelForNext(root, config, workflow, phase, task, options) {
+  const policy = effectiveMaterializationPolicy(config, workflow);
+  if (policy.mode !== 'on-demand') return { materialized: false, policy, reason: `materialization mode is ${policy.mode}` };
+  if (policy.depth === 'phase' && operationContext()?.modelMode.enabled === false) {
+    return { materialized: false, policy, reason: 'model mode is disabled and phase-depth materialization may invoke a model provider' };
+  }
+
+  const deterministic = policy.depth === 'light';
+  const description = deterministic
+    ? `the deterministic light world model for phase '${phase.id}' (zero model tokens)`
+    : `the configured phase-depth world model for phase '${phase.id}' (may invoke the configured model provider)`;
+  const authorized = policy.confirmation === 'automatic'
+    || optionBoolean(options, 'yes')
+    || await confirmYesNo(`Repository grounding is missing or stale. Build ${description} now?`);
+  if (!authorized) return { materialized: false, policy, declined: true, reason: 'the user declined materialization' };
+
+  console.log(`${policy.confirmation === 'automatic' ? 'Automatically building' : 'Building'} ${description}...`);
+  await worldModelCommand(root, ['wm', deterministic ? 'light' : 'ensure'], {
+    phase: phase.id,
+    task
+  });
+  return { materialized: true, policy };
+}
+
 async function nextCommand(options) {
   const root = repoRoot(); const config = await loadConfig(root); const workflow = await loadStoryAggregate(root, config);
   if (await storyPublicationPending(root, config, workflow.workItem.id)) {
@@ -1522,16 +1547,29 @@ async function nextCommand(options) {
   if (grounding !== 'off') {
     const rebuildReason = await worldModelRebuildReason(root, config);
     if (rebuildReason) {
-      if (grounding === 'enforce' && operationContext()?.modelMode.enabled !== false) {
+      const materialization = await materializeWorldModelForNext(root, config, workflow, phase, task, options);
+      if (materialization.materialized) {
+        try {
+          await worldModelCommand(root, ['wm', 'compose'], { phase: phase.id, task, evidence: phase.worldModel?.evidence === true });
+        } catch (error) {
+          if (materialization.policy.depth === 'light') {
+            throw new SingularityFlowError(`The configured automatic light world model did not satisfy phase '${phase.id}': ${error.message}\nUse depth: phase with confirmation: prompt, or run singularity-flow wm ensure --phase ${phase.id} --task ${JSON.stringify(task)}.`);
+          }
+          throw error;
+        }
+      } else if (grounding === 'enforce') {
         console.log(`Next step prerequisite: ${rebuildReason}`);
         console.log('No model was started. Build explicitly, then continue:');
         console.log(`Copilot: /sf-worldmodel --phase ${phase.id}`);
         console.log(`Run: singularity-flow wm ensure --phase ${phase.id} --task ${JSON.stringify(task)}`);
+        if (materialization.reason) console.log(`Configured policy did not build it: ${materialization.reason}.`);
         console.log('Model-free alternative: author the prepared artifact manually and publish with --authored human.');
         return;
+      } else {
+        console.warn(`Grounding warning: ${rebuildReason}`);
+        if (materialization.reason) console.warn(`Configured policy did not build it: ${materialization.reason}.`);
+        console.warn('Continuing because world-model grounding is advisory. No model will be built or composed.');
       }
-      console.warn(`Grounding warning: ${rebuildReason}`);
-      console.warn('Continuing because world-model grounding is advisory or model mode is disabled. No model will be built or composed.');
     } else {
       try {
         await worldModelCommand(root, ['wm', 'compose'], { phase: phase.id, task, evidence: phase.worldModel?.evidence === true });

@@ -1,14 +1,13 @@
 /**
- * The byte budgets, which were published as "hard" and never measured.
+ * Advisory byte budgets for generated world-model Markdown.
  *
  * `templates/worldmodel-builder.md` has always carried a table of per-document byte limits and
  * called them hard. `validateWorldModelDirectory` checks structure, JSON validity, manifest coverage
  * and file hashes, and never once looked at size — so the numbers existed only inside a prompt, and
  * a seven-view standard build came to roughly 120 KB by design.
  *
- * Only prose is counted. That is the substance of the rule rather than an exemption from it: derived
- * facts are compact and checkable, and a view that answers with a path and a line instead of a
- * paragraph about cohesion should not be charged for the answer.
+ * Every Markdown byte is counted, including fenced content, because a fence is not proof that its
+ * contents are compact facts. Overruns must be observable without blocking otherwise valid work.
  */
 import test from 'node:test';
 import assert from 'node:assert/strict';
@@ -17,7 +16,9 @@ import os from 'node:os';
 import path from 'node:path';
 
 import { validateWorldModelDirectory } from '../src/grounding.mjs';
-import { budgetFor, PROSE_BUDGETS, proseBytes } from '../src/world-model-selection.mjs';
+import {
+  budgetFor, PROSE_BUDGETS, TOTAL_DOCUMENT_BUDGETS, proseBytes
+} from '../src/world-model-selection.mjs';
 
 async function model({ summaryProse = 'core summary.\n', viewProse = 'architecture view.\n' } = {}) {
   const directory = await mkdtemp(path.join(os.tmpdir(), 'sflow-budget-'));
@@ -54,6 +55,7 @@ async function model({ summaryProse = 'core summary.\n', viewProse = 'architectu
 
 test('each document is held to the budget its path implies', () => {
   assert.equal(budgetFor('core/summary.md').bytes, PROSE_BUDGETS.core_summary);
+  assert.equal(budgetFor('core/summary.md').totalBytes, TOTAL_DOCUMENT_BUDGETS.core_summary);
   assert.equal(budgetFor('core/summary.brief.md').bytes, PROSE_BUDGETS.core_brief);
   assert.equal(budgetFor('views/security.md').bytes, PROSE_BUDGETS.view);
   assert.equal(budgetFor('views/security.brief.md').bytes, PROSE_BUDGETS.view_brief);
@@ -64,10 +66,10 @@ test('each document is held to the budget its path implies', () => {
   assert.equal(budgetFor('evidence/evidence.jsonl'), null);
 });
 
-test('fenced blocks are not prose', () => {
+test('fenced blocks count toward the advisory budget', () => {
   const facts = ['```yaml', 'x'.repeat(5000), '```'].join('\n');
-  assert.ok(proseBytes(`Short sentence.\n\n${facts}\n`) < 100,
-    'a fact block was charged against the prose budget');
+  assert.ok(proseBytes(`Short sentence.\n\n${facts}\n`) > 5000,
+    'a fenced block bypassed the advisory budget');
   assert.ok(proseBytes('x'.repeat(5000)) >= 5000);
 });
 
@@ -77,24 +79,18 @@ test('a model within its budget validates', async () => {
   assert.equal(manifest.schema_version, '2.0');
 });
 
-test('a view that runs long fails the build, and says by how much', async () => {
+test('a view that runs long warns but does not fail the build', async () => {
   const directory = await model({ viewProse: `${'The design is cohesive. '.repeat(600)}\n` });
-  await assert.rejects(
-    () => validateWorldModelDirectory(directory, { requiredViews: ['architecture'] }),
-    (error) => {
-      assert.match(error.message, /exceed their prose budget/);
-      assert.match(error.message, /views\/architecture\.md \(\d+ bytes of prose, budget 8000\)/);
-      // The remedy is named, because "too long" without a way out is not actionable.
-      assert.match(error.message, /domain file|evidence ledger|fact block/);
-      return true;
-    }
-  );
+  const { manifest, warnings } = await validateWorldModelDirectory(directory, { requiredViews: ['architecture'] });
+  assert.equal(manifest.schema_version, '2.0');
+  assert.ok(warnings.some((warning) => /views\/architecture\.md/.test(warning)));
+  assert.ok(warnings.some((warning) => /advisory budget 8000/.test(warning)));
 });
 
-test('the same document passes when the length is facts rather than prose', async () => {
-  // The point of the rule. A view may be long if what makes it long is checkable.
-  const facts = ['```yaml', ...Array.from({ length: 400 }, (_, index) => `  - { path: src/file-${index}.js, line: ${index} }`), '```'].join('\n');
+test('a fenced runaway document cannot bypass the independent total ceiling', async () => {
+  const facts = ['```text', 'x'.repeat(280_000), '```'].join('\n');
   const directory = await model({ viewProse: `A short judgement about boundaries.\n\n${facts}\n` });
-  const { manifest } = await validateWorldModelDirectory(directory, { requiredViews: ['architecture'] });
+  const { manifest, warnings } = await validateWorldModelDirectory(directory, { requiredViews: ['architecture'] });
   assert.ok(manifest);
+  assert.ok(warnings.some((warning) => /advisory ceiling 32000/.test(warning)));
 });

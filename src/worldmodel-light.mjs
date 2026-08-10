@@ -2,7 +2,7 @@ import { createHash } from 'node:crypto';
 import { mkdir, readFile, stat, writeFile } from 'node:fs/promises';
 import path from 'node:path';
 import { posix, writeJson } from './util.mjs';
-import { deriveRepositoryFacts, renderFactsDigest } from './repository-facts.mjs';
+import { deriveRepositoryFacts, renderFactsDigest, repositoryFactsBlock } from './repository-facts.mjs';
 
 const MAX_PACKAGE_MANIFEST_BYTES = 256 * 1024;
 
@@ -196,7 +196,7 @@ This model was generated locally and consumed **zero model tokens**. It records 
 
 ## Facts {#core.facts}
 
-${factsDigest}
+${repositoryFactsBlock(factsDigest)}
 
 ## Likely entry points
 

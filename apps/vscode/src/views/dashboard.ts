@@ -209,7 +209,7 @@ function bodyHtml(dashboard: Dashboard | null): string {
 }
 
 const SCRIPT = `
-  const vscode = acquireVsCodeApi();
+  const vscode = window.__sfVscode;
   document.addEventListener('click', (event) => {
     const target = event.target.closest('[data-open]');
     if (target) vscode.postMessage({ type: 'open', what: target.dataset.open });

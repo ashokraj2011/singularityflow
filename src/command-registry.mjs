@@ -1,7 +1,7 @@
 import { didYouMean, optionBoolean, SingularityFlowError } from './util.mjs';
 
 const READ_ONLY = new Set(['about', 'help', 'show', 'choices', 'inbox', 'status', 'progress', 'guide', 'logs', 'doctor', 'nextsteps', 'snapshot', 'validate']);
-const STRUCTURED = new Set(['status', 'progress', 'report', 'impact', 'telemetry', 'doctor', 'inputs', 'snapshot', 'validate', 'gate', 'clarification']);
+const STRUCTURED = new Set(['start', 'status', 'progress', 'report', 'impact', 'telemetry', 'doctor', 'inputs', 'snapshot', 'validate', 'gate', 'clarification']);
 const MODEL_FREE_MIXED_COMMANDS = new Set(['report', 'telemetry', 'review', 'inputs', 'spec', 'visual', 'clarification']);
 
 const LAZY_MODULES = Object.freeze({

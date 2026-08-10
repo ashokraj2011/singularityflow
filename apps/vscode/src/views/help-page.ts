@@ -145,7 +145,7 @@ export function helpCenterHtml(document: HelpDocument, requested: string | null 
 
 export const HELP_CENTER_SCRIPT = `
 (() => {
-  const vscode = acquireVsCodeApi();
+  const vscode = window.__sfVscode;
   const articles = [...document.querySelectorAll('.help-article')];
   const topicButtons = [...document.querySelectorAll('[data-topic]')];
   const search = document.querySelector('[data-help-search]');

@@ -141,7 +141,7 @@ export function visualAssuranceHtml(view: VisualAssuranceView, notice: string | 
 }
 
 export const VISUAL_ASSURANCE_SCRIPT = `
-  const vscode = acquireVsCodeApi();
+  const vscode = window.__sfVscode;
   const value = (data, name) => String(data.get(name) || '').trim();
   document.addEventListener('click', (event) => {
     const action = event.target.closest('[data-action]');

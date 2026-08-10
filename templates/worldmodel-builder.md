@@ -574,31 +574,33 @@ Emit: everything requested, at the upper end of budgets, with detailed evidence 
 
 # Context-budget requirements
 
-These budgets are **enforced**. `validateWorldModelDirectory` measures every document and fails the
-build when one exceeds its budget, so a document over the limit is not a stylistic problem — it is a
-build that does not complete. They are stated in bytes because the consuming runtime truncates by
+These budgets are **advisory**. `validateWorldModelDirectory` measures every Markdown document and
+reports a precise warning when one exceeds either limit. A budget warning never fails generation,
+publication, or governed work. They are stated in bytes because the consuming runtime truncates by
 bytes.
 
-**Only prose counts.** Fenced code blocks — including your ```yaml fact blocks — are excluded from
-the measurement. Answering with `src/App.jsx:14` costs you nothing; a paragraph explaining that the
-design is cohesive costs you the budget. Write accordingly.
+**All Markdown counts, including fenced blocks.** A fence does not prove that its contents are
+compact facts, so it cannot bypass the authored-content signal. The independent total ceiling also
+catches any runaway document. Keep derived facts compact and leave deterministic repository facts
+to the CLI-owned section supplied after synthesis.
 
-| Document | Prose bytes (enforced) |
-|---|---|
-| `core/summary.brief.md` | 2,000 |
-| `core/summary.md` | 5,000 |
-| Any `*.brief.md` view | 2,000 |
-| Any view | 8,000 |
-| Domain file | 6,000 |
-| Task guide | 5,000 |
+| Document | Advisory bytes | Advisory total ceiling |
+|---|---:|---:|
+| `core/summary.brief.md` | 2,000 | 8,000 |
+| `core/summary.md` | 5,000 | 24,000 |
+| Any `*.brief.md` view | 2,000 | 8,000 |
+| Any view | 8,000 | 32,000 |
+| Domain file | 6,000 | 24,000 |
+| Task guide | 5,000 | 20,000 |
 
 These are roughly half what they were, because the facts you used to write out are now derived from
 the repository before you run and supplied to you. Do not restate them in prose. Your value is the
 judgement a parser cannot produce: what this repository is for, which boundaries matter, where the
 risk actually sits, and what is conspicuously missing.
 
-If content would exceed a budget, do not truncate arbitrarily: move detail into a domain file or into
-the evidence ledger and reference it, or state it as a fact block rather than narrative.
+If content would exceed a budget, do not truncate required evidence arbitrarily: move detail into a
+domain file or the evidence ledger and reference it. The validator will warn so maintainers can tune
+the model without blocking the lifecycle.
 
 # Cross-view consistency
 
@@ -618,7 +620,7 @@ Before finishing, confirm:
 - **The generation timestamp and date are recorded in the manifest, the core model, and every consumer header.**
 - Every Markdown document begins with the five-line consumer header and, where required, a TL;DR of 120 words or fewer.
 - Every full-tier view contains a `Facts` YAML block.
-- Every generated document is within its hard byte budget; `bytes` values in the manifest match actual file sizes.
+- Budget warnings were reviewed; warnings do not invalidate output, and manifest `bytes` values match actual file sizes.
 - No secret values are present.
 - No personal data, customer records, or realistic identifiers were copied from fixtures.
 - No unrequested role views were generated.

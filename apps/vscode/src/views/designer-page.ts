@@ -217,7 +217,7 @@ export function designerHtml(
 }
 
 export const DESIGNER_SCRIPT = `
-  const vscode = acquireVsCodeApi();
+  const vscode = window.__sfVscode;
   const value = (selector) => document.querySelector(selector)?.value?.trim() ?? '';
   const sections = () => [...document.querySelectorAll('[data-section-index]')].map((row) => ({
     kind: row.dataset.sectionKind,

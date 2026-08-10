@@ -95,7 +95,7 @@ function bodyHtml(entries: LogEntry[] | null, level: Level, error: string | null
 }
 
 const SCRIPT = `
-  const vscode = acquireVsCodeApi();
+  const vscode = window.__sfVscode;
   document.addEventListener('click', (event) => {
     const level = event.target.closest('[data-level]');
     if (level) return vscode.postMessage({ type: 'level', level: level.dataset.level });

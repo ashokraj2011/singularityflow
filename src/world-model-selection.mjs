@@ -97,14 +97,10 @@ export function corePath(manifest, tier) {
  * How much prose each document may carry.
  *
  * The builder prompt has always published a table of these and called them hard, and nothing ever
- * measured one: `validateWorldModelDirectory` checks structure, JSON validity and manifest coverage
- * and never looks at size. A budget that only exists inside a prompt is a suggestion, and a seven-
- * view standard build came to about 120 KB by design.
- *
- * **Fenced fact blocks do not count.** That is the point of the rule rather than a loophole in it.
- * Facts are derived, compact and checkable, and a view that answers with `src/App.jsx:14` instead of
- * a paragraph about cohesion should not be penalised for it. What is being limited is prose — the
- * 92% of the calc model that no reader could falsify.
+ * measured one: `validateWorldModelDirectory` checks structure, JSON validity and manifest coverage.
+ * These limits are advisory because a large but valid model must never block governed work. Both
+ * authored content and fenced blocks count: treating every fence as facts let arbitrary narrative
+ * bypass the limit. A second total-document ceiling makes that invariant explicit.
  *
  * These are ceilings that catch a document running away, not targets to write up to. They were
  * calibrated against the one real model available — the calc POC — rather than chosen: its views
@@ -125,19 +121,29 @@ export const PROSE_BUDGETS = Object.freeze({
   task_guide: 5_000
 });
 
-/** Bytes of prose in a Markdown document: everything outside fenced code blocks. */
+export const TOTAL_DOCUMENT_BUDGETS = Object.freeze({
+  core_brief: 8_000,
+  core_summary: 24_000,
+  view_brief: 8_000,
+  view: 32_000,
+  domain: 24_000,
+  task_guide: 20_000
+});
+
+/** Bytes of model-authored Markdown. Fences are content too and cannot bypass the advisory. */
 export function proseBytes(markdown) {
-  return Buffer.byteLength(String(markdown ?? '').replace(/```[\s\S]*?```/g, ''), 'utf8');
+  return Buffer.byteLength(String(markdown ?? ''), 'utf8');
 }
 
 /** Which budget a world-model path is held to, or null when nothing governs it. */
 export function budgetFor(relative) {
   const value = String(relative ?? '');
-  if (value === 'core/summary.brief.md') return { key: 'core_brief', bytes: PROSE_BUDGETS.core_brief };
-  if (value === 'core/summary.md') return { key: 'core_summary', bytes: PROSE_BUDGETS.core_summary };
-  if (/^views\/.+\.brief\.md$/.test(value)) return { key: 'view_brief', bytes: PROSE_BUDGETS.view_brief };
-  if (/^views\/.+\.md$/.test(value)) return { key: 'view', bytes: PROSE_BUDGETS.view };
-  if (/^domains\/.+\.md$/.test(value)) return { key: 'domain', bytes: PROSE_BUDGETS.domain };
-  if (/^task-guides\/.+\.md$/.test(value)) return { key: 'task_guide', bytes: PROSE_BUDGETS.task_guide };
+  const result = (key) => ({ key, bytes: PROSE_BUDGETS[key], totalBytes: TOTAL_DOCUMENT_BUDGETS[key] });
+  if (value === 'core/summary.brief.md') return result('core_brief');
+  if (value === 'core/summary.md') return result('core_summary');
+  if (/^views\/.+\.brief\.md$/.test(value)) return result('view_brief');
+  if (/^views\/.+\.md$/.test(value)) return result('view');
+  if (/^domains\/.+\.md$/.test(value)) return result('domain');
+  if (/^task-guides\/.+\.md$/.test(value)) return result('task_guide');
   return null;
 }

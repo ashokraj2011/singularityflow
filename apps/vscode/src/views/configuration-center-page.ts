@@ -91,7 +91,7 @@ export function configurationCenterHtml(view: ConfigurationCenterView, tab: Conf
 }
 
 export const CONFIGURATION_CENTER_SCRIPT = `
-  const vscode = acquireVsCodeApi();
+  const vscode = window.__sfVscode;
   const csv = (value) => String(value || '').split(',').map((item) => item.trim()).filter(Boolean);
   const members = (value) => String(value || '').split(/\\r?\\n/).map((line) => line.trim()).filter(Boolean).map((line) => {
     const [name = '', email = '', githubLogin = ''] = line.split('|').map((part) => part.trim()); return { name, email, githubLogin };

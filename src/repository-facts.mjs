@@ -198,6 +198,28 @@ export function fileChurn(root, { since = '12 months ago', limit = 4000 } = {}) 
 const TEST_FILE = /(^|\/)(__tests__|tests?|specs?)\//i;
 const TEST_NAME = /[._-](test|spec)\.[^/]+$/i;
 
+export const REPOSITORY_FACTS_START = '<!-- singularity-flow:repository-facts:start -->';
+export const REPOSITORY_FACTS_END = '<!-- singularity-flow:repository-facts:end -->';
+
+/** Mark derived facts so the CLI, rather than the model, owns this exact section. */
+export function repositoryFactsBlock(digest) {
+  return `${REPOSITORY_FACTS_START}\n${String(digest ?? '').trim()}\n${REPOSITORY_FACTS_END}`;
+}
+
+/** Replace any earlier CLI-owned facts section and append the current deterministic digest. */
+export function withRepositoryFactsBlock(markdown, digest) {
+  let withoutPrior = String(markdown ?? '').trimEnd();
+  // Synthesizer output is untrusted. Remove every marker pair it supplied so only the
+  // deterministic block installed below can claim CLI ownership.
+  while (true) {
+    const start = withoutPrior.indexOf(REPOSITORY_FACTS_START);
+    const end = start < 0 ? -1 : withoutPrior.indexOf(REPOSITORY_FACTS_END, start);
+    if (start < 0 || end < 0) break;
+    withoutPrior = `${withoutPrior.slice(0, start)}${withoutPrior.slice(end + REPOSITORY_FACTS_END.length)}`.trimEnd();
+  }
+  return `${withoutPrior}\n\n## Deterministic repository facts {#core.deterministic-facts}\n\n${repositoryFactsBlock(digest)}\n`;
+}
+
 /**
  * The injectable rendering: a page of facts, not a database.
  *

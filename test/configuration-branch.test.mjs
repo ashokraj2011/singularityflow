@@ -220,8 +220,8 @@ test('Story start from a governance proposal still materializes approved configu
 
     assert.equal(started.status, 0, started.stderr || started.stdout);
     const result = JSON.parse(started.stdout);
-    assert.equal(result.workItem.id, 'CFG-REVIEW');
-    assert.equal(result.currentPhase, 'intake');
+    assert.equal(result.data.workItem.id, 'CFG-REVIEW');
+    assert.equal(result.data.currentPhase, 'intake');
     assert.equal(run('git', ['branch', '--show-current'], { cwd: checkout }).stdout.trim(), 'CFG-REVIEW');
     assert.equal(run('git', ['cat-file', '-e', 'CFG-REVIEW:singularity/configuration-source.json'], {
       cwd: fixture.remote, allowFailure: true

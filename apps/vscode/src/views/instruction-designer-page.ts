@@ -204,7 +204,7 @@ function parseAgentForPage(entry: InstructionEntry): AgentDraft {
 }
 
 export const INSTRUCTION_DESIGNER_SCRIPT = String.raw`
-const vscode = acquireVsCodeApi();
+const vscode = window.__sfVscode;
 const val = (selector) => document.querySelector(selector)?.value ?? '';
 const checked = (name) => [...document.querySelectorAll('input[name="' + name + '"]:checked')].map((node) => node.value);
 const remoteRows = (kind) => [...document.querySelectorAll('[data-remote-row="' + kind + '"]')].map((row) => {

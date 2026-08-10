@@ -33,12 +33,16 @@ export function noEffects() {
   });
 }
 
-export function effects({
-  stateChanged = false,
-  filesChanged = false,
-  publicationCreated = false,
-  externalSystemsChanged = false
-} = {}) {
+export function effects(input = {}) {
+  const allowed = new Set(['stateChanged', 'filesChanged', 'publicationCreated', 'externalSystemsChanged']);
+  const unknown = Object.keys(input).filter((key) => !allowed.has(key));
+  if (unknown.length) invalid(`effects contains unknown key${unknown.length === 1 ? '' : 's'}: ${unknown.join(', ')}`);
+  const {
+    stateChanged = false,
+    filesChanged = false,
+    publicationCreated = false,
+    externalSystemsChanged = false
+  } = input;
   return Object.freeze({ stateChanged, filesChanged, publicationCreated, externalSystemsChanged });
 }
 

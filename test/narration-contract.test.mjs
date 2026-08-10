@@ -58,6 +58,10 @@ test('NCL-003 every refusal declares machine-readable effects', () => {
   assert.ok(preservedEverything(result));
 });
 
+test('effect declarations reject misspelled or unknown contract keys', () => {
+  assert.throws(() => effects({ published: true }), /unknown key: published/);
+});
+
 test('NCL-004 a refusal that changed something is rejected outright', () => {
   assert.throws(
     () => base({ effects: effects({ filesChanged: true }) }),

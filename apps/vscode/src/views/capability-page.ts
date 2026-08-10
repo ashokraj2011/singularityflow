@@ -271,7 +271,7 @@ export function bodyHtml(
 }
 
 export const SCRIPT = `
-  const vscode = acquireVsCodeApi();
+  const vscode = window.__sfVscode;
   const read = () => {
     const edits = {};
     for (const field of document.querySelectorAll('[data-field]')) edits[field.dataset.field] = field.value;

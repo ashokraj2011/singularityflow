@@ -7,7 +7,8 @@ import { changedFiles, head } from './git.mjs';
 import { resolveReference } from './harness-imports.mjs';
 import { exists, mapLimit, posix, run, SingularityFlowError, snapshot } from './util.mjs';
 import {
-  budgetFor, corePath, proseBytes, resolveViews, tierForCore, tierForView, viewPath
+  budgetFor, corePath, proseBytes, resolveGroundingPlan, resolveViews, selectionId, tierForCore,
+  tierForView, viewPath
 } from './world-model-selection.mjs';
 
 const GROUNDING_MODES = new Set(['off', 'warn', 'enforce']);
@@ -159,15 +160,88 @@ async function requireModelFile(directory, relative, label, { json = false, json
   return { path: posix(relative), absolute, ...info };
 }
 
-export async function validateWorldModelDirectory(directory, { expectedCommit = null, expectedTask = null, requiredViews = [], requireEvidence = true, allowIncompleteMetadata = false } = {}) {
+function missingTier(pathValue = null) {
+  return { status: 'missing', path: pathValue, bytes: 0, sha256: null };
+}
+
+function legacyTier(pathValue, metadata = {}) {
+  return pathValue
+    ? { status: 'ready', path: pathValue, bytes: metadata.bytes ?? null, sha256: metadata.sha256 ?? null }
+    : missingTier();
+}
+
+/**
+ * Normalize all supported on-disk manifests into the tier-aware v3 read model.
+ *
+ * Reading never rewrites a legacy manifest. Its source schema is retained so callers can apply
+ * compatibility fallback only to historical artifacts, not to newly generated v3 snapshots.
+ */
+export function normalizeWorldModelManifest(manifest) {
+  if (!manifest || typeof manifest !== 'object' || Array.isArray(manifest)) {
+    throw new SingularityFlowError('World-model manifest must be a JSON object.');
+  }
+  if (!['1.0', '2.0', '3.0'].includes(manifest.schema_version)) {
+    throw new SingularityFlowError("World-model manifest schema_version must be '1.0', '2.0', or '3.0'.");
+  }
+  const sourceSchemaVersion = manifest.schema_version;
+  if (sourceSchemaVersion === '3.0') {
+    return { ...structuredClone(manifest), source_schema_version: sourceSchemaVersion };
+  }
+  const normalized = structuredClone(manifest);
+  normalized.schema_version = '3.0';
+  normalized.source_schema_version = sourceSchemaVersion;
+  const oldCore = manifest.core ?? {};
+  const modelPath = typeof oldCore.model === 'string' ? oldCore.model : oldCore.model?.path;
+  normalized.core = {
+    ...oldCore,
+    tiers: {
+      brief: legacyTier(oldCore.brief, oldCore.bytes?.brief ? { bytes: oldCore.bytes.brief } : {}),
+      full: legacyTier(oldCore.summary ?? 'core/summary.md', oldCore.bytes?.summary ? { bytes: oldCore.bytes.summary } : {})
+    },
+    model: { ...(typeof oldCore.model === 'object' ? oldCore.model : {}), path: modelPath ?? 'core/model.json' }
+  };
+  normalized.views = Object.fromEntries(Object.entries(manifest.views ?? {}).map(([view, entry = {}]) => {
+    const missing = entry.generated === false;
+    return [view, {
+      ...entry,
+      tiers: {
+        brief: missing ? missingTier(entry.brief_path ?? null) : legacyTier(entry.brief_path, { bytes: entry.bytes?.brief, sha256: entry.sha256?.brief }),
+        full: missing ? missingTier(entry.path ?? null) : legacyTier(entry.path, { bytes: entry.bytes?.full, sha256: entry.sha256?.full })
+      }
+    }];
+  }));
+  normalized.materializations ??= [];
+  return normalized;
+}
+
+export function worldModelSelectionEntry(manifest, selection, { allowLegacyFallback = false } = {}) {
+  const normalized = manifest?.source_schema_version ? manifest : normalizeWorldModelManifest(manifest);
+  if (selection.kind === 'core') {
+    const exact = normalized.core?.tiers?.[selection.tier];
+    if (exact?.status === 'ready') return exact;
+    if (allowLegacyFallback && selection.tier === 'brief' && normalized.source_schema_version !== '3.0') return normalized.core?.tiers?.full;
+    return exact ?? missingTier();
+  }
+  if (selection.kind === 'view') {
+    const exact = normalized.views?.[selection.view]?.tiers?.[selection.tier];
+    if (exact?.status === 'ready') return exact;
+    if (allowLegacyFallback && selection.tier === 'brief' && normalized.source_schema_version !== '3.0') return normalized.views?.[selection.view]?.tiers?.full;
+    return exact ?? missingTier();
+  }
+  return missingTier();
+}
+
+export async function validateWorldModelDirectory(directory, {
+  expectedCommit = null, expectedTask = null, requiredSelections = [], requiredViews = [],
+  requireEvidence = true, allowIncompleteMetadata = false, integrity = 'full', sourceLabel = 'world-model'
+} = {}) {
   const manifestFile = path.join(directory, 'manifest.json');
   if (!(await exists(manifestFile))) throw new SingularityFlowError('World-model builder did not create manifest.json.');
   let manifest;
   try { manifest = JSON.parse(await readFile(manifestFile, 'utf8')); }
   catch (error) { throw new SingularityFlowError(`World-model manifest is invalid JSON: ${error.message}`); }
-  if (!manifest || typeof manifest !== 'object' || Array.isArray(manifest)) throw new SingularityFlowError('World-model manifest must be a JSON object.');
-  if (!['1.0', '2.0'].includes(manifest.schema_version)) throw new SingularityFlowError("World-model manifest schema_version must be '1.0' or '2.0'.");
-  const modern = manifest.schema_version === '2.0';
+  const normalizedManifest = normalizeWorldModelManifest(manifest);
+  const modern = ['2.0', '3.0'].includes(manifest.schema_version);
   if (modern && !allowIncompleteMetadata) {
     for (const field of ['generated_at', 'generated_date', 'builder_version', 'builder_prompt_sha256', 'analysis_depth', 'repository_branch', 'working_tree_clean']) {
       if (manifest[field] === undefined || manifest[field] === null || manifest[field] === '') throw new SingularityFlowError(`World-model manifest is missing required metadata '${field}'.`);
@@ -187,34 +261,54 @@ export async function validateWorldModelDirectory(directory, { expectedCommit = 
     registered.add(record.path);
     return record;
   };
-  const coreSummary = manifest.core?.summary ?? 'core/summary.md';
-  const coreModel = manifest.core?.model ?? 'core/model.json';
-  await register(coreSummary, 'World-model core summary');
-  if (modern && !manifest.core?.brief) throw new SingularityFlowError('World-model v2 manifest requires core.brief for the progressive-disclosure core tier.');
-  if (manifest.core?.brief) await register(manifest.core.brief, 'World-model core brief');
-  await register(coreModel, 'World-model core model', { json: true });
-  if (modern && !manifest.path_index?.path) throw new SingularityFlowError('World-model v2 manifest requires path_index.path.');
-  if (manifest.path_index?.path) await register(manifest.path_index.path, 'World-model path index', { json: true });
+  const coreModel = normalizedManifest.core?.model?.path ?? 'core/model.json';
+  for (const [tier, entry] of Object.entries(normalizedManifest.core?.tiers ?? {})) {
+    if (entry?.status === 'ready' && (integrity === 'full' || requiredSelections.some((selection) => selection.kind === 'core' && selection.tier === tier))) {
+      const record = await register(entry.path, `World-model core ${tier}`);
+      if (manifest.schema_version === '3.0' && entry.bytes != null && entry.bytes !== record.size) throw new SingularityFlowError(`World-model core/${tier} byte count differs from manifest.json.`);
+      if (manifest.schema_version === '3.0' && entry.sha256 && entry.sha256 !== record.sha256) throw new SingularityFlowError(`World-model core/${tier} hash differs from manifest.json.`);
+    }
+  }
+  if (integrity === 'full') await register(coreModel, 'World-model core model', { json: true });
+  if (modern && !manifest.path_index?.path) throw new SingularityFlowError('World-model manifest requires path_index.path.');
+  if (integrity === 'full' && manifest.path_index?.path) await register(manifest.path_index.path, 'World-model path index', { json: true });
 
   if (!manifest.views || typeof manifest.views !== 'object' || Array.isArray(manifest.views)) throw new SingularityFlowError('World-model manifest views must be an object.');
   if (manifest.domains != null && !Array.isArray(manifest.domains)) throw new SingularityFlowError('World-model manifest domains must be an array.');
   if (manifest.task_guides != null && !Array.isArray(manifest.task_guides)) throw new SingularityFlowError('World-model manifest task_guides must be an array.');
-  for (const [view, entry] of Object.entries(manifest.views)) {
-    if (entry?.generated === false) continue;
-    if (!entry?.path) throw new SingularityFlowError(`Generated world-model view '${view}' has no path.`);
-    if (modern && !entry.brief_path) throw new SingularityFlowError(`Generated world-model view '${view}' is missing its brief_path.`);
-    await register(entry.path, `World-model view '${view}'`);
-    if (entry.brief_path) await register(entry.brief_path, `World-model brief view '${view}'`);
+  for (const [view, entry] of Object.entries(normalizedManifest.views ?? {})) {
+    for (const [tier, artifact] of Object.entries(entry.tiers ?? {})) {
+      const selected = requiredSelections.some((selection) => selection.kind === 'view' && selection.view === view && selection.tier === tier);
+      if (artifact?.status !== 'ready' || (integrity !== 'full' && !selected)) continue;
+      const label = manifest.schema_version === '3.0'
+        ? `World-model selection '${view}/${tier}'`
+        : `World-model view '${view}'`;
+      const record = await register(artifact.path, label);
+      if (manifest.schema_version === '3.0' && artifact.bytes != null && artifact.bytes !== record.size) throw new SingularityFlowError(`World-model selection '${view}/${tier}' byte count differs from manifest.json.`);
+      if (manifest.schema_version === '3.0' && artifact.sha256 && artifact.sha256 !== record.sha256) throw new SingularityFlowError(`World-model selection '${view}/${tier}' hash differs from manifest.json.`);
+    }
   }
-  for (const view of requiredViews) {
-    const entry = manifest.views?.[view];
-    if (!entry || entry.generated === false || !entry.path) throw new SingularityFlowError(`Required world-model view '${view}' was not generated.`);
+  const adaptedSelections = requiredSelections.length
+    ? requiredSelections
+    : requiredViews.map((view) => ({ kind: 'view', view, tier: 'full', required: true, legacyAdapter: true }));
+  const allowLegacyFallback = normalizedManifest.source_schema_version !== '3.0';
+  for (const selection of adaptedSelections) {
+    const entry = worldModelSelectionEntry(normalizedManifest, selection, { allowLegacyFallback });
+    if (entry?.status !== 'ready' || !entry.path) {
+      throw new SingularityFlowError(`Required world-model selection '${selectionId(selection)}' is missing from the ${sourceLabel}.`);
+    }
+    if (!registered.has(posix(entry.path))) {
+      const label = selection.kind === 'view'
+        ? `World-model view '${selection.view}'`
+        : `Required world-model selection '${selectionId(selection)}'`;
+      await register(entry.path, label);
+    }
   }
-  for (const domain of manifest.domains ?? []) {
+  for (const domain of integrity === 'full' ? manifest.domains ?? [] : []) {
     if (!domain?.id || !domain?.path) throw new SingularityFlowError('Every world-model domain requires id and path.');
     await register(domain.path, `World-model domain '${domain.id}'`);
   }
-  for (const guide of manifest.task_guides ?? []) {
+  for (const guide of integrity === 'full' ? manifest.task_guides ?? [] : []) {
     if (!guide?.id || !guide?.path || !guide?.task) throw new SingularityFlowError('Every world-model task guide requires id, path, and exact task text.');
     await register(guide.path, `World-model task guide '${guide.id}'`);
   }
@@ -222,10 +316,10 @@ export async function validateWorldModelDirectory(directory, { expectedCommit = 
   if (requireEvidence) {
     if (!manifest.evidence?.path) throw new SingularityFlowError('World-model manifest requires evidence.path.');
     await register(manifest.evidence.path, 'World-model evidence ledger', { jsonl: true });
-  } else if (manifest.evidence?.path) await register(manifest.evidence.path, 'World-model evidence ledger', { jsonl: true });
+  } else if (integrity === 'full' && manifest.evidence?.path) await register(manifest.evidence.path, 'World-model evidence ledger', { jsonl: true });
 
   const actual = (await modelFiles(directory)).filter((file) => file !== 'manifest.json');
-  const undeclared = actual.filter((file) => !registered.has(file));
+  const undeclared = integrity === 'full' ? actual.filter((file) => !registered.has(file)) : [];
   if (undeclared.length) throw new SingularityFlowError(`World-model files are missing from manifest.json: ${undeclared.join(', ')}`);
 
   // Size is an operational signal, not an integrity condition. Record and print precise warnings,
@@ -245,7 +339,7 @@ export async function validateWorldModelDirectory(directory, { expectedCommit = 
     if (exceeded.length) warnings.push(`World-model budget warning: ${relative} (${exceeded.join('; ')}).`);
   }
   for (const warning of warnings) console.warn(`Warning: ${warning} Consider moving detail into a domain file or evidence ledger.`);
-  return { manifest, repositoryCommit, registered: [...registered].sort(), warnings };
+  return { manifest, normalizedManifest, repositoryCommit, registered: [...registered].sort(), warnings };
 }
 
 export async function worldModelFreshness(root, config, manifest) {
@@ -273,7 +367,7 @@ function normalizeTask(value) { return String(value ?? '').trim().toLowerCase().
 export async function resolveWorldModelSource(root, config, { stateBranch = null } = {}) {
   const worktree = path.join(root, config.outputDir);
   const branch = stateBranch ?? config.stateBranch ?? config.ledger?.branch ?? null;
-  if (!branch) return { directory: worktree, source: 'worktree', branch: null };
+  if (!branch) return { directory: worktree, source: 'worktree', branch: null, commit: worldModelCommit(root, config.outputDir) };
 
   // `rev-parse <ref>:<dir>` names the tree; absent from both refs means the branch has no model,
   // which is the ordinary state of a repository whose model has only ever been built locally.
@@ -285,8 +379,12 @@ export async function resolveWorldModelSource(root, config, { stateBranch = null
     const found = run('git', ['rev-parse', `${ref}:${config.outputDir}`], { cwd: root, allowFailure: true });
     return found.status === 0 ? found.stdout.trim() : null;
   };
-  const treeSha = treeOn(`refs/remotes/origin/${branch}`) ?? treeOn(branch);
-  if (!treeSha) return { directory: worktree, source: 'worktree', branch };
+  const remoteRef = `refs/remotes/${config.remote ?? config.definition?.git?.remote ?? 'origin'}/${branch}`;
+  const localRef = `refs/heads/${branch}`;
+  const selectedRef = treeOn(remoteRef) ? remoteRef : treeOn(localRef) ? localRef : null;
+  const treeSha = selectedRef ? treeOn(selectedRef) : null;
+  if (!treeSha) return { directory: worktree, source: 'worktree', branch, commit: worldModelCommit(root, config.outputDir) };
+  const commit = run('git', ['rev-parse', selectedRef], { cwd: root }).stdout.trim();
 
   const cached = path.join(os.tmpdir(), `singularity-flow-world-model-${treeSha.slice(0, 16)}`);
   if (!existsSync(path.join(cached, 'manifest.json'))) {
@@ -306,18 +404,36 @@ export async function resolveWorldModelSource(root, config, { stateBranch = null
       ? run('tar', ['-xf', archive, '-C', cached], { cwd: root, allowFailure: true })
       : written;
     await rm(archive, { force: true });
-    if (extracted.status !== 0) return { directory: worktree, source: 'worktree', branch };
+    if (extracted.status !== 0) return { directory: worktree, source: 'worktree', branch, commit: worldModelCommit(root, config.outputDir) };
   }
-  return { directory: cached, source: 'state-branch', branch };
+  return { directory: cached, source: 'state-branch', branch, commit };
 }
 
-export async function resolveWorldModelContext(root, config, phase, { task = null, evidence = false, includeAgentPrompt = false } = {}) {
+export async function resolveWorldModelContext(root, config, phase, {
+  task = null, evidence = false, includeAgentPrompt = false, plan: suppliedPlan = null,
+  located: suppliedLocated = null
+} = {}) {
   const phaseConfig = config.phases?.[phase];
   if (!phaseConfig) throw new SingularityFlowError(`Unknown world-model phase: ${phase}`);
+  const plan = suppliedPlan ?? resolveGroundingPlan({
+    phase,
+    phaseViews: phaseConfig.declaredViews ?? phaseConfig.views ?? [],
+    agentViews: phaseConfig.agentViews ?? [],
+    agentViewMode: phaseConfig.agentViewMode ?? config.agentViewMode ?? 'fallback',
+    depth: phaseConfig.depth ?? 'standard',
+    evidence: evidence || phaseConfig.evidence,
+    task,
+    context: config.context
+  });
   // The state branch wins where it has a model; the working tree answers otherwise.
-  const located = await resolveWorldModelSource(root, config);
+  const located = suppliedLocated ?? await resolveWorldModelSource(root, config);
   const directory = located.directory;
-  const { manifest } = await validateWorldModelDirectory(directory, { requiredViews: phaseConfig.views ?? [], requireEvidence: evidence || phaseConfig.evidence || config.context?.includeEvidence });
+  const { manifest, normalizedManifest } = await validateWorldModelDirectory(directory, {
+    requiredSelections: plan.selections,
+    expectedTask: plan.taskGuide.required ? plan.taskGuide.task : null,
+    requireEvidence: plan.includeEvidence,
+    sourceLabel: located.source === 'state-branch' ? `governed state-branch model${located.branch ? ` '${located.branch}'` : ''}` : 'working-tree model'
+  });
   const freshness = await worldModelFreshness(root, config, manifest);
   const selected = [];
   const add = async (relative, level, reason, required = true) => {
@@ -337,31 +453,44 @@ export async function resolveWorldModelContext(root, config, phase, { task = nul
   // The core and each view are read at the tier the phase's declared depth asks for. Every model is
   // required to produce a brief of both (see the v2 checks above) and, until this, nothing ever read
   // one: the full text was taken unconditionally and `depth` changed only the builder's prompt.
-  const depth = phaseConfig.depth ?? 'standard';
-  const declared = phaseConfig.declaredViews ?? phaseConfig.views ?? [];
-  const always = config.context?.always ?? [corePath(manifest, tierForCore(depth))];
-  for (const relative of always) await add(relative, 0, 'shared repository core');
+  const legacyFallback = normalizedManifest.source_schema_version !== '3.0';
+  const plannedCore = worldModelSelectionEntry(normalizedManifest, plan.core, {
+    allowLegacyFallback: legacyFallback
+  });
+  await add(plannedCore.path, 0, `shared repository core (${plan.core.tier})`);
+  const knownCorePaths = new Set(['brief', 'full']
+    .map((tier) => worldModelSelectionEntry(normalizedManifest, { kind: 'core', tier }, {
+      allowLegacyFallback: legacyFallback
+    })?.path)
+    .filter(Boolean));
+  // Custom always-on files remain supported, but core tiers are owned by the plan. Otherwise a
+  // literal `core/summary.md` here silently defeats a brief plan and restores the full token cost.
+  for (const relative of config.context?.always ?? []) {
+    if (!knownCorePaths.has(relative)) await add(relative, 0, 'shared repository context');
+  }
   if (includeAgentPrompt && config.agentPrompt) {
     const info = await snapshot(path.join(root, config.agentPrompt));
     if (!info.exists) throw new SingularityFlowError(`Active governed-agent prompt is missing: ${config.agentPrompt}`);
   }
-  for (const view of phaseConfig.views ?? []) {
-    const tier = tierForView(view, { depth, declared });
-    await add(viewPath(manifest, view, tier), 1, `${phase} view: ${view} (${tier})`);
+  for (const selection of plan.views) {
+    const entry = worldModelSelectionEntry(normalizedManifest, selection, {
+      allowLegacyFallback: legacyFallback
+    });
+    await add(entry.path, 1, `${phase} view: ${selection.view} (${selection.tier}; ${selection.origin})`);
   }
-  if (config.context?.includeDomains !== 'none') {
+  if (plan.includeDomains !== 'none') {
     for (const domain of manifest.domains ?? []) {
-      if (config.context.includeDomains === 'all' || (domain.relevant_views ?? []).some((view) => phaseConfig.views.includes(view))) await add(domain.path, 2, `domain: ${domain.id}`);
+      if (plan.includeDomains === 'all' || (domain.relevant_views ?? []).some((view) => plan.views.some((selection) => selection.view === view))) await add(domain.path, 2, `domain: ${domain.id}`);
     }
   }
-  if (task) {
-    const normalized = normalizeTask(task);
+  if (plan.taskGuide.required) {
+    const normalized = normalizeTask(plan.taskGuide.task);
     const exact = (manifest.task_guides ?? []).find((guide) => normalizeTask(guide.task) === normalized);
-    if (!exact) throw new SingularityFlowError(`World model has no task guide for '${task}'. Rebuild it with the same --task value.`);
+    if (!exact) throw new SingularityFlowError(`World model has no task guide for '${plan.taskGuide.task}'. Materialize it with the same --task value.`);
     await add(exact.path, 2, `task guide: ${exact.id}`);
   }
-  if (evidence || phaseConfig.evidence || config.context?.includeEvidence) await add(manifest.evidence?.path, 3, 'evidence ledger');
-  return { manifest, freshness, selected, directory };
+  if (plan.includeEvidence) await add(manifest.evidence?.path, 3, 'evidence ledger');
+  return { manifest, normalizedManifest, freshness, selected, directory, plan, located };
 }
 
 // Why the repository world model needs (re)building, or null when it is present, committed, and
@@ -496,12 +625,26 @@ export async function verifyGroundingRecord(root, definition, workflow, phase, {
   }
   // Resolved with the same rule the composer used, from the same module. When these two disagreed
   // the verifier reported views as "omitted" that composition had correctly decided not to include.
-  const requiredViews = resolveViews(
-    phase.worldModel?.views ?? [],
-    definition.agents?.[agent ?? record.agent]?.worldModelViews ?? [],
-    { mode: definition.worldModel?.agentViews ?? 'fallback' }
-  ).views;
-  for (const view of requiredViews) if (!(record.requiredViews ?? []).includes(view)) problems.push(`grounding composition omitted required view '${view}' for ${phase.id}`);
+  const plan = resolveGroundingPlan({
+    phase: phase.id,
+    phaseViews: phase.worldModel?.views ?? [],
+    agentViews: definition.agents?.[agent ?? record.agent]?.worldModelViews ?? [],
+    agentViewMode: definition.worldModel?.agentViews ?? 'fallback',
+    depth: phase.worldModel?.depth ?? 'standard',
+    evidence: phase.worldModel?.evidence ?? false,
+    context: definition.worldModel?.context ?? {}
+  });
+  const requiredViews = plan.views.map((entry) => entry.view);
+  if (Array.isArray(record.requiredSelections)) {
+    const recorded = new Set(record.requiredSelections.map(selectionId));
+    for (const selection of plan.selections) {
+      const id = selectionId(selection);
+      if (!recorded.has(id)) problems.push(`grounding composition omitted required selection '${id}' for ${phase.id}`);
+    }
+  } else {
+    // Historical v1 receipts predate exact tier identities. Preserve their verification contract.
+    for (const view of requiredViews) if (!(record.requiredViews ?? []).includes(view)) problems.push(`grounding composition omitted required view '${view}' for ${phase.id}`);
+  }
   const modelRoot = posix(definition.worldModel?.outputDir ?? 'singularity/world-model').replace(/\/$/, '');
   const workItemRoot = posix(path.join(definition.workItemRoot ?? 'singularity/work-items', workflow.workItem.id));
   const capabilityRoot = posix(path.join(workItemRoot, 'context', 'capability-world-model'));
@@ -612,18 +755,34 @@ export async function verifyGroundingRecord(root, definition, workflow, phase, {
   }
   if (committedManifest) {
     if (committedManifest.source_tree_sha256 !== record.modelSourceTreeSha256) problems.push('world-model source hash differs from the composition record');
-    for (const view of requiredViews) {
-      // Either tier satisfies the requirement. A phase at standard depth legitimately receives the
-      // brief of a view it did not name as its subject, and demanding the full path here would fail
-      // a composition that had done exactly what the phase asked for.
-      const outputDir = definition.worldModel?.outputDir ?? 'singularity/world-model';
-      const entry = committedManifest.views?.[view];
-      const candidates = [entry?.path, entry?.brief_path]
-        .filter(Boolean)
-        .map((relative) => posix(path.join(outputDir, relative)));
-      if (!candidates.length || !(record.files ?? []).some((file) => candidates.includes(file.path))) problems.push(`grounding composition has no committed content for required view '${view}'`);
+    const outputDir = definition.worldModel?.outputDir ?? 'singularity/world-model';
+    const normalizedCommitted = normalizeWorldModelManifest(committedManifest);
+    const exactReceipt = Array.isArray(record.requiredSelections);
+    if (exactReceipt) {
+      const allowLegacyFallback = normalizedCommitted.source_schema_version !== '3.0';
+      for (const selection of plan.selections) {
+        const entry = worldModelSelectionEntry(normalizedCommitted, selection, { allowLegacyFallback });
+        const expected = entry?.path ? posix(path.join(outputDir, entry.path)) : null;
+        if (entry?.status !== 'ready' || !expected || !(record.files ?? []).some((file) => file.path === expected)) {
+          problems.push(`grounding composition has no committed content for required selection '${selectionId(selection)}'`);
+        }
+      }
+    } else {
+      // Historical receipts predate tier identities. Preserve the old either-tier verification
+      // contract instead of retroactively rejecting already published generations.
+      for (const view of requiredViews) {
+        const entry = committedManifest.views?.[view];
+        const candidates = [entry?.path, entry?.brief_path]
+          .filter(Boolean)
+          .map((relative) => posix(path.join(outputDir, relative)));
+        if (!candidates.length || !(record.files ?? []).some((file) => candidates.includes(file.path))) problems.push(`grounding composition has no committed content for required view '${view}'`);
+      }
     }
-    const requiredContextPaths = [committedManifest.core?.summary];
+    const plannedCore = worldModelSelectionEntry(normalizedCommitted, plan.core, {
+      allowLegacyFallback: normalizedCommitted.source_schema_version !== '3.0'
+    });
+    const requiredContextPaths = exactReceipt ? [] : [committedManifest.core?.summary];
+    if (exactReceipt && plannedCore?.status === 'ready') requiredContextPaths.push(plannedCore.path);
     if (record.task) {
       const guide = (committedManifest.task_guides ?? []).find((entry) => normalizeTask(entry.task) === normalizeTask(record.task));
       if (!guide) problems.push(`committed world model has no exact task guide for '${record.task}'`);

@@ -2164,6 +2164,7 @@ test('a pending Copilot handoff resumes in a fresh chat after the repository win
   const workflowFile = path.join(root, 'singularity/workflow.yml');
   const workflow = YAML.parse(await readFile(workflowFile, 'utf8'));
   workflow.git = { ...(workflow.git ?? {}), publish: 'off' };
+  workflow.phases.intake.worldModel.depth = 'light';
   await writeFile(workflowFile, YAML.stringify(workflow));
   run('git', ['add', workflowFile], { cwd: root });
   run('git', ['commit', '-m', 'Use local publication for handoff test'], { cwd: root });
@@ -2175,7 +2176,7 @@ test('a pending Copilot handoff resumes in a fresh chat after the repository win
   });
   assert.equal(started.status, 0, started.stderr);
   const grounded = spawnSync(process.execPath, [path.join(packageRoot, 'bin', 'singularity-flow.mjs'),
-    'wm', 'light', '--phase', 'intake', '--local'], { cwd: root, encoding: 'utf8', env: process.env });
+    'wm', 'light', '--phase', 'intake'], { cwd: root, encoding: 'utf8', env: process.env });
   assert.equal(grounded.status, 0, grounded.stderr);
   const isolated = await mkdtemp(path.join(os.tmpdir(), 'sflow-copilot-resume-'));
   const previousRegistry = process.env.SINGULARITY_FLOW_WORKSPACE_REGISTRY;

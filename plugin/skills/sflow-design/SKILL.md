@@ -11,7 +11,7 @@ argument-hint: "[design constraints or emphasis]"
 **Output contract:** Use the complete governed prompt and approved inputs, ask unresolved questions, then publish and show configured artifacts.
 
 1. Run `singularity-flow status --json`; stop if the current phase is not `design`.
-2. Run `singularity-flow wm compose --phase design --task "<design objective>"` and use the complete returned prompt. If the model or exact task guide is missing or stale, first run `singularity-flow wm build --phase design --task "<design objective>"`, then rerun the identical compose command. Use architecture and security grounding as evidence.
+2. Run `singularity-flow wm compose --phase design --task "<design objective>"` and use the complete returned prompt. If the exact grounding plan is missing or stale, show and run the returned `singularity-flow wm ensure --phase design --task "<design objective>"` only with explicit contributor authorization, then rerun the identical compose command. Use architecture and security grounding as evidence.
 3. Read approved requirements, list/view relevant uploaded documents and designs, and inspect only the additional source locations identified by the grounding package.
 4. Execute the composed prompt's **Human clarification checkpoint**. Use `ask_user` for one concise batch, wait, then record the accepted response with `singularity-flow clarification record design --response-file <json>`. Even if the evidence looks complete, ask the human to confirm the proposed boundaries, contracts, failure behavior, and material tradeoffs. Stop if interactive questions or the durable response record are unavailable.
 5. Run `singularity-flow prepare design` and complete the returned document.

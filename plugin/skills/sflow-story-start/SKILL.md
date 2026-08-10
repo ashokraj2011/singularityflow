@@ -22,7 +22,7 @@ argument-hint: "<JIRA-STORY-KEY>"
    - Record each explicit answer with `singularity-flow choices answer`.
    - Run `singularity-flow story start <STORY-KEY> --fetch --selection-receipt <TOKEN>` only after the receipt reports `ready: true`.
 7. Show the resulting Epic → Jira Story → canonical branch lineage, selected workflow, governed agent, current phase, generated intake document paths, commit, and push result.
-8. Only after the canonical Story branch exists, run `singularity-flow wm check`. If the model is missing or stale, run `singularity-flow wm build --phase <CURRENT-PHASE> --task "<STORY-TITLE>"` on that Story branch. Do not use `--local`: the model commit must be pushed as part of the Story branch before phase authoring begins.
+8. Only after the canonical Story branch exists, run `singularity-flow wm availability --phase <CURRENT-PHASE> --task "<STORY-TITLE>"`. If exact grounding is missing or stale, show `singularity-flow wm ensure --phase <CURRENT-PHASE> --task "<STORY-TITLE>"` and require explicit contributor authorization before running it. Do not use `--local`: governed publication must complete before phase authoring begins.
 9. Show the world-model generation timestamp, source-tree hash, commit, and push result. If generation fails, leave the Story intake intact and explain that `/sf-phase` remains blocked until `/sf-worldmodel` succeeds on this branch.
 10. Continue only when asked. The next authoring action is `/sf-phase`; `/sf-nextsteps` remains the read-only guide.
 

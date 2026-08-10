@@ -6,9 +6,10 @@ import { jiraSnapshotSource, verifyEpicSources } from './epic-sources.mjs';
 import { loadDefinition } from './config.mjs';
 import {
   resolveWorldModelContext,
-  groundingMode,
-  worldModelCommit
+  groundingMode
 } from './grounding.mjs';
+import { resolveGroundingPlan } from './world-model-selection.mjs';
+import { ensureGrounding, materializationPolicy } from './world-model-materialization.mjs';
 import { validatePortfolioWorldModelViews } from './initiative-config.mjs';
 import {
   loadInitiative,
@@ -218,28 +219,39 @@ async function repositoryGrounding(root, definition, phase, agent, mode, profile
   if (mode === 'off') {
     return { text: '', files: [], warnings, record: { mode, available: false } };
   }
-  const requiredViews = unique([
-    ...(phase.worldModelViews ?? []),
-    ...(definition.agents[agent]?.worldModelViews ?? [])
-  ]);
+  const plan = resolveGroundingPlan({
+    phase: phase.id,
+    phaseViews: phase.worldModelViews ?? [],
+    agentViews: definition.agents[agent]?.worldModelViews ?? [],
+    agentViewMode: definition.worldModel?.agentViews ?? 'fallback',
+    depth: phase.worldModelDepth ?? phase.worldModel?.depth ?? 'standard',
+    evidence: false,
+    context: definition.worldModel?.context ?? {}
+  });
+  const requiredViews = plan.views.map((entry) => entry.view);
   const config = {
+    definition,
     outputDir: definition.worldModel?.outputDir ?? 'singularity/world-model',
+    materialization: materializationPolicy(definition),
+    stateBranch: definition.ledger?.branch ?? null,
+    remote: definition.git?.remote ?? 'origin',
     grounding: mode,
     staleness: staleness ?? definition.worldModel?.staleness ?? 'warn',
-    context: { always: ['core/summary.md'], includeDomains: 'matched', includeEvidence: false },
+    context: definition.worldModel?.context ?? { includeDomains: 'matched', includeEvidence: false },
     phases: { [phase.id]: { views: requiredViews, depth: 'standard', evidence: false } }
   };
   try {
-    const resolved = await resolveWorldModelContext(root, config, phase.id);
-    const commit = worldModelCommit(root, config.outputDir);
-    const changes = run('git', ['status', '--porcelain=v1', '--untracked-files=all', '--', config.outputDir], { cwd: root }).stdout.trim();
+    const ensured = await ensureGrounding(root, config, plan, { authorized: false });
+    const resolved = await resolveWorldModelContext(root, config, phase.id, { plan, located: ensured.located });
+    const commit = resolved.located?.commit ?? null;
+    const changes = resolved.located?.source === 'worktree'
+      ? run('git', ['status', '--porcelain=v1', '--untracked-files=all', '--', config.outputDir], { cwd: root }).stdout.trim()
+      : '';
     const issues = [];
     if (!commit) issues.push('repository world model is not committed');
     if (changes) issues.push('repository world-model files have uncommitted changes');
     if (!resolved.freshness.fresh) issues.push('repository world model is stale');
-    if (issues.length && mode === 'enforce') {
-      throw new SingularityFlowError(`${issues.join('; ')}. Run singularity-flow wm build --views "${requiredViews.join(',')}" --focus "initiative phase ${phase.id}" before composing the initiative prompt.`);
-    }
+    if (issues.length && mode === 'enforce') throw new SingularityFlowError(`${issues.join('; ')}. Run singularity-flow wm ensure --phase ${phase.id} before composing the initiative prompt.`);
     if (issues.length) warnings.push(...issues);
     const files = [];
     for (const item of resolved.selected) {
@@ -269,27 +281,21 @@ async function repositoryGrounding(root, definition, phase, agent, mode, profile
         commit,
         sourceTreeSha256: resolved.manifest.source_tree_sha256 ?? null,
         fresh: resolved.freshness.fresh,
-        requiredViews
+        requiredViews,
+        requiredSelections: plan.selections
       }
     };
   } catch (error) {
     if (mode === 'enforce') {
-      // Named for the whole profile, not this phase alone. Building only what one phase needs is
-      // the obvious reading of the old message, and following it phase by phase rebuilt the model
-      // every time — each rebuild changing files that already-approved phases had pinned, so the
-      // terminal gate failed at the end for having followed the instructions.
-      const everyView = unique([
-        ...requiredViews,
-        ...profilePhases.flatMap((entry) => entry.worldModelViews ?? [])
-      ]);
-      const together = everyView.length > requiredViews.length
-        ? ' Every view this profile needs is listed, so one build serves the whole initiative; '
-          + 'building them one phase at a time re-grounds the phases already approved and stales them.'
-        : '';
-      throw new SingularityFlowError(`${error.message} Run singularity-flow wm build --views "${everyView.join(',')}" --focus "initiative phase ${phase.id}", then retry.${together}`);
+      // Preserve the materializer's single exact recovery action. Adding the old broad-build advice
+      // here caused callers to regenerate unrelated tiers and invalidate already-approved phases.
+      throw error;
     }
     warnings.push(`Repository world model unavailable: ${error.message}`);
-    return { text: '', files: [], warnings, record: { mode, available: false, requiredViews } };
+    return {
+      text: '', files: [], warnings,
+      record: { mode, available: false, requiredViews, requiredSelections: plan.selections }
+    };
   }
 }
 

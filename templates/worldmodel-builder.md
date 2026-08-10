@@ -14,6 +14,10 @@ Requested views:
 
   {{REQUESTED_VIEWS_OR_AUTO}}
 
+Exact selections chosen by the CLI:
+
+  {{REQUIRED_SELECTIONS}}
+
 Allowed values:
 
 - core
@@ -48,7 +52,7 @@ Do not create one large document containing everything.
 Create:
 
 1. A minimal shared repository core.
-2. Only the requested role-specific views, each at two detail tiers.
+2. Only the exact role-specific view tiers listed in `Exact selections chosen by the CLI`.
 3. Domain-specific models only for relevant areas.
 4. Task guides only when a concrete task is provided.
 5. Evidence records separately from explanatory documents.
@@ -152,8 +156,8 @@ Populate only the keys that apply to that view. Values must be observed, not inf
 
 If `REQUESTED_VIEWS` is explicitly provided, generate only:
 
-- `core`
-- The explicitly requested views (both tiers)
+- The exact core tier or tiers listed by the CLI
+- The exact view tiers listed by the CLI
 - Relevant domain files
 - Relevant task guides
 
@@ -209,9 +213,11 @@ Do not generate unrelated views.
 - Store detailed evidence separately rather than repeating it in every view.
 - Prefer tables, paths, symbols, and structured blocks over narrative paragraphs. A path is worth a sentence; a symbol name is worth a paragraph.
 
-# Step 1: Build the shared core
+# Step 1: Build the requested shared core tiers
 
-Always create the shared core.
+Create only the shared core tiers listed in `Exact selections chosen by the CLI`. On a bootstrap run
+the CLI normally requests both core tiers; on an extension it may request neither because the
+existing core is reused. Do not recreate a core tier that is not listed.
 
 The core should answer only:
 
@@ -226,7 +232,7 @@ The core should answer only:
 
 Do not place detailed business, testing, deployment, or implementation information in the core.
 
-Create:
+Create the listed subset of:
 
 - `core/summary.md` (full tier)
 - `core/summary.brief.md` (brief tier)
@@ -311,12 +317,16 @@ Approximately 500–1,000 words / 6 KB. Consumer header, then `## TL;DR {#core.t
 }
 ```
 
-# Step 2: Generate role-specific views, at two tiers
+# Step 2: Generate exact role-specific view tiers
 
-Generate only requested or inferred views. For each generated view produce **both**:
+Generate only the exact view/tier identities listed by the CLI:
 
 - `views/<view>.md` — full tier, budget per the table below
 - `views/<view>.brief.md` — brief tier, **hard cap 400 words / 2.5 KB**
+
+Do not generate both merely because a view was requested. A `business/brief` selection creates only
+`views/business.brief.md`; `architecture/full` creates only `views/architecture.md`. The CLI, not
+the model, owns tier selection and will reject undeclared output.
 
 The brief tier is not a teaser. It must be independently useful: what this view covers, the three to five decisions it informs, the key paths or symbols, and the single most common mistake in this area. An agent that reads only the brief should be meaningfully grounded, not merely aware that a longer document exists.
 
@@ -457,13 +467,16 @@ Create `index/path-map.json`. This lets a runtime select grounding from a diff r
 
 Rules: globs must be repository-relative and non-overlapping where practical; when they do overlap, order most specific first; every referenced view, domain, anchor, and component ID must exist; cover the significant source areas, not every directory; always provide `fallback`.
 
-# Step 7: Create the loading manifest
+# Step 7: Declare the generated fragment
 
-Create `manifest.json`:
+Create `manifest.json` describing the exact fragment you produced. Use schema v3. A tier not listed
+in `Exact selections chosen by the CLI` remains `missing`; do not create a placeholder file. The CLI
+will calculate final hashes, byte counts, preservation checks, and materialization history while it
+merges the fragment into the repository model.
 
 ```json
 {
-  "schema_version": "2.0",
+  "schema_version": "3.0",
   "repository_commit": "<full SHA>",
   "repository_branch": "<branch>",
   "working_tree_clean": true,
@@ -473,28 +486,29 @@ Create `manifest.json`:
   "builder_prompt_sha256": "<sha256 or unknown>",
   "analysis_depth": "<quick|standard|deep>",
   "core": {
-    "summary": "core/summary.md",
-    "brief": "core/summary.brief.md",
-    "model": "core/model.json",
+    "tiers": {
+      "brief": { "status": "ready", "path": "core/summary.brief.md" },
+      "full": { "status": "missing", "path": null }
+    },
+    "model": { "path": "core/model.json" },
     "anchors": ["core.tldr", "core.purpose", "core.map", "core.commands", "core.risks"],
-    "bytes": { "summary": 0, "brief": 0 },
     "recommended_for_all_agents": true
   },
   "views": {
     "development": {
-      "path": "views/development.md",
-      "brief_path": "views/development.brief.md",
-      "generated": true,
-      "bytes": { "full": 0, "brief": 0 },
+      "tiers": {
+        "brief": { "status": "ready", "path": "views/development.brief.md" },
+        "full": { "status": "missing", "path": null }
+      },
       "anchors": ["dev.tldr", "dev.facts", "dev.start", "dev.impact", "dev.hotspots", "dev.limits"],
       "load_when": ["implementation", "debugging", "refactoring", "code review"]
     },
-    "business":     { "path": "views/business.md",     "brief_path": "views/business.brief.md",     "generated": false, "load_when": ["business capability analysis", "product behavior analysis", "business impact assessment"] },
-    "architecture": { "path": "views/architecture.md", "brief_path": "views/architecture.brief.md", "generated": false, "load_when": ["system design", "dependency analysis", "cross-component change"] },
-    "testing":      { "path": "views/testing.md",      "brief_path": "views/testing.brief.md",      "generated": false, "load_when": ["test creation", "regression analysis", "quality validation"] },
-    "release":      { "path": "views/release.md",      "brief_path": "views/release.brief.md",      "generated": false, "load_when": ["build", "packaging", "deployment", "rollback"] },
-    "operations":   { "path": "views/operations.md",   "brief_path": "views/operations.brief.md",   "generated": false, "load_when": ["runtime diagnosis", "monitoring and incident response"] },
-    "security":     { "path": "views/security.md",     "brief_path": "views/security.brief.md",     "generated": false, "load_when": ["threat analysis", "authentication or authorization change"] }
+    "business":     { "tiers": { "brief": { "status": "missing", "path": null }, "full": { "status": "missing", "path": null } }, "load_when": ["business capability analysis", "product behavior analysis", "business impact assessment"] },
+    "architecture": { "tiers": { "brief": { "status": "missing", "path": null }, "full": { "status": "missing", "path": null } }, "load_when": ["system design", "dependency analysis", "cross-component change"] },
+    "testing":      { "tiers": { "brief": { "status": "missing", "path": null }, "full": { "status": "missing", "path": null } }, "load_when": ["test creation", "regression analysis", "quality validation"] },
+    "release":      { "tiers": { "brief": { "status": "missing", "path": null }, "full": { "status": "missing", "path": null } }, "load_when": ["build", "packaging", "deployment", "rollback"] },
+    "operations":   { "tiers": { "brief": { "status": "missing", "path": null }, "full": { "status": "missing", "path": null } }, "load_when": ["runtime diagnosis", "monitoring and incident response"] },
+    "security":     { "tiers": { "brief": { "status": "missing", "path": null }, "full": { "status": "missing", "path": null } }, "load_when": ["threat analysis", "authentication or authorization change"] }
   },
   "phase_map": {
     "intake":              { "views": ["business"], "tier": "brief" },
@@ -538,9 +552,8 @@ Create `manifest.json`:
 }
 ```
 
-For views that were not generated: set `generated` to `false`, do not create placeholder documents, and preserve the `load_when` rules.
-
-Populate `bytes` with actual file sizes so a runtime can plan against its injection budget without opening files.
+For tiers that were not generated, record `status: missing` and do not create placeholder documents.
+The CLI calculates byte counts and SHA-256 values after synthesis; do not invent them.
 
 Every generated output must be a regular file inside the output directory. Do not create symbolic links, sockets, device files, or undeclared helper files. When a current task is supplied, copy its exact text into the matching `task_guides[].task` field so the runtime can select it deterministically.
 
@@ -554,7 +567,7 @@ For small changes and repository orientation.
 
 Inspect: root manifests; main README; primary entry points; the relevant package or service; directly related tests; CI or release files only when relevant.
 
-Emit: core (both tiers); **brief tier only** for requested views; task guide if applicable; minimal evidence; path index limited to the areas inspected. Do not attempt repository-wide workflow reconstruction. Full-tier views are intentionally omitted — record this in the final report.
+Emit only the exact selections supplied by the CLI; quick plans normally request brief core and brief views. Include a task guide if applicable, minimal evidence, and a path index limited to the areas inspected. Do not attempt repository-wide workflow reconstruction.
 
 ## Standard
 
@@ -562,7 +575,7 @@ For normal feature work and design analysis.
 
 Inspect: all major components; relevant workflows; direct and important indirect dependencies; tests and build configuration; relevant deployment files.
 
-Emit: core; both tiers of requested views at the budgets below; relevant domains; task guide when applicable; evidence ledger; full path index.
+Emit only the exact selections supplied by the CLI. Include relevant domains, a task guide when applicable, an evidence ledger, and a full path index.
 
 ## Deep
 
@@ -570,7 +583,7 @@ For major redesign, security review, migration, or critical release.
 
 Inspect: full component topology; important runtime workflows; data ownership; external integrations; tests; CI/CD; infrastructure; security boundaries; operational behavior; historical Git information when useful.
 
-Emit: everything requested, at the upper end of budgets, with detailed evidence and explicit coverage reporting.
+Emit the exact full-tier selections supplied by the CLI, at the upper end of budgets, with detailed evidence and explicit coverage reporting. Generate a brief tier only when it is also explicitly listed.
 
 # Context-budget requirements
 

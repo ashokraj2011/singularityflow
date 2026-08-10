@@ -25,6 +25,9 @@ export const AGENT_VIEW_MODES = Object.freeze(['fallback', 'union']);
 /** Depths a phase may declare, ordered from least to most content. */
 export const DEPTHS = Object.freeze(['light', 'quick', 'standard', 'deep']);
 
+/** Persistent artifact tiers. A tier is part of the logical artifact identity. */
+export const WORLD_MODEL_TIERS = Object.freeze(['brief', 'full']);
+
 /**
  * Resolve the views a phase will receive, keeping the provenance.
  *
@@ -74,22 +77,84 @@ export function tierForCore(depth = 'standard') {
   return depth === 'deep' ? 'full' : 'brief';
 }
 
+/** A stable, human-readable identity used by plans, manifests, receipts, and diagnostics. */
+export function selectionId(selection) {
+  if (selection?.kind === 'core') return `core/${selection.tier}`;
+  if (selection?.kind === 'view') return `${selection.view}/${selection.tier}`;
+  if (selection?.kind === 'task-guide') return `task-guide/${selection.taskSha256 ?? 'exact'}`;
+  return 'unknown/unknown';
+}
+
+/**
+ * Resolve the complete grounding requirement before any world-model file is read.
+ *
+ * This is intentionally pure. Build, compose, planning, initiatives, budget reporting, and
+ * receipt verification must all be able to compare the same plan without consulting Git or the
+ * filesystem. Keeping provenance on each selection also makes agent-added context visible.
+ */
+export function resolveGroundingPlan({
+  phase,
+  phaseViews = [],
+  agentViews = [],
+  agentViewMode = 'fallback',
+  depth = 'standard',
+  evidence = false,
+  task = null,
+  context = {}
+} = {}) {
+  if (!DEPTHS.includes(depth)) throw new TypeError(`world-model depth must be one of ${DEPTHS.join(', ')}.`);
+  const resolved = resolveViews(phaseViews, agentViews, { mode: agentViewMode });
+  const views = resolved.views.map((view, index) => {
+    const tier = tierForView(view, { depth, declared: resolved.declared });
+    const origin = resolved.origin.get(view);
+    const primary = resolved.declared[0] === view;
+    return {
+      kind: 'view', view, tier, required: true, origin,
+      reason: primary ? 'primary phase view' : origin === 'agent' ? 'agent orientation view' : 'secondary phase view',
+      id: `${view}/${tier}`,
+      order: index
+    };
+  });
+  const normalizedTask = String(task ?? '').trim();
+  return {
+    phase: phase ?? null,
+    depth,
+    core: {
+      kind: 'core', tier: tierForCore(depth), required: true,
+      reason: 'shared repository orientation', id: `core/${tierForCore(depth)}`
+    },
+    views,
+    selections: [{ kind: 'core', tier: tierForCore(depth), required: true }, ...views.map(({ view, tier, required, origin }) => ({ kind: 'view', view, tier, required, origin }))],
+    includeDomains: context.includeDomains ?? 'matched',
+    includeEvidence: Boolean(evidence || context.includeEvidence),
+    taskGuide: normalizedTask ? { required: true, task: normalizedTask } : { required: false, task: null },
+    agentViewMode: resolved.mode,
+    declaredViews: resolved.declared,
+    agentViews: resolved.fromAgent
+  };
+}
+
 /**
  * Pick the manifest path for a view at a tier, falling back to the full text.
  *
  * A v1 manifest has no `brief_path`, and a view may legitimately be ungenerated. Falling back to
  * `path` keeps an older model readable rather than failing a phase over a tier that predates it.
  */
-export function viewPath(manifest, view, tier) {
+export function viewPath(manifest, view, tier, { allowLegacyFallback = true } = {}) {
   const entry = manifest?.views?.[view];
   if (!entry) return null;
-  return (tier === 'brief' && entry.brief_path) ? entry.brief_path : entry.path ?? null;
+  if (entry.tiers) return entry.tiers?.[tier]?.status === 'ready' ? entry.tiers[tier].path ?? null : null;
+  if (tier === 'brief' && entry.brief_path) return entry.brief_path;
+  if (tier === 'brief' && !allowLegacyFallback) return null;
+  return entry.path ?? null;
 }
 
 /** Pick the core path for a tier, with the same fallback. */
-export function corePath(manifest, tier) {
+export function corePath(manifest, tier, { allowLegacyFallback = true } = {}) {
   const core = manifest?.core ?? {};
+  if (core.tiers) return core.tiers?.[tier]?.status === 'ready' ? core.tiers[tier].path ?? null : null;
   if (tier === 'brief' && core.brief) return core.brief;
+  if (tier === 'brief' && !allowLegacyFallback) return null;
   return core.summary ?? 'core/summary.md';
 }
 

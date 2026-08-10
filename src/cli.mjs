@@ -1341,7 +1341,7 @@ async function resolveNextStepsSnapshot(positionals, options) {
         const rebuildReason = await worldModelRebuildReason(root, config);
         const task = '<current objective>';
         if (rebuildReason) {
-          prerequisites.push({ timing: groundingMode === 'enforce' ? 'now' : 'optional', skill: null, command: `singularity-flow wm build --phase ${active.id} --task "${task}"`, reason: rebuildReason });
+          prerequisites.push({ timing: groundingMode === 'enforce' ? 'now' : 'optional', skill: '/sf-worldmodel', command: `singularity-flow wm ensure --phase ${active.id} --task "${task}"`, reason: rebuildReason });
           prerequisites.push({ timing: groundingMode === 'enforce' ? 'then' : 'optional', skill: null, command: `singularity-flow wm compose --phase ${active.id} --task "${task}"`, reason: 'Compose and record the governed phase prompt using the exact same task text.' });
         } else {
           const grounding = await verifyGroundingRecord(root, config, workflow, active, { agent: session?.agent ?? null });
@@ -1526,7 +1526,7 @@ async function nextCommand(options) {
         console.log(`Next step prerequisite: ${rebuildReason}`);
         console.log('No model was started. Build explicitly, then continue:');
         console.log(`Copilot: /sf-worldmodel --phase ${phase.id}`);
-        console.log(`Run: singularity-flow wm build --phase ${phase.id} --task ${JSON.stringify(task)}`);
+        console.log(`Run: singularity-flow wm ensure --phase ${phase.id} --task ${JSON.stringify(task)}`);
         console.log('Model-free alternative: author the prepared artifact manually and publish with --authored human.');
         return;
       }

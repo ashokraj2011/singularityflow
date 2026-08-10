@@ -11,7 +11,7 @@ argument-hint: "[implementation focus]"
 **Output contract:** Use the complete governed prompt and approved inputs, ask unresolved questions, then publish and show configured artifacts.
 
 1. Run `singularity-flow status --json`; stop if the current phase is not `implementation`.
-2. Run `singularity-flow wm compose --phase implementation --task "<implementation objective>"` and use the complete returned prompt. If the model or exact task guide is missing or stale, first run `singularity-flow wm build --phase implementation --task "<implementation objective>"`, then rerun the identical compose command. Use development and testing grounding to select entry points, conventions, and commands.
+2. Run `singularity-flow wm compose --phase implementation --task "<implementation objective>"` and use the complete returned prompt. If the exact grounding plan is missing or stale, show and run the returned `singularity-flow wm ensure --phase implementation --task "<implementation objective>"` only with explicit contributor authorization, then rerun the identical compose command. Use development and testing grounding to select entry points, conventions, and commands.
 3. Read approved requirements, design artifacts, and the source locations selected by the grounding package.
 4. Inspect further files only as the implementation requires.
 5. Implement only approved scope; add or update tests and documentation. Tag tests with the corresponding `@ac:AC-n` identifiers.

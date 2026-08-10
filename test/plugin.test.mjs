@@ -367,7 +367,8 @@ test('next skill executes one action and preserves explicit approval controls', 
   assert.match(content, /singularity-flow next --task/);
   assert.match(content, /singularity-flow nextsteps --json/);
   assert.match(content, /explicit consent/);
-  assert.match(content, /singularity-flow next --yes --task/);
+  assert.match(content, /singularity-flow wm ensure/);
+  assert.match(content, /Do not start it while waiting/);
   assert.match(content, /Do not start it while waiting/);
   assert.match(content, /automatic phase agent.*exact phase name/is);
   assert.match(content, /Every recorded approval must produce its own commit and push/);
@@ -378,7 +379,8 @@ test('guided run and world-model skills preserve consent and crash-recovery boun
   const run = await readFile(path.join(pluginRoot, 'skills', 'sflow-run', 'SKILL.md'), 'utf8');
   assert.match(run, /singularity-flow nextsteps --json/);
   assert.match(run, /explicit consent/);
-  assert.match(run, /singularity-flow run --yes --task/);
+  assert.match(run, /singularity-flow run --task/);
+  assert.match(run, /pass `--yes` only after that answer/);
   assert.match(run, /If the next action is submission, ask whether to submit/);
 
   const worldModel = await readFile(path.join(pluginRoot, 'skills', 'sflow-worldmodel', 'SKILL.md'), 'utf8');

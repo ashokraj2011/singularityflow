@@ -7422,11 +7422,61 @@ async function finalizeCommand(options) {
   console.log(`Commit: ${publication.sha.slice(0, 8)}${publication.pushed ? ' pushed' : ' local'}`);
 }
 
+/**
+ * Expand a `sfdoc:` handle, or return null when the handle belongs to the evidence plane.
+ *
+ * The hash in the handle is checked rather than decorative: a handle minted against one version of
+ * a topic must not silently resolve to another. That is the same promise `sfref:` makes about
+ * artifact bytes, and it is the reason a citation is worth anything.
+ */
+async function expandDocsHandle(handle, options) {
+  const { parseDocsHandle, docsHandle, servedBody, citationLine } = await import('./commands/explain.mjs');
+  const parsed = parseDocsHandle(handle);
+  if (!parsed) return null;
+  const { loadTopics } = await import('./docs-topics.mjs');
+  const { docsManifest } = await import('./docs-manifest.mjs');
+  const topics = await loadTopics();
+  const topic = topics.find((entry) => entry.id === parsed.topicId);
+  if (!topic) {
+    throw new SingularityFlowError(`No documentation topic '${parsed.topicId}' is installed.`, { exitCode: 2, code: 'handle.not_found' });
+  }
+  if (docsHandle(topic) !== handle) {
+    throw new SingularityFlowError(
+      `Handle names ${parsed.shaPrefix} but topic '${topic.id}' is now ${topic.sha256.slice(0, 12)}. Re-read it with: sflow explain ${topic.id}.`,
+      { exitCode: 4, code: 'handle.hash_mismatch' }
+    );
+  }
+  const served = servedBody(topic, {
+    maxBytes: optionNumber(options, 'max-bytes'),
+    section: optionString(options, 'section')
+  });
+  const manifest = docsManifest();
+  const provenance = {
+    topic: topic.id, topicVersion: topic.version, topicSha256: topic.sha256,
+    docsSourceCommit: manifest?.sourceCommit ?? null
+  };
+  if (optionBoolean(options, 'json')) {
+    console.log(JSON.stringify({
+      schemaVersion: 1, resultType: 'docs-topic', handle, provenance, served
+    }, null, 2));
+  } else {
+    console.log(served.text);
+    console.log(citationLine(provenance));
+  }
+  return { harnessOutput: { handle, previewSha256: served.sha256, previewBytes: served.bytes } };
+}
+
 async function showCommand(positionals, options) {
   const handle = requirePositional(positionals, 1, 'governed reference handle');
   const selectors = [optionString(options, 'section'), optionString(options, 'json-pointer'), optionString(options, 'range')]
     .filter((value) => value != null);
   if (selectors.length > 1) throw new SingularityFlowError('Choose only one of --section, --json-pointer, or --range.', { exitCode: 5, code: 'handle.expansion_invalid' });
+  // A documentation handle is answered from the package, before `repoRoot()` is consulted — the
+  // whole point of the documentation plane is that it resolves with no clone at all. Dispatching on
+  // the namespace also keeps the two planes visibly separate: `sfdoc:` is documentation, `sfref:` is
+  // registered governed evidence, and neither can be mistaken for the other.
+  const docs = await expandDocsHandle(handle, options);
+  if (docs) return docs;
   const result = await resolveReference(repoRoot(), handle, {
     section: optionString(options, 'section'),
     jsonPointer: optionString(options, 'json-pointer'),
@@ -7614,6 +7664,7 @@ async function dispatch(command, positionals, options) {
     assign: () => assignCommand(positionals),
     watch: () => watchCommand(positionals, options),
     recover: () => recoverCommand(positionals, options),
+    explain: async () => (await import('./commands/explain.mjs')).run(argv, { positionals, options }),
     nextsteps: () => nextStepsCommand(positionals, options),
     action: () => actionCommand(positionals, options),
     inputs: () => inputsCommand(positionals, options),

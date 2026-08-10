@@ -17,6 +17,22 @@ function slot(value, fallback = '') {
 }
 
 export const MESSAGES = Object.freeze({
+  'docs.served': {
+    headline: (s) => `${slot(s.title)} — topic ${slot(s.topic)} v${slot(s.version)}.`,
+    preserves: true
+  },
+  'docs.served-with-state': {
+    headline: (s) => `${slot(s.title)} — topic ${slot(s.topic)} v${slot(s.version)}, alongside ${slot(s.subject, 'this repository')}.`,
+    preserves: true
+  },
+  'docs.topic-not-found': {
+    headline: (s) => `No topic matches '${slot(s.query)}'.`,
+    preserves: true
+  },
+  'docs.topic-ambiguous': {
+    headline: (s) => `'${slot(s.query)}' matches ${slot(s.count)} topics.`,
+    preserves: true
+  },
   'sequence.refused': {
     headline: (s) => `Cannot ${slot(s.action, 'do that')}${s.phase ? ` for ${slot(s.phase)}` : ''} yet.`,
     preserves: true
@@ -133,6 +149,15 @@ export const REASONS = Object.freeze({
   },
   'grounding.not-ready': {
     render: (s) => `the world-model grounding policy is '${slot(s.mode)}' and no composition exists for this generation`
+  },
+  'docs.no-such-topic': {
+    render: (s) => `'${slot(s.query)}' is not a topic id, an alias, or the prefix of one`
+  },
+  'docs.prefix-ambiguous': {
+    render: (s) => `'${slot(s.query)}' is the prefix of ${slot(s.count)} topics, and choosing one would be a guess`
+  },
+  'docs.subject-unresolved': {
+    render: () => 'no work item resolves here, so only the concept could be served'
   }
 });
 

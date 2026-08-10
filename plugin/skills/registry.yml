@@ -6,7 +6,8 @@ version: 1
 # The bar for this list is not "useful" — it is "cannot change governed state". A newcomer should be
 # able to ask what is going on and be answered, without having to recall one of 97 exact slash names;
 # they should never be able to cause an approval or a publication by phrasing a question a particular
-# way. So every entry here reads: status, progress, the inbox, diagnostics, logs, help, and the
+# way. So every entry here reads: status, progress, the inbox, diagnostics, logs, help, served
+# documentation, and the
 # sandboxed walkthrough. Nothing that submits, approves, publishes, merges, or writes to the ledger
 # belongs here, however convenient it would be.
 #
@@ -15,6 +16,7 @@ version: 1
 # a step into a decision, and a decision is precisely what a phrasing of a question must not start.
 # "What is waiting on me?" is answered well enough by status and nextsteps.
 automaticInvocationAllowlist:
+  - sflow-docs
   - sflow-doctor
   - sflow-help
   - sflow-logs
@@ -75,6 +77,7 @@ skills:
   sflow-capability-map: { class: interactive }
   sflow-continue: { class: mutation }
   sflow-design: { class: generative }
+  sflow-docs: { class: echo }
   sflow-doctor: { class: echo }
   sflow-documents: { class: mutation }
   sflow-epic-complete: { class: review }

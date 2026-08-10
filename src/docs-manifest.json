@@ -1,0 +1,212 @@
+{
+  "schemaVersion": 1,
+  "generatedFrom": "docs/topics",
+  "sourceCommit": "da4ebcb0e6a06cb25624c07f4cda5260f53d0583",
+  "topicCount": 29,
+  "contentSha256": "290d30750cbdd062029db8d506b7f4dbd5676cc602cb20c1f00dd97feb811a9c",
+  "topics": [
+    {
+      "id": "approvals",
+      "title": "Approvals",
+      "version": 1,
+      "sha256": "065da30ea3da62d82a5079f95d71786d556478b1c0da137715ef8b0b3776da55",
+      "file": "approvals.md"
+    },
+    {
+      "id": "artifacts-and-generation",
+      "title": "Artifacts, templates, and publication",
+      "version": 1,
+      "sha256": "3e22b49556eddda55cb22a51cf98fbf9e08ea94edaf802f12d53b9dcef48df7d",
+      "file": "artifacts-and-generation.md"
+    },
+    {
+      "id": "checkpoints-pause-continue",
+      "title": "Checkpoints, pause, and continue",
+      "version": 1,
+      "sha256": "8e9b577664d2b5c8b6f519063cfbbf3ca6a16044aca8950b2553836eda483cc8",
+      "file": "checkpoints-pause-continue.md"
+    },
+    {
+      "id": "configuration",
+      "title": "Configuration, capabilities, and the policy fold",
+      "version": 1,
+      "sha256": "9ec3e1270782a03a16272a021966ac62e553977fc6cd8e60f2436445e2fdc77e",
+      "file": "configuration.md"
+    },
+    {
+      "id": "epics-and-planning",
+      "title": "Epics, planning, and user stories",
+      "version": 1,
+      "sha256": "3a9433ebe1c59d31053cfacfdf1b46fcc896c67f66bcc30c176e1c5274f2c501",
+      "file": "epics-and-planning.md"
+    },
+    {
+      "id": "escalation",
+      "title": "Rail escalation",
+      "version": 1,
+      "sha256": "a663c2def284a6b64a855ae87a815e669d699cab33eddadc9bfac7941c83880b",
+      "file": "escalation.md"
+    },
+    {
+      "id": "evidence-and-ledger",
+      "title": "Evidence, the ledger, and traceability",
+      "version": 1,
+      "sha256": "f7fecb8f1f78aa7f2b5cb72243e8ace18cec6b0765922caf499e2ca84bfd8ad5",
+      "file": "evidence-and-ledger.md"
+    },
+    {
+      "id": "getting-started",
+      "title": "Getting started",
+      "version": 1,
+      "sha256": "5e72d637c3c544e7b9598518c102b70825149ddd3746f430fe61438c3526c71d",
+      "file": "getting-started.md"
+    },
+    {
+      "id": "help-and-docs",
+      "title": "Getting help",
+      "version": 1,
+      "sha256": "dc3c12659600211809b6d96e68fd789b5a87f55e97d4a6323e140d1a8f343dd5",
+      "file": "help-and-docs.md"
+    },
+    {
+      "id": "impact-framework",
+      "title": "Impact receipts and studies",
+      "version": 1,
+      "sha256": "531e94fa1bfa0bacfeda553db5749708bde583b24b28494866348c520506c717",
+      "file": "impact-framework.md"
+    },
+    {
+      "id": "inbox-and-review",
+      "title": "The inbox and review packets",
+      "version": 1,
+      "sha256": "2be019d7096afc83d876f02653983e963c79ea1b10b9c23c8d1563749af2ac70",
+      "file": "inbox-and-review.md"
+    },
+    {
+      "id": "manual-authorship",
+      "title": "Manual authorship and working without AI",
+      "version": 1,
+      "sha256": "965f29ee4607c65bda9af32940e7574a04a4454f76526ca6e11d41e8bb4e932e",
+      "file": "manual-authorship.md"
+    },
+    {
+      "id": "mcp-integration",
+      "title": "MCP integration",
+      "version": 1,
+      "sha256": "60c3446e78e1a492c440e13cc89334e3857ce9c3be29062ffacb3571e42fdb3a",
+      "file": "mcp-integration.md"
+    },
+    {
+      "id": "model-independence",
+      "title": "Model independence",
+      "version": 1,
+      "sha256": "4f8e10fba3e6e04ac5ead876cad8593b20bdc24ecb1bc4c37bad6ab4b35ad2b8",
+      "file": "model-independence.md"
+    },
+    {
+      "id": "nextsteps",
+      "title": "Guidance — nextsteps and the narration contract",
+      "version": 1,
+      "sha256": "8aae6ce2fe5008ecbece279d013445a20149caf8efdd5166d2a9593f80779078",
+      "file": "nextsteps.md"
+    },
+    {
+      "id": "pins",
+      "title": "Pins and the immutable resolution",
+      "version": 1,
+      "sha256": "e7b905516d62484ec64abbfcff652753d86606d9f4f5cc5f283b9ac93ac1bdfb",
+      "file": "pins.md"
+    },
+    {
+      "id": "quick-fix",
+      "title": "The quick-fix rail",
+      "version": 1,
+      "sha256": "244192fdf4c0c8b2a51592254292237cc23a4378955cfe5277f82f770681054f",
+      "file": "quick-fix.md"
+    },
+    {
+      "id": "reconciliation",
+      "title": "Reconciliation and dispositions",
+      "version": 1,
+      "sha256": "1f0ea684213630428e6c008a94e792877774ad98195362e49fdec4ea82b9daf9",
+      "file": "reconciliation.md"
+    },
+    {
+      "id": "recovery",
+      "title": "Recovery — nothing is ever lost",
+      "version": 1,
+      "sha256": "6a291df285baa409edff7b60dc472f48777184c4d99650a48436737bcfa8d3a5",
+      "file": "recovery.md"
+    },
+    {
+      "id": "reference-previews",
+      "title": "Previews, handles, and show",
+      "version": 1,
+      "sha256": "6b0c3a2d5f64aa2b129f8bc06a869c3de8a764aadf72471786d1deb8e03ca6dc",
+      "file": "reference-previews.md"
+    },
+    {
+      "id": "rejection-and-rework",
+      "title": "Rejection and rework",
+      "version": 1,
+      "sha256": "6305e5cdd8f44b5d32d3d3fe7c5dfecd6b91f67ff62578ee420b72f7c421a0f1",
+      "file": "rejection-and-rework.md"
+    },
+    {
+      "id": "sequence-gates",
+      "title": "Sequence gates and submission",
+      "version": 1,
+      "sha256": "ea360429d6155d590e078c10368a62674fc214238665eb937d7a8b0f7abfbb1c",
+      "file": "sequence-gates.md"
+    },
+    {
+      "id": "starting-work",
+      "title": "Starting work",
+      "version": 1,
+      "sha256": "0581c29733a39a986e017514717e7de83a5e2f2944c92554ced1ebf182591556",
+      "file": "starting-work.md"
+    },
+    {
+      "id": "story-lifecycle",
+      "title": "Story lifecycle, phases, and generations",
+      "version": 1,
+      "sha256": "7c4610840f1e5344999561038d7b31cca7a003fb9f42e3e45ae3500f5524133e",
+      "file": "story-lifecycle.md"
+    },
+    {
+      "id": "telemetry-and-cost",
+      "title": "Telemetry, tokens, and cost",
+      "version": 2,
+      "sha256": "53da0299201b23b1027a58d3873e2e8cc55e2246420ec91e8f19588932326ddf",
+      "file": "telemetry-and-cost.md"
+    },
+    {
+      "id": "visual-verification",
+      "title": "Visual verification for mobile",
+      "version": 1,
+      "sha256": "e03a3f01f6f1d8f8e42686d7dc466a18e40137ef9376392d9413823a4c76e4ef",
+      "file": "visual-verification.md"
+    },
+    {
+      "id": "waivers",
+      "title": "Policy waivers",
+      "version": 1,
+      "sha256": "364147b448bb276e8ff7bdda2dd11c95542f810ae0245db6b71070c661b6ce0b",
+      "file": "waivers.md"
+    },
+    {
+      "id": "what-is-singularity-flow",
+      "title": "What is Singularity Flow",
+      "version": 1,
+      "sha256": "fba6b980b5c044c821b334735e012cdd902d12e7a2fdbc46c18d18585a44ae6c",
+      "file": "what-is-singularity-flow.md"
+    },
+    {
+      "id": "work-intervals",
+      "title": "Work intervals",
+      "version": 1,
+      "sha256": "dc8b367efeb6dd738dfb101bdc956bdb01934bfc93e65bc2926f410b9edbe22a",
+      "file": "work-intervals.md"
+    }
+  ]
+}

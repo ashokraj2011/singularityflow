@@ -36,7 +36,12 @@ function whyLines(result) {
       const text = reason ? reason.render(entry.slots ?? {}) : entry.code;
       // The friendly reason carries its provenance. A citation a reviewer cannot resolve is a
       // claim, not evidence, so the immutable reference stays visible beside the readable line.
-      return entry.ref ? `  - ${text}\n      ↳ ${entry.source}:${entry.ref}` : `  - ${text}`;
+      const lines = [entry.ref ? `  - ${text}\n      ↳ ${entry.source}:${entry.ref}` : `  - ${text}`];
+      // A terminal has no links, so the deep link is the command that would follow it. Explaining
+      // *why* something was refused is only half an answer when the reader does not yet know what
+      // the thing being refused is called `[DOC:REQ-041]`.
+      if (entry.topic) lines.push(`      ↳ sflow explain ${entry.topic}`);
+      return lines.join('\n');
     });
 }
 

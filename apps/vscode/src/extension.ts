@@ -327,7 +327,40 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
    * instead of carrying a second documentation copy that can drift. The small tree is navigation;
    * the panel is the complete, searchable manual and command reference.
    */
-  const helpTree = new NodeTreeProvider([
+  /**
+   * The documentation topics, read from the CLI package's stamped manifest `[DOC:REQ-040]`.
+   *
+   * Synchronous and best-effort: this runs during activation, and an older CLI without a manifest
+   * must produce a Help view with one fewer group rather than a failed activation. The topics are
+   * only ever *named* here — the bytes come from `explain` when one is clicked, so the extension
+   * can never show a different answer than the terminal does.
+   */
+  function documentationTopicsGroup(packageRoot: string): TreeNode[] {
+    try {
+      // eslint-disable-next-line @typescript-eslint/no-var-requires
+      const manifest = require(path.join(packageRoot, 'src', 'docs-manifest.json')) as {
+        topics?: { id: string; title: string; version: number }[];
+      };
+      const topics = manifest.topics ?? [];
+      if (!topics.length) return [];
+      return [{
+        kind: 'group', id: 'help:topics', label: 'Topics', icon: 'book',
+        description: `${topics.length} served offline`,
+        children: topics.map((topic) => ({
+          kind: 'action',
+          id: `help:topic:${topic.id}`,
+          label: topic.title,
+          description: `${topic.id} v${topic.version}`,
+          icon: 'book',
+          runCommand: 'singularityFlow.explainTopic'
+        }))
+      }];
+    } catch {
+      return [];
+    }
+  }
+
+  const helpNodes = (topicGroup: TreeNode[]): TreeNode[] => [
     {
       kind: 'group', id: 'help:start', label: 'Learn Singularity Flow', icon: 'book', children: [
         { kind: 'action', id: 'help:quick-start', label: 'Quick start', description: 'first governed work', icon: 'rocket', runCommand: 'singularityFlow.openHelp' },
@@ -345,8 +378,14 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
         { kind: 'action', id: 'help:troubleshooting', label: 'Troubleshooting', description: 'doctor and recovery', icon: 'tools', runCommand: 'singularityFlow.openHelp' }
       ]
     },
+    ...topicGroup,
     { kind: 'action', id: 'help:all', label: 'Open searchable Help Center', description: 'complete offline manual', icon: 'search', runCommand: 'singularityFlow.openHelp' }
-  ]);
+  ];
+  // Topics come from the CLI's own stamped manifest, and clicking one renders the CLI's own bytes
+  // `[DOC:REQ-040]`. They are filled in once the CLI is resolved, below: the tree is built during
+  // activation and the CLI location is not known yet. The alternative — restating 29 topics in the
+  // extension — is the second documentation copy this whole layer exists to avoid.
+  const helpTree = new NodeTreeProvider(helpNodes([]));
   context.subscriptions.push(helpTree, vscode.window.createTreeView('singularityFlow.help', { treeDataProvider: helpTree }));
   // One continuous navigation surface replaces five independently-sized native panes. The hidden
   // native TreeViews remain compatibility adapters for their mature, tested read models and context
@@ -1161,6 +1200,8 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
   // Packaged agents and skills belong to the exact engine this window is driving. Resolve them
   // beside that CLI, not beside the repository and not beside some other globally installed copy.
   const cliPackageRoot = path.resolve(path.dirname(client.location.cli), '..');
+  // Now that the engine is resolved, the Help view can list the topics that engine actually ships.
+  helpTree.replace(helpNodes(documentationTopicsGroup(cliPackageRoot)));
 
   const store = new WorkspaceStore(client);
   context.subscriptions.push(store);
@@ -2073,6 +2114,28 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
     'singularityFlow.manageEvidence': manageEvidence as never,
     'singularityFlow.detachEvidence': detachEvidence as never,
     'singularityFlow.addSource': addSource,
+    /**
+     * Render one documentation topic, using the engine's own served bytes `[DOC:REQ-040]`.
+     *
+     * Deliberately not a webview. A topic is a page of prose with a citation; opening it as a
+     * Markdown preview gives the reader selection, search and copy for free, and gives the extension
+     * nothing to render differently from the terminal.
+     */
+    'singularityFlow.explainTopic': async (node?: TreeNode) => {
+      const id = String(node?.id ?? '').replace(/^help:topic:/, '');
+      if (!id) return;
+      try {
+        const served = await client.run<{
+          data?: { served?: { text?: string }; citation?: string; topic?: { title?: string } };
+        }>(['explain', id, '--json']);
+        const body = served.data?.served?.text ?? '';
+        const content = `${body}\n\n${served.data?.citation ?? ''}\n`;
+        const document = await vscode.workspace.openTextDocument({ language: 'markdown', content });
+        await vscode.window.showTextDocument(document, { preview: true });
+      } catch (error) {
+        void vscode.window.showErrorMessage(`Could not read topic ${id}: ${(error as Error).message}`);
+      }
+    },
     'singularityFlow.refresh': async () => { await store.refresh(); void refreshReadiness(); },
     'singularityFlow.openArtifact':
       ((node?: TreeNode) => openArtifact(repository, node, cliPackageRoot)) as never,

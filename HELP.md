@@ -2366,14 +2366,22 @@ new initiative, because the resolution is immutable by design.
 
 ## CLI command reference
 
+### Documentation
+
+```text
+singularity-flow explain [TOPIC|ALIAS] [--here] [--section HEADING] [--max-bytes N] [--json]
+```
+
+`explain` serves the shipped documentation topics. It never invokes a model and never needs a repository, so it answers from a global install with no clone at all. With no argument it lists every topic. Resolution is exact id, then alias, then unique prefix; an ambiguous prefix returns the candidates rather than guessing, and an unknown topic returns the nearest ids. Every response carries the topic id, its version, and the commit the docs manifest was stamped from. `--here` adds the current work item's situation as a second, separately cited part, and degrades to the concept alone when no work item resolves. In Copilot use `/sf-docs`.
+
 ### Governed reference expansion
 
 ```text
-singularity-flow show <SFREF-HANDLE> [--section HEADING | --json-pointer POINTER | --range RANGE] [--max-bytes N] [--json]
+singularity-flow show <SFREF-HANDLE|SFDOC-HANDLE> [--section HEADING | --json-pointer POINTER | --range RANGE] [--max-bytes N] [--json]
 singularity-flow harness report [--json]
 ```
 
-`show` accepts only a committed `sfref:v1:` handle. It verifies the reference record and artifact hash, then returns a deterministic preview bounded to 65,536 bytes. It never accepts an arbitrary repository path. In Copilot use `/sf-show` (or `/singularity-flow/sflow-show`).
+`show` accepts a committed `sfref:v1:` handle or a documentation `sfdoc:v1:` handle. For `sfref:` it verifies the reference record and artifact hash, then returns a deterministic preview bounded to 65,536 bytes; it never accepts an arbitrary repository path. For `sfdoc:` it verifies the topic hash and serves from the package, which is why it works without a repository. The two namespaces stay separate on purpose: one is governed evidence, the other is documentation. In Copilot use `/sf-show` (or `/singularity-flow/sflow-show`).
 
 ```text
 singularity-flow about

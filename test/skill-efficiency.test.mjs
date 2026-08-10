@@ -27,8 +27,11 @@ const NON_MUTATING_CLASSES = new Set(['echo', 'conversational']);
 
 test('only low-risk read-only skills may trigger automatically', async () => {
   const { policy } = await loadSkillPolicy(root);
+  // sflow-docs earns a place here for the same reason the rest do: `explain` is an L0 read that
+  // cannot touch governed state, and "how do approvals work?" is precisely the phrasing a newcomer
+  // uses. It is also the only entry whose contract forbids answering from the model's own memory.
   assert.deepEqual(policy.automaticInvocationAllowlist, [
-    'sflow-doctor', 'sflow-help', 'sflow-logs',
+    'sflow-docs', 'sflow-doctor', 'sflow-help', 'sflow-logs',
     'sflow-nextsteps', 'sflow-progress', 'sflow-quickstart', 'sflow-status'
   ]);
   // Listing approvals is read-only; opening one is not. sflow-inbox asks the reviewer a question and

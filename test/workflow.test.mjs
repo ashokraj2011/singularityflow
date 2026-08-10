@@ -368,7 +368,7 @@ test('next never launches a missing world-model agent unattended', async () => {
   assert.equal(result.status, 0);
   assert.match(result.stdout, /Next step prerequisite:/);
   assert.match(result.stdout, /No model was started/);
-  assert.match(result.stdout, /singularity-flow wm build/);
+  assert.match(result.stdout, /singularity-flow wm ensure --phase intake/);
   assert.equal(execute('git', ['worktree', 'list', '--porcelain'], root).stdout.match(/^worktree /gm)?.length, 1);
   assert.equal(execute('git', ['status', '--short'], root).stdout.trim(), '');
   const workflow = JSON.parse(await readFile(path.join(root, 'singularity/work-items/NEXT-CONSENT-1/workflow.json'), 'utf8'));
@@ -400,14 +400,25 @@ test('advisory world-model grounding warns and continues without launching a mod
 
 test('feature profile publishes generations, records tokens, approvals, and conformance', async () => {
   const root = await repository(); const workId = 'FEATURE-101';
+  const definitionPath = path.join(root, 'singularity/workflow.yml');
+  const definition = YAML.parse(await readFile(definitionPath, 'utf8'));
+  for (const phase of Object.values(definition.phases)) {
+    if (phase.worldModel) phase.worldModel.depth = 'light';
+  }
+  await writeFile(definitionPath, YAML.stringify(definition));
+  execute('git', ['add', 'singularity/workflow.yml'], root);
+  execute('git', ['commit', '-m', 'Use light grounding for lifecycle fixture'], root);
   flow(root, ['start', workId, '--title', 'Configurable workflow'], { selection: selection('feature', 'product-owner') });
-  flow(root, ['wm', 'light', '--views', 'business,architecture,development,testing,release,operations,security', '--local']);
+  flow(root, ['wm', 'light', '--views', 'business,architecture,development,testing,release,operations,security']);
   const workflowFile = path.join(root, 'singularity/work-items', workId, 'workflow.json');
   const agents = { intake: 'product-owner', requirements: 'product-owner', design: 'architect', 'implementation-spec': 'architect', implementation: 'developer', verification: 'qa', conformance: 'qa' };
   for (const phaseId of ['intake', 'requirements', 'design', 'implementation-spec', 'implementation', 'verification', 'conformance']) {
     let workflow = JSON.parse(await readFile(workflowFile, 'utf8')); assert.equal(workflow.currentPhase, phaseId); flow(root, ['prepare', phaseId], { selection: selection('feature', agents[phaseId]) });
     flow(root, ['resume', workId], { selection: selection('feature', agents[phaseId]) });
     await completeArtifact(root, workflow, phaseId);
+    if (phaseId === 'verification') {
+      flow(root, ['wm', 'light', '--views', 'business,architecture,development,testing,release,operations,security']);
+    }
     flow(root, ['wm', 'compose', '--phase', phaseId]);
     workflow = JSON.parse(await readFile(workflowFile, 'utf8'));
     if (workflow.resolution.phases.find((entry) => entry.id === phaseId)?.clarification?.mode === 'required') {

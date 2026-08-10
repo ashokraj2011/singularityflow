@@ -180,7 +180,7 @@ export async function recordInjection(root, workflow, phase, injection, { workDi
   const promptFile = path.join(workDir, 'context', 'prompts', `${phase.id}-gen${generation}.md`);
   if (injection.renderedText != null) await writeText(promptFile, injection.renderedText);
   const record = {
-    schemaVersion: 1,
+    schemaVersion: 2,
     workId: workflow.workItem.id,
     phase: phase.id,
     generation,
@@ -192,6 +192,7 @@ export async function recordInjection(root, workflow, phase, injection, { workDi
     depth: injection.depth,
     evidence: injection.evidence,
     requiredViews: injection.requiredViews ?? [],
+    requiredSelections: injection.requiredSelections ?? [],
     task: injection.task ?? null,
     supportingEvidence: injection.supportingEvidence ?? [],
     references: injection.references ?? [],

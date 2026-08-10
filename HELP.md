@@ -1756,6 +1756,8 @@ singularity-flow wm build --branch release/2026.07 --phase design --task "Ground
 singularity-flow wm build --phase verification --workers 2
 # Resume an interrupted build; completed exact-match view packets are skipped
 singularity-flow wm build --phase verification --workers 2 --resume
+singularity-flow wm availability --phase design --task "Design invoice export"
+singularity-flow wm ensure --phase design --task "Design invoice export"
 singularity-flow wm check --branch release/2026.07
 singularity-flow wm compose --phase design --task "Design invoice export" --dry-run
 singularity-flow wm compose --phase design --task "Design invoice export"
@@ -1783,7 +1785,12 @@ Only prompts produced by `wm compose` for an actual handoff are captured. Read-o
 `wm show-prompt` previews, Copilot's hidden system prompt, provider messages, and chat history are
 not captured. Open **Configuration → Prompt audit** in VS Code to toggle capture and review records.
 
-The low-level `wm init`, `wm light`, `wm build`, `wm check`, and `wm context` commands remain
+`wm availability` performs a read-only exact-tier check and never invokes a model. `wm ensure` is
+the explicit authorization boundary: it reuses valid v3 selections from the same source snapshot,
+generates only missing selections, and requires governed state-branch publication before a shared
+phase prompt consumes the result. Changed source snapshots never reuse older generated selections.
+
+The low-level `wm init`, `wm light`, `wm build`, `wm availability`, `wm ensure`, `wm check`, and `wm context` commands remain
 repository-scoped and do not take a Jira/work-item argument. In the governed UI
 and `/sf-story-start` lifecycle, however, generation is deliberately deferred
 until Story intake has created and checked out the canonical Story branch. A
@@ -1797,7 +1804,7 @@ The command stops on divergence or when the target branch is already checked
 out elsewhere.
 
 `wm light` reads repository paths and bounded package metadata locally, creates
-the same validated schema-2 structure, records zero model tokens, and does not
+the same validated schema-3 tier structure, records zero model tokens, and does not
 launch a generator. `wm build` with `quick`, `standard`, or `deep` runs the
 configured generator in a detached analysis worktree. Only
 its isolated output is accepted. Singularity Flow validates the manifest and
@@ -2489,6 +2496,8 @@ singularity-flow validate [--strict]
 singularity-flow gate [--terminal]
 singularity-flow wm light [--branch BRANCH] [--remote REMOTE] [--phase PHASE] [--views LIST] [--task TEXT] [--local]
 singularity-flow wm build [--depth light|quick|standard|deep] [--branch BRANCH] [--remote REMOTE] [--local] [--views LIST] [--focus TEXT] [--parallel|--no-parallel] [--workers N] [--resume|--no-resume]
+singularity-flow wm availability [--phase PHASE] [--view VIEW --tier brief|full] [--task TEXT] [--json]
+singularity-flow wm ensure [--phase PHASE] [--view VIEW --tier brief|full] [--task TEXT] [--json]
 sflow-wm-minimal [--phase PHASE] [--views LIST] [--branch BRANCH] [--parallel] [--workers N] [--publish]
 singularity-flow wm context|check [--branch BRANCH] [--remote REMOTE]
 singularity-flow wm inject

@@ -360,6 +360,20 @@ export function validateDefinition(definition) {
     }
     if (generation.strategy != null && generation.strategy !== 'view') throw new SingularityFlowError("worldModel.generation.strategy must be 'view'.");
   }
+  if (definition.worldModel?.materialization != null) {
+    const materialization = definition.worldModel.materialization;
+    if (!materialization || typeof materialization !== 'object' || Array.isArray(materialization)) throw new SingularityFlowError('worldModel.materialization must be an object.');
+    for (const key of Object.keys(materialization)) if (!['mode', 'publish', 'lookahead'].includes(key)) throw new SingularityFlowError(`worldModel.materialization contains unknown field '${key}'.`);
+    if (materialization.mode != null && !['explicit', 'on-demand', 'disabled'].includes(materialization.mode)) {
+      throw new SingularityFlowError("worldModel.materialization.mode must be 'explicit', 'on-demand', or 'disabled'.");
+    }
+    if (materialization.publish != null && !['governed', 'local'].includes(materialization.publish)) {
+      throw new SingularityFlowError("worldModel.materialization.publish must be 'governed' or 'local'.");
+    }
+    if (materialization.lookahead != null && !['none', 'next-phase'].includes(materialization.lookahead)) {
+      throw new SingularityFlowError("worldModel.materialization.lookahead must be 'none' or 'next-phase'.");
+    }
+  }
   // `grounding` throws on an unknown mode when it is read, but `staleness` was only ever compared
   // against the two strings that do something. A typo like `Fail` or `strict` therefore matched
   // neither branch and silently degraded to "ignore" — the freshness guard was off and nothing said

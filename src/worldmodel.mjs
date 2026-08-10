@@ -31,7 +31,13 @@ import {
   changedSnapshotPaths, groundingMode, repositoryContentSnapshot, resolveWorldModelContext,
   validateWorldModelDirectory, worldModelCommit, worldModelFreshness, worldModelSourceSnapshot
 } from './grounding.mjs';
-import { corePath, resolveViews, tierForCore, viewPath } from './world-model-selection.mjs';
+import {
+  corePath, resolveGroundingPlan, resolveViews, selectionId, tierForCore, viewPath
+} from './world-model-selection.mjs';
+import {
+  ensureGrounding, inspectGroundingAvailability, materializationPolicy, materializeSelections,
+  mergeWorldModelSnapshot, writeV3Manifest
+} from './world-model-materialization.mjs';
 import { renderCapabilityWorldModelPack } from './capability-context.mjs';
 import { recordPromptAudit } from './prompt-audit.mjs';
 import { normalizeClarificationPolicy, renderClarificationProtocol } from './clarifications.mjs';
@@ -227,6 +233,8 @@ async function load(root, { agent: selectedAgent = null, workId = null } = {}) {
         // Without it, a phase that declared one view and received four had no way to say so.
         viewOrigin: Object.fromEntries(resolution.origin),
         declaredViews: resolution.declared,
+        agentViews,
+        agentViewMode,
         depth: phase.worldModel?.depth ?? 'standard',
         evidence: phase.worldModel?.evidence ?? false
       }];
@@ -245,6 +253,9 @@ async function load(root, { agent: selectedAgent = null, workId = null } = {}) {
         maxWorkers: definition.worldModel?.generation?.maxWorkers ?? 4,
         strategy: definition.worldModel?.generation?.strategy ?? 'view'
       },
+      materialization: materializationPolicy(definition),
+      stateBranch: definition.ledger?.branch ?? null,
+      remote: definition.git?.remote ?? 'origin',
       grounding: groundingMode(definition, activeState),
       staleness: activeState?.resolution?.worldModelStaleness ?? definition.worldModel?.staleness ?? 'warn', phases,
       // `always` was the literal 'core/summary.md' here and at two other call sites, so no
@@ -261,7 +272,46 @@ async function load(root, { agent: selectedAgent = null, workId = null } = {}) {
   if (!existsSync(file)) throw new SingularityFlowError('World model is not initialized. Run: singularity-flow wm init');
   const user = JSON.parse(await readFile(file, 'utf8'));
   const base = defaults();
-  return { ...base, ...user, grounding: user.grounding ?? 'off', phases: { ...base.phases, ...(user.phases ?? {}) }, context: { ...base.context, ...(user.context ?? {}) } };
+  return {
+    ...base, ...user,
+    grounding: user.grounding ?? 'off',
+    materialization: materializationPolicy({ worldModel: user }),
+    phases: { ...base.phases, ...(user.phases ?? {}) },
+    context: { ...base.context, ...(user.context ?? {}) }
+  };
+}
+
+function groundingPlan(config, options, requestedPhase = null) {
+  const phase = requestedPhase ?? optionString(options, 'phase');
+  if (phase && !config.phases?.[phase]) throw new SingularityFlowError(`Unknown world-model phase: ${phase}`);
+  const phaseConfig = phase ? config.phases[phase] : null;
+  const explicitView = optionString(options, 'view');
+  const explicitViews = optionString(options, 'views');
+  let phaseViews = phaseConfig?.declaredViews ?? phaseConfig?.views ?? [];
+  let agentViews = phaseConfig?.agentViews ?? [];
+  let agentViewMode = phaseConfig?.agentViewMode ?? 'fallback';
+  if (explicitView || explicitViews) {
+    const requested = explicitView ? [explicitView] : String(explicitViews).split(',').map((value) => value.trim()).filter(Boolean);
+    // A focused view may add to a phase contract, but it may not silently remove the phase's own
+    // required views. Outside a phase it remains an exact single-purpose request.
+    phaseViews = phase ? [...new Set([...phaseViews, ...requested])] : requested;
+    agentViews = [];
+    agentViewMode = 'fallback';
+  }
+  const plan = resolveGroundingPlan({
+    phase, phaseViews, agentViews, agentViewMode,
+    depth: optionString(options, 'depth', phaseConfig?.depth ?? 'standard'),
+    evidence: optionBoolean(options, 'evidence', phaseConfig?.evidence ?? false),
+    task: optionString(options, 'task'), context: config.context
+  });
+  const requestedTier = optionString(options, 'tier');
+  if (requestedTier) {
+    if (!['brief', 'full'].includes(requestedTier)) throw new SingularityFlowError('--tier must be brief or full.');
+    if (!explicitView) throw new SingularityFlowError('--tier requires --view <id>.');
+    plan.views = plan.views.map((view) => ({ ...view, tier: requestedTier, id: `${view.view}/${requestedTier}` }));
+    plan.selections = [plan.core, ...plan.views].map(({ kind, view, tier, required, origin }) => ({ kind, view, tier, required, origin }));
+  }
+  return plan;
 }
 
 function render(template, root, config, options) {
@@ -283,7 +333,8 @@ function render(template, root, config, options) {
     branch: suppliedBranch ?? branch(root),
     workingTreeClean: suppliedClean ?? (changedFiles(root).length === 0 ? 'true' : 'false'),
     builderVersion: optionString(options, 'builder-version', '2.0'),
-    promptSha256: optionString(options, 'builder-prompt-sha256', 'unknown')
+    promptSha256: optionString(options, 'builder-prompt-sha256', 'unknown'),
+    requiredSelections: optionString(options, 'required-selections', 'core/brief')
   };
   const tokens = {
     '{{REPOSITORY_PATH_OR_CURRENT_DIRECTORY}}': values.repository,
@@ -298,7 +349,8 @@ function render(template, root, config, options) {
     '{{REPOSITORY_BRANCH}}': values.branch,
     '{{WORKING_TREE_CLEAN}}': values.workingTreeClean,
     '{{BUILDER_VERSION}}': values.builderVersion,
-    '{{BUILDER_PROMPT_SHA256}}': values.promptSha256
+    '{{BUILDER_PROMPT_SHA256}}': values.promptSha256,
+    '{{REQUIRED_SELECTIONS}}': values.requiredSelections
   };
   let result = template;
   for (const [token, value] of Object.entries(tokens)) result = result.split(token).join(value);
@@ -386,8 +438,13 @@ async function publishWorldModel(root, config, workflow, sourceHash, phase = 're
  */
 async function publishWorldModelToStateBranch(root, config, sourceHash, phase) {
   const ledger = config.definition?.ledger ?? null;
-  if (!ledger?.enabled) return { published: false, reason: 'the state branch is not enabled here' };
-  if (ledger.publication === 'off') return { published: false, reason: 'state publication is disabled' };
+  const materialization = materializationPolicy(config.definition ?? config);
+  // World-model governance uses the same orphan state-branch transport as the ledger, but does not
+  // require append-only lifecycle events to be enabled. Treating ledger.enabled as a transport
+  // switch made the default configuration impossible: it requested governed model publication
+  // while disabling the unrelated event ledger, so every successful build became "local only".
+  if (materialization.publish !== 'governed') return { published: false, reason: 'world-model state publication is not required' };
+  if (ledger?.publication === 'off') return { published: false, reason: 'state publication is disabled' };
   const directory = path.join(root, config.outputDir);
   if (!existsSync(path.join(directory, 'manifest.json'))) {
     return { published: false, reason: 'there is no built model to publish' };
@@ -404,13 +461,18 @@ async function publishWorldModelToStateBranch(root, config, sourceHash, phase) {
   try {
     await collect(directory);
     const source = sourceHash.replace(/^sha256:/, '').slice(0, 12);
-    const result = await publishToStateBranch(root, ledger, files, `[world-model][source:${source}] ${phase}`);
+    const stateConfig = {
+      ...(ledger ?? {}),
+      branch: ledger?.branch ?? config.stateBranch ?? 'state',
+      remote: ledger?.remote ?? config.remote ?? config.definition?.git?.remote ?? 'origin'
+    };
+    const result = await publishToStateBranch(root, stateConfig, files, `[world-model][source:${source}] ${phase}`);
     // A rebuild that produced the same model is unchanged rather than failed, and saying otherwise
     // would make an ordinary no-op read as a problem.
     if (!result.changed) return { published: false, branch: result.branch, reason: 'it is already current there' };
     return { published: true, branch: result.branch, commit: result.commit };
   } catch (error) {
-    if (ledger.publication === 'required') throw error;
+    if (ledger?.publication === 'required') throw error;
     return { published: false, reason: error.message };
   }
 }
@@ -799,8 +861,8 @@ async function buildLight(root, config, options) {
     const generatedAt = new Date().toISOString();
     const sourceCommit = head(root);
     const sourceState = await worldModelSourceSnapshot(root, config.definition ?? config);
-    const views = requestedViews(config, options);
-    if (!views.length) views.push('development');
+    const plan = groundingPlan(config, options);
+    const views = plan.views.map((item) => item.view);
     const metadata = {
       generated_at: generatedAt,
       generated_date: new Intl.DateTimeFormat('en-GB', {
@@ -821,13 +883,40 @@ async function buildLight(root, config, options) {
       views,
       task: optionString(options, 'task')
     });
+    const rawManifest = JSON.parse(await readFile(path.join(staging, 'manifest.json'), 'utf8'));
+    await writeV3Manifest(staging, rawManifest, {
+      materialization: {
+        id: `light-${Date.now()}`,
+        generatedAt,
+        sourceTreeSha256: sourceState.sha256,
+        depth: 'light',
+        provider: null,
+        selections: plan.selections
+      }
+    });
     await validateWorldModelDirectory(staging, {
       expectedCommit: sourceCommit,
       expectedTask: optionString(options, 'task'),
-      requiredViews: views,
+      requiredSelections: plan.selections,
       requireEvidence: true
     });
-    await installWorldModel(staging, path.join(root, config.outputDir));
+    const target = path.join(root, config.outputDir);
+    const merged = path.join(temporary, 'merged');
+    await mergeWorldModelSnapshot({
+      existingDirectory: target,
+      fragmentDirectory: staging,
+      targetDirectory: merged,
+      plan,
+      sourceTreeSha256: sourceState.sha256,
+      materialization: null
+    });
+    await validateWorldModelDirectory(merged, {
+      expectedCommit: sourceCommit,
+      expectedTask: optionString(options, 'task'),
+      requiredSelections: plan.selections,
+      requireEvidence: true
+    });
+    await installWorldModel(merged, target);
     const phase = optionString(options, 'phase');
     const publication = await publishWorldModel(
       root, config, config.workflow, sourceState.sha256, phase ?? 'repository-light', { local }
@@ -876,6 +965,7 @@ async function build(root, config, options) {
   const promptSha256 = existsSync(source) ? createHash('sha256').update(await readFile(source)).digest('hex') : 'unknown';
   const sourceCommit = head(root);
   const sourceState = await worldModelSourceSnapshot(root, config.definition ?? config);
+  const plan = groundingPlan(config, options, phase);
   const metadata = {
     generated_at: generatedAt,
     generated_date: generatedDate,
@@ -908,7 +998,7 @@ async function build(root, config, options) {
     }
     await rm(path.join(analysisRoot, config.outputDir), { recursive: true, force: true });
     await rm(path.join(analysisRoot, config.definition?.workItemRoot ?? 'singularity/work-items'), { recursive: true, force: true });
-    views = requestedViews(config, options);
+    views = plan.views.map((item) => item.view);
     const renderOptions = {
       ...options,
       ...(views.length ? { views: views.join(', ') } : {}),
@@ -918,7 +1008,8 @@ async function build(root, config, options) {
       'repository-branch': metadata.repository_branch,
       'working-tree-clean': String(metadata.working_tree_clean),
       'builder-version': metadata.builder_version,
-      'builder-prompt-sha256': promptSha256
+      'builder-prompt-sha256': promptSha256,
+      'required-selections': plan.selections.map(selectionId).join(', ')
     };
     const before = await repositoryContentSnapshot(analysisRoot);
     checkpoint = parallelGeneration(config, options, views).enabled
@@ -991,7 +1082,6 @@ ${repositoryFactsDigest}
       throw new SingularityFlowError(`World-model builder modified files outside its isolated output directory: ${unexpected.join(', ')}`);
     }
     const phase = optionString(options, 'phase');
-    const requiredViews = views;
     // Copilot owns the model content, but it does not own provenance. Canonicalize the
     // fields known by the CLI before the first structural validation. This deliberately
     // accepts a draft that contains a short SHA (or omits metadata) while ensuring the
@@ -1016,7 +1106,8 @@ ${repositoryFactsDigest}
     const validateDraft = async () => {
       await canonicalizeDraftManifest();
       return validateWorldModelDirectory(staging, {
-        expectedCommit: sourceCommit, expectedTask: optionString(options, 'task'), requiredViews, requireEvidence: true, allowIncompleteMetadata: true
+        expectedCommit: sourceCommit, expectedTask: optionString(options, 'task'), requiredSelections: plan.selections,
+        requireEvidence: true, allowIncompleteMetadata: true
       });
     };
     let validated;
@@ -1057,19 +1148,43 @@ ${repositoryFactsDigest}
         discovery_views: discovery.enabled ? discovery.packets.map((packet) => packet.view).sort() : [],
         degraded_views: discovery.enabled ? discovery.degradedViews.map((entry) => entry.view).sort() : [],
         resumed_views: discovery.enabled ? discovery.resumedViews : [],
-        pending_views_at_start: discovery.enabled ? discovery.pendingViews : []
+        pending_views_at_start: discovery.enabled ? [...discovery.pendingViews].sort() : []
       }
     });
     validated.manifest.generated_at = generatedAt;
     validated.manifest.source_tree_sha256 = sourceState.sha256;
     validated.manifest.generated_for_phase = phase ?? null;
-    validated.manifest.requested_views = requiredViews;
+    validated.manifest.requested_views = views;
+    validated.manifest.requested_selections = plan.selections.map(selectionId);
     validated.manifest.analysis_depth = optionString(options, 'depth', phase ? config.phases[phase].depth : 'standard');
     await writeJson(path.join(staging, 'manifest.json'), validated.manifest);
-    await validateWorldModelDirectory(staging, {
-      expectedCommit: sourceCommit, expectedTask: optionString(options, 'task'), requiredViews, requireEvidence: true
+    await writeV3Manifest(staging, validated.manifest, {
+      materialization: {
+        id: `provider-${Date.now()}`,
+        generatedAt,
+        sourceTreeSha256: sourceState.sha256,
+        depth,
+        provider: optionString(options, 'model') ?? config.model ?? config.provider,
+        selections: plan.selections
+      }
     });
-    await installWorldModel(staging, path.join(root, config.outputDir));
+    await validateWorldModelDirectory(staging, {
+      expectedCommit: sourceCommit, expectedTask: optionString(options, 'task'), requiredSelections: plan.selections, requireEvidence: true
+    });
+    const target = path.join(root, config.outputDir);
+    const merged = path.join(temporary, 'merged');
+    await mergeWorldModelSnapshot({
+      existingDirectory: target,
+      fragmentDirectory: staging,
+      targetDirectory: merged,
+      plan,
+      sourceTreeSha256: sourceState.sha256,
+      materialization: null
+    });
+    await validateWorldModelDirectory(merged, {
+      expectedCommit: sourceCommit, expectedTask: optionString(options, 'task'), requiredSelections: plan.selections, requireEvidence: true
+    });
+    await installWorldModel(merged, target);
     const publication = await publishWorldModel(root, config, config.workflow, sourceState.sha256, phase ?? 'repository', { local });
     console.log(`World model built from source ${sourceState.sha256.slice(7, 19)} and recorded in ${publication.commit?.slice(0, 10) ?? 'the working tree'}${publication.pushed ? ' (pushed)' : local ? ' (local, not pushed)' : ''}.`);
     // The governed copy, which is the one every reader prefers. Not attempted for --local: that
@@ -1193,12 +1308,16 @@ async function withTargetBranch(root, options, operation) {
 
 async function manifest(root, config) {
   const file = path.join(root, config.outputDir, 'manifest.json');
-  if (!existsSync(file)) throw new SingularityFlowError('No world model exists. Run: singularity-flow wm build --phase <phase>');
+  if (!existsSync(file)) throw new SingularityFlowError('No world model exists. Run: singularity-flow wm ensure --phase <phase>');
   return JSON.parse(await readFile(file, 'utf8'));
 }
 
 async function context(root, config, phase, options) {
+  const plan = groundingPlan(config, options, phase);
+  const availability = await ensureGrounding(root, config, plan, { authorized: false });
   const resolved = await resolveWorldModelContext(root, config, phase, {
+    plan,
+    located: availability.located,
     task: optionString(options, 'task'), evidence: optionBoolean(options, 'evidence'), includeAgentPrompt: optionBoolean(options, 'agent', true)
   });
   const state = resolved.freshness;
@@ -1239,8 +1358,8 @@ async function context(root, config, phase, options) {
 async function fullTierBytes(resolved, phaseConfig, files) {
   const directory = resolved.directory;
   const paths = [
-    corePath(resolved.manifest, 'full'),
-    ...(phaseConfig.views ?? []).map((view) => viewPath(resolved.manifest, view, 'full'))
+    corePath(resolved.normalizedManifest ?? resolved.manifest, 'full'),
+    ...(phaseConfig.views ?? []).map((view) => viewPath(resolved.normalizedManifest ?? resolved.manifest, view, 'full'))
   ].filter(Boolean);
   let total = 0;
   for (const relative of paths) {
@@ -1258,8 +1377,11 @@ async function budget(root, config, requestedPhase, options) {
   const rows = [];
   for (const phase of phases) {
     if (!config.phases?.[phase]) throw new SingularityFlowError(`Unknown world-model phase: ${phase}`);
-    const resolved = await resolveWorldModelContext(root, config, phase, {
-      evidence: optionBoolean(options, 'evidence')
+    const plan = groundingPlan(config, options, phase);
+    const availability = await ensureGrounding(root, config, plan, { authorized: false })
+      .catch((error) => ({ error: error.message }));
+    const resolved = availability.error ? availability : await resolveWorldModelContext(root, config, phase, {
+      plan, located: availability.located, evidence: optionBoolean(options, 'evidence')
     }).catch((error) => ({ error: error.message }));
     if (resolved.error) {
       rows.push({ phase, error: resolved.error });
@@ -1274,8 +1396,12 @@ async function budget(root, config, requestedPhase, options) {
     const full = await fullTierBytes(resolved, phaseConfig, files);
     rows.push({
       phase,
-      depth: phaseConfig.depth ?? 'standard',
-      views: phaseConfig.views ?? [],
+      depth: plan.depth,
+      views: plan.views.map((entry) => entry.view),
+      selections: plan.selections.map((entry) => ({
+        ...entry,
+        id: entry.kind === 'core' ? `core/${entry.tier}` : `${entry.view}/${entry.tier}`
+      })),
       // Where each view came from is the part that was impossible to see.
       viewOrigin: phaseConfig.viewOrigin ?? {},
       files,
@@ -1302,6 +1428,42 @@ async function budget(root, config, requestedPhase, options) {
   }
   console.log(`\n${style.detail(`${rows.length} phase(s) · ${total} bytes of grounding in total`)}`);
   return { phases: rows, totalBytes: total };
+}
+
+async function availability(root, config, options, requestedPhase = null) {
+  const plan = groundingPlan(config, options, requestedPhase);
+  const result = await inspectGroundingAvailability(root, config, plan);
+  if (optionBoolean(options, 'json')) console.log(JSON.stringify({ plan, ...result }, null, 2));
+  else {
+    console.log(`${result.ready ? style.mark('pass') : style.mark('warn')} world-model grounding ${result.ready ? 'ready' : 'not ready'}${plan.phase ? ` for ${plan.phase}` : ''}`);
+    for (const item of result.selections) {
+      console.log(`  ${item.status === 'ready' ? style.mark('pass') : style.mark('warn')} ${item.id}${item.path ? `  ${item.path}` : ''}`);
+    }
+    if (result.action) console.log(`Next: ${result.action.command}`);
+  }
+  return { plan, ...result };
+}
+
+async function ensure(root, config, options, requestedPhase = null) {
+  const plan = groundingPlan(config, options, requestedPhase);
+  const result = await materializeSelections(root, config, plan, async ({ policy }) => {
+      const buildOptions = {
+        ...options,
+        phase: plan.phase ?? options.phase,
+        depth: plan.depth,
+        evidence: plan.includeEvidence,
+        local: policy.publish === 'local'
+      };
+      if (plan.views.length === 1) buildOptions.view = plan.views[0].view;
+      else if (plan.views.length > 1) buildOptions.views = plan.views.map((entry) => entry.view).join(',');
+      if (plan.taskGuide.required) buildOptions.task = plan.taskGuide.task;
+      if (plan.depth === 'light') await buildLight(root, config, buildOptions);
+      else await build(root, config, buildOptions);
+    });
+  const output = { plan, mode: result.mode, availability: result.availability };
+  if (optionBoolean(options, 'json')) console.log(JSON.stringify(output, null, 2));
+  else console.log(`${style.mark('pass')} world-model grounding ready${plan.phase ? ` for ${plan.phase}` : ''}: ${plan.selections.map((item) => item.kind === 'core' ? `core/${item.tier}` : `${item.view}/${item.tier}`).join(', ')}`);
+  return output;
 }
 
 /**
@@ -1429,7 +1591,11 @@ async function compose(root, options) {
     labels: source?.labels ?? []
   };
   if (!signals.phase) throw new SingularityFlowError('Provide --phase or run from an active work-item branch.');
+  const plan = groundingPlan(config, options, signals.phase);
+  const availability = await ensureGrounding(root, config, plan, { authorized: false });
   const required = await resolveWorldModelContext(root, config, signals.phase, {
+    plan,
+    located: availability.located,
     task: optionString(options, 'task'), evidence: optionBoolean(options, 'evidence')
   });
   if (!required.freshness.fresh) {
@@ -1514,12 +1680,14 @@ async function compose(root, options) {
   ].filter((part) => part?.trim());
   const candidateText = `${pieces.join('\n\n')}\n`;
   remote.warnings.forEach((warning) => console.error(`Warning: ${warning}`));
-  const manifestInfo = await snapshot(path.join(root, config.outputDir, 'manifest.json'));
-  const modelCommit = worldModelCommit(root, config.outputDir);
-  const modelChanges = run('git', ['status', '--porcelain=v1', '--untracked-files=all', '--', config.outputDir], { cwd: root }).stdout.trim();
+  const manifestInfo = await snapshot(path.join(required.directory, 'manifest.json'));
+  const modelCommit = required.located?.commit ?? worldModelCommit(root, config.outputDir);
+  const modelChanges = required.located?.source === 'worktree'
+    ? run('git', ['status', '--porcelain=v1', '--untracked-files=all', '--', config.outputDir], { cwd: root }).stdout.trim()
+    : '';
   if (modelChanges && config.grounding === 'enforce') throw new SingularityFlowError('The world-model directory has uncommitted changes. Rebuild it before composing a governed prompt.');
   if (modelChanges && config.grounding === 'warn') console.error('Warning: the world-model directory has uncommitted changes; its committed hashes will not verify.');
-  if (config.grounding === 'enforce' && !modelCommit) throw new SingularityFlowError('The world model is not committed. Run singularity-flow wm build --phase <phase> before composing a governed prompt.');
+  if (config.grounding === 'enforce' && !modelCommit) throw new SingularityFlowError('The world model is not published. Run singularity-flow wm ensure --phase <phase> before composing a governed prompt.');
   if (config.grounding === 'enforce' && !required.freshness.fresh) throw new SingularityFlowError('The world model is stale. Rebuild it before composing a governed prompt.');
   const files = [
     ...mandatory,
@@ -1564,6 +1732,7 @@ async function compose(root, options) {
     task: optionString(options, 'task') ?? null,
     modelCommit,
     manifestSha256: manifestInfo.sha256,
+    requiredSelections: plan.selections,
     clarification: clarificationPolicy,
     files: files.map((file) => ({ path: file.path, sha256: file.sha256, injectedBytes: file.injectedBytes })),
     remoteSkills: remote.skills.map((skill) => ({ id: skill.id, sha256: skill.sha256 })),
@@ -1596,6 +1765,7 @@ async function compose(root, options) {
       renderedSha256,
       renderedText: composedText,
       requiredViews: config.phases[signals.phase]?.views ?? [],
+      requiredSelections: plan.selections,
       task: optionString(options, 'task') ?? null,
       supportingEvidence: governed.evidenceEntries,
       references: approvedReferences.previews.map((preview) => ({
@@ -1740,8 +1910,8 @@ export async function worldModelCommand(root, positionals, options) {
     }
     return result;
   }
-  if (!['prompt', 'build', 'light', 'context', 'check', 'budget'].includes(command)) {
-    throw new SingularityFlowError('Usage: singularity-flow wm init|prompt|build|light|context <phase>|budget|facts|compose|show-prompt|inject|check|cleanup|cache status|clear');
+  if (!['prompt', 'build', 'light', 'context', 'check', 'budget', 'availability', 'ensure'].includes(command)) {
+    throw new SingularityFlowError('Usage: singularity-flow wm init|prompt|build|light|ensure|availability|context <phase>|budget|facts|compose|show-prompt|inject|check|cleanup|cache status|clear');
   }
   if (command === 'build' || command === 'light') await cleanupStaleWorldModelWorktrees(root);
   return withTargetBranch(root, options, async (targetRoot) => {
@@ -1749,13 +1919,23 @@ export async function worldModelCommand(root, positionals, options) {
     if (command === 'prompt') return prompt(targetRoot, config, options);
     if (command === 'build') return build(targetRoot, config, options);
     if (command === 'light') return build(targetRoot, config, { ...options, depth: 'light' });
+    if (command === 'availability') return availability(targetRoot, config, options, positionals[2] ?? optionString(options, 'phase'));
+    if (command === 'ensure') return ensure(targetRoot, config, options, positionals[2] ?? optionString(options, 'phase'));
     if (command === 'context') {
       return context(targetRoot, config, positionals[2] ?? optionString(options, 'phase'), options);
     }
     if (command === 'budget') return budget(targetRoot, config, positionals[2] ?? optionString(options, 'phase'), options);
     const model = await manifest(targetRoot, config);
+    const phase = optionString(options, 'phase') ?? model.generated_for_phase ?? null;
+    // A generic check validates the contract the snapshot was built for. Reinterpreting a
+    // deterministic light snapshot as the phase's configured standard depth falsely demanded full
+    // tiers that the recorded build deliberately did not create.
+    const checkOptions = optionString(options, 'depth') || !model.analysis_depth
+      ? options
+      : { ...options, depth: model.analysis_depth };
+    const plan = groundingPlan(config, checkOptions, phase);
     await validateWorldModelDirectory(path.join(targetRoot, config.outputDir), {
-      requiredViews: model.requested_views ?? [], requireEvidence: true
+      requiredSelections: plan.selections, requireEvidence: plan.includeEvidence
     });
     const state = await worldModelFreshness(targetRoot, config, model);
     console.log(state.fresh ? `fresh: ${state.current}` : `stale: ${state.built} != ${state.current}`);

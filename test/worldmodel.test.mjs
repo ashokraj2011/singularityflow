@@ -339,6 +339,9 @@ test('wm build isolates the generator, commits a validated model, and tracks sou
   const definitionPath = path.join(root, 'singularity/workflow.yml');
   const definition = YAML.parse(await readFile(definitionPath, 'utf8'));
   definition.git.publish = 'off';
+  // This fixture deliberately exercises --local composition. The production default is governed
+  // state-branch publication, where a local-only v3 model must not be consumed as shared context.
+  definition.worldModel.materialization.publish = 'local';
   await writeFile(definitionPath, YAML.stringify(definition));
   run(process.execPath, [bin, 'wm', 'init'], root);
   await writeFile(path.join(root, 'README.md'), '# Builder test\n');
@@ -404,6 +407,9 @@ test('wm light creates a compact validated repository inventory with zero model 
   const definitionPath = path.join(root, 'singularity/workflow.yml');
   const definition = YAML.parse(await readFile(definitionPath, 'utf8'));
   definition.git.publish = 'off';
+  // This fixture deliberately exercises --local composition. The production default is governed
+  // state-branch publication, where a local-only v3 model must not be consumed as shared context.
+  definition.worldModel.materialization.publish = 'local';
   await writeFile(definitionPath, YAML.stringify(definition));
   await mkdir(path.join(root, 'src'), { recursive: true });
   await mkdir(path.join(root, 'test'), { recursive: true });
@@ -425,7 +431,7 @@ test('wm light creates a compact validated repository inventory with zero model 
 
   const modelRoot = path.join(root, 'singularity/world-model');
   const manifest = JSON.parse(await readFile(path.join(modelRoot, 'manifest.json'), 'utf8'));
-  assert.equal(manifest.schema_version, '2.0');
+  assert.equal(manifest.schema_version, '3.0');
   assert.equal(manifest.analysis_depth, 'light');
   assert.equal(manifest.generated_for_phase, 'design');
   assert.deepEqual(manifest.generator, { type: 'deterministic-local', model: null, model_tokens: 0 });
@@ -435,19 +441,23 @@ test('wm light creates a compact validated repository inventory with zero model 
   assert.equal(manifest.task_guides[0].task, task);
   await validateWorldModelDirectory(modelRoot, {
     expectedTask: task,
-    requiredViews: ['architecture', 'security'],
+    requiredSelections: [
+      { kind: 'core', tier: 'brief' },
+      { kind: 'view', view: 'architecture', tier: 'brief' },
+      { kind: 'view', view: 'security', tier: 'brief' }
+    ],
     requireEvidence: true
   });
 
-  const promptContext = run(process.execPath, [bin, 'wm', 'context', 'design', '--task', task, '--concat'], root);
+  const promptContext = run(process.execPath, [bin, 'wm', 'context', 'design', '--depth', 'light', '--task', task, '--concat'], root);
   assert.match(promptContext, /zero model tokens/i);
   assert.match(promptContext, /deterministic repository metadata/i);
   assert.match(run(process.execPath, [bin, 'wm', 'check'], root), /fresh:/);
   assert.match(run('git', ['log', '-1', '--format=%s'], root), /^\[world-model\].*design/);
 
-  const injectedBytes = Buffer.byteLength(await readFile(path.join(modelRoot, 'core/summary.md'), 'utf8'))
-    + Buffer.byteLength(await readFile(path.join(modelRoot, manifest.views.architecture.path), 'utf8'))
-    + Buffer.byteLength(await readFile(path.join(modelRoot, manifest.views.security.path), 'utf8'));
+  const injectedBytes = Buffer.byteLength(await readFile(path.join(modelRoot, manifest.core.tiers.brief.path), 'utf8'))
+    + Buffer.byteLength(await readFile(path.join(modelRoot, manifest.views.architecture.tiers.brief.path), 'utf8'))
+    + Buffer.byteLength(await readFile(path.join(modelRoot, manifest.views.security.tiers.brief.path), 'utf8'));
   assert.ok(injectedBytes < 12 * 1024, `light prompt context should stay compact, received ${injectedBytes} bytes`);
 
   const rejected = result(process.execPath, [bin, 'wm', 'light', '--runner', 'copilot'], root);
@@ -459,6 +469,63 @@ test('wm light creates a compact validated repository inventory with zero model 
   assert.equal(
     JSON.parse(await readFile(path.join(modelRoot, 'manifest.json'), 'utf8')).analysis_depth,
     'light'
+  );
+});
+
+test('wm availability is read-only when required tiers are absent', async () => {
+  const root = await mkdtemp(path.join(os.tmpdir(), 'sflow-worldmodel-availability-'));
+  run('git', ['init', '-b', 'main'], root);
+  run('git', ['config', 'user.name', 'Availability Tester'], root);
+  run('git', ['config', 'user.email', 'availability@example.com'], root);
+  await initializeDefinition(root);
+  await writeFile(path.join(root, 'README.md'), '# Availability test\n');
+  run('git', ['add', '.'], root);
+  run('git', ['commit', '-m', 'initialize'], root);
+  const beforeHead = run('git', ['rev-parse', 'HEAD'], root).trim();
+  const beforeStatus = run('git', ['status', '--porcelain=v1', '--untracked-files=all'], root);
+  const beforeRefs = run('git', ['for-each-ref', '--format=%(refname):%(objectname)'], root);
+
+  const checked = flow(['wm', 'availability', '--phase', 'design', '--json'], root);
+  const availability = JSON.parse(checked.stdout);
+  assert.equal(availability.ready, false);
+  assert.equal(availability.status, 'missing');
+  assert.match(availability.action.command, /wm ensure --phase design/);
+  assert.equal(run('git', ['rev-parse', 'HEAD'], root).trim(), beforeHead);
+  assert.equal(run('git', ['status', '--porcelain=v1', '--untracked-files=all'], root), beforeStatus);
+  assert.equal(run('git', ['for-each-ref', '--format=%(refname):%(objectname)'], root), beforeRefs);
+  assert.equal(existsSync(path.join(root, 'singularity/world-model')), false);
+});
+
+test('governed materialization publishes to the orphan state branch when ledger events are disabled', async () => {
+  const root = await mkdtemp(path.join(os.tmpdir(), 'sflow-worldmodel-governed-'));
+  run('git', ['init', '-b', 'main'], root);
+  run('git', ['config', 'user.name', 'Governed Model Tester'], root);
+  run('git', ['config', 'user.email', 'governed-model@example.com'], root);
+  await initializeDefinition(root);
+  const definitionPath = path.join(root, 'singularity/workflow.yml');
+  const definition = YAML.parse(await readFile(definitionPath, 'utf8'));
+  definition.git.publish = 'off';
+  definition.ledger.enabled = false;
+  definition.worldModel.materialization.publish = 'governed';
+  await writeFile(definitionPath, YAML.stringify(definition));
+  await writeFile(path.join(root, 'README.md'), '# Governed model test\n');
+  run('git', ['add', '.'], root);
+  run('git', ['commit', '-m', 'initialize'], root);
+
+  const built = flow(['wm', 'light', '--phase', 'design'], root);
+  assert.match(built.stdout, /published to the .*state.* branch/i);
+  // `wm light` deliberately materializes the phase's brief tier, so availability must ask for the
+  // same exact plan. A standard-depth availability check should continue to report the missing
+  // architecture/full selection rather than silently accepting the brief.
+  const refreshed = flow(['wm', 'availability', '--phase', 'design', '--depth', 'light', '--json'], root);
+  const availability = JSON.parse(refreshed.stdout);
+  assert.equal(availability.ready, true);
+  assert.equal(availability.source, 'state-branch');
+  const configured = YAML.parse(await readFile(definitionPath, 'utf8'));
+  const stateBranch = configured.ledger.branch;
+  assert.match(
+    run('git', ['ls-tree', '-r', '--name-only', stateBranch], root),
+    /singularity\/world-model\/manifest\.json/
   );
 });
 
@@ -633,7 +700,7 @@ test('wm build retries final synthesis when a declared view is a directory', asy
   ], root, { ...process.env, SFLOW_MOCK_DIRECTORY_VIEW_RETRY_MARKER: marker });
   assert.equal(execution.status, 0, `${execution.stdout}\n${execution.stderr}`);
   assert.match(execution.stderr, /view 'business' must be a regular file.*retrying final synthesis once without repeating discovery/s);
-  const view = await readFile(path.join(root, 'singularity/world-model/views/business.md'), 'utf8');
+  const view = await readFile(path.join(root, 'singularity/world-model/views/business.brief.md'), 'utf8');
   assert.match(view, /^# business/m);
 });
 

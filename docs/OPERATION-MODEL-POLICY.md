@@ -95,6 +95,7 @@ Every public operation is classified before its implementation module is importe
 | visual.compare | mutation | never | — | — |
 | visual.status | read | never | — | — |
 | watch | mutation | never | — | — |
+| wm.availability | mutation | never | — | — |
 | wm.budget | mutation | never | — | — |
 | wm.build | mutation | required | wm.light | copilot-cli |
 | wm.cache | mutation | never | — | — |
@@ -103,6 +104,7 @@ Every public operation is classified before its implementation module is importe
 | wm.compose | mutation | never | — | — |
 | wm.context | mutation | never | — | — |
 | wm.design-inventory | mutation | never | — | — |
+| wm.ensure | mutation | required | — | copilot-cli |
 | wm.facts | mutation | never | — | — |
 | wm.init | mutation | never | — | — |
 | wm.inject | mutation | never | — | — |

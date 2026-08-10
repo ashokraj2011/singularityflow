@@ -14,9 +14,10 @@ import { renderActiveStoryEvidence } from './evidence-context.mjs';
 import { gitDir, branch, head, identity } from './git.mjs';
 import {
   groundingMode,
-  resolveWorldModelContext,
-  worldModelCommit
+  resolveWorldModelContext
 } from './grounding.mjs';
+import { resolveGroundingPlan } from './world-model-selection.mjs';
+import { ensureGrounding, materializationPolicy } from './world-model-materialization.mjs';
 import { injectAgentPrompt } from './inject.mjs';
 import { composeInitiativeContext } from './initiative-context.mjs';
 import { renderCapabilityWorldModelPack } from './capability-context.mjs';
@@ -347,19 +348,32 @@ async function initiativePlanningParts(root, definition, { id, phaseId, agent, t
 async function workItemWorldModel(root, definition, workflow, phase, agent) {
   const mode = workflow.resolution?.worldModelGrounding ?? groundingMode(definition);
   if (mode === 'off') return { text: '', files: [], warnings: [], record: { mode, available: false } };
-  const requiredViews = unique([
-    ...(phase.worldModel?.views ?? []),
-    ...(definition.agents[agent]?.worldModelViews ?? [])
-  ]);
+  const plan = resolveGroundingPlan({
+    phase: phase.id,
+    phaseViews: phase.worldModel?.views ?? [],
+    agentViews: definition.agents[agent]?.worldModelViews ?? [],
+    agentViewMode: definition.worldModel?.agentViews ?? 'fallback',
+    depth: phase.worldModel?.depth ?? 'standard',
+    evidence: phase.worldModel?.evidence ?? false,
+    context: definition.worldModel?.context ?? {}
+  });
+  const requiredViews = plan.views.map((entry) => entry.view);
   const config = {
+    definition,
     outputDir: definition.worldModel?.outputDir ?? 'singularity/world-model',
+    materialization: materializationPolicy(definition),
+    stateBranch: definition.ledger?.branch ?? null,
+    remote: definition.git?.remote ?? 'origin',
     grounding: mode,
     staleness: definition.worldModel?.staleness ?? 'warn',
-    context: { always: ['core/summary.md'], includeDomains: 'matched', includeEvidence: phase.worldModel?.evidence ?? false },
+    context: definition.worldModel?.context ?? { includeDomains: 'matched', includeEvidence: phase.worldModel?.evidence ?? false },
     phases: { [phase.id]: { views: requiredViews, depth: phase.worldModel?.depth ?? 'standard', evidence: phase.worldModel?.evidence ?? false } }
   };
   try {
-    const resolved = await resolveWorldModelContext(root, config, phase.id, { evidence: phase.worldModel?.evidence ?? false });
+    const ensured = await ensureGrounding(root, config, plan, { authorized: false });
+    const resolved = await resolveWorldModelContext(root, config, phase.id, {
+      plan, located: ensured.located, evidence: phase.worldModel?.evidence ?? false
+    });
     if (!resolved.freshness.fresh && mode === 'enforce') throw new SingularityFlowError('Repository world model is stale.');
     const files = [];
     for (const item of resolved.selected) {
@@ -370,11 +384,18 @@ async function workItemWorldModel(root, definition, workflow, phase, agent) {
       text: files.map((file) => `## Repository world model: ${file.path}\n\n<!-- sha256=${file.sha256} reason=${file.reason} -->\n\n${file.content.trim()}`).join('\n\n'),
       files: files.map(({ content, ...file }) => file),
       warnings: resolved.freshness.fresh ? [] : ['Repository world model is stale.'],
-      record: { mode, available: true, fresh: resolved.freshness.fresh, commit: worldModelCommit(root, config.outputDir), requiredViews }
+      record: {
+        mode, available: true, fresh: resolved.freshness.fresh,
+        commit: resolved.located?.commit ?? null,
+        requiredViews, requiredSelections: plan.selections
+      }
     };
   } catch (error) {
     if (mode === 'enforce') throw new SingularityFlowError(`Planning context requires fresh repository world-model grounding: ${error.message}`);
-    return { text: '', files: [], warnings: [`Repository world model unavailable: ${error.message}`], record: { mode, available: false, requiredViews } };
+    return {
+      text: '', files: [], warnings: [`Repository world model unavailable: ${error.message}`],
+      record: { mode, available: false, requiredViews, requiredSelections: plan.selections }
+    };
   }
 }
 

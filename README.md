@@ -1346,6 +1346,8 @@ singularity-flow wm build --branch release/2026.07 --phase design --task "Ground
 singularity-flow wm build --phase verification --workers 4
 # After an interruption, rerun the identical command; completed views are reused
 singularity-flow wm build --phase verification --workers 4 --resume
+singularity-flow wm availability --phase design --task "Design invoice export"
+singularity-flow wm ensure --phase design --task "Design invoice export"
 singularity-flow wm check --branch release/2026.07
 singularity-flow wm compose --phase design --task "Design invoice export" --dry-run
 singularity-flow wm compose --phase design --task "Design invoice export"
@@ -1356,13 +1358,15 @@ singularity-flow wm cleanup
 singularity-flow wm cleanup --force
 ```
 
+`wm availability` is read-only: it resolves the exact core/view tiers for the phase and reports ready, missing, stale, and conflicting selections without invoking a model. `wm ensure` is the explicit materialization boundary. It reuses every valid selection from the same repository source snapshot, generates only missing selections, validates the merged v3 manifest, and publishes the completed model to the configured governed state branch before prompt composition can use it. A changed source snapshot never reuses older semantic output.
+
 `wm light` deterministically reads Git paths plus bounded package-manifest metadata and never launches Copilot. `wm build` with `quick`, `standard`, or `deep` runs the semantic model generator in a detached analysis worktree, rejects writes outside its isolated output, validates every manifest entry, records a repository source-tree hash, commits the model, and follows the configured Git publication policy. When a semantic phase requests multiple views, view-scoped read-only discovery workers run concurrently (four by default), write private bounded packets, and feed one final synthesizer. Each completed packet is checkpointed immediately under `singularity/world-model/.checkpoints/`. If the command fails or is stopped, rerun the same command (or add the explicit `--resume` flag): exact source/prompt/options matches are reused and only pending or invalid views run again. `--no-resume` discards the matching checkpoint and rebuilds every view. A successful validated installation removes the checkpoint automatically. Packet ordering, validation, installation, commit, and push remain single-owner operations. Use `--workers N`, `--no-parallel`, or the `worldModel.generation` YAML policy to tune semantic generation. Work-item lifecycle commits, checkpoints, and the model commit itself do not make the model stale; repository source/configuration changes do.
 
 Semantic world-model runners are trusted local command execution, not an OS sandbox. The detached worktree isolates Git output, but the configured runner still executes through the user's shell and inherits that user's environment, filesystem, network, and process permissions. Configure semantic runners only from trusted repository configuration and trusted executables. Use `wm light` when deterministic, zero-agent inventory is sufficient or when arbitrary local runner execution is not allowed.
 
 Every semantic build records an owner/PID beside its isolated worktree. The next build automatically removes worktrees whose owning process is no longer alive. `wm cleanup` performs the same recovery explicitly; it preserves active and unowned legacy worktrees, while `wm cleanup --force` removes those too after you have confirmed no build is running.
 
-`wm light`, `wm build`, `wm check`, and `wm context` are repository operations and never
+`wm light`, `wm build`, `wm availability`, `wm ensure`, `wm check`, and `wm context` are repository operations and never
 require an Epic, Story, or work ID. Add `--branch <name>` to target any existing
 local or remote branch. Singularity Flow fetches the selected remote, opens the
 branch in an isolated worktree, and leaves the active checkout unchanged. It

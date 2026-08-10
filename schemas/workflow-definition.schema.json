@@ -279,6 +279,16 @@
           },
           "additionalProperties": false
         },
+        "materialization": {
+          "type": "object",
+          "description": "Controls how missing exact grounding tiers are materialized. Read-only commands never invoke a provider regardless of this policy.",
+          "properties": {
+            "mode": { "enum": ["explicit", "on-demand", "disabled"], "default": "explicit" },
+            "publish": { "enum": ["governed", "local"], "default": "governed" },
+            "lookahead": { "enum": ["none", "next-phase"], "default": "none" }
+          },
+          "additionalProperties": false
+        },
         "grounding": { "enum": ["off", "warn", "enforce"], "default": "off" },
         "staleness": { "enum": ["warn", "fail", "ignore"] },
         "injection": {

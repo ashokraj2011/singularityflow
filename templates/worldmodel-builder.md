@@ -574,24 +574,31 @@ Emit: everything requested, at the upper end of budgets, with detailed evidence 
 
 # Context-budget requirements
 
-Budgets are stated in **bytes** because the consuming runtime truncates by bytes. Word counts are guidance only.
+These budgets are **enforced**. `validateWorldModelDirectory` measures every document and fails the
+build when one exceeds its budget, so a document over the limit is not a stylistic problem — it is a
+build that does not complete. They are stated in bytes because the consuming runtime truncates by
+bytes.
 
-| Document | Words (guide) | Bytes (hard) |
-|---|---|---|
-| `core/summary.brief.md` | 250–400 | 2,500 |
-| `core/summary.md` | 500–1,000 | 6,000 |
-| Any `*.brief.md` view | 250–400 | 2,500 |
-| Business view | 1,000–2,000 | 12,000 |
-| Architecture view | 1,500–3,000 | 18,000 |
-| Development view | 1,500–3,000 | 18,000 |
-| Testing view | 1,000–2,500 | 15,000 |
-| Release view | 1,000–2,500 | 15,000 |
-| Operations view | 1,000–2,500 | 15,000 |
-| Security view | 1,000–2,500 | 15,000 |
-| Domain file | 750–2,000 | 12,000 |
-| Task guide | 500–1,500 | 9,000 |
+**Only prose counts.** Fenced code blocks — including your ```yaml fact blocks — are excluded from
+the measurement. Answering with `src/App.jsx:14` costs you nothing; a paragraph explaining that the
+design is cohesive costs you the budget. Write accordingly.
 
-If content would exceed a hard byte budget, do not truncate arbitrarily: move detail into a domain file or into the evidence ledger and reference it. Use paths, symbols, tables, and structured blocks rather than narrative explanation.
+| Document | Prose bytes (enforced) |
+|---|---|
+| `core/summary.brief.md` | 2,000 |
+| `core/summary.md` | 4,000 |
+| Any `*.brief.md` view | 2,000 |
+| Any view | 8,000 |
+| Domain file | 6,000 |
+| Task guide | 5,000 |
+
+These are roughly half what they were, because the facts you used to write out are now derived from
+the repository before you run and supplied to you. Do not restate them in prose. Your value is the
+judgement a parser cannot produce: what this repository is for, which boundaries matter, where the
+risk actually sits, and what is conspicuously missing.
+
+If content would exceed a budget, do not truncate arbitrarily: move detail into a domain file or into
+the evidence ledger and reference it, or state it as a fact block rather than narrative.
 
 # Cross-view consistency
 

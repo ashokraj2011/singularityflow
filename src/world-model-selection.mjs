@@ -92,3 +92,45 @@ export function corePath(manifest, tier) {
   if (tier === 'brief' && core.brief) return core.brief;
   return core.summary ?? 'core/summary.md';
 }
+
+/**
+ * How much prose each document may carry.
+ *
+ * The builder prompt has always published a table of these and called them hard, and nothing ever
+ * measured one: `validateWorldModelDirectory` checks structure, JSON validity and manifest coverage
+ * and never looks at size. A budget that only exists inside a prompt is a suggestion, and a seven-
+ * view standard build came to about 120 KB by design.
+ *
+ * **Fenced fact blocks do not count.** That is the point of the rule rather than a loophole in it.
+ * Facts are derived, compact and checkable, and a view that answers with `src/App.jsx:14` instead of
+ * a paragraph about cohesion should not be penalised for it. What is being limited is prose — the
+ * 92% of the calc model that no reader could falsify.
+ *
+ * Keep this in step with the table in `templates/worldmodel-builder.md`; the builder is told the
+ * same numbers it will be measured against.
+ */
+export const PROSE_BUDGETS = Object.freeze({
+  core_brief: 2_000,
+  core_summary: 4_000,
+  view_brief: 2_000,
+  view: 8_000,
+  domain: 6_000,
+  task_guide: 5_000
+});
+
+/** Bytes of prose in a Markdown document: everything outside fenced code blocks. */
+export function proseBytes(markdown) {
+  return Buffer.byteLength(String(markdown ?? '').replace(/```[\s\S]*?```/g, ''), 'utf8');
+}
+
+/** Which budget a world-model path is held to, or null when nothing governs it. */
+export function budgetFor(relative) {
+  const value = String(relative ?? '');
+  if (value === 'core/summary.brief.md') return { key: 'core_brief', bytes: PROSE_BUDGETS.core_brief };
+  if (value === 'core/summary.md') return { key: 'core_summary', bytes: PROSE_BUDGETS.core_summary };
+  if (/^views\/.+\.brief\.md$/.test(value)) return { key: 'view_brief', bytes: PROSE_BUDGETS.view_brief };
+  if (/^views\/.+\.md$/.test(value)) return { key: 'view', bytes: PROSE_BUDGETS.view };
+  if (/^domains\/.+\.md$/.test(value)) return { key: 'domain', bytes: PROSE_BUDGETS.domain };
+  if (/^task-guides\/.+\.md$/.test(value)) return { key: 'task_guide', bytes: PROSE_BUDGETS.task_guide };
+  return null;
+}

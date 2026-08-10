@@ -6,7 +6,9 @@ import os from 'node:os';
 import { changedFiles, head } from './git.mjs';
 import { resolveReference } from './harness-imports.mjs';
 import { exists, mapLimit, posix, run, SingularityFlowError, snapshot } from './util.mjs';
-import { corePath, resolveViews, tierForCore, tierForView, viewPath } from './world-model-selection.mjs';
+import {
+  budgetFor, corePath, proseBytes, resolveViews, tierForCore, tierForView, viewPath
+} from './world-model-selection.mjs';
 
 const GROUNDING_MODES = new Set(['off', 'warn', 'enforce']);
 
@@ -225,6 +227,25 @@ export async function validateWorldModelDirectory(directory, { expectedCommit = 
   const actual = (await modelFiles(directory)).filter((file) => file !== 'manifest.json');
   const undeclared = actual.filter((file) => !registered.has(file));
   if (undeclared.length) throw new SingularityFlowError(`World-model files are missing from manifest.json: ${undeclared.join(', ')}`);
+
+  // The builder prompt has always published a table of byte budgets and called them hard, and this
+  // validator — which checks structure, JSON validity and manifest coverage — never measured one.
+  // A budget that lives only inside a prompt is a suggestion, which is how a seven-view build came
+  // to be ~120 KB by design. Fenced fact blocks are excluded: what is being limited is prose, and a
+  // view that answers with a path and a line instead of a paragraph should not be penalised.
+  const oversized = [];
+  for (const relative of actual.filter((file) => file.endsWith('.md'))) {
+    const budget = budgetFor(relative);
+    if (!budget) continue;
+    const bytes = proseBytes(await readFile(safeModelPath(directory, relative, 'World-model document'), 'utf8'));
+    if (bytes > budget.bytes) oversized.push(`${relative} (${bytes} bytes of prose, budget ${budget.bytes})`);
+  }
+  if (oversized.length) {
+    throw new SingularityFlowError(
+      `World-model documents exceed their prose budget: ${oversized.join('; ')}. `
+      + 'Move detail into a domain file or the evidence ledger, or state it as a fact block rather than narrative.'
+    );
+  }
   return { manifest, repositoryCommit, registered: [...registered].sort() };
 }
 

@@ -1167,6 +1167,12 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
   // Lifecycle commits are routinely created by Copilot CLI or a terminal while
   // the editor is open. Watch the governed tree and debounce one coherent
   // snapshot refresh so every view follows those external mutations together.
+  //
+  // The debounce also has to outlast the writer. A running phase writes its artifacts in a burst,
+  // and a snapshot taken in the middle of one used to be refused outright — so a short window meant
+  // firing repeatedly into a condition that could not yet succeed. Waiting for the burst to go quiet
+  // costs a fraction of a second and collapses the whole burst into one refresh.
+  const REPOSITORY_REFRESH_DEBOUNCE_MS = 750;
   let repositoryWatcher: vscode.FileSystemWatcher | null = null;
   let repositoryRefreshTimer: ReturnType<typeof setTimeout> | null = null;
   const scheduleRepositoryRefresh = (): void => {
@@ -1174,8 +1180,12 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
     repositoryRefreshTimer = setTimeout(() => {
       repositoryRefreshTimer = null;
       void store.refresh();
-    }, 200);
+    }, REPOSITORY_REFRESH_DEBOUNCE_MS);
   };
+  // Deliberately still only `singularity/**`. A disturbance from outside it — an autosave, a build —
+  // is handled where it belongs, by the store retrying a transient failure, and not by watching the
+  // whole tree: a recursive watcher would traverse `node_modules`, and refreshing the entire read
+  // model on every keystroke-adjacent save would spawn a CLI process each time.
   const watchGovernedRepository = (target: string): void => {
     repositoryWatcher?.dispose();
     repositoryWatcher = vscode.workspace.createFileSystemWatcher(

@@ -54,7 +54,10 @@ const SECTION_META: Record<SidebarSection, {
   inbox: {
     label: 'Inbox', icon: 'inbox', actions: [
       { id: 'inbox-open', label: 'Open inbox', icon: 'inbox' },
-      { id: 'visual-assurance', label: 'Review visual evidence', icon: 'compare' }
+      { id: 'visual-assurance', label: 'Review visual evidence', icon: 'compare' },
+      // Every section reads from the one shared snapshot, so a failed refresh empties them together.
+      // Inbox was the only one of the two affected sections with no way to ask for another go.
+      { id: 'refresh', label: 'Refresh inbox', icon: 'refresh' }
     ],
     empty: {
       text: 'Nothing is waiting on you. Submitted phases appear here for approval.',

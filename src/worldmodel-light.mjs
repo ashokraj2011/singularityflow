@@ -2,6 +2,7 @@ import { createHash } from 'node:crypto';
 import { mkdir, readFile, stat, writeFile } from 'node:fs/promises';
 import path from 'node:path';
 import { posix, writeJson } from './util.mjs';
+import { deriveRepositoryFacts, renderFactsDigest } from './repository-facts.mjs';
 
 const MAX_PACKAGE_MANIFEST_BYTES = 256 * 1024;
 
@@ -149,6 +150,11 @@ Deterministic path inventory only; semantic behavior and risk remain unverified.
 
 export async function generateLightWorldModel({ root, staging, metadata, sourceState, views, task = null }) {
   const inventory = repositoryInventory(sourceState);
+  // Facts the repository can be asked for directly: entry points from the manifests that declare
+  // them, exported symbols with their line, the import graph, per-file churn from Git. This model
+  // previously classified paths by regex and stopped there, so its "facts" were counts of files.
+  const facts = await deriveRepositoryFacts(root, sourceState);
+  const factsDigest = renderFactsDigest(facts);
   const packages = await packageSignals(root, inventory.manifests);
   const observedCommands = commands(packages);
   const title = packages.find((entry) => entry.name)?.name ?? path.basename(root);
@@ -187,6 +193,10 @@ This model was generated locally and consumed **zero model tokens**. It records 
 - Deployment/operations files: ${inventory.deployment.length}
 - Languages: ${languageSummary}
 - Top-level areas: ${directorySummary}
+
+## Facts {#core.facts}
+
+${factsDigest}
 
 ## Likely entry points
 

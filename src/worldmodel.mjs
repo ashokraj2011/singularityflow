@@ -20,6 +20,7 @@ import { loadSession } from './session.mjs';
 import { renderAgentSkills } from './agents.mjs';
 import { heartbeat } from './style.mjs';
 import * as style from './style.mjs';
+import { deriveRepositoryFacts, renderFactsDigest } from './repository-facts.mjs';
 import { collectInputs, renderInputsBlock } from './inputs.mjs';
 import { assertNoPendingPublication, pendingPublicationPath, saveStoryDraft } from './state-stores.mjs';
 import { assertPhaseSequence } from './sequence.mjs';
@@ -1252,6 +1253,28 @@ async function budget(root, config, requestedPhase, options) {
   return { phases: rows, totalBytes: total };
 }
 
+/**
+ * Repository facts, computed on demand.
+ *
+ * Not written into the governed model: the full set is around 200 KB on a real repository — larger
+ * than the world model it improves on — and it would be committed and pushed on every build. It
+ * recomputes in about a tenth of a second, so storing it would trade size for nothing. What the
+ * model carries is the digest, in `core/summary.md`.
+ */
+async function factsCommand(root, options) {
+  // A definition when there is one, so governance material is excluded from the file set; an
+  // empty one otherwise, which only means nothing is filtered out.
+  const definition = existsSync(path.join(root, WORKFLOW_PATH)) ? await loadDefinition(root).catch(() => ({})) : {};
+  const sourceState = await worldModelSourceSnapshot(root, definition);
+  const facts = await deriveRepositoryFacts(root, sourceState, { churn: optionBoolean(options, 'churn', true) });
+  if (optionBoolean(options, 'json')) {
+    console.log(JSON.stringify(facts, null, 2));
+    return facts;
+  }
+  console.log(renderFactsDigest(facts));
+  return facts;
+}
+
 function workflowChangedPaths(root, workflow) {
   const pending = changedFiles(root);
   if (!workflow?.workItem?.baseBranch) return pending;
@@ -1652,6 +1675,9 @@ export async function worldModelCommand(root, positionals, options) {
     }
     return init(root);
   }
+  // Facts are computed from the repository, not read from the world model, so this works before
+  // `wm init` and answers "what does this tool actually see here?" without committing anything.
+  if (command === 'facts') return factsCommand(root, options);
   if (command === 'inject' || command === 'compose') return compose(root, options);
   if (command === 'show-prompt') return showPrompt(root, options);
   if (command === 'cleanup') {
@@ -1664,7 +1690,7 @@ export async function worldModelCommand(root, positionals, options) {
     return result;
   }
   if (!['prompt', 'build', 'light', 'context', 'check', 'budget'].includes(command)) {
-    throw new SingularityFlowError('Usage: singularity-flow wm init|prompt|build|light|context <phase>|budget|compose|show-prompt|inject|check|cleanup|cache status|clear');
+    throw new SingularityFlowError('Usage: singularity-flow wm init|prompt|build|light|context <phase>|budget|facts|compose|show-prompt|inject|check|cleanup|cache status|clear');
   }
   if (command === 'build' || command === 'light') await cleanupStaleWorldModelWorktrees(root);
   return withTargetBranch(root, options, async (targetRoot) => {

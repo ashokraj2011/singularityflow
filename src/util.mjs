@@ -75,7 +75,7 @@ export { displayWidth, padDisplay, terminalWidth, truncateDisplay };
  */
 export const BOOLEAN_OPTIONS = Object.freeze(new Set([
   'acknowledge-self-approval', 'active', 'all', 'allow-dirty', 'apply', 'assigned-to-me',
-  'blocking', 'check', 'cli-only', 'clipboard', 'clone', 'concat',
+  'blocking', 'check', 'churn', 'cli-only', 'clipboard', 'clone', 'concat',
   'confirm-pin-retention', 'confirm-protected', 'confirm-push-policy', 'create', 'dry-run', 'evidence',
   'fetch', 'first-run', 'force', 'from-records', 'include-prompt', 'json',
   'keep', 'local', 'markdown', 'network', 'offline', 'once',

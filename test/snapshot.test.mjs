@@ -167,6 +167,32 @@ test('scoped snapshots construct only the requested schema-v2 slice', async () =
   assert.equal(Object.hasOwn(envelope, 'configuration'), false);
 });
 
+test('lifecycle snapshots keep generated phase artifacts regardless of lifecycle status', async () => {
+  const root = await repository();
+  run(process.execPath, [bin, 'start', 'ARTIFACTS-1', '--title', 'Visible generated artifacts'], root);
+  const statePath = path.join(root, 'singularity/work-items/ARTIFACTS-1/workflow.json');
+  const state = JSON.parse(await readFile(statePath, 'utf8'));
+  const artifactPath = path.join(
+    root,
+    'singularity/work-items/ARTIFACTS-1',
+    state.phases.intake.requiredArtifact.path
+  );
+  await mkdir(path.dirname(artifactPath), { recursive: true });
+  await writeFile(artifactPath, '# Intake\n\nGenerated intake evidence.\n');
+
+  let scoped = await repositorySnapshot(root, 'ARTIFACTS-1', null, { included: ['lifecycle'] });
+  let artifact = scoped.lifecycle.documents.find((document) => document.id === 'PHASE-INTAKE');
+  assert.equal(artifact?.status, 'in_progress');
+  assert.equal(artifact?.phase, 'intake');
+
+  state.phases.intake.status = 'approved';
+  await writeFile(statePath, `${JSON.stringify(state, null, 2)}\n`);
+  scoped = await repositorySnapshot(root, 'ARTIFACTS-1', null, { included: ['lifecycle'] });
+  artifact = scoped.lifecycle.documents.find((document) => document.id === 'PHASE-INTAKE');
+  assert.equal(artifact?.status, 'approved');
+  assert.equal(scoped.lifecycle.documents.filter((document) => document.type === 'system').length, 5);
+});
+
 test('lifecycle catalog includes a completed Story stored on a sibling branch', async () => {
   const root = await repository();
   run(process.execPath, [bin, 'start', 'ARCHIVE-1', '--title', 'Archived delivery'], root);

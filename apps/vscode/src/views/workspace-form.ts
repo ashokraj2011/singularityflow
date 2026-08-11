@@ -40,6 +40,9 @@ export interface WorkspaceForm {
   base: string | null;
   id: string;
   name: string;
+  /** Machine-local personalization only. Governed decisions still read the current Git identity. */
+  profileName: string;
+  profileRole: string;
   /** Organisations already mapped, by lead clone URL. The source of every capability offered. */
   organisations: string[];
   /** The one being drawn from; auto-selected when there is only one. */
@@ -59,10 +62,17 @@ export interface WorkspaceForm {
 }
 
 export const EMPTY_WORKSPACE_FORM: WorkspaceForm = {
-  base: null, id: '', name: '', organisations: [], organisation: null,
+  base: null, id: '', name: '', profileName: '', profileRole: '',
+  organisations: [], organisation: null,
   capabilities: null, capabilitiesReason: null, selected: [], leadCapability: null,
   reading: false, busy: false, error: null
 };
+
+/** The same local guidance roles offered by onboarding and the Configuration Center. */
+export const WORKSPACE_PROFILE_ROLES = [
+  'product-owner', 'business-analyst', 'product-designer', 'architect', 'developer',
+  'qa', 'security', 'delivery-manager', 'operations', 'other'
+] as const;
 
 /** The nested tree and the flat delivery list, as `capability organisation --json` returns them. */
 export interface RemoteCapability {
@@ -161,6 +171,10 @@ export function formProblems(form: WorkspaceForm): string[] {
   if (!form.id.trim()) problems.push('Give the workspace an identifier.');
   else if (!/^[A-Za-z0-9][A-Za-z0-9._-]*$/.test(form.id.trim())) {
     problems.push('The identifier may contain letters, numbers, dots, underscores and hyphens.');
+  }
+  if (!form.profileName.trim()) problems.push('Give your local profile a display name.');
+  if (!WORKSPACE_PROFILE_ROLES.includes(form.profileRole as typeof WORKSPACE_PROFILE_ROLES[number])) {
+    problems.push('Choose your local role.');
   }
   if (!form.organisation) problems.push('Choose the organisation whose capabilities this is for.');
   else if (form.reading) problems.push('Wait for the capability map to be read.');
@@ -335,13 +349,32 @@ export function workspaceFormHtml(form: WorkspaceForm): string {
   </section>
 
   <section>
-    <h2>${icon('workspace')}Identity</h2>
+    <h2>${icon('workspace')}Workspace details</h2>
     <p>
       <label>Identifier <input type="text" value="${escape(form.id)}" data-field="id" placeholder="checkout-platform"></label>
     </p>
     <p>
       <label>Name <input type="text" value="${escape(form.name)}" data-field="name" placeholder="Checkout platform" size="32"></label>
     </p>
+  </section>
+
+  <section>
+    <h2>${icon('agent')}Your local profile</h2>
+    <p class="question">Who is using this workspace on this machine.</p>
+    <div class="form-grid">
+      <label>Display name
+        <input type="text" value="${escape(form.profileName)}" data-field="profile-name" placeholder="Ashok Raj">
+      </label>
+      <label>Role
+        <select data-field="profile-role">
+          <option value=""${form.profileRole ? '' : ' selected'}>— choose your role —</option>
+          ${WORKSPACE_PROFILE_ROLES.map((role) => `<option value="${role}"${form.profileRole === role ? ' selected' : ''}>${escape(role.replaceAll('-', ' '))}</option>`).join('')}
+        </select>
+      </label>
+    </div>
+    <p class="muted">Saved locally in VS Code and reused by onboarding and Configuration Center.
+      It changes guidance only; commits and approval records always use the Git identity active when
+      the action is performed.</p>
   </section>
 
   <section>

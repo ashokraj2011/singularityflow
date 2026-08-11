@@ -50,6 +50,8 @@ uses `agent:<agent-id>/<template-id>`.
 ## People and approvals
 
 The local profile controls display and guidance only. It is not an account and cannot approve anything.
+It is collected when a person creates their first workspace, then can be changed here. The profile is
+machine-local VS Code configuration and is not committed to the workspace or lead repository.
 
 An approval authority is a named group of real identities. Story authorities may deliberately allow any configured Git identity. Initiative authorities require named members because Initiative gates must not silently become open to every local identity. Existing authority scope is fixed in the editor; create a separate group when both Story and Initiative workflows need an equivalent authority.
 

@@ -1224,6 +1224,7 @@ const REMOTE_REPOSITORIES = {
 const withMap = (selected = [], extra = {}) => ({
   ...EMPTY_WORKSPACE_FORM,
   base: '/work', id: 'checkout-platform', name: 'Checkout platform',
+  profileName: 'Casey Contributor', profileRole: 'developer',
   organisations: ['https://example.com/platform.git'],
   organisation: 'https://example.com/platform.git',
   capabilities: capabilityChoices(REMOTE_TREE, REMOTE_REPOSITORIES),
@@ -1236,7 +1237,22 @@ test('an empty workspace form reports every outstanding requirement at once', ()
   const problems = formProblems(EMPTY_WORKSPACE_FORM);
   assert.match(problems.join(' '), /where the workspace directory/);
   assert.match(problems.join(' '), /identifier/);
+  assert.match(problems.join(' '), /display name/);
+  assert.match(problems.join(' '), /local role/);
   assert.match(problems.join(' '), /organisation/);
+});
+
+test('workspace creation asks for the person once and keeps identity roles separate', () => {
+  const html = workspaceFormHtml(withMap(['payments']));
+  assert.match(html, /Your local profile/);
+  assert.match(html, /data-field="profile-name"/);
+  assert.match(html, /data-field="profile-role"/);
+  assert.match(html, /product owner/);
+  assert.match(html, /approval records always use the Git identity/);
+
+  const missing = withMap(['payments'], { profileName: '', profileRole: '' });
+  assert.match(formProblems(missing).join(' '), /display name/);
+  assert.match(formProblems(missing).join(' '), /local role/);
 });
 
 test('the organisation map is flattened with each capability\'s depth, ancestors and clone URL', () => {
@@ -1374,7 +1390,10 @@ test('the state branch is stated as a consequence, not asked for as a field', ()
 
 test('the workspace form asks for a directory, an organisation and capabilities — no repositories', () => {
   const html = workspaceFormHtml(EMPTY_WORKSPACE_FORM);
-  const order = ['Working directory', 'Identity', 'Organisation', 'Capabilities', 'Repositories'];
+  const order = [
+    'Working directory', 'Workspace details', 'Your local profile',
+    'Organisation', 'Capabilities', 'Repositories'
+  ];
   let at = -1;
   for (const heading of order) {
     const next = html.indexOf(heading);

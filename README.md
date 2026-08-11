@@ -330,10 +330,10 @@ branch before phase work begins.
 
 ## Capabilities, and the workspaces made of them
 
-What an organisation builds is a tree of **capabilities**. Capability `kind` is a
+What an organisation builds is a forest of one or more **capability trees**. Capability `kind` is a
 closed pair: a **collection** groups related capabilities and names no repository;
 a **delivery** ships from one or more repositories. Either kind may contain child
-capabilities. The tree has exactly one root and may go to any depth. Jira projects
+capabilities. A capability may be top-level or linked under another capability, and each tree may go to any depth. Jira projects
 and team names belong to a capability, not to a repository or workspace. Optional
 `type: tech|business` is a separate domain classification; it is not capability kind.
 

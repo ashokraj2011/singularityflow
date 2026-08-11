@@ -105,12 +105,11 @@ export async function setGroundingMode(root, mode) {
 }
 
 /**
- * Write the capability map, with the capability this bootstrap was given as its only root.
+ * Write the capability map, with the capability this bootstrap was given as its initial top-level node.
  *
- * Replaces the starter map rather than adding to it. `init` writes a placeholder root so that a
- * repository is never without a map, and a tree may have exactly one root — so adding here would
- * fail with "requires exactly one root", which describes the rule and not the situation. Naming
- * your own capability is the entire point of this operation, so the placeholder gives way to it.
+ * Replaces the starter map rather than adding to it. `init` writes a placeholder capability so that
+ * a repository is never without a map. Naming what the repository builds replaces that placeholder;
+ * additional top-level capabilities may be added later.
  */
 export async function describeCapability(root, {
   capabilityId, capabilityName, kind, repositoryId, jiraProject, teams
@@ -152,7 +151,7 @@ export async function enableLedger(root, branch) {
 
 /**
  * @param url the repository to govern.
- * @param capability what this organisation builds, as its root capability.
+ * @param capability what this organisation builds, as its initial top-level capability.
  * @param into where to clone. Defaults to a directory named after the repository.
  * @param stateBranch the orphan branch recording workflow progress; null to skip it.
  * @param push whether to publish. False is for trying this out, and for tests.

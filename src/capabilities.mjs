@@ -245,8 +245,6 @@ export function validateCapabilities(definition, portfolio = null) {
     foldCapabilityPolicy({}, capability.policy ?? {});
     validateCapabilityDelivery(id, capability, capabilities, portfolio);
   }
-  const roots = Object.entries(capabilities).filter(([, capability]) => capability.parent == null).map(([id]) => id);
-  if (roots.length !== 1) throw new SingularityFlowError(`Capability tree requires exactly one root; found ${roots.length}.`);
   for (const id of Object.keys(capabilities)) {
     const visited = new Set();
     let cursor = id;
@@ -406,10 +404,11 @@ export function resolveEffectiveCapabilityPolicy(definition, capabilityId, ledge
 }
 
 /**
- * The capability tree, nested.
+ * The capability forest, nested.
  *
  * Stored as a flat map with parent pointers, which is the right shape for editing one node and for
- * proving there is exactly one root. It is the wrong shape for reading, so this is the other view of
+ * validating parent links and cycles. Multiple top-level capabilities are valid. The flat map is the
+ * wrong shape for reading, so this is the other view of
  * the same data — every reader wants the hierarchy, and deriving it here means nobody derives it
  * twice.
  */
@@ -417,7 +416,7 @@ export function capabilityTree(definition) {
   const capabilities = definition?.capabilities ?? {};
 
   /**
-   * Policy is folded from the root toward each child, and every fold is monotonic: stricter of two
+   * Policy is folded from each top-level capability toward its children, and every fold is monotonic: stricter of two
    * severities, the larger minimum, the smaller budget, the intersection of allowlists, the union of
    * obligations. A child can therefore tighten what an ancestor set and can never loosen it.
    *

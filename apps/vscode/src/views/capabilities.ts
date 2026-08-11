@@ -10,7 +10,7 @@
  */
 import * as vscode from 'vscode';
 import {
-  bodyHtml, defaultParentForCreate, readEdits, REQUIRED_PARENT_MESSAGE, SCRIPT
+  bodyHtml, defaultParentForCreate, readEdits, SCRIPT
 } from './capability-page.ts';
 import { buildCapabilityDashboard } from './capability-dashboard-model.ts';
 import { contentSecurityPolicy, navigationTarget, nonce, page } from './webview.ts';
@@ -75,9 +75,6 @@ export class CapabilitiesPanel {
         if (!id) return this.report('An identifier is required.');
         const tree = map?.capabilities ?? [];
         edits.parent = defaultParentForCreate(tree, edits.parent?.trim() || null) ?? '';
-        if (tree.length && !edits.parent) {
-          return this.report(REQUIRED_PARENT_MESSAGE);
-        }
         return onMessage({ type: 'create', id, edits });
       }
       if (message?.type === 'remove' && typeof message.id === 'string') {

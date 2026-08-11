@@ -63,9 +63,6 @@ export function mapProblems(form: MapCapabilityForm): string[] {
     : 'Select the capability-map repository again so its current map can be loaded.');
   const identifierProblem = capabilityIdentifierProblem(form);
   if (identifierProblem) problems.push(identifierProblem);
-  if (form.loaded && form.parents.length && !form.parent) {
-    problems.push('Choose the capability this belongs under.');
-  }
   if (!CAPABILITY_KINDS.includes(form.kind as typeof CAPABILITY_KINDS[number])) {
     problems.push('Kind must be Collection or Delivery.');
   }
@@ -131,9 +128,9 @@ export function mapCapabilityHtml(form: MapCapabilityForm): string {
         ${CAPABILITY_KINDS.map((kind) => `<option value="${escape(kind)}"${kind === form.kind ? ' selected' : ''}>${kind === 'collection' ? 'Collection' : 'Delivery'}</option>`).join('')}
       </select><small>Collection groups related capabilities; Delivery ships from repositories.</small></label>
       <label class="field"><span>Linked under</span><select data-map="parent"${form.loaded ? '' : ' disabled'}>
-        <option value=""${form.parent ? '' : ' selected'}>${parents.length ? 'Choose a capability…' : 'Top of the tree'}</option>
+        <option value=""${form.parent ? '' : ' selected'}>Top level (no parent)</option>
         ${parents.map((parent) => `<option value="${escape(parent.id)}"${parent.id === form.parent ? ' selected' : ''}>${'&nbsp;&nbsp;'.repeat(parent.depth)}${escape(parent.name)}</option>`).join('')}
-      </select><small>You can change this relationship later.</small></label>
+      </select><small>Leave this top-level or choose a parent. You can change this relationship later.</small></label>
     </div>
   </section>
 

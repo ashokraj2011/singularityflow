@@ -1192,6 +1192,10 @@ test('the workspace form opens as a panel and is driven by messages, not prompts
 
   // It opens on the empty form, saying what is still outstanding rather than showing a dead button.
   assert.match(panel.webview.html, /New workspace/);
+  assert.match(panel.webview.html, /Your local profile/);
+  assert.match(panel.webview.html, /data-field="profile-name"/);
+  assert.match(panel.webview.html, /data-field="profile-role"/);
+  assert.match(panel.webview.html, /approval records always use the Git identity/);
   assert.match(panel.webview.html, /Before this can be created/);
   assert.match(panel.webview.html, /<button data-submit="create" disabled>/);
 });
@@ -1528,6 +1532,8 @@ test('a workspace is chosen as capabilities, and its repositories follow', async
   registered.pickedFolder = org.base;
   await panel.post({ type: 'choose', what: 'base' });
   await panel.post({ type: 'field', field: 'id', value: 'commerce-platform' });
+  await panel.post({ type: 'field', field: 'profile-name', value: 'Casey Contributor' });
+  await panel.post({ type: 'field', field: 'profile-role', value: 'developer' });
   await settle();
   assert.match(panel.webview.html, /1 repository will be cloned/, 'what payments ships, and only that');
   assert.match(panel.webview.html, /led by <code>Payments API<\/code>/);
@@ -1676,6 +1682,8 @@ test('creating a workspace asks nothing through a prompt', async (t) => {
   registered.pickedFolder = org.base;
   await panel.post({ type: 'choose', what: 'base' });
   await panel.post({ type: 'field', field: 'id', value: 'commerce-platform' });
+  await panel.post({ type: 'field', field: 'profile-name', value: 'Casey Contributor' });
+  await panel.post({ type: 'field', field: 'profile-role', value: 'developer' });
   await panel.post({ type: 'capability', id: 'payments', selected: true });
   await settle();
   assert.match(panel.webview.html, /<button data-submit="create" >/);

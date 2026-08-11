@@ -14,7 +14,7 @@ import { contentSecurityPolicy, navigationTarget, nonce, page } from './webview.
 import { navigateTo } from './navigate.ts';
 import {
   capabilityChoices, derivedRepositories, effectiveLead, EMPTY_WORKSPACE_FORM, formCommand,
-  formProblems, shippingCapabilities,
+  formProblems, shippingCapabilities, WORKSPACE_PROFILE_ROLES,
   workspaceFormHtml, WORKSPACE_FORM_SCRIPT,
   type CapabilityChoice, type RemoteCapability, type WorkspaceForm
 } from './workspace-form.ts';
@@ -40,6 +40,7 @@ export class WorkspacePanel {
   private readonly panel: vscode.WebviewPanel;
   private readonly location: CliLocation;
   private readonly output: vscode.OutputChannel;
+  private readonly context: vscode.ExtensionContext;
   private readonly onCreated: (created: WorkspaceCreated) => Promise<void>;
   private readonly onOpenCapabilities: () => Promise<void>;
   private readonly disposables: vscode.Disposable[] = [];
@@ -47,6 +48,7 @@ export class WorkspacePanel {
 
   private constructor(
     panel: vscode.WebviewPanel,
+    context: vscode.ExtensionContext,
     location: CliLocation,
     output: vscode.OutputChannel,
     onCreated: (created: WorkspaceCreated) => Promise<void>,
@@ -55,8 +57,15 @@ export class WorkspacePanel {
     this.panel = panel;
     this.location = location;
     this.output = output;
+    this.context = context;
     this.onCreated = onCreated;
     this.onOpenCapabilities = onOpenCapabilities;
+    const settings = vscode.workspace.getConfiguration('singularityFlow');
+    this.form = {
+      ...EMPTY_WORKSPACE_FORM,
+      profileName: settings.get<string>('userName') ?? '',
+      profileRole: settings.get<string>('role') ?? ''
+    };
     this.panel.webview.onDidReceiveMessage((raw: unknown) => {
       // The shared footer is the one way out of a full-page view. Handled here rather than through
       // this panel's own message contract, because "go to another page" is not this panel's business.
@@ -88,7 +97,8 @@ export class WorkspacePanel {
         retainContextWhenHidden: true,
         localResourceRoots: [vscode.Uri.joinPath(context.extensionUri, 'media')]
       });
-    WorkspacePanel.current = new WorkspacePanel(panel, location, output, onCreated, onOpenCapabilities);
+    WorkspacePanel.current = new WorkspacePanel(
+      panel, context, location, output, onCreated, onOpenCapabilities);
     return WorkspacePanel.current;
   }
 
@@ -216,6 +226,7 @@ export class WorkspacePanel {
     if (message.type === 'draft' && typeof message.value === 'string') {
       if (message.field === 'id') this.form.id = message.value;
       else if (message.field === 'name') this.form.name = message.value;
+      else if (message.field === 'profile-name') this.form.profileName = message.value;
       return;
     }
 
@@ -223,6 +234,16 @@ export class WorkspacePanel {
       // Committed, so the summary below is redrawn against it.
       if (message.field === 'id') { this.update({ id: message.value }); return; }
       if (message.field === 'name') { this.update({ name: message.value }); return; }
+      if (message.field === 'profile-name') {
+        this.update({ profileName: message.value });
+        return;
+      }
+      if (message.field === 'profile-role') {
+        const role = WORKSPACE_PROFILE_ROLES.includes(
+          message.value as typeof WORKSPACE_PROFILE_ROLES[number]) ? message.value : '';
+        this.update({ profileRole: role });
+        return;
+      }
 
       if (message.field === 'organisation') {
         // Changing the organisation invalidates everything read from the last one. Keeping a
@@ -257,6 +278,15 @@ export class WorkspacePanel {
     const args = formCommand(this.form);
     this.output.appendLine(`\n$ singularity-flow ${args.join(' ')}`);
     try {
+      // The workspace form is also the first-run profile screen. Keep the profile in the one
+      // machine-local store already used by onboarding and Configuration Center; it is never copied
+      // into governed repository state or treated as approval identity.
+      const settings = vscode.workspace.getConfiguration('singularityFlow');
+      await Promise.all([
+        settings.update('userName', this.form.profileName.trim(), vscode.ConfigurationTarget.Global),
+        settings.update('role', this.form.profileRole, vscode.ConfigurationTarget.Global),
+        this.context.globalState.update('onboardingComplete', true)
+      ]);
       const client = new SingularityFlowClient({
         location: this.location,
         repository: this.form.base ?? '',

@@ -121,6 +121,7 @@ import { verifyGroundingRecord, worldModelCommit, worldModelRebuildReason, world
 import {
   filterLogEntries, LOG_LEVELS, logFilePath, normalizeLogLevel, parseLogLines, repositoryLogger, resolveLogging
 } from './logging.mjs';
+import { collectWorkspaceLogs } from './workspace-logs.mjs';
 import { doctorSnapshot, doctorText } from './doctor.mjs';
 import { createReviewBundle, reviewHtml, reviewMarkdown } from './review.mjs';
 import {
@@ -3309,6 +3310,27 @@ async function capabilitiesCommand(positionals, options) {
 // Read the machine-local activity log. The log lives under .git/ so it is never committed, which
 // also means nobody finds it by browsing the repository — this is how it is meant to be read.
 async function logsCommand(positionals, options) {
+  if (positionals[1] === 'workspace') {
+    const report = await collectWorkspaceLogs({
+      source: optionString(options, 'source', 'all'),
+      repository: optionString(options, 'repository'),
+      workId: optionString(options, 'work-id'),
+      phase: optionString(options, 'phase'),
+      agent: optionString(options, 'agent'),
+      level: optionString(options, 'level'),
+      since: optionString(options, 'since'),
+      text: optionString(options, 'text'),
+      limit: optionNumber(options, 'limit', 500)
+    });
+    if (optionBoolean(options, 'json')) return console.log(JSON.stringify(report, null, 2));
+    console.log(`Workspace logs — ${report.workspace.id}`);
+    console.log(`${report.entries.length} of ${report.total} matching entries · newest first`);
+    for (const item of report.entries) {
+      console.log(`${item.timestamp ?? '(no timestamp)'}  ${item.severity.toUpperCase().padEnd(5)}  ${item.source.padEnd(9)}  ${item.repositoryId ?? 'workspace'}  ${item.summary}`);
+    }
+    for (const warning of report.warnings) console.error(`Warning: ${warning}`);
+    return;
+  }
   const root = repoRoot();
   const file = logFilePath(gitDir(root));
   if (positionals[1] === 'path') return console.log(file);

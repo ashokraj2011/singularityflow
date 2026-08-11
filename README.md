@@ -1718,6 +1718,7 @@ evidence workflow.
 | `singularity-flow documents fetch --provider <ID> --ref <ITEM>` | Materialize provider bytes into the work item's inputs, then commit and publish them. |
 | `singularity-flow logs [--level L] [--event P] [--tail N]` | Read the machine-local activity log: commands, hook decisions, and world-model progress, with secrets redacted. |
 | `singularity-flow logs path\|level` | Show the log file location, or the effective file and console levels. |
+| `singularity-flow logs workspace [--source all\|activity\|prompt\|telemetry\|workspace] [filters]` | Read a newest-first, read-only timeline across only the active workspace's declared repositories. Use `--json` for the versioned envelope. |
 
 An initiative output with `kind: binary-bundle` may omit a text template. Phase preparation reports its exact repository target as `awaiting upload` without fabricating an empty file. Copy the ZIP, image collection, signed evidence package, or other bundle to that path and run the initiative phase command again to hash and register it. Required missing bundles block publication with their expected paths. Downstream Copilot prompts record binary paths, sizes, and SHA-256 values without decoding or injecting the raw bytes.
 

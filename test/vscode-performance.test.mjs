@@ -11,7 +11,7 @@ test('VS Code activation keeps heavyweight webview panels behind dynamic imports
   const panels = [
     'workspace-panel', 'journey', 'reconciliation', 'approvals', 'inbox', 'stories', 'impact',
     'capabilities', 'intake-panel', 'dashboard', 'flow-impact', 'designer',
-    'instruction-designer', 'prompt-audit', 'specification-trace', 'visual-assurance',
+    'instruction-designer', 'workspace-logs', 'specification-trace', 'visual-assurance',
     'configuration-center', 'help', 'workspaces-panel', 'bootstrap-panel'
   ];
 

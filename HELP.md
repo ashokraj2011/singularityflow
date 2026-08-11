@@ -719,8 +719,40 @@ singularity-flow logs --event hook         # one subsystem (matched as a regex)
 singularity-flow logs --since 2026-07-25   # from a point in time
 singularity-flow logs --json               # machine-readable, for piping
 singularity-flow logs path                 # where the file is
+singularity-flow logs workspace --json     # combined active-workspace timeline
 singularity-flow logs level                # effective levels and their source
 ```
+
+`logs workspace` is a strictly read-only view of the **active workspace**. It
+reads only repositories declared by that workspace; it never searches the home
+directory or other registered workspaces. The default response contains the
+newest 500 normalized entries. Narrow it without changing any state:
+
+```bash
+singularity-flow logs workspace --source prompt --work-id WRK-1978 --json
+singularity-flow logs workspace --repository repo-a --phase requirements --level error
+singularity-flow logs workspace --agent product-owner --since 2026-08-11T08:00:00Z --limit 1000
+```
+
+The combined timeline reads four machine-local sources when present:
+
+| Source | Location | What is displayed |
+| --- | --- | --- |
+| Activity | each repository's real Git directory under `singularity-flow/logs/activity.log` | command, hook, and runtime events |
+| Prompts | `<workspace>/.singularity-flow/prompt-audit/prompts.jsonl` | redacted prompt metadata; full captured text is revealed only after selecting the prompt in VS Code |
+| Copilot | each repository's real Git directory under `singularity-flow/copilot-otel.jsonl` | safe provider, model, token, cache, duration, and cost-availability summaries |
+| Workspace | `<workspace>/logs/workspace-materialization.json` | clone, materialization, and repair operations |
+
+Entries are ordered by parsed timestamp, newest first. Invalid timestamps sort
+last and produce warnings. One missing, malformed, or unreadable source does not
+hide healthy sources. Retention remains owned by each source; this command does
+not rotate, repair, fetch, reconcile, commit, or push anything.
+
+In VS Code, open **Logs → Open workspace logs** for the consolidated Timeline,
+Activity, Prompts, Copilot, and Workspace tabs. Existing **Open Activity Log**
+and **Open Prompt Audit** commands now open the corresponding tab. The page
+refreshes when these files change while preserving the current filters and
+selection.
 
 The log is JSON Lines at `.git/singularity-flow/logs/activity.log`. It lives
 under `.git/` deliberately: diagnostics are specific to one machine and one
@@ -2532,6 +2564,7 @@ singularity-flow state planes [WORK-ID] [--json]
 singularity-flow state reconcile [WORK-ID] --check|--repair-projections [--json]
 singularity-flow logs [--tail N] [--level LEVEL] [--event PATTERN] [--since WHEN] [--json]
 singularity-flow logs path|level
+singularity-flow logs workspace [--source all|activity|prompt|telemetry|workspace] [--repository ID] [--work-id ID] [--phase ID] [--agent ID] [--level error|warn|info|debug] [--since ISO-TIMESTAMP] [--limit N] [--json]
 singularity-flow home [--json]
 singularity-flow workspace list|current|use|prompt|copilot
 singularity-flow knowledge list|show|record|harvest|resolve ...

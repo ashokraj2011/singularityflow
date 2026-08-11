@@ -305,7 +305,8 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
     'singularityFlow.showImpact', 'singularityFlow.addCapability', 'singularityFlow.editCapability',
     'singularityFlow.openDashboard', 'singularityFlow.openDesigner',
     'singularityFlow.publishConfiguration',
-    'singularityFlow.openInstructionDesigner', 'singularityFlow.openPromptAudit', 'singularityFlow.openActivityLog', 'singularityFlow.openSpecificationTrace',
+    'singularityFlow.openInstructionDesigner', 'singularityFlow.openPromptAudit', 'singularityFlow.openActivityLog',
+    'singularityFlow.openWorkspaceLogs', 'singularityFlow.refreshWorkspaceLogs', 'singularityFlow.openSpecificationTrace',
     'singularityFlow.inspectCompositionCache', 'singularityFlow.checkLedgerDeployment', 'singularityFlow.openCopilot',
     'singularityFlow.openVisualAssurance',
     'singularityFlow.openConfigurationCenter', 'singularityFlow.configurePeople', 'singularityFlow.configureMcp',
@@ -388,11 +389,18 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
   // extension — is the second documentation copy this whole layer exists to avoid.
   const helpTree = new NodeTreeProvider(helpNodes([]));
   context.subscriptions.push(helpTree, vscode.window.createTreeView('singularityFlow.help', { treeDataProvider: helpTree }));
+  const logsTree = new NodeTreeProvider([{
+    kind: 'action', id: 'logs:open', label: 'Open workspace logs',
+    description: 'activity · prompts · Copilot · workspace', icon: 'commit',
+    runCommand: 'singularityFlow.openWorkspaceLogs'
+  }]);
+  context.subscriptions.push(logsTree);
   // One continuous navigation surface replaces five independently-sized native panes. The hidden
   // native TreeViews remain compatibility adapters for their mature, tested read models and context
   // commands; the webview binds to the exact same providers so it cannot tell a different story.
   const sidebar = new SidebarViewProvider();
   sidebar.bind('workspaces', workspaceTree);
+  sidebar.bind('logs', logsTree);
   sidebar.bind('help', helpTree);
   context.subscriptions.push(sidebar, vscode.window.registerWebviewViewProvider(
     'singularityFlow.navigation', sidebar, { webviewOptions: { retainContextWhenHidden: true } }
@@ -470,6 +478,11 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
       label: 'Review capability proposals', description: 'inspect pending organisation changes',
       tooltip: 'List pending capability-map proposals across every registered lead repository.',
       icon: 'merge', runCommand: 'singularityFlow.reviewCapabilityProposals'
+    }]);
+    logsTree.replace([{
+      kind: 'action', id: 'logs:unavailable', label: 'Choose a workspace',
+      description: 'load its machine-local logs', tooltip: detail,
+      icon: repositoryUnavailable ? 'statusWarning' : 'workspace', runCommand: recoveryCommand
     }]);
     context.subscriptions.push(provider, inbox, configuration);
     sidebar.bind('lifecycle', provider);
@@ -1206,6 +1219,37 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
 
   const store = new WorkspaceStore(client);
   context.subscriptions.push(store);
+  interface WorkspaceLogsSummary {
+    entries: Array<{ timestamp: string | null; severity: string }>;
+    total: number;
+    warnings: string[];
+  }
+  const refreshWorkspaceLogsTree = async (): Promise<void> => {
+    try {
+      const report = await client.run<WorkspaceLogsSummary>(['logs', 'workspace', '--limit', '500', '--json']);
+      const errors = report.entries.filter((entry) => entry.severity === 'error').length;
+      const warnings = report.entries.filter((entry) => entry.severity === 'warn').length;
+      const latest = report.entries[0]?.timestamp;
+      const latestLabel = latest && Number.isFinite(Date.parse(latest))
+        ? new Date(latest).toLocaleString() : 'no timestamped events';
+      logsTree.replace([{
+        kind: 'action', id: 'logs:open', label: 'Open workspace logs',
+        description: `${report.total} events · ${errors} errors · ${warnings} warnings`,
+        tooltip: `Latest event: ${latestLabel}${report.warnings.length ? `\n${report.warnings.length} source warning(s)` : ''}`,
+        icon: errors ? 'blocked' : warnings ? 'warning' : 'commit',
+        runCommand: 'singularityFlow.openWorkspaceLogs'
+      }, {
+        kind: 'action', id: 'logs:latest', label: 'Latest event', description: latestLabel,
+        icon: 'waiting', runCommand: 'singularityFlow.openWorkspaceLogs'
+      }]);
+    } catch (error) {
+      logsTree.replace([{
+        kind: 'action', id: 'logs:error', label: 'Workspace logs unavailable',
+        description: 'open for details', tooltip: (error as Error).message,
+        icon: 'warning', runCommand: 'singularityFlow.openWorkspaceLogs'
+      }]);
+    }
+  };
   // Lifecycle commits are routinely created by Copilot CLI or a terminal while
   // the editor is open. Watch the governed tree and debounce one coherent
   // snapshot refresh so every view follows those external mutations together.
@@ -1289,6 +1333,7 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
     showCollapseAll: true
   }));
   void refreshReadiness();
+  void refreshWorkspaceLogsTree();
 
   const status = vscode.window.createStatusBarItem(vscode.StatusBarAlignment.Left, 100);
   status.command = 'singularityFlow.refresh';
@@ -1347,6 +1392,7 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
     readiness = {};
     await store.refresh();
     void refreshReadiness();
+    void refreshWorkspaceLogsTree();
     output.appendLine(`Governed repository: ${repository} (the lead repository of your active workspace, ${name})`);
   });
 
@@ -2115,7 +2161,11 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
         void vscode.window.showErrorMessage(`Could not read topic ${id}: ${(error as Error).message}`);
       }
     },
-    'singularityFlow.refresh': async () => { await store.refresh(); void refreshReadiness(); },
+    'singularityFlow.refresh': async () => {
+      await store.refresh();
+      void refreshReadiness();
+      void refreshWorkspaceLogsTree();
+    },
     'singularityFlow.openArtifact':
       ((node?: TreeNode) => openArtifact(repository, node, cliPackageRoot)) as never,
     'singularityFlow.runAction': runNode as never,
@@ -2321,13 +2371,22 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
     },
     'singularityFlow.configurePeople': () => openConfigurationCenter('people'),
     'singularityFlow.configureMcp': () => openConfigurationCenter('mcp'),
+    'singularityFlow.openWorkspaceLogs': async () => {
+      const { WorkspaceLogsPanel } = await import('./views/workspace-logs.ts');
+      return WorkspaceLogsPanel.show(context, client, 'all');
+    },
+    'singularityFlow.refreshWorkspaceLogs': async () => {
+      await refreshWorkspaceLogsTree();
+      const { WorkspaceLogsPanel } = await import('./views/workspace-logs.ts');
+      WorkspaceLogsPanel.refreshCurrent();
+    },
     'singularityFlow.openPromptAudit': async () => {
-      const { PromptAuditPanel } = await import('./views/prompt-audit.ts');
-      return PromptAuditPanel.show(context, client);
+      const { WorkspaceLogsPanel } = await import('./views/workspace-logs.ts');
+      return WorkspaceLogsPanel.show(context, client, 'prompt');
     },
     'singularityFlow.openActivityLog': async () => {
-      const { ActivityLogPanel } = await import('./views/activity-log.ts');
-      return ActivityLogPanel.show(context, client);
+      const { WorkspaceLogsPanel } = await import('./views/workspace-logs.ts');
+      return WorkspaceLogsPanel.show(context, client, 'activity');
     },
     'singularityFlow.openSpecificationTrace': async () => {
       const { SpecificationTracePanel } = await import('./views/specification-trace.ts');

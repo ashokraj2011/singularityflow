@@ -105,6 +105,9 @@ Usage:
   singularity-flow home                                    the cockpit view (alias: cockpit)
   singularity-flow logs [--tail N] [--level LEVEL] [--event PATTERN] [--since WHEN] [--json]
   singularity-flow logs path|level
+  singularity-flow logs workspace [--source all|activity|prompt|telemetry|workspace]
+      [--repository ID] [--work-id ID] [--phase ID] [--agent ID]
+      [--level error|warn|info|debug] [--since ISO-TIMESTAMP] [--limit N] [--json]
   singularity-flow hook <turn-intent|turn-end|agent-start|session-start|agent-guard>
   singularity-flow review [PHASE] [--phase PHASE] [--format md|html|json] [--out FILE]
   singularity-flow workflow list [--json]                  every workflow, Story and Initiative

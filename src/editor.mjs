@@ -1,5 +1,7 @@
-import { readFile, readdir, unlink } from 'node:fs/promises';
+import { cp, mkdir, mkdtemp, readFile, readdir, rm, unlink } from 'node:fs/promises';
 import { existsSync } from 'node:fs';
+import { createHash } from 'node:crypto';
+import { tmpdir } from 'node:os';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import YAML from 'yaml';
@@ -1045,7 +1047,53 @@ function exportablePath(definition, relative, portfolio = null) {
     || (portfolio && relative.startsWith(`${initiativeRoot}/`));
 }
 
-export async function saveConfigurationFile(root, requestedPath, content) {
+function contentSha256(content) {
+  return createHash('sha256').update(content).digest('hex');
+}
+
+async function copyConfigurationSource(root, validationRoot, relative) {
+  if (!relative || relative === '.' || relative.startsWith('..') || path.isAbsolute(relative)) return;
+  const source = path.join(root, relative);
+  if (!existsSync(source)) return;
+  const target = path.join(validationRoot, relative);
+  await mkdir(path.dirname(target), { recursive: true });
+  await cp(source, target, { recursive: true, force: true });
+}
+
+async function validateConfigurationCandidate(root, relative, content, definition, portfolio) {
+  const validationRoot = await mkdtemp(path.join(tmpdir(), 'singularity-flow-configuration-'));
+  try {
+    const sources = new Set([
+      WORKFLOW_PATH, PORTFOLIO_PATH, CAPABILITIES_PATH, IMPACT_CONFIG_PATH, AGENT_MAPPING_PATH,
+      definition.templatesRoot, portfolio?.templatesRoot, definition.agentPromptsRoot,
+      REPOSITORY_SKILLS_ROOT, PROMPTS_ROOT, '.github/agents'
+    ].filter(Boolean).map(posix));
+    if (relative === WORKFLOW_PATH || relative === PORTFOLIO_PATH) {
+      try {
+        const candidate = YAML.parse(content) ?? {};
+        for (const location of [candidate.templatesRoot, candidate.agentPromptsRoot, candidate.personaPromptsRoot]) {
+          if (typeof location === 'string') sources.add(posix(location));
+        }
+      } catch {
+        // The focused schema validation below reports parse failures with the correct file label.
+      }
+    }
+    for (const source of sources) await copyConfigurationSource(root, validationRoot, source);
+    const candidatePath = path.join(validationRoot, relative);
+    await mkdir(path.dirname(candidatePath), { recursive: true });
+    await writeText(candidatePath, content);
+
+    const updatedDefinition = await loadDefinition(validationRoot);
+    const updatedPortfolio = await loadPortfolio(validationRoot, { required: false });
+    if (updatedPortfolio) validatePortfolioWorldModelViews(updatedPortfolio, updatedDefinition);
+    await discoverAgents(validationRoot);
+    await loadAgentMappings(validationRoot);
+  } finally {
+    await rm(validationRoot, { recursive: true, force: true });
+  }
+}
+
+export async function saveConfigurationFile(root, requestedPath, content, { expectedSha256 = null } = {}) {
   const definition = await loadDefinition(root);
   const portfolio = await loadPortfolio(root, { required: false });
   const relative = repoRelative(root, requestedPath);
@@ -1081,18 +1129,24 @@ export async function saveConfigurationFile(root, requestedPath, content) {
   });
   const existed = target.exists;
   const previous = existed ? await readFile(target.absolute, 'utf8') : null;
-  await writeText(target.absolute, content);
+  // The editor renders an absent optional configuration file as an empty draft.
+  // Hash that same representation so first-time creation is revision-aware too:
+  // a concurrent creator changes the hash and is rejected below.
+  const currentSha256 = contentSha256(previous ?? '');
+  if (expectedSha256 !== null && expectedSha256 !== currentSha256) {
+    throw new SingularityFlowError(`Configuration changed since the editor loaded '${relative}'. Reload the Configuration Center, review the newer content, and apply the change again.`);
+  }
   try {
-    const updatedDefinition = await loadDefinition(root);
-    const updatedPortfolio = await loadPortfolio(root, { required: false });
-    if (updatedPortfolio) validatePortfolioWorldModelViews(updatedPortfolio, updatedDefinition);
-    await discoverAgents(root);
-    await loadAgentMappings(root);
+    await validateConfigurationCandidate(root, relative, content, definition, portfolio);
   } catch (error) {
-    if (existed) await writeText(target.absolute, previous);
-    else await unlink(target.absolute);
     throw new SingularityFlowError(`Change was not saved because configuration validation failed: ${error.message}`);
   }
+  const latest = existsSync(target.absolute) ? await readFile(target.absolute, 'utf8') : null;
+  const latestSha256 = contentSha256(latest ?? '');
+  if (latestSha256 !== currentSha256) {
+    throw new SingularityFlowError(`Configuration changed while '${relative}' was being validated. Reload the Configuration Center and apply the change to the latest version.`);
+  }
+  await writeText(target.absolute, content);
   return { path: relative, changed: changedFiles(root).includes(relative) };
 }
 

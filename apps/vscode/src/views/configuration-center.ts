@@ -1,10 +1,11 @@
 /** First-class VS Code configuration for humans, approvals, MCP, and the other designers. */
 import * as vscode from 'vscode';
+import { createHash } from 'node:crypto';
 import type { WorkspaceStore } from '../state.ts';
 import { contentSecurityPolicy, navigationTarget, nonce, page } from './webview.ts';
 import { navigateTo } from './navigate.ts';
 import {
-  configurationCenterView, updateAuthorityYaml, updateMcpYaml, updateWorldModelYaml,
+  configurationCenterView, configurationRefreshDecision, updateAuthorityYaml, updateMcpYaml, updateWorldModelYaml,
   validateAuthorityDraft, validateMcpDraft, validateWorldModelDraft,
   type AuthorityDraft, type AuthorityView, type ConfigurationTab, type McpDraft, type McpServerView,
   type WorldModelDraft
@@ -12,7 +13,7 @@ import {
 import { configurationCenterHtml, CONFIGURATION_CENTER_SCRIPT } from './configuration-center-page.ts';
 
 export type ConfigurationCenterMessage =
-  | { type: 'save'; path: string; content: string }
+  | { type: 'save'; path: string; content: string; expectedSha256: string }
   | { type: 'profile'; name: string; role: string }
   | { type: 'action'; action: string };
 
@@ -28,6 +29,9 @@ export class ConfigurationCenterPanel {
   private newMcp = false;
   private notice: string | null = null;
   private errors: string[] = [];
+  private dirty = false;
+  private saving = false;
+  private renderedTexts = { definitionText: '', portfolioText: '' };
   private readonly subscription: { dispose(): void };
   private readonly disposables: vscode.Disposable[] = [];
 
@@ -37,7 +41,7 @@ export class ConfigurationCenterPanel {
     private readonly profile: () => { name: string; role: string },
     private readonly onMessage: (message: ConfigurationCenterMessage) => Promise<string | null>
   ) {
-    this.subscription = store.onDidChange(() => this.render());
+    this.subscription = store.onDidChange(() => this.storeChanged());
     panel.webview.onDidReceiveMessage((raw: unknown) => {
       // The shared footer is the one way out of a full-page view. Handled here rather than through
       // this panel's own message contract, because "go to another page" is not this panel's business.
@@ -71,10 +75,42 @@ export class ConfigurationCenterPanel {
     return snapshot ? configurationCenterView(snapshot, this.profile()) : null;
   }
 
+  private texts() {
+    const snapshot = this.store.current.snapshot;
+    return {
+      definitionText: String(snapshot?.definitionText ?? ''),
+      portfolioText: String(snapshot?.portfolioText ?? '')
+    };
+  }
+
+  private storeChanged(): void {
+    const decision = configurationRefreshDecision(this.dirty, this.renderedTexts, this.texts());
+    if (decision === 'render') return this.render();
+    if (decision === 'conflict' && !this.saving) void this.panel.webview.postMessage({ type: 'configuration-repository-changed' });
+  }
+
+  private expectedSha256(text: string): string {
+    return createHash('sha256').update(text).digest('hex');
+  }
+
+  private save(path: string, content: string, sourceText: string): Promise<string | null> {
+    this.saving = true;
+    return this.onMessage({ type: 'save', path, content, expectedSha256: this.expectedSha256(sourceText) })
+      .finally(() => { this.saving = false; });
+  }
+
+  private showErrors(errors: string[]): void {
+    this.errors = errors;
+    void this.panel.webview.postMessage({ type: 'configuration-save-error', errors });
+  }
+
   private async receive(raw: unknown): Promise<void> {
     const message = (raw && typeof raw === 'object' ? raw : {}) as Record<string, unknown>;
     const view = this.view(); if (!view) return;
     this.errors = []; this.notice = null;
+    if (message.type === 'form-dirty') { this.dirty = message.dirty === true; return; }
+    if (message.type === 'reload-dirty') { this.dirty = false; return this.render(); }
+    if (message.type === 'keep-dirty') return;
     if (message.type === 'tab' && ['overview', 'world-model', 'people', 'mcp'].includes(String(message.tab))) { this.tab = message.tab as ConfigurationTab; this.newAuthority = false; this.newMcp = false; return this.render(); }
     if (message.type === 'select-authority' && typeof message.key === 'string') { this.authorityKey = message.key; this.newAuthority = false; return this.render(); }
     if (message.type === 'select-mcp' && typeof message.id === 'string') { this.mcpId = message.id; this.newMcp = false; return this.render(); }
@@ -84,38 +120,39 @@ export class ConfigurationCenterPanel {
     }
     if (message.type === 'save-authority') {
       const draft = message as unknown as AuthorityDraft;
-      this.errors = validateAuthorityDraft(draft); if (this.errors.length) return this.render();
+      this.errors = validateAuthorityDraft(draft); if (this.errors.length) return this.showErrors(this.errors);
       const snapshot = this.store.current.snapshot!;
       const path = draft.scope === 'story' ? snapshot.definitionPath ?? 'singularity/workflow.yml' : snapshot.portfolioPath ?? 'singularity/portfolio.yml';
-      const text = draft.scope === 'story' ? String(snapshot.definitionText ?? '') : String(snapshot.portfolioText ?? '');
+      const text = draft.scope === 'story' ? this.renderedTexts.definitionText : this.renderedTexts.portfolioText;
       try {
-        const error = await this.onMessage({ type: 'save', path, content: updateAuthorityYaml(text, draft) });
-        if (error) this.errors = [error]; else { this.notice = `Saved ${draft.label}.`; this.authorityKey = `${draft.scope}:${draft.id}`; this.newAuthority = false; }
-      } catch (error) { this.errors = [(error as Error).message]; }
+        const error = await this.save(path, updateAuthorityYaml(text, draft), text);
+        if (error) return this.showErrors([error]);
+        this.dirty = false; this.notice = `Saved ${draft.label}.`; this.authorityKey = `${draft.scope}:${draft.id}`; this.newAuthority = false;
+      } catch (error) { return this.showErrors([(error as Error).message]); }
       return this.render();
     }
     if (message.type === 'save-mcp') {
       const draft = message as unknown as McpDraft;
-      this.errors = validateMcpDraft(draft); if (this.errors.length) return this.render();
+      this.errors = validateMcpDraft(draft); if (this.errors.length) return this.showErrors(this.errors);
       const snapshot = this.store.current.snapshot!;
       try {
-        const error = await this.onMessage({ type: 'save', path: snapshot.definitionPath ?? 'singularity/workflow.yml', content: updateMcpYaml(String(snapshot.definitionText ?? ''), draft) });
-        if (error) this.errors = [error]; else { this.notice = `Saved ${draft.label}.`; this.mcpId = draft.id; this.newMcp = false; }
-      } catch (error) { this.errors = [(error as Error).message]; }
+        const text = this.renderedTexts.definitionText;
+        const error = await this.save(snapshot.definitionPath ?? 'singularity/workflow.yml', updateMcpYaml(text, draft), text);
+        if (error) return this.showErrors([error]);
+        this.dirty = false; this.notice = `Saved ${draft.label}.`; this.mcpId = draft.id; this.newMcp = false;
+      } catch (error) { return this.showErrors([(error as Error).message]); }
       return this.render();
     }
     if (message.type === 'save-world-model') {
       const draft = message as unknown as WorldModelDraft;
-      this.errors = validateWorldModelDraft(draft); if (this.errors.length) return this.render();
+      this.errors = validateWorldModelDraft(draft); if (this.errors.length) return this.showErrors(this.errors);
       const snapshot = this.store.current.snapshot!;
       try {
-        const error = await this.onMessage({
-          type: 'save',
-          path: snapshot.definitionPath ?? 'singularity/workflow.yml',
-          content: updateWorldModelYaml(String(snapshot.definitionText ?? ''), draft)
-        });
-        if (error) this.errors = [error]; else this.notice = 'World-model settings saved.';
-      } catch (error) { this.errors = [(error as Error).message]; }
+        const text = this.renderedTexts.definitionText;
+        const error = await this.save(snapshot.definitionPath ?? 'singularity/workflow.yml', updateWorldModelYaml(text, draft), text);
+        if (error) return this.showErrors([error]);
+        this.dirty = false; this.notice = 'World-model settings saved.';
+      } catch (error) { return this.showErrors([(error as Error).message]); }
       return this.render();
     }
     if (message.type === 'action') {
@@ -135,7 +172,8 @@ export class ConfigurationCenterPanel {
     const confirmed = await vscode.window.showWarningMessage(`Delete approval authority '${selected.label}'?`, { modal: true }, 'Delete');
     if (confirmed !== 'Delete') return;
     const snapshot = this.store.current.snapshot!; const story = selected.scope === 'story';
-    const error = await this.onMessage({ type: 'save', path: story ? snapshot.definitionPath ?? 'singularity/workflow.yml' : snapshot.portfolioPath ?? 'singularity/portfolio.yml', content: updateAuthorityYaml(String(story ? snapshot.definitionText ?? '' : snapshot.portfolioText ?? ''), null, selected.id) });
+    const text = story ? this.renderedTexts.definitionText : this.renderedTexts.portfolioText;
+    const error = await this.save(story ? snapshot.definitionPath ?? 'singularity/workflow.yml' : snapshot.portfolioPath ?? 'singularity/portfolio.yml', updateAuthorityYaml(text, null, selected.id), text);
     if (error) this.errors = [error]; else { this.notice = `Deleted ${selected.label}.`; this.authorityKey = null; } this.render();
   }
 
@@ -144,13 +182,15 @@ export class ConfigurationCenterPanel {
     const confirmed = await vscode.window.showWarningMessage(`Delete MCP policy '${selected.label}'?`, { modal: true }, 'Delete');
     if (confirmed !== 'Delete') return;
     const snapshot = this.store.current.snapshot!;
-    const error = await this.onMessage({ type: 'save', path: snapshot.definitionPath ?? 'singularity/workflow.yml', content: updateMcpYaml(String(snapshot.definitionText ?? ''), null, selected.id) });
+    const text = this.renderedTexts.definitionText;
+    const error = await this.save(snapshot.definitionPath ?? 'singularity/workflow.yml', updateMcpYaml(text, null, selected.id), text);
     if (error) this.errors = [error]; else { this.notice = `Deleted ${selected.label}.`; this.mcpId = null; } this.render();
   }
 
   private render(): void {
     const view = this.view(); const token = nonce();
     if (!view) { this.panel.webview.html = page('Configuration Center', '<p class="empty">Choose a governed workspace to configure it.</p>', contentSecurityPolicy(this.panel.webview, token), token, '', { nav: 'configuration' }); return; }
+    this.renderedTexts = this.texts();
     const selectedAuthority = this.newAuthority ? emptyAuthority() : view.authorities.find((entry) => `${entry.scope}:${entry.id}` === this.authorityKey) ?? null;
     const selectedMcp = this.newMcp ? emptyMcp() : view.mcpServers.find((entry) => entry.id === this.mcpId) ?? null;
     this.panel.webview.html = page('Configuration Center', configurationCenterHtml(view, this.tab, selectedAuthority, selectedMcp, this.notice, this.errors), contentSecurityPolicy(this.panel.webview, token), token, CONFIGURATION_CENTER_SCRIPT, { nav: 'configuration' });

@@ -8,6 +8,7 @@ const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 const source = (name) => path.join(root, 'apps', 'vscode', 'src', 'views', name);
 const {
   configurationCenterView,
+  configurationRefreshDecision,
   updateAuthorityYaml,
   updateMcpYaml,
   updateWorldModelYaml,
@@ -15,7 +16,7 @@ const {
   validateMcpDraft,
   validateWorldModelDraft
 } = await import(source('configuration-center-model.ts'));
-const { configurationCenterHtml } = await import(source('configuration-center-page.ts'));
+const { configurationCenterHtml, CONFIGURATION_CENTER_SCRIPT } = await import(source('configuration-center-page.ts'));
 
 const snapshot = {
   definition: {
@@ -72,6 +73,25 @@ test('configuration center exposes guided world-model policy, generation, and in
   assert.match(html, /Light — deterministic, zero model tokens/);
   assert.match(html, /Prompt injection/);
   assert.match(html, /Save world-model settings/);
+});
+
+test('configuration refresh preserves dirty forms and detects repository conflicts', () => {
+  const rendered = { definitionText: 'workflow-a', portfolioText: 'portfolio-a' };
+  assert.equal(configurationRefreshDecision(false, rendered, rendered), 'render');
+  assert.equal(configurationRefreshDecision(true, rendered, rendered), 'hold');
+  assert.equal(configurationRefreshDecision(true, rendered, { ...rendered, definitionText: 'workflow-b' }), 'conflict');
+  assert.equal(configurationRefreshDecision(true, rendered, { ...rendered, portfolioText: 'portfolio-b' }), 'conflict');
+});
+
+test('configuration center reports dirty edits and offers an explicit conflict decision', () => {
+  const view = configurationCenterView(snapshot, { name: 'Ashok', role: 'architect' });
+  const html = configurationCenterHtml(view, 'world-model', null, null, null, []);
+  assert.match(html, /configuration-runtime-message/);
+  assert.match(html, /Reload newer configuration/);
+  assert.match(html, /Keep editing/);
+  assert.match(CONFIGURATION_CENTER_SCRIPT, /type: 'form-dirty'/);
+  assert.match(CONFIGURATION_CENTER_SCRIPT, /configuration-repository-changed/);
+  assert.match(CONFIGURATION_CENTER_SCRIPT, /configuration-save-error/);
 });
 
 test('world-model editor preserves comments, advanced context, and injection rules', () => {

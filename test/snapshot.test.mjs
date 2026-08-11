@@ -1,9 +1,10 @@
 import assert from 'node:assert/strict';
-import { mkdir, mkdtemp, readFile, rename, symlink, unlink, writeFile } from 'node:fs/promises';
+import { mkdir, mkdtemp, readFile, rename, stat, symlink, unlink, writeFile } from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { spawnSync } from 'node:child_process';
+import { createHash } from 'node:crypto';
 import test from 'node:test';
 import YAML from 'yaml';
 import {
@@ -424,6 +425,52 @@ test('visual editor configuration saves validate atomically and publish scoped c
   assert.equal(published.pushed, false);
   assert.deepEqual(published.files.sort(), ['.github/agents/reviewer.agent.md', 'singularity/agent-mappings.yml', templatePath].sort());
   assert.match(run('git', ['log', '-1', '--format=%s'], root).stdout, /Configure visual editor template/);
+});
+
+test('visual editor rejects a stale configuration revision without overwriting concurrent edits', async () => {
+  const root = await repository();
+  const workflowPath = path.join(root, 'singularity/workflow.yml');
+  const rendered = await readFile(workflowPath, 'utf8');
+  const expectedSha256 = createHash('sha256').update(rendered).digest('hex');
+  const concurrent = `${rendered}\n# concurrent repository edit\n`;
+  await writeFile(workflowPath, concurrent);
+
+  await assert.rejects(
+    () => saveConfigurationFile(root, 'singularity/workflow.yml', rendered, { expectedSha256 }),
+    /changed since the editor loaded/i
+  );
+  assert.equal(await readFile(workflowPath, 'utf8'), concurrent);
+});
+
+test('visual editor can create an absent optional configuration file from an empty rendered revision', async () => {
+  const root = await repository();
+  const impactPath = path.join(root, 'singularity/impact.yml');
+  const content = await readFile(impactPath, 'utf8');
+  await unlink(impactPath).catch(() => {});
+  const expectedSha256 = createHash('sha256').update('').digest('hex');
+
+  await saveConfigurationFile(root, 'singularity/impact.yml', content, { expectedSha256 });
+
+  assert.equal(await readFile(impactPath, 'utf8'), content);
+});
+
+test('invalid configuration candidates are validated before replacing governed files', async () => {
+  const root = await repository();
+  const workflowPath = path.join(root, 'singularity/workflow.yml');
+  const original = await readFile(workflowPath, 'utf8');
+  const definition = YAML.parse(original);
+  definition.worldModel.views = definition.worldModel.views.filter((view) => view !== 'architecture');
+  const before = await stat(workflowPath, { bigint: true });
+
+  await assert.rejects(
+    () => saveConfigurationFile(root, 'singularity/workflow.yml', YAML.stringify(definition)),
+    /architecture.*not declared/i
+  );
+
+  const after = await stat(workflowPath, { bigint: true });
+  assert.equal(await readFile(workflowPath, 'utf8'), original);
+  assert.equal(after.ino, before.ino, 'validation must not replace the governed file with a staged candidate');
+  assert.equal(after.mtimeNs, before.mtimeNs, 'validation must not touch the governed file before success');
 });
 
 test('Flow Impact configuration is editable through the governed configuration API', async () => {

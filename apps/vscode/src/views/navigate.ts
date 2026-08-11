@@ -9,13 +9,18 @@ import * as vscode from 'vscode';
 import { navigationPlan } from './webview.ts';
 
 export async function navigateTo(command: string): Promise<void> {
-  // `true` filters to commands registered right now, rather than everything the manifest declares —
-  // which is exactly the distinction that matters for the three destinations that register late.
-  const plan = navigationPlan(command, await vscode.commands.getCommands(true));
-  if (plan.kind === 'execute') {
-    await vscode.commands.executeCommand(plan.command);
-    return;
+  try {
+    // `true` filters to commands registered right now, rather than everything the manifest declares —
+    // which is exactly the distinction that matters for the three destinations that register late.
+    const plan = navigationPlan(command, await vscode.commands.getCommands(true));
+    if (plan.kind === 'execute') {
+      await vscode.commands.executeCommand(plan.command);
+      return;
+    }
+    const choice = await vscode.window.showInformationMessage(plan.message, plan.action);
+    if (choice === plan.action) await vscode.commands.executeCommand(plan.resolve);
+  } catch (error) {
+    const detail = error instanceof Error ? error.message : String(error);
+    await vscode.window.showErrorMessage(`Could not open the Singularity Flow view: ${detail}`);
   }
-  const choice = await vscode.window.showInformationMessage(plan.message, plan.action);
-  if (choice === plan.action) await vscode.commands.executeCommand(plan.resolve);
 }

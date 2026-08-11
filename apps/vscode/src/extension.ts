@@ -2435,6 +2435,13 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
     // Both open the same screen, positioned: adding lands on the form for a new capability under
     // whatever was clicked, editing lands on the capability itself.
     'singularityFlow.addCapability': (async (node?: TreeNode) => {
+      // Command Palette users do not pass a tree node, so the tree's empty-map routing cannot be
+      // the only guard. The regular capability editor needs an existing organisation lead; the
+      // bootstrap flow creates that lead together with the first capability.
+      const capabilities = store.current.snapshot?.capabilityMap?.capabilities ?? [];
+      if (!capabilities.length) {
+        return vscode.commands.executeCommand('singularityFlow.mapCapability');
+      }
       const { CapabilitiesPanel } = await import('./views/capabilities.ts');
       const panel = CapabilitiesPanel.show(context, store, (message) => { void onCapabilitiesMessage(message); });
       panel.beginAdd(capabilityIdOf(node));

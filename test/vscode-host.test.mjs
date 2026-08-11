@@ -1813,6 +1813,35 @@ test('Configuration opens the capability editor and creates new capabilities', a
   assert.equal(configuration.getTreeItem(add).command.command, 'singularityFlow.addCapability');
 });
 
+test('Configuration bootstraps the first capability instead of opening an unusable editor', async (t) => {
+  if (!requireBundle(t)) return;
+  const { root, registered } = await activated();
+  await writeFile(path.join(root, 'singularity/capabilities.yml'), [
+    'version: 1',
+    'capabilities: {}',
+    ''
+  ].join('\n'));
+  await registered.commands.get('singularityFlow.refresh')();
+
+  const configuration = registered.trees.get('singularityFlow.configuration').treeDataProvider;
+  const configurationRoot = configuration.getChildren().find((node) => node.id === 'configuration');
+  const capabilityGroup = configuration.getChildren(configurationRoot)
+    .find((node) => node.id === 'config:capabilities');
+  const first = configuration.getChildren(capabilityGroup)
+    .find((node) => node.id === 'config:capabilities:add');
+
+  assert.equal(first.label, 'Create first capability');
+  assert.equal(configuration.getTreeItem(first).command.command, 'singularityFlow.mapCapability');
+
+  // Command Palette entry points have no tree node, so they must make the same decision rather
+  // than opening the subsequent-capability editor and failing at its final Create action.
+  await registered.commands.get('singularityFlow.addCapability')();
+  assert.ok(registered.panels.find((entry) => entry.id === 'singularityFlow.mapCapability'),
+    'the first capability opens the bootstrap panel that can establish an organisation lead');
+  assert.equal(registered.panels.some((entry) => entry.id === 'singularityFlow.capabilities'), false,
+    'the editor that requires an existing lead was not opened');
+});
+
 test('the sidebar lists workspaces even with no repository open', async (t) => {
   if (!requireBundle(t)) return;
   // The registry is machine-wide, which is exactly why this is useful in a window that has nothing

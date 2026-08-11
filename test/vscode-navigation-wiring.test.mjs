@@ -37,8 +37,22 @@ test('a scripted page acquires the VS Code API exactly once and shares it with f
     'const vscode = window.__sfVscode; vscode.postMessage({ type: "ready" });');
   assert.equal(rendered.split('acquireVsCodeApi()').length - 1, 1);
   assert.ok(rendered.indexOf(VSCODE_API_SCRIPT.trim()) < rendered.indexOf('const vscode = window.__sfVscode'));
+  assert.equal(rendered.match(/<script nonce="nonce">/g)?.length, 3,
+    'API acquisition, screen behavior, and shared navigation run in isolated script elements');
+  assert.ok(rendered.indexOf('const vscode = window.__sfVscode') < rendered.indexOf(NAV_SCRIPT.trim()));
   assert.match(NAV_SCRIPT, /window\.__sfVscode\.postMessage/);
   assert.doesNotMatch(NAV_SCRIPT, /acquireVsCodeApi/);
+});
+
+test('screen failures cannot prevent the shared navigation bridge from loading', () => {
+  const rendered = page('Broken widget', '<main>Body</main>', "default-src 'none'", 'nonce',
+    'throw new Error("screen widget failed");');
+  const widget = rendered.indexOf('screen widget failed');
+  const widgetEnd = rendered.indexOf('</script>', widget);
+  const navigation = rendered.indexOf(NAV_SCRIPT.trim());
+  assert.ok(widget >= 0 && widgetEnd > widget);
+  assert.ok(navigation > widgetEnd,
+    'the navigation listener is in a later script element and still runs after a widget exception');
 });
 
 test('what the script posts is what the panels resolve', () => {

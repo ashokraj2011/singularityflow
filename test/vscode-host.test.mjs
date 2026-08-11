@@ -245,7 +245,8 @@ function stubVscode() {
       executeCommand: async (id, ...args) => {
         registered.executedCommands.push({ id, args });
         return registered.commands.get(id)?.(...args);
-      }
+      },
+      getCommands: async () => [...registered.commands.keys()]
     },
     languages: {
       createDiagnosticCollection: () => ({
@@ -697,6 +698,49 @@ test('Help is available without a workspace and opens the canonical offline manu
   assert.match(panel.webview.html, /Story intake/);
   assert.match(panel.webview.html, /CLI command reference/);
   assert.match(panel.webview.html, /\/sf-story-start/);
+});
+
+test('every shared screen destination is connected through a real webview message', async (t) => {
+  if (!requireBundle(t)) return;
+  const root = await demoRepository();
+  const { api, registered } = stubVscode();
+  api.workspace.workspaceFolders = [{ uri: { fsPath: root } }];
+  const extension = loadExtension(api);
+  await extension.activate(context());
+
+  await registered.commands.get('singularityFlow.openHelp')({ id: 'help:all' });
+  const panel = registered.panels.find((entry) => entry.id === 'singularityFlow.helpCenter');
+  assert.ok(panel, 'a real full-page panel opened');
+
+  const destinations = {
+    journey: 'singularityFlow.openJourney',
+    approvals: 'singularityFlow.openApprovals',
+    configuration: 'singularityFlow.openConfigurationCenter',
+    doctor: 'singularityFlow.doctor',
+    help: 'singularityFlow.openHelp'
+  };
+  for (const [to, command] of Object.entries(destinations)) {
+    await panel.post({ type: 'navigate', to });
+    await until(() => registered.executedCommands.some((entry) => entry.id === command));
+  }
+});
+
+test('a failing shared destination reports an actionable error instead of becoming a dead link', async (t) => {
+  if (!requireBundle(t)) return;
+  const root = await demoRepository();
+  const { api, registered } = stubVscode();
+  api.workspace.workspaceFolders = [{ uri: { fsPath: root } }];
+  const extension = loadExtension(api);
+  await extension.activate(context());
+
+  await registered.commands.get('singularityFlow.openHelp')({ id: 'help:all' });
+  const panel = registered.panels.find((entry) => entry.id === 'singularityFlow.helpCenter');
+  registered.commands.set('singularityFlow.openJourney', async () => {
+    throw new Error('journey data is unavailable');
+  });
+  await panel.post({ type: 'navigate', to: 'journey' });
+  await until(() => registered.errors.find((message) => message.includes('journey data is unavailable')));
+  assert.match(registered.errors.at(-1), /Could not open the Singularity Flow view/);
 });
 
 test('refusing to open an artifact path that escapes the repository', async (t) => {

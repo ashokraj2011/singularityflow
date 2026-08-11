@@ -734,8 +734,8 @@ export function footerNav(current: NavDestination | null = null): string {
 /**
  * The click handler the footer needs.
  *
- * Appended to a page's own script so a panel opts in by rendering `footerNav()` and including this,
- * rather than by each one reinventing a postMessage convention.
+ * Emitted in its own script element after a page's own script. Keeping it separate is deliberate:
+ * a runtime error in a screen-specific widget must not disconnect the shared navigation controls.
  */
 export const NAV_SCRIPT = `
   document.addEventListener('click', (event) => {
@@ -772,7 +772,10 @@ export function page(
 ): string {
   const footer = nav === false ? '' : footerNav(nav);
   const scripts = (script || nav !== false)
-    ? `${VSCODE_API_SCRIPT}${script}${nav === false ? '' : NAV_SCRIPT}`
+    ? [VSCODE_API_SCRIPT, script, nav === false ? '' : NAV_SCRIPT]
+      .filter((source) => source.trim().length > 0)
+      .map((source) => `<script nonce="${token}">${source}</script>`)
+      .join('\n')
     : '';
   return `<!DOCTYPE html><html lang="en"><head>
 <meta charset="utf-8">
@@ -782,6 +785,6 @@ export function page(
 </head><body>
 ${body}
 ${footer}
-${scripts ? `<script nonce="${token}">${scripts}</script>` : ''}
+${scripts}
 </body></html>`;
 }

@@ -5389,7 +5389,12 @@ async function editorCommand(positionals, options, namespace = 'configuration') 
   let result;
   if (subcommand === 'snapshot') result = await repositorySnapshot(root, positionals[2], optionString(options, 'initiative'));
   else if (subcommand === 'validate') result = await validateEditorConfiguration(root);
-  else if (subcommand === 'save') result = await saveConfigurationFile(root, requirePositional(positionals, 2, 'configuration path'), await stdinText());
+  else if (subcommand === 'save') result = await saveConfigurationFile(
+    root,
+    requirePositional(positionals, 2, 'configuration path'),
+    await stdinText(),
+    { expectedSha256: optionString(options, 'expected-sha256') }
+  );
   else if (subcommand === 'read') result = await readConfigurationFile(root, requirePositional(positionals, 2, 'configuration path'));
   else if (subcommand === 'export-bundle') result = await exportConfigurationBundle(root);
   else if (subcommand === 'delete-file') result = await deleteConfigurationFile(root, requirePositional(positionals, 2, 'configuration path'));

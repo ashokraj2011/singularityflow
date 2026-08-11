@@ -2022,9 +2022,9 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
 
   const configurationMessage = async (message: ConfigurationCenterMessage): Promise<string | null> => {
     if (message.type === 'save') {
-      output.appendLine(`\n$ singularity-flow configuration save ${message.path}`);
+      output.appendLine(`\n$ singularity-flow configuration save ${message.path} --expected-sha256 ${message.expectedSha256}`);
       try {
-        await client.runText(['configuration', 'save', message.path], { input: message.content });
+        await client.runText(['configuration', 'save', message.path, '--expected-sha256', message.expectedSha256], { input: message.content });
         await store.refresh();
         return null;
       } catch (error) {

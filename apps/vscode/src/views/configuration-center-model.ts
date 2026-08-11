@@ -49,6 +49,22 @@ export type WorldModelDraft = Omit<WorldModelSettingsView, 'injection'> & {
   injection: Omit<WorldModelSettingsView['injection'], 'rulesCount'>;
 };
 
+export interface ConfigurationTextRevision {
+  definitionText: string;
+  portfolioText: string;
+}
+
+export function configurationRefreshDecision(
+  dirty: boolean,
+  rendered: ConfigurationTextRevision,
+  current: ConfigurationTextRevision
+): 'render' | 'hold' | 'conflict' {
+  if (!dirty) return 'render';
+  return rendered.definitionText === current.definitionText && rendered.portfolioText === current.portfolioText
+    ? 'hold'
+    : 'conflict';
+}
+
 const ID = /^[a-z0-9]+(?:-[a-z0-9]+)*$/;
 const email = /^[^@\s]+@[^@\s]+$/;
 

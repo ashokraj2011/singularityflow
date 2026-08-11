@@ -150,6 +150,7 @@ function mcp(view: ConfigurationCenterView, selected: McpServerView | null): str
 
 export function configurationCenterHtml(view: ConfigurationCenterView, tab: ConfigurationTab, selectedAuthority: AuthorityView | null, selectedMcp: McpServerView | null, notice: string | null, errors: string[]): string {
   return `<header class="inbox-header"><div class="brand-lockup">SINGULARITY <span>FLOW</span></div><p class="eyebrow">Governed repository setup</p><h1>${icon('configuration', { size: 24 })}Configuration Center</h1><p class="meta">Configure the product through guided screens. Use YAML only for advanced settings that do not yet have a form.</p></header>
+    <div id="configuration-runtime-message" class="notice warning" role="status" aria-live="polite" hidden><span id="configuration-runtime-text"></span><span class="grow"></span><button class="secondary" id="configuration-reload" type="button">Reload newer configuration</button><button class="secondary" id="configuration-keep" type="button">Keep editing</button></div>
     ${tabs(tab)}${notice ? `<div class="notice ok">${escape(notice)}</div>` : ''}${errors.length ? `<div class="notice error">${errors.map((entry) => `<p>${escape(entry)}</p>`).join('')}</div>` : ''}
     ${tab === 'overview' ? overview(view) : tab === 'world-model' ? worldModel(view) : tab === 'people' ? people(view, selectedAuthority) : mcp(view, selectedMcp)}`;
 }
@@ -160,6 +161,24 @@ export const CONFIGURATION_CENTER_SCRIPT = `
   const members = (value) => String(value || '').split(/\\r?\\n/).map((line) => line.trim()).filter(Boolean).map((line) => {
     const [name = '', email = '', githubLogin = ''] = line.split('|').map((part) => part.trim()); return { name, email, githubLogin };
   });
+  let dirty = false;
+  const markDirty = () => { if (!dirty) { dirty = true; vscode.postMessage({ type: 'form-dirty', dirty: true }); } };
+  const runtime = document.getElementById('configuration-runtime-message');
+  const runtimeText = document.getElementById('configuration-runtime-text');
+  const showRuntime = (text, conflict) => {
+    if (runtimeText) runtimeText.textContent = text;
+    if (runtime) runtime.hidden = false;
+    const reload = document.getElementById('configuration-reload');
+    const keep = document.getElementById('configuration-keep');
+    if (reload) reload.hidden = !conflict; if (keep) keep.hidden = !conflict;
+  };
+  window.addEventListener('message', (event) => {
+    if (event.data?.type === 'configuration-repository-changed') showRuntime('Repository configuration changed while you were editing. Reload to use the newer version, or keep this draft and review the conflict before saving.', true);
+    if (event.data?.type === 'configuration-save-error') showRuntime((event.data.errors || []).join(' '), false);
+  });
+  document.getElementById('configuration-reload')?.addEventListener('click', () => vscode.postMessage({ type: 'reload-dirty' }));
+  document.getElementById('configuration-keep')?.addEventListener('click', () => { if (runtime) runtime.hidden = true; vscode.postMessage({ type: 'keep-dirty' }); });
+  document.addEventListener('input', (event) => { if (event.target?.closest('form')) markDirty(); });
   document.addEventListener('click', (event) => {
     const tab = event.target.closest('[data-tab]'); if (tab) return vscode.postMessage({ type: 'tab', tab: tab.dataset.tab });
     const authority = event.target.closest('[data-authority]'); if (authority) return vscode.postMessage({ type: 'select-authority', key: authority.dataset.authority });
@@ -174,6 +193,7 @@ export const CONFIGURATION_CENTER_SCRIPT = `
     if (form.id === 'world-model-form') vscode.postMessage({ type: 'save-world-model', views: csv(data.get('views')), outputDir: data.get('outputDir'), promptSource: data.get('promptSource'), stateFetchTimeoutMs: Number(data.get('stateFetchTimeoutMs')), generation: { parallel: data.get('generationParallel') === 'on', maxWorkers: Number(data.get('generationMaxWorkers')), strategy: 'view' }, materialization: { mode: data.get('materializationMode'), publish: data.get('materializationPublish'), lookahead: data.get('materializationLookahead'), depth: data.get('materializationDepth'), confirmation: data.get('materializationConfirmation') }, grounding: data.get('grounding'), staleness: data.get('staleness'), injection: { placeholder: data.get('injectionPlaceholder'), mode: data.get('injectionMode'), maxBytes: Number(data.get('injectionMaxBytes')) } });
   });
   document.addEventListener('change', (event) => {
+    if (event.target?.closest('form')) markDirty();
     if (event.target && event.target.id === 'world-model-confirmation' && event.target.value === 'automatic') {
       const depth = document.getElementById('world-model-depth'); if (depth) depth.value = 'light';
     }

@@ -15,12 +15,6 @@ import type { CapabilityDashboard } from './capability-dashboard-model.ts';
 /** Editable fields, named once. The page cannot introduce a key that is not on this list. */
 const FIELDS = ['name', 'kind', 'parent', 'repository', 'metadata', 'jira.projectKey', 'jira.board', 'teams'] as const;
 
-/** A generic create starts at the top level; callers may explicitly request a parent. */
-export function defaultParentForCreate(tree: CapabilityNode[], requested: string | null): string | null {
-  void tree;
-  return requested || null;
-}
-
 function metadataRow(key = '', value = ''): string {
   return `<div class="metadata-row" data-metadata-row data-original-key="${escape(key)}">
     <label class="field"><span>Key</span><input type="text" data-metadata-key value="${escape(key)}"
@@ -121,41 +115,6 @@ function parentSelect(
   </select>`;
 }
 
-/** The form for a capability that does not exist yet; its identifier is the one field that is fixed. */
-function newHtml(tree: CapabilityNode[], parent: string | null): string {
-  const selectedParent = defaultParentForCreate(tree, parent);
-  return `
-  <div class="card-head editor-title">
-    <div><p class="eyebrow">Capability configuration</p><h3>New capability</h3></div>
-  </div>
-  <div class="form-grid">
-    <label class="field"><span>Identifier</span>
-      <input type="text" data-field="id" placeholder="payments-ledger">
-      <small>Permanent, lower-case kebab-case.</small>
-    </label>
-    <label class="field"><span>Display name</span>
-      <input type="text" data-field="name" placeholder="Payments Ledger">
-    </label>
-    <label class="field"><span>Kind</span>
-      ${kindSelect()}
-      <small>Collection groups related capabilities. Delivery ships from repositories.</small>
-    </label>
-    <label class="field"><span>Linked under</span>
-      ${parentSelect(tree, null, selectedParent)}
-      <small>Leave this top-level or choose a parent. You can change this link later.</small>
-    </label>
-    <label class="field span-2"><span>Repository</span>
-      <input type="text" data-field="repository" placeholder="Repository ID">
-      <small>Required for Delivery; leave empty for Collection.</small>
-    </label>
-  </div>
-  ${metadataEditor()}
-  <p class="card-foot">
-    <button data-create="1">Create capability</button>
-    <button class="link" data-cancel="1">Cancel</button>
-  </p>`;
-}
-
 function detailHtml(tree: CapabilityNode[], selected: string): string {
   const detail = capabilityDetail(tree, selected);
   if (!detail) return '<p class="muted">That capability is no longer in the map.</p>';
@@ -247,7 +206,6 @@ function detailHtml(tree: CapabilityNode[], selected: string): string {
 export function bodyHtml(
   tree: CapabilityNode[],
   selected: string | null,
-  adding: { parent: string | null } | null,
   error: string | null,
   dashboard?: CapabilityDashboard
 ): string {
@@ -261,15 +219,13 @@ export function bodyHtml(
   ${dashboard ? dashboardHtml(dashboard) : ''}
   <section class="plain">
     ${treeHtml(tree, selected)}
-    ${flattenCapabilities(tree).length && !adding
+    ${flattenCapabilities(tree).length
     ? `<p><button class="secondary" data-add="${escape(selected ?? '')}">Add a capability${selected ? ' inside this one' : ''}</button></p>`
     : ''}
   </section>
-  <section class="editor-card">${adding
-    ? newHtml(tree, adding.parent)
-    : selected
-      ? detailHtml(tree, selected)
-      : '<p class="muted">Choose a capability to see what it delivers, who works on it, and the policy it is held to.</p>'}
+  <section class="editor-card">${selected
+    ? detailHtml(tree, selected)
+    : '<p class="muted">Choose a capability to see what it delivers, who works on it, and the policy it is held to. Use Add a capability to map a new capability and its Git repository.</p>'}
   </section>`;
 }
 
@@ -302,7 +258,7 @@ export const SCRIPT = `
     if (event.target.dataset?.field === 'kind') synchronizeKind();
   });
   document.addEventListener('click', (event) => {
-    const target = event.target.closest('[data-select],[data-add],[data-save],[data-create],[data-remove],[data-cancel],[data-metadata-add],[data-metadata-remove]');
+    const target = event.target.closest('[data-select],[data-add],[data-save],[data-remove],[data-metadata-add],[data-metadata-remove]');
     if (!target) return;
     event.preventDefault();
     const data = target.dataset;
@@ -316,8 +272,6 @@ export const SCRIPT = `
       else row.remove();
     } else if (data.select !== undefined) vscode.postMessage({ type: 'select', id: data.select });
     else if (data.add !== undefined) vscode.postMessage({ type: 'add', parent: data.add });
-    else if (data.cancel !== undefined) vscode.postMessage({ type: 'cancel' });
-    else if (data.create !== undefined) vscode.postMessage({ type: 'create', edits: read() });
     else if (data.remove !== undefined) vscode.postMessage({ type: 'remove', id: data.remove });
     else if (data.save !== undefined) vscode.postMessage({ type: 'save', id: data.save, edits: read() });
   });

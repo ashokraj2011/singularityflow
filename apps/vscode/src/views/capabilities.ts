@@ -9,16 +9,13 @@
  * engine would reject and cannot bypass the organisation's configuration authority.
  */
 import * as vscode from 'vscode';
-import {
-  bodyHtml, defaultParentForCreate, readEdits, SCRIPT
-} from './capability-page.ts';
+import { bodyHtml, readEdits, SCRIPT } from './capability-page.ts';
 import { buildCapabilityDashboard } from './capability-dashboard-model.ts';
 import { contentSecurityPolicy, navigationTarget, nonce, page } from './webview.ts';
 import { navigateTo } from './navigate.ts';
 import type { WorkspaceStore } from '../state.ts';
 
 export type CapabilitiesMessage =
-  | { type: 'create'; id: string; edits: Record<string, string> }
   | { type: 'save'; id: string; edits: Record<string, string> }
   | { type: 'remove'; id: string };
 
@@ -30,7 +27,6 @@ export class CapabilitiesPanel {
   private readonly subscription: { dispose(): void };
   private readonly disposables: vscode.Disposable[] = [];
   private selected: string | null = null;
-  private adding: { parent: string | null } | null = null;
   private error: string | null = null;
 
   private constructor(
@@ -52,30 +48,15 @@ export class CapabilitiesPanel {
       // Selecting and cancelling are the panel's own state; only the three that touch the map leave.
       if (message?.type === 'select' && typeof message.id === 'string') {
         this.selected = message.id;
-        this.adding = null;
         this.error = null;
         return this.render();
       }
       if (message?.type === 'add') {
-        const tree = this.store.current.snapshot?.capabilityMap?.capabilities ?? [];
-        const requested = typeof message.parent === 'string' && message.parent ? message.parent : null;
-        this.adding = { parent: defaultParentForCreate(tree, requested) };
-        this.error = null;
-        return this.render();
-      }
-      if (message?.type === 'cancel') {
-        this.adding = null;
-        return this.render();
-      }
-      if (message?.type === 'create') {
-        const map = this.store.current.snapshot?.capabilityMap;
-        if (map?.error) return this.report(map.error);
-        const edits = readEdits(message.edits);
-        const id = String((message.edits as Record<string, unknown> | undefined)?.id ?? '').trim();
-        if (!id) return this.report('An identifier is required.');
-        const tree = map?.capabilities ?? [];
-        edits.parent = defaultParentForCreate(tree, edits.parent?.trim() || null) ?? '';
-        return onMessage({ type: 'create', id, edits });
+        // Creation belongs to the mapping form. That form can both register a new Git URL and
+        // attach the capability to an existing organisation map; this editor can only refer to
+        // repository IDs that already exist. Keeping a second create form here made a clone URL
+        // look valid until the engine rejected it at the end of the operation.
+        return vscode.commands.executeCommand('singularityFlow.mapCapability');
       }
       if (message?.type === 'remove' && typeof message.id === 'string') {
         return onMessage({ type: 'remove', id: message.id });
@@ -111,16 +92,6 @@ export class CapabilitiesPanel {
   /** Open on a capability, for a caller that already knows which one — the tree, clicking one. */
   focus(capabilityId: string): void {
     this.selected = capabilityId;
-    this.adding = null;
-    this.error = null;
-    this.render();
-  }
-
-  /** Open on the form for a new capability under `parent`, or at the top when there is none. */
-  beginAdd(parent: string | null): void {
-    const tree = this.store.current.snapshot?.capabilityMap?.capabilities ?? [];
-    this.adding = { parent: defaultParentForCreate(tree, parent) };
-    this.selected = parent;
     this.error = null;
     this.render();
   }
@@ -134,7 +105,6 @@ export class CapabilitiesPanel {
   /** Called after an accepted edit, so the form closes and the new node is the one on screen. */
   settled(capabilityId: string): void {
     this.selected = capabilityId;
-    this.adding = null;
     this.error = null;
     this.render();
   }
@@ -146,7 +116,7 @@ export class CapabilitiesPanel {
     this.panel.webview.html = page(
       'Capabilities',
       bodyHtml(
-        map?.capabilities ?? [], this.selected, this.adding,
+        map?.capabilities ?? [], this.selected,
         this.error ?? map?.error ?? null, dashboard
       ),
       contentSecurityPolicy(this.panel.webview, token),

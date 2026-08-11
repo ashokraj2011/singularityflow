@@ -1960,9 +1960,7 @@ test('every agent is listed, including the ones that ship with the product', () 
 
 const { capabilityDetail, capabilityArgv, capabilityProposalArgv, parentChoices, flattenCapabilities } =
   await import(source('views/capability-model.ts'));
-const {
-  bodyHtml: capabilitiesHtml, defaultParentForCreate, readEdits
-} = await import(source('views/capability-page.ts'));
+const { bodyHtml: capabilitiesHtml, readEdits } = await import(source('views/capability-page.ts'));
 const { buildCapabilityDashboard } = await import(source('views/capability-dashboard-model.ts'));
 const { EMPTY_MAP_FORM, MAP_CAPABILITY_SCRIPT, capabilityIdentifierProblem, mapCapabilityHtml, mapCommand, mapProblems } =
   await import(source('views/map-capability-form.ts'));
@@ -2166,34 +2164,17 @@ test('the parent chooser offers every capability except moves that would create 
   assert.deepEqual(forNew, ['commerce', 'payments', 'payments-api']);
 });
 
-test('creating from the generic capability action defaults to top level', () => {
-  assert.equal(defaultParentForCreate(capabilityFixture, null), null);
-  assert.equal(defaultParentForCreate(capabilityFixture, 'payments'), 'payments');
-  assert.equal(defaultParentForCreate([], null), null);
-
-  const create = capabilitiesHtml(capabilityFixture, null, { parent: null }, null);
-  assert.match(create, /<option value="" selected>Top level \(no parent\)<\/option>/);
-  assert.doesNotMatch(create, /<option value="" selected disabled>/);
-  assert.doesNotMatch(create, /<option value="commerce" selected>/);
-});
-
-test('the capability form uses controlled kinds and makes its relationship editable', () => {
-  const create = capabilitiesHtml(capabilityFixture, null, { parent: 'payments' }, null);
-  assert.match(create, /<select data-field="kind"/);
-  assert.match(create, /<option value="collection" selected>Collection<\/option>/);
-  assert.match(create, /<option value="delivery">Delivery<\/option>/);
-  assert.doesNotMatch(create, /<input[^>]+data-field="kind"/);
-  assert.match(create, /Linked under/);
-  assert.match(create, /Top level \(no parent\)/);
-  assert.match(create, /<option value="payments" selected>[^<]*Payments<\/option>/);
-  assert.match(create, /<option value="payments-api">/,
-    'all existing capabilities, including ones that ship, are relationship targets');
-
-  const edit = capabilitiesHtml(capabilityFixture, 'payments-api', null, null);
+test('the capability editor uses controlled kinds and makes its relationship editable', () => {
+  const edit = capabilitiesHtml(capabilityFixture, 'payments-api', null);
+  assert.match(edit, /<select data-field="kind"/);
+  assert.match(edit, /<option value="delivery" selected>Delivery<\/option>/);
+  assert.doesNotMatch(edit, /<input[^>]+data-field="kind"/);
+  assert.match(edit, /Linked under/);
+  assert.match(edit, /Top level \(no parent\)/);
   assert.match(edit, /Relink this capability at any time/);
   assert.match(edit, /<option value="commerce">Commerce<\/option>/);
   assert.match(edit, /<option value="payments" selected>/);
-  const metadata = capabilitiesHtml(capabilityFixture, 'payments', null, null);
+  const metadata = capabilitiesHtml(capabilityFixture, 'payments', null);
   assert.match(metadata, /Additional metadata/);
   assert.match(metadata, /applicationId/);
   assert.match(metadata, /APP-1001/);
@@ -2230,7 +2211,7 @@ test('the page cannot widen what an edit writes', () => {
 });
 
 test('the capability screen shows declared beside effective, and names the override', () => {
-  const html = capabilitiesHtml(capabilityFixture, 'payments', null, null);
+  const html = capabilitiesHtml(capabilityFixture, 'payments', null);
   assert.match(html, /Approvals required/);
   assert.match(html, /the largest demanded by any ancestor/);
   assert.match(html, /overridden by an ancestor and will not apply as written/);
@@ -2262,7 +2243,7 @@ test('the capability screen opens with a portfolio dashboard above the editable 
     approvals: dashboard.approvals
   }, { capabilities: 3, delivery: 1, repositories: 1, jiraRoutes: 1, openWork: 1, approvals: 2 });
 
-  const html = capabilitiesHtml(capabilityFixture, null, null, null, dashboard);
+  const html = capabilitiesHtml(capabilityFixture, null, null, dashboard);
   assert.match(html, /Capability portfolio/);
   assert.match(html, /Organisation at a glance/);
   assert.match(html, /open governed work/);
@@ -2273,12 +2254,12 @@ test('the capability screen opens with a portfolio dashboard above the editable 
 });
 
 test('a repository with no capability map offers to describe the first capability', () => {
-  const html = capabilitiesHtml([], null, null, null);
+  const html = capabilitiesHtml([], null, null);
   assert.match(html, /Describe the first capability/);
   assert.match(html, /data-add=""/);
 
   // A refusal is shown on the screen that caused it, in the engine's own words.
-  const refused = capabilitiesHtml(capabilityFixture, 'payments', null,
+  const refused = capabilitiesHtml(capabilityFixture, 'payments',
     "Capability 'payments' delivers from repository 'nope', which the portfolio does not declare.");
   assert.match(refused, /which the portfolio does not declare/);
 });
@@ -2406,7 +2387,7 @@ test('exactly one filled button per page, so the consequential action is findabl
   const pages = [
     workspaceFormHtml(withMap(['payments'])),
     workspaceFormHtml(EMPTY_WORKSPACE_FORM),
-    capabilitiesHtml(capabilityFixture, 'payments', null, null)
+    capabilitiesHtml(capabilityFixture, 'payments', null)
   ];
   for (const html of pages) {
     const filled = [...html.matchAll(/<button(?![^>]*class=)[^>]*>/g)];

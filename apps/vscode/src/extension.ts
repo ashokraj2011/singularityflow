@@ -1928,7 +1928,7 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
           placeHolder: 'Choose the lead repository whose sflow/config branch owns this map'
         }).then((choice) => choice?.entry);
       if (!selected) return;
-      const mode = message.type === 'remove' ? 'remove' : message.type === 'create' ? 'add' : 'set';
+      const mode = message.type === 'remove' ? 'remove' : 'set';
       const argv = capabilityProposalArgv(mode, message.id, selected.url,
         message.type === 'remove' ? {} : message.edits);
       output.appendLine(`\n$ singularity-flow ${argv.join(' ')}`);
@@ -2432,19 +2432,12 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
         void vscode.window.showErrorMessage(`Could not prepare governed Copilot context: ${(error as Error).message}`);
       }
     },
-    // Both open the same screen, positioned: adding lands on the form for a new capability under
-    // whatever was clicked, editing lands on the capability itself.
+    // Creating and editing deliberately use different screens. Creation may introduce a new Git
+    // repository, so it always uses the mapping form that accepts a clone URL and registers the
+    // repository. The capability editor only changes nodes whose repository IDs already exist.
     'singularityFlow.addCapability': (async (node?: TreeNode) => {
-      // Command Palette users do not pass a tree node, so the tree's empty-map routing cannot be
-      // the only guard. The regular capability editor needs an existing organisation lead; the
-      // bootstrap flow creates that lead together with the first capability.
-      const capabilities = store.current.snapshot?.capabilityMap?.capabilities ?? [];
-      if (!capabilities.length) {
-        return vscode.commands.executeCommand('singularityFlow.mapCapability');
-      }
-      const { CapabilitiesPanel } = await import('./views/capabilities.ts');
-      const panel = CapabilitiesPanel.show(context, store, (message) => { void onCapabilitiesMessage(message); });
-      panel.beginAdd(capabilityIdOf(node));
+      void node;
+      return vscode.commands.executeCommand('singularityFlow.mapCapability');
     }) as never,
     'singularityFlow.editCapability': (async (node?: TreeNode) => {
       const { CapabilitiesPanel } = await import('./views/capabilities.ts');

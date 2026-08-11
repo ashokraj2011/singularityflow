@@ -21,7 +21,8 @@ import path from 'node:path';
 import { spawnSync } from 'node:child_process';
 
 import {
-  buildTracer, checkpointRetainedNote, outsideBuilderScratch, restoreAnalysisWorktree
+  buildTracer, checkpointRetainedNote, outsideBuilderScratch, recordDiscoveryCheckpoint,
+  restoreAnalysisWorktree
 } from '../src/worldmodel.mjs';
 import { changedSnapshotPaths, repositoryContentSnapshot } from '../src/grounding.mjs';
 import { REDACTED, createLogger, parseLogLines, redact } from '../src/logging.mjs';
@@ -84,6 +85,11 @@ test('the checkpoint exemption matches a path segment, not any substring', () =>
   // Genuine builder scratch: exempt.
   assert.deepEqual(outsideBuilderScratch([`${scratch}/abc/packets/testing.md`], CONFIG), []);
   assert.deepEqual(outsideBuilderScratch([scratch], CONFIG), []);
+  assert.deepEqual(
+    outsideBuilderScratch([`Users/example/repository/${scratch}/abc/packets/testing.md`], CONFIG),
+    [],
+    'an absolute checkpoint path mirrored beneath the analysis worktree is still builder scratch'
+  );
   // A repository file that merely contains that text in its path is NOT builder scratch. The old
   // `includes` test exempted it, which is a strange thing for a guard to do.
   assert.deepEqual(
@@ -91,6 +97,35 @@ test('the checkpoint exemption matches a path segment, not any substring', () =>
     [`docs/${scratch}-notes.md`]
   );
   assert.deepEqual(outsideBuilderScratch(['testfile.md'], CONFIG), ['testfile.md']);
+});
+
+test('a staged discovery packet is copied into the resumable repository checkpoint', async () => {
+  const root = await mkdtemp(path.join(os.tmpdir(), 'sflow-checkpoint-copy-'));
+  const packetDirectory = path.join(root, 'checkpoint', 'packets');
+  const stateFile = path.join(root, 'checkpoint', 'state.json');
+  const staging = path.join(root, 'temporary', 'worker-packets');
+  await mkdir(packetDirectory, { recursive: true });
+  await mkdir(staging, { recursive: true });
+  const packetFile = path.join(staging, 'development.md');
+  const content = '# development discovery packet\n\nObserved fact.\n';
+  await writeFile(packetFile, content);
+  const checkpoint = {
+    packetDirectory,
+    stateFile,
+    state: {
+      identity: { requestedViews: ['development'] },
+      views: {},
+      status: 'in_progress'
+    }
+  };
+
+  await recordDiscoveryCheckpoint(checkpoint, 'development', packetFile);
+
+  const record = checkpoint.state.views.development;
+  assert.equal(record.packet.startsWith('packets/'), true);
+  assert.equal(await readFile(path.join(root, 'checkpoint', record.packet), 'utf8'), content);
+  assert.equal(checkpoint.state.status, 'discovery_complete');
+  assert.equal(await readFile(packetFile, 'utf8'), content, 'the staging source remains outside the repository');
 });
 
 test('the failure message says whether finished work survived', () => {

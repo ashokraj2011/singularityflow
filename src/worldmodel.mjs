@@ -758,10 +758,17 @@ async function prepareDiscoveryCheckpoint(root, config, options, views, metadata
   return { key, directory, packetDirectory, stateFile, state, packets };
 }
 
-async function recordDiscoveryCheckpoint(checkpoint, view, packetFile) {
+export async function recordDiscoveryCheckpoint(checkpoint, view, packetFile) {
   const packet = checkpointPacketName(view);
+  if (!await regularFile(packetFile)) {
+    throw new SingularityFlowError(`World-model discovery packet must be a regular file: ${packetFile}`);
+  }
   const content = await readFile(packetFile, 'utf8');
   const bytes = Buffer.byteLength(content);
+  const checkpointPacket = path.join(checkpoint.packetDirectory, packet);
+  const pendingPacket = `${checkpointPacket}.${process.pid}.${Date.now()}.tmp`;
+  await writeFile(pendingPacket, content);
+  await rename(pendingPacket, checkpointPacket);
   checkpoint.state.views[view] = {
     status: 'completed',
     packet: `packets/${packet}`,
@@ -800,7 +807,13 @@ async function runParallelDiscovery(_auditRoot, analysisRoot, temporary, config,
   if (generation.strategy !== 'view') throw new SingularityFlowError(`Unsupported world-model parallel strategy '${generation.strategy}'.`);
 
   const promptRoot = path.join(temporary, 'worker-prompts');
+  // Workers write only beneath the temporary directory that is explicitly granted to the model
+  // provider. A completed packet is copied into the repository checkpoint afterwards. Keeping the
+  // two locations separate prevents an out-of-sandbox absolute path from being mirrored inside the
+  // analysis worktree and preserves the repository checkpoint used by --resume.
+  const packetStagingDirectory = path.join(temporary, 'worker-packets');
   await mkdir(promptRoot, { recursive: true });
+  await ensureCheckpointDirectory(packetStagingDirectory, 'World-model discovery packet staging directory');
   const task = optionString(options, 'task');
   const focus = optionString(options, 'focus');
   const depth = optionString(options, 'depth', 'standard');
@@ -923,7 +936,7 @@ async function runParallelDiscovery(_auditRoot, analysisRoot, temporary, config,
       const index = cursor;
       cursor += 1;
       const view = pendingViews[index];
-      const packetFile = path.join(checkpoint.packetDirectory, checkpointPacketName(view));
+      const packetFile = path.join(packetStagingDirectory, checkpointPacketName(view));
       const promptFile = path.join(promptRoot, `${view}.md`);
       await writeFile(promptFile, parallelWorkerPrompt({
         repository: analysisRoot, packetFile, view, task, focus, depth, metadata
@@ -1055,12 +1068,15 @@ export function restoreAnalysisWorktree(analysisRoot) {
 }
 
 export function outsideBuilderScratch(changes, config) {
-  // A path *segment* test, not a substring one. `includes` would also exempt an unrelated file that
-  // merely had this text somewhere in its path, which is a strange thing for a guard to do.
-  const scratch = `${config.outputDir}/.checkpoints/`;
+  // Match the checkpoint as path segments wherever it appears. Some model hosts mirror an absolute
+  // path beneath the analysis checkout (for example Users/me/repo/singularity/world-model/...), so
+  // a prefix test misclassifies the builder's own packet as a repository mutation. Segment
+  // boundaries keep similarly named paths such as `.checkpoints-notes.md` protected.
+  const escaped = posix(String(config.outputDir)).replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+  const scratch = new RegExp(`(^|/)${escaped}/\\.checkpoints(/|$)`);
   return changes.filter((entry) => {
     const value = posix(String(entry));
-    return value !== `${config.outputDir}/.checkpoints` && !value.startsWith(scratch);
+    return !scratch.test(value);
   });
 }
 

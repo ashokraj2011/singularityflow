@@ -1960,7 +1960,9 @@ test('every agent is listed, including the ones that ship with the product', () 
 
 const { capabilityDetail, capabilityArgv, capabilityProposalArgv, parentChoices, flattenCapabilities } =
   await import(source('views/capability-model.ts'));
-const { bodyHtml: capabilitiesHtml, readEdits } = await import(source('views/capability-page.ts'));
+const {
+  bodyHtml: capabilitiesHtml, defaultParentForCreate, readEdits
+} = await import(source('views/capability-page.ts'));
 const { buildCapabilityDashboard } = await import(source('views/capability-dashboard-model.ts'));
 const { EMPTY_MAP_FORM, MAP_CAPABILITY_SCRIPT, capabilityIdentifierProblem, mapCapabilityHtml, mapCommand, mapProblems } =
   await import(source('views/map-capability-form.ts'));
@@ -2145,6 +2147,17 @@ test('the parent chooser offers every capability except moves that would create 
 
   const forNew = parentChoices(capabilityFixture, null).map((choice) => choice.id);
   assert.deepEqual(forNew, ['commerce', 'payments', 'payments-api']);
+});
+
+test('creating from the generic capability action defaults to the map root', () => {
+  assert.equal(defaultParentForCreate(capabilityFixture, null), 'commerce');
+  assert.equal(defaultParentForCreate(capabilityFixture, 'payments'), 'payments');
+  assert.equal(defaultParentForCreate([], null), null);
+
+  const create = capabilitiesHtml(capabilityFixture, null, { parent: null }, null);
+  assert.match(create, /<option value="commerce" selected>Commerce<\/option>/);
+  assert.doesNotMatch(create, /<option value="" selected disabled>/,
+    'the valid map root is selected instead of a disabled empty option');
 });
 
 test('the capability form uses controlled kinds and makes its relationship editable', () => {

@@ -9,7 +9,9 @@
  * engine would reject and cannot bypass the organisation's configuration authority.
  */
 import * as vscode from 'vscode';
-import { bodyHtml, readEdits, SCRIPT } from './capability-page.ts';
+import {
+  bodyHtml, defaultParentForCreate, readEdits, REQUIRED_PARENT_MESSAGE, SCRIPT
+} from './capability-page.ts';
 import { buildCapabilityDashboard } from './capability-dashboard-model.ts';
 import { contentSecurityPolicy, navigationTarget, nonce, page } from './webview.ts';
 import { navigateTo } from './navigate.ts';
@@ -55,7 +57,9 @@ export class CapabilitiesPanel {
         return this.render();
       }
       if (message?.type === 'add') {
-        this.adding = { parent: typeof message.parent === 'string' && message.parent ? message.parent : null };
+        const tree = this.store.current.snapshot?.capabilityMap?.capabilities ?? [];
+        const requested = typeof message.parent === 'string' && message.parent ? message.parent : null;
+        this.adding = { parent: defaultParentForCreate(tree, requested) };
         this.error = null;
         return this.render();
       }
@@ -64,12 +68,15 @@ export class CapabilitiesPanel {
         return this.render();
       }
       if (message?.type === 'create') {
+        const map = this.store.current.snapshot?.capabilityMap;
+        if (map?.error) return this.report(map.error);
         const edits = readEdits(message.edits);
         const id = String((message.edits as Record<string, unknown> | undefined)?.id ?? '').trim();
         if (!id) return this.report('An identifier is required.');
-        const hasCapabilities = Boolean(this.store.current.snapshot?.capabilityMap?.capabilities?.length);
-        if (hasCapabilities && !edits.parent?.trim()) {
-          return this.report('Choose the capability this belongs under. The map has one root and every new capability links beneath it.');
+        const tree = map?.capabilities ?? [];
+        edits.parent = defaultParentForCreate(tree, edits.parent?.trim() || null) ?? '';
+        if (tree.length && !edits.parent) {
+          return this.report(REQUIRED_PARENT_MESSAGE);
         }
         return onMessage({ type: 'create', id, edits });
       }
@@ -114,7 +121,8 @@ export class CapabilitiesPanel {
 
   /** Open on the form for a new capability under `parent`, or at the top when there is none. */
   beginAdd(parent: string | null): void {
-    this.adding = { parent };
+    const tree = this.store.current.snapshot?.capabilityMap?.capabilities ?? [];
+    this.adding = { parent: defaultParentForCreate(tree, parent) };
     this.selected = parent;
     this.error = null;
     this.render();

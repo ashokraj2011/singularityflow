@@ -255,6 +255,33 @@ clones, `~/.singularity-flow` workspace selection, VS Code state, SecretStorage,
 Jira credentials, or personal skills. A receipt is written under
 `~/.singularity-flow/installations/`.
 
+### Replace copied identity values safely
+
+To replace an old login, display name, or email across the current files in a copied
+workspace or checkout, preview the exact files first:
+
+```bash
+npm run identities:replace -- \
+  --root /absolute/path/to/copied-workspace \
+  --replace "old-login=new-login" \
+  --replace "Old Display Name=New Display Name"
+```
+
+The preview prints a fingerprint-bound confirmation. Apply only after reviewing it:
+
+```bash
+npm run identities:replace -- \
+  --root /absolute/path/to/copied-workspace \
+  --replace "old-login=new-login" \
+  --replace "Old Display Name=New Display Name" \
+  --apply --confirm "REPLACE IDENTITIES <fingerprint>"
+```
+
+The utility skips `.git`, dependencies, build output, symlinks, binary files, invalid
+UTF-8, and files larger than 5 MiB. It changes current text files only; it never
+rewrites Git history. Do not use it to alter identity-bound approvals in active
+governed work—start a fresh Story or record a new governed decision instead.
+
 For a company registry, add `--registry <URL>`; credentials stay in `.npmrc`.
 If Copilot is unavailable, `--cli-only` replaces just the Node package and command
 shims. A missing `code` executable is reported and the already-built VSIX is

@@ -38,6 +38,7 @@
     "WORKSPACES.md",
     "RELEASE-INITIATIVE-ORCHESTRATION.md",
     "scripts/worldmodel-minimal.sh",
+    "scripts/replace-identities.mjs",
     "LICENSE"
   ],
   "workspaces": [
@@ -61,6 +62,7 @@
     "codeowners:check": "node scripts/generate-codeowners.mjs",
     "gate": "node scripts/gate.mjs",
     "wm:minimal": "node bin/sflow-wm-minimal.mjs",
+    "identities:replace": "node scripts/replace-identities.mjs",
     "pack:dry": "npm pack --dry-run",
     "install:local": "bash ./install.sh",
     "vscode:build": "npm run build --workspace singularity-flow-vscode",

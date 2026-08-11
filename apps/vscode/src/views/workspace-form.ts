@@ -363,7 +363,7 @@ export function workspaceFormHtml(form: WorkspaceForm): string {
     <p class="question">Who is using this workspace on this machine.</p>
     <div class="form-grid">
       <label>Display name
-        <input type="text" value="${escape(form.profileName)}" data-field="profile-name" placeholder="Ashok Raj">
+        <input type="text" value="${escape(form.profileName)}" data-field="profile-name" placeholder="Your name">
       </label>
       <label>Role
         <select data-field="profile-role">

@@ -14,6 +14,13 @@ import type { CapabilityDashboard } from './capability-dashboard-model.ts';
 
 /** Editable fields, named once. The page cannot introduce a key that is not on this list. */
 const FIELDS = ['name', 'kind', 'parent', 'repository', 'metadata', 'jira.projectKey', 'jira.board', 'teams'] as const;
+export const REQUIRED_PARENT_MESSAGE = 'Choose the capability this belongs under. The map has one root and every new capability links beneath it.';
+
+/** A valid non-empty map has exactly one root, so adding from a generic entry point is deterministic. */
+export function defaultParentForCreate(tree: CapabilityNode[], requested: string | null): string | null {
+  if (requested) return requested;
+  return tree.length === 1 ? tree[0]!.id : null;
+}
 
 function metadataRow(key = '', value = ''): string {
   return `<div class="metadata-row" data-metadata-row data-original-key="${escape(key)}">
@@ -107,11 +114,11 @@ function parentSelect(
   tree: CapabilityNode[],
   capabilityId: string | null,
   current: string | null,
-  { creating = false }: { creating?: boolean } = {}
+  { creating = false, invalid = false }: { creating?: boolean; invalid?: boolean } = {}
 ): string {
   const choices = parentChoices(tree, capabilityId);
   const canBeRoot = tree.length === 0 || (!creating && current == null);
-  return `<select data-field="parent">
+  return `<select data-field="parent"${invalid ? ' aria-invalid="true" aria-describedby="capability-parent-error"' : ''}>
     <option value=""${current ? '' : ' selected'}${canBeRoot ? '' : ' disabled'}>${canBeRoot
     ? 'Top of the capability tree'
     : 'Choose a capability…'}</option>
@@ -120,7 +127,8 @@ function parentSelect(
 }
 
 /** The form for a capability that does not exist yet; its identifier is the one field that is fixed. */
-function newHtml(tree: CapabilityNode[], parent: string | null): string {
+function newHtml(tree: CapabilityNode[], parent: string | null, parentError = false): string {
+  const selectedParent = defaultParentForCreate(tree, parent);
   return `
   <div class="card-head editor-title">
     <div><p class="eyebrow">Capability configuration</p><h3>New capability</h3></div>
@@ -138,8 +146,10 @@ function newHtml(tree: CapabilityNode[], parent: string | null): string {
       <small>Collection groups related capabilities. Delivery ships from repositories.</small>
     </label>
     <label class="field"><span>Linked under</span>
-      ${parentSelect(tree, null, parent, { creating: true })}
-      <small>Every available capability is offered. You can change this link later.</small>
+      ${parentSelect(tree, null, selectedParent, { creating: true, invalid: parentError })}
+      ${parentError
+    ? `<small id="capability-parent-error" class="blockers" role="alert">${escape(REQUIRED_PARENT_MESSAGE)}</small>`
+    : '<small>Every available capability is offered. You can change this link later.</small>'}
     </label>
     <label class="field span-2"><span>Repository</span>
       <input type="text" data-field="repository" placeholder="Repository ID">
@@ -254,7 +264,7 @@ export function bodyHtml(
     <p class="meta">What this organisation builds, as a tree of any depth. Jira and teams belong to a
       capability rather than to a workspace: they stay true regardless of who has cloned what.</p>
   </header>
-  ${error ? `<section class="plain"><p class="blockers">${escape(error)}</p></section>` : ''}
+  ${error && error !== REQUIRED_PARENT_MESSAGE ? `<section class="plain"><p class="blockers">${escape(error)}</p></section>` : ''}
   ${dashboard ? dashboardHtml(dashboard) : ''}
   <section class="plain">
     ${treeHtml(tree, selected)}
@@ -263,7 +273,7 @@ export function bodyHtml(
     : ''}
   </section>
   <section class="editor-card">${adding
-    ? newHtml(tree, adding.parent)
+    ? newHtml(tree, adding.parent, error === REQUIRED_PARENT_MESSAGE)
     : selected
       ? detailHtml(tree, selected)
       : '<p class="muted">Choose a capability to see what it delivers, who works on it, and the policy it is held to.</p>'}

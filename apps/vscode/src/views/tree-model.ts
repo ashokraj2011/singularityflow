@@ -780,18 +780,28 @@ function storyWorkflowNode(workflow: StoryWorkflow, documents: StoryArtifact[], 
     }] : []), {
       kind: 'group', id: 'story:phase-rail', label: 'Story lifecycle',
       description: `${approved}/${phases.length} approved`, icon: 'list-ordered',
-      children: phases.map((phase) => ({
-        kind: 'phase', id: `story-phase:${phase.id}`, label: phase.label,
-        description: workflow.currentPhase === phase.id
-          ? `${phaseDescription(phase.status)} · current`
-          : phaseDescription(phase.status),
-        icon: phaseIcon(phase.status),
-        contextValue: workflow.currentPhase === phase.id ? 'sflow.story.phase.current' : 'sflow.story.phase',
-        children: [
-          ...storyPhaseActions(workflow, phase),
-          ...storyDocumentNodes(documents, phase.id)
-        ]
-      }))
+      children: phases.map((phase) => {
+        const artifacts = storyDocumentNodes(documents, phase.id);
+        const current = workflow.currentPhase === phase.id;
+        return {
+          kind: 'phase' as const, id: `story-phase:${phase.id}`, label: phase.label,
+          description: [phaseDescription(phase.status), current ? 'current' : '',
+            `${artifacts.length} ${artifacts.length === 1 ? 'artifact' : 'artifacts'}`]
+            .filter(Boolean).join(' · '),
+          icon: current ? 'statusCurrent' : phaseIcon(phase.status),
+          contextValue: current ? 'sflow.story.phase.current' : 'sflow.story.phase',
+          children: [
+            ...(artifacts.length ? artifacts : [{
+              kind: 'message' as const,
+              id: `story-phase:${phase.id}:artifacts-empty`,
+              label: 'No generated artifacts yet',
+              description: current ? 'generated files appear here after preparation' : 'none recorded for this phase',
+              icon: 'info'
+            }]),
+            ...storyPhaseActions(workflow, phase)
+          ]
+        };
+      })
     }]
   };
 }

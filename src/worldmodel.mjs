@@ -1762,10 +1762,33 @@ async function ensure(root, config, options, requestedPhase = null) {
       if (plan.taskGuide.required) buildOptions.task = plan.taskGuide.task;
       if (plan.depth === 'light') await buildLight(root, config, buildOptions);
       else await build(root, config, buildOptions);
+      return buildOptions;
+    },
+    // The fall-forward. Same plan, same views, same publication policy — only the builder changes,
+    // from a model-driven synthesis to the deterministic inventory. It is the fallback `wm.build`
+    // has always declared and nothing has ever run.
+    async ({ policy, availability }) => {
+      await buildLight(root, config, {
+        ...options,
+        phase: plan.phase ?? options.phase,
+        views: plan.views.length ? plan.views.map((entry) => entry.view).join(',') : undefined,
+        task: plan.taskGuide.required ? plan.taskGuide.task : undefined,
+        local: policy.publish === 'local',
+        existingWorldModelDirectory: availability.extensionBase?.directory ?? null,
+        // buildLight refuses these: they belong to the model-driven path it is standing in for.
+        parallel: undefined, workers: undefined, runner: undefined, depth: undefined
+      });
     });
-  const output = { plan, mode: result.mode, availability: result.availability };
+  const output = {
+    plan, mode: result.mode, availability: result.availability, degraded: result.degraded ?? null
+  };
   if (optionBoolean(options, 'json')) console.log(JSON.stringify(output, null, 2));
-  else console.log(`${style.mark('pass')} world-model grounding ready${plan.phase ? ` for ${plan.phase}` : ''}: ${plan.selections.map((item) => item.kind === 'core' ? `core/${item.tier}` : `${item.view}/${item.tier}`).join(', ')}`);
+  else if (result.degraded) {
+    // Never silently. Work continues, and the reader is told exactly what they are working on.
+    console.log(`${style.mark('warn')} world-model grounding ready${plan.phase ? ` for ${plan.phase}` : ''} on the LIGHT model: ${plan.selections.map((item) => item.kind === 'core' ? `core/${item.tier}` : `${item.view}/${item.tier}`).join(', ')}`);
+    console.log(`  The full build failed: ${result.degraded.reason}`);
+    console.log('  Semantic analysis was not performed. Rerun the same command to retry the full build.');
+  } else console.log(`${style.mark('pass')} world-model grounding ready${plan.phase ? ` for ${plan.phase}` : ''}: ${plan.selections.map((item) => item.kind === 'core' ? `core/${item.tier}` : `${item.view}/${item.tier}`).join(', ')}`);
   return output;
 }
 

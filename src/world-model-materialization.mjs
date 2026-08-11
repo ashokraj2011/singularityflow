@@ -208,9 +208,13 @@ export async function inspectGroundingAvailability(root, config, plan) {
  */
 export async function ensureGrounding(root, config, plan, {
   authorized = false,
-  materialize = null
+  materialize = null,
+  materializeMinimal = null,
+  // The availability probe, injectable so the fall-forward can be driven without a model provider
+  // and a fully built world model. Production callers never pass it.
+  inspect = inspectGroundingAvailability
 } = {}) {
-  let availability = await inspectGroundingAvailability(root, config, plan);
+  let availability = await inspect(root, config, plan);
   if (availability.ready) return { mode: 'reuse', availability, located: availability.selected };
   const policy = config.materialization ?? materializationPolicy(config.definition ?? config);
   if (policy.mode === 'disabled') {
@@ -228,15 +232,47 @@ export async function ensureGrounding(root, config, plan, {
     // need the same source serialize here and re-check under the lock instead of spending twice.
     id: availability.sourceTreeSha256
   }, async () => {
-    availability = await inspectGroundingAvailability(root, config, plan);
+    availability = await inspect(root, config, plan);
     if (availability.ready) return { mode: 'reuse-after-lock', availability, located: availability.selected };
-    await materialize({ availability, policy });
-    availability = await inspectGroundingAvailability(root, config, plan);
+
+    /**
+     * A world-model build that fails must not stop the work.
+     *
+     * The full build is a long model-driven job with several ways to fail that say nothing about
+     * the repository: a provider timeout, a worker that misfiles its packet, a synthesis that
+     * writes an invalid manifest. On a real run one stray file cost six minutes and left a phase
+     * unable to compose its prompt at all. Grounding is a quality signal, and the deterministic
+     * light model — the fallback `wm.build` has always declared and nothing has ever executed — is
+     * a real, structurally complete model built with no tokens in about a second.
+     *
+     * So: fall forward on the first failure, and say so everywhere. `degraded` travels with the
+     * result, the light manifest already stamps `builder_version: 2.1-light`, and the reason is
+     * kept verbatim. Never blocking is only defensible if nobody can mistake this for a full model.
+     */
+    let degraded = null;
+    try {
+      await materialize({ availability, policy });
+    } catch (error) {
+      if (typeof materializeMinimal !== 'function') throw error;
+      degraded = { reason: error.message, code: error.code ?? null };
+      console.warn(
+        `Warning: the full world-model build failed (${error.message}). `
+        + 'Falling back to the deterministic light model so work can continue; semantic analysis was not performed.'
+      );
+      await materializeMinimal({ availability, policy, error });
+    }
+
+    availability = await inspect(root, config, plan);
     if (!availability.ready) throw new SingularityFlowError(`World-model materialization completed without satisfying the grounding plan. Run ${availability.action?.command ?? 'singularity-flow wm availability --json'} for details.`);
     if (policy.publish === 'governed' && availability.selected?.source !== 'state-branch') {
       throw new SingularityFlowError('World-model materialization was not published to the governed state branch; prompt composition is blocked.');
     }
-    return { mode: 'materialized', availability, located: availability.selected };
+    return {
+      mode: degraded ? 'materialized-degraded' : 'materialized',
+      availability,
+      located: availability.selected,
+      degraded
+    };
   });
 }
 
@@ -244,8 +280,8 @@ export async function ensureGrounding(root, config, plan, {
  * Explicit mutation-facing name for hosts that have already obtained user authorization.
  * Read-only consumers must call `inspectGroundingAvailability` instead.
  */
-export async function materializeSelections(root, config, plan, materialize) {
-  return ensureGrounding(root, config, plan, { authorized: true, materialize });
+export async function materializeSelections(root, config, plan, materialize, materializeMinimal = null) {
+  return ensureGrounding(root, config, plan, { authorized: true, materialize, materializeMinimal });
 }
 
 async function tierRecord(directory, entry) {

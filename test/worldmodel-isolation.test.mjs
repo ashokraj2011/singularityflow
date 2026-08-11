@@ -25,6 +25,7 @@ import {
 } from '../src/worldmodel.mjs';
 import { changedSnapshotPaths, repositoryContentSnapshot } from '../src/grounding.mjs';
 import { REDACTED, createLogger, parseLogLines, redact } from '../src/logging.mjs';
+import { ensureGrounding } from '../src/world-model-materialization.mjs';
 
 const CONFIG = { outputDir: 'singularity/world-model' };
 
@@ -219,4 +220,80 @@ test('restoring reports failure rather than throwing, so the caller can escalate
   // of exploding inside a `finally`.
   const nowhere = await mkdtemp(path.join(os.tmpdir(), 'sflow-iso-nogit-'));
   assert.equal(restoreAnalysisWorktree(nowhere), false);
+});
+
+/**
+ * A world-model build that fails must not stop the work.
+ *
+ * The full build is a long model-driven job with several ways to fail that say nothing about the
+ * repository — a provider timeout, a worker that misfiles its packet, a synthesis that writes an
+ * invalid manifest. On the run that prompted this, one stray file cost six minutes and left the
+ * phase unable to compose its prompt at all.
+ *
+ * `wm.build` has declared `fallback: wm.light` since the operation registry was written, and nothing
+ * ever ran it: the only consumer is `cli-entry.mjs`, for `--no-model`, where it prints a hint. The
+ * deterministic light builder is a real, structurally complete model — it writes `views/<v>.md`,
+ * briefs and a manifest — with no tokens, in about a second.
+ */
+const PLAN = { selections: [], phase: 'design', includeEvidence: false, taskGuide: { required: false } };
+
+/** A bare git repository: `withSubjectLock` resolves a git dir before it takes the lock. */
+async function gitRepository(prefix) {
+  const root = await mkdtemp(path.join(os.tmpdir(), prefix));
+  spawnSync('git', ['init', '-b', 'main'], { cwd: root });
+  return root;
+}
+
+/** Availability that is not ready until the builder has run, then is. */
+function readyAfter(attempts) {
+  let seen = 0;
+  return async () => (++seen <= attempts
+    ? { ready: false, missing: [{ id: 'views/architecture' }], sourceTreeSha256: 'abc', action: { command: 'wm ensure' } }
+    : { ready: true, selected: { source: 'state-branch' } });
+}
+
+test('a failed full build falls forward to the light model instead of blocking', async () => {
+  const root = await gitRepository('sflow-fwd-');
+  const calls = [];
+  const ensured = await ensureGrounding(root, { outputDir: 'singularity/world-model', definition: {} }, PLAN, {
+    authorized: true,
+    inspect: readyAfter(2),
+    materialize: async () => {
+      calls.push('full');
+      throw new Error('discovery workers modified files outside their isolated packets: testfile.md');
+    },
+    materializeMinimal: async () => { calls.push('light'); }
+  });
+
+  assert.deepEqual(calls, ['full', 'light'], 'the light builder did not take over');
+  assert.equal(ensured.mode, 'materialized-degraded');
+  // The reason travels with the result. Never blocking is only defensible if nobody can mistake
+  // this for a full model.
+  assert.match(ensured.degraded.reason, /testfile\.md/);
+});
+
+test('a successful full build is never marked degraded', async () => {
+  const root = await gitRepository('sflow-fwd-ok-');
+  const ensured = await ensureGrounding(root, { outputDir: 'singularity/world-model', definition: {} }, PLAN, {
+    authorized: true,
+    inspect: readyAfter(2),
+    materialize: async () => {},
+    materializeMinimal: async () => { throw new Error('the light builder must not run when the full build succeeds'); }
+  });
+  assert.equal(ensured.mode, 'materialized');
+  assert.equal(ensured.degraded, null);
+});
+
+test('with no light builder supplied the failure still surfaces, unchanged', async () => {
+  // Read-only callers pass no materializer at all. They must keep getting the real error rather
+  // than a quietly degraded model they never asked for.
+  const root = await gitRepository('sflow-fwd-none-');
+  await assert.rejects(
+    () => ensureGrounding(root, { outputDir: 'singularity/world-model', definition: {} }, PLAN, {
+      authorized: true,
+      inspect: readyAfter(2),
+      materialize: async () => { throw new Error('provider timed out'); }
+    }),
+    /provider timed out/
+  );
 });

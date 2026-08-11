@@ -4,8 +4,10 @@ import type { WorkspaceStore } from '../state.ts';
 import { contentSecurityPolicy, navigationTarget, nonce, page } from './webview.ts';
 import { navigateTo } from './navigate.ts';
 import {
-  configurationCenterView, updateAuthorityYaml, updateMcpYaml, validateAuthorityDraft, validateMcpDraft,
-  type AuthorityDraft, type AuthorityScope, type AuthorityView, type ConfigurationTab, type McpDraft, type McpServerView
+  configurationCenterView, updateAuthorityYaml, updateMcpYaml, updateWorldModelYaml,
+  validateAuthorityDraft, validateMcpDraft, validateWorldModelDraft,
+  type AuthorityDraft, type AuthorityView, type ConfigurationTab, type McpDraft, type McpServerView,
+  type WorldModelDraft
 } from './configuration-center-model.ts';
 import { configurationCenterHtml, CONFIGURATION_CENTER_SCRIPT } from './configuration-center-page.ts';
 
@@ -73,7 +75,7 @@ export class ConfigurationCenterPanel {
     const message = (raw && typeof raw === 'object' ? raw : {}) as Record<string, unknown>;
     const view = this.view(); if (!view) return;
     this.errors = []; this.notice = null;
-    if (message.type === 'tab' && ['overview', 'people', 'mcp'].includes(String(message.tab))) { this.tab = message.tab as ConfigurationTab; this.newAuthority = false; this.newMcp = false; return this.render(); }
+    if (message.type === 'tab' && ['overview', 'world-model', 'people', 'mcp'].includes(String(message.tab))) { this.tab = message.tab as ConfigurationTab; this.newAuthority = false; this.newMcp = false; return this.render(); }
     if (message.type === 'select-authority' && typeof message.key === 'string') { this.authorityKey = message.key; this.newAuthority = false; return this.render(); }
     if (message.type === 'select-mcp' && typeof message.id === 'string') { this.mcpId = message.id; this.newMcp = false; return this.render(); }
     if (message.type === 'save-profile') {
@@ -102,8 +104,23 @@ export class ConfigurationCenterPanel {
       } catch (error) { this.errors = [(error as Error).message]; }
       return this.render();
     }
+    if (message.type === 'save-world-model') {
+      const draft = message as unknown as WorldModelDraft;
+      this.errors = validateWorldModelDraft(draft); if (this.errors.length) return this.render();
+      const snapshot = this.store.current.snapshot!;
+      try {
+        const error = await this.onMessage({
+          type: 'save',
+          path: snapshot.definitionPath ?? 'singularity/workflow.yml',
+          content: updateWorldModelYaml(String(snapshot.definitionText ?? ''), draft)
+        });
+        if (error) this.errors = [error]; else this.notice = 'World-model settings saved.';
+      } catch (error) { this.errors = [(error as Error).message]; }
+      return this.render();
+    }
     if (message.type === 'action') {
       const action = String(message.action ?? '');
+      if (action === 'world-model') { this.tab = 'world-model'; return this.render(); }
       if (action === 'new-authority') { this.tab = 'people'; this.newAuthority = true; this.authorityKey = null; return this.render(); }
       if (action === 'new-mcp') { this.tab = 'mcp'; this.newMcp = true; this.mcpId = null; return this.render(); }
       if (action === 'cancel-edit') { this.newAuthority = false; this.newMcp = false; this.authorityKey = null; this.mcpId = null; return this.render(); }

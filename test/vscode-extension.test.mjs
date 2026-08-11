@@ -1761,6 +1761,7 @@ test('the world model is shown at the root, and its absence is named', () => {
   assert.equal(unbuilt.description, 'not built');
   assert.match(unbuilt.tooltip, /no repository knowledge to draw on/);
   assert.deepEqual(unbuilt.children[0].command, ['wm', 'build'], 'and it offers to build one');
+  assert.equal(unbuilt.children.at(-1).runCommand, 'singularityFlow.configureWorldModel', 'and settings remain reachable without hiding repository status');
 
   const built = structuredClone(snapshot);
   built.worldModel = {

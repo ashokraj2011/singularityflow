@@ -947,6 +947,19 @@ function worldModelNode(snapshot: RepositorySnapshot): TreeNode {
     contextValue: 'sflow.config'
   })));
 
+  // Keep build/rebuild and generated views first: they describe the repository's current
+  // grounding state. Settings is a secondary action and must not displace that status.
+  children.push({
+    kind: 'action',
+    id: 'wm:settings',
+    label: 'Configure world model',
+    description: 'policy · generation · injection',
+    tooltip: 'Open the guided World Model Settings screen.',
+    icon: 'configuration',
+    runCommand: 'singularityFlow.configureWorldModel',
+    contextValue: 'sflow.worldmodel.settings'
+  });
+
   return {
     kind: 'group',
     id: 'world-model',
@@ -959,9 +972,7 @@ function worldModelNode(snapshot: RepositorySnapshot): TreeNode {
       ? `Generated ${model?.generatedAt}. Every governed prompt is grounded against these views.`
       : 'Nothing has been generated. Governed prompts have no repository knowledge to draw on.',
     contextValue: 'sflow.worldmodel',
-    children: children.length ? children : [{
-      kind: 'message', id: 'wm:empty', label: 'No views declared', icon: 'blank'
-    }]
+    children
   };
 }
 

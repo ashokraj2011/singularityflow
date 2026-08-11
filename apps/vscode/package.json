@@ -282,6 +282,11 @@
         "icon": "$(settings-gear)"
       },
       {
+        "command": "singularityFlow.configureWorldModel",
+        "title": "Singularity Flow: World Model Settings",
+        "icon": "$(globe)"
+      },
+      {
         "command": "singularityFlow.configurePeople",
         "title": "Singularity Flow: People & Approval Authorities",
         "icon": "$(organization)"

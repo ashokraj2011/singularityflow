@@ -1754,6 +1754,14 @@ Sync retries the existing history without rebasing, resetting, or force-pushing.
 
 The world model grounds phase generation in repository facts:
 
+In VS Code, open **Singularity Flow → Configuration → World model**, or run
+**Singularity Flow: World Model Settings** from the Command Palette. The guided
+screen configures grounding and staleness policy, explicit/on-demand/disabled
+materialization, deterministic light generation, publication, views, parallel
+workers, paths, and prompt-injection limits. Saving updates only those guided
+fields in `singularity/workflow.yml`; comments, rule-based injection, context
+selection, and other advanced YAML remain intact.
+
 > **Security boundary:** semantic world-model runners are trusted local commands, not sandboxed code. The detached worktree protects the governed checkout and constrains accepted output; it does not remove the runner's access to the current user's filesystem, environment, network, or processes. Only configure trusted runners. Use `singularity-flow wm light` where policy requires deterministic execution without a model runner.
 
 For a deterministic zero-token baseline, run this inside the application

@@ -25,7 +25,7 @@ import {
 } from '../src/worldmodel.mjs';
 import { changedSnapshotPaths, repositoryContentSnapshot } from '../src/grounding.mjs';
 import { REDACTED, createLogger, parseLogLines, redact } from '../src/logging.mjs';
-import { ensureGrounding } from '../src/world-model-materialization.mjs';
+import { ensureGrounding, isMinimalModel } from '../src/world-model-materialization.mjs';
 
 const CONFIG = { outputDir: 'singularity/world-model' };
 
@@ -296,4 +296,64 @@ test('with no light builder supplied the failure still surfaces, unchanged', asy
     }),
     /provider timed out/
   );
+});
+
+/**
+ * The fall-forward must not become a one-way door.
+ *
+ * Falling forward publishes a light model, and a light model satisfies the grounding plan — that is
+ * why it unblocks the work. But `ready` alone then meant every later probe short-circuited to
+ * `reuse` before the builder was consulted, so the full build was never attempted again. One
+ * transient provider failure would have downgraded a repository permanently, while the failure
+ * message promised a retry that could not happen. Found by re-reading a run I had already watched
+ * and misread as an ordinary reuse.
+ */
+const LIGHT = { selected: { source: 'state-branch', manifest: { builder_version: '2.1-light' } }, ready: true };
+const FULL = { selected: { source: 'state-branch', manifest: { builder_version: '2.0' } }, ready: true };
+
+test('an authorized ensure retries the full build when only a light model exists', async () => {
+  const root = await gitRepository('sflow-oneway-');
+  const calls = [];
+  const result = await ensureGrounding(root, { outputDir: 'singularity/world-model', definition: {} }, PLAN, {
+    authorized: true,
+    inspect: async () => LIGHT,
+    materialize: async () => { calls.push('full'); },
+    materializeMinimal: async () => { calls.push('light'); }
+  });
+  assert.deepEqual(calls, ['full'], 'the full build was skipped because a light model looked ready');
+  assert.equal(result.mode, 'materialized');
+});
+
+test('a full model is reused and never rebuilt', async () => {
+  const root = await gitRepository('sflow-oneway-full-');
+  const calls = [];
+  const result = await ensureGrounding(root, { outputDir: 'singularity/world-model', definition: {} }, PLAN, {
+    authorized: true,
+    inspect: async () => FULL,
+    materialize: async () => { calls.push('full'); },
+    materializeMinimal: async () => { calls.push('light'); }
+  });
+  assert.deepEqual(calls, [], 'a complete model was rebuilt for no reason');
+  assert.equal(result.mode, 'reuse');
+});
+
+test('a read-only caller composes against the light model rather than blocking', async () => {
+  // Composition must never block on grounding quality — that is the whole point of falling forward.
+  const root = await gitRepository('sflow-oneway-read-');
+  const result = await ensureGrounding(root, { outputDir: 'singularity/world-model', definition: {} }, PLAN, {
+    authorized: false,
+    inspect: async () => LIGHT
+  });
+  assert.equal(result.mode, 'reuse');
+  assert.equal(result.located.manifest.builder_version, '2.1-light');
+  // And it is told what it is composing against.
+  assert.match(result.degraded.reason, /light fallback/);
+});
+
+test('the light builder is recognised by suffix, not by an exact version string', async () => {
+  assert.equal(isMinimalModel({ builder_version: '2.1-light' }), true);
+  assert.equal(isMinimalModel({ builder_version: '3.0-light' }), true, 'a later light revision must still read as light');
+  assert.equal(isMinimalModel({ builder_version: '2.0' }), false);
+  assert.equal(isMinimalModel({}), false);
+  assert.equal(isMinimalModel(null), false);
 });

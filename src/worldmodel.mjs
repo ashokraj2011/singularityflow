@@ -1787,8 +1787,12 @@ async function ensure(root, config, options, requestedPhase = null) {
     // Never silently. Work continues, and the reader is told exactly what they are working on.
     console.log(`${style.mark('warn')} world-model grounding ready${plan.phase ? ` for ${plan.phase}` : ''} on the LIGHT model: ${plan.selections.map((item) => item.kind === 'core' ? `core/${item.tier}` : `${item.view}/${item.tier}`).join(', ')}`);
     console.log(`  The full build failed: ${result.degraded.reason}`);
-    console.log('  Semantic analysis was not performed. Rerun the same command to retry the full build.');
-  } else console.log(`${style.mark('pass')} world-model grounding ready${plan.phase ? ` for ${plan.phase}` : ''}: ${plan.selections.map((item) => item.kind === 'core' ? `core/${item.tier}` : `${item.view}/${item.tier}`).join(', ')}`);
+    console.log('  Semantic analysis was not performed. Rerunning this command retries the full build:');
+    console.log(`    singularity-flow wm ensure${plan.phase ? ` --phase ${plan.phase}` : ''}`);
+  } else {
+    const selections = plan.selections.map((item) => item.kind === 'core' ? `core/${item.tier}` : `${item.view}/${item.tier}`).join(', ');
+    console.log(`${style.mark('pass')} world-model grounding ready${plan.phase ? ` for ${plan.phase}` : ''}: ${selections}`);
+  }
   return output;
 }
 

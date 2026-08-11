@@ -45,6 +45,16 @@ export function effectiveMaterializationPolicy(config = {}, workflow = null) {
     : materializationPolicy(config.definition ?? config);
 }
 
+/**
+ * Whether a model came from the deterministic light builder rather than a model-driven synthesis.
+ *
+ * `2.1-light` is what `buildLight` stamps; `2.0` is what synthesis stamps. The suffix is the test
+ * rather than an exact match so a later light revision does not silently start reading as full.
+ */
+export function isMinimalModel(manifest) {
+  return /-light$/.test(String(manifest?.builder_version ?? ''));
+}
+
 function ensureCommand(plan) {
   if (plan.phase) {
     const task = plan.taskGuide?.required ? ` --task ${JSON.stringify(plan.taskGuide.task)}` : '';
@@ -215,7 +225,25 @@ export async function ensureGrounding(root, config, plan, {
   inspect = inspectGroundingAvailability
 } = {}) {
   let availability = await inspect(root, config, plan);
-  if (availability.ready) return { mode: 'reuse', availability, located: availability.selected };
+
+  /**
+   * A fallback model is good enough to compose against, and not good enough to stop trying.
+   *
+   * Composition must never block on grounding quality — that is the whole point of falling forward.
+   * But `ready` alone made the fall-forward a one-way door: once a light model was published it
+   * satisfied every later probe, so an authorized `wm ensure` short-circuited to `reuse` and the
+   * full build was never attempted again. One transient provider failure would have downgraded a
+   * repository's grounding permanently, while the failure message promised a retry that could not
+   * happen.
+   *
+   * So a caller that *can* build (authorized, with a materializer) treats a minimal model as work
+   * still to do. Every read-only caller keeps reusing it and keeps working.
+   */
+  const canBuild = authorized && typeof materialize === 'function';
+  const minimalOnly = availability.ready && isMinimalModel(availability.selected?.manifest);
+  if (availability.ready && !(canBuild && minimalOnly)) {
+    return { mode: 'reuse', availability, located: availability.selected, degraded: minimalOnly ? { reason: 'the available world model is a light fallback' } : null };
+  }
   const policy = config.materialization ?? materializationPolicy(config.definition ?? config);
   if (policy.mode === 'disabled') {
     throw new SingularityFlowError(`Repository grounding is unavailable and materialization is disabled. Missing: ${availability.missing.map((entry) => entry.id).join(', ')}.`);
@@ -233,7 +261,11 @@ export async function ensureGrounding(root, config, plan, {
     id: availability.sourceTreeSha256
   }, async () => {
     availability = await inspect(root, config, plan);
-    if (availability.ready) return { mode: 'reuse-after-lock', availability, located: availability.selected };
+    // Same rule under the lock: another process finishing a *full* build is a reason to stop, one
+    // finishing a light fallback is not.
+    if (availability.ready && !isMinimalModel(availability.selected?.manifest)) {
+      return { mode: 'reuse-after-lock', availability, located: availability.selected, degraded: null };
+    }
 
     /**
      * A world-model build that fails must not stop the work.

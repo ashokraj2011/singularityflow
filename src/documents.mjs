@@ -54,7 +54,13 @@ async function loadManifest(root, config, workflow) {
 }
 
 export function evidenceIsActive(record) {
-  return record?.status == null || ['active', 'pinned'].includes(record.status);
+  // Detachment is the only catalog status that removes a document from active
+  // composition and browsing. Lifecycle artifacts reuse this catalog but carry
+  // phase statuses such as `in_progress`, `awaiting_approval`, and `approved`.
+  // Treating the evidence vocabulary as an allowlist silently hid every generated
+  // phase artifact from editor snapshots while leaving the status-less system
+  // documents visible.
+  return record?.status !== 'detached';
 }
 
 async function contextJsonFiles(directory) {

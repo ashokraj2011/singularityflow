@@ -7,7 +7,7 @@ function csv(values: string[]): string { return escape(values.join(', ')); }
 
 function tabs(active: ConfigurationTab): string {
   return `<nav class="tabs" aria-label="Configuration areas">
-    ${(['overview', 'people', 'mcp'] as const).map((tab) => `<button class="tab${active === tab ? ' active' : ''}" data-tab="${tab}">${tab === 'overview' ? 'Overview' : tab === 'people' ? 'People & approvals' : 'MCP tools'}</button>`).join('')}
+    ${(['overview', 'world-model', 'people', 'mcp'] as const).map((tab) => `<button class="tab${active === tab ? ' active' : ''}" data-tab="${tab}">${tab === 'overview' ? 'Overview' : tab === 'world-model' ? 'World model' : tab === 'people' ? 'People & approvals' : 'MCP tools'}</button>`).join('')}
   </nav>`;
 }
 
@@ -16,6 +16,7 @@ function overview(view: ConfigurationCenterView): string {
     ['capabilities', 'capability', 'Capabilities', 'What the organisation builds and which repositories deliver it.'],
     ['proposals', 'merge', 'Review proposals', 'Pending capability-map changes waiting for exact-diff review and activation.'],
     ['workflow', 'workflow', 'Workflows & artifacts', 'Work types, phases, gates, inputs, and document templates.'],
+    ['world-model', 'worldModel', 'World model', 'Grounding policy, automatic light generation, views, performance, and prompt injection.'],
     ['instructions', 'agent', 'Agents & delivery', 'Agent routing, prompts, skills, remote templates, generated artifacts, and trust status.'],
     ['people', 'team', 'People & approvals', 'Human identities and the authority groups permitted to approve.'],
     ['mcp', 'mcp', 'MCP tools', 'Host-owned tool servers with governed agent, phase, and tool allowlists.'],
@@ -28,6 +29,69 @@ function overview(view: ConfigurationCenterView): string {
     <div class="summary-grid"><div class="summary-card"><strong>${view.authorities.length}</strong><span>Approval groups</span></div><div class="summary-card"><strong>${view.mcpServers.length}</strong><span>Governed MCP servers</span></div><div class="summary-card"><strong>${view.agents.length}</strong><span>Governed agents</span></div><div class="summary-card"><strong>${view.phases.length}</strong><span>Story phases</span></div></div>
     <p class="muted">Jira and Teams credentials remain in VS Code SecretStorage. They are never written into workflow files or prompts.</p>
     <p class="card-foot"><button class="secondary" data-action="jira">Jira connection</button><button class="secondary" data-action="teams">Teams notifications</button><button class="secondary" data-action="open-workflow">Open workflow YAML</button><button class="secondary" data-action="open-portfolio">Open portfolio YAML</button></p>
+  </section>`;
+}
+
+function option(value: string, current: string, label: string): string {
+  return `<option value="${escape(value)}"${value === current ? ' selected' : ''}>${escape(label)}</option>`;
+}
+
+function worldModel(view: ConfigurationCenterView): string {
+  const model = view.worldModel;
+  return `<section class="plain world-model-settings">
+    <div class="section-heading"><div><h2>${icon('worldModel')}World-model behavior</h2><p class="muted">Control when repository grounding is required and how missing context is created. Read-only status commands never invoke a model.</p></div><button class="secondary" data-action="open-workflow">Open advanced YAML</button></div>
+    <form id="world-model-form">
+      <div class="editor-card">
+        <h2>${icon('approval')}Grounding policy</h2>
+        <div class="form-grid">
+          <label><span>Phase grounding</span><select name="grounding">${option('off', model.grounding, 'Off — do not require grounding')}${option('warn', model.grounding, 'Warn — continue with a visible warning')}${option('enforce', model.grounding, 'Enforce — block until grounded')}</select><small>Warn is the adoption-friendly setting. Enforce turns missing or invalid grounding into a hard lifecycle gate.</small></label>
+          <label><span>Stale model</span><select name="staleness">${option('warn', model.staleness, 'Warn and continue')}${option('fail', model.staleness, 'Fail until refreshed')}${option('ignore', model.staleness, 'Ignore staleness')}</select><small>Controls a committed model whose source-tree hash no longer matches the repository.</small></label>
+        </div>
+      </div>
+
+      <div class="editor-card">
+        <h2>${icon('worldModel')}Materialization</h2>
+        <p class="muted">Choose whether Flow may create a missing model while performing a mutating lifecycle action.</p>
+        <div class="form-grid">
+          <label><span>Mode</span><select name="materializationMode">${option('explicit', model.materialization.mode, 'Explicit — user runs world-model command')}${option('on-demand', model.materialization.mode, 'On demand — prepare when required')}${option('disabled', model.materialization.mode, 'Disabled — never materialize')}</select></label>
+          <label><span>Generation depth</span><select name="materializationDepth" id="world-model-depth">${option('light', model.materialization.depth, 'Light — deterministic, zero model tokens')}${option('phase', model.materialization.depth, 'Phase — phase-aware, may invoke a model')}</select></label>
+          <label><span>Confirmation</span><select name="materializationConfirmation" id="world-model-confirmation">${option('prompt', model.materialization.confirmation, 'Prompt before generation')}${option('automatic', model.materialization.confirmation, 'Automatic — light depth only')}</select><small>Automatic is deliberately restricted to deterministic light generation. Model-driven generation always needs confirmation.</small></label>
+          <label><span>Publication</span><select name="materializationPublish">${option('governed', model.materialization.publish, 'Governed — commit and publish')}${option('local', model.materialization.publish, 'Local — do not publish')}</select></label>
+          <label><span>Look ahead</span><select name="materializationLookahead">${option('none', model.materialization.lookahead, 'Current phase only')}${option('next-phase', model.materialization.lookahead, 'Also prepare next phase')}</select></label>
+        </div>
+        <div class="notice"><strong>Recommended low-friction setup:</strong> on demand + light + automatic. It creates deterministic repository facts without calling a model or consuming model tokens.</div>
+      </div>
+
+      <div class="editor-card">
+        <h2>${icon('document')}Content and storage</h2>
+        <div class="form-grid">
+          <label class="span-2"><span>Declared views</span><input name="views" type="text" value="${csv(model.views)}" placeholder="business, architecture, development"><small>Comma-separated lower-case IDs. Saving is refused if a phase or agent references a view you removed.</small></label>
+          <label><span>Output directory</span><input name="outputDir" type="text" value="${escape(model.outputDir)}"></label>
+          <label><span>Builder prompt</span><input name="promptSource" type="text" value="${escape(model.promptSource)}"><small>Use <code>builtin</code> or a repository-relative Markdown file.</small></label>
+          <label><span>State fetch timeout (ms)</span><input name="stateFetchTimeoutMs" type="number" min="250" max="60000" step="250" value="${model.stateFetchTimeoutMs}"></label>
+        </div>
+      </div>
+
+      <div class="editor-card">
+        <h2>${icon('impact')}Generation performance</h2>
+        <div class="form-grid">
+          <label class="check"><input name="generationParallel" type="checkbox"${model.generation.parallel ? ' checked' : ''}>Build independent views in parallel</label>
+          <label><span>Maximum workers</span><input name="generationMaxWorkers" type="number" min="1" max="16" step="1" value="${model.generation.maxWorkers}"><small>Used only when parallel generation is enabled.</small></label>
+          <label><span>Strategy</span><input type="text" value="One worker per view" disabled><small>The current deterministic strategy is fixed to <code>view</code>.</small></label>
+        </div>
+      </div>
+
+      <div class="editor-card">
+        <h2>${icon('prompt')}Prompt injection</h2>
+        <div class="form-grid">
+          <label><span>Mode</span><select name="injectionMode">${option('append', model.injection.mode, 'Append when placeholder is absent')}${option('replace', model.injection.mode, 'Replace placeholder only')}${option('off', model.injection.mode, 'Off — do not inject')}</select></label>
+          <label><span>Maximum injected bytes</span><input name="injectionMaxBytes" type="number" min="1" step="1024" value="${model.injection.maxBytes}"></label>
+          <label class="span-2"><span>Placeholder</span><input name="injectionPlaceholder" type="text" value="${escape(model.injection.placeholder)}"></label>
+        </div>
+        <p class="muted">${model.injection.rulesCount} advanced routing rule${model.injection.rulesCount === 1 ? '' : 's'} configured. Guided saving preserves these rules unchanged; edit them in workflow YAML when conditional agent, phase, or path routing is required.</p>
+      </div>
+      <div class="card-foot"><button type="submit">Save world-model settings</button><button class="secondary" type="button" data-action="open-workflow">Open YAML</button></div>
+    </form>
   </section>`;
 }
 
@@ -87,7 +151,7 @@ function mcp(view: ConfigurationCenterView, selected: McpServerView | null): str
 export function configurationCenterHtml(view: ConfigurationCenterView, tab: ConfigurationTab, selectedAuthority: AuthorityView | null, selectedMcp: McpServerView | null, notice: string | null, errors: string[]): string {
   return `<header class="inbox-header"><div class="brand-lockup">SINGULARITY <span>FLOW</span></div><p class="eyebrow">Governed repository setup</p><h1>${icon('configuration', { size: 24 })}Configuration Center</h1><p class="meta">Configure the product through guided screens. Use YAML only for advanced settings that do not yet have a form.</p></header>
     ${tabs(tab)}${notice ? `<div class="notice ok">${escape(notice)}</div>` : ''}${errors.length ? `<div class="notice error">${errors.map((entry) => `<p>${escape(entry)}</p>`).join('')}</div>` : ''}
-    ${tab === 'overview' ? overview(view) : tab === 'people' ? people(view, selectedAuthority) : mcp(view, selectedMcp)}`;
+    ${tab === 'overview' ? overview(view) : tab === 'world-model' ? worldModel(view) : tab === 'people' ? people(view, selectedAuthority) : mcp(view, selectedMcp)}`;
 }
 
 export const CONFIGURATION_CENTER_SCRIPT = `
@@ -107,4 +171,10 @@ export const CONFIGURATION_CENTER_SCRIPT = `
     if (form.id === 'profile-form') vscode.postMessage({ type: 'save-profile', name: data.get('name'), role: data.get('role') });
     if (form.id === 'authority-form') vscode.postMessage({ type: 'save-authority', previousId: form.dataset.previousId, scope: data.get('scope'), id: data.get('id'), label: data.get('label'), allowAnyGitIdentity: data.get('allowAnyGitIdentity') === 'on', members: members(data.get('members')) });
     if (form.id === 'mcp-form') vscode.postMessage({ type: 'save-mcp', previousId: form.dataset.previousId, id: data.get('id'), label: data.get('label'), hostReference: data.get('hostReference'), agents: csv(data.get('agents')), phases: csv(data.get('phases')), tools: csv(data.get('tools')), approval: data.get('approval'), required: data.get('required') === 'on', captureToolCalls: data.get('captureToolCalls') === 'on', captureResults: data.get('captureResults') === 'on' });
+    if (form.id === 'world-model-form') vscode.postMessage({ type: 'save-world-model', views: csv(data.get('views')), outputDir: data.get('outputDir'), promptSource: data.get('promptSource'), stateFetchTimeoutMs: Number(data.get('stateFetchTimeoutMs')), generation: { parallel: data.get('generationParallel') === 'on', maxWorkers: Number(data.get('generationMaxWorkers')), strategy: 'view' }, materialization: { mode: data.get('materializationMode'), publish: data.get('materializationPublish'), lookahead: data.get('materializationLookahead'), depth: data.get('materializationDepth'), confirmation: data.get('materializationConfirmation') }, grounding: data.get('grounding'), staleness: data.get('staleness'), injection: { placeholder: data.get('injectionPlaceholder'), mode: data.get('injectionMode'), maxBytes: Number(data.get('injectionMaxBytes')) } });
+  });
+  document.addEventListener('change', (event) => {
+    if (event.target && event.target.id === 'world-model-confirmation' && event.target.value === 'automatic') {
+      const depth = document.getElementById('world-model-depth'); if (depth) depth.value = 'light';
+    }
   });`;

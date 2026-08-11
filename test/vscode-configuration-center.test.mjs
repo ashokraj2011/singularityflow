@@ -10,14 +10,21 @@ const {
   configurationCenterView,
   updateAuthorityYaml,
   updateMcpYaml,
+  updateWorldModelYaml,
   validateAuthorityDraft,
-  validateMcpDraft
+  validateMcpDraft,
+  validateWorldModelDraft
 } = await import(source('configuration-center-model.ts'));
 const { configurationCenterHtml } = await import(source('configuration-center-page.ts'));
 
 const snapshot = {
   definition: {
     phases: { intake: { label: 'Intake' }, verification: { label: 'Verification' } },
+    worldModel: {
+      views: ['business', 'architecture'], grounding: 'warn', staleness: 'fail',
+      materialization: { mode: 'on-demand', publish: 'governed', lookahead: 'next-phase', depth: 'light', confirmation: 'automatic' },
+      injection: { placeholder: '{{WORLD_MODEL}}', mode: 'append', maxBytes: 16384, rules: [{ when: { phase: 'intake' }, include: ['briefs/business.md'] }] }
+    },
     approvalAuthorities: {
       'quality-reviewers': {
         label: 'Quality reviewers',
@@ -50,6 +57,53 @@ test('configuration center keeps human authorities distinct from governed agents
   const html = configurationCenterHtml(view, 'people', null, null, null, []);
   assert.match(html, /People are not agents/);
   assert.match(html, /real Git email or authenticated GitHub login/);
+});
+
+test('configuration center exposes guided world-model policy, generation, and injection settings', () => {
+  const view = configurationCenterView(snapshot, { name: 'Ashok', role: 'architect' });
+  assert.deepEqual(view.worldModel.views, ['business', 'architecture']);
+  assert.equal(view.worldModel.materialization.confirmation, 'automatic');
+  assert.equal(view.worldModel.materialization.depth, 'light');
+  assert.equal(view.worldModel.injection.rulesCount, 1);
+  const html = configurationCenterHtml(view, 'world-model', null, null, null, []);
+  assert.match(html, /World-model behavior/);
+  assert.match(html, /Grounding policy/);
+  assert.match(html, /On demand — prepare when required/);
+  assert.match(html, /Light — deterministic, zero model tokens/);
+  assert.match(html, /Prompt injection/);
+  assert.match(html, /Save world-model settings/);
+});
+
+test('world-model editor preserves comments, advanced context, and injection rules', () => {
+  const input = `version: 2\n# keep this policy note\nworldModel:\n  context:\n    memoize: true\n  injection:\n    rules:\n      - when: { phase: intake }\n        include: [briefs/business.md]\n`;
+  const output = updateWorldModelYaml(input, {
+    views: ['business', 'architecture'], outputDir: 'singularity/world-model',
+    promptSource: 'singularity/prompts/worldmodel-builder.md', stateFetchTimeoutMs: 10000,
+    generation: { parallel: true, maxWorkers: 3, strategy: 'view' },
+    materialization: { mode: 'on-demand', publish: 'governed', lookahead: 'none', depth: 'light', confirmation: 'automatic' },
+    grounding: 'warn', staleness: 'warn',
+    injection: { placeholder: '{{WORLD_MODEL}}', mode: 'append', maxBytes: 32768 }
+  });
+  assert.match(output, /# keep this policy note/);
+  const parsed = YAML.parse(output);
+  assert.equal(parsed.worldModel.context.memoize, true);
+  assert.equal(parsed.worldModel.injection.rules[0].when.phase, 'intake');
+  assert.equal(parsed.worldModel.materialization.mode, 'on-demand');
+  assert.equal(parsed.worldModel.materialization.depth, 'light');
+  assert.equal(parsed.worldModel.generation.maxWorkers, 3);
+});
+
+test('world-model editor rejects unsafe paths and unconfirmed model-driven automation', () => {
+  const base = {
+    views: ['business'], outputDir: 'singularity/world-model', promptSource: 'builtin',
+    stateFetchTimeoutMs: 10000, generation: { parallel: true, maxWorkers: 4, strategy: 'view' },
+    materialization: { mode: 'on-demand', publish: 'governed', lookahead: 'none', depth: 'phase', confirmation: 'automatic' },
+    grounding: 'warn', staleness: 'warn',
+    injection: { placeholder: '{{WORLD_MODEL}}', mode: 'append', maxBytes: 32768 }
+  };
+  assert.match(validateWorldModelDraft(base).join(' '), /Automatic materialization requires deterministic light depth/);
+  assert.match(validateWorldModelDraft({ ...base, materialization: { ...base.materialization, confirmation: 'prompt' }, outputDir: '../outside' }).join(' '), /repository-relative path/);
+  assert.match(validateWorldModelDraft({ ...base, materialization: { ...base.materialization, confirmation: 'prompt' }, views: ['Business View'] }).join(' '), /lower-case kebab-case/);
 });
 
 test('MCP editor changes only the governed server registry and preserves YAML comments', () => {

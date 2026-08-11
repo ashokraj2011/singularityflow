@@ -478,7 +478,29 @@ export interface RepositorySnapshot {
       worldModel?: { views?: string[] };
     }>;
     planning?: { promptSource?: string };
-    worldModel?: { views?: string[]; promptSource?: string };
+    worldModel?: {
+      views?: string[];
+      outputDir?: string;
+      promptSource?: string;
+      stateFetchTimeoutMs?: number;
+      generation?: { parallel?: boolean; maxWorkers?: number; strategy?: 'view' };
+      materialization?: {
+        mode?: 'explicit' | 'on-demand' | 'disabled';
+        publish?: 'governed' | 'local';
+        lookahead?: 'none' | 'next-phase';
+        depth?: 'light' | 'phase';
+        confirmation?: 'prompt' | 'automatic';
+      };
+      grounding?: 'off' | 'warn' | 'enforce';
+      staleness?: 'warn' | 'fail' | 'ignore';
+      injection?: {
+        placeholder?: string;
+        mode?: 'replace' | 'append' | 'off';
+        maxBytes?: number;
+        rules?: unknown[];
+      };
+      [key: string]: unknown;
+    };
     /** Whether workflow progress is recorded on an orphan branch, and which one. */
     ledger?: { enabled?: boolean; branch?: string };
     [key: string]: unknown;

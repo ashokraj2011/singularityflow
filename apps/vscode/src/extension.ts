@@ -309,7 +309,7 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
     'singularityFlow.openWorkspaceLogs', 'singularityFlow.refreshWorkspaceLogs', 'singularityFlow.openSpecificationTrace',
     'singularityFlow.inspectCompositionCache', 'singularityFlow.checkLedgerDeployment', 'singularityFlow.openCopilot',
     'singularityFlow.openVisualAssurance',
-    'singularityFlow.openConfigurationCenter', 'singularityFlow.configurePeople', 'singularityFlow.configureMcp',
+    'singularityFlow.openConfigurationCenter', 'singularityFlow.configureWorldModel', 'singularityFlow.configurePeople', 'singularityFlow.configureMcp',
     'singularityFlow.reopenCompleted', 'singularityFlow.cancelWork',
     'singularityFlow.expandReference', 'singularityFlow.openHarnessReport'
   ];
@@ -2048,6 +2048,7 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
     else if (message.action === 'proposals') await vscode.commands.executeCommand('singularityFlow.reviewCapabilityProposals');
     else if (message.action === 'workflow') await vscode.commands.executeCommand('singularityFlow.openDesigner');
     else if (message.action === 'instructions') await vscode.commands.executeCommand('singularityFlow.openInstructionDesigner');
+    else if (message.action === 'world-model') { await openConfigurationCenter('world-model'); return null; }
     else if (message.action === 'people') { await openConfigurationCenter('people'); return null; }
     else if (message.action === 'mcp') { await openConfigurationCenter('mcp'); return null; }
     else if (message.action === 'prompt-audit') await vscode.commands.executeCommand('singularityFlow.openPromptAudit');
@@ -2090,7 +2091,7 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
     return null;
   };
 
-  const openConfigurationCenter = async (tab: 'overview' | 'people' | 'mcp' = 'overview'): Promise<void> => {
+  const openConfigurationCenter = async (tab: 'overview' | 'world-model' | 'people' | 'mcp' = 'overview'): Promise<void> => {
     const { ConfigurationCenterPanel } = await import('./views/configuration-center.ts');
     ConfigurationCenterPanel.show(context, store, () => {
       const settings = vscode.workspace.getConfiguration('singularityFlow');
@@ -2330,6 +2331,7 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
       });
     },
     'singularityFlow.openConfigurationCenter': () => openConfigurationCenter('overview'),
+    'singularityFlow.configureWorldModel': () => openConfigurationCenter('world-model'),
     'singularityFlow.publishConfiguration': async () => {
       const repository = store.current.snapshot?.repository;
       const files = repository?.configurationChanges ?? [];

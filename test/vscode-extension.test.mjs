@@ -1883,10 +1883,20 @@ test('Lifecycle owns intake and active phases; Configuration owns their design',
   assert.ok(find(configurationTree, 'config:workflow-design'), 'workflow definitions are designed here');
   const capabilities = find(configurationTree, 'config:capabilities');
   assert.ok(capabilities, 'the capability map is configuration rather than workspace identity');
-  assert.equal(capabilities.children[0].runCommand, 'singularityFlow.addCapability');
-  assert.equal(capabilities.children[0].label, 'Add capability');
+  assert.equal(capabilities.children[0].runCommand, 'singularityFlow.mapCapability');
+  assert.equal(capabilities.children[0].label, 'Create first capability');
   assert.equal(capabilities.children[1].runCommand, 'singularityFlow.openCapabilities');
   assert.ok(find(configurationTree, 'config:capabilities:file'), 'the governed YAML remains directly openable');
+
+  const mapped = structuredClone(snapshot);
+  mapped.capabilityMap = {
+    capabilities: [{
+      id: 'commerce', name: 'Commerce', kind: 'collection', repository: null, children: []
+    }]
+  };
+  const mappedCapabilities = find(buildConfigurationTree(mapped), 'config:capabilities');
+  assert.equal(mappedCapabilities.children[0].runCommand, 'singularityFlow.addCapability');
+  assert.equal(mappedCapabilities.children[0].label, 'Add capability');
 
   // Every workflow, of both kinds, listed with the phase chain that distinguishes it — and each one
   // opens the file that defines it rather than being a label that does nothing.

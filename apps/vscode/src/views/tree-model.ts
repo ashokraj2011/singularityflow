@@ -1298,6 +1298,7 @@ function mcpConfigurationNode(snapshot: RepositorySnapshot): TreeNode {
 function capabilityConfigurationNode(snapshot: RepositorySnapshot, readiness: CapabilityReadiness): TreeNode {
   const roots = buildCapabilityTree(snapshot, null, readiness);
   const count = snapshot.capabilityMap?.capabilities?.length ?? 0;
+  const hasCapabilityMap = count > 0;
   return {
     kind: 'group',
     id: 'config:capabilities',
@@ -1309,11 +1310,21 @@ function capabilityConfigurationNode(snapshot: RepositorySnapshot, readiness: Ca
     children: [{
       kind: 'action',
       id: 'config:capabilities:add',
-      label: 'Add capability',
-      description: 'define what the organisation builds',
-      tooltip: 'Create a root capability or add one beneath an existing capability.',
+      label: hasCapabilityMap ? 'Add capability' : 'Create first capability',
+      description: hasCapabilityMap
+        ? 'extend the organisation map'
+        : 'register the organisation map and its lead repository',
+      tooltip: hasCapabilityMap
+        ? 'Create a root capability or add one beneath an existing capability.'
+        : 'Create the first capability and establish the repository that owns the organisation map.',
       icon: 'add',
-      runCommand: 'singularityFlow.addCapability'
+      // The normal editor deliberately writes through an existing organisation lead. Sending an
+      // empty map there makes its Create button fail with "No organisation lead repository is
+      // registered". The bootstrap screen is the only flow that can establish that lead, so make
+      // the first action truthful and executable instead of presenting a dead Add button.
+      runCommand: hasCapabilityMap
+        ? 'singularityFlow.addCapability'
+        : 'singularityFlow.mapCapability'
     }, {
       kind: 'action',
       id: 'config:capabilities:open',

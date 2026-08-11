@@ -1117,8 +1117,24 @@ test('wm build rejects generator writes outside the isolated output', async () =
   run('git', ['commit', '-m', 'initialize'], root);
   const attempted = result(process.execPath, [bin, 'wm', 'build', '--phase', 'design'], root);
   assert.notEqual(attempted.status, 0);
-  assert.match(`${attempted.stdout}${attempted.stderr}`, /modified files outside its isolated output directory: MUTATED\.txt/);
-  assert.equal(result('git', ['status', '--porcelain'], root).stdout, '');
+  // The guard still fires and still names the file. The message now also says what survived: the
+  // checkpoint lives in the repository, not in the worktree that was mutated, so completed packets
+  // are kept and the rerun resumes instead of starting over.
+  assert.match(`${attempted.stdout}${attempted.stderr}`, /modified the analysis worktree: MUTATED\.txt/);
+  assert.match(`${attempted.stdout}${attempted.stderr}`, /completed view packets? (?:was|were) kept|Rerun the same wm build/);
+
+  // The mutation happened in the disposable analysis worktree, so nothing of it reaches the real
+  // repository — that is still the property worth asserting.
+  const dirty = result('git', ['status', '--porcelain'], root).stdout.trim().split('\n').filter(Boolean);
+  assert.equal(dirty.filter((line) => line.includes('MUTATED')).length, 0, 'the mutation leaked into the repository');
+
+  // What may remain is the checkpoint, and only the checkpoint. It is deliberately kept now: it
+  // holds completed discovery packets, it lives in the repository rather than in the worktree that
+  // was mutated, and deleting it discarded finished work for a fault it had no part in.
+  for (const line of dirty) {
+    assert.match(line, /singularity\/world-model\/?$|singularity\/world-model\/\.checkpoints/,
+      `a failed build left something other than its checkpoint: ${line}`);
+  }
 });
 
 test('enforced workflows block generation until the governed prompt is composed', async () => {

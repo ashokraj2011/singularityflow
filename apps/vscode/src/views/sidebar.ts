@@ -9,7 +9,7 @@ import * as vscode from 'vscode';
 import type { TreeNode } from './tree-model.ts';
 import { contentSecurityPolicy, escape, icon, ICON_NAMES, nonce, type IconName } from './webview.ts';
 
-export type SidebarSection = 'workspaces' | 'lifecycle' | 'inbox' | 'configuration' | 'help';
+export type SidebarSection = 'workspaces' | 'lifecycle' | 'inbox' | 'logs' | 'configuration' | 'help';
 
 interface TreeSource {
   readonly onDidChangeTreeData: vscode.Event<TreeNode | undefined>;
@@ -64,6 +64,16 @@ const SECTION_META: Record<SidebarSection, {
       action: 'inbox-open', actionLabel: 'Open the inbox'
     }
   },
+  logs: {
+    label: 'Logs', icon: 'commit', actions: [
+      { id: 'logs-open', label: 'Open workspace logs', icon: 'commit' },
+      { id: 'logs-refresh', label: 'Refresh workspace logs', icon: 'refresh' }
+    ],
+    empty: {
+      text: 'Open the combined workspace timeline for activity, prompts, Copilot usage, and workspace operations.',
+      action: 'logs-open', actionLabel: 'Open workspace logs'
+    }
+  },
   configuration: {
     label: 'Configuration', icon: 'configuration', actions: [
       { id: 'capability-map', label: 'Map capability', icon: 'capability' },
@@ -104,7 +114,9 @@ const ACTION_COMMANDS: Record<string, string> = {
   'prompt-audit': 'singularityFlow.openPromptAudit',
   'visual-assurance': 'singularityFlow.openVisualAssurance',
   'help-open': 'singularityFlow.openHelp',
-  'activity-log': 'singularityFlow.openActivityLog'
+  'activity-log': 'singularityFlow.openActivityLog',
+  'logs-open': 'singularityFlow.openWorkspaceLogs',
+  'logs-refresh': 'singularityFlow.refreshWorkspaceLogs'
 };
 
 const SECTION_ORDER = Object.freeze(Object.keys(SECTION_META) as SidebarSection[]);
@@ -129,7 +141,7 @@ function hasAction(node: TreeNode): boolean {
 
 export class SidebarViewProvider implements vscode.WebviewViewProvider, vscode.Disposable {
   private readonly roots: Record<SidebarSection, readonly TreeNode[]> = {
-    workspaces: [], lifecycle: [], inbox: [], configuration: [], help: []
+    workspaces: [], lifecycle: [], inbox: [], logs: [], configuration: [], help: []
   };
   private readonly subscriptions: vscode.Disposable[] = [];
   private readonly nodeIndex = new Map<string, TreeNode>();

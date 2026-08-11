@@ -312,6 +312,16 @@
         "icon": "$(output)"
       },
       {
+        "command": "singularityFlow.openWorkspaceLogs",
+        "title": "Singularity Flow: Workspace Logs",
+        "icon": "$(output)"
+      },
+      {
+        "command": "singularityFlow.refreshWorkspaceLogs",
+        "title": "Singularity Flow: Refresh Workspace Logs",
+        "icon": "$(refresh)"
+      },
+      {
         "command": "singularityFlow.openSpecificationTrace",
         "title": "Singularity Flow: Specification Traceability",
         "icon": "$(references)"

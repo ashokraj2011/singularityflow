@@ -28,7 +28,11 @@ export function normalizeLogLevel(value, fallback = 'info') {
 
 // Keys whose values must never reach a log file. Jira PATs, GitHub tokens, SharePoint OAuth and
 // Artifactory credentials all travel next to these paths.
-const SECRET_KEY = /(token|secret|password|passwd|credential|authorization|cookie|api[-_]?key|access[-_]?key|private[-_]?key|signature|pat)/i;
+// `pat` means personal access token, and it used to match anywhere in a key name — so `path` and
+// `paths` logged as `[redacted]`. Nothing was leaking; the cost was the opposite, a log that quietly
+// withheld the most ordinary field there is. Bounded to a real token name now: `pat`, `github_pat`,
+// `githubPat`, `pat-token`, while `path`, `pattern`, `patch` and `compatible` pass through.
+const SECRET_KEY = /(token|secret|password|passwd|credential|authorization|cookie|api[-_]?key|access[-_]?key|private[-_]?key|signature|(?:^|[_.-])pat(?:$|[_.-])|[a-z]pat(?![a-z]))/i;
 // Value shapes that are secrets wherever they appear, including inside free text.
 const SECRET_VALUE = [
   /\bghp_[A-Za-z0-9]{20,}\b/g,

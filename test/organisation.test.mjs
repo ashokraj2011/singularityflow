@@ -18,6 +18,7 @@ import { fileURLToPath } from 'node:url';
 import os from 'node:os';
 import path from 'node:path';
 import { run } from '../src/util.mjs';
+import { outsideBuilderScratch } from '../src/worldmodel.mjs';
 import {
   activateCapabilityProposal, editCapabilityInOrganisation, initializeWorkspaceState,
   inspectCapabilityProposal, listCapabilityProposals, mapCapability, readOrganisation,
@@ -570,19 +571,29 @@ test('the builder does not flag its own checkpoint as a worker escape', async ()
   // The checkpoint genuinely lives under the output directory, which is why the exclusion is needed
   // rather than merely convenient.
   assert.match(source, /const checkpointRoot = path\.join\(outputDirectory, '\.checkpoints'\)/);
-  assert.match(source, /const scratch = `\$\{config\.outputDir\}\/\.checkpoints`/);
+
+  // Asserted as behaviour rather than as a source line. This used to pin the exact text of the
+  // exclusion, so tightening it from a substring match to a path-prefix one broke a test that had
+  // no opinion about the property it was guarding.
+  const config = { outputDir: 'singularity/world-model' };
+  assert.deepEqual(outsideBuilderScratch(['singularity/world-model/.checkpoints/k/packets/a.md'], config), []);
+  assert.deepEqual(outsideBuilderScratch(['singularity/world-model/.checkpoints'], config), []);
+  // Anything else a worker touches is still an escape.
+  assert.deepEqual(outsideBuilderScratch(['testfile.md'], config), ['testfile.md']);
+  assert.deepEqual(outsideBuilderScratch(['src/app.js'], config), ['src/app.js']);
+
   // Both guards share one definition. Fixing only the discovery one meant discovery passed and
   // synthesis then failed on the identical file, twenty minutes and 48 AI credits later.
-  const guarded = [...source.matchAll(/outsideBuilderScratch\(changedSnapshotPaths/g)];
-  assert.equal(guarded.length, 2, 'both the discovery and the synthesis guard use it');
-  assert.match(source, /World-model builder modified files outside its isolated output directory/);
+  const guarded = [...source.matchAll(/outsideBuilderScratch\(\s*\n?\s*changedSnapshotPaths|outsideBuilderScratch\(changedSnapshotPaths/g)];
+  assert.ok(guarded.length >= 2, `both the discovery and the synthesis guard use it (found ${guarded.length})`);
 
   // Reading the model already treats .checkpoints as builder-internal; the two agree now.
   const grounding = await readFile(new URL('../src/grounding.mjs', import.meta.url), 'utf8');
   assert.match(grounding, /entry\.name === '\.checkpoints'/);
 
-  // The guard itself stays: anything else a worker touches is still an escape.
-  assert.match(source, /World-model discovery workers modified files outside their isolated packets/);
+  // And the guard still names what it found, in both places.
+  assert.match(source, /World-model discovery left the analysis worktree modified/);
+  assert.match(source, /World-model synthesis modified the analysis worktree/);
 });
 
 /**

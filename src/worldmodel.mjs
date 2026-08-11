@@ -13,6 +13,7 @@ import {
   writeJson
 } from './util.mjs';
 import { invokeModel } from './model-runner.mjs';
+import { nullLogger, repositoryLogger } from './logging.mjs';
 import { loadDefinition, renderArtifactTemplate, WORKFLOW_PATH } from './config.mjs';
 import { renderMcpPromptPolicy } from './mcp.mjs';
 import { injectAgentPrompt, recordInjection } from './inject.mjs';
@@ -635,6 +636,8 @@ Your single required deliverable is to CREATE ONE FILE using your file-writing t
 
 This file is the only thing the parent process reads. Do not print the packet to the console, do not return it as your final message, and do not merely describe it — output that is not written to that exact path is discarded and this worker is treated as failed. Write the packet to the path with your file-creation tool, confirm the file exists, then stop.
 
+Write nothing else anywhere. If you want to test your file-writing tool first, test it by writing the packet itself — a scratch file such as \`test.md\` created inside the repository is detected, this attempt is discarded, and the repository is reset before the retry. Do not create scratch, temporary, notes, or test files.
+
 The packet is private intermediate evidence for a final synthesizer. It must:
 
 - begin with "# ${view} discovery packet";
@@ -789,7 +792,7 @@ export function recoverPacketFromOutput(output, view) {
   return candidate;
 }
 
-async function runParallelDiscovery(_auditRoot, analysisRoot, temporary, config, options, views, metadata, checkpoint) {
+async function runParallelDiscovery(_auditRoot, analysisRoot, temporary, config, options, views, metadata, checkpoint, log = nullLogger) {
   const generation = parallelGeneration(config, options, views);
   if (!generation.enabled) {
     return { ...generation, packets: [], degradedViews: [], resumedViews: [], pendingViews: [] };
@@ -809,12 +812,32 @@ async function runParallelDiscovery(_auditRoot, analysisRoot, temporary, config,
     console.error(`World-model resume: ${resumedPackets.length} completed view packet${resumedPackets.length === 1 ? '' : 's'} reused; ${pendingViews.length} pending.`);
   }
   console.error(`World-model discovery: ${pendingViews.length} pending view worker${pendingViews.length === 1 ? '' : 's'}, up to ${Math.min(generation.maxWorkers, pendingViews.length)} concurrent.`);
+  log.info('worldmodel.discovery.planned', null, {
+    pendingViews, resumedViews: resumedPackets.map((packet) => packet.view),
+    workers: Math.min(generation.maxWorkers, pendingViews.length), maxAttempts: 2
+  });
 
   // One worker attempt: run the agent, then obtain the packet from disk, or recover it from stdout
   // when the agent printed it instead of writing. Returns { content, bytes } on success, or
   // { reason, retryable } to describe why this view has no usable packet yet.
   const attemptView = async (view, packetFile, promptFile) => {
     await rm(packetFile, { force: true }); // never accept a stale packet from an earlier attempt
+    // Snapshot per attempt, not once for the whole of discovery.
+    //
+    // A real failure: a worker wrote `testfile.md` into the analysis worktree instead of its packet.
+    // The missing packet triggered the retry, the retry inherited the still-dirty tree, and the
+    // end-of-discovery guard then failed the entire build — after four workers had run. Checking
+    // here is what makes the retry mean anything: it attributes the write to one view, and it lets
+    // the tree be restored before trying again.
+    const treeBefore = await repositoryContentSnapshot(analysisRoot);
+    const attemptStarted = Date.now();
+    log.info('worldmodel.discovery.attempt', null, { view, packet: path.basename(packetFile) });
+    const outcome = (detail) => {
+      log.info('worldmodel.discovery.attempt.done', null, {
+        view, durationMs: Date.now() - attemptStarted, ...detail
+      });
+      return detail;
+    };
     let result;
     try {
       result = await invokeModel({
@@ -830,7 +853,45 @@ async function runParallelDiscovery(_auditRoot, analysisRoot, temporary, config,
         limits: { timeoutMs: optionNumber(options, 'timeout-ms', 15 * 60 * 1000), outputBytes: 8 * 1024 * 1024 }
       });
     } catch (error) {
-      return { reason: error.message, retryable: true };
+      return outcome({ reason: error.message, retryable: true, result: 'provider-error' });
+    }
+    // A commit is not recoverable by cleaning: it is already in the shared object store, and the
+    // world model would describe a tree that is not the one it records. That still fails the build.
+    // `metadata.repository_commit` is the same `head(root)` the caller recorded as sourceCommit.
+    if (head(analysisRoot) !== metadata.repository_commit) {
+      return outcome({
+        reason: 'created a commit in the analysis worktree', retryable: false, fatal: true, result: 'commit'
+      });
+    }
+    const dirtied = outsideBuilderScratch(
+      changedSnapshotPaths(treeBefore, await repositoryContentSnapshot(analysisRoot)), config
+    );
+    if (dirtied.length) {
+      // The analysis worktree is a detached checkout of a known commit, thrown away in the `finally`.
+      // A file that appeared in it during a worker run is by definition not repository content, so
+      // restoring it is safe — and necessary, because a dirty tree would otherwise be visible to
+      // every later worker and the model could describe a file the repository does not have.
+      const restored = restoreAnalysisWorktree(analysisRoot);
+      const stillDirty = outsideBuilderScratch(
+        changedSnapshotPaths(treeBefore, await repositoryContentSnapshot(analysisRoot)), config
+      );
+      // The paths are recorded, not only named in a message that goes to stderr and is lost. On the
+      // run this fixes, the one fact worth having — which file — survived only because the error
+      // string happened to reach the activity log.
+      log.warn('worldmodel.discovery.isolation', null, {
+        view, paths: dirtied, restored, stillDirty: stillDirty.length ? stillDirty : undefined
+      });
+      if (!restored || stillDirty.length) {
+        return outcome({
+          reason: `wrote outside its packet (${dirtied.join(', ')}) and the analysis worktree could not be restored`,
+          retryable: false,
+          fatal: true,
+          result: 'isolation-unrecoverable'
+        });
+      }
+      return outcome({
+        reason: `wrote outside its packet: ${dirtied.join(', ')}`, retryable: true, result: 'isolation-restored'
+      });
     }
     let packet = existsSync(packetFile) ? await readFile(packetFile, 'utf8') : '';
     if (!packet.trim()) {
@@ -839,12 +900,16 @@ async function runParallelDiscovery(_auditRoot, analysisRoot, temporary, config,
         packet = recovered;
         await writeFile(packetFile, packet);
         console.warn(`Warning: world-model ${view} discovery worker printed its packet instead of writing it; recovered ${Buffer.byteLength(packet)} bytes from output.`);
+        log.warn('worldmodel.discovery.packet-recovered', null, { view, bytes: Buffer.byteLength(packet) });
       }
     }
     const bytes = Buffer.byteLength(packet);
-    if (!packet.trim()) return { reason: 'did not create its analysis packet', retryable: true };
+    if (!packet.trim()) return outcome({ reason: 'did not create its analysis packet', retryable: true, result: 'no-packet' });
     // An oversized packet will not shrink on a re-run, so degrade it without spending another attempt.
-    if (bytes > MAX_DISCOVERY_PACKET_BYTES) return { reason: `created an analysis packet above the 24 KiB limit (${bytes} bytes)`, retryable: false };
+    if (bytes > MAX_DISCOVERY_PACKET_BYTES) {
+      return outcome({ reason: `created an analysis packet above the 24 KiB limit (${bytes} bytes)`, retryable: false, result: 'oversized', bytes });
+    }
+    outcome({ result: 'packet', bytes });
     return { content: packet.trim(), bytes };
   };
 
@@ -868,16 +933,25 @@ async function runParallelDiscovery(_auditRoot, analysisRoot, temporary, config,
         outcome = await attemptView(view, packetFile, promptFile);
         if (outcome.content || !outcome.retryable || attempt === maxAttempts) break;
         console.warn(`Warning: world-model ${view} discovery worker ${outcome.reason}; retrying once.`);
+        log.warn('worldmodel.discovery.retry', null, { view, attempt, reason: outcome.reason });
+      }
+      if (outcome.fatal) {
+        // Reserved for the two things cleaning cannot undo: a commit in the shared object store, and
+        // a worktree that will not go back to its source commit. Everything else degrades.
+        log.error('worldmodel.discovery.fatal', outcome.reason, { view });
+        throw new SingularityFlowError(`World-model ${view} discovery worker ${outcome.reason}.`);
       }
       if (!outcome.content) {
         degradedViews.push({ view, reason: outcome.reason });
         console.warn(`Warning: world-model ${view} discovery worker ${outcome.reason}; final synthesis will inspect this view directly.`);
+        log.warn('worldmodel.discovery.degraded', null, { view, reason: outcome.reason });
         continue;
       }
       packets.set(view, { view, content: outcome.content, bytes: outcome.bytes });
       checkpointWrite = checkpointWrite.then(() => recordDiscoveryCheckpoint(checkpoint, view, packetFile));
       await checkpointWrite;
       console.error(`World-model discovery complete: ${view} (${outcome.bytes} bytes).`);
+      log.info('worldmodel.discovery.packet', null, { view, bytes: outcome.bytes });
     }
   };
 
@@ -940,9 +1014,65 @@ view, and the evidence ledger exist on disk.
  * guards share this one definition, because fixing only the first meant discovery passed and
  * synthesis then failed on the identical file, twenty minutes later.
  */
-function outsideBuilderScratch(changes, config) {
-  const scratch = `${config.outputDir}/.checkpoints`;
-  return changes.filter((entry) => !String(entry).includes(scratch));
+/**
+ * A trace of what a world-model build actually did, minute by minute.
+ *
+ * This module had no logger at all. On the run that prompted this, `command.start` and
+ * `command.failed` were 361 seconds apart with nothing in between — reconstructing which views ran,
+ * how many attempts each took, and when the guard fired meant reading file modification times on
+ * `model-invocations/` and on an empty `.checkpoints` directory. The build is the longest thing this
+ * tool does and it was the least observable.
+ *
+ * Events go to the existing activity log, so `sflow logs` reads them with everything else and the
+ * redaction and rotation policies already apply. Every event from one build carries the same
+ * `buildId`, because a repository can have concurrent commands and a trace you cannot group is a
+ * pile of lines.
+ */
+export function buildTracer(root, config, detail = {}) {
+  // Short, unique per process-and-moment. Two builds can run against one repository, and a trace
+  // whose lines cannot be grouped back to their build is a pile of lines.
+  const buildId = `${process.pid.toString(36)}-${Date.now().toString(36).slice(-6)}`;
+  return repositoryLogger(root, config?.definition ?? null, {
+    context: { command: 'wm', buildId, ...detail }
+  });
+}
+
+/**
+ * Put the analysis worktree back to the commit it was created from.
+ *
+ * Safe because of what this directory is: a detached worktree under the system temp directory,
+ * created for this build and removed in the `finally`. It holds no work anyone will miss —
+ * discovery packets live in the real repository under the checkpoint, not here.
+ *
+ * Returns false rather than throwing when git refuses; the caller treats that as fatal, because a
+ * worktree that cannot be restored is one whose contents no longer match the recorded source
+ * commit, and everything the build would go on to claim is dated to that commit.
+ */
+export function restoreAnalysisWorktree(analysisRoot) {
+  const checkout = run('git', ['checkout', '--', '.'], { cwd: analysisRoot, allowFailure: true });
+  const clean = run('git', ['clean', '-fd'], { cwd: analysisRoot, allowFailure: true });
+  return checkout.status === 0 && clean.status === 0;
+}
+
+export function outsideBuilderScratch(changes, config) {
+  // A path *segment* test, not a substring one. `includes` would also exempt an unrelated file that
+  // merely had this text somewhere in its path, which is a strange thing for a guard to do.
+  const scratch = `${config.outputDir}/.checkpoints/`;
+  return changes.filter((entry) => {
+    const value = posix(String(entry));
+    return value !== `${config.outputDir}/.checkpoints` && !value.startsWith(scratch);
+  });
+}
+
+/** What a reader most needs to know when a build fails: whether their finished work survived. */
+export function checkpointRetainedNote(checkpoint) {
+  if (!checkpoint) return 'Rerun the build to try again.';
+  const completed = Object.values(checkpoint.state?.views ?? {})
+    .filter((entry) => entry?.status === 'completed').length;
+  if (!completed) return 'Rerun the same wm build command to resume.';
+  return completed === 1
+    ? '1 completed view packet was kept; rerun the same wm build command to resume the rest.'
+    : `${completed} completed view packets were kept; rerun the same wm build command to resume the rest.`;
 }
 
 async function buildLight(root, config, options) {
@@ -1086,8 +1216,19 @@ async function build(root, config, options) {
     working_tree_clean: changedFiles(root).length === 0,
     analysis_depth: optionString(options, 'depth', 'standard')
   };
+  const log = buildTracer(root, config, { operation: 'wm.build' });
+  const buildStarted = Date.now();
+  // The view set is not resolved yet at this point, so it is not claimed here — it appears on
+  // `discovery.planned`, which is where it is actually known.
+  log.info('worldmodel.build.start', null, {
+    depth: optionString(options, 'depth', 'standard'),
+    phase: optionString(options, 'phase') ?? null, task: optionString(options, 'task') ?? null,
+    sourceCommit, branch: metadata.repository_branch, workingTreeClean: metadata.working_tree_clean,
+    provider: config.provider, model: optionString(options, 'model') ?? config.model ?? null
+  });
   await writeWorktreeOwner(temporary, root, 'analysis');
   run('git', ['worktree', 'add', '--detach', analysisRoot, sourceCommit], { cwd: root, stdio: 'inherit' });
+  log.info('worldmodel.worktree.created', null, { analysisRoot, sourceCommit });
   // Mark this process (and every Copilot child it spawns, which inherit the environment) as the
   // world-model builder so an optional custom session-gate hook can exempt the isolated build
   // session instead of denying its file writes. The bundled plugin registers no preToolUse guard.
@@ -1125,8 +1266,13 @@ async function build(root, config, options) {
     checkpoint = parallelGeneration(config, options, views).enabled
       ? await prepareDiscoveryCheckpoint(root, config, options, views, metadata, sourceState)
       : null;
+    if (checkpoint) {
+      log.info('worldmodel.checkpoint.opened', null, {
+        directory: checkpoint.directory, resumed: checkpoint.packets.length
+      });
+    }
     const discovery = await runParallelDiscovery(
-      root, analysisRoot, temporary, config, options, views, metadata, checkpoint
+      root, analysisRoot, temporary, config, options, views, metadata, checkpoint, log
     );
     const afterDiscovery = await repositoryContentSnapshot(analysisRoot);
     // The checkpoint is the builder's own scratch space and it lives under the world-model output
@@ -1137,12 +1283,20 @@ async function build(root, config, options) {
     const discoveryChanges = outsideBuilderScratch(changedSnapshotPaths(before, afterDiscovery), config);
     if (head(analysisRoot) !== sourceCommit) discoveryChanges.push('Git history (discovery worker created a commit)');
     if (discoveryChanges.length) {
-      if (checkpoint) {
-        await rm(checkpoint.directory, { recursive: true, force: true });
-        checkpoint = null;
-      }
-      throw new SingularityFlowError(`World-model discovery workers modified files outside their isolated packets: ${[...new Set(discoveryChanges)].join(', ')}`);
+      // A backstop now, not the primary guard: `attemptView` checks after every worker and restores
+      // the worktree, so reaching here means something dirtied the tree that no single attempt
+      // owns. The checkpoint is deliberately kept — see the synthesis guard below for why.
+      log.error('worldmodel.discovery.isolation-backstop', null, { paths: [...new Set(discoveryChanges)] });
+      throw new SingularityFlowError(
+        `World-model discovery left the analysis worktree modified: ${[...new Set(discoveryChanges)].join(', ')}. `
+        + `${checkpointRetainedNote(checkpoint)}`
+      );
     }
+    log.info('worldmodel.discovery.complete', null, {
+      packets: discovery.packets.length,
+      degraded: discovery.degradedViews.map((entry) => entry.view),
+      resumed: discovery.resumedViews
+    });
     const repositoryFacts = await deriveRepositoryFacts(analysisRoot, sourceState);
     const repositoryFactsDigest = renderFactsDigest(repositoryFacts);
     const renderedPrompt = render(await readFile(source, 'utf8'), analysisRoot, buildConfig, renderOptions);
@@ -1173,11 +1327,17 @@ ${repositoryFactsDigest}
     // Twenty minutes is the allowance, and the provider's output is captured, so without this the
     // command shows nothing at all while it does the most interesting thing it does.
     const synthesisDone = heartbeat(`Building the world model with ${config.model ?? config.provider}. This can take several minutes.`);
+    const synthesisStarted = Date.now();
+    log.info('worldmodel.synthesis.start', null, {
+      promptBytes: Buffer.byteLength(synthesisPrompt, 'utf8'), packets: discovery.packets.length
+    });
     try {
       await invokeSynthesis();
       synthesisDone('synthesis complete');
+      log.info('worldmodel.synthesis.ok', null, { durationMs: Date.now() - synthesisStarted });
     } catch (error) {
       synthesisDone('synthesis failed');
+      log.error('worldmodel.synthesis.failed', error?.message, { durationMs: Date.now() - synthesisStarted });
       throw error;
     }
     const draftManifestPath = path.join(staging, 'manifest.json');
@@ -1185,11 +1345,19 @@ ${repositoryFactsDigest}
     const unexpected = outsideBuilderScratch(changedSnapshotPaths(before, after), config);
     if (head(analysisRoot) !== sourceCommit) unexpected.push('Git history (builder created a commit)');
     if (unexpected.length) {
-      if (checkpoint) {
-        await rm(checkpoint.directory, { recursive: true, force: true });
-        checkpoint = null;
-      }
-      throw new SingularityFlowError(`World-model builder modified files outside its isolated output directory: ${unexpected.join(', ')}`);
+      // The checkpoint is kept. It lives in the real repository — `prepareDiscoveryCheckpoint` is
+      // called with `root` — while this guard watches the disposable analysis worktree. They are
+      // different trees, so a fault here is no evidence at all that a completed, validated packet
+      // is bad. Deleting it discarded every finished worker's output for a fault in a directory
+      // about to be thrown away, which on a real run cost four model calls and six minutes with
+      // nothing to resume from.
+      log.error('worldmodel.synthesis.isolation', null, {
+        paths: unexpected, checkpointRetained: Boolean(checkpoint)
+      });
+      throw new SingularityFlowError(
+        `World-model synthesis modified the analysis worktree: ${unexpected.join(', ')}. `
+        + `${checkpointRetainedNote(checkpoint)}`
+      );
     }
     const phase = optionString(options, 'phase');
     // Copilot owns the model content, but it does not own provenance. Canonicalize the
@@ -1311,6 +1479,15 @@ ${repositoryFactsDigest}
           ? `  the ${governed.branch} branch already has this model.`
           : `  not published to the state branch: ${governed.reason}.`);
     }
+    // The build succeeded, so there is nothing left to resume and the packets are scratch. Removed
+    // here rather than in the `finally`, which also runs on failure — where the whole point is that
+    // they survive. Nothing removed it on success before, so a completed parallel build left its
+    // packets sitting untracked in the repository indefinitely.
+    if (checkpoint) {
+      await rm(checkpoint.directory, { recursive: true, force: true });
+      log.info('worldmodel.checkpoint.cleared', null, { directory: checkpoint.directory });
+      checkpoint = null;
+    }
   } catch (error) {
     if (checkpoint) {
       const completed = views.filter((view) => checkpoint.state.views[view]?.status === 'completed');
@@ -1324,6 +1501,14 @@ ${repositoryFactsDigest}
   } finally {
     if (priorBuildMarker === undefined) delete process.env.SINGULARITY_FLOW_WORLD_MODEL_BUILD;
     else process.env.SINGULARITY_FLOW_WORLD_MODEL_BUILD = priorBuildMarker;
+    // In the `finally` so a trace always closes, whichever way the build ended. This is also the
+    // moment the analysis worktree — and any stray file a worker left in it — stops existing, which
+    // is why the paths are recorded when they are seen rather than looked for afterwards.
+    log.info('worldmodel.build.end', null, {
+      durationMs: Date.now() - buildStarted,
+      checkpointRetained: Boolean(checkpoint),
+      analysisRoot
+    });
     run('git', ['worktree', 'remove', '--force', analysisRoot], { cwd: root, allowFailure: true });
     await rm(temporary, { recursive: true, force: true });
   }

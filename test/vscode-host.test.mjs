@@ -971,7 +971,7 @@ test('pinning a source from the editor puts it in the tree', async (t) => {
   assert.equal(provider.getChildren(sources)[0].label, 'research.md');
 });
 
-test('the guided evidence action pins a selected file to the active Epic', async (t) => {
+test('the guided evidence manager shows attachment choices and pins a selected file to the active Epic', async (t) => {
   if (!requireBundle(t)) return;
   const { root, registered } = await activated();
   const design = path.join(root, 'checkout-design.png');
@@ -980,6 +980,15 @@ test('the guided evidence action pins a selected file to the active Epic', async
   registered.informationAnswer = 'Attach evidence';
 
   await registered.commands.get('singularityFlow.attachEvidence')();
+
+  const manager = registered.panels.find((entry) => entry.id === 'singularityFlow.evidenceManager');
+  assert.ok(manager, 'the sidebar action opens the complete evidence manager');
+  assert.match(manager.webview.html, /Evidence &amp; designs/);
+  assert.match(manager.webview.html, /Files, images &amp; PDFs/);
+  assert.match(manager.webview.html, /Figma export package/);
+  assert.match(manager.webview.html, /Figma design link/);
+  assert.match(manager.webview.html, /HTTPS reference/);
+  await manager.post({ type: 'attach', targetKey: 'epic:INIT-CHECKOUT', source: 'files' });
 
   assert.deepEqual(registered.errors, []);
   assert.equal(registered.openDialogs.length, 1, 'the editor collected the local evidence');

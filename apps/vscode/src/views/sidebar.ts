@@ -186,7 +186,8 @@ export class SidebarViewProvider implements vscode.WebviewViewProvider, vscode.D
     const actionable = hasAction(node);
     const hasChildren = Boolean(node.children?.length);
     const directAction = actionable && !hasChildren;
-    const row = `<span class="node-row${actionable ? ' actionable' : ''}"${directAction
+    const currentPhase = node.contextValue === 'sflow.story.phase.current';
+    const row = `<span class="node-row${actionable ? ' actionable' : ''}${currentPhase ? ' current-phase-row' : ''}"${directAction
       ? ` role="button" tabindex="0" data-node="${escape(key)}"` : ''} title="${tooltip}">
         <span class="node-icon">${icon(semanticIcon(node), { size: 16 })}</span>
         <span class="node-copy"><span class="node-label">${escape(node.label)}</span>${description}</span>
@@ -198,9 +199,10 @@ export class SidebarViewProvider implements vscode.WebviewViewProvider, vscode.D
     const children = node.children!.map((child, index) =>
       this.renderNode(section, child, [...path, index], depth + 1)).join('');
     const open = depth === 0 || node.kind === 'initiative' || node.id === 'configuration'
+      || node.id === 'story:phase-rail' || currentPhase
       || node.id.startsWith('completed-story:') || node.id.startsWith('completed-initiative:')
       ? ' open' : '';
-    return `<details class="node depth-${Math.min(depth, 3)}" data-node-state="${escape(key)}"${open}>
+    return `<details class="node depth-${Math.min(depth, 3)}${currentPhase ? ' current-phase' : ''}" data-node-state="${escape(key)}"${open}>
       <summary>${row}</summary><div class="children">${children}</div></details>`;
   }
 
@@ -288,6 +290,13 @@ export class SidebarViewProvider implements vscode.WebviewViewProvider, vscode.D
         .node-row.actionable { cursor:pointer; }
         .node-row.actionable:hover { background:var(--vscode-list-hoverBackground); color:var(--vscode-list-hoverForeground); }
         .node-icon { display:grid; place-items:center; flex:0 0 17px; height:18px; color:var(--vscode-icon-foreground); }
+        .current-phase-row { border-left:2px solid var(--accent); background:var(--quiet); }
+        .current-phase-row .node-icon { color:var(--accent); animation:sf-current-phase-pulse 1.65s ease-in-out infinite; }
+        .current-phase-row .node-label { color:var(--accent); }
+        @keyframes sf-current-phase-pulse {
+          0%,100% { opacity:.72; filter:drop-shadow(0 0 0 transparent); }
+          50% { opacity:1; filter:drop-shadow(0 0 4px var(--accent)); }
+        }
         .node-copy { display:flex; flex-direction:column; min-width:0; flex:1; }
         .node-label { overflow:hidden; text-overflow:ellipsis; white-space:nowrap; font-weight:500; }
         .node-description { overflow:hidden; text-overflow:ellipsis; white-space:nowrap; color:var(--vscode-descriptionForeground); font-size:11px; }
@@ -305,7 +314,7 @@ export class SidebarViewProvider implements vscode.WebviewViewProvider, vscode.D
           color:var(--vscode-button-foreground); background:var(--vscode-button-background); font-size:11px; }
         .empty-action:hover { background:var(--vscode-button-hoverBackground); }
         .empty-action:focus-visible { outline:1px solid var(--vscode-focusBorder); outline-offset:2px; }
-        @media (prefers-reduced-motion:reduce) { * { transition:none!important; } }
+        @media (prefers-reduced-motion:reduce) { * { transition:none!important; animation:none!important; } }
       </style></head><body>
       <header class="brand"><span class="brand-mark">${icon('workflow', { size: 20 })}</span>
         <span class="brand-copy"><small>Singularity</small><strong>Flow</strong></span>

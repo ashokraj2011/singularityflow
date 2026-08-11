@@ -66,6 +66,7 @@ export class LifecycleTreeProvider implements vscode.TreeDataProvider<TreeNode>,
       ? (node.kind === 'initiative' || node.id === 'phases' || node.id === 'gate'
           || node.id === 'completed' || node.id.startsWith('completed-story:')
           || node.id.startsWith('completed-initiative:')
+          || node.id === 'story:phase-rail' || node.contextValue === 'sflow.story.phase.current'
           || node.id === 'configuration' || node.id === 'config:capabilities' || node.id === 'unavailable'
         ? vscode.TreeItemCollapsibleState.Expanded
         : vscode.TreeItemCollapsibleState.Collapsed)

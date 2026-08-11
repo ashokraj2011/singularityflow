@@ -45,6 +45,7 @@ import {
   expandEpicEvidenceDirectory, validateEvidenceUrl,
   type EvidenceCatalogItem, type EvidenceTarget
 } from './evidence.ts';
+import type { EvidenceSourceKind } from './views/evidence-manager.ts';
 
 /** Injected by esbuild: the commit and time this bundle was built from. */
 declare const __SFLOW_BUILD__: string;
@@ -1504,15 +1505,18 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
    * CLI performs every mutation, so files, folders and links receive the same hashes, receipts,
    * commits, pushes and sequence checks as `/sf-upload` in Copilot.
    */
-  const attachEvidence = async (): Promise<void> => {
+  const collectEvidence = async (
+    requestedTarget?: EvidenceTarget,
+    requestedSource?: EvidenceSourceKind
+  ): Promise<void> => {
     const available = evidenceTargets(store.current.snapshot);
     if (!available.length) {
       void vscode.window.showWarningMessage(
         'Start or resume an Epic or Story before attaching evidence. The evidence must have a governed owner.');
       return;
     }
-    let target: EvidenceTarget | undefined = available[0];
-    if (available.length > 1) {
+    let target: EvidenceTarget | undefined = requestedTarget ?? available[0];
+    if (!requestedTarget && available.length > 1) {
       const picked = await vscode.window.showQuickPick(
         available.map((candidate) => ({
           label: candidate.label,
@@ -1527,7 +1531,7 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
     }
     if (!target) return;
 
-    const source = await vscode.window.showQuickPick([{
+    const source = requestedSource ? { value: requestedSource } : await vscode.window.showQuickPick([{
       label: 'Files, images or PDFs', value: 'files' as const,
       description: 'Select one or more local files'
     }, {
@@ -1712,38 +1716,13 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
       && item.id === node.evidence.evidenceId);
   };
 
-  const manageEvidence = async (node?: TreeNode): Promise<void> => {
-    const catalog = evidenceCatalog(store.current.snapshot);
-    if (!catalog.length) {
-      const action = await vscode.window.showInformationMessage(
-        'No governed evidence is attached to the active Story or Epic.', 'Attach evidence & designs');
-      if (action === 'Attach evidence & designs') await attachEvidence();
-      return;
-    }
-    const direct = resolveEvidenceNode(node);
-    const picked = direct ?? (await vscode.window.showQuickPick(catalog.map((item) => ({
-      label: item.label,
-      description: `${item.target.label} · ${item.id} · ${item.status}`,
-      detail: item.status === 'detached'
-        ? `${item.detachReason ?? 'Detached'}${item.detachedBy ? ` · ${item.detachedBy}` : ''}`
-        : `${item.mimeType ?? item.kind}${item.sha256 ? ` · sha256 ${item.sha256.slice(0, 12)}` : ''}`,
-      item
-    })), {
-      title: 'Manage evidence & designs',
-      placeHolder: 'Choose active evidence or inspect detached history',
-      matchOnDescription: true,
-      matchOnDetail: true
-    }))?.item;
-    if (!picked) return;
-    const actions = picked.status === 'active'
-      ? [{ label: 'Open or preview', value: 'open' as const }, { label: 'Detach evidence…', value: 'detach' as const }]
-      : [{ label: 'Open detached evidence (read-only)', value: 'open' as const }];
-    const action = await vscode.window.showQuickPick(actions, {
-      title: `${picked.id} — ${picked.label}`,
-      placeHolder: picked.status === 'active' ? 'Choose an action' : `Detached: ${picked.detachReason ?? 'reason unavailable'}`
+  const manageEvidence = async (): Promise<void> => {
+    const { EvidenceManagerPanel } = await import('./views/evidence-manager.ts');
+    EvidenceManagerPanel.show(store, {
+      attach: collectEvidence,
+      open: openEvidence,
+      detach: detachEvidenceItem
     });
-    if (action?.value === 'open') await openEvidence(picked);
-    else if (action?.value === 'detach') await detachEvidenceItem(picked);
   };
 
   const detachEvidence = async (node?: TreeNode): Promise<void> => {
@@ -2110,8 +2089,8 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
       if (await runPlannedAction(client, output)) await store.refresh();
     },
     'singularityFlow.startWork': startWork,
-    'singularityFlow.attachEvidence': attachEvidence,
-    'singularityFlow.manageEvidence': manageEvidence as never,
+    'singularityFlow.attachEvidence': manageEvidence,
+    'singularityFlow.manageEvidence': manageEvidence,
     'singularityFlow.detachEvidence': detachEvidence as never,
     'singularityFlow.addSource': addSource,
     /**

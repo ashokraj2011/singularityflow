@@ -330,6 +330,8 @@ Usage:
     [--type tech|business] [--parent ID] [--repositories A,B] [--lead-repository ID]
     [--metadata KEY=VALUE]... [--doc KEY=VALUE]... [--resource KEY=VALUE]...
     [--json]   (no checkout needed)
+  Capability parents are optional. Omit --parent to create a top-level capability; clear it in the
+  VS Code capability designer to move an existing capability back to the top level.
   singularity-flow capability publish [--lead URL] [--json]
     (after a capability review branch is merged, refresh its orphan state projection)
   singularity-flow capability proposals [--lead URL] [--all] [--json]

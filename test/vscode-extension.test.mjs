@@ -2072,6 +2072,23 @@ test('the shipping repository can become the first capability-map repository in 
   assert.doesNotMatch(html, /Choose which repository stores the capability map/);
 });
 
+test('remote capability mapping may create another top-level capability', () => {
+  const form = {
+    ...EMPTY_MAP_FORM,
+    lead: 'https://git.example/platform.git',
+    loaded: true,
+    capabilityId: 'rule-engine',
+    parents: [{ id: 'calculator', name: 'Calculator', depth: 0 }],
+    parent: ''
+  };
+
+  assert.deepEqual(mapProblems(form), []);
+  assert.doesNotMatch(mapCommand(form).join(' '), /--parent/);
+  const html = mapCapabilityHtml(form);
+  assert.match(html, /<option value="" selected>Top level \(no parent\)<\/option>/);
+  assert.match(html, /<option value="calculator">Calculator<\/option>/);
+});
+
 test('capability identifier validation updates in place without reloading the webview', () => {
   const repository = 'https://git.example/rule-ui.git';
   const base = {
@@ -2149,15 +2166,15 @@ test('the parent chooser offers every capability except moves that would create 
   assert.deepEqual(forNew, ['commerce', 'payments', 'payments-api']);
 });
 
-test('creating from the generic capability action defaults to the map root', () => {
-  assert.equal(defaultParentForCreate(capabilityFixture, null), 'commerce');
+test('creating from the generic capability action defaults to top level', () => {
+  assert.equal(defaultParentForCreate(capabilityFixture, null), null);
   assert.equal(defaultParentForCreate(capabilityFixture, 'payments'), 'payments');
   assert.equal(defaultParentForCreate([], null), null);
 
   const create = capabilitiesHtml(capabilityFixture, null, { parent: null }, null);
-  assert.match(create, /<option value="commerce" selected>Commerce<\/option>/);
-  assert.doesNotMatch(create, /<option value="" selected disabled>/,
-    'the valid map root is selected instead of a disabled empty option');
+  assert.match(create, /<option value="" selected>Top level \(no parent\)<\/option>/);
+  assert.doesNotMatch(create, /<option value="" selected disabled>/);
+  assert.doesNotMatch(create, /<option value="commerce" selected>/);
 });
 
 test('the capability form uses controlled kinds and makes its relationship editable', () => {
@@ -2167,6 +2184,7 @@ test('the capability form uses controlled kinds and makes its relationship edita
   assert.match(create, /<option value="delivery">Delivery<\/option>/);
   assert.doesNotMatch(create, /<input[^>]+data-field="kind"/);
   assert.match(create, /Linked under/);
+  assert.match(create, /Top level \(no parent\)/);
   assert.match(create, /<option value="payments" selected>[^<]*Payments<\/option>/);
   assert.match(create, /<option value="payments-api">/,
     'all existing capabilities, including ones that ship, are relationship targets');
@@ -2189,6 +2207,9 @@ test('an empty field is sent as a clearance, and an untouched one is not sent at
     ['capability', 'set', 'payments-api', '--kind', 'collection', '--repository', '', '--teams', 'Payments squad, Platform']);
   assert.deepEqual(capabilityArgv('set', 'payments', { name: ' Payments ' }),
     ['capability', 'set', 'payments', '--name', 'Payments']);
+  assert.deepEqual(capabilityArgv('set', 'payments', { parent: '' }),
+    ['capability', 'set', 'payments', '--parent', ''],
+    'clearing the parent moves an existing capability to the top level');
   assert.deepEqual(capabilityArgv('remove', 'payments'), ['capability', 'remove', 'payments']);
   assert.deepEqual(capabilityArgv('add', 'ledger', { parent: 'payments', kind: 'collection' }),
     ['capability', 'add', 'ledger', '--kind', 'collection', '--parent', 'payments']);

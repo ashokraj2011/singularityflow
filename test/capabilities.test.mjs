@@ -61,7 +61,7 @@ test('capability policy fold only permits equal or stricter child constraints', 
   assert.throws(() => foldCapabilityPolicy({}, { approvalMinimum: 0 }), /positive integer/);
 });
 
-test('capability tree validates a single root and resolves inherited policy', () => {
+test('capability trees resolve inherited policy within each parent chain', () => {
   const definition = validateCapabilities({
     version: 1,
     capabilities: {
@@ -77,21 +77,22 @@ test('capability tree validates a single root and resolves inherited policy', ()
   assert.equal(resolved.policy.gateSeverity, 'block');
 });
 
-test('capability validation rejects multiple roots and cycles', () => {
-  assert.throws(() => validateCapabilities({
+test('capability validation allows multiple top-level capabilities and rejects cycles', () => {
+  const definition = validateCapabilities({
     version: 1,
     capabilities: {
       one: { kind: 'collection' },
       two: { kind: 'collection' }
     }
-  }), /exactly one root/);
+  });
+  assert.deepEqual(capabilityTree(definition).map(({ id }) => id), ['one', 'two']);
   assert.throws(() => validateCapabilities({
     version: 1,
     capabilities: {
       one: { kind: 'collection', parent: 'two' },
       two: { kind: 'collection', parent: 'one' }
     }
-  }), /exactly one root|cycle/);
+  }), /cycle/);
 });
 
 test('break-glass leases relax policy outside the monotone fold and expire or revoke explicitly', () => {

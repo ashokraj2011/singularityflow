@@ -10,10 +10,10 @@ disable-model-invocation: true
 <!-- sflow-output-contract: concise-relay -->
 **Output contract:** Return the named CLI command output verbatim; do not elaborate, re-narrate, or hide errors.
 
-What an organisation builds is a tree of capabilities with exactly one root. A
-capability that names a repository is a leaf that **ships**; one that names no
-repository **groups** the capabilities beneath it. Kind is a classification and
-says nothing about which of the two it is — the repository does.
+What an organisation builds is one or more capability trees. A capability may be
+top-level or linked under another capability. A **delivery** capability ships from
+one or more repositories; a **collection** groups related capabilities and names no
+repository. Either kind may contain children.
 
 1. Run `singularity-flow capabilities list`.
 2. Ask which configured capability to inspect when it is not clear from context.

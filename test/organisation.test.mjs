@@ -101,8 +101,8 @@ test('the first capability governs the repository it is mapped into', async () =
   assert.match(map, /commerce:/);
   assert.match(map, /applicationId: APP-1001/);
   assert.match(map, /costCenter: CC-42/);
-  // The placeholder root `init` writes gives way to the capability actually being mapped, rather
-  // than colliding with it — a tree may have exactly one root.
+  // The placeholder `init` writes gives way to the capability actually being mapped rather than
+  // remaining as an unrelated starter entry.
   assert.doesNotMatch(map, /placeholder|your-capability/i);
 
   // And the second one finds the map already there rather than governing again.

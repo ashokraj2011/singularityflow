@@ -156,7 +156,7 @@ export function mapCapabilityHtml(form: MapCapabilityForm): string {
     ${form.kind === 'delivery' ? `<div class="form-grid">
       <label class="field full"><span>Clone URL</span><input type="text" value="${escape(form.repositoryUrl)}" data-map="repositoryUrl"
         placeholder="https://git.example.corp/acme/payments-api.git"><small>The repository is declared in the portfolio so workspaces can clone it.</small></label>
-    </div>` : '<p class="muted">A Collection groups capabilities and does not ship from a repository.</p>'}
+    </div>` : '<p class="muted">A Collection groups capabilities and does not ship from a repository. To map code, choose Delivery above; the Git clone URL field will appear here.</p>'}
 
     <div class="editor-card">
       <p class="eyebrow">Capability map</p>

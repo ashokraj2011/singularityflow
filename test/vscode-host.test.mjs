@@ -1310,7 +1310,7 @@ test('the Flow Impact panel exposes governed measurement and aggregate reporting
   assert.match(panel.webview.html, /Configuration/);
 });
 
-test('the capability editor proposes and activates organisation changes without writing the application branch', async (t) => {
+test('the capability editor delegates creation to the mapping form that accepts a Git URL', async (t) => {
   if (!requireBundle(t)) return;
   // The designer runs in an application checkout, but the map's authority is the lead repository's
   // sflow/config branch. Prove the complete reviewed path and, critically, prove that the Story or
@@ -1345,40 +1345,20 @@ test('the capability editor proposes and activates organisation changes without 
   assert.match(panel.webview.html, /data-select="product"/);
 
   await panel.post({ type: 'add', parent: 'product' });
-  assert.match(panel.webview.html, /New capability/, 'the form for a capability that does not exist yet');
-
-  // A delivery capability, naming a repository the portfolio actually declares.
-  await panel.post({
-    type: 'create',
-    edits: { id: 'checkout-api', name: 'Checkout API', kind: 'delivery', parent: 'product', repository: 'api' }
-  });
-
-  const outcome = await until(() => {
-    const review = registered.panels.find((entry) => entry.id === 'singularityFlow.capabilityProposal');
-    if (review) return { review, error: null };
-    const error = registered.output.find((entry) => /refused:|failed:/.test(entry));
-    return error ? { review: null, error } : null;
-  });
-  assert.ok(outcome.review, `the proposal review opened: ${outcome.error ?? panel.webview.html}`);
-  const review = outcome.review;
-  const reviewHtml = await until(() => review.webview.html.includes('Checkout API')
-    ? review.webview.html : null);
-  assert.match(reviewHtml, /Capability proposal review/);
+  const mapping = await until(() => registered.panels.find((entry) =>
+    entry.id === 'singularityFlow.mapCapability') ?? null);
+  assert.ok(mapping, 'adding opens the governed capability mapping form');
+  assert.match(mapping.webview.html, /Repository it ships from/);
+  assert.match(mapping.webview.html, /choose Delivery above; the Git clone URL field will appear here/,
+    'a Collection explains how to expose repository entry instead of silently hiding it');
+  await mapping.post({ type: 'field', field: 'kind', value: 'delivery' });
+  await mapping.post({ type: 'redraw' });
+  assert.match(mapping.webview.html, /Clone URL/,
+    'the creation path has an explicit place for a new Git repository URL');
+  assert.doesNotMatch(panel.webview.html, /New capability/,
+    'the editor no longer exposes the duplicate repository-ID-only creation form');
   assert.equal(await readFile(capabilitiesFile, 'utf8'), before,
-    'creating the proposal did not edit the application checkout');
-
-  registered.selfApprovalAnswer = 'Merge and activate';
-  await review.post({ type: 'activate' });
-  await until(() => run('git', ['show', 'sflow/config:singularity/capabilities.yml'], {
-    cwd: remote, allowFailure: true
-  }).stdout.includes('checkout-api') || null);
-  assert.match(run('git', ['show', 'sflow/config:singularity/capabilities.yml'], { cwd: remote }).stdout,
-    /name: Checkout API/);
-  assert.equal(await readFile(capabilitiesFile, 'utf8'), before,
-    'activation still did not rewrite the pinned application-branch configuration');
-  const activatedNotice = await until(() => registered.infos.find((message) =>
-    /activated on sflow\/config/.test(message)) ?? null);
-  assert.match(activatedNotice, /activated on sflow\/config/);
+    'opening the mapping flow did not edit the application checkout');
 });
 
 test('the capability screen shows the policy that applies, not only the policy that was written', async (t) => {

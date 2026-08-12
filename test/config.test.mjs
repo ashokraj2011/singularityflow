@@ -42,7 +42,8 @@ test('starter YAML resolves feature, bugfix, and Figma-mobile templates and agen
   assert.equal(feature.sequenceGates.publicationPending, 'hard');
   assert.deepEqual(feature.phases.find((item) => item.id === 'design').inputs, [{ phase: 'requirements', optional: false, maxBytes: null, path: 'artifacts/requirements/requirements.md' }]);
   assert.deepEqual(feature.phases.find((item) => item.id === 'intake').clarification, {
-    mode: 'required', maxQuestions: 5, topics: ['problem', 'outcome', 'users', 'scope', 'constraints']
+    mode: 'required', maxQuestions: 5, topics: ['problem', 'outcome', 'users', 'scope', 'constraints'],
+    markers: { mode: 'off' }
   });
   assert.equal(feature.phases.find((item) => item.id === 'requirements').clarification.mode, 'required');
   assert.equal(feature.phases.find((item) => item.id === 'design').clarification.mode, 'required');

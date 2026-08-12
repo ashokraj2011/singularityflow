@@ -1,4 +1,5 @@
 import path from 'node:path';
+import { markerPolicy } from './clarification-markers.mjs';
 import { groundingRecordRelative } from './grounding.mjs';
 import {
   exists, nowIso, posix, readJson, SingularityFlowError, snapshot, writeJson
@@ -160,7 +161,10 @@ export function normalizeClarificationPolicy(value = {}) {
     throw new SingularityFlowError('clarification must be an object or mode string.');
   }
   for (const key of Object.keys(value)) {
-    if (!['mode', 'maxQuestions', 'topics'].includes(key)) {
+    // `markers` is the marker policy, pinned separately from the conversational mode above
+    // [SPK:REQ-064]: one governs whether the agent asks questions, the other governs what happens
+    // to an unanswered `[NEEDS CLARIFICATION: ...]` left in the artifact.
+    if (!['mode', 'maxQuestions', 'topics', 'markers'].includes(key)) {
       throw new SingularityFlowError(`clarification contains unknown field '${key}'.`);
     }
   }
@@ -180,7 +184,7 @@ export function normalizeClarificationPolicy(value = {}) {
   if (normalizedTopics.length !== topics.length) {
     throw new SingularityFlowError('clarification.topics must not contain duplicates.');
   }
-  return { mode, maxQuestions, topics: normalizedTopics };
+  return { mode, maxQuestions, topics: normalizedTopics, markers: markerPolicy(value.markers) };
 }
 
 export function renderClarificationProtocol(value, phaseId) {

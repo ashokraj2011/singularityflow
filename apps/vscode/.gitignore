@@ -2,4 +2,8 @@ dist/
 node_modules/
 # Build outputs: the packaged extension, and the engine staged into it during packaging.
 *.vsix
-cli/
+# Anchored. Unanchored, `cli/` matches a directory of that name at any depth — including
+# `src/cli/`, which is hand-written source. Those three files predate the rule so git keeps
+# them in a clone, but every route that honours .gitignore dropped them: `npm pack` shipped
+# zero of them, and a build from the resulting tree fails to resolve ./cli/client.ts.
+/cli/

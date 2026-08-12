@@ -106,9 +106,22 @@ export function ignoredRanges(markdown) {
     /```[\s\S]*?```/g,
     /~~~[\s\S]*?~~~/g,
     /`[^`\n]*`/g,
+    // The kernel's paired blocks, whose *contents* sit between two comments rather than inside one,
+    // so the generic rule below cannot reach them.
     /<!--\s*singularity-flow:inputs:start\s*-->[\s\S]*?<!--\s*singularity-flow:inputs:end\s*-->/g,
     /<!--\s*singularity-flow:metadata:start\s*-->[\s\S]*?<!--\s*singularity-flow:metadata:end\s*-->/g,
-    /<!--\s*singularity-flow:[\s\S]*?-->/g
+    /* Any HTML comment `[SPK:REQ-063]`.
+     *
+     * This used to name only `singularity-flow:` comments, which meant an author's own commentary
+     * was live text: a clause anchor or a `[NEEDS CLARIFICATION: ...]` written inside `<!-- -->`
+     * counted. The starter specification template found it — its explanatory comment shows the
+     * marker grammar, so every first generation from the template would have been blocked under
+     * `markers: block` by the template's own example.
+     *
+     * The general rule is the right one anyway. A comment is invisible in the rendered document,
+     * and a requirement nobody can read is not a requirement.
+     */
+    /<!--[\s\S]*?-->/g
   ];
   for (const pattern of patterns) {
     let match;

@@ -1,7 +1,7 @@
 # Specification — {{WORK_ID}}
 
 <!--
-Scenarios come first, and general requirements come after them [SPK:REQ-068]. That ordering is the
+Scenarios come first, and general requirements come after them `[SPK:REQ-068]`. That ordering is the
 template's opinion: a requirement written before anyone has described the situation it serves tends
 to describe the system instead of the need, and nobody notices until verification.
 
@@ -10,9 +10,9 @@ Where you do not know something, say so with a marker rather than guessing:
     [NEEDS CLARIFICATION: which roles may retry a failed payment?]
 
 The question must be one non-empty line. Markers are extracted the same way clauses are, so a marker
-inside fenced or inline code is ignored [SPK:REQ-063]. This phase blocks publication while any
+inside fenced or inline code is ignored `[SPK:REQ-063]`. This phase blocks publication while any
 marker is unresolved, and a marker is only resolved when a later generation removes it *and* records
-the answer [SPK:REQ-067] — deleting the text alone is an integrity failure, not an answer.
+the answer `[SPK:REQ-067]` — deleting the text alone is an integrity failure, not an answer.
 -->
 
 ## Actors
@@ -74,8 +74,8 @@ will be measured; "fast" is not a requirement.
 
 ## Constitution articles
 
-Cite the article IDs this specification is bound by [SPK:REQ-100]. The kernel validates that each
-cited ID exists at the pinned revision before publication [SPK:REQ-101].
+Cite the article IDs this specification is bound by `[SPK:REQ-100]`. The kernel validates that each
+cited ID exists at the pinned revision before publication `[SPK:REQ-101]`.
 
 - <ART-…>
 

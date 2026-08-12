@@ -61,9 +61,22 @@ export function specificationQualityPolicy(value = {}) {
   if (typeof checklist !== 'string' || !checklist) {
     throw new SingularityFlowError('specificationQuality.checklist must name a checklist definition.');
   }
+  /**
+   * Who may take an exception `[SPK:REQ-061]`.
+   *
+   * Absent means the phase's own approval authority is enough: whoever may approve may also record
+   * a reasoned exception. Naming a group narrows it — useful when "we are shipping without stated
+   * latency numbers" should be a decision an architect takes rather than anyone with an approval
+   * bit. Never a way to make an exception cheaper, only a way to make it dearer.
+   */
+  const exceptionAuthority = value?.exceptionAuthority ?? null;
+  if (exceptionAuthority !== null && (typeof exceptionAuthority !== 'string' || !exceptionAuthority.trim())) {
+    throw new SingularityFlowError('specificationQuality.exceptionAuthority must name an approval authority group.');
+  }
   return Object.freeze({
     mode,
     checklist,
+    exceptionAuthority,
     // Assisted analysis is opt-in and never the default; the deterministic path must stand alone.
     assisted: Boolean(value?.assisted ?? false)
   });
@@ -151,6 +164,15 @@ export function analyzeSpecification(markdown, {
     mode: resolved.mode,
     clauseCount: clauses.length,
     markerCount: markers.length,
+    // The reconciled marker sets, not only their count. Every consumer needs them — the publication
+    // gate to decide, the review packet to render `[SPK:REQ-059]` — and each one re-extracting them
+    // would be a second place for the rules to drift from this one.
+    markers: {
+      open: reconciled.open.map(({ question, questionHash, line }) => ({ question, questionHash, line })),
+      resolved: reconciled.resolved.map(({ question, questionHash }) => ({ question, questionHash })),
+      vanished: reconciled.vanished.map(({ question, questionHash, reason }) => ({ question, questionHash, reason })),
+      malformed: malformed.map(({ line, reason }) => ({ line, reason }))
+    },
     findings: sorted,
     // Said out loud in the report itself, because a clean deterministic run is the moment someone
     // is most likely to read it as "the specification is good" `[SPK:CON-027]`.
@@ -158,9 +180,27 @@ export function analyzeSpecification(markdown, {
   };
 }
 
-/** Apply the policy to a report: `enforce` blocks, `warn` reports, `off` is silent. */
-export function evaluateSpecificationQuality(report) {
-  const messages = report.findings.map((finding) => finding.message);
+/**
+ * Findings that belong to the marker policy rather than to this one.
+ *
+ * The two policies are pinned separately `[SPK:REQ-064]`, so an unresolved marker must be reported
+ * by exactly one of them. Reported by both, a single omission reads as two problems and the reviewer
+ * cannot tell which gate they are actually standing in front of.
+ */
+export const MARKER_FINDING_KINDS = Object.freeze([
+  'unresolved-clarification', 'malformed-clarification', 'clarification-removed-unanswered'
+]);
+
+/**
+ * Apply the policy to a report: `enforce` blocks, `warn` reports, `off` is silent.
+ *
+ * `exclude` lets the caller hand the marker findings to the marker policy instead. It defaults to
+ * empty so a direct `spec analyze` still shows the reader everything the analyzer found.
+ */
+export function evaluateSpecificationQuality(report, { exclude = [] } = {}) {
+  const messages = report.findings
+    .filter((finding) => !exclude.includes(finding.kind))
+    .map((finding) => finding.message);
   if (report.mode === 'off' || !messages.length) return { errors: [], warnings: [] };
   return report.mode === 'enforce' ? { errors: messages, warnings: [] } : { errors: [], warnings: messages };
 }

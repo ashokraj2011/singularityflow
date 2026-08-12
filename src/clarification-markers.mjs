@@ -113,27 +113,31 @@ export function markerPolicy(value) {
 }
 
 /**
- * Which markers are still open, and which were answered on the record. `[SPK:REQ-067]`
+ * Which markers are still open, which were resolved, and which merely disappeared. `[SPK:REQ-067]`
  *
- * `answers` are the recorded clarification entries for this subject — each carrying the question
- * hash it answered. A marker still present in the current text is open regardless of whether an
- * answer exists, because the artifact has not yet been regenerated to incorporate it.
+ * The clause is exact and worth following exactly: a marker is resolved only when a later artifact
+ * generation **removes it** *and* the answer is on record. Both halves are load-bearing, in opposite
+ * directions.
  *
- * The third category is the one that matters: a question that was previously present, is gone now,
- * and has no recorded answer. That is text deleted rather than resolved, and it is reported as an
- * integrity concern rather than as progress.
+ * Removal alone is not resolution — deleting the question is what someone does to quiet the gate.
+ *
+ * And an answer alone is not resolution either, which is the easier half to get wrong. Filing the
+ * answer while leaving `[NEEDS CLARIFICATION: ...]` in the text publishes an artifact that still
+ * *asks the question*, and the artifact is the thing people read. So a marker present in the current
+ * text is open regardless of what has been filed against it: the answer has to reach the document.
  */
 export function reconcileMarkers({ current = [], previous = [], answers = [] } = {}) {
   const answered = new Set(answers.map((entry) => markerQuestionHash(entry.questionHash ?? entry.question)));
   const currentHashes = new Set(current.map((marker) => marker.questionHash));
+  const gone = previous.filter((marker) => !currentHashes.has(marker.questionHash));
 
-  const open = current.filter((marker) => !answered.has(marker.questionHash));
-  const incorporated = current.filter((marker) => answered.has(marker.questionHash));
-  const vanished = previous
-    .filter((marker) => !currentHashes.has(marker.questionHash) && !answered.has(marker.questionHash))
-    .map((marker) => ({ ...marker, reason: 'the marker was removed without a recorded clarification answer' }));
-
-  return { open, incorporated, vanished };
+  return {
+    open: [...current],
+    resolved: gone.filter((marker) => answered.has(marker.questionHash)),
+    vanished: gone
+      .filter((marker) => !answered.has(marker.questionHash))
+      .map((marker) => ({ ...marker, reason: 'the marker was removed without a recorded clarification answer' }))
+  };
 }
 
 /**

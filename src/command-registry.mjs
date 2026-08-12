@@ -137,7 +137,8 @@ function resolveInputsOperation(definition, options) {
 
 function resolveSpecOperation(definition, positionals, options) {
   const subcommand = positionals[1] ?? 'trace';
-  if (subcommand === 'coverage' || subcommand === 'trace') return never(`spec.${subcommand}`, definition, 'read');
+  // `analyze` writes nothing: it reads the artifact, evaluates the pinned policies, and prints.
+  if (['coverage', 'trace', 'analyze'].includes(subcommand)) return never(`spec.${subcommand}`, definition, 'read');
   if (subcommand === 'index' || subcommand === 'acceptance') {
     return optionBoolean(options, 'dry-run')
       ? never(`spec.${subcommand}.dry-run`, definition, 'read')
@@ -259,6 +260,7 @@ export function operationCatalog() {
     never('review.write', reviewDefinition, 'mutation'),
     never('inputs.dry-run', inputsDefinition, 'read'),
     never('inputs.prepare', inputsDefinition, 'mutation'),
+    never('spec.analyze', specDefinition, 'read'),
     never('spec.index', specDefinition, 'mutation'),
     never('spec.index.dry-run', specDefinition, 'read'),
     never('spec.claims', specDefinition, 'mutation'),

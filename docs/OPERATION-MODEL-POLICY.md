@@ -79,6 +79,7 @@ Every public operation is classified before its implementation module is importe
 | snapshot | read | never | — | — |
 | spec.acceptance | mutation | never | — | — |
 | spec.acceptance.dry-run | read | never | — | — |
+| spec.analyze | read | never | — | — |
 | spec.claims | mutation | never | — | — |
 | spec.coverage | read | never | — | — |
 | spec.index | mutation | never | — | — |

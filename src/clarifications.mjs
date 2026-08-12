@@ -1,5 +1,5 @@
 import path from 'node:path';
-import { markerPolicy } from './clarification-markers.mjs';
+import { markerPolicy, markerQuestionHash } from './clarification-markers.mjs';
 import { groundingRecordRelative } from './grounding.mjs';
 import {
   exists, nowIso, posix, readJson, SingularityFlowError, snapshot, writeJson
@@ -8,16 +8,48 @@ import {
 const CLARIFICATION_MODES = new Set(['off', 'when-needed', 'required']);
 const DEFAULT_MAX_QUESTIONS = 5;
 
-function resolvedPolicy(definition, workflow, phase) {
+/**
+ * The pinned clarification policy for a phase.
+ *
+ * Exported because the marker half of this policy is enforced at the publication and submission
+ * boundaries in `src/specification-gate.mjs`, and a second copy of this three-way fallback is how
+ * the two surfaces would drift into disagreeing about what a Story pinned.
+ */
+export function resolvedClarificationPolicy(definition, workflow, phase) {
   const resolved = workflow.resolution?.phases?.find((entry) => entry.id === phase.id);
   return normalizeClarificationPolicy(resolved?.clarification ?? phase.clarification ?? definition.phases?.[phase.id]?.clarification);
 }
+
+const resolvedPolicy = resolvedClarificationPolicy;
 
 export function clarificationRecordRelative(definition, workflow, phase, generation = phase.generation + 1) {
   return posix(path.join(
     definition.workItemRoot ?? 'singularity/work-items', workflow.workItem.id, 'context',
     `clarifications-${phase.id}-gen${generation}.json`
   ));
+}
+
+/**
+ * The marker this answer resolves, if it resolves one. `[SPK:REQ-066]`
+ *
+ * A marker is identified by its question text rather than by where it sat in the document, because
+ * a line number moves the moment a paragraph is inserted above it, and the reviewer answered the
+ * question — not the line. `markerQuestionHash` is the same normalization the extractor applies, so
+ * an answer recorded against a reflowed question still binds.
+ *
+ * Accepting the bare question string as well as the object shape is deliberate: the CLI flag people
+ * will actually use is `--marker "<the question>"`, copied out of the artifact.
+ */
+function normalizeMarkerBinding(value, index) {
+  if (value === undefined || value === null || value === '') return null;
+  const question = typeof value === 'string' ? value : String(value.question ?? '');
+  const questionHash = markerQuestionHash(
+    typeof value === 'string' ? value : value.questionHash ?? value.question ?? ''
+  );
+  if (!questionHash) {
+    throw new SingularityFlowError(`Clarification response ${index + 1} names a marker with no question text.`);
+  }
+  return { question: markerQuestionHash(question), questionHash };
 }
 
 function normalizeResponse(value, index) {
@@ -33,6 +65,13 @@ function normalizeResponse(value, index) {
   if (!answer) throw new SingularityFlowError(`Clarification response ${index + 1} requires the human answer or deferral rationale.`);
   if (!['answered', 'deferred'].includes(status)) throw new SingularityFlowError(`Clarification response ${index + 1} status must be answered or deferred.`);
   if (status === 'answered' && blocking) throw new SingularityFlowError(`Clarification response ${index + 1} cannot be both answered and blocking.`);
+  const marker = normalizeMarkerBinding(value.marker, index);
+  // A deferred answer is an explicit "not decided yet", so it cannot also be the thing that lets the
+  // marker leave the artifact. Recording it as a resolution would let a marker be closed by saying
+  // nothing about it at length.
+  if (marker && status !== 'answered') {
+    throw new SingularityFlowError(`Clarification response ${index + 1} resolves a clarification marker, so it must be answered rather than ${status}.`);
+  }
   return {
     id: value.id ?? `Q-${String(index + 1).padStart(3, '0')}`,
     question,
@@ -40,9 +79,29 @@ function normalizeResponse(value, index) {
     answer,
     status,
     blocking,
+    ...(marker ? { marker } : {}),
     ...(value.owner ? { owner: String(value.owner).trim() } : {}),
     ...(value.impact ? { impact: String(value.impact).trim() } : {})
   };
+}
+
+/**
+ * The clarification record for one generation, or null.
+ *
+ * Read-only and forgiving: callers that only want the marker answers should not have to run the
+ * full checkpoint verification, and an unreadable record is not their failure to report.
+ */
+export async function readClarificationRecord(root, definition, workflow, phase, generation) {
+  const relative = clarificationRecordRelative(definition, workflow, phase, generation);
+  if (!(await exists(path.join(root, relative)))) return null;
+  return readJson(path.join(root, relative)).catch(() => null);
+}
+
+/** Every marker question hash a clarification record answers. */
+export function answeredMarkerHashes(record) {
+  return [...new Set((record?.responses ?? [])
+    .map((response) => response.marker?.questionHash)
+    .filter(Boolean))];
 }
 
 export async function recordClarificationResponses(root, definition, workflow, phase, {

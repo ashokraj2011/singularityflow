@@ -743,6 +743,21 @@ From a clean clone, update the tracked branch, create the distribution tarball, 
 
 `npm run install:local` is an alias for the same script.
 
+On Windows, open **Git Bash** in the Singularity Flow checkout and use the Windows wrapper. It
+checks Node.js 20+, updates the checkout safely, confirms that the CRLF Agent Markdown fix is
+present, and delegates to the same validated installer:
+
+```bash
+bash ./install-windows-git-bash.sh
+
+# With a corporate npm registry / Artifactory
+bash ./install-windows-git-bash.sh \
+  --registry "https://artifacts.company.com/artifactory/api/npm/npm-virtual/"
+```
+
+It does not change global or repository `core.autocrlf`, run `dos2unix`, or rewrite tracked files.
+Keep registry credentials in the user's `.npmrc`.
+
 Before dependency installation, the script asks you to choose:
 
 1. The registry currently returned by `npm config get registry`.

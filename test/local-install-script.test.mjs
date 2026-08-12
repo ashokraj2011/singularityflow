@@ -46,6 +46,23 @@ test('local installer performs a safe ordered pull, pack, global install, and pl
   assert.ok(script.indexOf('npm install --global "$PROJECT_DIR/$TARBALL"') < script.indexOf('singularity-flow plugin install'));
 });
 
+test('Windows Git Bash wrapper validates CRLF support and delegates to the canonical installer', async () => {
+  const scriptPath = path.join(root, 'install-windows-git-bash.sh');
+  const script = await readFile(scriptPath, 'utf8');
+  const packageJson = JSON.parse(await readFile(path.join(root, 'package.json'), 'utf8'));
+  assert.equal(packageJson.scripts['install:windows'], 'bash ./install-windows-git-bash.sh');
+  assert.ok((await stat(scriptPath)).mode & 0o100, 'Windows Git Bash wrapper must be executable');
+  assert.match(script, /Node\.js 20 or newer is required/);
+  assert.match(script, /git -C "\$PROJECT_DIR" pull --ff-only/);
+  assert.match(script, /Git for Windows commonly checks Markdown out with CRLF/);
+  assert.match(script, /exec bash "\$PROJECT_DIR\/install\.sh"/);
+  assert.match(script, /--registry/);
+  assert.match(script, /--cli-only/);
+  assert.match(script, /--no-copilot-telemetry/);
+  assert.doesNotMatch(script, /core\.autocrlf|git config|dos2unix|sed -i/,
+    'the wrapper must not rewrite files or alter Git line-ending policy');
+});
+
 test('single installer supports Artifactory without accepting credentials in URLs', async () => {
   const script = await readFile(path.join(root, 'install.sh'), 'utf8');
   assert.match(script, /--registry=\*/);

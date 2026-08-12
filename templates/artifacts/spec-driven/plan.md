@@ -1,7 +1,7 @@
 # Implementation plan — {{WORK_ID}}
 
 Derived from the approved specification. Cite the clause each decision serves, so convergence can
-join intent to implementation at requirement altitude rather than by path [SPK:REQ-071].
+join intent to implementation at requirement altitude rather than by path `[SPK:REQ-071]`.
 
 ## Approach
 
@@ -10,7 +10,7 @@ How this will be built, and why this way rather than the obvious alternative.
 ## Affected surfaces
 
 Modules, contracts, data, and interfaces this touches. Expected paths are a planning aid; the
-authority on what actually changed remains reconciliation [SPK:CON-031].
+authority on what actually changed remains reconciliation `[SPK:CON-031]`.
 
 | Surface | Change | Serves |
 |---|---|---|
@@ -31,7 +31,7 @@ that will be argued about at verification.
 
 ## Constitution articles
 
-Article IDs this plan is bound by [SPK:REQ-100].
+Article IDs this plan is bound by `[SPK:REQ-100]`.
 
 ## Risks and rollback
 

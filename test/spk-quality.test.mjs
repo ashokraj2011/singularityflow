@@ -9,6 +9,9 @@
  */
 import test from 'node:test';
 import assert from 'node:assert/strict';
+import { readFile } from 'node:fs/promises';
+
+import { extractClauses } from '../src/specifications.mjs';
 
 import {
   MARKER_MODES, evaluateMarkerPolicy, extractMarkers, markerPolicy, reconcileMarkers
@@ -176,6 +179,51 @@ test('every checklist article needs a decision, and an exception needs a reason'
   // Warn mode reports the same problems without blocking.
   assert.equal(validateChecklistDecisions([], { mode: 'warn' }).errors.length, 0);
   assert.equal(validateChecklistDecisions([], { mode: 'warn' }).warnings.length, 6);
+});
+
+test('the starter template leads with scenarios and asks for what is usually left out', async () => {
+  /**
+   * `[SPK:REQ-068]` `[SPK:REQ-069]`. The ordering is the substance of the clause, not decoration: a
+   * requirement written before anyone described the situation it serves tends to describe the
+   * system instead of the need, and nobody notices until verification. A well-meant reorganisation
+   * of this template would undo that silently, so the order is asserted rather than trusted.
+   */
+  const template = await readFile(new URL('../templates/artifacts/spec-driven/spec.md', import.meta.url), 'utf8');
+  const at = (heading) => template.indexOf(`\n## ${heading}`);
+  for (const heading of [
+    'Actors', 'User scenarios', 'Failure and empty states', 'Permissions', 'Boundary conditions',
+    'Requirements', 'Non-functional requirements', 'Assumptions'
+  ]) assert.ok(at(heading) > -1, `the starter template has no '${heading}' section`);
+
+  assert.ok(at('User scenarios') < at('Requirements'), 'general requirements come before the scenarios they serve');
+  assert.ok(at('Actors') < at('User scenarios'), 'scenarios are described before their actors');
+  assert.match(template, /\*\*Given\*\*[\s\S]*\*\*When\*\*[\s\S]*\*\*Then\*\*/, 'no Given/When/Then acceptance case');
+  assert.match(template, /\*\*Priority:\*\*/, 'scenarios are not prioritized');
+
+  // The marker grammar is shown, and shown inside a comment: a template that shipped a live marker
+  // would block the first publication of every Story on its own boilerplate.
+  assert.match(template, /\[NEEDS CLARIFICATION: [^\]\n]+\]/);
+  assert.deepEqual(extractMarkers(template).markers, [], 'the template ships an unresolved marker');
+});
+
+test('a starter template contributes no clauses of its own', async () => {
+  /**
+   * The templates explain themselves by citing the clause that motivates each section. Written as
+   * bare `[SPK:REQ-071]`, those citations are **anchors**, so every Story started from a template
+   * inherited them as clauses of its own specification — `spec index` counted boilerplate as
+   * requirements, and a phase could satisfy "has stable clause anchors" without the author writing
+   * one. They are wrapped in inline code now, which extraction already ignores.
+   */
+  const directory = new URL('../templates/artifacts/spec-driven/', import.meta.url);
+  for (const name of ['spec.md', 'plan.md', 'convergence.md', 'release.md']) {
+    const template = await readFile(new URL(name, directory), 'utf8');
+    assert.deepEqual(
+      extractClauses(template).map((clause) => clause.id), [],
+      `${name} contributes clauses to every Story that starts from it`
+    );
+    // The citations must still be readable — the point was never to delete them.
+    assert.match(template, /`\[SPK:(?:REQ|CON)-\d{3}\]`/, `${name} lost its clause citations`);
+  }
 });
 
 test('one requirement written twice is reported, since it will be verified twice', () => {

@@ -1,6 +1,6 @@
 # Release conformance — {{WORK_ID}}
 
-The final human-readable trace [SPK:REQ-042]. Evidence lives below `verification/`; this document
+The final human-readable trace `[SPK:REQ-042]`. Evidence lives below `verification/`; this document
 says what it proves.
 
 ## Requirement trace
@@ -11,14 +11,14 @@ says what it proves.
 ## Constitution conformance
 
 Each cited or evidence-required article, and its verdict. A model may propose evidence, but the
-verdict for a judged article is recorded by a human authority [SPK:CON-044].
+verdict for a judged article is recorded by a human authority `[SPK:CON-044]`.
 
 | Article | Type | Verdict | Recorded by |
 |---|---|---|---|
 
 ## Exceptions
 
-Every constitution exception, with article, reason, scope, authority, and expiry [SPK:REQ-103].
+Every constitution exception, with article, reason, scope, authority, and expiry `[SPK:REQ-103]`.
 
 ## Deviations
 

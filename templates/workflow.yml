@@ -244,7 +244,13 @@ artifactSets:
     primary: spec.md
     members:
       - { path: spec.md, role: specification, required: true }
-      - { path: checklists/requirements.md, role: specification-quality, required: true }
+      # Advisory, not required, and deliberately so. The governed record of the reviewer's checklist
+      # is the approval decision itself [SPK:REQ-060] — one decision per article, bound to a human
+      # identity the kernel authenticated. A required Markdown file beside the specification would
+      # be a second copy of those decisions that the author writes about themselves, which is the
+      # provenance problem the protected sidecars exist to avoid. This member is a place to write
+      # review notes, and it is never the evidence.
+      - { path: checklists/requirements.md, role: specification-quality, required: false, authority: advisory }
   spec-driven-planning:
     primary: plan.md
     members:

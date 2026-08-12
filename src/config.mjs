@@ -7,6 +7,7 @@ import YAML from 'yaml';
 import {
   secureRepositoryPath,
   SingularityFlowError,
+  posix,
   readJson,
   snapshot,
   writeText
@@ -30,6 +31,7 @@ import {
 import { normalizeLedgerConfig } from './ledger-config.mjs';
 import { normalizeClarificationPolicy } from './clarifications.mjs';
 import { specificationQualityPolicy } from './specification-quality.mjs';
+import { normalizeArtifactSets } from './artifact-sets.mjs';
 import { normalizeMcpServers, validateMcpAgentTools } from './mcp.mjs';
 import { normalizeSpecPolicy } from './specifications.mjs';
 import { normalizeHarnessImports } from './harness-imports.mjs';
@@ -418,6 +420,7 @@ export function validateDefinition(definition) {
     if (!definition.noModel || typeof definition.noModel !== 'object' || Array.isArray(definition.noModel)) throw new SingularityFlowError('noModel must be an object.');
     if (!['warn', 'block'].includes(definition.noModel.unknownExternalCommands ?? 'warn')) throw new SingularityFlowError('noModel.unknownExternalCommands must be warn or block.');
   }
+  const sets = normalizeArtifactSets(definition.artifactSets);
   for (const [id, phase] of Object.entries(definition.phases)) {
     assertId(id, 'Phase');
     if (!phase.label || !phase.artifact?.path) throw new SingularityFlowError(`Phase '${id}' requires label and artifact.path.`);
@@ -454,6 +457,19 @@ export function validateDefinition(definition) {
     // resolved cleanly, and quietly enforced nothing — the exact failure this codebase keeps
     // producing when a declared policy has no validator standing between it and its consumer.
     if (phase.specificationQuality !== undefined) specificationQualityPolicy(phase.specificationQuality);
+    // A phase naming a set that does not exist would catalogue nothing and refuse nothing, so the
+    // reference is resolved at load rather than at the first publication that needed it.
+    if (phase.artifactSet !== undefined && !sets[phase.artifactSet]) {
+      throw new SingularityFlowError(`Phase '${id}' declares unknown artifact set '${phase.artifactSet}'.`);
+    }
+    if (phase.artifactSet !== undefined) {
+      const primary = path.posix.basename(posix(String(phase.artifact?.path ?? '')));
+      if (sets[phase.artifactSet].primary !== primary) {
+        throw new SingularityFlowError(
+          `Phase '${id}' artifact is '${primary}' but artifact set '${phase.artifactSet}' names '${sets[phase.artifactSet].primary}' as its primary member.`
+        );
+      }
+    }
   }
   for (const [workTypeId, workType] of Object.entries(definition.workTypes)) {
     const resolved = resolveWorkType(definition, workTypeId);
@@ -748,6 +764,9 @@ export function resolveWorkType(definition, workTypeId) {
     sequenceGates,
     contextPolicy,
     ledger: normalizeLedgerConfig(definition.ledger ?? {}),
+    // Pinned into the Story's resolution like every other policy `[SPK:REQ-110]`, so a later edit to
+    // the shared set cannot change what an in-flight Story owes.
+    artifactSets: normalizeArtifactSets(definition.artifactSets),
     spec: normalizeSpecPolicy(definition.spec ?? {}),
     harnessImports: normalizeHarnessImports(definition.harnessImports),
     documents,

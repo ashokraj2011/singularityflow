@@ -1,9 +1,9 @@
 {
   "schemaVersion": 1,
   "generatedFrom": "docs/topics",
-  "sourceCommit": "6cbf14e74637622b7608f2357bc8c7cf73af5906",
-  "topicCount": 30,
-  "contentSha256": "9eafd2e120964d6f6d04bdea4b210794a45b83376730f478cadc802666cccc96",
+  "sourceCommit": "f2565a9c1e0c6c2dbe4e35ea8550cbc04f499c42",
+  "topicCount": 31,
+  "contentSha256": "e9c64cabff48800d6e1cbb268f6a76c0e11cd52d5f59ec0f8b3d94b136d3ceee",
   "topics": [
     {
       "id": "approvals",
@@ -165,6 +165,13 @@
       "version": 1,
       "sha256": "ea360429d6155d590e078c10368a62674fc214238665eb937d7a8b0f7abfbb1c",
       "file": "sequence-gates.md"
+    },
+    {
+      "id": "specification-quality",
+      "title": "Specification quality and clarification markers",
+      "version": 1,
+      "sha256": "667b0ab2f41341e24c34750ff580798f341c7555272a0ad681f997fb6aa07c60",
+      "file": "specification-quality.md"
     },
     {
       "id": "starting-work",

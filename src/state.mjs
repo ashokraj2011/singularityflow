@@ -22,6 +22,9 @@ import {
 import { verifyGroundingRecord } from './grounding.mjs';
 import { answeredMarkerHashes, verifyClarificationRecord } from './clarifications.mjs';
 import {
+  artifactSetDiff, catalogArtifactSet, disclosureLines, memberRoot, resolvedArtifactSet
+} from './artifact-sets.mjs';
+import {
   evaluateApprovalChecklist, evaluateSpecificationGate, markerSummary,
   resolvedSpecificationQualityPolicy
 } from './specification-gate.mjs';
@@ -803,6 +806,23 @@ async function validatePhase(root, config, workflow, phase, { placeholders = tru
     const current = await snapshot(path.join(root, artifact.path));
     if (current.exists !== artifact.exists || current.size !== artifact.size || current.sha256 !== artifact.sha256) errors.push(`Artifact changed after registration: ${artifact.path}. Run singularity-flow artifact scan.`);
   }
+  /**
+   * The bundle still has to be the bundle. `[SPK:CON-045]`
+   *
+   * The registered-artifact check above covers whatever someone chose to register. A set member is
+   * owed whether or not it was registered — an unregistered `tasks.md` edited between publication
+   * and submission would otherwise pass every check while the approval named a bundle that no
+   * longer exists. Publication re-catalogues before this runs, so this can only fire on a change
+   * made outside a generation.
+   */
+  if (phase.artifactSet?.bundleSha256) {
+    const set = resolvedArtifactSet(config, workflow, phase);
+    const current = set ? await catalogArtifactSet(root, workDirRelative(config, workflow.workItem.id), phase, set) : null;
+    if (current && current.bundleSha256 !== phase.artifactSet.bundleSha256) {
+      const moved = artifactSetDiff(phase.artifactSet, current).changed.map((member) => member.path);
+      errors.push(`Artifact set '${current.setId}' changed after generation ${phase.artifactSet.generation}: ${moved.join(', ')}. Publish a new generation so the bundle and its approval agree.`);
+    }
+  }
   return errors;
 }
 
@@ -1051,6 +1071,40 @@ export async function publishGeneration(root, config, workflow, { phaseId, usage
   }];
   await updateArtifactMetadata(root, config, workflow, phase);
   await scanArtifacts(root, config, workflow, phase.id);
+
+  /**
+   * The typed artifact set `[SPK:REQ-110]` `[SPK:REQ-111]`.
+   *
+   * Catalogued after the scan, so the set describes the bundle as published. A missing required
+   * member is reported rather than refused: no clause asks for a refusal, and turning a descriptive
+   * declaration into a hard gate would break every Story already using a profile that ships one.
+   *
+   * When the phase was reopened for named members, this is also where the promise is checked. The
+   * clause asks that incidental change be *disclosed*, not forbidden — a regeneration that reflowed
+   * a neighbouring paragraph is usually harmless, and refusing it would push people into rewriting
+   * the whole bundle, which is the outcome surgical reopen exists to avoid.
+   */
+  const artifactSet = resolvedArtifactSet(config, workflow, phase);
+  if (artifactSet) {
+    const previous = phase.artifactSet ?? null;
+    const catalog = await catalogArtifactSet(root, workDirRelative(config, workflow.workItem.id), phase, artifactSet);
+    const diff = artifactSetDiff(previous, catalog, { declared: phase.surgicalReopen?.members ?? [] });
+    for (const line of disclosureLines(diff)) console.warn(`Warning: ${line}`);
+    for (const missing of catalog.missingRequired) console.warn(`Warning: artifact set '${catalog.setId}' is missing its required member ${missing}.`);
+    phase.artifactSet = {
+      ...catalog,
+      generation: phase.generation,
+      preserved: diff.preserved.map((member) => member.path),
+      changed: diff.changed.map((member) => member.path),
+      // Member names, not repository paths: this block is read beside `reopen.members`, which is
+      // the list the reviewer wrote, and the two have to be comparable at a glance.
+      ...(phase.surgicalReopen ? { reopen: { ...phase.surgicalReopen, incidental: diff.incidental.map((member) => member.member) } } : {})
+    };
+    // Consumed by the generation that answered it. A reopen that stayed on the phase would keep
+    // re-disclosing the same incidental change at every later generation.
+    delete phase.surgicalReopen;
+  }
+
   const specPolicy = workflow.resolution?.spec ?? config.spec ?? { mode: 'off' };
   if (specPolicy.mode !== 'off' && ['requirements', 'implementation-spec', 'conformance-report'].includes(phase.requiredArtifact?.kind)) {
     const priorSpecRecords = await loadActiveSpecRecords(workDir(root, config, workflow.workItem.id), workflow);
@@ -1372,6 +1426,10 @@ export async function approvePhase(root, config, workflow, {
     channel,
     generation: phase.generation,
     artifactSha256: (phase.artifacts ?? []).map((artifact) => ({ path: artifact.path, sha256: artifact.sha256 ?? null })),
+    // `[SPK:CON-045]`: a reviewer may discuss one member, but the approval binds the whole bundle.
+    // Recorded as the single hash of the complete set, so an approval cannot survive a member being
+    // regenerated underneath it — the bundle it named no longer exists.
+    ...(phase.artifactSet ? { artifactSet: phase.artifactSet.setId, bundleSha256: phase.artifactSet.bundleSha256 } : {}),
     reviewPacketSha256: packet?.packetSha256 ?? null,
     // Recorded on the decision, not on the phase: the articles are what *this reviewer* confirmed,
     // and a second approver's exceptions are their own. The checklist hash travels with them so a
@@ -1454,7 +1512,7 @@ async function refreshRequiredArtifact(root, config, workflow, phase) {
   else phase.artifacts.push({ path: required, kind: phase.requiredArtifact.kind ?? inferKind(required), status: 'pending', ...current, registeredAt: nowIso(), updatedAt: nowIso() });
 }
 
-export async function rejectPhase(root, config, workflow, { phaseId, target, reason, clauseIds = [], channel = 'terminal', actionContext = null } = {}) {
+export async function rejectPhase(root, config, workflow, { phaseId, target, reason, clauseIds = [], members = [], channel = 'terminal', actionContext = null } = {}) {
   await assertNoPendingPublication(root, config, workflow, 'reject');
   const phase = await assertPhaseSequence(root, workflow, 'reject', { requestedPhase: phaseId, allowedStatuses: ['awaiting_approval'] });
   if (phase.approvalPolicy.changeRequests?.commentRequired !== false && !reason?.trim()) {
@@ -1475,6 +1533,28 @@ export async function rejectPhase(root, config, workflow, { phaseId, target, rea
     const unknown = requestedClauses.filter((id) => !known.has(id));
     if (unknown.length) throw new SingularityFlowError(`Change request references unknown specification clause(s): ${unknown.join(', ')}.`);
   }
+  /**
+   * Surgical reopen `[SPK:REQ-111]`.
+   *
+   * A rejection may name the members it expects to be regenerated. That is a promise, and the next
+   * publication checks it: unchanged members must still hash the same, and anything else that moved
+   * is disclosed. Naming a member that is not in the set is refused here rather than silently
+   * ignored — a typo that quietly widens the promise to "nothing in particular" would make the whole
+   * disclosure vacuous.
+   */
+  const requestedMembers = [...new Set(members.map((member) => posix(String(member).trim())).filter(Boolean))];
+  if (requestedMembers.length) {
+    const set = resolvedArtifactSet(config, workflow, phase);
+    if (!set) throw new SingularityFlowError(`Phase '${phase.id}' has no artifact set, so it has no members to reopen.`);
+    const known = new Set(set.members.flatMap((member) => [
+      member.path, posix(path.posix.join(workDirRelative(config, workflow.workItem.id), memberRoot(phase), member.path))
+    ]));
+    const unknown = requestedMembers.filter((member) => !known.has(member));
+    if (unknown.length) {
+      throw new SingularityFlowError(`Artifact set '${set.id}' has no member(s): ${unknown.join(', ')}. Members are ${set.members.map((member) => member.path).join(', ')}.`);
+    }
+  }
+
   const timestamp = nowIso(); const key = actorKey(session.actor);
   workflow.changeRequests ??= [];
   const changeRequest = {
@@ -1485,6 +1565,7 @@ export async function rejectPhase(root, config, workflow, { phaseId, target, rea
     sourceGeneration: phase.generation,
     targetPhase: targetId,
     clauseIds: requestedClauses,
+    ...(requestedMembers.length ? { members: requestedMembers } : {}),
     comment: reason?.trim() || 'Changes requested.',
     requestedAt: timestamp,
     requestedBy: session.actor,
@@ -1532,9 +1613,23 @@ export async function rejectPhase(root, config, workflow, { phaseId, target, rea
     generation: phase.generation,
     artifactSha256: (phase.artifacts ?? []).map((artifact) => ({ path: artifact.path, sha256: artifact.sha256 ?? null })),
     reviewPacketSha256: packet?.packetSha256 ?? null,
+    ...(phase.artifactSet ? { artifactSet: phase.artifactSet.setId, bundleSha256: phase.artifactSet.bundleSha256 } : {}),
+    ...(requestedMembers.length ? { members: requestedMembers } : {}),
     ...(actionContext ? { actionContext } : {})
   };
   phase.approvals.push(decision); await writeDecision(root, config, workflow, phase, decision);
+  // The promise the next generation has to keep `[SPK:REQ-111]`. Recorded on the *target* phase,
+  // which is the one that will regenerate — rejecting `verification` back to `specification` means
+  // the specification is what gets reopened.
+  if (requestedMembers.length) {
+    workflow.phases[targetId].surgicalReopen = {
+      changeRequestId: changeRequest.id,
+      members: requestedMembers,
+      requestedAt: timestamp,
+      requestedBy: structuredClone(session.actor),
+      reason: changeRequest.comment
+    };
+  }
   workflow.history.push({ at: timestamp, actor: key, agent: session.agent, event: 'phase_rejected', phase: phase.id, detail: `${changeRequest.id} returned to ${targetId}: ${changeRequest.comment}` });
   await saveWorkflow(root, config, workflow);
   return {

@@ -137,9 +137,24 @@ function resolveInputsOperation(definition, options) {
 
 function resolveSpecOperation(definition, positionals, options) {
   const subcommand = positionals[1] ?? 'trace';
-  // `analyze` writes nothing: it reads the artifact, evaluates the pinned policies, and prints.
-  if (['coverage', 'trace', 'analyze'].includes(subcommand)) return never(`spec.${subcommand}`, definition, 'read');
-  if (subcommand === 'index' || subcommand === 'acceptance') {
+  /**
+   * `analyze` writes nothing: it reads the artifact, evaluates the pinned policies, and prints.
+   *
+   * `--assisted` is the exception and has to be classified separately `[SPK:REQ-057]`. Classified as
+   * `never` it would have been *unreachable* — the operation context forbids model execution for a
+   * `never` operation, so the flag would have parsed, dispatched, and then refused itself. `optional`
+   * with the deterministic report as its fallback says what is actually true: the model adds
+   * candidates, and everything still works without one.
+   */
+  if (subcommand === 'analyze') {
+    return optionBoolean(options, 'assisted')
+      ? optional('spec.analyze.assisted', 'spec.analyze', definition)
+      : never('spec.analyze', definition, 'read');
+  }
+  if (['coverage', 'trace'].includes(subcommand)) return never(`spec.${subcommand}`, definition, 'read');
+  // The advisory task map is derived from the approved specification, so it lives with the other
+  // clause-traceability operations rather than becoming a command of its own.
+  if (subcommand === 'index' || subcommand === 'acceptance' || subcommand === 'tasks') {
     return optionBoolean(options, 'dry-run')
       ? never(`spec.${subcommand}.dry-run`, definition, 'read')
       : never(`spec.${subcommand}`, definition, 'mutation');
@@ -261,12 +276,15 @@ export function operationCatalog() {
     never('inputs.dry-run', inputsDefinition, 'read'),
     never('inputs.prepare', inputsDefinition, 'mutation'),
     never('spec.analyze', specDefinition, 'read'),
+    optional('spec.analyze.assisted', 'spec.analyze', specDefinition),
     never('spec.index', specDefinition, 'mutation'),
     never('spec.index.dry-run', specDefinition, 'read'),
     never('spec.claims', specDefinition, 'mutation'),
     never('spec.coverage', specDefinition, 'read'),
     never('spec.acceptance', specDefinition, 'mutation'),
     never('spec.acceptance.dry-run', specDefinition, 'read'),
+    never('spec.tasks', specDefinition, 'mutation'),
+    never('spec.tasks.dry-run', specDefinition, 'read'),
     never('spec.trace', specDefinition, 'read'),
     never('visual.status', visualDefinition, 'read'),
     never('visual.compare', visualDefinition, 'mutation'),

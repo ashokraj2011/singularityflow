@@ -38,9 +38,21 @@ singularity-flow plugin install
 code --install-extension <path>/singularity-flow-vscode-<version>.vsix --force
 ```
 
-Nothing here needs a POSIX shell. `install.sh` does — it is the build-from-source bootstrap for
-people working on Singularity Flow itself, and it is macOS and Linux only. Windows users install the
-artifacts above instead.
+Nothing in the artifact installation above needs a POSIX shell. Windows users who have a source
+checkout and Git for Windows can instead use the guarded Git Bash wrapper:
+
+```bash
+bash ./install-windows-git-bash.sh
+
+# Company Artifactory / npm registry
+bash ./install-windows-git-bash.sh \
+  --registry https://artifacts.company.example/api/npm/npm-virtual/
+```
+
+The wrapper validates Git Bash, Node.js 20+, the clean checkout, and the Windows CRLF-safe Agent
+Markdown parser before delegating to the canonical `install.sh`. It performs a fast-forward-only
+update, does not change `core.autocrlf`, and does not rewrite Markdown files. Authentication remains
+in the user's `.npmrc`.
 
 One Windows note: reading and publishing governed state needs no shell, but **building a world
 model** hands the configured runner command to `cmd.exe`, and `sflow-wm-minimal` wraps a shell

@@ -4,8 +4,8 @@ description: Defines boundaries, contracts, risks, security, and implementation 
 tools: [read, search, ask_user]
 metadata:
   sflow-label: "Architect"
-  sflow-phases: "design,implementation-spec,fix-design,fix-spec"
-  sflow-default-for: "design,implementation-spec,fix-design,fix-spec"
+  sflow-phases: "design,implementation-spec,fix-design,fix-spec,planning,convergence"
+  sflow-default-for: "design,implementation-spec,fix-design,fix-spec,planning,convergence"
   sflow-world-model-views: "architecture,security,operations"
 ---
 

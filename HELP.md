@@ -2431,6 +2431,18 @@ new initiative, because the resolution is immutable by design.
 
 ## CLI command reference
 
+### The five verbs
+
+```text
+singularity-flow specify [WORK-ID] [--json]
+singularity-flow plan [WORK-ID] [--json]
+singularity-flow implement [WORK-ID] [--json]
+singularity-flow converge [WORK-ID] [--json]
+singularity-flow verify [WORK-ID] [--json]
+```
+
+`spec-driven-standard` Stories are driven by five verbs. Each resolves the subject, phase, generation, pending publication and approval state, then names the registered kernel operations that are legal before the next checkpoint and stops there. A checkpoint is any boundary needing model generation, consent, human review, approval, external completion, or recovery — a verb never crosses one. Every response reports the milestone it is working toward, the checkpoint it stopped at, and the underlying operations, so the short vocabulary never hides which governed operation ran. A milestone counts only when workflow state proves it. Pending publication is routed before any new work. The advanced phase commands remain available and behave identically; the verbs orchestrate them rather than replacing them. In Copilot use `/sflow-specify`, `/sflow-plan`, `/sflow-implement`, `/sflow-converge`, `/sflow-verify`.
+
 ### Documentation
 
 ```text

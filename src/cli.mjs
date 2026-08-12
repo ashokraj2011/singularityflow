@@ -7730,6 +7730,12 @@ async function dispatch(command, positionals, options) {
     watch: () => watchCommand(positionals, options),
     recover: () => recoverCommand(positionals, options),
     explain: async () => (await import('./commands/explain.mjs')).run(argv, { positionals, options }),
+    // The five verbs. Each dispatches into the same router; the registry keeps them distinct
+    // commands so tripwires, help and the operation catalog treat them individually.
+    ...Object.fromEntries(['specify', 'plan', 'implement', 'verify', 'converge'].map((verb) => [
+      verb,
+      async () => (await import('./commands/fast-path.mjs')).runVerb(verb, argv, { positionals, options })
+    ])),
     nextsteps: () => nextStepsCommand(positionals, options),
     action: () => actionCommand(positionals, options),
     inputs: () => inputsCommand(positionals, options),

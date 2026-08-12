@@ -1,10 +1,17 @@
 import { didYouMean, optionBoolean, SingularityFlowError } from './util.mjs';
 
-const READ_ONLY = new Set(['about', 'help', 'show', 'choices', 'inbox', 'status', 'progress', 'guide', 'logs', 'doctor', 'nextsteps', 'snapshot', 'validate', 'explain']);
-const STRUCTURED = new Set(['start', 'status', 'progress', 'report', 'impact', 'telemetry', 'doctor', 'inputs', 'reinstall', 'snapshot', 'validate', 'gate', 'clarification', 'explain']);
+const READ_ONLY = new Set(['specify', 'plan', 'implement', 'verify', 'converge', 'about', 'help', 'show', 'choices', 'inbox', 'status', 'progress', 'guide', 'logs', 'doctor', 'nextsteps', 'snapshot', 'validate', 'explain']);
+const STRUCTURED = new Set(['specify', 'plan', 'implement', 'verify', 'converge', 'start', 'status', 'progress', 'report', 'impact', 'telemetry', 'doctor', 'inputs', 'reinstall', 'snapshot', 'validate', 'gate', 'clarification', 'explain']);
 const MODEL_FREE_MIXED_COMMANDS = new Set(['report', 'telemetry', 'review', 'inputs', 'spec', 'visual', 'clarification']);
 
 const LAZY_MODULES = Object.freeze({
+  // The five verbs share one dispatcher; each is a registered command in its own right so the
+  // registry, tripwires and help treat it like any other [SPK:REQ-010].
+  specify: './commands/fast-path.mjs',
+  plan: './commands/fast-path.mjs',
+  implement: './commands/fast-path.mjs',
+  verify: './commands/fast-path.mjs',
+  converge: './commands/fast-path.mjs',
   about: './commands/about.mjs',
   status: './commands/status.mjs',
   nextsteps: './commands/nextsteps.mjs',
@@ -45,6 +52,7 @@ function command([name, aliases = []]) {
 }
 
 export const COMMAND_REGISTRY = Object.freeze([
+  ['specify'], ['plan'], ['implement'], ['verify'], ['converge'],
   ['about'], ['help'], ['explain', ['docs']], ['show'], ['harness'], ['init'], ['factory-reset'], ['reset-all'], ['local-reset'], ['fresh-install'], ['reinstall'], ['choices'], ['start'], ['resume'], ['agent'], ['session'],
   ['inbox'], ['finalize'], ['status'], ['progress'], ['report'], ['impact'], ['telemetry'], ['prompt-log'], ['guide'], ['refresh-branch'],
   ['next'], ['run'], ['cockpit', ['home']], ['logs'], ['doctor'], ['review'], ['workflow'],

@@ -11,6 +11,7 @@ import {
   WORKFLOW_PATH, loadDefinition, normalizeSequenceGates, normalizeSessionPolicy, renderArtifactTemplate, resolveWorkType, snapshotResolution
 } from './config.mjs';
 import { loadSession } from './session.mjs';
+import { buildArtifactSidecar, serializeArtifactSidecar, sidecarRelativePath } from './artifact-sidecar.mjs';
 import {
   applyInputsBlock, collectInputs, recordInputs, renderInputsBlock, resolvedPhaseInputs, workflowInputsMode
 } from './inputs.mjs';
@@ -923,7 +924,45 @@ export async function publishGeneration(root, config, workflow, { phaseId, usage
   phase.generation += 1; phase.generatedBy = session.actor;
   phase.generatedAgent = effectiveAuthorship.producer === 'governed-agent' ? session.agent : null;
   phase.authorship ??= [];
-  phase.authorship.push({ ...structuredClone(effectiveAuthorship), generation: phase.generation, publishedAt: nowIso() });
+  const publishedAt = nowIso();
+  phase.authorship.push({ ...structuredClone(effectiveAuthorship), generation: phase.generation, publishedAt });
+
+  /**
+   * Canonical provenance for this generation's artifacts `[SPK:REQ-043]`.
+   *
+   * Written here because this is the one place a generation becomes governed, and written by the
+   * kernel rather than by whoever authored the artifact — which is the entire point. The records
+   * land under `context/sidecars/`, outside the `artifact-only` scope checked a few lines above, so
+   * a model that tried to write one would already have been refused `[SPK:CON-023]`.
+   */
+  const sidecarDir = workDirRelative(config, workflow.workItem.id);
+  phase.sidecars = [];
+  for (const artifact of phase.artifacts ?? []) {
+    if (!artifact.sha256) continue;
+    const relative = sidecarRelativePath(sidecarDir, phase.id, phase.generation, artifact.path);
+    const record = buildArtifactSidecar({
+      subject: { kind: 'story', id: workflow.workItem.id },
+      phase: phase.id,
+      generation: phase.generation,
+      artifact: { path: artifact.path, sha256: artifact.sha256, bytes: artifact.size ?? null, role: artifact.kind ?? null },
+      configuration: { sha256: workflow.resolution?.configSha256 ?? null, revision: workflow.resolution?.configurationSource?.commit ?? null },
+      template: {
+        path: workflow.resolution?.templates?.[phase.id]?.path ?? null,
+        sha256: workflow.resolution?.templates?.[phase.id]?.sha256 ?? null
+      },
+      inputs: (phase.inputs ?? []).map((entry) => ({ path: entry.path, sha256: entry.sha256 ?? null, kind: entry.kind ?? null })),
+      producer: {
+        kind: effectiveAuthorship.producer,
+        actor: session.actor?.email ?? session.actor?.name ?? null,
+        agent: phase.generatedAgent
+      },
+      // The commit is not known until the publication transaction closes, so the binding records
+      // the branch and time now and is completed by the transaction rather than guessed at here.
+      publication: { commit: null, branch: workflow.workItem.branch ?? null, publishedAt }
+    });
+    await writeText(path.join(root, relative), serializeArtifactSidecar(record));
+    phase.sidecars.push({ path: relative, artifact: artifact.path, integritySha256: record.integritySha256 });
+  }
   if (clarification.record) {
     phase.clarifications ??= [];
     phase.clarifications = [

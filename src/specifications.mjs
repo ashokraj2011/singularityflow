@@ -92,7 +92,15 @@ function lineNumber(text, offset) {
   return text.slice(0, offset).split('\n').length;
 }
 
-function ignoredRanges(markdown) {
+/**
+ * Regions where an anchor-looking string is not an anchor: fenced and inline code, and the
+ * kernel-managed blocks.
+ *
+ * Exported because `[SPK:REQ-063]` requires clarification-marker extraction to ignore exactly the
+ * same regions as clause extraction. "Consistently with" is only true if it is the same function —
+ * a second copy of this list would agree today and drift on the first change to either.
+ */
+export function ignoredRanges(markdown) {
   const ranges = [];
   const patterns = [
     /```[\s\S]*?```/g,
@@ -109,7 +117,7 @@ function ignoredRanges(markdown) {
   return ranges;
 }
 
-function isIgnored(index, ranges) {
+export function isIgnored(index, ranges) {
   return ranges.some(([start, end]) => index >= start && index < end);
 }
 

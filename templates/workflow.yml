@@ -550,6 +550,14 @@ phases:
       mode: required
       maxQuestions: 5
       topics: [scope, acceptance criteria, actors, boundary conditions, non-functional requirements]
+      # Pinned separately from the conversational mode above [SPK:REQ-064]. Under `block` an
+      # unresolved [NEEDS CLARIFICATION: ...] stops publication before any state mutation, so an
+      # honest admission costs only the answer [SPK:REQ-065].
+      markers: { mode: block }
+    # The starter specification phase enforces [SPK:REQ-051].
+    specificationQuality:
+      mode: enforce
+      checklist: requirements-quality-v1
     writeScope: artifact-only
     approval: { authorities: [product-approvers], minimum: 1, rejectTo: [specification] }
   planning:

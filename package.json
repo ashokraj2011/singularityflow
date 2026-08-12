@@ -65,6 +65,7 @@
     "identities:replace": "node scripts/replace-identities.mjs",
     "pack:dry": "npm pack --dry-run",
     "install:local": "bash ./install.sh",
+    "install:windows": "bash ./install-windows-git-bash.sh",
     "vscode:build": "npm run build --workspace singularity-flow-vscode",
     "vscode:watch": "npm run watch --workspace singularity-flow-vscode",
     "vscode:typecheck": "npm run typecheck --workspace singularity-flow-vscode",

@@ -139,12 +139,18 @@ async function resolveRemoteHostWithTimeout(url, lookupImpl, timeoutMs) {
 }
 
 function parseAgentDocument(text, file) {
-  if (!text.startsWith('---\n')) return { frontmatter: {}, body: text };
-  const end = text.indexOf('\n---\n', 4);
-  if (end < 0) throw new SingularityFlowError(`Agent frontmatter is not closed: ${file}`);
-  const value = YAML.parse(text.slice(4, end)) ?? {};
+  // Git for Windows commonly checks Markdown out with CRLF line endings. Agent
+  // documents are cross-platform interchange files, so their parser must not
+  // depend on core.autocrlf. Some Windows editors also add a UTF-8 BOM.
+  const normalized = text.charCodeAt(0) === 0xfeff ? text.slice(1) : text;
+  const opening = /^---\r?\n/.exec(normalized);
+  if (!opening) return { frontmatter: {}, body: normalized };
+  const remainder = normalized.slice(opening[0].length);
+  const closing = /\r?\n---(?:\r?\n|$)/.exec(remainder);
+  if (!closing) throw new SingularityFlowError(`Agent frontmatter is not closed: ${file}`);
+  const value = YAML.parse(remainder.slice(0, closing.index)) ?? {};
   if (!value || typeof value !== 'object' || Array.isArray(value)) throw new SingularityFlowError(`Agent frontmatter must be an object: ${file}`);
-  return { frontmatter: value, body: text.slice(end + 5) };
+  return { frontmatter: value, body: remainder.slice(closing.index + closing[0].length) };
 }
 
 function metadataList(metadata, key) {

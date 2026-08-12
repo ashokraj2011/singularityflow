@@ -291,13 +291,13 @@ else
 fi
 
 printf '%s\n' 'Compiling and validating the project...'
+npm run check
 if [[ "$CLI_ONLY" == "on" ]]; then
   npm run test:cli
 else
   npm run vscode:build
   npm test
 fi
-npm run check
 
 printf '%s\n' 'Creating the distribution tarball...'
 PACK_OUTPUT="$(npm pack --json)"

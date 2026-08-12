@@ -37,6 +37,15 @@ test('direct skill rendering preserves the full contract while changing slash re
   );
 });
 
+test('direct skill rendering accepts Windows CRLF and a UTF-8 BOM', () => {
+  const source = `\uFEFF---\r\nname: sflow-submit\r\ndescription: Submit\r\n---\r\n\r\n# Submit\r\nUse /sflow-approve.\r\n`;
+  const rendered = renderDirectSkill(source, 'sflow-submit');
+  assert.match(rendered, /^\uFEFF---\r\nname: sf-submit\r$/m);
+  assert.match(rendered, /Use \/sf-approve\./);
+  assert.match(rendered, /---\r\n<!-- managed-by: singularity-flow direct-skill-alias -->\r\n/);
+  assert.ok(isManagedDirectSkill(rendered));
+});
+
 test('direct skills install as personal bare-command aliases and update only managed copies', async () => {
   const fixture = await mkdtemp(path.join(os.tmpdir(), 'sflow-direct-skills-'));
   const targetRoot = path.join(fixture, 'skills');

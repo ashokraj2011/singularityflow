@@ -28,18 +28,21 @@ export function directSkillName(sourceName) {
 
 export function renderDirectSkill(source, sourceName) {
   const directName = directSkillName(sourceName);
-  const declaredName = source.match(/^name:\s*([^\n]+)$/m)?.[1]?.trim();
+  const declaredName = source.match(/^name:\s*([^\r\n]+)$/m)?.[1]?.trim();
   if (declaredName !== sourceName) {
     throw new SingularityFlowError(`Skill ${sourceName} declares '${declaredName ?? '(missing)'}' instead of its directory name.`);
   }
-  const renamed = source.replace(/^name:\s*[^\n]+$/m, `name: ${directName}`);
+  const renamed = source.replace(/^name:\s*[^\r\n]+/m, `name: ${directName}`);
   const directCommands = renamed.replaceAll('/sflow-', '/sf-');
-  const frontmatterEnd = directCommands.indexOf('\n---', 4);
-  if (!directCommands.startsWith('---\n') || frontmatterEnd < 0) {
+  const opening = /^\uFEFF?---(\r?\n)/.exec(directCommands);
+  const remainder = opening ? directCommands.slice(opening[0].length) : '';
+  const closing = /\r?\n---(?=\r?\n|$)/.exec(remainder);
+  if (!opening || !closing) {
     throw new SingularityFlowError(`Skill ${sourceName} does not contain valid YAML frontmatter.`);
   }
-  const insertAt = frontmatterEnd + 4;
-  return `${directCommands.slice(0, insertAt)}\n${MANAGED_MARKER}${directCommands.slice(insertAt)}`;
+  const insertAt = opening[0].length + closing.index + closing[0].length;
+  const newline = opening[1];
+  return `${directCommands.slice(0, insertAt)}${newline}${MANAGED_MARKER}${directCommands.slice(insertAt)}`;
 }
 
 function sourceSkills(sourceRoot) {

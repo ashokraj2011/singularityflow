@@ -1,9 +1,9 @@
 {
   "schemaVersion": 1,
   "generatedFrom": "docs/topics",
-  "sourceCommit": "da4ebcb0e6a06cb25624c07f4cda5260f53d0583",
+  "sourceCommit": "3593ba7a1a38038b1d8e45d6f03859a1ebc6b0ab",
   "topicCount": 29,
-  "contentSha256": "290d30750cbdd062029db8d506b7f4dbd5676cc602cb20c1f00dd97feb811a9c",
+  "contentSha256": "5652e1657ebfb975ee93cde298d02d44e3fd787a8e7da745c004a99df70e0bf0",
   "topics": [
     {
       "id": "approvals",
@@ -92,8 +92,8 @@
     {
       "id": "mcp-integration",
       "title": "MCP integration",
-      "version": 1,
-      "sha256": "60c3446e78e1a492c440e13cc89334e3857ce9c3be29062ffacb3571e42fdb3a",
+      "version": 2,
+      "sha256": "0440a6e135df0f258008b469707df9563275b7af019fb3dee2e46e6c43fa14fd",
       "file": "mcp-integration.md"
     },
     {

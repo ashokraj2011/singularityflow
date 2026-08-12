@@ -163,6 +163,10 @@ export function analyzeSpecification(markdown, {
     },
     mode: resolved.mode,
     clauseCount: clauses.length,
+    // The IDs, not only the count. An assisted pass citing `APP:REQ-009` in a document that stops at
+    // REQ-004 has to be checkable against something, and re-extracting the clauses at the caller
+    // would be a second reading of the same bytes that could disagree with this one.
+    clauseIds: clauses.map((clause) => clause.id),
     markerCount: markers.length,
     // The reconciled marker sets, not only their count. Every consumer needs them — the publication
     // gate to decide, the review packet to render `[SPK:REQ-059]` — and each one re-extracting them

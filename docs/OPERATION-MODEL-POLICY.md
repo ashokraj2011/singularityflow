@@ -80,10 +80,13 @@ Every public operation is classified before its implementation module is importe
 | spec.acceptance | mutation | never | — | — |
 | spec.acceptance.dry-run | read | never | — | — |
 | spec.analyze | read | never | — | — |
+| spec.analyze.assisted | mutation | optional | spec.analyze | copilot-cli |
 | spec.claims | mutation | never | — | — |
 | spec.coverage | read | never | — | — |
 | spec.index | mutation | never | — | — |
 | spec.index.dry-run | read | never | — | — |
+| spec.tasks | mutation | never | — | — |
+| spec.tasks.dry-run | read | never | — | — |
 | spec.trace | read | never | — | — |
 | specify | read | never | — | — |
 | stack | mutation | never | — | — |

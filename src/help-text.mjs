@@ -134,11 +134,12 @@ Usage:
   singularity-flow watch [WORK-ID] [--once] [--fetch] [--interval SECONDS] [--json]
   singularity-flow recover [WORK-ID] [--fetch] [--apply] [--json]
   singularity-flow inputs [PHASE] [--dry-run]
-  singularity-flow spec analyze [--phase PHASE] [--work-id ID] [--json]
+  singularity-flow spec analyze [--phase PHASE] [--work-id ID] [--assisted [--model NAME]] [--json]
   singularity-flow spec index [ARTIFACT] [--phase PHASE] [--work-id ID] [--dry-run] [--json]
   singularity-flow spec claims planned|observed --file JSON_OR_YAML [--phase PHASE] [--json]
   singularity-flow spec coverage [--base REF] [--target REF] [--json]
   singularity-flow spec acceptance [--command ID]... [--phase PHASE] [--dry-run] [--json]
+  singularity-flow spec tasks [--phase PHASE] [--work-id ID] [--dry-run] [--json]
   singularity-flow spec trace [CLAUSE-ID] [--format human|json|csv]
   singularity-flow agents list
   singularity-flow agents mappings

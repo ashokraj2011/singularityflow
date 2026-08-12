@@ -270,6 +270,13 @@ import {
   specificationSourceTreeHash, traceClause, traceCsv
 } from './specifications.mjs';
 import { evaluateSpecificationGate } from './specification-gate.mjs';
+import {
+  advisoryTaskPath, approvedSource, deriveAdvisoryTasks, renderAdvisoryTasks
+} from './advisory-tasks.mjs';
+import {
+  assistedPrompt, assistedRecordRelative, buildAssistedRecord, parseAssistedCandidates,
+  serializeAssistedRecord, unknownCitations
+} from './assisted-quality.mjs';
 
 import { ABOUT } from './about.mjs';
 import { VERSION } from './version.mjs';
@@ -1847,6 +1854,46 @@ async function inputsCommand(positionals, options) {
   if (!dryRun && result.records.length) console.log(`Recorded generation ${result.generation} inputs and rendered the managed artifact block.`);
 }
 
+/**
+ * One governed relay turn for semantic candidates. `[SPK:REQ-057]` `[SPK:REQ-058]`
+ *
+ * `tools: { mode: 'none' }` is the load-bearing argument. This pass reads one document and returns
+ * an opinion about it; a model that can also run commands in the repository is doing something else,
+ * and `[SPK:CON-029]` would have no way to hold. Everything the relay needs to be auditable —
+ * provider, model, prompt hash, usage, invocation id — `invokeModel` already records, and the record
+ * written here binds those to the deterministic report they accompany.
+ */
+async function runAssistedAnalysis(root, config, workflow, phase, { report, itemRelative, generation, namespace, model = null }) {
+  const markdown = await readFile(path.join(root, report.binding.artifactPath), 'utf8');
+  const prompt = assistedPrompt({ report, markdown, namespace });
+  const provider = resolveModelProvider(config);
+  const invocation = await invokeModel({
+    provider: provider.provider,
+    providerConfig: provider.providerConfig,
+    model: model ?? provider.model,
+    cwd: root,
+    allowedRoots: [root],
+    prompt: { text: prompt },
+    channel: 'specification-quality-assisted',
+    subject: { kind: 'specification-quality', id: workflow.workItem.id, phase: phase.id, generation },
+    tools: { mode: 'none' },
+    limits: { timeoutMs: 5 * 60 * 1000, outputBytes: 256 * 1024 }
+  });
+  const candidates = parseAssistedCandidates(invocation.output);
+  const record = buildAssistedRecord({
+    report,
+    invocation,
+    candidates,
+    prompt,
+    workId: workflow.workItem.id,
+    unknownClauseIds: unknownCitations(candidates, report.clauseIds ?? []),
+    generatedAt: invocation.completedAt ?? new Date().toISOString()
+  });
+  const relative = assistedRecordRelative(itemRelative, phase.id, generation);
+  await writeText(path.join(root, relative), serializeAssistedRecord(record));
+  return { record, path: relative };
+}
+
 async function specCommand(positionals, options) {
   const root = repoRoot();
   const subcommand = positionals[1] ?? 'trace';
@@ -2005,12 +2052,6 @@ async function specCommand(positionals, options) {
    * that disagrees at the moment it matters.
    */
   if (subcommand === 'analyze') {
-    if (optionBoolean(options, 'assisted')) {
-      throw new SingularityFlowError(
-        'Assisted specification analysis is not available yet. The deterministic report runs without a model; '
-        + 'semantic observations belong to a reviewer until a governed relay contract ships.'
-      );
-    }
     const gate = await evaluateSpecificationGate(root, config, workflow, phase, {
       generation,
       artifactRelativePath: posix(path.join(itemRelative, phase.requiredArtifact?.path ?? '')),
@@ -2023,7 +2064,20 @@ async function specCommand(positionals, options) {
       if (optionBoolean(options, 'json')) return console.log(JSON.stringify({ applies: false, reason }, null, 2));
       return console.log(reason);
     }
-    if (optionBoolean(options, 'json')) return console.log(JSON.stringify(gate.report, null, 2));
+    /**
+     * `--assisted` — semantic candidates through the governed relay. `[SPK:REQ-057]`
+     *
+     * Runs *after* the deterministic report and never instead of it: the assisted pass is handed
+     * the findings so it does not spend its one turn restating them, and its output lands in a
+     * separate record that no gate reads `[SPK:CON-029]`.
+     */
+    const assisted = optionBoolean(options, 'assisted')
+      ? await runAssistedAnalysis(root, config, workflow, phase, {
+        report: gate.report, itemRelative, generation, namespace: policy?.namespace ?? null, model: optionString(options, 'model')
+      })
+      : null;
+
+    if (optionBoolean(options, 'json')) return console.log(JSON.stringify(assisted ? { ...gate.report, assisted: assisted.record } : gate.report, null, 2));
     console.log(`Specification quality — ${phase.label} generation ${generation}`);
     console.log(`  artifact:  ${gate.report.binding.artifactPath} (${gate.report.binding.artifactSha256.slice(0, 12)})`);
     console.log(`  policy:    quality ${gate.qualityMode}, markers ${gate.markerMode}, checklist ${gate.checklist}`);
@@ -2034,10 +2088,55 @@ async function specCommand(positionals, options) {
       console.log('');
       for (const finding of gate.report.findings) console.log(`  ${finding.kind}: ${finding.message}`);
     }
+    if (assisted) {
+      console.log(`\nAssisted candidates — ${assisted.record.model.provider}${assisted.record.model.model ? ` / ${assisted.record.model.model}` : ''}`);
+      if (!assisted.record.candidates.length) console.log('  The model raised no semantic concerns.');
+      for (const candidate of assisted.record.candidates) {
+        console.log(`  ${candidate.concern}${candidate.clauseIds.length ? ` (${candidate.clauseIds.join(', ')})` : ''}: ${candidate.text}`);
+      }
+      if (assisted.record.unknownClauseIds.length) {
+        console.warn(`Warning: the model cited clause(s) this specification does not contain: ${assisted.record.unknownClauseIds.join(', ')}`);
+      }
+      console.log(`  Recorded: ${assisted.path}`);
+      console.log(`  ${assisted.record.disclaimer}`);
+    }
     // Printed every time, and most importantly when the report is clean — that is the moment a
     // reader is most likely to hear "the specification is good" `[SPK:CON-027]`.
     console.log(`\n${gate.report.disclaimer}`);
     if (gate.errors.length) console.log(`\nThis phase will not publish or submit until ${gate.errors.length === 1 ? 'this is' : 'these are'} resolved.`);
+    return;
+  }
+
+  /**
+   * `spec tasks` — derive the advisory task map. `[SPK:REQ-112]` `[SPK:REQ-113]`
+   *
+   * Under `spec` rather than as its own command because the map is derived from the approved
+   * specification; giving it a command of its own would suggest it is a thing you author.
+   */
+  if (subcommand === 'tasks') {
+    const specificationPhase = Object.values(workflow.phases).find((entry) => entry.requiredArtifact?.kind === 'requirements');
+    if (!specificationPhase) throw new SingularityFlowError(`Work type '${workflow.workItem.workType}' has no specification phase to derive tasks from.`);
+    const planningPhase = workflow.phases.planning ?? null;
+    const map = deriveAdvisoryTasks({
+      workId: workflow.workItem.id,
+      specification: await approvedSource(root, itemRelative, specificationPhase),
+      // Optional on purpose: a task map that exists as soon as the specification is approved is
+      // useful during planning, and the plan only adds expected paths to items that already exist.
+      planning: planningPhase ? await approvedSource(root, itemRelative, planningPhase, { required: false }) : null,
+      namespace: policy?.namespace ?? null
+    });
+    const rendered = renderAdvisoryTasks(map);
+    const target = advisoryTaskPath(itemRelative, planningPhase ?? specificationPhase);
+    if (optionBoolean(options, 'json')) return console.log(JSON.stringify({ ...map, path: target }, null, 2));
+    if (optionBoolean(options, 'dry-run')) {
+      console.log(rendered);
+      return console.log(`Would write ${map.items.length} advisory task(s) to ${target}.`);
+    }
+    await writeText(path.join(root, target), rendered);
+    console.log(`Derived ${map.items.length} advisory task(s) into ${target}.`);
+    console.log(`Bound to specification generation ${map.derivedFrom.specification.generation} (${map.derivedFrom.specification.sha256.slice(0, 12)})`
+      + `${map.derivedFrom.planning ? ` and plan generation ${map.derivedFrom.planning.generation} (${map.derivedFrom.planning.sha256.slice(0, 12)})` : '; no approved plan yet'}.`);
+    console.log('Advisory only: ticking these boxes is not evidence that implementation or verification is complete.');
     return;
   }
 
@@ -2054,7 +2153,7 @@ async function specCommand(positionals, options) {
     ]));
     return;
   }
-  throw new SingularityFlowError(`Unknown spec subcommand '${subcommand}'. Use index, analyze, claims, coverage, acceptance, or trace.`);
+  throw new SingularityFlowError(`Unknown spec subcommand '${subcommand}'. Use index, analyze, tasks, claims, coverage, acceptance, or trace.`);
 }
 
 async function agentsCommand(positionals, options) {
@@ -3015,12 +3114,17 @@ async function rejectCommand(positionals, options) {
       target,
       reason: optionString(options, 'reason'),
       clauseIds: optionStrings(options, 'clause'),
+      members: optionStrings(options, 'member'),
       channel: process.env.SINGULARITY_FLOW_GITHUB_ACTOR ? 'github-pr-comment' : 'terminal',
       actionContext: activeActionContext()
     })
   );
   console.log(`Recorded ${phase.changeRequest.id}. Comment: ${phase.changeRequest.comment}`);
   if (phase.changeRequest.clauseIds?.length) console.log(`Clauses requiring revision: ${phase.changeRequest.clauseIds.join(', ')}`);
+  if (phase.changeRequest.members?.length) {
+    console.log(`Members to regenerate: ${phase.changeRequest.members.join(', ')}`);
+    console.log('Every other member must come back byte-identical; anything else that changes is reported at publication.');
+  }
   formatContextBoundaryHandoff(phase.contextBoundary).forEach((line) => console.log(line));
   emitCommandResult(commandResult({
     operation: { id: 'reject', classification: 'mutation' },

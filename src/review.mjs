@@ -4,11 +4,31 @@ import { readFile } from 'node:fs/promises';
 import { branch } from './git.mjs';
 import { currentPhase, workDir } from './state-stores.mjs';
 import { documentCatalog } from './documents.mjs';
+import { assistedRecordRelative } from './assisted-quality.mjs';
 import { markerSummary, priorChecklistExceptions, resolvedSpecificationQualityPolicy } from './specification-gate.mjs';
 import { STARTER_CHECKLIST, analyzeSpecification, policyHash } from './specification-quality.mjs';
-import { exists, run, snapshot } from './util.mjs';
+import { exists, posix, run, snapshot } from './util.mjs';
 
 function escapeHtml(value) { return String(value).replaceAll('&', '&amp;').replaceAll('<', '&lt;').replaceAll('>', '&gt;').replaceAll('"', '&quot;'); }
+
+/**
+ * The assisted candidates for exactly this artifact, or none. `[SPK:REQ-059]`
+ *
+ * The hash comparison is the whole guard. An assisted record is bound to the bytes it read, and a
+ * specification regenerated to address a candidate would otherwise still show that candidate in its
+ * packet — telling a reviewer a concern stands when it was the reason for the rewrite.
+ */
+async function assistedCandidatesFor(root, config, workflow, phase, artifact) {
+  if (!artifact) return [];
+  const relative = assistedRecordRelative(
+    posix(path.relative(root, workDir(root, config, workflow.workItem.id))), phase.id, phase.generation
+  );
+  const file = path.join(root, relative);
+  if (!(await exists(file))) return [];
+  const record = await readFile(file, 'utf8').then(JSON.parse).catch(() => null);
+  if (record?.deterministicReport?.artifactSha256 !== artifact.sha256) return [];
+  return record.candidates ?? [];
+}
 function activeApprovals(phase) { return phase.approvals.filter((item) => !item.invalidatedAt); }
 
 export async function createReviewBundle(root, config, workflow, requestedPhase = null) {
@@ -64,10 +84,15 @@ export async function createReviewBundle(root, config, workflow, requestedPhase 
         artifactPath: artifact.path, phase: phase.id, generation: phase.generation, policy: quality
       }).findings
       : [],
-    // Assisted candidates are `[SPK:REQ-057]` and not built yet. Rendered as an explicit "none
-    // recorded" rather than omitted, so a reader can tell the difference between a specification
-    // nobody raised semantic concerns about and a packet that cannot carry them.
-    assistedCandidates: []
+    /**
+     * Assisted candidates when present `[SPK:REQ-059]`.
+     *
+     * Read from the record `spec analyze --assisted` wrote for *this* generation, and only if it
+     * was bound to these exact artifact bytes. A candidate list carried over from an earlier
+     * generation would describe a document the reviewer is not looking at, and would be at its most
+     * misleading precisely when someone had regenerated the specification to address it.
+     */
+    assistedCandidates: await assistedCandidatesFor(root, config, workflow, phase, artifact)
   };
   const markers = markerSummary(phase);
   const priorExceptions = priorChecklistExceptions(phase);
@@ -75,12 +100,54 @@ export async function createReviewBundle(root, config, workflow, requestedPhase 
   return {
     schemaVersion: 1, generatedAt: new Date().toISOString(), workItem: workflow.workItem, branch: branch(root), workflowStatus: workflow.status,
     specificationQuality, markers, priorExceptions,
+    // The durable half of `[SPK:REQ-111]`. Publication warns about incidental change on the terminal
+    // of whoever published; the person who has to weigh it is the reviewer, reading this later.
+    artifactSet: phase.artifactSet ?? null,
     phase: {
       id: phase.id, label: phase.label, status: phase.status, generation: phase.generation, approvalMinimum: phase.approvalPolicy.minimum ?? 1,
       authorship: [...(phase.authorship ?? [])].reverse().find((record) => record.generation === phase.generation) ?? { producer: 'legacy-unspecified', channel: 'legacy' }
     },
     artifact, inputs, documents, approvals, narrative, selfApprovalWarning: approvals.some((item) => item.selfApproval), checks: phase.checks ?? [], usage: phase.usage ?? [], changeSummary: diff.status === 0 ? diff.stdout.trim() : 'Unavailable'
   };
+}
+
+/**
+ * What exactly is being approved. `[SPK:CON-045]` `[SPK:REQ-111]`
+ *
+ * A reviewer approving "the specification" is in fact approving a bundle, and until the members are
+ * listed with their hashes there is no way for them to know how many documents that is. The bundle
+ * hash is printed because it is what the approval will record: an approval of this list, not of a
+ * file name.
+ *
+ * The reopen block is the durable disclosure. Publication warns on the terminal of whoever ran it;
+ * the person who has to decide whether an unasked-for change is acceptable is reading this.
+ */
+function artifactSetSection(bundle) {
+  const set = bundle.artifactSet;
+  if (!set) return [];
+  const lines = [
+    `## Artifact set — \`${set.setId}\``, '',
+    `Approval binds this complete bundle, not a single member: \`${set.bundleSha256.slice(0, 16)}\``, ''
+  ];
+  for (const member of set.members) {
+    const state = member.exists
+      ? `\`${member.sha256.slice(0, 12)}\`${member.directory ? ` · ${member.files} file(s)` : ''}`
+      : '**missing**';
+    lines.push(`- \`${member.member}\` — ${member.role}${member.authority === 'advisory' ? ' _(advisory, never evidence)_' : ''} · ${state}`);
+  }
+  if (set.missingRequired?.length) lines.push('', `> ⚠ Required member(s) absent: ${set.missingRequired.join(', ')}`);
+  if (set.reopen) {
+    // Everything in this block is named the way the reviewer named it, so the three lists compare.
+    const named = (paths) => paths.map((entry) => set.members.find((member) => member.path === entry)?.member ?? entry);
+    lines.push('', '### Surgical reopen', '',
+      `- Requested by ${set.reopen.requestedBy?.name ?? set.reopen.requestedBy?.email ?? 'unknown'} (${set.reopen.changeRequestId}): ${set.reopen.reason}`,
+      `- Asked to regenerate: ${set.reopen.members.join(', ')}`,
+      `- Preserved unchanged: ${set.preserved.length ? named(set.preserved).join(', ') : 'none'}`);
+    lines.push(set.reopen.incidental?.length
+      ? `- ⚠ Changed although not asked for: ${set.reopen.incidental.join(', ')}`
+      : '- No member changed that the reopen did not ask for.');
+  }
+  return [...lines, ''];
 }
 
 /**
@@ -109,7 +176,7 @@ function specificationQualitySection(bundle) {
       : ['- None. This is not a claim that the specification is complete, clear, consistent, or correct; those are the articles above.']));
     lines.push('', '### Assisted candidates', '',
       ...(quality.assistedCandidates.length
-        ? quality.assistedCandidates.map((candidate) => `- ${candidate.text}`)
+        ? quality.assistedCandidates.map((candidate) => `- \`${candidate.concern}\`${candidate.clauseIds?.length ? ` (${candidate.clauseIds.join(', ')})` : ''} — ${candidate.text}`)
         : ['- None recorded.']));
   }
   if (bundle.markers) {
@@ -133,7 +200,7 @@ export function reviewMarkdown(bundle) {
   if (bundle.artifact) lines.push('### Artifact content', '', bundle.artifact.content, '');
   lines.push('## Approved input provenance', '', ...(bundle.inputs.length ? bundle.inputs.map((item) => `- ${item.phase}: ${item.status}${item.sha256 ? ` @ \`${item.sha256.slice(0, 12)}\`` : ''}${item.optional ? ' (optional)' : ''}`) : ['_No phase inputs._']), '');
   lines.push('## Checks and approvals', '', ...(bundle.checks.length ? bundle.checks.map((item) => `- ${item.status ?? 'recorded'} — ${item.command ?? item.name ?? JSON.stringify(item)}`) : ['- No quality-command results recorded.']), ...(bundle.approvals.length ? bundle.approvals.map((item) => `- ${item.decision} by ${item.actor} via ${item.authorityGroup ?? 'unrecorded authority'} (${item.identityAssurance ?? 'unknown assurance'}); governed agent ${item.agent ?? 'unavailable'}${item.selfApproval ? ' ⚠ self-approval' : ''}`) : ['- No decisions recorded.']), '');
-  lines.push(...specificationQualitySection(bundle));
+  lines.push(...artifactSetSection(bundle), ...specificationQualitySection(bundle));
   if (bundle.narrative) lines.push('## How this Story got here', '', '```text', bundle.narrative, '```', '');
   lines.push('## Source change summary', '', '```text', bundle.changeSummary || 'No source changes.', '```', '', '## Supporting evidence', '', ...(bundle.documents.length ? bundle.documents.map((item) => `- ${item.id} — ${item.label} (${item.path ?? item.url})`) : ['_No supporting evidence._']), '');
   return `${lines.join('\n')}\n`;

@@ -92,6 +92,18 @@ This prose link is inert: https://example.com/not-a-dependency.md
 | threat-model | https://cdn.example.com/{workId}/{phase}/{generation}.md | design | artifacts/design/threat-model.md | false | 4096 |
 `;
 
+test('agent Markdown frontmatter accepts Windows CRLF and a UTF-8 BOM', () => {
+  const crlf = agentMarkdown.replace(/\n/g, '\r\n');
+  const windows = parseAgentDependencies(crlf, { source: '.github/agents/architecture.agent.md' });
+  assert.equal(windows.id, 'architecture');
+  assert.equal(windows.description, 'Architecture delivery');
+  assert.match(windows.prompt, /This prose link is inert/);
+
+  const withBom = parseAgentDependencies(`\ufeff${crlf}`, { source: '.github/agents/architecture.agent.md' });
+  assert.equal(withBom.id, 'architecture');
+  assert.equal(withBom.description, 'Architecture delivery');
+});
+
 function response(content, { status = 200, location = null } = {}) {
   const bytes = Buffer.from(content);
   return { ok: status >= 200 && status < 300, status, headers: { get: (name) => name.toLowerCase() === 'location' ? location : null }, arrayBuffer: async () => bytes };

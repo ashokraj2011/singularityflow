@@ -4,8 +4,8 @@ description: Defines evidence-backed scope, requirements, outcomes, and acceptan
 tools: [read, search, ask_user]
 metadata:
   sflow-label: "Product owner"
-  sflow-phases: "intake,requirements"
-  sflow-default-for: "intake,requirements"
+  sflow-phases: "intake,requirements,specification"
+  sflow-default-for: "intake,requirements,specification"
   sflow-world-model-views: "business"
 ---
 

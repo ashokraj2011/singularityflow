@@ -1,9 +1,9 @@
 {
   "schemaVersion": 1,
   "generatedFrom": "docs/topics",
-  "sourceCommit": "3593ba7a1a38038b1d8e45d6f03859a1ebc6b0ab",
-  "topicCount": 29,
-  "contentSha256": "5652e1657ebfb975ee93cde298d02d44e3fd787a8e7da745c004a99df70e0bf0",
+  "sourceCommit": "6cbf14e74637622b7608f2357bc8c7cf73af5906",
+  "topicCount": 30,
+  "contentSha256": "9eafd2e120964d6f6d04bdea4b210794a45b83376730f478cadc802666cccc96",
   "topics": [
     {
       "id": "approvals",
@@ -53,6 +53,13 @@
       "version": 1,
       "sha256": "f7fecb8f1f78aa7f2b5cb72243e8ace18cec6b0765922caf499e2ca84bfd8ad5",
       "file": "evidence-and-ledger.md"
+    },
+    {
+      "id": "fast-path-verbs",
+      "title": "The five verbs",
+      "version": 1,
+      "sha256": "05989f57789333a568e1ae5dd15bc95f173b27282482926b20a97389724ff5e0",
+      "file": "fast-path-verbs.md"
     },
     {
       "id": "getting-started",

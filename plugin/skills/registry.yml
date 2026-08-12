@@ -78,6 +78,9 @@ skills:
   sflow-continue: { class: mutation }
   sflow-design: { class: generative }
   sflow-docs: { class: echo }
+  sflow-specify: { class: echo }
+  sflow-plan: { class: echo }
+  sflow-converge: { class: echo }
   sflow-doctor: { class: echo }
   sflow-documents: { class: mutation }
   sflow-epic-complete: { class: review }

@@ -17,6 +17,18 @@ function slot(value, fallback = '') {
 }
 
 export const MESSAGES = Object.freeze({
+  'fastpath.milestone': {
+    headline: (s) => `${slot(s.verb)} reached ${slot(s.milestone)}.`,
+    preserves: true
+  },
+  'fastpath.checkpoint': {
+    headline: (s) => `${slot(s.verb)} stopped at a ${slot(s.checkpoint)} checkpoint.`,
+    preserves: true
+  },
+  'fastpath.blocked': {
+    headline: (s) => `${slot(s.verb)} cannot continue: ${slot(s.checkpoint)}.`,
+    preserves: true
+  },
   'docs.served': {
     headline: (s) => `${slot(s.title)} — topic ${slot(s.topic)} v${slot(s.version)}.`,
     preserves: true
@@ -123,6 +135,9 @@ export const MESSAGES = Object.freeze({
  * the rail this Story pinned at start" is a reason.
  */
 export const REASONS = Object.freeze({
+  'fastpath.phase-not-owned': {
+    render: (s) => `this Story is at a phase this verb does not route${s.phase ? ` (${slot(s.phase)})` : ''}`
+  },
   'phase.selected-by-pinned-rail': {
     render: (s) => `${slot(s.phase)} is phase ${slot(s.position)} of the rail this Story pinned when it started`
   },

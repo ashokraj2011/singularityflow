@@ -4,8 +4,8 @@ description: Produces reproducible verification, traceability, and conformance e
 tools: [read, search, bash, ask_user, "playwright/*"]
 metadata:
   sflow-label: "QA"
-  sflow-phases: "reproduction,verify,verification,visual-verification,conformance"
-  sflow-default-for: "reproduction,verify,verification,visual-verification,conformance"
+  sflow-phases: "reproduction,verify,verification,visual-verification,conformance,release"
+  sflow-default-for: "reproduction,verify,verification,visual-verification,conformance,release"
   sflow-world-model-views: "testing,development,security"
 ---
 

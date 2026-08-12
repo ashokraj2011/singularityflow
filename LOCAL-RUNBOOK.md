@@ -254,6 +254,17 @@ do not run phases from a different profile. Each command reads that phase's
 configured `worldModel.views`, makes a deterministic light build, validates
 it, and commits it locally:
 
+#### Spec-Driven Standard
+
+```bash
+sflow-wm-minimal --phase specification
+sflow-wm-minimal --phase planning
+sflow-wm-minimal --phase implementation
+sflow-wm-minimal --phase convergence
+sflow-wm-minimal --phase verification
+sflow-wm-minimal --phase release
+```
+
 #### Quick fix
 
 ```bash

@@ -21,6 +21,11 @@ Usage:
     --no-model disables every kernel-owned model invocation. Equivalent: SINGULARITY_FLOW_NO_MODEL=1.
   singularity-flow about
   singularity-flow help [TOPIC|COMMAND] [--json]
+  sflow specify [WORK-ID] [--json]
+  sflow plan [WORK-ID] [--json]
+  sflow implement [WORK-ID] [--json]
+  sflow converge [WORK-ID] [--json]
+  sflow verify [WORK-ID] [--json]
   singularity-flow explain [TOPIC|ALIAS] [--here] [--section HEADING] [--max-bytes N] [--json]
   singularity-flow show <SFREF-HANDLE|SFDOC-HANDLE> [--section HEADING | --json-pointer POINTER | --range RANGE]
     [--max-bytes N] [--json]

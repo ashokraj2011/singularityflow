@@ -22,6 +22,7 @@ Every public operation is classified before its implementation module is importe
 | clarification.status | read | never | — | — |
 | cockpit | mutation | never | — | — |
 | configuration | mutation | never | — | — |
+| converge | read | never | — | — |
 | doctor | read | never | — | — |
 | documents | mutation | never | — | — |
 | epic | mutation | never | — | — |
@@ -36,6 +37,7 @@ Every public operation is classified before its implementation module is importe
 | help.root | read | never | — | — |
 | hook | mutation | never | — | — |
 | impact | mutation | never | — | — |
+| implement | read | never | — | — |
 | inbox | read | never | — | — |
 | init | mutation | never | — | — |
 | initiative | mutation | never | — | — |
@@ -50,6 +52,7 @@ Every public operation is classified before its implementation module is importe
 | next | mutation | never | — | — |
 | nextsteps | read | never | — | — |
 | phase | mutation | never | — | — |
+| plan | read | never | — | — |
 | plugin | mutation | never | — | — |
 | pr.describe | mutation | never | — | — |
 | pr.describe.polish | mutation | optional | pr.describe | copilot-cli |
@@ -81,6 +84,7 @@ Every public operation is classified before its implementation module is importe
 | spec.index | mutation | never | — | — |
 | spec.index.dry-run | read | never | — | — |
 | spec.trace | read | never | — | — |
+| specify | read | never | — | — |
 | stack | mutation | never | — | — |
 | start | mutation | never | — | — |
 | state | mutation | never | — | — |
@@ -91,6 +95,7 @@ Every public operation is classified before its implementation module is importe
 | telemetry.reconcile | mutation | never | — | — |
 | telemetry.status | read | never | — | — |
 | validate | read | never | — | — |
+| verify | read | never | — | — |
 | version | read | never | — | — |
 | visual.compare | mutation | never | — | — |
 | visual.status | read | never | — | — |

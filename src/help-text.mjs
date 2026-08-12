@@ -134,6 +134,7 @@ Usage:
   singularity-flow watch [WORK-ID] [--once] [--fetch] [--interval SECONDS] [--json]
   singularity-flow recover [WORK-ID] [--fetch] [--apply] [--json]
   singularity-flow inputs [PHASE] [--dry-run]
+  singularity-flow spec analyze [--phase PHASE] [--work-id ID] [--json]
   singularity-flow spec index [ARTIFACT] [--phase PHASE] [--work-id ID] [--dry-run] [--json]
   singularity-flow spec claims planned|observed --file JSON_OR_YAML [--phase PHASE] [--json]
   singularity-flow spec coverage [--base REF] [--target REF] [--json]
@@ -164,7 +165,7 @@ Usage:
   singularity-flow documents detach <DOCUMENT-ID> [--scope file|package] --reason TEXT [--yes]
   singularity-flow prepare [PHASE]
   singularity-flow clarification status [PHASE] [--json]
-  singularity-flow clarification record [PHASE] (--question TEXT --answer TEXT | --response-file FILE)
+  singularity-flow clarification record [PHASE] (--question TEXT --answer TEXT | --marker TEXT --answer TEXT | --response-file FILE)
     [--why TEXT] [--status answered|deferred] [--blocking] [--owner TEXT] [--impact TEXT] [--replace]
   singularity-flow phase show [PHASE] [--json]
   singularity-flow phase publish [PHASE]
@@ -177,6 +178,7 @@ Usage:
   singularity-flow pr [WORK-ID] [--json] [--create] [--yes]
   singularity-flow submit [PHASE] [--phase PHASE] [--skip-checks]
   singularity-flow approve [PHASE] [--work-id WORK-ID] [--fetch] [--phase PHASE] [--yes]
+    [--article ID=satisfied|exception|not-applicable]... [--article-reason TEXT]... [--checklist FILE]
   singularity-flow reject [PHASE] [--work-id WORK-ID] [--fetch] --reason TEXT [--to PHASE] [--clause ID]...
   singularity-flow reopen [WORK-ID] [--fetch] --reason TEXT --to PHASE
   singularity-flow cancel [WORK-ID] [--fetch] --reason TEXT --confirm WORK-ID

@@ -68,14 +68,20 @@ test('deleting a question is not answering it', () => {
   // The same removal with an answer on record is resolution, and reports nothing.
   const answered = reconcileMarkers({ current: [], previous, answers: [{ questionHash: 'who may retry?' }] });
   assert.deepEqual(answered.vanished, []);
+  assert.equal(answered.resolved.length, 1);
 
-  // An answer recorded while the marker is still in the text does not resolve it: the artifact has
-  // not been regenerated to incorporate the answer yet.
+  /**
+   * The other half of `[SPK:REQ-067]`, and the half I got wrong first: filing the answer while
+   * leaving the marker in the text is **not** resolution either. Under `block` that mistake let a
+   * specification publish while still literally asking the question, which is the one outcome the
+   * gate exists to prevent — the artifact is the thing people read. Found by driving a real Story,
+   * not by this file, which is why the assertion is here now.
+   */
   const stillPresent = reconcileMarkers({
     current: previous, previous, answers: [{ questionHash: 'who may retry?' }]
   });
-  assert.equal(stillPresent.open.length, 0);
-  assert.equal(stillPresent.incorporated.length, 1);
+  assert.equal(stillPresent.open.length, 1, 'an answered marker still in the text was treated as resolved');
+  assert.deepEqual(stillPresent.resolved, []);
 });
 
 test('marker policy blocks, warns, or stays silent', () => {

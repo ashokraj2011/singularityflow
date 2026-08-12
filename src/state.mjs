@@ -20,7 +20,11 @@ import {
   assertPhaseSequence, enforceSequenceGate, phaseNeedsGeneration
 } from './sequence.mjs';
 import { verifyGroundingRecord } from './grounding.mjs';
-import { verifyClarificationRecord } from './clarifications.mjs';
+import { answeredMarkerHashes, verifyClarificationRecord } from './clarifications.mjs';
+import {
+  evaluateApprovalChecklist, evaluateSpecificationGate, markerSummary,
+  resolvedSpecificationQualityPolicy
+} from './specification-gate.mjs';
 import { beginTelemetryCapture, collectCopilotUsage, recordPhaseTelemetry } from './telemetry.mjs';
 import { contextBoundaryHandoff, normalizeContextPolicy } from './context-policy.mjs';
 import {
@@ -293,6 +297,22 @@ export function storyStatusMarkdown(workflow) {
     for (const request of openChangeRequests) {
       const requester = request.requestedBy?.name ?? request.requestedBy?.email ?? request.requestedBy?.login ?? 'unknown';
       lines.push(`- **${request.id}** — return \`${request.sourcePhase}\` to \`${request.targetPhase}\`: ${request.comment} _(requested by ${requester} at ${request.requestedAt})_`);
+    }
+  }
+  /**
+   * Open clarification markers `[SPK:REQ-065]`.
+   *
+   * Under `warn` a marker reaches a published generation, and the clause asks that it be visible in
+   * status rather than only at the gate. A reviewer who first learns of an open question on the
+   * approval screen has already read the artifact once believing it settled.
+   */
+  const openMarkers = workflow.phaseOrder
+    .map((id) => [workflow.phases[id], markerSummary(workflow.phases[id])])
+    .filter(([, summary]) => summary);
+  if (openMarkers.length) {
+    lines.push('', '## Open clarification markers', '');
+    for (const [phase, summary] of openMarkers) {
+      for (const question of summary.questions) lines.push(`- **${phase.label}** generation ${summary.generation} (\`${summary.mode}\`): ${question}`);
     }
   }
   lines.push('', '## Recent history', '');
@@ -901,6 +921,31 @@ export async function publishGeneration(root, config, workflow, { phaseId, usage
     const outside = changed.filter((file) => !ignored(config, workflow, file) && !file.startsWith(allowed));
     if (outside.length) throw new SingularityFlowError(`Phase ${phase.id} is artifact-only; move these changes to implementation/verification: ${outside.join(', ')}`);
   }
+  /**
+   * The specification gate `[SPK:REQ-065]`.
+   *
+   * Deliberately the last thing before the first mutation on line `phase.generation += 1`. A
+   * blocking marker has to cost nothing but the answer — if an honest `[NEEDS CLARIFICATION: ...]`
+   * left a half-published generation to unwind, the rational move would be to delete the question
+   * and write a plausible sentence, which is precisely the behaviour the marker exists to prevent.
+   *
+   * Both policies default to `off`, so a Story that pinned neither reaches the same code it always
+   * did and behaves identically.
+   */
+  const gate = await evaluateSpecificationGate(root, config, workflow, phase, {
+    generation: phase.generation + 1,
+    artifactRelativePath: requiredRepoPath(config, workflow, phase),
+    namespace: (workflow.resolution?.spec ?? config.spec)?.namespace ?? null,
+    pendingClarification: clarification.record
+  });
+  gate.warnings.forEach((warning) => console.warn(`Warning: ${warning}`));
+  if (gate.errors.length) {
+    throw new SingularityFlowError(
+      `Phase ${phase.id} is not publishable:\n- ${gate.errors.join('\n- ')}\n`
+      + `Answer each question and record it with singularity-flow clarification record ${phase.id} --marker "<question>" --answer "..." before regenerating.`
+    );
+  }
+
   const capture = !modelAssisted
     ? { source: 'not-invoked', usage: [], spans: 0, rawBytes: 0, pending: false, warnings: [] }
     : rawUsage
@@ -973,10 +1018,26 @@ export async function publishGeneration(root, config, workflow, { phaseId, usage
         sha256: clarification.sha256,
         promptSha256: clarification.record.promptSha256,
         responses: clarification.record.responses.length,
+        // Which artifact markers this batch answered `[SPK:REQ-066]`. Kept on the summary so the
+        // gate can tell a resolved marker from a deleted one without reading every record off disk
+        // on a path that already does a lot of I/O.
+        markers: answeredMarkerHashes(clarification.record),
         recordedAt: clarification.record.recordedAt,
         recordedBy: structuredClone(clarification.record.recordedBy)
       }
     ];
+  }
+  /**
+   * What this generation left open, so the next one can tell resolution from deletion.
+   *
+   * `[SPK:REQ-067]` only works if there is a prior list to have vanished from: without it, quietly
+   * removing a question is indistinguishable from answering it.
+   */
+  if (gate.applies && gate.record) {
+    phase.markers = [
+      ...(phase.markers ?? []).filter((record) => record.generation !== phase.generation),
+      { ...gate.record, generation: phase.generation, recordedAt: publishedAt }
+    ].sort((left, right) => left.generation - right.generation);
   }
   phase.sourceCommit = head(root);
   if (phase.id === 'conformance') phase.conformanceTree = await sourceTreeHash(root);
@@ -1109,6 +1170,29 @@ export async function submitPhase(root, config, workflow, { phaseId, runChecks =
     requestedPhase: phase.id,
     reason: phase.generation < 1 ? 'The phase has no published generation.' : 'The phase was returned for correction and has not been regenerated.'
   });
+  /**
+   * The same gate again, at the other boundary `[SPK:REQ-065]` names.
+   *
+   * Placed here rather than beside the quality commands so it precedes every assignment in this
+   * function: `[SPK:REQ-065]` says a blocking marker stops submission *before any state mutation*,
+   * and `phase.generationCommit` on the next line is one. The freshness gate above it is not a
+   * mutation and has to come first — telling someone about an unresolved question in a phase that
+   * has nothing to submit yet would be answering a question they have not reached.
+   *
+   * Not redundant with the publication check either: a generation may have been published while the
+   * policy was `warn` and the policy tightened since. Reading the artifact from disk rather than
+   * trusting `phase.markers` keeps the verdict about the artifact as it stands.
+   */
+  const gate = await evaluateSpecificationGate(root, config, workflow, phase, {
+    generation: phase.generation,
+    artifactRelativePath: requiredRepoPath(config, workflow, phase),
+    namespace: (workflow.resolution?.spec ?? config.spec)?.namespace ?? null
+  });
+  gate.warnings.forEach((warning) => console.warn(`Warning: ${warning}`));
+  if (gate.errors.length) {
+    throw new SingularityFlowError(`Phase ${phase.id} cannot be submitted for approval:\n- ${gate.errors.join('\n- ')}`);
+  }
+
   phase.generationCommit = generationCommit(root, workflow, phase);
   if (!phase.generationCommit) await enforceSequenceGate(root, workflow, 'generationCommit', 'submit for approval', {
     requestedPhase: phase.id,
@@ -1236,6 +1320,7 @@ export async function approvePhase(root, config, workflow, {
   phaseId,
   channel = 'terminal',
   actionContext = null,
+  checklist = [],
   persist = true
 } = {}) {
   await assertNoPendingPublication(root, config, workflow, 'approve');
@@ -1249,6 +1334,28 @@ export async function approvePhase(root, config, workflow, {
   );
   const key = actorKey(actor); const active = phase.approvals.filter((item) => !item.invalidatedAt && item.decision === 'approved');
   if (active.some((item) => actorKey(item.actor) === key)) throw new SingularityFlowError(`${key} already approved phase ${phase.id}; approvals require distinct identities.`);
+
+  /**
+   * The reviewer's checklist `[SPK:REQ-060]` `[SPK:REQ-061]` `[SPK:REQ-181]`.
+   *
+   * Evaluated before the decision is constructed, so an approval that does not carry its articles
+   * never becomes one. There is deliberately no shortcut that fills the articles in: `[SPK:CON-030]`
+   * says a model may summarize the evidence but must not produce the confirmation attributed to a
+   * human, and a `--all-satisfied` flag would be precisely that flag with a human's name on it.
+   */
+  const review = evaluateApprovalChecklist({
+    policy: resolvedSpecificationQualityPolicy(config, workflow, phase),
+    decisions: checklist,
+    authorities: workflow.resolution.approvalAuthorities ?? config.approvalAuthorities,
+    actor
+  });
+  review.warnings.forEach((warning) => console.warn(`Warning: ${warning}`));
+  if (review.errors.length) {
+    throw new SingularityFlowError(
+      `Phase ${phase.id} approval is incomplete:\n- ${review.errors.join('\n- ')}\n`
+      + `Record one decision for every article with singularity-flow approve ${phase.id} --article <id>=satisfied|exception|not-applicable [--article-reason TEXT], or --checklist <file.json>.`
+    );
+  }
   const packet = workflow.lineage?.submissions?.findLast?.((entry) =>
     entry.phase === phase.id && entry.generation === phase.generation
   ) ?? [...(workflow.lineage?.submissions ?? [])].reverse().find((entry) =>
@@ -1266,6 +1373,10 @@ export async function approvePhase(root, config, workflow, {
     generation: phase.generation,
     artifactSha256: (phase.artifacts ?? []).map((artifact) => ({ path: artifact.path, sha256: artifact.sha256 ?? null })),
     reviewPacketSha256: packet?.packetSha256 ?? null,
+    // Recorded on the decision, not on the phase: the articles are what *this reviewer* confirmed,
+    // and a second approver's exceptions are their own. The checklist hash travels with them so a
+    // later reader knows which version of the articles was answered.
+    ...(review.mode === 'off' ? {} : { checklist: review.decisions, checklistSha256: review.checklistSha256 }),
     ...(actionContext ? { actionContext } : {}),
     selfApproval: actorKey(phase.generatedBy ?? {}) === key
   };

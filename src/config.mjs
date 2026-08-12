@@ -29,6 +29,7 @@ import {
 } from './approval-authority.mjs';
 import { normalizeLedgerConfig } from './ledger-config.mjs';
 import { normalizeClarificationPolicy } from './clarifications.mjs';
+import { specificationQualityPolicy } from './specification-quality.mjs';
 import { normalizeMcpServers, validateMcpAgentTools } from './mcp.mjs';
 import { normalizeSpecPolicy } from './specifications.mjs';
 import { normalizeHarnessImports } from './harness-imports.mjs';
@@ -448,6 +449,11 @@ export function validateDefinition(definition) {
     for (const [index, command] of (phase.qualityCommands ?? []).entries()) normalizeExternalCommand(command, index);
     normalizePhaseInputs(phase.inputs, `Phase '${id}' inputs`);
     normalizeClarificationPolicy(phase.clarification);
+    // Validated here rather than only where it is consumed. A `specificationQuality` block reached
+    // resolution untouched by the phase spread below, so `mode: enfroce` would have loaded cleanly,
+    // resolved cleanly, and quietly enforced nothing — the exact failure this codebase keeps
+    // producing when a declared policy has no validator standing between it and its consumer.
+    if (phase.specificationQuality !== undefined) specificationQualityPolicy(phase.specificationQuality);
   }
   for (const [workTypeId, workType] of Object.entries(definition.workTypes)) {
     const resolved = resolveWorkType(definition, workTypeId);
@@ -721,7 +727,8 @@ export function resolveWorkType(definition, workTypeId) {
     const approval = normalizeApprovalPolicy(merged.approval ?? {}, definition.approvalAuthorities, id);
     const generation = normalizeGenerationPolicy(merged.generation, id);
     const clarification = normalizeClarificationPolicy(merged.clarification);
-    return { id, order, ...merged, approval, generation, clarification, inputs, template };
+    const specificationQuality = specificationQualityPolicy(merged.specificationQuality ?? {});
+    return { id, order, ...merged, approval, generation, clarification, specificationQuality, inputs, template };
   });
   const phaseById = Object.fromEntries(phases.map((phase) => [phase.id, phase]));
   phases = phases.map((phase) => ({

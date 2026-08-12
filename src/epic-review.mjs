@@ -202,6 +202,10 @@ export async function epicReviewDecision(root, initiativeId, storyReference, {
   agent,
   target = null,
   reason = null,
+  // Reviewing a Story from its Epic is the same approval as reviewing it from the Story, so it
+  // carries the same checklist `[SPK:REQ-060]`. Threaded rather than defaulted: a surface that
+  // cannot collect the articles must fail asking for them, not quietly approve without them.
+  checklist = [],
   channel = 'desktop-epic-review'
 } = {}) {
   if (!packetSha256) throw new SingularityFlowError('An exact Story review-packet hash is required.');
@@ -243,6 +247,7 @@ export async function epicReviewDecision(root, initiativeId, storyReference, {
     ? await approvePhase(selected.clone, selected.config, selected.workflow, {
       phaseId: preview.phase,
       channel,
+      checklist,
       persist: false
     })
     : null;

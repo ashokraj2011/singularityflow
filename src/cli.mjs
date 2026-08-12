@@ -269,6 +269,7 @@ import {
   normalizeClaimMap, predecessorSpecClauses, readStructuredFile, runSpecAcceptance,
   specificationSourceTreeHash, traceClause, traceCsv
 } from './specifications.mjs';
+import { evaluateSpecificationGate } from './specification-gate.mjs';
 
 import { ABOUT } from './about.mjs';
 import { VERSION } from './version.mjs';
@@ -1773,11 +1774,16 @@ async function clarificationCommand(positionals, options) {
     const payload = await readJson(path.resolve(responseFile));
     responses = Array.isArray(payload) ? payload : payload.responses ?? payload.questions;
   } else {
-    const question = optionString(options, 'question');
+    // `--marker` names an artifact marker this answer resolves `[SPK:REQ-066]`. It defaults the
+    // question too, because the marker text *is* the question and making someone retype it exactly
+    // is how the two drift apart and the answer stops binding.
+    const marker = optionString(options, 'marker');
+    const question = optionString(options, 'question') ?? marker;
     const answer = optionString(options, 'answer');
-    if (!question || !answer) throw new SingularityFlowError('clarification record requires --question and --answer, or --response-file JSON.');
+    if (!question || !answer) throw new SingularityFlowError('clarification record requires --question and --answer (or --marker and --answer), or --response-file JSON.');
     responses = [{
       question,
+      ...(marker ? { marker } : {}),
       answer,
       why: optionString(options, 'why'),
       status: optionString(options, 'status', 'answered'),
@@ -1990,6 +1996,51 @@ async function specCommand(positionals, options) {
     return;
   }
 
+  /**
+   * `spec analyze` — the deterministic specification-quality report. `[SPK:REQ-054]`
+   *
+   * Runs without a model and shows exactly what the publication gate would say, using the same
+   * evaluation rather than a second implementation of it. That equivalence is the point: an author
+   * needs to be able to ask "would this publish?" and get the real answer, not an approximation
+   * that disagrees at the moment it matters.
+   */
+  if (subcommand === 'analyze') {
+    if (optionBoolean(options, 'assisted')) {
+      throw new SingularityFlowError(
+        'Assisted specification analysis is not available yet. The deterministic report runs without a model; '
+        + 'semantic observations belong to a reviewer until a governed relay contract ships.'
+      );
+    }
+    const gate = await evaluateSpecificationGate(root, config, workflow, phase, {
+      generation,
+      artifactRelativePath: posix(path.join(itemRelative, phase.requiredArtifact?.path ?? '')),
+      namespace: policy?.namespace ?? null
+    });
+    if (!gate.applies) {
+      const reason = gate.markerMode === 'off' && gate.qualityMode === 'off'
+        ? `Phase ${phase.id} pins no marker or specification-quality policy, so there is nothing to analyze.`
+        : `Phase ${phase.id} has no required artifact on disk yet.`;
+      if (optionBoolean(options, 'json')) return console.log(JSON.stringify({ applies: false, reason }, null, 2));
+      return console.log(reason);
+    }
+    if (optionBoolean(options, 'json')) return console.log(JSON.stringify(gate.report, null, 2));
+    console.log(`Specification quality — ${phase.label} generation ${generation}`);
+    console.log(`  artifact:  ${gate.report.binding.artifactPath} (${gate.report.binding.artifactSha256.slice(0, 12)})`);
+    console.log(`  policy:    quality ${gate.qualityMode}, markers ${gate.markerMode}, checklist ${gate.checklist}`);
+    console.log(`  clauses:   ${gate.report.clauseCount}`);
+    console.log(`  markers:   ${gate.report.markers.open.length} open, ${gate.report.markers.resolved.length} resolved since the last generation`);
+    if (!gate.report.findings.length) console.log('\nNo checkable defects found.');
+    else {
+      console.log('');
+      for (const finding of gate.report.findings) console.log(`  ${finding.kind}: ${finding.message}`);
+    }
+    // Printed every time, and most importantly when the report is clean — that is the moment a
+    // reader is most likely to hear "the specification is good" `[SPK:CON-027]`.
+    console.log(`\n${gate.report.disclaimer}`);
+    if (gate.errors.length) console.log(`\nThis phase will not publish or submit until ${gate.errors.length === 1 ? 'this is' : 'these are'} resolved.`);
+    return;
+  }
+
   if (subcommand === 'trace') {
     const rows = traceClause(await loadActiveSpecRecords(itemDirectory, workflow), positionals[2] ?? null);
     const format = optionString(options, 'format', optionBoolean(options, 'json') ? 'json' : 'human');
@@ -2003,7 +2054,7 @@ async function specCommand(positionals, options) {
     ]));
     return;
   }
-  throw new SingularityFlowError(`Unknown spec subcommand '${subcommand}'. Use index, claims, coverage, acceptance, or trace.`);
+  throw new SingularityFlowError(`Unknown spec subcommand '${subcommand}'. Use index, analyze, claims, coverage, acceptance, or trace.`);
 }
 
 async function agentsCommand(positionals, options) {
@@ -2846,6 +2897,47 @@ async function decisionWorkflow(positionals, options, action) {
   return { root, config, workflow, phase, session, receipt, receiptToken };
 }
 
+/**
+ * The reviewer's checklist decisions, from `--article` or `--checklist`. `[SPK:REQ-060]`
+ *
+ * `--article completeness=satisfied` reads well for the common case and `--checklist decisions.json`
+ * carries reasons that do not fit on a command line. There is deliberately no flag that answers
+ * every article at once: the checklist is the reviewer's instrument, and a one-word way to satisfy
+ * all six would be the rubber stamp `[SPK:REQ-060]` exists to prevent.
+ *
+ * Reasons come from `--article-reason` and not `--reason`, which already means "why this Story is
+ * being returned" on `reject` and on `epic review`. Two meanings on one flag would have made
+ * `epic review --decision reject --reason "..."` start failing as a malformed checklist.
+ * `--article-reason` values pair with the non-`satisfied` articles in the order both are given.
+ */
+async function checklistDecisions(options) {
+  const file = optionString(options, 'checklist');
+  if (file) {
+    const payload = await readJson(path.resolve(file));
+    const entries = Array.isArray(payload) ? payload : payload.checklist ?? payload.decisions;
+    if (!Array.isArray(entries)) throw new SingularityFlowError('--checklist must contain an array of {article, decision, reason} entries.');
+    return entries;
+  }
+  const articles = optionStrings(options, 'article');
+  const reasons = optionStrings(options, 'article-reason');
+  if (!articles.length) {
+    if (reasons.length) throw new SingularityFlowError('--article-reason applies to a checklist article; pass --article <id>=exception alongside it.');
+    return [];
+  }
+  let reasonIndex = 0;
+  return articles.map((entry) => {
+    const separator = String(entry).indexOf('=');
+    const article = separator === -1 ? '' : String(entry).slice(0, separator).trim();
+    const decision = separator === -1 ? '' : String(entry).slice(separator + 1).trim();
+    if (!article || !decision) throw new SingularityFlowError(`--article must be <id>=satisfied|exception|not-applicable; got '${entry}'.`);
+    return {
+      article,
+      decision,
+      ...(decision === 'satisfied' ? {} : { reason: reasons[reasonIndex++] ?? null })
+    };
+  });
+}
+
 async function approveCommand(positionals, options) {
   if (optionString(options, 'selection-receipt') && optionBoolean(options, 'yes')) {
     throw new SingularityFlowError('Do not combine --selection-receipt with --yes; the receipt already carries the reviewer\'s exact phase confirmation.');
@@ -2872,6 +2964,7 @@ async function approveCommand(positionals, options) {
     phaseId: phase.id,
     channel: process.env.SINGULARITY_FLOW_GITHUB_ACTOR ? 'github-pr-comment' : receipt ? 'copilot-selection-receipt' : 'terminal',
     actionContext: activeActionContext() ?? receipt?.approvalContext ?? null,
+    checklist: await checklistDecisions(options),
     persist: false
   });
   const publication = await commitAndPublish(
@@ -7003,6 +7096,7 @@ async function epicCommand(positionals, options) {
         agent,
         target,
         reason: optionString(options, 'reason'),
+        checklist: await checklistDecisions(options),
         channel: receipt ? 'copilot-selection-receipt' : 'terminal'
       });
       if (receiptToken) await consumeSelectionReceipt(root, receiptToken);

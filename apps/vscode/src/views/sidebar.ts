@@ -147,6 +147,20 @@ export class SidebarViewProvider implements vscode.WebviewViewProvider, vscode.D
   private readonly nodeIndex = new Map<string, TreeNode>();
   private readonly bound = new Set<SidebarSection>();
   private view: vscode.WebviewView | null = null;
+  private freshness: string | null = null;
+
+  /**
+   * Say when what is on screen is not confirmed.
+   *
+   * The sidebar now opens on the previous session's snapshot rather than waiting, which is only
+   * honest if it admits the state is unconfirmed while the real read is in flight. Governance state
+   * that is quietly out of date is the one failure mode worth spending a line of UI on.
+   */
+  setFreshness(text: string | null): void {
+    if (this.freshness === text) return;
+    this.freshness = text;
+    this.render();
+  }
 
   bind(section: SidebarSection, source: TreeSource): void {
     // Until a section is bound it has no data source at all, which is a different thing from having
@@ -326,6 +340,11 @@ export class SidebarViewProvider implements vscode.WebviewViewProvider, vscode.D
           color:var(--vscode-button-foreground); background:var(--vscode-button-background); font-size:11px; }
         .empty-action:hover { background:var(--vscode-button-hoverBackground); }
         .empty-action:focus-visible { outline:1px solid var(--vscode-focusBorder); outline-offset:2px; }
+        /* Quiet on purpose. It qualifies what is already on screen; it is not an alert, and a
+           sidebar that shouts every time it refreshes is worse than one that is briefly stale. */
+        .freshness { display:flex; align-items:center; gap:6px; padding:4px 10px; font-size:11px;
+          color:var(--vscode-descriptionForeground); background:var(--quiet); }
+        .freshness .ico { flex:none; opacity:.8; }
         @media (prefers-reduced-motion:reduce) { * { transition:none!important; animation:none!important; } }
       </style></head><body>
       <header class="brand"><span class="brand-mark">${icon('workflow', { size: 20 })}</span>
@@ -333,6 +352,7 @@ export class SidebarViewProvider implements vscode.WebviewViewProvider, vscode.D
         <span class="brand-status${ready ? '' : ' connecting'}" role="img"
           aria-label="${ready ? 'Connected' : 'Connecting'}"
           title="${ready ? 'Connected to the Singularity Flow CLI' : 'Connecting to the Singularity Flow CLI…'}"></span></header>
+      ${this.freshness ? `<div class="freshness" role="status">${icon('wait', { size: 14 })}<span>${escape(this.freshness)}</span></div>` : ''}
       <main>${sections}</main>
       <script nonce="${token}">
         const vscode=acquireVsCodeApi(); const prior=vscode.getState()||{};

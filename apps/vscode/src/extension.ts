@@ -12,6 +12,7 @@ import { readFile, rm } from 'node:fs/promises';
 import { resolveCli, SingularityFlowClient } from './cli/client.ts';
 import { validateRepositoryDirectory } from './cli/runner.ts';
 import { WorkspaceStore } from './state.ts';
+import type { RepositorySnapshot } from './cli/snapshot.ts';
 import { ConfigurationValidator } from './validation.ts';
 import { approveWithReceipt, resolvePlaceholders, runGovernedAction, runPlannedAction } from './actions.ts';
 import { commandArgv } from './commands.ts';
@@ -1217,8 +1218,34 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
   // Now that the engine is resolved, the Help view can list the topics that engine actually ships.
   helpTree.replace(helpNodes(documentationTopicsGroup(cliPackageRoot)));
 
-  const store = new WorkspaceStore(client);
+  /**
+   * The last confirmed snapshot, kept per repository so the sidebar can open with content.
+   *
+   * Keyed by repository root: one window may be pointed at several governed repositories over its
+   * life, and opening repository B on repository A's lifecycle would be worse than a blank panel.
+   * `workspaceState` rather than `globalState` for the same reason.
+   *
+   * A read that throws — a payload written by an older build, a shape that no longer parses — is
+   * treated as no cache at all. A stale-cache bug must degrade to today's behaviour, never to a
+   * broken sidebar.
+   */
+  const snapshotCacheKey = `snapshot:${repository}`;
+  const snapshotCache = {
+    read: (): RepositorySnapshot | null => {
+      try { return context.workspaceState.get<RepositorySnapshot>(snapshotCacheKey) ?? null; }
+      catch { return null; }
+    },
+    write: (snapshot: RepositorySnapshot): void => { void context.workspaceState.update(snapshotCacheKey, snapshot); }
+  };
+
+  const store = new WorkspaceStore(client, snapshotCache);
   context.subscriptions.push(store);
+  // Only two states are worth a line of UI. `stale` is the one that matters — content restored from
+  // the last session and not yet confirmed. A plain refresh over content already known to be current
+  // says nothing: the tree is right, it is simply being re-checked.
+  context.subscriptions.push(store.onDidChange((state) => {
+    sidebar.setFreshness(state.stale ? 'Showing the last known state — checking the repository…' : null);
+  }));
   interface WorkspaceLogsSummary {
     entries: Array<{ timestamp: string | null; severity: string }>;
     total: number;
@@ -2451,6 +2478,10 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
   const orphaned = REPOSITORY_COMMANDS.filter((id) => !handlers.has(id));
   if (orphaned.length) output.appendLine(`Commands with no handler: ${orphaned.join(', ')}`);
 
+  // Content first, confirmation second. Every view is subscribed by now, so the previous session's
+  // snapshot paints immediately; the refresh below replaces it a second later. Without this the
+  // sidebar is empty for the whole of that second, on every single open.
+  store.primeFromCache();
   await store.refresh();
   const pendingHandoff = context.globalState.get<PendingCopilotHandoff | null>(COPILOT_HANDOFF_KEY, null);
   const openFolders = vscode.workspace.workspaceFolders ?? [];

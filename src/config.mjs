@@ -33,6 +33,7 @@ import { normalizeClarificationPolicy } from './clarifications.mjs';
 import { specificationQualityPolicy } from './specification-quality.mjs';
 import { normalizeArtifactSets } from './artifact-sets.mjs';
 import { assertNoAutonomousConvergence } from './convergence.mjs';
+import { analysisLimits } from './analysis-limits.mjs';
 import { constitutionPolicy } from './constitution.mjs';
 import { normalizeMcpServers, validateMcpAgentTools } from './mcp.mjs';
 import { normalizeSpecPolicy } from './specifications.mjs';
@@ -425,6 +426,7 @@ export function validateDefinition(definition) {
     if (!definition.noModel || typeof definition.noModel !== 'object' || Array.isArray(definition.noModel)) throw new SingularityFlowError('noModel must be an object.');
     if (!['warn', 'block'].includes(definition.noModel.unknownExternalCommands ?? 'warn')) throw new SingularityFlowError('noModel.unknownExternalCommands must be warn or block.');
   }
+  analysisLimits(definition.analysisLimits);
   const sets = normalizeArtifactSets(definition.artifactSets);
   for (const [id, phase] of Object.entries(definition.phases)) {
     assertId(id, 'Phase');
@@ -780,6 +782,9 @@ export function resolveWorkType(definition, workTypeId) {
     // Pinned into the Story's resolution like every other policy `[SPK:CON-039]`, so a Story keeps
     // the constitution it started under while the configuration branch moves on.
     constitution: constitutionPolicy(workType.constitution),
+    // `[SPK:REQ-130]`: the right bound for a small service is wrong for a monorepo, so it is
+    // configuration rather than a constant, and pinned per Story like every other policy.
+    analysisLimits: analysisLimits(definition.analysisLimits),
     spec: normalizeSpecPolicy(definition.spec ?? {}),
     harnessImports: normalizeHarnessImports(definition.harnessImports),
     documents,
@@ -838,6 +843,7 @@ export async function snapshotResolution(root, definition, resolved) {
      * `mode: enforce` reached a publication gate as `undefined` and enforced nothing.
      */
     constitution: structuredClone(resolved.constitution ?? constitutionPolicy(definition.constitution)),
+    analysisLimits: structuredClone(resolved.analysisLimits ?? analysisLimits(definition.analysisLimits)),
     artifactSets: structuredClone(resolved.artifactSets ?? normalizeArtifactSets(definition.artifactSets)),
     harnessImports: structuredClone(resolved.harnessImports ?? normalizeHarnessImports(definition.harnessImports)),
     impact: impact ? structuredClone(impact) : null,

@@ -127,3 +127,64 @@ test('nothing in the amendment path consults a model or mutates state', async ()
     assert.ok(!source.includes(forbidden), `amendment.mjs reaches for ${forbidden}; it must only compute`);
   }
 });
+
+test('update-intent is the reality-altitude door, and it blocks', async () => {
+  /**
+   * `[AMD:REQ-010]` door (b): reconciliation found the code right and the plan wrong. The spec named
+   * this as an existing disposition; it was not one — the shipped set was rework,
+   * accepted-deviation, dismissed, deferred.
+   *
+   * It blocks for the mirror of rework's reason. Rework says the code has not caught up with the
+   * plan; update-intent says the plan has not caught up with the code. Either way the Story would
+   * advance on a specification known to be wrong.
+   */
+  const { advancementBlocked, DISPOSITIONS, validateAdjudication } = await import('../src/convergence.mjs');
+  assert.ok(DISPOSITIONS.includes('update-intent'));
+
+  const decision = validateAdjudication(
+    { itemId: 'CF-abc', disposition: 'update-intent', reason: 'the retry rule as written is wrong', clauseIds: ['S:AC-003'] },
+    { facts: [{ id: 'CF-abc' }] }
+  );
+  assert.equal(decision.disposition, 'update-intent');
+  assert.deepEqual(decision.clauseIds, ['S:AC-003']);
+
+  const reasons = advancementBlocked({
+    unresolvedBlockers: ['CF-abc'],
+    findings: [{ id: 'CF-abc', itemId: 'CF-abc', disposition: 'update-intent', clauseIds: ['S:AC-003'] }],
+    facts: [{ id: 'CF-abc' }],
+    candidates: []
+  });
+  assert.ok(reasons.some((reason) => reason.includes("dispositioned 'update-intent'")),
+    'a plan known to be wrong did not block advancement');
+});
+
+test('update-intent must name the clauses it wants changed', async () => {
+  // The amendment it triggers is computed from a clause set; without one there is nothing to revise.
+  // Every other disposition may leave the list empty, because none of them moves the specification.
+  const { validateAdjudication } = await import('../src/convergence.mjs');
+  assert.throws(() => validateAdjudication({ itemId: 'CF-1', disposition: 'update-intent', reason: 'wrong' }),
+    (error) => {
+      assert.equal(error.code, 'ADJUDICATION_CLAUSES_REQUIRED');
+      assert.match(error.message, /nothing for an amendment to revise/);
+      return true;
+    });
+  assert.doesNotThrow(() => validateAdjudication({ itemId: 'CF-1', disposition: 'accepted-deviation', reason: 'tolerated' }));
+});
+
+test('update-intent and accepted-deviation are not the same decision', async () => {
+  /**
+   * The distinction the taxonomy exists for. `accepted-deviation` tolerates a divergence and leaves
+   * the clause saying what it always said; `update-intent` says the clause itself is wrong. Only one
+   * of them stops the Story, and collapsing them would let a plan everyone knows is wrong ship with
+   * a note attached.
+   */
+  const { advancementBlocked } = await import('../src/convergence.mjs');
+  const projection = (disposition) => ({
+    unresolvedBlockers: disposition === 'update-intent' ? ['CF-1'] : [],
+    findings: [{ id: 'CF-1', itemId: 'CF-1', disposition, clauseIds: ['S:AC-003'] }],
+    facts: [{ id: 'CF-1' }],
+    candidates: []
+  });
+  assert.equal(advancementBlocked(projection('accepted-deviation')).length, 0, 'a tolerated deviation blocked the Story');
+  assert.ok(advancementBlocked(projection('update-intent')).length, 'a known-wrong plan did not block the Story');
+});

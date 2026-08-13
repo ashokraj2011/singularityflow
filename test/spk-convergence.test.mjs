@@ -164,7 +164,12 @@ test('a disposition needs a reason, and only one case is exempt', () => {
   const factId = facts[0].id;
   const candidates = [{ id: 'CC-abc123abc123', classification: 'partial', clauseIds: ['D:REQ-002'] }];
 
-  assert.deepEqual([...DISPOSITIONS], ['rework', 'accepted-deviation', 'dismissed', 'deferred']);
+  /**
+   * The vocabulary is a governed contract, so this list is pinned deliberately — growing it should
+   * be an act somebody reviews, not a silent widening. `update-intent` was added for [AMD:REQ-010]:
+   * the reality-altitude door, where the code is right and the plan was wrong.
+   */
+  assert.deepEqual([...DISPOSITIONS], ['rework', 'accepted-deviation', 'dismissed', 'deferred', 'update-intent']);
   assert.equal(validateAdjudication({ itemId: factId, disposition: 'rework' }, { facts }).disposition, 'rework');
   for (const disposition of ['accepted-deviation', 'dismissed', 'deferred']) {
     assert.throws(

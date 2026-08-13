@@ -146,7 +146,12 @@ test('a disposition needs a reason unless it is rework on a deterministic fact',
   // the one whose reasoning has to be on the record.
   const facts = convergenceFacts({ reconciliation: RECONCILIATION, indexes: INDEXES, observed: OBSERVED });
   const factId = facts[0].id;
-  assert.deepEqual([...DISPOSITIONS], ['rework', 'accepted-deviation', 'dismissed', 'deferred']);
+  /**
+   * The vocabulary is a governed contract, so this list is pinned deliberately — growing it should
+   * be an act somebody reviews, not a silent widening. `update-intent` was added for [AMD:REQ-010]:
+   * the reality-altitude door, where the code is right and the plan was wrong.
+   */
+  assert.deepEqual([...DISPOSITIONS], ['rework', 'accepted-deviation', 'dismissed', 'deferred', 'update-intent']);
 
   assert.doesNotThrow(() => validateAdjudication({ itemId: factId, disposition: 'rework' }, { facts }));
   for (const disposition of ['accepted-deviation', 'dismissed', 'deferred']) {

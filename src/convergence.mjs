@@ -40,11 +40,29 @@ export const FACT_KINDS = Object.freeze([
 /** What an assisted pass may propose `[SPK:REQ-076]`, and a human may confirm. */
 export const FINDING_CLASSIFICATIONS = Object.freeze(['missing', 'partial', 'contradicts', 'unplanned']);
 
-/** How a human disposes of an item `[SPK:REQ-079]`. */
-export const DISPOSITIONS = Object.freeze(['rework', 'accepted-deviation', 'dismissed', 'deferred']);
+/**
+ * How a human disposes of an item `[SPK:REQ-079]` `[AMD:REQ-010]`.
+ *
+ * `update-intent` is the reality-altitude door into an amendment: the code is right and the plan was
+ * wrong. It is distinct from `accepted-deviation`, which says the divergence is tolerated and leaves
+ * the specification alone — the deviation stands on the record and the clause keeps saying what it
+ * always said. `update-intent` says the clause itself must change, so the specification, not the
+ * code, is what moves next.
+ */
+export const DISPOSITIONS = Object.freeze([
+  'rework', 'accepted-deviation', 'dismissed', 'deferred', 'update-intent'
+]);
 
-/** Dispositions that leave the Story unable to advance until they are resolved. */
-const BLOCKING = Object.freeze(['rework']);
+/**
+ * Dispositions that leave the Story unable to advance until they are resolved.
+ *
+ * `update-intent` blocks for the same reason `rework` does, from the other direction. Rework says
+ * the code has not caught up with the plan; update-intent says the plan has not caught up with the
+ * code. Either way the Story would be advancing on a specification known to be wrong, and the whole
+ * point of recording the disposition is that somebody said so out loud. It clears when the
+ * amendment lands, which is a human act `[AMD:CON-003]` — nothing here amends anything.
+ */
+const BLOCKING = Object.freeze(['rework', 'update-intent']);
 
 /**
  * A content-derived identity `[SPK:REQ-078]`.
@@ -300,6 +318,19 @@ export function validateAdjudication(entry, { facts = [], candidates = [] } = {}
   const classification = entry?.classification ?? null;
   if (classification !== null && !FINDING_CLASSIFICATIONS.includes(classification)) {
     throw new SingularityFlowError(`Finding classification must be one of ${FINDING_CLASSIFICATIONS.join(', ')}; got '${classification}'.`);
+  }
+  /**
+   * An `update-intent` that does not say which clauses are wrong is an instruction nobody can act
+   * on: the amendment it exists to trigger is computed from a clause set `[AMD:REQ-011]`, and the
+   * blast radius from that. Every other disposition may leave the clause list empty, because none of
+   * them asks the specification to change.
+   */
+  if (disposition === 'update-intent' && !sorted(entry?.clauseIds).length) {
+    throw new SingularityFlowError(
+      `Disposition 'update-intent' on ${target} must name the clause IDs the specification should change.`
+      + ' Without them there is nothing for an amendment to revise.',
+      { code: 'ADJUDICATION_CLAUSES_REQUIRED', details: { itemId: target } }
+    );
   }
   return {
     itemId: target,

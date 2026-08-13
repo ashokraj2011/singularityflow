@@ -1113,6 +1113,8 @@ function fileSetNodes(snapshot: RepositorySnapshot): TreeNode[] {
     id: string; label: string; icon: string;
     files: Array<{
       path: string; packagePath?: string; name: string; scope?: string; description?: string;
+      catalogId?: string | null; catalogLabel?: string | null; catalogKind?: string | null;
+      usedBy?: string[];
     }>;
   }> = [
     { id: 'templates', label: 'Artifact templates', icon: 'artifact', files: snapshot.templates ?? [] },
@@ -1136,11 +1138,30 @@ function fileSetNodes(snapshot: RepositorySnapshot): TreeNode[] {
         .map((file) => ({
           kind: 'artifact' as const,
           id: `file:${file.path}`,
-          label: file.name,
-          // Which ones this team wrote, and which came with the product — the difference decides
-          // whether editing it is a change to your repository or a change you will lose on upgrade.
-          description: file.scope === 'packaged' ? 'packaged' : file.scope === 'repository' ? 'repository' : undefined,
-          tooltip: [file.description, file.path].filter(Boolean).join('\n'),
+          /**
+           * A catalogued template is shown by the name it was given, with the filename beneath it in
+           * the tooltip. That is the point of the catalog: `Standard intake` says what the thing is,
+           * where `common/intake.md` only says where it lives.
+           */
+          label: file.catalogLabel ?? file.name,
+          /**
+           * What uses it, because "can I delete this?" is the question a reader actually has in
+           * front of a list of templates, and the answer used to require reading workflow.yml.
+           * Scope still wins for a packaged file: whether an edit survives an upgrade outranks it.
+           */
+          description: file.scope === 'packaged'
+            ? 'packaged'
+            : file.usedBy?.length
+              ? `used by ${file.usedBy.length}`
+              : file.usedBy
+                ? 'unused'
+                : file.scope === 'repository' ? 'repository' : undefined,
+          tooltip: [
+            file.catalogId ? `template:${file.catalogId}${file.catalogKind ? ` \u00b7 ${file.catalogKind}` : ''}` : null,
+            file.description,
+            file.path,
+            file.usedBy?.length ? `Used by: ${file.usedBy.join(', ')}` : null
+          ].filter(Boolean).join('\n'),
           icon: set.icon,
           path: file.path,
           packagePath: file.packagePath,

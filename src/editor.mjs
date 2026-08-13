@@ -609,7 +609,7 @@ async function fullRepositorySnapshot(root, requestedWorkId = null, requestedIni
     })(),
     capabilityMapPath: CAPABILITIES_PATH,
     portfolioText,
-    templates: await textFiles(root, definition.templatesRoot),
+    templates: withTemplateCatalog(await textFiles(root, definition.templatesRoot), definition, root),
     agentPrompts: await textFiles(root, definition.agentPromptsRoot),
     prompts: await textFiles(root, PROMPTS_ROOT, { extensions: ['.md'] }),
     repositorySkills: await textFiles(root, REPOSITORY_SKILLS_ROOT, { extensions: ['.md'] }),
@@ -834,6 +834,41 @@ function fastPathProjection(definition, workflow) {
  * view that recomputes a resolution is a second opinion about it, and when the two disagree a reader
  * has no way to tell which one the kernel will actually use.
  */
+/**
+ * Tell each template file what it is called and who uses it. `[templates: catalog]`
+ *
+ * The Configuration view already lists the files under `templatesRoot`, which is a list of
+ * filenames and nothing else — a reader cannot tell which of eleven templates is the one the
+ * specification phase renders, or whether deleting one would break four work types.
+ *
+ * The catalog answers both, so this joins it onto the file list rather than adding a second tree
+ * beside it. A template's name and its usage are facts *about the file*; putting them anywhere else
+ * would make a reader hold two lists in their head and match them up by path.
+ *
+ * Applied through one helper because the file list is produced in two places — `configurationSlice`
+ * and `fullRepositorySnapshot` — and the extension reads whichever the caller asked for. Annotating
+ * one and not the other is how a surface shows different truths depending on how it was opened.
+ */
+function withTemplateCatalog(files, definition, root) {
+  const declared = definition?.templates ?? {};
+  const byPath = new Map(Object.entries(declared).map(([id, entry]) => [entry.path, { id, ...entry }]));
+  const templatesRoot = definition?.templatesRoot ?? 'singularity/templates';
+  return files.map((file) => {
+    // Catalog paths are relative to `templatesRoot`; the file list carries repository-relative ones.
+    const relative = file.path.startsWith(`${templatesRoot}/`) ? file.path.slice(templatesRoot.length + 1) : file.path;
+    const entry = byPath.get(relative) ?? null;
+    const references = templateReferences(definition ?? {}, relative);
+    return {
+      ...file,
+      catalogId: entry?.id ?? null,
+      catalogLabel: entry?.label ?? null,
+      catalogKind: entry?.kind ?? null,
+      // Named separately from the count so a surface can say "used by nobody" without recomputing.
+      usedBy: references
+    };
+  });
+}
+
 async function modelRoutingProjection(root, definition) {
   const mapping = await loadModelTiers(root).catch((error) => ({ error }));
   if (!mapping) return { configured: false, error: null, path: MODEL_TIERS_PATH, revision: null, tasks: [] };
@@ -923,7 +958,7 @@ async function configurationSlice(root) {
     portfolio,
     portfolioPath: PORTFOLIO_PATH,
     portfolioText,
-    templates: await textFiles(root, templatesRoot),
+    templates: withTemplateCatalog(await textFiles(root, templatesRoot), definition, root),
     agentPrompts: await textFiles(root, agentPromptsRoot, { extensions: ['.md'] }),
     prompts: await textFiles(root, PROMPTS_ROOT, { extensions: ['.md'] }),
     repositorySkills: await textFiles(root, REPOSITORY_SKILLS_ROOT, { extensions: ['.md'] }),

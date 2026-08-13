@@ -580,7 +580,19 @@ export interface RepositorySnapshot {
    * packs. They arrive with their contents, but the extension only reads their paths — editing
    * happens in ordinary editor tabs, against the files on disk.
    */
-  templates?: Array<{ path: string; name: string; bytes?: number; content?: string }>;
+  /**
+   * Artifact templates, each carrying its catalog name and what references it.
+   *
+   * A bare filename cannot tell a reader which of eleven templates the specification phase renders,
+   * or whether deleting one would break four work types. `catalogId` is null for a template no
+   * catalog entry names — which is every template in a repository that has not adopted one, and is
+   * a normal state rather than a missing value.
+   */
+  templates?: Array<{
+    path: string; name: string; bytes?: number; content?: string;
+    catalogId?: string | null; catalogLabel?: string | null; catalogKind?: string | null;
+    usedBy?: string[];
+  }>;
   agentPrompts?: Array<{ path: string; name: string; bytes?: number; content?: string }>;
   personaPrompts?: Array<{ path: string; name: string; bytes?: number; content?: string }>;
   prompts?: Array<{ path: string; name: string; bytes?: number; content?: string }>;

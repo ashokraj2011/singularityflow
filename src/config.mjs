@@ -54,6 +54,7 @@ const INITIALIZATION_MAPPINGS = [
   ['capabilities.yml', 'singularity/capabilities.yml'],
   ['agent-mappings.yml', 'singularity/agent-mappings.yml'],
   ['impact.yml', 'singularity/impact.yml'],
+  ['modelTiers.yml', 'singularity/modelTiers.yml'],
   ['artifacts', 'singularity/templates'],
   ['agents', '.github/agents'],
   ['worldmodel-builder.md', 'singularity/prompts/worldmodel-builder.md'],

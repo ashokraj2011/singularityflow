@@ -4,6 +4,8 @@ import path from 'node:path';
 import { gitDir } from './git.mjs';
 import { assertModelInvocationAllowed } from './operation-context.mjs';
 import { modelProvider } from './model-provider-registry.mjs';
+import { assertModelTask } from './model-tasks.mjs';
+import { loadModelTiers, MODEL_TIERS_PATH, tierLadder } from './model-tiers.mjs';
 import { nowIso, SingularityFlowError, writeJson } from './util.mjs';
 
 function sha256(value) { return createHash('sha256').update(value).digest('hex'); }
@@ -85,6 +87,9 @@ async function normalizeRequest(request, context) {
       throw new SingularityFlowError('Model prompt file is outside the operation allowed roots.', { code: 'MODEL_REQUEST_INVALID' });
     }
   }
+  // A task is optional and additive: every caller that names a model directly still works. When one
+  // is given it must be in the closed enum, refused here rather than deep in the mapping.
+  if (request.task != null) assertModelTask(request.task, 'Model request task');
   return Object.freeze({
     ...request,
     provider: provider.trim(),
@@ -134,9 +139,52 @@ export async function listModelInvocations(root, { subjectId = null } = {}) {
   return records.sort((a, b) => String(a.completedAt).localeCompare(String(b.completedAt)));
 }
 
+/**
+ * Turn a task into a concrete model, here and nowhere else. `[ADP:REQ-032]`
+ *
+ * Resolution sits inside the chokepoint on purpose. Every model invocation already passes through
+ * `invokeModel` under an operation context, so putting the lookup here means there is no second
+ * place a model name can be chosen and no caller that can route itself somewhere the mapping does
+ * not allow.
+ *
+ * A request may still name a model directly — every existing caller does, and this is additive —
+ * but it may not do both. Naming a task *and* a model is a caller expressing a routing opinion, and
+ * the whole point of the taxonomy is that callers do not have one.
+ */
+async function resolveRouting(normalized, root) {
+  if (!normalized.task) return null;
+  if (normalized.model) {
+    throw new SingularityFlowError(
+      `Model request names both task '${normalized.task}' and model '${normalized.model}'. A task resolves to a model through the mapping; naming both makes the mapping advisory.`,
+      { code: 'MODEL_REQUEST_INVALID' }
+    );
+  }
+  const mapping = await loadModelTiers(root);
+  if (!mapping) {
+    throw new SingularityFlowError(
+      `Model request routes by task '${normalized.task}', but ${MODEL_TIERS_PATH} is not present. Task routing needs the mapping that resolves it.`,
+      { code: 'MODEL_TIER_MISSING', details: { task: normalized.task } }
+    );
+  }
+  const ladder = tierLadder(mapping, normalized.task);
+  return {
+    task: normalized.task,
+    mappingRevision: mapping.revision,
+    model: ladder.models[0],
+    // Recorded even when nothing falls back, so a receipt shows what *could* have been used as well
+    // as what was. The hops themselves arrive with the ladder in P3.
+    available: [...ladder.models],
+    hops: [],
+    aliasOf: ladder.aliasOf,
+    params: ladder.params,
+    paramsDigest: ladder.paramsDigest
+  };
+}
+
 export async function invokeModel(request) {
   const context = assertModelInvocationAllowed();
   const normalized = await normalizeRequest(request, context);
+  const routing = await resolveRouting(normalized, context.root);
   const providerId = normalized.provider;
   const adapterId = normalized.providerConfig?.type ?? providerId;
   // Unknown providers are rejected before audit directory creation or process start.
@@ -161,7 +209,21 @@ export async function invokeModel(request) {
     modelMode: context.modelMode.enabled ? 'enabled' : 'disabled',
     rootOperationId: context.stack[0]?.id ?? context.operation.id,
     provider: providerId,
-    model: normalized.model ?? null,
+    model: routing?.model ?? normalized.model ?? null,
+    // `[ADP:REQ-040]`: what was asked for, which mapping answered, what it resolved to, and what it
+    // fell back through. Absent for a caller that named its model directly, which is how a reader
+    // tells routed work from unrouted rather than having to infer it.
+    routing: routing
+      ? {
+        task: routing.task,
+        mappingRevision: routing.mappingRevision,
+        resolvedModel: routing.model,
+        aliasOf: routing.aliasOf,
+        available: routing.available,
+        fallbackHops: routing.hops,
+        paramsDigest: routing.paramsDigest
+      }
+      : null,
     promptSha256: fingerprint.sha256,
     promptBytes: fingerprint.bytes,
     cwdSha256: sha256(normalized.cwd),
@@ -196,7 +258,11 @@ export async function invokeModel(request) {
       invocationId: id,
       operationId: context.operation.id,
       provider: providerId,
-      model: normalized.model ?? null,
+      // The resolved model, not the requested one. A routed request names no model, so reporting
+      // `request.model` here would hand every caller `null` for exactly the invocations whose model
+      // was chosen for them — the one case where they most need to be told which model ran.
+      model: event.model,
+      routing: event.routing,
       status: 'completed',
       output: result.output,
       diagnostics: result.diagnostics ?? '',
@@ -205,7 +271,7 @@ export async function invokeModel(request) {
       usage: result.usage ?? { status: 'unavailable' },
       startedAt: event.startedAt,
       completedAt,
-      invocation: { id, path: file, provider: providerId, model: request.model ?? null }
+      invocation: { id, path: file, provider: providerId, model: event.model }
     };
   } catch (error) {
     await writeJson(file, {

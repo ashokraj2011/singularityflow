@@ -36,6 +36,7 @@ import { assertNoAutonomousConvergence } from './convergence.mjs';
 import { analysisLimits } from './analysis-limits.mjs';
 import { VERSION } from './version.mjs';
 import { constitutionPolicy } from './constitution.mjs';
+import { assertModelTask } from './model-tasks.mjs';
 import { normalizeMcpServers, validateMcpAgentTools } from './mcp.mjs';
 import { normalizeSpecPolicy } from './specifications.mjs';
 import { normalizeHarnessImports } from './harness-imports.mjs';
@@ -190,6 +191,15 @@ export function normalizeGenerationPolicy(value = null, phaseId = 'phase') {
     requirement,
     defaultProducer,
     allowedProducers: [...new Set(allowedProducers)],
+    /**
+     * The model task this phase's generation performs `[ADP:REQ-012]`.
+     *
+     * Carried explicitly because this normalizer returns a fresh object rather than spreading its
+     * input: a `task` declared in `workflow.yml` and not named here would be dropped before anything
+     * could read it, and every phase would silently route as the default while the configuration
+     * said otherwise. Validated here so a bad task fails at load, next to the line that wrote it.
+     */
+    task: source.task == null ? null : assertModelTask(source.task, `Phase '${phaseId}' generation task`),
     // Temporary internal compatibility for deterministic preparation paths.
     producer: defaultProducer === 'deterministic' ? 'deterministic' : defaultProducer === 'human' ? 'manual' : 'agent'
   };

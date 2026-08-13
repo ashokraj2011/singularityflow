@@ -7,7 +7,7 @@ function csv(values: string[]): string { return escape(values.join(', ')); }
 
 function tabs(active: ConfigurationTab): string {
   return `<nav class="tabs" aria-label="Configuration areas">
-    ${(['overview', 'world-model', 'people', 'mcp'] as const).map((tab) => `<button class="tab${active === tab ? ' active' : ''}" data-tab="${tab}">${tab === 'overview' ? 'Overview' : tab === 'world-model' ? 'World model' : tab === 'people' ? 'People & approvals' : 'MCP tools'}</button>`).join('')}
+    ${(['overview', 'world-model', 'models', 'people', 'mcp'] as const).map((tab) => `<button class="tab${active === tab ? ' active' : ''}" data-tab="${tab}">${tab === 'overview' ? 'Overview' : tab === 'world-model' ? 'World model' : tab === 'models' ? 'Model routing' : tab === 'people' ? 'People & approvals' : 'MCP tools'}</button>`).join('')}
   </nav>`;
 }
 
@@ -18,6 +18,7 @@ function overview(view: ConfigurationCenterView): string {
     ['workflow', 'workflow', 'Workflows & artifacts', 'Work types, phases, gates, inputs, and document templates.'],
     ['world-model', 'worldModel', 'World model', 'Grounding policy, automatic light generation, views, performance, and prompt injection.'],
     ['instructions', 'agent', 'Agents & delivery', 'Agent routing, prompts, skills, remote templates, generated artifacts, and trust status.'],
+    ['models', 'agent', 'Model routing', 'Which model each kind of work resolves to, and the phases that route by it.'],
     ['people', 'team', 'People & approvals', 'Human identities and the authority groups permitted to approve.'],
     ['mcp', 'mcp', 'MCP tools', 'Host-owned tool servers with governed agent, phase, and tool allowlists.'],
     ['visual-assurance', 'visual', 'Visual assurance', 'Pinned design sources, viewport coverage, comparison evidence, and readiness.'],
@@ -34,6 +35,60 @@ function overview(view: ConfigurationCenterView): string {
 
 function option(value: string, current: string, label: string): string {
   return `<option value="${escape(value)}"${value === current ? ' selected' : ''}>${escape(label)}</option>`;
+}
+
+/**
+ * Task → model, as the engine resolved it. `[ADP:REQ-020]` `[ADP:REQ-012]`
+ *
+ * Read-only, deliberately. The mapping is a governed file; a panel that edited it in place would be
+ * a second route to changing policy that no review saw. The button opens the YAML instead.
+ *
+ * The two things worth seeing here are not in either file on its own: which concrete model a task
+ * actually reaches after aliases resolve, and which phases route by it. `workflow.yml` says
+ * `task: code` and never says what that is; the mapping says what `code` is and never says who uses
+ * it. This is the join.
+ */
+function modelRouting(view: ConfigurationCenterView): string {
+  const routing = view.modelRouting;
+  const heading = `<div class="section-heading"><div><h2>${icon('agent')}Model routing</h2>
+    <p class="muted">Work is routed by what it is, not by who sells the model. Only the tier mapping names a vendor, so a model change is one edit in one reviewed file.</p></div>
+    <button class="secondary" data-action="open-model-tiers">Open tier mapping</button></div>`;
+
+  if (!routing?.configured) {
+    // Not configured is not broken: routing is opt-in, and a repository without a mapping simply
+    // uses whatever model each caller names. Saying "none" here would read as a fault.
+    return `<section class="plain">${heading}
+      <div class="editor-card"><p class="muted">This repository has no <code>singularity/modelTiers.yml</code>, so nothing is routed by task yet. Model choice stays with whatever each caller names.</p></div></section>`;
+  }
+  if (routing.error) {
+    return `<section class="plain">${heading}
+      <div class="editor-card"><p class="danger">${escape(routing.error)}</p>
+      <p class="muted">The mapping exists but cannot be read, so no task can resolve. This is different from having no mapping at all.</p></div></section>`;
+  }
+
+  const rows = routing.tasks.map((entry) => {
+    const via = entry.aliasOf ? `<span class="muted"> via ${escape(entry.aliasOf)}</span>` : '';
+    const fallback = entry.fallback.length
+      ? `<code>${entry.fallback.map((name) => escape(name)).join('</code> → <code>')}</code>`
+      : '<span class="muted">none</span>';
+    const params = entry.params
+      ? Object.entries(entry.params).map(([key, value]) => `<code>${escape(key)}=${escape(String(value))}</code>`).join(' ')
+      : '<span class="muted">—</span>';
+    // An empty phase list is the normal case for tasks a workflow never declares, so it reads as
+    // "nothing routes by this yet" rather than as a gap someone forgot to fill.
+    const phases = entry.phases.length
+      ? entry.phases.map((phase) => `<code>${escape(phase)}</code>`).join(' ')
+      : '<span class="muted">not declared by any phase</span>';
+    return `<tr><td><strong>${escape(entry.task)}</strong>${via}</td>
+      <td><code>${escape(entry.model)}</code></td><td>${fallback}</td><td>${params}</td><td>${phases}</td></tr>`;
+  }).join('');
+
+  return `<section class="plain">${heading}
+    <div class="editor-card">
+      <table class="rows"><thead><tr><th>Task</th><th>Model</th><th>Fallback</th><th>Parameters</th><th>Routed by</th></tr></thead>
+        <tbody>${rows}</tbody></table>
+      <p class="muted">Mapping revision <code>${escape((routing.revision ?? '').slice(0, 12))}</code> — pinned per story alongside the task, so a model retired mid-story changes what runs without changing what the story was governed by.</p>
+    </div></section>`;
 }
 
 function worldModel(view: ConfigurationCenterView): string {
@@ -152,7 +207,7 @@ export function configurationCenterHtml(view: ConfigurationCenterView, tab: Conf
   return `<header class="inbox-header"><div class="brand-lockup">SINGULARITY <span>FLOW</span></div><p class="eyebrow">Governed repository setup</p><h1>${icon('configuration', { size: 24 })}Configuration Center</h1><p class="meta">Configure the product through guided screens. Use YAML only for advanced settings that do not yet have a form.</p></header>
     <div id="configuration-runtime-message" class="notice warning" role="status" aria-live="polite" hidden><span id="configuration-runtime-text"></span><span class="grow"></span><button class="secondary" id="configuration-reload" type="button">Reload newer configuration</button><button class="secondary" id="configuration-keep" type="button">Keep editing</button></div>
     ${tabs(tab)}${notice ? `<div class="notice ok">${escape(notice)}</div>` : ''}${errors.length ? `<div class="notice error">${errors.map((entry) => `<p>${escape(entry)}</p>`).join('')}</div>` : ''}
-    ${tab === 'overview' ? overview(view) : tab === 'world-model' ? worldModel(view) : tab === 'people' ? people(view, selectedAuthority) : mcp(view, selectedMcp)}`;
+    ${tab === 'overview' ? overview(view) : tab === 'world-model' ? worldModel(view) : tab === 'models' ? modelRouting(view) : tab === 'people' ? people(view, selectedAuthority) : mcp(view, selectedMcp)}`;
 }
 
 export const CONFIGURATION_CENTER_SCRIPT = `

@@ -1,8 +1,8 @@
 /** Pure models and governed YAML edits for the Configuration Center. */
 import YAML from 'yaml';
-import type { RepositorySnapshot } from '../cli/snapshot.ts';
+import type { ModelRoutingProjection, RepositorySnapshot } from '../cli/snapshot.ts';
 
-export type ConfigurationTab = 'overview' | 'world-model' | 'people' | 'mcp';
+export type ConfigurationTab = 'overview' | 'world-model' | 'models' | 'people' | 'mcp';
 export type AuthorityScope = 'story' | 'initiative';
 
 export interface ProfileView { name: string; role: string; }
@@ -41,6 +41,11 @@ export interface ConfigurationCenterView {
   mcpErrors: string[];
   mcpWarnings: string[];
   worldModel: WorldModelSettingsView;
+  /**
+   * Task → model, as the engine resolves it. Read-only on purpose: the mapping is a governed file,
+   * and a panel that edited it in place would be a second way to change policy that no review saw.
+   */
+  modelRouting: ModelRoutingProjection | null;
 }
 
 export interface McpDraft extends Omit<McpServerView, 'configured' | 'sources'> { previousId?: string; }
@@ -109,6 +114,9 @@ export function configurationCenterView(snapshot: RepositorySnapshot, profile: P
     agents: [...agentLabels].map(([id, label]) => ({ id, label })).sort((a, b) => a.id.localeCompare(b.id)),
     phases: Object.entries(phaseRows).map(([id, phase]) => ({ id, label: phase.label ?? id })),
     mcpErrors: snapshot.mcp?.errors ?? [], mcpWarnings: snapshot.mcp?.warnings ?? [],
+    // Rendered exactly as the engine resolved it. Recomputing the join here would let the panel and
+    // the kernel disagree about which model a task reaches.
+    modelRouting: snapshot.modelRouting ?? null,
     worldModel: {
       views: worldModel.views ?? ['business', 'architecture', 'development', 'testing', 'release', 'operations', 'security'],
       outputDir: worldModel.outputDir ?? 'singularity/world-model',

@@ -592,7 +592,7 @@ phases:
     label: Convergence
     defaultTemplate: spec-driven/convergence.md
     artifact: { path: artifacts/convergence/convergence.md, kind: verification-report, minimumBytes: 200 }
-    generation: { requirement: required, producer: deterministic }
+    generation: { requirement: required, producer: deterministic, task: analyze }
     worldModel: { views: [development], depth: quick }
     writeScope: artifact-only
     # Human advancement out of convergence, and governed rework back to implementation
@@ -602,7 +602,7 @@ phases:
     label: Implement
     defaultTemplate: quick-fix/implement.md
     artifact: { path: artifacts/implement/implementation-summary.md, kind: implementation-summary, minimumBytes: 200 }
-    generation: { requirement: required, producer: deterministic }
+    generation: { requirement: required, producer: deterministic, task: code }
     worldModel: { views: [development], depth: quick }
     writeScope: source-and-artifact
     approval: none
@@ -611,7 +611,7 @@ phases:
     label: Verify
     defaultTemplate: quick-fix/verify.md
     artifact: { path: artifacts/verify/verification-summary.md, kind: test-evidence, minimumBytes: 200 }
-    generation: { requirement: required, producer: deterministic }
+    generation: { requirement: required, producer: deterministic, task: analyze }
     worldModel: { views: [testing], depth: quick, evidence: true }
     writeScope: source-and-artifact
     approval: { mode: policy, policy: quick-fix-low-risk-v1, maximumChangedPaths: 5, authorities: [quality-reviewers], minimum: 1, rejectTo: [implement, verify] }

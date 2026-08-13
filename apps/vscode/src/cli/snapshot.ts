@@ -428,6 +428,29 @@ export interface FastPathProjection {
   next: string | null;
 }
 
+/** One task's resolution: the model it reaches, how, and who routes by it. `[ADP:REQ-020]` */
+export interface ModelRoutingTask {
+  task: string;
+  model: string;
+  /** The rest of the ladder, preferred-first. Empty when the tier offers no alternative. */
+  fallback: string[];
+  /** The tier this one borrowed, or null when it names its own model. */
+  aliasOf: string | null;
+  params: Record<string, unknown> | null;
+  /** Phases whose generation declares this task. Empty is normal, not a fault. */
+  phases: string[];
+}
+
+export interface ModelRoutingProjection {
+  /** False when the repository has no mapping at all — routing is opt-in, not missing. */
+  configured: boolean;
+  /** A mapping that exists but cannot be read. Distinct from `configured: false`. */
+  error: string | null;
+  path: string;
+  revision: string | null;
+  tasks: ModelRoutingTask[];
+}
+
 export interface RepositorySnapshot {
   repository?: {
     root?: string;
@@ -543,6 +566,15 @@ export interface RepositorySnapshot {
   /** Validation may fail while the configuration inventory remains safely readable. */
   configurationValid?: boolean;
   configurationError?: string | null;
+  /**
+   * Which model each task routes to, joined to the phases that route by it `[ADP:REQ-020]`.
+   *
+   * The indirection that makes routing maintainable also makes it invisible: `workflow.yml` says
+   * `task: code` and never says which model that is. The engine resolves the join and this renders
+   * it; recomputing the resolution here would be a second opinion about which model the kernel is
+   * going to use, and a reader seeing two answers has no way to tell which one is real.
+   */
+  modelRouting?: ModelRoutingProjection | null;
   /**
    * The editable file sets: artifact templates, working-lens prompts, repository skills and prompt
    * packs. They arrive with their contents, but the extension only reads their paths — editing

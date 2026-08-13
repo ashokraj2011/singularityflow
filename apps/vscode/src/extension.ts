@@ -2083,6 +2083,9 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
     else if (message.action === 'jira') await vscode.commands.executeCommand('singularityFlow.connectJira');
     else if (message.action === 'teams') await vscode.commands.executeCommand('singularityFlow.configureTeams');
     else if (message.action === 'open-workflow') await openArtifact(client.repository, { kind: 'artifact', id: 'config:workflow', label: 'workflow.yml', path: store.current.snapshot?.definitionPath ?? 'singularity/workflow.yml' });
+    // The routing panel is read-only, so this is the only way out of it — editing the mapping means
+    // editing the governed file, which is the point.
+    else if (message.action === 'open-model-tiers') await openArtifact(client.repository, { kind: 'artifact', id: 'config:model-tiers', label: 'modelTiers.yml', path: store.current.snapshot?.modelRouting?.path ?? 'singularity/modelTiers.yml' });
     else if (message.action === 'open-portfolio') await openArtifact(client.repository, { kind: 'artifact', id: 'config:portfolio', label: 'portfolio.yml', path: store.current.snapshot?.portfolioPath ?? 'singularity/portfolio.yml' });
     else if (message.action === 'playwright') {
       try {

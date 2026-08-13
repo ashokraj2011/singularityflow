@@ -19,6 +19,8 @@ import {
   worldModelPromptViewReferences,
   WORKFLOW_PATH
 } from './config.mjs';
+import { MODEL_TASKS } from './model-tasks.mjs';
+import { loadModelTiers, MODEL_TIERS_PATH, tierLadder } from './model-tiers.mjs';
 import { documentCatalog, evidenceIsActive } from './documents.mjs';
 import { CAPABILITIES_PATH, capabilityTree, loadCapabilities, validateCapabilities } from './capabilities.mjs';
 import { worldModelRebuildReason } from './grounding.mjs';
@@ -584,6 +586,11 @@ async function fullRepositorySnapshot(root, requestedWorkId = null, requestedIni
     definition,
     definitionPath: WORKFLOW_PATH,
     definitionText: await readFile(path.join(root, WORKFLOW_PATH), 'utf8'),
+    // Also in `configurationSlice`, and it has to be in both. The extension calls `snapshot --json`
+    // with no `--include`, which lands here and not in the slice — the fast-path rail shipped to
+    // the slice alone and rendered nothing at all, silently, because a projection that reaches the
+    // wrong function looks identical to a projection that was never written.
+    modelRouting: await modelRoutingProjection(root, definition),
     portfolio,
     portfolioPath: PORTFOLIO_PATH,
     // What this organisation builds, as opposed to how its code is stored. Nested here because the
@@ -815,6 +822,51 @@ function fastPathProjection(definition, workflow) {
   };
 }
 
+/**
+ * What each task routes to, and which phases route by it. `[ADP:REQ-020]` `[ADP:REQ-012]`
+ *
+ * The indirection that makes routing maintainable also makes it invisible: a reader looking at
+ * `workflow.yml` sees `task: reason` and has no way to learn which model that is without opening a
+ * second file and following an alias. This joins the two so a surface can show the answer.
+ *
+ * Derived here rather than in the extension for the reason the fast-path rail had to learn twice: a
+ * view that recomputes a resolution is a second opinion about it, and when the two disagree a reader
+ * has no way to tell which one the kernel will actually use.
+ */
+async function modelRoutingProjection(root, definition) {
+  const mapping = await loadModelTiers(root).catch((error) => ({ error }));
+  if (!mapping) return { configured: false, error: null, path: MODEL_TIERS_PATH, revision: null, tasks: [] };
+  if (mapping.error) {
+    return { configured: true, error: mapping.error.message, path: MODEL_TIERS_PATH, revision: null, tasks: [] };
+  }
+  // Which phases declare each task, so the mapping reads as policy in force rather than as a table.
+  const phases = new Map();
+  for (const [phaseId, phase] of Object.entries(definition?.phases ?? {})) {
+    if (phase?.generation?.task) {
+      const list = phases.get(phase.generation.task) ?? [];
+      list.push(phaseId);
+      phases.set(phase.generation.task, list);
+    }
+  }
+  return {
+    configured: true,
+    error: null,
+    path: MODEL_TIERS_PATH,
+    revision: mapping.revision,
+    tasks: MODEL_TASKS.map((task) => {
+      const ladder = tierLadder(mapping, task);
+      return {
+        task,
+        model: ladder.models[0],
+        fallback: ladder.models.slice(1),
+        aliasOf: ladder.aliasOf,
+        params: ladder.params,
+        phases: phases.get(task) ?? []
+      };
+    })
+  };
+}
+
 async function configurationSlice(root) {
   const errors = [];
   const workflowFile = await secureRepositoryPath(root, WORKFLOW_PATH, {
@@ -866,6 +918,7 @@ async function configurationSlice(root) {
     definition,
     definitionPath: WORKFLOW_PATH,
     definitionText,
+    modelRouting: await modelRoutingProjection(root, definition),
     portfolio,
     portfolioPath: PORTFOLIO_PATH,
     portfolioText,

@@ -25,6 +25,9 @@ import {
   artifactSetDiff, catalogArtifactSet, disclosureLines, memberRoot, resolvedArtifactSet
 } from './artifact-sets.mjs';
 import {
+  citedArticleIds, constitutionIndex, constitutionPin, loadConstitution, validateCitations
+} from './constitution.mjs';
+import {
   evaluateApprovalChecklist, evaluateSpecificationGate, markerSummary,
   resolvedSpecificationQualityPolicy
 } from './specification-gate.mjs';
@@ -401,6 +404,42 @@ export async function createWorkflow(root, config, { id, title, source, baseBran
   snapshotState.worldModelStaleness = resolution.worldModelStaleness ?? config.worldModel?.staleness ?? 'warn';
   snapshotState.storage = structuredClone(resolution.storage ?? null);
   snapshotState.capability = capability;
+  /**
+   * Pin the constitution this Story is held to `[SPK:REQ-091]`.
+   *
+   * Pinned once, here, and never refreshed: `[SPK:CON-039]` says an active Story keeps its pinned
+   * constitution while `sflow/config` advances, so the rules someone is judged against are the ones
+   * that were in force when they started. Refusing an integrity problem at *start* rather than
+   * later is the same reasoning — a Story should not begin under a constitution that already
+   * disagrees with itself.
+   */
+  if (resolution.constitution?.mode !== 'off') {
+    const constitution = await loadConstitution(root, resolution.constitution.path, { resolution });
+    if (!constitution) {
+      if (resolution.constitution.mode === 'enforce') {
+        throw new SingularityFlowError(
+          `Work type '${selectedType}' requires a constitution at ${resolution.constitution.path} and none exists. `
+          + 'Copy examples/constitution/constitution.md there, replace the sample articles, and run singularity-flow constitution generate.'
+        );
+      }
+      console.warn(`Warning: no constitution at ${resolution.constitution.path}; this Story pins none.`);
+    } else {
+      const blocking = constitution.findings.filter((finding) => ['hand-edited', 'stale-policy', 'judged-prose-changed', 'unresolved-policy'].includes(finding.kind));
+      if (blocking.length && resolution.constitution.mode === 'enforce') {
+        throw new SingularityFlowError(`The constitution at ${constitution.path} is not consistent with the approved policy:\n- ${blocking.map((finding) => finding.message).join('\n- ')}`);
+      }
+      constitution.findings.forEach((finding) => console.warn(`Warning: constitution ${finding.kind}: ${finding.message}`));
+      snapshotState.constitutionPin = constitutionPin({
+        constitution,
+        index: constitutionIndex({
+          articles: constitution.articles, path: constitution.path, fileSha256: constitution.fileSha256,
+          configurationCommit: snapshotState.configurationSource?.commit ?? null, resolution
+        }),
+        configurationCommit: snapshotState.configurationSource?.commit ?? null,
+        resolution
+      });
+    }
+  }
   const actor = identity(root);
   const phases = resolution.phases.map(phaseState);
   const createdAt = nowIso();
@@ -648,6 +687,13 @@ export async function assertNoPendingPublication(root, config, workflow, action 
 }
 
 function requiredRepoPath(config, workflow, phase) { return `${workDirRelative(config, workflow.workItem.id)}/${phase.requiredArtifact.path}`; }
+
+/** The artifact's text, or empty when it is not there yet — a missing artifact is `validatePhase`'s. */
+async function readArtifactText(root, relative) {
+  const absolute = path.join(root, relative);
+  return await exists(absolute) ? readFile(absolute, 'utf8') : '';
+}
+
 
 export async function preparePhase(root, config, workflow, requested = undefined) {
   const result = await preparePhaseInputs(root, config, workflow, requested);
@@ -971,6 +1017,25 @@ export async function publishGeneration(root, config, workflow, { phaseId, usage
       + `Answer each question and record it with singularity-flow clarification record ${phase.id} --marker "<question>" --answer "..." before regenerating.`
     );
   }
+
+  /**
+   * Constitution citations `[SPK:REQ-101]`.
+   *
+   * Validated against the Story's **pin**, not the file on disk. An article added since the Story
+   * started exists today and did not when the author wrote the citation, so accepting it would
+   * record a reference to a rule nobody read. Checked here, beside the marker gate, so a citation
+   * problem costs the same as a marker: the answer, and nothing else.
+   */
+  const citations = validateCitations(
+    workflow.resolution?.constitutionPin ?? null,
+    citedArticleIds(await readArtifactText(root, requiredRepoPath(config, workflow, phase))),
+    { label: `Phase ${phase.id}` }
+  );
+  citations.warnings.forEach((warning) => console.warn(`Warning: ${warning}`));
+  if (citations.errors.length && (workflow.resolution?.constitution?.mode ?? 'off') === 'enforce') {
+    throw new SingularityFlowError(`Phase ${phase.id} is not publishable:\n- ${citations.errors.join('\n- ')}`);
+  }
+  citations.errors.forEach((error) => console.warn(`Warning: ${error}`));
 
   const capture = !modelAssisted
     ? { source: 'not-invoked', usage: [], spans: 0, rawBytes: 0, pending: false, warnings: [] }

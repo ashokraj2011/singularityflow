@@ -285,6 +285,10 @@ import {
   serializeConvergence
 } from './convergence.mjs';
 import {
+  buildConstitutionException, constitutionIndex, constitutionPin, constitutionPolicy,
+  generateConstitution, loadConstitution, requiredArticles, validateCitations
+} from './constitution.mjs';
+import {
   assistedConvergencePrompt, assistedConvergenceRelative, buildAssistedConvergenceRecord,
   parseConvergenceCandidates, serializeAssistedConvergence, unknownReferences
 } from './assisted-convergence.mjs';
@@ -8006,6 +8010,162 @@ async function storyAdvanceCommand(positionals, options) {
   return submitCommand(['submit', subject.phase.id], options);
 }
 
+/**
+ * `constitution generate|check|show`. `[SPK:REQ-097]` `[SPK:REQ-184]`
+ *
+ * `generate` rewrites only the enforced articles and leaves everything else byte-for-byte, `check`
+ * reports the integrity findings without touching the file, and `show` prints what a Story is
+ * actually held to. All three read the work type's pinned policy rather than guessing a path.
+ */
+async function constitutionCommand(positionals, options) {
+  const root = repoRoot();
+  const config = await loadConfig(root);
+  const subcommand = positionals[1] ?? 'check';
+  const workTypeId = optionString(options, 'work-type') ?? 'spec-driven-standard';
+  const resolved = config.workTypes?.[workTypeId] ? resolveWorkType(config, workTypeId) : null;
+  const policy = resolved?.constitution ?? constitutionPolicy(config.workTypes?.[workTypeId]?.constitution);
+  const relative = optionString(options, 'path') ?? policy.path;
+
+  if (subcommand === 'generate') {
+    const absolute = path.join(root, relative);
+    if (!(await exists(absolute))) {
+      throw new SingularityFlowError(
+        `No constitution at ${relative}. Copy examples/constitution/constitution.md there, replace the sample articles, and remove its 'example: true' marker.`
+      );
+    }
+    const before = await readFile(absolute, 'utf8');
+    const generated = generateConstitution(before, resolved ?? config);
+    if (optionBoolean(options, 'dry-run')) {
+      console.log(generated.markdown);
+      return console.log(`\nWould regenerate ${generated.regenerated.length} enforced article(s): ${generated.regenerated.join(', ') || 'none'}`);
+    }
+    await writeText(absolute, generated.markdown);
+    // `[SPK:CON-043]`: the constitution belongs to the configuration branch, not application main.
+    return emitCommandResult(commandResult({
+      operation: { id: 'constitution.generate', classification: 'mutation' },
+      subject: { kind: 'configuration', id: relative },
+      outcome: succeeded('constitution.generated', { regenerated: generated.regenerated.length }),
+      effects: { files: [relative] },
+      next: [{
+        kind: 'review', rank: 'NOW',
+        summary: 'Propose the regenerated constitution through the configuration-authority workflow; it must not be committed to application main.',
+        command: 'singularity-flow configuration'
+      }],
+      data: { path: relative, regenerated: generated.regenerated, articles: generated.articles.map((article) => article.id) }
+    }), { json: optionBoolean(options, 'json') });
+  }
+
+  const constitution = await loadConstitution(root, relative, { resolution: resolved ?? config, allowExample: subcommand === 'show' });
+  if (!constitution) {
+    if (optionBoolean(options, 'json')) return console.log(JSON.stringify({ present: false, path: relative }, null, 2));
+    return console.log(`No constitution at ${relative}. Work type '${workTypeId}' has constitution mode '${policy.mode}'.`);
+  }
+  const index = constitutionIndex({
+    articles: constitution.articles, path: constitution.path, fileSha256: constitution.fileSha256, resolution: resolved ?? config
+  });
+
+  if (subcommand === 'show') {
+    if (optionBoolean(options, 'json')) {
+      return emitCommandResult(commandResult({
+        operation: { id: 'constitution.show', classification: 'read' },
+        subject: { kind: 'configuration', id: constitution.path },
+        outcome: noop('constitution.shown', { articles: index.articles.length, path: constitution.path }),
+        effects: noEffects(), restState: 'informational', data: index
+      }), { json: true });
+    }
+    console.log(`Constitution — ${constitution.path} (${constitution.fileSha256.slice(0, 12)}), index ${index.indexSha256.slice(0, 12)}`);
+    for (const article of index.articles) {
+      console.log(`  ${article.id} [${article.type}${article.type === 'judged' ? `/${article.level}${article.evidenceRequired ? ', evidence required' : ''}` : ''}]${article.status === 'withdrawn' ? ' (withdrawn)' : ''} ${article.title ?? ''}`);
+      if (article.policy) console.log(`      policy: ${article.policy}`);
+    }
+    return;
+  }
+  /**
+   * `constitution except` — a rule deliberately not followed. `[SPK:REQ-103]` `[SPK:REQ-104]`
+   *
+   * Every field is required, and the command exists so that the alternative — following the rule or
+   * quietly not following it — is not the only choice available. An exception with a reason, a
+   * scope, an authority and an expiry is a decision; the same thing undocumented is a defect
+   * somebody will find later and be unable to explain.
+   */
+  if (subcommand === 'except') {
+    const workflow = await loadStoryAggregate(root, config, optionString(options, 'work-id'));
+    const pin = workflow.resolution?.constitutionPin ?? null;
+    if (!pin) throw new SingularityFlowError('This Story pinned no constitution, so there is no article to take an exception to.');
+    const articleId = requirePositional(positionals, 2, 'constitution article ID').toUpperCase();
+    const article = pin.articles.find((entry) => entry.id.toUpperCase() === articleId);
+    if (!article) throw new SingularityFlowError(`The pinned constitution has no article ${articleId}. It contains ${pin.articles.map((entry) => entry.id).join(', ')}.`);
+    const session = await loadSession(root);
+    const authority = requireApprovalAuthority(
+      workflow.resolution.approvalAuthorities ?? config.approvalAuthorities,
+      workflow.phases[workflow.currentPhase]?.approvalPolicy ?? { authorities: [] },
+      session.actor
+    );
+    const exception = buildConstitutionException({
+      articleId,
+      reason: optionString(options, 'reason'),
+      scope: optionString(options, 'scope') ?? workflow.workItem.id,
+      actor: session.actor,
+      authority: authority.authorityGroup,
+      at: nowIso(),
+      expiresAt: optionString(options, 'expires') ?? null,
+      workId: workflow.workItem.id,
+      sourceCommit: head(root)
+    });
+    const workflowBefore = structuredClone(workflow);
+    const published = await commitAndPublish(
+      root, config, workflow,
+      // `evidence-recorded`, from the closed lifecycle-event vocabulary, rather than a new type: an
+      // exception is a governed record attached to the Story, and inventing an event kind for it
+      // would put a second vocabulary beside the one the ledger already validates against.
+      { type: 'evidence-recorded', kind: 'constitution-exception', articleId, phaseId: workflow.currentPhase ?? null },
+      `[${workflow.workItem.id}][constitution:except] ${articleId}`,
+      [],
+      {
+        rollbackWorkflow: workflowBefore,
+        beforeStateWrite: async () => {
+          workflow.constitutionExceptions ??= [];
+          workflow.constitutionExceptions.push({ ...exception, phase: workflow.currentPhase ?? null });
+        }
+      }
+    );
+    return emitCommandResult(commandResult({
+      operation: { id: 'constitution.except', classification: 'mutation' },
+      subject: { kind: 'story', id: workflow.workItem.id },
+      outcome: succeeded('constitution.excepted', { article: articleId, scope: exception.scope }),
+      effects: { commits: [published.sha] },
+      next: [{
+        kind: 'review', rank: 'SOON',
+        summary: 'The exception appears in the review packet, Story evidence and final conformance.',
+        command: `singularity-flow review --work-id ${workflow.workItem.id}`
+      }],
+      data: exception
+    }), { json: optionBoolean(options, 'json') });
+  }
+
+  if (subcommand !== 'check') throw new SingularityFlowError(`Unknown constitution subcommand '${subcommand}'. Use generate, check, show, or except.`);
+
+  if (optionBoolean(options, 'json')) {
+    return emitCommandResult(commandResult({
+      operation: { id: 'constitution.check', classification: 'read' },
+      subject: { kind: 'configuration', id: constitution.path },
+      outcome: noop('constitution.reported', {
+        path: constitution.path, articles: index.articles.length, findings: constitution.findings.length
+      }),
+      effects: noEffects(), restState: 'informational',
+      data: { present: true, index, findings: constitution.findings }
+    }), { json: true });
+  }
+  console.log(`Constitution — ${constitution.path} (${constitution.fileSha256.slice(0, 12)})`);
+  console.log(`  mode: ${policy.mode} · articles: ${index.articles.length} · index ${index.indexSha256.slice(0, 12)}`);
+  if (!constitution.findings.length) return console.log('\nNo integrity problems found.');
+  console.log('');
+  for (const finding of constitution.findings) console.log(`  ${finding.kind}: ${finding.message}`);
+  // A hand-edited enforced article is not a style problem: the document now says something the
+  // kernel does not do, and this is the exit code a pipeline should stop on.
+  if (constitution.findings.some((finding) => ['hand-edited', 'stale-policy', 'judged-prose-changed'].includes(finding.kind))) process.exitCode = 2;
+}
+
 async function finalizeCommand(options) {
   const root = repoRoot();
   const config = await loadConfig(root);
@@ -8314,6 +8474,7 @@ async function dispatch(command, positionals, options) {
     plugin: () => pluginCommand(positionals, options),
     snapshot: () => snapshotCommand(positionals, options),
     configuration: () => editorCommand(positionals, options, 'configuration'),
+    constitution: () => constitutionCommand(positionals, options),
     initiative: () => initiativeCommand(positionals, options),
     knowledge: () => knowledgeCommand(positionals, options),
     capability: () => capabilityCommand(positionals, options),

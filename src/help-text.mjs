@@ -309,6 +309,9 @@ Usage:
   singularity-flow story adjudicate <ITEM-ID> [--item ITEM-ID]...
     --disposition rework|accepted-deviation|dismissed|deferred [--reason TEXT]
     [--classification missing|partial|contradicts|unplanned] [--clause ID]... [--json]
+  singularity-flow constitution check|show [--work-type ID] [--path FILE] [--json]
+  singularity-flow constitution generate [--work-type ID] [--path FILE] [--dry-run]
+  singularity-flow constitution except <ARTICLE-ID> --reason TEXT [--scope TEXT] [--expires ISO] [--work-id ID]
   singularity-flow story rework [--work-id ID] [--reason TEXT] [--confirm]
   singularity-flow story advance [--work-id ID] [--confirm]
   singularity-flow story checks [--parent STORY-KEY] [--packet SHA256]

@@ -366,9 +366,15 @@ workTypes:
       implement: { milestone: implementation-published }
       converge: { milestone: convergence-advanced }
       verify: { milestone: verification-approved }
+    # One constitution per approved configuration [SPK:REQ-090]. Shipped at `warn` rather than
+    # `enforce` because `init` does not create one and the shipped examples must never become
+    # active policy on installation [SPK:REQ-099] — so `enforce` out of the box would refuse every
+    # Story on a fresh repository. Copy examples/constitution/constitution.md, write your own
+    # articles, then set `enforce`: from that point a missing or hand-edited constitution, or a
+    # citation to an article the Story did not pin, is a refusal rather than a warning.
     constitution:
       path: singularity/constitution.md
-      mode: enforce
+      mode: warn
     templateOverrides:
       specification: spec-driven/spec.md
       planning: spec-driven/plan.md

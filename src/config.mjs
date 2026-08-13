@@ -33,6 +33,7 @@ import { normalizeClarificationPolicy } from './clarifications.mjs';
 import { specificationQualityPolicy } from './specification-quality.mjs';
 import { normalizeArtifactSets } from './artifact-sets.mjs';
 import { assertNoAutonomousConvergence } from './convergence.mjs';
+import { constitutionPolicy } from './constitution.mjs';
 import { normalizeMcpServers, validateMcpAgentTools } from './mcp.mjs';
 import { normalizeSpecPolicy } from './specifications.mjs';
 import { normalizeHarnessImports } from './harness-imports.mjs';
@@ -414,6 +415,9 @@ export function validateDefinition(definition) {
     for (const phaseId of Object.keys(workType.phaseOverrides ?? {})) if (!workType.phases.includes(phaseId)) throw new SingularityFlowError(`Work type '${id}' has an override for inactive phase '${phaseId}'.`);
     for (const phaseId of workType.documents?.allowedPhases ?? []) if (!workType.phases.includes(phaseId)) throw new SingularityFlowError(`Work type '${id}' allows document upload in inactive phase '${phaseId}'.`);
     normalizeSequenceGates(definition.sequenceGates ?? {}, workType.sequenceGates ?? {});
+    // `[SPK:REQ-090]`: one constitution per approved configuration, named by the work type that
+    // is held to it. Validated here so a typo cannot resolve into a policy that governs nothing.
+    constitutionPolicy(workType.constitution);
     workType.designSources = normalizeDesignSourcePolicy(workType.designSources, { phases: workType.phases });
     workType.verification = normalizeVerificationPolicy(workType.verification, { phases: workType.phases });
   }
@@ -773,6 +777,9 @@ export function resolveWorkType(definition, workTypeId) {
     // Pinned into the Story's resolution like every other policy `[SPK:REQ-110]`, so a later edit to
     // the shared set cannot change what an in-flight Story owes.
     artifactSets: normalizeArtifactSets(definition.artifactSets),
+    // Pinned into the Story's resolution like every other policy `[SPK:CON-039]`, so a Story keeps
+    // the constitution it started under while the configuration branch moves on.
+    constitution: constitutionPolicy(workType.constitution),
     spec: normalizeSpecPolicy(definition.spec ?? {}),
     harnessImports: normalizeHarnessImports(definition.harnessImports),
     documents,
@@ -823,6 +830,15 @@ export async function snapshotResolution(root, definition, resolved) {
     contextPolicy: resolved.contextPolicy ?? normalizeContextPolicy(definition.contextPolicy ?? {}, { phaseIds: Object.keys(definition.phases) }),
     ledger: structuredClone(resolved.ledger ?? normalizeLedgerConfig(definition.ledger ?? {})),
     spec: structuredClone(resolved.spec ?? normalizeSpecPolicy(definition.spec ?? {})),
+    /**
+     * The constitution policy the Story is held to `[SPK:CON-039]`.
+     *
+     * Carried here as well as resolved, because this snapshot — not `resolveWorkType` — is what a
+     * Story reads for the rest of its life. Resolving a policy that the snapshot then drops is how
+     * `mode: enforce` reached a publication gate as `undefined` and enforced nothing.
+     */
+    constitution: structuredClone(resolved.constitution ?? constitutionPolicy(definition.constitution)),
+    artifactSets: structuredClone(resolved.artifactSets ?? normalizeArtifactSets(definition.artifactSets)),
     harnessImports: structuredClone(resolved.harnessImports ?? normalizeHarnessImports(definition.harnessImports)),
     impact: impact ? structuredClone(impact) : null,
     agents,

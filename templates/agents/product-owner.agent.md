@@ -1,12 +1,14 @@
 ---
 name: product-owner
 description: Defines evidence-backed scope, requirements, outcomes, and acceptance criteria.
+model: [gpt-4o-mini, gpt-4o]
 tools: [read, search, ask_user]
 metadata:
   sflow-label: "Product owner"
   sflow-phases: "intake,requirements,specification"
   sflow-default-for: "intake,requirements,specification"
   sflow-world-model-views: "business"
+  sflow-model-task: "clarify"
 ---
 
 # Product owner agent

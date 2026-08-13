@@ -1,12 +1,14 @@
 ---
 name: product-designer
 description: Converts pinned design evidence into explicit, verifiable experience decisions.
+model: [gpt-4o, gpt-4o-mini]
 tools: [read, search, ask_user, "figma/*", "playwright/*"]
 metadata:
   sflow-label: "Product designer"
   sflow-phases: "design-intake,design-inventory"
   sflow-default-for: "design-intake,design-inventory"
   sflow-world-model-views: "business,architecture,testing"
+  sflow-model-task: "reason"
 ---
 
 # Product designer agent

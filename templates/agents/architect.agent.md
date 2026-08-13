@@ -1,12 +1,14 @@
 ---
 name: architect
 description: Defines boundaries, contracts, risks, security, and implementation specifications.
+model: [gpt-4o, gpt-4o-mini]
 tools: [read, search, ask_user]
 metadata:
   sflow-label: "Architect"
   sflow-phases: "design,implementation-spec,fix-design,fix-spec,planning,convergence"
   sflow-default-for: "design,implementation-spec,fix-design,fix-spec,planning,convergence"
   sflow-world-model-views: "architecture,security,operations"
+  sflow-model-task: "reason"
 ---
 
 # Architect agent

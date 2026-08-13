@@ -1,12 +1,14 @@
 ---
 name: mobile-architect
 description: Maps governed design evidence to mobile architecture and implementation contracts.
+model: [gpt-4o, gpt-4o-mini]
 tools: [read, search, ask_user]
 metadata:
   sflow-label: "Mobile architect"
   sflow-phases: "component-mapping,mobile-spec"
   sflow-default-for: "component-mapping,mobile-spec"
   sflow-world-model-views: "architecture,development,testing,security"
+  sflow-model-task: "reason"
 ---
 
 # Mobile architect agent

@@ -109,9 +109,12 @@ if (codeowners.status !== 0) fail(codeowners.stderr.trim() || 'Generated CODEOWN
 checked.push('.github/CODEOWNERS', 'scripts/generate-codeowners.mjs');
 for (const [script, label] of [
   ['scripts/audit-model-boundary.mjs', 'Model-boundary audit'],
+  // A stamp that drifts from the mapping is one agent quietly pinned to a model nobody
+  // approved — the exact thing the indirection exists to prevent. `[ADP:CON-008]`
+  ['scripts/stamp-agent-models.mjs', 'Agent model stamps'],
   ['scripts/generate-operation-catalog.mjs', 'Operation model-policy catalog']
 ]) {
-  const result = spawnSync(process.execPath, [script], { cwd: root, encoding: 'utf8' });
+  const result = spawnSync(process.execPath, [script, ...(script.includes('stamp-') ? ['--check'] : [])], { cwd: root, encoding: 'utf8' });
   if (result.status !== 0) fail(result.stderr.trim() || `${label} failed`);
   checked.push(script);
 }
@@ -544,7 +547,15 @@ const ROUTING_SOURCES = allFiles.filter((file) => {
 });
 for (const file of ROUTING_SOURCES) {
   const relative = path.relative(root, file);
-  const text = await readFile(file, 'utf8').catch(() => '');
+  /**
+   * The one exemption, and it is a single line rather than a file. An agent's `model:` line is
+   * written mechanically by `stamp-agent-models.mjs` from the tier mapping, so it is the mapping
+   * speaking, not the author. Exempting the whole file would let someone hand-write a model in the
+   * agent's prose and call it stamped; exempting the generated line keeps REQ-023 meaningful and
+   * lets the drift check below own whether that line is correct.
+   */
+  const text = (await readFile(file, 'utf8').catch(() => ''))
+    .split('\n').filter((line) => !(relative.endsWith('.agent.md') && /^model: \[/.test(line))).join('\n');
   const offenders = [
     ...mappedModels.filter((name) => text.includes(name)),
     ...VENDOR_MODEL_SHAPES.flatMap((pattern) => text.match(pattern) ?? [])

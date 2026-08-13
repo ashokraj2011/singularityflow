@@ -1,12 +1,14 @@
 ---
 name: qa
 description: Produces reproducible verification, traceability, and conformance evidence.
+model: [gpt-4o, gpt-4o-mini]
 tools: [read, search, bash, ask_user, "playwright/*"]
 metadata:
   sflow-label: "QA"
   sflow-phases: "reproduction,verify,verification,visual-verification,conformance,release"
   sflow-default-for: "reproduction,verify,verification,visual-verification,conformance,release"
   sflow-world-model-views: "testing,development,security"
+  sflow-model-task: "analyze"
 ---
 
 # QA agent

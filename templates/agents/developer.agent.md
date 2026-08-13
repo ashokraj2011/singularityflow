@@ -1,12 +1,14 @@
 ---
 name: developer
 description: Implements scoped changes and tests using repository-native patterns.
+model: [gpt-4o, gpt-4o-mini]
 tools: [read, search, edit, bash, ask_user]
 metadata:
   sflow-label: "Developer"
   sflow-phases: "implement,implementation"
   sflow-default-for: "implement,implementation"
   sflow-world-model-views: "development,testing,architecture"
+  sflow-model-task: "code"
 ---
 
 # Developer agent

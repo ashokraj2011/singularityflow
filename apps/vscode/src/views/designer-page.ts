@@ -130,7 +130,8 @@ function phaseEditor(draft: PhaseDraftView): string {
 
 function phasesHtml(
   profiles: Profile[], selected: string | null, standing: Standing[], portfolioPath: string,
-  draft: WorkflowDraftView | null, phaseDraft: PhaseDraftView | null, choices: PhaseChoice[]
+  draft: WorkflowDraftView | null, phaseDraft: PhaseDraftView | null, choices: PhaseChoice[],
+  graphSvg = ''
 ): string {
   const profile = profiles.find((entry) => entry.id === selected) ?? profiles[0];
   if (!profile && !draft) return '<section class="empty-state"><h3>No workflow exists yet</h3><p>Create the first workflow from the phase catalog.</p><button data-new-workflow="1">Create workflow</button></section>';
@@ -147,6 +148,8 @@ function phasesHtml(
   ${profile && !draft && !phaseDraft ? `
     <section class="workflow-summary">
       <div><p class="eyebrow">${escape(profile.governs)} workflow</p><h3>${escape(profile.label)}</h3><p class="muted">${escape(profile.description || 'No description yet.')}</p></div>
+      ${graphSvg ? `<details class="graph-preview" open><summary>Dependency graph</summary>${graphSvg}
+        <p class="graph-note">Solid edges are declared inputs; dashed edges are rework paths. The strip below is the run order.</p></details>` : ''}
       <div class="workflow-rail">${profile.phases.map((phase, index) => `<span class="rail-node"><b>${index + 1}</b>${escape(phase.label)}</span>${index < profile.phases.length - 1 ? `<span class="rail-arrow">${icon('next')}</span>` : ''}`).join('')}</div>
       <p class="${standing.length ? 'blockers' : 'muted'}">${escape(consequence(standing, profile.governs === 'initiative' ? portfolioPath : 'singularity/workflow.yml'))}</p>
     </section>
@@ -205,14 +208,15 @@ export function designerHtml(
   tab: DesignerTab, profiles: Profile[], templates: TemplateUsage[], selectedProfile: string | null,
   filter: string, standing: Standing[], portfolioPath: string, error: string | null,
   workflowDraft: WorkflowDraftView | null = null, phaseDraft: PhaseDraftView | null = null,
-  artifactDraft: ArtifactDraft = newArtifactDraft(), artifactErrors: string[] = [], phaseChoices: PhaseChoice[] = []
+  artifactDraft: ArtifactDraft = newArtifactDraft(), artifactErrors: string[] = [], phaseChoices: PhaseChoice[] = [],
+  graphSvg = ''
 ): string {
   return `
   <header><p class="eyebrow">Workflow designer · configuration studio</p><h1>${icon('workflow', { size: 20 })}Workflows & artifacts</h1><p class="meta">Create the delivery path and design the documents each phase must produce. Every save is validated by the same engine used by the CLI.</p></header>
   ${error ? `<section class="plain"><div class="blockers">${escape(error)}</div></section>` : ''}
   <nav class="designer-tabs" aria-label="Configuration designers"><button class="tab${tab === 'phases' ? ' active' : ''}" aria-current="${tab === 'phases' ? 'page' : 'false'}" data-tab="phases">${icon('workflow')}Workflow builder</button><button class="tab${tab === 'templates' ? ' active' : ''}" aria-current="${tab === 'templates' ? 'page' : 'false'}" data-tab="templates">${icon('artifact')}Artifact designer</button></nav>
   ${tab === 'phases'
-    ? phasesHtml(profiles, selectedProfile, standing, portfolioPath, workflowDraft, phaseDraft, phaseChoices)
+    ? phasesHtml(profiles, selectedProfile, standing, portfolioPath, workflowDraft, phaseDraft, phaseChoices, graphSvg)
     : `${artifactBuilder(artifactDraft, profiles, artifactErrors)}${templateInventory(templates, filter)}`}`;
 }
 

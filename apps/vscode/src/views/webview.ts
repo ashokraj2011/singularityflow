@@ -6,6 +6,7 @@
  * matters — and there is no reason for two panels in the same extension to disagree about this.
  */
 import type * as vscode from 'vscode';
+import { WORKFLOW_GRAPH_STYLES } from './workflow-graph-svg.ts';
 export { icon, ICON_NAMES, type IconName } from './icons.ts';
 
 /** Everything that reaches a page goes through this. */
@@ -781,7 +782,7 @@ export function page(
 <meta charset="utf-8">
 <meta http-equiv="Content-Security-Policy" content="${csp}">
 <title>${escape(title)}</title>
-<style nonce="${token}">${STYLE}</style>
+<style nonce="${token}">${STYLE}${WORKFLOW_GRAPH_STYLES}</style>
 </head><body>
 ${body}
 ${footer}

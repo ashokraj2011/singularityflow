@@ -1,5 +1,7 @@
 /** Governed visual workflow and artifact-template authoring. */
 import * as vscode from 'vscode';
+import { buildWorkflowGraph } from './workflow-graph-model.ts';
+import { renderWorkflowGraph } from './workflow-graph-svg.ts';
 import path from 'node:path';
 import {
   designerHtml, DESIGNER_SCRIPT, type DesignerTab, type PhaseChoice,
@@ -343,7 +345,10 @@ export class DesignerPanel {
     this.panel.webview.html = page('Workflows & artifacts', designerHtml(
       this.tab, this.profiles(snapshot), snapshot ? buildTemplateUsage(snapshot) : [], this.profile,
       this.filter, snapshot ? standingOn(snapshot, portfolioPath) : [], portfolioPath, this.error,
-      this.workflowDraft, this.phaseDraft, this.artifactDraft, this.artifactErrors, this.phaseChoices(snapshot)
+      this.workflowDraft, this.phaseDraft, this.artifactDraft, this.artifactErrors, this.phaseChoices(snapshot),
+      // The graph the rail cannot draw. Built from the same snapshot the rest of the page renders,
+      // so the diagram and the phase list can never describe different workflows.
+      renderWorkflowGraph(buildWorkflowGraph(snapshot, this.profile ?? this.profiles(snapshot)[0]?.id ?? ''), { compact: true })
     ), contentSecurityPolicy(this.panel.webview, token), token, DESIGNER_SCRIPT);
   }
 

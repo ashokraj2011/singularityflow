@@ -11,6 +11,8 @@ import { lstat, mkdir, readFile, realpath } from 'node:fs/promises';
 import YAML from 'yaml';
 import {
   SingularityFlowError,
+  exists,
+  nowIso,
   optionBoolean,
   optionNumber,
   optionString,
@@ -28,6 +30,7 @@ import {
 import { add, assertClean, branch, changes, checkout, commit, fastForwardTo, fetchOrigin, fetchRemote, fileAtRef, gitDir, hasUpstream, head, identity, localBranches, pullFastForward, refExists, refHead, remoteBranches, repoRoot } from './git.mjs';
 import { buildRepositorySubjectIndex, buildRepositorySubjectIndexFromRefs, resolveContext } from './repository-subject-index.mjs';
 import {
+  actorKey,
   approvePhase,
   assertNoPendingPublication,
   cancelWorkflow,
@@ -275,8 +278,16 @@ import {
 } from './advisory-tasks.mjs';
 import {
   assistedPrompt, assistedRecordRelative, buildAssistedRecord, parseAssistedCandidates,
-  serializeAssistedRecord, unknownCitations
+  serializeAssistedRecord, unknownCitations, unwrapProviderLineBreaks
 } from './assisted-quality.mjs';
+import {
+  advancementBlocked, convergenceBindings, convergenceFacts, convergenceProjection,
+  serializeConvergence
+} from './convergence.mjs';
+import {
+  assistedConvergencePrompt, assistedConvergenceRelative, buildAssistedConvergenceRecord,
+  parseConvergenceCandidates, serializeAssistedConvergence, unknownReferences
+} from './assisted-convergence.mjs';
 
 import { ABOUT } from './about.mjs';
 import { VERSION } from './version.mjs';
@@ -7653,8 +7664,346 @@ async function storyCommand(positionals, options) {
     if (!result.evidence.ready) process.exitCode = 2;
     return;
   }
+  if (subcommand === 'converge') return storyConvergeCommand(positionals, options);
+  if (subcommand === 'adjudicate') return storyAdjudicateCommand(positionals, options);
+  if (subcommand === 'rework') return storyReworkCommand(positionals, options);
+  if (subcommand === 'advance') return storyAdvanceCommand(positionals, options);
   if (subcommand === 'status') return statusCommand([positionals[0], positionals[2]], options);
   throw new SingularityFlowError(`Unknown Story subcommand '${subcommand}'.`);
+}
+
+/**
+ * The convergence subject: the implementation generation being closed, and everything bound to it.
+ *
+ * Gathered in one place because `[SPK:REQ-072]` asks that an iteration bind all of it — and because
+ * the failure mode of scattering this is a record that binds whichever inputs the code path happened
+ * to touch, which is indistinguishable from binding all of them until someone needs to re-check one.
+ */
+async function convergenceSubject(root, config, workflow) {
+  const phase = workflow.phases.convergence;
+  if (!phase) throw new SingularityFlowError(`Work type '${workflow.workItem.workType}' has no convergence phase.`);
+  const implementation = workflow.phases.implementation;
+  if (!implementation) throw new SingularityFlowError(`Work type '${workflow.workItem.workType}' has no implementation phase to converge.`);
+  const reconciliationRef = implementation.workIntervalReconciliation;
+  if (!reconciliationRef?.path) {
+    throw new SingularityFlowError(
+      'Convergence operates on the reconciliation record for the implementation generation, and none exists yet. '
+      + 'Run singularity-flow submit implementation first.'
+    );
+  }
+  const itemDirectory = workDir(root, config, workflow.workItem.id);
+  const itemRelative = posix(path.relative(root, itemDirectory));
+  // The full record, not the summary the phase keeps: `[SPK:CON-032]` says convergence consumes the
+  // exact reconciliation output, and the summary has no `findings`.
+  const reconciliation = await readJson(path.join(root, reconciliationRef.path));
+  reconciliation.path = reconciliationRef.path;
+  const records = await loadActiveSpecRecords(itemDirectory, workflow);
+  const policy = workflow.resolution?.spec ?? config.spec;
+  return {
+    phase,
+    implementation,
+    itemDirectory,
+    itemRelative,
+    reconciliation,
+    records,
+    policy,
+    acceptance: evaluateSpecAcceptance(records, policy, {
+      workId: workflow.workItem.id,
+      phase: implementation.id,
+      generation: implementation.generation
+    }),
+    // One iteration per implementation generation `[SPK:REQ-083]`: a new generation opens a new one,
+    // and re-running convergence against the same generation refreshes it rather than counting up.
+    iteration: Math.max(1, Number(implementation.generation ?? 1))
+  };
+}
+
+/**
+ * One governed relay turn for convergence candidates. `[SPK:REQ-076]`
+ *
+ * `tools: none`, like the specification-quality pass. A model that could read the repository would
+ * be re-deriving what reconciliation already owns, at a different altitude, with nothing recording
+ * what it looked at — and `[SPK:CON-034]` would have no way to hold.
+ */
+async function runAssistedConvergence(root, config, workflow, subject, { facts, bindings, model = null }) {
+  const clauses = subject.records.indexes.flatMap((index) => index.clauses ?? []);
+  const observedClaims = Object.assign({}, ...subject.records.observed.map((map) => map.claims ?? {}));
+  const prompt = assistedConvergencePrompt({
+    clauses,
+    observedClaims,
+    changedPaths: subject.reconciliation.findings ?? [],
+    facts,
+    namespace: subject.policy?.namespace ?? null
+  });
+  const provider = resolveModelProvider(config);
+  const invocation = await invokeModel({
+    provider: provider.provider,
+    providerConfig: provider.providerConfig,
+    model: model ?? provider.model,
+    cwd: root,
+    allowedRoots: [root],
+    prompt: { text: prompt },
+    channel: 'convergence-assisted',
+    subject: { kind: 'convergence', id: workflow.workItem.id, iteration: bindings.iteration },
+    tools: { mode: 'none' },
+    limits: { timeoutMs: 5 * 60 * 1000, outputBytes: 256 * 1024 }
+  });
+  const candidates = parseConvergenceCandidates(invocation.output, { unwrap: unwrapProviderLineBreaks });
+  const record = buildAssistedConvergenceRecord({
+    workId: workflow.workItem.id,
+    bindings,
+    facts,
+    candidates,
+    invocation,
+    prompt,
+    unknown: unknownReferences(candidates, { factIds: facts.map((item) => item.id), clauseIds: clauses.map((clause) => clause.id) }),
+    generatedAt: invocation.completedAt ?? new Date().toISOString()
+  });
+  const relative = assistedConvergenceRelative(subject.itemRelative, bindings.iteration);
+  await writeText(path.join(root, relative), serializeAssistedConvergence(record));
+  for (const id of record.unknownReferences.factIds) console.warn(`Warning: a candidate cites deterministic fact '${id}', which this iteration does not contain.`);
+  for (const id of record.unknownReferences.clauseIds) console.warn(`Warning: a candidate cites clause '${id}', which the approved specification does not contain.`);
+  return { record, path: relative };
+}
+
+function convergenceRecordRelative(itemRelative, iteration) {
+  return posix(path.join(itemRelative, 'context', 'convergence', `iteration-${iteration}.json`));
+}
+
+async function readConvergence(root, itemRelative, iteration) {
+  const relative = convergenceRecordRelative(itemRelative, iteration);
+  if (!(await exists(path.join(root, relative)))) return null;
+  return readJson(path.join(root, relative)).catch(() => null);
+}
+
+/**
+ * `story converge` — the canonical kernel operation `[SPK:REQ-070]`.
+ *
+ * Deterministic by default `[SPK:REQ-073]`. It computes facts, carries forward any adjudications
+ * already recorded for this iteration, and writes the projection. It never approves anything,
+ * changes a specification, opens a change request or advances the phase `[SPK:CON-036]` — those are
+ * `story adjudicate`, `reject` and `story advance`, each of which needs a human.
+ */
+async function storyConvergeCommand(positionals, options) {
+  const root = repoRoot();
+  const config = await loadConfig(root);
+  const workflow = await loadStoryAggregate(root, config, optionString(options, 'work-id'));
+  const subject = await convergenceSubject(root, config, workflow);
+  const facts = convergenceFacts({
+    reconciliation: subject.reconciliation,
+    indexes: subject.records.indexes,
+    planned: subject.records.planned,
+    observed: subject.records.observed,
+    acceptance: subject.acceptance
+  });
+  const bindings = convergenceBindings({
+    iteration: subject.iteration,
+    configurationSha256: workflow.resolution?.configSha256 ?? null,
+    configurationRevision: workflow.resolution?.configurationSource?.commit ?? null,
+    specification: convergenceSourceRef(workflow.phases.specification),
+    planning: convergenceSourceRef(workflow.phases.planning),
+    indexes: subject.records.indexes,
+    reconciliation: subject.reconciliation,
+    planned: subject.records.planned,
+    observed: subject.records.observed,
+    evidence: subject.records.acceptance
+  });
+
+  const previous = await readConvergence(root, subject.itemRelative, subject.iteration);
+  const assisted = optionBoolean(options, 'assisted')
+    ? await runAssistedConvergence(root, config, workflow, subject, { facts, bindings, model: optionString(options, 'model') })
+    : null;
+  const candidates = assisted?.record.candidates ?? previous?.candidateSnapshot ?? [];
+  const projection = convergenceProjection({
+    workId: workflow.workItem.id,
+    bindings,
+    facts,
+    candidates,
+    candidateRecords: [...(previous?.candidateRecords ?? []), ...(assisted ? [assisted.path] : [])],
+    // Carried forward, because a disposition survives a re-run of the facts it was about.
+    adjudications: previous?.findings?.map((finding) => ({
+      itemId: finding.itemId,
+      disposition: finding.disposition,
+      classification: finding.classification,
+      clauseIds: finding.clauseIds,
+      reason: finding.decision?.reason,
+      actor: finding.decision?.actor,
+      at: finding.decision?.at
+    })) ?? []
+  });
+  const relative = convergenceRecordRelative(subject.itemRelative, subject.iteration);
+  await writeText(path.join(root, relative), serializeConvergence({ ...projection, candidateSnapshot: candidates }));
+
+  if (optionBoolean(options, 'json')) return console.log(JSON.stringify(projection, null, 2));
+  console.log(`Convergence iteration ${projection.iteration} — ${workflow.workItem.id}`);
+  console.log(`  bound to: reconciliation ${bindings.reconciliation.sha256.slice(0, 12)}, source ${String(bindings.sourceTargetCommit ?? '').slice(0, 8)}, ${bindings.clauseIndexSha256.length} clause index/es`);
+  console.log(`  facts:    ${facts.length}`);
+  for (const item of facts) console.log(`    ${item.id} ${item.kind}: ${item.detail}`);
+  if (assisted) {
+    console.log(`  candidates: ${assisted.record.candidates.length} (${assisted.path})`);
+    for (const candidate of assisted.record.candidates) console.log(`    ${candidate.id} ${candidate.classification}${candidate.clauseIds.length ? ` (${candidate.clauseIds.join(', ')})` : ''}: ${candidate.text}`);
+  }
+  console.log(`  findings: ${projection.findings.length} recorded, ${projection.unresolvedBlockers.length} blocking`);
+  console.log(`  record:   ${relative}`);
+  console.log('\nAn absent claim or unclaimed path is missing trace evidence. It is not a finding that the requirement');
+  console.log('is unimplemented or the change unplanned — only a human can say that.');
+  console.log(`\nAllowed next: ${projection.allowedNext.join(', ') || 'none'}`);
+  if (projection.allowedNext.includes('adjudicate')) {
+    console.log(`  singularity-flow story adjudicate <ITEM-ID> --disposition rework|accepted-deviation|dismissed|deferred [--reason TEXT]`);
+  }
+  if (projection.allowedNext.includes('create-rework')) {
+    console.log(`  singularity-flow reject convergence --to implementation --reason "..." ${projection.findings.filter((finding) => finding.disposition === 'rework').flatMap((finding) => finding.clauseIds).map((id) => `--clause ${id}`).join(' ')}`.trimEnd());
+  }
+  if (projection.allowedNext.includes('advance-to-verification')) console.log('  singularity-flow story advance --confirm');
+}
+
+function convergenceSourceRef(phase) {
+  if (!phase) return null;
+  const artifact = (phase.artifacts ?? []).find((entry) => entry.path?.endsWith(phase.requiredArtifact?.path ?? ' '));
+  return { generation: phase.generation ?? null, sha256: artifact?.sha256 ?? null };
+}
+
+/**
+ * `story adjudicate` — the human decision `[SPK:REQ-079]`.
+ *
+ * A separate command from `converge` on purpose. `[SPK:CON-036]` forbids the agent running
+ * convergence from disposing of what it found, and the cleanest way to hold that line is for the
+ * disposition to be a different invocation by a different identity.
+ */
+async function storyAdjudicateCommand(positionals, options) {
+  const root = repoRoot();
+  const config = await loadConfig(root);
+  const workflow = await loadStoryAggregate(root, config, optionString(options, 'work-id'));
+  const subject = await convergenceSubject(root, config, workflow);
+  const existing = await readConvergence(root, subject.itemRelative, subject.iteration);
+  if (!existing) throw new SingularityFlowError(`Convergence iteration ${subject.iteration} has not been run. Run singularity-flow story converge first.`);
+
+  const itemIds = [requirePositional(positionals, 2, 'convergence item ID'), ...optionStrings(options, 'item')];
+  const session = await loadSession(root);
+  const at = nowIso();
+  const decisions = itemIds.map((id) => ({
+    itemId: id,
+    disposition: optionString(options, 'disposition'),
+    classification: optionString(options, 'classification') ?? null,
+    reason: optionString(options, 'reason'),
+    clauseIds: optionStrings(options, 'clause'),
+    actor: actorKey(session.actor),
+    at
+  }));
+  const kept = (existing.findings ?? [])
+    .filter((finding) => !itemIds.includes(finding.itemId))
+    .map((finding) => ({
+      itemId: finding.itemId, disposition: finding.disposition, classification: finding.classification,
+      clauseIds: finding.clauseIds, reason: finding.decision?.reason, actor: finding.decision?.actor, at: finding.decision?.at
+    }));
+  const projection = convergenceProjection({
+    workId: workflow.workItem.id,
+    bindings: existing.bindings,
+    facts: existing.facts ?? [],
+    candidates: existing.candidateSnapshot ?? [],
+    candidateRecords: existing.candidateRecords ?? [],
+    adjudications: [...kept, ...decisions]
+  });
+  const relative = convergenceRecordRelative(subject.itemRelative, subject.iteration);
+  await writeText(path.join(root, relative), serializeConvergence({ ...projection, candidateSnapshot: existing.candidateSnapshot ?? [] }));
+
+  if (optionBoolean(options, 'json')) return console.log(JSON.stringify(projection, null, 2));
+  for (const decision of decisions) console.log(`Recorded ${decision.disposition} on ${decision.itemId} by ${decision.actor}.`);
+  console.log(`Blocking findings: ${projection.unresolvedBlockers.length ? projection.unresolvedBlockers.join(', ') : 'none'}`);
+  console.log(`Allowed next: ${projection.allowedNext.join(', ') || 'none'}`);
+}
+
+/**
+ * `story rework` — the transition a `rework` disposition earns. `[SPK:REQ-182]` `[SPK:REQ-082]`
+ *
+ * Deliberately a second command rather than a side effect of adjudicating. A reviewer disposing of
+ * six items should be able to change their mind about the third without having already sent the
+ * Story back, and `[SPK:CON-036]` is easier to keep true when the transition is its own act.
+ *
+ * The change request, the authority check, the approval invalidation and the phase transition are
+ * all the existing rejection path `[SPK:REQ-182]`; nothing about rework is a parallel lifecycle.
+ * Prior convergence records are files under `context/convergence/` and are never rewritten, so
+ * every earlier iteration, finding and approval survives `[SPK:REQ-082]`.
+ */
+async function storyReworkCommand(positionals, options) {
+  const root = repoRoot();
+  const config = await loadConfig(root);
+  const workflow = await loadStoryAggregate(root, config, optionString(options, 'work-id'));
+  const subject = await convergenceSubject(root, config, workflow);
+  const projection = await readConvergence(root, subject.itemRelative, subject.iteration);
+  if (!projection) throw new SingularityFlowError(`Convergence iteration ${subject.iteration} has not been run.`);
+  const rework = (projection.findings ?? []).filter((finding) => finding.disposition === 'rework');
+  if (!rework.length) {
+    throw new SingularityFlowError('No convergence finding is dispositioned as rework, so there is nothing to send back.');
+  }
+  const clauseIds = [...new Set(rework.flatMap((finding) => finding.clauseIds ?? []))].sort();
+  const reason = optionString(options, 'reason')
+    ?? `Convergence iteration ${projection.iteration}: ${rework.length} finding(s) require rework${clauseIds.length ? ` for ${clauseIds.join(', ')}` : ''}.`;
+  if (!optionBoolean(options, 'confirm')) {
+    console.log(`Convergence iteration ${projection.iteration} would return DRIVE work to implementation:`.replace('DRIVE work', workflow.workItem.id));
+    for (const finding of rework) console.log(`  ${finding.id} (${finding.itemId}) ${finding.clauseIds.join(', ') || 'no clause'}: ${finding.decision?.reason ?? 'no reason recorded'}`);
+    console.log(`\nApprovals from implementation onward will be invalidated. Re-run with --confirm.`);
+    return;
+  }
+  const workflowBeforeRework = structuredClone(workflow);
+  const returned = await commitAndPublish(
+    root,
+    config,
+    workflow,
+    { type: 'phase-rejected', phaseId: subject.phase.id, generation: subject.phase.generation },
+    `[${workflow.workItem.id}][converge:rework] iteration ${projection.iteration}`,
+    [],
+    {
+      rollbackWorkflow: workflowBeforeRework,
+      // Closes over `workflow`, like every other unit of work here: `beforeStateWrite` takes no
+      // argument, and a parameter here is silently `undefined` rather than a compile error.
+      beforeStateWrite: async () => rejectPhase(root, config, workflow, {
+        phaseId: subject.phase.id,
+        target: 'implementation',
+        reason,
+        clauseIds,
+        // `[SPK:REQ-183]`'s sibling: the projection is what authorises rejecting an unsubmitted
+        // phase, and it is re-checked inside `rejectPhase` rather than trusted from here.
+        convergenceRework: {
+          iteration: projection.iteration,
+          convergenceSha256: projection.convergenceSha256,
+          unresolvedBlockers: projection.unresolvedBlockers
+        },
+        channel: 'terminal',
+        actionContext: activeActionContext()
+      })
+    }
+  );
+  console.log(`Returned ${workflow.workItem.id} to implementation for ${rework.length} convergence finding(s); commit ${returned.sha.slice(0, 8)}.`);
+  console.log(`Clauses: ${clauseIds.join(', ') || 'none recorded'}`);
+  console.log('Prior convergence records, findings and approvals are preserved. The next implementation publication opens iteration '
+    + `${projection.iteration + 1}.`);
+}
+
+/**
+ * `story advance` — leaving convergence `[SPK:REQ-183]`.
+ *
+ * Explicit, human, and refused while anything is open. Convergence is not verification
+ * `[SPK:CON-038]`; passing through it is a claim that a person looked at every absence of evidence
+ * and said what it meant, which is exactly the claim `--confirm` makes on their behalf.
+ */
+async function storyAdvanceCommand(positionals, options) {
+  const root = repoRoot();
+  const config = await loadConfig(root);
+  const workflow = await loadStoryAggregate(root, config, optionString(options, 'work-id'));
+  const subject = await convergenceSubject(root, config, workflow);
+  const projection = await readConvergence(root, subject.itemRelative, subject.iteration);
+  const blocked = advancementBlocked(projection);
+  if (blocked.length) {
+    throw new SingularityFlowError(`Convergence cannot advance to verification:\n- ${blocked.join('\n- ')}`);
+  }
+  if (!optionBoolean(options, 'confirm')) {
+    console.log(`Convergence iteration ${projection.iteration} has no unresolved blockers and every item is dispositioned.`);
+    console.log(`Findings: ${projection.findings.length}. Bound to reconciliation ${projection.bindings.reconciliation.sha256.slice(0, 12)}.`);
+    return console.log('Advancement is an explicit human action. Re-run with --confirm to submit convergence for approval.');
+  }
+  console.log(`Convergence iteration ${projection.iteration} confirmed by an authorized human; submitting the phase for approval.`);
+  return submitCommand(['submit', subject.phase.id], options);
 }
 
 async function finalizeCommand(options) {

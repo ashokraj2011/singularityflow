@@ -305,6 +305,12 @@ Usage:
     reconcile [--json]                          (deterministic local baseline/spec comparison)
     escalate [--to WORK-TYPE] [--json]          (non-destructive plan; immutable work type is preserved)
   singularity-flow story submit
+  singularity-flow story converge [--work-id ID] [--assisted [--model NAME]] [--json]
+  singularity-flow story adjudicate <ITEM-ID> [--item ITEM-ID]...
+    --disposition rework|accepted-deviation|dismissed|deferred [--reason TEXT]
+    [--classification missing|partial|contradicts|unplanned] [--clause ID]... [--json]
+  singularity-flow story rework [--work-id ID] [--reason TEXT] [--confirm]
+  singularity-flow story advance [--work-id ID] [--confirm]
   singularity-flow story checks [--parent STORY-KEY] [--packet SHA256]
   singularity-flow story finalize [--json]
   singularity-flow finalize [--json]

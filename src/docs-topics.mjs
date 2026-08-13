@@ -94,7 +94,21 @@ export function parseTopic(source, file = '<memory>') {
 
 /** Load every topic in a directory, in stable ID order. */
 export async function loadTopics(directory = TOPICS_DIRECTORY) {
-  const names = (await readdir(directory)).filter((name) => name.endsWith('.md')).sort();
+  /**
+   * An absent topic tree is an incomplete installation, not a missing file.
+   *
+   * It surfaced as a bare `ENOENT: scandir '.../docs/topics'` on every `explain` — a filesystem
+   * path the reader has no reason to recognise, describing a fault that is not theirs, with nothing
+   * to do about it. The condition has exactly one cause worth naming and one fix.
+   */
+  const names = (await readdir(directory).catch((error) => {
+    if (error?.code !== 'ENOENT') throw error;
+    throw new SingularityFlowError(
+      `No documentation topics are installed at ${directory}. This build shipped without its topic tree, `
+      + 'so no topic can be served. Reinstall Singularity Flow, or run from a checkout where docs/topics exists.',
+      { code: 'DOCS_TOPICS_MISSING', details: { directory }, cause: error }
+    );
+  })).filter((name) => name.endsWith('.md')).sort();
   const topics = [];
   for (const name of names) {
     topics.push(parseTopic(await readFile(path.join(directory, name), 'utf8'), name));

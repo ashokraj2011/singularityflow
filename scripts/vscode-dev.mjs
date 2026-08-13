@@ -408,7 +408,15 @@ async function demoRepository({ github = false } = {}) {
  * `yaml` comes along because it is the engine's one dependency; `npm run check` asserts there is
  * exactly one, so this list does not quietly grow.
  */
-export const CLI_PAYLOAD = ['bin', 'src', 'templates', 'plugin', 'schemas', 'package.json', 'HELP.md'];
+/**
+ * `docs` is here because the topic *bodies* live in `docs/topics/` and are read at runtime —
+ * `src/docs-manifest.json` is an index of ids, titles and hashes, and carries no prose.
+ *
+ * Omitting it produced the worst possible shape of failure: the manifest staged, so the Help view
+ * listed all 32 topics and looked healthy, and every single one failed on click with a raw ENOENT.
+ * A missing index would at least have shown an empty list. 128 KB against a 6.3 MB payload.
+ */
+export const CLI_PAYLOAD = ['bin', 'src', 'docs', 'templates', 'plugin', 'schemas', 'package.json', 'HELP.md'];
 
 export async function stageCli({ rootDir = root, extensionDir = extension } = {}) {
   const staged = path.join(extensionDir, 'cli');

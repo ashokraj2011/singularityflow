@@ -7856,7 +7856,10 @@ async function storyConvergeCommand(positionals, options) {
     console.log(`  singularity-flow story adjudicate <ITEM-ID> --disposition rework|accepted-deviation|dismissed|deferred [--reason TEXT]`);
   }
   if (projection.allowedNext.includes('create-rework')) {
-    console.log(`  singularity-flow reject convergence --to implementation --reason "..." ${projection.findings.filter((finding) => finding.disposition === 'rework').flatMap((finding) => finding.clauseIds).map((id) => `--clause ${id}`).join(' ')}`.trimEnd());
+    // `story rework`, not `reject convergence`. Convergence is `in_progress` when its findings are
+    // adjudicated, and `reject` requires a submitted phase — so the instruction printed here used
+    // to be one the reader could not carry out, which is worse than printing nothing.
+    console.log('  singularity-flow story rework --confirm');
   }
   if (projection.allowedNext.includes('advance-to-verification')) console.log('  singularity-flow story advance --confirm');
 }
@@ -7944,7 +7947,7 @@ async function storyReworkCommand(positionals, options) {
   const reason = optionString(options, 'reason')
     ?? `Convergence iteration ${projection.iteration}: ${rework.length} finding(s) require rework${clauseIds.length ? ` for ${clauseIds.join(', ')}` : ''}.`;
   if (!optionBoolean(options, 'confirm')) {
-    console.log(`Convergence iteration ${projection.iteration} would return DRIVE work to implementation:`.replace('DRIVE work', workflow.workItem.id));
+    console.log(`Convergence iteration ${projection.iteration} would return ${workflow.workItem.id} to implementation:`);
     for (const finding of rework) console.log(`  ${finding.id} (${finding.itemId}) ${finding.clauseIds.join(', ') || 'no clause'}: ${finding.decision?.reason ?? 'no reason recorded'}`);
     console.log(`\nApprovals from implementation onward will be invalidated. Re-run with --confirm.`);
     return;

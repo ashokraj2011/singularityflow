@@ -49,6 +49,17 @@ const BINDINGS = convergenceBindings({
 
 const HUMAN = { actor: 'reviewer@example.invalid', at: '2026-01-01T00:00:00.000Z' };
 
+/**
+ * Source with comments removed, for the assertions below that ask what the CLI *offers*.
+ *
+ * Three separate assertions in this pack have now tripped on a comment explaining why something is
+ * forbidden — including, twice, on the comment recording the very fix the assertion was added for.
+ * A guard whose easiest repair is deleting the explanation is worse than no guard.
+ */
+function withoutComments(text) {
+  return String(text).replace(/\/\*[\s\S]*?\*\//g, '').replace(/(^|[^:])\/\/.*$/gm, '$1');
+}
+
 test('facts describe the record, never the implementation', () => {
   /**
    * `[SPK:CON-033]`, and the single most important sentence in the feature. The kernel cannot see
@@ -178,10 +189,25 @@ test('rework blocks advancement and offers only the governed change request', as
     assert.match(finding.id, /^GF-[0-9a-f]{12}$/);
   }
 
-  // The CLI offers the governed transition and does not implement one of its own.
-  const cli = await readFile(new URL('../src/cli.mjs', import.meta.url), 'utf8');
+  /**
+   * The CLI offers a transition the reader can actually take.
+   *
+   * This assertion used to pin `reject convergence --to implementation`, which reads like the
+   * governed path and is unreachable: `reject` requires a submitted phase, convergence is
+   * `in_progress` while its findings are being adjudicated, and the only route to submission —
+   * `story advance` — is what a blocking finding prevents. The end-to-end fixture walked into that
+   * deadlock; this test had been holding it in place.
+   */
+  const cli = withoutComments(await readFile(new URL('../src/cli.mjs', import.meta.url), 'utf8'));
   const converge = cli.slice(cli.indexOf('async function storyConvergeCommand'), cli.indexOf('function convergenceSourceRef'));
-  assert.match(converge, /singularity-flow reject convergence --to implementation/, 'rework is not routed through the governed change request');
+  assert.match(converge, /singularity-flow story rework --confirm/, 'convergence offers no reachable rework command');
+  assert.doesNotMatch(converge, /reject convergence/, 'convergence still offers a command that cannot run from in_progress');
+
+  // And `story rework` routes through `rejectPhase`, so rework is the existing change-request
+  // transition rather than a second one invented for convergence `[SPK:AC-003]`.
+  const rework = cli.slice(cli.indexOf('async function storyReworkCommand'), cli.indexOf('async function storyAdvanceCommand'));
+  assert.match(rework, /rejectPhase\(root, config, workflow/, 'rework does not use the governed rejection path');
+  assert.match(rework, /convergenceRework: \{/, 'rework does not present the projection that authorises it');
 });
 
 test('a resolved iteration allows advancement, and only then', () => {

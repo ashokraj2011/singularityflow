@@ -1,5 +1,7 @@
 import path from 'node:path';
 import { mkdir, mkdtemp, rm } from 'node:fs/promises';
+// Synchronous, because `identity()` is synchronous and called from synchronous code throughout.
+import { mkdirSync, readFileSync, writeFileSync } from 'node:fs';
 import { SingularityFlowError, invariant, run } from './util.mjs';
 
 function git(args, options = {}) {
@@ -11,10 +13,30 @@ function git(args, options = {}) {
   return run('git', args, options);
 }
 
+/**
+ * Where the repository is, and where its Git directory is — asked once per process.
+ *
+ * Neither can change while a process runs: a repository does not move out from under a command, and
+ * if it did, every path already resolved would be wrong anyway. They were being recomputed
+ * constantly — one `snapshot --json` spent 148 ms on 20 subprocesses re-answering these two
+ * questions (15 × `--absolute-git-dir`, 5 × `--show-toplevel`).
+ *
+ * Deliberately NOT applied to `head()`: HEAD genuinely changes mid-process, because the write paths
+ * read it before and after committing. Caching that would make a publication report the commit it
+ * replaced.
+ */
+const repoRootCache = new Map();
+const gitDirCache = new Map();
+
 export function repoRoot(cwd = process.cwd()) {
+  if (repoRootCache.has(cwd)) return repoRootCache.get(cwd);
   const result = git(['rev-parse', '--show-toplevel'], { cwd, allowFailure: true });
+  // Only a success is cached: a failure is a thrown error, and a later call from a different cwd
+  // inside a repository must still be able to succeed.
   if (result.status !== 0) throw new SingularityFlowError('Run Singularity Flow from inside a Git repository.');
-  return path.resolve(result.stdout.trim());
+  const resolved = path.resolve(result.stdout.trim());
+  repoRootCache.set(cwd, resolved);
+  return resolved;
 }
 
 export function branch(root) {
@@ -83,27 +105,92 @@ export function head(root) {
 }
 
 export function gitDir(root) {
+  if (gitDirCache.has(root)) return gitDirCache.get(root);
   const value = git(['rev-parse', '--absolute-git-dir'], { cwd: root }).stdout.trim();
   invariant(value, 'Unable to resolve the repository Git directory.');
-  return path.resolve(value);
+  const resolved = path.resolve(value);
+  gitDirCache.set(root, resolved);
+  return resolved;
+}
+
+/**
+ * How long a resolved GitHub account is reused from disk. `[perf]`
+ *
+ * `gh api user` is a ~460 ms network round trip, and a process memo cannot help the VS Code
+ * extension: every refresh is a brand-new CLI process, so it paid the full cost on each of its 25
+ * refresh triggers.
+ *
+ * Caching rather than going offline is the deliberate choice. Passing `{ offline: true }` here would
+ * have been a one-line "fix" that made `identities.github` null — turning a slow but truthful
+ * disclosure into a fast and wrong one, on a surface reviewers use to see who is acting. The account
+ * is stable for hours, so a short TTL keeps the disclosure real and pays for it once.
+ */
+const GITHUB_ACCOUNT_TTL_MS = 10 * 60 * 1000;
+
+function githubAccountCacheFile(root) {
+  return path.join(root, '.git', 'singularity-flow', 'github-account.json');
+}
+
+/** `gh api user`, reused from disk while fresh. Shaped like a `run()` result for the caller. */
+function cachedGithubAccount(root) {
+  const file = githubAccountCacheFile(root);
+  try {
+    const cached = JSON.parse(readFileSync(file, 'utf8'));
+    if (Date.now() - cached.at < GITHUB_ACCOUNT_TTL_MS) return { status: 0, stdout: cached.stdout };
+  } catch { /* No cache, unreadable, or unparseable is simply a miss. */ }
+
+  const result = run('gh', ['api', 'user', '--jq', '{login: .login, name: .name}'], { cwd: root, allowFailure: true });
+  // Only a success is written. Caching a failure would make one offline moment look like a
+  // signed-out account for the next ten minutes.
+  if (result.status === 0) {
+    try {
+      mkdirSync(path.dirname(file), { recursive: true });
+      writeFileSync(file, JSON.stringify({ at: Date.now(), stdout: result.stdout }));
+    } catch { /* An unwritable .git is not a reason to fail a read. */ }
+  }
+  return result;
 }
 
 export function identity(root, { offline = false } = {}) {
   if (process.env.NODE_ENV === 'test' && process.env.SINGULARITY_FLOW_TEST_IDENTITY) {
     return { name: process.env.SINGULARITY_FLOW_TEST_IDENTITY, email: `${process.env.SINGULARITY_FLOW_TEST_IDENTITY.toLowerCase().replace(/\s+/g, '.')}@example.com`, login: null };
   }
+  /**
+   * Deliberately NOT memoized, though it is the obvious thing to do here.
+   *
+   * The local Git identity genuinely changes within a process, and the product depends on noticing:
+   * `action-authorization` refuses to transfer a one-time authorization to a different local
+   * identity, and a process memo makes that check answer with whoever asked first. A caching bug
+   * here is an authorization bug, not a stale label.
+   *
+   * The expense was never these two `git config` reads (~23 ms); it was the `gh` call below, which
+   * is cached on disk where the value really is stable.
+   */
   const name = git(['config', '--get', 'user.name'], { cwd: root, allowFailure: true }).stdout.trim();
   const email = git(['config', '--get', 'user.email'], { cwd: root, allowFailure: true }).stdout.trim();
   const github = offline
     ? { status: 1, stdout: '' }
-    : run('gh', ['api', 'user', '--jq', '{login: .login, name: .name}'], { cwd: root, allowFailure: true });
+    : cachedGithubAccount(root);
   let account = {};
   if (github.status === 0) { try { account = JSON.parse(github.stdout); } catch { account = {}; } }
-  return {
+  const resolved = {
     name: account.name || name || process.env.USER || process.env.USERNAME || 'unknown-user',
     email: email || null,
     login: account.login || null
   };
+  return resolved;
+}
+
+/**
+ * Drop every per-process Git memo.
+ *
+ * Only tests need this. A real process never outlives a change of signed-in account or a repository
+ * moving, but a test suite creates, deletes and recreates repositories at the same temporary path,
+ * where a path-keyed memo would hand back the previous repository's answer.
+ */
+export function resetGitProcessCaches() {
+  repoRootCache.clear();
+  gitDirCache.clear();
 }
 
 export function validBranch(root, name) {

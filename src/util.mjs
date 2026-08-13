@@ -242,6 +242,35 @@ export function requirePositional(positionals, index, label) {
   return positionals[index];
 }
 
+/**
+ * Where every subprocess went, when `SINGULARITY_FLOW_SUBPROCESS_PROBE` is set.
+ *
+ * A read model that shells out is easy to write and hard to see: the cost is spread over call sites
+ * that each look cheap. This exists because a 470 ms `gh auth status` sat inside the snapshot the
+ * VS Code extension calls on every refresh, and it was found by reading the code rather than by
+ * measuring — which is luck, not method. Off unless the variable is set, so it costs nothing.
+ */
+const subprocessProbe = new Map();
+function recordSubprocessProbe(command, args, ms) {
+  // Keyed by the verb, not the whole line: `git rev-parse <sha>` and `git rev-parse HEAD` are the
+  // same call for costing purposes, and per-argument keys would bury the count in cardinality.
+  const key = `${command} ${String(args[0] ?? '')} ${String(args[1] ?? '')}`.trim();
+  const entry = subprocessProbe.get(key) ?? { calls: 0, ms: 0 };
+  subprocessProbe.set(key, { calls: entry.calls + 1, ms: entry.ms + ms });
+  if (!subprocessProbe.reported) {
+    subprocessProbe.reported = true;
+    process.on('exit', () => {
+      const rows = [...subprocessProbe.entries()].sort((a, b) => b[1].ms - a[1].ms);
+      const total = rows.reduce((sum, [, value]) => sum + value.ms, 0);
+      const calls = rows.reduce((sum, [, value]) => sum + value.calls, 0);
+      process.stderr.write(`\nsubprocesses: ${calls} calls, ${total.toFixed(0)} ms total\n`);
+      for (const [name, value] of rows) {
+        process.stderr.write(`  ${String(value.calls).padStart(3)}x ${value.ms.toFixed(0).padStart(6)} ms  ${name}\n`);
+      }
+    });
+  }
+}
+
 export function run(command, args = [], {
   cwd = process.cwd(),
   env = process.env,
@@ -250,7 +279,9 @@ export function run(command, args = [], {
   stdio = 'pipe',
   timeoutMs = undefined
 } = {}) {
+  const probe = process.env.SINGULARITY_FLOW_SUBPROCESS_PROBE ? performance.now() : 0;
   const result = spawnSync(command, args, { cwd, env, encoding: 'utf8', shell, stdio, timeout: timeoutMs });
+  if (probe) recordSubprocessProbe(command, args, performance.now() - probe);
   const stdout = typeof result.stdout === 'string' ? result.stdout : '';
   const stderr = typeof result.stderr === 'string' ? result.stderr : '';
   const status = result.status ?? (result.error ? 1 : 0);

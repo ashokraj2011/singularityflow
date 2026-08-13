@@ -545,15 +545,16 @@ async function fullRepositorySnapshot(root, requestedWorkId = null, requestedIni
   try { worldModelManifest = await readJson(path.join(root, modelRoot, 'manifest.json')); } catch { /* A missing model is represented by rebuildReason below. */ }
   const builderPrompt = await worldModelPrompt(root, definition);
   const plannerPrompt = await planningPrompt(root, definition);
-  let github = null;
-  try {
-    const status = run('gh', ['auth', 'status', '--json', 'hosts'], { cwd: root, allowFailure: true });
-    if (status.status === 0) {
-      const hosts = JSON.parse(status.stdout).hosts ?? {};
-      const account = Object.values(hosts).flat().find((entry) => entry.active) ?? Object.values(hosts).flat()[0];
-      github = account?.login ?? null;
-    }
-  } catch { /* Identity disclosure stays unavailable when gh is absent or signed out. */ }
+  /**
+   * The same login, from the call we already have to make.
+   *
+   * This used to be a second `gh auth status --json hosts`, alongside the `gh api user` inside
+   * `identity(root)` below. Two ~440 ms subprocesses, both answering "who is signed in?", together
+   * 876 ms of the 1.38 s this snapshot spent in subprocesses — for one username, fetched twice.
+   * `identity()` already returns `login`, so the disclosure below is unchanged and simply reuses it.
+   */
+  const gitIdentity = identity(root);
+  const github = gitIdentity.login;
   const promptViewReferences = await worldModelPromptViewReferences(root, definition);
   const structuredViewReferences = structuredWorldModelViewReferences(definition);
   const viewCatalog = worldModelViewCatalog(definition, promptViewReferences.keys());
@@ -565,7 +566,7 @@ async function fullRepositorySnapshot(root, requestedWorkId = null, requestedIni
     // have the promotion fail after the work was done.
     repository: { root, branch: currentBranch, head: head(root), controlRoot: 'singularity', changes, ...changeScope },
     identities: {
-      git: identity(root),
+      git: gitIdentity,
       github,
       assurance: {
         git: 'configured-local',
@@ -930,14 +931,10 @@ async function integrationSlice(root) {
       error: error?.message ?? String(error)
     };
   }
+  // Same login, same single memoized lookup as `fullRepositorySnapshot` — see the note there.
   let github = null;
   try {
-    const status = run('gh', ['auth', 'status', '--json', 'hosts'], { cwd: root, allowFailure: true });
-    if (status.status === 0) {
-      const hosts = JSON.parse(status.stdout).hosts ?? {};
-      const account = Object.values(hosts).flat().find((entry) => entry.active) ?? Object.values(hosts).flat()[0];
-      github = account?.login ?? null;
-    }
+    github = identity(root).login;
   } catch { /* The integration remains unavailable when gh is absent or signed out. */ }
   return {
     telemetry: await copilotTelemetryStatus(root),

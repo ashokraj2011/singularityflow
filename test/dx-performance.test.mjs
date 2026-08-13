@@ -160,3 +160,43 @@ test('baseline report import validates runtime, protocol, topology, and outcome'
     await rm(directory, { recursive: true, force: true });
   }
 });
+
+test('the read model does not shell out to the network, or ask git the same question twice', async () => {
+  /**
+   * `snapshot --json` is what the VS Code extension calls on every one of its 25 refresh triggers,
+   * and it took **1.8 s**: 80 subprocesses, 1376 ms of them, on a three-file repository.
+   *
+   * Two findings, both invisible from the call sites:
+   *
+   * - 876 ms — 64% of all subprocess time — went on `gh auth status` and `gh api user`, two
+   *   ~450 ms network calls resolving *the same GitHub username*. `identities.git.login` and
+   *   `identities.github` were the same string, fetched twice.
+   * - `git rev-parse` ran 30 times, 20 of them re-asking where the repository and its Git
+   *   directory are — values that cannot change while a process runs.
+   *
+   * This asserts the shape of the fix rather than a duration, because a timing assertion on a
+   * loaded CI box is a flake. `SINGULARITY_FLOW_SUBPROCESS_PROBE` (src/util.mjs) prints the real
+   * per-command breakdown when a number is wanted.
+   */
+  const editor = await readFile(path.join(root, 'src/editor.mjs'), 'utf8');
+  assert.doesNotMatch(editor, /'gh',\s*\[\s*'auth',\s*'status'/,
+    'the read model resolves the GitHub login a second way; identity() already returns it');
+
+  const git = await readFile(path.join(root, 'src/git.mjs'), 'utf8');
+  assert.match(git, /repoRootCache\.has\(cwd\)/, 'repoRoot() re-asks git where the repository is');
+  assert.match(git, /gitDirCache\.has\(root\)/, 'gitDir() re-asks git where the Git directory is');
+  assert.match(git, /GITHUB_ACCOUNT_TTL_MS/, 'the gh account lookup is not cached across processes');
+
+  /**
+   * The two memos that must NOT exist, each guarding a correctness property rather than a
+   * preference. `head` and `branch` change mid-process — the write paths read them before and
+   * after committing — so caching either makes a publication report the commit it replaced.
+   *
+   * `identity()` is the sharper one. Memoizing it was tried, and two independent authorization
+   * tests failed: one-time action authorization stopped detecting a transfer to a different local
+   * identity, and an unauthorized Git email stopped being refused. A caching bug there is an
+   * authorization bug. The expense was never the git-config reads; it was `gh`, cached above.
+   */
+  assert.doesNotMatch(git, /headCache|branchCache|identityCache/,
+    'a value that changes mid-process is memoized; see the note in git.mjs on why that is unsafe');
+});

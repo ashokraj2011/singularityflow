@@ -35,6 +35,14 @@ export async function run(argv, { positionals, options }) {
     );
     return console.log(JSON.stringify(result, null, 2));
   }
+  /**
+   * Every other shape of `snapshot` is still assembled by the legacy path, but it is unambiguously
+   * a read: the command is classified `read`, and nothing below it writes. So it may reuse one
+   * parsed definition instead of re-reading and re-validating the same file for each slice — seven
+   * times, measured, for a single `snapshot --json`, which is the shape the VS Code extension asks
+   * for on every refresh.
+   */
   const legacy = await import('./legacy.mjs');
-  return legacy.run(argv, { positionals, options });
+  const { withDefinitionCache } = await import('../config.mjs');
+  return withDefinitionCache(() => legacy.run(argv, { positionals, options }));
 }

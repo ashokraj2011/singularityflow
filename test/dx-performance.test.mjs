@@ -200,3 +200,39 @@ test('the read model does not shell out to the network, or ask git the same ques
   assert.doesNotMatch(git, /headCache|branchCache|identityCache/,
     'a value that changes mid-process is memoized; see the note in git.mjs on why that is unsafe');
 });
+
+test('a read may reuse one parsed definition; a write may never be handed a stale one', async () => {
+  /**
+   * `loadDefinition` runs a realpath walk, a YAML parse, three agent-directory scans and a sha256
+   * of every agent file — and one `snapshot --json` called it **seven times** for the same
+   * unchanged file. Inside `withDefinitionCache` it parses once.
+   *
+   * Opt-in is the whole design, and it is the same lesson as `identity()`: `bootstrap` self-heals a
+   * repository by writing `workflow.yml` and reading it back, so a process-wide memo would hand the
+   * repair its own pre-repair definition and make the fix look like it never happened. Writers do
+   * not open the scope, so a cache they never entered cannot affect them.
+   */
+  const { loadDefinition, withDefinitionCache } = await import('../src/config.mjs');
+  const { initializeDefinition } = await import('../src/config.mjs');
+  const directory = await mkdtemp(path.join(os.tmpdir(), 'sflow-defcache-'));
+  spawnSync('git', ['init', '-q', '-b', 'main', '.'], { cwd: directory });
+  await initializeDefinition(directory);
+
+  // Inside the scope, the same object is handed back rather than re-parsed.
+  const [first, second] = await withDefinitionCache(async () => [
+    await loadDefinition(directory), await loadDefinition(directory)
+  ]);
+  assert.equal(first, second, 'the scope re-parsed a definition it had already read');
+
+  // Outside it, every read is fresh — this is what keeps a writer honest.
+  const third = await loadDefinition(directory);
+  assert.notEqual(third, first, 'a definition was cached beyond the scope that opened it');
+
+  // And a change made between two scopes is seen, which is the bootstrap self-heal case.
+  const workflow = path.join(directory, 'singularity/workflow.yml');
+  await writeFile(workflow, `${await readFile(workflow, 'utf8')}\n`);
+  const reloaded = await withDefinitionCache(() => loadDefinition(directory));
+  assert.notEqual(reloaded, first, 'a new scope reused a definition parsed before the file changed');
+
+  await rm(directory, { recursive: true, force: true });
+});

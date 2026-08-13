@@ -564,7 +564,44 @@ export async function validateWorldModelPromptViewReferences(root, definition) {
   return references;
 }
 
+/**
+ * Reuse one parsed definition for the duration of an explicitly read-only operation.
+ *
+ * `loadDefinition` is not cheap — a realpath walk, a YAML parse, three agent-directory scans, a
+ * sha256 of every agent Markdown file, then validation — and one `snapshot --json` called it **seven
+ * times** for the same unchanged file.
+ *
+ * It is opt-in, and that is the whole design. A process-wide memo would be the same mistake as
+ * memoizing `identity()`: `bootstrap` self-heals a repository by writing `workflow.yml` and then
+ * reading it back, and handing it the pre-repair definition would make the repair look like it did
+ * not happen. Writers never opt in, so they cannot be affected by a cache they do not open.
+ *
+ * Nested calls share the outermost scope, and the cache is dropped on the way out whether the
+ * operation succeeded or threw.
+ */
+let definitionScope = null;
+
+export async function withDefinitionCache(fn) {
+  if (definitionScope) return fn();
+  definitionScope = new Map();
+  try { return await fn(); }
+  finally { definitionScope = null; }
+}
+
 export async function loadDefinition(root) {
+  const scoped = definitionScope;
+  if (scoped?.has(root)) return scoped.get(root);
+  if (scoped) {
+    // Store the promise, not the result: seven concurrent callers must share one parse rather than
+    // race and each start their own before the first has finished.
+    const pending = loadDefinitionUncached(root);
+    scoped.set(root, pending);
+    return pending;
+  }
+  return loadDefinitionUncached(root);
+}
+
+async function loadDefinitionUncached(root) {
   const workflow = await secureRepositoryPath(root, WORKFLOW_PATH, {
     label: 'Workflow configuration',
     type: 'file'

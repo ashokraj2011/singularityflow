@@ -1,5 +1,7 @@
 # Singularity Flow documentation
 
+- [Windows Git Bash installation compatibility](WINDOWS-GIT-BASH-INSTALL-FIX.md)
+
 Singularity Flow is a Git-native delivery system with two supported product
 surfaces:
 

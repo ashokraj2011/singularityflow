@@ -37,6 +37,7 @@ import { analysisLimits } from './analysis-limits.mjs';
 import { VERSION } from './version.mjs';
 import { constitutionPolicy } from './constitution.mjs';
 import { assertModelTask } from './model-tasks.mjs';
+import { isTemplateReference, normalizeTemplateCatalog, parseTemplateReference, resolveTemplate } from './template-catalog.mjs';
 import { normalizeMcpServers, validateMcpAgentTools } from './mcp.mjs';
 import { normalizeSpecPolicy } from './specifications.mjs';
 import { normalizeHarnessImports } from './harness-imports.mjs';
@@ -94,8 +95,15 @@ function assertRelative(value, label) {
   if (!value || path.isAbsolute(value) || value.split(/[\\/]/).includes('..')) throw new SingularityFlowError(`${label} must be a repository-relative path without '..'.`);
 }
 
+/**
+ * Three ways to name a template, checked in the order that makes each unambiguous.
+ *
+ * `template:<id>` is validated for shape here and for existence in `validateDefinition`, where the
+ * catalog is in scope — a phase is parsed before the file has necessarily been read whole.
+ */
 function assertTemplate(value, label) {
-  if (isAgentTemplateReference(value)) parseAgentTemplateReference(value);
+  if (isTemplateReference(value)) parseTemplateReference(value, label);
+  else if (isAgentTemplateReference(value)) parseAgentTemplateReference(value);
   else assertRelative(value, label);
 }
 
@@ -344,6 +352,20 @@ export function validateDefinition(definition) {
   if (!definition.phases || !Object.keys(definition.phases).length) throw new SingularityFlowError('workflow.yml must define phases.');
   assertRelative(definition.workItemRoot ?? 'singularity/work-items', 'workItemRoot');
   assertRelative(definition.templatesRoot, 'templatesRoot');
+  /**
+   * The catalog, and then every reference against it. Existence is checked here rather than in
+   * `assertTemplate` because a phase is validated before the file is necessarily whole — a
+   * reference to a template declared further down the same document must not fail on ordering.
+   */
+  const templateCatalog = normalizeTemplateCatalog(definition.templates);
+  for (const [phaseId, phase] of Object.entries(definition.phases)) {
+    if (phase?.defaultTemplate) resolveTemplate({ templates: templateCatalog }, phase.defaultTemplate, { label: `Phase '${phaseId}' defaultTemplate` });
+  }
+  for (const [workTypeId, workType] of Object.entries(definition.workTypes)) {
+    for (const [phaseId, value] of Object.entries(workType?.templateOverrides ?? {})) {
+      resolveTemplate({ templates: templateCatalog }, value, { label: `Work type '${workTypeId}' templateOverrides '${phaseId}'` });
+    }
+  }
   configuredInputsMode(definition);
   normalizeSequenceGates(definition.sequenceGates ?? {});
   normalizeSessionPolicy(definition.session ?? {});
@@ -824,7 +846,11 @@ export function resolveWorkType(definition, workTypeId) {
           : { ...(phase.generation ?? {}), ...override.generation },
       comparison: { ...(phase.comparison ?? {}), ...(override.comparison ?? {}) }
     };
-    const template = workType.templateOverrides?.[id] ?? phase.defaultTemplate;
+    // A catalog id resolves to its path here, so every downstream reader — generation, the
+    // designer, the catalog view — receives a path and never has to know which form was written.
+    const declaredTemplate = workType.templateOverrides?.[id] ?? phase.defaultTemplate;
+    const resolvedTemplate = resolveTemplate(definition, declaredTemplate, { label: `Work type '${workTypeId}' phase '${id}' template` });
+    const template = resolvedTemplate?.source === 'catalog' ? resolvedTemplate.path : declaredTemplate;
     const inputs = normalizePhaseInputs(merged.inputs, `Work type '${workTypeId}' phase '${id}' inputs`);
     const approval = normalizeApprovalPolicy(merged.approval ?? {}, definition.approvalAuthorities, id);
     const generation = normalizeGenerationPolicy(merged.generation, id);

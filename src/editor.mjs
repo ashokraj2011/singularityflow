@@ -20,6 +20,7 @@ import {
   WORKFLOW_PATH
 } from './config.mjs';
 import { MODEL_TASKS } from './model-tasks.mjs';
+import { templateReferences } from './template-catalog.mjs';
 import { loadModelTiers, MODEL_TIERS_PATH, tierLadder } from './model-tiers.mjs';
 import { documentCatalog, evidenceIsActive } from './documents.mjs';
 import { CAPABILITIES_PATH, capabilityTree, loadCapabilities, validateCapabilities } from './capabilities.mjs';
@@ -1283,10 +1284,12 @@ export async function deleteConfigurationFile(root, requestedPath) {
   const references = [];
   if (relative.startsWith(`${templatesRoot}/`)) {
     const template = relative.slice(templatesRoot.length + 1);
-    for (const [phaseId, phase] of Object.entries(definition.phases)) if (phase.defaultTemplate === template) references.push(`phase ${phaseId}`);
-    for (const [workTypeId, profile] of Object.entries(definition.workTypes)) {
-      for (const [phaseId, value] of Object.entries(profile.templateOverrides ?? {})) if (value === template) references.push(`workflow ${workTypeId}/${phaseId}`);
-    }
+    /**
+     * Both ways a template can be named. Comparing paths alone was correct while a path was the
+     * only form; with the catalog, a phase saying `template:intake-standard` would have matched
+     * nothing and the guard would have cheerfully deleted a template still in use.
+     */
+    references.push(...templateReferences(definition, template));
   }
   if (portfolio && relative.startsWith(`${initiativeTemplatesRoot}/`)) {
     const initiativeTemplate = relative.slice(initiativeTemplatesRoot.length + 1);

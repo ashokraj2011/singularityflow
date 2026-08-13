@@ -496,6 +496,65 @@ const help = spawnSync(process.execPath, [path.join(root, 'bin', 'singularity-fl
 if (help.status !== 0 || !help.stdout.includes('singularity-flow approve')) fail('CLI help smoke test failed');
 checked.push('CLI help smoke test');
 
+/**
+ * Model routing: the mapping is valid, and it is the only place a model is named.
+ * `[ADP:REQ-022]` `[ADP:REQ-023]` `[ADP:AC-002]` `[ADP:AC-003]`
+ *
+ * The lint is what makes the indirection real rather than aspirational. Without it the rule
+ * "only the mapping names a vendor" survives exactly as long as the next person who is in a hurry,
+ * and the cost of breaking it is not visible until a model is retired and the sweep begins.
+ */
+const tierTemplate = path.join(root, 'templates', 'modelTiers.yml');
+let mappedModels = [];
+try {
+  const { normalizeModelTiers, mappedModelNames } = await import('../src/model-tiers.mjs');
+  const { MODEL_TASKS } = await import('../src/model-tasks.mjs');
+  const mapping = normalizeModelTiers(YAML.parse(await readFile(tierTemplate, 'utf8')));
+  mappedModels = mappedModelNames(mapping);
+  // Every task in the closed enum resolves to a model, aliases included. `normalizeModelTiers`
+  // already refuses missing tasks and alias cycles; this asserts the shipped mapping passes it.
+  for (const task of MODEL_TASKS) {
+    if (!mapping.tiers.get(task)?.model) fail(`templates/modelTiers.yml: task '${task}' resolves to no model`);
+  }
+  checked.push(`model tiers: ${MODEL_TASKS.length} tasks resolve to ${mappedModels.length} model(s)`);
+} catch (error) {
+  fail(`templates/modelTiers.yml is invalid: ${error.message}`);
+}
+
+/**
+ * No literal model identifier outside the mapping. Two ways to be one: a name the mapping itself
+ * uses, or a string shaped like a vendor model. The shape list is deliberately narrow — a broad
+ * pattern would flag prose and get switched off, which is worse than a narrow one that holds.
+ */
+const VENDOR_MODEL_SHAPES = [
+  // Assembled from fragments for the same reason the legacy-vendor check above is: a file that
+  // spells the forbidden strings out is a file that fails its own lint.
+  ['g', 'pt'].join(''), ['gem', 'ini'].join(''), ['lla', 'ma'].join(''), ['mist', 'ral'].join(''),
+  ['son', 'net'].join(''), ['ha', 'iku'].join(''), ['op', 'us'].join('')
+].map((stem) => new RegExp(`\\b${stem}[-.]?[0-9]`, 'i'));
+const ROUTING_SOURCES = allFiles.filter((file) => {
+  const relative = path.relative(root, file);
+  if (relative.startsWith('node_modules/') || relative.startsWith('.git/')) return false;
+  if (relative === 'templates/modelTiers.yml') return false;      // the one file allowed to name them
+  if (relative.startsWith('test/') || relative.startsWith('docs/')) return false;
+  // `plugin/skills/`, not `skills/` — the latter matches nothing, which would have left the lint
+  // passing over the surface AC-003 exists to protect while reporting a healthy file count.
+  return relative.startsWith('plugin/skills/') || relative.startsWith('templates/')
+    || relative === 'src/command-registry.mjs' || relative.endsWith('.agent.md');
+});
+for (const file of ROUTING_SOURCES) {
+  const relative = path.relative(root, file);
+  const text = await readFile(file, 'utf8').catch(() => '');
+  const offenders = [
+    ...mappedModels.filter((name) => text.includes(name)),
+    ...VENDOR_MODEL_SHAPES.flatMap((pattern) => text.match(pattern) ?? [])
+  ];
+  if (offenders.length) {
+    fail(`${relative} names a model directly (${[...new Set(offenders)].join(', ')}). Only templates/modelTiers.yml may; everything else names a task. [ADP:REQ-023]`);
+  }
+}
+checked.push(`model-name lint: ${ROUTING_SOURCES.length} routing source(s) name tasks, not vendors`);
+
 const pythonFiles = allFiles.filter((file) => file.endsWith('.py'));
 if (pythonFiles.length) fail(`Python files are not allowed: ${pythonFiles.map((file) => path.relative(root, file)).join(', ')}`);
 const forbiddenFiles = allFiles.filter((file) => ['.mcp.json', 'mcp.json'].includes(path.basename(file)));

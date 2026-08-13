@@ -17,6 +17,7 @@
  */
 import { createHash } from 'node:crypto';
 
+import { analysisLimits, assertWithinLimit, capWithDisclosure } from './analysis-limits.mjs';
 import { extractMarkers, evaluateMarkerPolicy, markerPolicy, reconcileMarkers } from './clarification-markers.mjs';
 import { extractClauses } from './specifications.mjs';
 import { canonicalJson } from './records.mjs';
@@ -103,9 +104,15 @@ function sectionsOf(markdown) {
  */
 export function analyzeSpecification(markdown, {
   artifactPath = null, phase = null, generation = null, policy = {}, checklist = STARTER_CHECKLIST,
-  previousMarkers = [], answers = [], namespace = null
+  previousMarkers = [], answers = [], namespace = null, limits = undefined
 } = {}) {
   const resolved = specificationQualityPolicy(policy);
+  // `[SPK:REQ-130]`: refused rather than analysed. A document this size is a mistake, and spending
+  // the analysis budget proving that helps nobody.
+  const bounds = analysisLimits(limits);
+  assertWithinLimit(Buffer.byteLength(String(markdown), 'utf8'), 'maxArtifactBytes', {
+    limits: bounds, label: `Specification ${artifactPath ?? 'artifact'}`, unit: ' bytes'
+  });
   const findings = [];
   const add = (kind, message, detail = {}) => findings.push({ kind, message, ...detail });
 
@@ -145,8 +152,12 @@ export function analyzeSpecification(markdown, {
     if (!present.has(section.toLowerCase())) add('missing-required-section', `the specification has no '${section}' section`, { section });
   }
 
-  const sorted = findings.sort((left, right) =>
+  const ordered = findings.sort((left, right) =>
     left.kind.localeCompare(right.kind) || String(left.message).localeCompare(String(right.message)));
+  // Capped *and disclosed*: a list of 500 findings that stops at 500 reads exactly like a complete
+  // list of 500, and a reader has no way to tell which one they are looking at.
+  const capped = capWithDisclosure(ordered, 'maxFacts', { limits: bounds, label: 'findings' });
+  const sorted = capped.items;
 
   return {
     schemaVersion: 1,
@@ -178,6 +189,7 @@ export function analyzeSpecification(markdown, {
       malformed: malformed.map(({ line, reason }) => ({ line, reason }))
     },
     findings: sorted,
+    ...(capped.disclosure ? { truncated: { dropped: capped.dropped, disclosure: capped.disclosure } } : {}),
     // Said out loud in the report itself, because a clean deterministic run is the moment someone
     // is most likely to read it as "the specification is good" `[SPK:CON-027]`.
     disclaimer: 'Deterministic analysis only. It reports checkable defects and makes no claim that the specification is complete, clear, consistent, or correct.'

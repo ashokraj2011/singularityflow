@@ -21,6 +21,7 @@
  * `[SPK:REQ-076]` and human adjudications `[SPK:REQ-079]`, both of which live beside the facts and
  * never inside them.
  */
+import { analysisLimits, capWithDisclosure } from './analysis-limits.mjs';
 import { canonicalJson, recordSha256 } from './records.mjs';
 import { posix, SingularityFlowError } from './util.mjs';
 
@@ -86,9 +87,11 @@ function mergeClaims(maps) {
  */
 export function convergenceFacts({
   reconciliation, indexes = [], planned = [], observed = [], acceptance = null, deviations = [],
-  requiredEvidence = []
+  requiredEvidence = [], limits = undefined
 } = {}) {
   if (!reconciliation) throw new SingularityFlowError('Convergence requires the reconciliation record it operates on.');
+  const bounds = analysisLimits(limits);
+  const disclosures = [];
   const clauses = new Map(indexes.flatMap((index) => index.clauses ?? []).map((clause) => [clause.id, clause]));
   const plannedClaims = mergeClaims(planned);
   const observedClaims = mergeClaims(observed);
@@ -124,7 +127,17 @@ export function convergenceFacts({
    * requirement claims it.
    */
   const claimedPaths = new Set(Object.values(observedClaims).flatMap((claim) => claim.observedPaths ?? []).map(posix));
-  for (const finding of [...(reconciliation.findings ?? [])].sort((left, right) => String(left.path).localeCompare(String(right.path)))) {
+  /**
+   * Bounded `[SPK:REQ-130]`. A large refactor can change tens of thousands of paths, and one fact
+   * per unclaimed path is not a report — it is a way of making the real findings unfindable. Capped
+   * and disclosed rather than silently shortened.
+   */
+  const changed = capWithDisclosure(
+    [...(reconciliation.findings ?? [])].sort((left, right) => String(left.path).localeCompare(String(right.path))),
+    'maxChangedPaths', { limits: bounds, label: 'changed paths reported by reconciliation' }
+  );
+  if (changed.disclosure) disclosures.push(changed.disclosure);
+  for (const finding of changed.items) {
     if (claimedPaths.has(posix(finding.path))) continue;
     facts.push(fact('unclaimed-changed-path', {
       paths: [finding.path],
@@ -211,7 +224,16 @@ export function convergenceFacts({
     }));
   }
 
-  return facts.sort((left, right) => left.kind.localeCompare(right.kind) || left.id.localeCompare(right.id));
+  const ordered = facts.sort((left, right) => left.kind.localeCompare(right.kind) || left.id.localeCompare(right.id));
+  const capped = capWithDisclosure(ordered, 'maxFacts', { limits: bounds, label: 'convergence facts' });
+  if (capped.disclosure) disclosures.push(capped.disclosure);
+  /**
+   * A disclosure is itself a fact, so it travels with the list rather than beside it. A cap noted
+   * in a return value the caller forgets to render is the silent truncation this avoids.
+   */
+  return disclosures.length
+    ? [...capped.items, ...disclosures.map((detail) => fact('missing-required-evidence', { detail: `analysis was bounded: ${detail}` }))]
+    : capped.items;
 }
 
 /**

@@ -72,6 +72,9 @@ import { ledgerStatus } from './ledger.mjs';
 import {
   buildRepositorySubjectIndex, buildRepositorySubjectIndexFromRefs, resolveContext
 } from './repository-subject-index.mjs';
+import {
+  FAST_PATH_VERBS, fastPathProfile, nextVerb, planFastPath, verbForPhase
+} from './fast-path.mjs';
 import { mcpStatus } from './mcp.mjs';
 import { mcpDoctor } from './mcp-readiness.mjs';
 import { approvedDesignSourceBinding, verifyDesignSourceLifecycle } from './design-sources.mjs';
@@ -748,7 +751,56 @@ async function lifecycleSlice(root, requestedWorkId, requestedInitiativeId) {
       items: []
     },
     planning: await planningTargetCatalog(root, { workId: selectedWorkId, initiativeId: selectedInitiativeId }),
+    /**
+     * The fast path, projected rather than re-derived. `[SPK:REQ-150]` `[SPK:REQ-151]`
+     *
+     * Every surface must show the same milestone and checkpoint as the CLI, and the only way that
+     * stays true is for there to be one computation. `planFastPath` is the planner the `specify`,
+     * `plan`, `implement`, `converge` and `verify` commands run; this is the same call, so the
+     * journey rail cannot drift into a second opinion about where a Story stands.
+     *
+     * Null for a work type that declares no fast path — VS Code renders the phase rail it always
+     * did, and nothing invents verbs for a profile that does not have them.
+     */
+    fastPath: fastPathProjection(definition, workflow),
     session: await loadSession(root, { required: false })
+  };
+}
+
+/**
+ * The five verbs for a Story, each with the milestone it proves and where it currently stands.
+ *
+ * `[SPK:REQ-151]` asks VS Code to present the verbs as the primary rail and let a reader expand into
+ * the phases beneath. That expansion is why each verb carries its `phase`: the rail is a lens over
+ * the lifecycle, never a replacement for it.
+ */
+function fastPathProjection(definition, workflow) {
+  if (!workflow) return null;
+  const profile = fastPathProfile(definition, workflow.workItem.workType);
+  if (!profile) return null;
+  const configured = FAST_PATH_VERBS.filter((verb) => profile.verbs[verb]);
+  const verbs = configured.map((verb) => {
+    const plan = planFastPath(workflow, definition, verb);
+    return {
+      verb,
+      // The phases this verb routes, so the rail can expand into them `[SPK:REQ-151]`.
+      phases: [...profile.verbs[verb].phases],
+      milestone: plan.milestone,
+      reached: plan.outcome === 'milestone-reached',
+      // The same checkpoint the CLI prints, not a second reading of the same state `[SPK:REQ-150]`.
+      checkpoint: plan.checkpoint ?? null,
+      operations: [...(plan.underlyingOperations ?? [])],
+      next: [...(plan.next ?? [])]
+    };
+  });
+  const active = verbs.find((entry) => !entry.reached) ?? null;
+  return {
+    profile: profile.workType,
+    verbs,
+    // Which verb owns the phase the Story is actually standing in — the rail's "you are here".
+    context: verbForPhase(workflow, profile, workflow.currentPhase ?? null),
+    active: active?.verb ?? null,
+    next: active ? nextVerb(profile, active.verb) : null
   };
 }
 

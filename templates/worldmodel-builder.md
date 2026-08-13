@@ -474,6 +474,29 @@ in `Exact selections chosen by the CLI` remains `missing`; do not create a place
 will calculate final hashes, byte counts, preservation checks, and materialization history while it
 merges the fragment into the repository model.
 
+**The manifest is a machine index, not advice.** Unlike the documents it points at, it is never
+injected into an agent's prompt — the CLI resolves named fields out of it and nothing else reads it,
+so a key no field resolver names is read by nobody at all. Emit only what a consumer resolves:
+paths, tiers, anchors, hashes, provenance. (This applies to the manifest alone. `core/model.json`
+and the evidence records are documents, and a reader consumes them whole, so they carry structural
+detail the CLI never resolves.)
+
+Two kinds of key are forbidden here. Both shipped unread, and were removed:
+
+- **Guidance for the reader.** `load_when`, `recommended_loading_rules`, `budget_hints`,
+  `load_only_when_verification_is_needed` and `recommended_for_all_agents` all advised what to load
+  under what circumstances. None of it reaches a reader: what gets injected is decided before any
+  agent sees a document, by the configured injection rules and the phase's world-model contract.
+- **A second opinion on governed policy.** `phase_map` and `agent_map` restated which views a phase
+  or an agent should load — decisions that `singularity/workflow.yml` (`phases.<id>.worldModel`) and
+  the agent catalog (`sflow-world-model-views`) already own and a human already approved. A task
+  guide's `required_views` and `required_domains` did the same for one task. Had anything read them,
+  a model's guess would have competed with pinned configuration.
+
+Nor a selector nothing selects on: domain `keywords` offered a second way to choose a domain, while
+the CLI matches `relevant_views` against the views already in the plan. Describe the repository; do
+not restate what its governance has decided, and do not advise the machine reading you.
+
 ```json
 {
   "schema_version": "3.0",
@@ -491,8 +514,7 @@ merges the fragment into the repository model.
       "full": { "status": "missing", "path": null }
     },
     "model": { "path": "core/model.json" },
-    "anchors": ["core.tldr", "core.purpose", "core.map", "core.commands", "core.risks"],
-    "recommended_for_all_agents": true
+    "anchors": ["core.tldr", "core.purpose", "core.map", "core.commands", "core.risks"]
   },
   "views": {
     "development": {
@@ -500,55 +522,23 @@ merges the fragment into the repository model.
         "brief": { "status": "ready", "path": "views/development.brief.md" },
         "full": { "status": "missing", "path": null }
       },
-      "anchors": ["dev.tldr", "dev.facts", "dev.start", "dev.impact", "dev.hotspots", "dev.limits"],
-      "load_when": ["implementation", "debugging", "refactoring", "code review"]
+      "anchors": ["dev.tldr", "dev.facts", "dev.start", "dev.impact", "dev.hotspots", "dev.limits"]
     },
-    "business":     { "tiers": { "brief": { "status": "missing", "path": null }, "full": { "status": "missing", "path": null } }, "load_when": ["business capability analysis", "product behavior analysis", "business impact assessment"] },
-    "architecture": { "tiers": { "brief": { "status": "missing", "path": null }, "full": { "status": "missing", "path": null } }, "load_when": ["system design", "dependency analysis", "cross-component change"] },
-    "testing":      { "tiers": { "brief": { "status": "missing", "path": null }, "full": { "status": "missing", "path": null } }, "load_when": ["test creation", "regression analysis", "quality validation"] },
-    "release":      { "tiers": { "brief": { "status": "missing", "path": null }, "full": { "status": "missing", "path": null } }, "load_when": ["build", "packaging", "deployment", "rollback"] },
-    "operations":   { "tiers": { "brief": { "status": "missing", "path": null }, "full": { "status": "missing", "path": null } }, "load_when": ["runtime diagnosis", "monitoring and incident response"] },
-    "security":     { "tiers": { "brief": { "status": "missing", "path": null }, "full": { "status": "missing", "path": null } }, "load_when": ["threat analysis", "authentication or authorization change"] }
-  },
-  "phase_map": {
-    "intake":              { "views": ["business"], "tier": "brief" },
-    "requirements":        { "views": ["business"], "tier": "full" },
-    "design":              { "views": ["architecture"], "tier": "full" },
-    "implementation-spec": { "views": ["architecture", "development"], "tier": "full" },
-    "implementation":      { "views": ["development"], "tier": "full" },
-    "verification":        { "views": ["testing"], "tier": "full" },
-    "conformance":         { "views": ["testing", "security"], "tier": "brief" }
-  },
-  "agent_map": {
-    "product-owner":  { "views": ["business"], "tier": "brief" },
-    "business-analyst": { "views": ["business"], "tier": "full" },
-    "architect":      { "views": ["architecture", "security"], "tier": "full" },
-    "developer":      { "views": ["development"], "tier": "full" },
-    "qa":             { "views": ["testing"], "tier": "full" },
-    "security":       { "views": ["security"], "tier": "full" },
-    "operations":     { "views": ["operations"], "tier": "full" },
-    "delivery-manager": { "views": ["release"], "tier": "brief" }
+    "business":     { "tiers": { "brief": { "status": "missing", "path": null }, "full": { "status": "missing", "path": null } } },
+    "architecture": { "tiers": { "brief": { "status": "missing", "path": null }, "full": { "status": "missing", "path": null } } },
+    "testing":      { "tiers": { "brief": { "status": "missing", "path": null }, "full": { "status": "missing", "path": null } } },
+    "release":      { "tiers": { "brief": { "status": "missing", "path": null }, "full": { "status": "missing", "path": null } } },
+    "operations":   { "tiers": { "brief": { "status": "missing", "path": null }, "full": { "status": "missing", "path": null } } },
+    "security":     { "tiers": { "brief": { "status": "missing", "path": null }, "full": { "status": "missing", "path": null } } }
   },
   "path_index": { "path": "index/path-map.json" },
   "domains": [
-    { "id": "<domain id>", "path": "domains/<domain id>.md", "summary": "<one sentence>", "relevant_views": ["<view>"], "keywords": ["<keyword>"], "anchors": ["domain.<id>.tldr"] }
+    { "id": "<domain id>", "path": "domains/<domain id>.md", "summary": "<one sentence>", "relevant_views": ["<view>"], "anchors": ["domain.<id>.tldr"] }
   ],
   "task_guides": [
-    { "id": "<task id>", "path": "task-guides/<task id>.md", "task": "<exact CURRENT_TASK text>", "required_views": ["<view>"], "required_domains": ["<domain id>"] }
+    { "id": "<task id>", "path": "task-guides/<task id>.md", "task": "<exact CURRENT_TASK text>" }
   ],
-  "evidence": { "path": "evidence/evidence.jsonl", "load_only_when_verification_is_needed": true },
-  "recommended_loading_rules": [
-    { "agent_type": "business",  "load": ["core/summary.brief.md", "views/business.md"] },
-    { "agent_type": "architect", "load": ["core/summary.brief.md", "views/architecture.md"] },
-    { "agent_type": "developer", "load": ["core/summary.brief.md", "views/development.md"] },
-    { "agent_type": "tester",    "load": ["core/summary.brief.md", "views/testing.md"] },
-    { "agent_type": "release",   "load": ["core/summary.brief.md", "views/release.md"] }
-  ],
-  "budget_hints": {
-    "orientation_only": ["core/summary.brief.md"],
-    "single_phase_typical": ["core/summary.brief.md", "views/<view>.md"],
-    "deep_investigation": ["core/summary.md", "views/<view>.md", "domains/<domain>.md", "evidence/evidence.jsonl"]
-  }
+  "evidence": { "path": "evidence/evidence.jsonl" }
 }
 ```
 

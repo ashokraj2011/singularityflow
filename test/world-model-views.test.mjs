@@ -1,5 +1,5 @@
 import assert from 'node:assert/strict';
-import { readFile } from 'node:fs/promises';
+import { readFile, readdir } from 'node:fs/promises';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import test from 'node:test';
@@ -49,4 +49,39 @@ test('workflow validation rejects undeclared structured world-model views', asyn
   const workflow = await definition();
   workflow.worldModel.views = workflow.worldModel.views.filter((view) => view !== 'architecture');
   assert.throws(() => validateDefinition(workflow), /architecture.*not declared/);
+});
+
+test('the builder manifest declares nothing nobody reads', async () => {
+  /**
+   * The manifest is a machine index: the CLI resolves named fields out of it, and unlike the
+   * documents it points at, it is never injected into an agent's prompt — verified against a real
+   * composed prompt, which contained none of these keys. So "no reader in src/" is the whole test,
+   * and ten keys failed it after shipping.
+   *
+   * Most were merely dead. The dangerous ones restated decisions the repository had already made:
+   * `phase_map` and `agent_map` named the views a phase or agent should load, and a task guide's
+   * `required_views`/`required_domains` did the same for one task — all owned by `workflow.yml` and
+   * the agent catalog, and all approved by a human. Unread they were clutter; read, a model's guess
+   * would have competed with pinned configuration.
+   *
+   * Scope matters: this holds for the manifest, not for `core/model.json` or the evidence records.
+   * A reader consumes those whole, so they legitimately carry detail no resolver names.
+   */
+  const builder = await readFile(new URL('../templates/worldmodel-builder.md', import.meta.url), 'utf8');
+  const source = new URL('../src/', import.meta.url);
+  const modules = (await readdir(source, { recursive: true })).filter((name) => name.endsWith('.mjs'));
+  const code = (await Promise.all(modules.map((name) => readFile(new URL(name, source), 'utf8')))).join('\n');
+
+  for (const key of ['phase_map', 'agent_map', 'recommended_loading_rules', 'load_when', 'budget_hints']) {
+    assert.ok(!builder.includes(`"${key}"`), `the builder emits '${key}', which nothing reads`);
+  }
+
+  // Every manifest key must have a consumer, at any depth — the advice that survived the first pass
+  // of this test was nested one level down. Anything new without a reader is the same bug.
+  const start = builder.indexOf('```json', builder.indexOf('# Step 7:')) + '```json'.length;
+  const manifest = builder.slice(start, builder.indexOf('```', start));
+  assert.match(manifest, /"schema_version"/, 'the manifest example moved; this test is reading the wrong block');
+  const declared = [...new Set([...manifest.matchAll(/"([a-z_]+)":/g)].map((match) => match[1]))];
+  const unread = declared.filter((key) => !code.includes(key));
+  assert.deepEqual(unread, [], `the builder manifest declares key(s) no module reads: ${unread.join(', ')}`);
 });

@@ -25,7 +25,9 @@ test('every public operation has an explicit model policy and valid fallback', (
   assert.equal(resolveOperation({ requestedCommand: 'wm', positionals: ['wm', 'status'] }).modelPolicy, 'never');
   assert.equal(resolveOperation({ requestedCommand: 'wm', positionals: ['wm', 'build'] }).modelPolicy, 'required');
   assert.equal(resolveOperation({ requestedCommand: 'wm', positionals: ['wm', 'ensure'] }).modelPolicy, 'required');
-  assert.throws(() => resolveOperation({ requestedCommand: 'wm', positionals: ['wm', 'surprise'] }), /no model policy classification/);
+  // Still refused before a handler loads, which is the property this file cares about; the message
+  // is now the reader's problem rather than the registry's invariant.
+  assert.throws(() => resolveOperation({ requestedCommand: 'wm', positionals: ['wm', 'surprise'] }), /'wm' has no subcommand 'surprise'/);
 });
 
 test('model-disabled required operations fail before loading their handler and name the fallback', () => {

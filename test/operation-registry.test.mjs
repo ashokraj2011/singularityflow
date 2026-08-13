@@ -18,6 +18,6 @@ test('aliases resolve canonically and unknown mixed subcommands fail before hand
   assert.equal(resolveOperation({ requestedCommand: 'wm', positionals: ['wm', 'build'] }).modelPolicy, 'required');
   assert.throws(
     () => resolveOperation({ requestedCommand: 'workspace', positionals: ['workspace', 'not-real'] }),
-    (error) => error.code === 'MODEL_POLICY_UNCLASSIFIED'
+    (error) => error.code === 'UNKNOWN_SUBCOMMAND'
   );
 });

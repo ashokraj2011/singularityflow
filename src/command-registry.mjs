@@ -100,6 +100,42 @@ const WORKSPACE_NEVER_OPERATIONS = new Set([
 const WORKSPACE_SUBCOMMAND_ALIASES = new Map([['switch', 'use']]);
 const WORKSPACE_IMPACT_OPERATIONS = new Set(['analyze', 'list', 'show', 'promote']);
 
+/**
+ * Each resolver's subcommand vocabulary, declared once.
+ *
+ * These are the lists the if-chains below branch on *and* the lists an unknown subcommand is
+ * reported against. Hand-listing the vocabulary a second time inside the error would be two places
+ * that must agree with nothing checking they do — which is how the wrong answer gets confident.
+ */
+const TELEMETRY_SUBCOMMANDS = Object.freeze(['status', 'reconcile']);
+const VISUAL_SUBCOMMANDS = Object.freeze(['status', 'compare']);
+const CLARIFICATION_SUBCOMMANDS = Object.freeze(['status', 'record']);
+const CONSTITUTION_READ_SUBCOMMANDS = Object.freeze(['check', 'show']);
+const CONSTITUTION_MUTATION_SUBCOMMANDS = Object.freeze(['generate', 'except']);
+const CONSTITUTION_SUBCOMMANDS = Object.freeze([...CONSTITUTION_READ_SUBCOMMANDS, ...CONSTITUTION_MUTATION_SUBCOMMANDS]);
+const SPEC_READ_SUBCOMMANDS = Object.freeze(['coverage', 'trace']);
+const SPEC_INDEX_SUBCOMMANDS = Object.freeze(['index', 'acceptance', 'tasks']);
+const SPEC_SUBCOMMANDS = Object.freeze(['analyze', 'claims', ...SPEC_READ_SUBCOMMANDS, ...SPEC_INDEX_SUBCOMMANDS]);
+const STORY_READ_SUBCOMMANDS = Object.freeze(['inbox', 'status']);
+const STORY_MUTATION_SUBCOMMANDS = Object.freeze(['start', 'fetch', 'submit', 'finalize', 'checks', 'adjudicate', 'rework', 'advance']);
+const STORY_INTERVAL_ACTIONS = Object.freeze(['status', 'checkpoint', 'reconcile', 'escalate']);
+const STORY_BRANCH_ACTIONS = Object.freeze(['status', 'create', 'attach', 'promote']);
+const STORY_SUBCOMMANDS = Object.freeze([
+  'converge', 'interval', 'branch', ...STORY_READ_SUBCOMMANDS, ...STORY_MUTATION_SUBCOMMANDS
+]);
+
+/** Every command whose subcommands a resolver owns, for the guard that keeps these honest. */
+export const RESOLVER_SUBCOMMANDS = Object.freeze({
+  telemetry: TELEMETRY_SUBCOMMANDS,
+  visual: VISUAL_SUBCOMMANDS,
+  clarification: CLARIFICATION_SUBCOMMANDS,
+  constitution: CONSTITUTION_SUBCOMMANDS,
+  spec: SPEC_SUBCOMMANDS,
+  story: STORY_SUBCOMMANDS,
+  wm: Object.freeze([...WM_MODEL_OPERATIONS, ...WM_NEVER_OPERATIONS]),
+  workspace: Object.freeze(['copilot', 'impact', ...WORKSPACE_NEVER_OPERATIONS, ...WORKSPACE_SUBCOMMAND_ALIASES.keys()])
+});
+
 function required(id) {
   return operation(id, 'required', {
     externalDependencies: ['copilot-cli'],
@@ -119,7 +155,7 @@ function resolveTelemetryOperation(definition, positionals) {
   const subcommand = positionals[1] ?? 'status';
   if (subcommand === 'status') return never('telemetry.status', definition, 'read');
   if (subcommand === 'reconcile') return never('telemetry.reconcile', definition, 'mutation');
-  return unclassified(`telemetry.${subcommand}`);
+  return unknownSubcommand('telemetry', subcommand, TELEMETRY_SUBCOMMANDS);
 }
 
 function resolveOptionalOutputOperation(definition, options) {
@@ -151,23 +187,23 @@ function resolveSpecOperation(definition, positionals, options) {
       ? optional('spec.analyze.assisted', 'spec.analyze', definition)
       : never('spec.analyze', definition, 'read');
   }
-  if (['coverage', 'trace'].includes(subcommand)) return never(`spec.${subcommand}`, definition, 'read');
+  if (SPEC_READ_SUBCOMMANDS.includes(subcommand)) return never(`spec.${subcommand}`, definition, 'read');
   // The advisory task map is derived from the approved specification, so it lives with the other
   // clause-traceability operations rather than becoming a command of its own.
-  if (subcommand === 'index' || subcommand === 'acceptance' || subcommand === 'tasks') {
+  if (SPEC_INDEX_SUBCOMMANDS.includes(subcommand)) {
     return optionBoolean(options, 'dry-run')
       ? never(`spec.${subcommand}.dry-run`, definition, 'read')
       : never(`spec.${subcommand}`, definition, 'mutation');
   }
   if (subcommand === 'claims') return never('spec.claims', definition, 'mutation');
-  return unclassified(`spec.${subcommand}`);
+  return unknownSubcommand('spec', subcommand, SPEC_SUBCOMMANDS);
 }
 
 function resolveVisualOperation(definition, positionals) {
   const subcommand = positionals[1] ?? 'status';
   if (subcommand === 'status') return never('visual.status', definition, 'read');
   if (subcommand === 'compare') return never('visual.compare', definition, 'mutation');
-  return unclassified(`visual.${subcommand}`);
+  return unknownSubcommand('visual', subcommand, VISUAL_SUBCOMMANDS);
 }
 
 /**
@@ -187,21 +223,21 @@ function resolveStoryOperation(definition, positionals, options) {
       ? optional('story.converge.assisted', 'story.converge', definition)
       : never('story.converge', definition, 'mutation');
   }
-  if (['inbox', 'status'].includes(subcommand)) return never(`story.${subcommand}`, definition, 'read');
-  if (['start', 'fetch', 'submit', 'finalize', 'checks', 'adjudicate', 'rework', 'advance'].includes(subcommand)) {
+  if (STORY_READ_SUBCOMMANDS.includes(subcommand)) return never(`story.${subcommand}`, definition, 'read');
+  if (STORY_MUTATION_SUBCOMMANDS.includes(subcommand)) {
     return never(`story.${subcommand}`, definition, 'mutation');
   }
   if (subcommand === 'interval') {
     const action = positionals[2] ?? 'status';
-    if (!['status', 'checkpoint', 'reconcile', 'escalate'].includes(action)) return unclassified(`story.interval.${action}`);
+    if (!STORY_INTERVAL_ACTIONS.includes(action)) return unknownSubcommand('story interval', action, STORY_INTERVAL_ACTIONS, 'action');
     return never(`story.interval.${action}`, definition, action === 'status' ? 'read' : 'mutation');
   }
   if (subcommand === 'branch') {
     const action = positionals[2] ?? 'status';
-    if (!['status', 'create', 'attach', 'promote'].includes(action)) return unclassified(`story.branch.${action}`);
+    if (!STORY_BRANCH_ACTIONS.includes(action)) return unknownSubcommand('story branch', action, STORY_BRANCH_ACTIONS, 'action');
     return never(`story.branch.${action}`, definition, action === 'status' ? 'read' : 'mutation');
   }
-  return unclassified(`story.${subcommand}`);
+  return unknownSubcommand('story', subcommand, STORY_SUBCOMMANDS);
 }
 
 /**
@@ -211,16 +247,16 @@ function resolveStoryOperation(definition, positionals, options) {
  */
 function resolveConstitutionOperation(definition, positionals) {
   const subcommand = positionals[1] ?? 'check';
-  if (['check', 'show'].includes(subcommand)) return never(`constitution.${subcommand}`, definition, 'read');
-  if (['generate', 'except'].includes(subcommand)) return never(`constitution.${subcommand}`, definition, 'mutation');
-  return unclassified(`constitution.${subcommand}`);
+  if (CONSTITUTION_READ_SUBCOMMANDS.includes(subcommand)) return never(`constitution.${subcommand}`, definition, 'read');
+  if (CONSTITUTION_MUTATION_SUBCOMMANDS.includes(subcommand)) return never(`constitution.${subcommand}`, definition, 'mutation');
+  return unknownSubcommand('constitution', subcommand, CONSTITUTION_SUBCOMMANDS);
 }
 
 function resolveClarificationOperation(definition, positionals) {
   const subcommand = positionals[1] ?? 'status';
   if (subcommand === 'status') return never('clarification.status', definition, 'read');
   if (subcommand === 'record') return never('clarification.record', definition, 'mutation');
-  return unclassified(`clarification.${subcommand}`);
+  return unknownSubcommand('clarification', subcommand, CLARIFICATION_SUBCOMMANDS);
 }
 
 function optional(id, fallbackOperationId, definition) {
@@ -233,6 +269,32 @@ function optional(id, fallbackOperationId, definition) {
   });
 }
 
+/**
+ * A subcommand the command does not have — which is to say, a typo.
+ *
+ * This used to raise the model-policy failure below, because the resolver's last line is reached
+ * both when an operation was registered without a classification and when a reader simply mistyped.
+ * Those are opposite audiences. The invariant is for whoever adds an operation and forgets to
+ * classify it; a reader typing `workspace add` got told their command had "no model policy
+ * classification" and that the handler was refused — a concept in no documentation, describing a
+ * fault that was not theirs, with no mention of the word they got wrong or the words that work.
+ *
+ * `pr` was already patched for exactly this in isolation (see `resolvePullRequestOperation`). It was
+ * the whole class, reached from eleven call sites.
+ */
+function unknownSubcommand(command, subcommand, known, slot = 'subcommand') {
+  const available = [...new Set(known)].sort();
+  throw new SingularityFlowError(
+    `'${command}' has no ${slot} '${subcommand}'.${didYouMean(subcommand, available)}`
+    + ` Available: ${available.join(', ')}.`,
+    { code: 'UNKNOWN_SUBCOMMAND', details: { command, subcommand, available } }
+  );
+}
+
+/**
+ * The invariant the message above was borrowed from: a registered command that resolves to no
+ * operation at all. That is a build-time mistake in this file, not something a reader can type.
+ */
 function unclassified(id) {
   throw new SingularityFlowError(`Operation '${id}' has no model policy classification. Refusing to load its handler.`, {
     code: 'MODEL_POLICY_UNCLASSIFIED', details: { operationId: id }
@@ -244,7 +306,7 @@ function resolveWorldModelOperation(definition, positionals) {
   const id = `wm.${subcommand}`;
   if (WM_MODEL_OPERATIONS.has(subcommand)) return required(id);
   if (WM_NEVER_OPERATIONS.has(subcommand)) return never(id, definition);
-  return unclassified(id);
+  return unknownSubcommand('wm', subcommand, RESOLVER_SUBCOMMANDS.wm);
 }
 
 function resolveWorkspaceOperation(definition, positionals, options) {
@@ -253,12 +315,12 @@ function resolveWorkspaceOperation(definition, positionals, options) {
   if (subcommand === 'copilot') return required('workspace.copilot');
   if (subcommand === 'impact') {
     const action = positionals[2] ?? 'list';
-    if (!WORKSPACE_IMPACT_OPERATIONS.has(action)) return unclassified(`workspace.impact.${action}`);
+    if (!WORKSPACE_IMPACT_OPERATIONS.has(action)) return unknownSubcommand('workspace impact', action, WORKSPACE_IMPACT_OPERATIONS, 'action');
     if (action === 'analyze' && !optionBoolean(options, 'dry-run')) return required('workspace.impact.analyze');
     return never(`workspace.impact.${action}`, definition);
   }
   if (WORKSPACE_NEVER_OPERATIONS.has(subcommand)) return never(`workspace.${subcommand}`, definition);
-  return unclassified(`workspace.${subcommand}`);
+  return unknownSubcommand('workspace', requested, RESOLVER_SUBCOMMANDS.workspace);
 }
 
 function resolvePullRequestOperation(definition, positionals, options) {
@@ -340,16 +402,18 @@ export function operationCatalog() {
     never('visual.compare', visualDefinition, 'mutation'),
     never('clarification.status', clarificationDefinition, 'read'),
     never('clarification.record', clarificationDefinition, 'mutation'),
-    ...['inbox', 'status'].map((name) => never(`story.${name}`, storyDefinition, 'read')),
-    ...['start', 'fetch', 'submit', 'finalize', 'checks', 'converge', 'adjudicate', 'rework', 'advance']
-      .map((name) => never(`story.${name}`, storyDefinition, 'mutation')),
+    // The same vocabularies the resolvers branch on. These were a third hand-maintained copy of the
+    // identical literals, so a subcommand could be added to the resolver and silently missing from
+    // the catalog that `doctor`, the tripwires and the model-policy audit all read.
+    ...STORY_READ_SUBCOMMANDS.map((name) => never(`story.${name}`, storyDefinition, 'read')),
+    ...['converge', ...STORY_MUTATION_SUBCOMMANDS].map((name) => never(`story.${name}`, storyDefinition, 'mutation')),
     optional('story.converge.assisted', 'story.converge', storyDefinition),
-    ...['status', 'checkpoint', 'reconcile', 'escalate']
+    ...STORY_INTERVAL_ACTIONS
       .map((name) => never(`story.interval.${name}`, storyDefinition, name === 'status' ? 'read' : 'mutation')),
-    ...['status', 'create', 'attach', 'promote']
+    ...STORY_BRANCH_ACTIONS
       .map((name) => never(`story.branch.${name}`, storyDefinition, name === 'status' ? 'read' : 'mutation')),
-    ...['check', 'show'].map((name) => never(`constitution.${name}`, constitutionDefinition, 'read')),
-    ...['generate', 'except'].map((name) => never(`constitution.${name}`, constitutionDefinition, 'mutation'))
+    ...CONSTITUTION_READ_SUBCOMMANDS.map((name) => never(`constitution.${name}`, constitutionDefinition, 'read')),
+    ...CONSTITUTION_MUTATION_SUBCOMMANDS.map((name) => never(`constitution.${name}`, constitutionDefinition, 'mutation'))
   ];
   return Object.freeze([
     operation('help.root', 'never', { classification: 'read' }),

@@ -289,6 +289,22 @@
   .metadata-row { display: grid; grid-template-columns: minmax(10rem, .7fr) minmax(14rem, 1.3fr) 2rem; gap: .6rem; align-items: end; }
   .metadata-row .field { min-width: 0; }
   .metadata-row .icon-button { margin-bottom: 1px; }
+  .evidence-source-grid { display:grid; grid-template-columns:repeat(auto-fit,minmax(13rem,1fr)); gap:.65rem; margin:1rem 0; }
+  button.evidence-source { display:grid; grid-template-columns:2.25rem 1fr; gap:.2rem .65rem; align-items:start; min-height:6.2rem;
+    padding:.85rem; text-align:left; color:var(--vscode-foreground); background:var(--sf-surface); border:var(--sf-border); border-radius:var(--sf-radius); }
+  button.evidence-source:hover:not(:disabled) { border-color:var(--sf-accent); background:var(--sf-accent-quiet); }
+  .evidence-source-icon { grid-row:1 / span 2; display:grid; place-items:center; color:var(--sf-accent); }
+  .evidence-source strong { font-size:.9rem; }
+  .evidence-source span:last-child { color:var(--sf-dim); font-size:.76rem; line-height:1.35; }
+  .evidence-list { display:grid; gap:.5rem; margin:.65rem 0 1rem; }
+  .evidence-item { display:grid; grid-template-columns:2rem minmax(0,1fr) auto; gap:.65rem; align-items:center; padding:.75rem .8rem;
+    border:var(--sf-border); border-radius:var(--sf-radius); background:var(--sf-surface); }
+  .evidence-item.detached { opacity:.78; border-style:dashed; }
+  .evidence-item-icon { color:var(--sf-accent); }
+  .evidence-item p,.evidence-item small { display:block; margin:.1rem 0 0; color:var(--sf-dim); font-size:.75rem; overflow-wrap:anywhere; }
+  .evidence-actions { display:flex; gap:.4rem; flex-wrap:wrap; justify-content:flex-end; }
+  .evidence-actions .danger { color:var(--sf-bad); }
+  .detached-history { margin-top:1.25rem; padding-top:.75rem; border-top:var(--sf-border); }
   @media (max-width: 680px) {
     body { padding-inline: 1rem; }
     .form-grid { grid-template-columns: 1fr; }
@@ -296,6 +312,8 @@
     .editor-card { padding-inline: .85rem; }
     .metadata-row { grid-template-columns: 1fr 2rem; }
     .metadata-row .field:first-child { grid-column: 1 / -1; }
+    .evidence-item { grid-template-columns:2rem minmax(0,1fr); }
+    .evidence-actions { grid-column:1 / -1; justify-content:flex-start; }
   }
 
   .rail { list-style: none; padding: 0; margin: 0; display: flex; flex-wrap: wrap; gap: .2rem 1.5rem; }

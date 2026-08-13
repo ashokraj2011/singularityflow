@@ -14,8 +14,8 @@ import path from 'node:path';
 import test from 'node:test';
 
 import {
-  artifactSetDiff, catalogArtifactSet, disclosureLines, memberRoot, normalizeArtifactSet,
-  resolvedArtifactSet
+  ARTIFACT_SET_SCHEMA_VERSION, artifactSetDiff, catalogArtifactSet, disclosureLines, memberRoot,
+  normalizeArtifactSet, resolvedArtifactSet
 } from '../src/artifact-sets.mjs';
 import {
   advisoryTaskPath, deriveAdvisoryTasks, planSurfaces, renderAdvisoryTasks
@@ -85,6 +85,38 @@ test('every member is hashed, and the bundle is one value over all of them', asy
   // And editing any member changes it, which is what makes an approval un-reusable.
   await writeFile(path.join(root, 'work/artifacts/planning/tasks.md'), '# Tasks\n\n- [x] done\n');
   assert.notEqual((await catalogArtifactSet(root, 'work', PHASE, set)).bundleSha256, full.bundleSha256);
+});
+
+test('the catalogue is versioned, reads an unversioned one, and refuses a newer one', async () => {
+  /**
+   * `[SPK:REQ-124]` asks for versioned schemas on the new records, and this one shipped without.
+   * It is the record most exposed to the omission: it is persisted on the phase and read back a
+   * generation later by `artifactSetDiff`, so a future change to the member shape would have been
+   * compared field-for-field against the old shape and produced a confident wrong answer.
+   */
+  const root = await fixture('versioned');
+  await writeFile(path.join(root, 'work/artifacts/planning/plan.md'), '# Plan\n');
+  await writeFile(path.join(root, 'work/artifacts/planning/tasks.md'), '# Tasks\n');
+  const set = normalizeArtifactSet(SET, 'demo');
+  const catalog = await catalogArtifactSet(root, 'work', PHASE, set);
+  assert.equal(catalog.schemaVersion, ARTIFACT_SET_SCHEMA_VERSION);
+  assert.equal(catalog.resultType, 'artifact-set-catalog');
+
+  // Adding the stamp must not move the bundle: it is what an existing approval is bound to, and a
+  // changed identity would invalidate every approval already recorded `[SPK:CON-053]`.
+  const { bundleSha256 } = catalog;
+  await writeFile(path.join(root, 'work/artifacts/planning/tasks.md'), '# Tasks\n');
+  assert.equal((await catalogArtifactSet(root, 'work', PHASE, set)).bundleSha256, bundleSha256);
+
+  // A Story catalogued before the stamp existed keeps working, unversioned, and still diffs.
+  const { schemaVersion, ...unversioned } = catalog;
+  await writeFile(path.join(root, 'work/artifacts/planning/plan.md'), '# Plan\n\nmore\n');
+  const current = await catalogArtifactSet(root, 'work', PHASE, set);
+  assert.deepEqual(artifactSetDiff(unversioned, current).changed.map((member) => member.member), ['plan.md']);
+
+  // A catalogue from a newer release is refused rather than mis-compared.
+  assert.throws(() => artifactSetDiff({ ...catalog, schemaVersion: ARTIFACT_SET_SCHEMA_VERSION + 1 }, current),
+    /catalogued by a newer release/);
 });
 
 test('a required member that is absent is reported', async () => {

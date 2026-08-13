@@ -27,6 +27,9 @@ import { exists, posix, SingularityFlowError } from './util.mjs';
 /** How much a member's absence or change is allowed to mean. */
 export const MEMBER_AUTHORITIES = Object.freeze(['governed', 'advisory']);
 
+/** The catalogue shape `catalogArtifactSet` writes and `artifactSetDiff` reads. `[SPK:REQ-124]` */
+export const ARTIFACT_SET_SCHEMA_VERSION = 1;
+
 /**
  * Normalize one declared set.
  *
@@ -159,6 +162,13 @@ export async function catalogArtifactSet(root, workDirRelativePath, phase, set) 
   }
   const ordered = [...members].sort((left, right) => left.path.localeCompare(right.path));
   return {
+    // `[SPK:REQ-124]`. The catalogue outlives the build that wrote it: it is persisted on the phase
+    // and read back a generation later by `artifactSetDiff`. Every sibling record in this pack
+    // carries a version and this one did not, so a future change to the member shape would have
+    // been compared against the old shape in silence. Safe to add: `bundleSha256` below hashes an
+    // explicit subset, so the approval identity of existing bundles is unchanged.
+    schemaVersion: ARTIFACT_SET_SCHEMA_VERSION,
+    resultType: 'artifact-set-catalog',
     setId: set.id,
     primary: posix(path.posix.join(rootRelative, set.primary)),
     members: ordered,
@@ -182,6 +192,21 @@ export async function catalogArtifactSet(root, workDirRelativePath, phase, set) 
  */
 export function artifactSetDiff(previous, current, { declared = [] } = {}) {
   if (!previous || !current) return { changed: [], preserved: [], incidental: [], declared: [...declared] };
+  /**
+   * A catalogue written before the version stamp is version 1 — that is the shape that shipped, and
+   * `[SPK:CON-053]` says an existing Story keeps working. A version *ahead* of this build is the
+   * case worth refusing: the members would be compared field by field against a shape this code
+   * does not know, and the answer would be a confident wrong diff rather than an error.
+   */
+  const version = previous.schemaVersion ?? 1;
+  if (version > ARTIFACT_SET_SCHEMA_VERSION) {
+    throw new SingularityFlowError(
+      `Artifact set '${previous.setId ?? current.setId}' was catalogued by a newer release (schema ${version}; `
+      + `this build reads ${ARTIFACT_SET_SCHEMA_VERSION}). Upgrade Singularity Flow rather than comparing the `
+      + 'bundle against a shape this version does not know.',
+      { code: 'ARTIFACT_SET_SCHEMA_AHEAD' }
+    );
+  }
   const before = new Map(previous.members.map((member) => [member.path, member]));
   const intended = new Set(declared.map((entry) => posix(entry)));
   const changed = [];

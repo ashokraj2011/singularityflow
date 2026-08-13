@@ -105,7 +105,13 @@ export async function storyPublicationPending(root, config, id, { migrate = true
   });
 }
 
-function actorKey(actor) { return actor.login ?? actor.email ?? actor.name; }
+/**
+ * The one identity string every governed record uses.
+ *
+ * Exported because a second surface needed it and the alternative was a second copy of the
+ * precedence rule — the kind of duplication that stays correct until someone adds a field.
+ */
+export function actorKey(actor) { return actor.login ?? actor.email ?? actor.name; }
 
 function workflowPublicationMode(config, workflow) {
   const configured = config.git?.publish ?? 'required';
@@ -1512,9 +1518,29 @@ async function refreshRequiredArtifact(root, config, workflow, phase) {
   else phase.artifacts.push({ path: required, kind: phase.requiredArtifact.kind ?? inferKind(required), status: 'pending', ...current, registeredAt: nowIso(), updatedAt: nowIso() });
 }
 
-export async function rejectPhase(root, config, workflow, { phaseId, target, reason, clauseIds = [], members = [], channel = 'terminal', actionContext = null } = {}) {
+export async function rejectPhase(root, config, workflow, { phaseId, target, reason, clauseIds = [], members = [], convergenceRework = null, channel = 'terminal', actionContext = null } = {}) {
   await assertNoPendingPublication(root, config, workflow, 'reject');
-  const phase = await assertPhaseSequence(root, workflow, 'reject', { requestedPhase: phaseId, allowedStatuses: ['awaiting_approval'] });
+  /**
+   * Governed rework out of convergence `[SPK:REQ-182]`.
+   *
+   * Convergence is `in_progress` when its findings are adjudicated — nobody has submitted it, and
+   * asking a reviewer to approve a phase so that it can immediately be rejected would put a second
+   * person in the loop for a decision the first already made.
+   *
+   * So this is the one caller that may reject an unsubmitted phase, and the exception is narrow on
+   * purpose: it is honoured only when the projection it names actually carries blocking rework
+   * findings. The flag cannot be used to skip an approval, because a phase with nothing to rework
+   * has nothing to authorise it. Everything after this line is the ordinary rejection path — the
+   * same authority check, change request, invalidation and transition `[SPK:REQ-082]`.
+   */
+  const reworkBlockers = convergenceRework?.unresolvedBlockers ?? [];
+  if (convergenceRework && !reworkBlockers.length) {
+    throw new SingularityFlowError('Convergence rework needs at least one finding dispositioned as rework.');
+  }
+  const phase = await assertPhaseSequence(root, workflow, 'reject', {
+    requestedPhase: phaseId,
+    allowedStatuses: reworkBlockers.length ? ['awaiting_approval', 'in_progress'] : ['awaiting_approval']
+  });
   if (phase.approvalPolicy.changeRequests?.commentRequired !== false && !reason?.trim()) {
     throw new SingularityFlowError('A change-request comment is required.');
   }
@@ -1565,6 +1591,15 @@ export async function rejectPhase(root, config, workflow, { phaseId, target, rea
     sourceGeneration: phase.generation,
     targetPhase: targetId,
     clauseIds: requestedClauses,
+    // The convergence iteration this rework came out of, so the next one can be read against it
+    // `[SPK:REQ-083]` and the prior findings stay reachable rather than merely preserved on disk.
+    ...(convergenceRework ? {
+      convergence: {
+        iteration: convergenceRework.iteration,
+        convergenceSha256: convergenceRework.convergenceSha256 ?? null,
+        findingIds: reworkBlockers
+      }
+    } : {}),
     ...(requestedMembers.length ? { members: requestedMembers } : {}),
     comment: reason?.trim() || 'Changes requested.',
     requestedAt: timestamp,

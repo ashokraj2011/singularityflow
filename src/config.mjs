@@ -32,6 +32,7 @@ import { normalizeLedgerConfig } from './ledger-config.mjs';
 import { normalizeClarificationPolicy } from './clarifications.mjs';
 import { specificationQualityPolicy } from './specification-quality.mjs';
 import { normalizeArtifactSets } from './artifact-sets.mjs';
+import { assertNoAutonomousConvergence } from './convergence.mjs';
 import { normalizeMcpServers, validateMcpAgentTools } from './mcp.mjs';
 import { normalizeSpecPolicy } from './specifications.mjs';
 import { normalizeHarnessImports } from './harness-imports.mjs';
@@ -457,6 +458,11 @@ export function validateDefinition(definition) {
     // resolved cleanly, and quietly enforced nothing — the exact failure this codebase keeps
     // producing when a declared policy has no validator standing between it and its consumer.
     if (phase.specificationQuality !== undefined) specificationQualityPolicy(phase.specificationQuality);
+    // `[SPK:CON-037]`: refused at load, because by the time a self-repeating loop is running there is
+    // no honest place to stop it. Both the phase's own keys and a nested `convergence:` block, since
+    // either would express the same thing.
+    assertNoAutonomousConvergence(phase, `Phase '${id}'`);
+    assertNoAutonomousConvergence(phase.convergence, `Phase '${id}' convergence`);
     // A phase naming a set that does not exist would catalogue nothing and refuse nothing, so the
     // reference is resolved at load rather than at the first publication that needed it.
     if (phase.artifactSet !== undefined && !sets[phase.artifactSet]) {

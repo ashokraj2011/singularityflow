@@ -2,7 +2,7 @@ import { didYouMean, optionBoolean, SingularityFlowError } from './util.mjs';
 
 const READ_ONLY = new Set(['specify', 'plan', 'implement', 'verify', 'converge', 'about', 'help', 'show', 'choices', 'inbox', 'status', 'progress', 'guide', 'logs', 'doctor', 'nextsteps', 'snapshot', 'validate', 'explain']);
 const STRUCTURED = new Set(['specify', 'plan', 'implement', 'verify', 'converge', 'start', 'status', 'progress', 'report', 'impact', 'telemetry', 'doctor', 'inputs', 'reinstall', 'snapshot', 'validate', 'gate', 'clarification', 'explain']);
-const MODEL_FREE_MIXED_COMMANDS = new Set(['report', 'telemetry', 'review', 'inputs', 'spec', 'visual', 'clarification']);
+const MODEL_FREE_MIXED_COMMANDS = new Set(['report', 'telemetry', 'review', 'inputs', 'spec', 'visual', 'clarification', 'story']);
 
 const LAZY_MODULES = Object.freeze({
   // The five verbs share one dispatcher; each is a registered command in its own right so the
@@ -170,6 +170,40 @@ function resolveVisualOperation(definition, positionals) {
   return unclassified(`visual.${subcommand}`);
 }
 
+/**
+ * `story` subcommands, classified individually. `[SPK:REQ-070]` `[SPK:REQ-073]` `[SPK:REQ-076]`
+ *
+ * `story` used to be one operation with one policy for everything from `inbox` to `finalize`, which
+ * was harmless while every one of them was model-free. `story converge` breaks that: it must default
+ * to `never` and produce deterministic facts `[SPK:REQ-073]`, while `--assisted` runs a governed
+ * relay turn `[SPK:REQ-076]`. Those are two policies, so the subcommands need to be told apart —
+ * and classifying only the interesting one would leave the rest silently inheriting a policy nobody
+ * chose.
+ */
+function resolveStoryOperation(definition, positionals, options) {
+  const subcommand = positionals[1] ?? 'status';
+  if (subcommand === 'converge') {
+    return optionBoolean(options, 'assisted')
+      ? optional('story.converge.assisted', 'story.converge', definition)
+      : never('story.converge', definition, 'mutation');
+  }
+  if (['inbox', 'status'].includes(subcommand)) return never(`story.${subcommand}`, definition, 'read');
+  if (['start', 'fetch', 'submit', 'finalize', 'checks', 'adjudicate', 'rework', 'advance'].includes(subcommand)) {
+    return never(`story.${subcommand}`, definition, 'mutation');
+  }
+  if (subcommand === 'interval') {
+    const action = positionals[2] ?? 'status';
+    if (!['status', 'checkpoint', 'reconcile', 'escalate'].includes(action)) return unclassified(`story.interval.${action}`);
+    return never(`story.interval.${action}`, definition, action === 'status' ? 'read' : 'mutation');
+  }
+  if (subcommand === 'branch') {
+    const action = positionals[2] ?? 'status';
+    if (!['status', 'create', 'attach', 'promote'].includes(action)) return unclassified(`story.branch.${action}`);
+    return never(`story.branch.${action}`, definition, action === 'status' ? 'read' : 'mutation');
+  }
+  return unclassified(`story.${subcommand}`);
+}
+
 function resolveClarificationOperation(definition, positionals) {
   const subcommand = positionals[1] ?? 'status';
   if (subcommand === 'status') return never('clarification.status', definition, 'read');
@@ -241,6 +275,7 @@ export function resolveOperation({ requestedCommand, positionals, options = {} }
   if (definition.name === 'spec') return resolveSpecOperation(definition, positionals, options);
   if (definition.name === 'visual') return resolveVisualOperation(definition, positionals);
   if (definition.name === 'clarification') return resolveClarificationOperation(definition, positionals);
+  if (definition.name === 'story') return resolveStoryOperation(definition, positionals, options);
   return unclassified(definition.name);
 }
 
@@ -264,6 +299,7 @@ export function operationCatalog() {
   const reviewDefinition = commandDefinition('review');
   const inputsDefinition = commandDefinition('inputs');
   const specDefinition = commandDefinition('spec');
+  const storyDefinition = commandDefinition('story');
   const visualDefinition = commandDefinition('visual');
   const clarificationDefinition = commandDefinition('clarification');
   const modelFreeMixed = [
@@ -289,7 +325,15 @@ export function operationCatalog() {
     never('visual.status', visualDefinition, 'read'),
     never('visual.compare', visualDefinition, 'mutation'),
     never('clarification.status', clarificationDefinition, 'read'),
-    never('clarification.record', clarificationDefinition, 'mutation')
+    never('clarification.record', clarificationDefinition, 'mutation'),
+    ...['inbox', 'status'].map((name) => never(`story.${name}`, storyDefinition, 'read')),
+    ...['start', 'fetch', 'submit', 'finalize', 'checks', 'converge', 'adjudicate', 'rework', 'advance']
+      .map((name) => never(`story.${name}`, storyDefinition, 'mutation')),
+    optional('story.converge.assisted', 'story.converge', storyDefinition),
+    ...['status', 'checkpoint', 'reconcile', 'escalate']
+      .map((name) => never(`story.interval.${name}`, storyDefinition, name === 'status' ? 'read' : 'mutation')),
+    ...['status', 'create', 'attach', 'promote']
+      .map((name) => never(`story.branch.${name}`, storyDefinition, name === 'status' ? 'read' : 'mutation'))
   ];
   return Object.freeze([
     operation('help.root', 'never', { classification: 'read' }),

@@ -118,6 +118,24 @@ test('a Story runs specification through release from a fresh clone', async (t) 
     '--title', 'Retry a failed payment', '--description', 'Let an operator retry a payment that failed at the provider.']);
   assert.equal((await workflowOf(root)).currentPhase, 'specification');
 
+  /**
+   * `[SPK:REQ-019]`: a fast-path action is resumable and idempotent at the same binding.
+   *
+   * The Story is at the first checkpoint, which is where a person actually repeats a verb — they
+   * run `specify`, read that an agent has to author the artifact, and run it again to see where
+   * they are. Twice must be exactly once: same answer, no commit, no state, no dirty tree. A verb
+   * that half-advanced here would do it before anyone had authored anything to advance.
+   */
+  const head = git(root, 'rev-parse', 'HEAD');
+  const firstSpecify = sflow(root, ['specify']).output;
+  const secondSpecify = sflow(root, ['specify']).output;
+  assert.equal(secondSpecify, firstSpecify, 'a repeated fast-path verb answered differently');
+  assert.equal(git(root, 'rev-parse', 'HEAD'), head, 'a fast-path checkpoint created a commit');
+  assert.equal(git(root, 'status', '--porcelain'), '', 'a fast-path checkpoint left the tree dirty');
+  assert.match(firstSpecify, /No governed state, files, publications or external systems were changed/);
+  assert.deepEqual((await workflowOf(root)).phases.specification.artifacts, [],
+    'a fast-path checkpoint registered an artifact nobody authored');
+
   // ---- specification ---------------------------------------------------------------------------
   await write(root, `singularity/work-items/${WORK}/artifacts/specification/spec.md`, [
     '# Specification — Retry a failed payment', '',

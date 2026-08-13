@@ -757,25 +757,51 @@ function fastPathRailNode(fastPath: FastPathProjection | null | undefined, workf
       const phases = verb.phases
         .map((id) => workflow.phases?.[id])
         .filter((phase): phase is StoryPhase => Boolean(phase));
+      /**
+       * Actions belong to the verb you are standing in, and to no other.
+       *
+       * The planner answers "what would happen if I ran `sflow plan` right now?" for every verb, and
+       * for a Story sitting in specification that answer is the same sentence five times: "use
+       * specify for specification". Correct per verb, useless as a rail — four identical rows
+       * telling a reader to go back where they already are. Only the current verb carries its
+       * checkpoint action; the rest carry their phases, which is what a reader is scanning for.
+       */
+      const actions = here ? verb.next : [];
       return {
         kind: 'group' as const,
         id: `story-verb:${verb.verb}`,
         label: verb.verb,
-        // A milestone counts only when workflow state proves it, so `reached` is the engine's word
-        // and never "the command succeeded".
-        description: [
-          verb.reached ? 'milestone reached' : verb.checkpoint?.kind ?? 'pending',
-          here ? 'you are here' : ''
-        ].filter(Boolean).join(' · '),
-        icon: verb.reached ? 'pass' : here ? 'play-circle' : 'circle-outline',
+        /**
+         * A milestone counts only when workflow state proves it, so `reached` is the engine's word
+         * and never "the command succeeded". `checkpoint.kind` is shown only where it means
+         * something: on the active verb it names what the Story is waiting for, and everywhere else
+         * it is planner vocabulary — `not-routed` says nothing to someone reading a rail.
+         */
+        description: verb.reached
+          ? 'milestone reached'
+          : here
+            ? [verb.checkpoint?.kind ?? 'in progress', 'you are here'].join(' · ')
+            : 'not started',
+        /**
+         * Only icons that actually render, and none where none is right.
+         *
+         * Checked in the extension host, because nothing else can check this. Raw Codicons
+         * (`pass`, `circle-outline`) pass through the table untouched and landed as the
+         * unknown-icon glyph, so all five verbs looked identical. `statusSuccess` resolves;
+         * `statusCurrent` and `statusIdle` do not in this VS Code, and they rendered as that same
+         * placeholder — which is worse than nothing, because a meaningless glyph still reads as a
+         * status. Reached gets a check, the active verb gets the play icon, and a verb that has not
+         * started gets no icon at all: absence is honest and quiet.
+         */
+        icon: verb.reached ? 'statusSuccess' : here ? 'start' : undefined,
         tooltip: [
           `Milestone: ${verb.milestone}`,
-          verb.checkpoint?.reason ?? null,
-          verb.operations.length ? `Underlying operations: ${verb.operations.join(', ')}` : null
+          here ? verb.checkpoint?.reason ?? null : null,
+          here && verb.operations.length ? `Underlying operations: ${verb.operations.join(', ')}` : null
         ].filter(Boolean).join('\n'),
         contextValue: 'sflow.story.verb',
         children: [
-          ...verb.next.map((action, index) => ({
+          ...actions.map((action, index) => ({
             kind: 'message' as const,
             id: `story-verb:${verb.verb}:next:${index}`,
             label: action.label,

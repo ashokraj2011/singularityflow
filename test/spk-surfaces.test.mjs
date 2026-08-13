@@ -12,8 +12,14 @@
  * recomputing anything.
  */
 import assert from 'node:assert/strict';
-import { readFile } from 'node:fs/promises';
+import { spawnSync } from 'node:child_process';
+import { mkdtemp, readFile, writeFile } from 'node:fs/promises';
+import os from 'node:os';
+import path from 'node:path';
 import test from 'node:test';
+
+import { initializeDefinition, loadDefinition } from '../src/config.mjs';
+import { VERSION } from '../src/version.mjs';
 
 import { FAST_PATH_VERBS, fastPathProfile, planFastPath } from '../src/fast-path.mjs';
 
@@ -103,6 +109,27 @@ test('the extension renders the projection and recomputes nothing', async () => 
   assert.match(tree, /id: 'story:phase-rail'/, 'the full phase rail was removed rather than kept beneath the verbs');
 });
 
+test('the rail carries actions for the verb you are standing in, and no other', async () => {
+  /**
+   * Found by rendering the tree against a real Story rather than by any assertion.
+   *
+   * The planner answers "what would happen if I ran `sflow plan` right now?" for every verb, and
+   * for a Story sitting in specification that answer is the same sentence five times: *use specify
+   * for specification*. Correct per verb, useless as a rail — four identical rows telling a reader
+   * to go back where they already are. `not-routed` had the same problem: accurate planner
+   * vocabulary, meaningless as the description of a verb that simply has not started.
+   */
+  const tree = withoutComments(await readFile(new URL('views/tree-model.ts', EXTENSION), 'utf8'));
+  const rail = tree.slice(tree.indexOf('function fastPathRailNode'), tree.indexOf('function storyWorkflowNode'));
+  assert.match(rail, /const actions = here \? verb\.next : \[\]/, 'every verb carries the current verb’s next action');
+  assert.match(rail, /\.\.\.actions\.map\(/, 'the rail renders next actions for verbs other than the active one');
+  assert.doesNotMatch(rail, /\.\.\.verb\.next\.map\(/, 'the rail renders next actions unconditionally');
+
+  // A checkpoint kind is engine vocabulary; it reads as an explanation only on the active verb.
+  assert.match(rail, /: 'not started'/, 'an inactive verb shows a checkpoint kind rather than its state');
+  assert.match(rail, /here\s*\n?\s*\?\s*\[verb\.checkpoint\?\.kind/, 'the checkpoint is not scoped to the active verb');
+});
+
 test('the projection is typed the way the engine emits it', async () => {
   // A type that drifts from the payload is how a surface silently renders `undefined` — the
   // extension has no runtime schema, so the interface is the only check there is.
@@ -142,4 +169,34 @@ test('the review surface keeps its evidence kinds visually distinct', async () =
   ]) {
     assert.ok(review.includes(heading), `the review packet has no distinct '${heading}' section`);
   }
+});
+
+test('a configuration from a newer release is refused with the reason, not just the field', async () => {
+  /**
+   * Found by pointing an older installed CLI at a repository this work had upgraded. Every
+   * normalizer correctly refused `clarification contains unknown field 'markers'` — failing closed,
+   * which is right: silently ignoring a policy would mean enforcing less than the repository asked
+   * for, and `markers: block` ignored means publications that should have been refused going
+   * through.
+   *
+   * But the bare message names a field and nothing else, on every command, with no hint that the
+   * fix is upgrading the tool rather than editing the file. The VS Code extension, CI and a
+   * teammate's laptop all hit this the moment one person upgrades.
+   */
+  const root = await mkdtemp(path.join(os.tmpdir(), 'sflow-skew-'));
+  spawnSync('git', ['init', '-q', '-b', 'main', '.'], { cwd: root });
+  await initializeDefinition(root);
+  const file = path.join(root, 'singularity/workflow.yml');
+  await writeFile(file, (await readFile(file, 'utf8')).replace(
+    '      markers: { mode: block }',
+    '      markers: { mode: block }\n      unheardOfPolicy: { mode: enforce }'
+  ));
+
+  await assert.rejects(() => loadDefinition(root), (error) => {
+    assert.match(error.message, /contains unknown field 'unheardOfPolicy'/, 'the field is no longer named');
+    assert.match(error.message, /written by a newer release/, 'the message does not explain the likely cause');
+    assert.match(error.message, /Upgrade Singularity Flow/, 'the message offers no action');
+    assert.match(error.message, new RegExp(`build is ${VERSION.replace(/\./g, '\\.')}`), 'the message does not say which build refused');
+    return true;
+  });
 });

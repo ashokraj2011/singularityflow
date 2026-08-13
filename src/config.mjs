@@ -34,6 +34,7 @@ import { specificationQualityPolicy } from './specification-quality.mjs';
 import { normalizeArtifactSets } from './artifact-sets.mjs';
 import { assertNoAutonomousConvergence } from './convergence.mjs';
 import { analysisLimits } from './analysis-limits.mjs';
+import { VERSION } from './version.mjs';
 import { constitutionPolicy } from './constitution.mjs';
 import { normalizeMcpServers, validateMcpAgentTools } from './mcp.mjs';
 import { normalizeSpecPolicy } from './specifications.mjs';
@@ -574,7 +575,32 @@ export async function loadDefinition(root) {
     definition.agents = Object.fromEntries(agents.map((agent) => [agent.id, agent]));
     definition.agentCatalog = agents;
     definition.agentPromptsRoot = '.github/agents';
-    validateDefinition(definition);
+    /**
+     * Refusing an unknown field is right; refusing it without naming the likely cause is not.
+     *
+     * A repository whose governed configuration was written by a newer release carries policy keys
+     * this build has never heard of, and every normalizer correctly refuses them — failing closed,
+     * because silently ignoring `clarification.markers` would mean enforcing less than the
+     * repository asked for, which is the one outcome a governance tool must never produce.
+     *
+     * But the bare message names a field and nothing else. Found by pointing an older CLI at a
+     * repository upgraded by this work: `clarification contains unknown field 'markers'`, on every
+     * command, with no hint that the fix is upgrading the tool rather than editing the file. The
+     * VS Code extension, CI, and a teammate's laptop all hit this the moment one person upgrades.
+     */
+    try {
+      validateDefinition(definition);
+    } catch (error) {
+      if (error instanceof SingularityFlowError && /contains unknown field/.test(error.message)) {
+        throw new SingularityFlowError(
+          `${error.message} This build is ${VERSION}. A governed configuration written by a newer release carries policy `
+          + 'this version cannot enforce, so it is refused rather than partly applied. Upgrade Singularity Flow, or check '
+          + 'out the configuration revision that matches this build.',
+          { code: error.code ?? 'CONFIGURATION_UNKNOWN_FIELD', cause: error }
+        );
+      }
+      throw error;
+    }
     validateAgentCatalog(agents, definition);
     for (const workTypeId of Object.keys(definition.workTypes)) for (const phase of resolveWorkType(definition, workTypeId).phases) {
       if (isAgentTemplateReference(phase.template)) continue;

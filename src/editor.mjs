@@ -665,6 +665,16 @@ async function fullRepositorySnapshot(root, requestedWorkId = null, requestedIni
     documents,
     detachedDocuments,
     review,
+    /**
+     * The fast path, on the full snapshot too `[SPK:REQ-150]`.
+     *
+     * Added to `lifecycleSlice` first and to nothing else, which meant the one consumer that
+     * matters never saw it: VS Code calls `snapshot --json` with no `--include`, and that lands
+     * here rather than in the sliced path. The rail rendered nothing, silently and correctly,
+     * because the field it reads was absent — the exact "added to one code path, consumed from the
+     * other" failure this codebase keeps producing, and invisible until the extension was opened.
+     */
+    fastPath: fastPathProjection(definition, workflow),
     visualAssurance: await visualAssuranceSnapshot(root, definition, workflow),
     diagnostics: await doctorSnapshot(root, { workId: selectedId, offline: true }),
     workflowSimulations: await simulateWorkflow(root),

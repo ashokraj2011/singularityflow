@@ -4,8 +4,15 @@
  * Webviews cannot reuse VS Code's Codicon font without widening the CSP. They therefore render
  * these local, currentColor SVG paths. Native trees resolve the same nouns and states to Codicons
  * through TREE_ICONS below. A product concept has one name even though the two renderers differ.
+ *
+ * That last sentence was true of the nouns and false of the states, which is how a not-started
+ * phase came to look approved. The trees name states `statusIdle`, `statusCurrent` and so on; this
+ * table only had `ok`, `wait`, `blocked`. `semanticIcon` guesses from the name when it misses, and
+ * two of the seven matched no guess and fell through to the node's kind — for a phase, a
+ * circle-with-a-tick. Both vocabularies are now the same set, and `both renderers speak one
+ * vocabulary` in the sidebar tests fails if a name is ever added to one and not the other.
  */
-export const ICON_PATHS = {
+const BASE_PATHS = {
   // Product structure
   workspace: '<rect x="3" y="3" width="8" height="8" rx="2.2"/><rect x="13" y="3" width="8" height="8" rx="2.2"/><rect x="3" y="13" width="8" height="8" rx="2.2"/><rect x="13" y="13" width="8" height="8" rx="2.2"/>',
   workspaceManage: '<rect x="3" y="4" width="18" height="16" rx="3"/><path d="M7 9h10M7 13h7M7 17h4"/>',
@@ -79,6 +86,24 @@ export const ICON_PATHS = {
   stale: '<circle cx="12" cy="12" r="9"/><path d="M12 7v5l3 2M6 5l-2 3h4"/>',
   bad: '<circle cx="12" cy="12" r="9"/><path d="M12 7v6M12 17h.01"/>'
 } as const;
+
+/**
+ * The state vocabulary both renderers speak, aliased to one glyph each so a state cannot drift
+ * between them. The two without a `BASE_PATHS` equivalent are the two that were missing: a ring
+ * with a filled centre for the phase you are standing in, and an empty ring for one not started —
+ * which is the point, since an empty ring is the one shape that cannot be misread as done.
+ */
+const STATUS_PATHS = {
+  statusSuccess: BASE_PATHS.success,
+  statusWaiting: BASE_PATHS.wait,
+  statusWarning: BASE_PATHS.warning,
+  statusBlocked: BASE_PATHS.blocked,
+  statusStale: BASE_PATHS.stale,
+  statusCurrent: '<circle cx="12" cy="12" r="9"/><circle cx="12" cy="12" r="3.6" fill="currentColor" stroke="none"/>',
+  statusIdle: '<circle cx="12" cy="12" r="9"/>'
+} as const;
+
+export const ICON_PATHS = { ...BASE_PATHS, ...STATUS_PATHS } as const;
 
 export type IconName = keyof typeof ICON_PATHS;
 export const ICON_NAMES = Object.freeze(Object.keys(ICON_PATHS) as IconName[]);

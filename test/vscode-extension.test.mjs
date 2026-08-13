@@ -2283,7 +2283,7 @@ test('a delivery capability is rendered as shipping from its declared repository
 
 
 const { icon, STYLE } = await import(source('views/webview.ts'));
-const { ICON_NAMES, TREE_ICONS, treeIcon } = await import(source('views/icons.ts'));
+const { ICON_NAMES, ICON_PATHS, TREE_ICONS, treeIcon } = await import(source('views/icons.ts'));
 const { enterpriseVisualFixture, VISUAL_REVIEW_CASES } = await import(source('views/visual-fixture.ts'));
 const { helpCenterHtml, renderHelpMarkdown } = await import(source('views/help-page.ts'));
 
@@ -2326,6 +2326,61 @@ test('every domain noun has an icon, so nothing falls back to a bare label', () 
   ]) {
     assert.ok(ICON_NAMES.includes(name), `${name} is not registered`);
     assert.notEqual(icon(name), '', `${name} has no icon`);
+  }
+});
+
+test('both renderers speak one vocabulary, so no phase status renders as another', () => {
+  /**
+   * The sidebar is a webview and resolves `node.icon` against `ICON_PATHS`; the native trees resolve
+   * the same name against `TREE_ICONS`. The file says a product concept has one name in both. That
+   * was true of the nouns and false of the states: the trees emit `statusIdle` and `statusCurrent`,
+   * and `ICON_PATHS` had only `ok`, `wait`, `blocked`.
+   *
+   * Nothing failed. `semanticIcon` guesses from the name on a miss, and four of the six statuses
+   * happened to contain a word one of its regexes matched. The two that did not fell through to the
+   * node's kind — for a phase, a circle-with-a-tick — so in_progress and not_started rendered as the
+   * same glyph as approved. A phase nobody had started looked finished, in the one view most likely
+   * to be read at a glance.
+   *
+   * Asserted over the real tree rather than over the table, because the defect was in neither: it
+   * was in the resolution between them.
+   */
+  const statuses = ['approved', 'awaiting_approval', 'in_progress', 'rejected', 'stale', 'not_started'];
+  const snapshot = storySnapshot();
+  snapshot.workflow.phaseOrder = statuses;
+  snapshot.workflow.currentPhase = 'in_progress';
+  snapshot.workflow.phases = Object.fromEntries(statuses.map((status) => [
+    status, { id: status, label: status, status, generation: 0, artifacts: [], approvals: [] }
+  ]));
+
+  const phases = flatten(buildTree(snapshot)).filter((node) => node.kind === 'phase' && statuses.includes(node.id.split(':').pop()));
+  assert.equal(phases.length, statuses.length, 'the fixture did not render one node per status');
+
+  const glyphs = new Map();
+  for (const node of phases) {
+    assert.ok(ICON_NAMES.includes(node.icon), `a phase renders '${node.icon}', which the webview cannot draw`);
+    const drawn = ICON_PATHS[node.icon];
+    assert.ok(!glyphs.has(drawn), `${node.id} draws the same glyph as ${glyphs.get(drawn)}`);
+    glyphs.set(drawn, node.id);
+  }
+
+  // The specific confusion that shipped, named so a regression reads as itself.
+  const iconOf = (status) => phases.find((node) => node.id.endsWith(status)).icon;
+  assert.notEqual(ICON_PATHS[iconOf('not_started')], ICON_PATHS[iconOf('approved')]);
+  assert.equal(ICON_PATHS[iconOf('not_started')], '<circle cx="12" cy="12" r="9"/>', 'an unstarted phase is an empty ring');
+});
+
+test('a status name added to one renderer is added to both', () => {
+  // The drift is what let the above happen, and it is silent in both directions: an unknown webview
+  // name is guessed at, and an unknown Codicon is passed straight through to VS Code, which draws
+  // its placeholder. Neither throws, so only this comparison notices.
+  const states = ICON_NAMES.filter((name) => name.startsWith('status'));
+  assert.ok(states.length >= 7, 'the webview lost its state vocabulary');
+  for (const state of states) {
+    assert.ok(TREE_ICONS[state], `${state} draws in the sidebar but has no native-tree mapping`);
+  }
+  for (const state of Object.keys(TREE_ICONS).filter((name) => name.startsWith('status'))) {
+    assert.ok(ICON_NAMES.includes(state), `${state} draws in a native tree but the sidebar cannot draw it`);
   }
 });
 

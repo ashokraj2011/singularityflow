@@ -78,7 +78,10 @@ const PHASE_ICON: Record<string, string> = {
   awaiting_approval: 'statusWaiting',
   in_progress: 'statusCurrent',
   rejected: 'statusBlocked',
-  stale: 'statusWarning',
+  // Stale has its own glyph in both renderers and was being sent the plain warning one, so a phase
+  // whose upstream artifact changed looked like any other warning. The description already drew the
+  // distinction; the icon now does too.
+  stale: 'statusStale',
   not_started: 'statusIdle'
 };
 
@@ -783,17 +786,17 @@ function fastPathRailNode(fastPath: FastPathProjection | null | undefined, workf
             ? [verb.checkpoint?.kind ?? 'in progress', 'you are here'].join(' · ')
             : 'not started',
         /**
-         * Only icons that actually render, and none where none is right.
+         * Reached gets a check, the verb you are standing in gets the play icon, and one not yet
+         * started gets the empty ring.
          *
-         * Checked in the extension host, because nothing else can check this. Raw Codicons
-         * (`pass`, `circle-outline`) pass through the table untouched and landed as the
-         * unknown-icon glyph, so all five verbs looked identical. `statusSuccess` resolves;
-         * `statusCurrent` and `statusIdle` do not in this VS Code, and they rendered as that same
-         * placeholder — which is worse than nothing, because a meaningless glyph still reads as a
-         * status. Reached gets a check, the active verb gets the play icon, and a verb that has not
-         * started gets no icon at all: absence is honest and quiet.
+         * Raw Codicons (`pass`, `circle-outline`) pass through the table untouched and landed as
+         * the unknown-icon glyph, so all five verbs looked identical — which is why these are
+         * semantic names. `statusIdle` used to fall through too, and the rail shipped with no icon
+         * at all on the unstarted verbs rather than a meaningless one. Now that the state
+         * vocabulary resolves, the ring is better than the absence it stood in for: it holds the
+         * column, so the eye reads down a row of rings to the one verb that is filled.
          */
-        icon: verb.reached ? 'statusSuccess' : here ? 'start' : undefined,
+        icon: verb.reached ? 'statusSuccess' : here ? 'start' : 'statusIdle',
         tooltip: [
           `Milestone: ${verb.milestone}`,
           here ? verb.checkpoint?.reason ?? null : null,

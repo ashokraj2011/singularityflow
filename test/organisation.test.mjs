@@ -578,6 +578,16 @@ test('the builder does not flag its own checkpoint as a worker escape', async ()
   const config = { outputDir: 'singularity/world-model' };
   assert.deepEqual(outsideBuilderScratch(['singularity/world-model/.checkpoints/k/packets/a.md'], config), []);
   assert.deepEqual(outsideBuilderScratch(['singularity/world-model/.checkpoints'], config), []);
+
+  // The reason the match is by segment rather than by prefix, and the reason it is not by substring
+  // either. Some model hosts mirror an absolute path beneath the analysis checkout, so the builder's
+  // own packet arrives with the whole home directory in front of it; a prefix test called that a
+  // repository mutation and hard-failed the parallel build. Neither property had a test, so the
+  // repair could have regressed to either neighbour silently.
+  assert.deepEqual(outsideBuilderScratch(['Users/me/repo/singularity/world-model/.checkpoints/k/packets/a.md'], config), []);
+  const sibling = 'singularity/world-model/.checkpoints-notes.md';
+  assert.deepEqual(outsideBuilderScratch([sibling], config), [sibling], 'a path that merely starts with the checkpoint name is not scratch');
+
   // Anything else a worker touches is still an escape.
   assert.deepEqual(outsideBuilderScratch(['testfile.md'], config), ['testfile.md']);
   assert.deepEqual(outsideBuilderScratch(['src/app.js'], config), ['src/app.js']);

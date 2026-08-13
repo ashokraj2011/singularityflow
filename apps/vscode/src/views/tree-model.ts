@@ -14,7 +14,7 @@
  */
 import {
   packsWithMembers, phasesInOrder, storiesByRepository,
-  type BreakdownStory, type InitiativeOutput, type InitiativeSnapshot,
+  type BreakdownStory, type FastPathProjection, type InitiativeOutput, type InitiativeSnapshot,
   type RepositorySnapshot, type PhaseStatus, type StoryArtifact, type StoryPhase,
   type StoryWorkflow
 } from '../cli/snapshot.ts';
@@ -303,7 +303,7 @@ export function buildLifecycleTree(snapshot: RepositorySnapshot | null, error: E
       return [completedFolder([completed, ...siblings], countArtifacts(completed)),
         ...(cancelledArchive ? [cancelledArchive] : []), workspaceImpact];
     }
-    return [storyWorkflowNode(snapshot.workflow, snapshot.documents ?? [], snapshot.detachedDocuments ?? []),
+    return [storyWorkflowNode(snapshot.workflow, snapshot.documents ?? [], snapshot.detachedDocuments ?? [], snapshot.fastPath ?? null),
       ...(completedArchive ? [completedArchive] : []), ...(cancelledArchive ? [cancelledArchive] : []), workspaceImpact];
   }
 
@@ -730,7 +730,79 @@ function storyPhaseActions(workflow: StoryWorkflow, phase: StoryPhase): TreeNode
   }] : [])];
 }
 
-function storyWorkflowNode(workflow: StoryWorkflow, documents: StoryArtifact[], detachedDocuments: StoryArtifact[]): TreeNode {
+/**
+ * The five verbs as the primary rail. `[SPK:REQ-151]` `[SPK:REQ-150]`
+ *
+ * Rendered from `snapshot.fastPath`, which the engine planned with the same `planFastPath` call the
+ * `sflow specify` family runs. Nothing is recomputed here — a rail that derived its own idea of
+ * which milestone was reached would be a second opinion about the Story, and the two would
+ * eventually disagree in front of a reader who has no way to tell which is right.
+ *
+ * Each verb expands into the phases it routes, so the rail is a lens over the lifecycle rather than
+ * a replacement for it: the phase rail below still shows every phase, generation and artifact.
+ *
+ * Absent for a work type that declares no fast path, in which case this contributes nothing and the
+ * tree is exactly what it was.
+ */
+function fastPathRailNode(fastPath: FastPathProjection | null | undefined, workflow: StoryWorkflow): TreeNode[] {
+  if (!fastPath?.verbs?.length) return [];
+  const reached = fastPath.verbs.filter((verb) => verb.reached).length;
+  return [{
+    kind: 'group', id: 'story:fast-path', label: 'Journey',
+    description: `${reached}/${fastPath.verbs.length} milestones · ${fastPath.active ?? 'complete'}`,
+    icon: 'list-ordered',
+    tooltip: `The five verbs for ${fastPath.profile}. Each expands into the phases it routes.`,
+    children: fastPath.verbs.map((verb) => {
+      const here = fastPath.context === verb.verb;
+      const phases = verb.phases
+        .map((id) => workflow.phases?.[id])
+        .filter((phase): phase is StoryPhase => Boolean(phase));
+      return {
+        kind: 'group' as const,
+        id: `story-verb:${verb.verb}`,
+        label: verb.verb,
+        // A milestone counts only when workflow state proves it, so `reached` is the engine's word
+        // and never "the command succeeded".
+        description: [
+          verb.reached ? 'milestone reached' : verb.checkpoint?.kind ?? 'pending',
+          here ? 'you are here' : ''
+        ].filter(Boolean).join(' · '),
+        icon: verb.reached ? 'pass' : here ? 'play-circle' : 'circle-outline',
+        tooltip: [
+          `Milestone: ${verb.milestone}`,
+          verb.checkpoint?.reason ?? null,
+          verb.operations.length ? `Underlying operations: ${verb.operations.join(', ')}` : null
+        ].filter(Boolean).join('\n'),
+        contextValue: 'sflow.story.verb',
+        children: [
+          ...verb.next.map((action, index) => ({
+            kind: 'message' as const,
+            id: `story-verb:${verb.verb}:next:${index}`,
+            label: action.label,
+            description: action.command,
+            tooltip: action.command,
+            icon: 'play-circle'
+          })),
+          ...phases.map((phase) => ({
+            kind: 'message' as const,
+            id: `story-verb:${verb.verb}:phase:${phase.id}`,
+            label: phase.label,
+            description: [phaseDescription(phase.status), `generation ${phase.generation ?? 0}`]
+              .filter(Boolean).join(' · '),
+            icon: 'list-ordered'
+          }))
+        ]
+      };
+    })
+  }];
+}
+
+function storyWorkflowNode(
+  workflow: StoryWorkflow,
+  documents: StoryArtifact[],
+  detachedDocuments: StoryArtifact[],
+  fastPath: FastPathProjection | null = null
+): TreeNode {
   const phases = workflow.phaseOrder.map((id) => workflow.phases[id])
     .filter((phase): phase is StoryPhase => Boolean(phase));
   const approved = phases.filter((phase) => phase.status === 'approved').length;
@@ -743,7 +815,7 @@ function storyWorkflowNode(workflow: StoryWorkflow, documents: StoryArtifact[], 
     tooltip: `${workflow.workItem.workType ?? 'Story'} workflow\nBranch ${workflow.workItem.branch ?? 'unknown'}`,
     icon: 'story',
     contextValue: 'sflow.story.active',
-    children: [{
+    children: [...fastPathRailNode(fastPath, workflow), {
       kind: 'action', id: 'story:continue-safely', label: 'Continue safely',
       description: 'review exact next action', icon: 'play-circle',
       runCommand: 'singularityFlow.continueSafely', contextValue: 'sflow.action.plan'

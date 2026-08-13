@@ -406,6 +406,28 @@ export interface InitiativeSummary {
   [key: string]: unknown;
 }
 
+/** One verb of the fast path, as the engine planned it. */
+export interface FastPathVerb {
+  verb: string;
+  /** The phases this verb routes, so the rail can expand into them `[SPK:REQ-151]`. */
+  phases: string[];
+  milestone: string;
+  /** True only when workflow state proves the milestone — never because a command succeeded. */
+  reached: boolean;
+  checkpoint: { kind: string; reason?: string } | null;
+  operations: string[];
+  next: Array<{ id: string; label: string; command: string; skill?: string | null; rank: string }>;
+}
+
+export interface FastPathProjection {
+  profile: string;
+  verbs: FastPathVerb[];
+  /** The verb that owns the phase the Story is standing in — the rail's "you are here". */
+  context: string | null;
+  active: string | null;
+  next: string | null;
+}
+
 export interface RepositorySnapshot {
   repository?: {
     root?: string;
@@ -428,6 +450,17 @@ export interface RepositorySnapshot {
    */
   visualAssurance?: VisualAssuranceSnapshot | null;
   report?: StoryWorkflowReport | null;
+  /**
+   * The five verbs, planned by the engine. `[SPK:REQ-150]` `[SPK:REQ-151]`
+   *
+   * Projected, never recomputed. The milestone and checkpoint here are the ones `sflow specify` and
+   * its siblings print, because they come from the same `planFastPath` call — which is the only way
+   * the rail and the CLI can be guaranteed to agree about where a Story stands.
+   *
+   * Null for a work type that declares no fast path. Nothing invents verbs for a profile that does
+   * not have them, and the phase rail stays what it always was.
+   */
+  fastPath?: FastPathProjection | null;
   modelFreedom?: ModelFreedomSnapshot;
   documents?: StoryArtifact[];
   detachedDocuments?: StoryArtifact[];

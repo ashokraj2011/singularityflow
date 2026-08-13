@@ -22,6 +22,10 @@ Every public operation is classified before its implementation module is importe
 | clarification.status | read | never | — | — |
 | cockpit | mutation | never | — | — |
 | configuration | mutation | never | — | — |
+| constitution.check | read | never | — | — |
+| constitution.except | mutation | never | — | — |
+| constitution.generate | mutation | never | — | — |
+| constitution.show | read | never | — | — |
 | converge | read | never | — | — |
 | doctor | read | never | — | — |
 | documents | mutation | never | — | — |

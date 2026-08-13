@@ -2579,6 +2579,9 @@ singularity-flow jira transitions|transition|assign|priority|sprint|comment
 singularity-flow plugin install|uninstall|list|path
 singularity-flow configuration save <PATH>
 singularity-flow configuration publish [--message TEXT] [--json]
+singularity-flow constitution check|show [--work-type ID] [--path FILE] [--json]
+singularity-flow constitution generate [--work-type ID] [--path FILE] [--dry-run]
+singularity-flow constitution except <ARTICLE-ID> --reason TEXT [--scope TEXT] [--expires ISO] [--work-id ID]
 singularity-flow snapshot [WORK-ID] [--include SLICE] [--if-revision HASH] [--timings] --json
 singularity-flow state planes [WORK-ID] [--json]
 singularity-flow state reconcile [WORK-ID] --check|--repair-projections [--json]
@@ -2595,6 +2598,10 @@ singularity-flow story branch create|attach|status|promote
 singularity-flow story interval status|checkpoint|reconcile|escalate
 singularity-flow story start|inbox|fetch|checks|finalize
 singularity-flow story submit
+singularity-flow story converge [--assisted] [--json]
+singularity-flow story adjudicate <ITEM-ID> --disposition rework|accepted-deviation|dismissed|deferred [--reason TEXT]
+singularity-flow story rework [--reason TEXT] [--confirm]
+singularity-flow story advance [--confirm]
 singularity-flow initiative start|resume|phase|context|documents|checklist
 singularity-flow initiative evidence|approve|reject|breakdown|materialize|sync
 singularity-flow initiative jira-adopt|jira-plan|jira-apply

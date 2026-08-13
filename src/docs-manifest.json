@@ -1,9 +1,9 @@
 {
   "schemaVersion": 1,
   "generatedFrom": "docs/topics",
-  "sourceCommit": "f2565a9c1e0c6c2dbe4e35ea8550cbc04f499c42",
-  "topicCount": 31,
-  "contentSha256": "e9c64cabff48800d6e1cbb268f6a76c0e11cd52d5f59ec0f8b3d94b136d3ceee",
+  "sourceCommit": "0033a340b2a3821c3fb19f8b8eadbf8b2bd36b62",
+  "topicCount": 32,
+  "contentSha256": "186a4119d17c866e20a2774ec6b5c85847cfb4d68d238484597db796a1402e33",
   "topics": [
     {
       "id": "approvals",
@@ -32,6 +32,13 @@
       "version": 1,
       "sha256": "9ec3e1270782a03a16272a021966ac62e553977fc6cd8e60f2436445e2fdc77e",
       "file": "configuration.md"
+    },
+    {
+      "id": "constitution",
+      "title": "The constitution",
+      "version": 1,
+      "sha256": "9ce7a951a8285feaef43a3720bd2d5799aedbc8943baf3604fe0ad5dc9d1b40e",
+      "file": "constitution.md"
     },
     {
       "id": "epics-and-planning",

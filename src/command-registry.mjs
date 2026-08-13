@@ -2,7 +2,7 @@ import { didYouMean, optionBoolean, SingularityFlowError } from './util.mjs';
 
 const READ_ONLY = new Set(['specify', 'plan', 'implement', 'verify', 'converge', 'about', 'help', 'show', 'choices', 'inbox', 'status', 'progress', 'guide', 'logs', 'doctor', 'nextsteps', 'snapshot', 'validate', 'explain']);
 const STRUCTURED = new Set(['specify', 'plan', 'implement', 'verify', 'converge', 'start', 'status', 'progress', 'report', 'impact', 'telemetry', 'doctor', 'inputs', 'reinstall', 'snapshot', 'validate', 'gate', 'clarification', 'explain']);
-const MODEL_FREE_MIXED_COMMANDS = new Set(['report', 'telemetry', 'review', 'inputs', 'spec', 'visual', 'clarification', 'story']);
+const MODEL_FREE_MIXED_COMMANDS = new Set(['report', 'telemetry', 'review', 'inputs', 'spec', 'visual', 'clarification', 'story', 'constitution']);
 
 const LAZY_MODULES = Object.freeze({
   // The five verbs share one dispatcher; each is a registered command in its own right so the
@@ -60,7 +60,7 @@ export const COMMAND_REGISTRY = Object.freeze([
   ['agents'], ['mcp'], ['visual'], ['documents'], ['prepare'], ['phase'], ['artifact'], ['pr'], ['stack'], ['regression'], ['submit'],
   ['clarification'],
   ['approve'], ['reject'], ['reopen'], ['cancel'], ['sync'], ['ledger'], ['capabilities'], ['state'],
-  ['validate'], ['gate'], ['wm'], ['jira'], ['plugin'], ['snapshot'], ['configuration'], ['initiative'], ['epic'],
+  ['validate'], ['gate'], ['wm'], ['jira'], ['plugin'], ['snapshot'], ['configuration'], ['constitution'], ['initiative'], ['epic'],
   ['story'], ['workspace'], ['knowledge'], ['capability'], ['hook'], ['bootstrap'],
   // The first-run walkthrough already existed as `guide --first-run` and was the best teaching asset
   // in the product, buried behind a flag on a verb that also means something else. This is the front
@@ -204,6 +204,18 @@ function resolveStoryOperation(definition, positionals, options) {
   return unclassified(`story.${subcommand}`);
 }
 
+/**
+ * The constitution is configuration, not a phase `[SPK:CON-040]`, and none of its operations calls
+ * a model: `generate` renders from the approved policy with a versioned renderer `[SPK:REQ-093]`,
+ * which is precisely what makes generation byte-identical `[SPK:REQ-098]`.
+ */
+function resolveConstitutionOperation(definition, positionals) {
+  const subcommand = positionals[1] ?? 'check';
+  if (['check', 'show'].includes(subcommand)) return never(`constitution.${subcommand}`, definition, 'read');
+  if (['generate', 'except'].includes(subcommand)) return never(`constitution.${subcommand}`, definition, 'mutation');
+  return unclassified(`constitution.${subcommand}`);
+}
+
 function resolveClarificationOperation(definition, positionals) {
   const subcommand = positionals[1] ?? 'status';
   if (subcommand === 'status') return never('clarification.status', definition, 'read');
@@ -276,6 +288,7 @@ export function resolveOperation({ requestedCommand, positionals, options = {} }
   if (definition.name === 'visual') return resolveVisualOperation(definition, positionals);
   if (definition.name === 'clarification') return resolveClarificationOperation(definition, positionals);
   if (definition.name === 'story') return resolveStoryOperation(definition, positionals, options);
+  if (definition.name === 'constitution') return resolveConstitutionOperation(definition, positionals);
   return unclassified(definition.name);
 }
 
@@ -300,6 +313,7 @@ export function operationCatalog() {
   const inputsDefinition = commandDefinition('inputs');
   const specDefinition = commandDefinition('spec');
   const storyDefinition = commandDefinition('story');
+  const constitutionDefinition = commandDefinition('constitution');
   const visualDefinition = commandDefinition('visual');
   const clarificationDefinition = commandDefinition('clarification');
   const modelFreeMixed = [
@@ -333,7 +347,9 @@ export function operationCatalog() {
     ...['status', 'checkpoint', 'reconcile', 'escalate']
       .map((name) => never(`story.interval.${name}`, storyDefinition, name === 'status' ? 'read' : 'mutation')),
     ...['status', 'create', 'attach', 'promote']
-      .map((name) => never(`story.branch.${name}`, storyDefinition, name === 'status' ? 'read' : 'mutation'))
+      .map((name) => never(`story.branch.${name}`, storyDefinition, name === 'status' ? 'read' : 'mutation')),
+    ...['check', 'show'].map((name) => never(`constitution.${name}`, constitutionDefinition, 'read')),
+    ...['generate', 'except'].map((name) => never(`constitution.${name}`, constitutionDefinition, 'mutation'))
   ];
   return Object.freeze([
     operation('help.root', 'never', { classification: 'read' }),

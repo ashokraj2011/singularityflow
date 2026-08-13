@@ -1,0 +1,12 @@
+---
+id: constitution
+title: The constitution
+aliases: [articles, enforced-article, judged-article, exception, ART]
+commands: [constitution]
+related: [specification-quality, configuration, approvals, evidence-and-ledger]
+---
+A constitution is the standing rules a Story is held to before anyone writes a requirement. It lives at `singularity/constitution.md` on the approved configuration branch, and it has two kinds of article. An **enforced** article restates a machine policy the kernel already applies: its prose is generated from the effective policy value, so it cannot say something the kernel does not do. A **judged** article is authored prose about something no policy can check — "every change carries a rollback" — carrying `level: must|should` and `evidenceRequired: true|false`. Nothing evaluates a judged article; a human records its verdict at conformance, and the article's job is to make sure they are asked.
+
+Run `sflow constitution generate` to rewrite the enforced articles from the approved policy. Judged articles and any prose you wrote around an enforced one come back byte-for-byte, and generating twice from the same configuration produces identical bytes. Editing an enforced article by hand fails `sflow constitution check`, because the recorded hash covers the prose *and* the policy value it was derived from — which also catches the subtler case where the policy moved and the article stayed still. A judged article's prose is immutable once approved: to change the rule, withdraw the article and allocate a new ID, so "we changed our mind" stays readable.
+
+A Story pins the constitution at start — path, file hash, index hash, configuration commit and policy-resolution hash — and keeps that pin while the configuration branch advances. The rules you are judged against are the ones that were in force when you began. Artifacts cite article IDs in a `## Constitution articles` section; the kernel validates every cited ID against the pin before publication and renders the cited articles, plus any that require evidence, in the review packet. When a rule is deliberately not followed, `sflow constitution except <ARTICLE-ID> --reason TEXT` records the article, reason, scope, actor, authority, time, optional expiry and exact Story binding — and it appears in the review packet and final conformance. The shipped examples under `examples/constitution/` are marked `example: true` and are refused as real policy until you remove that line.

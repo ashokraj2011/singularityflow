@@ -5,6 +5,7 @@ import { branch } from './git.mjs';
 import { currentPhase, workDir } from './state-stores.mjs';
 import { documentCatalog } from './documents.mjs';
 import { assistedRecordRelative } from './assisted-quality.mjs';
+import { citedArticleIds, requiredArticles } from './constitution.mjs';
 import { markerSummary, priorChecklistExceptions, resolvedSpecificationQualityPolicy } from './specification-gate.mjs';
 import { STARTER_CHECKLIST, analyzeSpecification, policyHash } from './specification-quality.mjs';
 import { exists, posix, run, snapshot } from './util.mjs';
@@ -30,6 +31,23 @@ async function assistedCandidatesFor(root, config, workflow, phase, artifact) {
   return record.candidates ?? [];
 }
 function activeApprovals(phase) { return phase.approvals.filter((item) => !item.invalidatedAt); }
+
+/** The pinned articles in scope for this phase, plus the exceptions recorded against them. */
+function constitutionSection(workflow, phase, artifact) {
+  const pin = workflow.resolution?.constitutionPin ?? null;
+  if (!pin) return null;
+  const cited = citedArticleIds(artifact?.content ?? '');
+  const scope = new Set(requiredArticles(pin, cited));
+  return {
+    path: pin.path,
+    fileSha256: pin.fileSha256,
+    indexSha256: pin.indexSha256,
+    cited,
+    articles: pin.articles.filter((article) => scope.has(article.id)),
+    exceptions: (workflow.constitutionExceptions ?? []).filter((entry) => !entry.phase || entry.phase === phase.id)
+  };
+}
+
 
 export async function createReviewBundle(root, config, workflow, requestedPhase = null) {
   // The account belongs here, in the rendering, and deliberately NOT in the review packet.
@@ -100,6 +118,15 @@ export async function createReviewBundle(root, config, workflow, requestedPhase 
   return {
     schemaVersion: 1, generatedAt: new Date().toISOString(), workItem: workflow.workItem, branch: branch(root), workflowStatus: workflow.status,
     specificationQuality, markers, priorExceptions,
+    /**
+     * The constitution articles this phase is bound by `[SPK:REQ-101]`, and every exception to them
+     * `[SPK:REQ-104]`.
+     *
+     * Rendered from the Story's pin rather than from the file, so a reviewer sees the articles the
+     * author actually wrote against. Cited *and* evidence-required, because an evidence-required
+     * article nobody cited is exactly the one most likely to be missed.
+     */
+    constitution: constitutionSection(workflow, phase, artifact),
     // The durable half of `[SPK:REQ-111]`. Publication warns about incidental change on the terminal
     // of whoever published; the person who has to weigh it is the reviewer, reading this later.
     artifactSet: phase.artifactSet ?? null,
@@ -109,6 +136,40 @@ export async function createReviewBundle(root, config, workflow, requestedPhase 
     },
     artifact, inputs, documents, approvals, narrative, selfApprovalWarning: approvals.some((item) => item.selfApproval), checks: phase.checks ?? [], usage: phase.usage ?? [], changeSummary: diff.status === 0 ? diff.stdout.trim() : 'Unavailable'
   };
+}
+
+/**
+ * The constitution articles in scope, and every exception to them. `[SPK:REQ-101]` `[SPK:REQ-104]`
+ *
+ * A judged article is here so a human is asked for its verdict `[SPK:CON-044]` — the kernel cannot
+ * form one. An exception is here because an exception is the record of a rule deliberately not
+ * followed, and the only thing separating that from a rule quietly ignored is that a reviewer saw it.
+ */
+function constitutionRendering(bundle) {
+  const constitution = bundle.constitution;
+  if (!constitution) return [];
+  const lines = [
+    '## Constitution', '',
+    `Pinned: \`${constitution.path}\` (\`${constitution.fileSha256.slice(0, 12)}\`), index \`${constitution.indexSha256.slice(0, 12)}\``,
+    `Cited by this artifact: ${constitution.cited.length ? constitution.cited.join(', ') : 'none'}`,
+    ''
+  ];
+  if (!constitution.articles.length) lines.push('_No article is cited and none requires evidence._', '');
+  for (const article of constitution.articles) {
+    const shape = article.type === 'judged'
+      ? `judged/${article.level}${article.evidenceRequired ? ', evidence required' : ''}`
+      : 'enforced';
+    const asked = article.type === 'judged'
+      ? ' — a human records this verdict; the kernel cannot.'
+      : ' — enforced by policy; nothing to judge.';
+    lines.push(`- **${article.id}** (${shape})${constitution.cited.includes(article.id) ? '' : ' _(not cited; carried because it requires evidence)_'}${asked}`);
+  }
+  lines.push('', '### Exceptions', '');
+  lines.push(...(constitution.exceptions.length
+    ? constitution.exceptions.map((entry) =>
+      `- **${entry.articleId}** — ${entry.reason} _(scope ${entry.scope}; ${entry.actor?.login ?? entry.actor?.email ?? entry.actor ?? 'unknown'} under ${entry.authority} at ${entry.at}${entry.expiresAt ? `, expires ${entry.expiresAt}` : ''})_`)
+    : ['_None recorded._']));
+  return [...lines, ''];
 }
 
 /**
@@ -200,7 +261,7 @@ export function reviewMarkdown(bundle) {
   if (bundle.artifact) lines.push('### Artifact content', '', bundle.artifact.content, '');
   lines.push('## Approved input provenance', '', ...(bundle.inputs.length ? bundle.inputs.map((item) => `- ${item.phase}: ${item.status}${item.sha256 ? ` @ \`${item.sha256.slice(0, 12)}\`` : ''}${item.optional ? ' (optional)' : ''}`) : ['_No phase inputs._']), '');
   lines.push('## Checks and approvals', '', ...(bundle.checks.length ? bundle.checks.map((item) => `- ${item.status ?? 'recorded'} — ${item.command ?? item.name ?? JSON.stringify(item)}`) : ['- No quality-command results recorded.']), ...(bundle.approvals.length ? bundle.approvals.map((item) => `- ${item.decision} by ${item.actor} via ${item.authorityGroup ?? 'unrecorded authority'} (${item.identityAssurance ?? 'unknown assurance'}); governed agent ${item.agent ?? 'unavailable'}${item.selfApproval ? ' ⚠ self-approval' : ''}`) : ['- No decisions recorded.']), '');
-  lines.push(...artifactSetSection(bundle), ...specificationQualitySection(bundle));
+  lines.push(...constitutionRendering(bundle), ...artifactSetSection(bundle), ...specificationQualitySection(bundle));
   if (bundle.narrative) lines.push('## How this Story got here', '', '```text', bundle.narrative, '```', '');
   lines.push('## Source change summary', '', '```text', bundle.changeSummary || 'No source changes.', '```', '', '## Supporting evidence', '', ...(bundle.documents.length ? bundle.documents.map((item) => `- ${item.id} — ${item.label} (${item.path ?? item.url})`) : ['_No supporting evidence._']), '');
   return `${lines.join('\n')}\n`;

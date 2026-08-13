@@ -91,6 +91,20 @@ export const MESSAGES = Object.freeze({
     headline: (s) => `Selected ${slot(s.agent)} for ${slot(s.workId)}.`,
     preserves: false
   },
+  'constitution.reported': {
+    headline: (s) => `Checked the constitution at ${slot(s.path)}: ${slot(s.articles)} article(s), ${slot(s.findings)} integrity finding(s).`,
+    preserves: true
+  },
+  'constitution.shown': {
+    headline: (s) => `Listed ${slot(s.articles)} constitution article(s) from ${slot(s.path)}.`,
+    preserves: true
+  },
+  'constitution.generated': {
+    headline: (s) => `Regenerated ${slot(s.regenerated)} enforced constitution article(s); judged articles were preserved.`
+  },
+  'constitution.excepted': {
+    headline: (s) => `Recorded an exception to ${slot(s.article)} for ${slot(s.scope)}.`
+  },
   'clarification.reported': {
     headline: (s) => `Checked clarification readiness for ${slot(s.phase)} generation ${slot(s.generation)}.`,
     preserves: true

@@ -380,6 +380,87 @@ export async function recordFinalReconciliation(root, workflow, report, { itemRe
   return governed;
 }
 
+/**
+ * Carry an open interval across a specification amendment. `[AMD:REQ-040]` `[AMD:CON-002]`
+ *
+ * `ensureWorkIntervalBaseline` keys the current interval on `phaseId + generation`. That is right
+ * for a reopen — a phase rejected and restarted genuinely begins from where the tree is now — and
+ * wrong for an amendment. An amendment mints a new generation too, so without this the check fails,
+ * a fresh interval is created, and `sourceBaseCommit` moves to current HEAD: the developer's
+ * diff-since-baseline silently disappears at the exact moment they most need to see it.
+ *
+ * So the baseline is amended rather than reset. The interval keeps its id and its
+ * `sourceBaseCommit`; the generation advances; and the amendment joins the pinned facts as a
+ * recorded event. `baselineSha256` does change, because the pinned facts genuinely changed — what
+ * must not change is the commit the developer's work is measured from.
+ *
+ * Explicit by design: only an amendment calls this. A generation bump from any other cause still
+ * takes the reopen path, and nothing about rejection or rework behaves differently.
+ */
+export async function amendWorkIntervalBaseline(root, workflow, {
+  phaseId = workflow.currentPhase,
+  toGeneration,
+  clauses = [],
+  author = null,
+  reason = null,
+  at = nowIso()
+} = {}) {
+  const current = workflow.workIntervals?.current;
+  if (!current || current.phaseId !== phaseId || current.status !== 'open') return null;
+  if (!Number.isInteger(toGeneration)) {
+    throw new SingularityFlowError('An amended interval needs the generation it is moving to.', { code: 'WORK_INTERVAL_AMENDMENT_INVALID' });
+  }
+  const fromGeneration = Number(current.generation);
+  if (toGeneration <= fromGeneration) {
+    throw new SingularityFlowError(
+      `An amendment moves an interval forward; generation ${toGeneration} is not after ${fromGeneration}.`,
+      { code: 'WORK_INTERVAL_AMENDMENT_INVALID' }
+    );
+  }
+
+  const file = path.join(root, current.path);
+  const record = await readJson(file);
+  const event = {
+    at,
+    fromGeneration,
+    toGeneration,
+    clauses: [...clauses].map(String).sort(),
+    author: author ?? null,
+    reason: reason ?? null
+  };
+  const amendments = [...(record.amendments ?? []), event];
+  // Everything except the generation and the amendment log is carried across untouched — above all
+  // `sourceBaseCommit`, which is the whole point.
+  const { baselineSha256: _priorHash, createdAt, path: relative, status, amendments: _prior, ...core } = record;
+  const amended = { ...core, generation: toGeneration, amendments };
+  const next = {
+    ...amended,
+    baselineSha256: hash(amended),
+    createdAt,
+    path: relative,
+    status
+  };
+  await writeJson(file, next);
+
+  workflow.workIntervals.current = {
+    ...current,
+    generation: toGeneration,
+    baselineSha256: next.baselineSha256,
+    amendments
+  };
+  workflow.history.push({
+    at,
+    actor: author ?? 'system',
+    agent: null,
+    event: 'work_interval_amended',
+    phase: phaseId,
+    detail: `interval ${current.intervalId} amended g${fromGeneration} → g${toGeneration}`
+      + (event.clauses.length ? ` for ${event.clauses.join(', ')}` : '')
+      + `; baseline held at ${String(current.sourceBaseCommit).slice(0, 12)}`
+  });
+  return workflow.workIntervals.current;
+}
+
 export function closeWorkInterval(workflow, {
   phaseId,
   at = nowIso(),

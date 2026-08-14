@@ -266,3 +266,25 @@ test('the recap tells the story once, instead of leaving it to be reconstructed'
 
   assert.equal(amendmentRecap({}), 'The specification has not changed since this interval began.');
 });
+
+test('the P3 computations are reachable from a command, not just exported', async () => {
+  /**
+   * Every piece of this specification was built as a pure function first, and twice in this session
+   * a pure function sat with no caller while the work looked finished. `verdict-against-superseded-
+   * clause` in particular can only ever fire if someone passes `amendedClauses`, so a check that
+   * nothing feeds is a check that never runs.
+   *
+   * Asserted against the call sites rather than behaviour: the behaviour is covered above, and what
+   * is at risk here is the wiring being removed by a refactor that keeps every test green.
+   */
+  const cli = (await (await import('node:fs/promises')).readFile(new URL('../src/cli.mjs', import.meta.url), 'utf8'))
+    .replace(/\/\*[\s\S]*?\*\//g, '').replace(/(^|[^:])\/\/.*$/gm, '$1');
+
+  // Convergence is told which clauses the interval's amendments touched.
+  assert.match(cli, /amendedClauses: \[\.\.\.new Set\(\(workflow\.workIntervals\?\.current\?\.amendments/,
+    'story converge no longer passes the amended clause set');
+
+  // The recap and the churn floor reach the reader.
+  assert.match(cli, /amendmentRecap\(\{ amendments: current\.amendments/, 'interval status no longer prints the recap');
+  assert.match(cli, /amendmentChurn\(current\.amendments/, 'interval status no longer computes churn');
+});

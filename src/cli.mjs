@@ -253,6 +253,7 @@ import {
   InitiativeStateStore, StoryStateStore, loadInitiativeAggregate, loadStoryAggregate
 } from './state-stores.mjs';
 import { continuationPacket, submissionBlockedByAmendment } from './continuation-packet.mjs';
+import { amendmentChurn, amendmentRecap } from './amendment.mjs';
 import { loadSpecRecords } from './specifications.mjs';
 import { SnapshotCoordinator } from './snapshot-coordinator.mjs';
 import { TimingCollector, writeHumanTimings } from './dx-timings.mjs';
@@ -7626,6 +7627,11 @@ async function storyCommand(positionals, options) {
           console.log(`  ${clause.clauseId} — ${clause.claimed ? `you claimed this${under} (${clause.artifacts.join(', ') || 'no paths'})` : 'not claimed by you'}`);
         }
       }
+      // The recap tells the story once, so a reader is not reconstructing it from the sections
+      // above `[AMD:REQ-052]`, and the churn floor says when a requirement has stopped settling
+      // `[AMD:REQ-051]`.
+      const churn = amendmentChurn(current.amendments ?? []);
+      if (!packet.amended.quiet) console.log(amendmentRecap({ amendments: current.amendments ?? [], churn }));
       const blocked = submissionBlockedByAmendment(packet);
       if (blocked) console.warn(blocked);
       return;
@@ -7856,7 +7862,15 @@ async function storyConvergeCommand(positionals, options) {
     indexes: subject.records.indexes,
     planned: subject.records.planned,
     observed: subject.records.observed,
-    acceptance: subject.acceptance
+    acceptance: subject.acceptance,
+    /**
+     * Clauses amended during this interval `[AMD:REQ-050]`. Convergence cannot know which clauses
+     * moved — it holds claims, not two generations of specification text — so the interval's own
+     * amendment log is the source. Without this the check exists and never fires, which is the
+     * shape of defect this repository keeps finding.
+     */
+    amendedClauses: [...new Set((workflow.workIntervals?.current?.amendments ?? [])
+      .flatMap((entry) => entry.clauses ?? []))]
   });
   const bindings = convergenceBindings({
     iteration: subject.iteration,

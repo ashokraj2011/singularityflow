@@ -1,0 +1,34 @@
+<svg xmlns="http://www.w3.org/2000/svg"
+     width="512"
+     height="512"
+     viewBox="0 0 512 512"
+     fill="none"
+     role="img"
+     aria-labelledby="title desc">
+  <title id="title">Singularity Flow</title>
+  <desc id="desc">The Singularity Flow brand mark: a flowing integral curve with connected singularity and output nodes.</desc>
+
+  <defs>
+    <linearGradient id="flow" x1="118" y1="416" x2="410" y2="82" gradientUnits="userSpaceOnUse">
+      <stop offset="0" stop-color="#3F8F57"/>
+      <stop offset="0.52" stop-color="#58A65C"/>
+      <stop offset="1" stop-color="#82C66A"/>
+    </linearGradient>
+  </defs>
+
+  <!-- Transparent, scalable brand mark. -->
+  <path stroke="url(#flow)"
+        stroke-width="42"
+        stroke-linecap="round"
+        stroke-linejoin="round"
+        d="M300 89
+           C243 79 224 114 218 178
+           L207 315
+           C201 391 177 429 128 429
+           C111 429 98 422 89 409"/>
+  <g stroke="url(#flow)" stroke-width="16">
+    <circle cx="350" cy="91" r="23"/>
+    <circle cx="406" cy="91" r="23"/>
+    <circle cx="253" cy="422" r="31"/>
+  </g>
+</svg>

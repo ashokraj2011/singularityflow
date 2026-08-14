@@ -1,7 +1,8 @@
 /** Workspace-local governed-prompt audit viewer and controls. */
 import * as vscode from 'vscode';
 import type { SingularityFlowClient } from '../cli/client.ts';
-import { contentSecurityPolicy, escape, icon, navigationTarget, nonce, page } from './webview.ts';
+import {
+  brandLockup, contentSecurityPolicy, escape, icon, navigationTarget, nonce, page } from './webview.ts';
 import { navigateTo } from './navigate.ts';
 
 interface PromptRecord {
@@ -41,7 +42,7 @@ function body(snapshot: PromptAuditSnapshot | null, selected: string | null, err
     <section><p>${error ? escape(error) : 'Reading workspace prompt records…'}</p><button class="secondary" data-action="refresh">Retry</button></section>`;
   const active = snapshot.records.find((record) => record.id === selected) ?? snapshot.records[0] ?? null;
   return `<header class="inbox-header">
-    <div class="brand-lockup">SINGULARITY <span>FLOW</span></div>
+    ${brandLockup()}
     <p class="eyebrow">Workspace-local governance</p>
     <h1>${icon('prompt', { size: 24 })}Prompt audit</h1>
     <p class="meta">Capture the governed prompt assembled for each Copilot agent handoff. Copilot system prompts and chat history are never captured.</p>

@@ -1,5 +1,6 @@
 /** HTML for the visual instruction library. All state changes return to the extension host. */
-import { escape, icon } from './webview.ts';
+import {
+  brandLockup, escape, icon } from './webview.ts';
 import type {
   AgentDraft, InstructionCatalog, InstructionEntry, InstructionTab, PromptDraft, SkillDraft
 } from './instruction-designer-model.ts';
@@ -190,7 +191,7 @@ export function instructionDesignerHtml(catalog: InstructionCatalog, view: Instr
       return draft.phases.includes(phase.id);
     }).map((agent) => agent.name); return result;
   }, {})).filter(([, agents]) => agents.length);
-  return `<header><div class="brand-lockup">SINGULARITY <span>Flow</span></div><h1>${icon('agent', { size: 24 })}Agents, prompts &amp; skills</h1><p class="meta">Design what Copilot receives, see where it runs, and keep every instruction as governed Markdown.</p></header>
+  return `<header>${brandLockup()}<h1>${icon('agent', { size: 24 })}Agents, prompts &amp; skills</h1><p class="meta">Design what Copilot receives, see where it runs, and keep every instruction as governed Markdown.</p></header>
     ${tabs(view.tab, catalog)}
     <section class="relationship-strip"><strong>Phase routing</strong>${links.length ? links.map(([phase, agents]) => `<span><b>${escape(phase)}</b> → ${escape(agents.join(', '))}</span>`).join('') : '<span class="muted">No repository agents are routed to phases yet.</span>'}</section>
     ${view.tab === 'delivery' ? `<main class="instruction-studio single"><div>${editor}</div></main>` : `<main class="instruction-studio">${inventory(view.tab, entries, view.selected)}<div>${editor}</div></main>`}`;

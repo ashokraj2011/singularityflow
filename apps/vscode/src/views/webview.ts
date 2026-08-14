@@ -91,8 +91,11 @@ export const STYLE = `
     display: flex; align-items: center; gap: .45rem; margin: 1rem 0 .35rem;
     color: var(--sf-accent); font-size: .7rem; font-weight: 700; letter-spacing: .16em;
   }
-  .brand-lockup::before { content: ""; width: .55rem; height: .55rem; border-radius: 2px; background: var(--sf-accent); }
-  .brand-lockup span { font-size: 1rem; letter-spacing: .08em; }
+  /* The square placeholder is gone: the lockup now carries the real mark. */
+  .brand-mark { flex: none; }
+  .brand-words { display: inline-flex; align-items: baseline; gap: .3rem; }
+  .brand-lockup span span { font-size: 1rem; letter-spacing: .04em; text-transform: none; }
+  @media (forced-colors: active) { .brand-mark { stroke: CanvasText; } }
   .inbox-header { border-bottom: 2px solid var(--sf-accent); padding-bottom: .85rem; }
   .summary-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(9rem, 1fr)); gap: .7rem; margin: 1.1rem 0 1.5rem; }
   .summary-card { display: grid; gap: .15rem; padding: .85rem 1rem; border: var(--sf-border); border-radius: var(--sf-radius); background: var(--sf-surface); box-shadow: var(--sf-shadow); }
@@ -788,4 +791,29 @@ ${body}
 ${footer}
 ${scripts}
 </body></html>`;
+}
+
+/**
+ * The product lockup: the mark, then the wordmark.
+ *
+ * One helper because there were fourteen inline copies and four different casings of the same two
+ * words — `SINGULARITY FLOW`, `SINGULARITY Flow`, `Singularity Flow`, and a bare `Flow`. The brand
+ * lockup settles it: small-caps SINGULARITY above a full-weight Flow.
+ *
+ * The mark is drawn in `currentColor` rather than the brand gradient. `media/lockup.svg` carries the
+ * gradient on its own dark card, which is right for a README and wrong inside an editor that may be
+ * in a light or high-contrast theme — a dark plate would sit in the header like a sticker. The
+ * geometry is the same curve; only the paint defers to the theme.
+ */
+export function brandLockup({ compact = false } = {}): string {
+  return `<div class="brand-lockup">${brandMark(compact ? 16 : 20)}<span class="brand-words">SINGULARITY <span>Flow</span></span></div>`;
+}
+
+/** The mark alone, at whatever size the surface needs. */
+export function brandMark(size = 20): string {
+  return `<svg class="brand-mark" width="${size}" height="${size}" viewBox="0 0 24 24" fill="none" aria-hidden="true"
+    stroke="currentColor" stroke-linecap="round" stroke-linejoin="round">
+    <path stroke-width="2.1" d="M14.85 4.18C12.18 3.72 11.28 5.34 11.02 8.36L10.48 14.78C10.18 18.32 9.10 20.10 6.82 20.10C6.04 20.10 5.42 19.78 5.02 19.18"/>
+    <g stroke-width="0.85"><circle cx="17.18" cy="4.28" r="1.08"/><circle cx="19.78" cy="4.28" r="1.08"/><circle cx="12.62" cy="19.78" r="1.42"/></g>
+  </svg>`;
 }

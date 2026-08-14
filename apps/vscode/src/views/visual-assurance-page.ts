@@ -1,5 +1,6 @@
 /** Enterprise, read-first rendering for governed design evidence and visual comparison. */
-import { escape, icon } from './webview.ts';
+import {
+  brandLockup, escape, icon } from './webview.ts';
 import type { IconName } from './webview.ts';
 import type { VisualEvidenceRecord } from '../cli/snapshot.ts';
 import type { VisualAssuranceView } from './visual-assurance-model.ts';
@@ -127,8 +128,8 @@ function mcpSection(view: VisualAssuranceView): string {
 }
 
 export function visualAssuranceHtml(view: VisualAssuranceView, notice: string | null, operationError: string | null, media: VisualMediaResolver = () => null): string {
-  if (!view.available) return `<header class="inbox-header"><div class="brand-lockup">SINGULARITY <span>FLOW</span></div><p class="eyebrow">Governed review</p><h1>${icon('visual', { size: 24 })}Visual Assurance</h1></header><div class="empty"><p>Start or resume a Story to inspect its pinned design and visual evidence.</p></div>`;
-  return `<header class="inbox-header assurance-header"><div><div class="brand-lockup">SINGULARITY <span>FLOW</span></div><p class="eyebrow">Governed design review</p><h1>${icon('visual', { size: 24 })}Visual Assurance · ${escape(view.workId)}</h1><p class="meta">Pinned design evidence, implementation captures, deterministic comparisons, and MCP provenance in one review surface.</p></div>
+  if (!view.available) return `<header class="inbox-header">${brandLockup()}<p class="eyebrow">Governed review</p><h1>${icon('visual', { size: 24 })}Visual Assurance</h1></header><div class="empty"><p>Start or resume a Story to inspect its pinned design and visual evidence.</p></div>`;
+  return `<header class="inbox-header assurance-header"><div>${brandLockup()}<p class="eyebrow">Governed design review</p><h1>${icon('visual', { size: 24 })}Visual Assurance · ${escape(view.workId)}</h1><p class="meta">Pinned design evidence, implementation captures, deterministic comparisons, and MCP provenance in one review surface.</p></div>
     <div class="header-actions"><span class="pill ${statusClass(view.status)}">${escape(view.statusLabel)}</span><button class="secondary" data-action="refresh">${icon('refresh')}Refresh</button></div></header>
     ${notice ? `<div class="notice ok">${icon('ok')}${escape(notice)}</div>` : ''}${operationError ? `<div class="notice error">${icon('blocked')}${escape(operationError)}</div>` : ''}${notices(view)}
     <section class="plain"><div class="summary-grid assurance-summary">

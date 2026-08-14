@@ -1,6 +1,7 @@
 /** Pending capability proposals across every registered organisation lead repository. */
 import * as vscode from 'vscode';
-import { contentSecurityPolicy, escape, icon, navigationTarget, nonce, page } from './webview.ts';
+import {
+  brandLockup, contentSecurityPolicy, escape, icon, navigationTarget, nonce, page } from './webview.ts';
 import { navigateTo } from './navigate.ts';
 
 interface LeadRepository { url: string }
@@ -42,7 +43,7 @@ function proposalsHtml(entries: ProposalEntry[], leads: number, failures: LeadFa
       <small>${escape(entry.proposalCommit.slice(0, 12))} · ${entry.changedFiles.length} changed file${entry.changedFiles.length === 1 ? '' : 's'} · ${entry.valid ? 'ready for exact review' : 'blocked by validation'}</small>
     </button>`).join('')}</div>
   </section>`).join('');
-  return `<div class="brand-lockup">SINGULARITY <span>FLOW</span></div>
+  return `${brandLockup()}
     <header class="inbox-header">
       <p class="eyebrow">Governed configuration review</p>
       <div class="section-heading"><h1>${icon('merge', { size: 24 })} Capability proposals</h1>

@@ -4,7 +4,7 @@ import type { WorkspaceStore } from '../state.ts';
 import {
   evidenceCatalog, evidenceTargets, type EvidenceCatalogItem, type EvidenceTarget
 } from '../evidence.ts';
-import {
+import { brandLockup,
   contentSecurityPolicy, escape, icon, navigationTarget, nonce, page, type IconName
 } from './webview.ts';
 import { navigateTo } from './navigate.ts';
@@ -62,7 +62,7 @@ export function evidenceManagerHtml(
     </article>`).join('');
 
   const body = `
-    <div class="brand-lockup">Singularity <span>Flow</span></div>
+    ${brandLockup()}
     <header class="inbox-header">
       <p class="eyebrow">Governed lifecycle evidence</p>
       <h1>${icon('visual', { size: 24 })}Evidence & designs</h1>

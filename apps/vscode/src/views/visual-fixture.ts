@@ -1,6 +1,6 @@
 /** Deterministic visual-review pages for the extension's shared enterprise component language. */
 import { icon } from './icons.ts';
-import { page } from './webview.ts';
+import { brandLockup, page } from './webview.ts';
 
 export type VisualTheme = 'light' | 'dark' | 'high-contrast';
 export type VisualWidth = 640 | 1200;
@@ -29,7 +29,7 @@ const PALETTES: Record<VisualTheme, string> = {
 };
 
 function fixtureBody(theme: VisualTheme): string {
-  return `<div class="brand-lockup">SINGULARITY <span>FLOW</span></div>
+  return `${brandLockup()}
   <header><p class="eyebrow">Enterprise component review</p><h1>${icon('workflow', { size: 24 })}Lifecycle workspace</h1>
     <p class="meta">${theme} theme · dashboard, intake, approval, configuration, and instruction patterns</p></header>
   <div class="summary-grid">

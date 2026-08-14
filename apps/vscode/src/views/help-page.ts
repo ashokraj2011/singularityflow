@@ -1,5 +1,6 @@
 /** Searchable, offline rendering of the canonical Singularity Flow manual. */
-import { escape, icon } from './webview.ts';
+import {
+  brandLockup, escape, icon } from './webview.ts';
 
 export interface HelpTopic {
   id: string;
@@ -121,7 +122,7 @@ export function helpCenterHtml(document: HelpDocument, requested: string | null 
     ?? document.topics[0] ?? null;
   const shortcuts = START_TOPICS.map((id) => document.topics.find((topic) => topic.id === id)).filter((topic): topic is HelpTopic => Boolean(topic));
   return `<header class="help-header">
-    <div class="brand-lockup">SINGULARITY <span>FLOW</span></div>
+    ${brandLockup()}
     <p class="eyebrow">Product guide and command reference</p>
     <h1>${icon('book', { size: 24 })}Help Center</h1>
     <p class="meta">Search the complete offline manual. Concepts and commands come from the same <code>HELP.md</code> packaged with the CLI.</p>

@@ -1,6 +1,7 @@
 /** Review and activate a capability proposal without leaving VS Code. */
 import * as vscode from 'vscode';
-import { contentSecurityPolicy, escape, icon, navigationTarget, nonce, page } from './webview.ts';
+import {
+  brandLockup, contentSecurityPolicy, escape, icon, navigationTarget, nonce, page } from './webview.ts';
 import { navigateTo } from './navigate.ts';
 
 export interface CapabilityProposal {
@@ -29,14 +30,14 @@ type Run = (argv: string[]) => Promise<{ result: unknown; error: string | null }
 
 function reviewHtml(proposal: CapabilityProposal | null, busy: boolean, error: string | null,
   activated: ActivationResult | null): string {
-  if (!proposal) return `<div class="brand-lockup"><span>Flow</span></div>
+  if (!proposal) return `${brandLockup({ compact: true })}
     <header><h1>${icon('merge', { size: 24 })} Review capability proposal</h1>
     <p class="meta">Loading the exact configuration change from Git…</p></header>
     ${error ? `<div class="notice error"><p>${escape(error)}</p></div>` : ''}`;
   const files = proposal.changedFiles.map((file) => `<tr>
       <td><code>${escape(file.status)}</code></td><td>${escape(file.paths.join(' to '))}</td></tr>`).join('');
   const projection = activated?.projection;
-  return `<div class="brand-lockup"><span>Flow</span></div>
+  return `${brandLockup({ compact: true })}
     <header class="inbox-header">
       <p class="eyebrow">Governed configuration review</p>
       <h1>${icon('merge', { size: 24 })} Review capability proposal</h1>

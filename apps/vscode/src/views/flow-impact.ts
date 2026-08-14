@@ -10,7 +10,7 @@ import { readFile } from 'node:fs/promises';
 import path from 'node:path';
 import type { SingularityFlowClient } from '../cli/client.ts';
 import type { WorkspaceStore } from '../state.ts';
-import { contentSecurityPolicy, escape, icon, navigationTarget, nonce, page } from './webview.ts';
+import { brandLockup, contentSecurityPolicy, escape, icon, navigationTarget, nonce, page } from './webview.ts';
 import { navigateTo } from './navigate.ts';
 
 interface ImpactGroup { id: string; label: string; assistanceMode: string }
@@ -177,7 +177,7 @@ export function flowImpactBody(state: FlowImpactState, tab = 'overview'): string
   const selectedStudy = state.studies.find((item) => item.id === state.selectedStudyId) ?? null;
   const tabButton = (id: string, label: string): string => `<button class="${tab === id ? '' : 'secondary'}" data-tab="${id}">${label}</button>`;
   const banner = state.error ? `<p class="blockers">${icon('bad')}${escape(state.error)}</p>` : state.notice ? `<p class="ok-text">${icon('ok')}${escape(state.notice)}</p>` : '';
-  return `<header class="inbox-header"><div class="brand-lockup">SINGULARITY <span>FLOW</span></div><p class="eyebrow">Governed delivery measurement</p>
+  return `<header class="inbox-header">${brandLockup()}<p class="eyebrow">Governed delivery measurement</p>
     <h1>${icon('impact', { size: 24 })}Flow Impact</h1><p class="meta">Configure studies, inspect Story enrollment and evidence, compare privacy-safe cohorts, and export normalized receipts.</p></header>
     <nav class="instruction-tabs" aria-label="Flow Impact sections">${tabButton('overview', 'Overview')}${tabButton('story', 'Story measurement')}${tabButton('reports', 'Study reports')}${tabButton('configuration', 'Configuration')}</nav>
     ${banner}

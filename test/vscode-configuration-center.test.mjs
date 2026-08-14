@@ -406,3 +406,23 @@ test('the sidebar header shows the brand mark, not the old tile', async () => {
   assert.notEqual(brandSymbol(20, 'one').match(/id="([^"]+)"/)[1], brandSymbol(20, 'two').match(/id="([^"]+)"/)[1]);
   assert.equal((brandSymbol(20, 'one').match(/url\(#one\)/g) ?? []).length, 2);
 });
+
+/**
+ * VS Code renders a view's title as `<container>: <view>`, so a view named after its own container
+ * reads "SINGULARITY FLOW: SINGULARITY FLOW" — the product saying its name twice in the one place
+ * that is always on screen.
+ */
+test('the sidebar view is not named after its own container', async () => {
+  const manifest = JSON.parse(await readFile(path.join(root, 'apps', 'vscode', 'package.json'), 'utf8'));
+  const [container] = manifest.contributes.viewsContainers.activitybar;
+  const views = manifest.contributes.views[container.id];
+  const normalize = (value) => String(value ?? '').trim().toLocaleLowerCase('en-US');
+  for (const view of views) {
+    assert.notEqual(normalize(view.name), normalize(container.title),
+      `view '${view.id}' repeats the container title, which renders as "${container.title}: ${view.name}"`);
+  }
+  // And the one view that actually renders is the webview the sidebar provider owns.
+  const visible = views.filter((view) => !view.when);
+  assert.deepEqual(visible.map((view) => view.id), ['singularityFlow.navigation']);
+  assert.equal(visible[0].name, 'Navigator');
+});

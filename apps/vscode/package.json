@@ -145,7 +145,7 @@
       "singularityFlowNavigator": [
         {
           "id": "singularityFlow.navigation",
-          "name": "Singularity Flow",
+          "name": "Navigator",
           "type": "webview"
         },
         {

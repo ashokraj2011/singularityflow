@@ -112,7 +112,46 @@ function workflowEditor(draft: WorkflowDraftView, choices: PhaseChoice[]): strin
   </section>`;
 }
 
-function phaseEditor(draft: PhaseDraftView): string {
+/**
+ * Attaching an artifact to a phase, which is where that decision belongs.
+ *
+ * The template designer used to own it, which put the link on the wrong object: an artifact could
+ * not be authored before the phase that consumed it, and one document could not serve two phases
+ * without being written twice. A phase produces artifacts; that is a fact about the phase.
+ *
+ * The template list is the repository's own — no free-text path, because a phase pointing at a
+ * template that does not exist fails at materialization, long after the person who typed it left.
+ */
+function phaseArtifacts(draft: PhaseDraftView, templates: TemplateUsage[]): string {
+  if (draft.isNew) {
+    return `<p class="muted">Save the phase first; artifacts are attached to a phase that exists.</p>`;
+  }
+  const attached = templates.filter((template) => template.usedBy.some((use) => use.phase === draft.id));
+  return `
+  <div class="toolbar-row"><h2>${icon('document')}Artifacts produced here</h2></div>
+  ${attached.length ? `<table><thead><tr><th>Artifact</th><th>Template</th><th>Policy</th></tr></thead><tbody>
+    ${attached.map((template) => template.usedBy.filter((use) => use.phase === draft.id).map((use) => `<tr>
+      <td><strong>${escape(use.output)}</strong></td>
+      <td><button class="link" data-open-template="${escape(template.path)}">${escape(template.name)}</button></td>
+      <td><span class="muted">attached</span></td>
+    </tr>`).join('')).join('')}
+  </tbody></table>` : '<p class="muted">No artifact is attached to this phase yet.</p>'}
+  <div class="form-grid">
+    <label class="field"><span>Artifact ID</span><input data-output-id placeholder="solution-architecture"><small>Stable traceability identifier.</small></label>
+    <label class="field"><span>Artifact label</span><input data-output-label placeholder="Solution architecture"></label>
+    <label class="field"><span>Generated file</span><input data-output-path placeholder="solution-architecture.md"></label>
+    <label class="field"><span>Template</span><select data-output-template>
+      ${templates.length
+    ? `<option value="">Choose a template…</option>${templates.map((template) => `<option value="${escape(template.path)}">${escape(template.name)}${template.usedBy.length ? ` — used by ${template.usedBy.length} phase(s)` : ' — unused'}</option>`).join('')}`
+    // An empty select with no explanation reads as a broken control rather than an empty library.
+    : '<option value="">No templates yet — create one in the template designer</option>'}
+    </select></label>
+    <label class="field checkbox-field"><input type="checkbox" data-output-required checked><span>Required to complete this phase</span></label>
+  </div>
+  <div class="form-actions"><button class="secondary" data-attach-artifact="1"${templates.length ? '' : ' disabled'}>Attach artifact to phase</button></div>`;
+}
+
+function phaseEditor(draft: PhaseDraftView, templates: TemplateUsage[], views: string[], agents: string[]): string {
   return `
   <section class="editor-card">
     <div class="editor-title"><p class="eyebrow">${draft.isNew ? 'New phase' : 'Phase contract'}</p><h3>${draft.isNew ? 'Define a reusable stage' : `Edit ${escape(draft.label)}`}</h3><p class="muted">${draft.isNew ? 'Creating a phase does not add it to a workflow. You choose its position afterwards.' : 'Changes reach every workflow that uses this phase.'}</p></div>
@@ -120,21 +159,30 @@ function phaseEditor(draft: PhaseDraftView): string {
       <label class="field"><span>Phase ID</span><input data-phase-id value="${escape(draft.id)}" ${draft.isNew ? '' : 'disabled'} placeholder="security-review"></label>
       <label class="field"><span>Display name</span><input data-phase-label value="${escape(draft.label)}" placeholder="Security review"></label>
       <label class="field"><span>Governs</span><select data-phase-governs ${draft.isNew ? '' : 'disabled'}><option value="initiative"${draft.governs === 'initiative' ? ' selected' : ''}>Epic / Initiative</option><option value="story"${draft.governs === 'story' ? ' selected' : ''}>Developer Story</option></select></label>
-      <label class="field"><span>World-model views</span><input data-phase-views value="${escape(draft.views)}" placeholder="architecture,security"><small>Comma-separated repository views.</small></label>
-      <label class="field"><span>Expected agents</span><input data-phase-agents value="${escape(draft.agents)}" placeholder="architect,security-reviewer"><small>Governed agents available in this repository.</small></label>
+      <label class="field"><span>World-model views</span><input data-phase-views list="phase-views-list" value="${escape(draft.views)}" placeholder="architecture,security"><datalist id="phase-views-list">${views.map((view) => `<option value="${escape(view)}"></option>`).join('')}</datalist><small>${views.length ? `Comma-separated. This repository has: ${escape(views.join(', '))}.` : 'Comma-separated repository views. This repository has none yet.'}</small></label>
+      <label class="field"><span>Expected agents</span><input data-phase-agents list="phase-agents-list" value="${escape(draft.agents)}" placeholder="architect,security-reviewer"><datalist id="phase-agents-list">${agents.map((agent) => `<option value="${escape(agent)}"></option>`).join('')}</datalist><small>${agents.length ? `Comma-separated. Governed agents: ${escape(agents.join(', '))}.` : 'No governed agents are configured in this repository yet.'}</small></label>
       <label class="field"><span>Business lanes</span><input data-phase-lanes value="${escape(draft.lanes)}" placeholder="design-architecture,engineering"><small>Initiative visualization only.</small></label>
     </div>
     <div class="form-actions"><button data-save-phase="1">${draft.isNew ? 'Create phase' : 'Save phase'}</button><button class="secondary" data-cancel-phase="1">Cancel</button></div>
+    ${phaseArtifacts(draft, templates)}
   </section>`;
 }
 
 function phasesHtml(
   profiles: Profile[], selected: string | null, standing: Standing[], portfolioPath: string,
   draft: WorkflowDraftView | null, phaseDraft: PhaseDraftView | null, choices: PhaseChoice[],
-  graphSvg = ''
+  graphSvg = '', templates: TemplateUsage[] = [], views: string[] = [], agents: string[] = []
 ): string {
   const profile = profiles.find((entry) => entry.id === selected) ?? profiles[0];
-  if (!profile && !draft) return '<section class="empty-state"><h3>No workflow exists yet</h3><p>Create the first workflow from the phase catalog.</p><button data-new-workflow="1">Create workflow</button></section>';
+  /**
+   * The empty state must not swallow an open editor.
+   *
+   * `phaseDraft` was missing from this guard, and the editor itself says "creating a phase does not
+   * add it to a workflow" — so in a repository with no workflow yet, the one case where that
+   * sentence matters most, clicking New phase replaced the form with an invitation to create a
+   * workflow instead.
+   */
+  if (!profile && !draft && !phaseDraft) return '<section class="empty-state"><h3>No workflow exists yet</h3><p>Create the first workflow from the phase catalog, or define a phase to use in one.</p><button data-new-workflow="1">Create workflow</button><button class="secondary" data-new-phase="1">New phase</button></section>';
   return `
   <section class="plain toolbar-row">
     ${profile ? `<label class="field compact"><span>Workflow</span><select data-profile-pick>${profiles.map((entry) => `<option value="${escape(entry.id)}"${entry.id === profile.id ? ' selected' : ''}>${escape(entry.label)} · ${entry.governs}</option>`).join('')}</select></label>` : ''}
@@ -144,7 +192,7 @@ function phasesHtml(
     <button class="secondary" data-new-phase="1">New phase</button>
   </section>
   ${draft ? workflowEditor(draft, choices) : ''}
-  ${phaseDraft ? phaseEditor(phaseDraft) : ''}
+  ${phaseDraft ? phaseEditor(phaseDraft, templates, views, agents) : ''}
   ${profile && !draft && !phaseDraft ? `
     <section class="workflow-summary">
       <div><p class="eyebrow">${escape(profile.governs)} workflow</p><h3>${escape(profile.label)}</h3><p class="muted">${escape(profile.description || 'No description yet.')}</p></div>
@@ -171,23 +219,30 @@ function artifactPreview(draft: ArtifactDraft): string {
   return `<article class="document-preview"><p class="eyebrow">Live document preview</p><h1>${escape(draft.title || draft.outputLabel || 'Untitled artifact')}</h1><p>${escape(draft.purpose || 'Describe the purpose and decision this artifact supports.')}</p>${draft.sections.map((section) => `<section><h2>${escape(section.title)}</h2><p class="muted">${escape(section.guidance)}</p><div class="preview-placeholder">${escape(SECTION_CATALOG.find((entry) => entry.kind === section.kind)?.label ?? section.kind)} content</div></section>`).join('')}</article>`;
 }
 
-function artifactBuilder(draft: ArtifactDraft, profiles: Profile[], errors: string[]): string {
-  const phases = profiles.flatMap((profile) => profile.phases.map((phase) => ({
-    key: `${profile.governs}:${phase.id}`, profile: profile.label, governs: profile.governs, id: phase.id, label: phase.label
-  }))).filter((entry, index, all) => all.findIndex((candidate) => candidate.key === entry.key) === index);
+/**
+ * The artifact template designer.
+ *
+ * A template is a document, not a step. It used to open with "Target phase" and could not be saved
+ * without one, so an artifact could not exist before the phase that used it — and reusing one
+ * document in two phases meant authoring it twice. Which phase produces which artifact is a workflow
+ * decision, made in the phase editor, where the rest of the phase contract already lives.
+ *
+ * `governs` stays, and is not a phase link in disguise: it decides the document heading, so a Story
+ * template and an Initiative template are genuinely different documents.
+ */
+function artifactBuilder(draft: ArtifactDraft, errors: string[]): string {
   return `
   <section class="artifact-studio">
     <div class="artifact-form editor-card">
-      <div class="editor-title"><p class="eyebrow">Artifact template designer</p><h3>Build the document from sections</h3><p class="muted">The template and its phase wiring are saved together through the governance engine.</p></div>
+      <div class="editor-title"><p class="eyebrow">Artifact template designer</p><h3>Build the document from sections</h3><p class="muted">Templates stand on their own. Attach one to a phase in the phase editor, where a phase can use any template and a template can serve any number of phases.</p></div>
       ${errors.length ? `<div class="blockers"><strong>Complete these fields</strong><ul>${errors.map((error) => `<li>${escape(error)}</li>`).join('')}</ul></div>` : ''}
       <div class="form-grid">
-        <label class="field full"><span>Target phase</span><select data-artifact-phase><option value="">Choose a phase…</option>${phases.map((phase) => `<option value="${escape(phase.key)}"${draft.phaseId === phase.id && draft.governs === phase.governs ? ' selected' : ''}>${escape(phase.profile)} → ${escape(phase.label)} (${phase.governs})</option>`).join('')}</select></label>
+        <label class="field full"><span>Written for</span><select data-artifact-governs><option value="initiative"${draft.governs === 'initiative' ? ' selected' : ''}>Epic / Initiative documents</option><option value="story"${draft.governs === 'story' ? ' selected' : ''}>Developer Story documents</option></select><small>Decides the document heading. Not a phase: attach it to phases in the phase editor.</small></label>
         <label class="field"><span>Output ID</span><input data-artifact-output-id value="${escape(draft.outputId)}" placeholder="solution-architecture"><small>Stable traceability identifier.</small></label>
         <label class="field"><span>Artifact label</span><input data-artifact-output-label value="${escape(draft.outputLabel)}" placeholder="Solution architecture"></label>
         <label class="field"><span>Generated file</span><input data-artifact-output-path value="${escape(draft.outputPath)}" placeholder="solution-architecture.md"></label>
         <label class="field"><span>Template file</span><input data-artifact-file value="${escape(draft.fileName)}" placeholder="initiatives/solution-architecture.md"></label>
         <label class="field"><span>Document title</span><input data-artifact-title value="${escape(draft.title)}" placeholder="Solution Architecture"></label>
-        <label class="field checkbox-field"><input type="checkbox" data-artifact-required${draft.required ? ' checked' : ''}><span>Required to complete this phase</span></label>
         <label class="field full"><span>Purpose</span><textarea data-artifact-purpose rows="3" placeholder="What decision does this document support?">${escape(draft.purpose)}</textarea></label>
       </div>
       <div class="toolbar-row"><h2>${icon('document')}Document sections</h2><span class="grow"></span><select data-section-kind>${SECTION_CATALOG.map((entry) => `<option value="${entry.kind}">${escape(entry.label)} — ${escape(entry.description)}</option>`).join('')}</select><button class="secondary" data-add-section="1">Add section</button></div>
@@ -198,7 +253,7 @@ function artifactBuilder(draft: ArtifactDraft, profiles: Profile[], errors: stri
           <div class="section-actions"><button class="icon-button" title="Move section earlier" aria-label="Move ${escape(section.title)} earlier" data-section-action="up" data-index="${index}"${index === 0 ? ' disabled' : ''}>${icon('up')}</button><button class="icon-button" title="Move section later" aria-label="Move ${escape(section.title)} later" data-section-action="down" data-index="${index}"${index === draft.sections.length - 1 ? ' disabled' : ''}>${icon('down')}</button><button class="icon-button danger" title="Remove section" aria-label="Remove ${escape(section.title)}" data-section-action="remove" data-index="${index}">${icon('remove')}</button></div>
         </div>`).join('')}</div>
       <details><summary>Markdown that will be committed</summary><pre class="markdown-preview">${escape(renderArtifactTemplate(draft))}</pre></details>
-      <div class="form-actions"><button data-save-artifact="1">Save template and wire artifact</button><button class="secondary" data-reset-artifact="1">Reset</button></div>
+      <div class="form-actions"><button data-save-artifact="1">Save template</button><button class="secondary" data-reset-artifact="1">Reset</button></div>
     </div>
     ${artifactPreview(draft)}
   </section>`;
@@ -209,15 +264,17 @@ export function designerHtml(
   filter: string, standing: Standing[], portfolioPath: string, error: string | null,
   workflowDraft: WorkflowDraftView | null = null, phaseDraft: PhaseDraftView | null = null,
   artifactDraft: ArtifactDraft = newArtifactDraft(), artifactErrors: string[] = [], phaseChoices: PhaseChoice[] = [],
-  graphSvg = ''
+  graphSvg = '',
+  /** The repository's own vocabularies, so the phase editor offers them instead of asking blind. */
+  worldModelViews: string[] = [], governedAgents: string[] = []
 ): string {
   return `
   <header><p class="eyebrow">Workflow designer · configuration studio</p><h1>${icon('workflow', { size: 20 })}Workflows & artifacts</h1><p class="meta">Create the delivery path and design the documents each phase must produce. Every save is validated by the same engine used by the CLI.</p></header>
   ${error ? `<section class="plain"><div class="blockers">${escape(error)}</div></section>` : ''}
   <nav class="designer-tabs" aria-label="Configuration designers"><button class="tab${tab === 'phases' ? ' active' : ''}" aria-current="${tab === 'phases' ? 'page' : 'false'}" data-tab="phases">${icon('workflow')}Workflow builder</button><button class="tab${tab === 'templates' ? ' active' : ''}" aria-current="${tab === 'templates' ? 'page' : 'false'}" data-tab="templates">${icon('artifact')}Artifact designer</button></nav>
   ${tab === 'phases'
-    ? phasesHtml(profiles, selectedProfile, standing, portfolioPath, workflowDraft, phaseDraft, phaseChoices, graphSvg)
-    : `${artifactBuilder(artifactDraft, profiles, artifactErrors)}${templateInventory(templates, filter)}`}`;
+    ? phasesHtml(profiles, selectedProfile, standing, portfolioPath, workflowDraft, phaseDraft, phaseChoices, graphSvg, templates, worldModelViews, governedAgents)
+    : `${artifactBuilder(artifactDraft, artifactErrors)}${templateInventory(templates, filter)}`}`;
 }
 
 export const DESIGNER_SCRIPT = `
@@ -235,18 +292,17 @@ export const DESIGNER_SCRIPT = `
     governs: document.querySelector('[data-workflow-governs]')?.value
   });
   const artifactFields = () => ({
-    phase: document.querySelector('[data-artifact-phase]')?.value,
+    governs: document.querySelector('[data-artifact-governs]')?.value,
     outputId: value('[data-artifact-output-id]'),
     outputLabel: value('[data-artifact-output-label]'),
     outputPath: value('[data-artifact-output-path]'),
     fileName: value('[data-artifact-file]'),
     title: value('[data-artifact-title]'),
     purpose: value('[data-artifact-purpose]'),
-    required: Boolean(document.querySelector('[data-artifact-required]')?.checked),
     sections: sections()
   });
   document.addEventListener('click', (event) => {
-    const target = event.target.closest('button[data-tab],button[data-open-file],button[data-open-template],button[data-edit-phase],button[data-edit-workflow],button[data-new-workflow],button[data-new-phase],button[data-cancel-workflow],button[data-save-workflow],button[data-workflow-phase-action],button[data-add-workflow-phase],button[data-save-phase],button[data-cancel-phase],button[data-add-section],button[data-section-action],button[data-save-artifact],button[data-reset-artifact]');
+    const target = event.target.closest('button[data-tab],button[data-open-file],button[data-open-template],button[data-edit-phase],button[data-edit-workflow],button[data-new-workflow],button[data-new-phase],button[data-cancel-workflow],button[data-save-workflow],button[data-workflow-phase-action],button[data-add-workflow-phase],button[data-save-phase],button[data-cancel-phase],button[data-add-section],button[data-section-action],button[data-save-artifact],button[data-reset-artifact],button[data-attach-artifact]');
     if (!target) return;
     event.preventDefault();
     const data = target.dataset;
@@ -267,13 +323,21 @@ export const DESIGNER_SCRIPT = `
     else if (data.sectionAction) vscode.postMessage({ type: 'artifact-sections', action: data.sectionAction, index: Number(data.index), ...artifactFields() });
     else if (data.resetArtifact !== undefined) vscode.postMessage({ type: 'reset-artifact' });
     else if (data.saveArtifact !== undefined) vscode.postMessage({ type: 'save-artifact', ...artifactFields() });
+    else if (data.attachArtifact !== undefined) vscode.postMessage({
+      type: 'attach-artifact',
+      phase: value('[data-phase-id]'),
+      governs: document.querySelector('[data-phase-governs]')?.value,
+      outputId: value('[data-output-id]'), outputLabel: value('[data-output-label]'),
+      outputPath: value('[data-output-path]'), template: document.querySelector('[data-output-template]')?.value,
+      required: document.querySelector('[data-output-required]')?.checked !== false
+    });
   });
   document.addEventListener('change', (event) => {
     const pick = event.target.dataset;
     if (pick?.profilePick !== undefined) vscode.postMessage({ type: 'profile', id: event.target.value });
     else if (pick?.templateFilter !== undefined) vscode.postMessage({ type: 'filter', value: event.target.value });
     else if (pick?.workflowGoverns !== undefined) vscode.postMessage({ type: 'workflow-governs', value: event.target.value, ...workflowFields() });
-    else if (pick?.artifactPhase !== undefined) vscode.postMessage({ type: 'artifact-phase', value: event.target.value, ...artifactFields() });
+    else if (pick?.artifactGoverns !== undefined) vscode.postMessage({ type: 'artifact-governs', ...artifactFields() });
   });
   let dragged = null;
   document.addEventListener('dragstart', (event) => { const row = event.target.closest('[data-section-index]'); if (row) dragged = Number(row.dataset.sectionIndex); });

@@ -189,7 +189,18 @@ test('the designer creates workflows, phases, and artifacts through the engine',
   }
   assert.match(panel, /\['workflow', this\.workflowDraft\.isNew \? 'create' : 'edit'/);
   assert.match(panel, /\['workflow', 'phase', this\.phaseDraft\.isNew \? 'add' : 'edit'/);
-  assert.match(panel, /\['workflow', 'phase', 'output', action/);
+  /**
+   * Attaching an artifact still goes through `workflow phase output`, but from the phase editor
+   * rather than the template designer. A template is a document and a phase is a step: which phases
+   * produce which artifacts is a fact about the phase, and authoring a document should not require
+   * naming a phase that may not exist yet.
+   */
+  assert.match(panel, /\['workflow', 'phase', 'output', 'add', phase, outputId,/);
+  assert.match(page, /data-attach-artifact/, 'the phase editor offers no way to attach an artifact');
+  assert.match(page, /data-output-template/, 'the phase editor has no template picker');
+  // And the template designer no longer wires anything: saving a template is just saving a template.
+  assert.doesNotMatch(page, /data-artifact-phase/, 'the template designer still asks for a phase');
+  assert.doesNotMatch(panel, /this\.artifactDraft\.phaseId/, 'the template draft still carries a phase');
 
   // Run through the governed action path, so a refusal comes back from the engine rather than being
   // decided in the editor.
@@ -286,4 +297,56 @@ test('workflow is the only noun for a named list of phases', async () => {
   const catalog = await readFile(new URL('../src/workflow-catalog.mjs', import.meta.url), 'utf8');
   assert.match(catalog, /\.filter\(\(\[id\]\) => !starter\.workTypes\[id\]\)/);
   assert.match(catalog, /status: 'local'/);
+});
+
+/**
+ * The dropdowns.
+ *
+ * A select rendered from an empty array is a control that looks broken, and a free-text field for a
+ * value the repository already knows is an invitation to typo. Both were present: the phase editor
+ * asked for world-model views and governed agents as bare text with a placeholder, so the only way
+ * to learn the real names was to go and read the YAML.
+ */
+test('the phase editor offers the repository’s own vocabularies, and says so when there are none', async () => {
+  const { designerHtml } = await import(new URL('../apps/vscode/src/views/designer-page.ts', import.meta.url));
+  const draft = { isNew: false, id: 'design', label: 'Design', governs: 'story', views: '', agents: '', lanes: '' };
+  const templates = [
+    { path: 'singularity/templates/spec.md', name: 'spec.md', usedBy: [{ profile: 'feature', phase: 'design', output: 'spec' }], standing: [] },
+    { path: 'singularity/templates/orphan.md', name: 'orphan.md', usedBy: [], standing: [] }
+  ];
+  const html = designerHtml('phases', [], templates, null, '', [], 'singularity/portfolio.yml', null,
+    null, draft, undefined, [], [], '', ['architecture', 'business'], ['architect', 'reviewer']);
+
+  // Populated, and each option says how widely it is already used.
+  assert.match(html, /<option value="singularity\/templates\/spec\.md">spec\.md — used by 1 phase\(s\)</);
+  assert.match(html, /<option value="singularity\/templates\/orphan\.md">orphan\.md — unused</);
+  // Views and agents are offered rather than guessed at, and remain free text for a view not built yet.
+  assert.match(html, /<datalist id="phase-views-list"><option value="architecture"><\/option><option value="business">/);
+  assert.match(html, /<datalist id="phase-agents-list"><option value="architect">/);
+  assert.match(html, /This repository has: architecture, business\./);
+  assert.match(html, /Governed agents: architect, reviewer\./);
+  // What this phase already produces, so attaching is an informed act.
+  assert.match(html, /Artifacts produced here/);
+  assert.match(html, /data-open-template="singularity\/templates\/spec\.md"/);
+});
+
+test('an empty template library explains itself instead of rendering an empty select', async () => {
+  const { designerHtml } = await import(new URL('../apps/vscode/src/views/designer-page.ts', import.meta.url));
+  const draft = { isNew: false, id: 'design', label: 'Design', governs: 'story', views: '', agents: '', lanes: '' };
+  const html = designerHtml('phases', [], [], null, '', [], 'singularity/portfolio.yml', null,
+    null, draft, undefined, [], [], '', [], []);
+  assert.match(html, /No templates yet — create one in the template designer/);
+  // And the button that would post an empty template is not clickable.
+  assert.match(html, /data-attach-artifact="1" disabled/);
+  assert.match(html, /This repository has none yet\./);
+  assert.match(html, /No governed agents are configured/);
+});
+
+test('a new phase says artifacts come after it exists, rather than offering a dead control', async () => {
+  const { designerHtml } = await import(new URL('../apps/vscode/src/views/designer-page.ts', import.meta.url));
+  const draft = { isNew: true, id: '', label: '', governs: 'story', views: '', agents: '', lanes: '' };
+  const html = designerHtml('phases', [], [{ path: 'a.md', name: 'a.md', usedBy: [], standing: [] }], null, '', [],
+    'singularity/portfolio.yml', null, null, draft, undefined, [], [], '', [], []);
+  assert.match(html, /Save the phase first; artifacts are attached to a phase that exists\./);
+  assert.doesNotMatch(html, /data-attach-artifact/);
 });

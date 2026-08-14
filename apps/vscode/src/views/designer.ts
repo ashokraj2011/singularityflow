@@ -153,19 +153,15 @@ export class DesignerPanel {
   }
 
   private updateArtifact(raw: Record<string, unknown>): void {
-    const selected = text(raw.phase);
-    const separator = selected.indexOf(':');
-    if (separator > 0) {
-      this.artifactDraft.governs = governs(selected.slice(0, separator));
-      this.artifactDraft.phaseId = selected.slice(separator + 1);
-    }
+    // `governs` is now a direct choice rather than something inferred from a phase key: a template
+    // is written for a lifecycle, and which phase uses it is decided in the phase editor.
+    if (raw.governs) this.artifactDraft.governs = governs(text(raw.governs));
     this.artifactDraft.outputId = text(raw.outputId) || this.artifactDraft.outputId;
     this.artifactDraft.outputLabel = text(raw.outputLabel) || this.artifactDraft.outputLabel;
     this.artifactDraft.outputPath = text(raw.outputPath) || this.artifactDraft.outputPath;
     this.artifactDraft.fileName = text(raw.fileName) || this.artifactDraft.fileName;
     this.artifactDraft.title = text(raw.title) || this.artifactDraft.title;
     this.artifactDraft.purpose = text(raw.purpose);
-    if (typeof raw.required === 'boolean') this.artifactDraft.required = raw.required;
     if (raw.sections) this.artifactDraft.sections = this.normalizeSections(raw.sections);
   }
 
@@ -271,17 +267,42 @@ export class DesignerPanel {
       return this.render();
     }
 
-    if (message.type === 'artifact-phase') {
-      this.updateArtifact(message);
-      const selected = text(message.value); const separator = selected.indexOf(':');
-      if (separator > 0) {
-        const kind = governs(selected.slice(0, separator)); const phase = selected.slice(separator + 1);
-        this.artifactDraft.governs = kind; this.artifactDraft.phaseId = phase;
-        if (kind === 'story') {
-          this.artifactDraft.outputId = phase; this.artifactDraft.outputLabel = this.phaseChoices(snapshot).find((entry) => entry.governs === kind && entry.id === phase)?.label ?? phase;
-          this.artifactDraft.outputPath = `artifacts/${phase}/${phase}.md`; this.artifactDraft.fileName = `common/${phase}.md`;
-        }
+    /**
+     * Attach an existing template to this phase.
+     *
+     * The wiring the template designer used to do on save, moved to where the decision is: the
+     * phase. The command is the same `workflow phase output` the engine already governs, so this is
+     * a new route to an existing transaction rather than a second way to change a workflow.
+     */
+    if (message.type === 'attach-artifact') {
+      const phase = text(message.phase);
+      const outputId = text(message.outputId);
+      const template = text(message.template);
+      const missing = [
+        phase ? null : 'a phase',
+        outputId ? null : 'an artifact ID',
+        template ? null : 'a template'
+      ].filter(Boolean);
+      if (missing.length) {
+        this.error = `Attaching an artifact needs ${missing.join(', ')}.`;
+        return this.render();
       }
+      const templatesRoot = ((snapshot?.definition as { templatesRoot?: string } | undefined)?.templatesRoot)
+        ?? 'singularity/templates';
+      // The select carries the repository path; the engine wants it relative to the templates root.
+      const relative = template.startsWith(`${templatesRoot}/`) ? template.slice(templatesRoot.length + 1) : template;
+      const label = text(message.outputLabel) || outputId;
+      const command = ['workflow', 'phase', 'output', 'add', phase, outputId,
+        '--governs', governs(text(message.governs)), '--label', label,
+        '--kind', 'markdown', '--path', text(message.outputPath) || `${outputId}.md`,
+        '--template', relative, '--optional', String(message.required === false)];
+      this.error = await this.onMessage({ type: 'run', command, title: `Attaching ${label} to ${phase}` });
+      if (!this.error) void vscode.window.showInformationMessage(`${label} is now produced by ${phase}.`);
+      return this.render();
+    }
+
+    if (message.type === 'artifact-governs') {
+      this.updateArtifact(message);
       return this.render();
     }
     if (message.type === 'artifact-sections') {
@@ -319,21 +340,17 @@ export class DesignerPanel {
       }
       this.error = await this.onMessage({ type: 'save', path: target, content: renderArtifactTemplate(this.artifactDraft) });
       if (this.error) return this.render();
-      const profiles = this.profiles(snapshot);
-      const exists = profiles.some((profile) => profile.governs === this.artifactDraft.governs
-        && profile.phases.some((phase) => phase.id === this.artifactDraft.phaseId
-          && phase.outputs.some((output) => output.id === this.artifactDraft.outputId)));
-      const action = this.artifactDraft.governs === 'story' || exists ? 'edit' : 'add';
-      const command = ['workflow', 'phase', 'output', action, this.artifactDraft.phaseId, this.artifactDraft.outputId,
-        '--governs', this.artifactDraft.governs, '--label', this.artifactDraft.outputLabel,
-        '--kind', 'markdown', '--path', this.artifactDraft.outputPath, '--template', this.artifactDraft.fileName,
-        '--optional', String(!this.artifactDraft.required)];
-      this.error = await this.onMessage({ type: 'run', command, title: `Wiring ${this.artifactDraft.outputLabel}` });
-      if (this.error) this.error = `The template was saved at ${target}, but phase wiring was refused: ${this.error}`;
-      else {
-        void vscode.window.showInformationMessage(`Artifact template ${target} is now wired to ${this.artifactDraft.phaseId}.`);
-        this.artifactDraft = newArtifactDraft(); this.artifactErrors = [];
-      }
+      /**
+       * Saved, and deliberately not wired to anything.
+       *
+       * This used to run `workflow phase output add` immediately, which is what made a template
+       * inseparable from one phase. The message says where the artifact goes next rather than
+       * leaving the reader wondering why nothing appeared in a workflow.
+       */
+      void vscode.window.showInformationMessage(
+        `Artifact template saved at ${target}. Attach it to a phase from the phase editor — any phase, and as many as need it.`
+      );
+      this.artifactDraft = newArtifactDraft(); this.artifactErrors = [];
       return this.render();
     }
   }
@@ -348,7 +365,17 @@ export class DesignerPanel {
       this.workflowDraft, this.phaseDraft, this.artifactDraft, this.artifactErrors, this.phaseChoices(snapshot),
       // The graph the rail cannot draw. Built from the same snapshot the rest of the page renders,
       // so the diagram and the phase list can never describe different workflows.
-      renderWorkflowGraph(buildWorkflowGraph(snapshot, this.profile ?? this.profiles(snapshot)[0]?.id ?? ''), { compact: true })
+      renderWorkflowGraph(buildWorkflowGraph(snapshot, this.profile ?? this.profiles(snapshot)[0]?.id ?? ''), { compact: true }),
+      /**
+       * The vocabularies the phase editor offers instead of asking blind.
+       *
+       * Both fields were free text with a placeholder, so the only way to learn a repository's view
+       * or agent names was to guess or go read the YAML — and a typo produced a phase referring to a
+       * view that does not exist. They stay free text, because a phase may legitimately name a view
+       * that has not been built yet; the list is a `datalist`, which suggests without refusing.
+       */
+      [...new Set((snapshot?.worldModel?.views ?? []).map((view) => view.id))].sort(),
+      [...new Set((snapshot?.agents ?? []).map((agent) => agent.id))].sort()
     ), contentSecurityPolicy(this.panel.webview, token), token, DESIGNER_SCRIPT);
   }
 

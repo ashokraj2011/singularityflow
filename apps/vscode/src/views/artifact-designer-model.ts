@@ -11,15 +11,18 @@ export interface ArtifactSection {
 }
 
 export interface ArtifactDraft {
+  /**
+   * Which lifecycle the template is written for. Kept, and it is not a phase link: it decides the
+   * document heading — `{{work.id}}` for a Story, the initiative metadata block for an Initiative —
+   * so the same template cannot be used for both.
+   */
   governs: 'story' | 'initiative';
-  phaseId: string;
   outputId: string;
   outputLabel: string;
   outputPath: string;
   fileName: string;
   title: string;
   purpose: string;
-  required: boolean;
   sections: ArtifactSection[];
 }
 
@@ -59,14 +62,12 @@ export function sectionFor(kind: ArtifactSectionKind): ArtifactSection {
 export function newArtifactDraft(): ArtifactDraft {
   return {
     governs: 'initiative',
-    phaseId: '',
     outputId: '',
     outputLabel: '',
     outputPath: '',
     fileName: '',
     title: '',
     purpose: '',
-    required: true,
     sections: [sectionFor('narrative'), sectionFor('decision-log'), sectionFor('open-questions'), sectionFor('evidence')]
   };
 }
@@ -115,7 +116,6 @@ export function safeRelativeMarkdownPath(value: string): boolean {
 export function validateArtifactDraft(draft: ArtifactDraft): string[] {
   const errors: string[] = [];
   const id = /^[a-z0-9]+(?:-[a-z0-9]+)*$/;
-  if (!id.test(draft.phaseId)) errors.push('Choose the phase this artifact belongs to.');
   if (!id.test(draft.outputId)) errors.push('Output ID must be lower-case kebab-case.');
   if (!draft.outputLabel.trim()) errors.push('Give the artifact a reader-facing label.');
   // The character class allows `.` and `/`, so `a/../../b.md` passed as a "safe .md path". The

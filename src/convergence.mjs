@@ -34,7 +34,11 @@ export const CONVERGENCE_SCHEMA_VERSION = 1;
  */
 export const FACT_KINDS = Object.freeze([
   'absent-observed-claim', 'unclaimed-changed-path', 'stale-claim-binding', 'missing-bound-test',
-  'failing-bound-test', 'claimed-withdrawn-clause', 'unresolved-deviation', 'missing-required-evidence'
+  'failing-bound-test', 'claimed-withdrawn-clause', 'unresolved-deviation', 'missing-required-evidence',
+  // `[AMD:REQ-050]`. A claim reconciled against a clause whose text has since changed. Distinct from
+  // `claimed-withdrawn-clause`, which is the clause going away: here it still exists and still has a
+  // verdict, and the verdict is about words the specification no longer contains.
+  'verdict-against-superseded-clause'
 ]);
 
 /** What an assisted pass may propose `[SPK:REQ-076]`, and a human may confirm. */
@@ -105,7 +109,15 @@ function mergeClaims(maps) {
  */
 export function convergenceFacts({
   reconciliation, indexes = [], planned = [], observed = [], acceptance = null, deviations = [],
-  requiredEvidence = [], limits = undefined
+  requiredEvidence = [], limits = undefined,
+  /**
+   * Clauses an amendment revised since the observed claims were recorded `[AMD:REQ-050]`.
+   *
+   * Passed in rather than derived, because convergence has the claims but not the two generations
+   * of specification text needed to diff them — that is `amendment.mjs`'s job, and recomputing it
+   * here would be a second opinion about what changed.
+   */
+  amendedClauses = []
 } = {}) {
   if (!reconciliation) throw new SingularityFlowError('Convergence requires the reconciliation record it operates on.');
   const bounds = analysisLimits(limits);
@@ -113,6 +125,7 @@ export function convergenceFacts({
   const clauses = new Map(indexes.flatMap((index) => index.clauses ?? []).map((clause) => [clause.id, clause]));
   const plannedClaims = mergeClaims(planned);
   const observedClaims = mergeClaims(observed);
+  const amended = new Set(amendedClauses.map((id) => String(id).toUpperCase()));
   const facts = [];
 
   /**
@@ -178,6 +191,18 @@ export function convergenceFacts({
       facts.push(fact('stale-claim-binding', {
         clauseIds: [id],
         detail: `${id} claims verdict '${claim.verdict}' with no source evidence bound to it`
+      }));
+    }
+    /**
+     * `[AMD:REQ-050]`. The verdict stands against the text it was recorded under, and that text has
+     * moved — so the fact is that the verdict is *unverified against the current clause*, not that
+     * the work is wrong. Saying "unimplemented" here would be the CON-033 mistake in a new place:
+     * absent evidence about the new wording is missing trace evidence, not a finding.
+     */
+    if (amended.has(id) && ['matched', 'partial', 'deviated'].includes(claim.verdict)) {
+      facts.push(fact('verdict-against-superseded-clause', {
+        clauseIds: [id],
+        detail: `${id} was reconciled as '${claim.verdict}' before the clause was revised; that verdict describes the previous wording and has not been re-checked against the current one`
       }));
     }
   }

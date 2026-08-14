@@ -161,3 +161,68 @@ export function radiusSummary(radius) {
   if (radius.unclaimed.length) parts.push(`${radius.unclaimed.length} changed clause(s) are claimed by nobody yet: ${radius.unclaimed.join(', ')}.`);
   return parts.join(' ');
 }
+
+/**
+ * How much the specification has moved under one interval. `[AMD:REQ-051]`
+ *
+ * A single amendment is normal. Five amendments to the same clause during one phase is a different
+ * situation — the requirement is not settled, and continuing to implement against it is the thing
+ * going wrong, not the code. The floor exists so that saying so is a computation rather than a
+ * judgement somebody has to work up the nerve to make.
+ *
+ * `churn` counts *revisions of the same clause*, not amendments. Five amendments touching five
+ * different clauses is a specification being filled in; five touching one clause is a specification
+ * arguing with itself, and only the second is worth interrupting anyone about.
+ */
+export function amendmentChurn(amendments = [], { floor = 3 } = {}) {
+  const perClause = new Map();
+  for (const entry of amendments) {
+    for (const clauseId of entry?.clauses ?? []) {
+      const id = String(clauseId).toUpperCase();
+      perClause.set(id, (perClause.get(id) ?? 0) + 1);
+    }
+  }
+  const overFloor = [...perClause.entries()]
+    .filter(([, count]) => count >= floor)
+    .map(([clauseId, count]) => ({ clauseId, revisions: count }))
+    .sort((left, right) => right.revisions - left.revisions || left.clauseId.localeCompare(right.clauseId));
+
+  return Object.freeze({
+    amendments: amendments.length,
+    clauses: perClause.size,
+    floor,
+    // Named `unsettled` rather than `violations`: nobody did anything wrong, and the right response
+    // is usually a conversation about the requirement, not a process penalty.
+    unsettled: Object.freeze(overFloor.map((entry) => Object.freeze(entry))),
+    quiet: overFloor.length === 0
+  });
+}
+
+/**
+ * The recap a reader gets after an amendment: what moved, and what it means for them. `[AMD:REQ-052]`
+ *
+ * One paragraph, assembled from facts already computed. It exists because the alternative is a
+ * reader reconstructing the story from four sections and a diff — and the reconstruction is the part
+ * people skip when they are busy, which is exactly when an amendment is most likely to be missed.
+ */
+export function amendmentRecap({ amendments = [], radius = null, churn = null } = {}) {
+  if (!amendments.length) return 'The specification has not changed since this interval began.';
+  const latest = amendments.at(-1);
+  const clauses = [...new Set(amendments.flatMap((entry) => entry.clauses ?? []))].sort();
+  const parts = [
+    `The specification was amended ${amendments.length === 1 ? 'once' : `${amendments.length} times`}`
+    + ` since this interval began, most recently to generation ${latest.toGeneration}`
+    + (latest.reason ? ` — ${latest.reason}` : '')
+    + `. ${clauses.length === 1 ? 'One clause' : `${clauses.length} clauses`} changed: ${clauses.join(', ')}.`
+  ];
+  if (radius) parts.push(radiusSummary(radius));
+  if (churn && !churn.quiet) {
+    const worst = churn.unsettled[0];
+    parts.push(
+      `${worst.clauseId} has been revised ${worst.revisions} times in this interval`
+      + `${churn.unsettled.length > 1 ? `, and ${churn.unsettled.length - 1} other clause(s) as often` : ''}.`
+      + ' A requirement that keeps moving is usually worth settling before more is built on it.'
+    );
+  }
+  return parts.join(' ');
+}

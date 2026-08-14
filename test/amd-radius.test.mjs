@@ -188,3 +188,81 @@ test('update-intent and accepted-deviation are not the same decision', async () 
   assert.equal(advancementBlocked(projection('accepted-deviation')).length, 0, 'a tolerated deviation blocked the Story');
   assert.ok(advancementBlocked(projection('update-intent')).length, 'a known-wrong plan did not block the Story');
 });
+
+test('a verdict recorded before a revision is unverified, not wrong', async () => {
+  /**
+   * `[AMD:REQ-050]`. The reconciliation said `matched` against text the specification no longer
+   * contains. The honest fact is that the verdict has not been re-checked — not that the work is
+   * unimplemented. Calling it unimplemented would be the CON-033 mistake in a new place: absent
+   * evidence about new wording is missing trace evidence, not a finding about the code.
+   *
+   * Distinct from `claimed-withdrawn-clause`, which fires when the clause goes away entirely. Here
+   * the clause still exists and still has a verdict; only the words moved.
+   */
+  const { convergenceFacts, FACT_KINDS } = await import('../src/convergence.mjs');
+  assert.ok(FACT_KINDS.includes('verdict-against-superseded-clause'));
+
+  const inputs = {
+    reconciliation: { changedPaths: [], summary: {} },
+    // Clause objects, not entries: `convergenceFacts` maps them by `clause.id`.
+    indexes: [{ clauses: [{ id: 'S:AC-003' }, { id: 'S:AC-009' }] }],
+    observed: [{ claims: {
+      'S:AC-003': { verdict: 'matched', observedPaths: ['src/retry.js'] },
+      'S:AC-009': { verdict: 'matched', observedPaths: ['src/other.js'] }
+    } }]
+  };
+
+  const withoutAmendment = convergenceFacts(inputs).facts ?? convergenceFacts(inputs);
+  const before = (Array.isArray(withoutAmendment) ? withoutAmendment : withoutAmendment.facts ?? [])
+    .filter((entry) => entry.kind === 'verdict-against-superseded-clause');
+  assert.equal(before.length, 0, 'a superseded verdict was reported without any amendment');
+
+  const result = convergenceFacts({ ...inputs, amendedClauses: ['S:AC-003'] });
+  const facts = (Array.isArray(result) ? result : result.facts ?? [])
+    .filter((entry) => entry.kind === 'verdict-against-superseded-clause');
+  assert.equal(facts.length, 1, 'a revised clause with a recorded verdict produced no fact');
+  assert.deepEqual(facts[0].clauseIds, ['S:AC-003'], 'the fact named the wrong clause, or spread to an untouched one');
+  assert.match(facts[0].detail, /has not been re-checked/);
+  assert.doesNotMatch(facts[0].detail, /unimplemented/);
+});
+
+test('churn counts revisions of one clause, not amendments', async () => {
+  /**
+   * `[AMD:REQ-051]`. Five amendments across five clauses is a specification being filled in; five to
+   * one clause is a specification arguing with itself. Only the second is worth interrupting anyone
+   * about, so only the second crosses the floor.
+   */
+  const { amendmentChurn } = await import('../src/amendment.mjs');
+  const spread = amendmentChurn([
+    { clauses: ['S:AC-001'] }, { clauses: ['S:AC-002'] }, { clauses: ['S:AC-003'] }, { clauses: ['S:AC-004'] }
+  ]);
+  assert.equal(spread.amendments, 4);
+  assert.equal(spread.quiet, true, 'four amendments across four clauses were treated as churn');
+
+  const focused = amendmentChurn([{ clauses: ['S:AC-003'] }, { clauses: ['S:AC-003'] }, { clauses: ['S:AC-003'] }]);
+  assert.equal(focused.quiet, false);
+  assert.deepEqual(focused.unsettled, [{ clauseId: 'S:AC-003', revisions: 3 }]);
+
+  // The floor is configurable, and below it the same history is quiet.
+  assert.equal(amendmentChurn([{ clauses: ['S:AC-003'] }, { clauses: ['S:AC-003'] }]).quiet, true);
+  assert.equal(amendmentChurn([{ clauses: ['S:AC-003'] }, { clauses: ['S:AC-003'] }], { floor: 2 }).quiet, false);
+});
+
+test('the recap tells the story once, instead of leaving it to be reconstructed', async () => {
+  // `[AMD:REQ-052]`. Reconstruction from four sections and a diff is the part people skip when busy,
+  // which is exactly when an amendment is most likely to be missed.
+  const { amendmentChurn, amendmentRecap } = await import('../src/amendment.mjs');
+  const amendments = [
+    { toGeneration: 2, clauses: ['S:AC-003'], reason: 'tightened the retry rule' },
+    { toGeneration: 3, clauses: ['S:AC-003'] },
+    { toGeneration: 4, clauses: ['S:AC-003', 'S:AC-009'] }
+  ];
+  const recap = amendmentRecap({ amendments, churn: amendmentChurn(amendments) });
+  assert.match(recap, /amended 3 times/);
+  assert.match(recap, /generation 4/);
+  assert.match(recap, /2 clauses changed: S:AC-003, S:AC-009/);
+  assert.match(recap, /S:AC-003 has been revised 3 times/);
+  assert.match(recap, /worth settling before more is built on it/);
+
+  assert.equal(amendmentRecap({}), 'The specification has not changed since this interval began.');
+});

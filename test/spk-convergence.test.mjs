@@ -108,7 +108,11 @@ test('every fact kind the clause names is reachable', () => {
       'D:REQ-404': { verdict: 'matched', observedPaths: ['src/gone.ts'] }
     } }],
     acceptance: { missingPlannedTests: ['D:REQ-001'], missingObservedTests: ['D:REQ-002'], failedCommands: ['unit'], staleRunReasons: [] },
-    requiredEvidence: [{ kind: 'coverage report', path: 'evidence/coverage.json', present: false }]
+    requiredEvidence: [{ kind: 'coverage report', path: 'evidence/coverage.json', present: false }],
+    // `D:REQ-001` carries a `matched` verdict, so naming it as revised provokes
+    // `verdict-against-superseded-clause` [AMD:REQ-050] — a verdict recorded against wording the
+    // specification no longer has.
+    amendedClauses: ['D:REQ-001']
   });
   const kinds = new Set(facts.map((item) => item.kind));
   for (const kind of FACT_KINDS) assert.ok(kinds.has(kind), `no input produces a '${kind}' fact`);

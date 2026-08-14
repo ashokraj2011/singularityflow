@@ -136,3 +136,29 @@ test('the packet computes and never acts', async () => {
   }
   assert.throws(() => continuationPacket({}), /needs an open work interval/);
 });
+
+test('claims are shown with the generation they were made under', () => {
+  /**
+   * The subtlety that made this worth wiring carefully. `selectActiveSpecRecords` keeps only records
+   * matching the *current* generation — and an amendment has just moved it, so the developer's own
+   * claims are precisely what the active filter discards. Reading them anyway is right; reading them
+   * silently is not, because "you claimed this" and "you claimed this, one revision ago" are
+   * different facts and only one of them is true here.
+   */
+  const packet = continuationPacket({
+    interval: interval({ amendments: [amendment()] }),
+    claims: { generation: 1, claims: { 'S:AC-003': { expectedPaths: ['src/retry.js'], tests: [] } } },
+    claimsGeneration: 1
+  });
+  assert.equal(packet.amended.claimsGeneration, 1);
+  assert.equal(packet.amended.clauses[0].claimed, true, 'a claim from the prior generation was read as absent');
+  assert.deepEqual([...packet.amended.clauses[0].artifacts], ['src/retry.js']);
+  assert.equal(packet.amended.acknowledgment.required, true);
+
+  // With no claim map at all the section still renders; it just cannot say the work is yours.
+  const unclaimed = continuationPacket({ interval: interval({ amendments: [amendment()] }) });
+  assert.equal(unclaimed.amended.claimsGeneration, null);
+  assert.equal(unclaimed.amended.clauses[0].claimed, false);
+  assert.equal(unclaimed.amended.acknowledgment.required, false,
+    'an amendment blocked a developer whose claims could not even be read');
+});

@@ -253,6 +253,7 @@ import {
   InitiativeStateStore, StoryStateStore, loadInitiativeAggregate, loadStoryAggregate
 } from './state-stores.mjs';
 import { continuationPacket, submissionBlockedByAmendment } from './continuation-packet.mjs';
+import { loadSpecRecords } from './specifications.mjs';
 import { SnapshotCoordinator } from './snapshot-coordinator.mjs';
 import { TimingCollector, writeHumanTimings } from './dx-timings.mjs';
 import {
@@ -7585,9 +7586,24 @@ async function storyCommand(positionals, options) {
        * — computed once in `continuation-packet.mjs` and rendered here, so the JSON a tool reads and
        * the prose a person reads cannot describe different states.
        */
+      /**
+       * The developer's planned claims, so AMENDED can say what each changed clause means for
+       * *their* work rather than in the abstract.
+       *
+       * Read with `loadSpecRecords`, not `loadActiveSpecRecords`. "Active" means the current
+       * generation, and an amendment has just moved that — so the claims the developer actually
+       * made, under the generation they were working in, are precisely the ones the active filter
+       * discards. Taking the latest planned map and naming its generation is the honest read; the
+       * alternative reports "not claimed by you" about work they are holding in their hands.
+       */
+      const planned = current
+        ? (await loadSpecRecords(workDir(root, config, workflow.workItem.id))).planned.at(-1) ?? null
+        : null;
       const packet = current
         ? continuationPacket({
           interval: current,
+          claims: planned ?? {},
+          claimsGeneration: planned?.generation ?? null,
           // `changedFiles`, not `changes`: the latter returns porcelain text, and spreading a
           // string would iterate its characters into the packet as if each were a path.
           changedPaths: changedFiles(root),
@@ -7606,7 +7622,8 @@ async function storyCommand(positionals, options) {
       if (!packet.amended.quiet) {
         console.log(`Amended: ${packet.amended.clauses.map((clause) => clause.clauseId).join(', ')}`);
         for (const clause of packet.amended.clauses) {
-          console.log(`  ${clause.clauseId} — ${clause.claimed ? `you claimed this (${clause.artifacts.join(', ') || 'no paths'})` : 'not claimed by you'}`);
+          const under = packet.amended.claimsGeneration != null ? ` under generation ${packet.amended.claimsGeneration}` : '';
+          console.log(`  ${clause.clauseId} — ${clause.claimed ? `you claimed this${under} (${clause.artifacts.join(', ') || 'no paths'})` : 'not claimed by you'}`);
         }
       }
       const blocked = submissionBlockedByAmendment(packet);

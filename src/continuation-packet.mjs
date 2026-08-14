@@ -48,6 +48,7 @@ export function continuationPacket({
   currentConfigSha256 = null,
   currentSourceSha256 = null,
   claims = {},
+  claimsGeneration = null,
   acknowledgedGeneration = null,
   clauseText = {}
 } = {}) {
@@ -119,6 +120,12 @@ export function continuationPacket({
 
   const amended = Object.freeze({
     quiet: !amendments.length,
+    /**
+     * Which generation the claims below were recorded under. An amendment moves the generation, so
+     * the developer's claims are almost always from the one before it — saying so is the difference
+     * between "you claimed this" and "you claimed this, one revision ago".
+     */
+    claimsGeneration: claimsGeneration ?? null,
     amendments: Object.freeze(amendments.map((entry) => Object.freeze({ ...entry }))),
     clauses: Object.freeze(clauses),
     touchesMyWork,

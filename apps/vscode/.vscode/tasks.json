@@ -1,0 +1,8 @@
+{
+  // The build F5 depends on. Without it the debug session launches whatever `dist/` happened to
+  // contain, which is how you end up debugging yesterday's bundle and disbelieving a fix that works.
+  "version": "2.0.0",
+  "tasks": [
+    { "type": "npm", "script": "build", "group": "build", "problemMatcher": [] }
+  ]
+}

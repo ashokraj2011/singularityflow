@@ -1,0 +1,20 @@
+{
+  // Press F5 here to run the extension from source in a second VS Code window.
+  //
+  // Added because it was missing: the extension has been developed all along by invoking the
+  // Electron binary by hand with --extensionDevelopmentPath, which every contributor had to
+  // rediscover. The launch entry is the discoverable form of the same thing.
+  "version": "0.2.0",
+  "configurations": [
+    {
+      "name": "Run Singularity Flow extension",
+      "type": "extensionHost",
+      "request": "launch",
+      "args": ["--extensionDevelopmentPath=${workspaceFolder}"],
+      "outFiles": ["${workspaceFolder}/dist/**/*.cjs"],
+      // esbuild does not typecheck, so the build is the bundle only; `npm run typecheck` is separate
+      // and deliberately not on this path — a type error should not stop you looking at the UI.
+      "preLaunchTask": "npm: build"
+    }
+  ]
+}

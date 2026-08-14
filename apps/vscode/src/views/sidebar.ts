@@ -7,7 +7,7 @@
  */
 import * as vscode from 'vscode';
 import type { TreeNode } from './tree-model.ts';
-import { contentSecurityPolicy, escape, icon, ICON_NAMES, nonce, type IconName } from './webview.ts';
+import { brandSymbol, contentSecurityPolicy, escape, icon, ICON_NAMES, nonce, type IconName } from './webview.ts';
 
 export type SidebarSection = 'workspaces' | 'lifecycle' | 'inbox' | 'logs' | 'configuration' | 'help';
 
@@ -287,7 +287,10 @@ export class SidebarViewProvider implements vscode.WebviewViewProvider, vscode.D
           font:var(--vscode-font-size)/1.35 var(--vscode-font-family); }
         button { font:inherit; }
         .brand { display:flex; align-items:center; gap:9px; padding:13px 12px 11px; border-bottom:1px solid var(--vscode-sideBarSectionHeader-border,var(--vscode-panel-border)); }
-        .brand-mark { display:grid; place-items:center; width:27px; height:27px; border-radius:7px; color:white; background:linear-gradient(145deg,#1b7f45,#35a853); box-shadow:inset 0 0 0 1px rgba(255,255,255,.18); }
+        /* The mark sits on the sidebar itself, as it does in the brand lockup. It used to be a
+           generic workflow glyph reversed out of a green tile, which was a placeholder standing in
+           for a logo that did not exist yet. */
+        .brand-symbol { flex:none; display:block; }
         .brand-copy { min-width:0; line-height:1.05; }
         .brand-copy small { display:block; color:var(--accent); font-size:9px; font-weight:700; letter-spacing:.16em; text-transform:uppercase; }
         .brand-copy strong { display:block; margin-top:3px; font-size:15px; font-weight:650; letter-spacing:.01em; }
@@ -352,7 +355,7 @@ export class SidebarViewProvider implements vscode.WebviewViewProvider, vscode.D
         .freshness .ico { flex:none; opacity:.8; }
         @media (prefers-reduced-motion:reduce) { * { transition:none!important; animation:none!important; } }
       </style></head><body>
-      <header class="brand"><span class="brand-mark">${icon('workflow', { size: 20 })}</span>
+      <header class="brand">${brandSymbol(30)}
         <span class="brand-copy"><small>Singularity</small><strong>Flow</strong></span>
         <span class="brand-status${ready ? '' : ' connecting'}" role="img"
           aria-label="${ready ? 'Connected' : 'Connecting'}"

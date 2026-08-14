@@ -809,6 +809,27 @@ export function brandLockup({ compact = false } = {}): string {
   return `<div class="brand-lockup">${brandMark(compact ? 16 : 20)}<span class="brand-words">SINGULARITY <span>Flow</span></span></div>`;
 }
 
+/**
+ * The mark in the brand's own green, for the one place that is product chrome rather than document
+ * content: the sidebar header.
+ *
+ * `brandMark` defers to `currentColor` because it sits inside prose whose colour the theme owns.
+ * This is the logo, in the gradient the brand assets use — the same three stops as
+ * `media/brand.svg`. The gradient id is suffixed per call: two of these in one document with the
+ * same id would leave the second referring to the first's definition, and a mark that renders in a
+ * sibling's colour is the kind of bug nobody thinks to look for.
+ */
+export function brandSymbol(size = 30, id = 'sf-brand-flow'): string {
+  return `<svg class="brand-symbol" width="${size}" height="${size}" viewBox="0 0 24 24" fill="none"
+    role="img" aria-label="Singularity Flow" stroke-linecap="round" stroke-linejoin="round">
+    <defs><linearGradient id="${id}" x1="5" y1="20" x2="20" y2="4" gradientUnits="userSpaceOnUse">
+      <stop offset="0" stop-color="#419458"/><stop offset="0.52" stop-color="#5CAE5F"/><stop offset="1" stop-color="#83CC6D"/>
+    </linearGradient></defs>
+    <path stroke="url(#${id})" stroke-width="2.1" d="M14.85 4.18C12.18 3.72 11.28 5.34 11.02 8.36L10.48 14.78C10.18 18.32 9.10 20.10 6.82 20.10C6.04 20.10 5.42 19.78 5.02 19.18"/>
+    <g stroke="url(#${id})" stroke-width="0.85"><circle cx="17.18" cy="4.28" r="1.08"/><circle cx="19.78" cy="4.28" r="1.08"/><circle cx="12.62" cy="19.78" r="1.42"/></g>
+  </svg>`;
+}
+
 /** The mark alone, at whatever size the surface needs. */
 export function brandMark(size = 20): string {
   return `<svg class="brand-mark" width="${size}" height="${size}" viewBox="0 0 24 24" fill="none" aria-hidden="true"

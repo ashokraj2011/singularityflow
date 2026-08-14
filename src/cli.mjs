@@ -89,7 +89,7 @@ import { currentLocalEpicReservation, reserveLocalEpicBranch } from './local-ide
 import { archiveWorkspace, createWorkspace, createWorkspaceConfiguration, fetchWorkspace, forgetWorkspace, listWorkspaceDocuments, previewWorkspace, previewWorkspaceConfiguration, previewWorkspaceUpdate, readWorkspace, readWorkspaceRegistry, rememberWorkspace, repairWorkspace, restoreWorkspace, duplicateWorkspaceConfiguration, isCloneTarget, stageWorkspaceDocuments, updateWorkspaceConfiguration, workspaceRemoteCapabilities, workspaceRemoteDefaults, remoteDefaultBranch, workspaceRepositoryDefaults, workspaceArchiveReadiness, workspaceStatus } from './workspace.mjs';
 import { materializeConfigurationSnapshot, resolveConfigurationRemote } from './configuration-branch.mjs';
 import { analyzeWorkspaceImpact, listWorkspaceImpacts, previewWorkspaceImpact, promoteWorkspaceImpact, workspaceImpactStatus } from './workspace-impact.mjs';
-import { activateWorkspaceContext, activeWorkspaceFile, clearActiveWorkspaceContext, discardUnsupportedWorkflowWorkspaces, readActiveWorkspaceContext, workspacePromptLabel, workspaceRegistryFile } from './workspace-context.mjs';
+import { activateWorkspaceContext, activeWorkspaceFile, clearActiveWorkspaceContext, discardUnsupportedWorkflowWorkspaces, readActiveWorkspaceContext, workspacePromptLabel, workspaceContextForRepository, workspaceRegistryFile } from './workspace-context.mjs';
 import { appendLedgerIntent, archiveLedger, createLedgerIntent, initializeLedger, ledgerDoctor, ledgerLog, ledgerShow, ledgerStatus, reconcileLedger, verifyLedger } from './ledger.mjs';
 import { validateLedgerDeployment } from './ledger-deployment.mjs';
 import { CAPABILITY_KINDS, CAPABILITY_TYPES, CAPABILITIES_PATH, capabilityDeliveries, capabilityForRepository, capabilityTree, editCapability, flattenCapabilityTree, loadCapabilities, resolveCapabilityPolicy, resolveEffectiveCapabilityPolicy, validateCapabilities } from './capabilities.mjs';
@@ -433,6 +433,64 @@ function assertBaseCarriesGovernance(root, {
   );
 }
 
+/**
+ * Resolve one base branch across the capability this repository belongs to.
+ *
+ * Returns null — and the caller behaves exactly as before — when there is no active workspace, the
+ * repository declares no capability, or nothing was asked for and there is no terminal to ask at.
+ * A workspace-less repository is a supported way to use this product and must not start failing
+ * because a multi-repository feature exists.
+ */
+async function capabilityBaseForStart(root, { values = [], interactive = true } = {}) {
+  /**
+   * Scoped to this repository, not to whatever the machine last selected.
+   *
+   * `readActiveWorkspaceContext` answers "which workspace is selected on this machine", which is a
+   * different question and the wrong one: a workspace selected elsewhere must not govern a
+   * repository that is not part of it. `workspaceContextForRepository` returns a context only when
+   * the selection actually names this root.
+   */
+  const context = await workspaceContextForRepository(
+    root, activeWorkspaceFile(), workspaceRegistryFile()
+  ).catch(() => null);
+  if (!context) {
+    if (values.length) {
+      throw new SingularityFlowError(
+        '--from-branch chooses one base branch for every repository in a capability, and this '
+        + 'repository is not inside an active workspace. Use --base for a single repository.',
+        { code: 'CAPABILITY_BRANCH_INVALID' }
+      );
+    }
+    return null;
+  }
+  const capability = context.repositoryCapabilities?.[0] ?? null;
+  if (!capability) {
+    if (values.length) {
+      throw new SingularityFlowError(
+        `--from-branch needs a capability, and repository '${context.repositoryId}' declares none in `
+        + `workspace '${context.workspaceName}'. Use --base for a single repository.`,
+        { code: 'CAPABILITY_BRANCH_INVALID' }
+      );
+    }
+    return null;
+  }
+  // Nothing asked for and no terminal to ask at: leave the single-repository path untouched rather
+  // than reading every remote in the capability to answer a question nobody posed.
+  if (!values.length && !interactive) return null;
+
+  const { planCapabilityBase } = await import('./capability-start.mjs');
+  const workspace = await readWorkspace(context.workspacePath);
+  const plan = await planCapabilityBase(workspace, capability, {}, { values, interactive });
+  return {
+    capability,
+    workspaceRoot: workspace.path,
+    plan,
+    // The repository this command is running in takes its base from the same resolution as its
+    // siblings; there is no second decision for it.
+    localBase: plan.resolution.resolved[context.repositoryId]?.branch ?? null
+  };
+}
+
 export async function startCommand(positionals, options) {
   const id = requirePositional(positionals, 1, 'work ID');
   const root = repoRoot();
@@ -461,7 +519,25 @@ export async function startCommand(positionals, options) {
     ? remoteDefaultBranch(applicationRemote,
       run('git', ['ls-remote', '--symref', applicationRemote, 'HEAD'], { allowFailure: true }).stdout)
     : 'main';
-  const baseAtStart = explicitBase ?? config?.defaultBaseBranch ?? applicationDefault;
+  /**
+   * The base branch, chosen once for the whole capability.
+   *
+   * A Story is one unit of work but a capability is usually several repositories, and `--base` only
+   * ever spoke for the one this command runs in. `--from-branch` speaks for all of them: it is
+   * resolved against what each repository actually publishes, refuses before anything is touched if
+   * any of them lack it, and is recorded per repository so the evidence says what the work was
+   * really built on.
+   *
+   * Absent both flags and a terminal, nothing changes — this stays the single-repository start it
+   * has always been.
+   */
+  const fromBranch = optionStrings(options, 'from-branch');
+  const capabilityBase = await capabilityBaseForStart(root, {
+    values: fromBranch,
+    interactive: !optionBoolean(options, 'json') && !optionBoolean(options, 'yes')
+  });
+  const baseAtStart = capabilityBase?.localBase
+    ?? explicitBase ?? config?.defaultBaseBranch ?? applicationDefault;
   const configurationRemote = await resolveConfigurationRemote(root, remote);
   if (!config && !configurationRemote) {
     throw new SingularityFlowError(
@@ -481,6 +557,22 @@ export async function startCommand(positionals, options) {
     remote
   });
   const createdBranch = checkoutResult.startsWith('created-from-');
+
+  /**
+   * The siblings follow the same base.
+   *
+   * After this repository, not before: if the Story cannot start here there is no reason to have
+   * moved four other repositories onto a branch for it. Each is refused if dirty, and a repository
+   * the workspace has not cloned is named rather than silently left behind.
+   */
+  let capabilityRepositoriesPrepared = null;
+  if (capabilityBase) {
+    const { prepareCapabilityRepositories, printCapabilityBase } = await import('./capability-start.mjs');
+    capabilityRepositoriesPrepared = prepareCapabilityRepositories(
+      capabilityBase.workspaceRoot, capabilityBase.plan, canonicalBranch, { remote }
+    );
+    if (!optionBoolean(options, 'json')) printCapabilityBase(capabilityBase.plan, capabilityRepositoriesPrepared);
+  }
   let configurationSnapshot = null;
   try {
   // Application branches do not own shared configuration. A new Story receives the exact approved
@@ -622,7 +714,15 @@ export async function startCommand(positionals, options) {
       id: workflow.workItem.id,
       workType,
       currentPhase: workflow.currentPhase,
-      documents: supportingDocuments.length
+      documents: supportingDocuments.length,
+      // Present only when a capability base was chosen, so `--json` consumers can tell the
+      // single-repository start from the capability-wide one instead of inferring it.
+      ...(capabilityBase ? {
+        capabilityBase: {
+          ...capabilityBase.plan.record,
+          prepared: capabilityRepositoriesPrepared ?? []
+        }
+      } : {})
     },
     next: [
       narrationAction({

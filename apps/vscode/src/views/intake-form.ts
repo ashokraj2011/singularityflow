@@ -63,14 +63,34 @@ export interface IntakeForm {
   jiraConfigured: boolean;
   /** Why Jira is unavailable, when it is. */
   jiraReason: string | null;
+  /**
+   * The base branch every repository in the capability will be cut from.
+   *
+   * The editor has no TTY, so the CLI's prompt never fires here — the choice has to be rendered.
+   * Null means "each repository's own default", which is what start did before this existed.
+   */
+  baseBranch: string | null;
+  baseBranchChoices: BaseBranchChoice[];
+  /** Why the branches could not be listed, when they could not be. */
+  baseBranchReason: string | null;
   inFlight: InFlight[];
   busy: boolean;
   error: string | null;
 }
 
+/** One offered base branch, and how much of the capability publishes it. */
+export interface BaseBranchChoice {
+  branch: string;
+  present: number;
+  total: number;
+  everywhere: boolean;
+  missingFrom: string[];
+}
+
 export const EMPTY_INTAKE_FORM: IntakeForm = {
   shape: 'epic', tracker: 'none', key: '', id: '', title: '', description: '', goal: '',
   acceptanceCriteria: '', profile: null, profiles: [], workType: null, storyWorkflows: [],
+  baseBranch: null, baseBranchChoices: [], baseBranchReason: null,
   workflowReason: null,
   jiraConfigured: false, jiraReason: null, inFlight: [], busy: false, error: null
 };
@@ -198,10 +218,13 @@ export function intakeCommand(form: IntakeForm): string[] {
   }
 
   // A Story with a tracker is fetched by key; without one, its content is what was typed here.
-  if (tracked) return ['story', 'start', identifier, '--json', '--fetch', '--work-type', form.workType!];
+  // One base for the whole capability. Omitted entirely when nothing was chosen, so the
+  // single-repository default is reached by the same code path it always was.
+  const capabilityBase = form.baseBranch ? ['--from-branch', form.baseBranch] : [];
+  if (tracked) return ['story', 'start', identifier, '--json', '--fetch', '--work-type', form.workType!, ...capabilityBase];
   const args = ['start', identifier, '--json', '--fetch',
     '--title', form.title.trim(), '--description', form.description.trim(),
-    '--work-type', form.workType!];
+    '--work-type', form.workType!, ...capabilityBase];
   if (form.acceptanceCriteria.trim()) {
     args.push('--acceptance-criteria', form.acceptanceCriteria.trim());
   }
@@ -324,6 +347,38 @@ function profileHtml(form: IntakeForm): string {
  * configured workflows here keeps the decision visible and means every Story start carries an
  * explicit `--work-type` instead of falling into the non-interactive guard.
  */
+/**
+ * The base branch for every repository in the capability.
+ *
+ * Only shown when there is more than one repository — for a single-repository capability the choice
+ * is the same one `--base` always made, and a picker offering it would imply a decision that is not
+ * there. Coverage is on every row because a branch three repositories out of five publish is a
+ * choice a reader can still make, and being told which two are missing beats a refusal later.
+ */
+function baseBranchHtml(form: IntakeForm): string {
+  if (form.baseBranchReason) {
+    return `<section><h2>${icon('workflow')}Base branch</h2>
+      <p class="question">${escape(form.baseBranchReason)} Each repository will use its own default branch.</p></section>`;
+  }
+  if (form.baseBranchChoices.length < 2 && !form.baseBranch) return '';
+  const total = form.baseBranchChoices[0]?.total ?? 0;
+  if (total < 2) return '';
+  return `
+  <section>
+    <h2>${icon('workflow')}Base branch</h2>
+    <p class="question">Every repository in this capability is cut from the same branch. A branch that
+      is not published in all ${total} of them refuses the start and names the ones that lack it.</p>
+    <div class="choices">
+      ${form.baseBranchChoices.map((choice) => `
+      <label class="choice${choice.branch === form.baseBranch ? ' chosen' : ''}">
+        <input type="radio" name="baseBranch" value="${escape(choice.branch)}" data-base-branch="${escape(choice.branch)}"${choice.branch === form.baseBranch ? ' checked' : ''}>
+        <span class="choice-label">${escape(choice.branch)}</span>
+        <span class="choice-detail">${choice.everywhere ? `all ${choice.total}` : `${choice.present} of ${choice.total}`}${choice.missingFrom.length ? ` — missing from ${escape(choice.missingFrom.join(', '))}` : ''}</span>
+      </label>`).join('')}
+    </div>
+  </section>`;
+}
+
 function storyWorkflowHtml(form: IntakeForm): string {
   if (form.shape !== 'story') return '';
   if (!form.storyWorkflows.length) {
@@ -412,6 +467,7 @@ export function intakeHtml(form: IntakeForm): string {
 
   ${profileHtml(form)}
   ${storyWorkflowHtml(form)}
+  ${baseBranchHtml(form)}
   ${inFlightHtml(form)}
 
   <section>
@@ -447,6 +503,7 @@ export const INTAKE_SCRIPT = `
     if (el.dataset?.tracker) return vscode.postMessage({ type: 'tracker', value: el.dataset.tracker });
     if (el.dataset?.profile) return vscode.postMessage({ type: 'profile', value: el.dataset.profile });
     if (el.dataset?.workType) return vscode.postMessage({ type: 'workType', value: el.dataset.workType });
+    if (el.dataset?.baseBranch) return vscode.postMessage({ type: 'baseBranch', value: el.dataset.baseBranch });
     if (el.dataset?.field) vscode.postMessage({ type: 'field', field: el.dataset.field, value: el.value });
   });
   document.addEventListener('input', (event) => {

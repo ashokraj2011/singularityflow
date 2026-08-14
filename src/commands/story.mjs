@@ -41,6 +41,7 @@ import { existsSync } from 'node:fs';
 import { mkdir, readFile } from 'node:fs/promises';
 import { stdin as input, stdout as output } from 'node:process';
 import { STORY_LINEAGE_PROPERTY, activatePhaseAgent, activeActionContext, confirm, summary } from './kernel.mjs';
+import { capabilityBaseForRepository, prepareCapabilityRepositories, printCapabilityBase } from '../capability-start.mjs';
 
 /**
  * Commands this service delegates to that still live in the router. Dynamic so the cycle stays
@@ -177,11 +178,36 @@ export async function storyFetchCommand(positionals, options) {
     throw new SingularityFlowError(`Target repository origin does not match configured URL ${repository.url}.`);
   }
   assertClean(target);
+
+  /**
+   * The base this Story is fetched onto.
+   *
+   * `story fetch` pulled the delivery repository onto the Story branch cut from that repository's own
+   * default, which is the same single-repository assumption `start` used to make: fetching an
+   * approved Story into a capability of five repositories left the other four wherever they happened
+   * to be. `--from-branch` resolves one base across the capability, refusing before anything is
+   * touched if any repository lacks it.
+   *
+   * Nothing changes without the flag in a non-interactive run, and nothing changes at all outside a
+   * workspace — the default stays this repository's own default branch.
+   */
+  const capabilityBase = await capabilityBaseForRepository(target, {
+    values: optionStrings(options, 'from-branch'),
+    interactive: !optionBoolean(options, 'json') && !optionBoolean(options, 'yes')
+  });
   checkout(target, storyKey, {
-    base: repository.defaultBranch,
+    base: capabilityBase?.localBase ?? repository.defaultBranch,
     fetch: true,
     existingOnly: true
   });
+  if (capabilityBase) {
+    // After the delivery repository, for the same reason `start` does it in this order: if the Story
+    // cannot be fetched here there is no reason to have moved its siblings.
+    const prepared = prepareCapabilityRepositories(
+      capabilityBase.workspaceRoot, capabilityBase.plan, storyKey
+    );
+    if (!optionBoolean(options, 'json')) printCapabilityBase(capabilityBase.plan, prepared);
+  }
   const seed = await verifyFetchedStoryContext(target, storyKey, property);
 
   const config = await loadConfig(target);

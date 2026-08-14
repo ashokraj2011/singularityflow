@@ -22,6 +22,8 @@ import {
   parseBaseSelection, parseRemoteHeads, resolveCapabilityBase
 } from './capability-branches.mjs';
 import { assertClean, branch as currentBranch, checkout, repoRoot } from './git.mjs';
+import { readWorkspace } from './workspace.mjs';
+import { activeWorkspaceFile, workspaceContextForRepository, workspaceRegistryFile } from './workspace-context.mjs';
 import { nowIso, run, SingularityFlowError } from './util.mjs';
 
 /**
@@ -155,6 +157,63 @@ export function prepareCapabilityRepositories(workspaceRoot, plan, storyBranch, 
     });
   }
   return prepared;
+}
+
+/**
+ * Resolve one base branch across the capability this repository belongs to.
+ *
+ * Returns null — and the caller behaves exactly as before — when there is no active workspace, the
+ * repository declares no capability, or nothing was asked for and there is no terminal to ask at.
+ * A workspace-less repository is a supported way to use this product and must not start failing
+ * because a multi-repository feature exists.
+ */
+export async function capabilityBaseForRepository(root, { values = [], interactive = true } = {}) {
+  /**
+   * Scoped to this repository, not to whatever the machine last selected.
+   *
+   * `readActiveWorkspaceContext` answers "which workspace is selected on this machine", which is a
+   * different question and the wrong one: a workspace selected elsewhere must not govern a
+   * repository that is not part of it. `workspaceContextForRepository` returns a context only when
+   * the selection actually names this root.
+   */
+  const context = await workspaceContextForRepository(
+    root, activeWorkspaceFile(), workspaceRegistryFile()
+  ).catch(() => null);
+  if (!context) {
+    if (values.length) {
+      throw new SingularityFlowError(
+        '--from-branch chooses one base branch for every repository in a capability, and this '
+        + 'repository is not inside an active workspace. Use --base for a single repository.',
+        { code: 'CAPABILITY_BRANCH_INVALID' }
+      );
+    }
+    return null;
+  }
+  const capability = context.repositoryCapabilities?.[0] ?? null;
+  if (!capability) {
+    if (values.length) {
+      throw new SingularityFlowError(
+        `--from-branch needs a capability, and repository '${context.repositoryId}' declares none in `
+        + `workspace '${context.workspaceName}'. Use --base for a single repository.`,
+        { code: 'CAPABILITY_BRANCH_INVALID' }
+      );
+    }
+    return null;
+  }
+  // Nothing asked for and no terminal to ask at: leave the single-repository path untouched rather
+  // than reading every remote in the capability to answer a question nobody posed.
+  if (!values.length && !interactive) return null;
+
+  const workspace = await readWorkspace(context.workspacePath);
+  const plan = await planCapabilityBase(workspace, capability, {}, { values, interactive });
+  return {
+    capability,
+    workspaceRoot: workspace.path,
+    plan,
+    // The repository this command is running in takes its base from the same resolution as its
+    // siblings; there is no second decision for it.
+    localBase: plan.resolution.resolved[context.repositoryId]?.branch ?? null
+  };
 }
 
 /** One line per repository, so the reader can see the whole capability moved together. */

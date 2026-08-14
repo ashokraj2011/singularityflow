@@ -148,6 +148,7 @@ Every public operation is classified before its implementation module is importe
 | workflow | mutation | never | — | — |
 | workspace.archive | mutation | never | — | — |
 | workspace.archive-status | mutation | never | — | — |
+| workspace.branches | mutation | never | — | — |
 | workspace.capabilities | mutation | never | — | — |
 | workspace.copilot | mutation | required | — | copilot-cli |
 | workspace.create | mutation | never | — | — |

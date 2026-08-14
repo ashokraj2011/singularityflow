@@ -6,11 +6,12 @@
  * changes nothing.
  */
 import * as vscode from 'vscode';
-import { contentSecurityPolicy, navigationTarget, nonce, page } from './webview.ts';
+import {
+  contentSecurityPolicy, navigationTarget, nonce, page } from './webview.ts';
 import { navigateTo } from './navigate.ts';
 import {
   EMPTY_INTAKE_FORM, intakeCommand, intakeHtml, intakeProblems, INTAKE_SCRIPT, SHAPES,
-  type InFlight, type IntakeForm, type ProfileChoice, type Shape, type Tracker
+  type BaseBranchChoice, type InFlight, type IntakeForm, type ProfileChoice, type Shape, type Tracker
 } from './intake-form.ts';
 import { SingularityFlowClient } from '../cli/client.ts';
 
@@ -92,8 +93,8 @@ export class IntakePanel {
    * Each is separately best effort, so a temporarily unavailable tracker does not stop local work.
    */
   private async load(): Promise<void> {
-    const [profiles, storyWorkflows, tracker, inFlight] = await Promise.all([
-      this.profiles(), this.storyWorkflows(), this.tracker(), this.inFlight()
+    const [profiles, storyWorkflows, tracker, inFlight, baseBranches] = await Promise.all([
+      this.profiles(), this.storyWorkflows(), this.tracker(), this.inFlight(), this.baseBranches()
     ]);
     this.update({
       profiles,
@@ -106,6 +107,14 @@ export class IntakePanel {
       workType: storyWorkflows.workflows.find((entry) => entry.id === 'feature')?.id
         ?? storyWorkflows.workflows[0]?.id ?? null,
       workflowReason: storyWorkflows.reason,
+      baseBranchChoices: baseBranches.choices,
+      /**
+       * Defaulted to the most widely published branch, which is the first entry — the same default
+       * the terminal prompt takes on an empty answer, so the two surfaces do not disagree about what
+       * "just start" means.
+       */
+      baseBranch: baseBranches.choices[0]?.branch ?? null,
+      baseBranchReason: baseBranches.reason,
       jiraConfigured: tracker.configured,
       jiraReason: tracker.reason,
       // A tracker that is configured is almost always the one being used, so it leads — but "no
@@ -133,6 +142,33 @@ export class IntakePanel {
   }
 
   /** Story workflows come from workflow.yml through the engine's unified workflow catalog. */
+  /**
+   * The base branches the capability's repositories publish.
+   *
+   * A separate call rather than a snapshot field: it is several `ls-remote` round trips, and the
+   * snapshot is read on every refresh. Failure is a reason string, not an error — a repository
+   * outside a workspace, or one whose capability is undeclared, is a supported way to work and the
+   * form must still open.
+   */
+  private async baseBranches(): Promise<{ choices: BaseBranchChoice[]; reason: string | null }> {
+    try {
+      const listed = await this.client.run<{ choices?: BaseBranchChoice[]; unreachable?: { repository: string }[] }>(
+        ['workspace', 'branches', '--json']
+      );
+      const unreachable = listed.unreachable ?? [];
+      return {
+        choices: listed.choices ?? [],
+        // Named, because a branch missing from the list because a remote was unreachable looks
+        // exactly like a branch that does not exist.
+        reason: unreachable.length
+          ? `Could not read ${unreachable.map((entry) => entry.repository).join(', ')}, so the branch list may be incomplete.`
+          : null
+      };
+    } catch (error) {
+      return { choices: [], reason: (error as Error).message };
+    }
+  }
+
   private async storyWorkflows(): Promise<{ workflows: ProfileChoice[]; reason: string | null }> {
     try {
       const listed = await this.client.run<{
@@ -224,6 +260,11 @@ export class IntakePanel {
     if (message.type === 'profile') {
       const profile = this.form.profiles.find((entry) => entry.id === message.value);
       if (profile) this.update({ profile: profile.id, error: null });
+      return;
+    }
+    if (message.type === 'baseBranch') {
+      const choice = this.form.baseBranchChoices.find((entry) => entry.branch === message.value);
+      if (choice) this.update({ baseBranch: choice.branch, error: null });
       return;
     }
     if (message.type === 'workType') {

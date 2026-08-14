@@ -416,10 +416,21 @@ function remoteBranchHead(repositoryUrl, branchName, cwd) {
 }
 
 // The branch a story is cut from, and the branch its pull request targets.
-function parentBranchFor(root, repository, initiative) {
-  return isLeadRepository(root, repository)
-    ? (initiative.initiative.branch ?? initiative.initiative.id)
-    : repository.defaultBranch;
+/**
+ * The branch a Story's work is cut from, per repository.
+ *
+ * The lead repository branches from the epic branch so the Story inherits the approved artifacts —
+ * their recorded paths and hashes resolve — and shares an ancestor for integration. That is not
+ * overridable: an epic branch is the governance, not a preference.
+ *
+ * Every other repository used to take its own `defaultBranch`, with no way to say otherwise, so a
+ * capability working on `release/24.3` had its non-lead Stories quietly cut from `main`.
+ * `capabilityBase` is the resolved per-repository base from `capability-branches.mjs`, already
+ * checked against what each remote publishes, and it replaces that default where present.
+ */
+function parentBranchFor(root, repository, initiative, capabilityBase = null) {
+  if (isLeadRepository(root, repository)) return initiative.initiative.branch ?? initiative.initiative.id;
+  return capabilityBase?.repositories?.[repository.id]?.branch ?? repository.defaultBranch;
 }
 
 function storySeed(root, initiative, story, {
@@ -568,7 +579,7 @@ async function materializeStoryContext(root, portfolio, initiative, story, targe
   return records;
 }
 
-async function materializeStory(root, portfolio, initiative, story, actor) {
+async function materializeStory(root, portfolio, initiative, story, actor, { capabilityBase = null } = {}) {
   const repository = initiative.resolution.repositories?.[story.repository] ?? portfolio.repositories[story.repository];
   const target = await managedClonePath(root, initiative.initiative.id, story.repository);
   if (!(await exists(path.join(target, '.git')))) {
@@ -589,7 +600,7 @@ async function materializeStory(root, portfolio, initiative, story, actor) {
     // approved artifacts (their recorded paths and hashes resolve) and share an ancestor for
     // integration. Stories in other repositories keep branching from that repository's default
     // branch — an epic branch is never fabricated in a repository that has none.
-    const parentBranch = parentBranchFor(root, repository, initiative);
+    const parentBranch = parentBranchFor(root, repository, initiative, capabilityBase);
     const base = `origin/${parentBranch}`;
     if (run('git', ['rev-parse', '--verify', base], { cwd: target, allowFailure: true }).status !== 0) {
       throw new SingularityFlowError(parentBranch === repository.defaultBranch
@@ -604,7 +615,7 @@ async function materializeStory(root, portfolio, initiative, story, actor) {
     label: `Story '${branchName}' seed`,
     type: 'file'
   });
-  const parentBranch = parentBranchFor(root, repository, initiative);
+  const parentBranch = parentBranchFor(root, repository, initiative, capabilityBase);
   const baseCommit = run('git', ['rev-parse', `origin/${parentBranch}`], { cwd: target, allowFailure: true });
   const governedContext = await materializeStoryContext(root, portfolio, initiative, story, target);
   const seed = storySeed(root, initiative, story, {
@@ -688,7 +699,15 @@ export async function materializeInitiative(root, initiativeId, {
   dryRun = false,
   confirmation = null,
   env = process.env,
-  fetchImpl = globalThis.fetch
+  fetchImpl = globalThis.fetch,
+  /**
+   * The base branch resolved once for the capability, as a `baseBranchRecord`.
+   *
+   * Applies to every repository except the lead, which always branches from the epic branch — that
+   * is governance, not a preference. Null keeps the previous behaviour exactly: each repository
+   * branches from its own default.
+   */
+  capabilityBase = null
 } = {}) {
   const review = await initiativeBreakdownReview(root, initiativeId, { probe: !dryRun });
   if (dryRun) return { dryRun: true, review };
@@ -730,7 +749,7 @@ export async function materializeInitiative(root, initiativeId, {
   for (const story of breakdown.stories) {
     let receipt;
     try {
-      receipt = await materializeStory(root, portfolio, initiative, story, actor);
+      receipt = await materializeStory(root, portfolio, initiative, story, actor, { capabilityBase });
       initiative.childStories[story.id] = {
         ...story,
         workId: story.workId,
@@ -884,7 +903,15 @@ export async function initiativeMergeState(root, initiativeId) {
     if (run('git', ['fetch', '--prune', 'origin'], { cwd: cache, allowFailure: true }).status !== 0) {
       unreachable.push(story.id); continue;
     }
-    const parentBranch = parentBranchFor(root, repository, initiative);
+    /**
+     * The branch this Story was cut from, as recorded when it was materialized — not recomputed.
+     *
+     * Recomputing asks "what would the base be today", and the answer changes when the capability
+     * moves to a new release line. A Story cut from `release/24.3` would then be compared against
+     * `main`, find itself not an ancestor, and report unmerged forever. The recorded value is the
+     * only one that answers the question actually being asked.
+     */
+    const parentBranch = story.parentBranch ?? parentBranchFor(root, repository, initiative);
     const storyRef = `origin/${workId}`;
     const parentRef = `origin/${parentBranch}`;
     const storyHead = run('git', ['rev-parse', '--verify', storyRef], { cwd: cache, allowFailure: true });

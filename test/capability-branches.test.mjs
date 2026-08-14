@@ -157,3 +157,52 @@ test('an unusable resolution is never recorded', () => {
   const resolution = resolveCapabilityBase({ repositories: PUBLISHED, selection: parseBaseSelection(['release/24.3']) });
   assert.throws(() => baseBranchRecord(resolution), /unusable base resolution is never recorded/);
 });
+
+/**
+ * The surfaces, checked where they are actually wired rather than by re-testing the resolver.
+ * The defect this guards is the one this codebase keeps producing: a computation that is written,
+ * validated, and never reaches a caller.
+ */
+import { readFile } from 'node:fs/promises';
+const source = (name) => readFile(new URL(`../${name}`, import.meta.url), 'utf8');
+
+test('every clone path that had a hard-coded default branch now accepts the capability base', async () => {
+  // `start`, `story fetch`, and the governed initiative materialization were three separate places
+  // that each decided a base branch on their own.
+  const cli = await source('src/cli.mjs');
+  assert.match(cli, /capabilityBaseForRepository\(root, \{/, 'start does not resolve a capability base');
+  assert.match(cli, /capabilityBase\?\.localBase\s*\n?\s*\?\?\s*explicitBase/, 'start ignores the resolved base');
+
+  const story = await source('src/commands/story.mjs');
+  assert.match(story, /capabilityBaseForRepository\(target, \{/, 'story fetch does not resolve a capability base');
+  assert.match(story, /base: capabilityBase\?\.localBase \?\? repository\.defaultBranch/, 'story fetch ignores it');
+
+  const initiative = await source('src/initiative-repositories.mjs');
+  assert.match(initiative, /capabilityBase\?\.repositories\?\.\[repository\.id\]\?\.branch \?\? repository\.defaultBranch/,
+    'the initiative path still hard-codes each repository default');
+  // The lead repository is not overridable: branching from the epic branch is governance.
+  assert.match(initiative, /if \(isLeadRepository\(root, repository\)\) return initiative\.initiative\.branch/);
+});
+
+test('merge state uses the branch a Story was recorded as cut from, not a fresh computation', async () => {
+  // Recomputing asks what the base would be today; a Story cut from a release line would then be
+  // compared against main and report unmerged forever.
+  const initiative = await source('src/initiative-repositories.mjs');
+  assert.match(initiative, /const parentBranch = story\.parentBranch \?\? parentBranchFor\(root, repository, initiative\);/);
+});
+
+test('the editor can list the branches, because it cannot answer a prompt', async () => {
+  const cli = await source('src/cli.mjs');
+  assert.match(cli, /subcommand === 'branches'/, 'there is no way for a webview to fetch the choices');
+  const registry = await source('src/command-registry.mjs');
+  // Listing branches reads remotes and must never be classified as a model operation.
+  assert.match(registry, /WORKSPACE_NEVER_OPERATIONS = new Set\(\[\s*\n\s*'branches'/);
+
+  const panel = await source('apps/vscode/src/views/intake-panel.ts');
+  assert.match(panel, /\['workspace', 'branches', '--json'\]/, 'the intake panel never asks for the choices');
+  const form = await source('apps/vscode/src/views/intake-form.ts');
+  assert.match(form, /form\.baseBranch \? \['--from-branch', form\.baseBranch\] : \[\]/,
+    'the intake form collects a base branch and does not pass it');
+  // Both start shapes carry it: a tracked Story and an untracked one start through different args.
+  assert.equal((form.match(/\.\.\.capabilityBase/g) ?? []).length, 2);
+});

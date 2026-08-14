@@ -433,64 +433,6 @@ function assertBaseCarriesGovernance(root, {
   );
 }
 
-/**
- * Resolve one base branch across the capability this repository belongs to.
- *
- * Returns null — and the caller behaves exactly as before — when there is no active workspace, the
- * repository declares no capability, or nothing was asked for and there is no terminal to ask at.
- * A workspace-less repository is a supported way to use this product and must not start failing
- * because a multi-repository feature exists.
- */
-async function capabilityBaseForStart(root, { values = [], interactive = true } = {}) {
-  /**
-   * Scoped to this repository, not to whatever the machine last selected.
-   *
-   * `readActiveWorkspaceContext` answers "which workspace is selected on this machine", which is a
-   * different question and the wrong one: a workspace selected elsewhere must not govern a
-   * repository that is not part of it. `workspaceContextForRepository` returns a context only when
-   * the selection actually names this root.
-   */
-  const context = await workspaceContextForRepository(
-    root, activeWorkspaceFile(), workspaceRegistryFile()
-  ).catch(() => null);
-  if (!context) {
-    if (values.length) {
-      throw new SingularityFlowError(
-        '--from-branch chooses one base branch for every repository in a capability, and this '
-        + 'repository is not inside an active workspace. Use --base for a single repository.',
-        { code: 'CAPABILITY_BRANCH_INVALID' }
-      );
-    }
-    return null;
-  }
-  const capability = context.repositoryCapabilities?.[0] ?? null;
-  if (!capability) {
-    if (values.length) {
-      throw new SingularityFlowError(
-        `--from-branch needs a capability, and repository '${context.repositoryId}' declares none in `
-        + `workspace '${context.workspaceName}'. Use --base for a single repository.`,
-        { code: 'CAPABILITY_BRANCH_INVALID' }
-      );
-    }
-    return null;
-  }
-  // Nothing asked for and no terminal to ask at: leave the single-repository path untouched rather
-  // than reading every remote in the capability to answer a question nobody posed.
-  if (!values.length && !interactive) return null;
-
-  const { planCapabilityBase } = await import('./capability-start.mjs');
-  const workspace = await readWorkspace(context.workspacePath);
-  const plan = await planCapabilityBase(workspace, capability, {}, { values, interactive });
-  return {
-    capability,
-    workspaceRoot: workspace.path,
-    plan,
-    // The repository this command is running in takes its base from the same resolution as its
-    // siblings; there is no second decision for it.
-    localBase: plan.resolution.resolved[context.repositoryId]?.branch ?? null
-  };
-}
-
 export async function startCommand(positionals, options) {
   const id = requirePositional(positionals, 1, 'work ID');
   const root = repoRoot();
@@ -532,7 +474,8 @@ export async function startCommand(positionals, options) {
    * has always been.
    */
   const fromBranch = optionStrings(options, 'from-branch');
-  const capabilityBase = await capabilityBaseForStart(root, {
+  const { capabilityBaseForRepository } = await import('./capability-start.mjs');
+  const capabilityBase = await capabilityBaseForRepository(root, {
     values: fromBranch,
     interactive: !optionBoolean(options, 'json') && !optionBoolean(options, 'yes')
   });
@@ -5880,6 +5823,50 @@ async function workspaceCommand(positionals, options) {
   const registry = workspaceRegistryFile();
   const selectionFile = activeWorkspaceFile();
   const compatibility = await discardUnsupportedWorkflowWorkspaces(registry, selectionFile);
+  /**
+   * The base branches on offer for a capability, and which repositories publish each.
+   *
+   * Read-only and separate from `start` because the editor cannot answer an interactive prompt: it
+   * has to render the choice itself, which means asking what the choices are before committing to
+   * one. Not folded into the repository snapshot — it is several `ls-remote` calls over the network,
+   * and the snapshot is read on every refresh.
+   */
+  if (subcommand === 'branches') {
+    const { branchChoices, capabilityRepositories } = await import('./capability-branches.mjs');
+    const { publishedBranches } = await import('./capability-start.mjs');
+    const context = await readActiveWorkspaceContext(selectionFile, registry, { refresh: false });
+    const workspace = await readWorkspace(context.workspacePath);
+    const capability = optionString(options, 'capability')
+      ?? context.repositoryCapabilities?.[0]
+      ?? null;
+    if (!capability) {
+      throw new SingularityFlowError(
+        `Repository '${context.repositoryId}' declares no capability in workspace '${context.workspaceName}'. `
+        + 'Pass --capability to list branches for one.',
+        { code: 'CAPABILITY_BRANCH_INVALID' }
+      );
+    }
+    const repositories = capabilityRepositories(workspace, capability);
+    const { published, unreachable } = publishedBranches(repositories);
+    const result = {
+      resultType: 'capability-branches',
+      schemaVersion: 1,
+      capability,
+      repositories: repositories.map((repository) => ({ id: repository.id, defaultBranch: repository.defaultBranch })),
+      // Reported rather than thrown: the editor should render the branches it does know about and
+      // say which repositories it could not reach, not show an empty list or an error dialog.
+      unreachable,
+      choices: branchChoices(published)
+    };
+    if (optionBoolean(options, 'json')) return console.log(JSON.stringify(result, null, 2));
+    console.log(`Base branches for capability '${capability}' (${repositories.length} repositories):`);
+    for (const choice of result.choices) {
+      console.log(`  ${choice.branch.padEnd(28)} ${choice.everywhere ? `all ${choice.total}` : `${choice.present} of ${choice.total}`}`
+        + (choice.missingFrom.length ? ` — missing from ${choice.missingFrom.join(', ')}` : ''));
+    }
+    for (const entry of unreachable) console.warn(`Warning: could not read ${entry.repository} (${entry.url}).`);
+    return result;
+  }
   if (subcommand === 'prune') {
     if (optionBoolean(options, 'json')) return console.log(JSON.stringify(compatibility, null, 2));
     if (!compatibility.removed.length) return console.log('All saved workspaces use workflow version 2 or are not initialized yet.');

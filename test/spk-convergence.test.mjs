@@ -327,7 +327,7 @@ test('the agent that runs convergence cannot approve, reopen or advance', async 
    * three acts it must not perform live in commands a human runs, and the surest way to keep that
    * true is for the converge path to contain none of their calls.
    */
-  const cli = await readFile(new URL('../src/cli.mjs', import.meta.url), 'utf8');
+  const cli = await (await import('./helpers/command-source.mjs')).commandLayerSource();
   const converge = cli.slice(cli.indexOf('async function storyConvergeCommand'), cli.indexOf('function convergenceSourceRef'));
   for (const forbidden of ['approvePhase(', 'rejectPhase(', 'submitCommand(', 'publishGeneration(']) {
     assert.equal(converge.includes(forbidden), false, `story converge calls ${forbidden}`);

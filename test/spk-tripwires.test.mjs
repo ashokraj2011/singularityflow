@@ -22,6 +22,7 @@ import { STARTER_CHECKLIST } from '../src/specification-quality.mjs';
 import { policyValue, validateCitations } from '../src/constitution.mjs';
 
 const SOURCE = new URL('../src/', import.meta.url);
+import { commandFunction, commandLayerSource } from './helpers/command-source.mjs';
 
 /**
  * Source with comments removed.
@@ -110,7 +111,7 @@ test('a model cannot confirm a checklist article', () => {
 });
 
 test('a checklist shortcut flag does not exist anywhere in the CLI', async () => {
-  const cli = withoutComments(await readFile(new URL('cli.mjs', SOURCE), 'utf8'));
+  const cli = withoutComments(await commandLayerSource());
   for (const flag of ['all-satisfied', 'accept-all', 'auto-confirm', 'skip-checklist']) {
     assert.doesNotMatch(cli, new RegExp(`'${flag}'`), `the CLI accepts --${flag}, which is a rubber stamp with a human's name on it`);
   }
@@ -161,14 +162,14 @@ test('the agent running convergence cannot create rework or advance', async () =
    * path `[SPK:REQ-182]`, and advancement is an explicit human action `[SPK:REQ-183]`. The bypass
    * is `converge` doing either itself, at which point a model has moved the Story.
    */
-  const cli = withoutComments(await readFile(new URL('cli.mjs', SOURCE), 'utf8'));
-  const converge = cli.slice(cli.indexOf('async function storyConvergeCommand'), cli.indexOf('function convergenceSourceRef'));
+  const cli = withoutComments(await commandLayerSource());
+  const converge = await commandFunction('storyConvergeCommand');
   for (const forbidden of ['rejectPhase', 'approvePhase', 'submitPhase', 'publishGeneration']) {
     assert.doesNotMatch(converge, new RegExp(`\\b${forbidden}\\s*\\(`), `story converge calls ${forbidden} itself`);
   }
 
   // Advancement refuses without an explicit confirmation, and the deterministic run never sets it.
-  const advance = cli.slice(cli.indexOf('async function storyAdvanceCommand'), cli.indexOf('async function constitutionCommand'));
+  const advance = await commandFunction('storyAdvanceCommand');
   assert.match(advance, /optionBoolean\(options, 'confirm'\)/, 'advancement does not require an explicit confirmation');
   assert.match(advance, /advancementBlocked\(/, 'advancement does not check for unresolved blockers');
 
@@ -270,7 +271,7 @@ test('the deterministic paths never invoke a model', async () => {
 test('an assisted pass receives a bounded envelope, not the repository', async () => {
   // `[SPK:REQ-131]`. Enforced on what is *sent*, because once a model has the content no policy
   // downstream can un-send it.
-  const cli = withoutComments(await readFile(new URL('cli.mjs', SOURCE), 'utf8'));
+  const cli = withoutComments(await commandLayerSource());
   for (const marker of ['runAssistedAnalysis', 'runAssistedConvergence']) {
     const body = cli.slice(cli.indexOf(`async function ${marker}`), cli.indexOf(`async function ${marker}`) + 2200);
     assert.match(body, /tools: \{ mode: 'none' \}/, `${marker} grants the model tools`);

@@ -203,14 +203,14 @@ test('rework blocks advancement and offers only the governed change request', as
    * `story advance` — is what a blocking finding prevents. The end-to-end fixture walked into that
    * deadlock; this test had been holding it in place.
    */
-  const cli = withoutComments(await readFile(new URL('../src/cli.mjs', import.meta.url), 'utf8'));
-  const converge = cli.slice(cli.indexOf('async function storyConvergeCommand'), cli.indexOf('function convergenceSourceRef'));
+  const { commandFunction } = await import('./helpers/command-source.mjs');
+  const converge = await commandFunction('storyConvergeCommand');
   assert.match(converge, /singularity-flow story rework --confirm/, 'convergence offers no reachable rework command');
   assert.doesNotMatch(converge, /reject convergence/, 'convergence still offers a command that cannot run from in_progress');
 
   // And `story rework` routes through `rejectPhase`, so rework is the existing change-request
   // transition rather than a second one invented for convergence `[SPK:AC-003]`.
-  const rework = cli.slice(cli.indexOf('async function storyReworkCommand'), cli.indexOf('async function storyAdvanceCommand'));
+  const rework = await commandFunction('storyReworkCommand');
   assert.match(rework, /rejectPhase\(root, config, workflow/, 'rework does not use the governed rejection path');
   assert.match(rework, /convergenceRework: \{/, 'rework does not present the projection that authorises it');
 });

@@ -277,8 +277,8 @@ test('the P3 computations are reachable from a command, not just exported', asyn
    * Asserted against the call sites rather than behaviour: the behaviour is covered above, and what
    * is at risk here is the wiring being removed by a refactor that keeps every test green.
    */
-  const cli = (await (await import('node:fs/promises')).readFile(new URL('../src/cli.mjs', import.meta.url), 'utf8'))
-    .replace(/\/\*[\s\S]*?\*\//g, '').replace(/(^|[^:])\/\/.*$/gm, '$1');
+  const { commandLayerSource, withoutComments } = await import('./helpers/command-source.mjs');
+  const cli = withoutComments(await commandLayerSource());
 
   // Convergence is told which clauses the interval's amendments touched.
   assert.match(cli, /amendedClauses: \[\.\.\.new Set\(\(workflow\.workIntervals\?\.current\?\.amendments/,

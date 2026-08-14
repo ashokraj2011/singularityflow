@@ -1,74 +1,22 @@
 import readline from 'node:readline/promises';
+
+import { actionActor, activatePhaseAgent, activeActionContext, confirm, summary } from './commands/kernel.mjs';
 import os from 'node:os';
 import path from 'node:path';
 import * as style from './style.mjs';
 import { stdin as input, stdout as output } from 'node:process';
 import { existsSync } from 'node:fs';
-import {
-  addPhase, defineWorkflow, editPhase, editWorkflow, listProfiles, listWorkflows, upsertPhaseOutput
-} from './workflow-authoring.mjs';
-import { lstat, mkdir, readFile, realpath } from 'node:fs/promises';
+import { addPhase, defineWorkflow, editPhase, editWorkflow, listWorkflows, upsertPhaseOutput } from './workflow-authoring.mjs';
+import { lstat, readFile, realpath } from 'node:fs/promises';
 import YAML from 'yaml';
-import {
-  SingularityFlowError,
-  exists,
-  nowIso,
-  optionBoolean,
-  optionNumber,
-  optionString,
-  optionStrings,
-  parseArgs,
-  posix,
-  readJson,
-  requirePositional,
-  run,
-  snapshot,
-  table,
-  writeJson,
-  writeText
-} from './util.mjs';
-import { add, assertClean, branch, changedFiles, changes, checkout, commit, fastForwardTo, fetchOrigin, fetchRemote, fileAtRef, gitDir, hasUpstream, head, identity, localBranches, pullFastForward, refExists, refHead, remoteBranches, repoRoot } from './git.mjs';
+import { SingularityFlowError, exists, nowIso, optionBoolean, optionNumber, optionString, optionStrings, parseArgs, posix, readJson, requirePositional, run, snapshot, table, writeJson, writeText } from './util.mjs';
+import { add, assertClean, branch, changes, checkout, commit, fastForwardTo, fetchOrigin, fetchRemote, fileAtRef, gitDir, hasUpstream, head, identity, localBranches, pullFastForward, refExists, refHead, remoteBranches, repoRoot } from './git.mjs';
 import { buildRepositorySubjectIndex, buildRepositorySubjectIndexFromRefs, resolveContext } from './repository-subject-index.mjs';
-import {
-  actorKey,
-  approvePhase,
-  assertNoPendingPublication,
-  cancelWorkflow,
-  commitAndPublish,
-  CONFIG_PATH,
-  createWorkflow,
-  currentPhase,
-  loadConfig,
-  preparePhase,
-  preparePhaseInputs,
-  promoteDesignSource,
-  publishGeneration,
-  reconcilePhaseTelemetry,
-  registerArtifact,
-  rejectPhase,
-  reopenWorkflow,
-  resolveWorkItem,
-  saveStoryDraft,
-  transactStory,
-  scanArtifacts,
-  storyPublicationPending,
-  submitPhase,
-  syncPublication,
-  validateId,
-  validateWorkflow,
-  workflowBranchAllowed,
-  workflowPublicationBranch,
-  workflowPath,
-  workDir
-} from './state-stores.mjs';
+import { approvePhase, assertNoPendingPublication, cancelWorkflow, commitAndPublish, CONFIG_PATH, createWorkflow, currentPhase, loadConfig, preparePhase, preparePhaseInputs, promoteDesignSource, publishGeneration, reconcilePhaseTelemetry, registerArtifact, rejectPhase, reopenWorkflow, resolveWorkItem, saveStoryDraft, transactStory, scanArtifacts, storyPublicationPending, submitPhase, syncPublication, validateId, validateWorkflow, workflowBranchAllowed, workflowPublicationBranch, workflowPath, workDir } from './state-stores.mjs';
 import { copilotTelemetryStatus } from './telemetry.mjs';
 import { listPromptAudits, promptAuditStatus, readPromptAudit, setPromptAudit } from './prompt-audit.mjs';
 import { assertPhaseSequence, withConfirmationPort } from './sequence.mjs';
-import {
-  addComment, assignIssue, discoverJiraConnection, getIssue, getIssueHierarchy, getMyPermissions, issueToMarkdown,
-  getIssueProperty, listBoards, listBoardStories, listEpicStories, listEpics, listFields, listIssueTransitions,
-  listMyIssues, listProjects, moveIssueToSprint, setIssuePriority, transitionIssue
-} from './jira.mjs';
+import { addComment, assignIssue, discoverJiraConnection, getIssue, getIssueHierarchy, getMyPermissions, issueToMarkdown, listBoards, listBoardStories, listEpicStories, listEpics, listFields, listIssueTransitions, listMyIssues, listProjects, moveIssueToSprint, setIssuePriority, transitionIssue } from './jira.mjs';
 import { jiraDoctor, jiraDoctorText } from './jira-doctor.mjs';
 import { installPlugin, listPlugins, pluginPath, uninstallPlugin } from './plugin.mjs';
 import { runGovernanceGate } from './governance.mjs';
@@ -77,16 +25,10 @@ import { effectiveMaterializationPolicy } from './world-model-materialization.mj
 import { launchHostSession } from './host-session-launcher.mjs';
 import { operationContext } from './operation-context.mjs';
 import { invokeModel, listModelInvocations, resolveModelProvider } from './model-runner.mjs';
-import {
-  assertProducerAllowed, buildGenerationAuthorship, importManualArtifact, inspectInPlaceArtifact, normalizeAuthorshipOptions
-} from './manual-authorship.mjs';
+import { assertProducerAllowed, buildGenerationAuthorship, importManualArtifact, inspectInPlaceArtifact, normalizeAuthorshipOptions } from './manual-authorship.mjs';
 import { initializationStatus, initializeDefinition, loadDefinition, resolveWorkType, validateDefinition, WORKFLOW_PATH } from './config.mjs';
 import { loadImpactDefinition } from './impact-config.mjs';
-import {
-  collectImpactEvidence, compareImpactReceipts, confirmImpactEnrollment, exportImpactReceipts, hydrateImpactPlan,
-  impactDoctor, importImpactEvidence, listImpactReceipts, recordImpactExposure,
-  verifyImpactReceipt
-} from './impact.mjs';
+import { collectImpactEvidence, compareImpactReceipts, confirmImpactEnrollment, exportImpactReceipts, hydrateImpactPlan, impactDoctor, importImpactEvidence, listImpactReceipts, recordImpactExposure, verifyImpactReceipt } from './impact.mjs';
 import { registerReference, resolveReference } from './harness-imports.mjs';
 import { beginHarnessInvocation, completeHarnessInvocation, harnessReport } from './harness-events.mjs';
 import { activateWorkItemSession, loadCopilotSession, loadSession, agentSessionStatus, restoreAgentSession, restoreCopilotSession, selectIntakeSource, selectAgent, selectWorkType, setAgentSession } from './session.mjs';
@@ -100,238 +42,89 @@ import { runFirstRunGuide } from './first-run-guide.mjs';
 import { nextStepsSnapshot, nextStepsText } from './nextsteps.mjs';
 import { loadHelpDocument } from './help.mjs';
 import { agentMappingStatus, agentStatus, discoverAgents, lockAgent, prepareRemoteOutputs, remoteOutputConflicts, syncAgent } from './agents.mjs';
-import {
-  attestMcpHost, mcpDoctor, mcpStatus, recordMcpEvidence, scaffoldFigmaMcp, warmMcpHost,
-  scaffoldPlaywrightMcp
-} from './mcp.mjs';
+import { attestMcpHost, mcpDoctor, mcpStatus, recordMcpEvidence, scaffoldFigmaMcp, warmMcpHost, scaffoldPlaywrightMcp } from './mcp.mjs';
 import { approvedDesignSourceBinding, verifyDesignSourceLifecycle } from './design-sources.mjs';
 import { generateDesignInventory } from './design-inventory.mjs';
 import { evaluateVisualCoverage } from './visual-coverage.mjs';
 import { compareVisualArtifacts, listVisualComparisons } from './visual-compare.mjs';
-import {
-  bootstrapWorkspacePortfolio,
-  deleteConfigurationFile,
-  deleteConfigurationTemplate,
-  exportConfigurationBundle,
-  repositorySnapshot,
-  publishEditorConfiguration,
-  readConfigurationFile,
-  saveConfigurationFile,
-  selectEditorAgent,
-  validateEditorConfiguration
-} from './editor.mjs';
-import { verifyGroundingRecord, worldModelCommit, worldModelRebuildReason, worldModelSourceSnapshot } from './grounding.mjs';
-import {
-  filterLogEntries, LOG_LEVELS, logFilePath, normalizeLogLevel, parseLogLines, repositoryLogger, resolveLogging
-} from './logging.mjs';
+import { bootstrapWorkspacePortfolio, deleteConfigurationFile, deleteConfigurationTemplate, exportConfigurationBundle, repositorySnapshot, publishEditorConfiguration, readConfigurationFile, saveConfigurationFile, selectEditorAgent, validateEditorConfiguration } from './editor.mjs';
+import { verifyGroundingRecord, worldModelRebuildReason } from './grounding.mjs';
+import { filterLogEntries, logFilePath, normalizeLogLevel, parseLogLines, repositoryLogger, resolveLogging } from './logging.mjs';
 import { collectWorkspaceLogs } from './workspace-logs.mjs';
 import { doctorSnapshot, doctorText } from './doctor.mjs';
 import { createReviewBundle, reviewHtml, reviewMarkdown } from './review.mjs';
-import {
-  acknowledgeAmendment, createLocalCheckpoint, escalationPlan, reconcileWorkInterval
-} from './work-intervals.mjs';
+
 import { installWorkflow, simulateWorkflow, simulationText, workflowCatalog, workflowDiff } from './workflow-catalog.mjs';
 import { applyRecovery, assignPhase, recoveryPlan, recoveryText, watchSnapshot, watchText } from './collaboration.mjs';
 import { copilotAgentStartHook, agentGuardHook, sessionStartAgentHook } from './agent-hooks.mjs';
 import { approvalInbox, approvalInboxText } from './inbox.mjs';
 import { requireApprovalAuthority } from './approval-authority.mjs';
-import {
-  answerSelectionReceipt, beginCustomSelectionReceipt, beginSelectionReceipt, consumeSelectionReceipt,
-  resolveCustomSelectionReceipt, resolveSelectionReceipt, selectionReceiptStatus
-} from './choices.mjs';
+import { answerSelectionReceipt, beginCustomSelectionReceipt, beginSelectionReceipt, consumeSelectionReceipt, resolveCustomSelectionReceipt, resolveSelectionReceipt, selectionReceiptStatus } from './choices.mjs';
 import { loadPortfolio } from './initiative-config.mjs';
-import {
-  KNOWLEDGE_ROOT,
-  currentKnowledge, filterKnowledge, harvestInitiativeKnowledge, readKnowledge, recordKnowledge, resolveKnowledge
-} from './knowledge.mjs';
-import {
-  commitInitiativeChange, createInitiative, initiativeProgress, initiativeStartPreflight, listInitiatives,
-  availableInitiativeOutputs, initiativeRelative, prepareInitiativePhase, restartInitiative, secureInitiativePath,
-  saveInitiativeDraft, selectInitiativePhaseOutputs, setInitiativeApplicability, initiativeApplicabilityState,
-  syncInitiativePublication, validateInitiativeId
-} from './state-stores.mjs';
-import {
-  approveInitiative, evaluateInitiativePhase, initiativeBundle, publishInitiativePhase,
-  readInitiativeRecords, registerInitiativeEvidence
-} from './initiative-evidence.mjs';
+import { KNOWLEDGE_ROOT, currentKnowledge, filterKnowledge, harvestInitiativeKnowledge, readKnowledge, recordKnowledge, resolveKnowledge } from './knowledge.mjs';
+import { commitInitiativeChange, createInitiative, initiativeProgress, initiativeStartPreflight, listInitiatives, availableInitiativeOutputs, initiativeRelative, prepareInitiativePhase, restartInitiative, secureInitiativePath, saveInitiativeDraft, selectInitiativePhaseOutputs, setInitiativeApplicability, initiativeApplicabilityState, syncInitiativePublication, validateInitiativeId } from './state-stores.mjs';
+import { approveInitiative, evaluateInitiativePhase, initiativeBundle, publishInitiativePhase, readInitiativeRecords, registerInitiativeEvidence } from './initiative-evidence.mjs';
 import { rejectInitiative } from './initiative-graph.mjs';
 import { impactDocument, impactFindings, initiativeImpact } from './initiative-impact.mjs';
-import {
-  initiativeBreakdownReview, initiativeMergeState, loadInitiativeBreakdown, materializeInitiative, sameRepositoryRemote,
-  syncInitiativeRepositories
-} from './initiative-repositories.mjs';
-import {
-  adoptJiraDrift, adoptJiraEpic, applyJiraWritePlan, createJiraWritePlan,
-  observeJiraDrift, previewJiraAdoption
-} from './jira-initiative.mjs';
+import { initiativeBreakdownReview, initiativeMergeState, loadInitiativeBreakdown, materializeInitiative, syncInitiativeRepositories } from './initiative-repositories.mjs';
+import { adoptJiraDrift, adoptJiraEpic, applyJiraWritePlan, createJiraWritePlan, observeJiraDrift, previewJiraAdoption } from './jira-initiative.mjs';
 import { interfaceContractStatus, registerInterfaceContract } from './initiative-contracts.mjs';
-import {
-  deriveInitiativeReport, initiativeNextActions, renderInitiativeReport
-} from './initiative-report.mjs';
+import { deriveInitiativeReport, initiativeNextActions, renderInitiativeReport } from './initiative-report.mjs';
 import { epicJourney } from './initiative-next.mjs';
 import { initiativeOutputRequired } from './initiative-policy.mjs';
 import { runInitiativeGate } from './initiative-governance.mjs';
 import { composeInitiativeContext, verifyInitiativeContext } from './initiative-context.mjs';
 import { createPlanningContext, promotePlanningArtifact, promotePlanningArtifacts } from './planning.mjs';
 import { formatContextBoundaryHandoff } from './context-policy.mjs';
-import {
-  detachEpicSource, listEpicSources, registerEpicSource, registerEpicTextSource, verifyEpicSources
-} from './epic-sources.mjs';
-import {
-  adoptEpicStory, completeEpicIntake, completeEpicPublication, EPIC_PHASES,
-  addEpicStory, splitEpicStory, updateEpicStory, verifyEpicPlanningPackage
-} from './epic-lifecycle.mjs';
-import {
-  attachStoryBranch, createStoryBranch, createStoryReviewPacket, finalizeStoryDelivery,
-  promoteStoryBranch, storyBranchStatus
-} from './story-lineage.mjs';
-import { runAndRecordStoryChecks } from './github-evidence.mjs';
-import {
-  createPullRequest, createStoryPullRequest, epicPullRequestPlan, storyPullRequestPlan,
-  updateStoryPullRequest
-} from './pull-request.mjs';
+import { detachEpicSource, listEpicSources, registerEpicSource, registerEpicTextSource, verifyEpicSources } from './epic-sources.mjs';
+import { adoptEpicStory, completeEpicIntake, completeEpicPublication, EPIC_PHASES, addEpicStory, splitEpicStory, updateEpicStory, verifyEpicPlanningPackage } from './epic-lifecycle.mjs';
+import { createStoryReviewPacket, finalizeStoryDelivery } from './story-lineage.mjs';
+
+import { createPullRequest, createStoryPullRequest, epicPullRequestPlan, storyPullRequestPlan, updateStoryPullRequest } from './pull-request.mjs';
 import { copyToClipboard } from './clipboard.mjs';
 import { epicCheckStory, epicReviewDecision, epicReviewStory, listEpicReviewInbox } from './epic-review.mjs';
 import { completeEpicDelivery, epicDeliveryReadiness } from './epic-completion.mjs';
-import { verifyEpicTraceability } from './epic-traceability.mjs';
+
 import { currentLocalEpicReservation, reserveLocalEpicBranch } from './local-identity.mjs';
-import {
-  archiveWorkspace, createWorkspace, createWorkspaceConfiguration, fetchWorkspace, forgetWorkspace,
-  listWorkspaceDocuments, previewWorkspace, previewWorkspaceConfiguration, previewWorkspaceUpdate,
-  readWorkspace, readWorkspaceRegistry, rememberWorkspace, repairWorkspace, restoreWorkspace,
-  duplicateWorkspaceConfiguration, isCloneTarget, stageWorkspaceDocuments,
-  updateWorkspaceConfiguration, workspaceRemoteCapabilities,
-  workspaceRemoteDefaults,
-  remoteDefaultBranch,
-  workspaceRepositoryDefaults,
-  workspaceArchiveReadiness, workspaceStatus
-} from './workspace.mjs';
-import {
-  materializeConfigurationSnapshot, resolveConfigurationRemote
-} from './configuration-branch.mjs';
-import {
-  analyzeWorkspaceImpact, listWorkspaceImpacts, previewWorkspaceImpact,
-  promoteWorkspaceImpact, workspaceImpactStatus
-} from './workspace-impact.mjs';
-import {
-  activateWorkspaceContext, activeWorkspaceFile, clearActiveWorkspaceContext, discardUnsupportedWorkflowWorkspaces,
-  readActiveWorkspaceContext, workspacePromptLabel, workspaceRegistryFile
-} from './workspace-context.mjs';
-import {
-  appendLedgerIntent, archiveLedger, createLedgerIntent, initializeLedger, ledgerDoctor, ledgerLog, ledgerShow, ledgerStatus, reconcileLedger, verifyLedger
-} from './ledger.mjs';
+import { archiveWorkspace, createWorkspace, createWorkspaceConfiguration, fetchWorkspace, forgetWorkspace, listWorkspaceDocuments, previewWorkspace, previewWorkspaceConfiguration, previewWorkspaceUpdate, readWorkspace, readWorkspaceRegistry, rememberWorkspace, repairWorkspace, restoreWorkspace, duplicateWorkspaceConfiguration, isCloneTarget, stageWorkspaceDocuments, updateWorkspaceConfiguration, workspaceRemoteCapabilities, workspaceRemoteDefaults, remoteDefaultBranch, workspaceRepositoryDefaults, workspaceArchiveReadiness, workspaceStatus } from './workspace.mjs';
+import { materializeConfigurationSnapshot, resolveConfigurationRemote } from './configuration-branch.mjs';
+import { analyzeWorkspaceImpact, listWorkspaceImpacts, previewWorkspaceImpact, promoteWorkspaceImpact, workspaceImpactStatus } from './workspace-impact.mjs';
+import { activateWorkspaceContext, activeWorkspaceFile, clearActiveWorkspaceContext, discardUnsupportedWorkflowWorkspaces, readActiveWorkspaceContext, workspacePromptLabel, workspaceRegistryFile } from './workspace-context.mjs';
+import { appendLedgerIntent, archiveLedger, createLedgerIntent, initializeLedger, ledgerDoctor, ledgerLog, ledgerShow, ledgerStatus, reconcileLedger, verifyLedger } from './ledger.mjs';
 import { validateLedgerDeployment } from './ledger-deployment.mjs';
-import {
-  CAPABILITY_KINDS, CAPABILITY_TYPES,
-  CAPABILITIES_PATH, capabilityDeliveries, capabilityForRepository, capabilityTree, editCapability,
-  flattenCapabilityTree, loadCapabilities, resolveCapabilityPolicy, resolveEffectiveCapabilityPolicy,
-  validateCapabilities
-} from './capabilities.mjs';
+import { CAPABILITY_KINDS, CAPABILITY_TYPES, CAPABILITIES_PATH, capabilityDeliveries, capabilityForRepository, capabilityTree, editCapability, flattenCapabilityTree, loadCapabilities, resolveCapabilityPolicy, resolveEffectiveCapabilityPolicy, validateCapabilities } from './capabilities.mjs';
 import { bootstrapRepository } from './bootstrap.mjs';
-import {
-  activateCapabilityProposal, capabilityReadiness, composeCapabilityWorldModel,
-  editCapabilityInOrganisation, inspectCapabilityProposal, listCapabilityProposals,
-  initializeWorkspaceState, listLeadRepositories, mapCapability, publishCapabilityMap,
-  publishOrganisationCapabilityMap,
-  readOrganisation, rememberLeadRepository, resolveWorkspacePlan
-} from './organisation.mjs';
+import { activateCapabilityProposal, capabilityReadiness, composeCapabilityWorldModel, editCapabilityInOrganisation, inspectCapabilityProposal, listCapabilityProposals, initializeWorkspaceState, listLeadRepositories, mapCapability, publishCapabilityMap, publishOrganisationCapabilityMap, readOrganisation, rememberLeadRepository, resolveWorkspacePlan } from './organisation.mjs';
 import { canonicalCommand, commandDefinition, validateCommandHandlers } from './command-registry.mjs';
 // `action` is already a command name in this file, so the narration constructor is renamed rather
 // than shadowing it.
-import {
-  action as narrationAction, commandResult, effects, noEffects, noop, succeeded
-} from './narration/command-result.mjs';
+import { action as narrationAction, commandResult, effects, noEffects, noop, succeeded } from './narration/command-result.mjs';
 import { emitCommandResult } from './narration/emit.mjs';
 import { factoryResetAll, factoryResetAllPlan, factoryResetPlan, factoryResetRepository } from './factory-reset.mjs';
 import { localReset, localResetPlan } from './fresh-install-reset.mjs';
-import {
-  applyLocalReinstall, reinstallPlanText, resolveReinstallPlan
-} from './reinstall.mjs';
+import { applyLocalReinstall, reinstallPlanText, resolveReinstallPlan } from './reinstall.mjs';
 import { capabilityDoctor } from './capability-doctor.mjs';
 import { inspectStatePlanes, reconcileStateProjections } from './state-planes.mjs';
-import {
-  InitiativeStateStore, StoryStateStore, loadInitiativeAggregate, loadStoryAggregate
-} from './state-stores.mjs';
-import { continuationPacket, submissionBlockedByAmendment } from './continuation-packet.mjs';
-import { amendmentChurn, amendmentRecap } from './amendment.mjs';
-import { loadSpecRecords } from './specifications.mjs';
+import { InitiativeStateStore, StoryStateStore, loadInitiativeAggregate, loadStoryAggregate } from './state-stores.mjs';
+
 import { SnapshotCoordinator } from './snapshot-coordinator.mjs';
 import { TimingCollector, writeHumanTimings } from './dx-timings.mjs';
-import {
-  assertActionPlanFresh,
-  createActionPlan,
-  loadActionPlan,
-  readActionResult,
-  recordActionResult,
-  selectPlannedAction
-} from './action-plans.mjs';
+import { assertActionPlanFresh, createActionPlan, loadActionPlan, readActionResult, recordActionResult, selectPlannedAction } from './action-plans.mjs';
 import { consumeActionAuthorization, issueActionAuthorization } from './action-authorization.mjs';
 import { refreshBranch } from './branch-refresh.mjs';
 import { buildStoryStack, publishedStackForStory, syncStoryStack } from './story-stack.mjs';
 import { analyzeRegression, regressionReportMarkdown } from './regression-analysis.mjs';
-import {
-  buildSpecIndex, changedRepositoryPaths, configuredAcceptanceCommandSetSha256,
-  evaluateSpecAcceptance, evaluateSpecCoverage, loadActiveSpecRecords,
-  normalizeClaimMap, predecessorSpecClauses, readStructuredFile, runSpecAcceptance,
-  specificationSourceTreeHash, traceClause, traceCsv
-} from './specifications.mjs';
+import { buildSpecIndex, changedRepositoryPaths, configuredAcceptanceCommandSetSha256, evaluateSpecAcceptance, evaluateSpecCoverage, loadActiveSpecRecords, normalizeClaimMap, predecessorSpecClauses, readStructuredFile, runSpecAcceptance, specificationSourceTreeHash, traceClause, traceCsv } from './specifications.mjs';
 import { evaluateSpecificationGate } from './specification-gate.mjs';
-import {
-  advisoryTaskPath, approvedSource, deriveAdvisoryTasks, renderAdvisoryTasks
-} from './advisory-tasks.mjs';
-import {
-  assistedPrompt, assistedRecordRelative, buildAssistedRecord, parseAssistedCandidates,
-  serializeAssistedRecord, unknownCitations, unwrapProviderLineBreaks
-} from './assisted-quality.mjs';
-import {
-  advancementBlocked, convergenceBindings, convergenceFacts, convergenceProjection,
-  serializeConvergence
-} from './convergence.mjs';
-import {
-  buildConstitutionException, constitutionIndex, constitutionPin, constitutionPolicy,
-  generateConstitution, loadConstitution, requiredArticles, validateCitations
-} from './constitution.mjs';
-import {
-  assistedConvergencePrompt, assistedConvergenceRelative, buildAssistedConvergenceRecord,
-  parseConvergenceCandidates, serializeAssistedConvergence, unknownReferences
-} from './assisted-convergence.mjs';
+import { advisoryTaskPath, approvedSource, deriveAdvisoryTasks, renderAdvisoryTasks } from './advisory-tasks.mjs';
+import { assistedPrompt, assistedRecordRelative, buildAssistedRecord, parseAssistedCandidates, serializeAssistedRecord, unknownCitations } from './assisted-quality.mjs';
+
+import { buildConstitutionException, constitutionIndex, constitutionPolicy, generateConstitution, loadConstitution } from './constitution.mjs';
 
 import { ABOUT } from './about.mjs';
 import { VERSION } from './version.mjs';
 
 import { HELP } from './help-text.mjs';
-
-function summary(workflow) {
-  const active = currentPhase(workflow);
-  console.log(`\n${workflow.workItem.id} — ${workflow.workItem.title}`);
-  console.log(`Branch: ${workflow.workItem.branch}`);
-  console.log(`World-model grounding: ${workflow.resolution?.worldModelGrounding ?? 'off'}`);
-  console.log(`Status: ${workflow.status}`);
-  console.log(`Current phase: ${active ? `${active.id} (${active.status})` : 'complete'}`);
-  if (active) {
-    console.log(`Governed agent: ${active.defaultAgent ?? 'unassigned'}`);
-    console.log(`Required artifact: ${active.requiredArtifact?.path ?? 'none'}`);
-    console.log(`Registered artifacts: ${active.artifacts.length}`);
-  }
-  if (workflow.sequenceOverrides?.length) console.warn(`Warning: ${workflow.sequenceOverrides.length} confirmed soft sequence override(s) are recorded for this work item.`);
-}
-
-function actionActor(root) {
-  return process.env.SINGULARITY_FLOW_GITHUB_ACTOR
-    ? { name: process.env.SINGULARITY_FLOW_GITHUB_ACTOR, login: process.env.SINGULARITY_FLOW_GITHUB_ACTOR, email: null }
-    : identity(root);
-}
-
-async function confirm(phase) {
-  if (!input.isTTY || !output.isTTY) throw new SingularityFlowError('Approval needs an interactive terminal or the explicit --yes flag.');
-  const io = readline.createInterface({ input, output });
-  try {
-    const answer = await io.question(`Type ${phase.id} to approve ${phase.label}: `);
-    return answer.trim() === phase.id;
-  } finally {
-    io.close();
-  }
-}
 
 async function confirmExact(prompt, expected) {
   if (!input.isTTY || !output.isTTY) {
@@ -640,7 +433,7 @@ function assertBaseCarriesGovernance(root, {
   );
 }
 
-async function startCommand(positionals, options) {
+export async function startCommand(positionals, options) {
   const id = requirePositional(positionals, 1, 'work ID');
   const root = repoRoot();
   let config = existsSync(path.join(root, WORKFLOW_PATH)) ? await loadConfig(root) : null;
@@ -988,7 +781,7 @@ async function agentCommand(positionals, options = {}) {
   }), { postState: workflow });
 }
 
-async function statusCommand(positionals, options) {
+export async function statusCommand(positionals, options) {
   const root = repoRoot();
   const config = await loadConfig(root);
   const workflow = await loadStoryAggregate(root, config, positionals[1]);
@@ -1507,13 +1300,6 @@ async function actionCommand(positionals, options) {
       }]
     }
   };
-}
-
-function activeActionContext() {
-  const planId = process.env.SINGULARITY_FLOW_ACTION_PLAN_ID;
-  const planHash = process.env.SINGULARITY_FLOW_ACTION_PLAN_HASH;
-  const actionId = process.env.SINGULARITY_FLOW_ACTION_ID;
-  return planId && planHash && actionId ? { planId, planHash, actionId } : null;
 }
 
 async function materializeWorldModelForNext(root, config, workflow, phase, task, options) {
@@ -2865,7 +2651,7 @@ function decisionArguments(config, positionals, options, action) {
   return { requestedId: positional, requestedPhase: flaggedPhase, implicitLegacyWorkId: true };
 }
 
-async function submitCommand(positionals, options) {
+export async function submitCommand(positionals, options) {
   const root = repoRoot();
   const config = await loadConfig(root);
   let workflow = await loadStoryAggregate(root, config);
@@ -4368,22 +4154,6 @@ async function activateInitiativeAgent(root, definition, initiativeId, phase, re
     console.warn(`Warning: agent '${requestedAgent}' is not declared for initiative phase '${phase.id}'. Continuing with an audited override; human approval authority is unchanged.`);
   }
   return setAgentSession(root, definition, actionActor(root), agent, initiativeId, {
-    phaseId: phase?.id ?? null,
-    source: requestedAgent ? 'explicit-override' : 'phase-default'
-  });
-}
-
-async function activatePhaseAgent(root, definition, workId, phase, requestedAgent = null) {
-  const defaultAgent = phase?.defaultAgent
-    ?? definition.agentCatalog?.find((agent) => agent.defaultFor.includes(phase?.id))?.id
-    ?? null;
-  const agent = requestedAgent ?? defaultAgent;
-  if (!agent || !definition.agents?.[agent]) throw new SingularityFlowError(`Phase '${phase?.id ?? 'unknown'}' has no valid governed agent.`);
-  const compatible = !phase?.id || !definition.agents[agent].phases.length || definition.agents[agent].phases.includes(phase.id);
-  if (requestedAgent && !compatible) {
-    console.warn(`Warning: agent '${requestedAgent}' is not declared for phase '${phase.id}'. Continuing with an audited prompt override; human approval authority is unchanged.`);
-  }
-  return setAgentSession(root, definition, actionActor(root), agent, workId, {
     phaseId: phase?.id ?? null,
     source: requestedAgent ? 'explicit-override' : 'phase-default'
   });
@@ -7385,706 +7155,6 @@ async function epicCommand(positionals, options) {
   return initiativeCommand(['initiative', mapped, ...positionals.slice(2)], options);
 }
 
-const STORY_LINEAGE_PROPERTY = 'com.singularity.flow.lineage';
-
-async function storyInboxCommand(options) {
-  const root = repoRoot();
-  const portfolio = await loadPortfolio(root);
-  if (!portfolio.jira?.enabled) {
-    throw new SingularityFlowError('Story inbox requires the workspace Jira connection configured in singularity/portfolio.yml.');
-  }
-  const project = optionString(options, 'project', portfolio.jira.projectKey);
-  if (!project) throw new SingularityFlowError('Story inbox requires a configured Jira project key or --project.');
-  const assigned = optionBoolean(options, 'assigned-to-me');
-  const result = await listMyIssues({
-    project,
-    issueType: portfolio.jira.storyIssueType ?? 'Story',
-    limit: optionNumber(options, 'limit', 50),
-    ...(assigned ? {} : {
-      jql: `project = "${project}" AND issuetype = "${portfolio.jira.storyIssueType ?? 'Story'}" AND statusCategory != Done ORDER BY priority DESC, updated DESC`
-    })
-  });
-  const stories = (await Promise.all(result.issues.map(async (issue) => {
-    try {
-      const lineage = await getIssueProperty(issue.key, STORY_LINEAGE_PROPERTY);
-      return lineage?.schemaVersion === 1 ? {
-        key: issue.key,
-        title: issue.title,
-        status: issue.status,
-        assignee: issue.assignee ?? null,
-        planId: lineage.story?.planId ?? null,
-        repository: lineage.deliveryRepository?.id ?? lineage.story?.repository ?? null,
-        branch: lineage.deliveryRepository?.branch ?? lineage.story?.canonicalBranch ?? issue.key,
-        epic: lineage.epic?.jiraKey ?? lineage.epic?.id ?? null
-      } : null;
-    } catch {
-      // Jira returns 404 when an ordinary Story has no Singularity issue property.
-      return null;
-    }
-  }))).filter(Boolean);
-  if (optionBoolean(options, 'json')) return console.log(JSON.stringify({ stories, jql: result.jql }, null, 2));
-  if (!stories.length) return console.log(`No active Singularity Stories found in Jira project ${project}.`);
-  console.log(table(stories, [
-    { key: 'key', label: 'STORY' },
-    { key: 'planId', label: 'PLAN ID' },
-    { key: 'title', label: 'TITLE' },
-    { key: 'repository', label: 'REPOSITORY' },
-    { key: 'branch', label: 'BRANCH' },
-    { key: 'status', label: 'JIRA STATUS' }
-  ]));
-}
-
-async function verifyFetchedStoryContext(target, storyKey, property) {
-  const seedFile = path.join(target, 'singularity', 'seeds', `${storyKey}.yml`);
-  if (!existsSync(seedFile)) {
-    throw new SingularityFlowError(`Fetched branch '${storyKey}' has no governed seed at singularity/seeds/${storyKey}.yml.`);
-  }
-  const seed = YAML.parse(await readFile(seedFile, 'utf8'));
-  if (seed?.story?.workId !== storyKey || seed?.story?.jiraKey !== storyKey) {
-    throw new SingularityFlowError(`Fetched seed does not belong to Jira Story '${storyKey}'.`);
-  }
-  const expectedPlan = property.story?.planId ?? null;
-  if (expectedPlan && seed.story.planId !== expectedPlan) {
-    throw new SingularityFlowError(`Jira lineage says plan '${expectedPlan}', but the governed seed says '${seed.story.planId}'.`);
-  }
-  for (const record of seed.governedContext ?? []) {
-    const current = await snapshot(path.join(target, record.path));
-    if (!current.exists || current.sha256 !== record.sha256) {
-      throw new SingularityFlowError(
-        `Governed Story input '${record.id}' failed verification. Expected ${record.sha256}; `
-        + `found ${current.exists ? current.sha256 : 'missing'}.`
-      );
-    }
-  }
-  const expectedStoryHash = property.specification?.storySha256 ?? null;
-  const actualStory = (seed.governedContext ?? []).find((record) => record.id === 'story-specification');
-  if (expectedStoryHash && actualStory?.sha256 !== expectedStoryHash) {
-    throw new SingularityFlowError(
-      `Jira lineage Story specification hash ${expectedStoryHash} does not match the governed seed hash ${actualStory?.sha256 ?? 'missing'}.`
-    );
-  }
-  return seed;
-}
-
-async function storyFetchCommand(positionals, options) {
-  const leadRoot = repoRoot();
-  const storyKey = requirePositional(positionals, 2, 'Jira Story key').toUpperCase();
-  if (!/^[A-Z][A-Z0-9_-]*-\d+$/.test(storyKey)) throw new SingularityFlowError('story fetch requires a Jira Story key such as MOB-123.');
-  const portfolio = await loadPortfolio(leadRoot);
-  const issue = await getIssue(storyKey);
-  const property = await getIssueProperty(storyKey, STORY_LINEAGE_PROPERTY);
-  if (property?.schemaVersion !== 1) {
-    throw new SingularityFlowError(`Jira Story ${storyKey} has no Singularity Flow lineage property. Publish it from an approved Epic plan first.`);
-  }
-  const repositoryId = property.deliveryRepository?.id ?? property.story?.repository;
-  const repository = portfolio.repositories?.[repositoryId];
-  if (!repository) {
-    throw new SingularityFlowError(
-      `Story ${storyKey}'s lineage names repository '${repositoryId ?? 'unknown'}', which is not configured in this workspace. `
-      + `Configured: ${Object.keys(portfolio.repositories ?? {}).join(', ') || 'none'}.`
-    );
-  }
-  const propertyUrl = property.deliveryRepository?.url;
-  if (propertyUrl && !sameRepositoryRemote(propertyUrl, repository.url)) {
-    throw new SingularityFlowError(
-      `Story ${storyKey}'s lineage names repository ${propertyUrl}, which does not match configured repository ${repository.url}. `
-      + 'Correct the workspace deliberately; an unlisted Jira URL is never fetched.'
-    );
-  }
-
-  const currentRemote = run('git', ['remote', 'get-url', 'origin'], { cwd: leadRoot, allowFailure: true });
-  const currentIsDelivery = currentRemote.status === 0 && sameRepositoryRemote(currentRemote.stdout, repository.url);
-  const explicitDirectory = optionString(options, 'directory');
-  if (!currentIsDelivery && !explicitDirectory) {
-    throw new SingularityFlowError(
-      `Story ${storyKey} belongs to repository '${repositoryId}'. Re-run with --directory <local-path>; `
-      + `Singularity will clone only the configured URL ${repository.url}.`
-    );
-  }
-  const target = path.resolve(explicitDirectory ?? leadRoot);
-  if (!existsSync(target)) {
-    await mkdir(path.dirname(target), { recursive: true });
-    const cloned = run('git', ['clone', '--', repository.url, target], { cwd: path.dirname(target), allowFailure: true });
-    if (cloned.status !== 0) throw new SingularityFlowError(`Unable to clone configured repository '${repositoryId}': ${(cloned.stderr || cloned.stdout).trim()}`);
-  }
-  const targetRoot = repoRoot(target);
-  if (targetRoot !== target) throw new SingularityFlowError(`Story target must be the repository root: ${targetRoot}.`);
-  const targetRemote = run('git', ['remote', 'get-url', 'origin'], { cwd: target, allowFailure: true });
-  if (targetRemote.status !== 0 || !sameRepositoryRemote(targetRemote.stdout, repository.url)) {
-    throw new SingularityFlowError(`Target repository origin does not match configured URL ${repository.url}.`);
-  }
-  assertClean(target);
-  checkout(target, storyKey, {
-    base: repository.defaultBranch,
-    fetch: true,
-    existingOnly: true
-  });
-  const seed = await verifyFetchedStoryContext(target, storyKey, property);
-
-  const config = await loadConfig(target);
-  let workflow;
-  try {
-    workflow = await loadStoryAggregate(target, config, storyKey);
-  } catch {
-    const workType = seed.story.suggestedWorkType;
-    if (!config.workTypes?.[workType]) {
-      throw new SingularityFlowError(`Approved Story plan pins workflow '${workType}', but repository '${repositoryId}' does not configure it.`);
-    }
-    const resolvedWorkType = resolveWorkType(config, workType);
-    const agent = await activatePhaseAgent(
-      target, config, storyKey, resolvedWorkType.phases[0], optionString(options, 'agent') ?? null
-    );
-    workflow = await createWorkflow(target, config, {
-      id: storyKey,
-      title: issue.title || seed.story.title || storyKey,
-      source: {
-        ...issue,
-        type: 'jira',
-        key: storyKey,
-        id: issue.id ?? seed.story.jiraIssueId ?? null,
-        epicId: property.epic?.jiraKey ?? property.epic?.id ?? seed.initiative?.id ?? null,
-        planId: seed.story.planId,
-        parentBranch: seed.story.parentBranch,
-        branchCompletionPolicy: seed.story.branchCompletionPolicy,
-        requiredChecks: seed.story.requiredChecks
-      },
-      baseBranch: seed.story.parentBranch ?? repository.defaultBranch,
-      workType,
-      agent: agent.agent,
-      resolved: resolvedWorkType,
-      capabilityId: optionString(options, 'capability')
-    });
-    await commitAndPublish(target, config, workflow, { type: 'binding' }, `[${storyKey}][init] start governed Story workflow`);
-  }
-  if (optionBoolean(options, 'json')) {
-    return console.log(JSON.stringify({ storyKey, repository: repositoryId, directory: target, workflow: workflow.workItem, property }, null, 2));
-  }
-  console.log(`Story ${storyKey} is ready in ${target}.`);
-  console.log(`Lineage: ${property.epic?.jiraKey ?? property.epic?.id} → ${seed.story.planId} → ${storyKey}`);
-  console.log(`Workflow: ${workflow.workItem.workType} · current phase ${workflow.currentPhase ?? 'complete'}`);
-  console.log('Run: singularity-flow next');
-  console.log('In Copilot: /sf-next');
-}
-
-async function storyCommand(positionals, options) {
-  const subcommand = positionals[1] ?? 'status';
-  const root = repoRoot();
-  if (subcommand === 'start') {
-    const storyKey = requirePositional(positionals, 2, 'Jira Story key');
-    return startCommand(['start', storyKey], { ...options, jira: true });
-  }
-  if (subcommand === 'inbox') return storyInboxCommand(options);
-  if (subcommand === 'fetch') return storyFetchCommand(positionals, options);
-  const config = await loadConfig(root);
-  if (subcommand === 'interval') {
-    const action = positionals[2] ?? 'status';
-    const workflow = await loadStoryAggregate(root, config, optionString(options, 'parent'));
-    const current = workflow.workIntervals?.current ?? null;
-    if (action === 'status') {
-      /**
-       * The continuation packet `[AMD:REQ-041]`: what was pinned, what has moved, what is stale, and
-       * what the specification changed underneath you. This is the surface the packet was built for
-       * — computed once in `continuation-packet.mjs` and rendered here, so the JSON a tool reads and
-       * the prose a person reads cannot describe different states.
-       */
-      /**
-       * The developer's planned claims, so AMENDED can say what each changed clause means for
-       * *their* work rather than in the abstract.
-       *
-       * Read with `loadSpecRecords`, not `loadActiveSpecRecords`. "Active" means the current
-       * generation, and an amendment has just moved that — so the claims the developer actually
-       * made, under the generation they were working in, are precisely the ones the active filter
-       * discards. Taking the latest planned map and naming its generation is the honest read; the
-       * alternative reports "not claimed by you" about work they are holding in their hands.
-       */
-      const planned = current
-        ? (await loadSpecRecords(workDir(root, config, workflow.workItem.id))).planned.at(-1) ?? null
-        : null;
-      const packet = current
-        ? continuationPacket({
-          interval: current,
-          claims: planned ?? {},
-          claimsGeneration: planned?.generation ?? null,
-          // `changedFiles`, not `changes`: the latter returns porcelain text, and spreading a
-          // string would iterate its characters into the packet as if each were a path.
-          changedPaths: changedFiles(root),
-          acknowledgedGeneration: current.acknowledgedGeneration ?? null
-        })
-        : null;
-      const result = { workId: workflow.workItem.id, workType: workflow.workItem.workType, current, packet };
-      if (optionBoolean(options, 'json')) return console.log(JSON.stringify(result, null, 2));
-      if (!current) return console.log(`Story ${workflow.workItem.id} has no open governed work interval in phase ${workflow.currentPhase ?? 'complete'}.`);
-      console.log(`Story ${workflow.workItem.id} · ${current.phaseId} generation ${current.generation}`);
-      console.log(`Baseline: ${current.baselineSha256.slice(0, 12)} · source ${current.sourceBaseCommit.slice(0, 12)} · ${current.status}`);
-      if (current.finalReconciliation) console.log(`Final reconciliation: ${current.finalReconciliation.reconciliationSha256.slice(0, 12)}`);
-      // Each section says "quiet" rather than printing an empty list, so a calm return reads as calm.
-      console.log(`Since you left: ${packet.sinceYouLeft.quiet ? 'nothing changed' : `${packet.sinceYouLeft.changedPaths.length} path(s) changed`}`);
-      console.log(`Stale: ${packet.stale.quiet ? 'nothing drifted' : packet.stale.drift.map((entry) => entry.fact).join(', ')}`);
-      if (!packet.amended.quiet) {
-        console.log(`Amended: ${packet.amended.clauses.map((clause) => clause.clauseId).join(', ')}`);
-        for (const clause of packet.amended.clauses) {
-          const under = packet.amended.claimsGeneration != null ? ` under generation ${packet.amended.claimsGeneration}` : '';
-          console.log(`  ${clause.clauseId} — ${clause.claimed ? `you claimed this${under} (${clause.artifacts.join(', ') || 'no paths'})` : 'not claimed by you'}`);
-        }
-      }
-      // The recap tells the story once, so a reader is not reconstructing it from the sections
-      // above `[AMD:REQ-052]`, and the churn floor says when a requirement has stopped settling
-      // `[AMD:REQ-051]`.
-      const churn = amendmentChurn(current.amendments ?? []);
-      if (!packet.amended.quiet) console.log(amendmentRecap({ amendments: current.amendments ?? [], churn }));
-      const blocked = submissionBlockedByAmendment(packet);
-      if (blocked) console.warn(blocked);
-      return;
-    }
-    if (action === 'acknowledge') {
-      const result = await acknowledgeAmendment(root, workflow, {
-        throughGeneration: optionNumber(options, 'through'),
-        actor: identity(root).email ?? 'unknown'
-      });
-      if (!result) return console.log(`Story ${workflow.workItem.id} has no open interval to acknowledge.`);
-      // Local, uncommitted state: an acknowledgment is a note that a human read something, not a
-      // governed publication. `saveDraft` is the same door every other in-phase mutation uses.
-      await new StoryStateStore(root, config).saveDraft(workflow);
-      if (optionBoolean(options, 'json')) return console.log(JSON.stringify(result, null, 2));
-      return console.log(result.acknowledged
-        ? `Acknowledged the amendment through generation ${result.acknowledgedGeneration}. Submission is no longer blocked by it.`
-        : `Already acknowledged through generation ${result.acknowledgedGeneration}; nothing to record.`);
-    }
-    if (action === 'checkpoint') {
-      const result = await createLocalCheckpoint(root, workflow, {
-        name: optionString(options, 'name'),
-        note: optionString(options, 'note')
-      });
-      if (optionBoolean(options, 'json')) return console.log(JSON.stringify(result, null, 2));
-      console.log(`Local checkpoint ${result.checkpointSha256.slice(0, 12)} recorded for ${workflow.workItem.id}.`);
-      console.log(`Files fingerprinted: ${result.files.length}. No source file was staged, committed, or pushed.`);
-      console.log(`Record: ${result.path}`);
-      return;
-    }
-    if (action === 'reconcile') {
-      const result = await reconcileWorkInterval(root, config, workflow, {
-        itemDirectory: workDir(root, config, workflow.workItem.id)
-      });
-      if (optionBoolean(options, 'json')) return console.log(JSON.stringify(result, null, 2));
-      console.log(`Reconciliation ${result.reconciliationSha256.slice(0, 12)} · ${result.decision.status}`);
-      console.log(`Changed: ${result.summary.changedPaths} · planned: ${result.summary.planned} · unplanned: ${result.summary.unplanned} · protected: ${result.summary.protected}`);
-      result.decision.reasons.forEach((reason) => console.warn(`Escalation: ${reason}`));
-      console.log(`Local report: ${result.localPath}`);
-      console.log('This preview changed no governed state. Submission records the final reconciliation atomically.');
-      return;
-    }
-    if (action === 'escalate') {
-      const result = escalationPlan(config, workflow, { target: optionString(options, 'to') });
-      if (optionBoolean(options, 'json')) return console.log(JSON.stringify(result, null, 2));
-      console.log(`Escalation plan ${result.planSha256.slice(0, 12)}: ${result.fromWorkType} → ${result.toWorkType}`);
-      console.log(`Preserves: ${result.preserves.join(', ')}.`);
-      console.log(`Next: ${result.action}.`);
-      console.log('No branch, source, workflow state, commit, or remote was changed.');
-      return;
-    }
-    throw new SingularityFlowError(`Unknown Story interval action '${action}'.`);
-  }
-  if (subcommand === 'branch') {
-    const action = positionals[2] ?? 'status';
-    if (action === 'create') {
-      const result = await createStoryBranch(root, config, {
-        parentStoryId: optionString(options, 'parent'),
-        branchName: requirePositional(positionals, 3, 'child branch name')
-      });
-      console.log(`Created and registered child branch ${result.branch} for Story ${result.workflow.workItem.id}.`);
-      return;
-    }
-    if (action === 'attach') {
-      const result = await attachStoryBranch(root, config, { parentStoryId: optionString(options, 'parent') });
-      console.log(`${result.created ? 'Registered' : 'Using'} ${result.canonical ? 'canonical' : 'child'} branch ${result.branch} for Story ${result.workflow.workItem.id}.`);
-      return;
-    }
-    if (action === 'promote') {
-      const workflow = await loadStoryAggregate(root, config, optionString(options, 'parent'));
-      const result = await promoteStoryBranch(root, config, workflow, { mode: optionString(options, 'mode') });
-      if (result.requiresPullRequest) console.log(`Open a pull request from ${result.branch} to ${result.canonicalBranch}. Epic progress advances only after merge.`);
-      else console.log(`Promoted ${result.branch} to ${result.canonicalBranch} at ${result.commit.slice(0, 8)}.`);
-      return;
-    }
-    if (action !== 'status') throw new SingularityFlowError(`Unknown Story branch action '${action}'.`);
-    const status = await storyBranchStatus(root, config, optionString(options, 'parent'));
-    if (optionBoolean(options, 'json')) return console.log(JSON.stringify(status, null, 2));
-    console.log(`Story: ${status.workId} · Epic: ${status.epicId ?? 'unlinked'}`);
-    console.log(`Current: ${status.currentBranch} (${status.kind}) · Canonical: ${status.canonicalBranch}`);
-    return;
-  }
-  if (subcommand === 'submit') return submitCommand(['submit', positionals[2]], options);
-  if (subcommand === 'finalize') return finalizeCommand(options);
-  if (subcommand === 'checks') {
-    const workflow = await loadStoryAggregate(root, config, optionString(options, 'parent'));
-    const result = await runAndRecordStoryChecks(root, config, workflow, {
-      packetSha256: optionString(options, 'packet'),
-      requiredChecks: optionStrings(options, 'required-check')
-    });
-    if (optionBoolean(options, 'json')) console.log(JSON.stringify(result, null, 2));
-    else {
-      console.log(`Story checks ${result.evidence.ready ? 'passed' : 'need attention'} for ${result.evidence.packetSha256.slice(0, 12)}.`);
-      console.log(`GitHub Actions: ${result.evidence.github.required.map((entry) => `${entry.name}=${entry.status}`).join(', ') || 'no required checks configured'}`);
-      result.evidence.governance.errors.forEach((error) => console.warn(`BLOCK: ${error}`));
-      console.log(`Evidence committed ${result.publication.sha.slice(0, 8)}${result.publication.pushed ? ' and pushed' : ''}.`);
-    }
-    // This is the pipeline's gate command. Printing BLOCK lines and exiting 0 let a red build pass.
-    if (!result.evidence.ready) process.exitCode = 2;
-    return;
-  }
-  if (subcommand === 'converge') return storyConvergeCommand(positionals, options);
-  if (subcommand === 'adjudicate') return storyAdjudicateCommand(positionals, options);
-  if (subcommand === 'rework') return storyReworkCommand(positionals, options);
-  if (subcommand === 'advance') return storyAdvanceCommand(positionals, options);
-  if (subcommand === 'status') return statusCommand([positionals[0], positionals[2]], options);
-  throw new SingularityFlowError(`Unknown Story subcommand '${subcommand}'.`);
-}
-
-/**
- * The convergence subject: the implementation generation being closed, and everything bound to it.
- *
- * Gathered in one place because `[SPK:REQ-072]` asks that an iteration bind all of it — and because
- * the failure mode of scattering this is a record that binds whichever inputs the code path happened
- * to touch, which is indistinguishable from binding all of them until someone needs to re-check one.
- */
-async function convergenceSubject(root, config, workflow) {
-  const phase = workflow.phases.convergence;
-  if (!phase) throw new SingularityFlowError(`Work type '${workflow.workItem.workType}' has no convergence phase.`);
-  const implementation = workflow.phases.implementation;
-  if (!implementation) throw new SingularityFlowError(`Work type '${workflow.workItem.workType}' has no implementation phase to converge.`);
-  const reconciliationRef = implementation.workIntervalReconciliation;
-  if (!reconciliationRef?.path) {
-    throw new SingularityFlowError(
-      'Convergence operates on the reconciliation record for the implementation generation, and none exists yet. '
-      + 'Run singularity-flow submit implementation first.'
-    );
-  }
-  const itemDirectory = workDir(root, config, workflow.workItem.id);
-  const itemRelative = posix(path.relative(root, itemDirectory));
-  // The full record, not the summary the phase keeps: `[SPK:CON-032]` says convergence consumes the
-  // exact reconciliation output, and the summary has no `findings`.
-  const reconciliation = await readJson(path.join(root, reconciliationRef.path));
-  reconciliation.path = reconciliationRef.path;
-  const records = await loadActiveSpecRecords(itemDirectory, workflow);
-  const policy = workflow.resolution?.spec ?? config.spec;
-  return {
-    phase,
-    implementation,
-    itemDirectory,
-    itemRelative,
-    reconciliation,
-    records,
-    policy,
-    acceptance: evaluateSpecAcceptance(records, policy, {
-      workId: workflow.workItem.id,
-      phase: implementation.id,
-      generation: implementation.generation
-    }),
-    // One iteration per implementation generation `[SPK:REQ-083]`: a new generation opens a new one,
-    // and re-running convergence against the same generation refreshes it rather than counting up.
-    iteration: Math.max(1, Number(implementation.generation ?? 1))
-  };
-}
-
-/**
- * One governed relay turn for convergence candidates. `[SPK:REQ-076]`
- *
- * `tools: none`, like the specification-quality pass. A model that could read the repository would
- * be re-deriving what reconciliation already owns, at a different altitude, with nothing recording
- * what it looked at — and `[SPK:CON-034]` would have no way to hold.
- */
-async function runAssistedConvergence(root, config, workflow, subject, { facts, bindings, model = null }) {
-  const clauses = subject.records.indexes.flatMap((index) => index.clauses ?? []);
-  const observedClaims = Object.assign({}, ...subject.records.observed.map((map) => map.claims ?? {}));
-  const prompt = assistedConvergencePrompt({
-    clauses,
-    observedClaims,
-    changedPaths: subject.reconciliation.findings ?? [],
-    facts,
-    namespace: subject.policy?.namespace ?? null
-  });
-  const provider = resolveModelProvider(config);
-  const invocation = await invokeModel({
-    provider: provider.provider,
-    providerConfig: provider.providerConfig,
-    model: model ?? provider.model,
-    cwd: root,
-    allowedRoots: [root],
-    prompt: { text: prompt },
-    channel: 'convergence-assisted',
-    subject: { kind: 'convergence', id: workflow.workItem.id, iteration: bindings.iteration },
-    tools: { mode: 'none' },
-    limits: { timeoutMs: 5 * 60 * 1000, outputBytes: 256 * 1024 }
-  });
-  const candidates = parseConvergenceCandidates(invocation.output, { unwrap: unwrapProviderLineBreaks });
-  const record = buildAssistedConvergenceRecord({
-    workId: workflow.workItem.id,
-    bindings,
-    facts,
-    candidates,
-    invocation,
-    prompt,
-    unknown: unknownReferences(candidates, { factIds: facts.map((item) => item.id), clauseIds: clauses.map((clause) => clause.id) }),
-    generatedAt: invocation.completedAt ?? new Date().toISOString()
-  });
-  const relative = assistedConvergenceRelative(subject.itemRelative, bindings.iteration);
-  await writeText(path.join(root, relative), serializeAssistedConvergence(record));
-  for (const id of record.unknownReferences.factIds) console.warn(`Warning: a candidate cites deterministic fact '${id}', which this iteration does not contain.`);
-  for (const id of record.unknownReferences.clauseIds) console.warn(`Warning: a candidate cites clause '${id}', which the approved specification does not contain.`);
-  return { record, path: relative };
-}
-
-function convergenceRecordRelative(itemRelative, iteration) {
-  return posix(path.join(itemRelative, 'context', 'convergence', `iteration-${iteration}.json`));
-}
-
-async function readConvergence(root, itemRelative, iteration) {
-  const relative = convergenceRecordRelative(itemRelative, iteration);
-  if (!(await exists(path.join(root, relative)))) return null;
-  return readJson(path.join(root, relative)).catch(() => null);
-}
-
-/**
- * `story converge` — the canonical kernel operation `[SPK:REQ-070]`.
- *
- * Deterministic by default `[SPK:REQ-073]`. It computes facts, carries forward any adjudications
- * already recorded for this iteration, and writes the projection. It never approves anything,
- * changes a specification, opens a change request or advances the phase `[SPK:CON-036]` — those are
- * `story adjudicate`, `reject` and `story advance`, each of which needs a human.
- */
-async function storyConvergeCommand(positionals, options) {
-  const root = repoRoot();
-  const config = await loadConfig(root);
-  const workflow = await loadStoryAggregate(root, config, optionString(options, 'work-id'));
-  const subject = await convergenceSubject(root, config, workflow);
-  const facts = convergenceFacts({
-    reconciliation: subject.reconciliation,
-    indexes: subject.records.indexes,
-    planned: subject.records.planned,
-    observed: subject.records.observed,
-    acceptance: subject.acceptance,
-    /**
-     * Clauses amended during this interval `[AMD:REQ-050]`. Convergence cannot know which clauses
-     * moved — it holds claims, not two generations of specification text — so the interval's own
-     * amendment log is the source. Without this the check exists and never fires, which is the
-     * shape of defect this repository keeps finding.
-     */
-    amendedClauses: [...new Set((workflow.workIntervals?.current?.amendments ?? [])
-      .flatMap((entry) => entry.clauses ?? []))]
-  });
-  const bindings = convergenceBindings({
-    iteration: subject.iteration,
-    configurationSha256: workflow.resolution?.configSha256 ?? null,
-    configurationRevision: workflow.resolution?.configurationSource?.commit ?? null,
-    specification: convergenceSourceRef(workflow.phases.specification),
-    planning: convergenceSourceRef(workflow.phases.planning),
-    indexes: subject.records.indexes,
-    reconciliation: subject.reconciliation,
-    planned: subject.records.planned,
-    observed: subject.records.observed,
-    evidence: subject.records.acceptance
-  });
-
-  const previous = await readConvergence(root, subject.itemRelative, subject.iteration);
-  const assisted = optionBoolean(options, 'assisted')
-    ? await runAssistedConvergence(root, config, workflow, subject, { facts, bindings, model: optionString(options, 'model') })
-    : null;
-  const candidates = assisted?.record.candidates ?? previous?.candidateSnapshot ?? [];
-  const projection = convergenceProjection({
-    workId: workflow.workItem.id,
-    bindings,
-    facts,
-    candidates,
-    candidateRecords: [...(previous?.candidateRecords ?? []), ...(assisted ? [assisted.path] : [])],
-    // Carried forward, because a disposition survives a re-run of the facts it was about.
-    adjudications: previous?.findings?.map((finding) => ({
-      itemId: finding.itemId,
-      disposition: finding.disposition,
-      classification: finding.classification,
-      clauseIds: finding.clauseIds,
-      reason: finding.decision?.reason,
-      actor: finding.decision?.actor,
-      at: finding.decision?.at
-    })) ?? []
-  });
-  const relative = convergenceRecordRelative(subject.itemRelative, subject.iteration);
-  await writeText(path.join(root, relative), serializeConvergence({ ...projection, candidateSnapshot: candidates }));
-
-  if (optionBoolean(options, 'json')) return console.log(JSON.stringify(projection, null, 2));
-  console.log(`Convergence iteration ${projection.iteration} — ${workflow.workItem.id}`);
-  console.log(`  bound to: reconciliation ${bindings.reconciliation.sha256.slice(0, 12)}, source ${String(bindings.sourceTargetCommit ?? '').slice(0, 8)}, ${bindings.clauseIndexSha256.length} clause index/es`);
-  console.log(`  facts:    ${facts.length}`);
-  for (const item of facts) console.log(`    ${item.id} ${item.kind}: ${item.detail}`);
-  if (assisted) {
-    console.log(`  candidates: ${assisted.record.candidates.length} (${assisted.path})`);
-    for (const candidate of assisted.record.candidates) console.log(`    ${candidate.id} ${candidate.classification}${candidate.clauseIds.length ? ` (${candidate.clauseIds.join(', ')})` : ''}: ${candidate.text}`);
-  }
-  console.log(`  findings: ${projection.findings.length} recorded, ${projection.unresolvedBlockers.length} blocking`);
-  console.log(`  record:   ${relative}`);
-  console.log('\nAn absent claim or unclaimed path is missing trace evidence. It is not a finding that the requirement');
-  console.log('is unimplemented or the change unplanned — only a human can say that.');
-  console.log(`\nAllowed next: ${projection.allowedNext.join(', ') || 'none'}`);
-  if (projection.allowedNext.includes('adjudicate')) {
-    console.log(`  singularity-flow story adjudicate <ITEM-ID> --disposition rework|accepted-deviation|dismissed|deferred [--reason TEXT]`);
-  }
-  if (projection.allowedNext.includes('create-rework')) {
-    // `story rework`, not `reject convergence`. Convergence is `in_progress` when its findings are
-    // adjudicated, and `reject` requires a submitted phase — so the instruction printed here used
-    // to be one the reader could not carry out, which is worse than printing nothing.
-    console.log('  singularity-flow story rework --confirm');
-  }
-  if (projection.allowedNext.includes('advance-to-verification')) console.log('  singularity-flow story advance --confirm');
-}
-
-function convergenceSourceRef(phase) {
-  if (!phase) return null;
-  const artifact = (phase.artifacts ?? []).find((entry) => entry.path?.endsWith(phase.requiredArtifact?.path ?? ' '));
-  return { generation: phase.generation ?? null, sha256: artifact?.sha256 ?? null };
-}
-
-/**
- * `story adjudicate` — the human decision `[SPK:REQ-079]`.
- *
- * A separate command from `converge` on purpose. `[SPK:CON-036]` forbids the agent running
- * convergence from disposing of what it found, and the cleanest way to hold that line is for the
- * disposition to be a different invocation by a different identity.
- */
-async function storyAdjudicateCommand(positionals, options) {
-  const root = repoRoot();
-  const config = await loadConfig(root);
-  const workflow = await loadStoryAggregate(root, config, optionString(options, 'work-id'));
-  const subject = await convergenceSubject(root, config, workflow);
-  const existing = await readConvergence(root, subject.itemRelative, subject.iteration);
-  if (!existing) throw new SingularityFlowError(`Convergence iteration ${subject.iteration} has not been run. Run singularity-flow story converge first.`);
-
-  const itemIds = [requirePositional(positionals, 2, 'convergence item ID'), ...optionStrings(options, 'item')];
-  const session = await loadSession(root);
-  const at = nowIso();
-  const decisions = itemIds.map((id) => ({
-    itemId: id,
-    disposition: optionString(options, 'disposition'),
-    classification: optionString(options, 'classification') ?? null,
-    reason: optionString(options, 'reason'),
-    clauseIds: optionStrings(options, 'clause'),
-    actor: actorKey(session.actor),
-    at
-  }));
-  const kept = (existing.findings ?? [])
-    .filter((finding) => !itemIds.includes(finding.itemId))
-    .map((finding) => ({
-      itemId: finding.itemId, disposition: finding.disposition, classification: finding.classification,
-      clauseIds: finding.clauseIds, reason: finding.decision?.reason, actor: finding.decision?.actor, at: finding.decision?.at
-    }));
-  const projection = convergenceProjection({
-    workId: workflow.workItem.id,
-    bindings: existing.bindings,
-    facts: existing.facts ?? [],
-    candidates: existing.candidateSnapshot ?? [],
-    candidateRecords: existing.candidateRecords ?? [],
-    adjudications: [...kept, ...decisions]
-  });
-  const relative = convergenceRecordRelative(subject.itemRelative, subject.iteration);
-  await writeText(path.join(root, relative), serializeConvergence({ ...projection, candidateSnapshot: existing.candidateSnapshot ?? [] }));
-
-  if (optionBoolean(options, 'json')) return console.log(JSON.stringify(projection, null, 2));
-  for (const decision of decisions) console.log(`Recorded ${decision.disposition} on ${decision.itemId} by ${decision.actor}.`);
-  console.log(`Blocking findings: ${projection.unresolvedBlockers.length ? projection.unresolvedBlockers.join(', ') : 'none'}`);
-  console.log(`Allowed next: ${projection.allowedNext.join(', ') || 'none'}`);
-}
-
-/**
- * `story rework` — the transition a `rework` disposition earns. `[SPK:REQ-182]` `[SPK:REQ-082]`
- *
- * Deliberately a second command rather than a side effect of adjudicating. A reviewer disposing of
- * six items should be able to change their mind about the third without having already sent the
- * Story back, and `[SPK:CON-036]` is easier to keep true when the transition is its own act.
- *
- * The change request, the authority check, the approval invalidation and the phase transition are
- * all the existing rejection path `[SPK:REQ-182]`; nothing about rework is a parallel lifecycle.
- * Prior convergence records are files under `context/convergence/` and are never rewritten, so
- * every earlier iteration, finding and approval survives `[SPK:REQ-082]`.
- */
-async function storyReworkCommand(positionals, options) {
-  const root = repoRoot();
-  const config = await loadConfig(root);
-  const workflow = await loadStoryAggregate(root, config, optionString(options, 'work-id'));
-  const subject = await convergenceSubject(root, config, workflow);
-  const projection = await readConvergence(root, subject.itemRelative, subject.iteration);
-  if (!projection) throw new SingularityFlowError(`Convergence iteration ${subject.iteration} has not been run.`);
-  const rework = (projection.findings ?? []).filter((finding) => finding.disposition === 'rework');
-  if (!rework.length) {
-    throw new SingularityFlowError('No convergence finding is dispositioned as rework, so there is nothing to send back.');
-  }
-  const clauseIds = [...new Set(rework.flatMap((finding) => finding.clauseIds ?? []))].sort();
-  const reason = optionString(options, 'reason')
-    ?? `Convergence iteration ${projection.iteration}: ${rework.length} finding(s) require rework${clauseIds.length ? ` for ${clauseIds.join(', ')}` : ''}.`;
-  if (!optionBoolean(options, 'confirm')) {
-    console.log(`Convergence iteration ${projection.iteration} would return ${workflow.workItem.id} to implementation:`);
-    for (const finding of rework) console.log(`  ${finding.id} (${finding.itemId}) ${finding.clauseIds.join(', ') || 'no clause'}: ${finding.decision?.reason ?? 'no reason recorded'}`);
-    console.log(`\nApprovals from implementation onward will be invalidated. Re-run with --confirm.`);
-    return;
-  }
-  const workflowBeforeRework = structuredClone(workflow);
-  const returned = await commitAndPublish(
-    root,
-    config,
-    workflow,
-    { type: 'phase-rejected', phaseId: subject.phase.id, generation: subject.phase.generation },
-    `[${workflow.workItem.id}][converge:rework] iteration ${projection.iteration}`,
-    [],
-    {
-      rollbackWorkflow: workflowBeforeRework,
-      // Closes over `workflow`, like every other unit of work here: `beforeStateWrite` takes no
-      // argument, and a parameter here is silently `undefined` rather than a compile error.
-      beforeStateWrite: async () => rejectPhase(root, config, workflow, {
-        phaseId: subject.phase.id,
-        target: 'implementation',
-        reason,
-        clauseIds,
-        // `[SPK:REQ-183]`'s sibling: the projection is what authorises rejecting an unsubmitted
-        // phase, and it is re-checked inside `rejectPhase` rather than trusted from here.
-        convergenceRework: {
-          iteration: projection.iteration,
-          convergenceSha256: projection.convergenceSha256,
-          unresolvedBlockers: projection.unresolvedBlockers
-        },
-        channel: 'terminal',
-        actionContext: activeActionContext()
-      })
-    }
-  );
-  console.log(`Returned ${workflow.workItem.id} to implementation for ${rework.length} convergence finding(s); commit ${returned.sha.slice(0, 8)}.`);
-  console.log(`Clauses: ${clauseIds.join(', ') || 'none recorded'}`);
-  console.log('Prior convergence records, findings and approvals are preserved. The next implementation publication opens iteration '
-    + `${projection.iteration + 1}.`);
-}
-
-/**
- * `story advance` — leaving convergence `[SPK:REQ-183]`.
- *
- * Explicit, human, and refused while anything is open. Convergence is not verification
- * `[SPK:CON-038]`; passing through it is a claim that a person looked at every absence of evidence
- * and said what it meant, which is exactly the claim `--confirm` makes on their behalf.
- */
-async function storyAdvanceCommand(positionals, options) {
-  const root = repoRoot();
-  const config = await loadConfig(root);
-  const workflow = await loadStoryAggregate(root, config, optionString(options, 'work-id'));
-  const subject = await convergenceSubject(root, config, workflow);
-  const projection = await readConvergence(root, subject.itemRelative, subject.iteration);
-  const blocked = advancementBlocked(projection);
-  if (blocked.length) {
-    throw new SingularityFlowError(`Convergence cannot advance to verification:\n- ${blocked.join('\n- ')}`);
-  }
-  if (!optionBoolean(options, 'confirm')) {
-    console.log(`Convergence iteration ${projection.iteration} has no unresolved blockers and every item is dispositioned.`);
-    console.log(`Findings: ${projection.findings.length}. Bound to reconciliation ${projection.bindings.reconciliation.sha256.slice(0, 12)}.`);
-    return console.log('Advancement is an explicit human action. Re-run with --confirm to submit convergence for approval.');
-  }
-  console.log(`Convergence iteration ${projection.iteration} confirmed by an authorized human; submitting the phase for approval.`);
-  return submitCommand(['submit', subject.phase.id], options);
-}
-
 /**
  * `constitution generate|check|show`. `[SPK:REQ-097]` `[SPK:REQ-184]`
  *
@@ -8241,7 +7311,7 @@ async function constitutionCommand(positionals, options) {
   if (constitution.findings.some((finding) => ['hand-edited', 'stale-policy', 'judged-prose-changed'].includes(finding.kind))) process.exitCode = 2;
 }
 
-async function finalizeCommand(options) {
+export async function finalizeCommand(options) {
   const root = repoRoot();
   const config = await loadConfig(root);
   const workflow = await loadStoryAggregate(root, config, optionString(options, 'parent'));
@@ -8554,7 +7624,7 @@ async function dispatch(command, positionals, options) {
     knowledge: () => knowledgeCommand(positionals, options),
     capability: () => capabilityCommand(positionals, options),
     epic: () => epicCommand(positionals, options),
-    story: () => storyCommand(positionals, options),
+    story: async () => (await import('./commands/story.mjs')).storyCommand(positionals, options),
     workspace: () => workspaceCommand(positionals, options),
     hook: () => hookCommand(positionals),
     bootstrap: () => bootstrapCommand(positionals, options)

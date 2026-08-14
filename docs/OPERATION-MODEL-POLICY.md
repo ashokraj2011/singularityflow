@@ -109,6 +109,7 @@ Every public operation is classified before its implementation module is importe
 | story.fetch | mutation | never | — | — |
 | story.finalize | mutation | never | — | — |
 | story.inbox | read | never | — | — |
+| story.interval.acknowledge | mutation | never | — | — |
 | story.interval.checkpoint | mutation | never | — | — |
 | story.interval.escalate | mutation | never | — | — |
 | story.interval.reconcile | mutation | never | — | — |

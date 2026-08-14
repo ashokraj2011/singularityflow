@@ -27,7 +27,7 @@ import {
   writeJson,
   writeText
 } from './util.mjs';
-import { add, assertClean, branch, changes, checkout, commit, fastForwardTo, fetchOrigin, fetchRemote, fileAtRef, gitDir, hasUpstream, head, identity, localBranches, pullFastForward, refExists, refHead, remoteBranches, repoRoot } from './git.mjs';
+import { add, assertClean, branch, changedFiles, changes, checkout, commit, fastForwardTo, fetchOrigin, fetchRemote, fileAtRef, gitDir, hasUpstream, head, identity, localBranches, pullFastForward, refExists, refHead, remoteBranches, repoRoot } from './git.mjs';
 import { buildRepositorySubjectIndex, buildRepositorySubjectIndexFromRefs, resolveContext } from './repository-subject-index.mjs';
 import {
   actorKey,
@@ -128,7 +128,7 @@ import { collectWorkspaceLogs } from './workspace-logs.mjs';
 import { doctorSnapshot, doctorText } from './doctor.mjs';
 import { createReviewBundle, reviewHtml, reviewMarkdown } from './review.mjs';
 import {
-  createLocalCheckpoint, escalationPlan, reconcileWorkInterval
+  acknowledgeAmendment, createLocalCheckpoint, escalationPlan, reconcileWorkInterval
 } from './work-intervals.mjs';
 import { installWorkflow, simulateWorkflow, simulationText, workflowCatalog, workflowDiff } from './workflow-catalog.mjs';
 import { applyRecovery, assignPhase, recoveryPlan, recoveryText, watchSnapshot, watchText } from './collaboration.mjs';
@@ -252,6 +252,7 @@ import { inspectStatePlanes, reconcileStateProjections } from './state-planes.mj
 import {
   InitiativeStateStore, StoryStateStore, loadInitiativeAggregate, loadStoryAggregate
 } from './state-stores.mjs';
+import { continuationPacket, submissionBlockedByAmendment } from './continuation-packet.mjs';
 import { SnapshotCoordinator } from './snapshot-coordinator.mjs';
 import { TimingCollector, writeHumanTimings } from './dx-timings.mjs';
 import {
@@ -7578,13 +7579,53 @@ async function storyCommand(positionals, options) {
     const workflow = await loadStoryAggregate(root, config, optionString(options, 'parent'));
     const current = workflow.workIntervals?.current ?? null;
     if (action === 'status') {
-      const result = { workId: workflow.workItem.id, workType: workflow.workItem.workType, current };
+      /**
+       * The continuation packet `[AMD:REQ-041]`: what was pinned, what has moved, what is stale, and
+       * what the specification changed underneath you. This is the surface the packet was built for
+       * — computed once in `continuation-packet.mjs` and rendered here, so the JSON a tool reads and
+       * the prose a person reads cannot describe different states.
+       */
+      const packet = current
+        ? continuationPacket({
+          interval: current,
+          // `changedFiles`, not `changes`: the latter returns porcelain text, and spreading a
+          // string would iterate its characters into the packet as if each were a path.
+          changedPaths: changedFiles(root),
+          acknowledgedGeneration: current.acknowledgedGeneration ?? null
+        })
+        : null;
+      const result = { workId: workflow.workItem.id, workType: workflow.workItem.workType, current, packet };
       if (optionBoolean(options, 'json')) return console.log(JSON.stringify(result, null, 2));
       if (!current) return console.log(`Story ${workflow.workItem.id} has no open governed work interval in phase ${workflow.currentPhase ?? 'complete'}.`);
       console.log(`Story ${workflow.workItem.id} · ${current.phaseId} generation ${current.generation}`);
       console.log(`Baseline: ${current.baselineSha256.slice(0, 12)} · source ${current.sourceBaseCommit.slice(0, 12)} · ${current.status}`);
       if (current.finalReconciliation) console.log(`Final reconciliation: ${current.finalReconciliation.reconciliationSha256.slice(0, 12)}`);
+      // Each section says "quiet" rather than printing an empty list, so a calm return reads as calm.
+      console.log(`Since you left: ${packet.sinceYouLeft.quiet ? 'nothing changed' : `${packet.sinceYouLeft.changedPaths.length} path(s) changed`}`);
+      console.log(`Stale: ${packet.stale.quiet ? 'nothing drifted' : packet.stale.drift.map((entry) => entry.fact).join(', ')}`);
+      if (!packet.amended.quiet) {
+        console.log(`Amended: ${packet.amended.clauses.map((clause) => clause.clauseId).join(', ')}`);
+        for (const clause of packet.amended.clauses) {
+          console.log(`  ${clause.clauseId} — ${clause.claimed ? `you claimed this (${clause.artifacts.join(', ') || 'no paths'})` : 'not claimed by you'}`);
+        }
+      }
+      const blocked = submissionBlockedByAmendment(packet);
+      if (blocked) console.warn(blocked);
       return;
+    }
+    if (action === 'acknowledge') {
+      const result = await acknowledgeAmendment(root, workflow, {
+        throughGeneration: optionNumber(options, 'through'),
+        actor: identity(root).email ?? 'unknown'
+      });
+      if (!result) return console.log(`Story ${workflow.workItem.id} has no open interval to acknowledge.`);
+      // Local, uncommitted state: an acknowledgment is a note that a human read something, not a
+      // governed publication. `saveDraft` is the same door every other in-phase mutation uses.
+      await new StoryStateStore(root, config).saveDraft(workflow);
+      if (optionBoolean(options, 'json')) return console.log(JSON.stringify(result, null, 2));
+      return console.log(result.acknowledged
+        ? `Acknowledged the amendment through generation ${result.acknowledgedGeneration}. Submission is no longer blocked by it.`
+        : `Already acknowledged through generation ${result.acknowledgedGeneration}; nothing to record.`);
     }
     if (action === 'checkpoint') {
       const result = await createLocalCheckpoint(root, workflow, {

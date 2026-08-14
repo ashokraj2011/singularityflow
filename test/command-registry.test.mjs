@@ -92,7 +92,7 @@ test('a mistyped subcommand is told what it typed, what was meant, and what work
 
   // Nested slots say which slot they mean rather than calling a third positional a subcommand.
   assert.throws(() => resolveOperation({ requestedCommand: 'story', positionals: ['story', 'interval', 'nope'] }),
-    /'story interval' has no action 'nope'\. Available: checkpoint, escalate, reconcile, status\./);
+    /'story interval' has no action 'nope'\. Available: acknowledge, checkpoint, escalate, reconcile, status\./);
   assert.throws(() => resolveOperation({ requestedCommand: 'workspace', positionals: ['workspace', 'impact', 'nope'] }),
     /'workspace impact' has no action 'nope'\. Available: analyze, list, promote, show\./);
 });

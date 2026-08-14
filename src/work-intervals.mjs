@@ -461,6 +461,59 @@ export async function amendWorkIntervalBaseline(root, workflow, {
   return workflow.workIntervals.current;
 }
 
+/**
+ * Record that a human read the amendment. `[AMD:REQ-041]` `[AMD:CON-003]`
+ *
+ * The acknowledgment is the human beat the packet reports as outstanding and deliberately cannot
+ * perform for itself. It is stored on the interval beside the amendments so the two travel together
+ * — a record that someone was told, next to what they were told.
+ *
+ * Idempotent, and it never moves backwards: acknowledging the same generation twice is a no-op, and
+ * an older generation cannot un-acknowledge a newer one. Both matter because the packet raises the
+ * beat again on the next amendment, and a stale command re-running must not clear that.
+ */
+export async function acknowledgeAmendment(root, workflow, {
+  phaseId = workflow.currentPhase,
+  throughGeneration,
+  actor = 'system',
+  at = nowIso()
+} = {}) {
+  const current = workflow.workIntervals?.current;
+  if (!current || current.phaseId !== phaseId || current.status !== 'open') return null;
+  const amendments = current.amendments ?? [];
+  if (!amendments.length) {
+    throw new SingularityFlowError(
+      'There is no amendment to acknowledge on this interval.',
+      { code: 'AMENDMENT_ACKNOWLEDGEMENT_UNNEEDED' }
+    );
+  }
+  const latest = Number(amendments.at(-1).toGeneration);
+  const target = throughGeneration == null ? latest : Number(throughGeneration);
+  if (!Number.isInteger(target) || target > latest) {
+    throw new SingularityFlowError(
+      `Cannot acknowledge through generation ${throughGeneration}; the latest amendment reached ${latest}.`,
+      { code: 'AMENDMENT_ACKNOWLEDGEMENT_INVALID' }
+    );
+  }
+  const already = Number(current.acknowledgedGeneration ?? 0);
+  if (already >= target) return { ...current, acknowledged: false, acknowledgedGeneration: already };
+
+  const file = path.join(root, current.path);
+  const record = await readJson(file);
+  const acknowledgements = [...(record.acknowledgements ?? []), { at, actor, throughGeneration: target }];
+  await writeJson(file, { ...record, acknowledgements, acknowledgedGeneration: target });
+  workflow.workIntervals.current = { ...current, acknowledgedGeneration: target, acknowledgements };
+  workflow.history.push({
+    at,
+    actor,
+    agent: null,
+    event: 'amendment_acknowledged',
+    phase: phaseId,
+    detail: `amendment through generation ${target} acknowledged on interval ${current.intervalId}`
+  });
+  return { ...workflow.workIntervals.current, acknowledged: true };
+}
+
 export function closeWorkInterval(workflow, {
   phaseId,
   at = nowIso(),

@@ -1,8 +1,9 @@
 import path from 'node:path';
 import { mkdir, mkdtemp, rm } from 'node:fs/promises';
 // Synchronous, because `identity()` is synchronous and called from synchronous code throughout.
-import { mkdirSync, readFileSync, writeFileSync } from 'node:fs';
+import { mkdirSync, readFileSync, statSync, writeFileSync } from 'node:fs';
 import { SingularityFlowError, invariant, run } from './util.mjs';
+import { scanEntries, secretRefusal } from './secrets.mjs';
 
 function git(args, options = {}) {
   // stdout is the data channel: `--json` callers parse this process's stdout, so a child git's
@@ -368,7 +369,72 @@ export function add(root, paths) {
  * the semantic every caller here already assumed. It is the same idiom the world-model publisher has
  * always used.
  */
+/**
+ * Refuse the commit if the content going into it contains a credential.
+ *
+ * Placed here rather than in each caller because this file owns both ways a commit is made, and a
+ * gate that each caller has to remember to invoke is a gate that the next caller forgets. Every
+ * governed publication and every plain `commit()` in this codebase passes through one of the two.
+ *
+ * It scans what is *about to be committed*, resolved the same way the commit resolves it: the
+ * working-tree content of the named paths for a scoped commit, and the staged content when the
+ * whole index is being committed. Scanning the working tree instead would pass a file whose clean
+ * version is on disk and whose staged version has the key in it.
+ *
+ * Deleted paths are skipped, not failed. A commit that removes a file containing a credential is
+ * the commit you want to succeed.
+ */
+export function assertNoSecrets(root, paths = null, { label = 'This commit' } = {}) {
+  const listed = paths?.length
+    ? [...new Set(paths.filter(Boolean))]
+    : git(['diff', '--cached', '--name-only', '-z', '--diff-filter=ACMR'], { cwd: root, allowFailure: true })
+      .stdout.split('\0').filter(Boolean);
+  if (!listed.length) return null;
+
+  const entries = [];
+  for (const item of listed) {
+    // A scoped commit takes the working tree; an index commit takes the staged blob. Read whichever
+    // one this commit will actually use.
+    if (paths?.length) {
+      const absolute = path.resolve(root, item);
+      let content;
+      try {
+        const stat = statSync(absolute);
+        // A path may name a directory the caller staged wholesale; expand it to its tracked files.
+        if (stat.isDirectory()) {
+          const tracked = git(['ls-files', '-z', '--', item], { cwd: root, allowFailure: true })
+            .stdout.split('\0').filter(Boolean);
+          for (const file of tracked) {
+            entries.push({ path: file, content: readFileSync(path.resolve(root, file), 'utf8') });
+          }
+          continue;
+        }
+        content = readFileSync(absolute, 'utf8');
+      } catch (error) {
+        // ENOENT is a deletion. Anything else is unreadable, and unreadable fails closed inside
+        // `scanEntries` by arriving with no content.
+        if (error?.code === 'ENOENT') continue;
+        entries.push({ path: item });
+        continue;
+      }
+      entries.push({ path: item, content });
+    } else {
+      const show = git(['show', `:${item}`], { cwd: root, allowFailure: true });
+      if (show.status !== 0) continue;
+      entries.push({ path: item, content: show.stdout });
+    }
+  }
+
+  const scan = scanEntries(entries);
+  const refusal = secretRefusal(scan);
+  if (refusal) {
+    throw new SingularityFlowError(`${label} was refused.\n\n${refusal}`, { code: 'SECRET_DETECTED' });
+  }
+  return scan;
+}
+
 export function commit(root, message, paths = null) {
+  assertNoSecrets(root, paths);
   const scope = paths?.length ? ['--only', '--', ...paths] : [];
   git(['commit', '-m', message, ...scope], { cwd: root, stdio: 'inherit' });
   return head(root);
@@ -405,6 +471,9 @@ export async function commitIsolated(root, message, paths, {
       + 'Commit or unstage those paths, then retry.'
     );
   }
+
+  // Before the temporary index is built, so a refusal leaves no scratch directory behind.
+  assertNoSecrets(root, scope, { label: 'Governed publication' });
 
   const temporaryRoot = path.join(gitDir(root), 'singularity-flow', 'temporary-indexes');
   await mkdir(temporaryRoot, { recursive: true });

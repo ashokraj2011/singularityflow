@@ -61,7 +61,7 @@ export const COMMAND_REGISTRY = Object.freeze([
   ['clarification'],
   ['approve'], ['reject'], ['reopen'], ['cancel'], ['sync'], ['ledger'], ['capabilities'], ['state'],
   ['validate'], ['gate'], ['wm'], ['jira'], ['plugin'], ['snapshot'], ['configuration'], ['constitution'], ['initiative'], ['epic'],
-  ['story'], ['workspace'], ['knowledge'], ['capability'], ['hook'], ['bootstrap'],
+  ['story'], ['workspace'], ['knowledge'], ['capability'], ['hook'], ['bootstrap'], ['secrets'],
   // The first-run walkthrough already existed as `guide --first-run` and was the best teaching asset
   // in the product, buried behind a flag on a verb that also means something else. This is the front
   // door; the flag still works.
@@ -91,6 +91,8 @@ export function commandDefinition(name) {
 
 const WM_MODEL_OPERATIONS = new Set(['build', 'ensure']);
 const WM_NEVER_OPERATIONS = new Set(['init', 'inject', 'compose', 'show-prompt', 'cleanup', 'prompt', 'context', 'budget', 'facts', 'check', 'cache', 'light', 'availability', 'status', 'design-inventory']);
+/** Scanning for credentials is pattern matching. A model in this path would be both slower and a way to leak the thing being looked for. */
+export const SECRETS_SUBCOMMANDS = Object.freeze(['scan', 'protect']);
 const WORKSPACE_NEVER_OPERATIONS = new Set([
   'branches', 'prune', 'list', 'current', 'prompt', 'create', 'open', 'archive-status', 'rename', 'archive',
   'restore', 'inspect', 'duplicate', 'capabilities', 'update', 'status', 'sync', 'repair', 'documents', 'forget', 'use'
@@ -149,6 +151,21 @@ function never(id, definition, classification = definition.classification) {
     output: definition.output,
     noModelFixture: `${id.replaceAll('.', '-')}-model-free`
   });
+}
+
+/**
+ * Secret scanning never invokes a model.
+ *
+ * Not a performance preference. Sending file content to a model to ask whether it contains a
+ * credential would transmit the credential — the exact disclosure the command exists to prevent —
+ * and would make the answer non-deterministic, so the same commit could be refused twice and
+ * allowed the third time.
+ */
+function resolveSecretsOperation(definition, positionals) {
+  const subcommand = positionals[1] ?? 'scan';
+  if (subcommand === 'scan') return never('secrets.scan', definition, 'read');
+  if (subcommand === 'protect') return never('secrets.protect', definition, 'mutation');
+  return unknownSubcommand('secrets', subcommand, SECRETS_SUBCOMMANDS);
 }
 
 function resolveTelemetryOperation(definition, positionals) {
@@ -344,6 +361,7 @@ export function resolveOperation({ requestedCommand, positionals, options = {} }
   if (definition.name === 'workspace') return resolveWorkspaceOperation(definition, positionals, options);
   if (definition.name === 'pr') return resolvePullRequestOperation(definition, positionals, options);
   if (definition.name === 'report' || definition.name === 'review') return resolveOptionalOutputOperation(definition, options);
+  if (definition.name === 'secrets') return resolveSecretsOperation(definition, positionals);
   if (definition.name === 'telemetry') return resolveTelemetryOperation(definition, positionals);
   if (definition.name === 'inputs') return resolveInputsOperation(definition, options);
   if (definition.name === 'spec') return resolveSpecOperation(definition, positionals, options);

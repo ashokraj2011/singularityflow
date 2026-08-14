@@ -1,9 +1,9 @@
 {
   "schemaVersion": 1,
   "generatedFrom": "docs/topics",
-  "sourceCommit": "0033a340b2a3821c3fb19f8b8eadbf8b2bd36b62",
-  "topicCount": 32,
-  "contentSha256": "186a4119d17c866e20a2774ec6b5c85847cfb4d68d238484597db796a1402e33",
+  "sourceCommit": "54a264334d3c06672e695925688d15bbbe188761",
+  "topicCount": 33,
+  "contentSha256": "9cd824c19de9c652f87409340f34fe7d7777d105e23c539bb3af3ebf52a146e5",
   "topics": [
     {
       "id": "approvals",
@@ -165,6 +165,13 @@
       "version": 1,
       "sha256": "6305e5cdd8f44b5d32d3d3fe7c5dfecd6b91f67ff62578ee420b72f7c421a0f1",
       "file": "rejection-and-rework.md"
+    },
+    {
+      "id": "secrets",
+      "title": "Refusing to commit a credential",
+      "version": 1,
+      "sha256": "be4a6694880800ff3742d546d0236fb7c5d230b4f8d512d44192466fb96e0a35",
+      "file": "secrets.md"
     },
     {
       "id": "sequence-gates",

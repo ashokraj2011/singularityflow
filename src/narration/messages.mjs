@@ -17,6 +17,23 @@ function slot(value, fallback = '') {
 }
 
 export const MESSAGES = Object.freeze({
+  /**
+   * Secret scanning. The headline carries counts, never a value — the whole point of the check is
+   * that the credential does not get repeated anywhere, and a narration layer is a place text goes
+   * to be logged.
+   */
+  'secrets.clean': {
+    headline: (s) => `No secrets found in ${slot(s.scanned)} ${slot(s.scope)} file(s).`,
+    preserves: true
+  },
+  'secrets.detected': {
+    headline: (s) => `${slot(s.blocking)} possible secret(s) found in ${slot(s.scanned)} ${slot(s.scope)} file(s).`,
+    preserves: true
+  },
+  'secrets.protected': {
+    headline: (s) => `Installed the pre-commit secret check at ${slot(s.hook)}.`,
+    preserves: true
+  },
   'fastpath.milestone': {
     headline: (s) => `${slot(s.verb)} reached ${slot(s.milestone)}.`,
     preserves: true

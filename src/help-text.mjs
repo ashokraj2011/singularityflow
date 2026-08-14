@@ -114,6 +114,8 @@ Usage:
       [--repository ID] [--work-id ID] [--phase ID] [--agent ID]
       [--level error|warn|info|debug] [--since ISO-TIMESTAMP] [--limit N] [--json]
   singularity-flow hook <turn-intent|turn-end|agent-start|session-start|agent-guard>
+  singularity-flow secrets scan [--staged] [--json]
+  singularity-flow secrets protect [--force]
   singularity-flow review [PHASE] [--phase PHASE] [--format md|html|json] [--out FILE]
   singularity-flow workflow list [--json]                  every workflow, Story and Initiative
   singularity-flow workflow create <ID> --phases a,b,c [--label TEXT] [--governs story|initiative]

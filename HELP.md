@@ -2593,6 +2593,8 @@ singularity-flow workspace list|current|use|prompt|copilot
 singularity-flow knowledge list|show|record|harvest|resolve ...
 singularity-flow capability tree|show|of|add|set|remove|map|edit|world-model|organisation|leads
 singularity-flow hook turn-intent|turn-end|agent-start|session-start|agent-guard
+singularity-flow secrets scan [--staged] [--json]
+singularity-flow secrets protect [--force]
 singularity-flow bootstrap <REPOSITORY-URL> --capability ID [--name TEXT] [--kind collection|delivery] [--into DIR] [--no-push]
 singularity-flow story branch create|attach|status|promote
 singularity-flow story interval status|checkpoint|reconcile|escalate

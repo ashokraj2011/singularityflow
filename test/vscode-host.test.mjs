@@ -441,9 +441,14 @@ test('the built extension activates against a real repository and populates the 
   const configuration = registered.trees.get('singularityFlow.configuration');
   assert.ok(configuration, 'repository settings have a dedicated Configuration view');
   const configurationRoots = configuration.treeDataProvider.getChildren();
-  assert.deepEqual(configurationRoots.map((node) => node.id), ['configuration']);
-  assert.ok(configuration.treeDataProvider.getChildren(configurationRoots[0])
-    .some((node) => node.id === 'config:agents'), 'agents are discoverable under Configuration');
+  assert.deepEqual(configurationRoots.map((node) => node.id), ['configuration:center']);
+
+  // The section is one entry, so "discoverable under Configuration" now means discoverable in the
+  // Center it opens. Driven through the real command rather than asserted against the page source.
+  await registered.commands.get('singularityFlow.configureTemplates')();
+  const centerPanel = registered.panels.find((entry) => entry.id === 'singularityFlow.configurationCenter');
+  assert.ok(centerPanel, 'the Configuration Center opens from the single Configuration entry');
+  assert.match(centerPanel.webview.html, /Agents and prompts/, 'agents are discoverable in the Center');
 
   // And the editor-facing mapping produces a usable TreeItem.
   const item = provider.getTreeItem(roots[0]);
@@ -506,14 +511,24 @@ test('a legacy workflow blocks Lifecycle but leaves all repairable configuration
   const configurationProvider = registered.trees.get('singularityFlow.configuration').treeDataProvider;
   const roots = configurationProvider.getChildren();
   assert.match(roots[0].label, /version must be 2/);
-  const configuration = roots.find((node) => node.id === 'configuration');
-  assert.ok(configuration, 'Configuration inventory remains present below the validation finding');
-  const groups = configurationProvider.getChildren(configuration).map((node) => node.id);
-  assert.ok(groups.includes('config:workflow-design'), 'workflow and phase files remain visible');
-  assert.ok(groups.includes('config:templates'), 'artifact templates remain visible');
-  assert.ok(groups.includes('config:prompts'), 'prompts remain visible');
-  assert.ok(groups.includes('config:skills'), 'skills and prompt packs remain visible');
-  assert.ok(groups.includes('config:agents'), 'agents remain visible');
+  assert.ok(roots.some((node) => node.id === 'configuration:center'),
+    'Configuration remains reachable below the validation finding');
+
+  /**
+   * Configuration is how a refused repository gets repaired, so a v1 workflow must not take away the
+   * files whose editing is the fix. The inventory moved into the Center, so that is where the
+   * guarantee is now checked — with the definition actually refused, not with a hand-built snapshot.
+   */
+  await registered.commands.get('singularityFlow.configureTemplates')();
+  const centerPanel = registered.panels.find((entry) => entry.id === 'singularityFlow.configurationCenter');
+  assert.ok(centerPanel, 'the Configuration Center opens against a refused definition');
+  for (const heading of ['Artifact templates', 'Repository prompts', 'Skills and prompt packs', 'Agents and prompts']) {
+    assert.ok(centerPanel.webview.html.includes(heading), `${heading} remain visible`);
+  }
+  // The designers live on the overview tab, so switch to it rather than asserting one tab's markup
+  // contains another's.
+  await registered.commands.get('singularityFlow.openConfigurationCenter')();
+  assert.match(centerPanel.webview.html, /data-action="open-designer"/, 'workflow and phase design remains reachable');
   assert.ok(registered.commands.has('singularityFlow.reinitialize'), 'the no-migration recovery command is registered');
 
   registered.selfApprovalAnswer = 'Reset and reinitialize';
@@ -1835,14 +1850,18 @@ test('Configuration opens the capability editor and creates new capabilities', a
   assert.match(panel.webview.html, /Commerce/);
   assert.match(panel.webview.html, /Payments API/);
 
+  // Configuration is one entry now, and it leads to the Center, which is where capabilities live.
   const configuration = registered.trees.get('singularityFlow.configuration').treeDataProvider;
-  const configurationRoot = configuration.getChildren().find((node) => node.id === 'configuration');
-  assert.equal(configuration.getChildren(configurationRoot)[0].id, 'config:capabilities',
-    'capabilities are the first repository-configuration concept');
-  const capabilityGroup = configuration.getChildren(configurationRoot).find((node) => node.id === 'config:capabilities');
-  assert.ok(capabilityGroup, 'capabilities are visible under Configuration');
-  const add = configuration.getChildren(capabilityGroup).find((node) => node.id === 'config:capabilities:add');
-  assert.equal(configuration.getTreeItem(add).command.command, 'singularityFlow.addCapability');
+  const [entry, ...rest] = configuration.getChildren();
+  assert.equal(entry.id, 'configuration:center');
+  assert.equal(rest.length, 0, 'the Configuration section is a single entry');
+  assert.equal(configuration.getTreeItem(entry).command.command, 'singularityFlow.openConfigurationCenter');
+
+  await registered.commands.get('singularityFlow.openConfigurationCenter')();
+  const center = registered.panels.find((item) => item.id === 'singularityFlow.configurationCenter');
+  assert.ok(center, 'the Configuration Center opens');
+  assert.match(center.webview.html, /data-action="capabilities"/);
+  assert.match(center.webview.html, /data-action="add-capability"/);
 });
 
 test('Configuration bootstraps the first capability instead of opening an unusable editor', async (t) => {
@@ -1855,18 +1874,9 @@ test('Configuration bootstraps the first capability instead of opening an unusab
   ].join('\n'));
   await registered.commands.get('singularityFlow.refresh')();
 
-  const configuration = registered.trees.get('singularityFlow.configuration').treeDataProvider;
-  const configurationRoot = configuration.getChildren().find((node) => node.id === 'configuration');
-  const capabilityGroup = configuration.getChildren(configurationRoot)
-    .find((node) => node.id === 'config:capabilities');
-  const first = configuration.getChildren(capabilityGroup)
-    .find((node) => node.id === 'config:capabilities:add');
-
-  assert.equal(first.label, 'Create first capability');
-  assert.equal(configuration.getTreeItem(first).command.command, 'singularityFlow.mapCapability');
-
-  // Command Palette entry points have no tree node, so they must make the same decision rather
-  // than opening the subsequent-capability editor and failing at its final Create action.
+  // With the Configuration tree collapsed to one entry, the bootstrap decision lives only in the
+  // command — which is where it always had to be correct anyway, since the Command Palette and the
+  // Center's card both reach it without a tree node to pre-decide for them.
   await registered.commands.get('singularityFlow.addCapability')();
   assert.ok(registered.panels.find((entry) => entry.id === 'singularityFlow.mapCapability'),
     'the first capability opens the bootstrap panel that can establish an organisation lead');

@@ -2,7 +2,52 @@
 import YAML from 'yaml';
 import type { ModelRoutingProjection, RepositorySnapshot } from '../cli/snapshot.ts';
 
-export type ConfigurationTab = 'overview' | 'world-model' | 'models' | 'people' | 'mcp';
+/**
+ * Every tab, in the order the strip renders them.
+ *
+ * A list rather than a bare union because the panel has to check an incoming tab name at runtime,
+ * and the hand-written allowlist it used to check against had already drifted: 'models' shipped as a
+ * rendered tab whose own strip button was silently dropped. Deriving the type from the list makes
+ * adding a tab and accepting it the same edit.
+ */
+export const CONFIGURATION_TABS = ['overview', 'world-model', 'models', 'templates', 'people', 'mcp'] as const;
+
+export type ConfigurationTab = (typeof CONFIGURATION_TABS)[number];
+
+/**
+ * An artifact template as the Center shows it: the name the catalog gave it, and what references it.
+ *
+ * Moved here from the sidebar because a template is configuration, and the Center is where
+ * configuration lives. The two facts that matter are the same ones the sidebar carried — what this
+ * template is called, and whether anything would break if it went away.
+ */
+export interface ConfigurationFile {
+  path: string;
+  name: string;
+  /** The catalog's name for it, or the filename when it is not catalogued. */
+  label: string;
+  catalogId: string | null;
+  kind: string | null;
+  /**
+   * Which phases reference it. Three states, not two: `[]` means nothing does and it is safe to
+   * remove, `null` means the engine did not compute usage, and answering "unused" there would be a
+   * confident wrong answer to the one question the column exists for.
+   */
+  usedBy: string[] | null;
+  /**
+   * Packaged files ship with the product, so an edit to one is taken back by an upgrade. Only skills
+   * carry this — `textFiles` gives templates and prompts a path, a name and bytes and nothing else,
+   * so a packaged/repository split for those would be a field nothing can ever set.
+   */
+  packaged: boolean;
+  description: string | null;
+}
+
+export interface FileSetView {
+  id: 'templates' | 'prompts' | 'skills' | 'agents';
+  label: string;
+  files: ConfigurationFile[];
+}
 export type AuthorityScope = 'story' | 'initiative';
 
 export interface ProfileView { name: string; role: string; }
@@ -34,6 +79,8 @@ export interface WorldModelSettingsView {
 }
 export interface ConfigurationCenterView {
   profile: ProfileView;
+  /** Artifact templates with their catalog names and usage, absorbed from the sidebar. */
+  fileSets: FileSetView[];
   authorities: AuthorityView[];
   mcpServers: McpServerView[];
   agents: Array<{ id: string; label: string }>;
@@ -41,6 +88,27 @@ export interface ConfigurationCenterView {
   mcpErrors: string[];
   mcpWarnings: string[];
   worldModel: WorldModelSettingsView;
+  /**
+   * Grounding state, as opposed to grounding policy: whether the world model has been built, what
+   * views exist, and the engine's own reason for rebuilding. Absorbed from the sidebar, which was
+   * the only surface that showed it — the Center's world-model tab configured a thing whose current
+   * state it never displayed.
+   */
+  worldModelStatus: {
+    built: boolean;
+    root: string;
+    rebuildReason: string | null;
+    views: Array<{ id: string; path: string; references: number }>;
+  };
+  /** Validated configuration edits waiting to be published, and anything blocking that. */
+  publish: { changes: string[]; unrelated: string[]; branch: string };
+  /**
+   * Whether workflow progress is recorded, and where. The sidebar said this in the Configuration
+   * group's own description line; with the group gone it has to be said here or not at all.
+   */
+  ledger: { enabled: boolean; branch: string | null; summary: string; detail: string };
+  /** Whether the lifecycle can run without a model, and what stops it. */
+  modelFreedom: { status: string; mode: string; blockers: string[]; warnings: string[] } | null;
   /**
    * Task → model, as the engine resolves it. Read-only on purpose: the mapping is a governed file,
    * and a panel that edited it in place would be a second way to change policy that no review saw.
@@ -91,6 +159,89 @@ function authorityRows(source: unknown, scope: AuthorityScope): AuthorityView[] 
   }));
 }
 
+/**
+ * The three editable file sets, absorbed from the Configuration sidebar.
+ *
+ * Ordering within a set is alphabetical by the name a reader sees, except that a repository's own
+ * skills come before the packaged ones — those are the files a team wrote and can change.
+ */
+/** The append-only workflow ledger, in the words the sidebar used. */
+function ledgerStatus(snapshot: RepositorySnapshot): ConfigurationCenterView['ledger'] {
+  const ledger = snapshot.definition?.ledger as { enabled?: boolean; branch?: string } | undefined;
+  const branch = ledger?.branch ?? null;
+  return ledger?.enabled
+    ? {
+      enabled: true, branch,
+      summary: `state on ${branch ?? 'ledger'}`,
+      detail: `Workflow progress is recorded on the orphan branch '${branch}'.`
+    }
+    : {
+      enabled: false, branch: null,
+      summary: 'no state branch',
+      detail: 'No append-only workflow ledger is enabled for this repository.'
+    };
+}
+
+function fileSets(snapshot: RepositorySnapshot): FileSetView[] {
+  const file = (entry: {
+    path: string; name: string; catalogId?: string | null; catalogLabel?: string | null;
+    catalogKind?: string | null; usedBy?: string[]; packaged?: boolean; description?: string;
+  }): ConfigurationFile => ({
+    path: entry.path,
+    name: entry.name,
+    label: entry.catalogLabel ?? entry.name,
+    catalogId: entry.catalogId ?? null,
+    kind: entry.catalogKind ?? null,
+    usedBy: entry.usedBy ?? null,
+    packaged: Boolean(entry.packaged),
+    description: entry.description ?? null
+  });
+  const byName = (left: ConfigurationFile, right: ConfigurationFile): number => left.label.localeCompare(right.label);
+
+  const skills = [
+    ...(snapshot.repositorySkills ?? []).map((entry) => file(entry)).sort(byName),
+    // The snapshot has carried the packaged skills as `flowSkills` all along. A repository that had
+    // written none of its own used to be told it had no agents while every shipped pack sat unlisted.
+    ...(snapshot.flowSkills ?? []).map((skill) => file({
+      path: skill.packagePath ?? skill.path,
+      name: skill.id ?? skill.name ?? skill.path,
+      packaged: true,
+      description: skill.description
+    })).sort(byName)
+  ];
+
+  return [
+    { id: 'templates', label: 'Artifact templates', files: (snapshot.templates ?? []).map((entry) => file(entry)).sort(byName) },
+    {
+      id: 'prompts',
+      label: 'Repository prompts',
+      files: (snapshot.prompts ?? snapshot.agentPrompts ?? snapshot.personaPrompts ?? []).map((entry) => file(entry)).sort(byName)
+    },
+    { id: 'skills', label: 'Skills and prompt packs', files: skills },
+    {
+      id: 'agents',
+      label: 'Agents and prompts',
+      files: [
+        ...(snapshot.agents ?? []).map((agent) => file({
+          path: agent.path,
+          name: agent.id,
+          // A packaged agent is read-only; only a repository one is the team's to change, and the
+          // scope is the word the tree used for exactly that distinction.
+          packaged: agent.editable === false,
+          description: agent.scope
+        })),
+        ...(snapshot.agentMappings
+          ? [file({
+            path: snapshot.agentMappings.path,
+            name: 'agent-mappings.yml',
+            description: snapshot.agentMappings.exists ? 'Copilot → governed agent routing' : 'same-name routing'
+          })]
+          : [])
+      ]
+    }
+  ];
+}
+
 export function configurationCenterView(snapshot: RepositorySnapshot, profile: ProfileView): ConfigurationCenterView {
   const definition = snapshot.definition ?? {};
   const worldModel = definition.worldModel ?? {};
@@ -101,6 +252,36 @@ export function configurationCenterView(snapshot: RepositorySnapshot, profile: P
   const agentLabels = new Map((snapshot.agents ?? []).map((entry) => [entry.id, entry.id]));
   return {
     profile,
+    /**
+     * Read straight from the snapshot the engine already annotates. The catalog join happens once,
+     * server-side; recomputing "what uses this template" here would be the designer and the kernel
+     * holding two opinions about whether a file is safe to delete.
+     */
+    worldModelStatus: {
+      built: Boolean(snapshot.worldModel?.generatedAt),
+      root: snapshot.worldModel?.root ?? 'singularity/world-model',
+      rebuildReason: snapshot.worldModel?.rebuildReason ?? null,
+      views: (snapshot.worldModel?.views ?? []).map((view) => ({
+        id: view.id,
+        path: `${snapshot.worldModel?.root ?? 'singularity/world-model'}/views/${view.id}.md`,
+        references: view.references.length
+      }))
+    },
+    ledger: ledgerStatus(snapshot),
+    publish: {
+      changes: [...(snapshot.repository?.configurationChanges ?? [])],
+      unrelated: [...(snapshot.repository?.unrelatedChanges ?? [])],
+      branch: snapshot.repository?.branch ?? 'current branch'
+    },
+    modelFreedom: snapshot.modelFreedom
+      ? {
+        status: snapshot.modelFreedom.summary?.status ?? 'unknown',
+        mode: snapshot.modelFreedom.mode,
+        blockers: [...(snapshot.modelFreedom.blockers ?? [])],
+        warnings: [...(snapshot.modelFreedom.warnings ?? [])]
+      }
+      : null,
+    fileSets: fileSets(snapshot),
     authorities: [
       ...authorityRows(definition.approvalAuthorities, 'story'),
       ...authorityRows(snapshot.portfolio?.approvalAuthorities, 'initiative')

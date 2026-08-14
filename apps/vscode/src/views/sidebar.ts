@@ -30,6 +30,19 @@ const SECTION_META: Record<SidebarSection, {
   actions: Array<{ id: string; label: string; icon: IconName }>;
   empty: { text: string; action: string; actionLabel: string };
 }> = {
+  inbox: {
+    label: 'Inbox', icon: 'inbox', actions: [
+      { id: 'inbox-open', label: 'Open inbox', icon: 'inbox' },
+      { id: 'visual-assurance', label: 'Review visual evidence', icon: 'compare' },
+      // Every section reads from the one shared snapshot, so a failed refresh empties them together.
+      // Inbox was the only one of the two affected sections with no way to ask for another go.
+      { id: 'refresh', label: 'Refresh inbox', icon: 'refresh' }
+    ],
+    empty: {
+      text: 'Nothing is waiting on you. Submitted phases appear here for approval.',
+      action: 'inbox-open', actionLabel: 'Open the inbox'
+    }
+  },
   workspaces: {
     label: 'Workspaces', icon: 'workspace', actions: [
       { id: 'workspace-create', label: 'Create workspace', icon: 'workspaceAdd' },
@@ -51,39 +64,19 @@ const SECTION_META: Record<SidebarSection, {
       action: 'work-start', actionLabel: 'Start intake'
     }
   },
-  inbox: {
-    label: 'Inbox', icon: 'inbox', actions: [
-      { id: 'inbox-open', label: 'Open inbox', icon: 'inbox' },
-      { id: 'visual-assurance', label: 'Review visual evidence', icon: 'compare' },
-      // Every section reads from the one shared snapshot, so a failed refresh empties them together.
-      // Inbox was the only one of the two affected sections with no way to ask for another go.
-      { id: 'refresh', label: 'Refresh inbox', icon: 'refresh' }
-    ],
-    empty: {
-      text: 'Nothing is waiting on you. Submitted phases appear here for approval.',
-      action: 'inbox-open', actionLabel: 'Open the inbox'
-    }
-  },
-  logs: {
-    label: 'Logs', icon: 'commit', actions: [
-      { id: 'logs-open', label: 'Open workspace logs', icon: 'commit' },
-      { id: 'logs-refresh', label: 'Refresh workspace logs', icon: 'refresh' }
-    ],
-    empty: {
-      text: 'Open the combined workspace timeline for activity, prompts, Copilot usage, and workspace operations.',
-      action: 'logs-open', actionLabel: 'Open workspace logs'
-    }
-  },
+  /**
+   * One way in. The four title-bar shortcuts that used to live here — map capability, design
+   * workflow, design agents, prompt audit — are all in the Configuration Center, which is what this
+   * section now opens. Duplicating them meant the sidebar had to be updated every time the Center
+   * grew a tab, and it stopped being.
+   */
   configuration: {
     label: 'Configuration', icon: 'configuration', actions: [
-      { id: 'capability-map', label: 'Map capability', icon: 'capability' },
-      { id: 'workflow-design', label: 'Design workflow', icon: 'workflow' },
-      { id: 'instruction-design', label: 'Design agents and prompts', icon: 'agent' },
-      { id: 'prompt-audit', label: 'Open prompt audit', icon: 'prompt' }
+      { id: 'configuration-center', label: 'Open Configuration Center', icon: 'configuration' }
     ],
     empty: {
       text: 'No governed configuration is loaded. It lives on the capability’s configuration branch, not on main.',
-      action: 'capability-map', actionLabel: 'Map a capability'
+      action: 'configuration-center', actionLabel: 'Open Configuration Center'
     }
   },
   help: {
@@ -99,7 +92,17 @@ const SECTION_META: Record<SidebarSection, {
       text: 'Guides, the command reference, the activity log, and what was sent to the model.',
       action: 'help-open', actionLabel: 'Open the Help Center'
     }
-  }
+  },
+  logs: {
+    label: 'Logs', icon: 'commit', actions: [
+      { id: 'logs-open', label: 'Open workspace logs', icon: 'commit' },
+      { id: 'logs-refresh', label: 'Refresh workspace logs', icon: 'refresh' }
+    ],
+    empty: {
+      text: 'Open the combined workspace timeline for activity, prompts, Copilot usage, and workspace operations.',
+      action: 'logs-open', actionLabel: 'Open workspace logs'
+    }
+  },
 };
 
 const ACTION_COMMANDS: Record<string, string> = {
@@ -116,9 +119,11 @@ const ACTION_COMMANDS: Record<string, string> = {
   'help-open': 'singularityFlow.openHelp',
   'activity-log': 'singularityFlow.openActivityLog',
   'logs-open': 'singularityFlow.openWorkspaceLogs',
-  'logs-refresh': 'singularityFlow.refreshWorkspaceLogs'
+  'logs-refresh': 'singularityFlow.refreshWorkspaceLogs',
+  'configuration-center': 'singularityFlow.openConfigurationCenter'
 };
 
+/** Render order is the key order of SECTION_META above: inbox, workspaces, lifecycle, configuration, help, logs. */
 const SECTION_ORDER = Object.freeze(Object.keys(SECTION_META) as SidebarSection[]);
 const KNOWN_ICONS = new Set<string>(ICON_NAMES);
 

@@ -462,33 +462,6 @@ test('a repository that will not load offers the file to fix and the full report
   assert.equal(vague[1].runCommand, 'singularityFlow.doctor');
 });
 
-test('Configuration keeps workflows agents prompts and skills visible while Lifecycle is blocked', () => {
-  const refused = new Error('workflow.yml version must be 2. Legacy role configurations are not supported.');
-  const recovery = {
-    initiative: null, initiatives: [], workItems: [], workflow: null,
-    configurationValid: false,
-    definitionPath: 'singularity/workflow.yml',
-    definition: { version: 1, workTypes: { feature: { phases: ['intake'] } } },
-    templates: [{ path: 'singularity/templates/intake.md', name: 'intake.md' }],
-    agentPrompts: [{ path: '.github/agents/architect.agent.md', name: 'architect.agent.md' }],
-    repositorySkills: [{ path: '.github/skills/review/SKILL.md', name: 'review' }],
-    flowSkills: [{ id: 'sflow-doctor', path: 'plugin/skills/sflow-doctor/SKILL.md' }],
-    agents: [{ id: 'architect', scope: 'repository', path: '.github/agents/architect.agent.md', editable: true }]
-  };
-  const lifecycle = buildTree(recovery, refused);
-  assert.equal(find(lifecycle, 'configuration'), undefined, 'invalid configuration still blocks lifecycle authority');
-  assert.equal(find(lifecycle, 'lifecycle:error:reinitialize')?.runCommand, 'singularityFlow.reinitialize',
-    'an unsupported workflow has a direct no-migration recovery action');
-
-  const configuration = buildConfigurationTree(recovery, refused);
-  assert.equal(find(configuration, 'configuration:error:reinitialize')?.runCommand, 'singularityFlow.reinitialize');
-  assert.ok(find(configuration, 'configuration'), 'the configuration inventory remains available');
-  assert.ok(find(configuration, 'config:workflow-design'));
-  assert.ok(find(configuration, 'config:templates'));
-  assert.ok(find(configuration, 'config:prompts'));
-  assert.ok(find(configuration, 'config:skills'));
-  assert.ok(find(configuration, 'config:agents'));
-});
 
 test('a repository with nothing checked out on this branch says so, and how many exist', () => {
   const [node, start] = buildTree({ initiative: null, initiatives: [{ id: 'A' }, { id: 'B' }], workItems: [] });
@@ -1100,102 +1073,10 @@ test('an empty repository offers to start an Epic rather than describing the com
   assert.doesNotMatch(start.tooltip, /singularity-flow/, 'a command to retype is not an affordance');
 });
 
-test('configuration is shown whether or not an Epic is checked out', () => {
-  // The lifecycle, approvers and governed agents are properties of the repository, not of an Epic.
-  // A newcomer's problem is not editing these files but knowing they exist and where.
-  const withEpic = buildConfigurationTree(snapshot);
-  const withoutEpic = buildConfigurationTree({ initiative: null, initiatives: [], workItems: [] });
-  for (const tree of [withEpic, withoutEpic]) {
-    const configuration = find(tree, 'configuration');
-    assert.ok(configuration, 'configuration is always reachable');
-    const children = configuration.children.map((child) => child.id);
-    // Capabilities lead because they decide which repositories a workspace will contain; local
-    // identity, grounding and governed design follow.
-    assert.deepEqual(children.slice(0, 6),
-      ['config:capabilities', 'config:model-freedom', 'config:local-profile', 'config:mcp', 'world-model', 'config:workflow-design']);
-    const design = find(tree, 'config:workflow-design');
-    assert.deepEqual(design.children.map((child) => child.id),
-      [
-        'config:designer',
-        'config:instruction-designer',
-        'config:specification-trace',
-        'config:composition-cache',
-        'config:ledger-deployment',
-        'config:workflow',
-        'config:portfolio'
-      ]);
-    for (const set of ['config:templates', 'config:skills', 'config:agents']) {
-      assert.ok(children.includes(set), `${set} is reachable`);
-    }
-  }
-});
 
-test('validated visual-editor changes have a visible review and publish path', () => {
-  const changed = structuredClone(snapshot);
-  changed.repository = {
-    branch: 'sflow/config-change/editor/review',
-    configurationChanges: ['singularity/workflow.yml', 'singularity/templates/feature/design.md'],
-    unrelatedChanges: [],
-    publishReady: true
-  };
-  const tree = buildConfigurationTree(changed);
-  const unpublished = find(tree, 'config:unpublished');
-  assert.equal(unpublished.description, '2 files · sflow/config-change/editor/review');
-  assert.deepEqual(unpublished.children.slice(0, 2).map((child) => child.label), [
-    'singularity/workflow.yml',
-    'singularity/templates/feature/design.md'
-  ]);
-  assert.equal(find(tree, 'config:publish').runCommand, 'singularityFlow.publishConfiguration');
 
-  changed.repository.unrelatedChanges = ['README.md'];
-  const blocked = buildConfigurationTree(changed);
-  assert.equal(find(blocked, 'config:publish'), undefined, 'unrelated changes cannot reach publication');
-  assert.match(find(blocked, 'config:unpublished:blocked').description, /README\.md/);
-});
 
-test('the configuration node says whether workflow progress is recorded, and where', () => {
-  const off = find(buildConfigurationTree(snapshot), 'configuration');
-  assert.equal(off.description, 'no state branch');
-  assert.match(off.tooltip, /No append-only workflow ledger/);
 
-  const on = structuredClone(snapshot);
-  on.definition = { ...(on.definition ?? {}), ledger: { enabled: true, branch: 'state' } };
-  const node = find(buildConfigurationTree(on), 'configuration');
-  assert.equal(node.description, 'state on state');
-  assert.match(node.tooltip, /orphan branch 'state'/);
-});
-
-test('each governed agent is openable as the file that defines it', () => {
-  const withAgents = structuredClone(snapshot);
-  withAgents.agents = [
-    { id: 'product-owner', scope: 'repository', path: '.github/agents/product-owner.agent.md', editable: true },
-    { id: 'developer', scope: 'repository', path: '.github/agents/developer.agent.md', editable: true }
-  ];
-  const agents = find(buildConfigurationTree(withAgents), 'config:agents');
-  assert.equal(agents.description, '2');
-  assert.deepEqual(agents.children.map((child) => child.label), ['product-owner', 'developer']);
-  assert.equal(agents.children[0].path, '.github/agents/product-owner.agent.md');
-});
-
-test('governed MCP tools show host readiness and remain configurable from VS Code', () => {
-  const withMcp = structuredClone(snapshot);
-  withMcp.mcp = {
-    servers: [{
-      id: 'playwright', label: 'Playwright browser automation', hostReference: 'playwright',
-      agents: ['qa'], phases: ['verification'], tools: ['browser_snapshot'], required: false,
-      configured: true, sources: ['vscode-workspace']
-    }],
-    inventory: [{ surface: 'vscode-workspace', path: '.vscode/mcp.json', name: 'playwright', error: null }],
-    errors: [], warnings: []
-  };
-  const group = find(buildConfigurationTree(withMcp), 'config:mcp');
-  assert.equal(group.label, 'MCP tools');
-  assert.equal(group.description, '1/1 host configured');
-  assert.equal(group.children[0].label, 'Playwright browser automation');
-  assert.equal(group.children[0].description, 'ready · playwright');
-  assert.match(group.children[0].tooltip, /browser_snapshot/);
-  assert.equal(group.children[0].runCommand, 'singularityFlow.configureMcp');
-});
 
 const {
   EMPTY_WORKSPACE_FORM, capabilityChoices, coveredCapabilities, derivedRepositories, effectiveLead,
@@ -1444,39 +1325,6 @@ test('a URL that cannot be read is reported on the form, beside the field it was
 
 const { isGovernedConfiguration } = await import(source('governed.ts'));
 
-test('the editable file sets appear as groups of openable files', () => {
-  // Artifact templates, skills and agents are the things a team actually wants to change
-  // about this product. A template nobody can find is a template nobody edits.
-  const authored = structuredClone(snapshot);
-  authored.templates = [{ path: 'singularity/templates/initiatives/business-case.md', name: 'business-case.md' }];
-  authored.repositorySkills = [];
-  authored.agents = [
-    {
-      id: 'sflow', scope: 'packaged', path: '../../installed/sflow.md',
-      packagePath: 'plugin/agents/sflow.md', editable: false
-    },
-    { id: 'house', scope: 'repository', path: '.github/agents/house.md', editable: true }
-  ];
-  authored.agentMappings = { path: 'singularity/agent-mappings.yml', exists: true };
-  const tree = buildConfigurationTree(authored);
-
-  const templates = find(tree, 'config:templates');
-  assert.equal(templates.description, '1');
-  assert.equal(templates.children[0].path, 'singularity/templates/initiatives/business-case.md');
-
-  // An empty set is stated rather than hidden.
-  const packs = find(tree, 'config:skills');
-  assert.equal(packs.description, 'none');
-  assert.match(packs.children[0].label, /No skills/);
-
-  // A packaged agent is not the team's to change; a repository one is.
-  const agents = find(tree, 'config:agents');
-  const packagedAgent = agents.children.find((child) => child.id === 'agent:sflow');
-  assert.equal(packagedAgent.readOnly, true);
-  assert.equal(packagedAgent.packagePath, 'plugin/agents/sflow.md');
-  assert.equal(agents.children.find((child) => child.id === 'agent:house').readOnly, false);
-  assert.equal(agents.children.at(-1).label, 'agent-mappings.yml');
-});
 
 test('governed configuration is recognised, and nothing else is', () => {
   const repository = '/repo';
@@ -1773,42 +1621,8 @@ test('an Epic with no Story plan says what planning would produce', () => {
   assert.equal(stories.initiativeId, 'INIT-MULTI', 'and still says which Epic it is talking about');
 });
 
-test('the world model is shown at the root, and its absence is named', () => {
-  // A model belongs to the repository, not to an Epic: every Epic on every branch grounds against
-  // the same one. Its absence is invisible until the answers are wrong.
-  const unbuilt = find(buildConfigurationTree(snapshot), 'world-model');
-  assert.equal(unbuilt.description, 'not built');
-  assert.match(unbuilt.tooltip, /no repository knowledge to draw on/);
-  assert.deepEqual(unbuilt.children[0].command, ['wm', 'build'], 'and it offers to build one');
-  assert.equal(unbuilt.children.at(-1).runCommand, 'singularityFlow.configureWorldModel', 'and settings remain reachable without hiding repository status');
 
-  const built = structuredClone(snapshot);
-  built.worldModel = {
-    root: 'singularity/world-model', generatedAt: '2026-08-01T00:00:00Z', rebuildReason: null,
-    views: [{ id: 'business', references: ['a', 'b'] }, { id: 'data', references: [] }]
-  };
-  const node = find(buildConfigurationTree(built), 'world-model');
-  assert.equal(node.description, '2 views');
-  assert.equal(node.children[0].path, 'singularity/world-model/views/business.md');
-  assert.equal(node.children[1].description, 'no references');
-});
 
-test('a stale world model offers the rebuild the engine asked for, in its own words', () => {
-  const stale = structuredClone(snapshot);
-  stale.worldModel = {
-    root: 'singularity/world-model', generatedAt: '2026-07-01T00:00:00Z',
-    rebuildReason: 'The repository changed after the model was generated.', views: []
-  };
-  const node = find(buildConfigurationTree(stale), 'world-model');
-  assert.equal(node.children[0].label, 'The repository changed after the model was generated.');
-  assert.deepEqual(node.children[0].command, ['wm', 'build']);
-});
-
-test('the world model is reachable even with no Epic checked out', () => {
-  const tree = buildConfigurationTree({ initiative: null, initiatives: [], workItems: [], worldModel: { root: 'w', generatedAt: null, rebuildReason: null, views: [] } });
-  assert.ok(find(tree, 'world-model'), 'grounding does not depend on an Epic');
-  assert.ok(find(tree, 'configuration'));
-});
 
 test('a locally pinned source can be opened; a remote one has no path to open', () => {
   const pinned = structuredClone(snapshot);
@@ -1882,81 +1696,7 @@ test('a capability map that does not validate reports the engine reason', () => 
  * in. Workflows stayed: the question a workflow answers — what kind of work is this? — is asked at
  * the moment of starting, in this view, and a list of what you can start is not a settings file.
  */
-test('Lifecycle owns intake and active phases; Configuration owns their design', () => {
-  const lifecycle = buildTree(snapshot);
-  const configurationTree = buildConfigurationTree(snapshot);
-  assert.deepEqual(lifecycle.map((node) => node.id), ['initiative:INIT-MULTI', 'workspace:impact']);
-  assert.equal(find(lifecycle, 'configuration'), undefined, 'settings do not crowd the intake view');
-  assert.equal(find(lifecycle, 'capabilities'), undefined, 'the Capabilities view renders those');
-  assert.equal(find(lifecycle, 'world-model'), undefined, 'grounding is configuration');
 
-  // Capabilities lead Configuration because they are the prerequisite for creating a workspace.
-  // Local identity and integrations follow, then the repository grounding that is built rather
-  // than edited.
-  const configuration = find(configurationTree, 'configuration');
-  assert.equal(configuration.children[0].id, 'config:capabilities');
-  assert.equal(configuration.children[1].id, 'config:model-freedom');
-  assert.equal(configuration.children[2].id, 'config:local-profile');
-  assert.equal(configuration.children[3].id, 'config:mcp');
-  assert.equal(configuration.children[4].id, 'world-model');
-  assert.ok(find(configurationTree, 'config:workflow-design'), 'workflow definitions are designed here');
-  const capabilities = find(configurationTree, 'config:capabilities');
-  assert.ok(capabilities, 'the capability map is configuration rather than workspace identity');
-  assert.equal(capabilities.children[0].runCommand, 'singularityFlow.mapCapability');
-  assert.equal(capabilities.children[0].label, 'Create first capability');
-  assert.equal(capabilities.children[1].runCommand, 'singularityFlow.openCapabilities');
-  assert.ok(find(configurationTree, 'config:capabilities:file'), 'the governed YAML remains directly openable');
-
-  const mapped = structuredClone(snapshot);
-  mapped.capabilityMap = {
-    capabilities: [{
-      id: 'commerce', name: 'Commerce', kind: 'collection', repository: null, children: []
-    }]
-  };
-  const mappedCapabilities = find(buildConfigurationTree(mapped), 'config:capabilities');
-  assert.equal(mappedCapabilities.children[0].runCommand, 'singularityFlow.addCapability');
-  assert.equal(mappedCapabilities.children[0].label, 'Add capability');
-
-  // Every workflow, of both kinds, listed with the phase chain that distinguishes it — and each one
-  // opens the file that defines it rather than being a label that does nothing.
-  const withWorkflows = structuredClone(snapshot);
-  withWorkflows.portfolio = { initiativeProfiles: { 'epic-planning': { label: 'Epic planning', phases: ['a', 'b'] } } };
-  withWorkflows.definition = { ...withWorkflows.definition, workTypes: { feature: { label: 'Feature', phases: ['x'] } } };
-  const intake = buildTree({ ...withWorkflows, initiative: null, initiatives: [], workItems: [] });
-  const workflows = find(intake, 'workflows');
-  assert.equal(workflows.description, '2');
-  assert.deepEqual(workflows.children.map((child) => child.label), ['Epic planning', 'Feature']);
-  assert.match(workflows.children[0].description, /^initiative · a → b$/);
-  assert.match(workflows.children[1].description, /^story · x$/);
-  assert.equal(workflows.children[0].path, undefined, 'Lifecycle chooses; Configuration edits');
-  assert.equal(workflows.children[1].path, undefined, 'Lifecycle chooses; Configuration edits');
-
-  // A workflow is still listed before anything has been started: it is how you choose what to start.
-  assert.deepEqual(intake.map((node) => node.id),
-    ['no-initiative', 'start-intake', 'workspace:impact', 'workflows']);
-});
-
-test('every agent is listed, including the ones that ship with the product', () => {
-  // The snapshot carried `flowSkills` all along and this view read only `repositorySkills`, so a
-  // repository that had written none of its own was told it had no agents while every
-  // packaged pack sat unlisted beside it.
-  const withPacks = structuredClone(snapshot);
-  withPacks.repositorySkills = [{ path: '.github/skills/ours/SKILL.md', name: 'ours' }];
-  withPacks.flowSkills = [
-    { id: 'sflow-approve', path: 'plugin/skills/sflow-approve/SKILL.md', description: 'Approve a phase.' },
-    { id: 'sflow-doctor', path: 'plugin/skills/sflow-doctor/SKILL.md', description: 'Diagnose a repository.' }
-  ];
-  const packs = find(buildConfigurationTree(withPacks), 'config:skills');
-  assert.equal(packs.description, '3');
-  assert.deepEqual(packs.children.map((child) => child.label), ['ours', 'sflow-approve', 'sflow-doctor']);
-  // Which ones this team wrote, and which came with the product: editing a packaged one is a change
-  // that an upgrade takes back.
-  assert.deepEqual(packs.children.map((child) => child.description),
-    ['repository', 'packaged', 'packaged']);
-  assert.match(packs.children[1].tooltip, /Approve a phase\./);
-  assert.equal(packs.children[1].packagePath, 'plugin/skills/sflow-approve/SKILL.md');
-  assert.equal(packs.children[1].readOnly, true);
-});
 
 const { capabilityDetail, capabilityArgv, capabilityProposalArgv, parentChoices, flattenCapabilities } =
   await import(source('views/capability-model.ts'));
@@ -3515,32 +3255,13 @@ test('the instruction designer separates agents, prompts, repository skills and 
   assert.match(delivery, /Review (?:&|&amp;) trust/);
 });
 
-test('every prompt pack is listed, including the ones that ship with the product', () => {
-  // Restored. The snapshot has carried `flowSkills` all along and this view read only
-  // `repositorySkills`, so a repository that had written none of its own was told it had none while
-  // eighty-two packaged packs sat unlisted beside it. The fix survived a later refactor; the test
-  // that pins it did not, which is how a fix that has already shipped once quietly ships again.
-  const withPacks = structuredClone(snapshot);
-  withPacks.repositorySkills = [{ path: '.github/skills/ours/SKILL.md', name: 'ours' }];
-  withPacks.flowSkills = [
-    { id: 'sflow-approve', path: 'plugin/skills/sflow-approve/SKILL.md', description: 'Approve a phase.' },
-    { id: 'sflow-doctor', path: 'plugin/skills/sflow-doctor/SKILL.md', description: 'Diagnose a repository.' }
-  ];
-  const packs = find(buildConfigurationTree(withPacks), 'config:skills');
-  assert.equal(packs.description, '3');
-  assert.deepEqual(packs.children.map((child) => child.label), ['ours', 'sflow-approve', 'sflow-doctor']);
-  // Which ones this team wrote, and which came with the product: editing a packaged one is a change
-  // an upgrade takes back.
-  assert.deepEqual(packs.children.map((child) => child.description), ['repository', 'packaged', 'packaged']);
-});
 
 test('VS Code exposes workspace prompt auditing and records the governed Copilot handoff', async () => {
   const packageJson = JSON.parse(await readFile(path.join(packageRoot, 'apps', 'vscode', 'package.json'), 'utf8'));
   assert.ok(packageJson.contributes.commands.some((entry) => entry.command === 'singularityFlow.openPromptAudit'));
-  const configuration = buildConfigurationTree(snapshot);
-  const audit = find(configuration, 'config:prompt-audit');
-  assert.equal(audit.runCommand, 'singularityFlow.openPromptAudit');
-  assert.match(audit.description, /off by default/);
+  // Reachable from the Configuration Center, which is the only Configuration surface now.
+  const center = await readFile(source('views/configuration-center-page.ts'), 'utf8');
+  assert.match(center, /'open-prompt-audit'[\s\S]{0,160}off by default/);
 
   const extension = await readFile(source('extension.ts'), 'utf8');
   assert.match(extension, /\['wm', 'show-prompt', '--record-audit'\]/,
@@ -3553,9 +3274,12 @@ test('VS Code exposes workspace prompt auditing and records the governed Copilot
 test('Flow Impact has a dedicated configuration and reporting entry point', async () => {
   const packageJson = JSON.parse(await readFile(path.join(packageRoot, 'apps', 'vscode', 'package.json'), 'utf8'));
   assert.ok(packageJson.contributes.commands.some((entry) => entry.command === 'singularityFlow.openFlowImpact'));
-  const configuration = buildConfigurationTree(snapshot);
-  assert.equal(find(configuration, 'config:flow-impact:open').runCommand, 'singularityFlow.openFlowImpact');
-  assert.equal(find(configuration, 'config:flow-impact:file').path, 'singularity/impact.yml');
+  const center = await readFile(source('views/configuration-center-page.ts'), 'utf8');
+  assert.match(center, /data-action="\$\{action\}"/, 'the Center renders its tool cards by action name');
+  assert.ok(center.includes("'open-flow-impact'") && center.includes("'open-impact-file'"));
+  const extensionSource = await readFile(source('extension.ts'), 'utf8');
+  assert.match(extensionSource, /'open-flow-impact'\) await vscode\.commands\.executeCommand\('singularityFlow\.openFlowImpact'\)/);
+  assert.match(extensionSource, /'open-impact-file'\)[\s\S]{0,200}singularity\/impact\.yml/);
   const panel = await readFile(source('views/flow-impact.ts'), 'utf8');
   assert.match(panel, /Governed delivery measurement/);
   assert.match(panel, /Story measurement/);

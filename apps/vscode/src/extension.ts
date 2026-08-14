@@ -25,6 +25,7 @@ import type { StoriesMessage } from './views/stories.ts';
 import type { CapabilitiesMessage } from './views/capabilities.ts';
 import type { DesignerMessage } from './views/designer.ts';
 import type { ConfigurationCenterMessage } from './views/configuration-center.ts';
+import type { ConfigurationTab } from './views/configuration-center-model.ts';
 import type { HelpDocument } from './views/help-page.ts';
 import type { WorkspacesMessage } from './views/workspaces-panel.ts';
 import type { Mapped } from './views/bootstrap-panel.ts';
@@ -311,6 +312,7 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
     'singularityFlow.inspectCompositionCache', 'singularityFlow.checkLedgerDeployment', 'singularityFlow.openCopilot',
     'singularityFlow.openVisualAssurance',
     'singularityFlow.openConfigurationCenter', 'singularityFlow.configureWorldModel', 'singularityFlow.configurePeople', 'singularityFlow.configureMcp',
+    'singularityFlow.configureTemplates', 'singularityFlow.configureModels',
     'singularityFlow.reopenCompleted', 'singularityFlow.cancelWork',
     'singularityFlow.expandReference', 'singularityFlow.openHarnessReport'
   ];
@@ -2071,13 +2073,59 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
       } catch (error) { return (error as Error).message; }
     }
 
+    /**
+     * A template row was clicked. Path-carrying rather than a named action, and validated against
+     * the snapshot's own template list rather than trusted: a webview message is untrusted input,
+     * and `openArtifact` would otherwise open any path the message named.
+     */
+    if (message.type === 'open-path') {
+      const snapshot = store.current.snapshot;
+      const listed = new Set<string>([
+        ...(snapshot?.templates ?? []).map((entry) => entry.path),
+        ...(snapshot?.prompts ?? snapshot?.agentPrompts ?? snapshot?.personaPrompts ?? []).map((entry) => entry.path),
+        ...(snapshot?.repositorySkills ?? []).map((entry) => entry.path),
+        ...(snapshot?.flowSkills ?? []).map((entry) => entry.packagePath ?? entry.path),
+        ...(snapshot?.worldModel?.views ?? []).map((view) => `${snapshot?.worldModel?.root ?? 'singularity/world-model'}/views/${view.id}.md`)
+      ]);
+      if (!listed.has(message.path)) return `This repository no longer lists ${message.path}. Refresh and try again.`;
+      const label = message.path.split('/').pop() ?? message.path;
+      await openArtifact(client.repository, { kind: 'artifact', id: `file:${message.path}`, label, path: message.path });
+      return null;
+    }
+
     if (message.action === 'capabilities') await vscode.commands.executeCommand('singularityFlow.openCapabilities');
+    else if (message.action === 'add-capability') await vscode.commands.executeCommand('singularityFlow.addCapability');
     else if (message.action === 'proposals') await vscode.commands.executeCommand('singularityFlow.reviewCapabilityProposals');
     else if (message.action === 'workflow') await vscode.commands.executeCommand('singularityFlow.openDesigner');
     else if (message.action === 'instructions') await vscode.commands.executeCommand('singularityFlow.openInstructionDesigner');
     else if (message.action === 'world-model') { await openConfigurationCenter('world-model'); return null; }
     else if (message.action === 'people') { await openConfigurationCenter('people'); return null; }
     else if (message.action === 'mcp') { await openConfigurationCenter('mcp'); return null; }
+    else if (message.action === 'models') { await openConfigurationCenter('models'); return null; }
+    else if (message.action === 'templates') { await openConfigurationCenter('templates'); return null; }
+    // Absorbed from the Configuration sidebar section, which now only leads here.
+    else if (message.action === 'publish-configuration') await vscode.commands.executeCommand('singularityFlow.publishConfiguration');
+    else if (message.action === 'reset-jira') await vscode.commands.executeCommand('singularityFlow.resetJira');
+    else if (message.action === 'open-designer') await vscode.commands.executeCommand('singularityFlow.openDesigner');
+    else if (message.action === 'open-instruction-designer') await vscode.commands.executeCommand('singularityFlow.openInstructionDesigner');
+    else if (message.action === 'open-specification-trace') await vscode.commands.executeCommand('singularityFlow.openSpecificationTrace');
+    else if (message.action === 'open-flow-impact') await vscode.commands.executeCommand('singularityFlow.openFlowImpact');
+    else if (message.action === 'open-copilot') await vscode.commands.executeCommand('singularityFlow.openCopilot');
+    else if (message.action === 'open-prompt-audit') await vscode.commands.executeCommand('singularityFlow.openPromptAudit');
+    else if (message.action === 'inspect-composition-cache') await vscode.commands.executeCommand('singularityFlow.inspectCompositionCache');
+    else if (message.action === 'check-ledger-deployment') await vscode.commands.executeCommand('singularityFlow.checkLedgerDeployment');
+    else if (message.action === 'open-impact-file') await openArtifact(client.repository, { kind: 'artifact', id: 'config:impact', label: 'impact.yml', path: 'singularity/impact.yml' });
+    else if (message.action === 'build-world-model') {
+      // The sidebar ran the CLI directly here rather than through a registered command, and there is
+      // no VS Code command for it to borrow. Same shape as the Playwright scaffold action above.
+      output.appendLine('\n$ singularity-flow wm build');
+      try {
+        await client.runText(['wm', 'build']);
+        await store.refresh();
+        void vscode.window.showInformationMessage('World model rebuilt. Governed prompts will use the new views.');
+      } catch (error) { return (error as Error).message; }
+      return null;
+    }
     else if (message.action === 'prompt-audit') await vscode.commands.executeCommand('singularityFlow.openPromptAudit');
     else if (message.action === 'visual-assurance') await vscode.commands.executeCommand('singularityFlow.openVisualAssurance');
     else if (message.action === 'jira') await vscode.commands.executeCommand('singularityFlow.connectJira');
@@ -2121,7 +2169,7 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
     return null;
   };
 
-  const openConfigurationCenter = async (tab: 'overview' | 'world-model' | 'people' | 'mcp' = 'overview'): Promise<void> => {
+  const openConfigurationCenter = async (tab: ConfigurationTab = 'overview'): Promise<void> => {
     const { ConfigurationCenterPanel } = await import('./views/configuration-center.ts');
     ConfigurationCenterPanel.show(context, store, () => {
       const settings = vscode.workspace.getConfiguration('singularityFlow');
@@ -2403,6 +2451,10 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
     },
     'singularityFlow.configurePeople': () => openConfigurationCenter('people'),
     'singularityFlow.configureMcp': () => openConfigurationCenter('mcp'),
+    // Every tab has a palette command: with the Configuration section collapsed to one entry, the
+    // palette is the only route into a tab that does not start at the Center's overview.
+    'singularityFlow.configureTemplates': () => openConfigurationCenter('templates'),
+    'singularityFlow.configureModels': () => openConfigurationCenter('models'),
     'singularityFlow.openWorkspaceLogs': async () => {
       const { WorkspaceLogsPanel } = await import('./views/workspace-logs.ts');
       return WorkspaceLogsPanel.show(context, client, 'all');

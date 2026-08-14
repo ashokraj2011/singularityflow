@@ -42,42 +42,6 @@ function rows(templates) {
   return JSON.parse(result.stdout);
 }
 
-test('a catalogued template is listed by its name, and says what uses it', () => {
-  const [row] = rows([{
-    path: 'singularity/templates/common/intake.md', name: 'common/intake.md', scope: 'repository',
-    catalogId: 'intake-standard', catalogLabel: 'Standard intake', catalogKind: 'intake',
-    usedBy: ['phase intake', 'workflow feature/intake']
-  }]);
-  assert.equal(row.label, 'Standard intake', 'the row still shows a filename instead of the template name');
-  assert.equal(row.description, 'used by 2');
-  assert.match(row.tooltip, /template:intake-standard · intake/, 'the tooltip does not name the reference to write');
-  assert.match(row.tooltip, /Used by: phase intake, workflow feature\/intake/);
-  assert.match(row.tooltip, /singularity\/templates\/common\/intake\.md/, 'the tooltip lost the path');
-});
 
-test('a template nobody references says so, which is the question a reader has', () => {
-  const [row] = rows([{
-    path: 'singularity/templates/common/orphan.md', name: 'common/orphan.md', scope: 'repository', usedBy: []
-  }]);
-  assert.equal(row.label, 'common/orphan.md', 'an uncatalogued template invented a name');
-  assert.equal(row.description, 'unused');
-});
 
-test('a repository without a catalog looks exactly as it did', () => {
-  // `usedBy` absent means the engine did not compute it — an older CLI against a newer extension.
-  // That must fall back to the previous behaviour rather than claiming the template is unused.
-  const [row] = rows([{
-    path: 'singularity/templates/common/intake.md', name: 'common/intake.md', scope: 'repository'
-  }]);
-  assert.equal(row.label, 'common/intake.md');
-  assert.equal(row.description, 'repository', 'a template with unknown usage was reported as unused');
-});
 
-test('a packaged template still says packaged, because that outranks usage', () => {
-  // Whether an edit survives an upgrade matters more than how many phases reference it.
-  const [row] = rows([{
-    path: 'templates/common/intake.md', name: 'common/intake.md', scope: 'packaged',
-    packagePath: 'templates/common/intake.md', usedBy: ['phase intake']
-  }]);
-  assert.equal(row.description, 'packaged');
-});

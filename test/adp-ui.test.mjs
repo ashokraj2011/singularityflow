@@ -49,7 +49,11 @@ test('the panel renders the engine answer and resolves nothing itself', async ()
 
 test('the tab is reachable and its only action opens the governed file', async () => {
   const page = withoutComments(await readFile(new URL('../apps/vscode/src/views/configuration-center-page.ts', import.meta.url), 'utf8'));
-  assert.match(page, /'overview', 'world-model', 'models', 'people', 'mcp'/, 'the tab strip omits model routing');
+  // The strip renders the shared CONFIGURATION_TABS list. Asserting a literal list here was what let
+  // 'models' ship as a tab the panel's own allowlist rejected: the page said it, nothing checked it.
+  const model = withoutComments(await readFile(new URL('../apps/vscode/src/views/configuration-center-model.ts', import.meta.url), 'utf8'));
+  assert.match(model, /CONFIGURATION_TABS = \[[^\]]*'models'/, 'model routing is not a known tab');
+  assert.match(page, /\$\{CONFIGURATION_TABS\.map/, 'the tab strip does not render the shared list');
   assert.match(page, /\['models', 'agent', 'Model routing'/, 'the overview does not offer the routing area');
 
   /**

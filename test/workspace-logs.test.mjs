@@ -193,8 +193,16 @@ test('the VS Code logs surface is top-level and legacy log commands route to sou
   const sidebar = await readFile(new URL('../apps/vscode/src/views/sidebar.ts', import.meta.url), 'utf8');
   const extension = await readFile(new URL('../apps/vscode/src/extension.ts', import.meta.url), 'utf8');
   const panel = await readFile(new URL('../apps/vscode/src/views/workspace-logs.ts', import.meta.url), 'utf8');
-  assert.ok(sidebar.indexOf('  inbox: {') < sidebar.indexOf('  logs: {'));
-  assert.ok(sidebar.indexOf('  logs: {') < sidebar.indexOf('  configuration: {'));
+  /**
+   * Logs is its own top-level section rather than a drawer inside another one. Its position moved:
+   * the sections now read inbox, workspaces, lifecycle, configuration, help, logs — what you owe
+   * someone, where you are, what you are doing, how it is set up, how to ask, and what happened.
+   * Logs is last because it is the one you go looking for, not the one you are handed.
+   */
+  const order = ['inbox', 'workspaces', 'lifecycle', 'configuration', 'help', 'logs']
+    .map((section) => sidebar.indexOf(`  ${section}: {`));
+  assert.ok(order.every((at) => at > 0), 'every section is declared');
+  assert.deepEqual([...order].sort((left, right) => left - right), order, 'sections are declared in render order');
   assert.match(extension, /WorkspaceLogsPanel\.show\(context, client, 'prompt'\)/);
   assert.match(extension, /WorkspaceLogsPanel\.show\(context, client, 'activity'\)/);
   assert.match(panel, /Prompt bodies stay hidden from the combined timeline/);

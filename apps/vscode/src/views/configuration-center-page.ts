@@ -1,5 +1,6 @@
 /** HTML renderer for the repository Configuration Center. */
 import { escape, icon } from './webview.ts';
+import { CONFIGURATION_TABS } from './configuration-center-model.ts';
 import type { IconName } from './webview.ts';
 import type { AuthorityView, ConfigurationCenterView, ConfigurationTab, McpServerView } from './configuration-center-model.ts';
 
@@ -7,18 +8,59 @@ function csv(values: string[]): string { return escape(values.join(', ')); }
 
 function tabs(active: ConfigurationTab): string {
   return `<nav class="tabs" aria-label="Configuration areas">
-    ${(['overview', 'world-model', 'models', 'people', 'mcp'] as const).map((tab) => `<button class="tab${active === tab ? ' active' : ''}" data-tab="${tab}">${tab === 'overview' ? 'Overview' : tab === 'world-model' ? 'World model' : tab === 'models' ? 'Model routing' : tab === 'people' ? 'People & approvals' : 'MCP tools'}</button>`).join('')}
+    ${CONFIGURATION_TABS.map((tab) => `<button class="tab${active === tab ? ' active' : ''}" data-tab="${tab}">${tab === 'overview' ? 'Overview' : tab === 'world-model' ? 'World model' : tab === 'models' ? 'Model routing' : tab === 'templates' ? 'Templates &amp; instructions' : tab === 'people' ? 'People & approvals' : 'MCP tools'}</button>`).join('')}
   </nav>`;
+}
+
+/**
+ * The editable file sets: artifact templates, repository prompts, skills and prompt packs.
+ *
+ * This is the Configuration sidebar's file tree, moved. It is read-only in the sense that the rows
+ * open the file rather than editing it in place — the catalog and these files are governed, and a
+ * panel that wrote them here would be a second way to change policy that no review saw.
+ */
+function fileSets(view: ConfigurationCenterView): string {
+  return view.fileSets.map((set) => `<section class="plain">
+    <div class="section-heading"><h2>${icon(set.id === 'templates' ? 'artifact' : set.id === 'prompts' ? 'prompt' : set.id === 'agents' ? 'agent' : 'skill')}${escape(set.label)}</h2>
+      <span class="muted">${set.files.length ? `${set.files.length}` : 'none'}</span></div>
+    ${set.files.length ? `<table class="configuration-table"><thead><tr>
+      <th>Name</th><th>Reference</th><th>File</th><th>Status</th>
+    </tr></thead><tbody>
+    ${set.files.map((entry) => `<tr>
+        <td><strong>${escape(entry.label)}</strong>${entry.description ? `<br><small>${escape(entry.description)}</small>` : ''}</td>
+        <td>${entry.catalogId ? `<code>template:${escape(entry.catalogId)}</code>` : `<small class="muted">${entry.kind ? escape(entry.kind) : 'not catalogued'}</small>`}</td>
+        <td><button class="link" data-open-path="${escape(entry.path)}">${escape(entry.name)}</button></td>
+        <td>${status(entry)}</td>
+      </tr>`).join('')}
+  </tbody></table>` : `<p class="empty">This repository declares no ${escape(set.label.toLowerCase())}.</p>`}
+  </section>`).join('');
+}
+
+/**
+ * Whether an edit survives an upgrade outranks how many phases reference it, so packaged wins the
+ * cell. Usage that was never computed is reported as exactly that, never as "unused".
+ */
+function status(entry: ConfigurationCenterView['fileSets'][number]['files'][number]): string {
+  if (entry.packaged) return '<small class="muted">packaged</small>';
+  if (entry.usedBy === null) return '<small class="muted">not computed</small>';
+  return entry.usedBy.length ? escape(entry.usedBy.join(', ')) : '<small class="muted">unused</small>';
 }
 
 function overview(view: ConfigurationCenterView): string {
   const cards: Array<[string, IconName, string, string]> = [
     ['capabilities', 'capability', 'Capabilities', 'What the organisation builds and which repositories deliver it.'],
+    /**
+     * Adding one is a separate card rather than a step inside the editor, because the editor cannot
+     * open usefully with no capabilities at all. The command decides which panel to show — bootstrap
+     * for the first, editor for the rest — so this card is correct in both states.
+     */
+    ['add-capability', 'capability', 'Add a capability', 'Create a delivery or collection capability. The first one bootstraps the organisation lead.'],
     ['proposals', 'merge', 'Review proposals', 'Pending capability-map changes waiting for exact-diff review and activation.'],
     ['workflow', 'workflow', 'Workflows & artifacts', 'Work types, phases, gates, inputs, and document templates.'],
     ['world-model', 'worldModel', 'World model', 'Grounding policy, automatic light generation, views, performance, and prompt injection.'],
     ['instructions', 'agent', 'Agents & delivery', 'Agent routing, prompts, skills, remote templates, generated artifacts, and trust status.'],
     ['models', 'agent', 'Model routing', 'Which model each kind of work resolves to, and the phases that route by it.'],
+    ['templates', 'document', 'Templates &amp; instructions', 'Artifact templates, repository prompts, skills and prompt packs, and what still references each one.'],
     ['people', 'team', 'People & approvals', 'Human identities and the authority groups permitted to approve.'],
     ['mcp', 'mcp', 'MCP tools', 'Host-owned tool servers with governed agent, phase, and tool allowlists.'],
     ['visual-assurance', 'visual', 'Visual assurance', 'Pinned design sources, viewport coverage, comparison evidence, and readiness.'],
@@ -28,8 +70,37 @@ function overview(view: ConfigurationCenterView): string {
     <div class="configuration-grid">${cards.map(([action, glyph, title, detail]) => `<button class="configuration-card secondary" data-action="${action}">${icon(glyph, { size: 20 })}<strong>${title}</strong><span>${detail}</span></button>`).join('')}</div>
     <h2>${icon('ok')}Repository readiness</h2>
     <div class="summary-grid"><div class="summary-card"><strong>${view.authorities.length}</strong><span>Approval groups</span></div><div class="summary-card"><strong>${view.mcpServers.length}</strong><span>Governed MCP servers</span></div><div class="summary-card"><strong>${view.agents.length}</strong><span>Governed agents</span></div><div class="summary-card"><strong>${view.phases.length}</strong><span>Story phases</span></div></div>
+    <p class="muted">Workflow ledger: <strong>${escape(view.ledger.summary)}</strong>. ${escape(view.ledger.detail)}</p>
     <p class="muted">Jira and Teams credentials remain in VS Code SecretStorage. They are never written into workflow files or prompts.</p>
-    <p class="card-foot"><button class="secondary" data-action="jira">Jira connection</button><button class="secondary" data-action="teams">Teams notifications</button><button class="secondary" data-action="open-workflow">Open workflow YAML</button><button class="secondary" data-action="open-portfolio">Open portfolio YAML</button></p>
+    <p class="card-foot"><button class="secondary" data-action="jira">Jira connection</button><button class="secondary" data-action="teams">Teams notifications</button><button class="secondary" data-action="reset-jira">Reset saved Jira</button><button class="secondary" data-action="open-workflow">Open workflow YAML</button><button class="secondary" data-action="open-portfolio">Open portfolio YAML</button></p>
+
+    ${view.publish.changes.length ? `<h2>${icon('merge')}Unpublished configuration</h2>
+    <p class="muted">${view.publish.changes.length} file${view.publish.changes.length === 1 ? '' : 's'} changed on ${escape(view.publish.branch)}.</p>
+    <ul class="plain-list">${view.publish.changes.map((file) => `<li><code>${escape(file)}</code></li>`).join('')}</ul>
+    ${view.publish.unrelated.length
+    // Publishing commits one scoped transaction, so unrelated working-tree changes block it. Saying
+    // which ones is the difference between a refusal and an instruction.
+    ? `<p class="notice warning">Separate these unrelated changes before publishing: ${escape(view.publish.unrelated.join(', '))}</p>`
+    : '<p class="card-foot"><button data-action="publish-configuration">Review &amp; publish configuration</button></p>'}` : ''}
+
+    ${view.modelFreedom ? `<h2>${icon('agent')}Model independence</h2>
+    <p class="muted">Lifecycle status: <strong>${escape(view.modelFreedom.status)}</strong> · mode ${escape(view.modelFreedom.mode)}.</p>
+    ${view.modelFreedom.blockers.length ? `<ul class="plain-list">${view.modelFreedom.blockers.map((entry) => `<li>${escape(entry)}</li>`).join('')}</ul>` : ''}
+    ${view.modelFreedom.warnings.length ? `<ul class="plain-list muted">${view.modelFreedom.warnings.map((entry) => `<li>${escape(entry)}</li>`).join('')}</ul>` : ''}` : ''}
+
+    <h2>${icon('workflow')}Designers &amp; tools</h2>
+    <p class="muted">Everything the Configuration sidebar used to open. The sidebar now leads here, so there is one place to look and one answer to "where is that setting".</p>
+    <div class="configuration-grid">${([
+    ['open-designer', 'workflow', 'Workflow Designer', 'Work types, phases, gates and the graph of what feeds what.'],
+    ['open-instruction-designer', 'agent', 'Agent, Prompt &amp; Skill Designer', 'Author the instructions agents are composed from.'],
+    ['open-specification-trace', 'document', 'Specification traceability', 'Which clause each artifact and test claims to satisfy.'],
+    ['open-flow-impact', 'capability', 'Flow Impact', 'What a change reaches across capabilities and repositories.'],
+    ['open-copilot', 'agent', 'Continue active Story in Copilot', 'Hand the open interval to Copilot with its governed context.'],
+    ['open-prompt-audit', 'prompt', 'Prompt audit', 'The composed governed prompts. Workspace-local capture, off by default.'],
+    ['inspect-composition-cache', 'ok', 'Inspect composition cache', 'What is cached, and whether it is still valid.'],
+    ['check-ledger-deployment', 'ok', 'Check ledger deployment', 'Whether the governance ledger is reachable and current.'],
+    ['open-impact-file', 'configuration', 'impact.yml', 'Study methods, cohorts, metrics, guardrails and privacy.']
+  ] as Array<[string, IconName, string, string]>).map(([action, glyph, title, detail]) => `<button class="configuration-card secondary" data-action="${action}">${icon(glyph, { size: 20 })}<strong>${title}</strong><span>${detail}</span></button>`).join('')}</div>
   </section>`;
 }
 
@@ -94,6 +165,20 @@ function modelRouting(view: ConfigurationCenterView): string {
 function worldModel(view: ConfigurationCenterView): string {
   const model = view.worldModel;
   return `<section class="plain world-model-settings">
+    <h2>${icon('worldModel')}Current grounding</h2>
+    ${view.worldModelStatus.rebuildReason
+    ? `<p class="notice warning">${escape(view.worldModelStatus.rebuildReason)}<span class="grow"></span><button class="secondary" data-action="build-world-model">Rebuild</button></p>`
+    : view.worldModelStatus.built
+      ? ''
+      : '<p class="notice warning">This repository has no world model yet, so governed prompts are ungrounded.<span class="grow"></span><button class="secondary" data-action="build-world-model">Build the world model</button></p>'}
+    ${view.worldModelStatus.views.length
+    ? `<table class="configuration-table"><thead><tr><th>View</th><th>References</th><th>File</th></tr></thead><tbody>
+      ${view.worldModelStatus.views.map((entry) => `<tr><td><strong>${escape(entry.id)}</strong></td>
+        <td>${entry.references ? `${entry.references}` : '<small class="muted">no references</small>'}</td>
+        <td><button class="link" data-open-path="${escape(entry.path)}">${escape(entry.path)}</button></td></tr>`).join('')}
+    </tbody></table>`
+    : '<p class="empty">No views have been generated.</p>'}
+
     <div class="section-heading"><div><h2>${icon('worldModel')}World-model behavior</h2><p class="muted">Control when repository grounding is required and how missing context is created. Read-only status commands never invoke a model.</p></div><button class="secondary" data-action="open-workflow">Open advanced YAML</button></div>
     <form id="world-model-form">
       <div class="editor-card">
@@ -207,7 +292,7 @@ export function configurationCenterHtml(view: ConfigurationCenterView, tab: Conf
   return `<header class="inbox-header"><div class="brand-lockup">SINGULARITY <span>FLOW</span></div><p class="eyebrow">Governed repository setup</p><h1>${icon('configuration', { size: 24 })}Configuration Center</h1><p class="meta">Configure the product through guided screens. Use YAML only for advanced settings that do not yet have a form.</p></header>
     <div id="configuration-runtime-message" class="notice warning" role="status" aria-live="polite" hidden><span id="configuration-runtime-text"></span><span class="grow"></span><button class="secondary" id="configuration-reload" type="button">Reload newer configuration</button><button class="secondary" id="configuration-keep" type="button">Keep editing</button></div>
     ${tabs(tab)}${notice ? `<div class="notice ok">${escape(notice)}</div>` : ''}${errors.length ? `<div class="notice error">${errors.map((entry) => `<p>${escape(entry)}</p>`).join('')}</div>` : ''}
-    ${tab === 'overview' ? overview(view) : tab === 'world-model' ? worldModel(view) : tab === 'models' ? modelRouting(view) : tab === 'people' ? people(view, selectedAuthority) : mcp(view, selectedMcp)}`;
+    ${tab === 'overview' ? overview(view) : tab === 'world-model' ? worldModel(view) : tab === 'models' ? modelRouting(view) : tab === 'templates' ? fileSets(view) : tab === 'people' ? people(view, selectedAuthority) : mcp(view, selectedMcp)}`;
 }
 
 export const CONFIGURATION_CENTER_SCRIPT = `
@@ -238,6 +323,7 @@ export const CONFIGURATION_CENTER_SCRIPT = `
     const tab = event.target.closest('[data-tab]'); if (tab) return vscode.postMessage({ type: 'tab', tab: tab.dataset.tab });
     const authority = event.target.closest('[data-authority]'); if (authority) return vscode.postMessage({ type: 'select-authority', key: authority.dataset.authority });
     const mcp = event.target.closest('[data-mcp]'); if (mcp) return vscode.postMessage({ type: 'select-mcp', id: mcp.dataset.mcp });
+    const openPath = event.target.closest('[data-open-path]'); if (openPath) return vscode.postMessage({ type: 'open-path', path: openPath.dataset.openPath });
     const action = event.target.closest('[data-action]'); if (action) return vscode.postMessage({ type: 'action', action: action.dataset.action });
   });
   document.addEventListener('submit', (event) => {

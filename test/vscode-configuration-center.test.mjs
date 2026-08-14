@@ -1,6 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import path from 'node:path';
+import { readFile } from 'node:fs/promises';
 import { fileURLToPath } from 'node:url';
 import YAML from 'yaml';
 
@@ -186,4 +187,196 @@ test('configuration drafts reject ambiguous approval identities and unsafe MCP i
     id: 'Bad ID', label: '', hostReference: '../host', agents: [], phases: [], tools: ['a', 'a'],
     required: false, approval: 'confirm', captureToolCalls: true, captureResults: false
   }).join(' '), /lower-case kebab-case.*display label.*Host reference.*duplicates/);
+});
+
+/**
+ * The Configuration Center is now the only route to configuration, so the tests that matter most are
+ * the ones that catch a surface being *shown* without being *reachable* — the defect that had already
+ * shipped here: the Model routing tab rendered a strip button whose name the panel's hand-written
+ * allowlist rejected, so clicking it did nothing.
+ */
+const { CONFIGURATION_TABS } = await import(source('configuration-center-model.ts'));
+const centerPanelSource = await readFile(source('configuration-center.ts'), 'utf8');
+const extensionSource = await readFile(path.join(root, 'apps', 'vscode', 'src', 'extension.ts'), 'utf8');
+
+test('every rendered tab is one the panel will accept', () => {
+  const html = configurationCenterHtml(configurationCenterView(snapshot), 'overview', null, null, null, []);
+  const rendered = [...html.matchAll(/data-tab="([^"]+)"/g)].map((match) => match[1]);
+  assert.ok(rendered.length >= CONFIGURATION_TABS.length, 'the strip should render every tab');
+  for (const tab of rendered) {
+    assert.ok(CONFIGURATION_TABS.includes(tab), `the strip renders '${tab}' but it is not a known tab`);
+  }
+  // And the allowlist is the shared list rather than a second copy that can drift behind it.
+  assert.match(centerPanelSource, /CONFIGURATION_TABS as readonly string\[\]\)\.includes/);
+  assert.doesNotMatch(centerPanelSource, /\['overview', 'world-model'[^\]]*\]\.includes\(String\(message\.tab\)\)/);
+});
+
+
+
+/**
+ * What the Configuration sidebar used to guarantee.
+ *
+ * The sidebar's file tree, world-model status, publish path, ledger line and model-independence
+ * summary were deleted when Configuration collapsed to a single entry. These are the behaviours
+ * those tests protected, asserted against the surface that owns them now. They are ported rather
+ * than dropped because the risk of a migration like this is not that a panel looks wrong — it is
+ * that something silently stops being shown anywhere.
+ */
+const centerHtml = (snapshotValue, tab = 'overview') =>
+  configurationCenterHtml(configurationCenterView(snapshotValue), tab, null, null, null, []);
+
+test('the editable file sets are listed as openable files', () => {
+  const view = configurationCenterView({
+    ...snapshot,
+    templates: [{ path: 'singularity/templates/intake.md', name: 'intake.md' }],
+    agentPrompts: [{ path: '.github/agents/architect.agent.md', name: 'architect.agent.md' }],
+    repositorySkills: [{ path: '.github/skills/review/SKILL.md', name: 'review' }],
+    flowSkills: [{ id: 'sflow-doctor', path: 'plugin/skills/sflow-doctor/SKILL.md', description: 'Diagnose a repository.' }],
+    agents: [{ id: 'architect', scope: 'repository', path: '.github/agents/architect.agent.md', editable: true }],
+    agentMappings: { path: 'singularity/agent-mappings.yml', exists: true }
+  });
+  assert.deepEqual(view.fileSets.map((set) => set.id), ['templates', 'prompts', 'skills', 'agents']);
+  assert.deepEqual(view.fileSets.map((set) => set.files.length), [1, 1, 2, 2]);
+
+  const html = configurationCenterHtml(view, 'templates', null, null, null, []);
+  for (const path of ['singularity/templates/intake.md', '.github/agents/architect.agent.md',
+    '.github/skills/review/SKILL.md', 'plugin/skills/sflow-doctor/SKILL.md',
+    'singularity/agent-mappings.yml']) {
+    assert.ok(html.includes(`data-open-path="${path}"`), `${path} should be openable`);
+  }
+});
+
+test('packaged skills are listed beside the repository’s own, and marked as packaged', () => {
+  // A repository that had written none of its own was once told it had no agents while every
+  // shipped pack sat unlisted beside it.
+  const view = configurationCenterView({
+    ...snapshot,
+    repositorySkills: [{ path: '.github/skills/ours/SKILL.md', name: 'ours' }],
+    flowSkills: [
+      { id: 'sflow-approve', path: 'plugin/skills/sflow-approve/SKILL.md' },
+      { id: 'sflow-doctor', path: 'plugin/skills/sflow-doctor/SKILL.md' }
+    ]
+  });
+  const skills = view.fileSets.find((set) => set.id === 'skills');
+  // The repository's own first: those are the files a team wrote and can change.
+  assert.deepEqual(skills.files.map((file) => file.label), ['ours', 'sflow-approve', 'sflow-doctor']);
+  assert.deepEqual(skills.files.map((file) => file.packaged), [false, true, true]);
+  assert.match(configurationCenterHtml(view, 'templates', null, null, null, []), /packaged/);
+});
+
+test('the file sets stay visible when the workflow definition is refused', () => {
+  // Configuration is how a repository is repaired. Hiding it when the definition is invalid hides
+  // the files whose editing is the fix.
+  const view = configurationCenterView({
+    ...snapshot,
+    configurationValid: false,
+    templates: [{ path: 'singularity/templates/intake.md', name: 'intake.md' }],
+    repositorySkills: [{ path: '.github/skills/review/SKILL.md', name: 'review' }]
+  });
+  assert.equal(view.fileSets.find((set) => set.id === 'templates').files.length, 1);
+  assert.equal(view.fileSets.find((set) => set.id === 'skills').files.length, 1);
+});
+
+test('validated configuration changes have a visible review and publish path', () => {
+  const changed = {
+    ...snapshot,
+    repository: {
+      branch: 'sflow/config-change/editor/review',
+      configurationChanges: ['singularity/workflow.yml', 'singularity/templates/feature/design.md'],
+      unrelatedChanges: [], publishReady: true
+    }
+  };
+  const html = centerHtml(changed);
+  assert.match(html, /2 files changed on sflow\/config-change\/editor\/review/);
+  assert.match(html, /data-action="publish-configuration"/);
+  // Offered only where there is something to publish — never as a permanent card.
+  assert.doesNotMatch(centerHtml(snapshot), /data-action="publish-configuration"/);
+
+  // Publishing commits one scoped transaction, so unrelated working-tree changes block it — and the
+  // publish button must not be offered while they do.
+  const blocked = centerHtml({
+    ...changed,
+    repository: { ...changed.repository, unrelatedChanges: ['src/index.ts'], publishReady: false }
+  });
+  assert.match(blocked, /Separate these unrelated changes before publishing: src\/index\.ts/);
+  assert.doesNotMatch(blocked, /data-action="publish-configuration"/);
+});
+
+test('the Center says whether workflow progress is recorded, and where', () => {
+  const view = configurationCenterView(snapshot);
+  assert.equal(view.ledger.summary, 'no state branch');
+  assert.match(centerHtml(snapshot), /No append-only workflow ledger/);
+
+  const on = { ...snapshot, definition: { ...snapshot.definition, ledger: { enabled: true, branch: 'state' } } };
+  assert.equal(configurationCenterView(on).ledger.summary, 'state on state');
+  assert.match(centerHtml(on), /orphan branch &#39;state&#39;/);
+});
+
+test('the world model shows its current state, not only its policy', () => {
+  const built = {
+    ...snapshot,
+    worldModel: {
+      root: 'singularity/world-model', generatedAt: '2026-01-01T00:00:00Z', rebuildReason: null,
+      views: [{ id: 'business', references: ['a', 'b'] }, { id: 'architecture', references: [] }]
+    }
+  };
+  const html = centerHtml(built, 'world-model');
+  assert.match(html, /data-open-path="singularity\/world-model\/views\/business\.md"/);
+  assert.match(html, /no references/);
+  assert.doesNotMatch(html, /data-action="build-world-model"/);
+});
+
+test('a stale world model offers the rebuild the engine asked for, in its own words', () => {
+  const stale = {
+    ...snapshot,
+    worldModel: {
+      root: 'singularity/world-model', generatedAt: '2026-01-01T00:00:00Z',
+      rebuildReason: '12 files changed since the world model was built.', views: []
+    }
+  };
+  const html = centerHtml(stale, 'world-model');
+  assert.match(html, /12 files changed since the world model was built\./);
+  assert.match(html, /data-action="build-world-model"/);
+});
+
+test('a repository with no world model is told so, not shown an empty list', () => {
+  const none = { ...snapshot, worldModel: undefined };
+  const view = configurationCenterView(none);
+  assert.equal(view.worldModelStatus.built, false);
+  const html = centerHtml(none, 'world-model');
+  assert.match(html, /no world model yet/);
+  assert.match(html, /data-action="build-world-model"/);
+});
+
+test('model independence is reported with whatever is blocking it', () => {
+  const html = centerHtml({
+    ...snapshot,
+    modelFreedom: {
+      schemaVersion: 1, mode: 'auto', modeSource: 'default', modelFreeLifecycleReady: false,
+      blockers: ['verification requires a model'], warnings: ['intake prefers one'],
+      summary: { status: 'partial', modelFreeLifecycleReady: false }
+    }
+  });
+  assert.match(html, /Lifecycle status: <strong>partial<\/strong>/);
+  assert.match(html, /verification requires a model/);
+  assert.match(html, /intake prefers one/);
+});
+
+test('every tool the Configuration sidebar used to open is reachable from the Center', () => {
+  const html = centerHtml(snapshot);
+  for (const action of ['reset-jira', 'open-designer', 'open-instruction-designer',
+    'open-specification-trace', 'open-flow-impact', 'open-copilot', 'open-prompt-audit',
+    'inspect-composition-cache', 'check-ledger-deployment', 'open-impact-file']) {
+    // Rendered *and* handled: a card whose action name the host does not answer is the defect this
+    // whole migration exists to avoid.
+    assert.ok(html.includes(`data-action="${action}"`), `${action} should be offered`);
+    assert.ok(extensionSource.includes(`message.action === '${action}'`), `${action} should be handled`);
+  }
+});
+
+test('the Center renders whether or not an Epic is checked out', () => {
+  const bare = configurationCenterHtml(
+    configurationCenterView({ initiative: null, initiatives: [], workItems: [] }), 'overview', null, null, null, []);
+  assert.match(bare, /Configuration Center/);
+  assert.match(bare, /data-action="open-designer"/);
 });

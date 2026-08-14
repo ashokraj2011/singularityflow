@@ -357,6 +357,16 @@
         "icon": "$(plug)"
       },
       {
+        "command": "singularityFlow.configureTemplates",
+        "title": "Singularity Flow: Configure Templates & Instructions",
+        "icon": "$(file-text)"
+      },
+      {
+        "command": "singularityFlow.configureModels",
+        "title": "Singularity Flow: Configure Model Routing",
+        "icon": "$(hubot)"
+      },
+      {
         "command": "singularityFlow.openCapabilities",
         "title": "Singularity Flow: Capabilities",
         "icon": "$(type-hierarchy)"

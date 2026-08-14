@@ -7,6 +7,7 @@ import { navigateTo } from './navigate.ts';
 import {
   configurationCenterView, configurationRefreshDecision, updateAuthorityYaml, updateMcpYaml, updateWorldModelYaml,
   validateAuthorityDraft, validateMcpDraft, validateWorldModelDraft,
+  CONFIGURATION_TABS,
   type AuthorityDraft, type AuthorityView, type ConfigurationTab, type McpDraft, type McpServerView,
   type WorldModelDraft
 } from './configuration-center-model.ts';
@@ -15,7 +16,12 @@ import { configurationCenterHtml, CONFIGURATION_CENTER_SCRIPT } from './configur
 export type ConfigurationCenterMessage =
   | { type: 'save'; path: string; content: string; expectedSha256: string }
   | { type: 'profile'; name: string; role: string }
-  | { type: 'action'; action: string };
+  | { type: 'action'; action: string }
+  /**
+   * Open a repository file the Center listed. Carries the path rather than an action name because
+   * the set is data — every template in the catalog — not a fixed vocabulary of commands.
+   */
+  | { type: 'open-path'; path: string };
 
 const emptyAuthority = (): AuthorityView => ({ id: '', label: '', scope: 'story', allowAnyGitIdentity: false, members: [] });
 const emptyMcp = (): McpServerView => ({ id: '', label: '', hostReference: '', agents: [], phases: [], tools: [], required: false, approval: 'confirm', configured: false, sources: [], captureToolCalls: true, captureResults: false });
@@ -111,7 +117,7 @@ export class ConfigurationCenterPanel {
     if (message.type === 'form-dirty') { this.dirty = message.dirty === true; return; }
     if (message.type === 'reload-dirty') { this.dirty = false; return this.render(); }
     if (message.type === 'keep-dirty') return;
-    if (message.type === 'tab' && ['overview', 'world-model', 'people', 'mcp'].includes(String(message.tab))) { this.tab = message.tab as ConfigurationTab; this.newAuthority = false; this.newMcp = false; return this.render(); }
+    if (message.type === 'tab' && (CONFIGURATION_TABS as readonly string[]).includes(String(message.tab))) { this.tab = message.tab as ConfigurationTab; this.newAuthority = false; this.newMcp = false; return this.render(); }
     if (message.type === 'select-authority' && typeof message.key === 'string') { this.authorityKey = message.key; this.newAuthority = false; return this.render(); }
     if (message.type === 'select-mcp' && typeof message.id === 'string') { this.mcpId = message.id; this.newMcp = false; return this.render(); }
     if (message.type === 'save-profile') {
@@ -154,6 +160,11 @@ export class ConfigurationCenterPanel {
         this.dirty = false; this.notice = 'World-model settings saved.';
       } catch (error) { return this.showErrors([(error as Error).message]); }
       return this.render();
+    }
+    if (message.type === 'open-path') {
+      const error = await this.onMessage({ type: 'open-path', path: String(message.path ?? '') });
+      if (error) { this.errors = [error]; return this.render(); }
+      return;
     }
     if (message.type === 'action') {
       const action = String(message.action ?? '');

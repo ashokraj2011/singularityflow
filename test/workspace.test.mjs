@@ -33,6 +33,50 @@ async function remoteRepository(base, name) {
   return bare;
 }
 
+/**
+ * The same remote, but actually a Singularity Flow repository.
+ *
+ * `remoteRepository` produces a clone holding a README, which is enough for every test about
+ * cloning and registry bookkeeping and is not enough to ask a session question of. Anything
+ * asserting that a session resolves through a workspace needs a repository the engine will load.
+ */
+async function governedRemoteRepository(base, name) {
+  const source = path.join(base, `${name}-source`);
+  const bare = path.join(base, `${name}.git`);
+  run('git', ['init', '-b', 'main', source], { cwd: base });
+  run('git', ['config', 'user.name', 'Workspace Tester'], { cwd: source });
+  run('git', ['config', 'user.email', 'workspace@example.com'], { cwd: source });
+  await writeFile(path.join(source, 'README.md'), `# ${name}\n`);
+  await mkdir(path.join(source, 'singularity/templates/chore'), { recursive: true });
+  await writeFile(path.join(source, 'singularity/templates/chore/intake.md'), '# Intake\n\nWhat is being asked for.\n');
+  await writeFile(path.join(source, 'singularity/workflow.yml'), [
+    'version: 2',
+    'defaultBaseBranch: main',
+    'workItemRoot: singularity/work-items',
+    'templatesRoot: singularity/templates',
+    'worldModel:',
+    '  views: [business, architecture, development, testing, release, operations, security]',
+    '  outputDir: singularity/world-model',
+    'phases:',
+    '  intake:',
+    '    id: intake',
+    '    label: Intake',
+    '    writeScope: artifact-only',
+    '    defaultTemplate: chore/intake.md',
+    '    artifact:',
+    '      path: artifacts/intake/intake.md',
+    'workTypes:',
+    '  chore:',
+    '    label: Chore',
+    '    phases: [intake]',
+    ''
+  ].join('\n'));
+  run('git', ['add', '.'], { cwd: source });
+  run('git', ['commit', '-m', 'initial'], { cwd: source });
+  run('git', ['clone', '--bare', source, bare], { cwd: base });
+  return bare;
+}
+
 function workspaceInput(baseDirectory, repositories) {
   return {
     baseDirectory,
@@ -444,7 +488,7 @@ test('a session can attach to a saved workspace from outside every repository', 
   const root = await mkdtemp(path.join(os.tmpdir(), 'sflow-session-workspace-'));
   const registry = path.join(root, 'registry.json');
   const selection = path.join(root, 'active.json');
-  const platform = await remoteRepository(root, 'platform');
+  const platform = await governedRemoteRepository(root, 'platform');
   const created = await createWorkspace(workspaceInput(path.join(root, 'workspaces'), {
     platform: { url: platform, defaultBranch: 'main', required: true, path: 'repos/platform' }
   }), { confirmation: 'PAY-100' });
@@ -464,10 +508,64 @@ test('a session can attach to a saved workspace from outside every repository', 
   assert.equal(attached.workspaceId, created.workspace.id);
   assert.equal(attached.repositoryPath, created.status.leadRepositoryPath);
   assert.equal(attached.storyId, 'MOB-321');
-  assert.equal(attached.hostAction, 'reopen-repository');
+  /**
+   * Attached means attached — the title of this test used to be contradicted by its own assertion.
+   *
+   * `hostAction` was `reopen-repository` whenever the caller was not already rooted in the clone,
+   * and Copilot, which never is, read that as a refusal: it would not select a Story until someone
+   * opened the repository again, though the selection had named the absolute path all along.
+   */
+  assert.equal(attached.hostAction, 'ready');
+  // Where the shell happens to be is still reported. It is information for editing files by hand,
+  // not a preconditon for governed work.
+  assert.equal(attached.editorRooted, false);
   assert.match(attached.commands.openCopilot, /workspace copilot/);
   assert.match(attached.commands.attachStory, /session attach.*MOB-321/);
   assert.equal(JSON.parse(await readFile(selection, 'utf8')).storyId, 'MOB-321');
+
+  // And the session is genuinely usable from here: `status` resolves the repository through the
+  // selection rather than reporting an uninitialized world because the working directory is elsewhere.
+  const status = spawnSync(process.execPath, [cli, 'session', 'status', '--json'], { cwd: unrelated, env, encoding: 'utf8' });
+  assert.equal(status.status, 0, status.stderr);
+  const session = JSON.parse(status.stdout);
+  assert.equal(session.resolvedFrom, 'active-workspace');
+  assert.equal(session.repositoryPath, created.status.leadRepositoryPath);
+  assert.equal(session.workspaceId, created.workspace.id);
+  // The caller is told which repository answered, so an answer about a workspace selected in another
+  // window is never mistaken for an answer about the directory the caller is standing in.
+  assert.notEqual(session.initialized, false);
+});
+
+test('the working directory still wins over a workspace selected somewhere else', async () => {
+  /**
+   * The fallback must never override an explicit position. Someone standing inside repository A,
+   * with workspace B selected in another window, has to be answered about A — silently answering
+   * about B would let a governed write land in a repository nobody was looking at.
+   */
+  const root = await mkdtemp(path.join(os.tmpdir(), 'sflow-session-cwd-wins-'));
+  const registry = path.join(root, 'registry.json');
+  const selection = path.join(root, 'active.json');
+  const platform = await governedRemoteRepository(root, 'platform');
+  const created = await createWorkspace(workspaceInput(path.join(root, 'workspaces'), {
+    platform: { url: platform, defaultBranch: 'main', required: true, path: 'repos/platform' }
+  }), { confirmation: 'PAY-100' });
+  await rememberWorkspace(registry, created.workspace, created.status);
+  const env = {
+    ...process.env,
+    SINGULARITY_FLOW_WORKSPACE_REGISTRY: registry,
+    SINGULARITY_FLOW_ACTIVE_WORKSPACE: selection
+  };
+  const select = spawnSync(process.execPath, [cli, 'session', 'workspace', created.workspace.id, '--json'],
+    { cwd: root, env, encoding: 'utf8' });
+  assert.equal(select.status, 0, select.stderr);
+
+  // Now ask from inside the governed clone itself. Same selection, and it must not be consulted.
+  const status = spawnSync(process.execPath, [cli, 'session', 'status', '--json'],
+    { cwd: created.status.leadRepositoryPath, env, encoding: 'utf8' });
+  assert.equal(status.status, 0, status.stderr);
+  const session = JSON.parse(status.stdout);
+  assert.equal(session.resolvedFrom, 'working-directory');
+  assert.equal(session.workspaceId, null);
 });
 
 test('workspace editing updates Jira routing and metadata while archive remains recoverable', async () => {

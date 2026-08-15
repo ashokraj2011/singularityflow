@@ -3752,6 +3752,63 @@ async function hookCommand(positionals) {
   } catch { console.log('{}'); }
 }
 
+/**
+ * Which repository a session command is about. `[session]`
+ *
+ * The working directory is asked first and always wins when it is a governed repository: a person
+ * standing in one clone must never be answered about another, however recently they selected it.
+ *
+ * When the working directory is not a governed repository, the active workspace selection answers
+ * instead. That selection is an explicit act — someone chose this workspace and this repository —
+ * and it already records the absolute path. Copilot does not run with its working directory inside
+ * the clone, so without this fallback `session status` reported `initialized: false` and the only
+ * remedy on offer was to reopen the editor somewhere else. The repository was known the whole time.
+ *
+ * The caller is always told which of the two answered, because the same JSON otherwise describes
+ * two materially different situations.
+ */
+async function resolveSessionRepository() {
+  const governed = (candidate) => Boolean(candidate) && existsSync(path.join(candidate, WORKFLOW_PATH));
+
+  let cwdRoot = null;
+  try { cwdRoot = repoRoot(); } catch { /* Not inside a Git repository at all. */ }
+  if (governed(cwdRoot)) return { root: cwdRoot, resolvedFrom: 'working-directory', workspaceId: null };
+
+  let context = null;
+  try {
+    context = await readActiveWorkspaceContext(activeWorkspaceFile(), workspaceRegistryFile());
+  } catch { /* An unreadable or stale selection is a miss, not a failure of the command. */ }
+
+  if (!context) {
+    return {
+      root: null,
+      reason: 'no-workspace-selected',
+      detail: 'Select a workspace with `singularity-flow session workspace <workspace>`.'
+    };
+  }
+  if (context.repositoryState !== 'ready') {
+    // Never present an unusable clone as an active repository; say what is wrong with it.
+    return {
+      root: null,
+      reason: 'workspace-repository-not-ready',
+      detail: `Workspace '${context.workspaceName}' repository '${context.repositoryId}' is ${context.repositoryState}. `
+        + `Run \`singularity-flow workspace repair ${context.workspacePath}\`.`
+    };
+  }
+  if (!governed(context.repositoryPath)) {
+    return {
+      root: null,
+      reason: 'workspace-repository-not-initialized',
+      detail: `Workspace '${context.workspaceName}' repository '${context.repositoryId}' has no ${WORKFLOW_PATH}.`
+    };
+  }
+  return {
+    root: path.resolve(context.repositoryPath),
+    resolvedFrom: 'active-workspace',
+    workspaceId: context.workspaceId
+  };
+}
+
 async function sessionCommand(positionals, options) {
   const subcommand = positionals[1] ?? 'status';
   if (subcommand === 'workspace') {
@@ -3770,7 +3827,20 @@ async function sessionCommand(positionals, options) {
     }
     const currentDirectory = path.resolve(process.cwd());
     const repositoryPath = path.resolve(context.repositoryPath);
-    const hostAction = currentDirectory === repositoryPath ? 'ready' : 'reopen-repository';
+    /**
+     * Attaching no longer depends on where the host happens to be rooted.
+     *
+     * This reported `reopen-repository` whenever the caller's working directory was not the clone,
+     * and Copilot — which is never rooted there — read that as "I cannot proceed", refusing to
+     * attach a Story until someone opened the repository again. The selection already names an
+     * absolute path, and `session status`, `candidates` and `attach` now resolve through it, so
+     * the session is genuinely ready.
+     *
+     * The directory mismatch is still reported, because it does matter for editing files by hand —
+     * it is simply no longer a precondition for governed work.
+     */
+    const hostAction = 'ready';
+    const editorRooted = currentDirectory === repositoryPath;
     const result = {
       attached: true,
       workspaceId: context.workspaceId,
@@ -3781,6 +3851,7 @@ async function sessionCommand(positionals, options) {
       storyId: context.storyId,
       prompt: workspacePromptLabel(context),
       hostAction,
+      editorRooted,
       commands: {
         openCopilot: `singularity-flow workspace copilot ${JSON.stringify(context.workspaceId)}`
           + ` --repository ${JSON.stringify(context.repositoryId)}`
@@ -3794,24 +3865,29 @@ async function sessionCommand(positionals, options) {
     console.log(`Attached workspace session: ${workspacePromptLabel(context)}`);
     console.log(`Repository: ${context.repositoryId} · ${context.repositoryPath}`);
     console.log(`Story: ${context.storyId ?? 'not selected'}`);
-    if (hostAction === 'reopen-repository') {
-      console.log('This process cannot change the working directory of the Copilot or editor process that launched it.');
-      console.log(`Open a correctly rooted Copilot session: ${result.commands.openCopilot}`);
-    } else if (context.storyId) {
+    if (!editorRooted) {
+      // Information, not an instruction. Governed commands resolve the repository from this
+      // selection; only hand-editing files in the editor needs the folder open.
+      console.log(`Governed commands will use ${context.repositoryPath}; this shell is elsewhere.`);
+      console.log(`To edit files in this repository directly: ${result.commands.openCopilot}`);
+    }
+    if (context.storyId) {
       console.log(`Synchronize the Story branch: ${result.commands.attachStory}`);
     } else {
       console.log('The workspace is active. Select a Story with /sf-session before lifecycle work.');
     }
     return;
   }
-  let root;
-  try { root = repoRoot(); } catch {
-    const empty = { initialized: false, workId: null, selectionRequired: false, bound: false, activeAgent: null, choices: [] };
-    return console.log(optionBoolean(options, 'json') ? JSON.stringify(empty, null, 2) : 'No Singularity Flow repository is active.');
-  }
-  if (!existsSync(path.join(root, WORKFLOW_PATH))) {
-    const empty = { initialized: false, workId: null, selectionRequired: false, bound: false, activeAgent: null, choices: [] };
-    return console.log(optionBoolean(options, 'json') ? JSON.stringify(empty, null, 2) : 'No Singularity Flow repository is active.');
+  const resolved = await resolveSessionRepository();
+  const root = resolved.root;
+  if (!root) {
+    const empty = {
+      initialized: false, workId: null, selectionRequired: false, bound: false, activeAgent: null, choices: [],
+      resolvedFrom: null, repositoryPath: null, workspaceId: null,
+      // Why there is no repository, so the caller can act instead of guessing at a URL.
+      reason: resolved.reason
+    };
+    return console.log(optionBoolean(options, 'json') ? JSON.stringify(empty, null, 2) : `No Singularity Flow repository is active. ${resolved.detail}`);
   }
   const config = await loadConfig(root);
   if (subcommand === 'candidates') {
@@ -3882,7 +3958,10 @@ async function sessionCommand(positionals, options) {
     const workflow = await loadStoryAggregate(root, attachedConfig, id);
     const session = await activateWorkItemSession(root, attachedConfig, workflow);
     const result = { workId: id, branch: workflow.workItem.branch, remote, commit: remoteSha, phase: workflow.currentPhase, status: workflow.status, materialization, agent: session.selectedAgent };
-    if (optionBoolean(options, 'json')) return console.log(JSON.stringify(result, null, 2));
+    if (optionBoolean(options, 'json')) return console.log(JSON.stringify({ ...result, repositoryPath: root, resolvedFrom: resolved.resolvedFrom }, null, 2));
+    // This checked out a branch. When the repository came from the selection rather than from where
+    // the caller is standing, saying which one is the difference between an attach and a surprise.
+    if (resolved.resolvedFrom === 'active-workspace') console.log(`Repository: ${root} (from the active workspace)`);
     console.log(`Attached to ${id} from ${remote}/${targetBranch} at ${remoteSha.slice(0, 8)}.`);
     console.log(`Current phase: ${workflow.currentPhase ?? 'complete'} · status: ${workflow.status}`);
     if (session.selectedAgent) console.log(`Phase agent: ${session.selectedAgent} (activated automatically).`);
@@ -3892,8 +3971,21 @@ async function sessionCommand(positionals, options) {
   if (subcommand !== 'status') throw new SingularityFlowError(`Unknown session subcommand: ${subcommand}`);
   let workflow;
   try { workflow = await loadStoryAggregate(root, config); } catch { workflow = null; }
-  const status = await agentSessionStatus(root, config, workflow);
+  /**
+   * The repository this answer is about, and how it was chosen.
+   *
+   * Without it the caller cannot tell an answer about the directory it is standing in from an answer
+   * about a workspace selected an hour ago in a different window — and those warrant different
+   * confidence before anything is written.
+   */
+  const status = {
+    ...await agentSessionStatus(root, config, workflow),
+    repositoryPath: root,
+    resolvedFrom: resolved.resolvedFrom,
+    workspaceId: resolved.workspaceId
+  };
   if (optionBoolean(options, 'json')) return console.log(JSON.stringify(status, null, 2));
+  if (resolved.resolvedFrom === 'active-workspace') console.log(`Repository: ${root} (from the active workspace, not the working directory)`);
   console.log(`Work item: ${status.workId ?? 'not selected'}${status.candidateWorkId && !status.workId ? ` · current candidate: ${status.candidateWorkId}` : ''}`);
   console.log(`governed agent: ${status.activeAgent ?? 'not selected'}`);
   console.log(`Copilot session: ${status.copilotSessionId ?? 'not bound'}`);

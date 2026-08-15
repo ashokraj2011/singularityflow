@@ -6,8 +6,8 @@ import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import YAML from 'yaml';
 import {
-  add, assertNotDefaultBranch, branch, changedFiles, commit, head, identity, localBranches, pushBranch,
-  remoteBranches
+  add, assertNotDefaultBranch, branch, changedFiles, commit, GITHUB_LOOKUP, head, identity, localBranches,
+  pushBranch, remoteBranches
 } from './git.mjs';
 import {
   DEFAULT_PLANNING_PROMPT,
@@ -556,7 +556,7 @@ async function fullRepositorySnapshot(root, requestedWorkId = null, requestedIni
    * 876 ms of the 1.38 s this snapshot spent in subprocesses — for one username, fetched twice.
    * `identity()` already returns `login`, so the disclosure below is unchanged and simply reuses it.
    */
-  const gitIdentity = identity(root);
+  const gitIdentity = identity(root, { offline: true });
   const github = gitIdentity.login;
   const promptViewReferences = await worldModelPromptViewReferences(root, definition);
   const structuredViewReferences = structuredWorldModelViewReferences(definition);
@@ -573,7 +573,14 @@ async function fullRepositorySnapshot(root, requestedWorkId = null, requestedIni
       github,
       assurance: {
         git: 'configured-local',
-        github: github ? 'gh-authenticated' : 'unavailable',
+        /**
+         * Three states, because there are three things that can be true.
+         *
+         * This was `github ? 'gh-authenticated' : 'unavailable'`, which reported a lookup nobody
+         * performed as a lookup that came back empty — and a reviewer reading "unavailable" on the
+         * identity panel concludes the actor is signed out.
+         */
+        github: gitIdentity.githubLookup === GITHUB_LOOKUP.RESOLVED ? 'gh-authenticated' : gitIdentity.githubLookup,
         jira: 'vscode-secret-storage'
       }
     },
@@ -712,7 +719,7 @@ async function repositorySlice(root) {
     controlRoot: 'singularity',
     changes,
     ...configurationChangeScope(root, definition, portfolio, changes),
-    identities: { git: identity(root) }
+    identities: { git: identity(root, { offline: true }) }
   };
 }
 
@@ -1023,7 +1030,7 @@ async function integrationSlice(root) {
   // Same login, same single memoized lookup as `fullRepositorySnapshot` — see the note there.
   let github = null;
   try {
-    github = identity(root).login;
+    github = identity(root, { offline: true }).login;
   } catch { /* The integration remains unavailable when gh is absent or signed out. */ }
   return {
     telemetry: await copilotTelemetryStatus(root),

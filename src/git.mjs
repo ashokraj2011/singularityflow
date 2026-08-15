@@ -121,24 +121,48 @@ export function gitDir(root) {
  * extension: every refresh is a brand-new CLI process, so it paid the full cost on each of its 25
  * refresh triggers.
  *
- * Caching rather than going offline is the deliberate choice. Passing `{ offline: true }` here would
- * have been a one-line "fix" that made `identities.github` null — turning a slow but truthful
- * disclosure into a fast and wrong one, on a surface reviewers use to see who is acting. The account
- * is stable for hours, so a short TTL keeps the disclosure real and pays for it once.
+ * Caching rather than going offline was the original choice, and the reasoning still holds: passing
+ * `{ offline: true }` on its own would have made `identities.github` null — turning a slow but
+ * truthful disclosure into a fast and wrong one, on a surface reviewers use to see who is acting.
+ *
+ * What that reasoning missed is that the two are not exclusive. A read path can consult the cache and
+ * decline to *populate* it, which is fast and truthful together: warm, the login is real and free;
+ * cold, the login is null and the record says the lookup was never attempted. The one case the cache
+ * could never fix was the cold one, and that is precisely when a person is sitting in front of an
+ * empty sidebar waiting — measured at 965 ms on this machine.
  */
 const GITHUB_ACCOUNT_TTL_MS = 10 * 60 * 1000;
+
+/**
+ * How the GitHub login was arrived at, so a null never has to be guessed at.
+ *
+ * `unavailable` means the lookup ran and produced nothing: signed out, no `gh`, network refused.
+ * `not-checked` means it was never attempted. Reporting the second as the first tells a reader their
+ * account is signed out on the evidence of nobody having looked.
+ */
+export const GITHUB_LOOKUP = Object.freeze({
+  RESOLVED: 'resolved',
+  NOT_CHECKED: 'not-checked',
+  UNAVAILABLE: 'unavailable'
+});
 
 function githubAccountCacheFile(root) {
   return path.join(root, '.git', 'singularity-flow', 'github-account.json');
 }
 
-/** `gh api user`, reused from disk while fresh. Shaped like a `run()` result for the caller. */
-function cachedGithubAccount(root) {
+/**
+ * `gh api user`, reused from disk while fresh. Shaped like a `run()` result, plus how it was obtained.
+ *
+ * `cacheOnly` is the read-model contract: answer from the cache if it is fresh, and otherwise return
+ * "not checked" rather than spawning. No read path may put a network round trip in front of a person.
+ */
+function cachedGithubAccount(root, { cacheOnly = false } = {}) {
   const file = githubAccountCacheFile(root);
   try {
     const cached = JSON.parse(readFileSync(file, 'utf8'));
-    if (Date.now() - cached.at < GITHUB_ACCOUNT_TTL_MS) return { status: 0, stdout: cached.stdout };
+    if (Date.now() - cached.at < GITHUB_ACCOUNT_TTL_MS) return { status: 0, stdout: cached.stdout, lookup: GITHUB_LOOKUP.RESOLVED };
   } catch { /* No cache, unreadable, or unparseable is simply a miss. */ }
+  if (cacheOnly) return { status: 1, stdout: '', lookup: GITHUB_LOOKUP.NOT_CHECKED };
 
   const result = run('gh', ['api', 'user', '--jq', '{login: .login, name: .name}'], { cwd: root, allowFailure: true });
   // Only a success is written. Caching a failure would make one offline moment look like a
@@ -149,12 +173,24 @@ function cachedGithubAccount(root) {
       writeFileSync(file, JSON.stringify({ at: Date.now(), stdout: result.stdout }));
     } catch { /* An unwritable .git is not a reason to fail a read. */ }
   }
-  return result;
+  /**
+   * A refusal to dial out is "not checked", not "unavailable" — `run()` reports the two apart, and
+   * collapsing them here would put the wrong one in every disclosure downstream.
+   */
+  const lookup = result.status === 0
+    ? GITHUB_LOOKUP.RESOLVED
+    : (result.blocked ? GITHUB_LOOKUP.NOT_CHECKED : GITHUB_LOOKUP.UNAVAILABLE);
+  return { ...result, lookup };
 }
 
 export function identity(root, { offline = false } = {}) {
   if (process.env.NODE_ENV === 'test' && process.env.SINGULARITY_FLOW_TEST_IDENTITY) {
-    return { name: process.env.SINGULARITY_FLOW_TEST_IDENTITY, email: `${process.env.SINGULARITY_FLOW_TEST_IDENTITY.toLowerCase().replace(/\s+/g, '.')}@example.com`, login: null };
+    return {
+      name: process.env.SINGULARITY_FLOW_TEST_IDENTITY,
+      email: `${process.env.SINGULARITY_FLOW_TEST_IDENTITY.toLowerCase().replace(/\s+/g, '.')}@example.com`,
+      login: null,
+      githubLookup: GITHUB_LOOKUP.NOT_CHECKED
+    };
   }
   /**
    * Deliberately NOT memoized, though it is the obvious thing to do here.
@@ -169,15 +205,18 @@ export function identity(root, { offline = false } = {}) {
    */
   const name = git(['config', '--get', 'user.name'], { cwd: root, allowFailure: true }).stdout.trim();
   const email = git(['config', '--get', 'user.email'], { cwd: root, allowFailure: true }).stdout.trim();
-  const github = offline
-    ? { status: 1, stdout: '' }
-    : cachedGithubAccount(root);
+  /**
+   * `offline` no longer means "pretend there is no account". It means "do not dial out for one" —
+   * a fresh cache still answers, and only a cold one degrades to a declared non-answer.
+   */
+  const github = cachedGithubAccount(root, { cacheOnly: offline });
   let account = {};
   if (github.status === 0) { try { account = JSON.parse(github.stdout); } catch { account = {}; } }
   const resolved = {
     name: account.name || name || process.env.USER || process.env.USERNAME || 'unknown-user',
     email: email || null,
-    login: account.login || null
+    login: account.login || null,
+    githubLookup: github.lookup
   };
   return resolved;
 }

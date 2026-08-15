@@ -26,7 +26,16 @@ import { resolveIntent } from './resolve.mjs';
  * names is a message a translator will not know to write.
  */
 export const KERNEL_MESSAGES = Object.freeze([
-  'gateway.read', 'gateway.next', 'gateway.explained', 'gateway.refused', 'gateway.home'
+  'gateway.read', 'gateway.next', 'gateway.explained', 'gateway.refused', 'gateway.home',
+  /**
+   * A read that answers "am I ready?" with "no" `[UXH:REQ-062]`.
+   *
+   * Separate from `gateway.read` because the headline is the string most readers stop at, and
+   * "Here is what SFlow found" above a list of unmet gates buries the answer in the one place it
+   * had a chance to be the first thing read. The result still succeeded — the operation worked and
+   * the answer is no, which is exactly why `kind` and `outcome.status` are kept apart.
+   */
+  'gateway.not-ready'
 ]);
 
 /**

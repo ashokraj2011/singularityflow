@@ -215,7 +215,10 @@ export const GATEWAY_DECLARATIONS = Object.freeze([
     id: 'workspace.materialize',
     classification: 'mutation',
     modelPolicy: 'never',
-    confirmation: 'exact-confirm',
+    // §13 places materialization at host-confirm. It writes to disk and reaches the network, which
+    // argued for more — but the plan itself already discloses target path, repositories, network
+    // effects and storage, and an exact-confirm on top of that is a second reading of one decision.
+    confirmation: 'host-confirm',
     resultContract: 'sflow-result-v2',
     externalDependencies: ['git'],
     goals: ['workspace.switch'],

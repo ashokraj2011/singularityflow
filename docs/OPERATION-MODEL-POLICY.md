@@ -78,7 +78,8 @@ Every public operation is classified before its implementation module is importe
 | review.render | read | never | — | — |
 | review.write | mutation | never | — | — |
 | run | mutation | never | — | — |
-| secrets | mutation | never | — | — |
+| secrets.protect | mutation | never | — | — |
+| secrets.scan | read | never | — | — |
 | session | mutation | never | — | — |
 | show | read | never | — | — |
 | snapshot | read | never | — | — |

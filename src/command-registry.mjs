@@ -2,7 +2,10 @@ import { didYouMean, optionBoolean, SingularityFlowError } from './util.mjs';
 
 const READ_ONLY = new Set(['specify', 'plan', 'implement', 'verify', 'converge', 'about', 'help', 'show', 'choices', 'inbox', 'status', 'progress', 'guide', 'logs', 'doctor', 'nextsteps', 'snapshot', 'validate', 'explain']);
 const STRUCTURED = new Set(['specify', 'plan', 'implement', 'verify', 'converge', 'start', 'status', 'progress', 'report', 'impact', 'telemetry', 'doctor', 'inputs', 'reinstall', 'snapshot', 'validate', 'gate', 'clarification', 'explain']);
-const MODEL_FREE_MIXED_COMMANDS = new Set(['report', 'telemetry', 'review', 'inputs', 'spec', 'visual', 'clarification', 'story', 'constitution']);
+// `secrets` is here because `resolveOperation` returns `definition.operation` before it consults
+// any resolver, so a command with a single registered operation never reaches its own resolver.
+// Without this line `resolveSecretsOperation` is unreachable and the scan/protect split is inert.
+const MODEL_FREE_MIXED_COMMANDS = new Set(['report', 'telemetry', 'review', 'inputs', 'spec', 'visual', 'clarification', 'story', 'constitution', 'secrets']);
 
 const LAZY_MODULES = Object.freeze({
   // The five verbs share one dispatcher; each is a registered command in its own right so the
@@ -422,7 +425,10 @@ export function operationCatalog() {
   const constitutionDefinition = commandDefinition('constitution');
   const visualDefinition = commandDefinition('visual');
   const clarificationDefinition = commandDefinition('clarification');
+  const secretsDefinition = commandDefinition('secrets');
   const modelFreeMixed = [
+    never('secrets.scan', secretsDefinition, 'read'),
+    never('secrets.protect', secretsDefinition, 'mutation'),
     never('report.render', reportDefinition, 'read'),
     never('report.write', reportDefinition, 'mutation'),
     never('telemetry.status', telemetryDefinition, 'read'),

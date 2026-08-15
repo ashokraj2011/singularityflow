@@ -266,7 +266,18 @@ export function validateArguments(schemaId, proposed = {}) {
   for (const [field, spec] of Object.entries(entry.fields)) {
     const value = proposed[field];
     if (value === undefined) {
-      if (spec.required) reject(schemaId, field, 'is required', undefined);
+      /**
+       * Missing and wrong are different answers, and the caller has to be able to tell them apart.
+       *
+       * A wrong value is a refusal: the caller said something the operation cannot accept. A missing
+       * one is a question the resolver can still ask — and returning "invalid" for both is what turns
+       * "which Story did you mean?" into a dead end.
+       */
+      if (spec.required) {
+        throw new SingularityFlowError(`Argument '${field}' for schema '${schemaId}' is required.`, {
+          code: 'MISSING_OPERATION_ARGUMENT', details: { schema: schemaId, field }
+        });
+      }
       continue;
     }
     accepted[field] = TYPES[spec.type](schemaId, field, value, spec);

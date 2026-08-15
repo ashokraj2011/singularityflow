@@ -281,7 +281,16 @@ test('an argument schema accepts what it declares and nothing else', () => {
     () => validateArguments('work-subject-v1', { workId: 'WRK-123', force: true }),
     (error) => error.code === 'UNKNOWN_OPERATION_ARGUMENT'
   );
-  assert.throws(() => validateArguments('work-subject-v1', {}), (error) => error.code === 'INVALID_OPERATION_ARGUMENT');
+  // Missing and wrong are different answers: the resolver can ask for the first and only refuse the
+  // second, so they must not share a code.
+  assert.throws(
+    () => validateArguments('work-subject-v1', {}),
+    (error) => error.code === 'MISSING_OPERATION_ARGUMENT' && error.details.field === 'workId'
+  );
+  assert.throws(
+    () => validateArguments('work-subject-v1', { workId: 'not valid!' }),
+    (error) => error.code === 'INVALID_OPERATION_ARGUMENT'
+  );
   assert.throws(() => validateArguments('absent-v1', {}), (error) => error.code === 'UNKNOWN_ARGUMENT_SCHEMA');
   // An absent optional field stays absent; it does not become null.
   assert.deepEqual(validateArguments('work-list-v1', {}), {});

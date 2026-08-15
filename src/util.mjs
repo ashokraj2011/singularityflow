@@ -304,6 +304,23 @@ export function defaultTimeoutFor(command) {
   return NETWORK_COMMANDS.has(command) ? NETWORK_TIMEOUT_MS : undefined;
 }
 
+const TRUE = new Set(['1', 'true', 'yes', 'on']);
+
+/**
+ * Whether this process is forbidden from reaching the network.
+ *
+ * `SINGULARITY_FLOW_NO_NETWORK` was set by `scripts/dx-benchmark.mjs` and read by nothing. The
+ * reference fixture declares `protocol.network: "disabled"`, and `assertBaselineCandidate` refuses
+ * any report that disagrees — so the guarantee was asserted end to end and enforced nowhere, and
+ * every recorded number silently included however long `gh api user` happened to take. Measured
+ * here: 965 ms on a cold cache, which is most of a benchmark that budgets 150.
+ *
+ * Read per call rather than captured at import, so a test can set it around one command.
+ */
+export function networkDisabled(env = process.env) {
+  return TRUE.has(String(env.SINGULARITY_FLOW_NO_NETWORK ?? '').trim().toLowerCase());
+}
+
 export function run(command, args = [], {
   cwd = process.cwd(),
   env = process.env,
@@ -312,6 +329,19 @@ export function run(command, args = [], {
   stdio = 'pipe',
   timeoutMs = defaultTimeoutFor(command)
 } = {}) {
+  /**
+   * A blocked network command is refused here rather than attempted and failed.
+   *
+   * Reported as `blocked` alongside `timedOut` for the same reason: "we did not ask" and "we asked
+   * and got nothing" are different facts, and a disclosure that collapses them tells a reader their
+   * account is signed out when nobody ever checked.
+   */
+  if (NETWORK_COMMANDS.has(command) && networkDisabled(env)) {
+    if (!allowFailure) {
+      throw new SingularityFlowError(`${command} is a network command and SINGULARITY_FLOW_NO_NETWORK is set.`, { code: 'NETWORK_DISABLED' });
+    }
+    return { status: 1, stdout: '', stderr: '', error: undefined, timedOut: false, blocked: true };
+  }
   const probe = process.env.SINGULARITY_FLOW_SUBPROCESS_PROBE ? performance.now() : 0;
   const result = spawnSync(command, args, { cwd, env, encoding: 'utf8', shell, stdio, timeout: timeoutMs });
   if (probe) recordSubprocessProbe(command, args, performance.now() - probe);
@@ -333,7 +363,7 @@ export function run(command, args = [], {
   if (status !== 0 && !allowFailure) {
     throw new SingularityFlowError(`${command} ${args.join(' ')} failed: ${stderr.trim() || stdout.trim() || `exit ${status}`}`);
   }
-  return { status, stdout, stderr, error: result.error, timedOut };
+  return { status, stdout, stderr, error: result.error, timedOut, blocked: false };
 }
 
 /**

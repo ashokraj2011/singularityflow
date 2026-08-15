@@ -17,6 +17,15 @@ test('DX benchmark protocol is reproducible and carries the release budgets', ()
   assert.equal(manifest.protocol.network, 'disabled');
   assert.equal(manifest.protocol.modelCalls, 'disabled');
   assert.deepEqual(manifest.budgets.snapshot, { p50Ms: 150, p95Ms: 250 });
+  /**
+   * A ceiling, not a target — and deliberately pinned so it can only be lowered on purpose.
+   *
+   * `snapshot --json` measured 667 ms p50 against the sliced read's 122 ms on the same fixture and
+   * machine. That gap is the legacy module graph and the redundant preamble it re-runs, and closing
+   * it is what lowers this number. Until then the budget records what is true rather than what
+   * would be nice, because a budget nothing meets is a budget everyone learns to ignore.
+   */
+  assert.deepEqual(manifest.budgets.snapshotFull, { p50Ms: 850, p95Ms: 1100 });
   assert.equal(manifest.topology.trackedFiles, 500);
   assert.equal(manifest.topology.localSubjectIndex, 'absent');
 });
@@ -44,12 +53,33 @@ test('latency-budgets-on-fixture', { timeout: 30_000 }, () => {
   const report = JSON.parse(run.stdout);
   assert.equal(report.protocol.samples, 3);
   assert.equal(report.topology.trackedFiles, manifest.topology.trackedFiles);
-  assert.deepEqual(Object.keys(report.commands), ['about', 'status', 'nextsteps', 'snapshot']);
+  assert.deepEqual(Object.keys(report.commands), ['about', 'status', 'nextsteps', 'snapshot', 'snapshotFull']);
   for (const result of Object.values(report.commands)) {
     assert.equal(result.samples, 3);
     assert.ok(result.p50Ms > 0);
     assert.ok(result.p95Ms >= result.p50Ms);
   }
+});
+
+test('the benchmark measures the snapshot the extension actually asks for', async () => {
+  /**
+   * The benchmarked `snapshot` was `--include repository`, a shape nothing in the product sends.
+   * The extension sends `snapshot --json`, which took a different and far slower route through
+   * `src/cli.mjs`, and no budget covered it — so the fast path met its target while the real path
+   * was free to drift. Both sides are asserted here, because a guard that watches only one of them
+   * passes happily the day the other moves.
+   */
+  const client = await readFile(path.join(root, 'apps/vscode/src/cli/client.ts'), 'utf8');
+  assert.match(client, /invoke<RepositorySnapshot>\(\['snapshot', '--json'\]/,
+    'the extension no longer sends `snapshot --json`; update the benchmarked command to match it');
+
+  const benchmark = await readFile(path.join(root, 'scripts/dx-benchmark.mjs'), 'utf8');
+  assert.match(benchmark, /snapshotFull: \['snapshot', '--json'\]/,
+    'the benchmark no longer measures the invocation the extension sends');
+
+  // And the fixture has to be loadable by that invocation. A `version: 2` stub satisfies the sliced
+  // read, which never parses the definition, and is refused by everything else.
+  assert.match(benchmark, /workTypes:/, 'the reference fixture must carry a definition the engine will load');
 });
 
 test('fast commands do not statically import unrelated heavyweight domains', async () => {

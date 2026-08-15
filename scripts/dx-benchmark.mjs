@@ -61,16 +61,74 @@ async function createFixture() {
   git(root, ['config', 'user.name', 'DX Benchmark']);
   git(root, ['config', 'user.email', 'dx@example.invalid']);
   await mkdir(path.join(root, 'singularity/work-items/DX-001/artifacts/intake'), { recursive: true });
-  await writeFile(path.join(root, 'singularity/workflow.yml'), 'version: 2\n', 'utf8');
+  await mkdir(path.join(root, 'singularity/templates/chore'), { recursive: true });
+  await writeFile(path.join(root, 'singularity/templates/chore/intake.md'), '# Intake\n\nWhat is being asked for.\n', 'utf8');
+  /**
+   * The smallest definition the engine will actually load.
+   *
+   * This was `version: 2` and nothing else, which is enough for `snapshot --include repository` —
+   * that path never parses the definition — and is rejected outright by every other command. So the
+   * fixture could only ever benchmark the one shape that was already fast, and the shape the VS Code
+   * extension really sends could not be measured here at all.
+   *
+   * Kept minimal rather than copied from `templates/workflow.yml`: a 637-line definition would make
+   * the benchmark sensitive to every future edit of the shipped template.
+   */
+  await writeFile(path.join(root, 'singularity/workflow.yml'), [
+    'version: 2',
+    'defaultBaseBranch: main',
+    'workItemRoot: singularity/work-items',
+    'templatesRoot: singularity/templates',
+    'worldModel:',
+    '  views: [business, architecture, development, testing, release, operations, security]',
+    '  outputDir: singularity/world-model',
+    'phases:',
+    '  intake:',
+    '    id: intake',
+    '    label: Intake',
+    '    writeScope: artifact-only',
+    '    defaultTemplate: chore/intake.md',
+    '    artifact:',
+    '      path: artifacts/intake/intake.md',
+    'workTypes:',
+    '  chore:',
+    '    label: Chore',
+    '    phases: [intake]',
+    ''
+  ].join('\n'), 'utf8');
+  /**
+   * Schema 2, which is the only schema the engine loads.
+   *
+   * This said `schemaVersion: 3` and had done since before schema 3 was withdrawn — undetected,
+   * because the only benchmarked snapshot shape never loaded a Story. Everything `normalizeCurrentWorkflow`
+   * fills in with `??=` is left out; what remains is exactly the seven keys it refuses to default.
+   */
   const workflow = {
-    schemaVersion: 3,
+    schemaVersion: 2,
     workItem: { id: 'DX-001', title: 'Reference Story', branch: 'DX-001', workType: 'chore' },
     status: 'active', currentPhase: 'intake', phaseOrder: ['intake'],
-    phases: { intake: { id: 'intake', status: 'in_progress', generation: 0, defaultAgent: 'developer', artifacts: [], approvals: [], generationPolicy: { requirement: 'required' } } },
-    resolution: { worldModelGrounding: 'off', collaboration: { assignmentMode: 'off' } }, history: []
+    // `requiredArtifact` is one of the few phase fields `normalizeCurrentWorkflow` does not default,
+    // and `createReviewBundle` dereferences it unguarded.
+    phases: {
+      intake: {
+        id: 'intake', status: 'in_progress', generation: 0, defaultAgent: 'developer',
+        artifacts: [], approvals: [], generationPolicy: { requirement: 'required' },
+        requiredArtifact: { path: 'artifacts/intake/intake.md' }
+      }
+    },
+    resolution: {
+      worldModelGrounding: 'off',
+      collaboration: { assignmentMode: 'off' },
+      session: {}, contextPolicy: {}, sequenceGates: {}
+    },
+    lineage: { canonicalBranch: 'DX-001', childBranches: [], requiredChecks: [] },
+    usage: {}, telemetry: {},
+    history: []
   };
   await writeFile(path.join(root, 'singularity/work-items/DX-001/workflow.json'), `${JSON.stringify(workflow, null, 2)}\n`, 'utf8');
-  for (let index = 0; index < fixtureManifest.topology.trackedFiles - 2; index += 1) {
+  // Three governed files now exist — the definition, the Story, and the one template the definition
+  // references — so the filler stops three short of the declared total rather than two.
+  for (let index = 0; index < fixtureManifest.topology.trackedFiles - 3; index += 1) {
     const directory = path.join(root, 'src', String(Math.floor(index / 100)));
     await mkdir(directory, { recursive: true });
     await writeFile(path.join(directory, `file-${index}.txt`), `fixture ${index}\n`, 'utf8');
@@ -112,7 +170,16 @@ const commands = {
   about: ['about'],
   status: ['status', 'DX-001', '--json'],
   nextsteps: ['nextsteps', 'DX-001', '--json'],
-  snapshot: ['snapshot', '--include', 'repository']
+  snapshot: ['snapshot', '--include', 'repository'],
+  /**
+   * What the VS Code extension actually runs, on activation and after every action.
+   *
+   * The sliced call above was the only snapshot shape measured, and it is the shape nothing in the
+   * product asks for: `apps/vscode/src/cli/client.ts` sends `snapshot --json` with no `--include`.
+   * So the budget was being met by a path the extension never took, while the path it did take was
+   * unmeasured and free to regress.
+   */
+  snapshotFull: ['snapshot', '--json']
 };
 
 if (acceptedReportPath) {

@@ -87,6 +87,20 @@ export function createGatewayKernel({
   const policy = resolveGatewayPolicy(policyLayers, { registry });
 
   /**
+   * The world *now*, not the world this kernel was built in. `[INT:REQ-036]`
+   *
+   * `binding` may be a value or a function, and long-lived hosts must pass a function. A kernel
+   * that captures one binding at construction compares a handle's snapshot against its own equally
+   * stale snapshot, so both sides move together and drift detection sees nothing. Harmless in a CLI
+   * process that lives for one command; a hole in an editor session that lives for hours, where the
+   * failure is a handle resolved on `main` still verifying after the user switched branch.
+   *
+   * Recomputing costs a few Git reads per call. That is the right trade at a dispatch boundary and
+   * the wrong one in a render loop, which is why the host recomputes here and not per frame.
+   */
+  const currentBinding = () => (typeof binding === 'function' ? binding() : binding);
+
+  /**
    * Run a planner and hold its output to the same contract as everything else.
    *
    * Validating here rather than trusting the planner is the point of having one result contract: a
@@ -110,14 +124,14 @@ export function createGatewayKernel({
 
     /** `sflow_resolve`: the only entry point that takes words. */
     resolve(request = {}, { subject = null } = {}) {
-      return resolveIntent(request, { registry, policy, handles, legalActions, binding, subject });
+      return resolveIntent(request, { registry, policy, handles, legalActions, binding: currentBinding(), subject });
     },
 
     /** `sflow_read`: a resolved read handle, revalidated against the world, and nothing else. */
     async read({ resolutionId } = {}) {
       let record;
       try {
-        record = handles.verify({ id: resolutionId }, { kind: 'read', binding });
+        record = handles.verify({ id: resolutionId }, { kind: 'read', binding: currentBinding() });
       } catch (error) {
         // `[INT:REQ-152]` `[INT:CON-150]`: expired or drifted is refreshed from current state, never
         // carried forward. The reason code names which, so the host can re-ask rather than re-try.

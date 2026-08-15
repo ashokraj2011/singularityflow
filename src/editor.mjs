@@ -1019,7 +1019,9 @@ async function capabilitySlice(root) {
 async function integrationSlice(root) {
   const definition = await loadDefinition(root);
   let ledger;
-  try { ledger = await ledgerStatus(root, definition.ledger ?? {}); }
+  // Offline, like the sibling read in `fullRepositorySnapshot` above. A slice that renders an
+  // availability badge must not dial out to produce it.
+  try { ledger = await ledgerStatus(root, definition.ledger ?? {}, { offline: true }); }
   catch (error) {
     ledger = {
       enabled: Boolean(definition.ledger?.enabled),

@@ -2117,7 +2117,17 @@ export async function syncPublication(root, config, workflow) {
   return { pushed: head(root), remote: record.remote, branch: record.branch, ledger };
 }
 
-export async function validateWorkflow(root, config, workflow, { strict = false } = {}) {
+/**
+ * `offline` is a read-path concession, and it defaults to off so every existing caller is unchanged.
+ *
+ * Validation consults the capability ledger, and `ledgerStatus` fetches the state branch plus one
+ * pin per recorded entry — each inside a temporary worktree. Measured on a real repository that was
+ * 42 of 47 `git fetch` calls and 33 s of a 48 s `snapshot --json`, for a validation whose answer the
+ * read model only renders. A publication transaction and the governance gate still validate against
+ * the remote; only a surface that is merely *describing* state opts out, and it says so through the
+ * same ledger fields every other offline reader uses.
+ */
+export async function validateWorkflow(root, config, workflow, { strict = false, offline = false } = {}) {
   const errors = [], warnings = []; if (!workflowBranchAllowed(workflow, branch(root))) errors.push(`Current branch ${branch(root)} is not registered for Story ${workflow.workItem.id}.`);
   if (workflow.resolution?.configurationSource) {
     try {
@@ -2170,7 +2180,7 @@ export async function validateWorkflow(root, config, workflow, { strict = false 
   const ledgerConfig = normalizeLedgerConfig(workflow.resolution?.ledger ?? config.ledger ?? {});
   if (ledgerConfig.enabled) {
     try {
-      const ledger = await ledgerStatus(root, ledgerConfig);
+      const ledger = await ledgerStatus(root, ledgerConfig, { offline });
       const messages = [];
       if (!ledger.initialized) messages.push(`Capability ledger branch '${ledgerConfig.branch}' is not initialized.`);
       if (ledger.verification && !ledger.verification.valid) messages.push(...ledger.verification.errors.map((message) => `Capability ledger: ${message}`));

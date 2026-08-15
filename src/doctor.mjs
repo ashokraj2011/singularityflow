@@ -141,7 +141,10 @@ export async function doctorSnapshot(root, { workId = null, offline = false } = 
   if (selected) {
     try {
       workflow = await loadStoryAggregate(root, definition, selected.id);
-      const validation = await validateWorkflow(root, definition, workflow);
+      // Carry the caller's offline choice into validation. `doctorSnapshot` already accepts it and
+      // the read model already passes it; stopping it here is what put 42 network fetches behind
+      // every snapshot.
+      const validation = await validateWorkflow(root, definition, workflow, { offline });
       checks.push(check('workflow-state', validation.valid ? 'pass' : 'fail', validation.valid ? `${selected.id} state is internally consistent.` : validation.errors.join(' '), validation.valid ? null : `Run singularity-flow recover ${selected.id} to inspect safe recovery options.`));
       const planes = await inspectStatePlanes(root, {
         definition,

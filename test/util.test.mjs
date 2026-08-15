@@ -3,7 +3,7 @@ import { mkdir, mkdtemp, readFile, readdir } from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
 import test from 'node:test';
-import { writeJson, writeText } from '../src/util.mjs';
+import { NETWORK_TIMEOUT_MS, defaultTimeoutFor, run, writeJson, writeText } from '../src/util.mjs';
 
 test('shared atomic writers tolerate concurrent writes without temporary-file collisions', async () => {
   const root = await mkdtemp(path.join(os.tmpdir(), 'sflow-util-concurrent-'));
@@ -30,4 +30,23 @@ test('shared atomic writers remove temporary files after replacement failure', a
   await assert.rejects(() => writeText(target, 'cannot replace a directory'));
 
   assert.deepEqual(await readdir(root), ['existing-directory']);
+});
+
+test('a command that reaches the network gets a bound, and a timeout is not a refusal', () => {
+  // `gh` had no timeout at any of its ten call sites. Behind a captive portal a single `gh api user`
+  // held this repository's own suite for thirty-two minutes with no output and no error.
+  assert.equal(defaultTimeoutFor('gh'), NETWORK_TIMEOUT_MS);
+  assert.ok(NETWORK_TIMEOUT_MS > 0);
+  // A fetch against a large repository legitimately takes minutes; a shorter deadline is not the fix.
+  assert.equal(defaultTimeoutFor('git'), undefined);
+  assert.equal(defaultTimeoutFor('node'), undefined);
+
+  const started = Date.now();
+  const result = run('sleep', ['30'], { timeoutMs: 250, allowFailure: true });
+  assert.ok(Date.now() - started < 5000, 'the bound was not applied');
+  assert.equal(result.timedOut, true);
+  assert.notEqual(result.status, 0);
+
+  // Without allowFailure the caller hears that it did not answer, not that it said no.
+  assert.throws(() => run('sleep', ['30'], { timeoutMs: 250 }), (error) => error.code === 'SUBPROCESS_TIMEOUT');
 });

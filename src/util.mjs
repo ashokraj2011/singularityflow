@@ -284,13 +284,33 @@ function recordSubprocessProbe(command, args, ms) {
   }
 }
 
+/**
+ * Commands that reach the network, and the longest this product will wait for one.
+ *
+ * `gh` had no timeout anywhere across ten call sites, which is fine until the network is slow or
+ * captive — and then it is not a slowdown, it is a hang. A `gh api user` behind a captive portal
+ * held this repository's own test suite for thirty-two minutes with no output and no error.
+ *
+ * The bound lives here rather than at the call sites so it covers the ten that exist and the
+ * eleventh nobody has written yet. `git` is deliberately not on this list: a fetch or a push against
+ * a large repository legitimately takes minutes, and the fix for a slow clone is not a shorter
+ * deadline. Any call may override with an explicit `timeoutMs`.
+ */
+const NETWORK_COMMANDS = new Set(['gh']);
+export const NETWORK_TIMEOUT_MS = Number(process.env.SINGULARITY_FLOW_NETWORK_TIMEOUT_MS ?? 15_000);
+
+/** The bound a command gets when the caller does not name one. Exported so it can be asserted. */
+export function defaultTimeoutFor(command) {
+  return NETWORK_COMMANDS.has(command) ? NETWORK_TIMEOUT_MS : undefined;
+}
+
 export function run(command, args = [], {
   cwd = process.cwd(),
   env = process.env,
   allowFailure = false,
   shell = false,
   stdio = 'pipe',
-  timeoutMs = undefined
+  timeoutMs = defaultTimeoutFor(command)
 } = {}) {
   const probe = process.env.SINGULARITY_FLOW_SUBPROCESS_PROBE ? performance.now() : 0;
   const result = spawnSync(command, args, { cwd, env, encoding: 'utf8', shell, stdio, timeout: timeoutMs });
@@ -298,11 +318,22 @@ export function run(command, args = [], {
   const stdout = typeof result.stdout === 'string' ? result.stdout : '';
   const stderr = typeof result.stderr === 'string' ? result.stderr : '';
   const status = result.status ?? (result.error ? 1 : 0);
-  if (result.error && !allowFailure) throw new SingularityFlowError(`Unable to run ${command}: ${result.error.message}`);
+  /**
+   * A command that ran out of time did not answer, which is not the same as answering no.
+   *
+   * Callers that pass `allowFailure` treat a non-zero status as "unavailable", and for a timeout
+   * that is the right handling — but the reason has to survive, or an unreachable network is
+   * indistinguishable from a signed-out account in every disclosure downstream.
+   */
+  const timedOut = result.error?.code === 'ETIMEDOUT';
+  if (result.error && !allowFailure && !timedOut) throw new SingularityFlowError(`Unable to run ${command}: ${result.error.message}`);
+  if (timedOut && !allowFailure) {
+    throw new SingularityFlowError(`${command} did not respond within ${timeoutMs}ms.`, { code: 'SUBPROCESS_TIMEOUT' });
+  }
   if (status !== 0 && !allowFailure) {
     throw new SingularityFlowError(`${command} ${args.join(' ')} failed: ${stderr.trim() || stdout.trim() || `exit ${status}`}`);
   }
-  return { status, stdout, stderr, error: result.error };
+  return { status, stdout, stderr, error: result.error, timedOut };
 }
 
 /**

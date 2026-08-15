@@ -21,7 +21,7 @@ import { validateArguments } from './argument-schemas.mjs';
 import { BROAD_GOALS, isBroadGoal } from './goals.mjs';
 import { normalizeAlias } from './registry.mjs';
 import { operationPermission } from './policy.mjs';
-import { effects, noEffects, sflowResult } from './result.mjs';
+import { effects, noEffects, preservedAll, sflowResult } from './result.mjs';
 import { nearestNames } from '../util.mjs';
 
 /** Narration IDs this module emits. Enumerated so a surface can translate them all. */
@@ -66,6 +66,12 @@ function refusal(operationId, messageId, why, { next = [], restState = 'blocked'
     outcome: { status: 'refused', messageId },
     effects: noEffects(),
     why,
+    /**
+     * Resolution turns words into an operation and stops there. Nothing was carried out, so the
+     * whole-world claim is the true one — and saying it is the difference between a reader who
+     * reads the reason and one who goes to check their branch `[DHR:REQ-061]`.
+     */
+    preserved: preservedAll('resolution.nothing-was-carried-out'),
     next,
     restState
   });
@@ -90,11 +96,14 @@ function clarification(utterance, why) {
     why,
     next: suggestions.map((goal, index) => ({
       handle: `goal:${goal}`,
+      id: `goal:${goal}`,
       label: goal,
       rank: index,
       kind: 'clarification',
       reasonCode: 'resolution.no-match',
       confirmation: 'none',
+      // A suggestion the user picks from is navigation; none of these acts on anything.
+      interaction: 'navigation',
       executable: false,
       fallback: HELP_FALLBACK
     })),
@@ -128,11 +137,14 @@ function missingArguments(incomplete, context) {
     })),
     next: entries.map(([operationId, fields], index) => ({
       handle: `needs:${operationId}:${fields.join(',')}`,
+      id: `needs:${operationId}`,
       label: `${operationId} — needs ${fields.join(', ')}`,
       rank: index,
       kind: 'clarification',
       reasonCode: 'resolution.arguments.missing',
       confirmation: 'none',
+      /** The missing value is what the host collects, so this opens a form `[UXH:REQ-070]`. */
+      interaction: 'form',
       executable: false,
       fallback: HELP_FALLBACK
     })),
@@ -155,13 +167,27 @@ function candidateResult(candidates, handles, context, why) {
       arguments: context.arguments,
       binding: context.binding
     });
+    const { confirmation } = context.permissions.get(operation.id);
     return {
       handle: reference.id,
+      /**
+       * The operation ID, not the rotating handle. A candidate list recomputed on refresh must put
+       * the same choice under the same identity or the user's keyboard focus moves under them.
+       */
+      id: `candidate:${operation.id}`,
       label: operation.gateway.aliases.en.phrases[0],
       rank: index,
       kind: operation.classification === 'authorization' ? 'ceremony' : 'candidates',
       reasonCode: 'resolution.ambiguous',
-      confirmation: context.permissions.get(operation.id).confirmation,
+      confirmation,
+      /**
+       * A candidate for an authorization is still shown with ceremony weight. Picking it leads to
+       * the decision, and a reader who cannot see which of several choices is the one that signs
+       * something is being asked to find out by clicking.
+       */
+      interaction: confirmation === 'ceremony' ? 'ceremony' : 'navigation',
+      // Ambiguity is precisely the state where nothing may lead. The user's click decides.
+      emphasis: 'secondary',
       executable: false,
       fallback: HELP_FALLBACK
     };
@@ -203,11 +229,19 @@ function resolvedResult(operation, args, handles, context, why) {
     why,
     next: [{
       handle: reference?.id ?? `ceremony:${operation.id}`,
+      id: `resolved:${operation.id}`,
       label: operation.gateway.aliases.en.phrases[0],
       rank: 0,
       kind,
       reasonCode: 'resolution.matched.phrase',
       confirmation: permission.confirmation,
+      interaction: permission.confirmation === 'ceremony' ? 'ceremony' : (kind === 'read' ? 'read' : 'form'),
+      /**
+       * Resolution ended in exactly one operation, which is the definition of a legal next action
+       * `[UXH:REQ-023]`. This is the only site in the resolver entitled to a filled button, and it
+       * is entitled to it because ambiguity was already ruled out above.
+       */
+      emphasis: 'primary',
       executable: kind === 'read' && permission.executable,
       fallback: HELP_FALLBACK
     }],
@@ -243,8 +277,10 @@ export function resolveIntent(request = {}, {
       return refusal('gateway.resolve', 'gateway.refused', [
         { code: 'resolution.selection-handle.invalid', source: 'deterministic', reference: error.code ?? null }
       ], { next: [{
-        handle: 'goal:home', label: 'Start again from home', rank: 0, kind: 'clarification',
-        reasonCode: 'resolution.selection-handle.invalid', confirmation: 'none', executable: false, fallback: HELP_FALLBACK
+        handle: 'goal:home', id: 'recover:home', label: 'Start again from home', rank: 0, kind: 'clarification',
+        reasonCode: 'resolution.selection-handle.invalid', confirmation: 'none',
+        // Getting back to somewhere known after a stale handle is the recovery class exactly.
+        interaction: 'recovery', emphasis: 'primary', executable: false, fallback: HELP_FALLBACK
       }], restState: null });
     }
     pool = pool.filter((operation) => operation.id === record.operationId);

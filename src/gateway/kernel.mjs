@@ -14,7 +14,7 @@
 import { createHandleAuthority } from './handles.mjs';
 import { DEFAULT_GATEWAY_POLICY, operationPermission, resolveGatewayPolicy } from './policy.mjs';
 import { gatewayRegistry } from './operations.mjs';
-import { noEffects, sflowResult, validateSflowResult } from './result.mjs';
+import { noEffects, preservedAll, sflowResult, validateSflowResult } from './result.mjs';
 import { resolveIntent } from './resolve.mjs';
 
 export const KERNEL_MESSAGES = Object.freeze([
@@ -28,6 +28,8 @@ function refuse(operationId, code, source, slots = {}) {
     outcome: { status: 'refused', messageId: 'gateway.refused', slots },
     effects: noEffects(),
     why: [{ code, source, slots }],
+    // The kernel refused before any planner ran, so nothing anywhere was touched `[DHR:REQ-061]`.
+    preserved: preservedAll('gateway.nothing-was-carried-out'),
     restState: 'blocked'
   });
 }
@@ -117,11 +119,21 @@ export function createGatewayKernel({
         .filter(({ permission }) => permission.reachable)
         .map(({ operation, permission }, index) => ({
           handle: `next:${operation.id}`,
+          id: `legal:${operation.id}`,
           label: operation.gateway.aliases.en.phrases[0],
           rank: index,
           kind: operation.classification === 'authorization' ? 'ceremony' : operation.classification === 'read' ? 'read' : 'plan',
           reasonCode: 'gateway.legal-now',
           confirmation: permission.confirmation,
+          interaction: permission.confirmation === 'ceremony'
+            ? 'ceremony'
+            : (operation.classification === 'read' ? 'read' : 'form'),
+          /**
+           * "Everything legal now" is a list, not a recommendation `[INT:CON-038]`. Emphasising one
+           * of them would be this call quietly answering a question it was not asked — which is what
+           * the home planner exists to answer, from ordering rules a reader can check.
+           */
+          emphasis: 'secondary',
           executable: false,
           fallback: { label: 'Ask what SFlow can do', command: 'sflow explain' }
         }));

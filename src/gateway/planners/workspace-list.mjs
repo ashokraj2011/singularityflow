@@ -61,11 +61,13 @@ export async function workspaceList({ subject = null, env = process.env } = {}) 
     })),
     next: workspaces.map((workspace, index) => ({
       handle: `workspace:${workspace.id}`,
+      id: `workspace:${workspace.id}`,
       label: workspace.name,
       rank: index,
       kind: 'candidates',
       reasonCode: 'workspace.selectable',
       confirmation: 'host-confirm',
+      interaction: 'navigation',
       // Switching is a separate resolved operation. This is a list, not a set of switch buttons.
       executable: false,
       fallback: { label: 'Switch workspace', command: `sflow workspace use ${workspace.id}` }

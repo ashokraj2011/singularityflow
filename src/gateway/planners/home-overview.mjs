@@ -40,11 +40,24 @@ const FALLBACKS = Object.freeze({
 function choice(entry, index, reasonCode, slots = {}) {
   return {
     handle: `home:${entry.id}`,
+    /** The choice, not its position. Reordering the menu must not rename its items. */
+    id: `home:${entry.id}`,
     label: entry.label,
     rank: index,
     kind: 'read',
     reasonCode,
     confirmation: 'none',
+    /** Selecting a menu item resolves a goal; nothing here collects input or signs anything. */
+    interaction: 'navigation',
+    /**
+     * The lead choice is the one filled button `[UXH:REQ-023]` `[UXH:REQ-064]`.
+     *
+     * `index === 0` rather than a separate flag, because the ordering rules above already decided
+     * which choice leads, and a second way of saying "this one" is a second thing to keep in sync.
+     * The menu below it stays secondary: six equally-weighted buttons and one emphasised one are
+     * different screens, and only the second answers "what now?".
+     */
+    emphasis: index === 0 ? 'primary' : 'secondary',
     /**
      * A menu item is never executable `[INT:IFC-001]`.
      *
@@ -86,8 +99,17 @@ export function homeOverviewResult({ workspace = null, records = null, subject =
   }
 
   if (active) {
-    // `[INT:REQ-023]`: continuing leads, and names what it would continue.
-    ordered.sort((left, right) => (left.id === 'work.continue' ? -1 : right.id === 'work.continue' ? 1 : 0));
+    /**
+     * `[INT:REQ-023]`: continuing leads, and names what it would continue.
+     *
+     * Ranked rather than compared pairwise. The obvious version — return -1 when the left item is
+     * `work.continue` — is not a total order: it also claims `work.continue` sorts before itself,
+     * and every other pair is "equal", so the rest of the menu holds its order only because V8's
+     * sort happens to be stable. True today, unspecified, and silently load-bearing.
+     */
+    const rank = (entry) => (entry.id === 'work.continue' ? 0 : 1);
+    ordered.sort((left, right) => rank(left) - rank(right)
+      || HOME_CHOICES.indexOf(left) - HOME_CHOICES.indexOf(right));
     why.push({
       code: 'home.active-work-leads',
       source: 'lifecycle',

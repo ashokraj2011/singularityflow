@@ -82,11 +82,13 @@ export function impactQuickResult({
     ],
     next: activeWork.map((item, index) => ({
       handle: `impact:work:${item.id}`,
+      id: `impact:work:${item.id}`,
       label: item.title,
       rank: index,
       kind: 'read',
       reasonCode: 'impact.work-in-the-same-area',
       confirmation: 'none',
+      interaction: 'navigation',
       /**
        * `[INT:REQ-075]`: starting work from a finding is a separate reviewed plan. Nothing here is
        * a shortcut into creating one.

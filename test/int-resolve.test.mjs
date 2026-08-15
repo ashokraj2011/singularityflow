@@ -10,6 +10,8 @@ import { noEffects, sflowResult, validateSflowResult } from '../src/gateway/resu
 
 const binding = {
   workspaceId: 'payments',
+  repository: 'payments-api',
+  branch: 'main',
   subjectKind: null,
   subjectId: null,
   sourceCommit: null,

@@ -9,10 +9,15 @@ import { EXPLAIN_PREVIEW_BYTES, helpExplain } from '../src/gateway/planners/help
 import { WORKSPACE_LIST_EVIDENCE_GAPS, workspaceList } from '../src/gateway/planners/workspace-list.mjs';
 import { gatewayRegistry, unimplementedPlanners } from '../src/gateway/operations.mjs';
 import { gatewayPlanners } from '../src/gateway/planners/index.mjs';
-import { validateSflowResult } from '../src/gateway/result.mjs';
+import {
+  ACTION_EMPHASIS, INTERACTION_CLASSES, PRESERVATION_SCOPES, validateSflowResult
+} from '../src/gateway/result.mjs';
+import { loadTopics, resolveTopic } from '../src/docs-topics.mjs';
 
 const binding = {
   workspaceId: 'payments',
+  repository: 'payments-api',
+  branch: 'main',
   subjectKind: null,
   subjectId: null,
   sourceCommit: null,
@@ -158,4 +163,80 @@ test('the kernel routes a resolved read to the planner that now exists', async (
   assert.equal(read.kind, 'refusal');
   assert.equal(read.why[0].code, 'gateway.planner-unavailable');
   assert.equal(read.why[0].slots.planner, operation.gateway.planner);
+});
+
+// ---------------------------------------------------------------------------
+// Contract sweeps: what every planner owes the shell, checked across all of them at once.
+
+/**
+ * Collect a result from every planner this build has, by whatever route reaches it.
+ *
+ * A sweep rather than a per-planner assertion, because the failure this guards against is the
+ * *next* planner — one written after the contract settles, tested on its own terms, and never
+ * checked against the rules the shell relies on for every card it renders.
+ */
+async function everyPlannerResult() {
+  const env = { SINGULARITY_FLOW_WORKSPACES: path.join(await mkdtemp(path.join(os.tmpdir(), 'sflow-sweep-')), 'registry.json') };
+  const kernel = createGatewayKernel({ binding, planners: gatewayPlanners() });
+  const results = [
+    await helpExplain({ arguments: { topic: 'approvals' } }),
+    await helpExplain({ arguments: { question: 'nothing the documentation covers at all' } }),
+    await workspaceList({ env }),
+    kernel.resolve({ utterance: 'explain approvals' }),
+    kernel.resolve({ utterance: 'zzzz not a phrase anyone would say' }),
+    kernel.next({}),
+    // The two refusal paths every host will meet: a handle that died, and a planner this build
+    // declares but does not have.
+    kernel.resolve({ selectionHandle: 'sel_never_issued' }),
+    await kernel.read({ resolutionId: 'rea_never_issued' })
+  ];
+  return results.filter(Boolean);
+}
+
+test('every planner offers actions the shell can render', async () => {
+  // [UXH:REQ-030]. The fields are enforced at construction; this asserts the set of producers is
+  // actually covered by that enforcement rather than each one being individually remembered.
+  for (const result of await everyPlannerResult()) {
+    validateSflowResult(result);
+    for (const action of result.next) {
+      assert.ok(action.id, `${result.operation.id} produced an action with no stable id`);
+      assert.ok(INTERACTION_CLASSES.includes(action.interaction),
+        `${result.operation.id} produced interaction '${action.interaction}'`);
+      assert.ok(ACTION_EMPHASIS.includes(action.emphasis));
+    }
+    assert.ok(result.next.filter((action) => action.emphasis === 'primary').length <= 1,
+      `${result.operation.id} offered more than one filled button`);
+  }
+});
+
+test('no planner asks for model consent in v1', async () => {
+  // [UXH:AC-015] and [DHR:CON-004] as a gate rather than a promise. v1 ships model-free, so the
+  // class is declared and unproduced — and the day that changes, this fails loudly.
+  for (const result of await everyPlannerResult()) {
+    const consent = result.next.filter((action) => action.interaction === 'model-consent');
+    assert.equal(consent.length, 0, `${result.operation.id} asked for model consent`);
+  }
+});
+
+test('every topic a planner names is a topic that exists', async () => {
+  // A next action pointing at documentation that was renamed is a "learn more" that dead-ends. The
+  // topics are compiled, so this is checkable rather than a convention.
+  const topics = await loadTopics();
+  for (const result of await everyPlannerResult()) {
+    for (const action of result.next.filter((entry) => entry.topic)) {
+      assert.ok(resolveTopic(topics, action.topic).topic,
+        `${result.operation.id} points at topic '${action.topic}', which does not exist`);
+    }
+  }
+});
+
+test('every refusal states what it preserved, whoever produced it', async () => {
+  // [DHR:REQ-061]. Enforced at construction, swept here so the enforcement is known to bite on the
+  // refusal paths that actually run rather than only on the ones a test constructs by hand.
+  const refusals = (await everyPlannerResult()).filter((result) => result.outcome.status === 'refused');
+  assert.ok(refusals.length, 'no refusal reached this sweep, so it asserts nothing');
+  for (const result of refusals) {
+    assert.ok(result.preserved.length, `${result.operation.id} refused without saying what survived`);
+    assert.ok(result.preserved.every((entry) => PRESERVATION_SCOPES.includes(entry.scope)));
+  }
 });

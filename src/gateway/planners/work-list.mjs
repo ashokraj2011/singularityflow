@@ -38,11 +38,13 @@ export function workListResult(records, { subject = null, group = null, reposito
       .filter((item) => item.nextAction)
       .map((item, index) => ({
         handle: `work:${item.id}`,
+        id: `work:${item.id}`,
         label: item.title,
         rank: index,
         kind: 'read',
         reasonCode: item.nextAction.reasonCode,
         confirmation: 'none',
+        interaction: 'navigation',
         /**
          * Never executable from a list. The next action names the operation to resolve, and
          * resolving it is what binds a subject, revalidates legality and issues a handle — none of

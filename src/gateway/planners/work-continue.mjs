@@ -13,7 +13,7 @@
  * the day someone returned after a week, and then be confidently wrong.
  */
 import { SingularityFlowError } from '../../util.mjs';
-import { noEffects, sflowResult } from '../result.mjs';
+import { noEffects, preservedAll, sflowResult } from '../result.mjs';
 import { workRecords } from '../work-records.mjs';
 
 function notFound(workId) {
@@ -23,13 +23,22 @@ function notFound(workId) {
     outcome: { status: 'refused', messageId: 'gateway.refused', slots: { workId } },
     effects: noEffects(),
     why: [{ code: 'work.not-in-this-repository', source: 'lifecycle', slots: { workId } }],
+    /**
+     * A work ID that resolves nowhere is the refusal most likely to be read as "I am in the wrong
+     * repository and have lost something" `[DHR:REQ-061]`. Saying nothing was touched is what keeps
+     * the reader looking for the right repository instead of for their work.
+     */
+    preserved: preservedAll('work.nothing-was-carried-out', { reference: workId }),
     next: [{
       handle: 'goal:work.list',
+      id: 'recover:work.list',
       label: 'See current work',
       rank: 0,
       kind: 'clarification',
       reasonCode: 'work.not-in-this-repository',
       confirmation: 'none',
+      interaction: 'recovery',
+      emphasis: 'primary',
       executable: false,
       fallback: { label: 'See current work', command: 'sflow inbox' }
     }],
@@ -89,11 +98,19 @@ export function workContinueResult(item, { subject = null, localChanges = null, 
      */
     next: actions.map((operation, index) => ({
       handle: `continue:${item.id}:${operation}`,
+      id: `continue:${operation}`,
       label: operation,
       rank: index,
       kind: 'read',
       reasonCode: item.nextAction?.reasonCode ?? 'work.legal-now',
       confirmation: 'none',
+      interaction: 'navigation',
+      /**
+       * The first legal action leads, and only the first `[UXH:REQ-023]`. The list is already
+       * ordered by the lifecycle rather than by this planner, so leading with its head is deferring
+       * to that order rather than inventing a second one.
+       */
+      emphasis: index === 0 ? 'primary' : 'secondary',
       executable: false,
       fallback: { label: operation, command: `sflow status --work-id ${item.id}` }
     })),

@@ -2,13 +2,15 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 
 import {
-  HANDLE_KINDS, HANDLE_TTL_MS, RECEIPT_TTL_MS,
+  BINDING_FIELDS, HANDLE_KINDS, HANDLE_TTL_MS, RECEIPT_TTL_MS,
   createHandleAuthority, issueConfirmationReceipt, redeemConfirmationReceipt
 } from '../src/gateway/handles.mjs';
 import { noEffects } from '../src/gateway/result.mjs';
 
 const binding = (over = {}) => ({
   workspaceId: 'payments',
+  repository: 'payments-api',
+  branch: 'main',
   subjectKind: 'story',
   subjectId: 'WRK-123',
   sourceCommit: 'a'.repeat(40),
@@ -191,4 +193,40 @@ test('a receipt expires unused', () => {
     () => redeemConfirmationReceipt(record, value, { ...bindings, now: time.now }),
     (error) => error.code === 'RECEIPT_EXPIRED'
   );
+});
+
+test('a handle binds the repository and the branch it was resolved on', () => {
+  // [DHR:REQ-081] names nine things a binding must cover. Seven were already here; repository and
+  // branch were not — so a handle resolved in one checkout, or on one branch, verified cleanly in
+  // another. Both are exactly the drift a returning developer creates by switching branches, which
+  // makes them the two most likely to matter in practice.
+  const authority = createHandleAuthority();
+  const { reference } = authority.issueRead({
+    operationId: 'work.list', classification: 'read', binding: binding()
+  });
+  for (const moved of [{ repository: 'billing-api' }, { branch: 'feature/retry-path' }]) {
+    assert.throws(
+      () => authority.verify(reference, { binding: binding(moved) }),
+      (error) => error.code === 'HANDLE_DRIFTED' && error.details.drifted.includes(Object.keys(moved)[0]),
+      `${Object.keys(moved)[0]} moved and the handle still verified`
+    );
+  }
+  // Unchanged, it still verifies — drift detection that fires on a still world is just an outage.
+  assert.ok(authority.verify(reference, { binding: binding() }));
+});
+
+test('every bound field is declared, and the list is the one the spec names', () => {
+  // Whole-record comparison in verify() means a field added here is covered without touching the
+  // comparison. Pinned so the coverage is visible rather than inferred from that indirection.
+  assert.deepEqual([...BINDING_FIELDS], [
+    'workspaceId', 'repository', 'branch', 'subjectKind', 'subjectId', 'sourceCommit',
+    'worktreeHash', 'lifecycleRevision', 'policyHash', 'registryHash', 'actorId', 'hostSessionId'
+  ]);
+  for (const field of BINDING_FIELDS) {
+    const partial = binding();
+    delete partial[field];
+    assert.throws(() => createHandleAuthority().issueRead({
+      operationId: 'work.list', classification: 'read', binding: partial
+    }), new RegExp(`omits '${field}'`), `${field} could be left out entirely`);
+  }
 });

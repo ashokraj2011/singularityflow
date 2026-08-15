@@ -23,11 +23,15 @@ const FALLBACK = Object.freeze({ label: 'List every topic', command: 'sflow expl
 function suggestion(topicId, index, reasonCode) {
   return {
     handle: `topic:${topicId}`,
+    id: `topic:${topicId}`,
     label: topicId,
     rank: index,
     kind: 'clarification',
     reasonCode,
     confirmation: 'none',
+    interaction: 'read',
+    /** The topic this suggestion would open, named where every other surface reads topics from. */
+    topic: topicId,
     executable: false,
     fallback: FALLBACK
   };

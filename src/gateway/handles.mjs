@@ -53,8 +53,8 @@ function reject(code, detail, details = {}) {
  * read to an unrelated source commit means an unrelated commit invalidates it, which trains people
  * to re-confirm reflexively — and a confirmation nobody reads is not a confirmation.
  */
-const BINDING_FIELDS = Object.freeze([
-  'workspaceId', 'subjectKind', 'subjectId', 'sourceCommit', 'worktreeHash',
+export const BINDING_FIELDS = Object.freeze([
+  'workspaceId', 'repository', 'branch', 'subjectKind', 'subjectId', 'sourceCommit', 'worktreeHash',
   'lifecycleRevision', 'policyHash', 'registryHash', 'actorId', 'hostSessionId'
 ]);
 

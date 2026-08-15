@@ -11,7 +11,7 @@
  * remain are somebody's decision rather than a step the reader can take.
  */
 import { SingularityFlowError } from '../../util.mjs';
-import { noEffects, sflowResult } from '../result.mjs';
+import { noEffects, preservedAll, sflowResult } from '../result.mjs';
 import { workRecords } from '../work-records.mjs';
 
 /**
@@ -26,6 +26,24 @@ const REMEDIATION = Object.freeze({
   'approvals-outstanding': { action: null, reasonCode: 'readiness.awaiting-a-human-decision' },
   'required-artifact-missing': { action: 'work.continue', reasonCode: 'readiness.produce-the-artifact' }
 });
+
+/**
+ * The gates this planner can evaluate, in the order a reader meets them.
+ *
+ * Fixed rather than derived from the blockers found, because a checklist assembled only from
+ * failures cannot show a met gate — and "2 of 5 unmet" is a materially different message from
+ * "2 problems", which is the one a bare failure list delivers `[UXH:REQ-062]`.
+ */
+const GATES = Object.freeze(['publication-pending', 'approvals-outstanding', 'required-artifact-missing']);
+
+/**
+ * The four inputs `[INT:IFC-081]` names that a phase record cannot answer.
+ *
+ * They appear as `unknown` rows rather than being left out. A gate nobody evaluated and a gate that
+ * passed look identical on a screen that only lists problems, and the reader who acts on that
+ * screen is the one submitting against an untested change.
+ */
+const UNEVALUATED_GATES = Object.freeze(['tests', 'stale-approvals', 'clarifications', 'unclaimed-changes']);
 
 export function workReadinessResult(item, { subject = null } = {}) {
   const blockers = item.blockers.map((blocker) => ({
@@ -80,14 +98,54 @@ export function workReadinessResult(item, { subject = null } = {}) {
     }],
     next: actionable.map((entry, index) => ({
       handle: `readiness:${item.id}:${entry.blocker}`,
+      id: `fix:${entry.blocker}`,
       label: entry.blocker,
       rank: index,
       kind: 'read',
       reasonCode: entry.reasonCode,
       confirmation: 'none',
+      interaction: 'navigation',
+      /**
+       * Fix buttons on a checklist are peers `[UXH:REQ-064]`. Emphasising the first would be this
+       * planner ranking two remediations it has no basis to rank — the reader can see both rows and
+       * knows which one they are able to do.
+       */
+      emphasis: 'secondary',
       executable: false,
       fallback: { label: entry.action, command: `sflow status --work-id ${item.id}` }
     })),
+    /**
+     * One row per gate, met and unmet alike `[UXH:REQ-062]` `[UXH:AC-003]`.
+     *
+     * Each unmet row that has a remediation points at its own fix action by id, so the checklist and
+     * `next[]` cannot drift apart — the contract rejects a row naming an action this result did not
+     * offer, which is the failure that renders a button that goes nowhere.
+     */
+    checklist: [
+      ...GATES.map((gate) => {
+        const blocked = blockers.find((entry) => entry.blocker === gate);
+        return {
+          id: gate,
+          code: `readiness.${gate}`,
+          state: blocked ? 'unmet' : 'met',
+          source: 'lifecycle',
+          evidence: item.id,
+          action: blocked?.action ? `fix:${gate}` : null,
+          slots: blocked ? { remediation: blocked.reasonCode } : {}
+        };
+      }),
+      ...UNEVALUATED_GATES.map((gate) => ({
+        id: gate,
+        code: `readiness.${gate}`,
+        state: 'unknown',
+        // Not `lifecycle`: nothing was read. The source says where the answer came from, and here
+        // there is no answer — which is the fact the row exists to carry.
+        source: 'unavailable',
+        evidence: null,
+        action: null,
+        slots: {}
+      }))
+    ],
     // Ready, or blocked only by other people's decisions: both are answers, and both are a stop.
     restState: actionable.length ? null : 'informational',
     data: {
@@ -113,6 +171,7 @@ export async function workReadiness({ arguments: args = {}, subject = null, root
       outcome: { status: 'refused', messageId: 'gateway.refused', slots: { workId: args.workId } },
       effects: noEffects(),
       why: [{ code: 'work.not-in-this-repository', source: 'lifecycle', slots: { workId: args.workId } }],
+      preserved: preservedAll('work.nothing-was-carried-out', { reference: args.workId }),
       restState: 'blocked'
     });
   }

@@ -45,6 +45,8 @@ export function createGatewayKernel({
   planners = new Map(),
   legalActions = null,
   binding,
+  /** Planners that read a repository get it from here, never from the ambient working directory. */
+  root = null,
   handles = createHandleAuthority(),
   readOnly = true
 } = {}) {
@@ -62,7 +64,7 @@ export function createGatewayKernel({
     if (typeof planner !== 'function') {
       return refuse(operation.id, 'gateway.planner-unavailable', 'unavailable', { planner: operation.gateway.planner });
     }
-    const produced = await planner({ operation, arguments: args, subject, registry, policy });
+    const produced = await planner({ operation, arguments: args, subject, registry, policy, root });
     return validateSflowResult(produced);
   }
 

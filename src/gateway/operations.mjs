@@ -42,7 +42,7 @@ export const GATEWAY_PLANNERS = Object.freeze([
  * passes, nobody notices for weeks. A count that a test asserts against turns that from an invisible
  * smell into a number someone has to look at and lower.
  */
-export const MAX_UNIMPLEMENTED_GATEWAY_PLANNERS = 24;
+export const MAX_UNIMPLEMENTED_GATEWAY_PLANNERS = 23;
 
 /**
  * Which declared planners this build does not have.

@@ -137,8 +137,8 @@ test('the kernel routes a resolved read to the planner that now exists', async (
   assert.equal(explained.data.topic, 'approvals');
 
   // And the ones still missing keep saying so by name rather than returning empty.
-  const resolved = kernel.resolve({ utterance: 'what am I working on' });
+  const resolved = kernel.resolve({ utterance: 'continue', arguments: { workId: 'WRK-1' } });
   const read = await kernel.read({ resolutionId: resolved.next[0].handle });
   assert.equal(read.kind, 'refusal');
-  assert.equal(read.why[0].slots.planner, 'work-list');
+  assert.equal(read.why[0].slots.planner, 'work-continue');
 });

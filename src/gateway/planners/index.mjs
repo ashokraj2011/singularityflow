@@ -10,14 +10,16 @@
  * result-shaped.
  */
 import { helpExplain } from './help-explain.mjs';
+import { workList } from './work-list.mjs';
 import { workspaceList } from './workspace-list.mjs';
 
 export function gatewayPlanners(overrides = {}) {
   return new Map(Object.entries({
     'help-explain': helpExplain,
+    'work-list': workList,
     'workspace-list': workspaceList,
     ...overrides
   }));
 }
 
-export { helpExplain, workspaceList };
+export { helpExplain, workList, workspaceList };

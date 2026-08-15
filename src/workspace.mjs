@@ -9,7 +9,7 @@ import { fetchRemote, localBranches, remoteBranches } from './git.mjs';
 import {
   buildRepositorySubjectIndex, buildRepositorySubjectIndexFromRefs
 } from './repository-subject-index.mjs';
-import { SingularityFlowError, run } from './util.mjs';
+import { isGitRefName, SingularityFlowError, run } from './util.mjs';
 
 export const WORKSPACE_FILE = 'workspace.json';
 export const WORKSPACE_SCHEMA_VERSION = 1;
@@ -124,7 +124,7 @@ function normalizeRepository(id, input) {
     throw new SingularityFlowError(`Workspace repository '${id}' uses an unsafe clone URL.`);
   }
   const defaultBranch = String(repository.defaultBranch ?? 'main').trim() || 'main';
-  if (!/^(?![./])(?!.*(?:\.\.|@\{|[~^:?*\\\[]))(?!.*\/\.)(?!.*[/.]$)[^\s\x00-\x1f\x7f]+$/.test(defaultBranch)) {
+  if (!isGitRefName(defaultBranch)) {
     throw new SingularityFlowError(`Workspace repository '${id}' has an invalid default branch.`);
   }
   const capabilities = [...new Set((repository.capabilities ?? [])

@@ -203,6 +203,19 @@ export function optionStrings(options, key) {
   return values.map(String);
 }
 
+/**
+ * A name Git will accept as a ref, and a shell will not mistake for something else.
+ *
+ * The Git half of this rule was already written out twice — once for a workspace's default branch
+ * and once for anything the gateway is handed — and two copies of a validator that reaches argv is
+ * one copy too many. The leading-dash rejection is the part Git itself does not care about: `-u`
+ * is a perfectly legal ref name and an option to every command that takes one.
+ */
+export function isGitRefName(value) {
+  if (typeof value !== 'string' || !value.trim() || value.startsWith('-')) return false;
+  return /^(?![./])(?!.*(?:\.\.|@\{|[~^:?*\\[]))(?!.*\/\.)(?!.*[/.]$)[^\s\u0000-\u001f\u007f]+$/.test(value);
+}
+
 export function optionBoolean(options, key, fallback = false) {
   const value = options[key];
   if (value === undefined) return fallback;

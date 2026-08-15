@@ -91,6 +91,28 @@ export function commandDefinition(name) {
 
 const WM_MODEL_OPERATIONS = new Set(['build', 'ensure']);
 const WM_NEVER_OPERATIONS = new Set(['init', 'inject', 'compose', 'show-prompt', 'cleanup', 'prompt', 'context', 'budget', 'facts', 'check', 'cache', 'light', 'availability', 'status', 'design-inventory']);
+
+/**
+ * The subcommands that only read, on commands whose *name* is not read-only.
+ *
+ * `command()` classifies from the command name, so every `workspace` and `wm` subcommand inherited
+ * `mutation` — including `workspace list` and `wm status`, which write nothing. The same defect was
+ * already fixed once for `report`, `telemetry`, `review`, `inputs`, `spec` and `visual` (see the
+ * note in `cli-entry.mjs`) and these two were missed, so the DX timing dataset still counts a
+ * workspace listing as a mutation and the audit record still discloses it as one.
+ *
+ * Two known mixtures are deliberately left as mutations rather than guessed at: `wm cache` takes
+ * `status|clear` in a third positional, and `wm compose`/`wm inject` write unless `--dry-run` or
+ * `--render-only` is passed. Splitting those means new operation IDs, new fixtures and a tripwire
+ * pass of their own; calling them mutations is the wrong-but-safe direction in the meantime.
+ */
+const WORKSPACE_READ_OPERATIONS = new Set([
+  'branches', 'list', 'current', 'prompt', 'archive-status', 'inspect', 'capabilities', 'status', 'documents'
+]);
+const WM_READ_OPERATIONS = new Set([
+  'show-prompt', 'prompt', 'context', 'budget', 'facts', 'check', 'availability', 'status', 'design-inventory'
+]);
+const WORKSPACE_IMPACT_READ_OPERATIONS = new Set(['list', 'show']);
 /** Scanning for credentials is pattern matching. A model in this path would be both slower and a way to leak the thing being looked for. */
 export const SECRETS_SUBCOMMANDS = Object.freeze(['scan', 'protect']);
 const WORKSPACE_NEVER_OPERATIONS = new Set([
@@ -322,7 +344,7 @@ function resolveWorldModelOperation(definition, positionals) {
   const subcommand = positionals[1] ?? 'check';
   const id = `wm.${subcommand}`;
   if (WM_MODEL_OPERATIONS.has(subcommand)) return required(id);
-  if (WM_NEVER_OPERATIONS.has(subcommand)) return never(id, definition);
+  if (WM_NEVER_OPERATIONS.has(subcommand)) return never(id, definition, WM_READ_OPERATIONS.has(subcommand) ? 'read' : 'mutation');
   return unknownSubcommand('wm', subcommand, RESOLVER_SUBCOMMANDS.wm);
 }
 
@@ -334,9 +356,11 @@ function resolveWorkspaceOperation(definition, positionals, options) {
     const action = positionals[2] ?? 'list';
     if (!WORKSPACE_IMPACT_OPERATIONS.has(action)) return unknownSubcommand('workspace impact', action, WORKSPACE_IMPACT_OPERATIONS, 'action');
     if (action === 'analyze' && !optionBoolean(options, 'dry-run')) return required('workspace.impact.analyze');
-    return never(`workspace.impact.${action}`, definition);
+    return never(`workspace.impact.${action}`, definition, WORKSPACE_IMPACT_READ_OPERATIONS.has(action) ? 'read' : 'mutation');
   }
-  if (WORKSPACE_NEVER_OPERATIONS.has(subcommand)) return never(`workspace.${subcommand}`, definition);
+  if (WORKSPACE_NEVER_OPERATIONS.has(subcommand)) {
+    return never(`workspace.${subcommand}`, definition, WORKSPACE_READ_OPERATIONS.has(subcommand) ? 'read' : 'mutation');
+  }
   return unknownSubcommand('workspace', requested, RESOLVER_SUBCOMMANDS.workspace);
 }
 
@@ -374,13 +398,15 @@ export function resolveOperation({ requestedCommand, positionals, options = {} }
 
 export function operationCatalog() {
   const direct = COMMAND_REGISTRY.flatMap((entry) => entry.operation ? [entry.operation] : []);
-  const wm = [...WM_NEVER_OPERATIONS].map((name) => never(`wm.${name}`, commandDefinition('wm')))
+  const wm = [...WM_NEVER_OPERATIONS]
+    .map((name) => never(`wm.${name}`, commandDefinition('wm'), WM_READ_OPERATIONS.has(name) ? 'read' : 'mutation'))
     .concat([...WM_MODEL_OPERATIONS].map((name) => required(`wm.${name}`)));
-  const workspace = [...WORKSPACE_NEVER_OPERATIONS].map((name) => never(`workspace.${name}`, commandDefinition('workspace')))
+  const workspace = [...WORKSPACE_NEVER_OPERATIONS]
+    .map((name) => never(`workspace.${name}`, commandDefinition('workspace'), WORKSPACE_READ_OPERATIONS.has(name) ? 'read' : 'mutation'))
     .concat([required('workspace.copilot')])
     .concat([...WORKSPACE_IMPACT_OPERATIONS].map((name) => name === 'analyze'
       ? required('workspace.impact.analyze')
-      : never(`workspace.impact.${name}`, commandDefinition('workspace'))));
+      : never(`workspace.impact.${name}`, commandDefinition('workspace'), WORKSPACE_IMPACT_READ_OPERATIONS.has(name) ? 'read' : 'mutation')));
   const prDefinition = commandDefinition('pr');
   const pullRequest = [
     never('pr.plan', prDefinition),

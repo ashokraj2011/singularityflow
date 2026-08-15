@@ -16,7 +16,7 @@ import {
 import type { RepositorySnapshot } from './snapshot.ts';
 
 const READ_ONLY_COMMANDS = new Set([
-  'about', 'help', 'show', 'choices', 'inbox', 'status', 'progress',
+  'about', 'help', 'show', 'choices', 'inbox', 'home', 'status', 'progress',
   'guide', 'logs', 'doctor', 'nextsteps', 'snapshot', 'validate'
 ]);
 const READ_ONLY_CONFIGURATION_COMMANDS = new Set([
@@ -51,6 +51,7 @@ export function commandClass(args: string[]): 'read' | 'mutation' | 'unknown' {
   if (args[0] === 'configuration') {
     return READ_ONLY_CONFIGURATION_COMMANDS.has(args[1] ?? '') ? 'read' : 'mutation';
   }
+  if (args[0] === 'story' && args[1] === 'return') return 'read';
   if (args[0] === 'report' || args[0] === 'review') return hasOption(args, 'out') ? 'mutation' : 'read';
   if (args[0] === 'telemetry') return (args[1] ?? 'status') === 'status' ? 'read' : 'mutation';
   if (args[0] === 'inputs') return enabledBooleanOption(args, 'dry-run') ? 'read' : 'mutation';

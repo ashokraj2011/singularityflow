@@ -22,6 +22,7 @@ is not part of the current product.
 | Learn the normal day-to-day flow | [How-to guide](../HOW-TO.md) |
 | Understand the terms | [Glossary](GLOSSARY.md) |
 | Use the VS Code extension | [VS Code guide](VS-CODE.md) |
+| Return to work through the read-only developer home | [Developer Home and Story Return](DEVELOPER-HOME.md) |
 | Rehearse the first run and use bounded DX diagnostics | [Developer Experience Layer](DEVELOPER-EXPERIENCE-LAYER.md) |
 | Create and manage workspaces | [Workspaces](../WORKSPACES.md) |
 | Configure workflows, agents, prompts, skills, and templates | [Framework guide](../FRAMEWORK-GUIDE.md) |

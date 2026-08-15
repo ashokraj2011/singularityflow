@@ -23,9 +23,12 @@ Then, on a repository you care about:
 | Set up a repository you already have | `singularity-flow init` |
 | Set up a new capability, with its configuration branch and ledger | `singularity-flow bootstrap <REPOSITORY-URL>` |
 | Find out what to do next, at any point | `singularity-flow next` |
+| Orient yourself or return to a Story without changing state | `sflow home` / `sflow story return WORK-123` |
 | See what a command does, with examples | `singularity-flow <command> --help` |
 
 The full documentation map is in [docs/README.md](./docs/README.md).
+The read-only return experience is documented in
+[Developer Home and Story Return](./docs/DEVELOPER-HOME.md).
 
 ## What it is
 

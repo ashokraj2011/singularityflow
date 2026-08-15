@@ -272,6 +272,11 @@
         "icon": "$(pulse)"
       },
       {
+        "command": "singularityFlow.openDeveloperHome",
+        "title": "Singularity Flow: Talk to SFlow",
+        "icon": "$(comment-discussion)"
+      },
+      {
         "command": "singularityFlow.openVisualAssurance",
         "title": "Singularity Flow: Visual Assurance",
         "icon": "$(preview)"

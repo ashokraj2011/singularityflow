@@ -14,7 +14,7 @@ export const MIGRATED_NARRATION_COMMANDS = Object.freeze([
 
 export const LEGACY_NARRATION_COMMANDS = Object.freeze([
   'about', 'action', 'agents', 'artifact', 'assign', 'bootstrap', 'cancel',
-  'capabilities', 'capability', 'choices', 'cockpit', 'configuration', 'doctor',
+  'capabilities', 'capability', 'choices', 'configuration', 'doctor', 'home',
   'documents', 'epic', 'factory-reset', 'finalize', 'fresh-install', 'gate', 'guide',
   'harness', 'help', 'hook', 'impact', 'inbox', 'init', 'initiative', 'inputs', 'jira',
   'knowledge', 'ledger', 'logs', 'mcp', 'next', 'nextsteps', 'phase', 'plugin', 'pr',

@@ -89,5 +89,5 @@ test('help <command> and <command> --help render the same page', () => {
 
 test('an alias resolves to its canonical page', () => {
   assert.equal(renderCommandHelp('home'), renderCommandHelp('cockpit'));
-  assert.match(renderCommandHelp('cockpit'), /\nALIASES\n {4}home/);
+  assert.match(renderCommandHelp('home'), /\nALIASES\n {4}cockpit/);
 });

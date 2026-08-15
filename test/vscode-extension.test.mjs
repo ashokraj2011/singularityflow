@@ -464,7 +464,8 @@ test('a repository that will not load offers the file to fix and the full report
 
 
 test('a repository with nothing checked out on this branch says so, and how many exist', () => {
-  const [node, start] = buildTree({ initiative: null, initiatives: [{ id: 'A' }, { id: 'B' }], workItems: [] });
+  const [home, node, start] = buildTree({ initiative: null, initiatives: [{ id: 'A' }, { id: 'B' }], workItems: [] });
+  assert.equal(home.id, 'developer-home');
   assert.match(node.label, /Nothing is checked out/);
   assert.equal(node.description, '2 available');
   assert.equal(node.contextValue, 'sflow.lifecycle.empty');
@@ -472,7 +473,8 @@ test('a repository with nothing checked out on this branch says so, and how many
 });
 
 test('a repository with nothing started at all offers the command that starts something', () => {
-  const [node, start] = buildTree({ initiative: null, initiatives: [], workItems: [] });
+  const [home, node, start] = buildTree({ initiative: null, initiatives: [], workItems: [] });
+  assert.equal(home.runCommand, 'singularityFlow.openDeveloperHome');
   assert.match(node.label, /No work has been started/);
   assert.equal(start.contextValue, 'sflow.start');
   assert.equal(start.label, 'Start intake');
@@ -480,7 +482,7 @@ test('a repository with nothing started at all offers the command that starts so
 
 test('a checked-out Story gets a phase rail with named prepare publish and submit actions', () => {
   const tree = buildTree(storySnapshot({ generation: 1 }));
-  assert.deepEqual(tree.map((node) => node.id), ['active-story:STORY-42', 'workspace:impact']);
+  assert.deepEqual(tree.map((node) => node.id), ['developer-home', 'active-story:STORY-42', 'workspace:impact']);
   assert.equal(find(tree, 'story:continue-safely').runCommand, 'singularityFlow.continueSafely');
   assert.equal(find(tree, 'story:analytics').runCommand, 'singularityFlow.openDashboard');
   assert.match(find(tree, 'story:analytics').description, /time · tokens · cost/);
@@ -527,9 +529,9 @@ test('a completed Story leaves the active rail and opens from Completed with eve
   done.documents[0].status = 'approved';
   const tree = buildTree(done);
 
-  assert.deepEqual(tree.map((node) => node.id), ['completed', 'workspace:impact']);
-  assert.equal(tree[0].label, 'Completed');
-  assert.equal(tree[0].description, '1 artifact');
+  assert.deepEqual(tree.map((node) => node.id), ['developer-home', 'completed', 'workspace:impact']);
+  assert.equal(tree[1].label, 'Completed');
+  assert.equal(tree[1].description, '1 artifact');
   const story = find(tree, 'completed-story:STORY-42');
   assert.equal(story.contextValue, 'sflow.story.completed');
   assert.match(story.description, /1 artifact/);
@@ -553,8 +555,8 @@ test('a cancelled Story leaves the active rail and opens from Archived with its 
   };
   const tree = buildTree(cancelled);
 
-  assert.deepEqual(tree.map((node) => node.id), ['archived', 'workspace:impact']);
-  assert.equal(tree[0].label, 'Archived');
+  assert.deepEqual(tree.map((node) => node.id), ['developer-home', 'archived', 'workspace:impact']);
+  assert.equal(tree[1].label, 'Archived');
   const story = find(tree, 'archived-story:STORY-42');
   assert.equal(story.contextValue, 'sflow.story.archived');
   assert.match(story.tooltip, /customer withdrew/);
@@ -571,7 +573,7 @@ test('completed sibling Stories remain visible while another Story is active', (
   });
   const tree = buildTree(active);
 
-  assert.deepEqual(tree.map((node) => node.id), ['active-story:STORY-42', 'completed', 'workspace:impact']);
+  assert.deepEqual(tree.map((node) => node.id), ['developer-home', 'active-story:STORY-42', 'completed', 'workspace:impact']);
   assert.equal(find(tree, 'completed').description, '1 item');
   const completed = find(tree, 'completed-story-summary:WRK-456');
   assert.equal(completed.label, 'WRK-456');
@@ -593,8 +595,8 @@ test('a completed Initiative is archived with its generated outputs, not active 
   }];
   const tree = buildTree(done);
 
-  assert.deepEqual(tree.map((node) => node.id), ['completed', 'workspace:impact']);
-  assert.equal(tree[0].description, '1 artifact');
+  assert.deepEqual(tree.map((node) => node.id), ['developer-home', 'completed', 'workspace:impact']);
+  assert.equal(tree[1].description, '1 artifact');
   assert.ok(find(tree, 'completed-initiative:INIT-MULTI'));
   assert.equal(find(tree, 'initiative:continue-safely'), undefined);
   assert.equal(find(tree, 'completed-initiative:open').runCommand, 'singularityFlow.openInbox');
@@ -605,8 +607,8 @@ test('a completed Initiative is archived with its generated outputs, not active 
 test('the tree is built from the real snapshot: lifecycle, phases, artifacts, Stories', () => {
   const tree = buildTree(snapshot);
   // Once intake has selected a workflow, Lifecycle shows only that work and its phases.
-  assert.deepEqual(tree.map((node) => node.id), ['initiative:INIT-MULTI', 'workspace:impact']);
-  const [root] = tree;
+  assert.deepEqual(tree.map((node) => node.id), ['developer-home', 'initiative:INIT-MULTI', 'workspace:impact']);
+  const root = tree[1];
   assert.equal(root.kind, 'initiative');
   assert.equal(root.label, 'INIT-MULTI');
 
@@ -1067,7 +1069,7 @@ test('pinned sources appear in the tree, and an empty list reads as a finding', 
 });
 
 test('an empty repository offers to start an Epic rather than describing the command', () => {
-  const [, start] = buildTree({ initiative: null, initiatives: [], workItems: [] });
+  const [, , start] = buildTree({ initiative: null, initiatives: [], workItems: [] });
   assert.equal(start.contextValue, 'sflow.start');
   assert.equal(start.runCommand, 'singularityFlow.startWork');
   assert.doesNotMatch(start.tooltip, /singularity-flow/, 'a command to retype is not an affordance');

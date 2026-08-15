@@ -292,21 +292,27 @@ export function buildLifecycleTree(snapshot: RepositorySnapshot | null, error: E
     tooltip: 'Ask Copilot to assess a proposed change across the selected workspace without creating lifecycle state or a branch.',
     runCommand: 'singularityFlow.openImpact', contextValue: 'sflow.workspace.impact'
   };
+  const developerHome: TreeNode = {
+    kind: 'action', id: 'developer-home', label: 'Talk to SFlow',
+    description: 'orient · continue · review', icon: 'comment-discussion',
+    tooltip: 'Open a read-only briefing for this workspace and choose one safe, revision-bound next action.',
+    runCommand: 'singularityFlow.openDeveloperHome', contextValue: 'sflow.developer-home'
+  };
 
   if (snapshot.workflow) {
     const completedArchive = completedStoryArchive(snapshot, snapshot.workflow.workItem.id);
     const cancelledArchive = cancelledStoryArchive(snapshot, snapshot.workflow.workItem.id);
     if (snapshot.workflow.status === 'cancelled') {
-      return [archivedFolder([cancelledStoryNode(snapshot.workflow, snapshot.documents ?? [])]),
+      return [developerHome, archivedFolder([cancelledStoryNode(snapshot.workflow, snapshot.documents ?? [])]),
         ...(completedArchive ? [completedArchive] : []), workspaceImpact];
     }
     if (snapshot.workflow.status === 'complete') {
       const completed = completedStoryNode(snapshot.workflow, snapshot.documents ?? []);
       const siblings = completedStorySummaries(snapshot, snapshot.workflow.workItem.id);
-      return [completedFolder([completed, ...siblings], countArtifacts(completed)),
+      return [developerHome, completedFolder([completed, ...siblings], countArtifacts(completed)),
         ...(cancelledArchive ? [cancelledArchive] : []), workspaceImpact];
     }
-    return [storyWorkflowNode(snapshot.workflow, snapshot.documents ?? [], snapshot.detachedDocuments ?? [], snapshot.fastPath ?? null),
+    return [developerHome, storyWorkflowNode(snapshot.workflow, snapshot.documents ?? [], snapshot.detachedDocuments ?? [], snapshot.fastPath ?? null),
       ...(completedArchive ? [completedArchive] : []), ...(cancelledArchive ? [cancelledArchive] : []), workspaceImpact];
   }
 
@@ -315,7 +321,7 @@ export function buildLifecycleTree(snapshot: RepositorySnapshot | null, error: E
     const available = (snapshot.initiatives?.length ?? 0) + (snapshot.workItems?.length ?? 0);
     const archived = completedStoryArchive(snapshot);
     const cancelled = cancelledStoryArchive(snapshot);
-    return [{
+    return [developerHome, {
       kind: 'message',
       id: 'no-initiative',
       label: available
@@ -346,10 +352,10 @@ export function buildLifecycleTree(snapshot: RepositorySnapshot | null, error: E
   if (initiative.state.status === 'complete') {
     const completed = completedInitiativeNode(initiative);
     const stories = completedStorySummaries(snapshot);
-    return [completedFolder([completed, ...stories], countArtifacts(completed)), workspaceImpact];
+    return [developerHome, completedFolder([completed, ...stories], countArtifacts(completed)), workspaceImpact];
   }
   const archived = completedStoryArchive(snapshot);
-  return [initiativeNode(initiative), ...(archived ? [archived] : []), workspaceImpact];
+  return [developerHome, initiativeNode(initiative), ...(archived ? [archived] : []), workspaceImpact];
 }
 
 /** Count unique, openable artifact paths beneath one completed subject. */

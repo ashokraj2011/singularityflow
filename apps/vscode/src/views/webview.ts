@@ -98,6 +98,24 @@ export const STYLE = `
   @media (forced-colors: active) { .brand-mark { stroke: CanvasText; } }
   .inbox-header { border-bottom: 2px solid var(--sf-accent); padding-bottom: .85rem; }
   .summary-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(9rem, 1fr)); gap: .7rem; margin: 1.1rem 0 1.5rem; }
+  .context-banner { display: grid; grid-template-columns: repeat(auto-fit, minmax(9rem, 1fr)); gap: 1px; padding: 0; overflow: hidden; background: var(--sf-border-color); }
+  .context-banner > div { display: grid; gap: .3rem; min-width: 0; padding: .85rem 1rem; background: var(--sf-surface); }
+  .context-banner strong, .context-banner code { overflow-wrap: anywhere; }
+  .briefing { display: flex; align-items: center; justify-content: space-between; gap: 1rem; }
+  .briefing h2 { margin-bottom: 0; }
+  .home-choices { display: grid; grid-template-columns: repeat(auto-fit, minmax(18rem, 1fr)); gap: .7rem; }
+  button.home-choice { display: grid; grid-template-columns: 2rem minmax(0, 1fr); gap: .8rem; align-items: start; min-height: 6rem; padding: 1rem; color: var(--vscode-foreground); background: var(--sf-surface); border: var(--sf-border); text-align: left; }
+  button.home-choice:hover { border-color: var(--sf-accent); background: var(--sf-accent-quiet); }
+  button.home-choice.primary-choice { border-left: 3px solid var(--sf-accent); background: var(--sf-accent-quiet); }
+  .choice-number { display: grid; place-items: center; width: 1.75rem; height: 1.75rem; border: var(--sf-border); border-radius: 50%; color: var(--sf-accent); font-weight: 700; }
+  .home-choice > span:last-child { display: grid; gap: .35rem; min-width: 0; }
+  .home-choice small { color: var(--sf-dim); }
+  .home-choice code { width: fit-content; max-width: 100%; overflow-wrap: anywhere; color: var(--sf-dim); }
+  .return-phases { display: grid; gap: .55rem; }
+  .return-phases details { margin: 0; padding: .8rem 1rem; border: var(--sf-border); border-radius: var(--sf-radius); background: var(--sf-surface); }
+  .return-phases summary { display: flex; align-items: center; justify-content: space-between; gap: 1rem; cursor: pointer; color: var(--vscode-foreground); }
+  .return-phases summary span { color: var(--sf-dim); font-size: .9rem; }
+  .return-phases .artifact-cards, .return-phases p { margin-top: .8rem; }
   .summary-card { display: grid; gap: .15rem; padding: .85rem 1rem; border: var(--sf-border); border-radius: var(--sf-radius); background: var(--sf-surface); box-shadow: var(--sf-shadow); }
   .summary-card strong { color: var(--sf-accent); font-size: 1.55rem; line-height: 1.1; }
   .summary-card span { color: var(--sf-dim); font-size: .8rem; }

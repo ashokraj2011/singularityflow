@@ -6,7 +6,8 @@ import {
 } from '../src/command-registry.mjs';
 
 test('command registry resolves compatibility aliases without duplicating handlers', () => {
-  assert.equal(canonicalCommand('home'), 'cockpit');
+  assert.equal(canonicalCommand('home'), 'home');
+  assert.equal(canonicalCommand('cockpit'), 'home');
   assert.equal(canonicalCommand('next-steps'), 'nextsteps');
   assert.equal(canonicalCommand('ledger'), 'ledger');
   assert.throws(() => canonicalCommand('not-a-command'), /Unknown command/);

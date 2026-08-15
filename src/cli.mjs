@@ -7878,7 +7878,7 @@ async function dispatch(command, positionals, options) {
     'refresh-branch': () => refreshBranchCommand(options),
     next: () => nextCommand(options),
     run: () => runCommand(options),
-    cockpit: () => cockpitCommand(),
+    home: async () => (await import('./commands/home.mjs')).run(argv, { positionals, options }),
     logs: () => logsCommand(positionals, options),
     doctor: () => doctorCommand(positionals, options),
     review: () => reviewCommand(positionals, options),

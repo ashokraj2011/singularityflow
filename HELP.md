@@ -2599,6 +2599,7 @@ singularity-flow bootstrap <REPOSITORY-URL> --capability ID [--name TEXT] [--kin
 singularity-flow story branch create|attach|status|promote
 singularity-flow story interval status|checkpoint|reconcile|escalate
 singularity-flow story start|inbox|fetch|checks|finalize
+singularity-flow story return [WORK-ID] [--json]
 singularity-flow story submit
 singularity-flow story converge [--assisted] [--json]
 singularity-flow story adjudicate <ITEM-ID> --disposition rework|accepted-deviation|dismissed|deferred [--reason TEXT]

@@ -14,7 +14,8 @@ test('the public operation registry is complete, uniquely classified, and fallba
 });
 
 test('aliases resolve canonically and unknown mixed subcommands fail before handler loading', () => {
-  assert.equal(canonicalCommand('home'), 'cockpit');
+  assert.equal(canonicalCommand('home'), 'home');
+  assert.equal(canonicalCommand('cockpit'), 'home');
   assert.equal(resolveOperation({ requestedCommand: 'wm', positionals: ['wm', 'build'] }).modelPolicy, 'required');
   assert.throws(
     () => resolveOperation({ requestedCommand: 'workspace', positionals: ['workspace', 'not-real'] }),

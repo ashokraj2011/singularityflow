@@ -621,3 +621,72 @@ test('configuration publish --json emits machine-readable stdout even when git c
   // The human-readable git output is still emitted, on stderr.
   assert.match(execution.stderr, /\[sflow\/config-change\/test-publish [0-9a-f]+\]/);
 });
+
+test('the lazy snapshot path returns exactly what the legacy path returned', async () => {
+  /**
+   * `snapshot --json` no longer loads `src/cli.mjs`. That is only a latency change if the answer is
+   * identical, and "identical" has to be asserted rather than assumed — the two routes reach the
+   * same `repositorySnapshot`, but through different preambles, and a preamble that quietly seeds
+   * or invalidates state would show up here and nowhere else.
+   */
+  const root = await repository();
+
+  const viaCommand = spawnSync(process.execPath, [bin, 'snapshot', '--json'], {
+    cwd: root, encoding: 'utf8', env: { ...process.env, NODE_ENV: 'test', SINGULARITY_FLOW_TEST_IDENTITY: 'Editor Tester' }
+  });
+  assert.equal(viaCommand.status, 0, viaCommand.stderr);
+
+  const viaLegacy = spawnSync(process.execPath, ['--input-type=module', '-e',
+    `const m = await import(${JSON.stringify(path.join(packageRoot, 'src/commands/legacy.mjs'))});`
+    + " await m.run(['snapshot','--json'], { positionals: ['snapshot'], options: { json: true } });"
+  ], { cwd: root, encoding: 'utf8', env: { ...process.env, NODE_ENV: 'test', SINGULARITY_FLOW_TEST_IDENTITY: 'Editor Tester' } });
+  assert.equal(viaLegacy.status, 0, viaLegacy.stderr);
+
+  /**
+   * Everything that legitimately moves between two runs, removed from both sides: the moment each
+   * was generated, and the content hashes that cover that moment. What is left is the read model,
+   * and it has to match exactly.
+   */
+  const settle = (value) => {
+    if (Array.isArray(value)) return value.map(settle);
+    if (value && typeof value === 'object') {
+      return Object.fromEntries(Object.entries(value)
+        .filter(([key]) => !['generatedAt', 'recordedAt', 'slices', 'subjectRevision'].includes(key))
+        .map(([key, item]) => [key, key === 'markdown' && typeof item === 'string'
+          ? item.replace(/^- Generated: .*$/m, '- Generated: <settled>')
+          : settle(item)]));
+    }
+    return value;
+  };
+
+  assert.deepEqual(settle(JSON.parse(viaCommand.stdout)), settle(JSON.parse(viaLegacy.stdout)));
+});
+
+test('the snapshot the extension sends never loads the legacy command module', async () => {
+  /**
+   * The guard for the change itself, asserted two ways because either alone is weak.
+   *
+   * Statically, the handler must not name `legacy.mjs` — that is what silently reintroduces the
+   * 162-module import. Dynamically, the handler must produce a full snapshot when invoked on its
+   * own, which it could not do if it still depended on anything `cli.mjs` sets up.
+   *
+   * Timing is deliberately not the gate here. It belongs in the DX benchmark, where it is measured
+   * against a fixture on an idle runner rather than inside a parallel test suite.
+   */
+  const source = await readFile(path.join(packageRoot, 'src/commands/snapshot.mjs'), 'utf8');
+  assert.doesNotMatch(source, /legacy\.mjs/, 'snapshot must not fall back into the legacy command module');
+  assert.match(source, /import\('\.\.\/editor\.mjs'\)/, 'snapshot must reach repositorySnapshot directly');
+
+  const root = await repository();
+  const standalone = spawnSync(process.execPath, ['--input-type=module', '-e',
+    `const m = await import(${JSON.stringify(path.join(packageRoot, 'src/commands/snapshot.mjs'))});`
+    + " await m.run(['snapshot','--json'], { positionals: ['snapshot'], options: { json: true } });"
+  ], { cwd: root, encoding: 'utf8', env: { ...process.env, NODE_ENV: 'test', SINGULARITY_FLOW_TEST_IDENTITY: 'Editor Tester' } });
+  assert.equal(standalone.status, 0, standalone.stderr);
+  // The full snapshot is flat, not sliced — `lifecycle` and `configuration` are names the
+  // `--include` path uses. Assert the fields this shape actually carries.
+  const produced = JSON.parse(standalone.stdout);
+  for (const field of ['repository', 'definition', 'workItems', 'agents', 'revision', 'identities']) {
+    assert.ok(produced[field], `the standalone handler still assembles ${field}`);
+  }
+});

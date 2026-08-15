@@ -14,6 +14,9 @@
  * the gateway to deterministic reads plus explicit commands rather than throwing, because a gateway
  * that crashes on a bad policy file is a gateway that gets its policy file deleted.
  */
+import { createHash } from 'node:crypto';
+
+import { canonicalJson } from '../specifications.mjs';
 import { SingularityFlowError } from '../util.mjs';
 import { CONFIRMATION_CLASSES } from './result.mjs';
 import { gatewayRegistry } from './operations.mjs';
@@ -100,7 +103,14 @@ function degradedPolicy(registry, problems) {
       ? 'none'
       : 'explicit-only';
   }
-  return Object.freeze({
+  /**
+   * A degraded policy is hashed like any other, and hashes differently.
+   *
+   * `degraded` is part of the addressed decisions, so a handle issued while policy was unreadable
+   * does not verify once it loads — which is the right outcome: it was computed against a fallback
+   * the user never chose.
+   */
+  return frozenPolicy({
     modelRouting: 'disabled',
     degraded: true,
     confirmation: Object.freeze(confirmation),
@@ -184,13 +194,40 @@ export function resolveGatewayPolicy(layers = [DEFAULT_GATEWAY_POLICY], { regist
     }
   }
 
-  return Object.freeze({
+  return frozenPolicy({
     modelRouting,
     degraded: false,
     confirmation: Object.freeze(confirmation),
     denied: Object.freeze([...denied].sort()),
     layers: Object.freeze(ordered.map((layer) => layer.layer)),
     problems: Object.freeze(problems)
+  });
+}
+
+/**
+ * Content-address the resolved policy, so a handle can be bound to it. `[INT:REQ-034]`
+ *
+ * A handle carries the policy it was computed under, and `frozenBinding` rejects a falsy
+ * `policyHash` outright — "a handle without them binds nothing". Nothing produced one, which is why
+ * the gateway could be built, tested and never wired: the first real caller cannot construct a
+ * legal binding. Found on that first wiring, exactly where the plan expected the contract to have
+ * a gap.
+ *
+ * The hash covers the *resolved decisions* rather than the layer files. Two different files that
+ * resolve to the same permissions should not invalidate an outstanding confirmation, and one file
+ * edited to a different permission set should — which is the resolved set, not its provenance.
+ */
+function frozenPolicy(policy) {
+  const decisions = {
+    modelRouting: policy.modelRouting,
+    degraded: policy.degraded,
+    confirmation: policy.confirmation,
+    denied: policy.denied,
+    layers: policy.layers
+  };
+  return Object.freeze({
+    ...policy,
+    contentHash: `sha256:${createHash('sha256').update(canonicalJson(decisions)).digest('hex')}`
   });
 }
 

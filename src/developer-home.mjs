@@ -179,14 +179,27 @@ async function recordsForRepository(repository, actor) {
   }
 }
 
-export async function developerHome({ workspaceReference = null, hostSession = null } = {}) {
-  const now = new Date().toISOString();
+/**
+ * Which repository the home is about, and where it is on disk.
+ *
+ * Exported because the projection deliberately does *not* carry an absolute path — `[UXH:REQ-065]`
+ * forbids unrestricted filesystem paths in anything rendered — and the gateway binding needs one.
+ * A caller that needed both would otherwise re-derive the root from the working directory, which is
+ * the bug where the home describes one workspace and the kernel binds to another.
+ */
+export async function homeRepository(workspaceReference = null) {
   const context = await workspaceContext(workspaceReference);
   const status = await workspaceStatus(context.workspacePath);
-  const selectedRepository = status.repositories.find((item) => item.id === context.repositoryId)
+  const selected = status.repositories.find((item) => item.id === context.repositoryId)
     ?? status.repositories.find((item) => item.id === status.workspace.leadRepository)
     ?? status.repositories[0];
-  if (!selectedRepository) throw new SingularityFlowError(`Workspace '${context.workspaceId}' has no repositories.`);
+  if (!selected) throw new SingularityFlowError(`Workspace '${context.workspaceId}' has no repositories.`);
+  return { context, status, selected, root: selected.absolutePath ?? null };
+}
+
+export async function developerHome({ workspaceReference = null, hostSession = null } = {}) {
+  const now = new Date().toISOString();
+  const { context, status, selected: selectedRepository } = await homeRepository(workspaceReference);
   const actor = selectedRepository.state === 'ready'
     ? identity(selectedRepository.absolutePath, { offline: true })
     : { name: process.env.USER ?? process.env.USERNAME ?? 'unknown-user', email: null, login: null };

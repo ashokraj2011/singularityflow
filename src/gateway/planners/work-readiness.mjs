@@ -78,7 +78,7 @@ export function workReadinessResult(item, { subject = null } = {}) {
     subject,
     outcome: {
       status: 'succeeded',
-      messageId: 'gateway.read',
+      messageId: ready ? 'gateway.read' : 'gateway.not-ready',
       slots: { work: item.id, ready: String(ready), blockers: blockers.length }
     },
     effects: noEffects(),
@@ -110,7 +110,15 @@ export function workReadinessResult(item, { subject = null } = {}) {
     next: actionable.map((entry, index) => ({
       handle: `readiness:${item.id}:${entry.blocker}`,
       id: `fix:${entry.blocker}`,
-      label: entry.blocker,
+      /**
+       * The remediation, not the blocker's internal name.
+       *
+       * This used to be `entry.blocker`, so the button on a gate row read
+       * `required-artifact-missing` — the identifier, in the place a reader looks for a verb. The
+       * label names the step; `reasonCode` below carries the same fact in a form a catalog can
+       * translate, and the two must not disagree.
+       */
+      label: entry.action === 'work.continue' ? 'Continue this work' : entry.action,
       rank: index,
       kind: 'read',
       reasonCode: entry.reasonCode,

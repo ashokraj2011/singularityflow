@@ -1247,6 +1247,14 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
   // says nothing: the tree is right, it is simply being re-checked.
   context.subscriptions.push(store.onDidChange((state) => {
     sidebar.setFreshness(state.stale ? 'Showing the last known state — checking the repository…' : null);
+    /**
+     * The first read specifically, which is the one with nothing behind it.
+     *
+     * `primeFromCache` covers every open after the first, but the first open of a repository — and
+     * every open after the cache is dropped — still has an empty store while the CLI is spawning,
+     * and the sections were filling that gap with their "nothing to do" sentences.
+     */
+    sidebar.setAwaitingFirstRead(state.loading && !state.snapshot);
   }));
   interface WorkspaceLogsSummary {
     entries: Array<{ timestamp: string | null; severity: string }>;

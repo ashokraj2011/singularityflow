@@ -153,6 +153,7 @@ export class SidebarViewProvider implements vscode.WebviewViewProvider, vscode.D
   private readonly bound = new Set<SidebarSection>();
   private view: vscode.WebviewView | null = null;
   private freshness: string | null = null;
+  private awaitingFirstRead = false;
 
   /**
    * Say when what is on screen is not confirmed.
@@ -164,6 +165,19 @@ export class SidebarViewProvider implements vscode.WebviewViewProvider, vscode.D
   setFreshness(text: string | null): void {
     if (this.freshness === text) return;
     this.freshness = text;
+    this.render();
+  }
+
+  /**
+   * Whether a first snapshot has yet to arrive — a refresh in flight with nothing behind it.
+   *
+   * Deliberately narrower than the store's `loading`, which is also true for every later refresh.
+   * The caller passes `loading && !snapshot`, because that is the only condition under which an
+   * empty section is unknown rather than known-empty.
+   */
+  setAwaitingFirstRead(value: boolean): void {
+    if (this.awaitingFirstRead === value) return;
+    this.awaitingFirstRead = value;
     this.render();
   }
 
@@ -243,15 +257,29 @@ export class SidebarViewProvider implements vscode.WebviewViewProvider, vscode.D
       data-action="${escape(action.id)}" aria-label="${escape(action.label)}" title="${escape(action.label)}">
       ${icon(action.icon, { size: 16 })}</button>`).join('');
     const nodes = this.roots[section];
+    /**
+     * Three ways to have nothing, and only one of them means nothing.
+     *
+     * A section is bound the moment its tree source exists, which is before the first snapshot has
+     * landed — so "bound and empty" was being rendered as "Nothing is waiting on you" for the whole
+     * of every cold open. That is the exact failure this file's own header calls the most expensive
+     * thing the surface could wrongly say, and it said it on the one screen a person sees first.
+     *
+     * Only the first read gets this treatment. A later refresh over a section already known to be
+     * empty leaves the real sentence on screen: the answer is not in doubt, it is being rechecked,
+     * and replacing it every time would be a flicker that tells the reader nothing.
+     */
     const content = nodes.length
       ? nodes.map((node, index) => this.renderNode(section, node, [index])).join('')
-      : this.bound.has(section)
-        ? `<div class="empty"><p>${escape(meta.empty.text)}</p>
+      : this.awaitingFirstRead
+        ? `<div class="empty"><p>Reading the repository…</p></div>`
+        : this.bound.has(section)
+          ? `<div class="empty"><p>${escape(meta.empty.text)}</p>
             <button class="empty-action" type="button" data-action="${escape(meta.empty.action)}">${escape(meta.empty.actionLabel)}</button>
           </div>`
-        // Bound but not yet reported, versus never connected: saying "nothing here" while the CLI is
-        // still being spawned is a lie the reader has no way to detect.
-        : `<div class="empty"><p>Connecting to the Singularity Flow CLI…</p></div>`;
+          // Bound but not yet reported, versus never connected: saying "nothing here" while the CLI is
+          // still being spawned is a lie the reader has no way to detect.
+          : `<div class="empty"><p>Connecting to the Singularity Flow CLI…</p></div>`;
     return `<details class="section" data-section="${section}" open>
       <summary class="section-heading">
         <span class="section-title">${icon(meta.icon, { size: 16 })}<span>${escape(meta.label)}</span></span>

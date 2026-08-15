@@ -11,8 +11,65 @@ import { withOperationContext } from './operation-context.mjs';
 // after they finish would immediately recreate `.git/singularity-flow/` and make that promise false.
 const LOCAL_STATE_RESET_COMMANDS = new Set(['factory-reset', 'reset-all', 'local-reset', 'reinstall']);
 
-function rootIfAvailable() {
-  try { return repoRoot(); } catch { return null; }
+// These commands either operate on machine-local installation/workspace state, explain the product,
+// or intentionally initialize the caller's current directory. Redirecting one of them into the
+// selected workspace would be surprising at best and destructive at worst. Every other command is
+// repository-scoped and may safely use the repository explicitly selected by `workspace use` when
+// Copilot or another host starts the CLI outside a Git checkout.
+export const ACTIVE_WORKSPACE_ROUTING_EXCLUSIONS = new Set([
+  'about', 'help', 'explain', 'guide', 'show', 'quickstart',
+  'init', 'bootstrap',
+  'factory-reset', 'reset-all', 'local-reset', 'fresh-install', 'reinstall',
+  'workspace', 'session', 'plugin'
+]);
+
+function rootIfAvailable(cwd = process.cwd()) {
+  try { return repoRoot(cwd); } catch { return null; }
+}
+
+/**
+ * Resolve the repository selected by the machine-local workspace context.
+ *
+ * A child CLI process cannot change the working directory of Copilot or VS Code. Workspace
+ * selection therefore has to be an explicit routing input at the CLI boundary rather than a hint
+ * that every command is expected to rediscover independently. The persisted selection is used
+ * without refreshing the complete workspace: `workspace use` already validated it, and command
+ * dispatch should not scan or materialize every repository before a single-repository operation.
+ */
+export async function activeWorkspaceRepositoryRoot(command, {
+  env = process.env,
+  home = undefined
+} = {}) {
+  if (ACTIVE_WORKSPACE_ROUTING_EXCLUSIONS.has(command)) return null;
+  const {
+    activeWorkspaceFile,
+    readActiveWorkspaceContext,
+    workspaceRegistryFile
+  } = await import('./workspace-context.mjs');
+  const context = await readActiveWorkspaceContext(
+    activeWorkspaceFile(env, home),
+    workspaceRegistryFile(env, home),
+    { refresh: false }
+  );
+  if (!context) return null;
+  const selectedPath = String(context.repositoryPath ?? '').trim();
+  if (!selectedPath) {
+    throw new SingularityFlowError(
+      `Active workspace '${context.workspaceName ?? context.workspaceId}' does not select a repository. Select the workspace again.`,
+      { code: 'ACTIVE_WORKSPACE_REPOSITORY_MISSING', details: { workspaceId: context.workspaceId } }
+    );
+  }
+  try {
+    return repoRoot(selectedPath);
+  } catch {
+    throw new SingularityFlowError(
+      `Active workspace '${context.workspaceName ?? context.workspaceId}' points to '${selectedPath}', which is not an available Git repository. Repair the workspace or run 'singularity-flow workspace use <WORKSPACE>'.`,
+      {
+        code: 'ACTIVE_WORKSPACE_REPOSITORY_UNAVAILABLE',
+        details: { workspaceId: context.workspaceId, repositoryId: context.repositoryId, repositoryPath: selectedPath }
+      }
+    );
+  }
 }
 
 export async function main(argv) {
@@ -21,7 +78,7 @@ export async function main(argv) {
   // Product reinstall is intentionally not a repository operation. Resolving a root would invoke
   // Git before the command even reached its strict no-repository transaction boundary.
   const localOnlyRequest = effectiveArgv[0] === 'reinstall';
-  const root = localOnlyRequest ? null : rootIfAvailable();
+  let root = localOnlyRequest ? null : rootIfAvailable();
   const argvSha256 = createHash('sha256').update(JSON.stringify(effectiveArgv)).digest('hex');
   if (effectiveArgv.length === 1 && ['--version', '-v'].includes(effectiveArgv[0])) {
     return withOperationContext({
@@ -66,6 +123,21 @@ export async function main(argv) {
       operation: { id: 'help.command', modelPolicy: 'never', classification: 'read', output: 'human' },
       modelMode, root, argvSha256, argvHash: `sha256:${argvSha256}`, command: 'help', startedAt: new Date().toISOString()
     }, () => console.log(renderCommandHelp(definition.name)));
+  }
+  if (!root) {
+    const selectedRoot = await activeWorkspaceRepositoryRoot(definition.name);
+    if (selectedRoot) {
+      // All existing repository services resolve relative paths from process.cwd(). Moving this
+      // short-lived CLI process is the compatibility bridge that makes the selected workspace
+      // authoritative without teaching dozens of commands about machine-local workspace state.
+      process.chdir(selectedRoot);
+      root = selectedRoot;
+    } else if (!ACTIVE_WORKSPACE_ROUTING_EXCLUSIONS.has(definition.name)) {
+      throw new SingularityFlowError(
+        "Run Singularity Flow from inside a Git repository, or select one with 'singularity-flow workspace use <WORKSPACE>'.",
+        { code: 'REPOSITORY_CONTEXT_REQUIRED' }
+      );
+    }
   }
   const requestedOperation = resolveOperation({ requestedCommand: requested, positionals: [definition.name, ...positionals.slice(1)], options });
   const operation = requestedOperation.modelPolicy === 'optional' && !modelMode.enabled

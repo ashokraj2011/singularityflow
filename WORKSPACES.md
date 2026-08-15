@@ -197,6 +197,13 @@ sflow workspace forget /path/to/payments-modernization
 out a branch or modify Git. When the selected repository already resolves to a
 governed Story, the Story ID appears in the context banner automatically.
 
+Repository-scoped CLI and `/sf-*` commands also use this selection as an explicit
+routing fallback. If the command is already running inside a Git repository, that
+repository wins. Otherwise, Singularity Flow runs the command against the selected
+workspace repository. Help, installation, workspace/session administration,
+initialization, and reset commands are never redirected. If the saved repository
+has moved or disappeared, the command stops with a repair/select-workspace message.
+
 The registry defaults to `~/.singularity-flow/workspaces.json`; active selection
 defaults to `~/.singularity-flow/active-workspace.json`. Corporate launchers may
 override them with `SINGULARITY_FLOW_WORKSPACE_REGISTRY`,

@@ -1008,6 +1008,13 @@ shows the label as a launch banner and supplies it to the session hook as
 governed context. In Copilot, `/sf-workspaces` lists contexts and
 `/sf-workspace` switches them without launching a nested process.
 
+The selection is also the working-directory fallback for repository-scoped
+commands. This lets `/sf-status`, `/sf-next`, `/sf-documents`, and other governed
+commands work when Copilot itself was opened from a different directory. An actual
+Git repository working directory always takes precedence. Machine-level help,
+installation, initialization, reset, and workspace/session administration commands
+remain tied to the directory or arguments explicitly supplied by the user.
+
 `session workspace` is the safe bridge when the shell, Copilot chat, or editor
 was opened in the wrong checkout. It resolves the saved workspace from the
 machine registry, records its repository and optional Story, and reports whether

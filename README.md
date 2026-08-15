@@ -471,6 +471,11 @@ workspace; a governed Story branch adds the Story ID. Singularity renders labels
 such as `Payments / MOB-123 >` as a context banner because Copilot does not
 provide a supported way to replace its own native `>` input marker.
 
+Once selected, the workspace repository is also the explicit fallback for
+repository-scoped CLI and `/sf-*` commands launched outside a Git checkout. A
+current Git checkout always wins, and setup, reset, installation, and workspace
+administration commands are deliberately never redirected.
+
 If Copilot or VS Code is already open in the wrong checkout, run
 `singularity-flow session workspace <WORKSPACE> [--repository ID] [--story ID]`
 from any directory, invoke `/sf-workspace-session`, or choose **Singularity Flow:

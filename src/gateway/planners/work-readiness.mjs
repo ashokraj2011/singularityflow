@@ -11,6 +11,7 @@
  * remain are somebody's decision rather than a step the reader can take.
  */
 import { SingularityFlowError } from '../../util.mjs';
+import { catalogued } from '../catalog.mjs';
 import { noEffects, preservedAll, sflowResult } from '../result.mjs';
 import { workRecords } from '../work-records.mjs';
 
@@ -44,6 +45,16 @@ const GATES = Object.freeze(['publication-pending', 'approvals-outstanding', 're
  * screen is the one submitting against an untested change.
  */
 const UNEVALUATED_GATES = Object.freeze(['tests', 'stale-approvals', 'clarifications', 'unclaimed-changes']);
+
+/**
+ * A gate's catalog code, or the named fallback when the lifecycle grows a gate this build predates.
+ *
+ * Falling back rather than throwing is the same judgement `REMEDIATION` already makes one screen
+ * up: an unrecognised gate still renders, as a row saying it has no name here, with the raw name in
+ * a slot. Rejecting it would take out the whole readiness read — the reader would lose the four
+ * gates this build *does* understand because a fifth appeared.
+ */
+const gateCode = (gate) => catalogued(`readiness.${gate}`, 'readiness.unrecognised-gate');
 
 export function workReadinessResult(item, { subject = null } = {}) {
   const blockers = item.blockers.map((blocker) => ({
@@ -79,9 +90,9 @@ export function workReadinessResult(item, { subject = null } = {}) {
         slots: { phase: item.phase ?? 'none', count: String(blockers.length) }
       },
       ...blockers.map((entry) => ({
-        code: `readiness.${entry.blocker}`,
+        code: gateCode(entry.blocker),
         source: 'lifecycle',
-        slots: { remediation: entry.reasonCode }
+        slots: { gate: entry.blocker, remediation: entry.reasonCode }
       }))
     ],
     /**
@@ -122,21 +133,32 @@ export function workReadinessResult(item, { subject = null } = {}) {
      * offer, which is the failure that renders a button that goes nowhere.
      */
     checklist: [
-      ...GATES.map((gate) => {
-        const blocked = blockers.find((entry) => entry.blocker === gate);
-        return {
-          id: gate,
-          code: `readiness.${gate}`,
-          state: blocked ? 'unmet' : 'met',
-          source: 'lifecycle',
-          evidence: item.id,
-          action: blocked?.action ? `fix:${gate}` : null,
-          slots: blocked ? { remediation: blocked.reasonCode } : {}
-        };
-      }),
+      /**
+       * The fixed gates, plus any blocker this build did not know to list.
+       *
+       * The union matters more than it looks. A blocker outside `GATES` still reaches `why[]` and
+       * `next[]`, so a checklist built from `GATES` alone would count five gates all met while the
+       * same result refused — and the count is what the card and the status bar both render
+       * `[UXH:AC-002]`. A surface that says "all clear" next to a refusal is worse than one that
+       * says nothing.
+       */
+      ...[...GATES, ...blockers.map((entry) => entry.blocker).filter((blocker) => !GATES.includes(blocker))]
+        .map((gate) => {
+          const blocked = blockers.find((entry) => entry.blocker === gate);
+          return {
+            id: gate,
+            code: gateCode(gate),
+            state: blocked ? 'unmet' : 'met',
+            source: 'lifecycle',
+            evidence: item.id,
+            action: blocked?.action ? `fix:${gate}` : null,
+            // An uncatalogued gate keeps its raw name here, the way an unrecognised blocker does.
+            slots: blocked ? { gate, remediation: blocked.reasonCode } : { gate }
+          };
+        }),
       ...UNEVALUATED_GATES.map((gate) => ({
         id: gate,
-        code: `readiness.${gate}`,
+        code: gateCode(gate),
         state: 'unknown',
         // Not `lifecycle`: nothing was read. The source says where the answer came from, and here
         // there is no answer — which is the fact the row exists to carry.

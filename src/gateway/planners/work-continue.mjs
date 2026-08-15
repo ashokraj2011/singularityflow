@@ -13,6 +13,7 @@
  * the day someone returned after a week, and then be confidently wrong.
  */
 import { SingularityFlowError } from '../../util.mjs';
+import { catalogued } from '../catalog.mjs';
 import { noEffects, preservedAll, sflowResult } from '../result.mjs';
 import { workRecords } from '../work-records.mjs';
 
@@ -86,7 +87,12 @@ export function workContinueResult(item, { subject = null, localChanges = null, 
         reference: item.id,
         slots: { phase: item.phase ?? 'none', generation: String(item.generation ?? 0) }
       },
-      ...item.blockers.map((blocker) => ({ code: `work.blocked.${blocker}`, source: 'lifecycle', slots: { work: item.id } }))
+      ...item.blockers.map((blocker) => ({
+        code: catalogued(`work.blocked.${blocker}`, 'work.blocked.unrecognised'),
+        source: 'lifecycle',
+        // The raw name rides in a slot, so an uncatalogued blocker is still nameable to the reader.
+        slots: { work: item.id, blocker }
+      }))
     ],
     warnings: uncommitted,
     /**

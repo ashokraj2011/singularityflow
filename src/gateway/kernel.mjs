@@ -14,12 +14,44 @@
 import { createHandleAuthority } from './handles.mjs';
 import { DEFAULT_GATEWAY_POLICY, operationPermission, resolveGatewayPolicy } from './policy.mjs';
 import { gatewayRegistry } from './operations.mjs';
+import { catalogued } from './catalog.mjs';
 import { noEffects, preservedAll, sflowResult, validateSflowResult } from './result.mjs';
 import { resolveIntent } from './resolve.mjs';
 
+/**
+ * Narration IDs a kernel-side result can carry, so a surface can translate all of them.
+ *
+ * `gateway.home` was emitted by the home planner and listed nowhere until the reason-catalog sweep
+ * found it — the same gap the catalog exists to close, one level up. A message ID that no list
+ * names is a message a translator will not know to write.
+ */
 export const KERNEL_MESSAGES = Object.freeze([
-  'gateway.read', 'gateway.next', 'gateway.explained', 'gateway.refused'
+  'gateway.read', 'gateway.next', 'gateway.explained', 'gateway.refused', 'gateway.home'
 ]);
+
+/**
+ * The entry points that answer as operations without being registered ones.
+ *
+ * `sflow_run` and `sflow_read` are tools, not registry entries, but a refusal from one still has to
+ * name an `operation.id`. Enumerating them keeps "what can `operation.id` be?" answerable, which is
+ * the question a host asks when it decides how to route a result.
+ */
+export const KERNEL_OPERATIONS = Object.freeze([
+  'gateway.resolve', 'gateway.read', 'gateway.next', 'gateway.run'
+]);
+
+/**
+ * A handle failure's catalog code. `[INT:REQ-152]` `[INT:CON-150]`
+ *
+ * The reason code is what lets the host distinguish "ask again" from "you may not" without parsing
+ * a sentence, so it must survive as a *specific* code wherever handles.mjs has one. Where it does
+ * not, the fallback says exactly that rather than flattening an unfamiliar failure into
+ * `handle-invalid`, which would tell a host to retry something that will never succeed.
+ */
+function handleCode(error) {
+  const named = `gateway.${String(error?.code ?? '').toLowerCase().replaceAll('_', '-')}`;
+  return catalogued(named, 'gateway.handle-unrecognised');
+}
 
 function refuse(operationId, code, source, slots = {}) {
   return sflowResult({
@@ -89,7 +121,7 @@ export function createGatewayKernel({
       } catch (error) {
         // `[INT:REQ-152]` `[INT:CON-150]`: expired or drifted is refreshed from current state, never
         // carried forward. The reason code names which, so the host can re-ask rather than re-try.
-        return refuse('gateway.read', `gateway.${(error.code ?? 'handle-invalid').toLowerCase().replaceAll('_', '-')}`, 'deterministic');
+        return refuse('gateway.read', handleCode(error), 'deterministic');
       }
       const operation = registry.operations.find((entry) => entry.id === record.operationId);
       const permission = operationPermission(policy, record.operationId, { registry });

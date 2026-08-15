@@ -1,5 +1,5 @@
 import assert from 'node:assert/strict';
-import { mkdir, mkdtemp, readFile, readdir, rm, stat, symlink, writeFile } from 'node:fs/promises';
+import { mkdir, mkdtemp, readFile, readdir, realpath, rm, stat, symlink, writeFile } from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
 import test from 'node:test';
@@ -15,10 +15,86 @@ import {
   activateWorkspaceContext, buildWorkspaceContext, discardUnsupportedWorkflowWorkspaces,
   readActiveWorkspaceContext, resolveWorkspaceReference, workspacePromptLabel
 } from '../src/workspace-context.mjs';
+import { activeWorkspaceRepositoryRoot, ACTIVE_WORKSPACE_ROUTING_EXCLUSIONS } from '../src/cli-entry.mjs';
 import { run } from '../src/util.mjs';
 
 const packageRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 const cli = path.join(packageRoot, 'bin', 'singularity-flow.mjs');
+
+test('repository commands can route through the explicitly selected workspace', async () => {
+  const root = await mkdtemp(path.join(os.tmpdir(), 'sflow-selected-command-root-'));
+  const repository = path.join(root, 'repository');
+  const selection = path.join(root, 'active-workspace.json');
+  const registry = path.join(root, 'workspaces.json');
+  await mkdir(repository);
+  run('git', ['init', '-b', 'main'], { cwd: repository });
+  run('git', ['config', 'user.name', 'Workspace Router'], { cwd: repository });
+  run('git', ['config', 'user.email', 'router@example.com'], { cwd: repository });
+  const initialized = spawnSync(process.execPath, [cli, 'init'], { cwd: repository, encoding: 'utf8' });
+  assert.equal(initialized.status, 0, initialized.stderr);
+  run('git', ['add', '-A'], { cwd: repository });
+  run('git', ['commit', '-m', 'initialize'], { cwd: repository });
+  await writeFile(selection, `${JSON.stringify({
+    schemaVersion: 1,
+    workspaceId: 'payments',
+    workspaceName: 'Payments',
+    workspacePath: path.join(root, 'workspace'),
+    repositoryId: 'api',
+    repositoryPath: repository,
+    repositoryState: 'ready',
+    branch: 'main',
+    capabilities: [],
+    repositoryCapabilities: [],
+    storyId: null,
+    selectedAt: '2026-08-15T00:00:00.000Z'
+  }, null, 2)}\n`);
+  const env = {
+    ...process.env,
+    SINGULARITY_FLOW_ACTIVE_WORKSPACE: selection,
+    SINGULARITY_FLOW_WORKSPACE_REGISTRY: registry
+  };
+
+  assert.equal(await activeWorkspaceRepositoryRoot('status', { env }), await realpath(repository));
+  assert.equal(await activeWorkspaceRepositoryRoot('workspace', { env }), null,
+    'workspace administration must not be redirected into its current selection');
+  assert.ok(ACTIVE_WORKSPACE_ROUTING_EXCLUSIONS.has('factory-reset'),
+    'destructive repository reset must always require an explicit working directory');
+
+  const outside = path.join(root, 'outside-every-repository');
+  await mkdir(outside);
+  const routed = spawnSync(process.execPath, [cli, 'wm', 'status', '--json'], {
+    cwd: outside,
+    env,
+    encoding: 'utf8'
+  });
+  assert.equal(routed.status, 0, routed.stderr);
+  assert.equal(JSON.parse(routed.stdout).status, 'missing',
+    'the repository-scoped command ran against the selected workspace repository');
+});
+
+test('selected workspace routing reports a stale repository path before dispatch', async () => {
+  const root = await mkdtemp(path.join(os.tmpdir(), 'sflow-stale-command-root-'));
+  const selection = path.join(root, 'active-workspace.json');
+  const missing = path.join(root, 'missing-repository');
+  await writeFile(selection, `${JSON.stringify({
+    schemaVersion: 1,
+    workspaceId: 'payments',
+    workspaceName: 'Payments',
+    workspacePath: path.join(root, 'workspace'),
+    repositoryId: 'api',
+    repositoryPath: missing,
+    repositoryState: 'missing',
+    selectedAt: '2026-08-15T00:00:00.000Z'
+  })}\n`);
+  await assert.rejects(() => activeWorkspaceRepositoryRoot('status', {
+    env: {
+      ...process.env,
+      SINGULARITY_FLOW_ACTIVE_WORKSPACE: selection,
+      SINGULARITY_FLOW_WORKSPACE_REGISTRY: path.join(root, 'workspaces.json')
+    }
+  }), (error) => error.code === 'ACTIVE_WORKSPACE_REPOSITORY_UNAVAILABLE'
+    && /Repair the workspace/.test(error.message));
+});
 
 async function remoteRepository(base, name) {
   const source = path.join(base, `${name}-source`);

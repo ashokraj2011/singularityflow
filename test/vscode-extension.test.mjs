@@ -3063,7 +3063,12 @@ const {
   instructionCatalog, parseAgent, parseSkill, renderAgent, renderAgentMappings, renderSkill,
   validateAgent, validateAgentMappingsDraft, validateSkill
 } = await import(source('views/instruction-designer-model.ts'));
-const { instructionDesignerHtml } = await import(source('views/instruction-designer-page.ts'));
+const { instructionDesignerHtml, INSTRUCTION_DESIGNER_SCRIPT } =
+  await import(source('views/instruction-designer-page.ts'));
+
+test('the instruction designer browser script is valid JavaScript', () => {
+  assert.doesNotThrow(() => new Function(INSTRUCTION_DESIGNER_SCRIPT));
+});
 
 const DESIGN_SNAPSHOT = {
   portfolioPath: 'singularity/portfolio.yml',

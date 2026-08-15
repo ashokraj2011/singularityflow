@@ -183,8 +183,20 @@ export const REASON_CODES = Object.freeze([
  * how a catalog fills with entries no surface will ever render and a translator cannot tell apart
  * from the live ones.
  */
+/**
+ * The codes that mean "a handle did not hold", as a set rather than a prefix.
+ *
+ * Callers ask this instead of testing `code.startsWith('gateway.handle-')`. Two reasons, and the
+ * second is the one that matters: a prefix test silently starts matching any future code that
+ * happens to share the stem, and it makes "which failures are handle failures?" a fact about string
+ * shape rather than a fact the catalog states.
+ */
+export const HANDLE_FAILURE_CODES = Object.freeze(
+  KERNEL_CODES.filter((code) => code.startsWith('gateway.handle-'))
+);
+
 export const COMPOSED_CODES = Object.freeze({
-  'src/gateway/kernel.mjs handleCode()': KERNEL_CODES.filter((code) => code.startsWith('gateway.handle-')),
+  'src/gateway/kernel.mjs handleCode()': HANDLE_FAILURE_CODES,
   'src/gateway/planners/work-continue.mjs': WORK_CODES.filter((code) => code.startsWith('work.blocked.')),
   'src/gateway/planners/work-readiness.mjs gateCode()':
     READINESS_CODES.filter((code) => !code.startsWith('readiness.no-')

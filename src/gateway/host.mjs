@@ -88,7 +88,17 @@ export function createHostGateway({
   }
   const registry = gatewayRegistry();
   const policy = resolveGatewayPolicy(policyLayers, { registry });
-  const binding = hostBinding(root, { workspaceId, hostSessionId, subject, registry, policy });
+
+  /**
+   * A thunk, not a snapshot. `[INT:REQ-036]`
+   *
+   * The kernel accepts either, and a host that lives longer than one command must pass the
+   * function: a captured binding is compared against a handle's equally captured binding, so both
+   * move together when the user switches branch and nothing detects it. An editor session is
+   * exactly that host. The CLI would be safe with a value and passes the function anyway, because
+   * "safe because this process is short-lived" is a property that stops being true quietly.
+   */
+  const binding = () => hostBinding(root, { workspaceId, hostSessionId, subject, registry, policy });
 
   return {
     root,

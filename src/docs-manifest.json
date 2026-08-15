@@ -1,9 +1,9 @@
 {
   "schemaVersion": 1,
   "generatedFrom": "docs/topics",
-  "sourceCommit": "54a264334d3c06672e695925688d15bbbe188761",
-  "topicCount": 33,
-  "contentSha256": "9cd824c19de9c652f87409340f34fe7d7777d105e23c539bb3af3ebf52a146e5",
+  "sourceCommit": "8bcf63a5cbf867ad04e0837a84b09f43df0c4501",
+  "topicCount": 34,
+  "contentSha256": "c9b192200f0a513bdb65da2b0ccd8c40c605447a71c1e50300ea0daef75502ca",
   "topics": [
     {
       "id": "approvals",
@@ -39,6 +39,13 @@
       "version": 1,
       "sha256": "9ce7a951a8285feaef43a3720bd2d5799aedbc8943baf3604fe0ad5dc9d1b40e",
       "file": "constitution.md"
+    },
+    {
+      "id": "developer-home",
+      "title": "Developer Home and returning to work",
+      "version": 1,
+      "sha256": "23e0ee5080f9a1280b1464c721735abcd8286cb456f8b2db5a2af45ac74ddd5f",
+      "file": "developer-home.md"
     },
     {
       "id": "epics-and-planning",

@@ -258,6 +258,24 @@ export async function storyFetchCommand(positionals, options) {
 export async function storyCommand(positionals, options) {
   const subcommand = positionals[1] ?? 'status';
   const root = repoRoot();
+  if (subcommand === 'return') {
+    const { developerReturn } = await import('../developer-home.mjs');
+    const result = await developerReturn({
+      workId: positionals[2] ?? optionString(options, 'work-id'),
+      root,
+      hostSession: optionString(options, 'host-session')
+    });
+    if (optionBoolean(options, 'json')) return console.log(JSON.stringify(result, null, 2));
+    console.log(`Singularity Flow return — ${result.context.story.id}`);
+    console.log(`${result.briefing.headline}`);
+    console.log(`Branch: ${result.context.repository.branch} @ ${(result.context.repository.head ?? 'unavailable').slice(0, 12)}`);
+    console.log(`Working tree: ${result.context.repository.dirty ? `${result.context.repository.changedFiles.length} changed path(s)` : 'clean'}`);
+    console.log(`Progress: ${result.briefing.lifecycle.approved}/${result.briefing.lifecycle.total} phases approved`);
+    if (result.briefing.recovery.required) console.warn('Recovery: a pending publication must be resolved first.');
+    console.log('\nNext choices:');
+    result.choices.forEach((choice, index) => console.log(`${index + 1}. ${choice.label} — ${choice.detail}`));
+    return;
+  }
   if (subcommand === 'start') {
     const storyKey = requirePositional(positionals, 2, 'Jira Story key');
     return (await router()).startCommand(['start', storyKey], { ...options, jira: true });
@@ -627,7 +645,10 @@ export async function storyConvergeCommand(positionals, options) {
 
 function convergenceSourceRef(phase) {
   if (!phase) return null;
-  const artifact = (phase.artifacts ?? []).find((entry) => entry.path?.endsWith(phase.requiredArtifact?.path ?? ' '));
+  const requiredPath = phase.requiredArtifact?.path;
+  const artifact = requiredPath
+    ? (phase.artifacts ?? []).find((entry) => entry.path?.endsWith(requiredPath))
+    : null;
   return { generation: phase.generation ?? null, sha256: artifact?.sha256 ?? null };
 }
 

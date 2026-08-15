@@ -434,9 +434,11 @@ test('the built extension activates against a real repository and populates the 
   // The tree is populated from a real `snapshot --json` subprocess, not a fixture.
   const provider = view.treeDataProvider;
   const roots = provider.getChildren();
-  assert.deepEqual(roots.map((node) => node.id), ['initiative:INIT-CHECKOUT', 'workspace:impact'],
+  assert.deepEqual(roots.map((node) => node.id), ['developer-home', 'initiative:INIT-CHECKOUT', 'workspace:impact'],
     'Lifecycle keeps advisory workspace exploration separate from the selected governed work');
-  assert.equal(roots[0].label, 'INIT-CHECKOUT');
+  const initiativeRoot = roots.find((node) => node.id === 'initiative:INIT-CHECKOUT');
+  assert.ok(initiativeRoot, 'the active Initiative is present beside Developer Home');
+  assert.equal(initiativeRoot.label, 'INIT-CHECKOUT');
 
   const configuration = registered.trees.get('singularityFlow.configuration');
   assert.ok(configuration, 'repository settings have a dedicated Configuration view');
@@ -451,13 +453,13 @@ test('the built extension activates against a real repository and populates the 
   assert.match(centerPanel.webview.html, /Agents and prompts/, 'agents are discoverable in the Center');
 
   // And the editor-facing mapping produces a usable TreeItem.
-  const item = provider.getTreeItem(roots[0]);
+  const item = provider.getTreeItem(initiativeRoot);
   assert.equal(item.label, 'INIT-CHECKOUT');
   assert.equal(item.collapsibleState, api.TreeItemCollapsibleState.Expanded, 'the Epic opens expanded');
   assert.equal(item.iconPath.id, 'rocket');
   assert.equal(item.description, 'One-tap checkout');
 
-  const lifecycle = provider.getChildren(roots[0]).find((node) => node.id === 'phases');
+  const lifecycle = provider.getChildren(initiativeRoot).find((node) => node.id === 'phases');
   assert.ok(lifecycle, 'the lifecycle group is present');
   const phases = provider.getChildren(lifecycle);
   assert.equal(phases.length, 7, 'all seven enterprise-delivery phases');
@@ -469,7 +471,7 @@ test('the built extension activates against a real repository and populates the 
   }
 
   // Packs reach the tree, which only works because the resolution pins them.
-  const packs = provider.getChildren(roots[0]).find((node) => node.id === 'packs');
+  const packs = provider.getChildren(initiativeRoot).find((node) => node.id === 'packs');
   assert.ok(packs, 'artifact packs are present for enterprise-delivery');
   assert.equal(provider.getChildren(packs).length, 7);
 
@@ -935,7 +937,9 @@ test('a confirmed and acknowledged approval actually lands, and the views refres
   // And the tree reflects it without anyone asking for a refresh.
   const provider = registered.trees.get('singularityFlow.lifecycle').treeDataProvider;
   const roots = provider.getChildren();
-  const lifecycle = provider.getChildren(roots[0]).find((node) => node.id === 'phases');
+  const initiative = roots.find((node) => node.kind === 'initiative');
+  assert.ok(initiative);
+  const lifecycle = provider.getChildren(initiative).find((node) => node.id === 'phases');
   const discover = provider.getChildren(lifecycle)[0];
   const businessCase = provider.getChildren(discover).find((node) => node.id.endsWith('/business-case'));
   assert.equal(businessCase.readOnly, true, 'an approved artifact is now hash-pinned');
@@ -1025,7 +1029,14 @@ test('pinning a source from the editor puts it in the tree', async (t) => {
 
   const provider = registered.trees.get('singularityFlow.lifecycle').treeDataProvider;
   const roots = provider.getChildren();
-  const sources = provider.getChildren(roots[0]).find((node) => node.id === 'sources');
+  const initiative = roots.find((node) => node.id === 'initiative:INIT-CHECKOUT');
+  assert.ok(initiative);
+  const sources = await until(() => {
+    const refreshedInitiative = provider.getChildren().find((node) => node.kind === 'initiative');
+    if (!refreshedInitiative) return null;
+    const current = provider.getChildren(refreshedInitiative).find((node) => node.id === 'sources');
+    return current?.description === '1' ? current : null;
+  }, { what: 'the pinned Epic source to appear in the refreshed tree' });
   assert.equal(sources.description, '1');
   assert.equal(provider.getChildren(sources)[0].label, 'research.md');
 });
@@ -1054,7 +1065,9 @@ test('the guided evidence manager shows attachment choices and pins a selected f
   assert.equal(registered.openDialogs[0].canSelectMany, true, 'the same action accepts a complete evidence set');
   const provider = registered.trees.get('singularityFlow.lifecycle').treeDataProvider;
   const roots = provider.getChildren();
-  const sources = provider.getChildren(roots[0]).find((node) => node.id === 'sources');
+  const initiative = roots.find((node) => node.id === 'initiative:INIT-CHECKOUT');
+  assert.ok(initiative);
+  const sources = provider.getChildren(initiative).find((node) => node.id === 'sources');
   assert.equal(sources.description, '1');
   assert.equal(provider.getChildren(sources)[0].label, 'checkout-design.png');
   assert.ok(registered.infos.some((message) => /Attached 1 path to Epic/.test(message)));
@@ -1088,8 +1101,9 @@ test('an Epic can be started and its first source pinned entirely from the edito
 
   // The tree starts by saying there is nothing here, and offering the one thing to do.
   const provider = registered.trees.get('singularityFlow.lifecycle').treeDataProvider;
-  assert.match(provider.getChildren()[0].label, /No work has been started/);
-  assert.equal(provider.getChildren()[1].contextValue, 'sflow.start');
+  const initialRoots = provider.getChildren();
+  assert.match(initialRoots.find((node) => node.id === 'no-initiative')?.label ?? '', /No work has been started/);
+  assert.equal(initialRoots.find((node) => node.contextValue === 'sflow.start')?.contextValue, 'sflow.start');
 
   // Start work. One screen covers all six ways it starts, so nothing is asked through a prompt and
   // every answer stays visible and correctable until the work is actually started.
@@ -1124,14 +1138,15 @@ test('an Epic can be started and its first source pinned entirely from the edito
   await intakePanel.post({ type: 'profile', value: 'epic-planning' });
   await intakePanel.post({ type: 'field', field: 'lens', value: 'developer' });
   await intakePanel.post({ type: 'start' });
-  await until(() => (provider.getChildren()[0]?.kind === 'initiative' ? true : null));
+  await until(() => (provider.getChildren().some((node) => node.kind === 'initiative') ? true : null));
 
   assert.deepEqual(registered.errors, [], 'starting an Epic raised no error');
   assert.equal(registered.inputBoxes.length, 0, 'nothing was asked through a prompt');
   assert.equal(registered.quickPicks.length, 0, 'nothing was asked through a picker');
 
   const roots = provider.getChildren();
-  assert.equal(roots[0].kind, 'initiative', `expected an Epic, got ${roots[0].label}`);
+  const initiative = roots.find((node) => node.kind === 'initiative');
+  assert.ok(initiative, `expected an Epic, got ${roots.map((node) => node.label).join(', ')}`);
 
   // Pin the first source.
   const brief = path.join(root, 'brief.md');
@@ -1140,7 +1155,12 @@ test('an Epic can be started and its first source pinned entirely from the edito
   await registered.commands.get('singularityFlow.addSource')();
   assert.deepEqual(registered.errors, []);
 
-  const sources = provider.getChildren(provider.getChildren()[0]).find((node) => node.id === 'sources');
+  const sources = await until(() => {
+    const refreshedInitiative = provider.getChildren().find((node) => node.kind === 'initiative');
+    if (!refreshedInitiative) return null;
+    const current = provider.getChildren(refreshedInitiative).find((node) => node.id === 'sources');
+    return current?.description === '1' ? current : null;
+  }, { what: 'the pinned Epic source to appear in the refreshed tree' });
   assert.equal(sources.description, '1');
   assert.equal(provider.getChildren(sources)[0].label, 'brief.md');
 });
@@ -2513,8 +2533,8 @@ test('terminal lifecycle writes refresh every VS Code view through one watched s
   registered.watchers[0].change.fire({ fsPath: statePath });
 
   const provider = registered.trees.get('singularityFlow.lifecycle').treeDataProvider;
-  await until(() => provider.getChildren()[0]?.description === 'Changed from Copilot CLI');
-  assert.equal(provider.getChildren()[0].description, 'Changed from Copilot CLI');
+  await until(() => provider.getChildren().find((node) => node.kind === 'initiative')?.description === 'Changed from Copilot CLI');
+  assert.equal(provider.getChildren().find((node) => node.kind === 'initiative')?.description, 'Changed from Copilot CLI');
 });
 
 test('a workspace chosen while the views are already bound re-points them without reloading', async (t) => {

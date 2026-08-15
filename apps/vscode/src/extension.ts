@@ -297,6 +297,7 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
   const REPOSITORY_COMMANDS = [
     'singularityFlow.openCapabilities', 'singularityFlow.openImpact', 'singularityFlow.openFlowImpact', 'singularityFlow.openStories',
     'singularityFlow.openApprovals', 'singularityFlow.openInbox', 'singularityFlow.startWork',
+    'singularityFlow.openDeveloperHome',
     'singularityFlow.attachEvidence', 'singularityFlow.manageEvidence',
     'singularityFlow.detachEvidence', 'singularityFlow.addSource',
     'singularityFlow.refresh', 'singularityFlow.openArtifact', 'singularityFlow.runAction',
@@ -2216,6 +2217,10 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
         const { InboxPanel } = await import('./views/inbox.ts');
         return InboxPanel.show(context, store, (message) => { void onInboxMessage(message); });
       },
+    'singularityFlow.openDeveloperHome': async () => {
+      const { DeveloperHomePanel } = await import('./views/developer-home.ts');
+      return DeveloperHomePanel.show(context, client);
+    },
     'singularityFlow.expandReference': expandReference as never,
     'singularityFlow.openHarnessReport': openHarnessReport,
     'singularityFlow.continueSafely': async () => {

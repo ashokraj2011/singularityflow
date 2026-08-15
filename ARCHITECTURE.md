@@ -301,6 +301,14 @@ from a terminal or another process. Jira and provider tokens use VS Code
 receives context produced by `sflow wm show-prompt`; the extension never owns a
 competing model backend. See [VS Code guide](docs/VS-CODE.md).
 
+Developer orientation follows the same boundary. **Talk to SFlow**, `sflow home`,
+and `sflow story return` assemble a deterministic local read model from the active
+workspace and declared repositories. Opening them does not fetch, switch branches,
+write lifecycle state, contact an external system, or invoke a model. VS Code stores
+the last acknowledgement as presentation metadata only; revision-bound, expiring
+choices are revalidated before navigation or effects. See
+[Developer Home and Story Return](docs/DEVELOPER-HOME.md).
+
 ## Local project workspace boundary
 
 The optional workspace layer is intentionally outside the governed

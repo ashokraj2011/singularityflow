@@ -20,7 +20,6 @@ Every public operation is classified before its implementation module is importe
 | choices | read | never | — | — |
 | clarification.record | mutation | never | — | — |
 | clarification.status | read | never | — | — |
-| cockpit | mutation | never | — | — |
 | configuration | mutation | never | — | — |
 | constitution.check | read | never | — | — |
 | constitution.except | mutation | never | — | — |
@@ -39,6 +38,7 @@ Every public operation is classified before its implementation module is importe
 | harness | mutation | never | — | — |
 | help | read | never | — | — |
 | help.root | read | never | — | — |
+| home | read | never | — | — |
 | hook | mutation | never | — | — |
 | impact | mutation | never | — | — |
 | implement | read | never | — | — |
@@ -116,6 +116,7 @@ Every public operation is classified before its implementation module is importe
 | story.interval.escalate | mutation | never | — | — |
 | story.interval.reconcile | mutation | never | — | — |
 | story.interval.status | read | never | — | — |
+| story.return | read | never | — | — |
 | story.rework | mutation | never | — | — |
 | story.start | mutation | never | — | — |
 | story.status | read | never | — | — |

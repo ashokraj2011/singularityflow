@@ -30,6 +30,7 @@
 import { createHash } from 'node:crypto';
 
 import { canonicalJson } from '../specifications.mjs';
+import { isCatalogued } from './catalog.mjs';
 import { SingularityFlowError } from '../util.mjs';
 
 export const SFLOW_RESULT_SCHEMA_VERSION = 2;
@@ -112,6 +113,21 @@ function invalid(detail) {
   throw new SingularityFlowError(`Invalid sflow-result: ${detail}`, { code: 'SFLOW_RESULT_INVALID' });
 }
 
+/**
+ * Every code a result carries comes from the catalog. `[UXH:REQ-061]`
+ *
+ * Refusing prose while accepting any dotted string would be theatre: the check that matters is not
+ * whether a code looks like a code, it is whether something can enumerate the set. A producer with
+ * a genuinely new thing to say adds it to `catalog.mjs`, which is where a translator will look for
+ * it — and a producer with a typo finds out here rather than shipping a message nobody can render.
+ */
+function requireCatalogued(code, label) {
+  if (!isCatalogued(code)) {
+    invalid(`${label} uses '${code}', which is not in the reason catalog;`
+      + ' add it to src/gateway/catalog.mjs so a surface can enumerate and translate it');
+  }
+}
+
 function frozenRecords(entries, label) {
   if (!Array.isArray(entries)) invalid(`${label} must be an array`);
   return Object.freeze(entries.map((entry, index) => {
@@ -122,6 +138,7 @@ function frozenRecords(entries, label) {
     if (!REASON_SOURCES.includes(entry.source)) {
       invalid(`${label}[${index}].source '${entry.source}' is not one of ${REASON_SOURCES.join(', ')}`);
     }
+    requireCatalogued(entry.code, `${label}[${index}]`);
     return Object.freeze({
       code: String(entry.code),
       source: entry.source,
@@ -147,6 +164,7 @@ function frozenPreserved(entries, resolvedEffects) {
   if (!Array.isArray(entries)) invalid('preserved must be an array');
   return Object.freeze(entries.map((entry, index) => {
     if (!entry?.code) invalid(`preserved[${index}] has no catalog code`);
+    requireCatalogued(entry.code, `preserved[${index}]`);
     if (!REASON_SOURCES.includes(entry.source)) {
       invalid(`preserved[${index}].source '${entry.source}' is not one of ${REASON_SOURCES.join(', ')}`);
     }
@@ -188,6 +206,7 @@ function frozenChecklist(entries, nextActions) {
     if (seen.has(entry.id)) invalid(`checklist[${index}] repeats id '${entry.id}'`);
     seen.add(entry.id);
     if (!entry?.code) invalid(`checklist[${index}] has no catalog code`);
+    requireCatalogued(entry.code, `checklist[${index}]`);
     if (!CHECKLIST_STATES.includes(entry.state)) {
       invalid(`checklist[${index}].state '${entry.state}' is not one of ${CHECKLIST_STATES.join(', ')}`);
     }
@@ -255,6 +274,7 @@ function frozenNextActions(entries) {
         + ' a ceremony is both or neither');
     }
     if (!entry?.reasonCode) invalid(`next[${index}] has no reason code`);
+    requireCatalogued(entry.reasonCode, `next[${index}].reasonCode`);
     return Object.freeze({
       handle: String(entry.handle),
       id: String(entry.id),

@@ -80,7 +80,7 @@ test('a result is never a dead end', () => {
     restState: null,
     next: [{
       handle: 'h1', id: 'continue', label: 'Continue', kind: 'plan',
-      reasonCode: 'work.continue', confirmation: 'host-confirm', interaction: 'form'
+      reasonCode: 'work.resume-phase', confirmation: 'host-confirm', interaction: 'form'
     }]
   }));
 });
@@ -90,8 +90,8 @@ test('reasons and warnings are structured records, never prose', () => {
   // that allowed it grew a second vocabulary nobody could enumerate.
   assert.throws(() => read({ why: ['because the branch moved'] }), /why\[0\] has no catalog code/);
   assert.throws(() => read({ why: [{ code: 'x' }] }), /why\[0\]\.source 'undefined' is not one of/);
-  const ok = read({ why: [{ code: 'branch.moved', source: 'lifecycle', reference: 'WRK-123' }] });
-  assert.equal(ok.why[0].code, 'branch.moved');
+  const ok = read({ why: [{ code: 'work.local-changes-present', source: 'lifecycle', reference: 'WRK-123' }] });
+  assert.equal(ok.why[0].code, 'work.local-changes-present');
   assert.equal(ok.why[0].source, 'lifecycle');
 });
 
@@ -117,7 +117,7 @@ test('a ceremony next action is never executable by an ambient tool', () => {
     effects: noEffects(),
     next: [{
       handle: 'h9', id: 'open-review', label: 'Open the review', kind: 'ceremony',
-      reasonCode: 'decision.required', confirmation: 'ceremony', interaction: 'ceremony', executable: true
+      reasonCode: 'approval.open-the-packet', confirmation: 'ceremony', interaction: 'ceremony', executable: true
     }],
     restState: 'awaiting-decision'
   });
@@ -127,12 +127,12 @@ test('a ceremony next action is never executable by an ambient tool', () => {
 
 test('next actions carry an opaque handle, and every field a host needs to render one', () => {
   assert.throws(() => read({ next: [{ label: 'Go' }] }), /next\[0\] has no action handle/);
-  assert.throws(() => read({ next: [{ handle: 'h', id: 'go', label: 'Go', kind: 'nope', reasonCode: 'r', confirmation: 'none', interaction: 'read' }] }),
+  assert.throws(() => read({ next: [{ handle: 'h', id: 'go', label: 'Go', kind: 'nope', reasonCode: 'work.legal-now', confirmation: 'none', interaction: 'read' }] }),
     /next\[0\]\.kind 'nope' is not a result kind/);
-  assert.throws(() => read({ next: [{ handle: 'h', id: 'go', label: 'Go', kind: 'plan', reasonCode: 'r', confirmation: 'maybe', interaction: 'form' }] }),
+  assert.throws(() => read({ next: [{ handle: 'h', id: 'go', label: 'Go', kind: 'plan', reasonCode: 'work.legal-now', confirmation: 'maybe', interaction: 'form' }] }),
     /next\[0\]\.confirmation 'maybe' is not a confirmation class/);
   const result = read({
-    next: [{ handle: 'h', id: 'go', label: 'Go', kind: 'plan', reasonCode: 'r', confirmation: 'host-confirm', interaction: 'form', fallback: { cli: 'sflow start' } }]
+    next: [{ handle: 'h', id: 'go', label: 'Go', kind: 'plan', reasonCode: 'work.legal-now', confirmation: 'host-confirm', interaction: 'form', fallback: { cli: 'sflow start' } }]
   });
   assert.equal(result.next[0].rank, 0);
   assert.equal(result.next[0].fallback.cli, 'sflow start');
@@ -167,7 +167,7 @@ test('validation and construction cannot drift, because validation rebuilds', ()
 });
 
 test('the result is frozen all the way down', () => {
-  const result = read({ why: [{ code: 'c', source: 'policy' }], data: { count: 1 } });
+  const result = read({ why: [{ code: 'work.from-governed-records', source: 'policy' }], data: { count: 1 } });
   for (const target of [result, result.operation, result.outcome, result.effects, result.why[0], result.data]) {
     assert.ok(Object.isFrozen(target));
   }
@@ -227,7 +227,7 @@ test('a preservation claim cannot contradict the effects record', () => {
   // [DHR:CON-060] in one check. Telling a reader their files are untouched while reporting that
   // files changed is the failure this channel exists to make impossible rather than discouraged.
   assert.throws(() => act({
-    preserved: [{ code: 'work.files-untouched', source: 'evidence', scope: 'filesChanged' }]
+    preserved: [{ code: 'work.nothing-was-carried-out', source: 'evidence', scope: 'filesChanged' }]
   }), /claims filesChanged was preserved while effects filesChanged is true/);
 
   // The whole-world claim is checked against every effect, not just one.
@@ -237,17 +237,17 @@ test('a preservation claim cannot contradict the effects record', () => {
   // A scope that genuinely did not move may still be claimed by a result that changed something
   // else — which is exactly the honest half-answer a partially-applied operation owes its reader.
   const partial = act({
-    preserved: [{ code: 'work.nothing-was-published', source: 'evidence', scope: 'publicationCreated' }]
+    preserved: [{ code: 'work.nothing-was-carried-out', source: 'evidence', scope: 'publicationCreated' }]
   });
   assert.equal(partial.preserved[0].scope, 'publicationCreated');
 });
 
 test('a preservation claim must name a scope that can be checked', () => {
-  assert.throws(() => act({ preserved: [{ code: 'c', source: 'evidence' }] }),
+  assert.throws(() => act({ preserved: [{ code: 'work.nothing-was-carried-out', source: 'evidence' }] }),
     /preserved\[0\]\.scope 'undefined' is not one of/);
-  assert.throws(() => act({ preserved: [{ code: 'c', source: 'evidence', scope: 'your-feelings' }] }),
+  assert.throws(() => act({ preserved: [{ code: 'work.nothing-was-carried-out', source: 'evidence', scope: 'your-feelings' }] }),
     /preserved\[0\]\.scope 'your-feelings' is not one of/);
-  assert.throws(() => act({ preserved: [{ code: 'c', source: 'vibes', scope: 'stateChanged' }] }),
+  assert.throws(() => act({ preserved: [{ code: 'work.nothing-was-carried-out', source: 'vibes', scope: 'stateChanged' }] }),
     /preserved\[0\]\.source 'vibes' is not one of/);
   assert.deepEqual([...PRESERVATION_SCOPES], [
     'all', 'contextChanged', 'stateChanged', 'filesChanged',
@@ -261,7 +261,7 @@ test('a preservation claim must name a scope that can be checked', () => {
 const withNext = (action, over = {}) => read({
   next: [{
     handle: 'h', id: 'act', label: 'Go', kind: 'read',
-    reasonCode: 'r', confirmation: 'none', interaction: 'read', ...action
+    reasonCode: 'work.legal-now', confirmation: 'none', interaction: 'read', ...action
   }],
   ...over
 });
@@ -269,18 +269,18 @@ const withNext = (action, over = {}) => read({
 test('a next action carries a stable id, separate from its rotating handle', () => {
   // The handle is reissued every time the result is recomputed. Focus restoration, telemetry and a
   // checklist row pointing at its fix button all need the identity that does not move.
-  assert.throws(() => read({ next: [{ handle: 'h', label: 'Go', kind: 'read', reasonCode: 'r', confirmation: 'none', interaction: 'read' }] }),
+  assert.throws(() => read({ next: [{ handle: 'h', label: 'Go', kind: 'read', reasonCode: 'work.legal-now', confirmation: 'none', interaction: 'read' }] }),
     /next\[0\] has no stable id/);
   assert.throws(() => read({
     next: [
-      { handle: 'h1', id: 'same', label: 'A', kind: 'read', reasonCode: 'r', confirmation: 'none', interaction: 'read' },
-      { handle: 'h2', id: 'same', label: 'B', kind: 'read', reasonCode: 'r', confirmation: 'none', interaction: 'read' }
+      { handle: 'h1', id: 'same', label: 'A', kind: 'read', reasonCode: 'work.legal-now', confirmation: 'none', interaction: 'read' },
+      { handle: 'h2', id: 'same', label: 'B', kind: 'read', reasonCode: 'work.legal-now', confirmation: 'none', interaction: 'read' }
     ]
   }), /next\[1\] repeats id 'same'/);
 });
 
 test('interaction is declared, closed, and cannot disagree with confirmation about a ceremony', () => {
-  assert.throws(() => read({ next: [{ handle: 'h', id: 'a', label: 'Go', kind: 'read', reasonCode: 'r', confirmation: 'none' }] }),
+  assert.throws(() => read({ next: [{ handle: 'h', id: 'a', label: 'Go', kind: 'read', reasonCode: 'work.legal-now', confirmation: 'none' }] }),
     /next\[0\]\.interaction 'undefined' is not one of/);
   // A ceremony is both or neither: a host that renders an approval as an ordinary button has
   // defeated the ceremony while passing every kernel-side check.
@@ -301,8 +301,8 @@ test('at most one action may be primary, and the default is not primary', () => 
   assert.equal(primaryAction(withNext({ emphasis: 'primary' })).id, 'act');
   assert.throws(() => read({
     next: [
-      { handle: 'h1', id: 'a', label: 'A', kind: 'read', reasonCode: 'r', confirmation: 'none', interaction: 'read', emphasis: 'primary' },
-      { handle: 'h2', id: 'b', label: 'B', kind: 'read', reasonCode: 'r', confirmation: 'none', interaction: 'read', emphasis: 'primary' }
+      { handle: 'h1', id: 'a', label: 'A', kind: 'read', reasonCode: 'work.legal-now', confirmation: 'none', interaction: 'read', emphasis: 'primary' },
+      { handle: 'h2', id: 'b', label: 'B', kind: 'read', reasonCode: 'work.legal-now', confirmation: 'none', interaction: 'read', emphasis: 'primary' }
     ]
   }), /next declares 2 primary actions \(a, b\)/);
   assert.throws(() => withNext({ emphasis: 'shouty' }), /next\[0\]\.emphasis 'shouty' is not one of/);
@@ -333,7 +333,7 @@ test('a checklist row cannot point at an action this result did not offer', () =
   assert.throws(() => read({ checklist: [gate({ action: 'fix:tests' })] }),
     /checklist\[0\]\.action 'fix:tests' is not one of this result's next actions/);
   const wired = read({
-    next: [{ handle: 'h', id: 'fix:tests', label: 'Run tests', kind: 'read', reasonCode: 'r', confirmation: 'none', interaction: 'navigation' }],
+    next: [{ handle: 'h', id: 'fix:tests', label: 'Run tests', kind: 'read', reasonCode: 'work.legal-now', confirmation: 'none', interaction: 'navigation' }],
     checklist: [gate({ action: 'fix:tests' })]
   });
   assert.equal(wired.checklist[0].action, 'fix:tests');
@@ -360,13 +360,13 @@ test('unmet and unknown are different facts and never merge', () => {
 test('checklist ids are unique, because a row is addressed by id', () => {
   assert.throws(() => read({ checklist: [gate({ id: 'x' }), gate({ id: 'x' })] }),
     /checklist\[1\] repeats id 'x'/);
-  assert.throws(() => read({ checklist: [{ code: 'c', state: 'met', source: 'lifecycle' }] }),
+  assert.throws(() => read({ checklist: [{ code: 'readiness.tests', state: 'met', source: 'lifecycle' }] }),
     /checklist\[0\] has no id/);
 });
 
 test('the new channels survive validation, hashing and freezing like the old ones', () => {
   const result = read({
-    next: [{ handle: 'h', id: 'fix:tests', label: 'Run tests', kind: 'read', reasonCode: 'r', confirmation: 'none', interaction: 'navigation' }],
+    next: [{ handle: 'h', id: 'fix:tests', label: 'Run tests', kind: 'read', reasonCode: 'work.legal-now', confirmation: 'none', interaction: 'navigation' }],
     preserved: preservedAll('work.nothing-was-carried-out'),
     checklist: [gate({ action: 'fix:tests' })]
   });
@@ -377,7 +377,7 @@ test('the new channels survive validation, hashing and freezing like the old one
   // Content-addressed means the new fields count: a result that says nothing was preserved and one
   // that says so explicitly are different results.
   assert.notEqual(resultHash(result), resultHash(read({
-    next: [{ handle: 'h', id: 'fix:tests', label: 'Run tests', kind: 'read', reasonCode: 'r', confirmation: 'none', interaction: 'navigation' }],
+    next: [{ handle: 'h', id: 'fix:tests', label: 'Run tests', kind: 'read', reasonCode: 'work.legal-now', confirmation: 'none', interaction: 'navigation' }],
     checklist: [gate({ action: 'fix:tests' })]
   })));
   assert.ok(preservedEverything(result));

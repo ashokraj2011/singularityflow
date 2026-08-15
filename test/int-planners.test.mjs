@@ -7,6 +7,7 @@ import path from 'node:path';
 import { createGatewayKernel } from '../src/gateway/kernel.mjs';
 import { EXPLAIN_PREVIEW_BYTES, helpExplain } from '../src/gateway/planners/help-explain.mjs';
 import { WORKSPACE_LIST_EVIDENCE_GAPS, workspaceList } from '../src/gateway/planners/workspace-list.mjs';
+import { gatewayRegistry, unimplementedPlanners } from '../src/gateway/operations.mjs';
 import { gatewayPlanners } from '../src/gateway/planners/index.mjs';
 import { validateSflowResult } from '../src/gateway/result.mjs';
 
@@ -136,9 +137,25 @@ test('the kernel routes a resolved read to the planner that now exists', async (
   assert.equal(explained.kind, 'read');
   assert.equal(explained.data.topic, 'approvals');
 
-  // And the ones still missing keep saying so by name rather than returning empty.
-  const resolved = kernel.resolve({ utterance: 'continue', arguments: { workId: 'WRK-1' } });
-  const read = await kernel.read({ resolutionId: resolved.next[0].handle });
+  /**
+   * And the ones still missing keep saying so by name rather than returning empty.
+   *
+   * The unimplemented planner is derived rather than named. Naming one made this test fail every
+   * time that planner got written — which is the ratchet working, but it turns a correctness check
+   * into a chore, and a chore gets deleted.
+   */
+  const missing = unimplementedPlanners(gatewayPlanners());
+  assert.ok(missing.length, 'nothing left to assert once every planner exists');
+  const candidates = gatewayRegistry().operations
+    .filter((entry) => entry.classification === 'read' && missing.includes(entry.gateway.planner));
+  // One whose arguments are all optional, so resolution reaches a handle instead of asking a question.
+  const pick = candidates
+    .map((entry) => ({ entry, resolved: kernel.resolve({ utterance: entry.gateway.aliases.en.phrases[0] }) }))
+    .find(({ resolved }) => resolved.kind === 'read');
+  assert.ok(pick, 'no unimplemented read resolves without arguments');
+  const operation = pick.entry;
+  const read = await kernel.read({ resolutionId: pick.resolved.next[0].handle });
   assert.equal(read.kind, 'refusal');
-  assert.equal(read.why[0].slots.planner, 'work-continue');
+  assert.equal(read.why[0].code, 'gateway.planner-unavailable');
+  assert.equal(read.why[0].slots.planner, operation.gateway.planner);
 });

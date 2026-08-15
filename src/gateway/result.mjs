@@ -105,6 +105,15 @@ function frozenNextActions(entries) {
       kind: entry.kind,
       reasonCode: String(entry.reasonCode),
       confirmation: entry.confirmation,
+      /**
+       * The values a label names, structured rather than concatenated into it.
+       *
+       * §3.2 requires the home menu's first item to name the Story, repository, phase and legal next
+       * action. A handler could assemble that into the label, and then the sentence is prose: it
+       * cannot be translated, and the four values cannot be read back out. Slots are how `outcome`
+       * and `why` already carry their values, and a next action needs the same for the same reason.
+       */
+      slots: Object.freeze({ ...(entry.slots ?? {}) }),
       // An authorization decision is never executable by an ambient tool `[INT:CON-113]`.
       executable: entry.confirmation === 'ceremony' ? false : entry.executable !== false,
       fallback: entry.fallback ? Object.freeze({ ...entry.fallback }) : null

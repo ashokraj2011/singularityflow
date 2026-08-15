@@ -8,8 +8,9 @@ import {
 import { BROAD_GOALS, assertBroadGoal, isBroadGoal } from '../src/gateway/goals.mjs';
 import {
   GATEWAY_DECLARATIONS, GATEWAY_PLANNERS, MAX_UNIMPLEMENTED_GATEWAY_PLANNERS,
-  gatewayOperation, gatewayRegistry, isGatewayReachable
+  gatewayOperation, gatewayRegistry, isGatewayReachable, unimplementedPlanners
 } from '../src/gateway/operations.mjs';
+import { gatewayPlanners } from '../src/gateway/planners/index.mjs';
 import {
   GATEWAY_CLASSIFICATIONS, OPERATION_REGISTRY_VERSION, RESULT_CONTRACT,
   compileOperationRegistry, normalizeAlias
@@ -251,11 +252,14 @@ test('the content hash covers the contract and not the build', () => {
 
 test('the unimplemented-planner ratchet only goes down', () => {
   const registry = gatewayRegistry();
+  const missing = unimplementedPlanners(gatewayPlanners());
   assert.ok(
-    registry.unimplementedPlanners.length <= MAX_UNIMPLEMENTED_GATEWAY_PLANNERS,
-    `${registry.unimplementedPlanners.length} declared planners are unimplemented;`
+    missing.length <= MAX_UNIMPLEMENTED_GATEWAY_PLANNERS,
+    `${missing.length} declared planners are unimplemented (${missing.join(', ')});`
     + ` the ceiling is ${MAX_UNIMPLEMENTED_GATEWAY_PLANNERS} and lowering it is the point`
   );
+  // And the ceiling tracks reality rather than drifting above it.
+  assert.equal(missing.length, MAX_UNIMPLEMENTED_GATEWAY_PLANNERS, 'lower the ceiling to match');
   assert.equal(new Set(GATEWAY_PLANNERS.map((entry) => entry.name)).size, GATEWAY_PLANNERS.length);
   for (const entry of registry.operations) {
     assert.ok(GATEWAY_PLANNERS.some((planner) => planner.name === entry.gateway.planner));

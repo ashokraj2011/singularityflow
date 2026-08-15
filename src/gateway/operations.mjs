@@ -42,7 +42,22 @@ export const GATEWAY_PLANNERS = Object.freeze([
  * passes, nobody notices for weeks. A count that a test asserts against turns that from an invisible
  * smell into a number someone has to look at and lower.
  */
-export const MAX_UNIMPLEMENTED_GATEWAY_PLANNERS = 26;
+export const MAX_UNIMPLEMENTED_GATEWAY_PLANNERS = 24;
+
+/**
+ * Which declared planners this build does not have.
+ *
+ * Measured against the planner map rather than against `GATEWAY_PLANNERS`, because the declarations
+ * deliberately stay import-free: pulling the real planners in here would drag the workspace and docs
+ * modules into every consumer of the registry, and the registry is on the startup path of everything
+ * that resolves anything.
+ */
+export function unimplementedPlanners(planners = new Map()) {
+  return Object.freeze(GATEWAY_PLANNERS
+    .map((entry) => entry.name)
+    .filter((name) => typeof planners.get?.(name) !== 'function')
+    .sort());
+}
 
 const en = (...phrases) => ({ en: { version: 1, phrases } });
 

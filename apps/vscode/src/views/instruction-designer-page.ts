@@ -204,8 +204,14 @@ function parseAgentForPage(entry: InstructionEntry): AgentDraft {
     phases: phases.split(',').map((item) => item.trim()).filter(Boolean), defaultFor: [], worldModelViews: [], tools: [], body: '', remoteSkills: [], remoteTemplates: [], remoteOutputs: [] };
 }
 
+// Icons rendered into browser-created rows must be encoded as a JavaScript string
+// literal. Interpolating the raw multiline SVG inside a quoted runtime string makes
+// the entire webview script invalid, which disables every control on this page.
+const REMOVE_ICON_SCRIPT_LITERAL = JSON.stringify(icon('remove'));
+
 export const INSTRUCTION_DESIGNER_SCRIPT = String.raw`
 const vscode = window.__sfVscode;
+const removeIcon = ${REMOVE_ICON_SCRIPT_LITERAL};
 const val = (selector) => document.querySelector(selector)?.value ?? '';
 const checked = (name) => [...document.querySelectorAll('input[name="' + name + '"]:checked')].map((node) => node.value);
 const remoteRows = (kind) => [...document.querySelectorAll('[data-remote-row="' + kind + '"]')].map((row) => {
@@ -216,7 +222,7 @@ const remoteRows = (kind) => [...document.querySelectorAll('[data-remote-row="' 
 const mappingRows = () => [...document.querySelectorAll('[data-mapping-row]')].map((row) => ({ copilotAgent: row.querySelector('[data-copilot-agent]')?.value.trim() ?? '', agentId: row.querySelector('[data-flow-agent]')?.value ?? '' }));
 const remoteTemplate = (kind) => {
   const output = kind === 'output';
-  return '<div class="remote-row" data-remote-row="' + kind + '"><label><span>ID</span><input data-remote-id placeholder="resource-id"></label><label class="remote-url"><span>' + (output ? 'URL template' : 'Public HTTPS Markdown URL') + '</span><input data-remote-url placeholder="https://docs.example.com/resource.md"></label>' + (output ? '<label><span>Phase</span><input data-remote-phase placeholder="design"></label><label><span>Target</span><input data-remote-target placeholder="artifacts/design/reference.md"></label>' : '<label><span>Phases</span><input data-remote-phases placeholder="design,implementation"></label>') + '<label><span>Max bytes</span><input data-remote-max value="-"></label><label class="remote-optional"><input type="checkbox" data-remote-optional><span>Optional</span></label><button type="button" class="icon-button danger" data-remove-remote="' + kind + '" title="Remove resource" aria-label="Remove resource">${icon('remove')}</button></div>';
+  return '<div class="remote-row" data-remote-row="' + kind + '"><label><span>ID</span><input data-remote-id placeholder="resource-id"></label><label class="remote-url"><span>' + (output ? 'URL template' : 'Public HTTPS Markdown URL') + '</span><input data-remote-url placeholder="https://docs.example.com/resource.md"></label>' + (output ? '<label><span>Phase</span><input data-remote-phase placeholder="design"></label><label><span>Target</span><input data-remote-target placeholder="artifacts/design/reference.md"></label>' : '<label><span>Phases</span><input data-remote-phases placeholder="design,implementation"></label>') + '<label><span>Max bytes</span><input data-remote-max value="-"></label><label class="remote-optional"><input type="checkbox" data-remote-optional><span>Optional</span></label><button type="button" class="icon-button danger" data-remove-remote="' + kind + '" title="Remove resource" aria-label="Remove resource">' + removeIcon + '</button></div>';
 };
 document.addEventListener('click', (event) => {
   const target = event.target.closest('button'); if (!target) return;
@@ -231,7 +237,7 @@ document.addEventListener('click', (event) => {
   if (target.dataset.saveSkill) vscode.postMessage({ type: 'save-skill', id: val('[data-skill-id]'), description: val('[data-skill-description]'), argumentHint: val('[data-skill-hint]'), disableModelInvocation: Boolean(document.querySelector('[data-skill-disable]')?.checked), body: val('[data-skill-body]') });
   if (target.dataset.addRemote) { const list = document.querySelector('[data-remote-list="' + target.dataset.addRemote + '"]'); list?.querySelector('.empty-state')?.remove(); list?.insertAdjacentHTML('beforeend', remoteTemplate(target.dataset.addRemote)); }
   if (target.dataset.removeRemote) target.closest('[data-remote-row]')?.remove();
-  if (target.dataset.addMapping) { const list = document.querySelector('[data-mapping-list]'); list?.querySelector('.empty-state')?.remove(); const options = [...document.querySelectorAll('[data-agent-catalog] option')].map((option) => '<option value="' + option.value + '">' + option.textContent + '</option>').join('') || '<option value="">Choose Flow agent</option>'; list?.insertAdjacentHTML('beforeend', '<div class="mapping-row" data-mapping-row><label><span>Native Copilot agent</span><input data-copilot-agent placeholder="architecture"></label><span class="mapping-arrow">→</span><label><span>Governed Flow agent</span><select data-flow-agent>' + options + '</select></label><button class="icon-button danger" data-remove-mapping="1" title="Remove mapping" aria-label="Remove mapping">${icon('remove')}</button></div>'); }
+  if (target.dataset.addMapping) { const list = document.querySelector('[data-mapping-list]'); list?.querySelector('.empty-state')?.remove(); const options = [...document.querySelectorAll('[data-agent-catalog] option')].map((option) => '<option value="' + option.value + '">' + option.textContent + '</option>').join('') || '<option value="">Choose Flow agent</option>'; list?.insertAdjacentHTML('beforeend', '<div class="mapping-row" data-mapping-row><label><span>Native Copilot agent</span><input data-copilot-agent placeholder="architecture"></label><span class="mapping-arrow">→</span><label><span>Governed Flow agent</span><select data-flow-agent>' + options + '</select></label><button class="icon-button danger" data-remove-mapping="1" title="Remove mapping" aria-label="Remove mapping">' + removeIcon + '</button></div>'); }
   if (target.dataset.removeMapping) target.closest('[data-mapping-row]')?.remove();
   if (target.dataset.saveMappings) vscode.postMessage({ type: 'save-mappings', rows: mappingRows() });
   if (target.dataset.agentAction) vscode.postMessage({ type: 'agent-action', action: target.dataset.agentAction, agentId: target.dataset.agentId });

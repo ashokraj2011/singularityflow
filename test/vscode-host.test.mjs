@@ -445,10 +445,10 @@ test('the built extension activates against a real repository and populates the 
   // The tree is populated from a real `snapshot --json` subprocess, not a fixture.
   const provider = view;
   const roots = provider.getChildren();
-  assert.deepEqual(roots.map((node) => node.id), ['developer-home', 'initiative:INIT-CHECKOUT', 'workspace:impact'],
+  assert.deepEqual(roots.map((node) => node.id), ['initiative:INIT-CHECKOUT', 'workspace:impact'],
     'Lifecycle keeps advisory workspace exploration separate from the selected governed work');
   const initiativeRoot = roots.find((node) => node.id === 'initiative:INIT-CHECKOUT');
-  assert.ok(initiativeRoot, 'the active Initiative is present beside Developer Home');
+  assert.ok(initiativeRoot, 'the active Initiative is present without a duplicate My Work entry');
   assert.equal(initiativeRoot.label, 'INIT-CHECKOUT');
 
   const configuration = section(registered, 'configuration');
@@ -1902,12 +1902,6 @@ test('Configuration opens the capability editor and creates new capabilities', a
   ].join('\n'));
   await registered.commands.get('singularityFlow.refresh')();
 
-  await registered.commands.get('singularityFlow.openCapabilities')();
-  const panel = registered.panels.find((entry) => entry.id === 'singularityFlow.capabilities');
-  assert.ok(panel, 'the capability editor is available from Configuration');
-  assert.match(panel.webview.html, /Commerce/);
-  assert.match(panel.webview.html, /Payments API/);
-
   // Configuration is one entry now, and it leads to the Center, which is where capabilities live.
   const configuration = section(registered, 'configuration');
   const [entry, ...rest] = configuration.getChildren();
@@ -1919,7 +1913,16 @@ test('Configuration opens the capability editor and creates new capabilities', a
   const center = registered.panels.find((item) => item.id === 'singularityFlow.configurationCenter');
   assert.ok(center, 'the Configuration Center opens');
   assert.match(center.webview.html, /data-action="capabilities"/);
-  assert.match(center.webview.html, /data-action="add-capability"/);
+
+  // The overview is an index, not a wall of competing creation shortcuts. Follow its real message
+  // path into the capability editor, where the context-aware Add action belongs.
+  assert.doesNotMatch(center.webview.html, /data-action="add-capability"/);
+  await center.post({ type: 'action', action: 'capabilities' });
+  const panel = registered.panels.find((entry) => entry.id === 'singularityFlow.capabilities');
+  assert.ok(panel, 'the capability editor is reachable from Configuration navigation');
+  assert.match(panel.webview.html, /Commerce/);
+  assert.match(panel.webview.html, /Payments API/);
+  assert.match(panel.webview.html, /data-add=/, 'the capability editor owns its Add capability action');
 });
 
 test('Configuration bootstraps the first capability instead of opening an unusable editor', async (t) => {

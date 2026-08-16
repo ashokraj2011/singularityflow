@@ -14,6 +14,8 @@
     --sf-space-3: .75rem;
     --sf-space-4: 1rem;
     --sf-space-5: 1.5rem;
+    --sf-space-6: 2rem;
+    --sf-space-7: 2.5rem;
     --sf-gap: var(--sf-space-4);
     --sf-radius: 6px;
     --sf-border-color: var(--vscode-panel-border, rgba(128,128,128,.28));
@@ -54,10 +56,31 @@
     display: flex; align-items: center; gap: .45rem; margin: 1rem 0 .35rem;
     color: var(--sf-accent); font-size: .7rem; font-weight: 700; letter-spacing: .16em;
   }
-  .brand-lockup::before { content: ""; width: .55rem; height: .55rem; border-radius: 2px; background: var(--sf-accent); }
-  .brand-lockup span { font-size: 1rem; letter-spacing: .08em; }
+  /* The square placeholder is gone: the lockup now carries the real mark. */
+  .brand-mark { flex: none; }
+  .brand-words { display: inline-flex; align-items: baseline; gap: .3rem; }
+  .brand-lockup span span { font-size: 1rem; letter-spacing: .04em; text-transform: none; }
+  @media (forced-colors: active) { .brand-mark { stroke: CanvasText; } }
   .inbox-header { border-bottom: 2px solid var(--sf-accent); padding-bottom: .85rem; }
-  .summary-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(9rem, 1fr)); gap: .7rem; margin: 1.1rem 0 1.5rem; }
+  .summary-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(9rem, 1fr)); gap: var(--sf-space-4); margin: 1.25rem 0 1.75rem; }
+  .context-banner { display: grid; grid-template-columns: repeat(auto-fit, minmax(9rem, 1fr)); gap: 1px; padding: 0; overflow: hidden; background: var(--sf-border-color); }
+  .context-banner > div { display: grid; gap: .3rem; min-width: 0; padding: .85rem 1rem; background: var(--sf-surface); }
+  .context-banner strong, .context-banner code { overflow-wrap: anywhere; }
+  .briefing { display: flex; align-items: center; justify-content: space-between; gap: 1rem; }
+  .briefing h2 { margin-bottom: 0; }
+  .home-choices { display: grid; grid-template-columns: repeat(auto-fit, minmax(18rem, 1fr)); gap: var(--sf-space-4); }
+  button.home-choice { display: grid; grid-template-columns: 2rem minmax(0, 1fr); gap: .8rem; align-items: start; min-height: 6rem; padding: 1.25rem; color: var(--vscode-foreground); background: var(--sf-surface); border: var(--sf-border); text-align: left; }
+  button.home-choice:hover { border-color: var(--sf-accent); background: var(--sf-accent-quiet); }
+  button.home-choice.primary-choice { border-left: 3px solid var(--sf-accent); background: var(--sf-accent-quiet); }
+  .choice-number { display: grid; place-items: center; width: 1.75rem; height: 1.75rem; border: var(--sf-border); border-radius: 50%; color: var(--sf-accent); font-weight: 700; }
+  .home-choice > span:last-child { display: grid; gap: .35rem; min-width: 0; }
+  .home-choice small { color: var(--sf-dim); }
+  .home-choice code { width: fit-content; max-width: 100%; overflow-wrap: anywhere; color: var(--sf-dim); }
+  .return-phases { display: grid; gap: .55rem; }
+  .return-phases details { margin: 0; padding: .8rem 1rem; border: var(--sf-border); border-radius: var(--sf-radius); background: var(--sf-surface); }
+  .return-phases summary { display: flex; align-items: center; justify-content: space-between; gap: 1rem; cursor: pointer; color: var(--vscode-foreground); }
+  .return-phases summary span { color: var(--sf-dim); font-size: .9rem; }
+  .return-phases .artifact-cards, .return-phases p { margin-top: .8rem; }
   .summary-card { display: grid; gap: .15rem; padding: .85rem 1rem; border: var(--sf-border); border-radius: var(--sf-radius); background: var(--sf-surface); box-shadow: var(--sf-shadow); }
   .summary-card strong { color: var(--sf-accent); font-size: 1.55rem; line-height: 1.1; }
   .summary-card span { color: var(--sf-dim); font-size: .8rem; }
@@ -101,7 +124,7 @@
   .section-heading { display: flex; align-items: center; gap: .55rem; }
   .section-heading h2 { flex: 1; }
   .count-badge { display: inline-grid; place-items: center; min-width: 1.65rem; height: 1.65rem; padding: 0 .45rem; border-radius: 999px; background: var(--sf-accent-quiet); color: var(--sf-accent); font-weight: 700; }
-  .decision-cards, .artifact-cards { display: grid; grid-template-columns: repeat(auto-fit, minmax(17rem, 1fr)); gap: .65rem; }
+  .decision-cards, .artifact-cards { display: grid; grid-template-columns: repeat(auto-fit, minmax(17rem, 1fr)); gap: var(--sf-space-4); }
   .decision-card { border: var(--sf-border); border-left: 3px solid var(--sf-wait); border-radius: var(--sf-radius); padding: 1rem; background: var(--sf-surface); }
   .decision-card h3 { margin: .15rem 0; }
   .review-binding { display: grid; grid-template-columns: max-content minmax(0, 1fr); gap: .28rem .55rem; margin: .7rem 0; color: var(--sf-dim); font-size: .76rem; }
@@ -122,9 +145,9 @@
     font-family: var(--vscode-font-family);
     font-size: var(--vscode-font-size);
     color: var(--vscode-foreground);
-    padding: 0 1.75rem 4rem;
+    padding: 0 2rem 4rem;
     line-height: 1.5;
-    max-width: 76rem;
+    max-width: 80rem;
     margin: 0 auto;
   }
 
@@ -138,13 +161,13 @@
   .question { color: var(--sf-dim); margin: -.35rem 0 .75rem; }
   .ok-text { color: var(--sf-ok); font-weight: 500; }
 
-  section { border-top: var(--sf-border); padding-top: .1rem; padding-bottom: .35rem; }
+  section { border-top: var(--sf-border); padding-top: var(--sf-space-2); padding-bottom: var(--sf-space-4); }
   header, section.next, section.plain { border: 0; }
 
   /* Cards carry a single decision each, so the eye can move between them without re-reading. */
   .card {
     border: var(--sf-border); border-radius: var(--sf-radius); background: var(--sf-surface);
-    padding: .9rem 1rem; margin: .6rem 0; display: grid; gap: .5rem; box-shadow: var(--sf-shadow);
+    padding: 1.1rem 1.2rem; margin: .85rem 0; display: grid; gap: .7rem; box-shadow: var(--sf-shadow);
   }
   .card.yours { border-left: 3px solid var(--sf-accent); }
   .card.others { border-left: 3px solid var(--sf-wait); }
@@ -223,17 +246,40 @@
   .choice-detail.phases { margin-top: .25rem; }
   label { display: inline-flex; align-items: center; gap: .5rem; }
 
-  /* The Configuration Center is deliberately denser than a wizard: it is a control plane that
-     people revisit, so related settings stay visible without turning the page into raw YAML. */
+  /* Configuration follows the same calm list-detail pattern as GitHub settings: persistent local
+     navigation, one task surface, and accent colour only for the current location. */
   .tabs { display: flex; gap: .25rem; margin: 1rem 0; border-bottom: var(--sf-border); }
   button.tab { min-height: 2.25rem; padding: .4rem .75rem; border-radius: var(--sf-radius) var(--sf-radius) 0 0; background: transparent; color: var(--sf-dim); border-bottom: 2px solid transparent; box-shadow: none; }
   button.tab:hover { background: var(--sf-accent-quiet); color: var(--vscode-foreground); box-shadow: none; }
   button.tab.active { color: var(--sf-accent); border-bottom-color: var(--sf-accent); }
-  .configuration-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(16rem, 1fr)); gap: .65rem; margin: .7rem 0 1rem; }
-  button.configuration-card { display: grid; grid-template-columns: 1.5rem 1fr; grid-template-rows: auto auto; align-items: start; gap: .15rem .55rem; padding: .85rem; text-align: left; color: var(--vscode-foreground); background: var(--sf-surface); }
+  .configuration-shell { display: grid; grid-template-columns: 15rem minmax(0, 1fr); gap: var(--sf-space-6); align-items: start; margin-top: var(--sf-space-5); }
+  .configuration-sidebar { position: sticky; top: var(--sf-space-4); border: 0; padding: 0; }
+  .configuration-nav { display: grid; gap: var(--sf-space-5); }
+  .configuration-nav-group { border: 0; padding: 0; }
+  .configuration-nav-group h2 { margin: 0 0 var(--sf-space-2); padding: 0 var(--sf-space-2); color: var(--sf-dim); font-size: .72rem; letter-spacing: .04em; text-transform: uppercase; }
+  .configuration-nav-group ul { display: grid; gap: var(--sf-space-1); margin: 0; padding: 0; list-style: none; }
+  button.configuration-nav-item { display: grid; grid-template-columns: 1.25rem minmax(0, 1fr); justify-content: stretch; gap: var(--sf-space-2); width: 100%; min-height: 2.25rem; padding: .45rem .55rem; border: 0; border-radius: var(--sf-radius); background: transparent; color: var(--vscode-foreground); text-align: left; font-weight: 500; box-shadow: none; }
+  button.configuration-nav-item:hover:not(:disabled) { background: var(--vscode-list-hoverBackground, var(--sf-accent-quiet)); box-shadow: none; }
+  button.configuration-nav-item.active { background: var(--sf-accent-quiet); color: var(--sf-accent); font-weight: 650; }
+  .configuration-content { min-width: 0; }
+  .configuration-content > .plain:first-child, .configuration-content > .notice:first-child + .plain { padding-top: 0; }
+  .configuration-overview .section-heading { align-items: flex-start; }
+  .configuration-overview .section-heading h2 { margin-bottom: .15rem; }
+  .configuration-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(18rem, 1fr)); gap: var(--sf-space-4); margin: var(--sf-space-4) 0 var(--sf-space-5); }
+  button.configuration-card { display: grid; grid-template-columns: 1.5rem 1fr; grid-template-rows: auto auto; align-items: start; gap: .3rem .75rem; padding: 1.25rem; text-align: left; color: var(--vscode-foreground); background: var(--sf-surface); border-color: var(--sf-border-color); }
   button.configuration-card .ico { grid-row: 1 / span 2; color: var(--sf-accent); }
   button.configuration-card strong { font-size: .92rem; }
-  button.configuration-card span:not(.ico) { color: var(--sf-dim); font-size: .78rem; font-weight: 400; }
+  button.configuration-card span:not(.ico) { color: var(--sf-dim); font-size: .84rem; line-height: 1.45; font-weight: 400; }
+  .configuration-action-list { display: grid; border: var(--sf-border); border-radius: var(--sf-radius); overflow: hidden; background: var(--sf-surface); }
+  button.configuration-action-row { display: grid; grid-template-columns: 1.5rem minmax(0, 1fr) 1rem; gap: var(--sf-space-3); align-items: center; width: 100%; min-height: 4.5rem; padding: var(--sf-space-3) var(--sf-space-4); border: 0; border-bottom: var(--sf-border); border-radius: 0; background: transparent; color: var(--vscode-foreground); text-align: left; box-shadow: none; }
+  button.configuration-action-row:last-child { border-bottom: 0; }
+  button.configuration-action-row:hover:not(:disabled) { background: var(--vscode-list-hoverBackground, var(--sf-accent-quiet)); box-shadow: none; }
+  .configuration-action-row > .ico:first-child { color: var(--sf-accent); }
+  .configuration-action-row > span { display: grid; gap: var(--sf-space-1); }
+  .configuration-action-row small { color: var(--sf-dim); font-weight: 400; line-height: 1.4; }
+  .configuration-advanced-tools { margin-top: var(--sf-space-4); }
+  .configuration-advanced-tools > summary { width: fit-content; min-height: 2rem; display: flex; align-items: center; }
+  .configuration-advanced-tools[open] > summary { margin-bottom: var(--sf-space-3); }
   .configuration-list { display: grid; gap: .4rem; margin: .7rem 0; }
   button.configuration-row { display: grid; grid-template-columns: 1.4rem minmax(10rem, .55fr) 1fr; gap: .55rem; justify-content: start; text-align: left; color: var(--vscode-foreground); background: var(--sf-surface); }
   button.configuration-row small { color: var(--sf-dim); font-weight: 400; }
@@ -249,6 +295,9 @@
   .check-grid { display: flex; flex-wrap: wrap; gap: .55rem 1rem; margin: .7rem 0; }
   label.check { display: flex; align-items: center; gap: .45rem; }
   @media (max-width: 44rem) {
+    .configuration-shell { grid-template-columns: 1fr; gap: var(--sf-space-5); }
+    .configuration-sidebar { position: static; }
+    .configuration-nav { grid-template-columns: 1fr; gap: var(--sf-space-4); }
     .editor-card .form-grid { grid-template-columns: 1fr; }
     .editor-card label.span-2 { grid-column: auto; }
     button.configuration-row { grid-template-columns: 1.4rem 1fr; }
@@ -612,13 +661,48 @@
     .help-nav { position: static; max-height: 18rem; }
     .help-header { position: static; }
   }
-  </style>
+
+  .workflow-graph { display:block; max-width:100%; height:auto; }
+  .workflow-graph .node rect {
+    fill: var(--vscode-editorWidget-background); stroke: var(--vscode-panel-border); stroke-width:1;
+  }
+  .workflow-graph .node.isolated rect { stroke-dasharray:4 3; }
+  .workflow-graph .node text {
+    fill: var(--vscode-foreground); font-size:12px; text-anchor:middle; font-weight:600;
+  }
+  .workflow-graph .node text.sub {
+    fill: var(--vscode-descriptionForeground); font-size:10px; font-weight:400;
+  }
+  .workflow-graph .edge { fill:none; stroke-width:1.4; }
+  /* A dependency is the structure; a rework path is the exception — so it is dashed and quieter. */
+  .workflow-graph .edge.input { stroke: var(--vscode-charts-blue, var(--vscode-textLink-foreground)); }
+  .workflow-graph .edge.rework {
+    stroke: var(--vscode-descriptionForeground); stroke-dasharray:5 4; opacity:.75;
+  }
+  .workflow-graph .arrow.input { fill: var(--vscode-charts-blue, var(--vscode-textLink-foreground)); }
+  .workflow-graph .arrow.rework { fill: var(--vscode-descriptionForeground); }
+  .graph-warning {
+    color: var(--vscode-inputValidation-errorForeground, var(--vscode-errorForeground));
+    border-left:3px solid var(--vscode-errorForeground); padding:6px 10px; margin:0 0 10px;
+  }
+  .graph-empty { color: var(--vscode-descriptionForeground); }
+  @media (forced-colors: active) {
+    .workflow-graph .node rect { fill:Canvas; stroke:CanvasText; }
+    .workflow-graph .node text { fill:CanvasText; }
+    .workflow-graph .edge.input, .workflow-graph .arrow.input { stroke:LinkText; fill:LinkText; }
+    .workflow-graph .edge.rework, .workflow-graph .arrow.rework { stroke:CanvasText; fill:CanvasText; }
+  }
+</style>
 </head><body>
 <style nonce="singularity-flow-visual-fixture">:root{--vscode-editor-background:#000000;--vscode-foreground:#ffffff;--vscode-descriptionForeground:#ffffff;
     --vscode-panel-border:#ffffff;--vscode-editorWidget-background:#000000;--vscode-sideBar-background:#000000;
     --vscode-input-background:#000000;--vscode-input-foreground:#ffffff;--vscode-input-border:#ffffff;
     --vscode-textLink-foreground:#6fc3ff;--vscode-textCodeBlock-background:#000000;--vscode-list-hoverBackground:#1a1a1a;
-    --vscode-focusBorder:#ffff00}body{max-width:640px}</style><div class="brand-lockup">SINGULARITY <span>FLOW</span></div>
+    --vscode-focusBorder:#ffff00}body{max-width:640px}</style><div class="brand-lockup"><svg class="brand-mark" width="20" height="20" viewBox="0 0 24 24" fill="none" aria-hidden="true"
+    stroke="currentColor" stroke-linecap="round" stroke-linejoin="round">
+    <path stroke-width="2.1" d="M14.85 4.18C12.18 3.72 11.28 5.34 11.02 8.36L10.48 14.78C10.18 18.32 9.10 20.10 6.82 20.10C6.04 20.10 5.42 19.78 5.02 19.18"/>
+    <g stroke-width="0.85"><circle cx="17.18" cy="4.28" r="1.08"/><circle cx="19.78" cy="4.28" r="1.08"/><circle cx="12.62" cy="19.78" r="1.42"/></g>
+  </svg><span class="brand-words">SINGULARITY <span>Flow</span></span></div>
   <header><p class="eyebrow">Enterprise component review</p><h1><svg class="ico" width="24" height="24" viewBox="0 0 24 24" aria-hidden="true"
     fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><circle cx="4" cy="12" r="2.25"/><circle cx="12" cy="12" r="2.25"/><circle cx="20" cy="12" r="2.25"/><path d="M6.25 12h3.5M14.25 12h3.5"/></svg>Lifecycle workspace</h1>
     <p class="meta">high-contrast theme · dashboard, intake, approval, configuration, and instruction patterns</p></header>
@@ -643,6 +727,19 @@
       <label class="field full"><span>Prompt guidance</span><textarea rows="3">Ground every recommendation in the selected world-model views.</textarea></label></div>
     <div class="form-actions"><button>Save agent</button><button class="secondary">Cancel</button><button class="icon-button danger" aria-label="Delete agent" title="Delete agent"><svg class="ico" width="16" height="16" viewBox="0 0 24 24" aria-hidden="true"
     fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><path d="M5 7h14M9 7V4h6v3M8 7l1 14h6l1-14M10 11v6M14 11v6"/></svg></button></div></section>
+  <section class="fixture-task"><h2><svg class="ico" width="16" height="16" viewBox="0 0 24 24" aria-hidden="true"
+    fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><path d="M4 6h7M15 6h5M4 12h2M10 12h10M4 18h10M18 18h2"/><circle cx="13" cy="6" r="2"/><circle cx="8" cy="12" r="2"/><circle cx="16" cy="18" r="2"/></svg>Configuration navigation</h2>
+    <div class="configuration-shell"><aside class="configuration-sidebar"><nav class="configuration-nav" aria-label="Configuration areas">
+      <section class="configuration-nav-group"><h2>Repository setup</h2><ul><li><button class="configuration-nav-item active" aria-current="page"><svg class="ico" width="16" height="16" viewBox="0 0 24 24" aria-hidden="true"
+    fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><path d="M4 6h7M15 6h5M4 12h2M10 12h10M4 18h10M18 18h2"/><circle cx="13" cy="6" r="2"/><circle cx="8" cy="12" r="2"/><circle cx="16" cy="18" r="2"/></svg><span>Overview</span></button></li><li><button class="configuration-nav-item"><svg class="ico" width="16" height="16" viewBox="0 0 24 24" aria-hidden="true"
+    fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><rect x="8" y="2" width="8" height="6" rx="1.5"/><rect x="2" y="16" width="8" height="6" rx="1.5"/><rect x="14" y="16" width="8" height="6" rx="1.5"/><path d="M12 8v4M6 16v-4h12v4"/></svg><span>Capabilities</span></button></li></ul></section>
+      <section class="configuration-nav-group"><h2>Governance &amp; review</h2><ul><li><button class="configuration-nav-item"><svg class="ico" width="16" height="16" viewBox="0 0 24 24" aria-hidden="true"
+    fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><path d="m12 2 8 3.5v6c0 5-3.2 8.5-8 10.5-4.8-2-8-5.5-8-10.5v-6z"/><path d="m8.5 12 2.2 2.2 4.8-5"/></svg><span>People &amp; approvals</span></button></li></ul></section>
+    </nav></aside><main class="configuration-content"><div class="summary-grid"><div class="summary-card"><strong>4</strong><span>approval groups</span></div><div class="summary-card"><strong>3</strong><span>governed agents</span></div></div>
+      <div class="configuration-action-list"><button class="configuration-action-row"><svg class="ico" width="16" height="16" viewBox="0 0 24 24" aria-hidden="true"
+    fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><circle cx="4" cy="12" r="2.25"/><circle cx="12" cy="12" r="2.25"/><circle cx="20" cy="12" r="2.25"/><path d="M6.25 12h3.5M14.25 12h3.5"/></svg><span><strong>Workflow Designer</strong><small>Work types, phases, gates, and artifact flow.</small></span><svg class="ico" width="16" height="16" viewBox="0 0 24 24" aria-hidden="true"
+    fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><path d="m9 6 6 6-6 6"/></svg></button></div></main></div>
+  </section>
   <section><h2><svg class="ico" width="16" height="16" viewBox="0 0 24 24" aria-hidden="true"
     fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><path d="M6 2h8l4 4v16H6zM14 2v5h5M9 12h6M9 16h6"/></svg>Artifact inventory</h2><table><thead><tr><th>Artifact</th><th>Status</th><th>Owner</th></tr></thead>
     <tbody><tr><td><svg class="ico" width="16" height="16" viewBox="0 0 24 24" aria-hidden="true"

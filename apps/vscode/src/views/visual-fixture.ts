@@ -3,13 +3,16 @@ import { icon } from './icons.ts';
 import { brandLockup, page } from './webview.ts';
 
 export type VisualTheme = 'light' | 'dark' | 'high-contrast';
-export type VisualWidth = 640 | 1200;
+export type VisualWidth = 320 | 640 | 1024 | 1200 | 1440;
 export interface VisualReviewCase { theme: VisualTheme; width: VisualWidth }
 
 export const VISUAL_REVIEW_CASES: VisualReviewCase[] = [
-  { theme: 'light', width: 640 }, { theme: 'light', width: 1200 },
-  { theme: 'dark', width: 640 }, { theme: 'dark', width: 1200 },
-  { theme: 'high-contrast', width: 640 }, { theme: 'high-contrast', width: 1200 }
+  { theme: 'light', width: 320 }, { theme: 'light', width: 640 },
+  { theme: 'light', width: 1024 }, { theme: 'light', width: 1200 }, { theme: 'light', width: 1440 },
+  { theme: 'dark', width: 320 }, { theme: 'dark', width: 640 },
+  { theme: 'dark', width: 1024 }, { theme: 'dark', width: 1200 }, { theme: 'dark', width: 1440 },
+  { theme: 'high-contrast', width: 320 }, { theme: 'high-contrast', width: 640 },
+  { theme: 'high-contrast', width: 1024 }, { theme: 'high-contrast', width: 1200 }, { theme: 'high-contrast', width: 1440 }
 ];
 
 const PALETTES: Record<VisualTheme, string> = {
@@ -46,6 +49,13 @@ function fixtureBody(theme: VisualTheme): string {
       <label class="field"><span>Default phase</span><select><option>Design</option></select></label>
       <label class="field full"><span>Prompt guidance</span><textarea rows="3">Ground every recommendation in the selected world-model views.</textarea></label></div>
     <div class="form-actions"><button>Save agent</button><button class="secondary">Cancel</button><button class="icon-button danger" aria-label="Delete agent" title="Delete agent">${icon('remove')}</button></div></section>
+  <section class="fixture-task"><h2>${icon('configuration')}Configuration navigation</h2>
+    <div class="configuration-shell"><aside class="configuration-sidebar"><nav class="configuration-nav" aria-label="Configuration areas">
+      <section class="configuration-nav-group"><h2>Repository setup</h2><ul><li><button class="configuration-nav-item active" aria-current="page">${icon('configuration')}<span>Overview</span></button></li><li><button class="configuration-nav-item">${icon('capability')}<span>Capabilities</span></button></li></ul></section>
+      <section class="configuration-nav-group"><h2>Governance &amp; review</h2><ul><li><button class="configuration-nav-item">${icon('approval')}<span>People &amp; approvals</span></button></li></ul></section>
+    </nav></aside><main class="configuration-content"><div class="summary-grid"><div class="summary-card"><strong>4</strong><span>approval groups</span></div><div class="summary-card"><strong>3</strong><span>governed agents</span></div></div>
+      <div class="configuration-action-list"><button class="configuration-action-row">${icon('workflow')}<span><strong>Workflow Designer</strong><small>Work types, phases, gates, and artifact flow.</small></span>${icon('next')}</button></div></main></div>
+  </section>
   <section><h2>${icon('artifact')}Artifact inventory</h2><table><thead><tr><th>Artifact</th><th>Status</th><th>Owner</th></tr></thead>
     <tbody><tr><td>${icon('document')}Requirements specification</td><td><span class="pill ok">${icon('success')}Approved</span></td><td>Product owner</td></tr>
     <tr><td>${icon('document')}Implementation specification</td><td><span class="pill bad">${icon('blocked')}Blocked</span></td><td>Architect</td></tr></tbody></table></section>`;

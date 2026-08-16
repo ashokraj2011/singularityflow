@@ -61,6 +61,9 @@ function reportUnknownMessage(type: string, source: string): void {
 let panel: vscode.WebviewPanel | null = null;
 let current: ResultCardView | null = null;
 let currentOrigin: ResultOrigin = 'cli';
+let currentNote: string | null = null;
+type ResultHistoryEntry = { view: ResultCardView; origin: ResultOrigin; note: string | null };
+let history: ResultHistoryEntry[] = [];
 
 /**
  * Dispatch for a pressed action.
@@ -99,10 +102,22 @@ function render(target: vscode.WebviewPanel, view: ResultCardView, note: string 
    * Worth stating because the failure has no symptom a test can see: the HTML this function returns
    * is byte-identical either way, and a fixture rendered outside a webview has no CSP to enforce.
    */
+  const isHome = view.details.operation === 'home.overview';
+  const contextNavigation = `<nav class="sf-result-nav" aria-label="Result navigation">
+    ${history.length ? '<button type="button" data-result-nav="back">← Back</button>' : ''}
+    ${isHome ? '<span aria-current="page">My Work</span>' : '<button type="button" data-result-nav="home">My Work</button>'}
+  </nav>`;
   const body = `<style nonce="${token}">${RESULT_CARD_STYLE}
 .sf-fidelity { margin: 12px 2px 0; color: var(--vscode-descriptionForeground); font-size: .92em; }
+.sf-result-main { padding: 24px; max-width: 760px; }
+.sf-result-nav { display:flex; align-items:center; gap:8px; margin:0 0 16px; padding:0 0 12px;
+  border-bottom:1px solid var(--vscode-panel-border); }
+.sf-result-nav button { min-height:32px; padding:4px 10px; border:1px solid var(--vscode-panel-border);
+  border-radius:6px; color:var(--vscode-foreground); background:transparent; cursor:pointer; }
+.sf-result-nav button:hover { background:var(--vscode-list-hoverBackground); }
+.sf-result-nav span { color:var(--vscode-descriptionForeground); font-weight:600; }
 </style>
-<main style="padding:16px;max-width:720px">${resultCardHtml(view)}${footnote}</main>`;
+<main class="sf-result-main">${contextNavigation}${resultCardHtml(view)}${footnote}</main>`;
   /**
    * The standard footer, not an opt-out.
    *
@@ -116,9 +131,16 @@ function render(target: vscode.WebviewPanel, view: ResultCardView, note: string 
 
 /** Show a result card, creating the panel on first use and reusing it after. */
 export function showResultCard(view: ResultCardView,
-  { note = null, origin = 'cli' }: { note?: string | null; origin?: ResultOrigin } = {}): void {
+  { note = null, origin = 'cli', historyMode = 'reset' }: {
+    note?: string | null;
+    origin?: ResultOrigin;
+    historyMode?: 'reset' | 'push' | 'replace';
+  } = {}): void {
+  if (historyMode === 'push' && current) history.push({ view: current, origin: currentOrigin, note: currentNote });
+  if (historyMode === 'reset') history = [];
   current = view;
   currentOrigin = origin;
+  currentNote = note;
   if (!panel) {
     panel = vscode.window.createWebviewPanel(
       'singularityFlow.result',
@@ -126,7 +148,7 @@ export function showResultCard(view: ResultCardView,
       { viewColumn: vscode.ViewColumn.Beside, preserveFocus: true },
       { enableScripts: true, retainContextWhenHidden: true }
     );
-    panel.onDidDispose(() => { panel = null; current = null; });
+    panel.onDidDispose(() => { panel = null; current = null; currentNote = null; history = []; });
     /**
      * Everything this panel accepts, enumerated. `[UXH:REQ-134]` `[UXH:AC-014]`
      *
@@ -140,6 +162,15 @@ export function showResultCard(view: ResultCardView,
      * this is a message we speak, the lookup decides whether the action was ever offered.
      */
     const router = createMessageRouter('singularityFlow.result', {
+      'result.back': () => {
+        const previous = history.pop();
+        if (!previous || !panel) return;
+        current = previous.view;
+        currentOrigin = previous.origin;
+        currentNote = previous.note;
+        render(panel, current, currentNote);
+      },
+      'result.home': () => { void vscode.commands.executeCommand('singularityFlow.myWork'); },
       'sflow.action': (message) => {
         const actionId = stringField(message, 'actionId');
         if (!actionId || !current) return;
@@ -205,5 +236,7 @@ export function resetResultPanel(): void {
   panel?.dispose();
   panel = null;
   current = null;
+  currentNote = null;
+  history = [];
   dispatch = null;
 }

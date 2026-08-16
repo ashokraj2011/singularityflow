@@ -493,6 +493,10 @@
     "menus": {
       "commandPalette": [
         {
+          "command": "singularityFlow.openDeveloperHome",
+          "when": "false"
+        },
+        {
           "command": "singularityFlow.openArtifact",
           "when": "false"
         },

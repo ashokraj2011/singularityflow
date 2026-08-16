@@ -301,6 +301,11 @@ export const RESULT_CARD_SCRIPT = `
  */
 const vscode = window.__sfVscode;
 document.addEventListener('click', (event) => {
+  const navigation = event.target instanceof Element ? event.target.closest('[data-result-nav]') : null;
+  if (navigation) {
+    vscode.postMessage({ type: navigation.getAttribute('data-result-nav') === 'back' ? 'result.back' : 'result.home' });
+    return;
+  }
   const button = event.target instanceof Element ? event.target.closest('[data-action-id]') : null;
   if (!button) return;
   vscode.postMessage({ type: 'sflow.action', actionId: button.getAttribute('data-action-id') });

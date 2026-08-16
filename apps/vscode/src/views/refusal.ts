@@ -140,6 +140,13 @@ function fromMessage(text: string, details: Record<string, string>, headline?: s
     actions: [],
     // An unstructured failure knows nothing about phases, and claims nothing.
     rail: [],
+    /**
+     * Not a home, so there is nothing to have last checked.
+     *
+     * Null rather than a "could not compare" delta: this card is not about the home at all, and a
+     * briefing block on a failed command would be answering a question the reader did not ask.
+     */
+    since: null,
     rest: 'blocked',
     details: Object.freeze(details)
   });

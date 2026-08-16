@@ -26,6 +26,7 @@
 import { SingularityFlowError } from '../../util.mjs';
 import { catalogued } from '../catalog.mjs';
 import { localChangesFor } from './work-continue.mjs';
+import { subjectWith } from '../handles.mjs';
 import { noEffects, preservedAll, sflowResult } from '../result.mjs';
 import { workRecords } from '../work-records.mjs';
 
@@ -131,17 +132,20 @@ export function workReturnResult(item, { report = null, localChanges = null, sub
   return sflowResult({
     kind: 'read',
     operation: { id: 'work.return', classification: 'read' },
-    subject: subject ?? {
+    /**
+     * The interval's baseline and the tree as it is now, over the handle's own subject.
+     *
+     * Overlaid rather than chosen between: `subject ?? {…}` meant that reading this through the
+     * kernel discarded both facts below in favour of a binding computed before anything was read.
+     */
+    subject: subjectWith(subject, {
       kind: item.kind,
       id: item.id,
       revision: {
         sourceCommit: report?.baseline?.sourceBaseCommit ?? null,
-        worktreeHash: localChanges?.worktreeHash ?? null,
-        lifecycleHash: null,
-        policyHash: null,
-        registryHash: null
+        worktreeHash: localChanges?.worktreeHash ?? null
       }
-    },
+    }),
     outcome: {
       status: 'succeeded',
       messageId: 'gateway.returned',

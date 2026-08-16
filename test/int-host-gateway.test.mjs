@@ -139,3 +139,52 @@ test('the same repository on a different branch is a different binding', async (
   assert.equal(before.sourceCommit, after.sourceCommit, 'the commit is unchanged, as intended');
   assert.notEqual(before.branch, after.branch);
 });
+
+test('a read declares the revision its handle was bound to, not a row of nulls', async (t) => {
+  const root = await repository();
+  t.after(() => rm(root, { recursive: true, force: true }));
+
+  const { kernel, binding } = createHostGateway({ root, hostSessionId: 's-rev', planners: gatewayPlanners() });
+  const resolution = await kernel.resolve({ utterance: 'home' });
+  const envelope = await kernel.read({ resolutionId: resolution.next[0].handle });
+
+  /**
+   * The producer half of a bug that had no symptom. `[INT:REQ-035]`
+   *
+   * `kernel.read()` handed the planner the handle's *binding* — flat, with `lifecycleRevision` where
+   * the contract says `lifecycleHash` — and `sflowResult` reads `subject.revision?.sourceCommit`.
+   * The path does not exist on a binding, so every field validated as null and every read the
+   * gateway served declared that it depended on nothing.
+   *
+   * It is only visible from outside: a consumer comparing two answers to say what moved got two
+   * identical rows of nulls and concluded, honestly and wrongly, that nothing had.
+   */
+  assert.equal(envelope.subject.revision.sourceCommit, binding().sourceCommit);
+  assert.match(envelope.subject.revision.sourceCommit, /^[0-9a-f]{40}$/);
+  assert.equal(envelope.subject.revision.policyHash, binding().policyHash);
+  assert.equal(envelope.subject.revision.registryHash, binding().registryHash);
+});
+
+test('a home declares the uncommitted bytes its ordering depended on', async (t) => {
+  const root = await repository();
+  t.after(() => rm(root, { recursive: true, force: true }));
+
+  const clean = createHostGateway({ root, hostSessionId: 's-clean', planners: gatewayPlanners() });
+  const before = await clean.kernel.read({
+    resolutionId: (await clean.kernel.resolve({ utterance: 'home' })).next[0].handle
+  });
+  /** Null here is a read that found nothing; `data.localChanges` is what says which. */
+  assert.equal(before.subject.revision.worktreeHash, null);
+  assert.equal(before.data.localChanges.dirty, false);
+
+  await writeFile(path.join(root, 'README.md'), '# fixture\nlocal edit\n');
+  const dirty = createHostGateway({ root, hostSessionId: 's-dirty', planners: gatewayPlanners() });
+  const after = await dirty.kernel.read({
+    resolutionId: (await dirty.kernel.resolve({ utterance: 'home' })).next[0].handle
+  });
+
+  assert.match(after.subject.revision.worktreeHash, /^[0-9a-f]{64}$/);
+  assert.equal(after.data.localChanges.dirty, true);
+  // The commit did not move, so a consumer reading only that would report no change at all.
+  assert.equal(after.subject.revision.sourceCommit, before.subject.revision.sourceCommit);
+});

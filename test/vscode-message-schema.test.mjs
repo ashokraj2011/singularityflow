@@ -25,8 +25,13 @@ const messages = await import(path.join(views, 'views', 'messages.ts'));
  * goes down, asserted for equality so it tracks reality instead of drifting above it. Migrating 26
  * panels in one change would be a large rewrite of working, individually-defensive code; stating
  * the count is how the remainder stays visible instead of becoming the permanent status quo.
+ *
+ * 26 → 25 when `developer-home.ts` was deleted. It goes down for retiring a panel as readily as for
+ * migrating one — what the ratchet counts is how many hand-rolled handlers are still reachable, and
+ * a deleted one is not. Worth saying because the two reasons look identical in the number and are
+ * not the same news: this one closed a surface rather than improving it.
  */
-const UNMIGRATED_MESSAGE_HANDLERS = 26;
+const UNMIGRATED_MESSAGE_HANDLERS = 25;
 
 async function sources(dir) {
   const entries = await readdir(dir, { withFileTypes: true });

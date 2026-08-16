@@ -11,7 +11,7 @@
  * construction rather than by nobody having called it yet — a mutation path that exists and is
  * simply unused is one flag away from being live, and the flag is usually set by someone debugging.
  */
-import { createHandleAuthority } from './handles.mjs';
+import { createHandleAuthority, subjectFromBinding } from './handles.mjs';
 import { DEFAULT_GATEWAY_POLICY, operationPermission, resolveGatewayPolicy } from './policy.mjs';
 import { gatewayRegistry } from './operations.mjs';
 import { catalogued } from './catalog.mjs';
@@ -156,7 +156,18 @@ export function createGatewayKernel({
       if (operation.classification !== 'read') {
         return refuse(record.operationId, 'gateway.not-a-read', 'registry', { classification: operation.classification });
       }
-      return invoke(operation, record.arguments, record.binding);
+      /**
+       * The handle's binding, converted rather than passed. `[INT:REQ-035]`
+       *
+       * A planner is given a subject, and what arrived here was a binding — the same facts under
+       * different names and a different nesting, so `sflowResult` found none of them and declared a
+       * revision of nulls on every read the gateway served. See `subjectFromBinding`.
+       *
+       * The binding is the right source: it is what the handle was signed against and what
+       * revalidation just compared, so a result's declared revision is the revision its own
+       * authorization was checked against rather than a second read that could disagree with it.
+       */
+      return invoke(operation, record.arguments, subjectFromBinding(record.binding));
     },
 
     /**

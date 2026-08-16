@@ -49,7 +49,7 @@ Usage:
   singularity-flow stack sync --epic EPIC-ID [--json]
   singularity-flow regression analyze [--base main] [--good REF] [--bad HEAD] [--path PATH]... [--max 20] [--json]
   singularity-flow start <WORK-ID> [--jira | --story-file FILE] [--title TEXT] [--description TEXT]
-    [--acceptance-criteria TEXT] [--document FILE]... [--document-url URL]... [--base BRANCH] [--fetch] [--allow-dirty]
+    [--acceptance-criteria TEXT] [--document FILE]... [--document-url URL]... --from-branch BRANCH [--fetch] [--allow-dirty]
     [--work-type ID] [--agent ID] [--ref CANONICAL-BRANCH] [--capability ID] [--selection-receipt TOKEN]
   singularity-flow choices begin start <WORK-ID> [--json]
   singularity-flow choices begin approve <WORK-ID> [--fetch] [--json]
@@ -299,7 +299,7 @@ Usage:
   singularity-flow epic drift observe|adopt|restore-plan [--epic EPIC-KEY]
   singularity-flow story branch create <BRANCH> --parent <STORY-KEY>
   singularity-flow story branch attach|status|promote --parent <STORY-KEY> [--mode pr|direct]
-  singularity-flow story start <STORY-KEY> [--selection-receipt TOKEN] [--fetch]
+  singularity-flow story start <STORY-KEY> --from-branch BRANCH [--selection-receipt TOKEN] [--fetch]
   singularity-flow story inbox [--assigned-to-me] [--project KEY] [--json]
   singularity-flow story fetch <STORY-KEY> [--directory PATH] [--json]
   singularity-flow story interval status|checkpoint|reconcile|escalate [--parent STORY-KEY]

@@ -27,14 +27,19 @@ async function repository() {
   const root = await mkdtemp(path.join(os.tmpdir(), 'sflow-documents-')); run('git', ['init', '-b', 'main'], root); run('git', ['config', 'user.name', 'Document Tester'], root); run('git', ['config', 'user.email', 'documents@example.com'], root);
   await writeFile(path.join(root, 'README.md'), '# Documents\n'); flow(root, ['init']);
   const configPath = path.join(root, 'singularity/workflow.yml'); const config = YAML.parse(await readFile(configPath, 'utf8')); config.git.publish = 'off'; config.worldModel.grounding = 'off'; config.documents.allowedPhases = ['intake']; await writeFile(configPath, YAML.stringify(config));
-  run('git', ['add', 'README.md', 'singularity', '.github/agents'], root); run('git', ['commit', '-m', 'initialize'], root); return root;
+  run('git', ['add', 'README.md', 'singularity', '.github/agents'], root); run('git', ['commit', '-m', 'initialize'], root);
+  const remote = `${root}.git`;
+  run('git', ['init', '--bare', '-b', 'main', remote], root);
+  run('git', ['remote', 'add', 'origin', remote], root);
+  run('git', ['push', '-u', 'origin', 'main'], root);
+  return root;
 }
 
 test('progress and document commands upload, list, and view files, images, and Figma links', async () => {
   const root = await repository(); const uploads = await mkdtemp(path.join(os.tmpdir(), 'sflow-uploads-'));
   const notes = path.join(uploads, 'research notes.md'); const image = path.join(uploads, 'wireframe.png');
   await writeFile(notes, '# Research\nCustomer workflow evidence.\n'); await writeFile(image, Buffer.from('89504e470d0a1a0a', 'hex'));
-  flow(root, ['start', 'DOCS-1', '--title', 'Document intake']);
+  flow(root, ['start', 'DOCS-1', '--from-branch', 'main', '--title', 'Document intake']);
 
   const visualProgress = flow(root, ['progress']).stdout;
   assert.match(visualProgress, /Workflow flow:/);
@@ -102,7 +107,7 @@ test('inline previews reject tampering and document paths outside the governed w
   const root = await repository(); const uploads = await mkdtemp(path.join(os.tmpdir(), 'sflow-preview-'));
   const image = path.join(uploads, 'screen.png'); const pdf = path.join(uploads, 'design-spec.pdf');
   await writeFile(image, Buffer.from('89504e470d0a1a0a', 'hex')); await writeFile(pdf, Buffer.from('%PDF-1.4\n%%EOF\n'));
-  flow(root, ['start', 'PREVIEW-1', '--title', 'Governed preview']);
+  flow(root, ['start', 'PREVIEW-1', '--from-branch', 'main', '--title', 'Governed preview']);
   flow(root, ['documents', 'upload', image, pdf, '--kind', 'figma-export']);
   const catalog = JSON.parse(flow(root, ['documents', 'list', '--json']).stdout); const record = catalog.find((item) => item.id === 'DOC-001');
   const pdfPreview = JSON.parse(flow(root, ['documents', 'preview', 'DOC-002', '--json']).stdout);
@@ -123,7 +128,7 @@ test('source-code documents are rendered as reviewable text instead of binary me
   const root = await repository(); const uploads = await mkdtemp(path.join(os.tmpdir(), 'sflow-source-documents-'));
   const java = path.join(uploads, 'RuleEngineService.java');
   await writeFile(java, 'public final class RuleEngineService {\n  boolean evaluate() { return true; }\n}\n');
-  flow(root, ['start', 'SOURCE-DOCS-1', '--title', 'Source document review']);
+  flow(root, ['start', 'SOURCE-DOCS-1', '--from-branch', 'main', '--title', 'Source document review']);
   flow(root, ['documents', 'upload', java, '--kind', 'source']);
 
   const review = JSON.parse(flow(root, ['documents', 'view', 'DOC-001', '--json']).stdout);
@@ -140,7 +145,7 @@ test('document upload recursively imports an exported design directory with stab
   await mkdir(path.join(exportRoot, 'components'), { recursive: true }); await mkdir(path.join(exportRoot, 'screens/login'), { recursive: true });
   await writeFile(path.join(exportRoot, 'components/button.json'), JSON.stringify({ name: 'Button', variants: ['primary', 'disabled'] }));
   await writeFile(path.join(exportRoot, 'screens/login/default.png'), Buffer.from('89504e470d0a1a0a', 'hex'));
-  flow(root, ['start', 'FIGMA-DIR-1', '--title', 'Import exported mobile design']);
+  flow(root, ['start', 'FIGMA-DIR-1', '--from-branch', 'main', '--title', 'Import exported mobile design']);
 
   const upload = flow(root, ['documents', 'upload', exportRoot, '--kind', 'figma-export']);
   assert.match(upload.stdout, /DOC-001[\s\S]*DOC-002/);
@@ -164,7 +169,7 @@ test('active evidence is rendered deterministically and every local file is hash
   const notes = path.join(uploads, 'requirements.md'); const image = path.join(uploads, 'checkout.png');
   await writeFile(notes, '# Requirement\nA customer can review the checkout total before payment.\n');
   await writeFile(image, Buffer.from('89504e470d0a1a0a', 'hex'));
-  flow(root, ['start', 'EVIDENCE-1', '--title', 'Deterministic prompt evidence']);
+  flow(root, ['start', 'EVIDENCE-1', '--from-branch', 'main', '--title', 'Deterministic prompt evidence']);
   flow(root, ['documents', 'upload', notes, image]);
   flow(root, ['documents', 'upload', '--url', 'https://www.figma.com/design/pinned-reference', '--label', 'Live Figma reference']);
   const definition = await loadDefinition(root);
@@ -192,7 +197,7 @@ test('file and package detachment preserve bytes, hide evidence, and create dist
   await mkdir(path.join(exportRoot, 'screens'));
   await writeFile(path.join(exportRoot, 'tokens.json'), '{"color":"green"}\n');
   await writeFile(path.join(exportRoot, 'screens', 'checkout.png'), Buffer.from('89504e470d0a1a0a', 'hex'));
-  flow(root, ['start', 'DETACH-1', '--title', 'Detach governed evidence']);
+  flow(root, ['start', 'DETACH-1', '--from-branch', 'main', '--title', 'Detach governed evidence']);
   flow(root, ['documents', 'upload', exportRoot, '--kind', 'figma-export']);
   const initial = JSON.parse(flow(root, ['documents', 'list', '--json']).stdout)
     .filter((record) => record.id.startsWith('DOC-'));
@@ -229,7 +234,7 @@ test('file and package detachment preserve bytes, hide evidence, and create dist
 test('detaching used Story evidence reopens only its downstream dependency cone', async () => {
   const root = await repository(); const uploads = await mkdtemp(path.join(os.tmpdir(), 'sflow-detach-cone-'));
   const notes = path.join(uploads, 'architecture.md'); await writeFile(notes, '# Architecture\nPinned input.\n');
-  flow(root, ['start', 'DETACH-CONE-1', '--title', 'Evidence cone']);
+  flow(root, ['start', 'DETACH-CONE-1', '--from-branch', 'main', '--title', 'Evidence cone']);
   flow(root, ['documents', 'upload', notes]);
   const definition = await loadDefinition(root);
   const workflow = await loadStoryAggregate(root, definition, 'DETACH-CONE-1');

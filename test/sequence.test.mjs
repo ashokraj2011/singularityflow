@@ -41,7 +41,11 @@ async function repository() {
   await writeFile(configPath, YAML.stringify(config));
   execute('git', ['add', 'README.md', 'singularity', '.github/agents'], root);
   execute('git', ['commit', '-m', 'initialize'], root);
-  flow(root, ['start', 'SEQ-1', '--title', 'Strict sequence']);
+  const remote = `${root}.git`;
+  execute('git', ['init', '--bare', '-b', 'main', remote], root);
+  execute('git', ['remote', 'add', 'origin', remote], root);
+  execute('git', ['push', '-u', 'origin', 'main'], root);
+  flow(root, ['start', 'SEQ-1', '--from-branch', 'main', '--title', 'Strict sequence']);
   return root;
 }
 

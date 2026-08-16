@@ -73,7 +73,8 @@ singularity-flow init --work-id WORK-123 --base main --fetch
 git add singularity
 git commit -m "[WORK-123][bootstrap] Initialize Singularity Flow"
 git push -u origin WORK-123
-singularity-flow start WORK-123
+singularity-flow workspace branches --json
+singularity-flow start WORK-123 --from-branch main
 ```
 
 For a protected base branch, `--work-id` creates or reuses that exact Work-ID
@@ -1072,9 +1073,9 @@ singularity-flow start WORK-123
 
 Start always asks for:
 
-1. Jira story or manual intake.
-2. Workflow template, such as feature, bugfix, chore, or Figma export to mobile app.
-3. governed agent for the current session.
+1. A remote base branch published by every required repository; no default is inferred.
+2. Jira story or manual intake.
+3. Workflow template, such as feature, bugfix, chore, or Figma export to mobile app.
 
 The workflow and governed-agent pickers are deliberately human-driven. There are no public `--type` or `--agent` bypass flags. Non-interactive start fails rather than silently choosing defaults unless `/sf-start` supplies a valid one-time receipt containing the contributor's explicit Copilot choices.
 
@@ -1082,19 +1083,21 @@ Useful source forms include:
 
 ```bash
 # Jira
-singularity-flow start ENG-142 --jira
+singularity-flow start ENG-142 --jira --from-branch main
 
 # Structured YAML or JSON story
-singularity-flow start WORK-123 --story-file ./story.yml
+singularity-flow start WORK-123 --story-file ./story.yml --from-branch main
 
 # Short manual story
 singularity-flow start WORK-123 \
+  --from-branch main \
   --title "Add invoice export" \
   --description "Finance needs a repeatable filtered export." \
   --acceptance-criteria "An authorized user can export the filtered invoice set."
 
 # Additional evidence
 singularity-flow start WORK-123 \
+  --from-branch main \
   --story-file ./story.yml \
   --document ./brief.pdf \
   --document-url https://www.figma.com/design/example
@@ -1117,7 +1120,7 @@ creates or resumes the canonical Story branch, pins the Jira snapshot, activates
 the first configured agent, commits, and pushes before authoring begins.
 
 ```bash
-singularity-flow story start MOB-123
+singularity-flow story start MOB-123 --from-branch main
 # Copilot
 /sf-story-start MOB-123
 ```
@@ -1131,6 +1134,7 @@ spec-to-code comparison apply; only the tracker snapshot is absent.
 
 ```bash
 singularity-flow start WORK-123 --title "Add customer search" \
+  --from-branch main \
   --description "Let service agents find a customer by email" \
   --acceptance-criteria "Exact email returns the matching customer"
 # Copilot asks the same questions
@@ -2485,7 +2489,7 @@ singularity-flow fresh-install [--checkout DIRECTORY] [--yes] [--registry URL] [
 singularity-flow choices begin|answer|status ...
 singularity-flow clarification status [PHASE] [--json]
 singularity-flow clarification record [PHASE] (--question TEXT --answer TEXT | --response-file FILE) [--json]
-singularity-flow start <WORK-ID> [--jira | --story-file FILE] [--work-type ID] [--agent ID] [--ref CANONICAL-BRANCH]
+singularity-flow start <WORK-ID> --from-branch BRANCH [--jira | --story-file FILE] [--work-type ID] [--agent ID] [--ref CANONICAL-BRANCH]
 singularity-flow resume <WORK-ID|BRANCH> [--fetch]
 singularity-flow agent [WORK-ID]
 sflow-agent [WORK-ID]

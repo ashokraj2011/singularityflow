@@ -341,6 +341,7 @@ async function demoRepository() {
   };
   const mobile = await child('mobile.git');
   const api = await child('api.git');
+  const lead = await child('lead.git');
 
   const root = path.join(base, 'checkout');
   await mkdir(root);
@@ -369,6 +370,8 @@ async function demoRepository() {
 
   run('git', ['add', '.'], { cwd: root });
   run('git', ['commit', '-m', 'Initialize'], { cwd: root });
+  run('git', ['remote', 'add', 'origin', lead], { cwd: root });
+  run('git', ['push', '-u', 'origin', 'main'], { cwd: root });
   run('git', ['switch', '-c', 'INIT-CHECKOUT'], { cwd: root });
 
   const created = await createInitiative(root, { id: 'INIT-CHECKOUT', profile: 'enterprise-delivery' });
@@ -391,6 +394,7 @@ async function demoRepository() {
   }));
   run('git', ['add', '.'], { cwd: root });
   run('git', ['commit', '-m', 'Breakdown'], { cwd: root });
+  run('git', ['push', '-u', 'origin', 'INIT-CHECKOUT'], { cwd: root });
   return root;
 }
 
@@ -1241,11 +1245,14 @@ test('a manual Story is submitted end to end from the editor', async (t) => {
     .replace(/members: \[\]/g, `members: [{ name: Initiative Owner, email: ${EMAIL} }]`));
   const workflowFile = path.join(root, 'singularity/workflow.yml');
   const workflow = YAML.parse(await readFile(workflowFile, 'utf8'));
-  workflow.git.publish = 'off';
   workflow.worldModel.grounding = 'off';
   await writeFile(workflowFile, YAML.stringify(workflow));
   run('git', ['add', '.'], { cwd: root });
   run('git', ['commit', '-m', 'Initialize'], { cwd: root });
+  const remote = path.join(base, 'service.git');
+  run('git', ['init', '--bare', '--initial-branch=main', remote], { cwd: base });
+  run('git', ['remote', 'add', 'origin', remote], { cwd: root });
+  run('git', ['push', '-u', 'origin', 'main'], { cwd: root });
 
   const { api, registered } = stubVscode();
   api.workspace.workspaceFolders = [{ uri: { fsPath: root } }];
@@ -1257,6 +1264,8 @@ test('a manual Story is submitted end to end from the editor', async (t) => {
   assert.ok(intakePanel, 'a clean repository opens Story intake');
   await intakePanel.post({ type: 'shape', value: 'story' });
   await until(() => intakePanel.webview.html.includes('data-work-type="feature"') ? true : null);
+  assert.match(intakePanel.webview.html, /data-base-branch="main"/);
+  await intakePanel.post({ type: 'baseBranch', value: 'main' });
   await intakePanel.post({ type: 'tracker', value: 'none' });
   await intakePanel.post({ type: 'field', field: 'id', value: 'STORY-UI' });
   await intakePanel.post({ type: 'field', field: 'title', value: 'Area operator' });
@@ -1273,6 +1282,11 @@ test('a manual Story is submitted end to end from the editor', async (t) => {
   assert.equal(run('git', ['log', '-1', '--pretty=%s'], { cwd: root }).stdout.trim(),
     '[STORY-UI][init] start feature workflow');
   assert.equal(run('git', ['status', '--porcelain'], { cwd: root }).stdout.trim(), '');
+  assert.equal(
+    run('git', ['ls-remote', 'origin', 'refs/heads/STORY-UI'], { cwd: root }).stdout.split(/\s+/)[0],
+    run('git', ['rev-parse', 'HEAD'], { cwd: root }).stdout.trim(),
+    'the packaged editor published only the Story branch'
+  );
 });
 
 test('starting work before any approver is named says so first, and offers the file to fix', async (t) => {
@@ -2245,9 +2259,11 @@ test('the first explicit workspace selection loads Lifecycle in the same window'
   // other Singularity view had already resolved the selected workspace.
   await initializeDefinition(chosen.openPath);
   await registered.commands.get('singularityFlow.doctor')();
-  const report = await until(() => registered.openedDocuments
+  assert.deepEqual(registered.errors, [], `diagnostics refusal: ${registered.errors.join(' | ')}`);
+  const report = registered.openedDocuments
     .find((document) => typeof document?.content === 'string'
-      && document.content.includes('CAPABILITY AND STATE DIAGNOSTICS')) ?? null);
+      && document.content.includes('CAPABILITY AND STATE DIAGNOSTICS'));
+  assert.ok(report, `diagnostics did not open; warnings: ${registered.warnings.join(' | ')}; output: ${registered.output.join(' | ')}`);
   assert.match(report.content, /CAPABILITY AND STATE DIAGNOSTICS/);
   assert.equal(registered.warnings.some((message) => /Open a repository first/i.test(message)), false);
 });

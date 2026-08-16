@@ -58,12 +58,16 @@ async function repository() {
   await writeFile(portfolioFile, YAML.stringify(portfolio));
   git(root, ['add', '.']);
   git(root, ['commit', '-m', 'Initialize planning fixture']);
+  const remote = `${root}.git`;
+  git(root, ['init', '--bare', '-b', 'main', remote]);
+  git(root, ['remote', 'add', 'origin', remote]);
+  git(root, ['push', '-u', 'origin', 'main']);
   return root;
 }
 
 test('story planning creates a private immutable context pack and promotes only reviewed output', async () => {
   const root = await repository();
-  run(root, process.execPath, [bin, 'start', 'PLAN-101', '--title', 'Plan customer onboarding']);
+  run(root, process.execPath, [bin, 'start', 'PLAN-101', '--from-branch', 'main', '--title', 'Plan customer onboarding']);
   const requirement = path.join(await mkdtemp(path.join(os.tmpdir(), 'sflow-business-input-')), 'requirements.md');
   await writeFile(requirement, '# Business requirement\n\nSupport an auditable, low-friction onboarding journey.\n');
   run(root, process.execPath, [bin, 'documents', 'upload', requirement]);
@@ -112,7 +116,7 @@ test('story planning creates a private immutable context pack and promotes only 
 
 test('promotion refuses stale planning context after repository state moves', async () => {
   const root = await repository();
-  run(root, process.execPath, [bin, 'start', 'PLAN-STALE']);
+  run(root, process.execPath, [bin, 'start', 'PLAN-STALE', '--from-branch', 'main']);
   const context = await createPlanningContext(root, {
     scope: 'work-item',
     id: 'PLAN-STALE',
@@ -130,7 +134,7 @@ test('promotion refuses stale planning context after repository state moves', as
 
 test('promotion refuses an uncommitted change to any governed context source', async () => {
   const root = await repository();
-  run(root, process.execPath, [bin, 'start', 'PLAN-DIRTY']);
+  run(root, process.execPath, [bin, 'start', 'PLAN-DIRTY', '--from-branch', 'main']);
   const context = await createPlanningContext(root, {
     scope: 'work-item',
     id: 'PLAN-DIRTY',
@@ -357,7 +361,7 @@ test('a moved HEAD blocks promotion but does not destroy the conversation', asyn
   // workspace already had a stale-context banner to say exactly that; it never got the chance.
   const { loadPlanningPack, promotePlanningArtifacts } = await import('../src/planning.mjs');
   const root = await repository();
-  run(root, process.execPath, [bin, 'start', 'PLAN-STALE', '--title', 'Stale context']);
+  run(root, process.execPath, [bin, 'start', 'PLAN-STALE', '--from-branch', 'main', '--title', 'Stale context']);
   const context = await createPlanningContext(root, {
     scope: 'work-item',
     id: 'PLAN-STALE',
@@ -388,7 +392,7 @@ test('a moved HEAD blocks promotion but does not destroy the conversation', asyn
 test('a changed governed source restores as stale but remains impossible to promote', async () => {
   const { loadPlanningPack } = await import('../src/planning.mjs');
   const root = await repository();
-  run(root, process.execPath, [bin, 'start', 'PLAN-SOURCE-STALE', '--title', 'Changed governed state']);
+  run(root, process.execPath, [bin, 'start', 'PLAN-SOURCE-STALE', '--from-branch', 'main', '--title', 'Changed governed state']);
   const context = await createPlanningContext(root, {
     scope: 'work-item',
     id: 'PLAN-SOURCE-STALE',

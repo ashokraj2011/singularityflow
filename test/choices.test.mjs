@@ -62,6 +62,10 @@ async function repository() {
   await writeFile(configPath, YAML.stringify(config));
   run('git', ['add', '.'], root);
   run('git', ['commit', '-m', 'initialize'], root);
+  const remote = `${root}.git`;
+  run('git', ['init', '--bare', '--initial-branch=main', remote], path.dirname(root));
+  run('git', ['remote', 'add', 'origin', remote], root);
+  run('git', ['push', '-u', 'origin', 'main'], root);
   return root;
 }
 
@@ -70,11 +74,12 @@ test('one-time selection receipt lets Copilot start work without a persistent TT
   const begun = JSON.parse(flow(root, ['choices', 'begin', 'start', 'CHOICE-101', '--json']).stdout);
   assert.equal(begun.action, 'start');
   assert.equal(begun.workId, 'CHOICE-101');
-  assert.deepEqual(begun.choiceSets.map((item) => item.id), ['intake-source', 'workflow-template']);
+  assert.deepEqual(begun.choiceSets.map((item) => item.id), ['base-branch', 'intake-source', 'workflow-template']);
   assert.ok(begun.choiceSets.find((item) => item.id === 'workflow-template').options.some((item) => item.id === 'bugfix'));
   const receiptFile = path.join(root, '.git', 'singularity-flow', 'choices', `${begun.token}.json`);
   assert.equal((await stat(receiptFile)).mode & 0o777, 0o600);
 
+  flow(root, ['choices', 'answer', begun.token, 'base-branch', 'main', '--json']);
   flow(root, ['choices', 'answer', begun.token, 'intake-source', 'manual', '--json']);
   const ready = JSON.parse(flow(root, ['choices', 'answer', begun.token, 'workflow-template', 'bugfix', '--json']).stdout);
   assert.equal(ready.ready, true);
@@ -95,6 +100,7 @@ test('selection receipts reject incomplete, mismatched, invalid, and stale choic
   const invalid = flow(root, ['choices', 'answer', receipt.token, 'agent', 'not-configured', '--json'], { allowFailure: true });
   assert.equal(invalid.status, 1);
   assert.match(invalid.stderr, /has no choice 'agent'/);
+  flow(root, ['choices', 'answer', receipt.token, 'base-branch', 'main']);
   const incomplete = flow(root, ['start', 'CHOICE-201', '--title', 'Incomplete', '--selection-receipt', receipt.token], { allowFailure: true });
   assert.equal(incomplete.status, 1);
   assert.match(incomplete.stderr, /incomplete: Intake source/);
@@ -118,6 +124,7 @@ test('approval receipt keeps exact phase confirmation inside Copilot and uses th
   const root = await repository();
   const workId = 'CHOICE-APPROVE-1';
   const start = JSON.parse(flow(root, ['choices', 'begin', 'start', workId, '--json']).stdout);
+  flow(root, ['choices', 'answer', start.token, 'base-branch', 'main']);
   flow(root, ['choices', 'answer', start.token, 'intake-source', 'manual']);
   flow(root, ['choices', 'answer', start.token, 'workflow-template', 'feature']);
   flow(root, ['start', workId, '--title', 'Receipt-backed approval', '--selection-receipt', start.token]);

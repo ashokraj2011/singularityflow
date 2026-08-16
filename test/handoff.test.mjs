@@ -48,7 +48,7 @@ test('another clone discovers a remote work ID, attaches safely, and fast-forwar
   run('git', ['push', '-u', 'origin', 'main'], first);
   run('git', ['symbolic-ref', 'HEAD', 'refs/heads/main'], remote);
 
-  flow(first, ['start', 'HAND-101', '--ref', 'story/HAND-101-delivery', '--title', 'Handoff test']);
+  flow(first, ['start', 'HAND-101', '--from-branch', 'main', '--ref', 'story/HAND-101-delivery', '--title', 'Handoff test']);
   const intakePath = path.join(first, 'singularity', 'work-items', 'HAND-101', 'artifacts', 'intake', 'intake.md');
   const intake = (await readFile(intakePath, 'utf8')).replace(/TODO:[^\n]*/g, 'Complete handoff evidence and measurable outcomes for another terminal.');
   await writeFile(intakePath, intake);

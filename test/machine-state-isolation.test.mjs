@@ -13,8 +13,8 @@
  * some future change lets machine-global selection reach into repository policy, this fails.
  *
  * The strongest case is asserted deliberately: the selected workspace's capability demands
- * publication, and the unrelated repository has publication off and no remote at all — so if its
- * configuration were overridden, the push would fail loudly rather than pass silently.
+ * publication, while the unrelated repository has publication off. Story base discovery still
+ * uses an isolated bare remote, but the structured result proves no Story publication occurred.
  */
 import test from 'node:test';
 import assert from 'node:assert/strict';
@@ -55,6 +55,10 @@ async function scenario() {
     await writeFile(file, YAML.stringify(config));
     run('git', ['add', '-A'], root);
     run('git', ['commit', '-m', 'initialize'], root);
+    const remote = `${root}.git`;
+    run('git', ['init', '--bare', '-b', 'main', remote], root);
+    run('git', ['remote', 'add', 'origin', remote], root);
+    run('git', ['push', '-u', 'origin', 'main'], root);
     return root;
   }
 
@@ -107,13 +111,12 @@ async function scenario() {
 test('a workspace selected on this machine does not govern an unrelated repository', async () => {
   const { unrelated, run } = await scenario();
   const started = run(process.execPath,
-    [bin, 'start', 'ISOLATED-1', '--title', 'Isolated', '--work-type', 'quick-fix'], unrelated);
+    [bin, 'start', 'ISOLATED-1', '--from-branch', 'main', '--title', 'Isolated', '--work-type', 'quick-fix', '--json'], unrelated);
   const output = `${started.stdout}\n${started.stderr}`;
   assert.equal(started.status, 0, output);
-  // The unrelated repository has no `origin`. Any attempt to publish it says so, loudly.
-  assert.doesNotMatch(output, /does not appear to be a git repository/,
+  const result = JSON.parse(started.stdout);
+  assert.equal(result.data.publication.pushed, false,
     'the selected workspace forced publication on a repository whose own configuration disables it');
-  assert.doesNotMatch(output, /push failed/, 'publication was attempted despite git.publish: off');
 });
 
 test('capability resolution declines to answer for a repository it does not own', async () => {

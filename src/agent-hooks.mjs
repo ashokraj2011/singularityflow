@@ -234,7 +234,7 @@ function isAgentToolCall(payload) {
   // Keep this exception deliberately narrow: it accepts only the documented world-model
   // subcommands and flags, rejects shell metacharacters, and does not admit --runner or --out.
   if (isRepositoryWorldModelCall(payload)) return true;
-  if (/^(?:singularity-flow|sflow) choices (?:begin start [A-Za-z0-9._-]+|begin approve [A-Za-z0-9._-]+(?: --fetch)?|answer [0-9a-f-]{36} (?:intake-source|workflow-template|agent|phase-confirmation) [A-Za-z0-9._-]+|status [0-9a-f-]{36})(?: --json)?(?: 2>&1)?$/.test(command)) return true;
+  if (/^(?:singularity-flow|sflow) choices (?:begin start [A-Za-z0-9._-]+|begin approve [A-Za-z0-9._-]+(?: --fetch)?|answer [0-9a-f-]{36} (?:base-branch|intake-source|workflow-template|agent|phase-confirmation) [A-Za-z0-9._/-]+|status [0-9a-f-]{36})(?: --json)?(?: 2>&1)?$/.test(command)) return true;
   if (/^(?:singularity-flow|sflow) (?:story )?start\s/.test(command)
     && /(?:^|\s)--selection-receipt\s+[0-9a-f-]{36}(?:\s|$)/.test(command)
     && !/[;&|`$<>\n]/.test(command)) return true;

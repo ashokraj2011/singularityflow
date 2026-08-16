@@ -53,7 +53,7 @@ async function repository() {
 
 test('registered child branches publish hash-bound review packets and unknown branches require a parent Story', async () => {
   const { root, remote } = await repository();
-  flow(root, ['start', 'MOB-123', '--title', 'Build mobile login']);
+  flow(root, ['start', 'MOB-123', '--from-branch', 'main', '--title', 'Build mobile login']);
   flow(root, ['story', 'branch', 'create', 'feature/login-ui', '--parent', 'MOB-123']);
 
   const status = JSON.parse(flow(root, ['story', 'branch', 'status', '--parent', 'MOB-123', '--json']).stdout);
@@ -99,7 +99,7 @@ test('registered child branches publish hash-bound review packets and unknown br
 
 test('finalize binds a completed Story to its governed specifications and exact source tree', async () => {
   const { root, remote } = await repository();
-  flow(root, ['start', 'MOB-200', '--title', 'Complete mobile login']);
+  flow(root, ['start', 'MOB-200', '--from-branch', 'main', '--title', 'Complete mobile login']);
   const workflowPath = path.join(root, 'singularity/work-items/MOB-200/workflow.json');
   const workflow = JSON.parse(await readFile(workflowPath, 'utf8'));
   for (const phaseId of workflow.phaseOrder) {

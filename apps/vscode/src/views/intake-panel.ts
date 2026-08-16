@@ -129,12 +129,9 @@ export class IntakePanel {
         ?? storyWorkflows.workflows[0]?.id ?? null,
       workflowReason: storyWorkflows.reason,
       baseBranchChoices: baseBranches.choices,
-      /**
-       * Defaulted to the most widely published branch, which is the first entry — the same default
-       * the terminal prompt takes on an empty answer, so the two surfaces do not disagree about what
-       * "just start" means.
-       */
-      baseBranch: baseBranches.choices[0]?.branch ?? null,
+      // A Story base is an explicit, permanent choice. Even one available branch must be selected.
+      baseBranch: null,
+      baseRemote: baseBranches.remote,
       baseBranchReason: baseBranches.reason,
       jiraConfigured: tracker.configured,
       jiraReason: tracker.reason,
@@ -171,22 +168,27 @@ export class IntakePanel {
    * outside a workspace, or one whose capability is undeclared, is a supported way to work and the
    * form must still open.
    */
-  private async baseBranches(): Promise<{ choices: BaseBranchChoice[]; reason: string | null }> {
+  private async baseBranches(): Promise<{
+    choices: BaseBranchChoice[]; remote: string | null; reason: string | null;
+  }> {
     try {
-      const listed = await this.client.run<{ choices?: BaseBranchChoice[]; unreachable?: { repository: string }[] }>(
+      const listed = await this.client.run<{
+        choices?: BaseBranchChoice[]; remote?: string; unreachable?: { repository: string }[];
+      }>(
         ['workspace', 'branches', '--json']
       );
       const unreachable = listed.unreachable ?? [];
       return {
-        choices: listed.choices ?? [],
+        choices: (listed.choices ?? []).filter((choice) => choice.everywhere),
+        remote: listed.remote ?? null,
         // Named, because a branch missing from the list because a remote was unreachable looks
         // exactly like a branch that does not exist.
         reason: unreachable.length
-          ? `Could not read ${unreachable.map((entry) => entry.repository).join(', ')}, so the branch list may be incomplete.`
+          ? `Could not read ${unreachable.map((entry) => entry.repository).join(', ')}. Remote access is required before starting a Story.`
           : null
       };
     } catch (error) {
-      return { choices: [], reason: (error as Error).message };
+      return { choices: [], remote: null, reason: (error as Error).message };
     }
   }
 

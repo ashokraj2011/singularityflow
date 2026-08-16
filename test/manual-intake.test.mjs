@@ -37,6 +37,10 @@ async function repository() {
   await writeFile(configPath, YAML.stringify(config));
   run('git', ['add', 'README.md', 'singularity', '.github/agents'], root);
   run('git', ['commit', '-m', 'initialize'], root);
+  const remote = `${root}.git`;
+  run('git', ['init', '--bare', '--initial-branch=main', remote], path.dirname(root));
+  run('git', ['remote', 'add', 'origin', remote], root);
+  run('git', ['push', '-u', 'origin', 'main'], root);
   return root;
 }
 
@@ -66,6 +70,7 @@ test('manual story intake commits complete details and every supplied document w
 
   flow(root, [
     'start', 'WORK-123', '--story-file', path.join(intake, 'story.yml'),
+    '--from-branch', 'main',
     '--document', path.join(intake, 'extra.txt'),
     '--document-url', 'https://example.com/context'
   ]);

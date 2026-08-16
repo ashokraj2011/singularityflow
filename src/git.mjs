@@ -584,7 +584,22 @@ export function pushBranch(root, remote = 'origin', branchName = branch(root)) {
   // Capture stderr so desktop and recovery records contain Git's real rejection reason. Callers
   // already surface their own success result, while an inherited child left error="" and reduced
   // every failure to the unhelpful generic "fix remote access" message.
-  return git(['push', '-u', remote, `HEAD:${branchName}`], { cwd: root, allowFailure: true });
+  return git(['push', '-u', remote, `HEAD:refs/heads/${branchName}`], { cwd: root, allowFailure: true });
+}
+
+/**
+ * Prove that the configured remote will accept creation of a Story ref before the worktree moves.
+ *
+ * The source is an already-fetched remote base ref. `--dry-run` negotiates with the real remote and
+ * exercises its authentication/authorization path without creating the destination branch. The
+ * actual publication still uses HEAD after the governed commit exists.
+ */
+export function preflightPushBranch(root, remote, sourceRef, branchName) {
+  validBranch(root, branchName);
+  return git([
+    'push', '--dry-run', '--porcelain', remote,
+    `${sourceRef}:refs/heads/${branchName}`
+  ], { cwd: root, allowFailure: true });
 }
 
 export function remoteContains(root, sha, remote = 'origin', branchName = branch(root)) {

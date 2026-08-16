@@ -57,6 +57,10 @@ async function repository() {
   await unlink(path.join(root, '.github/agents/product-designer.agent.md'));
   run('git', ['add', '.'], root);
   run('git', ['commit', '-m', 'initialize'], root);
+  const remote = `${root}.git`;
+  run('git', ['init', '--bare', '-b', 'main', remote], root);
+  run('git', ['remote', 'add', 'origin', remote], root);
+  run('git', ['push', '-u', 'origin', 'main'], root);
   return root;
 }
 
@@ -100,7 +104,7 @@ test('snapshot exposes configuration and visual workflow data', async () => {
   assert.equal(startSkill.packagePath, 'plugin/skills/sflow-start/SKILL.md');
   assert.equal(startSkill.repositoryPath, '.github/skills/sflow-start/SKILL.md');
   assert.equal(startSkill.readOnly, true);
-  assert.match(startSkill.description, /workflow template; activate its phase-default agent/i);
+  assert.match(startSkill.description, /explicitly choose a remote base.*create and publish the canonical Story branch/i);
   assert.ok(snapshot.agents.some((item) => item.id === 'sflow-workflow'));
   const packagedAgent = snapshot.agents.find((item) => item.id === 'product-designer');
   assert.equal(packagedAgent.scope, 'bundled');
@@ -115,7 +119,7 @@ test('snapshot exposes configuration and visual workflow data', async () => {
   assert.equal(snapshot.definition.sequenceGates.default, 'soft');
   assert.equal(snapshot.definition.sequenceGates.publicationPending, 'hard');
 
-  run(process.execPath, [bin, 'start', 'DESK-1', '--ref', 'story/DESK-1-editor', '--title', 'Editor workflow'], root);
+  run(process.execPath, [bin, 'start', 'DESK-1', '--from-branch', 'main', '--ref', 'story/DESK-1-editor', '--title', 'Editor workflow'], root);
   snapshot = await repositorySnapshot(root);
   assert.equal(snapshot.selectedWorkId, 'DESK-1');
   assert.equal(snapshot.progress.currentPhase, 'intake');
@@ -170,7 +174,7 @@ test('scoped snapshots construct only the requested schema-v2 slice', async () =
 
 test('lifecycle snapshots keep generated phase artifacts regardless of lifecycle status', async () => {
   const root = await repository();
-  run(process.execPath, [bin, 'start', 'ARTIFACTS-1', '--title', 'Visible generated artifacts'], root);
+  run(process.execPath, [bin, 'start', 'ARTIFACTS-1', '--from-branch', 'main', '--title', 'Visible generated artifacts'], root);
   const statePath = path.join(root, 'singularity/work-items/ARTIFACTS-1/workflow.json');
   const state = JSON.parse(await readFile(statePath, 'utf8'));
   const artifactPath = path.join(
@@ -196,7 +200,7 @@ test('lifecycle snapshots keep generated phase artifacts regardless of lifecycle
 
 test('lifecycle catalog includes a completed Story stored on a sibling branch', async () => {
   const root = await repository();
-  run(process.execPath, [bin, 'start', 'ARCHIVE-1', '--title', 'Archived delivery'], root);
+  run(process.execPath, [bin, 'start', 'ARCHIVE-1', '--from-branch', 'main', '--title', 'Archived delivery'], root);
   const statePath = path.join(root, 'singularity/work-items/ARCHIVE-1/workflow.json');
   const state = JSON.parse(await readFile(statePath, 'utf8'));
   state.status = 'complete';
@@ -581,7 +585,7 @@ test('visual editor configuration refuses symlinked files and parent directories
 
 test('visual editor agent selection remains local and requires the active work branch', async () => {
   const root = await repository();
-  run(process.execPath, [bin, 'start', 'DESK-2'], root);
+  run(process.execPath, [bin, 'start', 'DESK-2', '--from-branch', 'main'], root);
   const session = await selectEditorAgent(root, 'DESK-2', 'architect');
   assert.equal(session.agent, 'architect');
   assert.equal(session.workId, 'DESK-2');

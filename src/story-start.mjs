@@ -6,8 +6,11 @@ import {
   fastForwardTo,
   fetchRemote,
   identity,
-  refExists
+  preflightPushBranch,
+  refExists,
+  refHead
 } from './git.mjs';
+import { prepareCapabilityRepositories, storyBaseForRepository } from './capability-start.mjs';
 import { setAgentSession } from './session.mjs';
 import {
   commitAndPublish,
@@ -77,6 +80,7 @@ export async function startStory(root, {
   source,
   workType,
   agent,
+  baseBranch = null,
   capabilityId = null,
   files = [],
   urls = []
@@ -88,16 +92,59 @@ export async function startStory(root, {
   const remote = initialDefinition.git?.remote ?? 'origin';
 
   assertClean(root);
-  fetchRemote(root, remote);
-  const existed = refExists(root, `refs/heads/${id}`)
-    || refExists(root, `refs/remotes/${remote}/${id}`);
-  const checkoutMode = checkout(root, id, {
-    base: initialDefinition.defaultBaseBranch,
-    remote,
-    // fetchRemote above discovered both the Story branch and the latest base. When this is a new
-    // Story, fork from that refreshed remote base rather than a possibly stale local main.
-    preferRemoteBase: true
-  });
+  const localExisted = refExists(root, `refs/heads/${id}`);
+  if (!localExisted) fetchRemote(root, remote);
+  const remoteExisted = refExists(root, `refs/remotes/${remote}/${id}`);
+  const existed = localExisted || remoteExisted;
+  let storyBase = null;
+  let baseCommit = null;
+  let capabilityRepositoriesPrepared = null;
+  let checkoutMode;
+  if (existed) {
+    checkoutMode = checkout(root, id, {
+      base: initialDefinition.defaultBaseBranch,
+      fetch: remoteExisted,
+      existingOnly: true,
+      remote
+    });
+  } else {
+    storyBase = await storyBaseForRepository(root, {
+      values: baseBranch ? [baseBranch] : [],
+      interactive: false,
+      remote,
+      defaultBranch: initialDefinition.defaultBaseBranch,
+      capabilityId
+    });
+    fetchRemote(root, remote);
+    const remoteBaseRef = `refs/remotes/${remote}/${storyBase.localBase}`;
+    if (!refExists(root, remoteBaseRef)) {
+      throw new SingularityFlowError(
+        `Selected base branch '${storyBase.localBase}' is no longer published by remote '${remote}'. Nothing was changed.`,
+        { code: 'STORY_BASE_INVALID' }
+      );
+    }
+    baseCommit = refHead(root, remoteBaseRef);
+    if ((initialDefinition.git?.publish ?? 'required') !== 'off') {
+      const dryRun = preflightPushBranch(root, remote, remoteBaseRef, id);
+      if (dryRun.status !== 0) {
+        throw new SingularityFlowError(
+          `Cannot publish the new Story branch '${id}' to '${remote}'. `
+          + `Git reported: ${(dryRun.stderr || dryRun.stdout || 'remote rejected the dry-run push').trim()} Nothing was changed.`,
+          { code: 'STORY_PUBLICATION_PREFLIGHT_FAILED' }
+        );
+      }
+    }
+    checkoutMode = checkout(root, id, {
+      base: storyBase.localBase,
+      remote,
+      preferRemoteBase: true
+    });
+    if (storyBase.scope === 'capability') {
+      capabilityRepositoriesPrepared = prepareCapabilityRepositories(
+        storyBase.workspaceRoot, storyBase.plan, id, { remote }
+      );
+    }
+  }
 
   // The branch we just materialized is authoritative for new lifecycle configuration. Keeping the
   // definition loaded from the old checkout meant the files came from fresh remote main while the
@@ -145,7 +192,9 @@ export async function startStory(root, {
     id,
     title: normalizedSource.title,
     source: normalizedSource,
-    baseBranch: definition.defaultBaseBranch,
+    baseBranch: storyBase.localBase,
+    baseCommit,
+    baseRemote: remote,
     workType,
     agent: selectedAgent,
     resolved,
@@ -187,7 +236,25 @@ export async function startStory(root, {
     checkoutMode,
     branch: id,
     workflow,
-    publication,
+    base: {
+      branch: storyBase.localBase,
+      commit: baseCommit,
+      remote
+    },
+    publication: {
+      ...publication,
+      remote,
+      branch: id,
+      ref: `refs/heads/${id}`,
+      pushed: publication.pushed === true,
+      commit: publication.sha
+    },
+    ...(storyBase.scope === 'capability' ? {
+      capabilityBase: {
+        ...storyBase.plan.record,
+        prepared: capabilityRepositoriesPrepared ?? []
+      }
+    } : {}),
     documents
   };
 }

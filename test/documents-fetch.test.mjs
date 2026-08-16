@@ -50,7 +50,11 @@ async function repository() {
   config.storage = { defaultProvider: 'onedrive', providers: { onedrive: { type: 'sharepoint', tenantId: 't', clientId: 'c', siteId: 's', driveId: 'd' } } };
   await writeFile(configPath, YAML.stringify(config));
   run('git', ['add', 'README.md', 'singularity', '.github/agents'], root); run('git', ['commit', '-m', 'initialize'], root);
-  flow(root, ['start', 'DOCS-9', '--title', 'OneDrive intake']);
+  const remote = `${root}.git`;
+  run('git', ['init', '--bare', '-b', 'main', remote], root);
+  run('git', ['remote', 'add', 'origin', remote], root);
+  run('git', ['push', '-u', 'origin', 'main'], root);
+  flow(root, ['start', 'DOCS-9', '--from-branch', 'main', '--title', 'OneDrive intake']);
   return root;
 }
 

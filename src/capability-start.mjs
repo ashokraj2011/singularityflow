@@ -52,23 +52,94 @@ export function publishedBranches(repositories, { timeoutMs = 20000 } = {}) {
 }
 
 /**
+ * Branch inventory for a Story start, whether this checkout belongs to a capability or stands alone.
+ *
+ * The old `workspace branches` path only worked when the repository declared a capability. That
+ * made the editor silently fall back to `defaultBaseBranch` in the common one-repository case. This
+ * catalog keeps one remote-derived contract for every surface and deliberately reports an
+ * unreachable remote instead of substituting local refs.
+ */
+export async function storyBaseCatalog(root, {
+  remote = 'origin',
+  defaultBranch = 'main',
+  capabilityId = null
+} = {}) {
+  const context = await workspaceContextForRepository(
+    root, activeWorkspaceFile(), workspaceRegistryFile()
+  ).catch(() => null);
+  const capability = capabilityId ?? context?.repositoryCapabilities?.[0] ?? null;
+  if (context && capability) {
+    const workspace = await readWorkspace(context.workspacePath);
+    const repositories = capabilityRepositories(workspace, capability);
+    const { published, unreachable } = publishedBranches(repositories);
+    return {
+      scope: 'capability',
+      capability,
+      remote,
+      workspaceRoot: workspace.path,
+      repositoryId: context.repositoryId,
+      repositories,
+      published,
+      unreachable,
+      choices: branchChoices(published)
+    };
+  }
+
+  const remoteResult = run('git', ['remote', 'get-url', remote], {
+    cwd: root, allowFailure: true
+  });
+  const repository = {
+    id: path.basename(root),
+    url: remoteResult.status === 0 ? remoteResult.stdout.trim() : '',
+    path: root,
+    defaultBranch
+  };
+  if (!repository.url) {
+    return {
+      scope: 'repository', capability: null, remote, workspaceRoot: null,
+      repositoryId: repository.id, repositories: [repository],
+      published: { [repository.id]: [] },
+      unreachable: [{
+        repository: repository.id,
+        url: '',
+        detail: `Remote '${remote}' is not configured.`
+      }],
+      choices: []
+    };
+  }
+  const { published, unreachable } = publishedBranches([repository]);
+  return {
+    scope: 'repository', capability: null, remote, workspaceRoot: null,
+    repositoryId: repository.id, repositories: [repository], published, unreachable,
+    choices: branchChoices(published)
+  };
+}
+
+/**
  * Offer the branches and take a choice.
  *
- * Only called when there is a terminal and no `--from-branch`. The default is the first entry, which
- * is the most widely published branch — pressing return does the unsurprising thing.
+ * Only called when there is a terminal and no `--from-branch`. Even one option requires an explicit
+ * answer because this choice becomes permanent Story lineage.
  */
 export async function askForBaseBranch(choices, { capability, repositoryCount } = {}) {
   if (!input.isTTY || !output.isTTY) return null;
   if (!choices.length) return null;
   const io = readline.createInterface({ input, output });
   try {
-    console.log(`\nBase branch for the ${repositoryCount} repositories in capability '${capability}':`);
+    const scope = capability
+      ? `the ${repositoryCount} repositories in capability '${capability}'`
+      : 'this repository';
+    console.log(`\nBase branch for ${scope}:`);
     choices.forEach((choice, index) => {
       const scope = choice.everywhere ? `all ${choice.total}` : `${choice.present} of ${choice.total}`;
       console.log(`  ${index + 1}  ${choice.branch.padEnd(24)} (${scope})`);
     });
-    const answer = (await io.question(`Select [1]: `)).trim();
-    if (!answer) return choices[0].branch;
+    const answer = (await io.question('Select: ')).trim();
+    if (!answer) {
+      throw new SingularityFlowError('Choose a base branch explicitly; no branch was selected.', {
+        code: 'STORY_BASE_REQUIRED'
+      });
+    }
     const index = Number(answer);
     // A name is accepted as readily as a number: people type the branch they were told to use.
     if (!Number.isInteger(index) || index < 1 || index > choices.length) {
@@ -80,6 +151,68 @@ export async function askForBaseBranch(choices, { capability, repositoryCount } 
   } finally {
     io.close();
   }
+}
+
+/** Resolve the explicit remote base used by a new Story without touching any checkout. */
+export async function storyBaseForRepository(root, {
+  values = [],
+  interactive = true,
+  remote = 'origin',
+  defaultBranch = 'main',
+  capabilityId = null
+} = {}) {
+  const catalog = await storyBaseCatalog(root, { remote, defaultBranch, capabilityId });
+  if (catalog.unreachable.length) {
+    const first = catalog.unreachable[0];
+    throw new SingularityFlowError(
+      `Cannot read the published branches of ${catalog.unreachable.map((entry) => entry.repository).join(', ')}. `
+      + `Remote access is required before a Story branch can be selected. First failure: ${first.detail || 'no detail reported'}`,
+      { code: 'STORY_REMOTE_UNREACHABLE' }
+    );
+  }
+
+  const usableChoices = catalog.choices.filter((choice) => choice.everywhere);
+  let selection = parseBaseSelection(values);
+  if (!selection.all && !Object.keys(selection.overrides).length && interactive) {
+    const chosen = await askForBaseBranch(usableChoices, {
+      capability: catalog.capability,
+      repositoryCount: catalog.repositories.length
+    });
+    if (chosen) selection = parseBaseSelection([chosen]);
+  }
+  if (!selection.all && !Object.keys(selection.overrides).length) {
+    throw new SingularityFlowError(
+      `Choose the remote base branch explicitly with --from-branch <BRANCH>. Available: ${usableChoices.map((choice) => choice.branch).join(', ') || 'none'}.`,
+      { code: 'STORY_BASE_REQUIRED' }
+    );
+  }
+  const defaults = Object.fromEntries(catalog.repositories.map((repository) => [
+    repository.id, repository.defaultBranch ?? defaultBranch
+  ]));
+  const resolution = resolveCapabilityBase({
+    repositories: catalog.published,
+    selection,
+    defaults
+  });
+  if (!resolution.usable) {
+    throw new SingularityFlowError(
+      baseRefusalReport(resolution, { capability: catalog.capability ?? catalog.repositoryId }),
+      { code: 'STORY_BASE_INVALID' }
+    );
+  }
+  return {
+    ...catalog,
+    plan: {
+      repositories: catalog.repositories,
+      choices: catalog.choices,
+      resolution,
+      record: baseBranchRecord(resolution, {
+        capability: catalog.capability,
+        selectedAt: nowIso()
+      })
+    },
+    localBase: resolution.resolved[catalog.repositoryId]?.branch ?? selection.all
+  };
 }
 
 /**

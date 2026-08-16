@@ -2268,7 +2268,12 @@ const INTAKE_CHOICES = {
       phases: ['intake', 'reproduction', 'fix-design', 'implementation', 'verification'] }
   ],
   workType: 'feature',
-  workflowReason: null
+  workflowReason: null,
+  baseBranch: 'main',
+  baseRemote: 'origin',
+  baseBranchChoices: [
+    { branch: 'main', present: 1, total: 1, everywhere: true, missingFrom: [] }
+  ]
 };
 const intake = (over = {}) => ({ ...EMPTY_INTAKE_FORM, ...INTAKE_CHOICES, ...over });
 
@@ -2401,6 +2406,7 @@ test('a Story is the one shape that asks how it will be judged done', () => {
     '--title', 'Retry a failed charge',
     '--description', 'One retry with backoff',
     '--work-type', 'feature',
+    '--from-branch', 'main',
     '--acceptance-criteria', 'Retries once\nGives up after that'
   ]);
   assert.match(intakeHtml(form), /data-field="acceptanceCriteria"/);
@@ -2429,7 +2435,8 @@ test('a tracked Story is fetched by key', () => {
   const form = intake({ shape: 'story', tracker: 'jira', jiraConfigured: true, key: 'ENG-142' });
   assert.deepEqual(intakeProblems(form), []);
   assert.deepEqual(intakeCommand(form), [
-    'story', 'start', 'ENG-142', '--json', '--fetch', '--work-type', 'feature'
+    'story', 'start', 'ENG-142', '--json', '--fetch', '--work-type', 'feature',
+    '--from-branch', 'main'
   ]);
 });
 

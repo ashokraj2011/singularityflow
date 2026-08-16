@@ -26,7 +26,12 @@ async function repository() {
   execute('git', ['init', '-b', 'main'], root); execute('git', ['config', 'user.name', 'Singularity Flow Test'], root); execute('git', ['config', 'user.email', 'singularity-flow@example.com'], root);
   await writeFile(path.join(root, 'README.md'), '# Test\n'); flow(root, ['init']);
   const configPath = path.join(root, 'singularity/workflow.yml'); const config = YAML.parse(await readFile(configPath, 'utf8')); config.git.publish = 'off'; config.worldModel.grounding = 'off'; await writeFile(configPath, YAML.stringify(config));
-  execute('git', ['add', 'README.md', 'singularity', '.github/agents'], root); execute('git', ['commit', '-m', 'initial'], root); return root;
+  execute('git', ['add', 'README.md', 'singularity', '.github/agents'], root); execute('git', ['commit', '-m', 'initial'], root);
+  const remote = `${root}.git`;
+  execute('git', ['init', '--bare', '-b', 'main', remote], root);
+  execute('git', ['remote', 'add', 'origin', remote], root);
+  execute('git', ['push', '-u', 'origin', 'main'], root);
+  return root;
 }
 
 async function completeArtifact(root, workflow, phaseId) {
@@ -42,7 +47,7 @@ function selection(workType, agent) { return { workType, agent }; }
 
 test('start refuses non-interactive selection without a test or UI selection', async () => {
   const root = await repository();
-  const result = execute(process.execPath, [bin, 'start', 'NO-SELECT', '--title', 'Missing workflow choice', '--description', 'Exercise the non-interactive start preflight.', '--agent', 'product-owner'], root, { allowFailure: true });
+  const result = execute(process.execPath, [bin, 'start', 'NO-SELECT', '--from-branch', 'main', '--title', 'Missing workflow choice', '--description', 'Exercise the non-interactive start preflight.', '--agent', 'product-owner'], root, { allowFailure: true });
   assert.notEqual(result.status, 0); assert.match(result.stderr, /--work-type <id>/);
   assert.equal(execute('git', ['branch', '--show-current'], root).stdout.trim(), 'main');
   assert.notEqual(execute('git', ['show-ref', '--verify', '--quiet', 'refs/heads/NO-SELECT'], root, { allowFailure: true }).status, 0);
@@ -51,7 +56,7 @@ test('start refuses non-interactive selection without a test or UI selection', a
 test('start JSON uses the same versioned command-result contract as terminal output', async () => {
   const root = await repository();
   const result = flow(root, [
-    'start', 'START-CONTRACT-1', '--json', '--work-type', 'chore', '--agent', 'developer',
+    'start', 'START-CONTRACT-1', '--from-branch', 'main', '--json', '--work-type', 'chore', '--agent', 'developer',
     '--title', 'Verify the start contract', '--description', 'One output envelope serves CLI and VS Code.'
   ]);
   const parsed = JSON.parse(result.stdout);
@@ -101,8 +106,9 @@ test('failed start restores the caller branch and both previous local sessions',
   }));
   execute('git', ['add', 'singularity/seeds'], root);
   execute('git', ['commit', '-m', 'Add mismatched Story seed fixture'], root);
+  execute('git', ['push', 'origin', 'main'], root);
 
-  const result = flow(root, ['start', workId, '--agent', 'product-owner'], { allowFailure: true });
+  const result = flow(root, ['start', workId, '--from-branch', 'main', '--agent', 'product-owner'], { allowFailure: true });
   assert.notEqual(result.status, 0);
   assert.match(result.stderr, /does not belong to Work ID 'SESSION-ROLLBACK'/);
   assert.equal(execute('git', ['branch', '--show-current'], root).stdout.trim(), 'main');
@@ -129,8 +135,9 @@ test('failed first start leaves no local session or abandoned branch', async () 
   }));
   execute('git', ['add', 'singularity/seeds'], root);
   execute('git', ['commit', '-m', 'Add first-start rollback fixture'], root);
+  execute('git', ['push', 'origin', 'main'], root);
 
-  const result = flow(root, ['start', workId, '--agent', 'product-owner'], { allowFailure: true });
+  const result = flow(root, ['start', workId, '--from-branch', 'main', '--agent', 'product-owner'], { allowFailure: true });
   assert.notEqual(result.status, 0);
   assert.equal(execute('git', ['branch', '--show-current'], root).stdout.trim(), 'main');
   assert.notEqual(execute('git', ['show-ref', '--verify', '--quiet', `refs/heads/${workId}`], root, { allowFailure: true }).status, 0);
@@ -142,7 +149,7 @@ test('failed first start leaves no local session or abandoned branch', async () 
 test('cancel requires an exact confirmation and archives work without deleting its artifacts', async () => {
   const root = await repository();
   const workId = 'CANCEL-101';
-  flow(root, ['start', workId, '--work-type', 'feature', '--agent', 'product-owner', '--title', 'Stop obsolete work', '--description', 'A replacement Story supersedes this work.']);
+  flow(root, ['start', workId, '--from-branch', 'main', '--work-type', 'feature', '--agent', 'product-owner', '--title', 'Stop obsolete work', '--description', 'A replacement Story supersedes this work.']);
   const workflowFile = path.join(root, 'singularity/work-items', workId, 'workflow.json');
   const artifactFile = path.join(root, 'singularity/work-items', workId, 'artifacts/intake/intake.md');
   const before = JSON.parse(await readFile(workflowFile, 'utf8'));
@@ -198,7 +205,7 @@ test('CLI Story start pins configuration and world model from the refreshed conf
   execute('git', ['commit', '-m', 'publish remote workflow and world model'], source);
   execute('git', ['push', remote, 'main'], source);
 
-  flow(clone, ['start', 'WORK-CLI-REMOTE', '--fetch', '--title', 'Use remote state'], {
+  flow(clone, ['start', 'WORK-CLI-REMOTE', '--from-branch', 'main', '--fetch', '--title', 'Use remote state'], {
     selection: selection('chore', 'developer')
   });
 
@@ -211,7 +218,7 @@ test('CLI Story start pins configuration and world model from the refreshed conf
 
 test('agent selection changes only the local session and persists for later actions', async () => {
   const root = await repository(); const workId = 'AGENT-1';
-  flow(root, ['start', workId], { selection: selection('feature', 'product-owner') });
+  flow(root, ['start', workId, '--from-branch', 'main'], { selection: selection('feature', 'product-owner') });
   const before = execute('git', ['rev-parse', 'HEAD'], root).stdout.trim();
   const result = flow(root, ['agent', workId, '--agent', 'architect'], { actor: 'Session Architect' });
   assert.match(result.stdout, /Active governed agent: Architect \(architect\)/);
@@ -226,7 +233,7 @@ test('agent selection changes only the local session and persists for later acti
 
 test('artifact-only phases reject source changes', async () => {
   const root = await repository(); const workId = 'SCOPE-1';
-  flow(root, ['start', workId], { selection: selection('feature', 'product-owner') });
+  flow(root, ['start', workId, '--from-branch', 'main'], { selection: selection('feature', 'product-owner') });
   const workflowFile = path.join(root, 'singularity/work-items', workId, 'workflow.json'); const workflow = JSON.parse(await readFile(workflowFile, 'utf8'));
   await completeArtifact(root, workflow, 'intake'); await mkdir(path.join(root, 'src'), { recursive: true }); await writeFile(path.join(root, 'src/not-allowed.mjs'), 'export const changedTooEarly = true;\n');
   const result = flow(root, ['phase', 'publish', 'intake'], { allowFailure: true, selection: selection('feature', 'product-owner') });
@@ -235,7 +242,7 @@ test('artifact-only phases reject source changes', async () => {
 
 test('publication commits sanitized Copilot telemetry under the work item and reports provider cost', async () => {
   const root = await repository(); const workId = 'TELEMETRY-1';
-  flow(root, ['start', workId], { selection: selection('feature', 'product-owner') });
+  flow(root, ['start', workId, '--from-branch', 'main'], { selection: selection('feature', 'product-owner') });
   const workflowFile = path.join(root, 'singularity/work-items', workId, 'workflow.json');
   const workflow = JSON.parse(await readFile(workflowFile, 'utf8'));
   const completedAt = new Date().toISOString();
@@ -275,7 +282,7 @@ test('publication commits sanitized Copilot telemetry under the work item and re
 
 test('Copilot telemetry published before turn completion is reconciled and committed on submit', async () => {
   const root = await repository(); const workId = 'TELEMETRY-LATE-1';
-  flow(root, ['start', workId], { selection: selection('feature', 'product-owner') });
+  flow(root, ['start', workId, '--from-branch', 'main'], { selection: selection('feature', 'product-owner') });
   const workflowFile = path.join(root, 'singularity/work-items', workId, 'workflow.json');
   let workflow = JSON.parse(await readFile(workflowFile, 'utf8'));
   await completeArtifact(root, workflow, 'intake');
@@ -322,7 +329,7 @@ test('Copilot telemetry published before turn completion is reconciled and commi
 
 test('next executes one valid lifecycle action at a time', async () => {
   const root = await repository(); const workId = 'NEXT-AUTO-1';
-  flow(root, ['start', workId], { selection: selection('feature', 'product-owner') });
+  flow(root, ['start', workId, '--from-branch', 'main'], { selection: selection('feature', 'product-owner') });
   const workflowFile = path.join(root, 'singularity/work-items', workId, 'workflow.json');
   let workflow = JSON.parse(await readFile(workflowFile, 'utf8'));
   const prepared = flow(root, ['next', '--task', 'Capture automatic intake'], { selection: selection('feature', 'product-owner') });
@@ -362,7 +369,8 @@ test('next never launches a missing world-model agent unattended', async () => {
   await writeFile(definitionPath, YAML.stringify(definition));
   execute('git', ['add', 'singularity/workflow.yml'], root);
   execute('git', ['commit', '-m', 'enforce grounding'], root);
-  flow(root, ['start', 'NEXT-CONSENT-1', '--work-type', 'feature', '--agent', 'product-owner', '--title', 'Consent test', '--description', 'Do not run a model unattended.']);
+  execute('git', ['push', 'origin', 'main'], root);
+  flow(root, ['start', 'NEXT-CONSENT-1', '--from-branch', 'main', '--work-type', 'feature', '--agent', 'product-owner', '--title', 'Consent test', '--description', 'Do not run a model unattended.']);
 
   const result = flow(root, ['next', '--task', 'Consent test'], { allowFailure: true });
   assert.equal(result.status, 0);
@@ -386,8 +394,9 @@ test('next can automatically build the configured deterministic light world mode
   await writeFile(definitionPath, YAML.stringify(definition));
   execute('git', ['add', 'singularity/workflow.yml'], root);
   execute('git', ['commit', '-m', 'automate deterministic light grounding'], root);
+  execute('git', ['push', 'origin', 'main'], root);
   const workId = 'NEXT-LIGHT-AUTO-1';
-  flow(root, ['start', workId, '--work-type', 'feature', '--agent', 'product-owner', '--title', 'Automatic light grounding', '--description', 'Build deterministic grounding before intake without a separate command.']);
+  flow(root, ['start', workId, '--from-branch', 'main', '--work-type', 'feature', '--agent', 'product-owner', '--title', 'Automatic light grounding', '--description', 'Build deterministic grounding before intake without a separate command.']);
 
   const result = flow(root, ['next', '--task', 'Automatic light grounding']);
   assert.match(result.stdout, /Automatically building the deterministic light world model/);
@@ -410,7 +419,8 @@ test('prompted on-demand world-model materialization requires a TTY or --yes', a
   await writeFile(definitionPath, YAML.stringify(definition));
   execute('git', ['add', 'singularity/workflow.yml'], root);
   execute('git', ['commit', '-m', 'prompt before deterministic grounding'], root);
-  flow(root, ['start', 'NEXT-LIGHT-PROMPT-1', '--work-type', 'feature', '--agent', 'product-owner', '--title', 'Prompted light grounding', '--description', 'Require an explicit host decision before deterministic grounding.']);
+  execute('git', ['push', 'origin', 'main'], root);
+  flow(root, ['start', 'NEXT-LIGHT-PROMPT-1', '--from-branch', 'main', '--work-type', 'feature', '--agent', 'product-owner', '--title', 'Prompted light grounding', '--description', 'Require an explicit host decision before deterministic grounding.']);
 
   const result = flow(root, ['next', '--task', 'Prompted light grounding'], { allowFailure: true });
   assert.notEqual(result.status, 0);
@@ -426,8 +436,9 @@ test('advisory world-model grounding warns and continues without launching a mod
   await writeFile(definitionPath, YAML.stringify(definition));
   execute('git', ['add', 'singularity/workflow.yml'], root);
   execute('git', ['commit', '-m', 'make grounding advisory'], root);
+  execute('git', ['push', 'origin', 'main'], root);
   const workId = 'NEXT-WARN-1';
-  flow(root, ['start', workId, '--work-type', 'feature', '--agent', 'product-owner', '--title', 'Advisory grounding', '--description', 'Continue without an available world model.']);
+  flow(root, ['start', workId, '--from-branch', 'main', '--work-type', 'feature', '--agent', 'product-owner', '--title', 'Advisory grounding', '--description', 'Continue without an available world model.']);
 
   const nextsteps = flow(root, ['nextsteps', workId, '--json']);
   const plan = JSON.parse(nextsteps.stdout);
@@ -451,7 +462,8 @@ test('feature profile publishes generations, records tokens, approvals, and conf
   await writeFile(definitionPath, YAML.stringify(definition));
   execute('git', ['add', 'singularity/workflow.yml'], root);
   execute('git', ['commit', '-m', 'Use light grounding for lifecycle fixture'], root);
-  flow(root, ['start', workId, '--title', 'Configurable workflow'], { selection: selection('feature', 'product-owner') });
+  execute('git', ['push', 'origin', 'main'], root);
+  flow(root, ['start', workId, '--from-branch', 'main', '--title', 'Configurable workflow'], { selection: selection('feature', 'product-owner') });
   flow(root, ['wm', 'light', '--views', 'business,architecture,development,testing,release,operations,security']);
   const workflowFile = path.join(root, 'singularity/work-items', workId, 'workflow.json');
   const agents = { intake: 'product-owner', requirements: 'product-owner', design: 'architect', 'implementation-spec': 'architect', implementation: 'developer', verification: 'qa', conformance: 'qa' };
@@ -504,7 +516,7 @@ test('feature profile publishes generations, records tokens, approvals, and conf
 
 test('figma-mobile completes the governed design-to-visual-conformance lifecycle', async () => {
   const root = await repository(); const workId = 'MOBILE-101';
-  flow(root, ['start', workId, '--title', 'Build approved mobile screens'], { selection: selection('figma-mobile', 'product-designer') });
+  flow(root, ['start', workId, '--from-branch', 'main', '--title', 'Build approved mobile screens'], { selection: selection('figma-mobile', 'product-designer') });
   const workflowFile = path.join(root, 'singularity/work-items', workId, 'workflow.json');
   const agents = {
     'design-intake': 'product-designer', 'design-inventory': 'product-designer',
@@ -559,7 +571,7 @@ test('figma-mobile completes the governed design-to-visual-conformance lifecycle
 
 test('bugfix profile is immutable and rejection reopens an allowed earlier phase', async () => {
   const root = await repository(); const workId = 'BUG-101';
-  flow(root, ['start', workId], { selection: selection('bugfix', 'qa') });
+  flow(root, ['start', workId, '--from-branch', 'main'], { selection: selection('bugfix', 'qa') });
   const workflowFile = path.join(root, 'singularity/work-items', workId, 'workflow.json'); let workflow = JSON.parse(await readFile(workflowFile, 'utf8'));
   assert.deepEqual(workflow.phaseOrder, ['intake', 'reproduction', 'fix-design', 'fix-spec', 'implementation', 'verification', 'conformance']); assert.equal(workflow.workItem.workType, 'bugfix');
   await completeArtifact(root, workflow, 'intake'); flow(root, ['phase', 'publish', 'intake'], { selection: selection('bugfix', 'product-owner') }); flow(root, ['submit'], { selection: selection('bugfix', 'product-owner') });
@@ -590,7 +602,7 @@ test('bugfix profile is immutable and rejection reopens an allowed earlier phase
 
 test('completed work can be reopened only through an authorized governed change request', async () => {
   const root = await repository(); const workId = 'REOPEN-1';
-  flow(root, ['start', workId], { selection: selection('chore', 'developer') });
+  flow(root, ['start', workId, '--from-branch', 'main'], { selection: selection('chore', 'developer') });
   const workflowFile = path.join(root, 'singularity/work-items', workId, 'workflow.json');
   const workflow = JSON.parse(await readFile(workflowFile, 'utf8'));
   workflow.status = 'complete'; workflow.currentPhase = null;
@@ -614,7 +626,8 @@ test('completed work can be reopened only through an authorized governed change 
 test('multi-approval threshold requires distinct identities while allowing agent selection', async () => {
   const root = await repository(); const configPath = path.join(root, 'singularity/workflow.yml'); const config = YAML.parse(await readFile(configPath, 'utf8')); config.phases.intake.approval.minimum = 2; await writeFile(configPath, YAML.stringify(config));
   execute('git', ['add', configPath], root); execute('git', ['commit', '-m', 'require two intake approvals'], root);
-  const workId = 'MULTI-1'; flow(root, ['start', workId], { selection: selection('feature', 'product-owner'), actor: 'Generator' }); const workflowFile = path.join(root, 'singularity/work-items', workId, 'workflow.json'); let workflow = JSON.parse(await readFile(workflowFile, 'utf8'));
+  execute('git', ['push', 'origin', 'main'], root);
+  const workId = 'MULTI-1'; flow(root, ['start', workId, '--from-branch', 'main'], { selection: selection('feature', 'product-owner'), actor: 'Generator' }); const workflowFile = path.join(root, 'singularity/work-items', workId, 'workflow.json'); let workflow = JSON.parse(await readFile(workflowFile, 'utf8'));
   await completeArtifact(root, workflow, 'intake'); flow(root, ['phase', 'publish', 'intake'], { selection: selection('feature', 'product-owner'), actor: 'Generator' }); flow(root, ['submit'], { selection: selection('feature', 'product-owner'), actor: 'Generator' });
   const firstApproval = flow(root, ['approve', '--yes'], { selection: selection('feature', 'product-owner'), actor: 'Reviewer One' }); workflow = JSON.parse(await readFile(workflowFile, 'utf8')); assert.equal(workflow.currentPhase, 'intake'); assert.equal(workflow.phases.intake.status, 'awaiting_approval');
   assert.match(firstApproval.stdout, /Approval decision committed [0-9a-f]{8} locally/);

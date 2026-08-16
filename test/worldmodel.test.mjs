@@ -1165,8 +1165,12 @@ test('enforced workflows block generation until the governed prompt is composed'
   await writeFile(definitionPath, YAML.stringify(enforcing));
   run('git', ['add', '.'], root);
   run('git', ['commit', '-m', 'enforce grounding'], root);
+  const remote = `${root}.git`;
+  run('git', ['init', '--bare', '-b', 'main', remote], root);
+  run('git', ['remote', 'add', 'origin', remote], root);
+  run('git', ['push', '-u', 'origin', 'main'], root);
 
-  flow(['start', 'GROUND-1', '--title', 'Grounded work'], root);
+  flow(['start', 'GROUND-1', '--from-branch', 'main', '--title', 'Grounded work'], root);
   const workflowPath = path.join(root, 'singularity/work-items/GROUND-1/workflow.json');
   const workflow = JSON.parse(await readFile(workflowPath, 'utf8'));
   assert.equal(workflow.resolution.worldModelGrounding, 'enforce');

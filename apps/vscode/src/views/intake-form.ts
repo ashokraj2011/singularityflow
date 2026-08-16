@@ -75,6 +75,8 @@ export interface IntakeForm {
    */
   baseBranch: string | null;
   baseBranchChoices: BaseBranchChoice[];
+  /** Configured publication remote returned by the engine's branch catalog. */
+  baseRemote: string | null;
   /** Why the branches could not be listed, when they could not be. */
   baseBranchReason: string | null;
   inFlight: InFlight[];
@@ -95,7 +97,7 @@ export const EMPTY_INTAKE_FORM: IntakeForm = {
   targetWorkspace: null, targetRepository: null, targetBranch: null,
   shape: 'epic', tracker: 'none', key: '', id: '', title: '', description: '', goal: '',
   acceptanceCriteria: '', profile: null, profiles: [], workType: null, storyWorkflows: [],
-  baseBranch: null, baseBranchChoices: [], baseBranchReason: null,
+  baseBranch: null, baseBranchChoices: [], baseRemote: null, baseBranchReason: null,
   workflowReason: null,
   jiraConfigured: false, jiraReason: null, inFlight: [], busy: false, error: null
 };
@@ -180,6 +182,12 @@ export function intakeProblems(form: IntakeForm): string[] {
       problems.push('Choose the Story workflow, which decides the phases this runs.');
     } else if (!form.storyWorkflows.length) {
       problems.push(form.workflowReason ?? 'No Story workflow is configured in singularity/workflow.yml.');
+    }
+    if (!form.baseBranch) {
+      problems.push(form.baseBranchReason
+        ?? (form.baseBranchChoices.length
+          ? 'Choose the remote base branch from which the Story branch will be created.'
+          : 'No remote base branch is available for this Story.'));
     }
   }
   if (identifier && form.inFlight.some((entry) => entry.id === identifier)) {
@@ -361,26 +369,29 @@ function profileHtml(form: IntakeForm): string {
  * choice a reader can still make, and being told which two are missing beats a refusal later.
  */
 function baseBranchHtml(form: IntakeForm): string {
+  if (form.shape !== 'story') return '';
   if (form.baseBranchReason) {
     return `<section><h2>${icon('workflow')}Base branch</h2>
-      <p class="question">${escape(form.baseBranchReason)} Each repository will use its own default branch.</p></section>`;
+      <p class="blockers">${escape(form.baseBranchReason)}</p>
+      <p class="question">Nothing will be created until the configured remote can be read.</p></section>`;
   }
-  if (form.baseBranchChoices.length < 2 && !form.baseBranch) return '';
   const total = form.baseBranchChoices[0]?.total ?? 0;
-  if (total < 2) return '';
   return `
   <section>
     <h2>${icon('workflow')}Base branch</h2>
-    <p class="question">Every repository in this capability is cut from the same branch. A branch that
-      is not published in all ${total} of them refuses the start and names the ones that lack it.</p>
+    <p class="question">Choose explicitly. The new Story branch is cut from the latest remote commit
+      and only the Story branch is published.</p>
     <div class="choices">
       ${form.baseBranchChoices.map((choice) => `
       <label class="choice${choice.branch === form.baseBranch ? ' chosen' : ''}">
         <input type="radio" name="baseBranch" value="${escape(choice.branch)}" data-base-branch="${escape(choice.branch)}"${choice.branch === form.baseBranch ? ' checked' : ''}>
         <span class="choice-label">${escape(choice.branch)}</span>
-        <span class="choice-detail">${choice.everywhere ? `all ${choice.total}` : `${choice.present} of ${choice.total}`}${choice.missingFrom.length ? ` — missing from ${escape(choice.missingFrom.join(', '))}` : ''}</span>
+        <span class="choice-detail">${total > 1 ? `all ${choice.total} required repositories` : `published on ${escape(form.baseRemote ?? 'the configured remote')}`}</span>
       </label>`).join('')}
     </div>
+    ${form.baseBranch ? `<p class="meta">Will create <code>${escape(intakeIdentifier(form) || '<Story ID>')}</code>
+      from <code>${escape(form.baseRemote ?? 'remote')}/${escape(form.baseBranch)}</code> and publish only
+      <code>${escape(form.baseRemote ?? 'remote')}/${escape(intakeIdentifier(form) || '<Story ID>')}</code>.</p>` : ''}
   </section>`;
 }
 

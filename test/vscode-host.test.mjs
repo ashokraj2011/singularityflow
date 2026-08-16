@@ -394,6 +394,17 @@ async function demoRepository() {
   return root;
 }
 
+/**
+ * The provider feeding a Navigator section.
+ *
+ * These assertions used to reach `section(registered, 'lifecycle')`, a contributed
+ * tree view gated on a context key set nowhere — so it had never rendered for any user, while eight
+ * tests proved its provider worked. That is why the dead surface survived: deleting it looked like
+ * a regression. Same providers, reached through the sidebar that actually renders them.
+ */
+const section = (registered, name) =>
+  registered.webviewViews.get('singularityFlow.navigation')?.provider?.sourceFor(name) ?? null;
+
 function context(values = new Map()) {
   const root = path.join(packageRoot, 'apps', 'vscode');
   return {
@@ -423,7 +434,7 @@ test('the built extension activates against a real repository and populates the 
   await extension.activate(context());
 
   // The tree view was registered under the id package.json contributes.
-  const view = registered.trees.get('singularityFlow.lifecycle');
+  const view = section(registered, 'lifecycle');
   assert.ok(view, 'the lifecycle tree view is registered');
 
   // Every contributed command has a handler; a contributed command with none is a broken menu item.
@@ -432,7 +443,7 @@ test('the built extension activates against a real repository and populates the 
   }
 
   // The tree is populated from a real `snapshot --json` subprocess, not a fixture.
-  const provider = view.treeDataProvider;
+  const provider = view;
   const roots = provider.getChildren();
   assert.deepEqual(roots.map((node) => node.id), ['developer-home', 'initiative:INIT-CHECKOUT', 'workspace:impact'],
     'Lifecycle keeps advisory workspace exploration separate from the selected governed work');
@@ -440,9 +451,9 @@ test('the built extension activates against a real repository and populates the 
   assert.ok(initiativeRoot, 'the active Initiative is present beside Developer Home');
   assert.equal(initiativeRoot.label, 'INIT-CHECKOUT');
 
-  const configuration = registered.trees.get('singularityFlow.configuration');
+  const configuration = section(registered, 'configuration');
   assert.ok(configuration, 'repository settings have a dedicated Configuration view');
-  const configurationRoots = configuration.treeDataProvider.getChildren();
+  const configurationRoots = configuration.getChildren();
   assert.deepEqual(configurationRoots.map((node) => node.id), ['configuration:center']);
 
   // The section is one entry, so "discoverable under Configuration" now means discoverable in the
@@ -504,13 +515,13 @@ test('a legacy workflow blocks Lifecycle but leaves all repairable configuration
   const extension = loadExtension(api);
   await extension.activate(context());
 
-  const lifecycleProvider = registered.trees.get('singularityFlow.lifecycle').treeDataProvider;
+  const lifecycleProvider = section(registered, 'lifecycle');
   assert.match(lifecycleProvider.getChildren()[0].label, /version must be 2/);
   const lifecycleReset = lifecycleProvider.getChildren()
     .find((node) => node.id === 'lifecycle:error:reinitialize');
   assert.equal(lifecycleProvider.getTreeItem(lifecycleReset).command.command, 'singularityFlow.reinitialize');
 
-  const configurationProvider = registered.trees.get('singularityFlow.configuration').treeDataProvider;
+  const configurationProvider = section(registered, 'configuration');
   const roots = configurationProvider.getChildren();
   assert.match(roots[0].label, /version must be 2/);
   assert.ok(roots.some((node) => node.id === 'configuration:center'),
@@ -557,14 +568,14 @@ test('a folder that is not a Singularity Flow repository still gets a provider t
 
   // Not a Flow repository is an ordinary state for a folder to be in, not something to shout about.
   assert.deepEqual(registered.errors, []);
-  const view = registered.trees.get('singularityFlow.lifecycle');
+  const view = section(registered, 'lifecycle');
   assert.ok(view, 'the view always has a provider');
 
-  const [node] = view.treeDataProvider.getChildren();
+  const [node] = view.getChildren();
   assert.match(node.label, /Not a Singularity Flow repository/);
   assert.match(node.tooltip, /singularity\/workflow\.yml/);
   assert.equal(node.contextValue, 'sflow.uninitialized', 'and it offers to initialize one');
-  assert.ok(view.treeDataProvider.getTreeItem(node), 'the node renders');
+  assert.ok(view.getTreeItem(node), 'the node renders');
   assert.ok(registered.commands.has('singularityFlow.init'), 'the command it offers exists');
 });
 
@@ -579,14 +590,14 @@ test('a window with nothing open and no active workspace says which of the two t
   const extension = loadExtension(api);
   await extension.activate(context());
 
-  const view = registered.trees.get('singularityFlow.lifecycle');
+  const view = section(registered, 'lifecycle');
   assert.ok(view, 'the view always has a provider');
-  const [noWorkspaceNode] = view.treeDataProvider.getChildren();
+  const [noWorkspaceNode] = view.getChildren();
   assert.equal(noWorkspaceNode.label, 'Choose a workspace to begin');
-  assert.equal(view.treeDataProvider.getTreeItem(noWorkspaceNode).command.command,
+  assert.equal(view.getTreeItem(noWorkspaceNode).command.command,
     'singularityFlow.openWorkspaces', 'the compact empty state is itself the recovery action');
 
-  const configuration = registered.trees.get('singularityFlow.configuration').treeDataProvider;
+  const configuration = section(registered, 'configuration');
   const configurationActions = configuration.getChildren();
   assert.equal(configurationActions[0].label, 'Create first capability');
   assert.equal(configuration.getTreeItem(configurationActions[0]).command.command,
@@ -638,19 +649,19 @@ test('a selected workspace with a missing lead repository offers repair instead 
   const extension = loadExtension(api);
   await extension.activate(context());
 
-  const lifecycle = registered.trees.get('singularityFlow.lifecycle').treeDataProvider;
+  const lifecycle = section(registered, 'lifecycle');
   const [problem] = lifecycle.getChildren();
   assert.match(problem.label, /Workspace repository is missing/);
   assert.doesNotMatch(problem.label, /No workspace is active/);
   assert.match(problem.tooltip, /missing-lead/);
   assert.equal(lifecycle.getTreeItem(problem).command.command, 'singularityFlow.repairWorkspace');
 
-  const [configuration] = registered.trees.get('singularityFlow.configuration').treeDataProvider.getChildren();
+  const [configuration] = section(registered, 'configuration').getChildren();
   assert.match(configuration.label, /Workspace repository is missing/);
-  assert.equal(registered.trees.get('singularityFlow.configuration').treeDataProvider
+  assert.equal(section(registered, 'configuration')
     .getTreeItem(configuration).command.command, 'singularityFlow.repairWorkspace');
 
-  const workspaceProvider = registered.trees.get('singularityFlow.workspaces').treeDataProvider;
+  const workspaceProvider = section(registered, 'workspaces');
   const selected = await until(() => workspaceProvider.getChildren()[0]?.description ? workspaceProvider.getChildren()[0] : null);
   assert.equal(selected.description, 'selected · repository missing');
   assert.equal(selected.icon, 'statusWarning');
@@ -662,13 +673,25 @@ test('the view activates on being opened, not only when a workflow file happens 
   // Without onView, opening the view in any other folder never activates the extension at all, and
   // the contributed view sits there with nothing behind it.
   const manifest = JSON.parse(await readFile(path.join(packageRoot, 'apps', 'vscode', 'package.json'), 'utf8'));
-  assert.ok(manifest.activationEvents.includes('onView:singularityFlow.lifecycle'));
-  assert.ok(manifest.contributes.views.singularityFlowNavigator.some((view) => view.id === 'singularityFlow.lifecycle'),
-    'the activation event names the view that is actually contributed');
+  const contributed = new Set(Object.values(manifest.contributes.views).flat().map((view) => view.id));
+
+  /**
+   * Every `onView:` names a view that exists, and every view has one.
+   *
+   * Asserted as a pairing rather than by listing ids, which is what the previous version did and
+   * what let five of them rot: the views were gated on a context key set nowhere, so they never
+   * rendered, and their activation events named things a user could not open. Removing the views
+   * left the events behind — caught here, which is the test doing its job.
+   */
+  const onView = manifest.activationEvents.filter((event) => event.startsWith('onView:'))
+    .map((event) => event.slice('onView:'.length));
+  assert.deepEqual(onView.filter((id) => !contributed.has(id)), [],
+    'an activation event names a view nothing contributes');
+  assert.deepEqual([...contributed].filter((id) => !onView.includes(id)), [],
+    'a contributed view has no activation event, so opening it activates nothing');
+
   // Workspaces leads: work happens in one, and everything else is scoped to it.
   assert.equal(manifest.contributes.views.singularityFlowNavigator[0].id, 'singularityFlow.navigation');
-  assert.ok(manifest.activationEvents.includes('onView:singularityFlow.help'));
-  assert.ok(manifest.contributes.views.singularityFlowNavigator.some((view) => view.id === 'singularityFlow.help'));
 });
 
 test('the visible sidebar is one branded, scrollable navigation surface', async (t) => {
@@ -706,9 +729,9 @@ test('Help is available without a workspace and opens the canonical offline manu
   const extension = loadExtension(api);
   await extension.activate(context());
 
-  const help = registered.trees.get('singularityFlow.help');
+  const help = section(registered, 'help');
   assert.ok(help, 'Help has a provider even before workspace selection');
-  assert.ok(help.treeDataProvider.getChildren().some((node) => node.id === 'help:all'));
+  assert.ok(help.getChildren().some((node) => node.id === 'help:all'));
   await registered.commands.get('singularityFlow.openHelp')({ id: 'help:story-intake' });
   const panel = registered.panels.find((entry) => entry.id === 'singularityFlow.helpCenter');
   assert.ok(panel, 'the searchable Help Center opened');
@@ -950,7 +973,7 @@ test('a confirmed and acknowledged approval actually lands, and the views refres
   assert.equal(report.approvals.selfApprovals.length, 1);
 
   // And the tree reflects it without anyone asking for a refresh.
-  const provider = registered.trees.get('singularityFlow.lifecycle').treeDataProvider;
+  const provider = section(registered, 'lifecycle');
   const roots = provider.getChildren();
   const initiative = roots.find((node) => node.kind === 'initiative');
   assert.ok(initiative);
@@ -1042,7 +1065,7 @@ test('pinning a source from the editor puts it in the tree', async (t) => {
   await registered.commands.get('singularityFlow.addSource')();
   assert.deepEqual(registered.errors, []);
 
-  const provider = registered.trees.get('singularityFlow.lifecycle').treeDataProvider;
+  const provider = section(registered, 'lifecycle');
   const roots = provider.getChildren();
   const initiative = roots.find((node) => node.id === 'initiative:INIT-CHECKOUT');
   assert.ok(initiative);
@@ -1078,7 +1101,7 @@ test('the guided evidence manager shows attachment choices and pins a selected f
   assert.deepEqual(registered.errors, []);
   assert.equal(registered.openDialogs.length, 1, 'the editor collected the local evidence');
   assert.equal(registered.openDialogs[0].canSelectMany, true, 'the same action accepts a complete evidence set');
-  const provider = registered.trees.get('singularityFlow.lifecycle').treeDataProvider;
+  const provider = section(registered, 'lifecycle');
   const roots = provider.getChildren();
   const initiative = roots.find((node) => node.id === 'initiative:INIT-CHECKOUT');
   assert.ok(initiative);
@@ -1115,7 +1138,7 @@ test('an Epic can be started and its first source pinned entirely from the edito
   await extension.activate(context());
 
   // The tree starts by saying there is nothing here, and offering the one thing to do.
-  const provider = registered.trees.get('singularityFlow.lifecycle').treeDataProvider;
+  const provider = section(registered, 'lifecycle');
   const initialRoots = provider.getChildren();
   assert.match(initialRoots.find((node) => node.id === 'no-initiative')?.label ?? '', /No work has been started/);
   assert.equal(initialRoots.find((node) => node.contextValue === 'sflow.start')?.contextValue, 'sflow.start');
@@ -1299,7 +1322,7 @@ test('the approvals panel opens under the same CSP and leads with what is yours'
 test('the Inbox is a first-class sidebar view and opens the generated-artifact catalog', async (t) => {
   if (!requireBundle(t)) return;
   const { registered } = await activated();
-  const provider = registered.trees.get('singularityFlow.inbox')?.treeDataProvider;
+  const provider = section(registered, 'inbox');
   assert.ok(provider, 'the Inbox has a registered sidebar provider');
   const rows = provider.getChildren();
   assert.equal(rows[0].runCommand, 'singularityFlow.openInbox');
@@ -1813,7 +1836,7 @@ test('every contributed command exists, whatever state the window is in', async 
 
     // And running one says why — in exactly the words the view is showing, so a command and the
     // tree can never disagree about what is wrong with the folder.
-    const provider = registered.trees.get('singularityFlow.lifecycle').treeDataProvider;
+    const provider = section(registered, 'lifecycle');
     const [explanation] = provider.getChildren();
     const detail = explanation.tooltip;
     assert.ok(detail, `${label}: the tree explains itself`);
@@ -1861,7 +1884,7 @@ test('every contributed view has a provider, whatever state the window is in', a
 
     // Workspaces contains only real saved workspaces. Repository configuration is not represented
     // as a second, differently-shaped pseudo-workspace.
-    const workspace = registered.trees.get('singularityFlow.workspaces').treeDataProvider;
+    const workspace = section(registered, 'workspaces');
     assert.equal(workspace.getChildren().some((node) => node.id === 'workspace:scope'), false);
   }
 });
@@ -1886,7 +1909,7 @@ test('Configuration opens the capability editor and creates new capabilities', a
   assert.match(panel.webview.html, /Payments API/);
 
   // Configuration is one entry now, and it leads to the Center, which is where capabilities live.
-  const configuration = registered.trees.get('singularityFlow.configuration').treeDataProvider;
+  const configuration = section(registered, 'configuration');
   const [entry, ...rest] = configuration.getChildren();
   assert.equal(entry.id, 'configuration:center');
   assert.equal(rest.length, 0, 'the Configuration section is a single entry');
@@ -1938,7 +1961,7 @@ test('the sidebar lists workspaces even with no repository open', async (t) => {
   const extension = loadExtension(api);
   await extension.activate(context());
 
-  const provider = registered.trees.get('singularityFlow.workspaces').treeDataProvider;
+  const provider = section(registered, 'workspaces');
   const rows = await until(() => {
     const nodes = provider.getChildren();
     return nodes[0]?.label === 'commerce' ? nodes : null;
@@ -2055,7 +2078,7 @@ test('a window with nothing open keeps workspace setup out of Lifecycle', async 
   const extension = loadExtension(api);
   await extension.activate(context());
 
-  const provider = registered.trees.get('singularityFlow.lifecycle').treeDataProvider;
+  const provider = section(registered, 'lifecycle');
   const [explanation] = provider.getChildren();
   const actions = [explanation].filter((row) => row.runCommand);
   assert.deepEqual(actions.map((row) => row.runCommand), ['singularityFlow.openWorkspaces'],
@@ -2081,7 +2104,7 @@ test('an ungoverned folder still directs Lifecycle to workspace selection', asyn
   const extension = loadExtension(api);
   await extension.activate(context());
 
-  const provider = registered.trees.get('singularityFlow.lifecycle').treeDataProvider;
+  const provider = section(registered, 'lifecycle');
   const rows = provider.getChildren();
   assert.deepEqual(rows.filter((row) => row.runCommand).map((row) => row.runCommand),
     ['singularityFlow.openWorkspaces']);
@@ -2123,7 +2146,7 @@ test('the first explicit workspace selection loads Lifecycle in the same window'
   const extension = loadExtension(api);
   await extension.activate(context());
 
-  const provider = registered.trees.get('singularityFlow.workspaces').treeDataProvider;
+  const provider = section(registered, 'workspaces');
   const rows = await until(() => {
     const nodes = provider.getChildren();
     return nodes[0]?.label === 'commerce' ? nodes : null;
@@ -2347,7 +2370,7 @@ test('opening a workspace explicitly replaces the current window rather than sca
   const extension = loadExtension(api);
   await extension.activate(context());
 
-  const provider = registered.trees.get('singularityFlow.workspaces').treeDataProvider;
+  const provider = section(registered, 'workspaces');
   const rows = await until(() => {
     const nodes = provider.getChildren();
     return nodes[0]?.label === 'commerce' ? nodes : null;
@@ -2391,7 +2414,7 @@ test('opening a workspace directory works: its lead repository is what gets gove
   // Used, not described. Every screen operates on the workspace's lead repository, so opening the
   // workspace folder is a perfectly good way to work — the alternative was telling somebody the path
   // of a folder and asking them to go and open it themselves.
-  const provider = registered.trees.get('singularityFlow.lifecycle').treeDataProvider;
+  const provider = section(registered, 'lifecycle');
   const [first] = provider.getChildren();
   assert.doesNotMatch(first.label, /not a repository/);
   assert.ok(registered.output.some((line) =>
@@ -2518,7 +2541,7 @@ test('a window with nothing open shows only real workspaces', async (t) => {
   const extension = loadExtension(api);
   await extension.activate(context());
 
-  const tree = registered.trees.get('singularityFlow.workspaces').treeDataProvider;
+  const tree = section(registered, 'workspaces');
   assert.equal(tree.getChildren().some((node) => node.id === 'workspace:scope'), false,
     'configuration is not duplicated as a synthetic workspace row');
 });
@@ -2547,7 +2570,7 @@ test('terminal lifecycle writes refresh every VS Code view through one watched s
   await writeFile(statePath, `${JSON.stringify(state, null, 2)}\n`);
   registered.watchers[0].change.fire({ fsPath: statePath });
 
-  const provider = registered.trees.get('singularityFlow.lifecycle').treeDataProvider;
+  const provider = section(registered, 'lifecycle');
   await until(() => provider.getChildren().find((node) => node.kind === 'initiative')?.description === 'Changed from Copilot CLI');
   assert.equal(provider.getChildren().find((node) => node.kind === 'initiative')?.description, 'Changed from Copilot CLI');
 });
@@ -2581,7 +2604,7 @@ test('a workspace chosen while the views are already bound re-points them withou
   const extension = loadExtension(api);
   await extension.activate(context());
 
-  const provider = registered.trees.get('singularityFlow.workspaces').treeDataProvider;
+  const provider = section(registered, 'workspaces');
   const rows = await until(() => {
     const nodes = provider.getChildren();
     return nodes[0]?.label === 'here' ? nodes : null;

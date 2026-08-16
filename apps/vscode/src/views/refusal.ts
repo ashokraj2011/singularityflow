@@ -138,6 +138,8 @@ function fromMessage(text: string, details: Record<string, string>, headline?: s
      */
     preserved: [],
     actions: [],
+    // An unstructured failure knows nothing about phases, and claims nothing.
+    rail: [],
     rest: 'blocked',
     details: Object.freeze(details)
   });

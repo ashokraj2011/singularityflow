@@ -40,6 +40,12 @@ export const RESULT_CARD_STYLE = `
 .sf-card-refusal { border-left: 3px solid var(--vscode-editorWarning-foreground); }
 .sf-card-ceremony { border-left: 3px solid var(--vscode-charts-purple, var(--vscode-textLink-foreground)); }
 .sf-card h3 { margin: 0; font-size: 1.02em; font-weight: 600; display: flex; align-items: center; gap: 8px; }
+.sf-rail { display: flex; flex-wrap: wrap; align-items: center; gap: 4px 10px; margin: 0; padding: 0; list-style: none;
+  font-size: .92em; color: var(--vscode-descriptionForeground); }
+.sf-rail li { display: flex; align-items: center; gap: 5px; }
+.sf-rail-done { color: var(--vscode-testing-iconPassed, var(--vscode-charts-green)); }
+.sf-rail-current { color: var(--vscode-foreground); font-weight: 600; }
+.sf-rail-mark { font-variant-numeric: tabular-nums; }
 .sf-card-why { margin: 0; padding: 0; list-style: none; display: flex; flex-direction: column; gap: 4px; }
 .sf-card-why li { color: var(--vscode-descriptionForeground); }
 .sf-card-why b { color: var(--vscode-foreground); font-weight: 600; }
@@ -103,6 +109,26 @@ function gateRow(row: ChecklistRow): string {
   </li>`;
 }
 
+/**
+ * The phase rail. `[UXH:REQ-050]`
+ *
+ * Screen B's `intake ✓ design ✓ implement ● verify ○ release ○`, drawn from the pinned definition.
+ * Text marks rather than icons: the rail is a line of type, and it has to stay one line of type at
+ * a narrow sidebar width where seven SVGs would wrap into a grid.
+ *
+ * The `aria-label` carries the state in words for the same reason the checklist rows do — a screen
+ * reader given five phase names and no marks hears a list, not a position.
+ */
+const MARKS = Object.freeze({ done: '✓', current: '●', pending: '○' });
+
+function railHtml(view: ResultCardView): string {
+  if (!view.rail.length) return '';
+  return `<ul class="sf-rail" aria-label="Phase progress">${view.rail.map((phase) => `<li
+    class="sf-rail-${phase.state}"
+    aria-label="${escape(`${phase.label}: ${phase.state}`)}"
+  ><span class="sf-rail-mark" aria-hidden="true">${MARKS[phase.state] ?? '·'}</span>${escape(phase.label)}</li>`).join('')}</ul>`;
+}
+
 export function resultCardHtml(view: ResultCardView): string {
   const why = view.why.length
     ? `<ul class="sf-card-why">${view.why.map((entry) =>
@@ -158,7 +184,7 @@ export function resultCardHtml(view: ResultCardView): string {
 
   return `<section class="sf-card sf-card-${view.tone}">
     <h3>${icon(view.tone === 'refusal' ? 'statusBlocked' : 'statusCurrent')} ${escape(view.headline)}</h3>
-    ${why}${warnings}${gates}${preserved}${actions}${rest}${details}
+    ${railHtml(view)}${why}${warnings}${gates}${preserved}${actions}${rest}${details}
   </section>`;
 }
 

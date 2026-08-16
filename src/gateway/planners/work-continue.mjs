@@ -143,6 +143,14 @@ export function workContinueResult(item, { subject = null, localChanges = null, 
     data: {
       work: item,
       /**
+       * Lifted out of `work` so a surface does not have to know the record's shape to draw it.
+       *
+       * `data.work.rail` and `data.rail` are the same array; the second is the one the card reads,
+       * and naming it at the top level is the difference between a renderer that knows about phases
+       * and a renderer that knows about *this product's* phase record.
+       */
+      rail: item.rail ?? [],
+      /**
        * Null when nothing was read, never a zeroed record. `[DHR:REQ-041]`
        *
        * `{dirty: false, files: 0}` asserts a clean tree. A caller that supplied nothing has not

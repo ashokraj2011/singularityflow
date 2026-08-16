@@ -57,6 +57,14 @@ export type ResultCardView = {
   } | null;
   readonly preserved: readonly Message[];
   readonly actions: readonly CardAction[];
+  /**
+   * The phase rail, when the result is about work that has one. `[UXH:REQ-050]`
+   *
+   * Read from `data.rail` rather than derived: only the record layer has the pinned definition, and
+   * a renderer handed a current phase would have to guess the sequence — wrong for any repository
+   * that configured its own.
+   */
+  readonly rail: readonly { readonly id: string; readonly label: string; readonly state: 'done' | 'current' | 'pending' }[];
   readonly rest: string | null;
   readonly details: Readonly<Record<string, string>>;
 };
@@ -210,6 +218,8 @@ export function buildResultCard(result: any): ResultCardView {
      */
     preserved: (result.preserved ?? []).map((entry: any) => message(entry.code, entry.slots)),
     actions,
+    /** Named, not spread: a producer that puts something else in `data` does not start rendering it. */
+    rail: Array.isArray(result.data?.rail) ? result.data.rail : [],
     rest: result.restState ?? null,
     details: Object.freeze(detailsOf(result))
   });

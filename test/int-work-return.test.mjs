@@ -134,3 +134,20 @@ test('every return code has a sentence', () => {
   const missing = RETURN_CODES.filter((code) => !RESULT_MESSAGES[code]);
   assert.deepEqual(missing, []);
 });
+
+test('story return composes the planner rather than a second implementation', async () => {
+  /**
+   * The command rendered `developerReturn` alone — a rich projection of where the Story stands, and
+   * no comparison of local work against the plan. The one question its name asks was the one thing
+   * it did not answer, because the reconciliation lived behind `story interval reconcile`.
+   *
+   * A source check because the composition is the point: this asserts the command reaches the
+   * kernel, not that a particular sentence renders.
+   */
+  const { readFile } = await import('node:fs/promises');
+  const source = codeOnly(await readFile(new URL('../src/commands/story.mjs', import.meta.url), 'utf8'));
+  assert.match(source, /kernel\.resolve\(\{ utterance: 'what changed while I was away'/);
+  assert.match(source, /kernel\.read\(\{ resolutionId/);
+  // And it renders the planner's reasons through the shared catalog, not its own wording.
+  assert.match(source, /message\(entry\.code, entry\.slots\)/);
+});

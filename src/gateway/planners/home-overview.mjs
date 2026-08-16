@@ -138,7 +138,8 @@ export function homeOverviewResult({ workspace = null, records = null, subject =
       why: [{ code: 'home.no-workspace-selected', source: 'deterministic' }],
       next: lead.map((entry, index) => choice(entry, index, 'home.select-a-workspace-first')),
       restState: null,
-      data: { workspace: null, counts: null, briefingAvailable: false, choiceSet: lead.map((entry) => entry.id) }
+      /** No workspace means no Story, so there is no rail to draw and none is claimed. */
+      data: { rail: [], workspace: null, counts: null, briefingAvailable: false, choiceSet: lead.map((entry) => entry.id) }
     });
   }
 
@@ -218,6 +219,13 @@ export function homeOverviewResult({ workspace = null, records = null, subject =
     }),
     restState: null,
     data: {
+      /**
+       * Screen B draws the rail above the one filled action, so the home carries it.
+       *
+       * Empty when there is no active Story. An empty rail renders as nothing, where a rail of all
+       * pending phases would draw a lifecycle for work nobody has started.
+       */
+      rail: active?.rail ?? [],
       workspace: { id: workspace.id, name: workspace.name ?? workspace.id },
       counts,
       activeWork: active ? { id: active.id, title: active.title, phase: active.phase, nextAction: active.nextAction } : null,

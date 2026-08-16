@@ -7,6 +7,7 @@
  */
 import test from 'node:test';
 import assert from 'node:assert/strict';
+import { readFileSync } from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 
@@ -235,4 +236,49 @@ test('primary and secondary cannot look the same, whatever the theme sets', () =
 
   const gate = RESULT_CARD_STYLE.match(/\.sf-gate button \{[^}]*\}/)[0];
   assert.match(gate, /background: transparent/, 'a fix button is never the card\'s filled action');
+});
+
+test('the phase rail renders as Screen B draws it', () => {
+  /**
+   * `intake ✓ design ✓ implement ● verify ○ release ○`, from the pinned definition.
+   *
+   * Text marks rather than icons: at a narrow sidebar width seven SVGs wrap into a grid, and the
+   * rail has to stay one line of type.
+   */
+  const rail = [
+    { id: 'intake', label: 'intake', state: 'done' },
+    { id: 'design', label: 'design', state: 'done' },
+    { id: 'implement', label: 'implement', state: 'current' },
+    { id: 'verify', label: 'verify', state: 'pending' },
+    { id: 'release', label: 'release', state: 'pending' }
+  ];
+  const card = buildResultCard({
+    schemaVersion: 2, resultType: 'sflow-result', kind: 'read',
+    operation: { id: 'home.overview', classification: 'read' }, subject: null,
+    outcome: { status: 'succeeded', messageId: 'gateway.home', slots: {} },
+    effects: { contextChanged: false, stateChanged: false, filesChanged: false, gitRefsChanged: false, publicationCreated: false, externalSystemsChanged: false },
+    why: [], warnings: [], preserved: [], checklist: [], next: [], restState: 'informational', data: { rail }
+  });
+  assert.equal(card.rail.length, 5);
+
+  const html = resultCardHtml(card);
+  const marks = [...html.matchAll(/class="sf-rail-mark" aria-hidden="true">(.)</g)].map(([, mark]) => mark);
+  assert.deepEqual(marks, ['✓', '✓', '●', '○', '○']);
+  // A screen reader hears the position, not five names in a row.
+  assert.match(html, /aria-label="implement: current"/);
+  assert.match(html, /aria-label="release: pending"/);
+});
+
+test('a result with no rail renders none', () => {
+  // An empty rail is nothing; a rail of all-pending phases would draw a lifecycle for work nobody
+  // has started.
+  const card = buildResultCard(blocked(['approvals-outstanding']));
+  assert.deepEqual(card.rail, []);
+  assert.ok(!resultCardHtml(card).includes('sf-rail'));
+});
+
+test('the rail is read from a named field, never spread from data', () => {
+  // A producer that starts putting something else in `data` does not start rendering it.
+  const model = readFileSync(new URL('../apps/vscode/src/views/result-card-model.ts', import.meta.url), 'utf8');
+  assert.match(model, /rail: Array\.isArray\(result\.data\?\.rail\)/);
 });

@@ -21,6 +21,39 @@ export const WORK_GROUP_ORDER = Object.freeze([
 const COMPLETE_STATUSES = new Set(['approved', 'complete', 'completed']);
 
 /**
+ * The phase rail: every phase in order, and where this work has got to. `[UXH:REQ-050]`
+ *
+ * Screen B draws it as `intake ✓ design ✓ implement ● verify ○ release ○`, and the reason it is
+ * built here rather than in a renderer is that only this layer has the pinned definition open. A
+ * surface handed a current phase and asked to draw a rail has to guess the sequence, and the guess
+ * is wrong for every repository that configured its own.
+ *
+ * Three states and no fourth. `done` is a phase the lifecycle considers complete, `current` is
+ * where the work is, `pending` is everything after it. A phase that was skipped, reopened or is
+ * awaiting approval is still *current* or *done* by its own status — this rail reports position,
+ * not health, and the checklist is where health belongs.
+ */
+export function phaseRail(workflow) {
+  const order = workflow?.phaseOrder ?? [];
+  if (!order.length) return [];
+  const currentIndex = order.indexOf(workflow.currentPhase ?? '');
+  return order.map((id, index) => {
+    const phase = workflow.phases?.[id] ?? {};
+    /**
+     * Status first, position second.
+     *
+     * A phase whose own status says approved is done even if it sits after the current one — which
+     * happens on a reopen, and a rail that inferred purely from position would show completed work
+     * as pending and invite someone to redo it.
+     */
+    const state = COMPLETE_STATUSES.has(phase.status) ? 'done'
+      : (currentIndex >= 0 && index === currentIndex) ? 'current'
+        : (currentIndex >= 0 && index < currentIndex) ? 'done' : 'pending';
+    return { id, label: phase.label ?? id, state, status: phase.status ?? null };
+  });
+}
+
+/**
  * The last thing that actually happened, as opposed to the last thing that was written.
  *
  * History carries bookkeeping entries as well as material ones, and "last updated 2 minutes ago"
@@ -153,6 +186,8 @@ export async function workRecords(root, {
         phaseLabel: phase?.label ?? phaseId,
         generation: phase?.generation ?? 0,
         status: phase?.status ?? null,
+        // Where this work sits in its own lifecycle, from the pinned definition `[UXH:REQ-050]`.
+        rail: phaseRail(workflow),
         lastMaterialEvent: lastMaterialEvent(workflow),
         blockers: blockersOf(workflow, { pendingPublication }),
         group,

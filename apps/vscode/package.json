@@ -402,6 +402,11 @@
         "icon": "$(home)"
       },
       {
+        "command": "singularityFlow.impactForm",
+        "title": "Singularity Flow: Impact of a Change...",
+        "icon": "$(diff)"
+      },
+      {
         "command": "singularityFlow.openJourney",
         "title": "Singularity Flow: Open Journey",
         "icon": "$(map)"

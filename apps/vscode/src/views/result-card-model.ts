@@ -38,6 +38,20 @@ export type CardAction = {
   readonly label: string;
   readonly emphasis: 'primary' | 'secondary' | 'link';
   readonly interaction: string;
+  /**
+   * Whether this handle is read now or selected and re-resolved. `[UXH:REQ-031]`
+   *
+   * It changes nothing on screen, which is why it was left out — and why the host then had to
+   * invent a value, choosing `executable: false` for every action. That is right for a
+   * disambiguation choice and wrong for a read handle, so pressing the single primary on a
+   * "Ready to go" card resolved a read handle as a selection and came back "that choice is no
+   * longer current" — a stale-handle refusal with nothing stale about it, blaming the world for
+   * the host's guess.
+   *
+   * Carried through the model because the model is what the host dispatches from. A field that
+   * only the dispatcher reads still belongs to the contract between them.
+   */
+  readonly executable: boolean;
   readonly detail: string | null;
   readonly command: string | null;
 };
@@ -143,6 +157,8 @@ function actionOf(entry: any): CardAction {
     label: entry.label,
     emphasis: entry.emphasis,
     interaction: entry.interaction,
+    // The envelope normalises this, so `!== false` matches `result.mjs` rather than re-deciding it.
+    executable: entry.executable !== false,
     detail: text.label,
     /**
      * The terminal equivalent, shown for learning and reproducibility `[UXH:REQ-073]`.

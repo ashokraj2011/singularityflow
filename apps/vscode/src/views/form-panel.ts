@@ -38,6 +38,15 @@ import {
 export type FormRequest = {
   /** A registered operation argument schema. The form cannot exist without one. */
   readonly schemaId: string;
+  /**
+   * The goal this form submits to, named rather than described.
+   *
+   * The first wiring passed an utterance — `'what changed'` — and the resolver answered "nothing
+   * matched that", correctly: prose is for a person who does not know the operation's name, and a
+   * form built from that operation's own schema is the one caller that does. Guessing a phrase the
+   * alias list happens to contain is a second, weaker way of saying something already known.
+   */
+  readonly goal: string;
   readonly title: string;
   /** The command the collapsed terminal equivalent is built from. Display-only `[UXH:REQ-073]`. */
   readonly command: string;
@@ -46,6 +55,7 @@ export type FormRequest = {
 
 export type FormSubmission = {
   readonly schemaId: string;
+  readonly goal: string;
   readonly values: Record<string, string | number | boolean>;
 };
 
@@ -99,8 +109,22 @@ const FORM_SCRIPT = `
     }
     return values;
   }
-  form.addEventListener('input', function () {
-    window.__sfVscode.postMessage({ type: 'sflow.form.draft', values: JSON.stringify(collect(false)) });
+  function changed() {
+    window.__sfVscode.postMessage({
+      type: 'sflow.form.draft',
+      values: JSON.stringify(collect(false)),
+      // The equivalent must reflect the ceremony too, or the command shown is not the one the
+      // button would run. Displayed, never stored: the draft filter is the collect(false) above.
+      shown: JSON.stringify(collect(true))
+    });
+  }
+  form.addEventListener('input', changed);
+  form.addEventListener('change', changed);
+  window.addEventListener('message', function (event) {
+    if (event.data && event.data.type === 'sflow.form.terminal') {
+      const pre = form.querySelector('[data-terminal]');
+      if (pre) pre.textContent = event.data.command;
+    }
   });
   form.addEventListener('submit', function (event) {
     event.preventDefault();
@@ -159,7 +183,22 @@ export function showForm(next: FormRequest): boolean {
     const router = createMessageRouter('singularityFlow.form', {
       'sflow.form.draft': (message) => {
         const parsed = parseValues(message);
-        if (parsed && request) saveDraft(request.schemaId, parsed);
+        if (!parsed || !request) return;
+        saveDraft(request.schemaId, parsed);
+        /**
+         * The equivalent follows the form, through the one implementation of it.
+         *
+         * It was rendered once at open and never moved, so checking a box left the section showing
+         * a command that would do something else — a "terminal equivalent" that is not equivalent,
+         * which is the failure `[UXH:REQ-073]` is worth nothing without. Computed here rather than
+         * in the client because `terminalEquivalent` is the same function the parity suite pastes
+         * through the CLI's parser; a second copy in the webview would be a second answer.
+         */
+        void panel?.webview.postMessage({
+          type: 'sflow.form.terminal',
+          command: terminalEquivalent(request.command,
+            coerceForm(request.schemaId, parseValues(message, 'shown') ?? parsed))
+        });
       },
       'sflow.form.submit': (message) => {
         const parsed = parseValues(message);
@@ -189,7 +228,11 @@ export function showForm(next: FormRequest): boolean {
          * already coerces internally, which is why the check above passed — sending `parsed` here
          * would have made the panel the one place the conversion did not happen.
          */
-        const submission = { schemaId: request.schemaId, values: coerceForm(request.schemaId, parsed) };
+        const submission = {
+          schemaId: request.schemaId,
+          goal: request.goal,
+          values: coerceForm(request.schemaId, parsed)
+        };
         saveDraft(request.schemaId, parsed);
         panel.dispose();
         void submit?.(submission);
@@ -211,8 +254,9 @@ export function showForm(next: FormRequest): boolean {
   return true;
 }
 
-function parseValues(message: { readonly type: string }): Record<string, string | number | boolean> | null {
-  const raw = stringField(message as Record<string, unknown> & { type: string }, 'values');
+function parseValues(message: { readonly type: string },
+  field = 'values'): Record<string, string | number | boolean> | null {
+  const raw = stringField(message as Record<string, unknown> & { type: string }, field);
   if (!raw) return {};
   try {
     const parsed: unknown = JSON.parse(raw);

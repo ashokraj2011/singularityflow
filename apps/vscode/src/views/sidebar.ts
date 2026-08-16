@@ -56,6 +56,10 @@ const SECTION_META: Record<SidebarSection, {
   lifecycle: {
     label: 'Lifecycle', icon: 'workflow', actions: [
       { id: 'work-start', label: 'Start intake', icon: 'start' },
+      // A form with no entry point is unreachable, which is the same "declared, never consumed"
+      // state the gateway itself was in. Lifecycle, because "what does this change touch" is a
+      // question about work in flight.
+      { id: 'impact-form', label: 'Impact of a change', icon: 'compare' },
       { id: 'visual-assurance', label: 'Open visual assurance', icon: 'visual' },
       { id: 'refresh', label: 'Refresh lifecycle', icon: 'refresh' }
     ],
@@ -109,6 +113,7 @@ const ACTION_COMMANDS: Record<string, string> = {
   'workspace-create': 'singularityFlow.createWorkspace',
   'workspace-manage': 'singularityFlow.openWorkspaces',
   'work-start': 'singularityFlow.startWork',
+  'impact-form': 'singularityFlow.impactForm',
   refresh: 'singularityFlow.refresh',
   'inbox-open': 'singularityFlow.openInbox',
   'capability-map': 'singularityFlow.mapCapability',

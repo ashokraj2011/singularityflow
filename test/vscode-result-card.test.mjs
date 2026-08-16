@@ -8,9 +8,11 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
+import { readFile } from 'node:fs/promises';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 
+import { codeOnly } from './source-text.mjs';
 import { REASON_CODES } from '../src/gateway/catalog.mjs';
 import { KERNEL_MESSAGES } from '../src/gateway/kernel.mjs';
 import { RESOLUTION_MESSAGES } from '../src/gateway/resolve.mjs';
@@ -281,4 +283,40 @@ test('the rail is read from a named field, never spread from data', () => {
   // A producer that starts putting something else in `data` does not start rendering it.
   const model = readFileSync(new URL('../apps/vscode/src/views/result-card-model.ts', import.meta.url), 'utf8');
   assert.match(model, /rail: Array\.isArray\(result\.data\?\.rail\)/);
+});
+
+test('an action carries how it is dispatched, so the host does not have to guess', async () => {
+  /**
+   * `executable` changes nothing on screen, which is why it was omitted — and the host then had to
+   * invent one, forcing `false` on every press. That is right for a disambiguation choice and wrong
+   * for a read handle: pressing the single primary on a "Ready to go" card resolved a read handle
+   * as a selection and returned "that choice is no longer current", a stale-handle refusal with
+   * nothing stale about it.
+   *
+   * Found by pressing the button in a real window. Every fixture rendered the card correctly.
+   */
+  const card = buildResultCard({
+    schemaVersion: 2,
+    kind: 'read',
+    operation: { id: 'impact.quick', classification: 'read' },
+    subject: { kind: 'repository', id: 'calc' },
+    outcome: { status: 'succeeded', messageId: 'gateway.ready', slots: {} },
+    effects: {},
+    why: [],
+    next: [
+      { id: 'resolved:impact.quick', label: 'quick impact analysis', handle: 'h1', executable: true,
+        reasonCode: 'gateway.ready', emphasis: 'primary', interaction: 'navigation' },
+      { id: 'candidate:impact.quick', label: 'quick impact analysis', handle: 'h2', executable: false,
+        reasonCode: 'gateway.ready', emphasis: 'secondary', interaction: 'navigation' }
+    ],
+    data: {}
+  });
+  assert.equal(card.actions[0].executable, true, 'a read handle is read');
+  assert.equal(card.actions[1].executable, false, 'a candidate is selected and re-resolved');
+
+  // And the host dispatches what the envelope said rather than overriding it.
+  const source = codeOnly(await readFile(path.join(root, 'apps', 'vscode', 'src', 'extension.ts'), 'utf8'));
+  assert.ok(!/executor\.execute\(\{[^}]*executable: false/.test(source),
+    'the host is still forcing a dispatch mode onto every action');
+  assert.match(source, /executor\.execute\(action\)/);
 });

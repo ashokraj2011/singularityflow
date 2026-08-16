@@ -16,6 +16,7 @@ import {
   loadDefinition,
   normalizePlanning,
   validateDefinition,
+  withDefinitionCache,
   worldModelPromptViewReferences,
   WORKFLOW_PATH
 } from './config.mjs';
@@ -1046,7 +1047,25 @@ async function integrationSlice(root) {
  * Build either the compatibility snapshot consumed by the extension, or explicit schema-v2
  * slices for callers that request them. Scoped calls do not construct unrelated read models.
  */
+/**
+ * The read model, computed inside one read scope. `[UXH:REQ-120]` `[DHR:REQ-093]`
+ *
+ * A snapshot is the definition of a read-only operation — it is what the extension calls on every
+ * refresh and it writes nothing — so this is the place the scope belongs. `withDefinitionCache` was
+ * written for exactly this and had **no callers anywhere**: the memo existed, was correct, and was
+ * never opened, so `loadDefinition` went on being parsed seven times and the ledger read three.
+ * The same "declared, validated, never reaching a consumer" shape this codebase keeps producing,
+ * this time in the fix rather than the feature.
+ *
+ * Wrapped here rather than at the CLI dispatch so the extension gets it too: it bundles this module
+ * and calls `repositorySnapshot` in-process, and a cache that only the terminal opened would miss
+ * the surface the latency budget is actually about.
+ */
 export async function repositorySnapshot(root, requestedWorkId = null, requestedInitiativeId = null, { included = null } = {}) {
+  return withDefinitionCache(() => repositorySnapshotInScope(root, requestedWorkId, requestedInitiativeId, { included }));
+}
+
+async function repositorySnapshotInScope(root, requestedWorkId, requestedInitiativeId, { included }) {
   if (!included?.length) return fullRepositorySnapshot(root, requestedWorkId, requestedInitiativeId);
   const requested = [...new Set(included)];
   const unknown = requested.filter((slice) => !SNAPSHOT_SLICES.has(slice));

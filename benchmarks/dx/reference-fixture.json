@@ -28,5 +28,36 @@
     "nextsteps": { "p50Ms": 150 },
     "snapshot": { "p50Ms": 150, "p95Ms": 250 },
     "snapshotFull": { "p50Ms": 850, "p95Ms": 1100 }
+  },
+  "connected": {
+    "why": [
+      "The tier above has no remote, no ledger and one Story, so the entire cost centre that made",
+      "snapshot --json take 12.6s on a real repository was invisible to it: 975 subprocesses, of",
+      "which 6 were fetches worth 4.5s. It also runs with SINGULARITY_FLOW_NO_NETWORK=1, which",
+      "blocks a fetch rather than performing one -- so even a fixture with a remote would have",
+      "measured the fetches as free.",
+      "This tier has a real (file://) remote, an enabled ledger with intents published on several",
+      "branches, and a second capability repository. Network is left ENABLED, because the property",
+      "under test is that a read path does not use it."
+    ],
+    "topology": {
+      "repositories": 2,
+      "remoteBranches": 3,
+      "ledgerIntents": 24,
+      "ledger": "enabled",
+      "remote": "local-bare"
+    },
+    "budgets": {
+      "snapshotFull": { "p50Ms": 2500, "p95Ms": 3500 }
+    },
+    "networkCalls": {
+      "snapshotFull": 0,
+      "note": [
+        "A budget cannot express this. Time budgets are met by a fast network and blown by a slow",
+        "one, which is why the read path was allowed to fetch for as long as it did -- nothing was",
+        "asserting that it must not. This counts network subprocesses via",
+        "SINGULARITY_FLOW_SUBPROCESS_PROBE and is machine-independent: zero is zero on any runner."
+      ]
+    }
   }
 }

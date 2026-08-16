@@ -13,6 +13,7 @@ import {
   writeText
 } from './util.mjs';
 import { validateInjectionDefinition } from './inject.mjs';
+import { scopedRead, withReadScope } from './read-scope.mjs';
 import { groundingMode } from './grounding.mjs';
 import {
   discoverAgents,
@@ -612,26 +613,23 @@ export async function validateWorldModelPromptViewReferences(root, definition) {
  * Nested calls share the outermost scope, and the cache is dropped on the way out whether the
  * operation succeeded or threw.
  */
-let definitionScope = null;
+/**
+ * The read scope lives in `read-scope.mjs`, which imports nothing.
+ *
+ * It was here, and `git.mjs` needed the same scope for `branch()` — which made every fast command
+ * statically reach this module and `agents.mjs` behind it. `dx-performance.test.mjs` refuses that
+ * by name. `withDefinitionCache` is kept as the name callers already know; it is the read scope.
+ */
+export { inReadScope, scopedRead, scopedReadSync, withReadScope } from './read-scope.mjs';
 
+/** The name callers already know. It is the read scope, under the label it was introduced with. */
 export async function withDefinitionCache(fn) {
-  if (definitionScope) return fn();
-  definitionScope = new Map();
-  try { return await fn(); }
-  finally { definitionScope = null; }
+  return withReadScope(fn);
 }
 
 export async function loadDefinition(root) {
-  const scoped = definitionScope;
-  if (scoped?.has(root)) return scoped.get(root);
-  if (scoped) {
-    // Store the promise, not the result: seven concurrent callers must share one parse rather than
-    // race and each start their own before the first has finished.
-    const pending = loadDefinitionUncached(root);
-    scoped.set(root, pending);
-    return pending;
-  }
-  return loadDefinitionUncached(root);
+  // The scope stores the promise, so seven concurrent callers share one parse rather than race.
+  return scopedRead(`config.definition:${root}`, () => loadDefinitionUncached(root));
 }
 
 async function loadDefinitionUncached(root) {

@@ -3,6 +3,7 @@ import { mkdir, mkdtemp, rm } from 'node:fs/promises';
 // Synchronous, because `identity()` is synchronous and called from synchronous code throughout.
 import { mkdirSync, readFileSync, statSync, writeFileSync } from 'node:fs';
 import { SingularityFlowError, invariant, run } from './util.mjs';
+import { scopedReadSync } from './read-scope.mjs';
 import { scanEntries, secretRefusal } from './secrets.mjs';
 
 function git(args, options = {}) {
@@ -40,10 +41,25 @@ export function repoRoot(cwd = process.cwd()) {
   return resolved;
 }
 
+/**
+ * The checked-out branch, read once per read scope. `[UXH:REQ-120]`
+ *
+ * Measured at 9–11 calls per `snapshot --json`, unmemoized, while `repoRoot` and `gitDir` beside it
+ * have had module-level caches for as long as they have existed. The asymmetry is not an oversight:
+ * a repository root does not move under a running process and **a branch does** — `start`, `publish`
+ * and `resume` all check one out mid-run, and a module-level memo here would hand them the branch
+ * they left rather than the one they are on. That is a correctness bug, not a stale number.
+ *
+ * The read scope is what makes it safe. It is opened only by operations that declare themselves
+ * read-only, so nothing that can switch a branch is ever inside one, and outside a scope this is
+ * the plain Git call it always was.
+ */
 export function branch(root) {
-  const value = git(['branch', '--show-current'], { cwd: root }).stdout.trim();
-  invariant(value, 'Detached HEAD is not supported.');
-  return value;
+  return scopedReadSync(`git.branch:${root}`, () => {
+    const value = git(['branch', '--show-current'], { cwd: root }).stdout.trim();
+    invariant(value, 'Detached HEAD is not supported.');
+    return value;
+  });
 }
 
 /** Branch names that are an application integration target in essentially every repository. */

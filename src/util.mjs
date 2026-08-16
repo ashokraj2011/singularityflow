@@ -264,10 +264,45 @@ export function requirePositional(positionals, index, label) {
  * measuring — which is luck, not method. Off unless the variable is set, so it costs nothing.
  */
 const subprocessProbe = new Map();
+
+/**
+ * Which call site made it, when `SINGULARITY_FLOW_SUBPROCESS_TRACE` matches. `[UXH:REQ-120]`
+ *
+ * The counts above say a read path fetched six times; they cannot say *from where*, and the answer
+ * is what the fix depends on. The previous round resolved that by reading the code until a
+ * plausible culprit appeared — which found a real one and would have been silent if the culprit had
+ * been the second plausible reader instead. A stack per matching call turns the next investigation
+ * back into a measurement.
+ *
+ * A substring of the probe key rather than a pattern: the keys are already the vocabulary the
+ * report prints, so `TRACE='git fetch'` traces what the reader just saw a row for, with no second
+ * syntax to learn.
+ */
+function traceSubprocess(key) {
+  const wanted = process.env.SINGULARITY_FLOW_SUBPROCESS_TRACE;
+  if (!wanted || !key.includes(wanted)) return;
+  const frames = (new Error().stack ?? '').split('\n')
+    // This helper, its caller in `run`, and Node's own internals are noise: the reader wants the
+    // first frame that belongs to this product.
+    .filter((line) => line.includes(`${path.sep}src${path.sep}`) && !line.includes(`util.mjs`))
+    /**
+     * Deep enough to reach the surface that asked.
+     *
+     * Four frames looked like plenty and stopped one short of `editor.mjs` on two of three ledger
+     * reads — so the report showed a cost happening three times and could only account for one of
+     * them. The question a trace exists to answer is "who wanted this", and that is the *last*
+     * product frame, not the first.
+     */
+    .slice(0, Number(process.env.SINGULARITY_FLOW_SUBPROCESS_TRACE_DEPTH || 10))
+    .map((line) => `      ${line.trim()}`);
+  process.stderr.write(`\ntrace ${key}\n${frames.join('\n') || '      (no product frame)'}\n`);
+}
+
 function recordSubprocessProbe(command, args, ms) {
   // Keyed by the verb, not the whole line: `git rev-parse <sha>` and `git rev-parse HEAD` are the
   // same call for costing purposes, and per-argument keys would bury the count in cardinality.
   const key = `${command} ${String(args[0] ?? '')} ${String(args[1] ?? '')}`.trim();
+  traceSubprocess(key);
   const entry = subprocessProbe.get(key) ?? { calls: 0, ms: 0 };
   subprocessProbe.set(key, { calls: entry.calls + 1, ms: entry.ms + ms });
   if (!subprocessProbe.reported) {

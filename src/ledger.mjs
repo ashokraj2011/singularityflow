@@ -5,6 +5,7 @@ import path from 'node:path';
 import {
   SingularityFlowError, ensureDir, exists, nowIso, readJson, run, writeAtomic, writeJson
 } from './util.mjs';
+import { scopedRead } from './read-scope.mjs';
 import { defaultBranchName, gitDir, hasRemote, identity, refExists } from './git.mjs';
 import { normalizeLedgerConfig } from './ledger-config.mjs';
 import { LIFECYCLE_EVENT_TYPES } from './lifecycle-event.mjs';
@@ -75,9 +76,39 @@ function ledgerHead(root, config) {
   return null;
 }
 
-function ensureRemoteBranchFetched(root, config) {
-  if (!hasRemote(root, config.remote)) return;
-  git(root, ['fetch', '--no-tags', config.remote, `+refs/heads/${config.branch}:${remoteRef(config)}`], { allowFailure: true });
+/**
+ * How a read came by its view of the remote, in the words the rest of the product already uses.
+ *
+ * `resolveWorldModelSource` in `grounding.mjs` settled this vocabulary and a second one here would
+ * be a second thing to translate. `not-checked` is the addition, and it is the whole point of it:
+ * the existing states all describe an attempt — refreshed, timed out, no remote configured — and a
+ * read path that *deliberately did not look* is none of those.
+ *
+ * Without it, `offline: true` is what `src/git.mjs` already objected to: a slow truth turned into a
+ * fast lie. The cached answer is served either way; the difference is whether the caller is told it
+ * is cached, and only one of those lets them decide whether it is good enough.
+ */
+export const LEDGER_REMOTE_VIEW = Object.freeze({
+  REFRESHED: 'refreshed',
+  NOT_CHECKED: 'not-checked',
+  NO_REMOTE: 'no-remote',
+  OFFLINE_CACHED: 'offline-cached',
+  TIMEOUT_CACHED: 'timeout-cached'
+});
+
+/**
+ * Bring the ledger branch up to date, unless this is a read that promised not to.
+ *
+ * Returns which of the states above happened, because the caller has to be able to say so. It used
+ * to return nothing, which is why `ledgerStatus` could guard the call and still report its result
+ * as though the remote had been consulted.
+ */
+function ensureRemoteBranchFetched(root, config, { offline = false } = {}) {
+  if (!hasRemote(root, config.remote)) return LEDGER_REMOTE_VIEW.NO_REMOTE;
+  if (offline) return LEDGER_REMOTE_VIEW.NOT_CHECKED;
+  const fetched = git(root, ['fetch', '--no-tags', config.remote, `+refs/heads/${config.branch}:${remoteRef(config)}`], { allowFailure: true });
+  if (fetched.status === 0) return LEDGER_REMOTE_VIEW.REFRESHED;
+  return fetched.timedOut ? LEDGER_REMOTE_VIEW.TIMEOUT_CACHED : LEDGER_REMOTE_VIEW.OFFLINE_CACHED;
 }
 
 function installPinRefspec(root, config) {
@@ -614,12 +645,19 @@ export async function discoverLedgerIntents(root) {
   return files.filter((file) => file.includes(marker)).sort();
 }
 
-function commitContaining(root, relativePath) {
-  return git(root, ['log', '-1', '--format=%H', '--', relativePath], { allowFailure: true }).stdout.trim() || null;
-}
-
-async function remoteLedgerIntents(root, config) {
-  git(root, ['fetch', '--prune', config.remote], { allowFailure: true });
+/**
+ * Intents published on other branches.
+ *
+ * `offline` is honoured here rather than only at the caller because this is where the fetch is: the
+ * top of `ledgerStatus` guarded the fetch *it* made and then called this, which fetched again with
+ * no idea a promise had been made. Read-only callers got two network round trips they had asked not
+ * to have, and the disclosure they were handed said nothing about it.
+ *
+ * Cache-only, not blind: the remote-tracking refs already on disk are read exactly as before, so a
+ * warm clone gets the same answer for free. What it does not do is populate them.
+ */
+async function remoteLedgerIntents(root, config, { offline = false } = {}) {
+  if (!offline) git(root, ['fetch', '--prune', config.remote], { allowFailure: true });
   const refs = git(root, [
     'for-each-ref',
     '--format=%(refname:short)',
@@ -687,18 +725,31 @@ function publishingCommits(root, ref) {
   return commits;
 }
 
-async function allLedgerIntents(root, config) {
+async function allLedgerIntents(root, config, { offline = false } = {}) {
   const candidates = [];
+  /**
+   * One history walk for every working-tree intent, not one per file.
+   *
+   * `publishingCommits` was written for exactly this — its own note explains that `log -1` per path
+   * was 420 subprocesses inside a read — and then it was wired into the *remote* branch loop only.
+   * The working-tree loop kept calling `commitContaining` per file: 127 processes walking the same
+   * history 127 times, the largest single row in the probe once the fetches came out.
+   *
+   * The answers are identical by construction. `log --name-only` is newest-first and first mention
+   * wins, which is what `log -1` returned for each path; both are scoped to `singularity`, which is
+   * where intents live.
+   */
+  const published = publishingCommits(root, 'HEAD');
   for (const file of await discoverLedgerIntents(root)) {
     const intentPath = path.relative(root, file).split(path.sep).join('/');
     candidates.push({
       intent: await readJson(file),
       intentPath,
-      publishedCommit: commitContaining(root, intentPath),
+      publishedCommit: published.get(intentPath) ?? null,
       source: 'working-tree'
     });
   }
-  candidates.push(...await remoteLedgerIntents(root, config));
+  candidates.push(...await remoteLedgerIntents(root, config, { offline }));
   const unique = new Map();
   for (const candidate of candidates) {
     const current = unique.get(candidate.intent.eventId);
@@ -735,8 +786,16 @@ export async function reconcileLedger(root, rawConfig, { workId = null } = {}) {
   return { enabled: true, appended, existing, failed };
 }
 
-async function ledgerSnapshot(root, config, callback, { fetch = true } = {}) {
-  if (fetch) ensureRemoteBranchFetched(root, config);
+/**
+ * `offline` rather than `fetch`, so the two spellings of one decision stop drifting apart.
+ *
+ * `verifyLedger` was passing `{ fetch: !offline }` and `ledgerLog` was passing nothing at all —
+ * which defaulted to fetching, from inside a `ledgerStatus` the caller had explicitly asked to stay
+ * offline. One name for the flag, expressed the way every caller already expresses it, is what
+ * stops the next helper defaulting the other way.
+ */
+async function ledgerSnapshot(root, config, callback, { offline = false } = {}) {
+  ensureRemoteBranchFetched(root, config, { offline });
   const ref = ledgerHead(root, config);
   if (!ref) throw new SingularityFlowError(`Ledger branch '${config.branch}' does not exist. Run singularity-flow ledger init.`);
   return temporaryWorktree(root, ref, callback);
@@ -840,10 +899,10 @@ export async function verifyLedger(root, rawConfig, { offline = false } = {}) {
       errors,
       warnings
     };
-  }, { fetch: !offline });
+  }, { offline });
 }
 
-export async function ledgerLog(root, rawConfig, { limit = 20 } = {}) {
+export async function ledgerLog(root, rawConfig, { limit = 20, offline = false } = {}) {
   const config = normalizeLedgerConfig(rawConfig);
   return ledgerSnapshot(root, config, async (worktree) => {
     const head = await loadHead(worktree);
@@ -862,7 +921,7 @@ export async function ledgerLog(root, rawConfig, { limit = 20 } = {}) {
       cursor = entry.parentEntryHash;
     }
     return output;
-  });
+  }, { offline });
 }
 
 export async function ledgerShow(root, rawConfig, hashOrEventId) {
@@ -877,18 +936,50 @@ export async function ledgerShow(root, rawConfig, hashOrEventId) {
   });
 }
 
+/**
+ * The ledger as it stands, computed once per read scope. `[UXH:REQ-120]`
+ *
+ * Three callers inside one `snapshot --json` ask for this: `fullRepositorySnapshot` directly, and
+ * `doctorSnapshot` twice. None of them is wrong to ask, and none of them can see the others — which
+ * is exactly the situation a scope is for. Measured on a real repository, the three reads were most
+ * of what was left after the fetches came out.
+ *
+ * Keyed on everything that changes the answer: the repository, the resolved config, and whether the
+ * remote was consulted. Keying on `root` alone would serve a cached-offline answer to a caller that
+ * asked to go to the network, which is the failure mode a cache like this exists to avoid.
+ *
+ * Outside a scope this is a plain call, so writers are untouched.
+ */
 export async function ledgerStatus(root, rawConfig, { offline = false } = {}) {
   const config = normalizeLedgerConfig(rawConfig);
+  const key = `ledger.status:${root}:${offline ? 'offline' : 'online'}:${canonicalJson(config)}`;
+  return scopedRead(key, () => ledgerStatusUncached(root, config, { offline }));
+}
+
+async function ledgerStatusUncached(root, config, { offline }) {
   if (!config.enabled) return { enabled: false, config };
-  if (!offline) ensureRemoteBranchFetched(root, config);
+  /**
+   * One fetch decision for the whole call, and it is reported rather than assumed. `[UXH:REQ-120]`
+   *
+   * This line used to be `if (!offline) ensureRemoteBranchFetched(...)`, which is correct about
+   * itself and was the entire extent of the promise: `allLedgerIntents` and `ledgerLog` below both
+   * fetched on their own, having never been told. A read path that asked for offline got two
+   * network round trips anyway — 4.5 seconds of a 12-second snapshot, on every refresh the editor
+   * makes — and nothing in the result said so.
+   *
+   * Threading it is half the fix. The other half is `remoteView`: a cached answer and a fresh one
+   * are different facts, and a reader who cannot tell them apart is being handed the second when
+   * they have the first.
+   */
+  const remoteView = ensureRemoteBranchFetched(root, config, { offline });
   const ref = ledgerHead(root, config);
   const outbox = (await exists(localOutbox(root)))
     ? (await readdir(localOutbox(root))).filter((name) => name.endsWith('.json')).length
     : 0;
-  const intents = await allLedgerIntents(root, config);
-  if (!ref) return { enabled: true, initialized: false, outbox, durableIntents: intents.length, config };
+  const intents = await allLedgerIntents(root, config, { offline });
+  if (!ref) return { enabled: true, initialized: false, outbox, durableIntents: intents.length, remoteView, config };
   const verification = await verifyLedger(root, config, { offline });
-  const log = await ledgerLog(root, config, { limit: 1000000 });
+  const log = await ledgerLog(root, config, { limit: 1000000, offline });
   const recorded = new Set(log.map((entry) => entry.eventId));
   const pending = [];
   for (const candidate of intents) {
@@ -909,6 +1000,8 @@ export async function ledgerStatus(root, rawConfig, { offline = false } = {}) {
     durableIntents: intents.length,
     pending,
     verification,
+    /** Which of `LEDGER_REMOTE_VIEW` produced this answer. Never absent, so it cannot be assumed. */
+    remoteView,
     config
   };
 }

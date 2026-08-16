@@ -49,7 +49,7 @@ import {
 } from './evidence.ts';
 import type { EvidenceSourceKind } from './views/evidence-manager.ts';
 import { onResultAction, showRefusal, showResultCard } from './views/result-panel.ts';
-import { buildResultCard } from './views/result-card-model.ts';
+import { buildResultCard, gateSummary } from './views/result-card-model.ts';
 import { activeRepository, gatewaySession } from './gateway-session.ts';
 
 /** Injected by esbuild: the commit and time this bundle was built from. */
@@ -1445,8 +1445,39 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
   void refreshReadiness();
   void refreshWorkspaceLogsTree();
 
+  /**
+   * The readiness gates for one work item, or null when they cannot be read.
+   *
+   * Null rather than zeros: "no gates" and "we could not ask" are different facts, and a status bar
+   * that renders `gates 0/0` on a failed read is asserting the first while meaning the second.
+   */
+  const gateCountFor = async (workId: string) => {
+    const root = activeRepository();
+    if (!root) return null;
+    try {
+      const { kernel } = gatewaySession(root);
+      // The registered phrase, not a word that looks like the operation's name.
+      const resolution = await kernel.resolve({ utterance: 'am I ready', arguments: { workId } });
+      if (resolution.kind !== 'read' || resolution.next.length !== 1) return null;
+      return gateSummary(await kernel.read({ resolutionId: resolution.next[0].handle }));
+    } catch {
+      return null;
+    }
+  };
+
+  /** Which Story the status bar is currently about, so a late gate count can be discarded. */
+  let statusWorkId: string | null = null;
+
   const status = vscode.window.createStatusBarItem(vscode.StatusBarAlignment.Left, 100);
-  status.command = 'singularityFlow.refresh';
+  /**
+   * The status bar returns you to your work; it does not refresh it. `[UXH:REQ-040]`
+   *
+   * It was wired to `singularityFlow.refresh`, so the one always-visible piece of SFlow chrome
+   * answered a click by re-reading the repository and leaving the reader exactly where they were.
+   * Refresh is a thing you ask for when you believe the screen is stale; it is not what "take me
+   * back" means, and it is not what a persistent indicator is for.
+   */
+  status.command = 'singularityFlow.myWork';
   context.subscriptions.push(status);
   context.subscriptions.push(store.onDidChange((state) => {
     if (state.loading) { status.text = '$(loading~spin) Singularity Flow'; status.show(); return; }
@@ -1459,6 +1490,28 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
       status.text = `$(git-pull-request) ${workflow.workItem.id} · ${phase}`;
       status.tooltip = `${where}${workflow.workItem.title ?? 'Governed Story workflow'}`;
       status.show();
+      /**
+       * The gate count, from the same derivation the card uses. `[UXH:AC-002]`
+       *
+       * Screen B has the status bar reading `gates 3/5` beside a card reading "2 of 5 gates unmet".
+       * Those are one fact shown twice, and two surfaces that each count for themselves will
+       * eventually disagree — usually the day the meaning of "unknown" changes for one of them. So
+       * this asks the kernel for the readiness envelope and runs `gateSummary` over it, which is
+       * the function the card calls.
+       *
+       * Fire-and-forget, and it only ever *adds* to a status bar that already rendered. A gate
+       * count that arrives late is worth having; a status bar that waits for it is not.
+       */
+      const renderedFor = workflow.workItem.id;
+      statusWorkId = renderedFor;
+      void gateCountFor(renderedFor).then((gates) => {
+        // Discard a count that arrived after the reader moved on: a gate total from the previous
+        // Story rendered beside the current one is worse than no count at all.
+        if (!gates || statusWorkId !== renderedFor) return;
+        status.text = `$(git-pull-request) ${workflow.workItem.id} · ${phase} · gates ${gates.met}/${gates.total}`;
+        status.tooltip = `${where}${workflow.workItem.title ?? 'Governed Story workflow'}`
+          + `\n${gates.unmet} unmet, ${gates.outstanding - gates.unmet} not evaluated`;
+      });
       return;
     }
     if (!initiative) {

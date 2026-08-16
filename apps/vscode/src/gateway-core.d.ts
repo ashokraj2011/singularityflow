@@ -77,3 +77,13 @@ declare module '*/gateway/planners/work-continue.mjs' { export const workContinu
 declare module '*/gateway/planners/work-list.mjs' { export const workList: unknown; }
 declare module '*/gateway/planners/work-readiness.mjs' { export const workReadiness: unknown; }
 declare module '*/gateway/planners/workspace-list.mjs' { export const workspaceList: unknown; }
+
+/**
+ * The message catalog. Typed here, owned by core — see `views/result-messages.ts` for why.
+ */
+declare module '*/gateway/messages.mjs' {
+  export const RESULT_MESSAGES: Readonly<Record<string, { readonly label: string; readonly detail?: string }>>;
+  export function fill(template: string, slots?: Readonly<Record<string, string | number>>): string;
+  export function message(code: string, slots?: Readonly<Record<string, string | number>>):
+    { readonly label: string; readonly detail?: string };
+}

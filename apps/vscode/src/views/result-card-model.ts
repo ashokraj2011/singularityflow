@@ -221,6 +221,6 @@ export function buildResultCard(result: any): ResultCardView {
  * The status bar shows `gates 3/5` and the card shows "2 of 5 gates unmet". Same numbers, one
  * derivation — exported so the status bar calls this rather than counting for itself.
  */
-export function gateSummary(result: any): { total: number; met: number; outstanding: number } | null {
+export function gateSummary(result: any): ResultCardView['gates'] {
   return buildResultCard(result).gates;
 }

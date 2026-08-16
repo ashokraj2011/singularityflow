@@ -128,6 +128,16 @@ test('every item explains why it is visible and what to do about it', async () =
   assert.equal(item.nextAction.operation, 'review.packet');
 });
 
+test('work records carry canonical and selectable branch identity for shared home state', async () => {
+  const root = await fixture({ 'WRK-890': story('WRK-890', {
+    intake: { status: 'in_progress', generation: 1 }
+  }, { currentPhase: 'intake' }) });
+  const item = (await workRecords(root, { actor: ACTOR, repositoryId: 'calc' })).items[0];
+  assert.equal(item.repositoryId, 'calc');
+  assert.equal(item.branch, 'wi/WRK-890');
+  assert.ok(item.branches.includes('wi/WRK-890'));
+});
+
 test('the planner discloses that it read one repository', async () => {
   const root = await fixture({
     'WRK-1': story('WRK-1', { design: { status: 'in_progress' } }, { currentPhase: 'design' })

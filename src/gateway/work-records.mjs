@@ -162,7 +162,8 @@ function blockersOf(workflow, { pendingPublication }) {
  * that reaches for them itself becomes a second place they can be consulted inconsistently.
  */
 export async function workRecords(root, {
-  definition = {}, portfolio = null, actor = null, pendingPublications = new Set(), includeCompleted = false
+  definition = {}, portfolio = null, actor = null, pendingPublications = new Set(), includeCompleted = false,
+  repositoryId = null
 } = {}) {
   const index = await buildRepositorySubjectIndex(root, { definition, portfolio });
   const items = [];
@@ -180,8 +181,11 @@ export async function workRecords(root, {
         kind,
         id: subject.id,
         title: workflow.workItem?.title ?? workflow.initiative?.title ?? subject.id,
-        repository: subject.location?.repository ?? null,
+        repository: subject.location?.repository ?? repositoryId,
+        /** Stable repository identity and every branch that can select this governed subject. */
+        repositoryId: repositoryId ?? subject.location?.repository ?? null,
         branch: subject.canonicalBranch ?? null,
+        branches: [...(subject.branches ?? [])],
         phase: phaseId,
         phaseLabel: phase?.label ?? phaseId,
         generation: phase?.generation ?? 0,

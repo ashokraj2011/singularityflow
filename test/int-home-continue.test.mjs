@@ -4,7 +4,7 @@ import { mkdir, mkdtemp, writeFile } from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
 
-import { HOME_CHOICES, MAX_HOME_CHOICES, homeOverview } from '../src/gateway/planners/home-overview.mjs';
+import { HOME_CHOICES, MAX_HOME_CHOICES, homeOverview, homeOverviewResult } from '../src/gateway/planners/home-overview.mjs';
 import { gatewayRegistry } from '../src/gateway/operations.mjs';
 import { workContinue } from '../src/gateway/planners/work-continue.mjs';
 import { workReadiness } from '../src/gateway/planners/work-readiness.mjs';
@@ -269,4 +269,55 @@ test('a home choice carries an id and a label, and nothing that goes unread', ()
   for (const choice of HOME_CHOICES) {
     assert.deepEqual(Object.keys(choice).sort(), ['id', 'label']);
   }
+});
+
+test('the briefing leads only when there is something you could not have known', () => {
+  /**
+   * `[DHR:REQ-070]` rule 3 beats rule 4, and the opposite reads as more helpful. Someone with an
+   * active Story and their own uncommitted edits is offered "continue" first, because they know
+   * what they changed — they changed it. The briefing is promoted for the case where local work
+   * has not been compared against the plan, which is a fact they cannot have from memory.
+   */
+  const active = { id: 'WRK-1', kind: 'story', phase: 'implement', group: 'active', blockers: [], nextAction: null };
+  const records = { groups: { active: [active], 'waiting-on-you': [] }, items: [active] };
+  const workspace = { id: 'w', name: 'W' };
+
+  const clean = homeOverviewResult({ workspace, records, localChanges: { dirty: false, files: 0 } });
+  assert.equal(clean.next[0].id, 'home:work.continue');
+
+  const dirty = homeOverviewResult({
+    workspace, records, localChanges: { dirty: true, files: 3, worktreeHash: 'a'.repeat(64) }
+  });
+  assert.equal(dirty.next[0].id, 'home:work.continue', 'the active Story still leads');
+  assert.equal(dirty.next[1].id, 'home:work.return', 'and the briefing is second, not buried');
+  assert.ok(dirty.why.some((entry) => entry.code === 'home.local-work-unreconciled'));
+});
+
+test('an unread worktree does not promote the briefing', () => {
+  // Null is not clean. Promoting on an unread tree would act on a fact nobody established.
+  const active = { id: 'WRK-1', kind: 'story', phase: 'implement', group: 'active', blockers: [], nextAction: null };
+  const result = homeOverviewResult({
+    workspace: { id: 'w', name: 'W' },
+    records: { groups: { active: [active], 'waiting-on-you': [] }, items: [active] },
+    localChanges: null
+  });
+  assert.ok(!result.why.some((entry) => entry.code === 'home.local-work-unreconciled'));
+});
+
+test('the ordering is a total order whichever way the menu is shuffled', () => {
+  /**
+   * The property the old comparator lacked. Sorting a reversed input must give the same answer as
+   * sorting the original, which a comparator returning -1 for one id and 0 for everything else
+   * cannot guarantee — it only held because V8's sort happens to be stable.
+   */
+  const active = { id: 'WRK-1', kind: 'story', phase: 'implement', group: 'active', blockers: [], nextAction: null };
+  const args = {
+    workspace: { id: 'w', name: 'W' },
+    records: { groups: { active: [active], 'waiting-on-you': [] }, items: [active] },
+    localChanges: { dirty: true, files: 1, worktreeHash: 'b'.repeat(64) }
+  };
+  const once = homeOverviewResult(args).next.map((action) => action.id);
+  const twice = homeOverviewResult(args).next.map((action) => action.id);
+  assert.deepEqual(once, twice);
+  assert.equal(new Set(once).size, once.length, 'no duplicates survive the sort');
 });

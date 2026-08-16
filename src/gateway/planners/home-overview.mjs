@@ -12,6 +12,7 @@
  * menu does not pretend current work or repository evidence is available `[INT:REQ-024]`.
  */
 import { noEffects, sflowResult } from '../result.mjs';
+import { localChangesFor } from './work-continue.mjs';
 import { WORK_GROUP_ORDER, workRecords } from '../work-records.mjs';
 
 /** The stable choice set. Six at most, and never one this list does not contain `[INT:REQ-022]`. */
@@ -28,6 +29,15 @@ import { WORK_GROUP_ORDER, workRecords } from '../work-records.mjs';
 export const HOME_CHOICES = Object.freeze([
   { id: 'work.continue', label: 'Continue current work' },
   { id: 'work.list', label: 'See current work' },
+  /**
+   * Third in the stable order, and second when promoted.
+   *
+   * Its resting position has to match its rank. Placed second it sat above "see current work" on
+   * every home that had no active Story — a briefing about work you have not started, ranked above
+   * the list of work you have. The sort only runs when there is something to promote, so the
+   * declaration order *is* the answer in the ordinary case.
+   */
+  { id: 'work.return', label: 'See what changed while you were away' },
   { id: 'work.start.intake', label: 'Start new work' },
   { id: 'workspace.switch', label: 'Switch workspace' },
   { id: 'impact.quick', label: 'Run a quick impact analysis' },
@@ -39,6 +49,7 @@ export const MAX_HOME_CHOICES = 6;
 
 const FALLBACKS = Object.freeze({
   'work.continue': 'sflow resume',
+  'work.return': 'sflow story return',
   'work.list': 'sflow inbox',
   'work.start.intake': 'sflow start',
   'workspace.switch': 'sflow workspace list',
@@ -80,7 +91,30 @@ function choice(entry, index, reasonCode, slots = {}) {
   };
 }
 
-export function homeOverviewResult({ workspace = null, records = null, subject = null } = {}) {
+/**
+ * The order the primary is chosen in. `[DHR:REQ-070]`
+ *
+ * §8 lists five rules and this encodes the three the home can evaluate from records and a worktree
+ * read. Written as a rank rather than a comparator on purpose: a comparator that special-cases one
+ * id is not a total order, which is the bug this planner already had once — it claimed
+ * `work.continue` sorted before itself, and the rest of the menu held its order only because V8's
+ * sort is stable in practice.
+ *
+ * Rule 3 beats rule 4 deliberately, and it is worth saying why since the opposite reads as more
+ * helpful: someone with an active Story and uncommitted changes is being offered "continue" above
+ * "see what changed", because they know what they changed — they changed it. The briefing leads
+ * only when there is something they could *not* have known, which is the case the ordering below
+ * promotes it for.
+ */
+function homeRank(entry, { active, needsReconciliation }) {
+  // Rule 3: the active Story on this branch.
+  if (entry.id === 'work.continue') return active ? 0 : 3;
+  // Rule 4: local work that has not been compared against the plan.
+  if (entry.id === 'work.return') return needsReconciliation ? 1 : 4;
+  return 2;
+}
+
+export function homeOverviewResult({ workspace = null, records = null, subject = null, localChanges = null } = {}) {
   const groups = records?.groups ?? {};
   const counts = Object.fromEntries(WORK_GROUP_ORDER.map((name) => [name, (groups[name] ?? []).length]));
   const active = (groups.active ?? [])[0] ?? null;
@@ -108,17 +142,17 @@ export function homeOverviewResult({ workspace = null, records = null, subject =
     });
   }
 
-  if (active) {
-    /**
-     * `[INT:REQ-023]`: continuing leads, and names what it would continue.
-     *
-     * Ranked rather than compared pairwise. The obvious version — return -1 when the left item is
-     * `work.continue` — is not a total order: it also claims `work.continue` sorts before itself,
-     * and every other pair is "equal", so the rest of the menu holds its order only because V8's
-     * sort happens to be stable. True today, unspecified, and silently load-bearing.
-     */
-    const rank = (entry) => (entry.id === 'work.continue' ? 0 : 1);
-    ordered.sort((left, right) => rank(left) - rank(right)
+  /**
+   * Uncommitted work against an active Story is what the briefing exists for `[DHR:REQ-041]`.
+   *
+   * Null means the worktree was not read, which is not the same as clean — so the briefing is not
+   * promoted on an unread tree. Promoting it would be acting on a fact nobody established.
+   */
+  const needsReconciliation = Boolean(active && localChanges?.dirty);
+
+  if (active || needsReconciliation) {
+    const context = { active, needsReconciliation };
+    ordered.sort((left, right) => homeRank(left, context) - homeRank(right, context)
       || HOME_CHOICES.indexOf(left) - HOME_CHOICES.indexOf(right));
     why.push({
       code: 'home.active-work-leads',
@@ -126,6 +160,14 @@ export function homeOverviewResult({ workspace = null, records = null, subject =
       reference: active.id,
       slots: { work: active.id, phase: active.phase ?? 'none', next: active.nextAction?.operation ?? 'none' }
     });
+    if (needsReconciliation) {
+      why.push({
+        code: 'home.local-work-unreconciled',
+        source: 'evidence',
+        reference: localChanges.worktreeHash ?? null,
+        slots: { files: String(localChanges.files ?? 0) }
+      });
+    }
   }
 
   const shown = ordered.slice(0, MAX_HOME_CHOICES);
@@ -147,6 +189,19 @@ export function homeOverviewResult({ workspace = null, records = null, subject =
      */
     warnings: [{ code: 'home.briefing-unavailable', source: 'unavailable', slots: { scope: 'cross-workspace' } }],
     next: shown.map((entry, index) => {
+      /**
+       * A promoted choice says why it was promoted.
+       *
+       * `home.stable-choice` reads "Always available", which is true of this entry and useless on
+       * the one occasion it has been moved to the top. A reader who sees an item jump position and
+       * is told it is always available learns nothing about why today is different.
+       */
+      if (entry.id === 'work.return' && needsReconciliation) {
+        return choice(entry, index, 'home.local-work-unreconciled', {
+          files: String(localChanges.files ?? 0),
+          work: active?.id ?? 'none'
+        });
+      }
       if (entry.id === 'work.continue' && active) {
         return choice(entry, index, 'home.continue-active-work', {
           work: active.id,
@@ -183,5 +238,17 @@ export async function homeOverview({ subject = null, root = null, context = {} }
    */
   if (!root) return homeOverviewResult({ workspace: null, subject });
   const records = await workRecords(root, context);
-  return homeOverviewResult({ workspace: context.workspace ?? { id: root, name: context.workspaceName ?? root }, records, subject });
+  return homeOverviewResult({
+    workspace: context.workspace ?? { id: root, name: context.workspaceName ?? root },
+    records,
+    subject,
+    /**
+     * The same worktree read `work.continue` and `work.return` use.
+     *
+     * One `git status` on a path already reading work records, and it decides whether the briefing
+     * is promoted. Three surfaces counting changed paths three ways is how they come to disagree in
+     * front of someone who has all three open.
+     */
+    localChanges: context.localChanges ?? localChangesFor(root)
+  });
 }

@@ -82,6 +82,7 @@ export const HOME_CODES = Object.freeze([
   'home.no-workspace-selected',
   'home.select-a-workspace-first',
   'home.continue-active-work',
+  'home.local-work-unreconciled',
   'home.work-summary',
   'home.stable-choice'
 ]);

@@ -31,7 +31,7 @@ const messages = await import(path.join(views, 'views', 'messages.ts'));
  * a deleted one is not. Worth saying because the two reasons look identical in the number and are
  * not the same news: this one closed a surface rather than improving it.
  */
-const UNMIGRATED_MESSAGE_HANDLERS = 12;
+const UNMIGRATED_MESSAGE_HANDLERS = 11;
 
 async function sources(dir) {
   const entries = await readdir(dir, { withFileTypes: true });

@@ -9,6 +9,7 @@ import * as vscode from 'vscode';
 import {
   contentSecurityPolicy, navigationTarget, nonce, page } from './webview.ts';
 import { navigateTo } from './navigate.ts';
+import { registerMessageRouter, stringField, type InboundMessage } from './messages.ts';
 import {
   EMPTY_INTAKE_FORM, intakeCommand, intakeHtml, intakeProblems, INTAKE_SCRIPT, SHAPES,
   type BaseBranchChoice, type InFlight, type IntakeForm, type ProfileChoice, type Shape, type Tracker
@@ -47,7 +48,7 @@ export class IntakePanel {
       // this panel's own message contract, because "go to another page" is not this panel's business.
       const navigation = navigationTarget(raw);
       if (navigation) return void navigateTo(navigation);
- void this.receive(raw); }, null, this.disposables);
+ void this.router.route(raw); }, null, this.disposables);
     this.panel.onDidDispose(() => this.dispose(), null, this.disposables);
     this.render();
     void this.load();
@@ -242,53 +243,57 @@ export class IntakePanel {
     }
   }
 
-  private async receive(raw: unknown): Promise<void> {
-    const message = raw as { type?: unknown; field?: unknown; value?: unknown };
-    if (typeof message?.type !== 'string') return;
+  /** The fields this form will write. Anything else named by the page is refused. */
+  private static readonly WRITABLE = Object.freeze(['key', 'id', 'title', 'description', 'goal', 'acceptanceCriteria']);
 
-    // Resolved against what exists rather than trusted: a page can post whatever it likes.
-    if (message.type === 'shape') {
-      const shape = SHAPES.find((entry) => entry.id === message.value);
+  /**
+   * The eight messages this panel speaks, enumerated. `[UXH:REQ-134]` `[UXH:AC-014]`
+   *
+   * Five of them resolve a value against what exists — a shape, a profile, a base branch, a work
+   * type — rather than trusting the page, and that is unchanged. `draft` and `field` share a
+   * writable-field allowlist, which matters more than it looks: `field` writes through a computed
+   * key, so without the allowlist a page could name any property of the form object.
+   *
+   * `draft` records a keystroke and nothing else. Replacing the document under whoever is typing
+   * takes the caret with it; the committed value arrives again as `field`, and that one redraws.
+   */
+  private router = registerMessageRouter('singularityFlow.intake', {
+    shape: (message) => {
+      const shape = SHAPES.find((entry) => entry.id === stringField(message, 'value'));
       if (shape) this.update({ shape: shape.id, error: null });
-      return;
-    }
-    if (message.type === 'tracker') {
-      const tracker = message.value === 'jira' ? 'jira' : 'none';
+    },
+    tracker: (message) => {
+      const tracker = stringField(message, 'value') === 'jira' ? 'jira' : 'none';
       this.update({ tracker: tracker as Tracker, error: null });
-      return;
-    }
-    if (message.type === 'profile') {
-      const profile = this.form.profiles.find((entry) => entry.id === message.value);
+    },
+    profile: (message) => {
+      const profile = this.form.profiles.find((entry) => entry.id === stringField(message, 'value'));
       if (profile) this.update({ profile: profile.id, error: null });
-      return;
-    }
-    if (message.type === 'baseBranch') {
-      const choice = this.form.baseBranchChoices.find((entry) => entry.branch === message.value);
+    },
+    baseBranch: (message) => {
+      const choice = this.form.baseBranchChoices.find((entry) => entry.branch === stringField(message, 'value'));
       if (choice) this.update({ baseBranch: choice.branch, error: null });
-      return;
-    }
-    if (message.type === 'workType') {
-      const workflow = this.form.storyWorkflows.find((entry) => entry.id === message.value);
+    },
+    workType: (message) => {
+      const workflow = this.form.storyWorkflows.find((entry) => entry.id === stringField(message, 'value'));
       if (workflow) this.update({ workType: workflow.id, error: null });
-      return;
-    }
+    },
+    draft: (message) => {
+      const field = this.writableField(message);
+      const value = stringField(message, 'value');
+      if (field && value !== null) (this.form as unknown as Record<string, string>)[field] = value;
+    },
+    field: (message) => {
+      const field = this.writableField(message);
+      const value = stringField(message, 'value');
+      if (field && value !== null) this.update({ [field]: value } as Partial<IntakeForm>);
+    },
+    start: () => this.start()
+  });
 
-    // A keystroke is recorded and nothing else: replacing the document under whoever is typing would
-    // take the caret with it. The committed value arrives again as a field, and that one redraws.
-    if ((message.type === 'draft' || message.type === 'field') && typeof message.value === 'string') {
-      const field = String(message.field);
-      const value = message.value;
-      const writable = ['key', 'id', 'title', 'description', 'goal', 'acceptanceCriteria'];
-      if (!writable.includes(field)) return;
-      if (message.type === 'draft') {
-        (this.form as unknown as Record<string, string>)[field] = value;
-        return;
-      }
-      this.update({ [field]: value } as Partial<IntakeForm>);
-      return;
-    }
-
-    if (message.type === 'start') await this.start();
+  private writableField(message: InboundMessage): string | null {
+    const field = stringField(message, 'field');
+    return field && IntakePanel.WRITABLE.includes(field) ? field : null;
   }
 
   private async start(): Promise<void> {

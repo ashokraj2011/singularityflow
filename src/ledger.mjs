@@ -637,6 +637,7 @@ async function remoteLedgerIntents(root, config) {
     ], { allowFailure: true }).stdout.trim().split('\n').filter(
       (file) => file.includes(`/${LEDGER_INTENT_DIRECTORY}/`) && file.endsWith('.json')
     );
+    const published = publishingCommits(root, ref);
     for (const intentPath of files) {
       const content = git(root, ['show', `${ref}:${intentPath}`], { allowFailure: true });
       if (content.status !== 0 || !content.stdout.trim()) continue;
@@ -646,18 +647,44 @@ async function remoteLedgerIntents(root, config) {
       } catch {
         continue;
       }
-      const publishedCommit = git(root, [
-        'log',
-        '-1',
-        '--format=%H',
-        ref,
-        '--',
-        intentPath
-      ], { allowFailure: true }).stdout.trim() || null;
-      candidates.push({ intent, intentPath, publishedCommit, source: ref });
+      candidates.push({ intent, intentPath, publishedCommit: published.get(intentPath) ?? null, source: ref });
     }
   }
   return candidates;
+}
+
+/**
+ * The commit that last touched each intent file on a ref, in one history walk.
+ *
+ * This was `git log -1 --format=%H <ref> -- <path>`, once per intent file. On a real repository
+ * that is 420 subprocesses inside a *read* — measured, and the largest remaining share of the
+ * snapshot after the fetches came out. The cost is not the history walk, which Git does quickly; it
+ * is spawning 420 processes to walk the same history 420 times.
+ *
+ * `--name-only` reports the paths each commit touched, newest first, so one pass answers every
+ * path. First mention wins: that is the newest commit touching it, which is exactly what `log -1`
+ * returned per path.
+ *
+ * Scoped to the intent directory so the walk skips commits that touched nothing relevant, and
+ * `allowFailure` because a ref that cannot be read is a missing fact rather than a broken read —
+ * callers already treat a null publishing commit as "not published from here".
+ */
+function publishingCommits(root, ref) {
+  const walked = git(root, [
+    'log', '--format=%H', '--name-only', ref, '--', 'singularity'
+  ], { allowFailure: true });
+  const commits = new Map();
+  if (walked.status !== 0) return commits;
+
+  let commit = null;
+  for (const line of walked.stdout.split('\n')) {
+    const value = line.trim();
+    if (!value) continue;
+    if (/^[0-9a-f]{40}$/.test(value)) { commit = value; continue; }
+    // First mention wins: `git log` is newest-first, so this is the same answer `-1` gave.
+    if (commit && !commits.has(value)) commits.set(value, commit);
+  }
+  return commits;
 }
 
 async function allLedgerIntents(root, config) {

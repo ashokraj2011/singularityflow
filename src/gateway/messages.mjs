@@ -89,6 +89,10 @@ export const RESULT_MESSAGES = Object.freeze({
   'home.select-a-workspace-first': M('Choose a workspace'),
   'home.continue-active-work': M('Continue where you left off'),
   'home.local-work-unreconciled': M('{files} local change(s) not yet compared against the plan'),
+  'home.recovery-required': M('A publication was interrupted',
+    'Finish it before starting anything else — this is the one state where doing something else first can lose work.'),
+  'home.needs-your-decision': M('{count} decision(s) are waiting on you'),
+  'home.nothing-waiting': M('Nothing is waiting on you in {workspace}'),
   'home.work-summary': M('{active} active, {decisions} needing you'),
   'home.stable-choice': M('Always available'),
 

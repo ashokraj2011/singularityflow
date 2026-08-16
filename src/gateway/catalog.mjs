@@ -83,6 +83,16 @@ export const HOME_CODES = Object.freeze([
   'home.select-a-workspace-first',
   'home.continue-active-work',
   'home.local-work-unreconciled',
+  /**
+   * The lifecycle states the home can be in, named. `[UXH:REQ-051]` `[DHR:REQ-070]`
+   *
+   * `recovery-required` is the one that mattered most to add: the group had existed since the work
+   * records were written and the home never mentioned it, so §8's highest-priority rule was the one
+   * rule with no implementation.
+   */
+  'home.recovery-required',
+  'home.needs-your-decision',
+  'home.nothing-waiting',
   'home.work-summary',
   'home.stable-choice'
 ]);

@@ -78,6 +78,23 @@ export const RESULT_CARD_STYLE = `
 .sf-card details pre { margin: 6px 0 0; padding: 8px; overflow-x: auto; user-select: text;
   background: var(--vscode-textCodeBlock-background); border-radius: 4px; }
 .sf-card-rest { color: var(--vscode-descriptionForeground); font-style: italic; }
+/*
+ * The briefing block. Bordered rather than filled, so it does not compete with the preservation
+ * statement — that block is the one a refused reader must not miss, and two filled panels on one
+ * card make neither of them the emphasis.
+ */
+.sf-since { display: flex; flex-wrap: wrap; align-items: flex-start; gap: 8px 12px;
+  padding: 10px 12px; border: 1px solid var(--vscode-panel-border); border-radius: 4px; }
+.sf-since-text { flex: 1 1 240px; display: flex; flex-direction: column; gap: 3px; }
+.sf-since-head { font-weight: 600; display: flex; align-items: center; gap: 6px; }
+.sf-since-at { font-weight: 400; color: var(--vscode-descriptionForeground); font-size: .92em; }
+.sf-since-summary { color: var(--vscode-descriptionForeground); }
+.sf-since-changes { margin: 2px 0 0; padding-left: 18px; color: var(--vscode-foreground); }
+/* An unverifiable answer is marked as one, in the colour the rest of the shell uses for unknown. */
+.sf-since-incomparable .sf-since-head { color: var(--vscode-editorWarning-foreground); }
+.sf-since button { font: inherit; padding: 4px 11px; border-radius: 3px; cursor: pointer; flex: none;
+  border: 1px solid var(--vscode-panel-border); background: transparent; color: var(--vscode-foreground); }
+.sf-since button:hover { background: var(--vscode-list-hoverBackground); }
 `;
 
 function button(action: CardAction, className: string): string {
@@ -129,7 +146,69 @@ function railHtml(view: ResultCardView): string {
   ><span class="sf-rail-mark" aria-hidden="true">${MARKS[phase.state] ?? '·'}</span>${escape(phase.label)}</li>`).join('')}</ul>`;
 }
 
-export function resultCardHtml(view: ResultCardView): string {
+/**
+ * When the reader last acknowledged, in words they can place.
+ *
+ * A raw ISO timestamp is precise and unreadable; "3 hours ago" is readable and, at the top of the
+ * range, wrong in the direction that matters — a reader told "2 days ago" who left three weeks of
+ * commits behind will read the delta as small. Both, then: the relative phrase to orient, the date
+ * to check.
+ */
+function acknowledgedAt(at: string, now: number): string {
+  const then = Date.parse(at);
+  if (!Number.isFinite(then)) return at;
+  const minutes = Math.max(0, Math.round((now - then) / 60000));
+  const relative = minutes < 1 ? 'just now'
+    : minutes < 60 ? `${minutes} minute${minutes === 1 ? '' : 's'} ago`
+      : minutes < 60 * 24 ? `${Math.round(minutes / 60)} hour${Math.round(minutes / 60) === 1 ? '' : 's'} ago`
+        : `${Math.round(minutes / 1440)} day${Math.round(minutes / 1440) === 1 ? '' : 's'} ago`;
+  return `${relative} · ${new Date(then).toLocaleString()}`;
+}
+
+/**
+ * The return briefing. `[DHR:REQ-024]` `[UXH:REQ-020]`
+ *
+ * The heading is the load-bearing part and comes from the model, which is where the three states
+ * are decided. Nothing is derived here — a renderer that inferred "nothing changed" from an empty
+ * change list would reintroduce, in markup, exactly the conflation the model exists to prevent:
+ * `incomparable` also has an empty list.
+ */
+function sinceHtml(view: ResultCardView, now: number): string {
+  const since = view.since;
+  if (!since) return '';
+  const when = since.at ? `<span class="sf-since-at">${escape(acknowledgedAt(since.at, now))}</span>` : '';
+  /**
+   * `statusIdle` for an unknown, the same icon the checklist gives a gate nobody evaluated.
+   *
+   * One vocabulary for "we did not establish this" across the shell, so a reader who has learned
+   * what the dimmed circle means on a refusal card already knows what it means here.
+   */
+  const glyph = since.state === 'incomparable' ? 'statusIdle' : 'statusCurrent';
+  const changes = since.changes.length
+    ? `<ul class="sf-since-changes">${since.changes.map((change) => `<li>${escape(change)}</li>`).join('')}</ul>`
+    : '';
+  /**
+   * The button carries a `data-action-id` like every other control on the card.
+   *
+   * It is not a `next[]` action and the kernel never offered it, so the panel checks it by name
+   * before dispatching rather than looking it up in the envelope. One click path for the whole card
+   * is worth more than the purity of having only kernel-issued ids in the DOM — a second postMessage
+   * shape is a second thing the router must enumerate and a second thing to get wrong.
+   */
+  const button = since.action
+    ? `<button type="button" data-action-id="${escape(since.action.id)}">${escape(since.action.label)}</button>`
+    : '';
+  return `<section class="sf-since sf-since-${since.state}" aria-label="${escape(since.heading)}">
+    <span class="sf-since-text">
+      <span class="sf-since-head">${icon(glyph, { size: 14 })}${escape(since.heading)}${when}</span>
+      <span class="sf-since-summary">${escape(since.summary)}</span>
+      ${changes}
+    </span>
+    ${button}
+  </section>`;
+}
+
+export function resultCardHtml(view: ResultCardView, { now = Date.now() }: { now?: number } = {}): string {
   /**
    * A headline and a sentence, separated rather than run together.
    *
@@ -191,9 +270,16 @@ export function resultCardHtml(view: ResultCardView): string {
   const details = `<details><summary>Technical details</summary><pre>${escape(
     Object.entries(view.details).map(([key, value]) => `${key}: ${value}`).join('\n'))}</pre></details>`;
 
+  /**
+   * The briefing sits above the reasons, not below the actions.
+   *
+   * "What changed while you were away" is context for everything under it — the menu order, the
+   * reasons, which button leads — and a reader who meets the delta after choosing has already
+   * chosen. The old panel put it in the same place, and that part of it was right.
+   */
   return `<section class="sf-card sf-card-${view.tone}">
     <h3>${icon(view.tone === 'refusal' ? 'statusBlocked' : 'statusCurrent')} ${escape(view.headline)}</h3>
-    ${railHtml(view)}${why}${warnings}${gates}${preserved}${actions}${rest}${details}
+    ${railHtml(view)}${sinceHtml(view, now)}${why}${warnings}${gates}${preserved}${actions}${rest}${details}
   </section>`;
 }
 

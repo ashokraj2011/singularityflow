@@ -17,6 +17,7 @@ import { createHash } from 'node:crypto';
 import { changedFiles, changes, head } from '../../git.mjs';
 import { SingularityFlowError } from '../../util.mjs';
 import { catalogued } from '../catalog.mjs';
+import { subjectWith } from '../handles.mjs';
 import { noEffects, preservedAll, sflowResult } from '../result.mjs';
 import { workRecords } from '../work-records.mjs';
 
@@ -72,27 +73,25 @@ export function workContinueResult(item, { subject = null, localChanges = null, 
   return sflowResult({
     kind: 'read',
     operation: { id: 'work.continue', classification: 'read' },
-    subject: subject ?? {
+    /**
+     * The commit is the commit and the worktree hash is the worktree hash. `[INT:REQ-035]`
+     *
+     * This put `localChanges.worktreeHash` in the `sourceCommit` slot, so every consumer reading
+     * a commit got a digest of `git status` output instead — the same shape, a different fact,
+     * and nothing to notice it by. A handle bound from this subject would revalidate against a
+     * commit that does not exist in any repository.
+     *
+     * Both are carried, both may be null, and null means "not read" rather than "clean".
+     *
+     * Overlaid on the handle's subject rather than replacing it: read through the kernel this
+     * planner is given the world its handle was signed against, and the worktree hash is the one
+     * thing that read cannot know — a binding is computed before the planner looks at the tree.
+     */
+    subject: subjectWith(subject, {
       kind: item.kind,
       id: item.id,
-      /**
-       * The commit is the commit and the worktree hash is the worktree hash. `[INT:REQ-035]`
-       *
-       * This put `localChanges.worktreeHash` in the `sourceCommit` slot, so every consumer reading
-       * a commit got a digest of `git status` output instead — the same shape, a different fact,
-       * and nothing to notice it by. A handle bound from this subject would revalidate against a
-       * commit that does not exist in any repository.
-       *
-       * Both are now carried, both may be null, and null means "not read" rather than "clean".
-       */
-      revision: {
-        sourceCommit,
-        worktreeHash: localChanges?.worktreeHash ?? null,
-        lifecycleHash: null,
-        policyHash: null,
-        registryHash: null
-      }
-    },
+      revision: { sourceCommit, worktreeHash: localChanges?.worktreeHash ?? null }
+    }),
     outcome: {
       status: 'succeeded',
       messageId: 'gateway.read',

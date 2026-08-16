@@ -11,6 +11,7 @@
  * next action `[INT:REQ-023]`. When no workspace is selected, workspace selection leads and the
  * menu does not pretend current work or repository evidence is available `[INT:REQ-024]`.
  */
+import { subjectWith } from '../handles.mjs';
 import { noEffects, sflowResult } from '../result.mjs';
 import { localChangesFor } from './work-continue.mjs';
 import { WORK_GROUP_ORDER, workRecords } from '../work-records.mjs';
@@ -149,7 +150,11 @@ export function homeOverviewResult({ workspace = null, records = null, subject =
       next: lead.map((entry, index) => choice(entry, index, 'home.select-a-workspace-first')),
       restState: null,
       /** No workspace means no Story, so there is no rail to draw and none is claimed. */
-      data: { rail: [], workspace: null, counts: null, briefingAvailable: false, choiceSet: lead.map((entry) => entry.id) }
+      /** No workspace means no repository was read, so the worktree is unread rather than clean. */
+      data: {
+        rail: [], workspace: null, counts: null, localChanges: null,
+        briefingAvailable: false, choiceSet: lead.map((entry) => entry.id)
+      }
     });
   }
 
@@ -233,7 +238,14 @@ export function homeOverviewResult({ workspace = null, records = null, subject =
   return sflowResult({
     kind: 'read',
     operation: { id: 'home.overview', classification: 'read' },
-    subject,
+    /**
+     * Uncommitted bytes are part of the revision this menu was computed against. `[INT:REQ-035]`
+     *
+     * The ordering above is decided partly by whether the tree is dirty, so an answer that declared
+     * only a commit would claim to depend on less than it does. Overlaid rather than set, because
+     * the commit and the hashes come from the handle this read was authorized by.
+     */
+    subject: subjectWith(subject, { revision: { worktreeHash: localChanges?.worktreeHash ?? null } }),
     outcome: {
       status: 'succeeded',
       messageId: 'gateway.home',
@@ -287,6 +299,16 @@ export function homeOverviewResult({ workspace = null, records = null, subject =
       workspace: { id: workspace.id, name: workspace.name ?? workspace.id },
       counts,
       activeWork: active ? { id: active.id, title: active.title, phase: active.phase, nextAction: active.nextAction } : null,
+      /**
+       * Clean and unread are different answers, and `subject.revision` cannot hold both.
+       *
+       * A null `worktreeHash` there means "no uncommitted bytes were bound", which is true of a
+       * clean tree *and* of a tree nobody could read — and a surface that told a returning developer
+       * their worktree is clean on the strength of a failed `git status` would be inventing the one
+       * reassurance they came to check. The record says which: `null` is unread, and `dirty: false`
+       * is a read that found nothing. `work.return` carries it here for the same reason.
+       */
+      localChanges,
       // `[INT:CON-024]`: shown as a count here; selecting it opens the ceremony, never records one.
       needsYourDecision: decisions,
       briefingAvailable: false,

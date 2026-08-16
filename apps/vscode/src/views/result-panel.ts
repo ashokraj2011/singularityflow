@@ -143,8 +143,17 @@ export function showResultCard(view: ResultCardView,
       'sflow.action': (message) => {
         const actionId = stringField(message, 'actionId');
         if (!actionId || !current) return;
+        /**
+         * The card's own controls count as offered, and only the ones it actually rendered.
+         *
+         * The acknowledge button is the host's, not the kernel's — there is no `next[]` entry to
+         * look it up in — so it is checked against `view.since.action`, which is null whenever the
+         * model decided there was nothing worth storing. That keeps the guarantee the lookup was
+         * written for: a forged id names nothing, including this one.
+         */
         const offered = current.actions.some((action) => action.id === actionId)
-          || current.checklist.some((row) => row.action?.id === actionId);
+          || current.checklist.some((row) => row.action?.id === actionId)
+          || current.since?.action?.id === actionId;
         if (!offered) return;
         void dispatch?.({ actionId, view: current, origin: currentOrigin });
       }

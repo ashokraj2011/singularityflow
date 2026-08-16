@@ -48,6 +48,15 @@ export function editorPlanners(): Map<string, unknown> {
 export type GatewaySession = {
   readonly root: string;
   readonly kernel: any;
+  /**
+   * The world as it is now, recomputed per call. `[INT:REQ-036]`
+   *
+   * Exposed because the host has one question the kernel does not answer: *who is this?* An
+   * acknowledgement is stored per actor, and the binding already resolves the actor the same way
+   * revalidation does — so the key a delta is stored under and the identity a handle is checked
+   * against cannot drift apart.
+   */
+  readonly binding: () => { readonly actorId: string | null; readonly workspaceId: string | null };
   readonly executor: { execute(action: any): Promise<any>; executeById(result: any, id: string): Promise<any> };
 };
 
@@ -80,7 +89,13 @@ export function gatewaySession(root: string, workspaceId: string | null = null):
     // Every implemented planner is a read, and `run()` refuses unconditionally `[INT:CON-033]`.
     readOnly: true
   });
-  session = { root: host.root, kernel: host.kernel, executor: createActionExecutor({ gateway: host }) };
+  session = {
+    root: host.root,
+    kernel: host.kernel,
+    /** `host.mjs` is untyped JavaScript; the shape asserted here is `hostBinding`'s return. */
+    binding: host.binding as GatewaySession['binding'],
+    executor: createActionExecutor({ gateway: host })
+  };
   sessionRoot = root;
   return session;
 }

@@ -12,6 +12,7 @@
  * supposed to be a variant of.
  */
 import { message, type Message, type Slots } from './result-messages.ts';
+import { homeDelta, type HomeAcknowledgement, type HomeDelta } from './home-acknowledgement.ts';
 
 /** One gate, as the reader meets it. `[UXH:REQ-062]` */
 export type ChecklistRow = {
@@ -79,6 +80,15 @@ export type ResultCardView = {
    * that configured its own.
    */
   readonly rail: readonly { readonly id: string; readonly label: string; readonly state: 'done' | 'current' | 'pending' }[];
+  /**
+   * The return briefing, on the card rather than on a home of its own. `[DHR:REQ-024]` `[UXH:REQ-020]`
+   *
+   * Null for every result that is not a home, and for a home the host did not offer an
+   * acknowledgement store for. It is not part of the envelope and must not look like it is: the
+   * delta is the *host's* memory of this reader compared against the kernel's answer, which is
+   * exactly the kind of fact `data` is forbidden from carrying.
+   */
+  readonly since: HomeDelta | null;
   readonly rest: string | null;
   readonly details: Readonly<Record<string, string>>;
 };
@@ -192,7 +202,17 @@ function detailsOf(result: any): Record<string, string> {
   };
 }
 
-export function buildResultCard(result: any): ResultCardView {
+/**
+ * What the host knows that the envelope cannot. `[UXH:REQ-020]`
+ *
+ * `acknowledgement` is passed rather than read, because this module is pure and `globalState` is
+ * not. `undefined` means the caller has no acknowledgement store — most call sites — and `null`
+ * means it has one and the reader has never marked this home as checked. Collapsing them would put
+ * a "Mark as checked" button on the refusal card, which stores nothing and acknowledges nothing.
+ */
+export type ResultCardOptions = { readonly acknowledgement?: HomeAcknowledgement | null };
+
+export function buildResultCard(result: any, { acknowledgement }: ResultCardOptions = {}): ResultCardView {
   const tone = toneOf(result);
   const actions = (result.next ?? []).map(actionOf);
   const checklist = (result.checklist ?? []).map((entry: any) => row(entry, actions));
@@ -236,6 +256,16 @@ export function buildResultCard(result: any): ResultCardView {
     actions,
     /** Named, not spread: a producer that puts something else in `data` does not start rendering it. */
     rail: Array.isArray(result.data?.rail) ? result.data.rail : [],
+    /**
+     * The delta belongs to `home.overview` and to nothing else.
+     *
+     * Gated on the operation rather than on "did the caller pass an acknowledgement", so a future
+     * host that keeps one store for the whole shell cannot make a readiness card start claiming to
+     * know what changed since the reader last looked at it.
+     */
+    since: acknowledgement !== undefined && result.operation?.id === 'home.overview'
+      ? homeDelta(result, acknowledgement)
+      : null,
     rest: result.restState ?? null,
     details: Object.freeze(detailsOf(result))
   });

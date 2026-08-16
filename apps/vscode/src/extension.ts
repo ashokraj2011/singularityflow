@@ -51,6 +51,9 @@ import type { EvidenceSourceKind } from './views/evidence-manager.ts';
 import { onFormSubmit, showForm, useDraftStore } from './views/form-panel.ts';
 import { onResultAction, showRefusal, showResultCard } from './views/result-panel.ts';
 import { buildResultCard, gateSummary } from './views/result-card-model.ts';
+import {
+  ACKNOWLEDGE_ACTION_ID, acknowledgementKey, homeAcknowledgementFor, type HomeAcknowledgement
+} from './views/home-acknowledgement.ts';
 import { activeRepository, gatewaySession } from './gateway-session.ts';
 
 /** Injected by esbuild: the commit and time this bundle was built from. */
@@ -122,7 +125,40 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
    * a stale handle produces a visible recovery card rather than a command that silently ran against
    * a world the reader was not looking at.
    */
+  /**
+   * The home the reader is currently looking at, kept so it can be acknowledged.
+   *
+   * The envelope rather than the card: an acknowledgement records the *world* the reader read, and
+   * the card is a rendering of it that has already dropped everything the next delta compares. Held
+   * for the same reason the card's actions are looked up in the result that produced them — what is
+   * acknowledged must be what was on screen, not whatever a second read would return now.
+   */
+  let lastHome: { readonly envelope: any; readonly key: string } | null = null;
+
   onResultAction(async ({ actionId, view, origin }) => {
+    /**
+     * "I have read this", stored before anything else is considered. `[DHR:REQ-024]`
+     *
+     * Handled ahead of the executor because it is not a gateway action and has no handle to
+     * re-resolve — dispatching it there would look up an id the kernel never issued and fall
+     * through to the terminal path, which would open a terminal and type nothing.
+     */
+    if (actionId === ACKNOWLEDGE_ACTION_ID) {
+      if (!lastHome) return;
+      const acknowledgement = homeAcknowledgementFor(lastHome.envelope);
+      /**
+       * A snapshot with nothing in it is not stored.
+       *
+       * The model already declines to offer the button in that case, so reaching here means the
+       * world changed between render and press. Writing the empty snapshot anyway would replace
+       * *not checked* with *could not compare* — strictly worse, and caused by the press.
+       */
+      if (!acknowledgement) return;
+      await context.globalState.update(lastHome.key, acknowledgement);
+      showResultCard(buildResultCard(lastHome.envelope, { acknowledgement }), { origin: 'gateway' });
+      return;
+    }
+
     const action = view.actions.find((entry) => entry.id === actionId)
       ?? view.checklist.map((row) => row.action).find((entry) => entry?.id === actionId);
     if (!action) return;
@@ -163,6 +199,11 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
    * the current world, and a v2 envelope rendered by the same card every other result uses. Nothing
    * here knows what a home is, which is the point — the shell renders results, and `home.overview`
    * is one.
+   *
+   * The one thing the kernel cannot supply is what the reader saw last time `[DHR:REQ-024]`. That is
+   * host memory by nature — it is about a person and a machine, not about the repository — so it is
+   * read here, handed to the card, and never pushed into the envelope where it would masquerade as
+   * something the gateway established.
    */
   context.subscriptions.push(vscode.commands.registerCommand('singularityFlow.myWork', async () => {
     const root = activeRepository();
@@ -172,12 +213,25 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
       return;
     }
     try {
-      const { kernel } = gatewaySession(root);
+      const { kernel, binding } = gatewaySession(root);
       const resolution = await kernel.resolve({ utterance: 'home' });
       const envelope = resolution.kind === 'read' && resolution.next.length === 1
         ? await kernel.read({ resolutionId: resolution.next[0].handle })
         : resolution;
-      showResultCard(buildResultCard(envelope), { origin: 'gateway' });
+      /**
+       * Keyed on what this home is about, not on the folder that is open.
+       *
+       * `data.workspace.id` is the workspace the planner resolved; falling back to the binding's
+       * covers the no-workspace-selected home, which has no workspace to name and still deserves a
+       * stable key rather than sharing `unknown` with every other unresolved repository.
+       */
+      const key = acknowledgementKey(
+        envelope.data?.workspace?.id ?? binding().workspaceId ?? root,
+        binding().actorId
+      );
+      const acknowledgement = context.globalState.get<HomeAcknowledgement>(key) ?? null;
+      lastHome = { envelope, key };
+      showResultCard(buildResultCard(envelope, { acknowledgement }), { origin: 'gateway' });
     } catch (error) {
       showRefusal(error, { headline: 'Could not read your work' });
     }
@@ -2411,9 +2465,11 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
      * the ways that matter — every choice is a signed handle the executor re-resolves before
      * dispatch, which is what this panel's hand-written `revalidate()` was for.
      *
-     * **What that drops, and it is not nothing:** the acknowledgement — "Since you last checked",
-     * with a delta naming what moved. That is a real briefing feature with no equivalent on the
-     * card, and it belongs on the card rather than on a second home. Tracked, not quietly lost.
+     * **What that dropped, and it was not nothing:** the acknowledgement — "Since you last
+     * checked", with a delta naming what moved. It has since been rebuilt on the card against the
+     * envelope rather than ported onto a second home: `home-acknowledgement.ts` holds the
+     * comparison, `view.since` carries it, and the host keeps the snapshot because remembering
+     * where a particular reader got to is not something the gateway can answer.
      */
     'singularityFlow.openDeveloperHome': async () =>
       vscode.commands.executeCommand('singularityFlow.myWork'),

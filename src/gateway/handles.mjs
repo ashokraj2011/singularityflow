@@ -58,6 +58,75 @@ export const BINDING_FIELDS = Object.freeze([
   'lifecycleRevision', 'policyHash', 'registryHash', 'actorId', 'hostSessionId'
 ]);
 
+/**
+ * The same world, in the shape a result declares it. `[INT:REQ-035]` `[INT:IFC-020]`
+ *
+ * A binding and a subject describe one thing and are not one shape: a binding is flat because
+ * `BINDING_FIELDS` is compared field by field on revalidation, and `subject.revision` is nested
+ * because a result declares which revisions its answer depended on. Nothing converted between them,
+ * so `kernel.read()` handed a binding straight to a planner, which passed it to `sflowResult`, which
+ * reads `subject.revision?.sourceCommit` — a path a binding does not have — and wrote null into
+ * every revision slot.
+ *
+ * Every read envelope therefore declared an entirely null revision while the handle behind it was
+ * bound to a real commit. Nothing failed: the fields exist, they validate, and the two planners that
+ * build a subject of their own were masked by `subject ?? {…}`, which never saw a null to fall
+ * through. It is only visible from the outside, where a consumer comparing two answers to say what
+ * moved gets two identical rows of nulls and concludes nothing did.
+ *
+ * `lifecycleRevision` becomes `lifecycleHash` on the way across. The binding's name for the field
+ * and the contract's name for it were always different, which is some of why nobody noticed that
+ * none of the rest was being carried either.
+ */
+export function subjectFromBinding(binding) {
+  if (!binding) return null;
+  return Object.freeze({
+    kind: binding.subjectKind ?? null,
+    id: binding.subjectId ?? null,
+    revision: Object.freeze({
+      sourceCommit: binding.sourceCommit ?? null,
+      worktreeHash: binding.worktreeHash ?? null,
+      lifecycleHash: binding.lifecycleRevision ?? null,
+      policyHash: binding.policyHash ?? null,
+      registryHash: binding.registryHash ?? null
+    })
+  });
+}
+
+/**
+ * A planner's own facts, over the subject it was handed. `[INT:REQ-035]`
+ *
+ * The host binding knows what a handle was signed against; a planner knows things the binding cannot
+ * — the worktree hash it just read, the baseline commit of an interval. Both are true, and the two
+ * planners with something to add expressed that as `subject ?? {…}`, which is not a merge: it takes
+ * the whole binding subject the moment one exists and drops everything the planner knew.
+ *
+ * That was invisible while the binding subject was malformed, because it was replacing null revision
+ * fields with other null revision fields. Fixing the conversion is what would have made it a
+ * regression, so it is fixed here in the same change rather than left as the next surprise.
+ *
+ * Overlay, not replace: a null in `revision` means "I did not read this", and a planner that did not
+ * read a field must not erase the binding's answer for it.
+ */
+export function subjectWith(subject, { kind = null, id = null, revision = {} } = {}) {
+  const base = subject ?? { kind: null, id: null, revision: {} };
+  const merged = { ...(base.revision ?? {}) };
+  for (const [field, value] of Object.entries(revision)) {
+    if (value != null) merged[field] = value;
+  }
+  return Object.freeze({
+    kind: base.kind ?? kind,
+    id: base.id ?? id,
+    revision: Object.freeze({
+      sourceCommit: merged.sourceCommit ?? null,
+      worktreeHash: merged.worktreeHash ?? null,
+      lifecycleHash: merged.lifecycleHash ?? null,
+      policyHash: merged.policyHash ?? null,
+      registryHash: merged.registryHash ?? null
+    })
+  });
+}
+
 function frozenBinding(binding, { label }) {
   if (!binding || typeof binding !== 'object') reject('HANDLE_BINDING_INVALID', `${label} requires a binding.`);
   const resolved = {};

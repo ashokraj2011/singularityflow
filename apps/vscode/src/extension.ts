@@ -48,6 +48,7 @@ import {
   type EvidenceCatalogItem, type EvidenceTarget
 } from './evidence.ts';
 import type { EvidenceSourceKind } from './views/evidence-manager.ts';
+import { onResultAction, showRefusal } from './views/result-panel.ts';
 
 /** Injected by esbuild: the commit and time this bundle was built from. */
 declare const __SFLOW_BUILD__: string;
@@ -102,6 +103,31 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
   // First line in the channel, so "which build is actually loaded" is one look rather than a guess.
   // The version does not change between development reinstalls, so it cannot answer this.
   output.appendLine(`Singularity Flow — build ${typeof __SFLOW_BUILD__ === 'string' ? __SFLOW_BUILD__ : 'unstamped'}`);
+  /**
+   * What a button on a result card does. `[UXH:REQ-031]`
+   *
+   * One handler for every card, and it dispatches by the action's stable id — the card never puts a
+   * handle or an operation name in the DOM, so a click cannot name something that was not offered.
+   *
+   * Today it runs the action's *terminal equivalent* through the same CLI the rest of the extension
+   * uses. That is honest but weaker than the contract allows: `createActionExecutor` re-resolves a
+   * handle against the current world before dispatching, and a handle cannot cross a process
+   * boundary, so nothing here re-resolves. Closing that needs the gateway running in the extension
+   * host or a CLI verb that takes a handle — until then the fallback command is the whole mechanism,
+   * and saying so here is better than a comment implying the executor is already in the loop.
+   */
+  onResultAction(async ({ actionId, view }) => {
+    const action = view.actions.find((entry) => entry.id === actionId)
+      ?? view.checklist.map((row) => row.action).find((entry) => entry?.id === actionId);
+    if (!action?.command) {
+      output.appendLine(`[result] '${actionId}' has no terminal equivalent to run in this build.`);
+      return;
+    }
+    const terminal = vscode.window.createTerminal({ name: 'Singularity Flow' });
+    terminal.show(true);
+    terminal.sendText(action.command, false);
+  });
+
   const secureCredentials = new SecureCredentials(context.secrets);
   const resolvedCliEnvironment = async (): Promise<NodeJS.ProcessEnv> => {
     const environment = await secureCredentials.environment();
@@ -232,7 +258,7 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
       void vscode.window.showInformationMessage('Jira connected securely. Reload this window to apply it to every view.', 'Reload')
         .then((choice) => choice === 'Reload' ? vscode.commands.executeCommand('workbench.action.reloadWindow') : undefined);
     } catch (error) {
-      void vscode.window.showErrorMessage(`Jira was not saved: ${(error as Error).message}`);
+      showRefusal(error, { headline: 'Jira was not saved' });
     }
   }));
 
@@ -420,7 +446,7 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
       const { HelpPanel } = await import('./views/help.ts');
       HelpPanel.show(context, manual, topic, path.resolve(path.dirname(location.cli), '..'));
     } catch (error) {
-      void vscode.window.showErrorMessage(`Could not open Singularity Flow Help: ${(error as Error).message}`);
+      showRefusal(error, { headline: 'Could not open Singularity Flow Help' });
     }
   }));
 
@@ -512,7 +538,7 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
     try {
       location = resolveCli({ extensionPath: context.extensionPath });
     } catch (error) {
-      return void vscode.window.showErrorMessage((error as Error).message);
+      return showRefusal(error);
     }
 
     const { WorkspacePanel } = await import('./views/workspace-panel.ts');
@@ -546,7 +572,7 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
     try {
       location = resolveCli({ extensionPath: context.extensionPath });
     } catch (error) {
-      return void vscode.window.showErrorMessage((error as Error).message);
+      return showRefusal(error);
     }
     // Run from wherever the CLI is rooted: describing what an organisation builds is not work done
     // inside a checkout, and requiring one was the circular dependency this breaks.
@@ -591,7 +617,7 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
       try {
         location = resolveCli({ extensionPath: context.extensionPath });
       } catch (error) {
-        return void vscode.window.showErrorMessage((error as Error).message);
+        return showRefusal(error);
       }
       const registry = new SingularityFlowClient({
         location, repository: process.cwd(), onOutput: (text) => output.append(text)
@@ -621,7 +647,7 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
     try {
       location = resolveCli({ extensionPath: context.extensionPath });
     } catch (error) {
-      return void vscode.window.showErrorMessage((error as Error).message);
+      return showRefusal(error);
     }
     // The registry is machine-wide, so this runs from wherever the CLI happens to be rooted rather
     // than from a repository the person may not have open.
@@ -798,7 +824,7 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
       }
       for (const follow of workspaceSelected) await follow(leadPath, name);
     } catch (error) {
-      void vscode.window.showErrorMessage(`Could not switch workspace: ${(error as Error).message}`);
+      showRefusal(error, { headline: 'Could not switch workspace' });
     }
   }
 
@@ -932,7 +958,7 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
         );
         await vscode.commands.executeCommand('vscode.openFolder', vscode.Uri.file(target), false);
       } catch (error) {
-        void vscode.window.showErrorMessage(`Could not attach the Copilot session to a workspace: ${(error as Error).message}`);
+        showRefusal(error, { headline: 'Could not attach the Copilot session to a workspace' });
       }
     }));
 
@@ -958,7 +984,7 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
         `${current.workspaceName ?? 'Workspace'} repaired. Reloading Lifecycle, Inbox, and Configuration.`);
       await vscode.commands.executeCommand('workbench.action.reloadWindow');
     } catch (error) {
-      void vscode.window.showErrorMessage(`Could not repair workspace: ${(error as Error).message}`);
+      showRefusal(error, { headline: 'Could not repair workspace' });
     }
   }));
 
@@ -1003,7 +1029,7 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
       const document = await vscode.workspace.openTextDocument({ content: report, language: 'plaintext' });
       await vscode.window.showTextDocument(document, { preview: true });
     } catch (error) {
-      void vscode.window.showErrorMessage((error as Error).message);
+      showRefusal(error);
     }
   }));
 
@@ -1027,7 +1053,7 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
         'Singularity Flow initialized. Reload the window to open it?', 'Reload');
       if (reload === 'Reload') await vscode.commands.executeCommand('workbench.action.reloadWindow');
     } catch (error) {
-      void vscode.window.showErrorMessage((error as Error).message);
+      showRefusal(error);
     }
   }));
 
@@ -1095,7 +1121,7 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
       if (next === 'Open Source Control') await vscode.commands.executeCommand('workbench.view.scm');
       else if (next === 'Reload Window') await vscode.commands.executeCommand('workbench.action.reloadWindow');
     } catch (error) {
-      void vscode.window.showErrorMessage(`Could not reset and reinitialize the repository: ${(error as Error).message}`);
+      showRefusal(error, { headline: 'Could not reset and reinitialize the repository' });
     }
   }));
 
@@ -1139,7 +1165,7 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
       onOutput: (text) => output.append(text)
     });
   } catch (error) {
-    void vscode.window.showErrorMessage((error as Error).message);
+    showRefusal(error);
     return unavailable('No Singularity Flow CLI was found', (error as Error).message);
   }
   output.appendLine(`Using CLI (${client.location.source}): ${client.location.cli}`);
@@ -1186,7 +1212,7 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
       const document = await vscode.workspace.openTextDocument({ language: 'markdown', content });
       await vscode.window.showTextDocument(document, { preview: true });
     } catch (error) {
-      void vscode.window.showErrorMessage(`Could not expand governed reference: ${(error as Error).message}`);
+      showRefusal(error, { headline: 'Could not expand governed reference' });
     }
   };
   const openHarnessReport = async (): Promise<void> => {
@@ -1212,7 +1238,7 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
       const document = await vscode.workspace.openTextDocument({ language: 'markdown', content });
       await vscode.window.showTextDocument(document, { preview: true });
     } catch (error) {
-      void vscode.window.showErrorMessage(`Could not open the harness report: ${(error as Error).message}`);
+      showRefusal(error, { headline: 'Could not open the harness report' });
     }
   };
   // Packaged agents and skills belong to the exact engine this window is driving. Resolve them
@@ -1721,7 +1747,8 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
       const absolute = path.resolve(client.repository, item.path);
       const relative = path.relative(client.repository, absolute);
       if (relative.startsWith('..') || path.isAbsolute(relative)) {
-        void vscode.window.showErrorMessage(`Refusing to preview evidence outside the repository: ${item.path}`);
+        showRefusal(`This evidence path resolves outside the repository, so it was not opened: ${item.path}`,
+          { headline: 'Refused: that path leaves the repository' });
         return;
       }
       await vscode.commands.executeCommand('vscode.open', vscode.Uri.file(absolute));
@@ -1788,7 +1815,7 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
       if (action === 'Show complete result') output.show(true);
     } catch (error) {
       output.appendLine(`  refused: ${(error as Error).message}`);
-      void vscode.window.showErrorMessage(`Could not detach ${target}: ${(error as Error).message}`);
+      showRefusal(error, { headline: 'Could not detach ${target}' });
     }
   };
 
@@ -2250,7 +2277,7 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
         const document = await vscode.workspace.openTextDocument({ language: 'markdown', content });
         await vscode.window.showTextDocument(document, { preview: true });
       } catch (error) {
-        void vscode.window.showErrorMessage(`Could not read topic ${id}: ${(error as Error).message}`);
+        showRefusal(error, { headline: 'Could not read topic ${id}' });
       }
     },
     'singularityFlow.refresh': async () => {
@@ -2303,7 +2330,7 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
         await store.refresh();
         void vscode.window.showInformationMessage(`${workflow.workItem.id} was cancelled and moved to Archived.`);
       } catch (error) {
-        void vscode.window.showErrorMessage(`Could not cancel ${workflow.workItem.id}: ${(error as Error).message}`);
+        showRefusal(error, { headline: 'Could not cancel ${workflow.workItem.id}' });
       }
     },
     'singularityFlow.reopenCompleted': async () => {
@@ -2314,7 +2341,8 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
       }
       const completion = workflow.phases[workflow.phaseOrder.at(-1) ?? ''];
       if (!completion) {
-        void vscode.window.showErrorMessage('The completed Story has no final phase policy.');
+        showRefusal('The completed Story has no final phase policy, so there is nothing to reopen against.',
+          { headline: 'No final phase policy' });
         return;
       }
       const choices = (completion.approvalPolicy?.rejectTo ?? [completion.id]).map((phaseId) => ({
@@ -2340,7 +2368,7 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
         await store.refresh();
         void vscode.window.showInformationMessage(`${workflow.workItem.id} reopened at ${selected.phaseId}.`);
       } catch (error) {
-        void vscode.window.showErrorMessage(`Could not reopen ${workflow.workItem.id}: ${(error as Error).message}`);
+        showRefusal(error, { headline: 'Could not reopen ${workflow.workItem.id}' });
       }
     },
     'singularityFlow.openDesigner': async () => {
@@ -2459,7 +2487,7 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
         );
       } catch (error) {
         output.appendLine(`  refused: ${(error as Error).message}`);
-        void vscode.window.showErrorMessage(`Could not publish configuration: ${(error as Error).message}`);
+        showRefusal(error, { headline: 'Could not publish configuration' });
       }
     },
     'singularityFlow.configurePeople': () => openConfigurationCenter('people'),
@@ -2524,7 +2552,7 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
         }
         await openGovernedCopilot(workId);
       } catch (error) {
-        void vscode.window.showErrorMessage(`Could not prepare governed Copilot context: ${(error as Error).message}`);
+        showRefusal(error, { headline: 'Could not prepare governed Copilot context' });
       }
     },
     // Creating and editing deliberately use different screens. Creation may introduce a new Git
@@ -2566,7 +2594,7 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
         await openWorkspaceCopilot(pendingHandoff.workspaceName);
       }
     } catch (error) {
-      void vscode.window.showErrorMessage(`Could not resume governed Copilot handoff: ${(error as Error).message}`);
+      showRefusal(error, { headline: 'Could not resume governed Copilot handoff' });
     }
   }
 }
@@ -2586,7 +2614,7 @@ async function openArtifact(
   if (!node?.path) return;
   const base = node.packagePath ? cliPackageRoot : repository;
   if (!base) {
-    void vscode.window.showErrorMessage(`Cannot locate the packaged resource: ${node.path}`);
+    showRefusal(`This build does not contain ${node.path}.`, { headline: 'Packaged resource not found' });
     return;
   }
   const requested = node.packagePath ?? node.path;
@@ -2594,7 +2622,8 @@ async function openArtifact(
   const relative = path.relative(base, absolute);
   if (relative.startsWith('..') || path.isAbsolute(relative)) {
     const boundary = node.packagePath ? 'installed Singularity Flow engine' : 'repository';
-    void vscode.window.showErrorMessage(`Refusing to open a path outside the ${boundary}: ${requested}`);
+    showRefusal(`${requested} resolves outside the ${boundary}, so it was not opened.`,
+      { headline: `Refused: that path leaves the ${boundary}` });
     return;
   }
 
@@ -2626,7 +2655,7 @@ async function showImpact(client: SingularityFlowClient, output: vscode.OutputCh
         await vscode.window.showTextDocument(document, { preview: true });
       } catch (error) {
         output.appendLine(`epic impact failed: ${(error as Error).message}`);
-        void vscode.window.showErrorMessage((error as Error).message);
+        showRefusal(error);
       }
     }
   );

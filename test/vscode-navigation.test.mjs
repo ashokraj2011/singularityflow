@@ -46,14 +46,20 @@ test('every full-page view either dispatches the footer or opts out on purpose',
 test('the two opt-outs are the two pages that cannot run a script', async () => {
   // A footer needs a script to post its message. Opting out is correct exactly where one cannot run,
   // and nowhere else — otherwise it becomes a way to skip the rule.
-  const pages = await fullPageViews();
-  const optedOut = pages.filter(({ source }) => source.includes('nav: false'));
+  /**
+   * Comments stripped before *detecting* an opt-out, not only before judging one.
+   *
+   * The loop below already did this, for exactly the right reason — a file that opts out explains
+   * why, and the explanation names the thing being searched for. The detection one line up had the
+   * same exposure and did not, so a page that mentioned `nav: false` while correctly *not* opting
+   * out was reported as a third opt-out. Found when `result-panel.ts` documented having removed one.
+   */
+  const withoutComments = (source) => source.replace(/\/\*[\s\S]*?\*\//g, '').replace(/^\s*\/\/.*$/gm, '');
+  const pages = (await fullPageViews()).map((entry) => ({ ...entry, code: withoutComments(entry.source) }));
+  const optedOut = pages.filter(({ code }) => code.includes('nav: false'));
   assert.deepEqual(optedOut.map(({ name }) => name).sort(), ['specification-trace.ts', 'visual-fixture.ts']);
 
-  for (const { name, source } of optedOut) {
-    // Comments stripped first: these files explain *why* they cannot run a script, and the
-    // explanation names the very thing being searched for.
-    const code = source.replace(/\/\*[\s\S]*?\*\//g, '').replace(/^\s*\/\/.*$/gm, '');
+  for (const { name, code } of optedOut) {
     const scriptable = /enableScripts:\s*true/.test(code) || /script-src '?nonce/.test(code);
     assert.equal(scriptable, false, `${name} can run a script, so it should carry the footer`);
   }

@@ -15,6 +15,7 @@ import * as vscode from 'vscode';
 import type { SingularityFlowClient } from './cli/client.ts';
 import { CliError } from './cli/runner.ts';
 import { commandPlaceholders, fillPlaceholders, placeholderPrompt } from './commands.ts';
+import { showRefusal } from './views/result-panel.ts';
 
 /** Arguments that must be answered by a human before the command is allowed to run. */
 export interface Confirmation {
@@ -173,7 +174,7 @@ export async function runGovernedAction(
       }
       try { return await run([...args, '--confirm-override', confirmed]); }
       catch (retryError) {
-        void vscode.window.showErrorMessage((retryError as Error).message);
+        showRefusal(error);
         return false;
       }
     }
@@ -187,13 +188,13 @@ export async function runGovernedAction(
       try {
         return await run([...args, '--acknowledge-self-approval']);
       } catch (retryError) {
-        void vscode.window.showErrorMessage((retryError as Error).message);
+        showRefusal(error);
         return false;
       }
     }
     // The CLI's own message names the remedy; rewording it here would lose that.
     output.appendLine(`  failed: ${(error as Error).message}`);
-    void vscode.window.showErrorMessage((error as Error).message);
+    showRefusal(error);
     return false;
   }
 }
@@ -214,7 +215,7 @@ export async function runPlannedAction(
   try {
     plan = await client.run<GovernedActionPlan>(['action', 'plan', '--json']);
   } catch (error) {
-    void vscode.window.showErrorMessage((error as Error).message);
+    showRefusal(error);
     return false;
   }
 
@@ -262,7 +263,7 @@ export async function runPlannedAction(
       ]);
     } catch (error) {
       output.appendLine(`  authorization refused: ${(error as Error).message}`);
-      void vscode.window.showErrorMessage((error as Error).message);
+      showRefusal(error);
       return false;
     }
     argv.push('--authorization', authorization.token);
@@ -276,7 +277,7 @@ export async function runPlannedAction(
     return true;
   } catch (error) {
     output.appendLine(`  refused: ${(error as Error).message}`);
-    void vscode.window.showErrorMessage((error as Error).message);
+    showRefusal(error);
     return false;
   }
 }
@@ -303,7 +304,7 @@ export async function approveWithReceipt(
       ? ['choices', 'begin', 'approve', request.workId, '--fetch', '--json']
       : ['initiative', 'choices', 'begin', 'approve', request.initiativeId, request.subject, '--json']);
   } catch (error) {
-    void vscode.window.showErrorMessage((error as Error).message);
+    showRefusal(error);
     return false;
   }
 
@@ -318,7 +319,7 @@ export async function approveWithReceipt(
       ? ['choices', 'answer', receipt.token, 'phase-confirmation', confirmed, '--json']
       : ['initiative', 'choices', 'answer', receipt.token, 'decision-confirmation', confirmed, '--json']);
   } catch (error) {
-    void vscode.window.showErrorMessage((error as Error).message);
+    showRefusal(error);
     return false;
   }
 
@@ -345,12 +346,12 @@ export async function approveWithReceipt(
       try {
         return await run(['--acknowledge-self-approval']);
       } catch (retryError) {
-        void vscode.window.showErrorMessage((retryError as Error).message);
+        showRefusal(error);
         return false;
       }
     }
     output.appendLine(`  failed: ${(error as Error).message}`);
-    void vscode.window.showErrorMessage((error as Error).message);
+    showRefusal(error);
     return false;
   }
 }

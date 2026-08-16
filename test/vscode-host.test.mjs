@@ -770,8 +770,19 @@ test('refusing to open an artifact path that escapes the repository', async (t) 
 
   const open = registered.commands.get('singularityFlow.openArtifact');
   await open({ path: '../../../../etc/passwd' });
-  assert.equal(registered.errors.length, 1);
-  assert.match(registered.errors[0], /outside the repository/);
+
+  /**
+   * The guard fires and the reader is told why — now as a card rather than a toast.
+   *
+   * The refusal is what this test is about, so it asserts the refusal reached a surface, not which
+   * surface. Asserting `registered.errors` was asserting the transport; a security guard whose test
+   * breaks when the presentation improves is testing the wrong thing.
+   */
+  assert.deepEqual(registered.errors, [], 'a refusal is a card, not a toast');
+  const refusal = registered.panels.find((entry) => entry.id === 'singularityFlow.result');
+  assert.ok(refusal, 'the refusal was shown');
+  assert.match(refusal.webview.html, /leaves the repository/);
+  assert.match(refusal.webview.html, /etc&#47;passwd|etc\/passwd/);
 });
 
 test('packaged agents open from the active CLI without weakening the repository boundary', async (t) => {
@@ -791,11 +802,15 @@ test('packaged agents open from the active CLI without weakening the repository 
   assert.equal(registered.errors.length, 0);
   assert.equal(registered.openedDocuments.at(-1).fsPath,
     path.join(packageRoot, 'templates', 'agents', 'architect.agent.md'));
+  assert.equal(registered.panels.filter((entry) => entry.id === 'singularityFlow.result').length, 0,
+    'a permitted open raises no refusal');
 
   await open({
     path: '../../../../../etc/passwd', packagePath: '../../../../../etc/passwd', readOnly: true
   });
-  assert.match(registered.errors.at(-1), /outside the installed Singularity Flow engine/);
+  const refusal = registered.panels.find((entry) => entry.id === 'singularityFlow.result');
+  assert.ok(refusal, 'the engine boundary refused, and said so');
+  assert.match(refusal.webview.html, /outside the installed Singularity Flow engine/);
 });
 
 /** Activate against a repo and hand back everything a test needs to drive it. */

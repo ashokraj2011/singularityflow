@@ -11,6 +11,8 @@
  * next action `[INT:REQ-023]`. When no workspace is selected, workspace selection leads and the
  * menu does not pretend current work or repository evidence is available `[INT:REQ-024]`.
  */
+import { readWorkspaceRegistry } from '../../workspace.mjs';
+import { workspaceRegistryFile } from '../../workspace-context.mjs';
 import { subjectWith } from '../handles.mjs';
 import { noEffects, sflowResult } from '../result.mjs';
 import { localChangesFor } from './work-continue.mjs';
@@ -142,7 +144,14 @@ export function homeOverviewResult({
   state = null,
   current = {},
   subject = null,
-  localChanges = null
+  localChanges = null,
+  /**
+   * How many *other* workspaces the registry knows about, or null when it could not be read.
+   *
+   * Passed in rather than read here: this function is the deterministic core and its unit fixtures
+   * must not depend on whatever registry happens to exist on the machine running the tests.
+   */
+  otherWorkspaces = null
 } = {}) {
   const homeState = state ?? deriveHomeState(records ?? {}, { repositoryScoped: true, ...current });
   const groups = homeState.groups;
@@ -286,10 +295,29 @@ export function homeOverviewResult({
     why: why.length ? why : [{ code: 'home.default-order', source: 'deterministic' }],
     /**
      * The My Flow briefing is cross-workspace `[INT:REQ-172]` and this planner reads one repository.
-     * Declared as unavailable rather than silently omitted: a briefing that is missing looks exactly
-     * like a briefing with nothing in it.
+     * Declared rather than silently omitted: a briefing that is missing looks exactly like a
+     * briefing with nothing in it.
+     *
+     * The gap now carries a number. "The cross-workspace briefing is unavailable" told a reader
+     * nothing about whether *elsewhere* meant zero other workspaces or twelve — and those are
+     * completely different situations to be in while looking at a home that covers one. The count
+     * comes from the registry, which is a single file read and no repository work at all; what is
+     * still not known is what is *in* those workspaces, and that is what the slot says.
+     *
+     * Deliberately not resolved further here. Counting work across workspaces means reading each
+     * one, a read path may not do that, and warming a cache for it has no honest trigger short of
+     * a background job or a workspace-switch hook. Reporting "not checked" for a thing nobody
+     * looked at is the same distinction this planner already draws about the worktree.
      */
-    warnings: [{ code: 'home.briefing-unavailable', source: 'unavailable', slots: { scope: 'cross-workspace' } }],
+    warnings: [{
+      code: 'home.briefing-unavailable',
+      source: 'unavailable',
+      slots: {
+        scope: 'cross-workspace',
+        /** How many other workspaces exist, or `unknown` when even the registry could not be read. */
+        others: otherWorkspaces === null ? 'unknown' : String(otherWorkspaces)
+      }
+    }],
     next: shown.map((entry, index) => {
       /**
        * A promoted choice says why it was promoted.
@@ -343,9 +371,42 @@ export function homeOverviewResult({
       // `[INT:CON-024]`: shown as a count here; selecting it opens the ceremony, never records one.
       needsYourDecision: decisions,
       briefingAvailable: false,
+      /**
+       * What is known about elsewhere, and what is not. `[INT:REQ-172]`
+       *
+       * `count` is cheap and real; `work` is honestly `not-checked` rather than zero, because
+       * nobody read those workspaces. A surface rendering `0` here would be asserting that the
+       * other workspaces are empty on the evidence of never having opened them.
+       */
+      crossWorkspace: Object.freeze({
+        count: otherWorkspaces,
+        lookup: otherWorkspaces === null ? 'not-checked' : 'resolved',
+        work: 'not-checked'
+      }),
       choiceSet: shown.map((entry) => entry.id)
     }
   });
+}
+
+/**
+ * How many workspaces exist besides this one, from the registry alone. `[INT:REQ-172]`
+ *
+ * One file read and no repository work: the registry is the whole world here, exactly as
+ * `workspace.list` treats it, and scanning disk for likely-looking clones would be both a privacy
+ * problem and a correctness one.
+ *
+ * Null on any failure, which the caller reports as `not-checked`. A missing or unreadable registry
+ * is not evidence that a person has one workspace — it is evidence that nobody could tell.
+ */
+async function countOtherWorkspaces(context) {
+  try {
+    const entries = await readWorkspaceRegistry(workspaceRegistryFile(context.env ?? process.env));
+    const active = context.workspace?.id ?? null;
+    const live = entries.filter((entry) => !entry.archivedAt);
+    return Math.max(0, live.filter((entry) => entry.id !== active).length);
+  } catch {
+    return null;
+  }
 }
 
 export async function homeOverview({ subject = null, root = null, context = {} } = {}) {
@@ -357,6 +418,7 @@ export async function homeOverview({ subject = null, root = null, context = {} }
    */
   if (!root) return homeOverviewResult({ workspace: null, subject });
   const repositoryId = context.repositoryId ?? root;
+  const otherWorkspaces = await countOtherWorkspaces(context);
   const records = await workRecords(root, { ...context, repositoryId });
   return homeOverviewResult({
     workspace: context.workspace ?? { id: root, name: context.workspaceName ?? root },
@@ -369,6 +431,7 @@ export async function homeOverview({ subject = null, root = null, context = {} }
       repositoryScoped: !context.storyId && !context.branch
     },
     subject,
+    otherWorkspaces,
     /**
      * The same worktree read `work.continue` and `work.return` use.
      *

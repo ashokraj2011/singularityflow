@@ -149,3 +149,37 @@ test('a capability this build lacks rests as unavailable, not as blocked', async
   assert.equal(envelope.restState, 'unavailable',
     'a missing planner is an absent capability, not a withheld permission');
 });
+
+test('the cross-workspace gap says how much is elsewhere, and does not count it as zero', async () => {
+  /**
+   * "The cross-workspace briefing is unavailable" told a reader nothing about whether *elsewhere*
+   * meant no other workspaces or twelve — which are completely different situations to be in while
+   * looking at a home that covers one. `[INT:REQ-172]`
+   *
+   * The count is cheap and real; the *work* in those workspaces is `not-checked`, never `0`.
+   * Rendering zero would assert the other workspaces are empty on the evidence of nobody having
+   * opened them — the same conflation the worktree read already refuses to make.
+   */
+  const { homeOverviewResult } = await import('../src/gateway/planners/home-overview.mjs');
+
+  const counted = homeOverviewResult({
+    workspace: { id: 'local--calc', name: 'calc' },
+    records: { groups: {} },
+    otherWorkspaces: 3
+  });
+  const gap = counted.warnings.find((entry) => entry.code === 'home.briefing-unavailable');
+  assert.equal(gap.slots.others, '3');
+  assert.equal(counted.data.crossWorkspace.count, 3);
+  assert.equal(counted.data.crossWorkspace.lookup, 'resolved');
+  assert.equal(counted.data.crossWorkspace.work, 'not-checked',
+    'the count of workspaces is known; what is in them is not');
+
+  // An unreadable registry is "nobody could tell", not "you have one workspace".
+  const unknown = homeOverviewResult({
+    workspace: { id: 'local--calc', name: 'calc' },
+    records: { groups: {} },
+    otherWorkspaces: null
+  });
+  assert.equal(unknown.warnings.find((entry) => entry.code === 'home.briefing-unavailable').slots.others, 'unknown');
+  assert.equal(unknown.data.crossWorkspace.lookup, 'not-checked');
+});

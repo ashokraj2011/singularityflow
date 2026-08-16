@@ -148,7 +148,7 @@ test('every command the source runs is one the manifest contributes', () => {
   assert.deepEqual(unknown, []);
 });
 
-test('every command hidden from the palette is one a menu or the code invokes', () => {
+test('every command hidden from the palette is reachable or an explicit compatibility alias', () => {
   // `when: false` in commandPalette hides a command because it needs an argument. One hidden with
   // nothing invoking it is dead weight nobody can reach at all.
   const hidden = (manifest.contributes.menus.commandPalette ?? [])
@@ -164,6 +164,8 @@ test('every command hidden from the palette is one a menu or the code invokes', 
     ...[...source.matchAll(/command: ?'(singularityFlow\.[\w.]+)'/g)].map((match) => match[1]),
     ...[...source.matchAll(/executeCommand\(\s*'(singularityFlow\.[\w.]+)'/g)].map((match) => match[1])
   ]);
-  const orphaned = hidden.filter((command) => !reachable.has(command));
+  // Hidden aliases may remain callable for old keybindings without occupying current navigation.
+  const compatibilityAliases = new Set(['singularityFlow.openDeveloperHome']);
+  const orphaned = hidden.filter((command) => !reachable.has(command) && !compatibilityAliases.has(command));
   assert.deepEqual(orphaned, []);
 });

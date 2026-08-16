@@ -105,7 +105,7 @@ skills:
   sflow-reinstall: { class: mutation }
   sflow-finalize: { class: mutation }
   sflow-help: { class: conversational }
-  sflow-home: { class: echo }
+  sflow-home: { class: interactive }
   sflow-implement: { class: generative }
   sflow-inbox: { class: echo }
   sflow-init: { class: mutation }

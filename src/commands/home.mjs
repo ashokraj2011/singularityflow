@@ -38,7 +38,10 @@ function render(envelope, projection) {
    * would put a computed answer and six equal options at the same weight.
    */
   const leads = primaryAction(envelope);
-  if (leads) console.log(`\nNext: ${leads.label}${leads.fallback?.command ? `  (${leads.fallback.command})` : ''}`);
+  if (leads) {
+    const route = leads.fallback?.skill ?? leads.fallback?.command;
+    console.log(`\nNext: ${leads.label}${route ? `  (${route})` : ''}`);
+  }
 
   /**
    * The menu comes from the envelope; the projection supplies the detail line. `[UXH:AC-002]`
@@ -66,7 +69,8 @@ function render(envelope, projection) {
      * projection does not track, which is a fact about coverage rather than a failure.
      */
     const goal = action.id.replace(/^home:/, '');
-    console.log(`${index + 1}. ${action.label} — ${detail.get(goal) ?? message(action.reasonCode).label}`);
+    const route = action.fallback?.skill ?? action.fallback?.command;
+    console.log(`${index + 1}. ${action.label} — ${detail.get(goal) ?? message(action.reasonCode).label}${route ? ` · ${route}` : ''}`);
   });
   if (notices.length) console.log(`\nNotices:\n- ${notices.join('\n- ')}`);
 }
@@ -93,6 +97,13 @@ export async function run(_argv, { options }) {
     hostSessionId,
     // The CLI is the host that has all of them.
     planners: gatewayPlanners(),
+    plannerContext: {
+      actor: projection.actor,
+      workspace: projection.context.workspace,
+      repositoryId: projection.context.repository.repositoryId,
+      branch: projection.context.repository.branch,
+      storyId: projection.context.activeStory?.id ?? null
+    },
     workspaceId: projection.context.workspace.id ?? null
   });
 

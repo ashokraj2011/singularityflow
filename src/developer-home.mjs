@@ -2,6 +2,7 @@ import { createHash } from 'node:crypto';
 import { branch, changedFiles, changes, head, identity, repoRoot } from './git.mjs';
 import { readPendingPublication } from './publication-pending.mjs';
 import { buildRepositorySubjectIndex, resolveContext } from './repository-subject-index.mjs';
+import { deriveHomeState } from './gateway/home-work-projection.mjs';
 import { workRecords, WORK_GROUP_ORDER } from './gateway/work-records.mjs';
 import {
   activeWorkspaceFile, buildWorkspaceContext, readActiveWorkspaceContext, workspaceRegistryFile
@@ -127,11 +128,15 @@ function workChoice(item) {
     ? `Recover publication for ${item.id}`
     : item.group === 'waiting-on-you'
       ? `Review ${item.id}`
-      : `Continue ${item.id}`;
+      : item.group === 'recently-completed'
+        ? `Review completed ${item.id}`
+        : `Continue ${item.id}`;
   return {
     id: `work:${item.id}:${item.group}`,
-    operation: item.group === 'waiting-on-you' ? 'review.packet' : 'work.continue',
-    goalId: item.group === 'waiting-on-you' ? 'review-governed-work' : 'continue-governed-work',
+    operation: item.group === 'waiting-on-you' ? 'review.packet'
+      : item.group === 'recently-completed' ? 'work.list' : 'work.continue',
+    goalId: item.group === 'waiting-on-you' ? 'review-governed-work'
+      : item.group === 'recently-completed' ? 'inspect-governed-work' : 'continue-governed-work',
     target: { repositoryId: item.repositoryId, workId: item.id, phase: item.phase ?? null },
     label,
     detail: `${item.phaseLabel ?? item.phase ?? 'workflow'} · ${item.status ?? item.group}`,
@@ -141,6 +146,8 @@ function workChoice(item) {
     reasonCode: item.whyVisible,
     fallbackCommand: item.group === 'waiting-on-you'
       ? `singularity-flow review ${item.phase ?? ''}`.trim()
+      : item.group === 'recently-completed'
+        ? `singularity-flow status ${item.id}`
       : `singularity-flow story return ${item.id}`,
     navigationTarget: item.group === 'waiting-on-you' ? 'approvals' : 'lifecycle'
   };
@@ -168,12 +175,9 @@ async function recordsForRepository(repository, actor) {
       if (marker) pending.add(subject.id);
     }
     const records = await workRecords(repository.absolutePath, {
-      actor, pendingPublications: pending, includeCompleted: true
+      actor, pendingPublications: pending, includeCompleted: true, repositoryId: repository.id
     });
-    return {
-      ...records,
-      items: records.items.map((item) => ({ ...item, repositoryId: repository.id }))
-    };
+    return records;
   } catch (error) {
     return { items: [], warning: `${repository.id}: ${String(error.message).replaceAll(repository.absolutePath, '<repository>')}` };
   }
@@ -220,23 +224,19 @@ export async function developerHome({ workspaceReference = null, hostSession = n
     items.filter((item) => item.group === group).sort((left, right) =>
       (right.lastMaterialEvent?.at ?? '').localeCompare(left.lastMaterialEvent?.at ?? '') || left.id.localeCompare(right.id))
   ]));
-  const active = context.storyId
-    ? items.find((item) => item.id === context.storyId) ?? null
-    : items.find((item) => item.repositoryId === selectedRepository.id && item.branch === selectedRepository.branch) ?? null;
+  const homeState = deriveHomeState({ items, groups }, {
+    storyId: context.storyId,
+    repositoryId: selectedRepository.id,
+    branch: selectedRepository.branch
+  });
+  const active = homeState.currentWork;
   const revision = repositoryRevision(selectedRepository, active?.id ?? context.storyId ?? null);
   const subjectRevision = digest({
     actionRegistry: ACTION_REGISTRY_VERSION,
     actor: actorKey(actor), workspace: context.workspaceId, repository: revision,
     records: items.map((item) => [item.repositoryId, item.id, item.phase, item.status, item.lastMaterialEvent?.at])
   });
-  const ordered = [
-    ...groups['recovery-required'],
-    ...(active ? [active] : groups.active.filter((item) => item.repositoryId === selectedRepository.id)),
-    ...groups['waiting-on-you'],
-    ...groups['waiting-on-others'],
-    ...groups.active.filter((item) => item.id !== active?.id),
-    ...groups['recently-completed']
-  ];
+  const ordered = homeState.ordered;
   const seen = new Set();
   const choices = [];
   for (const item of ordered) {
@@ -248,7 +248,7 @@ export async function developerHome({ workspaceReference = null, hostSession = n
   if (choices.length < MAX_CHOICES) choices.push({
     id: 'work:list', operation: 'work.list', label: 'Open my work',
     goalId: 'inspect-governed-work', target: { workspaceId: context.workspaceId },
-    detail: `${items.length} visible governed work item(s)`, reasonCode: 'work.inventory',
+    detail: `${homeState.activeCount} active · ${homeState.completedCount} recently completed`, reasonCode: 'work.inventory',
     fallbackCommand: 'singularity-flow inbox', navigationTarget: 'inbox'
   });
   if (!active && choices.length < MAX_CHOICES) choices.push({
@@ -271,7 +271,7 @@ export async function developerHome({ workspaceReference = null, hostSession = n
   });
   const headline = active
     ? `${active.id} is in ${active.phaseLabel ?? active.phase ?? 'its workflow'} (${active.status ?? 'active'}).`
-    : `${context.workspaceName} has ${items.filter((item) => item.group !== 'recently-completed').length} active governed work item(s).`;
+    : `${context.workspaceName} has ${homeState.activeCount} active governed work item(s).`;
   return {
     schemaVersion: 1,
     resultType: 'developer-home',

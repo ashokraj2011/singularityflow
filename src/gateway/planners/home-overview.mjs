@@ -14,6 +14,7 @@
 import { subjectWith } from '../handles.mjs';
 import { noEffects, sflowResult } from '../result.mjs';
 import { localChangesFor } from './work-continue.mjs';
+import { deriveHomeState } from '../home-work-projection.mjs';
 import { WORK_GROUP_ORDER, workRecords } from '../work-records.mjs';
 
 /** The stable choice set. Six at most, and never one this list does not contain `[INT:REQ-022]`. */
@@ -49,15 +50,25 @@ export const HOME_CHOICES = Object.freeze([
 export const MAX_HOME_CHOICES = 6;
 
 const FALLBACKS = Object.freeze({
-  'work.continue': 'sflow resume',
-  'work.return': 'sflow story return',
-  'work.list': 'sflow inbox',
-  'work.start.intake': 'sflow start',
-  'workspace.switch': 'sflow workspace list',
-  'impact.quick': 'sflow impact',
-  'repository.explore': 'sflow status',
-  'help.explain': 'sflow explain'
+  'work.continue': { command: 'singularity-flow resume <WORK-ID>', skill: '/sf-resume <WORK-ID>' },
+  'work.return': { command: 'singularity-flow story return <WORK-ID>', skill: '/sf-work-interval reconcile' },
+  'work.list': { command: 'singularity-flow session candidates', skill: '/sf-session' },
+  'work.start.intake': { command: 'singularity-flow start <WORK-ID>', skill: '/sf-start <WORK-ID>' },
+  'workspace.switch': { command: 'singularity-flow workspace list', skill: '/sf-workspace' },
+  'impact.quick': { command: 'singularity-flow workspace impact', skill: '/sf-workspace-impact' },
+  'repository.explore': { command: 'singularity-flow status', skill: '/sf-inspect' },
+  'help.explain': { command: 'singularity-flow explain', skill: '/sf-help' }
 });
+
+function fallbackFor(id, label, slots) {
+  const fallback = FALLBACKS[id];
+  const workId = slots.work ?? '<WORK-ID>';
+  return {
+    label,
+    command: fallback.command.replace('<WORK-ID>', workId),
+    skill: fallback.skill.replace('<WORK-ID>', workId)
+  };
+}
 
 function choice(entry, index, reasonCode, slots = {}) {
   return {
@@ -87,7 +98,7 @@ function choice(entry, index, reasonCode, slots = {}) {
      * at breakfast that could still act at lunchtime is the whole problem with embedded actions.
      */
     executable: false,
-    fallback: { label: entry.label, command: FALLBACKS[entry.id] },
+    fallback: fallbackFor(entry.id, entry.label, slots),
     slots
   };
 }
@@ -125,11 +136,19 @@ function homeRank(entry, { active, recovery, needsReconciliation }) {
   return 2;
 }
 
-export function homeOverviewResult({ workspace = null, records = null, subject = null, localChanges = null } = {}) {
-  const groups = records?.groups ?? {};
-  const counts = Object.fromEntries(WORK_GROUP_ORDER.map((name) => [name, (groups[name] ?? []).length]));
-  const active = (groups.active ?? [])[0] ?? null;
-  const decisions = (groups['waiting-on-you'] ?? []).length;
+export function homeOverviewResult({
+  workspace = null,
+  records = null,
+  state = null,
+  current = {},
+  subject = null,
+  localChanges = null
+} = {}) {
+  const homeState = state ?? deriveHomeState(records ?? {}, { repositoryScoped: true, ...current });
+  const groups = homeState.groups;
+  const counts = homeState.counts;
+  const active = homeState.activeWork;
+  const decisions = homeState.needsYourDecision;
 
   const ordered = [...HOME_CHOICES];
   const why = [];
@@ -174,8 +193,20 @@ export function homeOverviewResult({ workspace = null, records = null, subject =
    * "continue current work" home and no indication that this state is the one where doing something
    * else first can lose work.
    */
-  const recovery = (groups['recovery-required'] ?? [])[0] ?? null;
+  const recovery = homeState.recoveryWork;
   const leading = recovery ?? active;
+
+  /**
+   * Availability is state, not presentation. A Continue row with no current work is not a harmless
+   * shortcut: it becomes the primary action by declaration order and contradicts the headline.
+   */
+  if (!leading) ordered.splice(ordered.findIndex((entry) => entry.id === 'work.continue'), 1);
+  if (!homeState.activeCount) {
+    const listIndex = ordered.findIndex((entry) => entry.id === 'work.list');
+    if (listIndex >= 0) ordered.splice(listIndex, 1);
+    const startIndex = ordered.findIndex((entry) => entry.id === 'work.start.intake');
+    if (startIndex > 0) ordered.unshift(...ordered.splice(startIndex, 1));
+  }
 
   if (leading || needsReconciliation) {
     const context = { active, recovery, needsReconciliation };
@@ -325,10 +356,18 @@ export async function homeOverview({ subject = null, root = null, context = {} }
    * case — and §3.2's answer for it is a menu that leads with workspace selection.
    */
   if (!root) return homeOverviewResult({ workspace: null, subject });
-  const records = await workRecords(root, context);
+  const repositoryId = context.repositoryId ?? root;
+  const records = await workRecords(root, { ...context, repositoryId });
   return homeOverviewResult({
     workspace: context.workspace ?? { id: root, name: context.workspaceName ?? root },
     records,
+    current: {
+      storyId: context.storyId ?? null,
+      repositoryId,
+      branch: context.branch ?? null,
+      // A direct planner invocation with no selected branch is scoped to this repository.
+      repositoryScoped: !context.storyId && !context.branch
+    },
     subject,
     /**
      * The same worktree read `work.continue` and `work.return` use.

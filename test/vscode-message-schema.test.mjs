@@ -26,7 +26,7 @@ const messages = await import(path.join(views, 'views', 'messages.ts'));
  * panels in one change would be a large rewrite of working, individually-defensive code; stating
  * the count is how the remainder stays visible instead of becoming the permanent status quo.
  */
-const UNMIGRATED_MESSAGE_HANDLERS = 26;
+const UNMIGRATED_MESSAGE_HANDLERS = 25;
 
 async function sources(dir) {
   const entries = await readdir(dir, { withFileTypes: true });

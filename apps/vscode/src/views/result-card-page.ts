@@ -130,14 +130,23 @@ function railHtml(view: ResultCardView): string {
 }
 
 export function resultCardHtml(view: ResultCardView): string {
+  /**
+   * A headline and a sentence, separated rather than run together.
+   *
+   * The catalog's convention is `label` as a headline with no full stop and `detail` as a sentence
+   * with one, so joining them with a bare space produced "The cross-workspace briefing is
+   * unavailable Only this workspace was read." The dash is what `preserved` already used three
+   * lines down; using it here makes the three lists agree.
+   */
   const why = view.why.length
     ? `<ul class="sf-card-why">${view.why.map((entry) =>
-      `<li><b>${escape(entry.label)}</b>${entry.detail ? ` ${escape(entry.detail)}` : ''}</li>`).join('')}</ul>`
+      `<li><b>${escape(entry.label)}</b>${entry.detail ? ` — ${escape(entry.detail)}` : ''}</li>`).join('')}</ul>`
     : '';
 
   const warnings = view.warnings.length
     ? `<ul class="sf-card-why">${view.warnings.map((entry) =>
-      `<li>${icon('statusWarning', { size: 14 })} ${escape(entry.label)}${entry.detail ? ` ${escape(entry.detail)}` : ''}</li>`).join('')}</ul>`
+      `<li>${icon('statusWarning', { size: 14 })} ${escape(entry.label)}${
+        entry.detail ? ` — ${escape(entry.detail)}` : ''}</li>`).join('')}</ul>`
     : '';
 
   const gates = view.checklist.length

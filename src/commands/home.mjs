@@ -18,6 +18,7 @@ import { randomUUID } from 'node:crypto';
 import { createHostGateway } from '../gateway/host.mjs';
 import { gatewayPlanners } from '../gateway/planners/index.mjs';
 import { developerHome, homeRepository } from '../developer-home.mjs';
+import { message } from '../gateway/messages.mjs';
 import { primaryAction } from '../gateway/result.mjs';
 import { optionBoolean, optionString } from '../util.mjs';
 
@@ -39,8 +40,34 @@ function render(envelope, projection) {
   const leads = primaryAction(envelope);
   if (leads) console.log(`\nNext: ${leads.label}${leads.fallback?.command ? `  (${leads.fallback.command})` : ''}`);
 
+  /**
+   * The menu comes from the envelope; the projection supplies the detail line. `[UXH:AC-002]`
+   *
+   * This printed `projection.choices` — four items — directly below the kernel's own six, which is
+   * two independent answers to "what can I do", rendered one above the other, in the command whose
+   * whole purpose is to show that a surface reads the kernel rather than deriving in parallel.
+   *
+   * The fix is not to pick a winner: both computations had something. The envelope decides *which*
+   * choices exist and in what order — that is `home-overview` and `[DHR:REQ-070]`'s ordering — and
+   * the projection is consulted for what each one says about this repository right now. A choice
+   * the projection knows nothing about still renders, from its own reason code, because a menu that
+   * silently drops the kernel's entries is the disagreement wearing a different hat.
+   */
+  const detail = new Map(choices.map((choice) => [choice.id.replaceAll(':', '.'), choice.detail]));
+  const menu = envelope.next.filter((action) => action.id !== leads?.id);
   console.log('\nWhat is on your mind today?');
-  choices.forEach((choice, index) => console.log(`${index + 1}. ${choice.label} — ${choice.detail}`));
+  menu.forEach((action, index) => {
+    /**
+     * The projection's sentence when it has one for this choice, the catalog's when it does not.
+     *
+     * The two carry different things: the projection knows "0 visible governed work item(s)" about
+     * *this* repository right now, and the catalog knows what the choice means in general. Neither
+     * is a fallback for the other being broken — a choice with no projection entry is a choice the
+     * projection does not track, which is a fact about coverage rather than a failure.
+     */
+    const goal = action.id.replace(/^home:/, '');
+    console.log(`${index + 1}. ${action.label} — ${detail.get(goal) ?? message(action.reasonCode).label}`);
+  });
   if (notices.length) console.log(`\nNotices:\n- ${notices.join('\n- ')}`);
 }
 

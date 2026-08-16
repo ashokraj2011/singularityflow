@@ -69,9 +69,8 @@ export async function runFirstRunGuide({ keep = false, onBoundary } = {}) {
     run('git', ['add', '--', ...GOVERNED_ROOTS], { cwd: repository });
     run('git', ['commit', '-m', 'Initialize Singularity Flow'], { cwd: repository });
     const remote = path.join(directory, 'origin.git');
-    run('git', ['init', '--bare', '--initial-branch=main', remote], { cwd: directory });
+    run('git', ['clone', '--bare', '--', repository, remote], { cwd: directory });
     run('git', ['remote', 'add', 'origin', remote], { cwd: repository });
-    run('git', ['push', '-u', 'origin', 'main'], { cwd: repository });
 
     const story = path.join(directory, 'story.yml');
     await writeFile(story, YAML.stringify({

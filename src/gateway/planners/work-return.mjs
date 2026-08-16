@@ -256,10 +256,10 @@ async function reconciliationFor(root, item, context) {
      * planner is on the sidebar's path — the read model's own cost is why the snapshot took 62
      * seconds. A briefing that is never asked for should cost nothing to have.
      */
-    const [{ reconcileWorkInterval }, { loadWorkflow, workDir }, { loadConfig }] = await Promise.all([
+    const [{ reconcileWorkInterval }, { loadWorkflow, workDir }, { loadDefinition }] = await Promise.all([
       import('../../work-intervals.mjs'), import('../../state.mjs'), import('../../config.mjs')
     ]);
-    const config = await loadConfig(root);
+    const config = await loadDefinition(root);
     const workflow = await loadWorkflow(root, config, item.id);
     if (!workflow?.workIntervals?.current) return null;
     return await reconcileWorkInterval(root, config, workflow, {

@@ -198,6 +198,57 @@ async function withLeadCheckout(url, message, reviewBranchPrefix, mutate) {
   }
 }
 
+/**
+ * The lead repository's *application* default branch — which is never the branch this edit is on.
+ *
+ * `withLeadCheckout` borrows the repository on the configuration authority branch, so the base
+ * branch it reports back is always `sflow/config`. Recording that as the repository's default
+ * branch is not a cosmetic error: `defaultBranch` is what workspace creation clones, what Story
+ * branches are cut from, and what drift observation compares `origin/<branch>` against, so every
+ * one of them would have been pointed at the configuration branch.
+ *
+ * The declared value is preferred over asking the remote again, because it was computed when the
+ * configuration authority was established — from a repository that had no `sflow/*` branches yet.
+ * Re-deriving it now would mean asking `remoteDefaultBranch` to choose among heads this product has
+ * since added to the repository itself. A declared value that is already the configuration branch
+ * is the symptom rather than a preference, so it is not preserved — see `repairLeadDefaultBranch`,
+ * which is what actually reaches a repository already affected.
+ */
+async function leadApplicationBranch(root, url) {
+  const file = path.join(root, PORTFOLIO_PATH);
+  if (existsSync(file)) {
+    const declared = YAML.parse(await readFile(file, 'utf8'))
+      ?.repositories?.[repositoryIdFromUrl(url)]?.defaultBranch;
+    const branch = typeof declared === 'string' ? declared.trim() : '';
+    if (branch && branch !== CONFIGURATION_BRANCH) return branch;
+  }
+  return remoteDefaultBranch(
+    url, run('git', ['ls-remote', '--symref', url, 'HEAD'], { allowFailure: true }).stdout);
+}
+
+/**
+ * Put back a lead `defaultBranch` that an affected version replaced with the configuration branch.
+ *
+ * Separate from `leadApplicationBranch`, and running on every map rather than only the first,
+ * because the two reach different repositories. `describeRepository` is called once — when the
+ * first capability governs the repository — so correcting its argument fixes repositories mapped
+ * from now on and cannot reach one that was already mapped. Those keep the wrong value forever
+ * otherwise, and the symptom appears far away: a Story cut from `sflow/config`.
+ *
+ * Writes only when the declared value is the configuration branch, so a healthy portfolio is
+ * untouched and no proposal carries a line nobody asked for.
+ */
+async function repairLeadDefaultBranch(root, url) {
+  const file = path.join(root, PORTFOLIO_PATH);
+  if (!existsSync(file)) return;
+  const id = repositoryIdFromUrl(url);
+  const document = YAML.parseDocument(await readFile(file, 'utf8'));
+  if (String(document.getIn(['repositories', id, 'defaultBranch']) ?? '') !== CONFIGURATION_BRANCH) return;
+  document.setIn(['repositories', id, 'defaultBranch'], remoteDefaultBranch(
+    url, run('git', ['ls-remote', '--symref', url, 'HEAD'], { allowFailure: true }).stdout));
+  await writeFile(file, document.toString(YAML_OUTPUT), 'utf8');
+}
+
 /** The capability map a lead repository holds, read without keeping a checkout. */
 export async function readOrganisation(url) {
   const remote = String(url ?? '').trim();
@@ -259,7 +310,7 @@ export async function mapCapability(leadUrl, {
   if (!capabilityId) throw new SingularityFlowError('A capability identifier is required.');
 
   return withLeadCheckout(leadUrl, `Map capability ${capabilityId}`,
-    `capability/map-${capabilityId}`, async (root, baseBranch) => {
+    `capability/map-${capabilityId}`, async (root) => {
     // The first capability governs the repository it is mapped into.
     //
     // Requiring a governed lead before the first capability could be mapped was the product's one
@@ -270,11 +321,14 @@ export async function mapCapability(leadUrl, {
     const governed = existsSync(path.join(root, CAPABILITIES_PATH));
     if (!governed) {
       await initializeDefinition(root);
-      await describeRepository(root, repositoryIdFromUrl(leadUrl), leadUrl, baseBranch, identity(root));
+      await describeRepository(
+        root, repositoryIdFromUrl(leadUrl), leadUrl,
+        await leadApplicationBranch(root, leadUrl), identity(root));
       // The orphan branch is named in the definition here. It is not published until this proposal
       // is reviewed and merged; unreviewed configuration must never become an authoritative mirror.
       await enableLedger(root, 'state');
     }
+    await repairLeadDefaultBranch(root, leadUrl);
 
     // Every repository this capability ships from, declared in the portfolio so the capability may
     // name them. A capability commonly has one; a product with a web app and a service has two.

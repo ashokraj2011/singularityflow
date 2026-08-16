@@ -17,6 +17,7 @@ import { execFileSync } from 'node:child_process';
 import { fileURLToPath } from 'node:url';
 import os from 'node:os';
 import path from 'node:path';
+import YAML from 'yaml';
 import { run } from '../src/util.mjs';
 import { outsideBuilderScratch } from '../src/worldmodel.mjs';
 import {
@@ -69,6 +70,93 @@ async function mapAndMerge(remote, options) {
   await mergeProposal(remote, proposal);
   return proposal;
 }
+
+/**
+ * What the approved portfolio declares for one repository.
+ *
+ * Parsed rather than matched against the file's text. The starter portfolio is mostly commentary,
+ * and its commented examples contain `defaultBranch:` lines of their own — a regex over the whole
+ * file reads those as configuration, which is a test that can fail on a comment and pass on a real
+ * defect.
+ */
+function declaredDefaultBranch(remote, repositoryId) {
+  return YAML.parse(run('git', ['show', 'sflow/config:singularity/portfolio.yml'], {
+    cwd: remote
+  }).stdout)?.repositories?.[repositoryId]?.defaultBranch;
+}
+
+/** Rewrite the approved portfolio the way a version with the base-branch defect left it. */
+async function recordDefaultBranchAs(remote, repositoryId, branch) {
+  const checkout = await mkdtemp(path.join(os.tmpdir(), 'sflow-affected-'));
+  try {
+    run('git', ['clone', '-q', '--branch', 'sflow/config', remote, checkout]);
+    run('git', ['config', 'user.email', 'a@b.com'], { cwd: checkout });
+    run('git', ['config', 'user.name', 'A B'], { cwd: checkout });
+    const file = path.join(checkout, 'singularity/portfolio.yml');
+    const document = YAML.parseDocument(await readFile(file, 'utf8'));
+    document.setIn(['repositories', repositoryId, 'defaultBranch'], branch);
+    await writeFile(file, document.toString());
+    run('git', ['commit', '-qam', 'as an affected version left it'], { cwd: checkout });
+    run('git', ['push', '-q', 'origin', 'HEAD:refs/heads/sflow/config'], { cwd: checkout });
+  } finally {
+    await rm(checkout, { recursive: true, force: true });
+  }
+}
+
+test('the branch a capability is mapped on is not recorded as the repository default branch', async () => {
+  /**
+   * `withLeadCheckout` borrows the lead on the configuration authority branch, so the base branch it
+   * hands the mutate callback is always `sflow/config`. That value reached `describeRepository`'s
+   * `defaultBranch` argument, which is a different question with the same shape: `defaultBranch` is
+   * what workspace creation clones, what Story branches are cut from, and what drift observation
+   * compares `origin/<branch>` against. All three would have been pointed at the configuration
+   * branch, and the symptom appears far from the cause.
+   *
+   * Asserted on the merged configuration rather than on the proposal, because that is what every
+   * later reader actually loads.
+   */
+  const org = await remotes('platform');
+  process.env.SINGULARITY_FLOW_LEAD_REGISTRY = registry(org.base);
+
+  await mapAndMerge(org.platform, { capabilityId: 'commerce', name: 'Commerce', kind: 'collection' });
+
+  assert.equal(declaredDefaultBranch(org.platform, 'platform'), 'main',
+    'the configuration authority branch is not the branch work is cut from');
+});
+
+test('a repository already recorded against the configuration branch is repaired, and a healthy one is left alone', async () => {
+  /**
+   * Two claims, because fixing the argument and reaching an affected repository are different
+   * problems. `describeRepository` runs once — when the first capability governs the repository —
+   * so correcting what is passed to it cannot reach a repository that was already mapped. Those
+   * would keep the wrong branch forever, which is why repair is its own step.
+   *
+   * The second claim is what keeps that step honest: it must write nothing on a healthy portfolio,
+   * or every proposal from here on carries a configuration line nobody asked for.
+   */
+  const org = await remotes('platform');
+  process.env.SINGULARITY_FLOW_LEAD_REGISTRY = registry(org.base);
+  await mapAndMerge(org.platform, { capabilityId: 'commerce', name: 'Commerce', kind: 'collection' });
+
+  const healthy = await mapCapability(org.platform, {
+    capabilityId: 'billing', name: 'Billing', kind: 'collection'
+  });
+  const inspected = await inspectCapabilityProposal(org.platform, healthy.branch);
+  assert.deepEqual(inspected.changedFiles.map((file) => file.paths.join('')),
+    ['singularity/capabilities.yml'],
+    'mapping into a healthy repository proposes the map and nothing else');
+  await mergeProposal(org.platform, healthy);
+
+  await recordDefaultBranchAs(org.platform, 'platform', 'sflow/config');
+  assert.equal(declaredDefaultBranch(org.platform, 'platform'), 'sflow/config',
+    'the affected state this repairs is real before the repair runs');
+
+  const repair = await mapAndMerge(org.platform, {
+    capabilityId: 'payments', name: 'Payments', kind: 'collection'
+  });
+  assert.ok(repair.branch, 'the repair travels as a reviewable proposal, not a silent write');
+  assert.equal(declaredDefaultBranch(org.platform, 'platform'), 'main');
+});
 
 test('the first capability governs the repository it is mapped into', async () => {
   // The product's one circular dependency: mapping a capability needed a map, and the only way to

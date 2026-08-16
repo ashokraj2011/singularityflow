@@ -23,6 +23,12 @@ export interface Started {
   currentPhase?: string;
 }
 
+export interface IntakeTarget {
+  workspace: string | null;
+  repository: string;
+  branch: string | null;
+}
+
 export class IntakePanel {
   private static current: IntakePanel | null = null;
 
@@ -31,18 +37,25 @@ export class IntakePanel {
   private readonly output: vscode.OutputChannel;
   private readonly onStarted: (started: Started) => Promise<void>;
   private readonly disposables: vscode.Disposable[] = [];
-  private form: IntakeForm = { ...EMPTY_INTAKE_FORM };
+  private form: IntakeForm;
 
   private constructor(
     panel: vscode.WebviewPanel,
     client: SingularityFlowClient,
     output: vscode.OutputChannel,
-    onStarted: (started: Started) => Promise<void>
+    onStarted: (started: Started) => Promise<void>,
+    target: IntakeTarget
   ) {
     this.panel = panel;
     this.client = client;
     this.output = output;
     this.onStarted = onStarted;
+    this.form = {
+      ...EMPTY_INTAKE_FORM,
+      targetWorkspace: target.workspace,
+      targetRepository: target.repository,
+      targetBranch: target.branch
+    };
     this.panel.webview.onDidReceiveMessage((raw: unknown) => {
       // The shared footer is the one way out of a full-page view. Handled here rather than through
       // this panel's own message contract, because "go to another page" is not this panel's business.
@@ -58,11 +71,18 @@ export class IntakePanel {
     context: vscode.ExtensionContext,
     client: SingularityFlowClient,
     output: vscode.OutputChannel,
-    onStarted: (started: Started) => Promise<void>
+    onStarted: (started: Started) => Promise<void>,
+    target: IntakeTarget
   ): IntakePanel {
     if (IntakePanel.current) {
-      IntakePanel.current.panel.reveal(vscode.ViewColumn.Active);
-      return IntakePanel.current;
+      if (IntakePanel.current.form.targetRepository === target.repository
+          && IntakePanel.current.form.targetBranch === target.branch) {
+        IntakePanel.current.panel.reveal(vscode.ViewColumn.Active);
+        return IntakePanel.current;
+      }
+      // A workspace or branch switch changes the mutation target. Never reveal a form that names
+      // the former target while its shared client now points somewhere else.
+      IntakePanel.current.dispose();
     }
     const panel = vscode.window.createWebviewPanel(
       'singularityFlow.intake', 'Start work', vscode.ViewColumn.Active, {
@@ -70,7 +90,7 @@ export class IntakePanel {
         retainContextWhenHidden: true,
         localResourceRoots: [vscode.Uri.joinPath(context.extensionUri, 'media')]
       });
-    IntakePanel.current = new IntakePanel(panel, client, output, onStarted);
+    IntakePanel.current = new IntakePanel(panel, client, output, onStarted, target);
     return IntakePanel.current;
   }
 
@@ -299,6 +319,12 @@ export class IntakePanel {
   private async start(): Promise<void> {
     // Re-checked here rather than trusted from the page: the disabled button is a courtesy.
     if (intakeProblems(this.form).length || this.form.busy) return;
+    if (this.client.repository !== this.form.targetRepository) {
+      this.update({
+        error: `The active repository changed to ${this.client.repository}. Close this form and start again so the target is explicit.`
+      });
+      return;
+    }
     this.update({ busy: true, error: null });
 
     const args = intakeCommand(this.form);

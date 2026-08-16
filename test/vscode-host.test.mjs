@@ -1203,6 +1203,78 @@ test('an Epic can be started and its first source pinned entirely from the edito
   assert.equal(provider.getChildren(sources)[0].label, 'brief.md');
 });
 
+test('Story intake refuses a dirty target before opening the form', async (t) => {
+  if (!requireBundle(t)) return;
+  const { root, registered } = await activated();
+  await writeFile(path.join(root, 'unfinished-change.txt'), 'not ready to govern\n');
+  registered.selfApprovalAnswer = 'Open Source Control';
+
+  await registered.commands.get('singularityFlow.startWork')();
+
+  assert.equal(registered.panels.some((entry) => entry.id === 'singularityFlow.intake'), false,
+    'the form is not shown for a target the engine will refuse');
+  const warning = registered.warnings.find((message) => /Cannot start work/.test(message));
+  assert.match(warning ?? '', /checkout/);
+  assert.match(warning ?? '', /INIT-CHECKOUT/);
+  assert.match(warning ?? '', /unfinished-change\.txt/);
+  assert.ok(registered.executedCommands.some((entry) => entry.id === 'workbench.view.scm'),
+    'the refusal offers the relevant recovery surface');
+});
+
+test('a manual Story is submitted end to end from the editor', async (t) => {
+  if (!requireBundle(t)) return;
+  const base = await mkdtemp(path.join(os.tmpdir(), 'sflow-story-intake-'));
+  const root = path.join(base, 'service');
+  await mkdir(root);
+  run('git', ['init', '-q', '-b', 'main', root], { cwd: base });
+  run('git', ['config', 'user.name', 'Initiative Owner'], { cwd: root });
+  run('git', ['config', 'user.email', EMAIL], { cwd: root });
+  await writeFile(path.join(root, 'README.md'), '# service\n');
+  const initialized = spawnSync(process.execPath,
+    [path.join(packageRoot, 'bin', 'singularity-flow.mjs'), 'init'],
+    { cwd: root, encoding: 'utf8' });
+  assert.equal(initialized.status, 0, initialized.stderr);
+
+  const portfolioFile = path.join(root, 'singularity/portfolio.yml');
+  await writeFile(portfolioFile, (await readFile(portfolioFile, 'utf8'))
+    .replace(/^  publish: \w+$/m, '  publish: off')
+    .replace(/members: \[\]/g, `members: [{ name: Initiative Owner, email: ${EMAIL} }]`));
+  const workflowFile = path.join(root, 'singularity/workflow.yml');
+  const workflow = YAML.parse(await readFile(workflowFile, 'utf8'));
+  workflow.git.publish = 'off';
+  workflow.worldModel.grounding = 'off';
+  await writeFile(workflowFile, YAML.stringify(workflow));
+  run('git', ['add', '.'], { cwd: root });
+  run('git', ['commit', '-m', 'Initialize'], { cwd: root });
+
+  const { api, registered } = stubVscode();
+  api.workspace.workspaceFolders = [{ uri: { fsPath: root } }];
+  const extension = loadExtension(api);
+  await extension.activate(context());
+
+  await registered.commands.get('singularityFlow.startWork')();
+  const intakePanel = registered.panels.find((entry) => entry.id === 'singularityFlow.intake');
+  assert.ok(intakePanel, 'a clean repository opens Story intake');
+  await intakePanel.post({ type: 'shape', value: 'story' });
+  await until(() => intakePanel.webview.html.includes('data-work-type="feature"') ? true : null);
+  await intakePanel.post({ type: 'tracker', value: 'none' });
+  await intakePanel.post({ type: 'field', field: 'id', value: 'STORY-UI' });
+  await intakePanel.post({ type: 'field', field: 'title', value: 'Area operator' });
+  await intakePanel.post({ type: 'field', field: 'description', value: 'Add an operator called area' });
+  await intakePanel.post({ type: 'field', field: 'acceptanceCriteria', value: 'Testing proves the result' });
+  await intakePanel.post({ type: 'start' });
+
+  await until(() => run('git', ['branch', '--show-current'], { cwd: root }).stdout.trim() === 'STORY-UI'
+    ? true : null, { what: 'the Story branch to be created' });
+  await until(() => registered.infos.find((message) => /Story STORY-UI started/.test(message)) ?? null,
+    { what: 'the editor to report the started Story' });
+  assert.deepEqual(registered.errors, []);
+  assert.deepEqual(registered.warnings, []);
+  assert.equal(run('git', ['log', '-1', '--pretty=%s'], { cwd: root }).stdout.trim(),
+    '[STORY-UI][init] start feature workflow');
+  assert.equal(run('git', ['status', '--porcelain'], { cwd: root }).stdout.trim(), '');
+});
+
 test('starting work before any approver is named says so first, and offers the file to fix', async (t) => {
   if (!requireBundle(t)) return;
   // The engine refuses this, correctly. What it must not do is refuse *after* five questions with a

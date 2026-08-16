@@ -1859,6 +1859,32 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
    * profile offers it here without the extension being changed.
    */
   const startWork = async (): Promise<void> => {
+    // Refresh before asking anything. `start` refuses a dirty tree, and discovering that only after
+    // somebody completes the intake form wastes their answers and makes a correct guard look like a
+    // dead button. The target is stated here because a selected workspace may point this window at
+    // a lead repository other than the folder visible in the title bar.
+    await store.refresh();
+    const repositoryState = store.current.snapshot?.repository;
+    const changedPaths = repositoryState?.changes ?? [];
+    if (changedPaths.length) {
+      const branchName = repositoryState?.branch ?? 'detached HEAD';
+      const repositoryName = path.basename(repositoryState?.root ?? repository);
+      const target = workspaceLabel ? `${workspaceLabel} → ${repositoryName}` : repositoryName;
+      const sample = changedPaths.slice(0, 3).join(', ');
+      const remaining = changedPaths.length - Math.min(changedPaths.length, 3);
+      const open = await vscode.window.showWarningMessage(
+        `Cannot start work in ${target} on ${branchName}: ${changedPaths.length} uncommitted path(s) (${sample}${remaining ? `, +${remaining} more` : ''}).`,
+        {
+          modal: true,
+          detail: `Repository: ${repositoryState?.root ?? repository}\nBranch: ${branchName}\n\n`
+            + `${changedPaths.join('\n')}\n\nCommit or stash these changes before starting governed work.`
+        },
+        'Open Source Control'
+      );
+      if (open === 'Open Source Control') await vscode.commands.executeCommand('workbench.view.scm');
+      return;
+    }
+
     // Checked before anything is asked. The engine refuses to start governed work when no approval
     // authority has a member, and discovering that after a filled-in form — with a message naming a
     // YAML key — is a poor greeting for someone who has just initialized a repository.
@@ -1888,6 +1914,10 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
       if (open === 'Continue safely') await vscode.commands.executeCommand('singularityFlow.continueSafely');
       else if (open === 'Open the journey') await vscode.commands.executeCommand('singularityFlow.openJourney');
       else if (open === 'Show status') await vscode.commands.executeCommand('singularityFlow.openDashboard');
+    }, {
+      workspace: workspaceLabel,
+      repository: repositoryState?.root ?? repository,
+      branch: repositoryState?.branch ?? null
     });
   };
 

@@ -2283,6 +2283,17 @@ test('the three shapes are offered with what each one leads to', () => {
   }
 });
 
+test('intake names the exact workspace, repository, and branch it will mutate', () => {
+  const html = intakeHtml(intake({
+    targetWorkspace: 'Rule-engine',
+    targetRepository: '/workspaces/rule-engine/repos/ruleengine',
+    targetBranch: 'WRK-2028'
+  }));
+  assert.match(html, /workspace <strong>Rule-engine<\/strong>/);
+  assert.match(html, /repository\s+<strong>\/workspaces\/rule-engine\/repos\/ruleengine<\/strong>/);
+  assert.match(html, /branch <code>WRK-2028<\/code>/);
+});
+
 /** Sentences in the fixtures contain regex metacharacters; matching one literally has to say so. */
 function escapeForRegExp(value) {
   return value.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');

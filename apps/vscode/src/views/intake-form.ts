@@ -40,6 +40,10 @@ export interface InFlight {
 }
 
 export interface IntakeForm {
+  /** The exact surface context this form will mutate. */
+  targetWorkspace: string | null;
+  targetRepository: string | null;
+  targetBranch: string | null;
   shape: Shape;
   tracker: Tracker;
   /** The tracker key, when there is a tracker: an Initiative, Epic or Story key. */
@@ -88,6 +92,7 @@ export interface BaseBranchChoice {
 }
 
 export const EMPTY_INTAKE_FORM: IntakeForm = {
+  targetWorkspace: null, targetRepository: null, targetBranch: null,
   shape: 'epic', tracker: 'none', key: '', id: '', title: '', description: '', goal: '',
   acceptanceCriteria: '', profile: null, profiles: [], workType: null, storyWorkflows: [],
   baseBranch: null, baseBranchChoices: [], baseBranchReason: null,
@@ -448,6 +453,10 @@ export function intakeHtml(form: IntakeForm): string {
     <h1>${icon('epic', { size: 20 })}Start work</h1>
     <p class="meta">Work arrives in three shapes and with or without a tracker. Both are answered
       here, and the rest of the form follows from the answers.</p>
+    ${form.targetRepository ? `<p class="meta">Target: ${form.targetWorkspace
+    ? `workspace <strong>${escape(form.targetWorkspace)}</strong> · ` : ''}repository
+      <strong>${escape(form.targetRepository)}</strong>${form.targetBranch
+    ? ` · branch <code>${escape(form.targetBranch)}</code>` : ''}</p>` : ''}
   </header>
 
   <section>

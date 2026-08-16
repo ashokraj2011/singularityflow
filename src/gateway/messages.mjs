@@ -88,6 +88,7 @@ export const RESULT_MESSAGES = Object.freeze({
   'home.no-workspace-selected': M('No workspace is selected'),
   'home.select-a-workspace-first': M('Choose a workspace'),
   'home.continue-active-work': M('Continue where you left off'),
+  'home.local-work-unreconciled': M('{files} local change(s) not yet compared against the plan'),
   'home.work-summary': M('{active} active, {decisions} needing you'),
   'home.stable-choice': M('Always available'),
 

@@ -60,7 +60,18 @@ const CONTROLS = Object.freeze({
  */
 const CEREMONY_FIELDS = Object.freeze(['confirm', 'confirmation', 'acknowledge', 'acknowledgement']);
 
+/**
+ * Fields a draft may never hold, for a different reason than ceremony.
+ *
+ * `[UXH:REQ-074]` says "never store secrets *or* confirmation text", and the two are separate
+ * hazards: a persisted ceremony defeats a safety design, a persisted secret leaks. No registered
+ * schema declares one of these today, which is exactly when the rule is cheap to write and exactly
+ * why it would otherwise be written after the first schema that does.
+ */
+const SENSITIVE_FIELDS = Object.freeze(['token', 'secret', 'password', 'passphrase', 'apiKey', 'credential']);
+
 const isCeremony = (name) => CEREMONY_FIELDS.includes(name);
+const isSensitive = (name) => SENSITIVE_FIELDS.some((sensitive) => name.toLowerCase().includes(sensitive.toLowerCase()));
 
 function schemaFor(schemaId) {
   const found = ARGUMENT_SCHEMAS.find((entry) => entry.id === schemaId);
@@ -98,7 +109,7 @@ export function formModel(schemaId, { defaults = {} } = {}) {
        * and persistence defeats it on every open after a refresh.
        */
       value: ceremony ? null : (defaults[name] ?? null),
-      persist: !ceremony,
+      persist: !ceremony && !isSensitive(name),
       /** A field whose type has no designed input is reported, not rendered as a plain box. */
       renderable: Boolean(control)
     });
@@ -116,6 +127,79 @@ export function formModel(schemaId, { defaults = {} } = {}) {
 }
 
 /**
+ * A field's flag, and a flag's field. `[UXH:AC-011]`
+ *
+ * One pair, because they are one fact. The schemas are camelCase and closed, `parseArgs` yields
+ * whatever the flag spelled, and nothing in between translated — so the "terminal equivalent" a
+ * form displayed was, if typed, an argument bag naming fields no schema declares. Not a difference
+ * a reader could see, and precisely the one `[UXH:AC-011]` exists to rule out.
+ */
+export const flagFor = (field) => `--${field.replace(/[A-Z]/g, (letter) => `-${letter.toLowerCase()}`)}`;
+export const fieldFor = (flag) => flag.replace(/^--?(no-)?/, '').replace(/-([a-z])/g, (_, letter) => letter.toUpperCase());
+
+/**
+ * Quote a value the way a shell reads it back. `[UXH:REQ-073]` `[UXH:AC-011]`
+ *
+ * `JSON.stringify` was the obvious choice and the wrong one: inside double quotes a shell still
+ * expands `$HOME` and still runs a backtick, so a displayed `--summary "$HOME/notes"` is a command
+ * that submits something other than what the form would have. Single quotes suspend all of it, and
+ * the `'\''` dance is how a literal quote gets through them.
+ */
+function shellQuote(value) {
+  const text = String(value);
+  if (/^[A-Za-z0-9._/@:=,+-]+$/.test(text)) return text;
+  return `'${text.replace(/'/g, "'\\''")}'`;
+}
+
+/**
+ * Give a form's strings the types the schema declares. `[UXH:AC-011]`
+ *
+ * An HTML control has one output type and the schema has nine. `<input type="number">` hands back
+ * `"12"`, and `integer` requires `Number.isInteger` — so a form that submitted what the DOM gave it
+ * would be refused where the identical CLI invocation succeeds. That is the parity break, and it is
+ * the form's to fix: the operation must not learn to accept `"12"`, because then every caller may
+ * send it.
+ *
+ * **Only the unambiguous conversions.** `"abc"` for an integer stays `"abc"` rather than becoming
+ * `NaN`, so the authority refuses it by name instead of the form quietly inventing a value nobody
+ * typed. Coercion narrows the *representation*; it must never decide the *meaning*.
+ */
+export function coerceForm(schemaId, values) {
+  const schema = schemaFor(schemaId);
+  if (!schema) return { ...(values ?? {}) };
+  const coerced = {};
+  for (const [name, value] of Object.entries(values ?? {})) {
+    const type = schema.fields?.[name]?.type;
+    if (type === 'integer' && typeof value === 'string' && /^-?\d+$/.test(value.trim())) {
+      coerced[name] = Number(value.trim());
+    } else if (type === 'boolean' && (value === 'true' || value === 'false')) {
+      coerced[name] = value === 'true';
+    } else {
+      coerced[name] = value;
+    }
+  }
+  return coerced;
+}
+
+/**
+ * The other direction: parsed CLI options to operation arguments. `[UXH:AC-011]`
+ *
+ * Deliberately the same `coerceForm` the button goes through rather than a second conversion, so
+ * the two paths cannot drift into disagreeing about what `--line-start 12` means. `parseArgs` gives
+ * booleans for bare and `--no-` flags and strings for everything else, which is exactly the shape a
+ * form produces — the two callers differ only in how they spell the names.
+ */
+export function argumentsFromFlags(schemaId, options) {
+  const named = {};
+  for (const [flag, value] of Object.entries(options ?? {})) {
+    // A repeated flag arrives as an array. No schema declares a list, so it is left as-is for the
+    // authority to refuse rather than silently reduced to its last occurrence.
+    named[fieldFor(flag)] = value;
+  }
+  return coerceForm(schemaId, named);
+}
+
+/**
  * Check a filled form the way the operation will, and report rather than throw.
  *
  * `validateArguments` is the authority and it throws — right for an operation boundary, wrong for a
@@ -123,9 +207,13 @@ export function formModel(schemaId, { defaults = {} } = {}) {
  * beside the offending field, so local feedback and real validation cannot disagree about what is
  * valid: there is one implementation of that, and this is not it.
  */
-export function checkForm(schemaId, values) {
+export function checkForm(schemaId, rawValues) {
   const schema = schemaFor(schemaId);
   if (!schema) return { valid: false, problems: [{ field: null, code: 'form.unknown-schema', detail: schemaId }] };
+
+  // Checked in the types the operation will see, not the types the DOM produced. Validating the
+  // strings would report a problem the operation does not have, or miss one it does.
+  const values = coerceForm(schemaId, rawValues);
 
   const problems = [];
   for (const [name, spec] of Object.entries(schema.fields ?? {})) {
@@ -176,19 +264,84 @@ export function restoreDraft(schemaId, draft) {
 }
 
 /**
+ * What a draft is written as, so a stale one can be recognised rather than half-applied.
+ * `[UXH:REQ-074]`
+ *
+ * The version has two parts and they fail differently. `DRAFT_VERSION` moves when the *envelope*
+ * changes, which no amount of schema reading would detect; the fingerprint moves when the schema's
+ * own fields change, which no envelope version would detect because the envelope did not change.
+ *
+ * The fingerprint covers names *and* types: a draft holding `lineStart: "top"` for a field that was
+ * a string yesterday and is an integer today is not a value the form should offer back. Field order
+ * is sorted out of it, because reordering a schema does not invalidate anything a reader typed.
+ */
+export const DRAFT_VERSION = 1;
+
+export function schemaFingerprint(schemaId) {
+  const schema = schemaFor(schemaId);
+  if (!schema) return null;
+  return Object.entries(schema.fields ?? {})
+    .map(([name, spec]) => `${name}:${spec.type}`)
+    .sort()
+    .join(',');
+}
+
+/**
+ * The record to persist, already stripped of everything a draft may not hold.
+ *
+ * Filtered on write as well as on read. Once a confirmation reaches storage the rule has already
+ * been broken — a later reader declining to restore it does not unwrite it, and the storage is a
+ * plain workspace state file someone can open.
+ */
+export function draftRecord(schemaId, values) {
+  const model = formModel(schemaId);
+  if (!model) return null;
+  const kept = {};
+  for (const field of model.fields) {
+    if (!field.persist) continue;
+    const value = values?.[field.name];
+    if (value !== undefined && value !== null && value !== '') kept[field.name] = value;
+  }
+  return { version: DRAFT_VERSION, schemaId, fingerprint: schemaFingerprint(schemaId), values: kept };
+}
+
+/**
+ * Read a persisted record, and discard rather than salvage. `[UXH:REQ-074]`
+ *
+ * "Discard incompatible values safely" is a instruction about *doubt*: a record whose envelope or
+ * schema has moved is not partially trustworthy, and restoring the fields that happen to still
+ * match would hand back a form filled from two different schemas with nothing on screen to say so.
+ */
+export function readDraft(schemaId, record) {
+  if (!record || typeof record !== 'object' || Array.isArray(record)) return {};
+  if (record.version !== DRAFT_VERSION) return {};
+  if (record.schemaId !== schemaId) return {};
+  if (record.fingerprint !== schemaFingerprint(schemaId)) return {};
+  return restoreDraft(schemaId, record.values);
+}
+
+/**
  * The command a reader could type instead. `[UXH:REQ-073]`
  *
  * Display-only, and the comment matters more than the code: pressing the button still goes through
  * the registered operation and typed arguments. A form that offered this as the way to act would be
  * the second dispatch path the shell exists to remove.
+ *
+ * Display-only does not mean approximate. `[UXH:AC-011]` requires the two to produce identical
+ * arguments, and this is shown to a reader as the thing they could have typed instead — so it is
+ * round-tripped against the real `parseArgs` in the parity suite rather than merely inspected.
  */
 export function terminalEquivalent(command, values) {
   const parts = [command];
   for (const [name, value] of Object.entries(values ?? {})) {
     if (value === undefined || value === null || value === '') continue;
-    const flag = `--${name.replace(/[A-Z]/g, (letter) => `-${letter.toLowerCase()}`)}`;
-    // A boolean is a flag, not a flag with `true` after it.
-    parts.push(value === true ? flag : `${flag} ${/\s/.test(String(value)) ? JSON.stringify(String(value)) : value}`);
+    const flag = flagFor(name);
+    // A boolean is a flag, not a flag with a word after it. `--x false` parses as the *string*
+    // "false", which is neither false nor what the reader chose; `--no-x` is how the parser spells
+    // it, so that is what the equivalent says.
+    if (value === true) parts.push(flag);
+    else if (value === false) parts.push(`--no-${flag.slice(2)}`);
+    else parts.push(`${flag} ${shellQuote(value)}`);
   }
   return parts.join(' ');
 }

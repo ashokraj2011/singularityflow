@@ -80,6 +80,32 @@ declare module '*/gateway/planners/work-return.mjs' { export const workReturn: u
 declare module '*/gateway/planners/workspace-list.mjs' { export const workspaceList: unknown; }
 
 /**
+ * The form layer's pure half.
+ *
+ * `formModel` returns `FormView | null` in `form-page.ts` terms, but this file must not import from
+ * the host to describe the core — so the shape is `unknown` here and narrowed at the one call site.
+ * The functions with rules in them are typed properly, because those are the ones a wrong call
+ * would quietly break: `readDraft` returning `{}` for a stale record and `draftRecord` dropping a
+ * confirmation are the contract, not implementation details.
+ */
+declare module '*/gateway/form-model.mjs' {
+  export function formModel(schemaId: string,
+    options?: { defaults?: Readonly<Record<string, unknown>> }): unknown;
+  export function checkForm(schemaId: string, values: Readonly<Record<string, unknown>>): {
+    readonly valid: boolean;
+    readonly problems: readonly { readonly field: string | null; readonly code: string; readonly detail: string | null }[];
+  };
+  export function coerceForm(schemaId: string,
+    values: Readonly<Record<string, unknown>>): Record<string, string | number | boolean>;
+  export function restoreDraft(schemaId: string, draft: unknown): Record<string, string | number | boolean>;
+  export function readDraft(schemaId: string, record: unknown): Record<string, string | number | boolean>;
+  export function draftRecord(schemaId: string, values: Readonly<Record<string, unknown>>): unknown;
+  export function schemaFingerprint(schemaId: string): string | null;
+  export function terminalEquivalent(command: string, values: Readonly<Record<string, unknown>>): string;
+  export const DRAFT_VERSION: number;
+}
+
+/**
  * The message catalog. Typed here, owned by core — see `views/result-messages.ts` for why.
  */
 declare module '*/gateway/messages.mjs' {

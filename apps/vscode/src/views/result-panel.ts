@@ -17,7 +17,8 @@ import * as vscode from 'vscode';
 
 import { createMessageRouter, stringField } from './messages.ts';
 import { RESULT_CARD_SCRIPT, RESULT_CARD_STYLE, resultCardHtml } from './result-card-page.ts';
-import { contentSecurityPolicy, escape, nonce, page } from './webview.ts';
+import { navigateTo } from './navigate.ts';
+import { contentSecurityPolicy, escape, navigationTarget, nonce, page } from './webview.ts';
 import { fidelityNote, refusalFor, type Refusal } from './refusal.ts';
 import type { ResultCardView } from './result-card-model.ts';
 
@@ -149,7 +150,23 @@ export function showResultCard(view: ResultCardView,
       }
     }, reportUnknownMessage);
     acceptedMessages.set('singularityFlow.result', router.accepts);
-    panel.webview.onDidReceiveMessage((raw: unknown) => router.route(raw));
+    panel.webview.onDidReceiveMessage((raw: unknown) => {
+      /**
+       * The shared footer, handled before this panel's own contract.
+       *
+       * "Go to another page" is not this panel's business — every full page carries the same footer
+       * and `page()` renders it, so one seam handles it rather than 25 routers each declaring it.
+       *
+       * It was missing entirely. `page()` was rendering the footer and the closed router was
+       * reporting every press as an unrecognised message, so the way out of a refusal card did
+       * nothing — a dead control in the panel built to remove dead ends. The test that should have
+       * caught it read the raw source and found `nav: false` in the comment above explaining why
+       * this panel does *not* opt out.
+       */
+      const navigation = navigationTarget(raw);
+      if (navigation) return void navigateTo(navigation);
+      router.route(raw);
+    });
   } else {
     panel.reveal(vscode.ViewColumn.Beside, true);
   }

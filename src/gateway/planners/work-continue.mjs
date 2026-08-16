@@ -12,6 +12,9 @@
  * reads. A version of this that accepted "where we left off" as context would work beautifully until
  * the day someone returned after a week, and then be confidently wrong.
  */
+import { createHash } from 'node:crypto';
+
+import { changedFiles, changes, head } from '../../git.mjs';
 import { SingularityFlowError } from '../../util.mjs';
 import { catalogued } from '../catalog.mjs';
 import { noEffects, preservedAll, sflowResult } from '../result.mjs';
@@ -47,7 +50,7 @@ function notFound(workId) {
   });
 }
 
-export function workContinueResult(item, { subject = null, localChanges = null, legalActions = null } = {}) {
+export function workContinueResult(item, { subject = null, localChanges = null, legalActions = null, sourceCommit = null } = {}) {
   /**
    * Local development is preserved and disclosed, never quietly worked around `[INT:CON-063]`.
    *
@@ -72,7 +75,23 @@ export function workContinueResult(item, { subject = null, localChanges = null, 
     subject: subject ?? {
       kind: item.kind,
       id: item.id,
-      revision: { sourceCommit: localChanges?.worktreeHash ?? null, lifecycleHash: null, policyHash: null, registryHash: null }
+      /**
+       * The commit is the commit and the worktree hash is the worktree hash. `[INT:REQ-035]`
+       *
+       * This put `localChanges.worktreeHash` in the `sourceCommit` slot, so every consumer reading
+       * a commit got a digest of `git status` output instead — the same shape, a different fact,
+       * and nothing to notice it by. A handle bound from this subject would revalidate against a
+       * commit that does not exist in any repository.
+       *
+       * Both are now carried, both may be null, and null means "not read" rather than "clean".
+       */
+      revision: {
+        sourceCommit,
+        worktreeHash: localChanges?.worktreeHash ?? null,
+        lifecycleHash: null,
+        policyHash: null,
+        registryHash: null
+      }
     },
     outcome: {
       status: 'succeeded',
@@ -123,7 +142,14 @@ export function workContinueResult(item, { subject = null, localChanges = null, 
     restState: actions.length ? null : 'blocked',
     data: {
       work: item,
-      localChanges: localChanges ?? { dirty: false, files: 0, worktreeHash: null },
+      /**
+       * Null when nothing was read, never a zeroed record. `[DHR:REQ-041]`
+       *
+       * `{dirty: false, files: 0}` asserts a clean tree. A caller that supplied nothing has not
+       * told us the tree is clean, it has told us nothing — and the reader who acts on the first
+       * reading of the second is the one who commits over their own uncommitted work.
+       */
+      localChanges,
       legalActions: actions,
       // The immediate goal in the reader's words; kernel phase detail is beside it, not instead `[INT:REQ-064]`.
       immediateGoal: item.nextAction?.reasonCode ?? 'work.no-legal-action',
@@ -132,10 +158,68 @@ export function workContinueResult(item, { subject = null, localChanges = null, 
   });
 }
 
+/**
+ * What is uncommitted in this repository, right now. `[DHR:REQ-041]` `[INT:CON-063]`
+ *
+ * `localChanges` arrived only by injection, so nothing ever computed it and the changed-path count
+ * `[DHR:REQ-041]` asks for did not exist — the field was declared, threaded through, and always
+ * null in production. The same "declared, validated, never reaching a consumer" shape this codebase
+ * keeps finding.
+ *
+ * Two Git reads, both local and both cheap, on a path that is already reading work records. The
+ * count is bounded because a reader learns nothing from the four-hundredth path and a card that
+ * renders them all is a card nobody scrolls.
+ *
+ * **Null when Git cannot answer**, which includes a root that is not a repository at all. A read
+ * planner that throws because the world lacks something is the failure this codebase has spent the
+ * most effort removing — and the first version of this function reintroduced it, caught by a
+ * fixture that is a plain directory. "We could not look" is a fact the caller can render; an
+ * exception is a screen that does not.
+ */
+export function localChangesFor(root) {
+  let dirty;
+  try {
+    dirty = changes(root);
+  } catch {
+    return null;
+  }
+  if (!dirty.trim()) return { dirty: false, files: 0, worktreeHash: null, paths: [] };
+  const paths = changedFiles(root)
+    .filter((candidate) => typeof candidate === 'string' && candidate && !candidate.startsWith('/'));
+  return {
+    dirty: true,
+    files: paths.length,
+    /**
+     * A digest of the status output, not of the file contents.
+     *
+     * It answers "are these the same uncommitted bytes I was looking at?", which is what a handle
+     * bound to a dirty tree needs, and it answers it without reading every changed file.
+     */
+    worktreeHash: createHash('sha256').update(dirty).digest('hex'),
+    paths: paths.slice(0, 100)
+  };
+}
+
+/** HEAD, or null where there is no repository to ask. */
+function headOf(root) {
+  try {
+    return head(root) ?? null;
+  } catch {
+    return null;
+  }
+}
+
 export async function workContinue({ arguments: args = {}, subject = null, root = null, context = {} } = {}) {
   if (!root) throw new SingularityFlowError('work.continue requires the repository root it should read.', { code: 'WORK_CONTINUE_NO_ROOT' });
   const records = await workRecords(root, { includeCompleted: true, ...context });
   const item = records.items.find((entry) => entry.id === args.workId);
   if (!item) return notFound(args.workId);
-  return workContinueResult(item, { subject, localChanges: context.localChanges ?? null, legalActions: context.legalActions ?? null });
+  return workContinueResult(item, {
+    subject,
+    // Injection still wins, for tests and for a caller that already read the tree this turn.
+    localChanges: context.localChanges ?? localChangesFor(root),
+    // Same rule: a commit that cannot be read is null, and null already means "not read".
+    sourceCommit: context.sourceCommit ?? headOf(root),
+    legalActions: context.legalActions ?? null
+  });
 }

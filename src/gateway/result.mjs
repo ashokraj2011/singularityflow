@@ -457,6 +457,18 @@ export function sflowResult({
         id: subject.id,
         revision: Object.freeze({
           sourceCommit: subject.revision?.sourceCommit ?? null,
+          /**
+           * Uncommitted bytes are part of the revision an answer depended on. `[INT:REQ-035]`
+           *
+           * `BINDING_FIELDS` has carried both `sourceCommit` and `worktreeHash` since the handle
+           * authority was written, because a plan computed against a dirty tree is invalidated by
+           * either moving. The subject revision modelled only the first, so a planner reading a
+           * dirty tree had one slot and two facts — and `work.continue` resolved that by putting
+           * the worktree hash *in* `sourceCommit`, which every consumer reads as a commit.
+           *
+           * The asymmetry was the bug. A subject read against uncommitted work says so here.
+           */
+          worktreeHash: subject.revision?.worktreeHash ?? null,
           lifecycleHash: subject.revision?.lifecycleHash ?? null,
           policyHash: subject.revision?.policyHash ?? null,
           registryHash: subject.revision?.registryHash ?? null

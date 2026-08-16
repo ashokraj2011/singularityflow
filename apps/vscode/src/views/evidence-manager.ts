@@ -8,8 +8,11 @@ import { brandLockup,
   contentSecurityPolicy, escape, icon, navigationTarget, nonce, page, type IconName
 } from './webview.ts';
 import { navigateTo } from './navigate.ts';
+import { enumField, registerMessageRouter, stringField, type InboundMessage } from './messages.ts';
 
-export type EvidenceSourceKind = 'files' | 'figma-export' | 'figma-link' | 'url';
+/** The four sources evidence can come from, enumerated so a message can be checked against them. */
+export const EVIDENCE_SOURCE_KINDS = Object.freeze(['files', 'figma-export', 'figma-link', 'url'] as const);
+export type EvidenceSourceKind = typeof EVIDENCE_SOURCE_KINDS[number];
 
 export interface EvidenceManagerActions {
   attach(target: EvidenceTarget, source: EvidenceSourceKind): Promise<void>;
@@ -114,7 +117,7 @@ export class EvidenceManagerPanel implements vscode.Disposable {
     panel.webview.onDidReceiveMessage(async (raw: unknown) => {
       const navigation = navigationTarget(raw);
       if (navigation) return void navigateTo(navigation);
-      await this.receive(raw);
+      await this.router.route(raw);
     }, null, this.subscriptions);
     panel.onDidDispose(() => this.dispose(), null, this.subscriptions);
     this.render();
@@ -137,22 +140,52 @@ export class EvidenceManagerPanel implements vscode.Disposable {
     return EvidenceManagerPanel.current;
   }
 
-  private async receive(raw: unknown): Promise<void> {
-    const message = (raw && typeof raw === 'object' ? raw : {}) as {
-      type?: string; targetKey?: string; source?: EvidenceSourceKind; itemKey?: string;
-    };
-    const targets = evidenceTargets(this.store.current.snapshot);
-    const items = evidenceCatalog(this.store.current.snapshot);
-    if (message.type === 'attach' && message.targetKey && message.source) {
-      const target = targets.find((candidate) => targetKey(candidate) === message.targetKey);
-      if (target) await this.actions.attach(target, message.source);
-    } else if (message.type === 'open' && message.itemKey) {
-      const item = items.find((candidate) => itemKey(candidate) === message.itemKey);
-      if (item) await this.actions.open(item);
-    } else if (message.type === 'detach' && message.itemKey) {
-      const item = items.find((candidate) => itemKey(candidate) === message.itemKey);
-      if (item?.status === 'active') await this.actions.detach(item);
+  /**
+   * The three messages this panel speaks, enumerated. `[UXH:REQ-134]` `[UXH:AC-014]`
+   *
+   * Both lookups are unchanged: the page names a key and the *snapshot* says which target or item
+   * that is, so a forged key finds nothing rather than reaching something it should not.
+   *
+   * **The handlers return their promise.** This panel's outer listener awaits, and a caller that
+   * awaits `post()` is relying on the attach having finished before it asserts. Discarding the
+   * promise with `void` compiled, ran, and made the host test read "none pinned" — the write had not
+   * landed yet. `route()` returns whatever the handler returns, so returning the promise keeps the
+   * chain the migration inherited.
+   *
+   * `source` gains a real check it did not have. It was `message.source && …` — any non-empty
+   * string passed and was handed straight to `actions.attach` typed as an `EvidenceSourceKind` it
+   * might not be. `enumField` holds it to the four the type actually declares.
+   */
+  private router = registerMessageRouter('singularityFlow.evidenceManager', {
+    attach: (message) => {
+      const key = stringField(message, 'targetKey');
+      const source = enumField(message, 'source', EVIDENCE_SOURCE_KINDS);
+      const target = key
+        ? evidenceTargets(this.store.current.snapshot).find((candidate) => targetKey(candidate) === key)
+        : null;
+      return target && source ? this.act(() => this.actions.attach(target, source as EvidenceSourceKind)) : undefined;
+    },
+    open: (message) => {
+      const item = this.itemFor(message);
+      return item ? this.act(() => this.actions.open(item)) : undefined;
+    },
+    detach: (message) => {
+      const item = this.itemFor(message);
+      // Only an active attachment can be detached; the page cannot ask to detach a superseded one.
+      return item?.status === 'active' ? this.act(() => this.actions.detach(item)) : undefined;
     }
+  });
+
+  private itemFor(message: InboundMessage) {
+    const key = stringField(message, 'itemKey');
+    return key
+      ? evidenceCatalog(this.store.current.snapshot).find((candidate) => itemKey(candidate) === key) ?? null
+      : null;
+  }
+
+  /** Every accepted message re-renders, including the ones whose lookup found nothing. */
+  private async act(action: () => Promise<void>): Promise<void> {
+    await action();
     this.render();
   }
 

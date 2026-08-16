@@ -5,6 +5,7 @@ import { readFile } from 'node:fs/promises';
 import type { SingularityFlowClient } from '../cli/client.ts';
 import { contentSecurityPolicy, escape, icon, navigationTarget, nonce, page } from './webview.ts';
 import { navigateTo } from './navigate.ts';
+import { registerMessageRouter, stringField } from './messages.ts';
 
 type LogSource = 'all' | 'activity' | 'prompt' | 'telemetry' | 'workspace';
 
@@ -233,7 +234,7 @@ export class WorkspaceLogsPanel {
       // The shared footer provides the standard way out of every full-page view.
       const navigation = navigationTarget(raw);
       if (navigation) return void navigateTo(navigation);
-      void this.receive(raw);
+      this.router.route(raw);
     }, null, this.disposables);
     panel.onDidDispose(() => this.dispose(), null, this.disposables);
     this.render(); void this.load();
@@ -257,33 +258,59 @@ export class WorkspaceLogsPanel {
 
   static refreshCurrent(): void { void WorkspaceLogsPanel.current?.load(); }
 
-  private async receive(raw: unknown): Promise<void> {
-    const message = raw as { type?: unknown; id?: unknown };
-    if (message.type === 'refresh') return this.load();
-    if (message.type === 'load-older') { this.limit = Math.min(5000, this.limit + 500); return this.load(); }
-    const selected = this.report?.entries.find((item) => item.id === (message.id ?? this.selectedId));
-    if (message.type === 'select' && typeof message.id === 'string') {
-      this.selectedId = message.id; this.fullPrompt = null;
-      if (selected?.source === 'prompt' && typeof selected.details.promptAuditId === 'string') {
-        try {
-          const records = (await readFile(selected.sourcePath, 'utf8')).split(/\r?\n/)
-            .filter(Boolean).flatMap((line) => {
-              try { return [JSON.parse(line) as { id?: string; prompt?: string }]; }
-              catch { return []; }
-            });
-          this.fullPrompt = records.find((item) => item.id === selected.details.promptAuditId)?.prompt ?? null;
-        } catch { this.fullPrompt = null; }
-      }
-      return this.render();
+  /**
+   * The five messages this panel speaks, enumerated. `[UXH:REQ-134]` `[UXH:AC-014]`
+   *
+   * `open-source` and `copy-json` act on the *selected* entry, and the selection comes from the
+   * report this panel loaded — so the page cannot name a path to open or a record to copy. That was
+   * already true and is the part worth not disturbing: `sourcePath` reaches
+   * `openTextDocument` directly, and a page-supplied value there would open any file on disk.
+   */
+  private router = registerMessageRouter('singularityFlow.workspaceLogs', {
+    refresh: () => { void this.load(); },
+    'load-older': () => { this.limit = Math.min(5000, this.limit + 500); void this.load(); },
+    select: (message) => {
+      const id = stringField(message, 'id');
+      if (id) void this.select(id);
+    },
+    'open-source': () => { void this.openSource(); },
+    'copy-json': () => { void this.copyJson(); }
+  });
+
+  /** The entry the reader has selected, from the loaded report and never from the page. */
+  private get selectedEntry() {
+    return this.report?.entries.find((item) => item.id === this.selectedId) ?? null;
+  }
+
+  private async select(id: string): Promise<void> {
+    this.selectedId = id;
+    this.fullPrompt = null;
+    const selected = this.selectedEntry;
+    if (selected?.source === 'prompt' && typeof selected.details.promptAuditId === 'string') {
+      try {
+        const records = (await readFile(selected.sourcePath, 'utf8')).split(/\r?\n/)
+          .filter(Boolean).flatMap((line) => {
+            try { return [JSON.parse(line) as { id?: string; prompt?: string }]; }
+            catch { return []; }
+          });
+        this.fullPrompt = records.find((item) => item.id === selected.details.promptAuditId)?.prompt ?? null;
+      } catch { this.fullPrompt = null; }
     }
-    if (message.type === 'open-source' && selected?.sourcePath) {
-      const document = await vscode.workspace.openTextDocument(vscode.Uri.file(selected.sourcePath));
-      await vscode.window.showTextDocument(document, { preview: true }); return;
-    }
-    if (message.type === 'copy-json' && selected) {
-      await vscode.env.clipboard.writeText(JSON.stringify(selected, null, 2));
-      void vscode.window.showInformationMessage('Workspace log entry copied.');
-    }
+    this.render();
+  }
+
+  private async openSource(): Promise<void> {
+    const selected = this.selectedEntry;
+    if (!selected?.sourcePath) return;
+    const document = await vscode.workspace.openTextDocument(vscode.Uri.file(selected.sourcePath));
+    await vscode.window.showTextDocument(document, { preview: true });
+  }
+
+  private async copyJson(): Promise<void> {
+    const selected = this.selectedEntry;
+    if (!selected) return;
+    await vscode.env.clipboard.writeText(JSON.stringify(selected, null, 2));
+    void vscode.window.showInformationMessage('Workspace log entry copied.');
   }
 
   private async load(): Promise<void> {

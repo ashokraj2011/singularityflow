@@ -4,6 +4,7 @@ import { buildInbox, type Inbox, type InboxArtifact } from './inbox-model.ts';
 import { buildApprovals, type PendingApproval } from './approvals-model.ts';
 import { contentSecurityPolicy, escape, icon, navigationTarget, nonce, page } from './webview.ts';
 import { navigateTo } from './navigate.ts';
+import { registerMessageRouter, stringField, type InboundMessage } from './messages.ts';
 import type { WorkspaceStore } from '../state.ts';
 
 const STATUS_CLASS: Record<string, string> = {
@@ -102,24 +103,37 @@ export class InboxPanel {
     onMessage: (message: InboxMessage) => void
   ) {
     this.subscription = store.onDidChange(() => this.render());
+    /**
+     * The four messages this panel speaks, enumerated. `[UXH:REQ-134]` `[UXH:AC-014]`
+     *
+     * Both lookups are unchanged: the page names an id and the snapshot says which artifact or
+     * approval that is. Note they are *different* collections keyed by the same field name — an id
+     * that names an artifact must not reach an approval — which the enumerated map makes explicit
+     * where the chain expressed it as an early `return`.
+     */
+    const approvalFor = (message: InboundMessage) => {
+      const id = stringField(message, 'id');
+      return id ? buildApprovals(store.current.snapshot).pending.find((item) => item.id === id) ?? null : null;
+    };
+    const router = registerMessageRouter('singularityFlow.inbox', {
+      'open-artifact': (message) => {
+        const id = stringField(message, 'id');
+        const artifact = id
+          ? buildInbox(store.current.snapshot).artifacts.find((item) => item.id === id)
+          : null;
+        if (artifact) onMessage({ type: 'open-artifact', artifact });
+      },
+      approve: (message) => { const approval = approvalFor(message); if (approval) onMessage({ type: 'approve', approval }); },
+      reject: (message) => { const approval = approvalFor(message); if (approval) onMessage({ type: 'reject', approval }); },
+      'open-approval': (message) => { const approval = approvalFor(message); if (approval) onMessage({ type: 'open-approval', approval }); }
+    });
     panel.webview.onDidReceiveMessage((raw: unknown) => {
       // The shared footer is the one way out of a full-page view. Handled here rather than through
       // this panel's own message contract, because "go to another page" is not this panel's business.
       const navigation = navigationTarget(raw);
       if (navigation) return void navigateTo(navigation);
 
-      const message = raw as { type?: unknown; id?: unknown };
-      if (typeof message.id !== 'string') return;
-      if (message.type === 'open-artifact') {
-        const artifact = buildInbox(store.current.snapshot).artifacts.find((item) => item.id === message.id);
-        if (artifact) onMessage({ type: 'open-artifact', artifact });
-        return;
-      }
-      const approval = buildApprovals(store.current.snapshot).pending.find((item) => item.id === message.id);
-      if (!approval) return;
-      if (message.type === 'approve') onMessage({ type: 'approve', approval });
-      else if (message.type === 'reject') onMessage({ type: 'reject', approval });
-      else if (message.type === 'open-approval') onMessage({ type: 'open-approval', approval });
+      router.route(raw);
     }, null, this.disposables);
     panel.onDidDispose(() => this.dispose(), null, this.disposables);
     this.render();

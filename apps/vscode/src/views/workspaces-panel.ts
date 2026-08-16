@@ -9,6 +9,7 @@
 import * as vscode from 'vscode';
 import { contentSecurityPolicy, navigationTarget, nonce, page } from './webview.ts';
 import { navigateTo } from './navigate.ts';
+import { booleanField, registerMessageRouter, stringField, type InboundMessage } from './messages.ts';
 import {
   EMPTY_DRAFT, EMPTY_EDIT_DRAFT, workspacesHtml, WORKSPACES_SCRIPT,
   type DuplicateDraft, type WorkspaceEditDraft
@@ -66,7 +67,7 @@ export class WorkspacesPanel {
       // this panel's own message contract, because "go to another page" is not this panel's business.
       const navigation = navigationTarget(raw);
       if (navigation) return void navigateTo(navigation);
-      return this.receive(raw);
+      return this.router.route(raw);
     }, null, this.disposables);
     this.panel.onDidDispose(() => this.dispose(), null, this.disposables);
     this.render();
@@ -151,55 +152,56 @@ export class WorkspacesPanel {
     return this.rows.find((row) => row.path === value) ?? null;
   }
 
-  private async receive(raw: unknown): Promise<void> {
-    const message = raw as {
-      type?: unknown; path?: unknown; id?: unknown; base?: unknown; name?: unknown;
-      field?: unknown; value?: unknown; selected?: unknown;
-    };
-
-    if (message?.type === 'select') {
-      if (typeof message.path === 'string') await this.select(message.path);
-      return;
-    }
-
+  /**
+   * The fifteen messages this panel speaks, enumerated. `[UXH:REQ-134]` `[UXH:AC-014]`
+   *
+   * The chain this replaces had a *shared tail*: eight types fell past the early returns to
+   * `const row = this.rowFor(message.path); if (!row) return;` and then branched again. That is the
+   * pattern the enumerated map is worst at expressing naively and best at making explicit — so the
+   * row resolution becomes `withRow`, which every one of those eight goes through. It resolves a
+   * path against the rows this panel loaded, never trusting the page, exactly as before.
+   *
+   * Handlers return their promise. This panel's outer listener awaits, and discarding it would turn
+   * a completed refresh into a race — the failure `evidence-manager` had for one commit.
+   */
+  private router = registerMessageRouter('singularityFlow.workspaces', {
+    select: (message) => {
+      const path = stringField(message, 'path');
+      return path ? this.select(path) : undefined;
+    },
     // Typed without re-rendering: the page answers its own preview, and this is only so that acting
     // on the draft never has to trust what arrives with the click.
-    if (message?.type === 'draft' && typeof message.value === 'string') {
-      if (message.field === 'copy-id') this.draft.id = message.value;
-      else if (message.field === 'copy-base') this.draft.base = message.value;
-      return;
-    }
-
-    if (message?.type === 'edit-draft' && message.field === 'edit-name'
-      && typeof message.value === 'string' && this.edit.open) {
-      this.edit.name = message.value;
-      return;
-    }
-
-    if (message?.type === 'edit-cancel') {
+    draft: (message) => {
+      const value = stringField(message, 'value');
+      if (value === null) return;
+      const field = stringField(message, 'field');
+      if (field === 'copy-id') this.draft.id = value;
+      else if (field === 'copy-base') this.draft.base = value;
+    },
+    'edit-draft': (message) => {
+      const value = stringField(message, 'value');
+      if (value !== null && stringField(message, 'field') === 'edit-name' && this.edit.open) this.edit.name = value;
+    },
+    'edit-cancel': () => {
       this.edit = { ...EMPTY_EDIT_DRAFT };
       this.error = null;
-      return this.render();
-    }
-
-    if (message?.type === 'edit-capability' && typeof message.id === 'string' && this.edit.open) {
-      const known = (this.details?.availableCapabilities ?? []).some((choice) => choice.id === message.id)
-        || this.edit.capabilities.includes(message.id);
+      this.render();
+    },
+    'edit-capability': (message) => {
+      const id = stringField(message, 'id');
+      if (!id || !this.edit.open) return;
+      const known = (this.details?.availableCapabilities ?? []).some((choice) => choice.id === id)
+        || this.edit.capabilities.includes(id);
       if (!known) return;
       const capabilities = new Set(this.edit.capabilities);
-      if (message.selected === true) capabilities.add(message.id);
-      else capabilities.delete(message.id);
+      if (booleanField(message, 'selected')) capabilities.add(id);
+      else capabilities.delete(id);
       this.edit.capabilities = [...capabilities];
       this.error = null;
-      return this.render();
-    }
-
-    if (message?.type === 'create') { await this.onMessage({ type: 'create' }); return; }
-
-    const row = this.rowFor(message?.path);
-    if (!row) return;
-
-    if (message.type === 'edit') {
+      this.render();
+    },
+    create: () => this.onMessage({ type: 'create' }).then(() => undefined),
+    edit: (message) => this.withRow(message, (row) => {
       this.edit = {
         open: true,
         name: this.details?.workspace.name ?? row.name,
@@ -207,81 +209,86 @@ export class WorkspacesPanel {
         busy: false
       };
       this.error = null;
-      return this.render();
-    }
-
-    if (message.type === 'edit-save') {
-      const name = (typeof message.name === 'string' ? message.name : this.edit.name).trim();
-      const capabilities = this.edit.capabilities.map((value) => value.trim()).filter(Boolean);
-      if (!this.edit.open || !name || !capabilities.length || this.edit.busy) return;
-      this.edit.busy = true;
-      this.error = null;
       this.render();
-      const failure = await this.onMessage({
-        type: 'run', command: updateCommand(row, name, capabilities), title: `Updating ${row.name}`
-      });
-      this.error = failure;
-      if (failure) {
-        this.edit = { ...this.edit, busy: false };
-        return this.render();
-      }
-      this.edit = { ...EMPTY_EDIT_DRAFT };
-      return this.refresh();
-    }
+    }),
+    'edit-save': (message) => this.withRow(message, (row) => this.saveEdit(row, stringField(message, 'name'))),
+    switch: (message) => this.withRow(message, (row) => this.onMessage({ type: 'switch', row }).then(() => undefined)),
+    forget: (message) => this.withRow(message, (row) => this.actOnRow(row, 'forget', true)),
+    archive: (message) => this.withRow(message, (row) => this.actOnRow(row, 'archive', true)),
+    restore: (message) => this.withRow(message, (row) => this.actOnRow(row, 'restore', false)),
+    rename: (message) => this.withRow(message, (row) => this.rename(row, stringField(message, 'name'))),
+    duplicate: (message) => this.withRow(message, (row) => this.duplicate(row, message))
+  });
 
-    if (message.type === 'switch') { await this.onMessage({ type: 'switch', row }); return; }
+  /**
+   * Resolve the row a message is about, or do nothing.
+   *
+   * The shared tail of the old chain, named. A path is looked up against the rows this panel
+   * loaded — the page names one, and which workspace that is comes from the registry read.
+   */
+  private async withRow(message: InboundMessage, action: (row: WorkspaceRow) => unknown): Promise<void> {
+    const row = this.rowFor(stringField(message, 'path') ?? undefined);
+    if (row) await action(row);
+  }
 
-    if (message.type === 'forget') {
-      const failure = await this.onMessage({ type: 'forget', row });
-      this.error = failure;
-      if (!failure && this.selected === row.path) this.selected = null;
-      return this.refresh();
-    }
-
-    if (message.type === 'archive') {
-      const failure = await this.onMessage({ type: 'archive', row });
-      this.error = failure;
-      if (!failure && this.selected === row.path) this.selected = null;
-      return this.refresh();
-    }
-
-    if (message.type === 'restore') {
-      const failure = await this.onMessage({ type: 'restore', row });
-      this.error = failure;
-      return this.refresh();
-    }
-
-    if (message.type === 'rename') {
-      const name = String(message.name ?? '').trim();
-      if (!name || name === row.name) return;
-      const failure = await this.onMessage({
-        type: 'run', command: renameCommand(row, name), title: `Renaming ${row.name}`
-      });
-      this.error = failure;
-      return this.refresh();
-    }
-
-    if (message.type === 'duplicate') {
-      // Re-checked here rather than trusted from the page: the disabled button is a courtesy, and
-      // the directory rule is the one thing this screen exists to keep.
-      const id = String(message.id ?? this.draft.id);
-      const base = String(message.base ?? this.draft.base);
-      const problems = duplicateProblems(row, id, base, this.rows);
-      if (problems.length) {
-        this.error = problems.join(' ');
-        return this.render();
-      }
-      this.draft = { ...this.draft, busy: true };
-      this.error = null;
+  private async saveEdit(row: WorkspaceRow, supplied: string | null): Promise<void> {
+    const name = (supplied ?? this.edit.name).trim();
+    const capabilities = this.edit.capabilities.map((value) => value.trim()).filter(Boolean);
+    if (!this.edit.open || !name || !capabilities.length || this.edit.busy) return;
+    this.edit.busy = true;
+    this.error = null;
+    this.render();
+    const failure = await this.onMessage({
+      type: 'run', command: updateCommand(row, name, capabilities), title: `Updating ${row.name}`
+    });
+    this.error = failure;
+    if (failure) {
+      this.edit = { ...this.edit, busy: false };
       this.render();
-
-      const failure = await this.onMessage({
-        type: 'run', command: duplicateCommand(row, id, base, ''), title: `Copying ${row.name}`
-      });
-      this.draft = failure ? { ...this.draft, busy: false } : { ...EMPTY_DRAFT };
-      this.error = failure;
-      return this.refresh();
+      return;
     }
+    this.edit = { ...EMPTY_EDIT_DRAFT };
+    await this.refresh();
+  }
+
+  /** The three that differ only in verb and whether a success clears the selection. */
+  private async actOnRow(row: WorkspaceRow, type: 'forget' | 'archive' | 'restore', clearsSelection: boolean): Promise<void> {
+    const failure = await this.onMessage({ type, row });
+    this.error = failure;
+    if (clearsSelection && !failure && this.selected === row.path) this.selected = null;
+    await this.refresh();
+  }
+
+  private async rename(row: WorkspaceRow, supplied: string | null): Promise<void> {
+    const name = (supplied ?? '').trim();
+    if (!name || name === row.name) return;
+    const failure = await this.onMessage({
+      type: 'run', command: renameCommand(row, name), title: `Renaming ${row.name}`
+    });
+    this.error = failure;
+    await this.refresh();
+  }
+
+  private async duplicate(row: WorkspaceRow, message: InboundMessage): Promise<void> {
+    // Re-checked here rather than trusted from the page: the disabled button is a courtesy, and
+    // the directory rule is the one thing this screen exists to keep.
+    const id = stringField(message, 'id') ?? this.draft.id;
+    const base = stringField(message, 'base') ?? this.draft.base;
+    const problems = duplicateProblems(row, id, base, this.rows);
+    if (problems.length) {
+      this.error = problems.join(' ');
+      this.render();
+      return;
+    }
+    this.draft = { ...this.draft, busy: true };
+    this.error = null;
+    this.render();
+    const failure = await this.onMessage({
+      type: 'run', command: duplicateCommand(row, id, base, ''), title: `Copying ${row.name}`
+    });
+    this.draft = failure ? { ...this.draft, busy: false } : { ...EMPTY_DRAFT };
+    this.error = failure;
+    await this.refresh();
   }
 
   dispose(): void {

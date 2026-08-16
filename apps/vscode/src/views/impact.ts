@@ -9,6 +9,7 @@
 import * as vscode from 'vscode';
 import { contentSecurityPolicy, escape, icon, navigationTarget, nonce, page } from './webview.ts';
 import { navigateTo } from './navigate.ts';
+import { registerMessageRouter, stringField } from './messages.ts';
 import type { SingularityFlowClient } from '../cli/client.ts';
 import type { WorkspaceStore } from '../state.ts';
 
@@ -269,7 +270,7 @@ export class ImpactPanel {
       const navigation = navigationTarget(raw);
       if (navigation) return void navigateTo(navigation);
 
-      void this.receive(raw as WorkspaceImpactMessage);
+      this.router.route(raw);
     }, null, this.disposables);
     this.panel.onDidDispose(() => this.dispose(), null, this.disposables);
     this.render();
@@ -322,31 +323,53 @@ export class ImpactPanel {
     this.render();
   }
 
-  private async receive(message: WorkspaceImpactMessage): Promise<void> {
-    if (!this.workspace) return;
-    if (message.type === 'select' && typeof message.id === 'string') {
-      this.selectedWorkspaceReport = message.id;
-      this.render();
-      return;
-    }
-    if (message.type === 'startWork') {
-      await vscode.commands.executeCommand('singularityFlow.startWork');
-      return;
-    }
-    if (message.type === 'promote' && typeof message.id === 'string') {
-      try {
-        await this.client.run(['workspace', 'impact', 'promote', this.workspace.path, message.id, '--json']);
-        this.workspaceActionError = null;
-        await this.reload();
-        void vscode.window.showInformationMessage('Impact summary staged as an intake source. Start governed work when ready.');
-      } catch (error) {
-        this.workspaceActionError = (error as Error).message;
+  /**
+   * The four messages this panel speaks, enumerated. `[UXH:REQ-134]` `[UXH:AC-014]`
+   *
+   * Built lazily rather than at construction because every handler reads `this.workspace`, which is
+   * null until the panel has loaded — the same stale-capture trap the binding thunk avoids one layer
+   * down. `analyze` carries free text the reader typed, which is passed as an argv value and never
+   * interpolated into a command line.
+   */
+  private get router() {
+    return this.messageRouter ??= registerMessageRouter('singularityFlow.workspaceImpact', {
+      select: (message) => {
+        const id = stringField(message, 'id');
+        if (!this.workspace || !id) return;
+        this.selectedWorkspaceReport = id;
         this.render();
+      },
+      startWork: () => {
+        if (this.workspace) void vscode.commands.executeCommand('singularityFlow.startWork');
+      },
+      promote: (message) => {
+        const id = stringField(message, 'id');
+        if (this.workspace && id) void this.promote(id);
+      },
+      analyze: (message) => {
+        if (this.workspace) void this.analyze(stringField(message, 'description'), stringField(message, 'title'));
       }
-      return;
+    });
+  }
+
+  private messageRouter: ReturnType<typeof registerMessageRouter> | null = null;
+
+  private async promote(id: string): Promise<void> {
+    if (!this.workspace) return;
+    try {
+      await this.client.run(['workspace', 'impact', 'promote', this.workspace.path, id, '--json']);
+      this.workspaceActionError = null;
+      await this.reload();
+      void vscode.window.showInformationMessage('Impact summary staged as an intake source. Start governed work when ready.');
+    } catch (error) {
+      this.workspaceActionError = (error as Error).message;
+      this.render();
     }
-    if (message.type !== 'analyze') return;
-    const description = typeof message.description === 'string' ? message.description.trim() : '';
+  }
+
+  private async analyze(rawDescription: string | null, rawTitle: string | null): Promise<void> {
+    if (!this.workspace) return;
+    const description = (rawDescription ?? '').trim();
     if (!description) {
       this.workspaceActionError = 'Describe the proposed change before running impact analysis.';
       this.render();
@@ -356,8 +379,7 @@ export class ImpactPanel {
     this.workspaceActionError = null;
     this.render();
     try {
-      const title = typeof message.title === 'string' && message.title.trim()
-        ? message.title.trim() : 'Workspace change impact';
+      const title = (rawTitle ?? '').trim() || 'Workspace change impact';
       const result = await vscode.window.withProgress({
         location: vscode.ProgressLocation.Notification,
         title: `Copilot is analyzing ${this.workspace.name ?? 'the workspace'}…`,

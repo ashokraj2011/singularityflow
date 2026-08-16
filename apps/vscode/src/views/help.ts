@@ -3,6 +3,7 @@ import * as vscode from 'vscode';
 import path from 'node:path';
 import { contentSecurityPolicy, navigationTarget, nonce, page } from './webview.ts';
 import { navigateTo } from './navigate.ts';
+import { registerMessageRouter, stringField } from './messages.ts';
 import { HELP_CENTER_SCRIPT, helpCenterHtml, type HelpDocument } from './help-page.ts';
 
 export class HelpPanel {
@@ -19,7 +20,7 @@ export class HelpPanel {
       // this panel's own message contract, because "go to another page" is not this panel's business.
       const navigation = navigationTarget(raw);
       if (navigation) return void navigateTo(navigation);
-      void this.receive(raw);
+      this.router.route(raw);
     });
     panel.onDidDispose(() => { HelpPanel.current = null; });
     this.render();
@@ -50,19 +51,36 @@ export class HelpPanel {
     return HelpPanel.current;
   }
 
-  private async receive(raw: unknown): Promise<void> {
-    const message = (raw && typeof raw === 'object' ? raw : {}) as { type?: unknown; target?: unknown };
-    if (message.type !== 'open-link' || typeof message.target !== 'string') return;
-    if (/^https:\/\//i.test(message.target)) {
-      await vscode.env.openExternal(vscode.Uri.parse(message.target));
+  /**
+   * The one message this panel speaks. `[UXH:REQ-134]` `[UXH:AC-014]`
+   *
+   * A single-type handler is still an open set: `if (type !== 'open-link') return` drops everything
+   * else in silence, so nothing can enumerate what this panel accepts and an unrecognised type is
+   * indistinguishable from a handled one. One entry in a closed map says the same thing and can be
+   * read from outside.
+   *
+   * **The containment check below is unchanged and is the point of this handler.** A help page names
+   * a link; this decides what that name may reach. `https://` goes to the browser, and anything else
+   * is resolved under the manual root and refused if it escapes — which is why the boundary compares
+   * against a path with a trailing separator rather than a prefix, so `…/manual-evil` cannot pass as
+   * being inside `…/manual`.
+   */
+  private router = registerMessageRouter('singularityFlow.help', {
+    'open-link': (message) => { void this.openLink(stringField(message, 'target')); }
+  });
+
+  private async openLink(target: string | null): Promise<void> {
+    if (!target) return;
+    if (/^https:\/\//i.test(target)) {
+      await vscode.env.openExternal(vscode.Uri.parse(target));
       return;
     }
-    const relative = message.target.split('#')[0]?.trim();
+    const relative = target.split('#')[0]?.trim();
     if (!relative) return;
-    const target = path.resolve(this.manualRoot, relative);
+    const resolved = path.resolve(this.manualRoot, relative);
     const boundary = `${path.resolve(this.manualRoot)}${path.sep}`;
-    if (target !== path.resolve(this.manualRoot) && !target.startsWith(boundary)) return;
-    await vscode.commands.executeCommand('vscode.open', vscode.Uri.file(target));
+    if (resolved !== path.resolve(this.manualRoot) && !resolved.startsWith(boundary)) return;
+    await vscode.commands.executeCommand('vscode.open', vscode.Uri.file(resolved));
   }
 
   private render(): void {

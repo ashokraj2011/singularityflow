@@ -12,6 +12,7 @@
 import * as vscode from 'vscode';
 import { contentSecurityPolicy, navigationTarget, nonce, page } from './webview.ts';
 import { navigateTo } from './navigate.ts';
+import { booleanField, registerMessageRouter, stringField } from './messages.ts';
 import {
   capabilityChoices, derivedRepositories, effectiveLead, EMPTY_WORKSPACE_FORM, formCommand,
   formProblems, shippingCapabilities, WORKSPACE_PROFILE_ROLES,
@@ -71,7 +72,7 @@ export class WorkspacePanel {
       // this panel's own message contract, because "go to another page" is not this panel's business.
       const navigation = navigationTarget(raw);
       if (navigation) return void navigateTo(navigation);
- void this.receive(raw); }, null, this.disposables);
+ this.router.route(raw); }, null, this.disposables);
     this.panel.onDidDispose(() => this.dispose(), null, this.disposables);
     this.render();
     void this.loadOrganisations();
@@ -188,85 +189,81 @@ export class WorkspacePanel {
     });
   }
 
-  private async receive(raw: unknown): Promise<void> {
-    const message = raw as {
-      type?: unknown; what?: unknown; id?: unknown; field?: unknown; value?: unknown;
-      selected?: unknown;
-    };
-    if (typeof message?.type !== 'string') return;
-
-    if (message.type === 'choose' && message.what === 'base') {
-      const picked = await vscode.window.showOpenDialog({
-        title: 'Where should the workspace directory be created?',
-        openLabel: 'Create here',
-        canSelectFolders: true, canSelectFiles: false, canSelectMany: false
-      });
-      if (picked?.[0]) this.update({ base: picked[0].fsPath });
-      return;
-    }
-
-    if (message.type === 'open' && message.what === 'capabilities') {
-      await this.onOpenCapabilities();
-      return;
-    }
-
-    if (message.type === 'capability' && typeof message.id === 'string') {
+  /**
+   * The six messages this panel speaks, enumerated. `[UXH:REQ-134]` `[UXH:AC-014]`
+   *
+   * Every resolution against a known set is unchanged, and there are four of them — a capability id,
+   * a profile role, an organisation URL and a lead capability are each checked against what this
+   * panel loaded rather than trusted from the page. That is the security posture; the closed type
+   * set is what it was missing.
+   *
+   * `draft` and `field` stay distinct. A keystroke is recorded and nothing else, because redrawing
+   * the document under whoever is typing takes the caret with it; the same value arrives again as a
+   * `field` once committed.
+   */
+  private router = registerMessageRouter('singularityFlow.workspaceForm', {
+    choose: (message) => {
+      if (stringField(message, 'what') === 'base') void this.chooseBase();
+    },
+    open: (message) => {
+      if (stringField(message, 'what') === 'capabilities') void this.onOpenCapabilities();
+    },
+    capability: (message) => {
+      const id = stringField(message, 'id');
       // Resolved against the map rather than trusted: the page can name anything it likes.
-      const known = (this.form.capabilities ?? []).some((entry) => entry.id === message.id);
-      if (!known) return;
+      if (!id || !(this.form.capabilities ?? []).some((entry) => entry.id === id)) return;
       const selected = new Set(this.form.selected);
-      if (message.selected === true) selected.add(message.id);
-      else selected.delete(message.id);
+      if (booleanField(message, 'selected')) selected.add(id);
+      else selected.delete(id);
       this.update({ selected: [...selected], error: null });
+    },
+    draft: (message) => {
+      const value = stringField(message, 'value');
+      if (value === null) return;
+      const field = stringField(message, 'field');
+      if (field === 'id') this.form.id = value;
+      else if (field === 'name') this.form.name = value;
+      else if (field === 'profile-name') this.form.profileName = value;
+    },
+    field: (message) => { void this.commitField(stringField(message, 'field'), stringField(message, 'value')); },
+    create: () => { void this.create(); }
+  });
+
+  private async chooseBase(): Promise<void> {
+    const picked = await vscode.window.showOpenDialog({
+      title: 'Where should the workspace directory be created?',
+      openLabel: 'Create here',
+      canSelectFolders: true, canSelectFiles: false, canSelectMany: false
+    });
+    if (picked?.[0]) this.update({ base: picked[0].fsPath });
+  }
+
+  private async commitField(field: string | null, value: string | null): Promise<void> {
+    if (value === null) return;
+    // Committed, so the summary below is redrawn against it.
+    if (field === 'id') return this.update({ id: value });
+    if (field === 'name') return this.update({ name: value });
+    if (field === 'profile-name') return this.update({ profileName: value });
+    if (field === 'profile-role') {
+      const role = WORKSPACE_PROFILE_ROLES.includes(value as typeof WORKSPACE_PROFILE_ROLES[number]) ? value : '';
+      return this.update({ profileRole: role });
+    }
+    if (field === 'organisation') {
+      // Changing the organisation invalidates everything read from the last one. Keeping a
+      // selection from a different map would be worse than asking again.
+      const url = this.form.organisations.includes(value) ? value : null;
+      this.update({
+        organisation: url, capabilities: null, capabilitiesReason: null,
+        selected: [], leadCapability: null, reading: Boolean(url), error: null
+      });
+      if (url) await this.readOrganisation(url);
       return;
     }
-
-    // A keystroke is recorded and nothing else: replacing the document under whoever is typing would
-    // take the caret with it. The same value arrives again as a field once it is committed.
-    if (message.type === 'draft' && typeof message.value === 'string') {
-      if (message.field === 'id') this.form.id = message.value;
-      else if (message.field === 'name') this.form.name = message.value;
-      else if (message.field === 'profile-name') this.form.profileName = message.value;
-      return;
+    if (field === 'lead-capability') {
+      // Only a capability that ships can lead: leading means carrying the state branch.
+      const lead = shippingCapabilities(this.form).find((entry) => entry.id === value);
+      if (lead) this.update({ leadCapability: lead.id, error: null });
     }
-
-    if (message.type === 'field' && typeof message.value === 'string') {
-      // Committed, so the summary below is redrawn against it.
-      if (message.field === 'id') { this.update({ id: message.value }); return; }
-      if (message.field === 'name') { this.update({ name: message.value }); return; }
-      if (message.field === 'profile-name') {
-        this.update({ profileName: message.value });
-        return;
-      }
-      if (message.field === 'profile-role') {
-        const role = WORKSPACE_PROFILE_ROLES.includes(
-          message.value as typeof WORKSPACE_PROFILE_ROLES[number]) ? message.value : '';
-        this.update({ profileRole: role });
-        return;
-      }
-
-      if (message.field === 'organisation') {
-        // Changing the organisation invalidates everything read from the last one. Keeping a
-        // selection from a different map would be worse than asking again.
-        const url = this.form.organisations.includes(message.value) ? message.value : null;
-        this.update({
-          organisation: url, capabilities: null, capabilitiesReason: null,
-          selected: [], leadCapability: null, reading: Boolean(url), error: null
-        });
-        if (url) await this.readOrganisation(url);
-        return;
-      }
-
-      if (message.field === 'lead-capability') {
-        // Only a capability that ships can lead: leading means carrying the state branch.
-        const lead = shippingCapabilities(this.form).find((entry) => entry.id === message.value);
-        if (lead) this.update({ leadCapability: lead.id, error: null });
-        return;
-      }
-      return;
-    }
-
-    if (message.type === 'create') await this.create();
   }
 
   private async create(): Promise<void> {

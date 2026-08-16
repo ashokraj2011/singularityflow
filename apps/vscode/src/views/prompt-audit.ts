@@ -4,6 +4,7 @@ import type { SingularityFlowClient } from '../cli/client.ts';
 import {
   brandLockup, contentSecurityPolicy, escape, icon, navigationTarget, nonce, page } from './webview.ts';
 import { navigateTo } from './navigate.ts';
+import { registerMessageRouter, stringField } from './messages.ts';
 
 interface PromptRecord {
   id: string;
@@ -81,7 +82,7 @@ export class PromptAuditPanel {
       // this panel's own message contract, because "go to another page" is not this panel's business.
       const navigation = navigationTarget(raw);
       if (navigation) return void navigateTo(navigation);
-      void this.receive(raw);
+      this.router.route(raw);
     });
     panel.onDidDispose(() => { PromptAuditPanel.current = null; });
     void this.refresh();
@@ -101,14 +102,26 @@ export class PromptAuditPanel {
     return PromptAuditPanel.current;
   }
 
-  private async receive(raw: unknown): Promise<void> {
-    const message = (raw && typeof raw === 'object' ? raw : {}) as { type?: unknown; id?: unknown };
-    if (message.type === 'select' && typeof message.id === 'string') { this.selected = message.id; return this.render(); }
-    if (message.type === 'toggle') {
-      await this.client.run(['prompt-log', this.snapshot?.enabled ? 'off' : 'on', '--json']);
-      return this.refresh();
-    }
-    if (message.type === 'refresh') return this.refresh();
+  /**
+   * The three messages this panel speaks, enumerated. `[UXH:REQ-134]` `[UXH:AC-014]`
+   *
+   * `toggle` reads the *current* snapshot to decide which way to flip, so it stays a method rather
+   * than a captured value: a router built once at construction would otherwise close over the
+   * enabled flag as it was before the first refresh.
+   */
+  private router = registerMessageRouter('singularityFlow.promptAudit', {
+    select: (message) => {
+      const id = stringField(message, 'id');
+      // Which record that is comes from the snapshot when it renders, never used as a path here.
+      if (id) { this.selected = id; this.render(); }
+    },
+    toggle: () => { void this.toggle(); },
+    refresh: () => { void this.refresh(); }
+  });
+
+  private async toggle(): Promise<void> {
+    await this.client.run(['prompt-log', this.snapshot?.enabled ? 'off' : 'on', '--json']);
+    await this.refresh();
   }
 
   private async refresh(): Promise<void> {

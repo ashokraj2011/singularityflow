@@ -23,6 +23,28 @@ const files = (await readdir(path.join(root, 'test')))
   .filter((name) => name.endsWith('.test.mjs'))
   .sort();
 
+/**
+ * Whether a test file needs `--experimental-strip-types`, from what it actually does.
+ *
+ * Separate from which suite it belongs to, and that separation is the fix. The runner used one
+ * string test — does the source contain `apps/vscode` — to answer **both** questions, so a file's
+ * suite decided whether type stripping was switched on. Six files build that path as
+ * `path.join(root, 'apps', 'vscode', …)` and matched zero times: they were selected into `cli`,
+ * ran without the flag, and failed with `ERR_UNKNOWN_FILE_EXTENSION` the moment they imported a
+ * `.ts` module. `npm run test:cli` was red on its own while `npm run test:all` stayed green,
+ * because some *other* selected file happened to switch the flag on for the whole run.
+ *
+ * Suite membership is left exactly as it was. Widening it would move twenty files out of `cli`,
+ * which fixes the error by deleting the coverage that hit it.
+ *
+ * A `.ts` string literal anywhere is deliberately enough here. It over-matches a file that only
+ * *reads* a `.ts` source without importing it, and running that one with the flag costs nothing —
+ * where missing one costs a red suite nobody can explain. Under-inclusion is the failure mode.
+ */
+function needsTypeStripping(source) {
+  return /['"`][^'"`]*\.ts['"`]/.test(source) || source.includes('apps/vscode');
+}
+
 const selected = [];
 const skipped = [];
 let needsStripping = false;
@@ -31,8 +53,14 @@ for (const name of files) {
   const source = await readFile(path.join(root, relative), 'utf8');
   const kind = source.includes('apps/vscode') ? 'vscode' : 'cli';
   if (suite !== 'all' && suite !== kind) continue;
-  if (kind === 'vscode' && !canStripTypes) { skipped.push(relative); continue; }
-  if (kind === 'vscode') needsStripping = true;
+  /**
+   * Asked of every selected file, whatever suite it is in.
+   *
+   * This was `if (kind === 'vscode')`, which is how the flag came to depend on the bucket.
+   */
+  const stripping = needsTypeStripping(source);
+  if (stripping && !canStripTypes) { skipped.push(relative); continue; }
+  if (stripping) needsStripping = true;
   selected.push(relative);
 }
 

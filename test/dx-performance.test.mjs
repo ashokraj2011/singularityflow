@@ -266,3 +266,25 @@ test('a read may reuse one parsed definition; a write may never be handed a stal
 
   await rm(directory, { recursive: true, force: true });
 });
+
+test('every test that loads TypeScript runs with type stripping, whatever suite it is in', async () => {
+  /**
+   * The runner used one string test — does the source contain `apps/vscode` — to answer both
+   * "which suite is this?" and "does it need `--experimental-strip-types`?". Twenty files needed
+   * the flag and only some of them said `apps/vscode`, because the rest build that path as
+   * `path.join(root, 'apps', 'vscode', …)`. They ran without it and failed with
+   * `ERR_UNKNOWN_FILE_EXTENSION`, so `npm run test:cli` was red on its own while `test:all` stayed
+   * green — a *different* selected file happened to switch the flag on for the whole run.
+   *
+   * This asserts the runner still asks the two questions separately. It reads the script rather
+   * than the behaviour because the failure is a coupling, and a coupling is visible in the source
+   * and invisible in a passing run.
+   */
+  const runner = await readFile(path.join(root, 'scripts', 'run-test-suite.mjs'), 'utf8');
+  assert.match(runner, /function needsTypeStripping\(source\)/,
+    'the runner decides type stripping from what a file loads');
+  assert.match(runner, /const stripping = needsTypeStripping\(source\);/,
+    'and asks it of every selected file');
+  assert.doesNotMatch(runner, /if \(kind === 'vscode'\) needsStripping = true;/,
+    'the flag must not depend on which suite a file was sorted into');
+});

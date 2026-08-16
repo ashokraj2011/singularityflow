@@ -3,6 +3,7 @@ import * as vscode from 'vscode';
 import {
   brandLockup, contentSecurityPolicy, escape, icon, navigationTarget, nonce, page } from './webview.ts';
 import { navigateTo } from './navigate.ts';
+import { integerField, registerMessageRouter } from './messages.ts';
 
 interface LeadRepository { url: string }
 
@@ -88,17 +89,26 @@ export class CapabilityProposalsPanel {
       { enableScripts: true, retainContextWhenHidden: true,
         localResourceRoots: [vscode.Uri.joinPath(context.extensionUri, 'media')] }
     );
+    /**
+     * The two messages this panel speaks, enumerated. `[UXH:REQ-134]` `[UXH:AC-014]`
+     *
+     * An index is looked up against the entries this panel loaded, never used to reach anything
+     * else — `integerField` refuses a non-integer, and an out-of-range index simply finds nothing.
+     */
+    const router = registerMessageRouter('singularityFlow.capabilityProposals', {
+      refresh: () => { void this.load(); },
+      review: (message) => {
+        const index = integerField(message, 'index');
+        const entry = index === null ? null : this.entries[index];
+        if (entry) this.onReview(entry.lead, entry.branch);
+      }
+    });
     this.panel.webview.onDidReceiveMessage((raw: unknown) => {
       // The shared footer is the one way out of a full-page view. Handled here rather than through
       // this panel's own message contract, because "go to another page" is not this panel's business.
       const navigation = navigationTarget(raw);
       if (navigation) return void navigateTo(navigation);
-      const message = raw as { type?: string; index?: number };
-      if (message.type === 'refresh') void this.load();
-      if (message.type === 'review' && Number.isInteger(message.index)) {
-        const entry = this.entries[message.index as number];
-        if (entry) this.onReview(entry.lead, entry.branch);
-      }
+      router.route(raw);
     }, null, this.disposables);
     this.panel.onDidDispose(() => this.dispose(), null, this.disposables);
     this.render();

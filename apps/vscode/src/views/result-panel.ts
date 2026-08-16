@@ -15,7 +15,7 @@
  */
 import * as vscode from 'vscode';
 
-import { createMessageRouter, stringField } from './messages.ts';
+import { registerMessageRouter, stringField } from './messages.ts';
 import { RESULT_CARD_SCRIPT, RESULT_CARD_STYLE, resultCardHtml } from './result-card-page.ts';
 import { navigateTo } from './navigate.ts';
 import { contentSecurityPolicy, escape, navigationTarget, nonce, page } from './webview.ts';
@@ -36,27 +36,6 @@ export type ActionRequest = {
   readonly view: ResultCardView;
   readonly origin: ResultOrigin;
 };
-
-/**
- * What each migrated panel accepts, so the set is inspectable from outside it.
- *
- * The property `[UXH:REQ-134]` actually asks for is that the accepted messages are *enumerable* —
- * a reviewer, a fuzzer and the next maintainer all need to ask a panel what it speaks, and an
- * if-chain cannot answer. Registering here makes the answer available without reaching into the
- * panel's closure.
- */
-export const acceptedMessages = new Map<string, readonly string[]>();
-
-/**
- * Where an unrecognised message goes.
- *
- * The output channel rather than a toast: this is a developer-facing fact about a contract
- * mismatch, not something a reader did wrong, and a modal for it would train people to dismiss
- * modals. Silence is the one option ruled out.
- */
-function reportUnknownMessage(type: string, source: string): void {
-  console.warn(`[singularity-flow] ${source} received an unrecognised message: ${type}`);
-}
 
 let panel: vscode.WebviewPanel | null = null;
 let current: ResultCardView | null = null;
@@ -161,7 +140,7 @@ export function showResultCard(view: ResultCardView,
      * dispatches nothing. Two checks, and they guard different things: the router decides whether
      * this is a message we speak, the lookup decides whether the action was ever offered.
      */
-    const router = createMessageRouter('singularityFlow.result', {
+    const router = registerMessageRouter('singularityFlow.result', {
       'result.back': () => {
         const previous = history.pop();
         if (!previous || !panel) return;
@@ -188,8 +167,7 @@ export function showResultCard(view: ResultCardView,
         if (!offered) return;
         void dispatch?.({ actionId, view: current, origin: currentOrigin });
       }
-    }, reportUnknownMessage);
-    acceptedMessages.set('singularityFlow.result', router.accepts);
+    });
     panel.webview.onDidReceiveMessage((raw: unknown) => {
       /**
        * The shared footer, handled before this panel's own contract.

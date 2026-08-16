@@ -13,6 +13,7 @@ import * as vscode from 'vscode';
 import { buildJourney, type Journey } from './journey-model.ts';
 import { contentSecurityPolicy, escape, navigationTarget, nonce, page, icon } from './webview.ts';
 import { navigateTo } from './navigate.ts';
+import { registerMessageRouter, stringField } from './messages.ts';
 import type { WorkspaceStore } from '../state.ts';
 
 const STATUS_CLASS: Record<string, string> = {
@@ -204,19 +205,36 @@ export class JourneyPanel {
     this.store = store;
     this.subscription = store.onDidChange(() => this.render());
 
+    /**
+     * The four messages this panel speaks, enumerated. `[UXH:REQ-134]` `[UXH:AC-014]`
+     *
+     * Was an if-chain with no final else, so a type outside it was dropped in silence —
+     * indistinguishable from one that was handled, which is why the bug it hides is a control that
+     * appears to do nothing. The keys are now the contract, and an unrecognised type is reported.
+     *
+     * Per-field coercion is unchanged: `stringField` returns null for anything that is not a
+     * non-empty string, exactly as the `typeof … !== 'string'` guard did. The gap being closed is
+     * the open type set, not the field checks, which were already careful.
+     */
+    const router = registerMessageRouter('singularityFlow.journey', {
+      run: () => onMessage({ type: 'run' }),
+      pin: () => onMessage({ type: 'pin' }),
+      open: (message) => {
+        const outputId = stringField(message, 'id');
+        // An id is looked up against the snapshot by the receiver, never used as a path.
+        if (outputId) onMessage({ type: 'open', outputId });
+      },
+      approve: (message) => {
+        const outputId = stringField(message, 'id');
+        if (outputId) onMessage({ type: 'approve', outputId });
+      }
+    });
     this.panel.webview.onDidReceiveMessage((raw: unknown) => {
-      // Treated as untrusted input: only the shapes below are recognised, and an id is looked up
-      // against the snapshot rather than used as a path.
       // The shared footer is the one way out of a full-page view. Handled here rather than through
       // each panel's own callback contract, because "go to another page" is not this panel's business.
       const navigation = navigationTarget(raw);
       if (navigation) return void navigateTo(navigation);
-      const message = raw as { type?: unknown; id?: unknown };
-      if (message?.type === 'run') return onMessage({ type: 'run' });
-      if (message?.type === 'pin') return onMessage({ type: 'pin' });
-      if (typeof message?.id !== 'string') return;
-      if (message.type === 'open') return onMessage({ type: 'open', outputId: message.id });
-      if (message.type === 'approve') return onMessage({ type: 'approve', outputId: message.id });
+      router.route(raw);
     }, null, this.disposables);
 
     this.panel.onDidDispose(() => this.dispose(), null, this.disposables);

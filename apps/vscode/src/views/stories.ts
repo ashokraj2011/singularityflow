@@ -9,6 +9,7 @@ import * as vscode from 'vscode';
 import { buildStories, type StoryView, type Stories } from './stories-model.ts';
 import { contentSecurityPolicy, escape, icon, navigationTarget, nonce, page } from './webview.ts';
 import { navigateTo } from './navigate.ts';
+import { registerMessageRouter, stringField, type InboundMessage } from './messages.ts';
 import type { WorkspaceStore } from '../state.ts';
 
 const STATE_PILL: Record<string, { className: string; label: string }> = {
@@ -132,22 +133,32 @@ export class StoriesPanel {
     this.store = store;
     this.subscription = store.onDidChange(() => this.render());
 
+    /**
+     * The three messages this panel speaks, enumerated. `[UXH:REQ-134]` `[UXH:AC-014]`
+     *
+     * The plan lookup stays exactly as it was, and is the part that matters: the page names a
+     * Story, and which Story that is comes from the plan rather than from the page.
+     */
+    const storyFor = (message: InboundMessage) => {
+      const id = stringField(message, 'id');
+      return id
+        ? buildStories(this.store.current.snapshot).groups
+          .flatMap((group) => group.stories)
+          .find((candidate) => candidate.planId === id) ?? null
+        : null;
+    };
+    const router = registerMessageRouter('singularityFlow.stories', {
+      materialize: () => onMessage({ type: 'materialize' }),
+      spec: (message) => { const story = storyFor(message); if (story) onMessage({ type: 'spec', story }); },
+      split: (message) => { const story = storyFor(message); if (story) onMessage({ type: 'split', story }); }
+    });
     this.panel.webview.onDidReceiveMessage((raw: unknown) => {
       // The shared footer is the one way out of a full-page view. Handled here rather than through
       // this panel's own message contract, because "go to another page" is not this panel's business.
       const navigation = navigationTarget(raw);
       if (navigation) return void navigateTo(navigation);
 
-      const message = raw as { type?: unknown; id?: unknown };
-      if (message?.type === 'materialize') return onMessage({ type: 'materialize' });
-      if (typeof message?.id !== 'string') return;
-      // The page names a Story; which Story that is comes from the plan, not the page.
-      const story = buildStories(this.store.current.snapshot).groups
-        .flatMap((group) => group.stories)
-        .find((candidate) => candidate.planId === message.id);
-      if (!story) return;
-      if (message.type === 'spec') onMessage({ type: 'spec', story });
-      else if (message.type === 'split') onMessage({ type: 'split', story });
+      router.route(raw);
     }, null, this.disposables);
 
     this.panel.onDidDispose(() => this.dispose(), null, this.disposables);

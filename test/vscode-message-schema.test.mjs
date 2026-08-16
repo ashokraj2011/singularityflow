@@ -31,7 +31,7 @@ const messages = await import(path.join(views, 'views', 'messages.ts'));
  * a deleted one is not. Worth saying because the two reasons look identical in the number and are
  * not the same news: this one closed a surface rather than improving it.
  */
-const UNMIGRATED_MESSAGE_HANDLERS = 25;
+const UNMIGRATED_MESSAGE_HANDLERS = 20;
 
 async function sources(dir) {
   const entries = await readdir(dir, { withFileTypes: true });
@@ -98,8 +98,18 @@ test('field readers do not turn absent values into usable ones', () => {
 });
 
 test('the result panel routes through the closed set', async () => {
+  /**
+   * Matched on the registration, not the spelling of the call.
+   *
+   * This asserted `createMessageRouter('singularityFlow.result'` literally, and broke the moment
+   * the panel moved to `registerMessageRouter` — a wrapper that does the same thing *and* records
+   * the accepted set, which is strictly more of what `[UXH:AC-014]` asks for. A test pinned to one
+   * spelling of a helper objects to the improvement it should be enforcing, so this matches either
+   * and keeps the two checks that carry meaning: the panel names its contract, and the raw cast is
+   * gone.
+   */
   const source = codeOnly(await readFile(path.join(views, 'views', 'result-panel.ts'), 'utf8'));
-  assert.match(source, /createMessageRouter\('singularityFlow\.result'/);
+  assert.match(source, /(register|create)MessageRouter\('singularityFlow\.result'/);
   assert.match(source, /'sflow\.action':/);
   // The raw cast it replaced is gone.
   assert.ok(!/raw as \{ type\?: unknown/.test(source));
@@ -114,7 +124,7 @@ test('the unmigrated handler count only goes down', async () => {
   for (const file of await sources(views)) {
     const source = codeOnly(await readFile(file, 'utf8'));
     if (!source.includes('onDidReceiveMessage')) continue;
-    if (!source.includes('createMessageRouter')) unmigrated.push(path.basename(file));
+    if (!/(register|create)MessageRouter/.test(source)) unmigrated.push(path.basename(file));
   }
   assert.equal(unmigrated.length, UNMIGRATED_MESSAGE_HANDLERS,
     `${unmigrated.length} handlers are not on the closed router (${unmigrated.join(', ')});`

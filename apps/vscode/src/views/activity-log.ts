@@ -15,6 +15,7 @@ import * as vscode from 'vscode';
 import type { SingularityFlowClient } from '../cli/client.ts';
 import { contentSecurityPolicy, escape, icon, navigationTarget, nonce, page } from './webview.ts';
 import { navigateTo } from './navigate.ts';
+import { enumField, registerMessageRouter } from './messages.ts';
 
 interface LogEntry {
   ts: string | null;
@@ -117,16 +118,26 @@ export class ActivityLogPanel {
   private constructor(panel: vscode.WebviewPanel, client: SingularityFlowClient) {
     this.panel = panel;
     this.client = client;
+    /**
+     * The two messages this panel speaks, enumerated. `[UXH:REQ-134]` `[UXH:AC-014]`
+     *
+     * `enumField` keeps the level check where it was: a value outside `LEVELS` cannot put the panel
+     * into a state it does not have, which is the actual risk in a filter that is read straight back
+     * into a query. The addition is the closed type set around it.
+     */
+    const router = registerMessageRouter('singularityFlow.activityLog', {
+      refresh: () => { void this.load(); },
+      level: (message) => {
+        const level = enumField(message, 'level', LEVELS as readonly string[]);
+        if (!level) return;
+        this.level = level as Level;
+        void this.load();
+      }
+    });
     this.panel.webview.onDidReceiveMessage((raw: unknown) => {
       const navigation = navigationTarget(raw);
       if (navigation) return void navigateTo(navigation);
-      const message = raw as { type?: unknown; level?: unknown };
-      if (message?.type === 'refresh') return void this.load();
-      if (message?.type === 'level' && typeof message.level === 'string'
-        && (LEVELS as readonly string[]).includes(message.level)) {
-        this.level = message.level as Level;
-        return void this.load();
-      }
+      router.route(raw);
     }, null, this.disposables);
     this.panel.onDidDispose(() => this.dispose(), null, this.disposables);
     this.render();

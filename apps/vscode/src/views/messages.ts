@@ -89,6 +89,19 @@ export function stringField(message: InboundMessage, name: string): string | nul
   return typeof value === 'string' && value ? value : null;
 }
 
+/**
+ * Read a non-negative integer field strictly, or null.
+ *
+ * Strict because the values this reads are used as array indices. `Number.isInteger` refuses a
+ * float, a numeric string and `NaN`, and the lower bound refuses a negative — which in JavaScript
+ * would not throw, would simply find nothing, and would leave the reason obscure. A caller still
+ * looks the result up in its own collection; this only guarantees the shape.
+ */
+export function integerField(message: InboundMessage, name: string): number | null {
+  const value = message[name];
+  return typeof value === 'number' && Number.isInteger(value) && value >= 0 ? value : null;
+}
+
 /** Read a boolean field strictly: only `true` is true, so a truthy string is not. */
 export function booleanField(message: InboundMessage, name: string): boolean {
   return message[name] === true;
@@ -105,4 +118,46 @@ export function enumField<T extends string>(
 ): T | null {
   const value = message[name];
   return typeof value === 'string' && (allowed as readonly string[]).includes(value) ? value as T : null;
+}
+
+/**
+ * What each migrated panel accepts, so the set is inspectable from outside it. `[UXH:REQ-134]`
+ *
+ * The property `[UXH:AC-014]` actually asks for is that the accepted messages are *enumerable* — a
+ * reviewer, a fuzzer and the next maintainer all need to ask a panel what it speaks, and an
+ * if-chain cannot answer. Registering here makes the answer available without reaching into any
+ * panel's closure.
+ *
+ * It began in `result-panel.ts`, which was the right place while one panel was migrated and the
+ * wrong one the moment a second needed it: a registry every panel writes to does not belong inside
+ * one of them. Here it sits beside the router that populates it and imports nothing.
+ */
+export const acceptedMessages = new Map<string, readonly string[]>();
+
+/**
+ * Where an unrecognised message goes.
+ *
+ * The output channel rather than a toast: this is a developer-facing fact about a contract
+ * mismatch, not something a reader did wrong, and a modal for it would train people to dismiss
+ * modals. Silence is the one option ruled out — a silently dropped message looks exactly like a
+ * handled one, so the bug it hides is a control that does nothing.
+ */
+export function reportUnknownMessage(type: string, source: string): void {
+  console.warn(`[singularity-flow] ${source} received an unrecognised message: ${type}`);
+}
+
+/**
+ * Register a panel's contract and return its router. `[UXH:REQ-134]` `[UXH:AC-014]`
+ *
+ * One call rather than three lines repeated 24 times, and the registration cannot be forgotten:
+ * a panel that builds a router without registering it is enumerable from inside its own closure
+ * and nowhere else, which is the state every panel was already in.
+ */
+export function registerMessageRouter<T extends Record<string, (message: InboundMessage) => unknown>>(
+  panel: string,
+  handlers: T
+): { readonly accepts: readonly string[]; route(raw: unknown): unknown } {
+  const router = createMessageRouter(panel, handlers, reportUnknownMessage);
+  acceptedMessages.set(panel, router.accepts);
+  return router;
 }

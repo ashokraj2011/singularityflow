@@ -12,6 +12,7 @@ import * as vscode from 'vscode';
 import { buildApprovals, type Approvals, type PendingApproval } from './approvals-model.ts';
 import { contentSecurityPolicy, escape, navigationTarget, nonce, page, icon } from './webview.ts';
 import { navigateTo } from './navigate.ts';
+import { registerMessageRouter, stringField, type InboundMessage } from './messages.ts';
 import type { WorkspaceStore } from '../state.ts';
 
 const STANDING_PILL: Record<string, { className: string; label: string }> = {
@@ -137,20 +138,30 @@ export class ApprovalsPanel {
     this.store = store;
     this.subscription = store.onDidChange(() => this.render());
 
+    /**
+     * The three messages this panel speaks, enumerated. `[UXH:REQ-134]` `[UXH:AC-014]`
+     *
+     * The id lookup is unchanged and is the security-carrying part: the page names a card, and
+     * which approval that is comes from the snapshot rather than from the page. What is added is
+     * the closed set — an unrecognised type is reported instead of falling off the end of the chain.
+     */
+    const approvalFor = (message: InboundMessage) => {
+      const id = stringField(message, 'id');
+      return id
+        ? buildApprovals(this.store.current.snapshot).pending.find((candidate) => candidate.id === id) ?? null
+        : null;
+    };
+    const router = registerMessageRouter('singularityFlow.approvals', {
+      approve: (message) => { const approval = approvalFor(message); if (approval) onMessage({ type: 'approve', approval }); },
+      reject: (message) => { const approval = approvalFor(message); if (approval) onMessage({ type: 'reject', approval }); },
+      open: (message) => { const approval = approvalFor(message); if (approval) onMessage({ type: 'open', approval }); }
+    });
     this.panel.webview.onDidReceiveMessage((raw: unknown) => {
       // The shared footer is the one way out of a full-page view. Handled here rather than through
       // each panel's own callback contract, because "go to another page" is not this panel's business.
       const navigation = navigationTarget(raw);
       if (navigation) return void navigateTo(navigation);
-      const message = raw as { type?: unknown; id?: unknown };
-      if (typeof message?.id !== 'string') return;
-      // The page names a card; which approval that is comes from the snapshot, not the page.
-      const approval = buildApprovals(this.store.current.snapshot).pending
-        .find((candidate) => candidate.id === message.id);
-      if (!approval) return;
-      if (message.type === 'approve') onMessage({ type: 'approve', approval });
-      else if (message.type === 'reject') onMessage({ type: 'reject', approval });
-      else if (message.type === 'open') onMessage({ type: 'open', approval });
+      router.route(raw);
     }, null, this.disposables);
 
     this.panel.onDidDispose(() => this.dispose(), null, this.disposables);

@@ -8,6 +8,7 @@ import { tmpdir } from 'node:os';
 import path from 'node:path';
 
 import { createActionExecutor } from '../src/gateway/executor.mjs';
+import { gatewayPlanners } from '../src/gateway/planners/index.mjs';
 import { createHostGateway } from '../src/gateway/host.mjs';
 import { run } from '../src/util.mjs';
 
@@ -29,14 +30,14 @@ test('an executor requires a host gateway, not a bare kernel', () => {
 test('an action without its handle is refused before anything is dispatched', async (t) => {
   const root = await repository();
   t.after(() => rm(root, { recursive: true, force: true }));
-  const executor = createActionExecutor({ gateway: createHostGateway({ root, hostSessionId: 's1' }) });
+  const executor = createActionExecutor({ gateway: createHostGateway({ root, hostSessionId: 's1', planners: gatewayPlanners() }) });
   await assert.rejects(() => executor.execute({ id: 'home:work.list' }), /must carry the handle/);
 });
 
 test('a read action dispatches through its handle and returns a result', async (t) => {
   const root = await repository();
   t.after(() => rm(root, { recursive: true, force: true }));
-  const gateway = createHostGateway({ root, hostSessionId: 's1' });
+  const gateway = createHostGateway({ root, hostSessionId: 's1', planners: gatewayPlanners() });
   const executor = createActionExecutor({ gateway });
 
   const resolution = await gateway.kernel.resolve({ utterance: 'home' });
@@ -55,7 +56,7 @@ test('switching branch invalidates a handle resolved before the switch', async (
    */
   const root = await repository();
   t.after(() => rm(root, { recursive: true, force: true }));
-  const gateway = createHostGateway({ root, hostSessionId: 's1' });
+  const gateway = createHostGateway({ root, hostSessionId: 's1', planners: gatewayPlanners() });
   const executor = createActionExecutor({ gateway });
 
   const resolution = await gateway.kernel.resolve({ utterance: 'home' });
@@ -78,7 +79,7 @@ test('a stale refusal is a result, never a thrown error', async (t) => {
   // `[UXH:CON-007]` prohibits.
   const root = await repository();
   t.after(() => rm(root, { recursive: true, force: true }));
-  const gateway = createHostGateway({ root, hostSessionId: 's1' });
+  const gateway = createHostGateway({ root, hostSessionId: 's1', planners: gatewayPlanners() });
   const executor = createActionExecutor({ gateway });
 
   const { outcome, result } = await executor.execute({
@@ -96,7 +97,7 @@ test('a ceremony is handed back to be opened, never carried out', async (t) => {
    */
   const root = await repository();
   t.after(() => rm(root, { recursive: true, force: true }));
-  const executor = createActionExecutor({ gateway: createHostGateway({ root, hostSessionId: 's1' }) });
+  const executor = createActionExecutor({ gateway: createHostGateway({ root, hostSessionId: 's1', planners: gatewayPlanners() }) });
 
   const { outcome, action } = await executor.execute({
     handle: 'ceremony:review.approve', id: 'approve', confirmation: 'ceremony', interaction: 'ceremony'
@@ -112,7 +113,7 @@ test('a non-executable action re-resolves rather than acting', async (t) => {
    */
   const root = await repository();
   t.after(() => rm(root, { recursive: true, force: true }));
-  const gateway = createHostGateway({ root, hostSessionId: 's1' });
+  const gateway = createHostGateway({ root, hostSessionId: 's1', planners: gatewayPlanners() });
   const executor = createActionExecutor({ gateway });
 
   const home = await gateway.kernel.read({
@@ -129,7 +130,7 @@ test('a non-executable action re-resolves rather than acting', async (t) => {
 test('executeById refuses an id this result did not offer', async (t) => {
   const root = await repository();
   t.after(() => rm(root, { recursive: true, force: true }));
-  const gateway = createHostGateway({ root, hostSessionId: 's1' });
+  const gateway = createHostGateway({ root, hostSessionId: 's1', planners: gatewayPlanners() });
   const executor = createActionExecutor({ gateway });
   const resolution = await gateway.kernel.resolve({ utterance: 'home' });
 

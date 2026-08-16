@@ -1,0 +1,106 @@
+/**
+ * The gateway running inside the extension host.
+ *
+ * These exercise the bundled extension against the stubbed VS Code API — the same harness the rest
+ * of `vscode-host` uses — so what is under test is the shipped bundle, activated, with the command
+ * invoked. That matters here more than usual: the whole question is whether the core survives being
+ * bundled into CommonJS, and only the bundle can answer it.
+ */
+import test from 'node:test';
+import assert from 'node:assert/strict';
+import { readFile } from 'node:fs/promises';
+import path from 'node:path';
+import { fileURLToPath } from 'node:url';
+
+import { codeOnly } from './source-text.mjs';
+
+const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
+
+test('the extension bundle contains the gateway, not a call out to it', async () => {
+  /**
+   * The bridge, asserted at its narrowest point. A handle is signed per session and revalidated at
+   * the moment of use; it cannot survive a process that exits after every command. Either the
+   * kernel is in this bundle or nothing in the editor re-resolves anything.
+   */
+  const bundle = await readFile(path.join(root, 'apps', 'vscode', 'dist', 'extension.cjs'), 'utf8');
+  assert.ok(bundle.includes('sflow-result'), 'the result contract is bundled');
+  assert.ok(bundle.includes('A handle requires the operation it resolved to'),
+    'the handle authority is bundled');
+  assert.ok(bundle.includes('gateway.planner-unavailable'), 'the kernel is bundled');
+});
+
+test('the editor declares six planners and does not pretend to the seventh', async () => {
+  /**
+   * `help-explain` reaches the documentation subsystem, which resolves its own path through
+   * `import.meta.url` — empty under CommonJS. The honest answer is to declare six and let the
+   * kernel refuse the seventh with `gateway.planner-unavailable`, which is a state the contract
+   * already models. Shimming `import.meta` to make the import survive would produce a planner that
+   * loads and then cannot find its own topics.
+   */
+  const source = await readFile(path.join(root, 'apps', 'vscode', 'src', 'gateway-session.ts'), 'utf8');
+  const imported = [...source.matchAll(/planners\/([a-z-]+)\.mjs/g)].map(([, name]) => name).sort();
+  assert.deepEqual(imported, ['home-overview', 'impact-quick', 'work-continue', 'work-list',
+    'work-readiness', 'workspace-list']);
+  // `codeOnly`: this file names help-explain in the comment explaining why it excludes it.
+  assert.ok(!codeOnly(source).includes('help-explain'), 'the docs planner is not imported');
+
+  /**
+   * Checked by a marker from inside the module, not by its filename.
+   *
+   * A first pass grepped for `docs-manifest` and failed — on `docs-manifest.json`, which the Help
+   * Center `require`s at runtime from a computed path and which is data, not a bundled module. A
+   * substring of a filename cannot tell "this code is here" from "this name is mentioned".
+   */
+  const bundle = await readFile(path.join(root, 'apps', 'vscode', 'dist', 'extension.cjs'), 'utf8');
+  const topics = await readFile(path.join(root, 'src', 'docs-topics.mjs'), 'utf8');
+  const marker = topics.match(/export function (\w+)/)?.[1];
+  assert.ok(marker, 'docs-topics.mjs exports something to look for');
+  assert.ok(!bundle.includes(`function ${marker}(`), 'the documentation subsystem stayed out of the bundle');
+});
+
+test('the host gateway refuses to start without being told which planners exist', async () => {
+  const { createHostGateway } = await import('../src/gateway/host.mjs');
+  assert.throws(() => createHostGateway({ root: '/tmp', hostSessionId: 's' }),
+    /requires the map of planners/);
+  /**
+   * It used to default to all seven, which made `host.mjs` statically import the docs subsystem and
+   * silently decided the module could only run in one kind of host. Which planners a build has was
+   * always the caller's fact; the default hid that.
+   */
+  const source = await readFile(path.join(root, 'src', 'gateway', 'host.mjs'), 'utf8');
+  assert.ok(!source.includes("from './planners/index.mjs'"),
+    'host.mjs must not pull the full planner set');
+});
+
+test('a card carries its handle in the model and never in the markup', async () => {
+  const model = await import(path.join(root, 'apps', 'vscode', 'src', 'views', 'result-card-model.ts'));
+  const { workReadinessResult } = await import('../src/gateway/planners/work-readiness.mjs');
+  const result = workReadinessResult({
+    id: 'PAY-1187', kind: 'story', phase: 'implement', generation: 1, group: 'active',
+    blockers: ['required-artifact-missing'],
+    nextAction: { operation: 'work.continue', reasonCode: 'work.resume-phase' }, lastMaterialEvent: null
+  });
+  const card = model.buildResultCard(result);
+  const action = card.checklist.find((row) => row.action)?.action;
+  assert.ok(action.handle, 'the model has the handle to dispatch with');
+
+  const { resultCardHtml } = await import(path.join(root, 'apps', 'vscode', 'src', 'views', 'result-card-page.ts'));
+  assert.ok(!resultCardHtml(card).includes(action.handle), 'the webview never sees it');
+});
+
+test('origin travels with the showing, not with the card', async () => {
+  /**
+   * A gateway result was resolved moments ago and its handles are live; a CLI result came from a
+   * process that has exited and its handles are dead. The dispatcher must not guess which it holds,
+   * and the card itself cannot know — the same view can arrive either way.
+   */
+  const panel = await readFile(path.join(root, 'apps', 'vscode', 'src', 'views', 'result-panel.ts'), 'utf8');
+  assert.match(panel, /export type ResultOrigin = 'gateway' \| 'cli'/);
+  assert.match(panel, /origin: currentOrigin/);
+
+  const extension = await readFile(path.join(root, 'apps', 'vscode', 'src', 'extension.ts'), 'utf8');
+  assert.match(extension, /if \(root && origin === 'gateway'\)/,
+    'the executor path is taken only for results whose handles are live');
+  assert.match(extension, /showResultCard\(buildResultCard\(envelope\), \{ origin: 'gateway' \}\)/,
+    'My Work marks its own result as one the executor can re-resolve');
+});

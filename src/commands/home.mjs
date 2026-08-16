@@ -16,6 +16,7 @@
 import { randomUUID } from 'node:crypto';
 
 import { createHostGateway } from '../gateway/host.mjs';
+import { gatewayPlanners } from '../gateway/planners/index.mjs';
 import { developerHome, homeRepository } from '../developer-home.mjs';
 import { primaryAction } from '../gateway/result.mjs';
 import { optionBoolean, optionString } from '../util.mjs';
@@ -63,6 +64,8 @@ export async function run(_argv, { options }) {
   const { kernel } = createHostGateway({
     root,
     hostSessionId,
+    // The CLI is the host that has all of them.
+    planners: gatewayPlanners(),
     workspaceId: projection.context.workspace.id ?? null
   });
 

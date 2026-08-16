@@ -12,6 +12,8 @@
  */
 import test from 'node:test';
 import assert from 'node:assert/strict';
+
+import { codeOnly } from './source-text.mjs';
 import { readdir, readFile } from 'node:fs/promises';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -54,8 +56,7 @@ test('the two opt-outs are the two pages that cannot run a script', async () => 
    * same exposure and did not, so a page that mentioned `nav: false` while correctly *not* opting
    * out was reported as a third opt-out. Found when `result-panel.ts` documented having removed one.
    */
-  const withoutComments = (source) => source.replace(/\/\*[\s\S]*?\*\//g, '').replace(/^\s*\/\/.*$/gm, '');
-  const pages = (await fullPageViews()).map((entry) => ({ ...entry, code: withoutComments(entry.source) }));
+  const pages = (await fullPageViews()).map((entry) => ({ ...entry, code: codeOnly(entry.source) }));
   const optedOut = pages.filter(({ code }) => code.includes('nav: false'));
   assert.deepEqual(optedOut.map(({ name }) => name).sort(), ['specification-trace.ts', 'visual-fixture.ts']);
 

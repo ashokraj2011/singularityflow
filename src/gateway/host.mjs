@@ -27,7 +27,6 @@
  */
 import { createGatewayKernel } from './kernel.mjs';
 import { createHandleAuthority } from './handles.mjs';
-import { gatewayPlanners } from './planners/index.mjs';
 import { gatewayRegistry } from './operations.mjs';
 import { DEFAULT_GATEWAY_POLICY, resolveGatewayPolicy } from './policy.mjs';
 import { branch, head, identity, repoRoot } from '../git.mjs';
@@ -79,12 +78,29 @@ export function createHostGateway({
   workspaceId = null,
   subject = null,
   policyLayers = [DEFAULT_GATEWAY_POLICY],
-  planners = gatewayPlanners(),
+  /**
+   * Which planners this host has, supplied rather than defaulted. `[INT:CON-032]`
+   *
+   * It defaulted to `gatewayPlanners()`, which made this module statically import all seven — and
+   * `help-explain` reaches the documentation subsystem, which resolves its own path through
+   * `import.meta.url`. Harmless in the CLI and fatal in a CommonJS bundle, so the default quietly
+   * decided that this module could only ever run in one kind of host.
+   *
+   * Which planners a build actually has was already the kernel's own distinction: the registry says
+   * which planner an operation *names*, the map says which ones exist, and an operation whose
+   * planner is absent gets `gateway.planner-unavailable` rather than a crash. A host that can serve
+   * six of the seven is a state the contract already handles; it should not have to fake the
+   * seventh to start up.
+   */
+  planners,
   readOnly = true,
   now = () => Date.now()
 } = {}) {
   if (!hostSessionId) {
     throw new TypeError('A host gateway requires the host session it is issuing handles for.');
+  }
+  if (!(planners instanceof Map)) {
+    throw new TypeError('A host gateway requires the map of planners this build has.');
   }
   const registry = gatewayRegistry();
   const policy = resolveGatewayPolicy(policyLayers, { registry });

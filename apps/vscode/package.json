@@ -427,6 +427,11 @@
         "icon": "$(refresh)"
       },
       {
+        "command": "singularityFlow.myWork",
+        "title": "Singularity Flow: My Work",
+        "icon": "$(home)"
+      },
+      {
         "command": "singularityFlow.openJourney",
         "title": "Singularity Flow: Open Journey",
         "icon": "$(map)"

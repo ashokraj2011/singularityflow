@@ -20,10 +20,24 @@ import { contentSecurityPolicy, escape, nonce, page } from './webview.ts';
 import { fidelityNote, refusalFor, type Refusal } from './refusal.ts';
 import type { ResultCardView } from './result-card-model.ts';
 
-export type ActionRequest = { readonly actionId: string; readonly view: ResultCardView };
+/**
+ * Where a card's facts came from, and therefore whether its handles are live.
+ *
+ * A gateway result was resolved by the in-process kernel moments ago, so its handles can be
+ * re-resolved. A CLI result came from a process that has exited, so its handles are dead and only
+ * the terminal equivalent remains. The dispatcher must not have to guess which it is holding.
+ */
+export type ResultOrigin = 'gateway' | 'cli';
+
+export type ActionRequest = {
+  readonly actionId: string;
+  readonly view: ResultCardView;
+  readonly origin: ResultOrigin;
+};
 
 let panel: vscode.WebviewPanel | null = null;
 let current: ResultCardView | null = null;
+let currentOrigin: ResultOrigin = 'cli';
 
 /**
  * Dispatch for a pressed action.
@@ -66,8 +80,10 @@ function render(target: vscode.WebviewPanel, view: ResultCardView, note: string 
 }
 
 /** Show a result card, creating the panel on first use and reusing it after. */
-export function showResultCard(view: ResultCardView, { note = null }: { note?: string | null } = {}): void {
+export function showResultCard(view: ResultCardView,
+  { note = null, origin = 'cli' }: { note?: string | null; origin?: ResultOrigin } = {}): void {
   current = view;
+  currentOrigin = origin;
   if (!panel) {
     panel = vscode.window.createWebviewPanel(
       'singularityFlow.result',
@@ -87,7 +103,7 @@ export function showResultCard(view: ResultCardView, { note = null }: { note?: s
       if (request?.type !== 'sflow.action' || typeof request.actionId !== 'string') return;
       if (!current || !current.actions.some((action) => action.id === request.actionId)
         && !current.checklist.some((row) => row.action?.id === request.actionId)) return;
-      void dispatch?.({ actionId: request.actionId, view: current });
+      void dispatch?.({ actionId: request.actionId, view: current, origin: currentOrigin });
     });
   } else {
     panel.reveal(vscode.ViewColumn.Beside, true);

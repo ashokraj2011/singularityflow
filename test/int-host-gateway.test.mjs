@@ -7,7 +7,7 @@
  */
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { mkdtemp, rm, writeFile } from 'node:fs/promises';
+import { mkdir, mkdtemp, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
 
@@ -138,6 +138,35 @@ test('the same repository on a different branch is a different binding', async (
    */
   assert.equal(before.sourceCommit, after.sourceCommit, 'the commit is unchanged, as intended');
   assert.notEqual(before.branch, after.branch);
+});
+
+test('a long-lived host derives home state from the current branch on every read', async (t) => {
+  const root = await repository();
+  t.after(() => rm(root, { recursive: true, force: true }));
+  const directory = path.join(root, 'singularity', 'work-items', 'WRK-1');
+  await mkdir(directory, { recursive: true });
+  await writeFile(path.join(directory, 'workflow.json'), JSON.stringify({
+    workItem: { id: 'WRK-1', title: 'Started work', branch: 'wi/WRK-1' },
+    lineage: { canonicalBranch: 'wi/WRK-1', childBranches: [{ name: 'main' }] },
+    phaseOrder: ['intake'], currentPhase: 'intake',
+    phases: { intake: { label: 'Intake', status: 'in_progress', generation: 1 } },
+    history: [{ event: 'work_started', phase: 'intake', at: '2026-08-16T10:00:00.000Z' }]
+  }));
+
+  const { kernel } = createHostGateway({ root, hostSessionId: 's-context', planners: gatewayPlanners() });
+  const readHome = async () => {
+    const resolution = await kernel.resolve({ utterance: 'home' });
+    return kernel.read({ resolutionId: resolution.next[0].handle });
+  };
+  const onRegisteredBranch = await readHome();
+  assert.equal(onRegisteredBranch.data.activeWork?.id, 'WRK-1');
+  assert.equal(onRegisteredBranch.next[0].id, 'home:work.continue');
+
+  run('git', ['checkout', '-q', '-b', 'unrelated'], { cwd: root });
+  const elsewhere = await readHome();
+  assert.equal(elsewhere.data.activeWork, null);
+  assert.ok(!elsewhere.next.some((entry) => entry.id === 'home:work.continue'));
+  assert.equal(elsewhere.next[0].id, 'home:work.list');
 });
 
 test('a read declares the revision its handle was bound to, not a row of nulls', async (t) => {

@@ -19,6 +19,7 @@ declare module '*/gateway/host.mjs' {
     subject?: unknown;
     policyLayers?: readonly unknown[];
     planners: Map<string, unknown>;
+    plannerContext?: Record<string, unknown> | (() => Record<string, unknown>);
     readOnly?: boolean;
     now?: () => number;
   }): { root: string; binding: () => unknown; kernel: GatewayKernel };

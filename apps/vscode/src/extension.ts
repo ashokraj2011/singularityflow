@@ -2530,30 +2530,7 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
         const { InboxPanel } = await import('./views/inbox.ts');
         return InboxPanel.show(context, store, (message) => { void onInboxMessage(message); });
       },
-    /**
-     * "Talk to SFlow" opens My Work. `[UXH:D1]` `[DHR:REQ-082]`
-     *
-     * It used to open a second home, and that home stopped working the moment `sflow home` was
-     * registered as a gateway operation: the command now answers with an `sflow-result` v2
-     * envelope, and `developer-home.ts` reads `context.workspace.id`, `choices[]` and
-     * `subjectRevision`, none of which exist in v2. The read threw, the throw was caught, and the
-     * panel rendered its error state — so the entry point opened and said nothing useful.
-     *
-     * The producer moved and the one consumer parsing the old shape did not, which is the same
-     * class as everything else this shell keeps finding, arriving from the other direction. Its
-     * tests stayed green because they exercise the planner against their own fixtures.
-     *
-     * Pointing it at My Work rather than porting the panel is the decision already taken: one home,
-     * named My Work, with "Talk to SFlow" as an entry-point label. The card path is a superset in
-     * the ways that matter — every choice is a signed handle the executor re-resolves before
-     * dispatch, which is what this panel's hand-written `revalidate()` was for.
-     *
-     * **What that dropped, and it was not nothing:** the acknowledgement — "Since you last
-     * checked", with a delta naming what moved. It has since been rebuilt on the card against the
-     * envelope rather than ported onto a second home: `home-acknowledgement.ts` holds the
-     * comparison, `view.since` carries it, and the host keeps the snapshot because remembering
-     * where a particular reader got to is not something the gateway can answer.
-     */
+    // Backward-compatible command ID for old keybindings and links; it never opens a second home.
     'singularityFlow.openDeveloperHome': async () =>
       vscode.commands.executeCommand('singularityFlow.myWork'),
     'singularityFlow.expandReference': expandReference as never,

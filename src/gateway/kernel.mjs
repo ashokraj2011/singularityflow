@@ -101,6 +101,8 @@ export function createGatewayKernel({
   binding,
   /** Planners that read a repository get it from here, never from the ambient working directory. */
   root = null,
+  /** Host-owned identity/workspace selection, recomputed for long-lived surfaces when supplied as a function. */
+  plannerContext = {},
   handles = createHandleAuthority(),
   readOnly = true
 } = {}) {
@@ -134,7 +136,10 @@ export function createGatewayKernel({
       return refuse(operation.id, 'gateway.planner-unavailable', 'unavailable',
         { planner: operation.gateway.planner }, 'unavailable');
     }
-    const produced = await planner({ operation, arguments: args, subject, registry, policy, root });
+    const context = typeof plannerContext === 'function'
+      ? plannerContext({ operation, arguments: args, subject })
+      : plannerContext;
+    const produced = await planner({ operation, arguments: args, subject, registry, policy, root, context: context ?? {} });
     return validateSflowResult(produced);
   }
 

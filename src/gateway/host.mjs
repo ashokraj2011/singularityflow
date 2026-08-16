@@ -93,6 +93,8 @@ export function createHostGateway({
    * seventh to start up.
    */
   planners,
+  /** Surface selection that every planner reads instead of re-deriving independently. */
+  plannerContext = {},
   readOnly = true,
   now = () => Date.now()
 } = {}) {
@@ -115,6 +117,18 @@ export function createHostGateway({
    * "safe because this process is short-lived" is a property that stops being true quietly.
    */
   const binding = () => hostBinding(root, { workspaceId, hostSessionId, subject, registry, policy });
+  const context = () => {
+    const current = binding();
+    const supplied = typeof plannerContext === 'function' ? plannerContext() : plannerContext;
+    return {
+      actor: current.actorId ? { email: current.actorId } : null,
+      workspace: { id: current.workspaceId ?? root, name: current.workspaceId ?? root },
+      repositoryId: root,
+      branch: current.branch,
+      storyId: current.subjectId,
+      ...(supplied ?? {})
+    };
+  };
 
   return {
     root,
@@ -125,6 +139,7 @@ export function createHostGateway({
       planners,
       binding,
       root,
+      plannerContext: context,
       handles: createHandleAuthority({ now }),
       readOnly
     })

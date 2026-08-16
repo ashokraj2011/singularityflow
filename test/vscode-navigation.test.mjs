@@ -28,7 +28,7 @@ async function fullPageViews() {
   const found = [];
   for (const name of entries) {
     const source = await readFile(path.join(views, name), 'utf8');
-    if (/\bpage\(/.test(source)) found.push({ name, source });
+    if (/\bpage\(/.test(source)) found.push({ name, source, code: codeOnly(source) });
   }
   return found;
 }
@@ -37,8 +37,17 @@ test('every full-page view either dispatches the footer or opts out on purpose',
   const pages = await fullPageViews();
   assert.ok(pages.length >= 20, `expected the full set of views, found ${pages.length}`);
 
+  /**
+   * Judged on code, not on prose — and this test is why the rule is worth repeating.
+   *
+   * It read the raw source, so a view *documenting* that it had considered `nav: false` counted as
+   * having opted out. `result-panel.ts` did exactly that, in a comment saying this test "was right
+   * to reject it" — and then rendered a footer its closed router never handled. The footer was
+   * dead in the one panel built to remove dead ends, and the comment explaining the fix is what
+   * hid the missing half of it.
+   */
   const silent = pages
-    .filter(({ source }) => !source.includes('navigationTarget(raw)') && !source.includes('nav: false'))
+    .filter(({ code }) => !code.includes('navigationTarget(raw)') && !code.includes('nav: false'))
     .map(({ name }) => name);
 
   assert.deepEqual(silent, [],
@@ -56,7 +65,7 @@ test('the two opt-outs are the two pages that cannot run a script', async () => 
    * same exposure and did not, so a page that mentioned `nav: false` while correctly *not* opting
    * out was reported as a third opt-out. Found when `result-panel.ts` documented having removed one.
    */
-  const pages = (await fullPageViews()).map((entry) => ({ ...entry, code: codeOnly(entry.source) }));
+  const pages = await fullPageViews();
   const optedOut = pages.filter(({ code }) => code.includes('nav: false'));
   assert.deepEqual(optedOut.map(({ name }) => name).sort(), ['specification-trace.ts', 'visual-fixture.ts']);
 

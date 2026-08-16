@@ -5,7 +5,9 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 
 import { ARGUMENT_SCHEMAS } from '../src/gateway/argument-schemas.mjs';
-import { checkForm, formModel, restoreDraft, terminalEquivalent } from '../src/gateway/form-model.mjs';
+import {
+  checkForm, draftRecord, formModel, readDraft, restoreDraft, schemaFingerprint, terminalEquivalent
+} from '../src/gateway/form-model.mjs';
 
 test('a form is the schema, not a hand-written copy of it', () => {
   /**
@@ -81,6 +83,42 @@ test('a draft cannot restore a confirmation, whatever the draft says', () => {
   assert.equal(restored.notAField, undefined, 'a field the schema no longer declares is dropped');
 });
 
+test('a confirmation is filtered on the way in, not only on the way out', () => {
+  /**
+   * Once it reaches storage the rule has already been broken: workspace state is a file someone can
+   * open, and a later reader declining to restore a confirmation does not unwrite it.
+   */
+  const record = draftRecord('work-list-v1', { group: 'active', confirm: 'PAY-1187', apiKey: 'sk-live-x' });
+  assert.deepEqual(record.values, { group: 'active' });
+  assert.equal(record.values.confirm, undefined);
+  // `[UXH:REQ-074]` names secrets separately from confirmation text, because they are separate
+  // hazards. No schema declares one today, which is when the rule is cheap to write.
+  assert.equal(record.values.apiKey, undefined);
+});
+
+test('a draft written against a different schema shape is discarded, not salvaged', () => {
+  /**
+   * "Discard incompatible values safely" `[UXH:REQ-074]` is an instruction about doubt. Restoring
+   * the fields that happen to still match would fill a form from two schemas with nothing on
+   * screen to say so.
+   */
+  const record = draftRecord('work-list-v1', { group: 'active' });
+  assert.deepEqual(readDraft('work-list-v1', record), { group: 'active' });
+
+  assert.deepEqual(readDraft('work-list-v1', { ...record, version: 99 }), {}, 'envelope moved');
+  assert.deepEqual(readDraft('work-list-v1', { ...record, fingerprint: 'group:string' }), {}, 'schema moved');
+  assert.deepEqual(readDraft('work-list-v1', { ...record, schemaId: 'work-subject-v1' }), {}, 'wrong form');
+  for (const junk of [null, undefined, 'a string', 42, [record]]) {
+    assert.deepEqual(readDraft('work-list-v1', junk), {}, `${JSON.stringify(junk)} was read as a draft`);
+  }
+});
+
+test('the fingerprint follows the field types, and ignores their order', () => {
+  // Reordering a schema invalidates nothing a reader typed. Retyping a field invalidates the value.
+  assert.equal(schemaFingerprint('work-list-v1'), 'group:enum,includeCompleted:boolean');
+  assert.equal(schemaFingerprint('not-a-schema-v1'), null);
+});
+
 test('local validation reports where the operation would refuse, and never throws', () => {
   /**
    * `[UXH:REQ-071]`: this is feedback, the operation is the authority, and the two read one
@@ -105,12 +143,16 @@ test('an unfilled optional is omitted, not sent as null', () => {
 });
 
 test('the terminal equivalent is a boolean flag, not a flag with true after it', () => {
-  // Display-only `[UXH:REQ-073]`: pressing the button still goes through the operation.
+  // Display-only `[UXH:REQ-073]`: pressing the button still goes through the operation. Display-only
+  // is not, however, approximate — see `int-form-cli-parity.test.mjs`, which pastes these strings
+  // through the CLI's own parser and requires the arguments back.
   assert.equal(terminalEquivalent('sflow inbox', { group: 'active', includeCompleted: true }),
     'sflow inbox --group active --include-completed');
+  // Single quotes, because a shell expands `$` and runs backticks inside double ones.
   assert.equal(terminalEquivalent('sflow start', { title: 'two words' }),
-    'sflow start --title "two words"');
-  // An unset value contributes nothing, and `false` is not a flag.
+    "sflow start --title 'two words'");
+  // An unset value contributes nothing, and `false` is `--no-`: `--include-completed false` parses
+  // as the string "false", which is neither the boolean the schema wants nor the reader's choice.
   assert.equal(terminalEquivalent('sflow inbox', { group: null, includeCompleted: false }),
-    'sflow inbox --include-completed false');
+    'sflow inbox --no-include-completed');
 });

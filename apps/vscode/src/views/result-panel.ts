@@ -15,6 +15,7 @@
  */
 import * as vscode from 'vscode';
 
+import { createMessageRouter, stringField } from './messages.ts';
 import { RESULT_CARD_SCRIPT, RESULT_CARD_STYLE, resultCardHtml } from './result-card-page.ts';
 import { contentSecurityPolicy, escape, nonce, page } from './webview.ts';
 import { fidelityNote, refusalFor, type Refusal } from './refusal.ts';
@@ -34,6 +35,27 @@ export type ActionRequest = {
   readonly view: ResultCardView;
   readonly origin: ResultOrigin;
 };
+
+/**
+ * What each migrated panel accepts, so the set is inspectable from outside it.
+ *
+ * The property `[UXH:REQ-134]` actually asks for is that the accepted messages are *enumerable* —
+ * a reviewer, a fuzzer and the next maintainer all need to ask a panel what it speaks, and an
+ * if-chain cannot answer. Registering here makes the answer available without reaching into the
+ * panel's closure.
+ */
+export const acceptedMessages = new Map<string, readonly string[]>();
+
+/**
+ * Where an unrecognised message goes.
+ *
+ * The output channel rather than a toast: this is a developer-facing fact about a contract
+ * mismatch, not something a reader did wrong, and a modal for it would train people to dismiss
+ * modals. Silence is the one option ruled out.
+ */
+function reportUnknownMessage(type: string, source: string): void {
+  console.warn(`[singularity-flow] ${source} received an unrecognised message: ${type}`);
+}
 
 let panel: vscode.WebviewPanel | null = null;
 let current: ResultCardView | null = null;
@@ -104,19 +126,30 @@ export function showResultCard(view: ResultCardView,
       { enableScripts: true, retainContextWhenHidden: true }
     );
     panel.onDidDispose(() => { panel = null; current = null; });
-    panel.webview.onDidReceiveMessage((raw: unknown) => {
-      /**
-       * The only message this panel accepts, checked rather than trusted.
-       *
-       * A webview is a separate document and its messages are input `[UXH:REQ-134]`. `actionId` is
-       * looked up in the view that produced it, so a forged id names nothing and dispatches nothing.
-       */
-      const request = raw as { type?: unknown; actionId?: unknown };
-      if (request?.type !== 'sflow.action' || typeof request.actionId !== 'string') return;
-      if (!current || !current.actions.some((action) => action.id === request.actionId)
-        && !current.checklist.some((row) => row.action?.id === request.actionId)) return;
-      void dispatch?.({ actionId: request.actionId, view: current, origin: currentOrigin });
-    });
+    /**
+     * Everything this panel accepts, enumerated. `[UXH:REQ-134]` `[UXH:AC-014]`
+     *
+     * A webview is a separate document and its messages are input. The router's keys are the
+     * contract — one message — and anything else is reported rather than dropped, because a
+     * silently ignored message is indistinguishable from a handled one and the bug it hides is a
+     * button that does nothing.
+     *
+     * `actionId` is then looked up in the view that produced it, so a forged id names nothing and
+     * dispatches nothing. Two checks, and they guard different things: the router decides whether
+     * this is a message we speak, the lookup decides whether the action was ever offered.
+     */
+    const router = createMessageRouter('singularityFlow.result', {
+      'sflow.action': (message) => {
+        const actionId = stringField(message, 'actionId');
+        if (!actionId || !current) return;
+        const offered = current.actions.some((action) => action.id === actionId)
+          || current.checklist.some((row) => row.action?.id === actionId);
+        if (!offered) return;
+        void dispatch?.({ actionId, view: current, origin: currentOrigin });
+      }
+    }, reportUnknownMessage);
+    acceptedMessages.set('singularityFlow.result', router.accepts);
+    panel.webview.onDidReceiveMessage((raw: unknown) => router.route(raw));
   } else {
     panel.reveal(vscode.ViewColumn.Beside, true);
   }

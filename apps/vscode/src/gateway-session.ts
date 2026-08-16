@@ -79,6 +79,22 @@ const HOST_SESSION_ID = `vscode_${Date.now().toString(36)}_${Math.random().toStr
  * handle authority across would let a handle resolved in one checkout be redeemed in another. The
  * *binding* refreshes on every call — that is the thunk — but the authority is per repository.
  */
+/**
+ * When this reader last said they had read the home. `[DHR:REQ-024]`
+ *
+ * Injected by the extension host, because it is the only party that knows: the acknowledgement is
+ * kept in `globalState`, per workspace and per actor, and the gateway has no notion of either.
+ * Null until one is stored, which is the honest answer before a reader has ever checked.
+ */
+let acknowledgedAtProvider: () => string | null = () => null;
+
+export function provideAcknowledgedAt(provider: () => string | null): void {
+  acknowledgedAtProvider = provider;
+  // The session captured the previous provider in its context thunk; drop it so the next call
+  // rebuilds against this one rather than answering with the value from before activation.
+  resetGatewaySession();
+}
+
 export function gatewaySession(root: string, workspaceId: string | null = null): GatewaySession {
   if (session && sessionRoot === root) return session;
   const host = createHostGateway({
@@ -86,6 +102,20 @@ export function gatewaySession(root: string, workspaceId: string | null = null):
     hostSessionId: HOST_SESSION_ID,
     workspaceId,
     planners: editorPlanners(),
+    /**
+     * The one fact the planners want and the gateway cannot know. `[DHR:REQ-024]`
+     *
+     * `work.return` chooses between "since you were here" and "current state" on whether it was
+     * given a *when* — the distinction `[DHR:REQ-024]` exists for, since a reader shown a delta
+     * reads everything absent from it as unchanged. The field was declared on the planner,
+     * defaulted to null, threaded through `plannerContext`, and **supplied by nobody**: the CLI
+     * passes a context that does not include it and this host passed no context at all. So the
+     * briefing could only ever take the second branch, correctly and permanently.
+     *
+     * A thunk, not a value: the session outlives any particular acknowledgement, and a captured one
+     * would keep answering with the timestamp that was current when the repository was opened.
+     */
+    plannerContext: () => ({ acknowledgedAt: acknowledgedAtProvider() }),
     // Every implemented planner is a read, and `run()` refuses unconditionally `[INT:CON-033]`.
     readOnly: true
   });

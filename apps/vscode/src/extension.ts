@@ -54,7 +54,7 @@ import { buildResultCard, gateSummary } from './views/result-card-model.ts';
 import {
   ACKNOWLEDGE_ACTION_ID, acknowledgementKey, homeAcknowledgementFor, type HomeAcknowledgement
 } from './views/home-acknowledgement.ts';
-import { activeRepository, gatewaySession } from './gateway-session.ts';
+import { activeRepository, gatewaySession, provideAcknowledgedAt } from './gateway-session.ts';
 import { primaryAction } from '../../../src/gateway/result.mjs';
 
 /** Injected by esbuild: the commit and time this bundle was built from. */
@@ -135,6 +135,23 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
    * acknowledged must be what was on screen, not whatever a second read would return now.
    */
   let lastHome: { readonly envelope: any; readonly key: string } | null = null;
+
+  /**
+   * Hand the gateway the one fact only this host has. `[DHR:REQ-024]`
+   *
+   * `work.return` decides between "since you were here" and "current state" on whether it was given
+   * a *when*, and nothing had ever given it one — the field was declared, defaulted and threaded
+   * the whole way through `plannerContext` with no supplier at either end. The acknowledgement that
+   * answers it is in `globalState`, which is host memory by nature: it is about a person and a
+   * machine, not about the repository, which is exactly why the gateway cannot derive it.
+   *
+   * Keyed off the home the reader is currently looking at, so the briefing and the card agree about
+   * when "last time" was rather than each consulting the store with a key of their own.
+   */
+  provideAcknowledgedAt(() => {
+    if (!lastHome) return null;
+    return context.globalState.get<HomeAcknowledgement>(lastHome.key)?.at ?? null;
+  });
 
   onResultAction(async ({ actionId, view, origin }) => {
     /**

@@ -74,13 +74,13 @@ export { displayWidth, padDisplay, terminalWidth, truncateDisplay };
  * guessing wrong would swallow a real value, which is the worse failure.
  */
 export const BOOLEAN_OPTIONS = Object.freeze(new Set([
-  'acknowledge-self-approval', 'active', 'all', 'allow-dirty', 'apply', 'assigned-to-me',
+  'acknowledge-self-approval', 'acknowledge-unprotected', 'active', 'all', 'allow-dirty', 'apply', 'assigned-to-me',
   'assisted', 'blocking', 'check', 'churn', 'cli-only', 'clipboard', 'clone', 'concat',
   'confirm-pin-retention', 'confirm-protected', 'confirm-push-policy', 'create', 'dry-run', 'evidence',
   'fetch', 'first-run', 'force', 'from-records', 'here', 'include-prompt', 'json',
   'keep', 'local', 'markdown', 'network', 'offline', 'once',
   'opt-out', 'optional', 'parallel', 'polish', 'probe', 'push',
-  'readiness', 'recap', 'record', 'record-audit', 'render-only', 'repair',
+  'readiness', 'recap', 'record', 'record-audit', 'refresh', 'render-only', 'repair',
   'repair-projections', 'replace', 'replace-server', 'resume', 'set', 'sign',
   'skip-checks', 'staged', 'strict', 'terminal', 'timings', 'update', 'write',
   'yes',

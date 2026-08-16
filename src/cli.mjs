@@ -95,7 +95,7 @@ import { appendLedgerIntent, archiveLedger, createLedgerIntent, initializeLedger
 import { validateLedgerDeployment } from './ledger-deployment.mjs';
 import { CAPABILITY_KINDS, CAPABILITY_TYPES, CAPABILITIES_PATH, capabilityDeliveries, capabilityForRepository, capabilityTree, editCapability, flattenCapabilityTree, loadCapabilities, resolveCapabilityPolicy, resolveEffectiveCapabilityPolicy, validateCapabilities } from './capabilities.mjs';
 import { bootstrapRepository } from './bootstrap.mjs';
-import { activateCapabilityProposal, capabilityReadiness, composeCapabilityWorldModel, editCapabilityInOrganisation, inspectCapabilityProposal, listCapabilityProposals, initializeWorkspaceState, listLeadRepositories, mapCapability, publishCapabilityMap, publishOrganisationCapabilityMap, readOrganisation, rememberLeadRepository, resolveWorkspacePlan } from './organisation.mjs';
+import { activateCapabilityProposal, capabilityReadiness, composeCapabilityWorldModel, editCapabilityInOrganisation, inspectCapabilityProposal, listCapabilityProposals, initializeWorkspaceState, listLeadRepositories, mapCapability, publishOrganisationCapabilityMap, readOrganisation, rememberLeadRepository, resolveWorkspacePlan } from './organisation.mjs';
 import { canonicalCommand, commandDefinition, SECRETS_SUBCOMMANDS, validateCommandHandlers } from './command-registry.mjs';
 // `action` is already a command name in this file, so the narration constructor is renamed rather
 // than shadowing it.
@@ -4615,7 +4615,8 @@ async function capabilityCommand(positionals, options) {
     if (!leadUrl) throw new SingularityFlowError('No lead repository is known. Pass --lead <URL>.');
     const branch = requirePositional(positionals, 2, 'capability proposal branch');
     const result = await activateCapabilityProposal(leadUrl, branch, {
-      confirm: optionString(options, 'confirm')
+      confirm: optionString(options, 'confirm'),
+      acknowledgeUnprotected: optionBoolean(options, 'acknowledge-unprotected')
     });
     await rememberLeadRepository(leadUrl);
     if (optionBoolean(options, 'json')) return console.log(JSON.stringify(result, null, 2));
@@ -4629,6 +4630,7 @@ async function capabilityCommand(positionals, options) {
         ? `The ${result.projection.branch} capability projection is already current.`
         : `Capability projection not published: ${result.projection?.reason}.`);
     }
+    console.log(`Recorded activation audit ${result.audit.eventId} at ledger sequence ${result.audit.sequence}.`);
     return;
   }
 
@@ -4636,7 +4638,9 @@ async function capabilityCommand(positionals, options) {
     const leadUrl = optionString(options, 'lead') ?? (await listLeadRepositories())[0]?.url;
     if (!leadUrl) throw new SingularityFlowError('No lead repository is known. Pass --lead <URL>.');
     const id = requirePositional(positionals, 2, 'capability ID');
-    const organisation = await readOrganisation(leadUrl);
+    const organisation = await readOrganisation(leadUrl, {
+      refresh: optionBoolean(options, 'refresh')
+    });
     const model = composeCapabilityWorldModel(organisation, id, await capabilityReadiness(leadUrl));
     await rememberLeadRepository(leadUrl);
     if (optionBoolean(options, 'json')) return console.log(JSON.stringify(model, null, 2));
@@ -4668,7 +4672,9 @@ async function capabilityCommand(positionals, options) {
     const leadUrl = optionString(options, 'lead')
       ?? positionals[2] ?? (await listLeadRepositories())[0]?.url;
     if (!leadUrl) throw new SingularityFlowError('No lead repository is known. Pass one, or govern one first.');
-    const organisation = await readOrganisation(leadUrl);
+    const organisation = await readOrganisation(leadUrl, {
+      refresh: optionBoolean(options, 'refresh')
+    });
     await rememberLeadRepository(leadUrl);
     // Asked of the remotes, so it costs an ls-remote per repository — worth it on request, not on
     // every read of the map.
@@ -4677,6 +4683,11 @@ async function capabilityCommand(positionals, options) {
       return console.log(JSON.stringify(readiness ? { ...organisation, readiness } : organisation, null, 2));
     }
     if (!organisation.governed) return console.log(`${leadUrl} holds no capability map.`);
+    if (organisation.stale) {
+      const minutes = organisation.cacheAgeMs == null ? 'an unknown time'
+        : `${Math.max(0, Math.floor(organisation.cacheAgeMs / 60_000))} minute(s)`;
+      console.warn(`Warning: showing the cached capability map from ${minutes} ago because the remote is unreachable: ${organisation.remoteError}`);
+    }
     for (const row of flattenCapabilityTree(organisation.capabilities)) {
       const ships = row.repositories?.length ? `  \u2192 ${row.repositories.join(', ')}` : '';
       const lead = row.repositories?.length > 1 && row.leadRepository ? ` (lead ${row.leadRepository})` : '';
@@ -4709,19 +4720,16 @@ async function capabilityCommand(positionals, options) {
   if (subcommandForWrite === 'add' || subcommandForWrite === 'set' || subcommandForWrite === 'remove') {
     const id = requirePositional(positionals, 2, 'capability ID');
     const result = await editCapability(root, id, capabilityChanges(options), { mode: subcommandForWrite, portfolio });
-    // The governed copy, on the branch a rebase of the code cannot rewrite. Best effort: the file is
-    // already saved, and a repository not using the state branch is not an error.
-    const state = await publishCapabilityMap(root, { message: `${result.removed ? 'Remove' : 'Save'} capability ${id}` });
+    const state = {
+      published: false,
+      reason: 'local authoring never publishes governed capability state; use capability edit --lead <URL> to propose an organisation change'
+    };
     if (optionBoolean(options, 'json')) return console.log(JSON.stringify({ ...result, state }, null, 2));
     console.log(result.removed
       ? `Removed capability ${id} from ${result.path}.`
       : `Saved capability ${id} to ${result.path}.`);
-    if (state.published) return console.log(`  published to the ${state.branch} branch at ${state.commit.slice(0, 8)}.`);
-    // Unchanged is its own outcome. Reporting "not published, because it is already there" reads as
-    // a failure to somebody scanning output for problems, and it is the commonest result of all.
-    return console.log(state.branch
-      ? `  the ${state.branch} branch already has this.`
-      : `  not published to the state branch: ${state.reason}.`);
+    console.log('  This is a local authoring change; no governed state branch was created or moved.');
+    return console.log('  Governed route: singularity-flow capability edit <ID> --lead <URL> --mode set …');
   }
 
   const definition = await loadCapabilities(root);

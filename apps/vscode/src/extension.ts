@@ -1541,13 +1541,13 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
   // gains the remote status without delaying activation when VPN access is unavailable.
   let readiness: CapabilityReadiness = {};
   let configurationTree: LifecycleTreeProvider | null = null;
-  const refreshReadiness = async (): Promise<void> => {
+  const refreshReadiness = async (force = false): Promise<void> => {
     try {
       const leads = await client.run<{ url?: string }[]>(['capability', 'leads', '--json']);
       const url = leads.find((lead) => lead.url)?.url;
       if (!url) return;
       const organisation = await client.run<{ readiness?: CapabilityReadiness }>(
-        ['capability', 'organisation', url, '--readiness', '--json']);
+        ['capability', 'organisation', url, '--readiness', ...(force ? ['--refresh'] : []), '--json']);
       if (!organisation.readiness) return;
       readiness = organisation.readiness;
       configurationTree?.refresh();
@@ -2584,7 +2584,7 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
     },
     'singularityFlow.refresh': async () => {
       await store.refresh();
-      void refreshReadiness();
+      void refreshReadiness(true);
       void refreshWorkspaceLogsTree();
     },
     'singularityFlow.openArtifact':

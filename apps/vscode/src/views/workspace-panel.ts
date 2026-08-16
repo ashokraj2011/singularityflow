@@ -33,6 +33,9 @@ export interface WorkspaceCreated {
 interface Organisation {
   capabilities: RemoteCapability[] | null;
   repositories?: Record<string, { url?: string; defaultBranch?: string }>;
+  stale?: boolean;
+  cacheAgeMs?: number | null;
+  remoteError?: string | null;
 }
 
 export class WorkspacePanel {
@@ -131,7 +134,7 @@ export class WorkspacePanel {
    * A single organisation is the ordinary case, and asking which of one to use is a question with no
    * information in it.
    */
-  private async loadOrganisations(): Promise<void> {
+  private async loadOrganisations(refresh = false): Promise<void> {
     let leads: { url?: string }[] = [];
     try {
       leads = await this.client().run<{ url?: string }[]>(['capability', 'leads', '--json']);
@@ -150,16 +153,17 @@ export class WorkspacePanel {
       organisation: selected,
       capabilities: null,
       capabilitiesReason: null,
+      capabilitiesNotice: null,
       reading: Boolean(selected),
       error: null
     });
-    if (selected) await this.readOrganisation(selected);
+    if (selected) await this.readOrganisation(selected, refresh);
   }
 
   /** Return from capability setup without losing the workspace directory or identity already typed. */
   async refreshCapabilityMap(): Promise<void> {
     this.panel.reveal(vscode.ViewColumn.Active);
-    await this.loadOrganisations();
+    await this.loadOrganisations(true);
   }
 
   /**
@@ -169,15 +173,21 @@ export class WorkspacePanel {
    * remote. An organisation with no map is reported as the ordinary state of a new organisation
    * rather than as a failure, because the answer is to go and map one, not to try again.
    */
-  private async readOrganisation(url: string): Promise<void> {
+  private async readOrganisation(url: string, refresh = false): Promise<void> {
     let capabilities: CapabilityChoice[] | null = null;
     let capabilitiesReason: string | null = null;
+    let capabilitiesNotice: string | null = null;
     try {
       const organisation = await this.client().run<Organisation>(
-        ['capability', 'organisation', url, '--json']);
+        ['capability', 'organisation', url, ...(refresh ? ['--refresh'] : []), '--json']);
       capabilities = organisation.capabilities
         ? capabilityChoices(organisation.capabilities, organisation.repositories ?? {})
         : null;
+      if (organisation.stale) {
+        const minutes = organisation.cacheAgeMs == null ? 'unknown age'
+          : `${Math.max(0, Math.floor(organisation.cacheAgeMs / 60_000))} minute(s) old`;
+        capabilitiesNotice = `Showing a validated cached capability map (${minutes}); the remote is unreachable${organisation.remoteError ? `: ${organisation.remoteError}` : '.'}`;
+      }
       if (!capabilities?.length) {
         capabilitiesReason = 'This organisation does not describe what it builds yet.';
       }
@@ -185,7 +195,8 @@ export class WorkspacePanel {
       capabilitiesReason = (error as Error).message;
     }
     this.update({
-      capabilities, capabilitiesReason, selected: [], leadCapability: null, reading: false
+      capabilities, capabilitiesReason, capabilitiesNotice,
+      selected: [], leadCapability: null, reading: false
     });
   }
 
@@ -254,6 +265,7 @@ export class WorkspacePanel {
       const url = this.form.organisations.includes(value) ? value : null;
       this.update({
         organisation: url, capabilities: null, capabilitiesReason: null,
+        capabilitiesNotice: null,
         selected: [], leadCapability: null, reading: Boolean(url), error: null
       });
       if (url) await this.readOrganisation(url);

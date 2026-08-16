@@ -1314,6 +1314,17 @@ test('while the map is being read the form says so and refuses to be submitted',
   assert.match(formProblems(form).join(' '), /Wait for the capability map/);
 });
 
+test('a validated stale capability map remains usable and is clearly marked', () => {
+  const form = withMap(['payments'], {
+    capabilitiesNotice: 'Showing a validated cached capability map (12 minute(s) old); the remote is unreachable.'
+  });
+  const html = workspaceFormHtml(form);
+  assert.match(html, /validated cached capability map/);
+  assert.match(html, /remote is unreachable/);
+  assert.match(html, /<button data-submit="create" >/,
+    'staleness is disclosed without discarding validated offline choices');
+});
+
 test('a URL that cannot be read is reported on the form, beside the field it was typed into', () => {
   const form = {
     ...withMap([]),
@@ -3320,8 +3331,17 @@ test('capability proposals have an exact review and activation UI', async () => 
   assert.match(panel, /capability', 'activate'/);
   assert.match(panel, /--confirm', proposal\.proposalCommit/,
     'activation is bound to the complete reviewed proposal commit');
+  assert.match(panel, /--acknowledge-unprotected/,
+    'VS Code passes the explicit acknowledgement obtained in its modal confirmation');
+  assert.match(panel, /Activation audit:/,
+    'the activation receipt is visible rather than discarded');
   assert.match(panel, /application default branch is not part of this operation/i);
   assert.match(panel, /normal non-force Git push/i);
+  const workspacePanel = await readFile(source('views/workspace-panel.ts'), 'utf8');
+  assert.match(workspacePanel, /refresh \? \['--refresh'\] : \[\]/,
+    'the workspace refresh action bypasses the durable organisation cache');
+  assert.match(workspacePanel, /validated cached capability map/,
+    'offline cache use is visibly disclosed');
   const center = await readFile(source('views/configuration-center-page.ts'), 'utf8');
   assert.match(center, /Review proposals/,
     'the Configuration Center exposes the dashboard directly');

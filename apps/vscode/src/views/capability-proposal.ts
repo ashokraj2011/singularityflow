@@ -24,6 +24,7 @@ interface ActivationResult {
   proposalCommit: string;
   alreadyMerged: boolean;
   projection?: { published?: boolean; branch?: string; commit?: string; reason?: string };
+  audit?: { eventId?: string; sequence?: number; ledgerCommit?: string };
 }
 
 type Run = (argv: string[]) => Promise<{ result: unknown; error: string | null }>;
@@ -49,7 +50,9 @@ function reviewHtml(proposal: CapabilityProposal | null, busy: boolean, error: s
     )}</p><p>${escape(projection?.published
       ? `Projection published to ${projection.branch}@${projection.commit?.slice(0, 12)}.`
       : projection?.branch ? `${projection.branch} was already current.`
-        : `Projection: ${projection?.reason ?? 'not available'}.`)}</p></div>` : ''}
+        : `Projection: ${projection?.reason ?? 'not available'}.`)}</p>${activated.audit?.eventId
+          ? `<p>Activation audit: <code>${escape(activated.audit.eventId)}</code>${activated.audit.sequence == null ? '' : ` at ledger sequence ${activated.audit.sequence}`}.</p>`
+          : ''}</div>` : ''}
     <div class="summary-grid">
       <div class="summary-card"><span>Proposal</span><strong>${escape(proposal.proposalCommit.slice(0, 12))}</strong></div>
       <div class="summary-card"><span>Approved target</span><strong>${escape(proposal.targetCommit.slice(0, 12))}</strong></div>
@@ -77,7 +80,7 @@ function reviewHtml(proposal: CapabilityProposal | null, busy: boolean, error: s
     </section>
     <section class="next">
       <div class="actions">
-        <button class="primary" data-action="activate" ${busy || !proposal.valid || activated ? 'disabled' : ''}>${icon('merge')} ${busy ? 'Activating…' : 'Merge and activate'}</button>
+        <button class="primary" data-action="activate" ${busy || !proposal.valid || activated ? 'disabled' : ''}>${icon('merge')} ${busy ? 'Activating…' : 'Merge and acknowledge'}</button>
         <button class="secondary" data-action="refresh" ${busy ? 'disabled' : ''}>${icon('refresh')} Refresh</button>
         <button class="secondary" data-action="copy">${icon('branch')} Copy branch</button>
       </div>
@@ -168,13 +171,13 @@ export class CapabilityProposalPanel {
     const proposal = this.proposal;
     const confirmed = await vscode.window.showWarningMessage(
       `Merge ${proposal.branch}@${proposal.proposalCommit.slice(0, 12)} into ${proposal.targetBranch}, then publish the capability projection?`,
-      { modal: true, detail: 'This uses a normal non-force Git push. The application default branch is not changed.' },
-      'Merge and activate');
-    if (confirmed !== 'Merge and activate') return;
+      { modal: true, detail: 'This uses a normal non-force Git push. If the remote permits a direct update, this confirmation explicitly acknowledges that branch protection is not enforced for your actor. The application default branch is not changed.' },
+      'Merge and acknowledge');
+    if (confirmed !== 'Merge and acknowledge') return;
     this.busy = true; this.error = null; this.render();
     const { result, error } = await this.run([
       'capability', 'activate', proposal.branch, '--lead', this.lead,
-      '--confirm', proposal.proposalCommit, '--json'
+      '--confirm', proposal.proposalCommit, '--acknowledge-unprotected', '--json'
     ]);
     this.busy = false;
     if (error) this.error = error;

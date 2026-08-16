@@ -86,10 +86,28 @@ async function clearScratchWorktree(root) {
 }
 
 export function remoteHasConfigurationBranch(remote) {
+  const head = configurationBranchHead(remote);
+  return head.reachable && head.exists;
+}
+
+/**
+ * Read the exact configuration-authority tip without throwing away reachability diagnostics.
+ * Callers that only need a boolean keep using `remoteHasConfigurationBranch`; organisation reads
+ * use the SHA as their durable cache validator and distinguish a missing branch from an offline
+ * remote so stale data is never presented as an empty organisation.
+ */
+export function configurationBranchHead(remote) {
   const result = run('git', ['ls-remote', '--heads', remote, `refs/heads/${CONFIGURATION_BRANCH}`], {
     allowFailure: true
   });
-  return result.status === 0 && Boolean(result.stdout.trim());
+  const line = result.stdout.trim().split('\n').find(Boolean) ?? '';
+  const sha = line.split(/\s+/)[0] || null;
+  return {
+    reachable: result.status === 0,
+    exists: result.status === 0 && Boolean(sha),
+    sha,
+    error: result.status === 0 ? null : (result.stderr || result.stdout || 'remote did not answer').trim()
+  };
 }
 
 function sameStrings(left = [], right = []) {

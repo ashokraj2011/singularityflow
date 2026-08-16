@@ -337,6 +337,7 @@ Usage:
     [--repository ID] [--metadata KEY=VALUE]... [--jira-project KEY] [--jira-board TEXT]
     [--teams A,B] [--owns A,B] [--json]
   singularity-flow capability remove <CAPABILITY-ID> [--json]
+    (add, set, and remove author only the checkout; use map or remote edit for governed publication)
   singularity-flow capability map <CAPABILITY-ID> [--lead URL] [--repository URL]... [--name TEXT]
     [--kind collection|delivery] [--type tech|business] [--parent ID] [--lead-repository URL]
     [--metadata KEY=VALUE]... [--doc KEY=VALUE]... [--resource KEY=VALUE]...
@@ -355,13 +356,16 @@ Usage:
     (after a capability review branch is merged, refresh its orphan state projection)
   singularity-flow capability proposals [--lead URL] [--all] [--json]
   singularity-flow capability proposal <REVIEW-BRANCH> [--lead URL] [--json]
-  singularity-flow capability activate <REVIEW-BRANCH> [--lead URL] --confirm <FULL-COMMIT> [--json]
+  singularity-flow capability activate <REVIEW-BRANCH> [--lead URL] --confirm <FULL-COMMIT>
+    [--acknowledge-unprotected] [--json]
     (review and normally merge one exact proposal into sflow/config, then refresh its projection;
-     branch protection is respected and application main is never written)
+     branch protection is verified by dry-run; an unprotected authority requires explicit acknowledgement;
+     application main is never written)
   singularity-flow capability world-model <CAPABILITY-ID> [--lead URL] [--json]
     (a capability that ships has its lead's model; one that groups others composes theirs)
-  singularity-flow capability organisation [LEAD-URL] [--readiness] [--json]
-    (--readiness asks each remote whether its state branch and world model exist)
+  singularity-flow capability organisation [LEAD-URL] [--readiness] [--refresh] [--json]
+    (--readiness asks each remote whether its state branch and world model exist;
+     --refresh bypasses the commit-validated organisation cache)
   singularity-flow capability leads [--json]
   singularity-flow workspace update <DIRECTORY> [--name TEXT] [--lead ID] [--capability ID]
     [--repository ID=URL] [--confirm KEY] [--dry-run] [--json]

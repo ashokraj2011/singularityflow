@@ -12,7 +12,7 @@ The lifecycle branch owns operational state; local context selects it; the state
 | Initiative lifecycle | `singularity/initiatives/<ID>/state.json` on the Initiative lifecycle branch | Operational authority for Initiative phase, evidence, approvals, and breakdown | Yes | Yes | Fetch and fast-forward the registered lifecycle branch; append-only retry is a conflict strategy, not a second authority |
 | Local context | `.git/singularity-flow/session.json` and the workspace selection under the user profile | Selects a lifecycle subject and governed agent for this checkout | Yes | No | Recreate it from a selected lifecycle branch; deleting it loses no governed state |
 | Pending publication | `.git/singularity-flow/pending-publication/<kind>--<ID>.json` | Local recovery record for a commit that exists but did not reach its remote | No | Blocks new mutations until synchronized | Retry the recorded fast-forward push; never rewrite or amend the retained commit |
-| Capability state branch / ledger | Configured orphan state branch | Append-only proof, binding, and cross-repository mirror | Read-only fallback only | No | Reconcile from committed lifecycle events; ledger-only subjects remain read-only until their lifecycle branch is available |
+| Capability state branch / ledger | Configured orphan state branch | Append-only proof, binding, and the preferred organisation capability-map read mirror | Read-only mirror only | No | Reproject from approved `sflow/config`; ledger-only lifecycle subjects remain read-only until their lifecycle branch is available |
 | Human and audit projections | `STATUS.md`, managed artifact metadata, approval summaries, review packets, ledger intents, reports, capability dashboard, Inbox, and revisioned VS Code snapshots | Derived presentation or exact reproducible audit material | No | No | Regenerate from authoritative lifecycle state and immutable records at one captured revision |
 | Remote systems | Jira, CI, storage providers, GitHub observations | Timestamped evidence and external receipts | By explicit identity/reference | No, unless an exact reviewed write plan says otherwise | Refresh observations and record drift; never silently overwrite Git-owned state |
 | Governed references | Committed `context/references/<sha256>.json` beside Story or Initiative state | Revision-bound address of approved artifact bytes | No | No | Verify the exact Git object, raw hash, renderer version, and bounded preview; an opaque handle never grants arbitrary path access |
@@ -30,6 +30,19 @@ The lifecycle branch owns operational state; local context selects it; the state
 5. A ledger-only binding is readable evidence, not a mutable aggregate.
 
 Workspace selection and VS Code state are therefore convenient pointers, never an alternative source of truth.
+
+Organisation capability discovery follows the same split. It reads the state-branch
+mirror first, falling back to the approved `sflow/config` copy when the mirror has not
+yet been projected. A durable machine-local cache is accepted only when it was
+validated for the current configuration-branch commit. If the remote is unreachable,
+the last validated entry may be returned as explicitly stale, including its age and
+remote error; it never becomes mutation authority.
+
+Capability configuration activation is the only governed write path. It binds the
+full proposal commit, performs a dry-run of the exact normal push to `sflow/config`,
+requires an explicit acknowledgement when that direct update is permitted, and
+appends an activation ledger event after the target is established. Local capability
+authoring commands do not publish the map or move the state branch.
 
 ## Publication contract
 

@@ -51,6 +51,8 @@ export interface WorkspaceForm {
   capabilities: CapabilityChoice[] | null;
   /** Why there is no map to choose from, when there is none. */
   capabilitiesReason: string | null;
+  /** Non-blocking freshness notice when a validated offline cache is being shown. */
+  capabilitiesNotice: string | null;
   /** The capabilities this workspace is for. */
   selected: string[];
   /** Which of them leads. Its repository carries the state branch. */
@@ -64,7 +66,8 @@ export interface WorkspaceForm {
 export const EMPTY_WORKSPACE_FORM: WorkspaceForm = {
   base: null, id: '', name: '', profileName: '', profileRole: '',
   organisations: [], organisation: null,
-  capabilities: null, capabilitiesReason: null, selected: [], leadCapability: null,
+  capabilities: null, capabilitiesReason: null, capabilitiesNotice: null,
+  selected: [], leadCapability: null,
   reading: false, busy: false, error: null
 };
 
@@ -254,6 +257,7 @@ function capabilityHtml(form: WorkspaceForm): string {
   const offered = (form.capabilities ?? []).filter((capability) => !coveredIds.has(capability.id));
 
   return `
+    ${form.capabilitiesNotice ? `<p class="muted">${escape(form.capabilitiesNotice)}</p>` : ''}
     <p>
       <label>Include <select data-capability-pick>
         <option value="">— choose a capability —</option>

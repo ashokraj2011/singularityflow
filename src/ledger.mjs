@@ -16,7 +16,8 @@ export const LEDGER_EVENT_TYPES = Object.freeze([
   ...LIFECYCLE_EVENT_TYPES,
   'retention-expired',
   'capability-lease-granted',
-  'capability-lease-revoked'
+  'capability-lease-revoked',
+  'capability-configuration-activated'
 ]);
 const HEAD_PATH = 'ledger/head.json';
 const README_PATH = 'README.md';
@@ -421,7 +422,15 @@ async function appendOnce(root, config, intent, publishedCommit) {
     : null;
   return temporaryWorktree(root, ref, async (worktree) => {
     const duplicate = await eventAlreadyRecorded(worktree, idempotency.hash);
-    if (duplicate) return { duplicate: true, eventId: intent.eventId, entryHash: duplicate.entryHash, sequence: duplicate.sequence };
+    if (duplicate) {
+      return {
+        duplicate: true,
+        eventId: duplicate.eventId,
+        entryHash: duplicate.entryHash,
+        sequence: duplicate.sequence,
+        ledgerCommit: git(worktree, ['rev-parse', 'HEAD']).stdout.trim()
+      };
+    }
     const head = await loadHead(worktree);
     const publishedPin = publishPin(root, config, intent, publishedCommit);
     const entry = entryFromIntent(intent, publishedCommit, idempotency.value);
@@ -495,10 +504,9 @@ export async function appendLedgerIntent(root, rawConfig, intent, publishedCommi
 /**
  * Put a governed file on the orphan state branch, beside the ledger.
  *
- * Two readers already prefer the state-branch copy of something over the working tree's — the world
- * model in `resolveWorldModelSource`, the capability map in every command that reads the lead — and
- * neither had a writer. Preferring a copy nothing writes is the same as not preferring it: every
- * read fell through to the working tree, which holds whatever the last local build left behind.
+ * Two remote readers prefer state-branch copies over application working trees: the world model in
+ * `resolveWorldModelSource` and the organisation capability reader in `readOrganisation`. This
+ * writer supplies those current-value projections after their reviewed authorities have changed.
  *
  * The state branch is right for this and the working tree is not. A rebase of the code cannot
  * rewrite an orphan branch, so the governed copy of what an organisation builds and what its model

@@ -359,7 +359,8 @@ singularity-flow capability map payments-api --lead https://git.example.corp/acm
 singularity-flow capability proposals --lead https://git.example.corp/acme/platform.git
 singularity-flow capability proposal <REVIEW-BRANCH> --lead https://git.example.corp/acme/platform.git
 singularity-flow capability activate <REVIEW-BRANCH> \
-  --lead https://git.example.corp/acme/platform.git --confirm <FULL-PROPOSAL-COMMIT>
+  --lead https://git.example.corp/acme/platform.git --confirm <FULL-PROPOSAL-COMMIT> \
+  --acknowledge-unprotected # only when the remote permits a direct update
 ```
 
 In VS Code, open **Configuration → Review proposals**. The dashboard lists pending
@@ -378,7 +379,10 @@ The CLI accepts repeatable `--metadata KEY=VALUE`; the VS Code capability screen
 provide matching key/value rows. These values are stored with the capability in
 `singularity/capabilities.yml`—the approved authority is the lead repository's
 `sflow/config` branch, and the reviewed map is projected to the orphan state branch.
-Use `--metadata KEY=` with `capability edit` or `capability set` to remove one key.
+Use `--metadata KEY=` with remote `capability edit` to remove one key. Local
+`capability add`, `set`, and `remove` edit only the checkout; they never publish
+governed configuration or move the state branch. Use `capability map` or remote
+`capability edit --lead <URL>` to create a governed proposal.
 
 When a Story starts, Flow copies one exact approved `sflow/config` revision onto
 the new Story branch and commits `singularity/configuration-source.json`. That
@@ -390,10 +394,13 @@ this path.
 In VS Code, creating, editing, deleting, or initially mapping a capability automatically
 opens **Review capability proposal**. That screen
 shows the exact source and target commits, changed files, and diff. **Merge and
-activate** performs a normal non-force merge into `sflow/config`, publishes the
-orphan state projection, and refreshes any retained Workspace form. If branch
-protection rejects that normal push, the proposal remains intact for the repository's
-normal pull-request controls; the application default branch is never changed.
+acknowledge** performs a normal non-force merge into `sflow/config`, publishes the
+orphan state projection, records an append-only activation event, and refreshes any
+retained Workspace form. Flow first dry-runs the exact target push. If the remote
+permits a direct update, the actor must explicitly acknowledge that protection is
+not enforced for them. If the remote rejects it, the proposal remains intact for
+the repository's normal pull-request controls; the application default branch is
+never changed.
 
 After an external review merge, run the proposal's same exact-hash
 `capability activate ... --confirm <FULL-PROPOSAL-COMMIT>` action; it detects that the
@@ -401,6 +408,14 @@ commit is already present and publishes the orphan state projection. `capability
 remains a projection-repair command, not a substitute for exact proposal activation.
 Unreviewed configuration is never copied to an application branch or the state
 proof branch.
+
+Organisation reads use the capability mirror on the orphan state branch when it is
+available and fall back to the approved `sflow/config` copy during bootstrap or
+repair. A validated machine-local cache is keyed by the configuration branch commit,
+so unchanged reads avoid another clone. If the remote is temporarily unreachable,
+the CLI and VS Code show the last validated map with an explicit stale warning.
+Use `capability organisation <LEAD-URL> --refresh` or the VS Code refresh action to
+bypass the cache and contact the remote.
 
 When a Story or Initiative starts, Flow resolves the owning capability from the
 active workspace (or accepts `--capability <ID>` when a repository participates in

@@ -890,8 +890,9 @@ singularity-flow capability show <CAPABILITY-ID> --json
 singularity-flow capability map <CAPABILITY-ID> --lead <URL> --repository <URL>
 singularity-flow capability proposals --lead <URL>
 singularity-flow capability proposal <REVIEW-BRANCH> --lead <URL>
-singularity-flow capability activate <REVIEW-BRANCH> --lead <URL> --confirm <FULL-COMMIT>
+singularity-flow capability activate <REVIEW-BRANCH> --lead <URL> --confirm <FULL-COMMIT> [--acknowledge-unprotected]
 singularity-flow capability publish --lead <URL>
+singularity-flow capability organisation [LEAD-URL] [--refresh] [--json]
 singularity-flow capability world-model <CAPABILITY-ID> --json
 singularity-flow workspace create --local --id <ID> --organisation <LEAD-URL> --capability <CAPABILITY-ID>
 singularity-flow workspace list --json
@@ -924,18 +925,32 @@ Approved organisation configuration lives on the dedicated `sflow/config` branch
 create, edit, delete, and initial mapping all use this same proposal transaction and
 automatically open the review screen; no designer action writes through the currently
 checked-out Story or application branch.
+Local `capability add`, `capability set`, and `capability remove` author only the
+current checkout. They do not move `sflow/config` or the orphan state branch. Use
+`capability map` or remote `capability edit --lead <URL>` for governed changes.
+
 **Configuration → Review proposals** opens a dashboard of pending changes across
 every registered lead repository; it is available even when no workspace is active.
-Select a proposal to open its exact diff and **Merge and activate** action. The
+Select a proposal to open its exact diff and **Merge and acknowledge** action. The
 action requires the exact proposal commit,
 uses a normal non-force merge into `sflow/config`, and refreshes the orphan state
-projection. Branch protection remains authoritative: when it refuses the push, merge
+projection while appending an activation audit event. Flow dry-runs the exact target
+ref first. When that push is permitted directly, CLI callers must pass
+`--acknowledge-unprotected` and VS Code obtains the same acknowledgement in its
+confirmation. Branch protection remains authoritative: when it refuses the push, merge
 the proposal through the repository's normal review controls, then run the same
 `capability activate ... --confirm <FULL-PROPOSAL-COMMIT>` action. It verifies the
 reviewed commit is present before publishing the projection. `capability publish` is
 reserved for repairing a projection that is already backed by approved configuration. The first
 proposal may seed `sflow/config` from reusable configuration already present in the
 repository, but excludes runtime work, evidence, telemetry, and world-model output.
+
+`capability organisation` reads the state-branch mirror first and falls back to
+`sflow/config` when the mirror does not exist. Successful results are cached against
+the exact configuration-branch commit. If the remote becomes unreachable, the last
+validated result is returned with `stale: true`; `--refresh` bypasses a current cache
+entry and contacts the remote. VS Code shows the same stale warning without hiding
+the cached capability choices.
 
 A newly created Story branch receives an immutable copy of the approved revision.
 `singularity/configuration-source.json` records the configuration repository,

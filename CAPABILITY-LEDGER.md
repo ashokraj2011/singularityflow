@@ -7,6 +7,13 @@ Initiative lifecycle events. It lives on the orphan branch
 It is deliberately disabled by default. Existing repositories and work items behave
 exactly as before until `ledger.enabled` is set to `true`.
 
+Governed capability configuration enables the ledger and records each successful
+proposal activation as `capability-configuration-activated`. The event binds the
+proposer and approver, proposal branch and commit, target before and after commits,
+changed files, and the result of the exact target-ref protection probe. If the remote
+permits a direct `sflow/config` update, activation additionally records the actor's
+explicit unprotected-branch acknowledgement.
+
 Use `sflow explain evidence-and-ledger` and `sflow explain capability-management` for the current packaged tutorials.
 
 ## Enable it
@@ -186,7 +193,7 @@ authority plane.
 
 ## Recommended branch controls
 
-Protect both `main` and `state`: disable force pushes and deletion,
+Protect `sflow/config`, `main`, and `state`: disable force pushes and deletion,
 restrict publishers, require reviewed changes and T2/T3 signatures, and reject
 introduction of ledger ancestry into application branches. The last control requires
 a server-side or mandatory provider validator; CODEOWNERS alone cannot make an

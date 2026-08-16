@@ -315,10 +315,14 @@ const PAGES = Object.freeze({
     description: [
       'Capability changes are proposed on a review branch and merged, never written straight to the',
       'configuration authority. `capability map` proposes; `capability activate` merges an approved',
-      'proposal; `capability publish` mirrors the result to the state branch.'
+      'proposal, records its audit event, and mirrors the result to the state branch.',
+      '',
+      'Local `add`, `set`, and `remove` author the checkout only. Organisation reads prefer the state',
+      'mirror and use a commit-validated cache; pass `--refresh` for an explicit remote recheck.'
     ],
     examples: [
       ['singularity-flow capability map payments --repository payments-api', 'Propose a capability.'],
+      ['singularity-flow capability organisation --refresh', 'Refresh the approved organisation map.'],
       ['singularity-flow capability tree', 'The capability map as a tree.']
     ],
     seeAlso: ['capabilities', 'workspace', 'bootstrap']

@@ -794,26 +794,113 @@ export async function reconcileLedger(root, rawConfig, { workId = null } = {}) {
  * offline. One name for the flag, expressed the way every caller already expresses it, is what
  * stops the next helper defaulting the other way.
  */
-async function ledgerSnapshot(root, config, callback, { offline = false } = {}) {
+/**
+ * Every blob under a prefix of a ref, in two subprocesses and without touching the disk.
+ * `[UXH:REQ-120]` `[DHR:REQ-093]`
+ *
+ * The three read-only ledger queries — verify, log, show — each materialised a **temporary
+ * worktree** to read a handful of JSON files: `git worktree add`, then `git worktree remove` and
+ * `git branch -D` on the way out, plus an `mkdtemp` and a recursive delete. Measured at 312 ms of a
+ * 2.2 s snapshot once the fetches and the triple read were gone, and the cost is the smaller half
+ * of the objection.
+ *
+ * The larger half is that **a read was writing to the repository**. `worktree add` records an entry
+ * under `.git/worktrees`, takes the index lock, and creates a branch that `branch -D` then deletes;
+ * an interrupted read leaves that debris behind, and two concurrent reads contend for the lock. A
+ * command that only answers questions should not be able to do any of that.
+ *
+ * `ls-tree` lists the blobs, `cat-file --batch` reads all of them in one process — its work list
+ * arrives on stdin, which is why `run()` grew an `input` option. Output is taken as **bytes**: the
+ * format is a header line followed by exactly `size` bytes of content, and walking that as a string
+ * is right only until an entry contains a character outside ASCII.
+ */
+function readRefTree(root, ref, prefix) {
+  const listed = git(root, ['ls-tree', '-r', '-z', '--format=%(objectname) %(path)', ref, '--', prefix], { allowFailure: true });
+  if (listed.status !== 0) return new Map();
+  const entries = listed.stdout.split('\0').filter(Boolean).map((line) => {
+    const separator = line.indexOf(' ');
+    return { oid: line.slice(0, separator), file: line.slice(separator + 1) };
+  });
+  if (!entries.length) return new Map();
+
+  const batch = run('git', ['cat-file', '--batch'], {
+    cwd: root,
+    allowFailure: true,
+    encoding: 'buffer',
+    input: `${entries.map((entry) => entry.oid).join('\n')}\n`
+  });
+  if (batch.status !== 0) return new Map();
+
+  const contents = new Map();
+  const buffer = batch.stdout;
+  let cursor = 0;
+  for (const entry of entries) {
+    const newline = buffer.indexOf(0x0a, cursor);
+    if (newline < 0) break;
+    // `<oid> <type> <size>` — the size is in bytes and is what makes this walk exact.
+    const size = Number(buffer.toString('utf8', cursor, newline).trim().split(' ')[2]);
+    if (!Number.isFinite(size)) break;
+    const start = newline + 1;
+    contents.set(entry.file, buffer.toString('utf8', start, start + size));
+    // Git writes a newline after each object's contents, so the next header starts one byte later.
+    cursor = start + size + 1;
+  }
+  return contents;
+}
+
+/** One file from a ref, or null when the ref does not carry it. */
+function readRefFile(root, ref, file) {
+  const shown = git(root, ['show', `${ref}:${file}`], { allowFailure: true });
+  return shown.status === 0 ? shown.stdout : null;
+}
+
+/**
+ * The read-only half of `ledgerSnapshot`: a ref, read directly.
+ *
+ * Writers keep `temporaryWorktree`, which they genuinely need — they commit. Readers never did.
+ */
+async function ledgerRefSnapshot(root, config, callback, { offline = false } = {}) {
   ensureRemoteBranchFetched(root, config, { offline });
   const ref = ledgerHead(root, config);
   if (!ref) throw new SingularityFlowError(`Ledger branch '${config.branch}' does not exist. Run singularity-flow ledger init.`);
-  return temporaryWorktree(root, ref, callback);
+  const head = readRefFile(root, ref, HEAD_PATH);
+  if (head === null) throw new SingularityFlowError(`Ledger branch is missing ${HEAD_PATH}.`);
+  /**
+   * Each prefix is read at most once per snapshot.
+   *
+   * `verifyLedger` wants `ledger/entries` and `ledger/idempotency`, and asks whether individual
+   * idempotency files exist — which is a question the tree it already read can answer, rather than
+   * one `git show` per entry. That per-entry loop is what a worktree made invisible: on a checkout
+   * an `exists()` call is free, so nothing objected to one per entry, and the cost only appears
+   * when the checkout does.
+   */
+  const trees = new Map();
+  const tree = (prefix) => {
+    if (!trees.has(prefix)) trees.set(prefix, readRefTree(root, ref, prefix));
+    return trees.get(prefix);
+  };
+  return callback({
+    ref,
+    head: JSON.parse(head),
+    /** `path -> contents`, keyed by the path as it appears in the tree. */
+    tree,
+    has: (relative) => tree(path.posix.dirname(relative)).has(relative),
+    file: (relative) => readRefFile(root, ref, relative)
+  });
 }
 
 export async function verifyLedger(root, rawConfig, { offline = false } = {}) {
   const config = normalizeLedgerConfig(rawConfig);
-  return ledgerSnapshot(root, config, async (worktree) => {
+  return ledgerRefSnapshot(root, config, async (snapshot) => {
     const errors = [], warnings = [];
-    const head = await loadHead(worktree);
-    const files = await findFiles(path.join(worktree, 'ledger', 'entries'), '.json');
+    const { head } = snapshot;
     const entries = new Map();
-    for (const file of files) {
-      const entry = await readJson(file);
-      const canonical = canonicalJson(entry);
-      const actual = sha256(canonical);
-      const expected = path.basename(file, '.json');
-      if (actual !== expected) errors.push(`Entry hash mismatch: ${path.relative(worktree, file)}`);
+    for (const [file, contents] of snapshot.tree('ledger/entries')) {
+      if (!file.endsWith('.json')) continue;
+      const entry = JSON.parse(contents);
+      const actual = sha256(canonicalJson(entry));
+      const expected = path.posix.basename(file, '.json');
+      if (actual !== expected) errors.push(`Entry hash mismatch: ${file}`);
       if (entries.has(actual)) errors.push(`Duplicate entry hash: ${actual}`);
       entries.set(actual, entry);
     }
@@ -830,9 +917,9 @@ export async function verifyLedger(root, rawConfig, { offline = false } = {}) {
     }
     if (count !== Number(head.sequence)) errors.push(`Ledger sequence is ${head.sequence}, but the reachable chain contains ${count} entries.`);
     if (visited.size !== entries.size) warnings.push(`${entries.size - visited.size} unreferenced ledger entr${entries.size - visited.size === 1 ? 'y' : 'ies'} exist.`);
-    const indexes = await findFiles(path.join(worktree, 'ledger', 'idempotency'), '.json');
-    for (const file of indexes) {
-      const index = await readJson(file);
+    for (const [file, contents] of snapshot.tree('ledger/idempotency')) {
+      if (!file.endsWith('.json')) continue;
+      const index = JSON.parse(contents);
       if (!entries.has(index.entryHash)) errors.push(`Idempotency index ${index.eventId} references missing entry ${index.entryHash}.`);
     }
     const retentionExpired = new Set();
@@ -844,7 +931,7 @@ export async function verifyLedger(root, rawConfig, { offline = false } = {}) {
     for (const [hash, entry] of entries) {
       const expected = ledgerIdempotencyKey(entry, entry.transport?.publishedCommit);
       if (entry.idempotencyKey !== expected.value) errors.push(`Entry ${hash} has an invalid idempotency key.`);
-      if (!(await exists(path.join(worktree, idempotencyPath(expected.hash))))) {
+      if (!snapshot.has(idempotencyPath(expected.hash))) {
         errors.push(`Entry ${hash} is missing its idempotency index.`);
       }
       if (entry.transport?.pinRef) {
@@ -876,7 +963,7 @@ export async function verifyLedger(root, rawConfig, { offline = false } = {}) {
       // and the ledger still reported `valid: true` — "every commit is signature-verified" and "we
       // could not check" produced the same green answer for the trust tier that most depends on the
       // difference.
-      const listed = git(worktree, ['rev-list', '--reverse', 'HEAD'], { allowFailure: true });
+      const listed = git(root, ['rev-list', '--reverse', snapshot.ref], { allowFailure: true });
       const commits = listed.stdout.split(/\r?\n/).map((item) => item.trim()).filter(Boolean);
       if (listed.status !== 0) {
         errors.push(`Ledger commits could not be enumerated for signature verification: ${(listed.stderr || listed.stdout).trim().split('\n')[0] || 'rev-list failed'}.`);
@@ -884,7 +971,7 @@ export async function verifyLedger(root, rawConfig, { offline = false } = {}) {
         errors.push('Ledger signing is required but the branch has no commits to verify.');
       }
       for (const commit of commits) {
-        const verified = git(worktree, ['verify-commit', commit], { allowFailure: true });
+        const verified = git(root, ['verify-commit', commit], { allowFailure: true });
         if (verified.status !== 0) errors.push(`Ledger commit ${commit} signature could not be verified.`);
       }
     }
@@ -904,13 +991,12 @@ export async function verifyLedger(root, rawConfig, { offline = false } = {}) {
 
 export async function ledgerLog(root, rawConfig, { limit = 20, offline = false } = {}) {
   const config = normalizeLedgerConfig(rawConfig);
-  return ledgerSnapshot(root, config, async (worktree) => {
-    const head = await loadHead(worktree);
-    const files = await findFiles(path.join(worktree, 'ledger', 'entries'), '.json');
+  return ledgerRefSnapshot(root, config, async (snapshot) => {
+    const { head } = snapshot;
     const entries = new Map();
-    for (const file of files) {
-      const entry = await readJson(file);
-      entries.set(path.basename(file, '.json'), entry);
+    for (const [file, contents] of snapshot.tree('ledger/entries')) {
+      if (!file.endsWith('.json')) continue;
+      entries.set(path.posix.basename(file, '.json'), JSON.parse(contents));
     }
     const output = [];
     let cursor = head.entryHash;
@@ -926,13 +1012,14 @@ export async function ledgerLog(root, rawConfig, { limit = 20, offline = false }
 
 export async function ledgerShow(root, rawConfig, hashOrEventId) {
   const config = normalizeLedgerConfig(rawConfig);
-  return ledgerSnapshot(root, config, async (worktree) => {
-    const indexFile = path.join(worktree, eventPath(hashOrEventId));
-    let hash = hashOrEventId;
-    if (await exists(indexFile)) hash = (await readJson(indexFile)).entryHash;
-    const files = await findFiles(path.join(worktree, 'ledger', 'entries'), `${hash}.json`);
-    if (!files.length) throw new SingularityFlowError(`Ledger entry or event '${hashOrEventId}' was not found.`);
-    return { hash, entry: await readJson(files[0]) };
+  return ledgerRefSnapshot(root, config, async (snapshot) => {
+    const index = snapshot.file(eventPath(hashOrEventId));
+    const hash = index === null ? hashOrEventId : JSON.parse(index).entryHash;
+    // The entry lives under a capability directory, so the name is matched rather than the path.
+    const found = [...snapshot.tree('ledger/entries')]
+      .find(([file]) => path.posix.basename(file) === `${hash}.json`);
+    if (!found) throw new SingularityFlowError(`Ledger entry or event '${hashOrEventId}' was not found.`);
+    return { hash, entry: JSON.parse(found[1]) };
   });
 }
 

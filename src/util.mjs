@@ -362,7 +362,25 @@ export function run(command, args = [], {
   allowFailure = false,
   shell = false,
   stdio = 'pipe',
-  timeoutMs = defaultTimeoutFor(command)
+  timeoutMs = defaultTimeoutFor(command),
+  /**
+   * Text to write to the child's stdin.
+   *
+   * Added because a subprocess primitive that cannot accept stdin quietly forces every
+   * batch-capable Git command into a per-item loop — `git cat-file --batch` reads its work list
+   * from stdin, and without this the only way to read forty blobs is forty processes. That is the
+   * exact shape this read path has been paying for in three separate places.
+   */
+  input = undefined,
+  /**
+   * `utf8` for everything that is text, `buffer` for output that must be sliced by byte offset.
+   *
+   * `cat-file --batch` interleaves a header line with raw blob bytes and gives the length in bytes.
+   * Walking that as a JavaScript string is correct only while every byte is ASCII, and silently
+   * wrong the first time an entry contains a non-Latin character — so the caller that needs offsets
+   * asks for bytes.
+   */
+  encoding = 'utf8'
 } = {}) {
   /**
    * A blocked network command is refused here rather than attempted and failed.
@@ -378,10 +396,29 @@ export function run(command, args = [], {
     return { status: 1, stdout: '', stderr: '', error: undefined, timedOut: false, blocked: true };
   }
   const probe = process.env.SINGULARITY_FLOW_SUBPROCESS_PROBE ? performance.now() : 0;
-  const result = spawnSync(command, args, { cwd, env, encoding: 'utf8', shell, stdio, timeout: timeoutMs });
+  const result = spawnSync(command, args, {
+    cwd, env, encoding, shell, stdio, timeout: timeoutMs,
+    /**
+     * Always bytes.
+     *
+     * `spawnSync` applies `encoding` to stdin as well as stdout, so handing it a string alongside
+     * `encoding: 'buffer'` fails with "Unknown encoding: buffer" — the input is never ambiguous
+     * once it is already a Buffer.
+     */
+    ...(input === undefined ? {} : { input: Buffer.isBuffer(input) ? input : Buffer.from(String(input), 'utf8') })
+  });
   if (probe) recordSubprocessProbe(command, args, performance.now() - probe);
-  const stdout = typeof result.stdout === 'string' ? result.stdout : '';
-  const stderr = typeof result.stderr === 'string' ? result.stderr : '';
+  /**
+   * Buffers pass through; everything else keeps the string contract every existing caller relies on.
+   *
+   * A caller that asked for bytes and got `''` on failure would have to test the type before using
+   * it, so the empty case is an empty Buffer rather than an empty string.
+   */
+  const empty = encoding === 'buffer' ? Buffer.alloc(0) : '';
+  const stdout = (encoding === 'buffer' ? Buffer.isBuffer(result.stdout) : typeof result.stdout === 'string')
+    ? result.stdout : empty;
+  const stderr = (encoding === 'buffer' ? Buffer.isBuffer(result.stderr) : typeof result.stderr === 'string')
+    ? result.stderr : empty;
   const status = result.status ?? (result.error ? 1 : 0);
   /**
    * A command that ran out of time did not answer, which is not the same as answering no.
@@ -396,7 +433,10 @@ export function run(command, args = [], {
     throw new SingularityFlowError(`${command} did not respond within ${timeoutMs}ms.`, { code: 'SUBPROCESS_TIMEOUT' });
   }
   if (status !== 0 && !allowFailure) {
-    throw new SingularityFlowError(`${command} ${args.join(' ')} failed: ${stderr.trim() || stdout.trim() || `exit ${status}`}`);
+    // `String()` rather than `.trim()` directly: in buffer mode these are Buffers, and a failure
+    // message is the one place this must not throw a second, less informative error.
+    const detail = String(stderr).trim() || String(stdout).trim() || `exit ${status}`;
+    throw new SingularityFlowError(`${command} ${args.join(' ')} failed: ${detail}`);
   }
   return { status, stdout, stderr, error: result.error, timedOut, blocked: false };
 }

@@ -23,11 +23,23 @@
     "localSubjectIndex": "absent"
   },
   "budgets": {
-    "about": { "p50Ms": 150 },
-    "status": { "p50Ms": 150 },
-    "nextsteps": { "p50Ms": 150 },
-    "snapshot": { "p50Ms": 150, "p95Ms": 250 },
-    "snapshotFull": { "p50Ms": 850, "p95Ms": 1100 }
+    "about": {
+      "p50Ms": 150
+    },
+    "status": {
+      "p50Ms": 150
+    },
+    "nextsteps": {
+      "p50Ms": 150
+    },
+    "snapshot": {
+      "p50Ms": 150,
+      "p95Ms": 250
+    },
+    "snapshotFull": {
+      "p50Ms": 850,
+      "p95Ms": 1100
+    }
   },
   "connected": {
     "why": [
@@ -42,13 +54,18 @@
     ],
     "topology": {
       "repositories": 2,
-      "remoteBranches": 3,
+      "remoteBranches": 4,
       "ledgerIntents": 24,
       "ledger": "enabled",
-      "remote": "local-bare"
+      "remote": "local-bare",
+      "workBranches": 3,
+      "remoteBranchesNote": "Three work branches carrying intents, plus the ledger's own state branch."
     },
     "budgets": {
-      "snapshotFull": { "p50Ms": 2500, "p95Ms": 3500 }
+      "snapshotFull": {
+        "p50Ms": 2500,
+        "p95Ms": 3500
+      }
     },
     "networkCalls": {
       "snapshotFull": 0,
@@ -57,6 +74,15 @@
         "one, which is why the read path was allowed to fetch for as long as it did -- nothing was",
         "asserting that it must not. This counts network subprocesses via",
         "SINGULARITY_FLOW_SUBPROCESS_PROBE and is machine-independent: zero is zero on any runner."
+      ]
+    },
+    "repositoryWrites": {
+      "snapshotFull": 0,
+      "note": [
+        "A read answers questions and must not change the repository. The ledger's read queries",
+        "each built a temporary worktree to read a few JSON files, so a snapshot wrote an entry",
+        "under .git/worktrees, took the index lock, and created a branch it then deleted. An",
+        "interrupted read left that behind; two concurrent reads contended for the lock."
       ]
     }
   }

@@ -194,9 +194,9 @@ async function createConnectedFixture() {
    * `remoteLedgerIntents` walks every remote-tracking ref and reads every intent file on it, so the
    * cost is branches × intents. One branch with one intent exercises the code and measures nothing.
    */
-  const perBranch = Math.ceil(declared.ledgerIntents / declared.remoteBranches);
+  const perBranch = Math.ceil(declared.ledgerIntents / declared.workBranches);
   let published = 0;
-  for (let branchIndex = 0; branchIndex < declared.remoteBranches; branchIndex += 1) {
+  for (let branchIndex = 0; branchIndex < declared.workBranches; branchIndex += 1) {
     const name = branchIndex === 0 ? 'main' : `DX-10${branchIndex}`;
     if (branchIndex > 0) git(root, ['switch', '-q', '-c', name]);
     else {
@@ -218,6 +218,21 @@ async function createConnectedFixture() {
   }
   git(root, ['switch', '-q', 'DX-001']);
   git(root, ['fetch', '-q', 'origin']);
+
+  /**
+   * Initialise the ledger, so the branch it reads actually exists.
+   *
+   * Enabling it in configuration is not enough: with no `state` branch `ledgerStatus` returns at
+   * `if (!ref)` and never reaches `verifyLedger` or `ledgerLog` — the two queries that read the
+   * ledger tree. The tier exercised the intent scan and nothing else, and reported zero repository
+   * writes for a read path that had not performed the read.
+   */
+  const initialised = spawnSync(process.execPath,
+    [path.join(projectRoot, 'bin/singularity-flow.mjs'), 'ledger', 'init', '--json'],
+    { cwd: root, encoding: 'utf8', env: { ...process.env, SINGULARITY_FLOW_NO_MODEL: '1' } });
+  if (initialised.status !== 0) {
+    throw new Error(`Connected fixture could not initialise its ledger: ${initialised.stderr || initialised.stdout}`);
+  }
 
   /**
    * A second capability repository, because a workspace is rarely one.
@@ -252,15 +267,30 @@ function verifyConnectedTopology(root) {
     cwd: root, encoding: 'utf8', env: { ...process.env, SINGULARITY_FLOW_NO_MODEL: '1' }
   });
   if (probe.status !== 0) throw new Error(`Connected fixture snapshot failed: ${probe.stderr || probe.stdout}`);
+  /**
+   * Assert the outcome, not the preconditions.
+   *
+   * This check grew by one property each time the fixture turned out to under-build its state:
+   * first remote branches, then `enabled`, then the branch the definition was committed on — and
+   * every time, the property it was still missing was the one the tier existed to exercise. A
+   * benchmark that verifies preconditions can only ever be as complete as the last thing that went
+   * wrong.
+   *
+   * So the assertions below are about what the read *produced*. `verification` exists only if
+   * `verifyLedger` ran, and `verifyLedger` runs only if the ledger is enabled, initialised, on the
+   * measured branch, and holding a readable tree. One check, and it cannot pass on a fixture that
+   * skipped the work.
+   */
   const ledger = JSON.parse(probe.stdout)?.ledger;
-  if (!ledger?.enabled) {
-    throw new Error('Connected fixture ledger is not enabled, so the read path this tier measures never runs.');
+  if (!ledger?.verification) {
+    throw new Error('Connected fixture produced no ledger verification, so the read path this tier'
+      + ` measures never ran (enabled: ${ledger?.enabled}, initialized: ${ledger?.initialized}).`);
   }
   const intents = Number(ledger.durableIntents ?? 0);
   if (intents < declared.ledgerIntents) {
     throw new Error(`Connected fixture resolved ${intents} durable intents; expected at least ${declared.ledgerIntents}.`);
   }
-  return { remoteBranches, ledgerEnabled: true, durableIntents: intents };
+  return { remoteBranches, durableIntents: intents, ledgerEntries: ledger.verification.entries ?? 0 };
 }
 
 function verifyTopology(root) {
@@ -312,19 +342,36 @@ function timed(root, args, options) {
  */
 const NETWORK_VERBS = [/^git fetch\b/, /^git push\b/, /^git ls-remote\b/, /^git clone\b/, /^gh\b/];
 
-function countNetworkCalls(stderr) {
+/**
+ * Commands that change the repository, which a read must not run. `[UXH:REQ-120]`
+ *
+ * The ledger's read queries each built a temporary worktree to read a few JSON files, so answering
+ * a question wrote an entry under `.git/worktrees`, took the index lock, and created a branch that
+ * was deleted on the way out. The latency was the smaller objection; an interrupted read leaving
+ * debris, and two concurrent reads contending for a lock, were the larger one.
+ *
+ * Counted rather than timed for the same reason the network calls are: this is a statement about
+ * what a read path is allowed to do, and it holds regardless of how fast the machine is.
+ */
+const MUTATING_VERBS = [/^git worktree\b/, /^git branch -D\b/, /^git commit\b/, /^git add\b/,
+  /^git checkout\b/, /^git switch\b/, /^git update-ref\b/, /^git reset\b/];
+
+function countProbeRows(stderr, patterns) {
   const rows = stderr.split('\n')
     .map((line) => /^\s*(\d+)x\s+[\d.]+\s*ms\s+(.*)$/.exec(line.trim()))
     .filter(Boolean);
   let calls = 0;
   const offenders = [];
   for (const [, count, verb] of rows) {
-    if (!NETWORK_VERBS.some((pattern) => pattern.test(verb))) continue;
+    if (!patterns.some((pattern) => pattern.test(verb))) continue;
     calls += Number(count);
     offenders.push(`${count}x ${verb}`);
   }
   return { calls, offenders };
 }
+
+const countNetworkCalls = (stderr) => countProbeRows(stderr, NETWORK_VERBS);
+const countMutatingCalls = (stderr) => countProbeRows(stderr, MUTATING_VERBS);
 
 const commands = {
   about: ['about'],
@@ -401,9 +448,18 @@ try {
       failures.push(`connected.snapshotFull made ${network.calls} network call(s) on a read path`
         + ` (allowed ${allowed}): ${network.offenders.join(', ')}`);
     }
+    const mutating = countMutatingCalls(probed.stderr);
+    const allowedMutations = fixtureManifest.connected.repositoryWrites.snapshotFull;
+    if (mutating.calls > allowedMutations) {
+      failures.push(`connected.snapshotFull ran ${mutating.calls} repository-mutating command(s) on a`
+        + ` read path (allowed ${allowedMutations}): ${mutating.offenders.join(', ')}`);
+    }
     failures.push(...evaluateLatency('connected.snapshotFull', summary,
       fixtureManifest.connected.budgets.snapshotFull, null));
-    connectedResults = { topology: connectedTopology, snapshotFull: summary, networkCalls: network.calls };
+    connectedResults = {
+      topology: connectedTopology, snapshotFull: summary,
+      networkCalls: network.calls, repositoryWrites: mutating.calls
+    };
   } finally {
     await rm(connected.root, { recursive: true, force: true });
     await rm(connected.remote, { recursive: true, force: true });
@@ -432,7 +488,7 @@ try {
       const { snapshotFull: connectedSnapshot, networkCalls, topology: connectedTopology } = connectedResults;
       console.log(`\nconnected tier · remote + ledger · ${connectedTopology.remoteBranches} remote branches`);
       console.log(`snapshotFull p50 ${connectedSnapshot.p50Ms.toFixed(1)}ms · p95 ${connectedSnapshot.p95Ms.toFixed(1)}ms`
-        + ` · network calls on the read path: ${networkCalls}`);
+        + ` · network calls: ${networkCalls} · repository writes: ${connectedResults.repositoryWrites}`);
     }
     if (failures.length) console.error(`\n${failures.join('\n')}`);
     if (!comparableBaseline) console.warn('\nWarning: no accepted baseline matches this Node/platform/architecture; absolute budgets were still evaluated.');

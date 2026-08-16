@@ -16,6 +16,7 @@
  * pulling the router's whole graph back in here.
  */
 import readline from 'node:readline/promises';
+import { randomUUID } from 'node:crypto';
 import path from 'node:path';
 import YAML from 'yaml';
 
@@ -255,27 +256,83 @@ export async function storyFetchCommand(positionals, options) {
   console.log('In Copilot: /sf-next');
 }
 
+/**
+ * `sflow story return` — the briefing, with the reconciliation it was missing. `[DHR:REQ-040]`
+ *
+ * This rendered `developerReturn` alone: a rich projection of where the Story stands, and no
+ * comparison of local work against the plan. The one question the command's name asks — what
+ * changed while you were away — was the one thing it did not answer, because the reconciliation
+ * lived behind `story interval reconcile` and nothing composed the two.
+ *
+ * The same shape as `sflow home` `[UXH:C2]`: `sflow-result` v2 is the transport, `work.return` is
+ * the operation, and the projection supplies the detail the envelope has no field for. Neither is a
+ * fallback for the other — the projection knows this Story's phase tally, the envelope knows
+ * whether the changed paths were planned, and a reader needs both.
+ */
+async function storyReturnCommand(positionals, options, root) {
+  const [{ developerReturn }, { createHostGateway }, { gatewayPlanners }, { message }] = await Promise.all([
+    import('../developer-home.mjs'), import('../gateway/host.mjs'),
+    import('../gateway/planners/index.mjs'), import('../gateway/messages.mjs')
+  ]);
+
+  const projection = await developerReturn({
+    workId: positionals[2] ?? optionString(options, 'work-id'),
+    root,
+    hostSession: optionString(options, 'host-session')
+  });
+  const workId = projection.context.story.id;
+
+  /**
+   * A fresh session per invocation, as everywhere else a command builds a kernel.
+   *
+   * Handles are session-bound and this process ends when the command does, so reusing an ID across
+   * runs would let one printed here verify against a later invocation in a different tree.
+   */
+  const { kernel } = createHostGateway({
+    root,
+    hostSessionId: optionString(options, 'host-session') ?? `cli_${randomUUID()}`,
+    planners: gatewayPlanners()
+  });
+  const resolution = await kernel.resolve({ utterance: 'what changed while I was away', arguments: { workId } });
+  const envelope = resolution.kind === 'read' && resolution.next.length === 1
+    ? await kernel.read({ resolutionId: resolution.next[0].handle })
+    : resolution;
+
+  if (optionBoolean(options, 'json')) {
+    return console.log(JSON.stringify({ ...envelope, data: { ...envelope.data, story: projection } }, null, 2));
+  }
+
+  console.log(`Singularity Flow return — ${workId}`);
+  console.log(`${projection.briefing.headline}`);
+  console.log(`Branch: ${projection.context.repository.branch} @ ${(projection.context.repository.head ?? 'unavailable').slice(0, 12)}`);
+  console.log(`Working tree: ${projection.context.repository.dirty ? `${projection.context.repository.changedFiles.length} changed path(s)` : 'clean'}`);
+  console.log(`Progress: ${projection.briefing.lifecycle.approved}/${projection.briefing.lifecycle.total} phases approved`);
+  if (projection.briefing.recovery.required) console.warn('Recovery: a pending publication must be resolved first.');
+
+  /**
+   * The reconciliation, in the reader's words rather than as codes.
+   *
+   * Printed from `why[]` because that is where the planner put its reasoning, and rendering it here
+   * from the shared catalog is what keeps this command and the card saying the same thing.
+   */
+  console.log('');
+  for (const entry of envelope.why) {
+    const said = message(entry.code, entry.slots);
+    console.log(`${said.label}${said.detail ? ` — ${said.detail}` : ''}`);
+  }
+  for (const row of envelope.checklist ?? []) {
+    const said = message(row.code, row.slots);
+    console.log(`  ${row.state === 'met' ? '✓' : row.state === 'unmet' ? '✗' : '○'} ${said.label}`);
+  }
+
+  console.log('\nNext choices:');
+  projection.choices.forEach((choice, index) => console.log(`${index + 1}. ${choice.label} — ${choice.detail}`));
+}
+
 export async function storyCommand(positionals, options) {
   const subcommand = positionals[1] ?? 'status';
   const root = repoRoot();
-  if (subcommand === 'return') {
-    const { developerReturn } = await import('../developer-home.mjs');
-    const result = await developerReturn({
-      workId: positionals[2] ?? optionString(options, 'work-id'),
-      root,
-      hostSession: optionString(options, 'host-session')
-    });
-    if (optionBoolean(options, 'json')) return console.log(JSON.stringify(result, null, 2));
-    console.log(`Singularity Flow return — ${result.context.story.id}`);
-    console.log(`${result.briefing.headline}`);
-    console.log(`Branch: ${result.context.repository.branch} @ ${(result.context.repository.head ?? 'unavailable').slice(0, 12)}`);
-    console.log(`Working tree: ${result.context.repository.dirty ? `${result.context.repository.changedFiles.length} changed path(s)` : 'clean'}`);
-    console.log(`Progress: ${result.briefing.lifecycle.approved}/${result.briefing.lifecycle.total} phases approved`);
-    if (result.briefing.recovery.required) console.warn('Recovery: a pending publication must be resolved first.');
-    console.log('\nNext choices:');
-    result.choices.forEach((choice, index) => console.log(`${index + 1}. ${choice.label} — ${choice.detail}`));
-    return;
-  }
+  if (subcommand === 'return') return storyReturnCommand(positionals, options, root);
   if (subcommand === 'start') {
     const storyKey = requirePositional(positionals, 2, 'Jira Story key');
     return (await router()).startCommand(['start', storyKey], { ...options, jira: true });

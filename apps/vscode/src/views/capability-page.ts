@@ -229,6 +229,18 @@ export function bodyHtml(
   </section>`;
 }
 
+/**
+ * One metadata row, for the script to append when someone adds a pair.
+ *
+ * Kept out here and embedded with `JSON.stringify` rather than written as a quoted string inside
+ * the script, because the icons are multi-line SVG and a raw newline inside a single-quoted
+ * JavaScript string is a syntax error. That error is not local to the line that causes it: it stops
+ * the whole script parsing, so *every* control on the page goes dead — selecting a capability and
+ * adding one included — and the page still renders perfectly, which is why it read as "the buttons
+ * do nothing" rather than as a broken build. `JSON.stringify` escapes whatever the icon contains.
+ */
+const METADATA_ROW_HTML = `<div class="metadata-row" data-metadata-row data-original-key=""><label class="field"><span>Key</span><input type="text" data-metadata-key placeholder="applicationId"></label><label class="field"><span>Value</span><input type="text" data-metadata-value placeholder="APP-1001"></label><button type="button" class="icon-button danger" data-metadata-remove title="Remove metadata" aria-label="Remove metadata pair">${icon('remove')}</button></div>`;
+
 export const SCRIPT = `
   const vscode = window.__sfVscode;
   const read = () => {
@@ -263,8 +275,7 @@ export const SCRIPT = `
     event.preventDefault();
     const data = target.dataset;
     if (data.metadataAdd !== undefined) {
-      document.querySelector('[data-metadata-list]')?.insertAdjacentHTML('beforeend',
-        '<div class="metadata-row" data-metadata-row data-original-key=""><label class="field"><span>Key</span><input type="text" data-metadata-key placeholder="applicationId"></label><label class="field"><span>Value</span><input type="text" data-metadata-value placeholder="APP-1001"></label><button type="button" class="icon-button danger" data-metadata-remove title="Remove metadata" aria-label="Remove metadata pair">${icon('remove')}</button></div>');
+      document.querySelector('[data-metadata-list]')?.insertAdjacentHTML('beforeend', ${JSON.stringify(METADATA_ROW_HTML)});
     } else if (data.metadataRemove !== undefined) {
       const row = target.closest('[data-metadata-row]');
       if (!row) return;

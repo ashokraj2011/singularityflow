@@ -394,9 +394,17 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
   let workspaceEntries: WorkspaceEntry[] = [];
   const drawWorkspaces = (): void => workspaceTree.replace(buildWorkspaceTree(workspaceEntries));
   context.subscriptions.push(workspaceTree);
-  context.subscriptions.push(
-    vscode.window.createTreeView('singularityFlow.workspaces', { treeDataProvider: workspaceTree })
-  );
+  /**
+   * The five tree views these providers used to feed are gone. `[UXH:REQ-141]`
+   *
+   * They were contributed with `"when": "singularityFlow.legacyNavigation"`, a context key set
+   * nowhere in the extension — so they had never rendered for anyone, while `createTreeView` still
+   * built and retained one per provider on every activation. Three of them were registered twice,
+   * from the main path and the repository-unavailable path, which is two live views for one id.
+   *
+   * The providers stay exactly as they are: `sidebar.bind()` is what feeds the Navigator webview,
+   * which is the surface that actually renders. Only the dead half is removed.
+   */
 
   /**
    * Product help is available before a repository or workspace is selected.
@@ -464,7 +472,7 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
   // activation and the CLI location is not known yet. The alternative — restating 29 topics in the
   // extension — is the second documentation copy this whole layer exists to avoid.
   const helpTree = new NodeTreeProvider(helpNodes([]));
-  context.subscriptions.push(helpTree, vscode.window.createTreeView('singularityFlow.help', { treeDataProvider: helpTree }));
+  context.subscriptions.push(helpTree);
   const logsTree = new NodeTreeProvider([{
     kind: 'action', id: 'logs:open', label: 'Open workspace logs',
     description: 'activity · prompts · Copilot · workspace', icon: 'commit',
@@ -564,13 +572,6 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
     sidebar.bind('lifecycle', provider);
     sidebar.bind('inbox', inbox);
     sidebar.bind('configuration', configuration);
-    context.subscriptions.push(vscode.window.createTreeView('singularityFlow.lifecycle', {
-      treeDataProvider: provider
-    }), vscode.window.createTreeView('singularityFlow.inbox', {
-      treeDataProvider: inbox
-    }), vscode.window.createTreeView('singularityFlow.configuration', {
-      treeDataProvider: configuration
-    }));
   };
 
   /**
@@ -1432,16 +1433,6 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
   sidebar.bind('lifecycle', tree);
   sidebar.bind('inbox', inboxTree);
   sidebar.bind('configuration', configurationTree);
-  context.subscriptions.push(vscode.window.createTreeView('singularityFlow.lifecycle', {
-    treeDataProvider: tree,
-    showCollapseAll: true
-  }), vscode.window.createTreeView('singularityFlow.inbox', {
-    treeDataProvider: inboxTree,
-    showCollapseAll: true
-  }), vscode.window.createTreeView('singularityFlow.configuration', {
-    treeDataProvider: configurationTree,
-    showCollapseAll: true
-  }));
   void refreshReadiness();
   void refreshWorkspaceLogsTree();
 

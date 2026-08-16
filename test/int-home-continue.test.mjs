@@ -5,6 +5,7 @@ import os from 'node:os';
 import path from 'node:path';
 
 import { HOME_CHOICES, MAX_HOME_CHOICES, homeOverview } from '../src/gateway/planners/home-overview.mjs';
+import { gatewayRegistry } from '../src/gateway/operations.mjs';
 import { workContinue } from '../src/gateway/planners/work-continue.mjs';
 import { workReadiness } from '../src/gateway/planners/work-readiness.mjs';
 import { checklistSummary, primaryAction, validateSflowResult } from '../src/gateway/result.mjs';
@@ -248,4 +249,24 @@ test('the home menu order is a total order, not a stable-sort accident', async (
   ];
   assert.deepEqual(ids, expected);
   assert.equal(new Set(ids).size, ids.length);
+});
+
+test('every home choice names an operation the registry has', () => {
+  /**
+   * `[DHR:CON-004]`: a goal must not be advertised when its operation is unreachable. A menu entry
+   * whose id resolves to nothing is exactly that, and the failure is silent — the choice renders,
+   * the click resolves to no candidate, and the reader concludes the product is broken.
+   *
+   * This replaces a `goal` field that carried the same intent and was read nowhere. It had drifted
+   * on two of seven entries, which cost nothing only because nothing consumed it.
+   */
+  const registered = new Set(gatewayRegistry().operations.map((entry) => entry.id));
+  const missing = HOME_CHOICES.filter((choice) => !registered.has(choice.id)).map((choice) => choice.id);
+  assert.deepEqual(missing, [], `home choices with no operation: ${missing.join(', ')}`);
+});
+
+test('a home choice carries an id and a label, and nothing that goes unread', () => {
+  for (const choice of HOME_CHOICES) {
+    assert.deepEqual(Object.keys(choice).sort(), ['id', 'label']);
+  }
 });

@@ -18,11 +18,6 @@
   "main": "./dist/extension.cjs",
   "activationEvents": [
     "onView:singularityFlow.navigation",
-    "onView:singularityFlow.lifecycle",
-    "onView:singularityFlow.inbox",
-    "onView:singularityFlow.configuration",
-    "onView:singularityFlow.help",
-    "onView:singularityFlow.workspaces",
     "workspaceContains:singularity/workflow.yml",
     "workspaceContains:workspace.json"
   ],
@@ -147,31 +142,6 @@
           "id": "singularityFlow.navigation",
           "name": "Navigator",
           "type": "webview"
-        },
-        {
-          "id": "singularityFlow.workspaces",
-          "name": "Workspaces",
-          "when": "singularityFlow.legacyNavigation"
-        },
-        {
-          "id": "singularityFlow.lifecycle",
-          "name": "Lifecycle",
-          "when": "singularityFlow.legacyNavigation"
-        },
-        {
-          "id": "singularityFlow.inbox",
-          "name": "Inbox",
-          "when": "singularityFlow.legacyNavigation"
-        },
-        {
-          "id": "singularityFlow.configuration",
-          "name": "Configuration",
-          "when": "singularityFlow.legacyNavigation"
-        },
-        {
-          "id": "singularityFlow.help",
-          "name": "Help",
-          "when": "singularityFlow.legacyNavigation"
         }
       ]
     },

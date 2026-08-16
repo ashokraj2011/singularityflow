@@ -151,6 +151,8 @@ export class SidebarViewProvider implements vscode.WebviewViewProvider, vscode.D
   private readonly subscriptions: vscode.Disposable[] = [];
   private readonly nodeIndex = new Map<string, TreeNode>();
   private readonly bound = new Set<SidebarSection>();
+  /** The source feeding each bound section, readable back through `sourceFor`. */
+  private readonly sources: Partial<Record<SidebarSection, TreeSource>> = {};
   private view: vscode.WebviewView | null = null;
   private freshness: string | null = null;
   private awaitingFirstRead = false;
@@ -185,12 +187,26 @@ export class SidebarViewProvider implements vscode.WebviewViewProvider, vscode.D
     // Until a section is bound it has no data source at all, which is a different thing from having
     // a source that returned nothing — and the reader deserves to be told which.
     this.bound.add(section);
+    this.sources[section] = source;
     this.roots[section] = source.snapshot();
     this.subscriptions.push(source.onDidChangeTreeData(() => {
       this.roots[section] = source.snapshot();
       this.render();
     }));
     this.render();
+  }
+
+  /**
+   * What is feeding a section, or null when nothing is.
+   *
+   * The natural inverse of `bind`, and the seam the host tests needed once the five contributed
+   * tree views were removed. Those views were gated on a context key set nowhere, so they had never
+   * rendered — but eight tests reached their providers through `createTreeView`, which is why the
+   * dead surface survived: removing it read as a regression. The providers were always the same
+   * objects this sidebar renders; only the route to them was through something nobody could see.
+   */
+  sourceFor(section: SidebarSection): TreeSource | null {
+    return this.sources[section] ?? null;
   }
 
   resolveWebviewView(view: vscode.WebviewView): void {

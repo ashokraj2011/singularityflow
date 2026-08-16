@@ -47,23 +47,24 @@ test('the activity view opens as one compact enterprise navigation surface', () 
   assert.equal(manifest.contributes.views.singularityFlow, undefined,
     'the versioned container intentionally discards the stale pre-refresh sidebar sizing');
   const contributed = contributedViews;
-  assert.deepEqual(
-    contributed.map(({ id }) => id),
-    [
-      'singularityFlow.navigation',
-      'singularityFlow.workspaces',
-      'singularityFlow.lifecycle',
-      'singularityFlow.inbox',
-      'singularityFlow.configuration',
-      'singularityFlow.help',
-    ],
-  );
 
+  /**
+   * One view, and it is the one people see.
+   *
+   * Five native tree views used to sit beside it, gated on `singularityFlow.legacyNavigation` — a
+   * context key set nowhere in the extension, so not one of them had ever rendered for anybody. The
+   * previous version of this test asserted them by name and justified them as adapters that "only
+   * adapt the tested native read model", which was true and was the whole problem: they existed to
+   * be tested. Eight host tests reached their providers through `createTreeView`, so deleting the
+   * dead surface read as a regression, and it survived on that basis.
+   *
+   * The providers were never the dead part — they feed this webview, and the host tests now reach
+   * them through `sidebar.sourceFor()`, which is the route that corresponds to something on screen.
+   */
+  assert.deepEqual(contributed.map(({ id }) => id), ['singularityFlow.navigation']);
   assert.equal(contributed[0].type, 'webview', 'the visible navigation is one styled webview');
-  for (const legacy of contributed.slice(1)) {
-    assert.equal(legacy.when, 'singularityFlow.legacyNavigation',
-      `${legacy.id} must stay hidden; it only adapts the tested native read model`);
-  }
+  assert.ok(!contributed.some((view) => view.when),
+    'a contributed view gated on a condition nothing sets is a view nobody can open');
 });
 
 test('every contributed view can wake the extension', () => {

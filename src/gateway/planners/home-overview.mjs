@@ -15,14 +15,24 @@ import { noEffects, sflowResult } from '../result.mjs';
 import { WORK_GROUP_ORDER, workRecords } from '../work-records.mjs';
 
 /** The stable choice set. Six at most, and never one this list does not contain `[INT:REQ-022]`. */
+/**
+ * The stable menu. Every `id` is a registered operation, and a test holds it so `[DHR:CON-004]`.
+ *
+ * These carried a third field, `goal`, that nothing read — `choice()` keys everything off `id`.
+ * It had already drifted on two entries (`work.start` against `work.start.intake`, `help` against
+ * `help.explain`), which is what a dead field does and why it was harmless: an unread value cannot
+ * be wrong about anything. Removed, and replaced with the check it was standing in for — that a
+ * choice names an operation the registry actually has, because a menu item resolving to nothing is
+ * a goal advertised without a reachable operation.
+ */
 export const HOME_CHOICES = Object.freeze([
-  { id: 'work.continue', label: 'Continue current work', goal: 'work.continue' },
-  { id: 'work.list', label: 'See current work', goal: 'work.list' },
-  { id: 'work.start.intake', label: 'Start new work', goal: 'work.start' },
-  { id: 'workspace.switch', label: 'Switch workspace', goal: 'workspace.switch' },
-  { id: 'impact.quick', label: 'Run a quick impact analysis', goal: 'impact.quick' },
-  { id: 'repository.explore', label: 'Explore repositories or investigate a problem', goal: 'repository.explore' },
-  { id: 'help.explain', label: 'Learn how SFlow works', goal: 'help' }
+  { id: 'work.continue', label: 'Continue current work' },
+  { id: 'work.list', label: 'See current work' },
+  { id: 'work.start.intake', label: 'Start new work' },
+  { id: 'workspace.switch', label: 'Switch workspace' },
+  { id: 'impact.quick', label: 'Run a quick impact analysis' },
+  { id: 'repository.explore', label: 'Explore repositories or investigate a problem' },
+  { id: 'help.explain', label: 'Learn how SFlow works' }
 ]);
 
 export const MAX_HOME_CHOICES = 6;

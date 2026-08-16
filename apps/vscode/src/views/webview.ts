@@ -695,7 +695,13 @@ export const STYLE = `
     .workflow-rail { align-items: stretch; }
     .section-actions { flex-direction: column; }
     .help-layout { grid-template-columns: 1fr; }
-    .help-nav { position: static; max-height: 12rem; }
+    /* Stacked, the topic list sits above the article rather than beside it, so a fixed height makes
+       a nested scroll region inside a scrolling page: six of the nine topics end up behind an edge,
+       the row at that edge is sliced through the middle, and nothing indicates there is more. It
+       reads as a broken list rather than a scrollable one. Sized to its content instead, with the
+       shortcuts laid out as a grid so showing all of them costs width rather than height. */
+    .help-nav { position: static; max-height: none; overflow: visible; }
+    .help-shortcuts, .help-all-topics { grid-template-columns: repeat(auto-fill, minmax(12rem, 1fr)); }
     .help-header { position: static; }
   }
 `;

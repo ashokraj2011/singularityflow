@@ -175,7 +175,7 @@ test('Story start materializes approved configuration without requiring it on ap
     const started = spawnSync(process.execPath, [
       cli, 'start', 'CFG-100', '--title', 'Use approved configuration',
       '--description', 'Prove application main can remain code-only.',
-      '--work-type', 'chore', '--agent', 'developer'
+      '--from-branch', 'main', '--work-type', 'chore', '--agent', 'developer'
     ], { cwd: checkout, encoding: 'utf8', env: { ...process.env, NO_COLOR: '1' } });
     assert.equal(started.status, 0, started.stderr || started.stdout);
     assert.equal(run('git', ['branch', '--show-current'], { cwd: checkout }).stdout.trim(), 'CFG-100');
@@ -215,7 +215,7 @@ test('Story start from a governance proposal still materializes approved configu
     const started = spawnSync(process.execPath, [
       cli, 'start', 'CFG-REVIEW', '--title', 'Start from reviewed governance',
       '--description', 'Cut the Story from main and pin approved configuration.',
-      '--work-type', 'chore', '--agent', 'developer', '--json'
+      '--from-branch', 'main', '--work-type', 'chore', '--agent', 'developer', '--json'
     ], { cwd: checkout, encoding: 'utf8', env: { ...process.env, NO_COLOR: '1' } });
 
     assert.equal(started.status, 0, started.stderr || started.stdout);

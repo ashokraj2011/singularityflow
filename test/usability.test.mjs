@@ -23,11 +23,16 @@ async function repository() {
   await writeFile(path.join(root, 'README.md'), '# Usability\n'); flow(root, 'init');
   const definitionPath = path.join(root, 'singularity/workflow.yml'); const definition = YAML.parse(await readFile(definitionPath, 'utf8'));
   definition.git.publish = 'off'; definition.worldModel.grounding = 'off'; await writeFile(definitionPath, YAML.stringify(definition));
-  run('git', ['add', '.'], root); run('git', ['commit', '-m', 'initialize'], root); return root;
+  run('git', ['add', '.'], root); run('git', ['commit', '-m', 'initialize'], root);
+  const remote = `${root}.git`;
+  run('git', ['init', '--bare', '-b', 'main', remote], root);
+  run('git', ['remote', 'add', 'origin', remote], root);
+  run('git', ['push', '-u', 'origin', 'main'], root);
+  return root;
 }
 
 test('cockpit, doctor, workflow simulation, and review provide read-only orientation', async () => {
-  const root = await repository(); flow(root, 'start', 'EASY-1', '--ref', 'story/EASY-1-delivery', '--title', 'Reduce workflow friction');
+  const root = await repository(); flow(root, 'start', 'EASY-1', '--from-branch', 'main', '--ref', 'story/EASY-1-delivery', '--title', 'Reduce workflow friction');
   const cockpit = flow(root).stdout;
   assert.match(cockpit, /Singularity Flow cockpit — EASY-1/); assert.match(cockpit, /Current: Intake/); assert.match(cockpit, /Next actions:/);
   const doctor = JSON.parse(flow(root, 'doctor', '--offline', '--json').stdout);
@@ -39,7 +44,7 @@ test('cockpit, doctor, workflow simulation, and review provide read-only orienta
 });
 
 test('assignments are durable and guided run stops at the authoring boundary', async () => {
-  const root = await repository(); flow(root, 'start', 'EASY-2', '--title', 'Coordinate authors');
+  const root = await repository(); flow(root, 'start', 'EASY-2', '--from-branch', 'main', '--title', 'Coordinate authors');
   const assigned = flow(root, 'assign', 'intake', 'mobile-team').stdout; assert.match(assigned, /Assigned intake to mobile-team/);
   const workflow = JSON.parse(await readFile(path.join(root, 'singularity/work-items/EASY-2/workflow.json'), 'utf8'));
   assert.equal(workflow.collaboration.assignments.intake.assignee, 'mobile-team');
@@ -49,7 +54,7 @@ test('assignments are durable and guided run stops at the authoring boundary', a
 });
 
 test('safe recovery remains plan-first and Copilot hook emits read-only phase context', async () => {
-  const root = await repository(); flow(root, 'start', 'EASY-3', '--title', 'Recover safely');
+  const root = await repository(); flow(root, 'start', 'EASY-3', '--from-branch', 'main', '--title', 'Recover safely');
   const recovery = flow(root, 'recover').stdout; assert.match(recovery, /Recovery plan — EASY-3/); assert.match(recovery, /No recoverable publication/);
   const hook = run(process.execPath, [bin, 'hook', 'session-start'], root, { input: '{"cwd":"ignored"}\n' });
   const payload = JSON.parse(hook.stdout); assert.match(payload.additionalContext, /EASY-3/); assert.match(payload.additionalContext, /Never approve automatically/);

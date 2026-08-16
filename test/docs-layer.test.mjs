@@ -242,9 +242,11 @@ test('--here actually renders the state plane in a governed repository', async (
   if (init.status !== 0) return t.skip(`init unavailable here: ${init.stderr.trim().split('\n')[0]}`);
   git('add', '-A');
   git('-c', 'user.email=docs@example.com', '-c', 'user.name=Docs Tester', 'commit', '-m', 'init');
-  // Publication is expected to fail — there is no remote — but the work item lands on its branch,
-  // which is all the state plane needs to read.
-  sflow('start', 'FEAT-1', '--work-type', 'feature', '--title', 'Grounded docs check');
+  const remote = `${directory}.git`;
+  spawnSync('git', ['init', '--bare', '--initial-branch=main', remote], { encoding: 'utf8' });
+  git('remote', 'add', 'origin', remote);
+  git('push', '-u', 'origin', 'main');
+  sflow('start', 'FEAT-1', '--from-branch', 'main', '--work-type', 'feature', '--title', 'Grounded docs check');
   if (git('rev-parse', '--abbrev-ref', 'HEAD').stdout.trim() !== 'FEAT-1') {
     return t.skip('start did not leave a work-item branch checked out');
   }

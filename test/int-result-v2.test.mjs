@@ -143,8 +143,16 @@ test('subject revisions are always present in shape, even when unknown', () => {
   // which is indistinguishable from a producer that forgot the field.
   const result = read({ subject: { kind: 'story', id: 'WRK-123' } });
   assert.deepEqual(Object.keys(result.subject.revision).sort(),
-    ['lifecycleHash', 'policyHash', 'registryHash', 'sourceCommit']);
+    ['lifecycleHash', 'policyHash', 'registryHash', 'sourceCommit', 'worktreeHash']);
   assert.equal(result.subject.revision.sourceCommit, null);
+  /**
+   * `worktreeHash` is a fifth field, not a variant of the first.
+   *
+   * `BINDING_FIELDS` carried both from the start; the subject revision carried one, so a planner
+   * reading a dirty tree had two facts and one slot. `work.continue` resolved that by putting the
+   * worktree hash in `sourceCommit`, where every consumer reads a commit.
+   */
+  assert.equal(result.subject.revision.worktreeHash, null);
   assert.equal(read().subject, null);
 });
 

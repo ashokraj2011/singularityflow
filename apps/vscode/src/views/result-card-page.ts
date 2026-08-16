@@ -19,6 +19,21 @@ import type { CardAction, ChecklistRow, ResultCardView } from './result-card-mod
  * built on the envelope, and a panel adopting it should be able to take the pair without inheriting
  * a global it cannot see the edges of.
  */
+/**
+ * Secondary is outlined, primary is filled, and that is not a theme preference. `[UXH:REQ-064]`
+ *
+ * The first version used `--vscode-button-secondaryBackground` for secondary and
+ * `--vscode-button-background` for primary — the documented pair, and correct in the fixture. In
+ * the editor's actual theme both resolve to the same green, so all six home actions rendered as
+ * identical filled buttons while the envelope carried exactly one `primary`. The rule survived in
+ * the data and died in the CSS, which is the failure no contract check can see.
+ *
+ * Filled-versus-outlined is a contrast a theme cannot collapse: whatever those variables hold, a
+ * button with a background and a button without one are different.
+ *
+ * (This note lives outside the template literal. Inside it, the backticks around a clause anchor
+ * close the string — which is how it first got here.)
+ */
 export const RESULT_CARD_STYLE = `
 .sf-card { border: 1px solid var(--vscode-panel-border); border-radius: 6px; padding: 14px 16px;
   background: var(--vscode-editorWidget-background); display: flex; flex-direction: column; gap: 12px; }
@@ -39,15 +54,20 @@ export const RESULT_CARD_STYLE = `
 .sf-gate-detail { display: block; font-size: .9em; color: var(--vscode-descriptionForeground); }
 .sf-card-preserved { margin: 0; padding: 10px 12px; border-radius: 4px;
   background: var(--vscode-textBlockQuote-background); color: var(--vscode-foreground); }
-.sf-card-actions { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; }
+.sf-card-actions { display: flex; flex-wrap: wrap; gap: 8px; align-items: stretch; }
 .sf-card-actions button { font: inherit; padding: 5px 12px; border-radius: 3px; cursor: pointer;
-  border: 1px solid var(--vscode-button-border, transparent);
-  background: var(--vscode-button-secondaryBackground); color: var(--vscode-button-secondaryForeground); }
-.sf-card-actions button.primary { background: var(--vscode-button-background); color: var(--vscode-button-foreground); }
+  text-align: left; background: transparent; color: var(--vscode-foreground);
+  border: 1px solid var(--vscode-panel-border); }
+.sf-card-actions button:hover { background: var(--vscode-list-hoverBackground); }
+.sf-card-actions button.primary { font-weight: 600; border-color: transparent;
+  background: var(--vscode-button-background); color: var(--vscode-button-foreground); }
+.sf-card-actions button.primary:hover { background: var(--vscode-button-hoverBackground, var(--vscode-button-background)); }
 .sf-card-actions button.link { background: none; border: none; color: var(--vscode-textLink-foreground); text-decoration: underline; padding: 5px 2px; }
-.sf-gate button { font: inherit; padding: 3px 10px; border-radius: 3px; cursor: pointer;
-  border: 1px solid var(--vscode-button-border, var(--vscode-panel-border));
-  background: var(--vscode-button-secondaryBackground); color: var(--vscode-button-secondaryForeground); }
+/* Outlined for the same reason: a fix button is never the card's one filled action. */
+.sf-gate button { font: inherit; padding: 3px 10px; border-radius: 3px; cursor: pointer; flex: none;
+  border: 1px solid var(--vscode-panel-border);
+  background: transparent; color: var(--vscode-foreground); }
+.sf-gate button:hover { background: var(--vscode-list-hoverBackground); }
 .sf-card details { color: var(--vscode-descriptionForeground); }
 .sf-card details pre { margin: 6px 0 0; padding: 8px; overflow-x: auto; user-select: text;
   background: var(--vscode-textCodeBlock-background); border-radius: 4px; }

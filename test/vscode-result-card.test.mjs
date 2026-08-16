@@ -214,3 +214,25 @@ test('a reason already shown as a gate row is not repeated above it', () => {
   assert.equal(card.why.length, 1);
   assert.equal(card.why[0].label, '2 thing(s) are blocking this');
 });
+
+test('primary and secondary cannot look the same, whatever the theme sets', () => {
+  /**
+   * Found by eye in a real editor, not by a test: all six home actions rendered as identical filled
+   * buttons because that theme resolves `button.secondaryBackground` and `button.background` to the
+   * same green. The envelope carried exactly one `primary`. The rule survived in the data and died
+   * in the CSS, which is the failure a contract check cannot see.
+   *
+   * Filled-versus-outlined is a contrast a theme cannot collapse: whatever the two variables hold,
+   * a button with a background and a button without one are different.
+   */
+  const secondary = RESULT_CARD_STYLE.match(/\.sf-card-actions button \{[^}]*\}/)[0];
+  const primary = RESULT_CARD_STYLE.match(/\.sf-card-actions button\.primary \{[^}]*\}/)[0];
+  assert.match(secondary, /background: transparent/);
+  assert.match(secondary, /border: 1px solid/);
+  assert.match(primary, /background: var\(--vscode-button-background\)/);
+  assert.ok(!secondary.includes('secondaryBackground'),
+    'secondary must not depend on a variable a theme may set to the primary colour');
+
+  const gate = RESULT_CARD_STYLE.match(/\.sf-gate button \{[^}]*\}/)[0];
+  assert.match(gate, /background: transparent/, 'a fix button is never the card\'s filled action');
+});

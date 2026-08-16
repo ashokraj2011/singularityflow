@@ -88,3 +88,30 @@ test('the footer only reaches commands the extension actually contributes', asyn
     assert.ok(contributed.has(command), `the footer points at ${command}, which is not contributed`);
   }
 });
+
+test('every inline stylesheet carries the CSP nonce', async () => {
+  /**
+   * The failure with no symptom.
+   *
+   * The policy is `style-src 'nonce-…'`, so a `<style>` without one is dropped by the webview
+   * silently: the panel opens, the markup is byte-identical, and every rule in that sheet does not
+   * exist. What the reader sees is whatever the shared kit happens to provide, which looks
+   * plausible enough to ship — the result card did, and it took opening the editor and noticing
+   * that six actions were filled when the envelope declared one.
+   *
+   * No fixture can catch it. A stylesheet rendered outside a webview has no CSP to enforce, so the
+   * HTML tests pass either way. This is a source check because that is the only place the fact is
+   * visible.
+   */
+  const offenders = [];
+  for (const { name, source } of await fullPageViews()) {
+    // `codeOnly`, because both files now carry a comment explaining this very rule. Fifth time this
+    // trap has fired in one change, and the first time inside a test written to guard a different
+    // one — which is the argument for the shared helper existing at all.
+    for (const [, attributes] of codeOnly(source).matchAll(/<style([^>]*)>/g)) {
+      if (!attributes.includes('nonce')) offenders.push(`${name}: <style${attributes}>`);
+    }
+  }
+  assert.deepEqual(offenders, [],
+    `these stylesheets are silently dropped by the content security policy:\n  ${offenders.join('\n  ')}`);
+});

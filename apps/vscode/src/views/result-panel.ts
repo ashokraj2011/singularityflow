@@ -64,7 +64,19 @@ function render(target: vscode.WebviewPanel, view: ResultCardView, note: string 
    * the result's own reasons.
    */
   const footnote = note ? `<p class="sf-fidelity">${escape(note)}</p>` : '';
-  const body = `<style>${RESULT_CARD_STYLE}
+  /**
+   * The nonce is load-bearing, and its absence is silent. `[UXH:REQ-134]`
+   *
+   * The policy is `style-src 'nonce-…'`, so a `<style>` without it is dropped by the webview with
+   * no error anywhere — the panel renders, the markup is correct, and every rule in this stylesheet
+   * simply does not exist. What the reader sees instead is the shared kit's defaults, which look
+   * plausible. It shipped that way and was caught by opening the editor and noticing that six
+   * actions were all filled when the envelope said one.
+   *
+   * Worth stating because the failure has no symptom a test can see: the HTML this function returns
+   * is byte-identical either way, and a fixture rendered outside a webview has no CSP to enforce.
+   */
+  const body = `<style nonce="${token}">${RESULT_CARD_STYLE}
 .sf-fidelity { margin: 12px 2px 0; color: var(--vscode-descriptionForeground); font-size: .92em; }
 </style>
 <main style="padding:16px;max-width:720px">${resultCardHtml(view)}${footnote}</main>`;

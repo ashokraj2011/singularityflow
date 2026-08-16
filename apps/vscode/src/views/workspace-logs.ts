@@ -101,8 +101,16 @@ function detail(item: WorkspaceLogEntry | null, fullPrompt: string | null): stri
   </aside>`;
 }
 
+/**
+ * `token` threads through only so the stylesheet below can carry the nonce.
+ *
+ * The policy is `style-src 'nonce-…'`, so an inline `<style>` without it is dropped by the webview
+ * with no error — the page renders, the markup is right, and every rule silently does not exist.
+ * This panel had been shipping that way; it was found by a sweep after the same bug was caught by
+ * eye in the result card.
+ */
 function body(report: WorkspaceLogsEnvelope | null, selectedId: string | null, fullPrompt: string | null,
-  error: string | null, defaultTab: LogSource, tabRevision: number): string {
+  error: string | null, defaultTab: LogSource, tabRevision: number, token: string): string {
   const entries = report?.entries ?? [];
   const selected = entries.find((item) => item.id === selectedId) ?? null;
   const errors = entries.filter((item) => item.severity === 'error').length;
@@ -138,7 +146,7 @@ function body(report: WorkspaceLogsEnvelope | null, selectedId: string | null, f
       : `<div class="empty"><p>${report ? 'No log entries have been recorded for this workspace yet.' : 'Reading workspace logs…'}</p></div>`}
     ${report && report.total > report.entries.length ? `<p><button class="secondary" data-action="load-older">Load older entries (${report.entries.length} of ${report.total})</button></p>` : ''}
     ${detail(selected, fullPrompt)}
-    <style>
+    <style nonce="${token}">
       .toolbar,.tabs { display:flex; align-items:center; gap:.35rem; flex-wrap:wrap; margin:1rem 0; }
       .tab { color:var(--vscode-foreground); background:transparent; border:0; border-bottom:2px solid transparent; border-radius:0; }
       .tab.active { color:var(--sf-accent); border-bottom-color:var(--sf-accent); }
@@ -306,7 +314,7 @@ export class WorkspaceLogsPanel {
   private render(): void {
     const token = nonce();
     this.panel.webview.html = page('Workspace logs', body(this.report, this.selectedId, this.fullPrompt,
-      this.error, this.defaultTab, this.tabRevision), contentSecurityPolicy(this.panel.webview, token), token, SCRIPT);
+      this.error, this.defaultTab, this.tabRevision, token), contentSecurityPolicy(this.panel.webview, token), token, SCRIPT);
   }
 
   dispose(): void {

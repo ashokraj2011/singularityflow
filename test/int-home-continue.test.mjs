@@ -321,3 +321,55 @@ test('the ordering is a total order whichever way the menu is shuffled', () => {
   assert.deepEqual(once, twice);
   assert.equal(new Set(once).size, once.length, 'no duplicates survive the sort');
 });
+
+test('an interrupted publication outranks the active Story', () => {
+  /**
+   * `[DHR:REQ-070]` rule 1, which had no implementation. The `recovery-required` group existed from
+   * the day the work records were written and the home never mentioned it, so a reader with a
+   * half-finished publication saw the ordinary home — and this is the one state where doing
+   * something else first can lose work.
+   */
+  const mk = (id, group) => ({ id, kind: 'story', phase: 'implement', group, blockers: [], nextAction: null, rail: [] });
+  const groups = {
+    'recovery-required': [mk('W-9', 'recovery-required')], 'waiting-on-you': [],
+    active: [mk('W-1', 'active')], 'waiting-on-others': [], 'recently-completed': []
+  };
+  const result = homeOverviewResult({
+    workspace: { id: 'w', name: 'W' }, records: { groups, items: Object.values(groups).flat() }
+  });
+  const codes = result.why.map((entry) => entry.code);
+  assert.ok(codes.includes('home.recovery-required'));
+  assert.ok(!codes.includes('home.active-work-leads'), 'recovery replaces the ordinary reason, it does not sit beside it');
+  assert.equal(result.why[0].reference, 'W-9');
+  // Same button, different reason: both are continued by `work.continue` `[DHR:REQ-070]`.
+  assert.equal(result.next[0].id, 'home:work.continue');
+});
+
+test('a decision waiting on you is named, not folded into the count', () => {
+  const mk = (id, group) => ({ id, kind: 'story', phase: 'implement', group, blockers: [], nextAction: null, rail: [] });
+  const groups = {
+    'recovery-required': [], 'waiting-on-you': [mk('W-2', 'waiting-on-you')],
+    active: [], 'waiting-on-others': [], 'recently-completed': []
+  };
+  const result = homeOverviewResult({
+    workspace: { id: 'w', name: 'W' }, records: { groups, items: Object.values(groups).flat() }
+  });
+  const decision = result.why.find((entry) => entry.code === 'home.needs-your-decision');
+  assert.ok(decision, '"somebody is blocked on you" is a different obligation from "you have work"');
+  assert.equal(decision.slots.count, '1');
+});
+
+test('nothing waiting is stated, because a silent menu reads as a failed load', () => {
+  const empty = {
+    'recovery-required': [], 'waiting-on-you': [], active: [], 'waiting-on-others': [], 'recently-completed': []
+  };
+  const result = homeOverviewResult({ workspace: { id: 'w', name: 'Rule-engine' }, records: { groups: empty, items: [] } });
+  const rest = result.why.find((entry) => entry.code === 'home.nothing-waiting');
+  assert.ok(rest);
+  assert.equal(rest.slots.workspace, 'Rule-engine');
+
+  // And it is not claimed when there is something.
+  const busy = { ...empty, active: [{ id: 'W-1', kind: 'story', phase: 'x', group: 'active', blockers: [], nextAction: null, rail: [] }] };
+  assert.ok(!homeOverviewResult({ workspace: { id: 'w', name: 'W' }, records: { groups: busy, items: busy.active } })
+    .why.some((entry) => entry.code === 'home.nothing-waiting'));
+});

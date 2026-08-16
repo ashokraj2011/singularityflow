@@ -106,9 +106,19 @@ function choice(entry, index, reasonCode, slots = {}) {
  * only when there is something they could *not* have known, which is the case the ordering below
  * promotes it for.
  */
-function homeRank(entry, { active, needsReconciliation }) {
-  // Rule 3: the active Story on this branch.
-  if (entry.id === 'work.continue') return active ? 0 : 3;
+function homeRank(entry, { active, recovery, needsReconciliation }) {
+  if (entry.id === 'work.continue') {
+    /**
+     * Rule 1 before rule 3, and it is the same choice either way.
+     *
+     * An interrupted publication and an active Story are both continued by `work.continue`, so the
+     * rank is the same — but the *reason* is not, and rule 1 exists because a half-finished
+     * publication is the one state where doing anything else first can lose work. The distinction
+     * is carried in `why[]` rather than by a different button.
+     */
+    if (recovery) return 0;
+    return active ? 0 : 3;
+  }
   // Rule 4: local work that has not been compared against the plan.
   if (entry.id === 'work.return') return needsReconciliation ? 1 : 4;
   return 2;
@@ -151,16 +161,34 @@ export function homeOverviewResult({ workspace = null, records = null, subject =
    */
   const needsReconciliation = Boolean(active && localChanges?.dirty);
 
-  if (active || needsReconciliation) {
-    const context = { active, needsReconciliation };
+  /**
+   * An interrupted publication, which `[DHR:REQ-070]` rule 1 puts above everything. `[UXH:REQ-051]`
+   *
+   * The group already existed and the home never mentioned it, so the highest-priority rule in §8
+   * was the one rule not implemented — a reader with a half-finished publication saw the ordinary
+   * "continue current work" home and no indication that this state is the one where doing something
+   * else first can lose work.
+   */
+  const recovery = (groups['recovery-required'] ?? [])[0] ?? null;
+  const leading = recovery ?? active;
+
+  if (leading || needsReconciliation) {
+    const context = { active, recovery, needsReconciliation };
     ordered.sort((left, right) => homeRank(left, context) - homeRank(right, context)
       || HOME_CHOICES.indexOf(left) - HOME_CHOICES.indexOf(right));
-    why.push({
-      code: 'home.active-work-leads',
-      source: 'lifecycle',
-      reference: active.id,
-      slots: { work: active.id, phase: active.phase ?? 'none', next: active.nextAction?.operation ?? 'none' }
-    });
+    why.push(recovery
+      ? {
+        code: 'home.recovery-required',
+        source: 'lifecycle',
+        reference: recovery.id,
+        slots: { work: recovery.id, phase: recovery.phase ?? 'none' }
+      }
+      : {
+        code: 'home.active-work-leads',
+        source: 'lifecycle',
+        reference: active.id,
+        slots: { work: active.id, phase: active.phase ?? 'none', next: active.nextAction?.operation ?? 'none' }
+      });
     if (needsReconciliation) {
       why.push({
         code: 'home.local-work-unreconciled',
@@ -169,6 +197,36 @@ export function homeOverviewResult({ workspace = null, records = null, subject =
         slots: { files: String(localChanges.files ?? 0) }
       });
     }
+  }
+
+  /**
+   * A decision only a person can make. `[UXH:REQ-051]` `[DHR:REQ-062]`
+   *
+   * Counted, never acted on — the home says how many are waiting and selecting one opens the
+   * ceremony `[INT:CON-024]`. Named separately from the leading action because "you have work in
+   * progress" and "somebody is blocked on your decision" are different obligations, and a reader
+   * who only sees the first will not know the second exists.
+   */
+  if (decisions) {
+    why.push({
+      code: 'home.needs-your-decision',
+      source: 'lifecycle',
+      reference: (groups['waiting-on-you'] ?? [])[0]?.id ?? null,
+      slots: { count: String(decisions) }
+    });
+  }
+
+  /**
+   * Nothing anywhere is an answer, and the only one this planner can give that is good news.
+   *
+   * `[INT:REQ-041]` forbids a dead end, and the temptation here is to leave the menu to speak for
+   * itself — six choices and no statement reads as "we found nothing", which is what a broken read
+   * also looks like. Saying it explicitly is the difference between rest and failure.
+   */
+  const nothingWaiting = !leading && !decisions
+    && WORK_GROUP_ORDER.every((group) => !(groups[group] ?? []).length);
+  if (nothingWaiting) {
+    why.push({ code: 'home.nothing-waiting', source: 'lifecycle', slots: { workspace: workspace.name ?? workspace.id } });
   }
 
   const shown = ordered.slice(0, MAX_HOME_CHOICES);

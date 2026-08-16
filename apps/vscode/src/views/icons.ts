@@ -100,7 +100,18 @@ const STATUS_PATHS = {
   statusBlocked: BASE_PATHS.blocked,
   statusStale: BASE_PATHS.stale,
   statusCurrent: '<circle cx="12" cy="12" r="9"/><circle cx="12" cy="12" r="3.6" fill="currentColor" stroke="none"/>',
-  statusIdle: '<circle cx="12" cy="12" r="9"/>'
+  statusIdle: '<circle cx="12" cy="12" r="9"/>',
+  /**
+   * The three states `[UXH:REQ-051]` names that had no mark.
+   *
+   * `needsUser` is not `waiting`: one is blocked on somebody else and the other is blocked on the
+   * reader, and a screen that draws them identically is telling the person holding everyone up that
+   * they are waiting. `pinned` and `superseded` distinguish an artifact held at a revision from one
+   * a later generation replaced — both are "not current", and only one is a problem.
+   */
+  statusNeedsUser: '<circle cx="12" cy="12" r="9"/><path d="M12 7.5v5"/><circle cx="12" cy="16" r=".9" fill="currentColor" stroke="none"/>',
+  statusPinned: '<path d="M12 3v7"/><path d="M8.5 10h7l1.5 4h-10z"/><path d="M12 14v7"/>',
+  statusSuperseded: '<circle cx="12" cy="12" r="9"/><path d="M8.5 12h7"/>'
 } as const;
 
 export const ICON_PATHS = { ...BASE_PATHS, ...STATUS_PATHS } as const;
@@ -141,7 +152,10 @@ export const TREE_ICONS = {
   statusBlocked: { id: 'error', color: 'problemsErrorIcon.foreground' },
   statusStale: { id: 'history', color: 'problemsWarningIcon.foreground' },
   statusCurrent: { id: 'circle-large-filled', color: 'charts.green' },
-  statusIdle: { id: 'circle-outline' }
+  statusIdle: { id: 'circle-outline' },
+  statusNeedsUser: { id: 'question', color: 'charts.blue' },
+  statusPinned: { id: 'pinned' },
+  statusSuperseded: { id: 'circle-slash' }
 } as const;
 
 export type TreeIconName = keyof typeof TREE_ICONS | string;

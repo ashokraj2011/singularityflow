@@ -1,7 +1,10 @@
 # ADR 0003: Source pins, transport, and retention
 
-- Status: accepted with deployment validation required
+- Status: accepted and current; deployment validation required
 - Date: 2026-07-31
+
+This record is maintained as the current source-pin and retention contract. Current validation and
+deployment guidance is incorporated here rather than treated as historical release context.
 
 ## Decision
 

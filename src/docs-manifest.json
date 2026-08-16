@@ -1,247 +1,366 @@
 {
   "schemaVersion": 1,
   "generatedFrom": "docs/topics",
-  "sourceCommit": "8bcf63a5cbf867ad04e0837a84b09f43df0c4501",
-  "topicCount": 34,
-  "contentSha256": "c9b192200f0a513bdb65da2b0ccd8c40c605447a71c1e50300ea0daef75502ca",
+  "sourceCommit": "f35dca0f167f8e0f44a3c62d9c531946771bc7e6",
+  "topicCount": 51,
+  "contentSha256": "7d3408430295318058112fc889795c54a99038ca602cd80fda3a812aaef57964",
   "topics": [
+    {
+      "id": "activity-and-prompt-audit",
+      "title": "Activity logs, prompt audit, and operational trace",
+      "version": 1,
+      "sha256": "a12a94d52b447194e0bb176c5d8df85ebfd6abb1ff53c7129d81672308f9399f",
+      "file": "activity-and-prompt-audit.md"
+    },
+    {
+      "id": "agents-and-routing",
+      "title": "Governed agents, assignments, and model routing",
+      "version": 1,
+      "sha256": "ca912179c825269626660f1729c4634a14ad6b20c5999cd849259de5a6d5f67f",
+      "file": "agents-and-routing.md"
+    },
     {
       "id": "approvals",
       "title": "Approvals",
-      "version": 1,
-      "sha256": "065da30ea3da62d82a5079f95d71786d556478b1c0da137715ef8b0b3776da55",
+      "version": 2,
+      "sha256": "7d5f9c0c64dd2b571ca5d9183de66e762d6cafa4fda61c3c9dd224e44cd45699",
       "file": "approvals.md"
     },
     {
       "id": "artifacts-and-generation",
       "title": "Artifacts, templates, and publication",
-      "version": 1,
-      "sha256": "3e22b49556eddda55cb22a51cf98fbf9e08ea94edaf802f12d53b9dcef48df7d",
+      "version": 2,
+      "sha256": "414c4a135446413e82a3d95621d734082698e1cdef7b48d2f7da3c7aaa69058f",
       "file": "artifacts-and-generation.md"
+    },
+    {
+      "id": "assignments-and-watchlists",
+      "title": "Assignments, watchlists, and review attention",
+      "version": 1,
+      "sha256": "a795061346e9b522237a0f6a5fa335d50279f53e98bf9d775341dd19c0bc7037",
+      "file": "assignments-and-watchlists.md"
+    },
+    {
+      "id": "capability-management",
+      "title": "Capability mapping and activation",
+      "version": 1,
+      "sha256": "4f3aefac1c6622ffa71a7697c468d71c751676802efc280183795a62c32ab9fa",
+      "file": "capability-management.md"
     },
     {
       "id": "checkpoints-pause-continue",
       "title": "Checkpoints, pause, and continue",
-      "version": 1,
-      "sha256": "8e9b577664d2b5c8b6f519063cfbbf3ca6a16044aca8950b2553836eda483cc8",
+      "version": 2,
+      "sha256": "7b44f5047aed57f5ef87dbff34858cad7786439cef6779d958bfd9651ac2ce6a",
       "file": "checkpoints-pause-continue.md"
     },
     {
       "id": "configuration",
       "title": "Configuration, capabilities, and the policy fold",
-      "version": 1,
-      "sha256": "9ec3e1270782a03a16272a021966ac62e553977fc6cd8e60f2436445e2fdc77e",
+      "version": 2,
+      "sha256": "9693cef99bd04e8383def4ce0c90f2c4b861e68fc91a62843f78c9ba5cafdeda",
       "file": "configuration.md"
     },
     {
       "id": "constitution",
       "title": "The constitution",
-      "version": 1,
-      "sha256": "9ce7a951a8285feaef43a3720bd2d5799aedbc8943baf3604fe0ad5dc9d1b40e",
+      "version": 2,
+      "sha256": "03092fee78b4a5115342f57dcd032aa42d72d6c6b197e600c6123efd35e61b0d",
       "file": "constitution.md"
+    },
+    {
+      "id": "copilot-and-surfaces",
+      "title": "Copilot, VS Code, and shell surfaces",
+      "version": 1,
+      "sha256": "94cbfffd43259b73d1b418b6b0cf628dac63925ae060b430cc378e59e3c1478a",
+      "file": "copilot-and-surfaces.md"
     },
     {
       "id": "developer-home",
       "title": "Developer Home and returning to work",
-      "version": 1,
-      "sha256": "23e0ee5080f9a1280b1464c721735abcd8286cb456f8b2db5a2af45ac74ddd5f",
+      "version": 2,
+      "sha256": "a5d69dafd19f0b5db81c77132e54494b60cdea0dd822a1a544fc1b737085f155",
       "file": "developer-home.md"
+    },
+    {
+      "id": "diagnostics-and-regression",
+      "title": "Diagnostics, regression investigation, and hooks",
+      "version": 1,
+      "sha256": "9f11c8b20fcb1b744dd1db728e24c88810da3fb5f363cd95b84eb76404f301e1",
+      "file": "diagnostics-and-regression.md"
     },
     {
       "id": "epics-and-planning",
       "title": "Epics, planning, and user stories",
-      "version": 1,
-      "sha256": "3a9433ebe1c59d31053cfacfdf1b46fcc896c67f66bcc30c176e1c5274f2c501",
+      "version": 2,
+      "sha256": "5858f1afca7e960fa560fcc08a31a6b4a791e545ca31b3069a3c7daecfba5da1",
       "file": "epics-and-planning.md"
     },
     {
       "id": "escalation",
       "title": "Rail escalation",
-      "version": 1,
-      "sha256": "a663c2def284a6b64a855ae87a815e669d699cab33eddadc9bfac7941c83880b",
+      "version": 2,
+      "sha256": "e2330f4ec7a6d7d368acb8ceaa82762c0522fda2fe40159b43eb09d03bc11ae4",
       "file": "escalation.md"
     },
     {
       "id": "evidence-and-ledger",
       "title": "Evidence, the ledger, and traceability",
-      "version": 1,
-      "sha256": "f7fecb8f1f78aa7f2b5cb72243e8ace18cec6b0765922caf499e2ca84bfd8ad5",
+      "version": 2,
+      "sha256": "a1726a98a45049166abc14c0b57bd2ecd5676d0e839667b742f6ca2a4a635a8f",
       "file": "evidence-and-ledger.md"
     },
     {
       "id": "fast-path-verbs",
       "title": "The five verbs",
-      "version": 1,
-      "sha256": "05989f57789333a568e1ae5dd15bc95f173b27282482926b20a97389724ff5e0",
+      "version": 2,
+      "sha256": "07ef77c29dc811f4cbaa156992a04019746a0d88f1a5dd84942464f6a29aac20",
       "file": "fast-path-verbs.md"
     },
     {
       "id": "getting-started",
       "title": "Getting started",
-      "version": 1,
-      "sha256": "5e72d637c3c544e7b9598518c102b70825149ddd3746f430fe61438c3526c71d",
+      "version": 2,
+      "sha256": "c701bf6655bbd75284848da710aa3f8b3bcf06486d3d474b047c32d9cef13895",
       "file": "getting-started.md"
+    },
+    {
+      "id": "governed-execution",
+      "title": "Governed execution and safe next actions",
+      "version": 1,
+      "sha256": "e250b84f2bcb1183ddde4941c6196a1fd2a57bac1ce8156394fc87d4ca121a9e",
+      "file": "governed-execution.md"
     },
     {
       "id": "help-and-docs",
       "title": "Getting help",
-      "version": 1,
-      "sha256": "dc3c12659600211809b6d96e68fd789b5a87f55e97d4a6323e140d1a8f343dd5",
+      "version": 2,
+      "sha256": "3e4335a7c50e18c96235aaf9bfb25fdf6ab53e39943cbb2b43fc487db887e7d1",
       "file": "help-and-docs.md"
     },
     {
       "id": "impact-framework",
       "title": "Impact receipts and studies",
-      "version": 1,
-      "sha256": "531e94fa1bfa0bacfeda553db5749708bde583b24b28494866348c520506c717",
+      "version": 2,
+      "sha256": "0613a484d932cb5703c74b94e42e8480dcfd1f7b8f0b6543272f00ce07f2c384",
       "file": "impact-framework.md"
     },
     {
       "id": "inbox-and-review",
       "title": "The inbox and review packets",
-      "version": 1,
-      "sha256": "2be019d7096afc83d876f02653983e963c79ea1b10b9c23c8d1563749af2ac70",
+      "version": 2,
+      "sha256": "05fe2df826ffa07ab17e2b7664a4c8f24bfd6bf795950cb48c722358a231afab",
       "file": "inbox-and-review.md"
+    },
+    {
+      "id": "initiative-lifecycle",
+      "title": "Initiative lifecycle and multi-repository delivery",
+      "version": 1,
+      "sha256": "1498f3642274cf297d778f359ca1245c84d538a3335146d622e1a512c2477c16",
+      "file": "initiative-lifecycle.md"
+    },
+    {
+      "id": "installation-and-upgrades",
+      "title": "Installation, initialization, and upgrades",
+      "version": 1,
+      "sha256": "e8a3c25319602939bb3d084bc43f8814025c7c26a06084e16400f5f802a8f634",
+      "file": "installation-and-upgrades.md"
+    },
+    {
+      "id": "jira-integration",
+      "title": "Jira integration and governed identity",
+      "version": 1,
+      "sha256": "fcc2821b3d1edb5107c10c161d18993ba4d5271abe852eef9cb1e1927b3a188f",
+      "file": "jira-integration.md"
+    },
+    {
+      "id": "knowledge-and-remote-assets",
+      "title": "Knowledge, artifacts, and remote assets",
+      "version": 1,
+      "sha256": "cf115f0c05d60592682651e939dcb8471562fad49aed7e69f1dbe514d2af5709",
+      "file": "knowledge-and-remote-assets.md"
     },
     {
       "id": "manual-authorship",
       "title": "Manual authorship and working without AI",
-      "version": 1,
-      "sha256": "965f29ee4607c65bda9af32940e7574a04a4454f76526ca6e11d41e8bb4e932e",
+      "version": 2,
+      "sha256": "56a7a085b5d53a774978a62c5272d49dfb464289be9d859832681155af43b466",
       "file": "manual-authorship.md"
     },
     {
       "id": "mcp-integration",
       "title": "MCP integration",
-      "version": 2,
-      "sha256": "0440a6e135df0f258008b469707df9563275b7af019fb3dee2e46e6c43fa14fd",
+      "version": 3,
+      "sha256": "eda87db2e00841ea97d2c4339e194031f336d68eecd07f4a1804633522d8d3a0",
       "file": "mcp-integration.md"
     },
     {
       "id": "model-independence",
       "title": "Model independence",
-      "version": 1,
-      "sha256": "4f8e10fba3e6e04ac5ead876cad8593b20bdc24ecb1bc4c37bad6ab4b35ad2b8",
+      "version": 2,
+      "sha256": "4076564dd1d45083334f2572cfc431f149eb8712f1d595be0e7637f63e503fca",
       "file": "model-independence.md"
     },
     {
       "id": "nextsteps",
       "title": "Guidance — nextsteps and the narration contract",
-      "version": 1,
-      "sha256": "8aae6ce2fe5008ecbece279d013445a20149caf8efdd5166d2a9593f80779078",
+      "version": 2,
+      "sha256": "416e216f37041ea7fafd6e01ac53eb9b4b605f0eeccd13d4f48e6d641a63f82b",
       "file": "nextsteps.md"
     },
     {
       "id": "pins",
       "title": "Pins and the immutable resolution",
-      "version": 1,
-      "sha256": "e7b905516d62484ec64abbfcff652753d86606d9f4f5cc5f283b9ac93ac1bdfb",
+      "version": 2,
+      "sha256": "dd069ca668bdaa70115ed2442b46e5f38b07440e520e810e66e60de1184a43b9",
       "file": "pins.md"
+    },
+    {
+      "id": "pull-requests-and-stacks",
+      "title": "Pull requests, Story stacks, and merge order",
+      "version": 1,
+      "sha256": "c06a2c822e823607d7e3c16b69018b62ebb0ea563078d869ef6c79abc4cec75a",
+      "file": "pull-requests-and-stacks.md"
     },
     {
       "id": "quick-fix",
       "title": "The quick-fix rail",
-      "version": 1,
-      "sha256": "244192fdf4c0c8b2a51592254292237cc23a4378955cfe5277f82f770681054f",
+      "version": 2,
+      "sha256": "240e10a4ed3d81f6cd39c07a899bb3af8048797e3fa14360e8da64ced78394dc",
       "file": "quick-fix.md"
     },
     {
       "id": "reconciliation",
       "title": "Reconciliation and dispositions",
-      "version": 1,
-      "sha256": "1f0ea684213630428e6c008a94e792877774ad98195362e49fdec4ea82b9daf9",
+      "version": 2,
+      "sha256": "dc85f295abadf6a1134125a243497c7aec1bd8739a3b00db34758916ec1d4e5e",
       "file": "reconciliation.md"
     },
     {
       "id": "recovery",
       "title": "Recovery — nothing is ever lost",
-      "version": 1,
-      "sha256": "6a291df285baa409edff7b60dc472f48777184c4d99650a48436737bcfa8d3a5",
+      "version": 2,
+      "sha256": "b7c658a7b4e806926bd1b5247a9148eac0262e6321ee538fca70f0539697adcd",
       "file": "recovery.md"
     },
     {
       "id": "reference-previews",
       "title": "Previews, handles, and show",
-      "version": 1,
-      "sha256": "6b0c3a2d5f64aa2b129f8bc06a869c3de8a764aadf72471786d1deb8e03ca6dc",
+      "version": 2,
+      "sha256": "a06a4630b00f20915b1677adc8027123d5c1362d4c7ed3c9a85a14916b437cfc",
       "file": "reference-previews.md"
     },
     {
       "id": "rejection-and-rework",
       "title": "Rejection and rework",
-      "version": 1,
-      "sha256": "6305e5cdd8f44b5d32d3d3fe7c5dfecd6b91f67ff62578ee420b72f7c421a0f1",
+      "version": 2,
+      "sha256": "51a6d0ec5cbb1eaf1056fef178e6afe9eae1addc8752aa9e1f92579938dbf7f0",
       "file": "rejection-and-rework.md"
+    },
+    {
+      "id": "repository-state-and-snapshots",
+      "title": "Repository state, snapshots, and branch refresh",
+      "version": 1,
+      "sha256": "0af8dc5337579d6ce04e173aabc76d8817eb5d621bbe85887722aa4eac5a6010",
+      "file": "repository-state-and-snapshots.md"
+    },
+    {
+      "id": "resets-and-cleanup",
+      "title": "Reset, cleanup, and fresh installation",
+      "version": 1,
+      "sha256": "16dd22b99619dc897d4337b6fd055487ec47a966f5ac81e2b70392dfa1ebafb7",
+      "file": "resets-and-cleanup.md"
     },
     {
       "id": "secrets",
       "title": "Refusing to commit a credential",
-      "version": 1,
-      "sha256": "be4a6694880800ff3742d546d0236fb7c5d230b4f8d512d44192466fb96e0a35",
+      "version": 2,
+      "sha256": "b9463118d7b6467bfe78022d0514241bfcc263698b889234457b9d416625b559",
       "file": "secrets.md"
     },
     {
       "id": "sequence-gates",
       "title": "Sequence gates and submission",
-      "version": 1,
-      "sha256": "ea360429d6155d590e078c10368a62674fc214238665eb937d7a8b0f7abfbb1c",
+      "version": 2,
+      "sha256": "b5e0dbb7df5e575c415aa686b41e91b442cd9836644e6aa743ff8bfea6cf27ce",
       "file": "sequence-gates.md"
     },
     {
       "id": "specification-quality",
       "title": "Specification quality and clarification markers",
-      "version": 1,
-      "sha256": "667b0ab2f41341e24c34750ff580798f341c7555272a0ad681f997fb6aa07c60",
+      "version": 2,
+      "sha256": "c5a1682f3f0c12716686e1a354bdaa6723603eec50a3db4bcb8db5edb40be88e",
       "file": "specification-quality.md"
     },
     {
       "id": "starting-work",
       "title": "Starting work",
-      "version": 1,
-      "sha256": "0581c29733a39a986e017514717e7de83a5e2f2944c92554ced1ebf182591556",
+      "version": 2,
+      "sha256": "4f12cb5394056d5423dcb6f0658addd8d38c799cdce9775d41664af994520b71",
       "file": "starting-work.md"
     },
     {
       "id": "story-lifecycle",
       "title": "Story lifecycle, phases, and generations",
-      "version": 1,
-      "sha256": "7c4610840f1e5344999561038d7b31cca7a003fb9f42e3e45ae3500f5524133e",
+      "version": 2,
+      "sha256": "3145671c1536b3b31623853061451bff0cefd26859149399c8da1c2650a1b80a",
       "file": "story-lifecycle.md"
     },
     {
       "id": "telemetry-and-cost",
       "title": "Telemetry, tokens, and cost",
-      "version": 2,
-      "sha256": "53da0299201b23b1027a58d3873e2e8cc55e2246420ec91e8f19588932326ddf",
+      "version": 3,
+      "sha256": "acc4181a23903dcc42fb3b0e1a3a2a5b72dd8ab6009353a670a201eff64e58e5",
       "file": "telemetry-and-cost.md"
     },
     {
       "id": "visual-verification",
       "title": "Visual verification for mobile",
-      "version": 1,
-      "sha256": "e03a3f01f6f1d8f8e42686d7dc466a18e40137ef9376392d9413823a4c76e4ef",
+      "version": 2,
+      "sha256": "5c2700e7a552e0dbf04abd58bfea11d25c00b6913cd6031097685db1cfcb5848",
       "file": "visual-verification.md"
     },
     {
       "id": "waivers",
       "title": "Policy waivers",
-      "version": 1,
-      "sha256": "364147b448bb276e8ff7bdda2dd11c95542f810ae0245db6b71070c661b6ce0b",
+      "version": 2,
+      "sha256": "569ce37491d0c525012144474ed28e09b14d089650b201a8cf3c841535d76b02",
       "file": "waivers.md"
     },
     {
       "id": "what-is-singularity-flow",
       "title": "What is Singularity Flow",
-      "version": 1,
-      "sha256": "fba6b980b5c044c821b334735e012cdd902d12e7a2fdbc46c18d18585a44ae6c",
+      "version": 2,
+      "sha256": "bf9a967c02f7290873ebefac12a8cb396f84560c1d7438e8add7ef888b163da3",
       "file": "what-is-singularity-flow.md"
     },
     {
       "id": "work-intervals",
       "title": "Work intervals",
-      "version": 1,
-      "sha256": "dc8b367efeb6dd738dfb101bdc956bdb01934bfc93e65bc2926f410b9edbe22a",
+      "version": 2,
+      "sha256": "2a5c66835477e3fef623ceba811786e3b51fc2ef8065413ab62856603544170c",
       "file": "work-intervals.md"
+    },
+    {
+      "id": "workflow-authoring",
+      "title": "Workflow and configuration authoring",
+      "version": 1,
+      "sha256": "b36ddd7c93ad1726096f49045f8211661a83324673bf22cdd1720afc722678d5",
+      "file": "workflow-authoring.md"
+    },
+    {
+      "id": "workspaces-and-sessions",
+      "title": "Workspaces, sessions, and current selection",
+      "version": 1,
+      "sha256": "57827b8c174f72aaa615a70c67bc565f6b67658100260034318434f98d61dd8f",
+      "file": "workspaces-and-sessions.md"
+    },
+    {
+      "id": "world-model",
+      "title": "World model grounding and views",
+      "version": 1,
+      "sha256": "9c75516379d4615f9c448c1db0d3222465cdf7cd70290f364c631bdfb84e1bb4",
+      "file": "world-model.md"
     }
   ]
 }

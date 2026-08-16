@@ -2247,7 +2247,9 @@ The generated shell entry does not override an existing `COPILOT_OTEL_FILE_EXPOR
 
 ## Low-friction cockpit, diagnostics, and guided execution
 
-Run `singularity-flow` with no arguments, or `singularity-flow cockpit`, to open the terminal cockpit. It shows the current work item, agent, assignment, progress, current phase, blockers, and deterministic next actions without changing state. In Copilot use `/sf-home`.
+Run `singularity-flow home` to open the deterministic home. It shows current governed work, repository freshness, blockers, and safe next actions without changing state. In VS Code use **My Work**. The hidden **Talk to SFlow** command remains a compatibility alias to My Work. In Copilot, `/sf-home` shows the same choices, asks for an explicit selection, follows the selected guided flow, and refreshes home afterward.
+
+The shell, Copilot, and VS Code share durable repository and workspace records plus one pure home projection. They do not share an in-memory global store, signed action handles, or navigation history.
 
 ```bash
 singularity-flow doctor

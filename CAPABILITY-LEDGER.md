@@ -7,6 +7,8 @@ Initiative lifecycle events. It lives on the orphan branch
 It is deliberately disabled by default. Existing repositories and work items behave
 exactly as before until `ledger.enabled` is set to `true`.
 
+Use `sflow explain evidence-and-ledger` and `sflow explain capability-management` for the current packaged tutorials.
+
 ## Enable it
 
 In `singularity/workflow.yml`:

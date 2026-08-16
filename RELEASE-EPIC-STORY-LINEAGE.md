@@ -1,5 +1,8 @@
 # Epic-to-Story Planning and Lifecycle Lineage
 
+> Current behavior document. The original release title is retained for stable links; commands,
+> surfaces, lineage rules, and safety guidance below are maintained against the current product.
+
 This 0.8.0 delivery adds an opt-in Epic experience above the existing Story and
 initiative engines without changing existing work items.
 

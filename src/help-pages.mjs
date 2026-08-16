@@ -430,12 +430,50 @@ function section(title, body) {
   return body.length ? [title, ...body.map((line) => (line ? `    ${line}` : '')), ''] : [];
 }
 
+/**
+ * Complete reference material for commands that do not need a hand-curated narrative.
+ *
+ * The synopsis remains the authority for accepted forms. This completion supplies the rest of a
+ * useful man page without inventing flags or semantics, so a newly registered command cannot ship
+ * with the old "detail has not been written" dead end.
+ */
+function catalogPage(command, definition, synopsis) {
+  const classification = definition?.classification === 'read' ? 'read-only' : 'governed mutation';
+  const flags = [...new Set(synopsis.flatMap((line) => [...line.matchAll(/--[a-z][a-z0-9-]*/g)].map((match) => match[0])))];
+  const title = command.replaceAll('-', ' ');
+  return {
+    summary: `${title[0]?.toUpperCase() ?? ''}${title.slice(1)} — ${classification} command reference.`,
+    description: [
+      `This is a ${classification} command. Use only a form shown in SYNOPSIS; the command parser`,
+      'refuses unknown forms rather than guessing. Read the linked topic before using an unfamiliar',
+      'mutation, and re-read current state after it completes.'
+    ],
+    options: [
+      ['--help', 'Show this command page without running the operation.'],
+      ...flags.filter((flag) => flag !== '--help').map((flag) => [flag, 'Accepted only by the synopsis form that lists it.'])
+    ],
+    examples: [[synopsis[0] ?? `singularity-flow ${command} --help`, 'Start from the canonical form supported by this build.']],
+    seeAlso: definition?.classification === 'read'
+      ? ['home', 'help', 'explain']
+      : ['home', 'status', 'doctor', 'nextsteps']
+  };
+}
+
 /** Render one command's help in the shape of a man page. */
 export function renderCommandHelp(name) {
   const command = canonicalCommand(name);
   const definition = commandDefinition(command);
-  const page = PAGES[command] ?? null;
   const synopsis = synopsisFor(command);
+  const completion = catalogPage(command, definition, synopsis);
+  const authored = PAGES[command] ?? {};
+  const page = {
+    ...completion,
+    ...authored,
+    description: authored.description ?? completion.description,
+    options: authored.options ?? completion.options,
+    examples: authored.examples ?? completion.examples,
+    seeAlso: authored.seeAlso ?? completion.seeAlso
+  };
   const aliases = definition?.aliases ?? [];
 
   const out = [
@@ -444,13 +482,10 @@ export function renderCommandHelp(name) {
     ''
   ];
   out.push(...section('SYNOPSIS', synopsis.length ? synopsis : [`singularity-flow ${command} ...`]));
-  if (page?.description) out.push(...section('DESCRIPTION', page.description));
-  else {
-    out.push(...section('DESCRIPTION', [
-      'No detailed page has been written for this command yet. The synopsis above is complete and',
-      'current — it is the same text `singularity-flow --help` publishes.'
-    ]));
-  }
+  out.push(...section('DESCRIPTION', page.description ?? [
+    'Use the forms in SYNOPSIS. The engine validates the current repository, identity, policy, and',
+    'arguments before it reads or changes state.'
+  ]));
   if (page?.options?.length) {
     out.push(...section('OPTIONS', page.options.flatMap(([flag, detail]) => [flag, `  ${detail}`, ''])));
   }
@@ -527,7 +562,7 @@ export function renderOverview(version) {
 }
 
 /** Commands that have an authored page, for coverage checks. */
-export function documentedCommands() { return Object.keys(PAGES); }
+export function documentedCommands() { return COMMAND_REGISTRY.map((entry) => entry.name); }
 
 /** Command names referenced by the overview, for the drift check. */
 export function overviewCommands() {

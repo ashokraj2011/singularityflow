@@ -1,5 +1,8 @@
 # Epic Lifecycle Wizard
 
+> Current behavior document. The original delivery name is retained for stable links; the workflow,
+> VS Code surfaces, and command guidance below are maintained against the current product.
+
 This `0.8.0` delivery turns the existing Git-native Epic capabilities into one
 guided desktop journey without introducing a second workflow state model.
 

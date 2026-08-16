@@ -1,5 +1,8 @@
 # Singularity Flow 0.9.0 — Epic-to-Stories Business Experience
 
+> Current behavior document. The version in the title identifies the feature's origin; navigation,
+> commands, and lifecycle behavior below describe the current product.
+
 ## Outcome
 
 Version 0.9.0 makes Epic planning the primary business journey while preserving

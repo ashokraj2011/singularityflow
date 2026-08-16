@@ -5,6 +5,8 @@ helps people reason, author artifacts, and implement code. Deterministic Node.js
 code owns workflow state, validation, commits, pushes, approvals, lineage, and
 reports.
 
+The packaged tutorial index is `sflow explain`. Start with `sflow explain what-is-singularity-flow`, `sflow explain workflow-authoring`, and `sflow explain governed-execution`; each topic names its CLI, Copilot, and VS Code route.
+
 This separation is the central design rule:
 
 > AI creates proposed content. Singularity Flow decides whether that content may

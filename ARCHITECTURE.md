@@ -301,13 +301,18 @@ from a terminal or another process. Jira and provider tokens use VS Code
 receives context produced by `sflow wm show-prompt`; the extension never owns a
 competing model backend. See [VS Code guide](docs/VS-CODE.md).
 
-Developer orientation follows the same boundary. **Talk to SFlow**, `sflow home`,
-and `sflow story return` assemble a deterministic local read model from the active
+Developer orientation follows the same boundary. VS Code **My Work**, `sflow home`,
+`/sf-home`, and `sflow story return` assemble a deterministic local read model from the active
 workspace and declared repositories. Opening them does not fetch, switch branches,
 write lifecycle state, contact an external system, or invoke a model. VS Code stores
 the last acknowledgement as presentation metadata only; revision-bound, expiring
 choices are revalidated before navigation or effects. See
 [Developer Home and Story Return](docs/DEVELOPER-HOME.md).
+
+The surfaces share durable records and the pure home/work projection, not an
+in-memory global store. VS Code recomputes its live binding on every gateway read;
+the CLI creates a fresh host session per invocation; Copilot obtains the same JSON
+envelope through the CLI and refreshes it after a selected guided flow.
 
 ## Local project workspace boundary
 

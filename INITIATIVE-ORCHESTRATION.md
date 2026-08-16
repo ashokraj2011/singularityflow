@@ -7,6 +7,8 @@ Singularity Flow can govern a delivery initiative above the existing repository 
 > the `epic-*` phase IDs, and the `sflow-epic-*` skills, all of which act on exactly the same record
 > at `singularity/initiatives/<ID>/`. Prose in this repository says Initiative.
 
+The installed tutorials are `sflow explain initiative-lifecycle`, `sflow explain epics-and-planning`, and `sflow explain pull-requests-and-stacks`.
+
 ```mermaid
 flowchart LR
   I["Initiative · lead repository"] --> M["Mobile Story branch"]

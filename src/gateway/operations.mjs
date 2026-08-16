@@ -28,7 +28,7 @@ import { compileOperationRegistry } from './registry.mjs';
  */
 export const GATEWAY_PLANNERS = Object.freeze([
   'home-overview', 'work-list', 'work-continue', 'work-handoff', 'work-start-intake', 'work-start',
-  'work-draft-save', 'work-readiness', 'workspace-list', 'workspace-switch', 'workspace-materialize',
+  'work-draft-save', 'work-readiness', 'work-return', 'workspace-list', 'workspace-switch', 'workspace-materialize',
   'impact-quick', 'impact-quick-assisted', 'impact-what-if', 'impact-what-if-assisted',
   'problem-investigate', 'problem-investigate-assisted', 'repository-explore', 'intent-trace',
   'compare', 'watch-list', 'watch-create', 'watch-revoke', 'review-packet', 'review-open', 'help-explain'
@@ -177,6 +177,24 @@ export const GATEWAY_DECLARATIONS = Object.freeze([
     argumentSchema: 'work-draft-save-v1',
     planner: 'work-draft-save',
     noModelFixture: 'work-draft-save-model-free'
+  },
+
+  {
+    ...READ,
+    /**
+     * §6 The return briefing: what moved while you were away `[DHR:REQ-040]`.
+     *
+     * A read, and `model: never` — the whole point is that it is reconstructed from records rather
+     * than remembered or narrated `[DHR:AC-17]`.
+     */
+    id: 'work.return',
+    modelPolicy: 'never',
+    goals: ['work.continue'],
+    aliases: en('what changed while I was away', 'catch me up', 'where did I leave this'),
+    subjects: ['story', 'initiative', 'epic'],
+    argumentSchema: 'work-subject-v1',
+    planner: 'work-return',
+    noModelFixture: 'work-return-model-free'
   },
 
   // §8.7 A deterministic readiness planner, which is the only kind that may answer this `[INT:CON-180]`.

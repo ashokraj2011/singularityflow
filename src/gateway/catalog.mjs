@@ -128,6 +128,29 @@ export const WORK_CODES = Object.freeze([
  * uncatalogued would have made them the only rows a surface could not translate — which is a
  * quiet incentive to stop rendering them.
  */
+/**
+ * The return briefing `[DHR:REQ-040]`–`[DHR:REQ-046]`.
+ *
+ * `current-state` and `since-you-were-here` are two codes rather than one with a slot, because
+ * `[DHR:REQ-024]` makes them different claims: the second asserts a delta, and a reader given a
+ * delta assumes anything absent from it did not change.
+ */
+export const RETURN_CODES = Object.freeze([
+  'return.current-state',
+  'return.since-you-were-here',
+  'return.reconciled',
+  'return.no-open-interval',
+  'return.planned',
+  'return.unplanned',
+  'return.protected',
+  'return.unrecognised-verdict',
+  'return.clean-worktree',
+  'return.local-changes-unread',
+  'return.reconciliation-unavailable',
+  'return.reconcile-before-submitting',
+  'return.nothing-was-carried-out'
+]);
+
 export const READINESS_CODES = Object.freeze([
   'readiness.no-blockers-found',
   'readiness.blocked',
@@ -170,7 +193,7 @@ export const SURFACE_CODES = Object.freeze([
 /** Every code, in one frozen set, which is the thing a surface actually needs. */
 export const REASON_CODES = Object.freeze([
   ...RESOLUTION_CODES, ...KERNEL_CODES, ...HOME_CODES,
-  ...WORK_CODES, ...READINESS_CODES, ...SURFACE_CODES
+  ...WORK_CODES, ...READINESS_CODES, ...RETURN_CODES, ...SURFACE_CODES
 ]);
 
 /**
@@ -198,6 +221,8 @@ export const HANDLE_FAILURE_CODES = Object.freeze(
 export const COMPOSED_CODES = Object.freeze({
   'src/gateway/kernel.mjs handleCode()': HANDLE_FAILURE_CODES,
   'src/gateway/planners/work-continue.mjs': WORK_CODES.filter((code) => code.startsWith('work.blocked.')),
+  'src/gateway/planners/work-return.mjs verdictCode()':
+    RETURN_CODES.filter((code) => ['return.planned', 'return.unplanned', 'return.protected'].includes(code)),
   'src/gateway/planners/work-readiness.mjs gateCode()':
     READINESS_CODES.filter((code) => !code.startsWith('readiness.no-')
       && !['readiness.blocked', 'readiness.partial-inputs', 'readiness.resume-publication',

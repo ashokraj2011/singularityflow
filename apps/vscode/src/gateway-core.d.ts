@@ -76,6 +76,7 @@ declare module '*/gateway/planners/impact-quick.mjs' { export const impactQuick:
 declare module '*/gateway/planners/work-continue.mjs' { export const workContinue: unknown; }
 declare module '*/gateway/planners/work-list.mjs' { export const workList: unknown; }
 declare module '*/gateway/planners/work-readiness.mjs' { export const workReadiness: unknown; }
+declare module '*/gateway/planners/work-return.mjs' { export const workReturn: unknown; }
 declare module '*/gateway/planners/workspace-list.mjs' { export const workspaceList: unknown; }
 
 /**

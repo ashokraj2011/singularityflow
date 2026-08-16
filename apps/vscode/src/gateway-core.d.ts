@@ -71,6 +71,18 @@ declare module '*/gateway/executor.mjs' {
  * `sflowResult`, so a planner cannot widen the contract by returning something result-shaped — and
  * a richer type here would imply this boundary is where that is enforced, when it is not.
  */
+/**
+ * The result contract's own derivations, so a surface never repeats one. `[UXH:AC-002]`
+ *
+ * `primaryAction` is declared here for the status bar, which has to name the same leading step the
+ * card fills a button for. Deriving it locally — `next.find(a => a.emphasis === 'primary')` — is
+ * three obvious words and is precisely how the two surfaces come to disagree the day the rule
+ * changes for one of them. `gateSummary` was already shared for the same reason.
+ */
+declare module '*/gateway/result.mjs' {
+  export function primaryAction(result: unknown): { readonly id: string; readonly label: string } | null;
+}
+
 declare module '*/gateway/planners/home-overview.mjs' { export const homeOverview: unknown; }
 declare module '*/gateway/planners/impact-quick.mjs' { export const impactQuick: unknown; }
 declare module '*/gateway/planners/work-continue.mjs' { export const workContinue: unknown; }

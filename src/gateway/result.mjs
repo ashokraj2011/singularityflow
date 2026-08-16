@@ -30,7 +30,7 @@
 import { createHash } from 'node:crypto';
 
 import { canonicalJson } from '../specifications.mjs';
-import { isCatalogued } from './catalog.mjs';
+import { isCatalogued, isWarningCode } from './catalog.mjs';
 import { SingularityFlowError } from '../util.mjs';
 
 export const SFLOW_RESULT_SCHEMA_VERSION = 2;
@@ -90,6 +90,44 @@ export const INTERACTION_CLASSES = Object.freeze([
  * promise the home is built on.
  */
 export const ACTION_EMPHASIS = Object.freeze(['primary', 'secondary', 'link']);
+
+/**
+ * Why a result offers nothing further to do. `[UXH:REQ-051]` `[INT:REQ-041]`
+ *
+ * `restState` was a free string in a contract whose entire premise is that a surface never has to
+ * parse prose — three values were in use (`blocked`, `complete`, `informational`), nothing validated
+ * them, and the result card branched on exactly one: `view.rest === 'blocked' ? … : 'Nothing further
+ * is needed.'` So `complete` and `informational` rendered identically, and a fourth value would have
+ * joined them silently.
+ *
+ * Enumerating it is what makes the distinction renderable. "There is no step you can take here",
+ * "this finished", and "this is information, and that is all it is" send a reader to three different
+ * places, and a result is entitled to say which.
+ */
+export const REST_STATES = Object.freeze([
+  /** A step exists in principle and is not available to this reader now. */
+  'blocked',
+  /** The work this result is about is finished; there is nothing further because it is done. */
+  'complete',
+  /** A read that answered, with no action implied. The ordinary rest state for a briefing. */
+  'informational',
+  /**
+   * The operation could not be attempted, and that is not the same as being blocked by a gate.
+   *
+   * `gateway.planner-unavailable` is the live case: nineteen registered operations have no planner
+   * in any build, and a host that reports "you may not" for "this build cannot" sends the reader to
+   * argue with a policy that is not the problem.
+   */
+  'unavailable',
+  /**
+   * A person has to decide, and until they do there is nothing further to compute. `[INT:CON-024]`
+   *
+   * The rest state of a ceremony. Distinct from `blocked`, which says a step exists and is not
+   * available: here the step is *available* and is deliberately not automatic, because an
+   * authorization is the one thing this product will not do on the reader's behalf.
+   */
+  'awaiting-decision'
+]);
 
 /**
  * A gate's evidence state. `[UXH:REQ-062]`
@@ -160,6 +198,27 @@ function frozenRecords(entries, label) {
  * that names a scope whose effect is `true` is rejected here rather than rendered. A producer cannot
  * tell a reader their work is untouched in the same breath as reporting that it changed.
  */
+/**
+ * `warnings[]`, held to its own catalog. `[UXH:REQ-061]` `[INT:CON-010]`
+ *
+ * Built on `frozenRecords`, so a warning is still a structured record with a source and slots like
+ * every other channel — the addition is only that its code must be one the warning catalog names.
+ * A producer with a genuinely new thing to warn about adds it to `WARNING_CODES`, which is where a
+ * translator will look for it, and where anything asking "what can this product fail to establish?"
+ * can now get a complete answer.
+ */
+function frozenWarnings(entries) {
+  const records = frozenRecords(entries, 'warnings');
+  for (const [index, record] of records.entries()) {
+    if (!isWarningCode(record.code)) {
+      invalid(`warnings[${index}] uses '${record.code}', which is a reason code rather than a warning;`
+        + ' add it to WARNING_CODES in src/gateway/catalog.mjs if this result cannot establish something,'
+        + ' or put it in why[] if it is the reason for the outcome');
+    }
+  }
+  return records;
+}
+
 function frozenPreserved(entries, resolvedEffects) {
   if (!Array.isArray(entries)) invalid('preserved must be an array');
   return Object.freeze(entries.map((entry, index) => {
@@ -440,6 +499,10 @@ export function sflowResult({
   const resolvedNext = frozenNextActions(next);
   // Never a dead end `[INT:REQ-041]`. A result with no next action and no rest state leaves the
   // reader to guess whether the journey continues, which is the state every guided surface is for.
+  if (restState !== null && !REST_STATES.includes(restState)) {
+    invalid(`restState '${restState}' is not one of ${REST_STATES.join(', ')};`
+      + ' a rest state a surface cannot enumerate is prose wearing a field name');
+  }
   if (!resolvedNext.length && !restState) {
     invalid('a result must offer at least one next action or declare an explicit rest state');
   }
@@ -482,7 +545,20 @@ export function sflowResult({
     }),
     effects: resolvedEffects,
     why: frozenRecords(why, 'why'),
-    warnings: frozenRecords(warnings, 'warnings'),
+    /**
+     * The warning channel draws only from the warning catalog. `[UXH:REQ-061]`
+     *
+     * Four channels are kept apart because a reader who is told only one of them cannot ask for the
+     * others. That was enforced for `preserved[]` — a claim naming a scope whose effect is true is
+     * rejected here — and for nothing else, so `why` and `warnings` were interchangeable in
+     * practice: both accepted any of the 106 catalogued codes.
+     *
+     * Checking the *narrow* channel rather than both is deliberate. `warnings` is the small,
+     * enumerable set of things this product could not establish; `why` is open, because the reasons
+     * an operation gives are as varied as the operations. Requiring a reason not to be a warning is
+     * the half that can be checked without freezing the other list.
+     */
+    warnings: frozenWarnings(warnings),
     preserved: resolvedPreserved,
     checklist: resolvedChecklist,
     next: resolvedNext,

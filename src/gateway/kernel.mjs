@@ -64,7 +64,16 @@ function handleCode(error) {
   return catalogued(named, 'gateway.handle-unrecognised');
 }
 
-function refuse(operationId, code, source, slots = {}) {
+/**
+ * `restState` says which kind of "no" this is. `[UXH:REQ-051]`
+ *
+ * Every kernel refusal said `blocked`, which reads as "you may not" — right for policy, and wrong
+ * for the nineteen registered operations that have no planner in any build. A reader told they are
+ * blocked goes looking for the permission that would unblock them; there isn't one, because the
+ * capability is simply absent here. `unavailable` says that, and the card has its own sentence for
+ * it pointing at the terminal.
+ */
+function refuse(operationId, code, source, slots = {}, restState = 'blocked') {
   return sflowResult({
     kind: 'refusal',
     operation: { id: operationId, classification: 'read' },
@@ -73,7 +82,7 @@ function refuse(operationId, code, source, slots = {}) {
     why: [{ code, source, slots }],
     // The kernel refused before any planner ran, so nothing anywhere was touched `[DHR:REQ-061]`.
     preserved: preservedAll('gateway.nothing-was-carried-out'),
-    restState: 'blocked'
+    restState
   });
 }
 
@@ -121,7 +130,9 @@ export function createGatewayKernel({
   async function invoke(operation, args, subject) {
     const planner = planners.get(operation.gateway.planner);
     if (typeof planner !== 'function') {
-      return refuse(operation.id, 'gateway.planner-unavailable', 'unavailable', { planner: operation.gateway.planner });
+      // A capability this build genuinely lacks, reported as absent rather than as forbidden.
+      return refuse(operation.id, 'gateway.planner-unavailable', 'unavailable',
+        { planner: operation.gateway.planner }, 'unavailable');
     }
     const produced = await planner({ operation, arguments: args, subject, registry, policy, root });
     return validateSflowResult(produced);

@@ -47,14 +47,16 @@ test('the panel renders the engine answer and resolves nothing itself', async ()
   assert.match(panel, /routing\.error/, 'the panel cannot report a mapping it failed to read');
 });
 
-test('the tab is reachable and its only action opens the governed file', async () => {
+test('model routing is reachable from the shared navigation and its only action opens the governed file', async () => {
   const page = withoutComments(await readFile(new URL('../apps/vscode/src/views/configuration-center-page.ts', import.meta.url), 'utf8'));
-  // The strip renders the shared CONFIGURATION_TABS list. Asserting a literal list here was what let
-  // 'models' ship as a tab the panel's own allowlist rejected: the page said it, nothing checked it.
+  // The grouped navigation uses the same ConfigurationTab type as the panel router. Keeping the
+  // runtime allowlist assertion here guards a navigation item that renders but cannot be opened.
   const model = withoutComments(await readFile(new URL('../apps/vscode/src/views/configuration-center-model.ts', import.meta.url), 'utf8'));
   assert.match(model, /CONFIGURATION_TABS = \[[^\]]*'models'/, 'model routing is not a known tab');
-  assert.match(page, /\$\{CONFIGURATION_TABS\.map/, 'the tab strip does not render the shared list');
-  assert.match(page, /\['models', 'agent', 'Model routing'/, 'the overview does not offer the routing area');
+  assert.match(page, /CONFIGURATION_NAVIGATION/, 'the Configuration Center has no shared navigation model');
+  assert.match(page, /label: 'Model routing',[^\n]*tab: 'models'/,
+    'the grouped navigation does not offer the routing area');
+  assert.match(page, /data-tab="\$\{item\.tab\}"/, 'navigation tabs are not wired to the panel router');
 
   /**
    * The panel is read-only, so the button out of it is the only way to change a tier — and a button

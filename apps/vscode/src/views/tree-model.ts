@@ -292,27 +292,20 @@ export function buildLifecycleTree(snapshot: RepositorySnapshot | null, error: E
     tooltip: 'Ask Copilot to assess a proposed change across the selected workspace without creating lifecycle state or a branch.',
     runCommand: 'singularityFlow.openImpact', contextValue: 'sflow.workspace.impact'
   };
-  const developerHome: TreeNode = {
-    kind: 'action', id: 'developer-home', label: 'Talk to SFlow',
-    description: 'orient · continue · review', icon: 'comment-discussion',
-    tooltip: 'Open a read-only briefing for this workspace and choose one safe, revision-bound next action.',
-    runCommand: 'singularityFlow.openDeveloperHome', contextValue: 'sflow.developer-home'
-  };
-
   if (snapshot.workflow) {
     const completedArchive = completedStoryArchive(snapshot, snapshot.workflow.workItem.id);
     const cancelledArchive = cancelledStoryArchive(snapshot, snapshot.workflow.workItem.id);
     if (snapshot.workflow.status === 'cancelled') {
-      return [developerHome, archivedFolder([cancelledStoryNode(snapshot.workflow, snapshot.documents ?? [])]),
+      return [archivedFolder([cancelledStoryNode(snapshot.workflow, snapshot.documents ?? [])]),
         ...(completedArchive ? [completedArchive] : []), workspaceImpact];
     }
     if (snapshot.workflow.status === 'complete') {
       const completed = completedStoryNode(snapshot.workflow, snapshot.documents ?? []);
       const siblings = completedStorySummaries(snapshot, snapshot.workflow.workItem.id);
-      return [developerHome, completedFolder([completed, ...siblings], countArtifacts(completed)),
+      return [completedFolder([completed, ...siblings], countArtifacts(completed)),
         ...(cancelledArchive ? [cancelledArchive] : []), workspaceImpact];
     }
-    return [developerHome, storyWorkflowNode(snapshot.workflow, snapshot.documents ?? [], snapshot.detachedDocuments ?? [], snapshot.fastPath ?? null),
+    return [storyWorkflowNode(snapshot.workflow, snapshot.documents ?? [], snapshot.detachedDocuments ?? [], snapshot.fastPath ?? null),
       ...(completedArchive ? [completedArchive] : []), ...(cancelledArchive ? [cancelledArchive] : []), workspaceImpact];
   }
 
@@ -321,7 +314,7 @@ export function buildLifecycleTree(snapshot: RepositorySnapshot | null, error: E
     const available = (snapshot.initiatives?.length ?? 0) + (snapshot.workItems?.length ?? 0);
     const archived = completedStoryArchive(snapshot);
     const cancelled = cancelledStoryArchive(snapshot);
-    return [developerHome, {
+    return [{
       kind: 'message',
       id: 'no-initiative',
       label: available
@@ -343,7 +336,7 @@ export function buildLifecycleTree(snapshot: RepositorySnapshot | null, error: E
       icon: 'play-circle',
       runCommand: 'singularityFlow.startWork',
       contextValue: 'sflow.start'
-    }, ...(archived ? [archived] : []), ...(cancelled ? [cancelled] : []), workspaceImpact, workflowsNode(snapshot)];
+    }, ...(archived ? [archived] : []), ...(cancelled ? [cancelled] : []), workspaceImpact];
   }
 
   // Workflow selection belongs to intake. Once work exists, Lifecycle shows only that work and its
@@ -352,10 +345,10 @@ export function buildLifecycleTree(snapshot: RepositorySnapshot | null, error: E
   if (initiative.state.status === 'complete') {
     const completed = completedInitiativeNode(initiative);
     const stories = completedStorySummaries(snapshot);
-    return [developerHome, completedFolder([completed, ...stories], countArtifacts(completed)), workspaceImpact];
+    return [completedFolder([completed, ...stories], countArtifacts(completed)), workspaceImpact];
   }
   const archived = completedStoryArchive(snapshot);
-  return [developerHome, initiativeNode(initiative), ...(archived ? [archived] : []), workspaceImpact];
+  return [initiativeNode(initiative), ...(archived ? [archived] : []), workspaceImpact];
 }
 
 /** Count unique, openable artifact paths beneath one completed subject. */
@@ -959,78 +952,6 @@ export function buildConfigurationTree(
 
 /** Kept as the public lifecycle builder for callers compiled against the earlier name. */
 export const buildTree = buildLifecycleTree;
-
-/**
- * The workflows this repository can start work with.
- *
- * This is what a lifecycle view is for: the work in flight, and the shapes that work can take. The
- * capability tree used to sit here as well, duplicating the Capabilities view exactly, and the
- * world model sat here too — but a capability is what the organisation builds and a world model is
- * grounding for prompts. Neither is a stage of anything, and neither belonged in a view about
- * stages.
- */
-function workflowsNode(snapshot: RepositorySnapshot): TreeNode {
-  const portfolio = snapshot.portfolio as {
-    initiativeProfiles?: Record<string, { label?: string; phases?: string[] }>;
-  } | undefined;
-  const workTypes = Object.entries(snapshot.definition?.workTypes ?? {});
-  const profiles = Object.entries(portfolio?.initiativeProfiles ?? {});
-  const portfolioPath = snapshot.portfolioPath ?? 'singularity/portfolio.yml';
-  const definitionPath = snapshot.definitionPath ?? 'singularity/workflow.yml';
-  const rows = [
-    ...profiles.map(([id, profile]) => ({
-      id,
-      label: profile?.label ?? id,
-      phases: profile?.phases ?? [],
-      governs: 'initiative',
-      path: portfolioPath
-    })),
-    ...workTypes.map(([id, type]) => ({
-      id,
-      label: (type as { label?: string })?.label ?? id,
-      phases: (type as { phases?: string[] })?.phases ?? [],
-      governs: 'story',
-      path: definitionPath
-    }))
-  ];
-
-  return {
-    kind: 'group',
-    id: 'workflows',
-    label: 'Choose a workflow during intake',
-    icon: 'git-merge',
-    description: rows.length ? `${rows.length}` : 'none',
-    tooltip: 'The shapes work can take here. A workflow is an ordered list of phases; which of them '
-      + 'governs an Initiative and which a Story is a property of the workflow, not two ideas.',
-    children: rows.length
-      ? rows.map((row) => ({
-        kind: 'artifact' as const,
-        id: `workflow:${row.governs}:${row.id}`,
-        label: row.label,
-        // The phase chain is what actually distinguishes one workflow from another, so it is the
-        // description rather than something to open the file to discover.
-        description: `${row.governs} · ${row.phases.join(' → ')}`,
-        tooltip: `${row.id}\nDefined in ${row.path}. Edit it in the Designer or in the file.`,
-        icon: row.governs === 'initiative' ? 'initiative' : 'story',
-        // Lifecycle presents the available choice. Editing its definition belongs in Configuration.
-        contextValue: 'sflow.workflow.choice'
-      }))
-      : [{
-        kind: 'message' as const,
-        id: 'workflows:empty',
-        label: 'No workflows are configured',
-        description: 'add one',
-        icon: 'info',
-        contextValue: 'sflow.workflows.empty'
-      }]
-  };
-}
-
-
-
-
-
-
 
 /** The approve command for a pack, or null when it is not yet complete. */
 function packApproval(

@@ -155,7 +155,9 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
        */
       if (!acknowledgement) return;
       await context.globalState.update(lastHome.key, acknowledgement);
-      showResultCard(buildResultCard(lastHome.envelope, { acknowledgement }), { origin: 'gateway' });
+      showResultCard(buildResultCard(lastHome.envelope, { acknowledgement }), {
+        origin: 'gateway', historyMode: 'replace'
+      });
       return;
     }
 
@@ -176,7 +178,9 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
          * to do with each; it only needed to be told which one this is.
          */
         const outcome = await executor.execute(action);
-        if (outcome.result) showResultCard(buildResultCard(outcome.result), { origin: 'gateway' });
+        if (outcome.result) showResultCard(buildResultCard(outcome.result), {
+          origin: 'gateway', historyMode: 'push'
+        });
         return;
       } catch (error) {
         output.appendLine(`[result] ${actionId} could not be dispatched in-process: ${(error as Error).message}`);

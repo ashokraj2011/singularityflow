@@ -1,16 +1,49 @@
 /** HTML renderer for the repository Configuration Center. */
 import {
   brandLockup, escape, icon } from './webview.ts';
-import { CONFIGURATION_TABS } from './configuration-center-model.ts';
 import type { IconName } from './webview.ts';
 import type { AuthorityView, ConfigurationCenterView, ConfigurationTab, McpServerView } from './configuration-center-model.ts';
 
 function csv(values: string[]): string { return escape(values.join(', ')); }
 
-function tabs(active: ConfigurationTab): string {
-  return `<nav class="tabs" aria-label="Configuration areas">
-    ${CONFIGURATION_TABS.map((tab) => `<button class="tab${active === tab ? ' active' : ''}" data-tab="${tab}">${tab === 'overview' ? 'Overview' : tab === 'world-model' ? 'World model' : tab === 'models' ? 'Model routing' : tab === 'templates' ? 'Templates &amp; instructions' : tab === 'people' ? 'People & approvals' : 'MCP tools'}</button>`).join('')}
-  </nav>`;
+type ConfigurationNavigationItem = {
+  label: string;
+  glyph: IconName;
+  tab?: ConfigurationTab;
+  action?: string;
+};
+
+const CONFIGURATION_NAVIGATION: Array<{ label: string; items: ConfigurationNavigationItem[] }> = [
+  { label: 'Repository setup', items: [
+    { label: 'Overview', glyph: 'configuration', tab: 'overview' },
+    { label: 'Capabilities', glyph: 'capability', action: 'capabilities' },
+    { label: 'Workflows & artifacts', glyph: 'workflow', action: 'workflow' },
+    { label: 'World model', glyph: 'worldModel', tab: 'world-model' }
+  ] },
+  { label: 'AI & automation', items: [
+    { label: 'Agents & delivery', glyph: 'agent', action: 'open-instruction-designer' },
+    { label: 'Model routing', glyph: 'agent', tab: 'models' },
+    { label: 'Templates & instructions', glyph: 'document', tab: 'templates' },
+    { label: 'MCP tools', glyph: 'mcp', tab: 'mcp' }
+  ] },
+  { label: 'Governance & review', items: [
+    { label: 'People & approvals', glyph: 'team', tab: 'people' },
+    { label: 'Review proposals', glyph: 'merge', action: 'proposals' },
+    { label: 'Visual assurance', glyph: 'visual', action: 'visual-assurance' },
+    { label: 'Flow Impact', glyph: 'impact', action: 'open-flow-impact' },
+    { label: 'Prompt audit', glyph: 'prompt', action: 'open-prompt-audit' }
+  ] }
+];
+
+function navigation(active: ConfigurationTab): string {
+  return `<aside class="configuration-sidebar">
+    <nav class="configuration-nav" aria-label="Configuration areas">
+      ${CONFIGURATION_NAVIGATION.map((group) => `<section class="configuration-nav-group" aria-labelledby="configuration-nav-${escape(group.label.toLowerCase().replace(/[^a-z]+/g, '-'))}">
+        <h2 id="configuration-nav-${escape(group.label.toLowerCase().replace(/[^a-z]+/g, '-'))}">${escape(group.label)}</h2>
+        <ul>${group.items.map((item) => `<li><button type="button" class="configuration-nav-item${item.tab === active ? ' active' : ''}"${item.tab === active ? ' aria-current="page"' : ''}${item.tab ? ` data-tab="${item.tab}"` : ` data-action="${item.action}"`}>${icon(item.glyph, { size: 16 })}<span>${escape(item.label)}</span></button></li>`).join('')}</ul>
+      </section>`).join('')}
+    </nav>
+  </aside>`;
 }
 
 /**
@@ -48,28 +81,7 @@ function status(entry: ConfigurationCenterView['fileSets'][number]['files'][numb
 }
 
 function overview(view: ConfigurationCenterView): string {
-  const cards: Array<[string, IconName, string, string]> = [
-    ['capabilities', 'capability', 'Capabilities', 'What the organisation builds and which repositories deliver it.'],
-    /**
-     * Adding one is a separate card rather than a step inside the editor, because the editor cannot
-     * open usefully with no capabilities at all. The command decides which panel to show — bootstrap
-     * for the first, editor for the rest — so this card is correct in both states.
-     */
-    ['add-capability', 'capability', 'Add a capability', 'Create a delivery or collection capability. The first one bootstraps the organisation lead.'],
-    ['proposals', 'merge', 'Review proposals', 'Pending capability-map changes waiting for exact-diff review and activation.'],
-    ['workflow', 'workflow', 'Workflows & artifacts', 'Work types, phases, gates, inputs, and document templates.'],
-    ['world-model', 'worldModel', 'World model', 'Grounding policy, automatic light generation, views, performance, and prompt injection.'],
-    ['instructions', 'agent', 'Agents & delivery', 'Agent routing, prompts, skills, remote templates, generated artifacts, and trust status.'],
-    ['models', 'agent', 'Model routing', 'Which model each kind of work resolves to, and the phases that route by it.'],
-    ['templates', 'document', 'Templates &amp; instructions', 'Artifact templates, repository prompts, skills and prompt packs, and what still references each one.'],
-    ['people', 'team', 'People & approvals', 'Human identities and the authority groups permitted to approve.'],
-    ['mcp', 'mcp', 'MCP tools', 'Host-owned tool servers with governed agent, phase, and tool allowlists.'],
-    ['visual-assurance', 'visual', 'Visual assurance', 'Pinned design sources, viewport coverage, comparison evidence, and readiness.'],
-    ['prompt-audit', 'prompt', 'Prompt audit', 'Optional workspace-local capture of composed governed prompts.']
-  ];
-  return `<section class="plain"><div class="section-heading"><h2>${icon('configuration')}Configuration areas</h2></div>
-    <div class="configuration-grid">${cards.map(([action, glyph, title, detail]) => `<button class="configuration-card secondary" data-action="${action}">${icon(glyph, { size: 20 })}<strong>${title}</strong><span>${detail}</span></button>`).join('')}</div>
-    <h2>${icon('ok')}Repository readiness</h2>
+  return `<section class="plain configuration-overview"><div class="section-heading"><div><h2>${icon('ok')}Repository readiness</h2><p class="muted">A quick view of the governed setup that applies to this repository.</p></div></div>
     <div class="summary-grid"><div class="summary-card"><strong>${view.authorities.length}</strong><span>Approval groups</span></div><div class="summary-card"><strong>${view.mcpServers.length}</strong><span>Governed MCP servers</span></div><div class="summary-card"><strong>${view.agents.length}</strong><span>Governed agents</span></div><div class="summary-card"><strong>${view.phases.length}</strong><span>Story phases</span></div></div>
     <p class="muted">Workflow ledger: <strong>${escape(view.ledger.summary)}</strong>. ${escape(view.ledger.detail)}</p>
     <p class="muted">Jira and Teams credentials remain in VS Code SecretStorage. They are never written into workflow files or prompts.</p>
@@ -89,19 +101,20 @@ function overview(view: ConfigurationCenterView): string {
     ${view.modelFreedom.blockers.length ? `<ul class="plain-list">${view.modelFreedom.blockers.map((entry) => `<li>${escape(entry)}</li>`).join('')}</ul>` : ''}
     ${view.modelFreedom.warnings.length ? `<ul class="plain-list muted">${view.modelFreedom.warnings.map((entry) => `<li>${escape(entry)}</li>`).join('')}</ul>` : ''}` : ''}
 
-    <h2>${icon('workflow')}Designers &amp; tools</h2>
-    <p class="muted">Everything the Configuration sidebar used to open. The sidebar now leads here, so there is one place to look and one answer to "where is that setting".</p>
-    <div class="configuration-grid">${([
-    ['open-designer', 'workflow', 'Workflow Designer', 'Work types, phases, gates and the graph of what feeds what.'],
-    ['open-instruction-designer', 'agent', 'Agent, Prompt &amp; Skill Designer', 'Author the instructions agents are composed from.'],
-    ['open-specification-trace', 'document', 'Specification traceability', 'Which clause each artifact and test claims to satisfy.'],
-    ['open-flow-impact', 'capability', 'Flow Impact', 'What a change reaches across capabilities and repositories.'],
-    ['open-copilot', 'agent', 'Continue active Story in Copilot', 'Hand the open interval to Copilot with its governed context.'],
-    ['open-prompt-audit', 'prompt', 'Prompt audit', 'The composed governed prompts. Workspace-local capture, off by default.'],
-    ['inspect-composition-cache', 'ok', 'Inspect composition cache', 'What is cached, and whether it is still valid.'],
-    ['check-ledger-deployment', 'ok', 'Check ledger deployment', 'Whether the governance ledger is reachable and current.'],
-    ['open-impact-file', 'configuration', 'impact.yml', 'Study methods, cohorts, metrics, guardrails and privacy.']
-  ] as Array<[string, IconName, string, string]>).map(([action, glyph, title, detail]) => `<button class="configuration-card secondary" data-action="${action}">${icon(glyph, { size: 20 })}<strong>${title}</strong><span>${detail}</span></button>`).join('')}</div>
+    <h2>${icon('workflow')}Common actions</h2>
+    <p class="muted">Open the most common operational tools without turning every destination into an equally prominent card.</p>
+    <div class="configuration-action-list">
+      <button class="configuration-action-row" data-action="open-designer">${icon('workflow', { size: 16 })}<span><strong>Workflow Designer</strong><small>Work types, phases, gates, and artifact flow.</small></span>${icon('next')}</button>
+      <button class="configuration-action-row" data-action="open-copilot">${icon('agent', { size: 16 })}<span><strong>Continue active Story in Copilot</strong><small>Hand the open interval to Copilot with governed context.</small></span>${icon('next')}</button>
+      <button class="configuration-action-row" data-action="open-specification-trace">${icon('document', { size: 16 })}<span><strong>Specification traceability</strong><small>Review which clauses each artifact and test claims to satisfy.</small></span>${icon('next')}</button>
+    </div>
+    <details class="configuration-advanced-tools"><summary>Advanced tools</summary>
+      <div class="configuration-action-list">
+        <button class="configuration-action-row" data-action="inspect-composition-cache">${icon('ok', { size: 16 })}<span><strong>Inspect composition cache</strong><small>Review cached agent composition and validity.</small></span>${icon('next')}</button>
+        <button class="configuration-action-row" data-action="check-ledger-deployment">${icon('ok', { size: 16 })}<span><strong>Check ledger deployment</strong><small>Verify the governance ledger is reachable and current.</small></span>${icon('next')}</button>
+        <button class="configuration-action-row" data-action="open-impact-file">${icon('configuration', { size: 16 })}<span><strong>Open impact.yml</strong><small>Study methods, cohorts, metrics, guardrails, and privacy.</small></span>${icon('next')}</button>
+      </div>
+    </details>
   </section>`;
 }
 
@@ -292,8 +305,10 @@ function mcp(view: ConfigurationCenterView, selected: McpServerView | null): str
 export function configurationCenterHtml(view: ConfigurationCenterView, tab: ConfigurationTab, selectedAuthority: AuthorityView | null, selectedMcp: McpServerView | null, notice: string | null, errors: string[]): string {
   return `<header class="inbox-header">${brandLockup()}<p class="eyebrow">Governed repository setup</p><h1>${icon('configuration', { size: 24 })}Configuration Center</h1><p class="meta">Configure the product through guided screens. Use YAML only for advanced settings that do not yet have a form.</p></header>
     <div id="configuration-runtime-message" class="notice warning" role="status" aria-live="polite" hidden><span id="configuration-runtime-text"></span><span class="grow"></span><button class="secondary" id="configuration-reload" type="button">Reload newer configuration</button><button class="secondary" id="configuration-keep" type="button">Keep editing</button></div>
-    ${tabs(tab)}${notice ? `<div class="notice ok">${escape(notice)}</div>` : ''}${errors.length ? `<div class="notice error">${errors.map((entry) => `<p>${escape(entry)}</p>`).join('')}</div>` : ''}
-    ${tab === 'overview' ? overview(view) : tab === 'world-model' ? worldModel(view) : tab === 'models' ? modelRouting(view) : tab === 'templates' ? fileSets(view) : tab === 'people' ? people(view, selectedAuthority) : mcp(view, selectedMcp)}`;
+    <div class="configuration-shell">${navigation(tab)}<main class="configuration-content">
+      ${notice ? `<div class="notice ok">${escape(notice)}</div>` : ''}${errors.length ? `<div class="notice error">${errors.map((entry) => `<p>${escape(entry)}</p>`).join('')}</div>` : ''}
+      ${tab === 'overview' ? overview(view) : tab === 'world-model' ? worldModel(view) : tab === 'models' ? modelRouting(view) : tab === 'templates' ? fileSets(view) : tab === 'people' ? people(view, selectedAuthority) : mcp(view, selectedMcp)}
+    </main></div>`;
 }
 
 export const CONFIGURATION_CENTER_SCRIPT = `

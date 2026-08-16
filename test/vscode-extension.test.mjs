@@ -464,8 +464,7 @@ test('a repository that will not load offers the file to fix and the full report
 
 
 test('a repository with nothing checked out on this branch says so, and how many exist', () => {
-  const [home, node, start] = buildTree({ initiative: null, initiatives: [{ id: 'A' }, { id: 'B' }], workItems: [] });
-  assert.equal(home.id, 'developer-home');
+  const [node, start] = buildTree({ initiative: null, initiatives: [{ id: 'A' }, { id: 'B' }], workItems: [] });
   assert.match(node.label, /Nothing is checked out/);
   assert.equal(node.description, '2 available');
   assert.equal(node.contextValue, 'sflow.lifecycle.empty');
@@ -473,8 +472,7 @@ test('a repository with nothing checked out on this branch says so, and how many
 });
 
 test('a repository with nothing started at all offers the command that starts something', () => {
-  const [home, node, start] = buildTree({ initiative: null, initiatives: [], workItems: [] });
-  assert.equal(home.runCommand, 'singularityFlow.openDeveloperHome');
+  const [node, start] = buildTree({ initiative: null, initiatives: [], workItems: [] });
   assert.match(node.label, /No work has been started/);
   assert.equal(start.contextValue, 'sflow.start');
   assert.equal(start.label, 'Start intake');
@@ -482,7 +480,7 @@ test('a repository with nothing started at all offers the command that starts so
 
 test('a checked-out Story gets a phase rail with named prepare publish and submit actions', () => {
   const tree = buildTree(storySnapshot({ generation: 1 }));
-  assert.deepEqual(tree.map((node) => node.id), ['developer-home', 'active-story:STORY-42', 'workspace:impact']);
+  assert.deepEqual(tree.map((node) => node.id), ['active-story:STORY-42', 'workspace:impact']);
   assert.equal(find(tree, 'story:continue-safely').runCommand, 'singularityFlow.continueSafely');
   assert.equal(find(tree, 'story:analytics').runCommand, 'singularityFlow.openDashboard');
   assert.match(find(tree, 'story:analytics').description, /time · tokens · cost/);
@@ -529,9 +527,9 @@ test('a completed Story leaves the active rail and opens from Completed with eve
   done.documents[0].status = 'approved';
   const tree = buildTree(done);
 
-  assert.deepEqual(tree.map((node) => node.id), ['developer-home', 'completed', 'workspace:impact']);
-  assert.equal(tree[1].label, 'Completed');
-  assert.equal(tree[1].description, '1 artifact');
+  assert.deepEqual(tree.map((node) => node.id), ['completed', 'workspace:impact']);
+  assert.equal(tree[0].label, 'Completed');
+  assert.equal(tree[0].description, '1 artifact');
   const story = find(tree, 'completed-story:STORY-42');
   assert.equal(story.contextValue, 'sflow.story.completed');
   assert.match(story.description, /1 artifact/);
@@ -555,8 +553,8 @@ test('a cancelled Story leaves the active rail and opens from Archived with its 
   };
   const tree = buildTree(cancelled);
 
-  assert.deepEqual(tree.map((node) => node.id), ['developer-home', 'archived', 'workspace:impact']);
-  assert.equal(tree[1].label, 'Archived');
+  assert.deepEqual(tree.map((node) => node.id), ['archived', 'workspace:impact']);
+  assert.equal(tree[0].label, 'Archived');
   const story = find(tree, 'archived-story:STORY-42');
   assert.equal(story.contextValue, 'sflow.story.archived');
   assert.match(story.tooltip, /customer withdrew/);
@@ -573,7 +571,7 @@ test('completed sibling Stories remain visible while another Story is active', (
   });
   const tree = buildTree(active);
 
-  assert.deepEqual(tree.map((node) => node.id), ['developer-home', 'active-story:STORY-42', 'completed', 'workspace:impact']);
+  assert.deepEqual(tree.map((node) => node.id), ['active-story:STORY-42', 'completed', 'workspace:impact']);
   assert.equal(find(tree, 'completed').description, '1 item');
   const completed = find(tree, 'completed-story-summary:WRK-456');
   assert.equal(completed.label, 'WRK-456');
@@ -595,8 +593,8 @@ test('a completed Initiative is archived with its generated outputs, not active 
   }];
   const tree = buildTree(done);
 
-  assert.deepEqual(tree.map((node) => node.id), ['developer-home', 'completed', 'workspace:impact']);
-  assert.equal(tree[1].description, '1 artifact');
+  assert.deepEqual(tree.map((node) => node.id), ['completed', 'workspace:impact']);
+  assert.equal(tree[0].description, '1 artifact');
   assert.ok(find(tree, 'completed-initiative:INIT-MULTI'));
   assert.equal(find(tree, 'initiative:continue-safely'), undefined);
   assert.equal(find(tree, 'completed-initiative:open').runCommand, 'singularityFlow.openInbox');
@@ -607,8 +605,8 @@ test('a completed Initiative is archived with its generated outputs, not active 
 test('the tree is built from the real snapshot: lifecycle, phases, artifacts, Stories', () => {
   const tree = buildTree(snapshot);
   // Once intake has selected a workflow, Lifecycle shows only that work and its phases.
-  assert.deepEqual(tree.map((node) => node.id), ['developer-home', 'initiative:INIT-MULTI', 'workspace:impact']);
-  const root = tree[1];
+  assert.deepEqual(tree.map((node) => node.id), ['initiative:INIT-MULTI', 'workspace:impact']);
+  const root = tree[0];
   assert.equal(root.kind, 'initiative');
   assert.equal(root.label, 'INIT-MULTI');
 
@@ -1069,7 +1067,7 @@ test('pinned sources appear in the tree, and an empty list reads as a finding', 
 });
 
 test('an empty repository offers to start an Epic rather than describing the command', () => {
-  const [, , start] = buildTree({ initiative: null, initiatives: [], workItems: [] });
+  const [, start] = buildTree({ initiative: null, initiatives: [], workItems: [] });
   assert.equal(start.contextValue, 'sflow.start');
   assert.equal(start.runCommand, 'singularityFlow.startWork');
   assert.doesNotMatch(start.tooltip, /singularity-flow/, 'a command to retype is not an affordance');
@@ -2212,7 +2210,7 @@ test('the enterprise tokens support light, dark, high contrast, reduced motion, 
 test('visual-review fixtures are deterministic across three themes and narrow and wide widths', () => {
   assert.deepEqual([...new Set(VISUAL_REVIEW_CASES.map((entry) => entry.theme))],
     ['light', 'dark', 'high-contrast']);
-  assert.deepEqual([...new Set(VISUAL_REVIEW_CASES.map((entry) => entry.width))], [640, 1200]);
+  assert.deepEqual([...new Set(VISUAL_REVIEW_CASES.map((entry) => entry.width))], [320, 640, 1024, 1200, 1440]);
   for (const review of VISUAL_REVIEW_CASES) {
     const first = enterpriseVisualFixture(review);
     assert.equal(first, enterpriseVisualFixture(review), `${review.theme}/${review.width} changed between renders`);
@@ -2221,6 +2219,7 @@ test('visual-review fixtures are deterministic across three themes and narrow an
     assert.match(first, /Approval inbox/);
     assert.match(first, /Workflow progress/);
     assert.match(first, /Governed agent/);
+    assert.match(first, /Configuration navigation/);
     assert.match(first, /Artifact inventory/);
     for (const task of first.matchAll(/<section class="fixture-task[^>]*">([\s\S]*?)<\/section>/g)) {
       assert.ok([...task[1].matchAll(/<button(?![^>]*class=)[^>]*>/g)].length <= 1,
@@ -3268,7 +3267,7 @@ test('VS Code exposes workspace prompt auditing and records the governed Copilot
   assert.ok(packageJson.contributes.commands.some((entry) => entry.command === 'singularityFlow.openPromptAudit'));
   // Reachable from the Configuration Center, which is the only Configuration surface now.
   const center = await readFile(source('views/configuration-center-page.ts'), 'utf8');
-  assert.match(center, /'open-prompt-audit'[\s\S]{0,160}off by default/);
+  assert.match(center, /action: 'open-prompt-audit'/);
 
   const extension = await readFile(source('extension.ts'), 'utf8');
   assert.match(extension, /\['wm', 'show-prompt', '--record-audit'\]/,
@@ -3282,8 +3281,8 @@ test('Flow Impact has a dedicated configuration and reporting entry point', asyn
   const packageJson = JSON.parse(await readFile(path.join(packageRoot, 'apps', 'vscode', 'package.json'), 'utf8'));
   assert.ok(packageJson.contributes.commands.some((entry) => entry.command === 'singularityFlow.openFlowImpact'));
   const center = await readFile(source('views/configuration-center-page.ts'), 'utf8');
-  assert.match(center, /data-action="\$\{action\}"/, 'the Center renders its tool cards by action name');
-  assert.ok(center.includes("'open-flow-impact'") && center.includes("'open-impact-file'"));
+  assert.match(center, /action: 'open-flow-impact'/, 'the Center renders Flow Impact in grouped navigation');
+  assert.ok(center.includes("'open-flow-impact'") && center.includes('data-action="open-impact-file"'));
   const extensionSource = await readFile(source('extension.ts'), 'utf8');
   assert.match(extensionSource, /'open-flow-impact'\) await vscode\.commands\.executeCommand\('singularityFlow\.openFlowImpact'\)/);
   assert.match(extensionSource, /'open-impact-file'\)[\s\S]{0,200}singularity\/impact\.yml/);

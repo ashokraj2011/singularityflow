@@ -35,7 +35,9 @@ export const KERNEL_MESSAGES = Object.freeze([
    * had a chance to be the first thing read. The result still succeeded — the operation worked and
    * the answer is no, which is exactly why `kind` and `outcome.status` are kept apart.
    */
-  'gateway.not-ready'
+  'gateway.not-ready',
+  /** The return briefing's own heading, so it is not narrated as a generic read. */
+  'gateway.returned'
 ]);
 
 /**

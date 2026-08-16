@@ -29,6 +29,7 @@ import { impactQuick } from '../../../src/gateway/planners/impact-quick.mjs';
 import { workContinue } from '../../../src/gateway/planners/work-continue.mjs';
 import { workList } from '../../../src/gateway/planners/work-list.mjs';
 import { workReadiness } from '../../../src/gateway/planners/work-readiness.mjs';
+import { workReturn } from '../../../src/gateway/planners/work-return.mjs';
 import { workspaceList } from '../../../src/gateway/planners/workspace-list.mjs';
 
 /** What this host can answer without leaving the editor process. */
@@ -38,6 +39,7 @@ export function editorPlanners(): Map<string, unknown> {
     ['work-list', workList],
     ['work-continue', workContinue],
     ['work-readiness', workReadiness],
+    ['work-return', workReturn],
     ['workspace-list', workspaceList],
     ['impact-quick', impactQuick]
   ]);

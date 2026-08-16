@@ -41,6 +41,7 @@ export const RESULT_MESSAGES = Object.freeze({
   'gateway.explained': M('Here is the explanation'),
   'gateway.refused': M('Not ready'),
   'gateway.not-ready': M('Not ready to submit'),
+  'gateway.returned': M('Where you left this'),
   'gateway.resolved': M('Ready to go'),
   'gateway.candidates': M('More than one thing matches'),
   'gateway.clarification': M('One more thing needed'),
@@ -135,6 +136,26 @@ export const RESULT_MESSAGES = Object.freeze({
   'readiness.awaiting-a-human-decision': M('Waiting for a reviewer'),
   'readiness.produce-the-artifact': M('Produce the artifact'),
   'readiness.no-known-step': M('No step is known for this'),
+
+  /**
+   * The return briefing `[DHR:REQ-040]`–`[DHR:REQ-046]`.
+   *
+   * `current-state` carries its own explanation because the *absence* of a delta is the fact: a
+   * reader who is not told this is everything will read it as everything-that-changed.
+   */
+  'return.current-state': M('Current state', 'There is no record of when you were last here, so this is everything rather than a delta.'),
+  'return.since-you-were-here': M('Since you were here'),
+  'return.reconciled': M('{changed} path(s) changed, {unplanned} outside the plan'),
+  'return.no-open-interval': M('No governed work interval is open', 'Your local work is untouched; it is simply not attached to a governed interval.'),
+  'return.planned': M('Changes match the plan', '{planned} of {changed} changed path(s) were planned.'),
+  'return.unplanned': M('Changes outside the plan'),
+  'return.protected': M('Protected paths untouched', '{count} protected path(s) changed.'),
+  'return.unrecognised-verdict': M('A verdict this build has no name for'),
+  'return.clean-worktree': M('Application tree committed', '{uncommitted} uncommitted application path(s).'),
+  'return.local-changes-unread': M('Local changes were not read'),
+  'return.reconciliation-unavailable': M('No reconciliation for {work}', 'Nothing was compared, so nothing here is a verdict on your work.'),
+  'return.reconcile-before-submitting': M('Reconcile before submitting'),
+  'return.nothing-was-carried-out': M('Nothing was carried out', 'This is a read. Your work is untouched.'),
 
   // ---- Workspaces, impact, documentation, decisions
   'workspace.from-registry': M('From the workspace registry'),

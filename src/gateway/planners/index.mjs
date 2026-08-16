@@ -14,6 +14,7 @@ import { homeOverview } from './home-overview.mjs';
 import { impactQuick } from './impact-quick.mjs';
 import { workContinue } from './work-continue.mjs';
 import { workReadiness } from './work-readiness.mjs';
+import { workReturn } from './work-return.mjs';
 import { workList } from './work-list.mjs';
 import { workspaceList } from './workspace-list.mjs';
 
@@ -24,10 +25,11 @@ export function gatewayPlanners(overrides = {}) {
     'impact-quick': impactQuick,
     'work-continue': workContinue,
     'work-readiness': workReadiness,
+    'work-return': workReturn,
     'work-list': workList,
     'workspace-list': workspaceList,
     ...overrides
   }));
 }
 
-export { helpExplain, homeOverview, impactQuick, workContinue, workList, workReadiness, workspaceList };
+export { helpExplain, homeOverview, impactQuick, workContinue, workList, workReadiness, workReturn, workspaceList };

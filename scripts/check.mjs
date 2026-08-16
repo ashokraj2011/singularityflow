@@ -415,24 +415,16 @@ checked.push('templates/portfolio.yml');
     }
     if (invented.length) fail(`Documentation topics reference things that do not exist:\n    ${invented.join('\n    ')}`);
 
-    // Direction two: no user-facing command is undocumented. Internal reset/install plumbing is not
-    // something a person asks a question about, and pretending otherwise would pad the topic set
-    // with pages nobody reads.
-    const notUserFacing = new Set([
-      'about', 'help', 'explain', 'show', 'harness', 'init', 'factory-reset', 'reset-all', 'local-reset',
-      'fresh-install', 'reinstall', 'refresh-branch', 'hook', 'plugin', 'session', 'state', 'watch',
-      'cockpit', 'run', 'assign', 'stack', 'prompt-log', 'logs', 'snapshot', 'choices', 'action',
-      'agent', 'agents', 'workflow', 'workspace', 'capability', 'capabilities', 'configuration',
-      'initiative', 'jira', 'knowledge', 'prepare', 'progress', 'quickstart', 'regression', 'resume',
-      'wm', 'bootstrap', 'next', 'inputs', 'artifact', 'pr', 'stack'
-    ]);
+    // Direction two: every command visible in the canonical CLI reference has a served topic.
+    // Setup, repair, and administration are user workflows too; hiding them behind an exemption is
+    // how a complete command reference and an incomplete help system drifted apart.
     const documented = new Set(topics.flatMap((topic) => topic.commands));
     const undocumented = [...commandNames]
-      .filter((name) => !notUserFacing.has(name) && !documented.has(name))
+      .filter((name) => !documented.has(name))
       .filter((name) => COMMAND_REGISTRY.some((entry) => entry.name === name))
       .sort();
     if (undocumented.length) {
-      fail(`User-facing commands no topic documents: ${undocumented.join(', ')}. Document them, or add them to the not-user-facing list in scripts/check.mjs with a reason.`);
+      fail(`Registered commands no topic documents: ${undocumented.join(', ')}.`);
     }
 
     // The manifest must describe the topics that are actually on disk `[DOC:REQ-004]`, or `doctor`

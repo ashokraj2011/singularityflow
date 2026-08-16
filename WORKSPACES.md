@@ -5,6 +5,8 @@ capability selection. It is not a new Jira level and it is not lifecycle state.
 The selected capabilities determine the participating repositories, their Jira
 routing, and which repository leads shared Initiative artifacts.
 
+The installed tutorials are `sflow explain workspaces-and-sessions`, `sflow explain capability-management`, and `sflow explain initiative-lifecycle`.
+
 ## The model
 
 ```mermaid

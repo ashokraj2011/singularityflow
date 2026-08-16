@@ -1,7 +1,10 @@
 # ADR 0001: Capability-ledger trust and enforcement
 
-- Status: accepted
+- Status: accepted and current
 - Date: 2026-07-31
+
+This record is maintained as the current trust boundary. Later implementation details are folded
+into this document rather than leaving the accepted decision as a historical snapshot.
 
 ## Decision
 

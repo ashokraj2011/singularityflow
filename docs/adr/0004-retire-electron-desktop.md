@@ -1,9 +1,12 @@
 # ADR 0004: Retire the Electron Desktop App
 
-- Status: accepted
+- Status: accepted and current
 - Date: 2026-08-03
 - Baseline: `main@ebcb37d`
 - Decision owner: Singularity Flow maintainers
+
+This remains the current surface decision: the supported product surfaces are the deterministic
+CLI, GitHub Copilot skills, and the VS Code extension. No Electron desktop application is shipped.
 
 ## Context
 

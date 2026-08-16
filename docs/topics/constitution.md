@@ -1,12 +1,52 @@
 ---
 id: constitution
 title: The constitution
-aliases: [articles, enforced-article, judged-article, exception, ART]
-commands: [constitution]
-related: [specification-quality, configuration, approvals, evidence-and-ledger]
+aliases:
+  - articles
+  - enforced-article
+  - judged-article
+  - exception
+  - ART
+commands:
+  - constitution
+related:
+  - specification-quality
+  - configuration
+  - approvals
+  - evidence-and-ledger
+version: 2
 ---
 A constitution is the standing rules a Story is held to before anyone writes a requirement. It lives at `singularity/constitution.md` on the approved configuration branch, and it has two kinds of article. An **enforced** article restates a machine policy the kernel already applies: its prose is generated from the effective policy value, so it cannot say something the kernel does not do. A **judged** article is authored prose about something no policy can check — "every change carries a rollback" — carrying `level: must|should` and `evidenceRequired: true|false`. Nothing evaluates a judged article; a human records its verdict at conformance, and the article's job is to make sure they are asked.
 
-Run `sflow constitution generate` to rewrite the enforced articles from the approved policy. Judged articles and any prose you wrote around an enforced one come back byte-for-byte, and generating twice from the same configuration produces identical bytes. Editing an enforced article by hand fails `sflow constitution check`, because the recorded hash covers the prose *and* the policy value it was derived from — which also catches the subtler case where the policy moved and the article stayed still. A judged article's prose is immutable once approved: to change the rule, withdraw the article and allocate a new ID, so "we changed our mind" stays readable.
+## Purpose and prerequisites
 
-A Story pins the constitution at start — path, file hash, index hash, configuration commit and policy-resolution hash — and keeps that pin while the configuration branch advances. The rules you are judged against are the ones that were in force when you began. Artifacts cite article IDs in a `## Constitution articles` section; the kernel validates every cited ID against the pin before publication and renders the cited articles, plus any that require evidence, in the review packet. When a rule is deliberately not followed, `sflow constitution except <ARTICLE-ID> --reason TEXT` records the article, reason, scope, actor, authority, time, optional expiry and exact Story binding — and it appears in the review packet and final conformance. The shipped examples under `examples/constitution/` are marked `example: true` and are refused as real policy until you remove that line.
+Use this topic when the current goal matches **constitution**. Start in a governed checkout unless the command explicitly operates on installation or machine-local workspace state. Run `sflow doctor` when setup, identity, credentials, or repository health is uncertain, and use `sflow status` or `sflow home` to confirm the selected work before a mutation.
+
+## Use it from each surface
+
+- **Shell:** `sflow constitution`. Run `singularity-flow constitution --help` for the exact forms supported by this build.
+- **Copilot:** `/sf-help` followed by the documented CLI fallback. The skill must preserve the CLI result and ask before any governed mutation.
+- **VS Code:** open Singularity Flow **Lifecycle**. The extension renders engine results; it does not independently decide lifecycle state.
+
+## Guided workflow
+
+1. Read the current state with `sflow home`, `sflow status`, or the relevant list/status form.
+2. Review the repository, workspace, Work ID, phase, actor, and any warnings before selecting an action.
+3. Preview or prepare the operation when the command offers a dry-run, plan, packet, or exact confirmation.
+4. Run the smallest applicable command from this topic. Do not substitute an undocumented subcommand.
+5. Re-read state after completion. In Copilot, return to `/sf-home`; in VS Code, refresh the relevant view if it has not already refreshed.
+
+## State and safety
+
+These commands can mutate governed or machine-local state: `constitution`. They remain subject to identity, authority, sequence, freshness, branch, worktree, and exact-confirmation checks. Signed handles are session-bound and are never shared between the shell, Copilot, and VS Code. Durable repository and workspace records are the shared source of truth.
+
+## Troubleshooting
+
+- If the selected Story or branch is wrong, stop and use `sflow home`, `sflow session`, or `sflow workspace list` before retrying.
+- If a command refuses because state moved, refresh and use the newly rendered action instead of replaying an old handle or confirmation.
+- If publication or synchronization is pending, follow the exact recovery command in the refusal and verify with `sflow doctor`.
+- If a Copilot or VS Code action is unavailable, use the displayed CLI fallback; do not guess a command from the label.
+
+## Related topics
+
+Continue with `sflow explain specification-quality`, `sflow explain configuration`, `sflow explain approvals`, `sflow explain evidence-and-ledger`.

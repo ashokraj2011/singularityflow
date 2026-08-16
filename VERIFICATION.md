@@ -2,6 +2,8 @@
 
 Use this checklist for the agent-only Singularity Flow 0.9.0 development model.
 
+The current packaged diagnostic tutorials are `sflow explain diagnostics-and-regression`, `sflow explain repository-state-and-snapshots`, and `sflow explain recovery`.
+
 ## Repository initialization
 
 - `singularity-flow init` creates `singularity/workflow.yml`, all referenced

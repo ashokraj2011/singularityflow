@@ -29,6 +29,9 @@ Then, on a repository you care about:
 The full documentation map is in [docs/README.md](./docs/README.md).
 The read-only return experience is documented in
 [Developer Home and Story Return](./docs/DEVELOPER-HOME.md).
+In VS Code, **My Work** is the visible home; **Talk to SFlow** is retained only as
+a hidden compatibility alias. In Copilot, `/sf-home` asks the contributor to pick
+one current action, follows that guided flow, and refreshes the home afterward.
 
 ## What it is
 
@@ -67,7 +70,7 @@ The package contains:
 - Exact local prompt-composition caching and honest deployment validation for orphan state ledgers.
 - Opt-in Harness Imports for revision-bound `sfref:v1` artifacts, deterministic bounded previews, exact engine conformance evidence, and approved scoped knowledge recall.
 - Opt-in Flow Impact studies with automatic Story enrollment, revision-bound receipts, honest exposure and missing-data records, aggregate privacy floors, uncertainty intervals, and quality-gated inference labels.
-- A no-argument cockpit, repository doctor, guided run mode, portable review bundles, safe recovery, workflow simulation, assignments, and read-only watching.
+- A deterministic home, repository doctor, guided run mode, portable review bundles, safe recovery, workflow simulation, assignments, and read-only watching.
 - Recursive design-package inventory and a local image gallery for exported Figma/mobile evidence.
 - Opt-in initiative orchestration for Epics and repository-specific stories, with separate Epic/Story Work/Jira IDs, typed evidence, interface contracts, cross-repository progress, and enterprise phase gates.
 - A native Copilot handoff: VS Code renders phase-aware governed context while authoring stays in the user’s normal Copilot session; the installed `/sf-*` aliases can be used directly.

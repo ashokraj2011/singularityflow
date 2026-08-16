@@ -2035,7 +2035,7 @@ test('the VS Code Help Center renders searchable concepts and copyable command b
     { id: 'cli-command-reference', title: 'CLI command reference', content: '| Command | Purpose |\n| --- | --- |\n| `singularity-flow help` | Help |' }
   ] }, 'story-intake');
   assert.match(html, /Help Center/);
-  assert.match(html, /Search workspace, capability, Story intake, commands/);
+  assert.match(html, /Search the complete offline manual for My Work, workspaces, configuration, agents, world model, Jira, Initiatives, commands, and recovery/);
   assert.match(html, /help-article selected[^>]*data-topic-id="story-intake"/);
   assert.match(html, /copy-code/);
   assert.match(html, /<table>/);

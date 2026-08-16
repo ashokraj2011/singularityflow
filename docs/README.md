@@ -56,11 +56,12 @@ is not part of the current product.
 | Test and governance checks | [Verification](../VERIFICATION.md) |
 | npm and VSIX distribution | [Distribution](../DISTRIBUTION.md) |
 | Security and trust boundaries | [Architecture](../ARCHITECTURE.md#security-and-trust-boundaries) |
-| Historical product decisions | [Architecture decision records](adr/) |
+| Current product decisions and compatibility records | [Architecture decision records](adr/) and repository `RELEASE-*.md` documents |
 
-Files named `RELEASE-*.md` are historical release records. They intentionally
-describe the product at the time of that release and are not the current user
-manual.
+Files named `RELEASE-*.md` retain stable filenames for inbound links, but their
+behavioral guidance is maintained against the current product. Version labels
+identify where a capability originated; current commands, surfaces, and safety
+boundaries take precedence throughout each document.
 
 ## Source-of-truth rule
 

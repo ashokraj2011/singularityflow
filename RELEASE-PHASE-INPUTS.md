@@ -1,7 +1,8 @@
 # Singularity Flow 0.8.0 — Phase Inputs and Remote Agent Markdown
 
-> Historical 0.8 release notes. The current development line is a clean break:
-> only current state schemas are accepted and no migration command is shipped.
+> Current behavior document. The 0.8 label identifies the feature's origin; only current state
+> schemas are accepted, no migration command is shipped, and the guidance below is maintained for
+> the current product.
 
 This delivery combines deterministic next-action guidance, the one-script local installer, opt-in approved-artifact dataflow, and trust-pinned public Markdown dependencies for Copilot agents. Package, marketplace, desktop, and plugin versions remain `0.8.0`; `install.sh` deliberately uninstalls and reinstalls the same version so local and Copilot caches receive this build.
 

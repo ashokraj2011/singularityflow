@@ -18,13 +18,13 @@ export interface HelpDocument {
 
 const START_TOPICS = [
   'quick-start',
+  'low-friction-cockpit-diagnostics-and-guided-execution',
   'workspaces-and-capabilities',
-  'story-intake',
-  'how-the-workflow-works',
+  'workspace-configuration',
   'governed-agents-and-approval-authority',
-  'vs-code-extension',
-  'copilot-commands',
-  'cli-command-reference',
+  'world-model',
+  'jira-intake',
+  'multi-repository-initiatives',
   'troubleshooting'
 ];
 
@@ -125,8 +125,8 @@ export function helpCenterHtml(document: HelpDocument, requested: string | null 
     ${brandLockup()}
     <p class="eyebrow">Product guide and command reference</p>
     <h1>${icon('book', { size: 24 })}Help Center</h1>
-    <p class="meta">Search the complete offline manual. Concepts and commands come from the same <code>HELP.md</code> packaged with the CLI.</p>
-    <input class="help-search" type="search" data-help-search placeholder="Search workspace, capability, Story intake, commands…" aria-label="Search help">
+    <p class="meta">Search the complete offline manual for My Work, workspaces, configuration, agents, world model, Jira, Initiatives, commands, and recovery. The same <code>HELP.md</code> ships with the CLI.</p>
+    <input class="help-search" type="search" data-help-search placeholder="Search My Work, workspace, agent, Jira, world model…" aria-label="Search help">
   </header>
   <div class="help-layout">
     <aside class="help-nav" aria-label="Help topics">

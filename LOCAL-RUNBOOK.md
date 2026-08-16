@@ -2,6 +2,8 @@
 
 The complete lifecycle without a Jira connection: workspace, initialization, repository grounding, manual Story intake, the phase loop, and completion.
 
+Use `sflow explain getting-started`, `sflow explain workspaces-and-sessions`, and `sflow explain manual-authorship` for the packaged tutorials corresponding to this runbook.
+
 Examples use the direct personal aliases installed by
 `singularity-flow plugin install`: `/sf-init`, `/sf-session`, `/sf-phase`, `/sf-submit`, and
 `/sf-approve`. They do not require a plugin namespace. The packaged compatibility

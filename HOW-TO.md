@@ -2,6 +2,8 @@
 
 This guide shows how Singularity Flow turns a Jira story or manual request into approved, Git-transferable artifacts, implementation evidence, and a final specification-to-code comparison.
 
+For installed, versioned guidance, run `sflow explain starting-work`, `sflow explain story-lifecycle`, or `sflow explain approvals`. These served topics include shell, Copilot, and VS Code paths and remain available outside a repository.
+
 For the Git-only path with no Jira connection at any point — including local Epics, the selection-receipt flows, and which commands require an interactive terminal — see [LOCAL-RUNBOOK.md](LOCAL-RUNBOOK.md).
 
 ## The system at a glance

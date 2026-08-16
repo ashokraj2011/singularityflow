@@ -5,6 +5,8 @@ product owners, architects, developers, QA, and approvers. It delegates all
 governed reads and mutations to `sflow`; it does not keep a competing workflow
 database.
 
+**My Work** is the visible home. The hidden **Talk to SFlow** command is retained only for compatibility and opens My Work. See `sflow explain developer-home` and `sflow explain copilot-and-surfaces` for the shared-state and session-boundary details.
+
 ## Navigation model
 
 The Singularity Flow activity bar contains four primary views.

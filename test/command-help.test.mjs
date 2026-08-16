@@ -55,12 +55,18 @@ test('every dispatched command publishes a synopsis', () => {
   assert.deepEqual(missing, [], 'commands dispatch but publish no usage synopsis');
 });
 
-test('a command with no authored page still renders one', () => {
-  const undocumented = allCommands().find((command) => !documentedCommands().includes(command));
-  const page = renderCommandHelp(undocumented);
-  assert.match(page, /^NAME\n/);
-  assert.match(page, /\nSYNOPSIS\n/);
-  assert.match(page, /No detailed page has been written/);
+test('every command has a complete current reference page', () => {
+  assert.deepEqual(documentedCommands().sort(), allCommands().sort());
+  for (const command of allCommands()) {
+    const page = renderCommandHelp(command);
+    assert.match(page, /^NAME\n/);
+    assert.match(page, /\nSYNOPSIS\n/);
+    assert.match(page, /\nDESCRIPTION\n/);
+    assert.match(page, /\nOPTIONS\n/);
+    assert.match(page, /\nEXAMPLES\n/);
+    assert.match(page, /\nSEE ALSO\n/);
+    assert.doesNotMatch(page, /No detailed page has been written/, command);
+  }
 });
 
 test('an authored page carries description, examples and related commands', () => {

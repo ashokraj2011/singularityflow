@@ -1,7 +1,7 @@
 # Developer Home and Story Return
 
 Developer Home is the read-only front door for returning to governed work. It is
-available in VS Code as **Lifecycle → Talk to SFlow** and from a terminal as:
+available in VS Code as **My Work** and from a terminal as:
 
 ```bash
 sflow home
@@ -9,6 +9,9 @@ sflow home --json
 sflow story return WORK-123
 sflow story return WORK-123 --json
 ```
+
+The old **Talk to SFlow** command ID remains hidden for compatibility with saved
+links and keybindings. It opens My Work and never creates a second home surface.
 
 ## What Developer Home shows
 
@@ -56,7 +59,12 @@ and hidden work that is not visible to the active identity.
 
 ## Copilot use
 
-Developer Home itself never calls Copilot. Use the fallback command printed beside a
-choice in a normal Copilot session, or use the installed `/sf-*` skill for that
-operation. This keeps orientation deterministic while Copilot remains the governed
-authoring surface.
+Use `/sf-home` to read the same deterministic home envelope in Copilot. The skill
+shows every current choice, asks for one explicit selection, follows only the mapped
+`/sf-*` guided flow, and runs home again afterward so started or switched work is
+immediately visible. The initial read remains model-independent and non-mutating.
+
+CLI, Copilot, and VS Code do not share an in-memory singleton. They read the same
+durable workspace, repository, lifecycle, and Git records and apply the same home
+projection. Signed action handles, conversation history, navigation history, and the
+VS Code acknowledgement remain local to their host and session.

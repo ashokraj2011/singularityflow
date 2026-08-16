@@ -231,7 +231,7 @@ which singularity-flow
 readlink "$(which singularity-flow)"
 singularity-flow --version
 copilot plugin list
-copilot skill list
+copilot plugins list --kind skill
 ```
 
 ## 3. The Node.js entry point
@@ -652,7 +652,7 @@ Confirm Copilot has the expected plugin and skills:
 
 ```bash
 copilot plugin list
-copilot skill list
+copilot plugins list --kind skill
 ```
 
 Inspect deterministic state:

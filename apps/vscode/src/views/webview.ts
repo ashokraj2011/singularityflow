@@ -695,7 +695,7 @@ export const STYLE = `
     .workflow-rail { align-items: stretch; }
     .section-actions { flex-direction: column; }
     .help-layout { grid-template-columns: 1fr; }
-    .help-nav { position: static; max-height: 18rem; }
+    .help-nav { position: static; max-height: 12rem; }
     .help-header { position: static; }
   }
 `;

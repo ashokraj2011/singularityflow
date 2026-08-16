@@ -1,5 +1,8 @@
 # Initiative orchestration delivery
 
+> Current behavior document. The original delivery name is retained for stable links; the
+> Initiative, workspace, Story, and repository guidance below describes the current product.
+
 This delivery adds an opt-in portfolio layer above Singularity Flow’s existing story workflows.
 
 ## Shipped

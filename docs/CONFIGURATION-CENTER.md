@@ -6,6 +6,8 @@ Singularity Flow configuration has one visual entry point in VS Code: **Configur
 - **Governed agents** are AI instruction roles used to compose a phase prompt. They never grant human approval authority.
 - **MCP servers** are tools owned and started by VS Code or Copilot. Flow stores only the shared allowlist and evidence policy; it never stores the server's credential in `workflow.yml`.
 
+The installed tutorials are `sflow explain configuration`, `sflow explain workflow-authoring`, `sflow explain agents-and-routing`, `sflow explain world-model`, and `sflow explain mcp-integration`.
+
 ## Visual coverage
 
 | Area | Visual editor | Governed storage |

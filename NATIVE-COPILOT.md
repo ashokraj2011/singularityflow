@@ -4,6 +4,8 @@ Singularity Flow uses the authenticated Copilot surface already available in VS 
 terminal. The product does not host a second model session or treat chat history as workflow
 state.
 
+Run `sflow explain copilot-and-surfaces` for the current boundary between CLI, Copilot, and VS Code. `/sf-home` reads current choices, asks for one explicit selection, follows that guided flow, and refreshes home afterward.
+
 ## Operating model
 
 ```mermaid

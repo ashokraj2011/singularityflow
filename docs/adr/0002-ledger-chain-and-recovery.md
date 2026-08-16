@@ -1,7 +1,10 @@
 # ADR 0002: Serialized ledger chain and recoverable publication
 
-- Status: accepted
+- Status: accepted and current
 - Date: 2026-07-31
+
+This record is maintained as the current serialization and recovery contract. Current command and
+publication behavior takes precedence over examples originating in the initial delivery.
 
 ## Decision
 

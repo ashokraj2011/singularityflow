@@ -6,6 +6,8 @@ Singularity Flow is distributed as two artifacts:
 2. the Singularity Flow VS Code extension (`.vsix`), which provides Workspaces,
    Lifecycle, Inbox, and Configuration.
 
+Use `sflow explain installation-and-upgrades` and `sflow explain resets-and-cleanup` for the packaged operator workflows and their exact safety boundaries.
+
 The retired Electron app is preserved at Git tag `desktop-final-v0.9.0` and branch
 `archive/desktop-app`; it is not built, installed, or supported by current releases.
 

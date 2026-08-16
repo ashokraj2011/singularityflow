@@ -1,5 +1,8 @@
 # Epic Branch Lineage, Merge Sequence, and Story Pull Requests
 
+> Current behavior document. The original release title is retained for stable links; commands,
+> surfaces, merge rules, and safety guidance below are maintained against the current product.
+
 This `0.9.0` delivery closes the single-repository Epic case: Story branches now
 descend from the Epic branch, merge in dependency order, and land the Epic
 through one final pull request.

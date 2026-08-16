@@ -6,6 +6,7 @@ import type { SingularityFlowClient } from '../cli/client.ts';
 import type { WorkspaceStore } from '../state.ts';
 import { contentSecurityPolicy, navigationTarget, nonce, page } from './webview.ts';
 import { navigateTo } from './navigate.ts';
+import { registerMessageRouter, stringField } from './messages.ts';
 import { buildVisualAssuranceView } from './visual-assurance-model.ts';
 import { visualAssuranceHtml, VISUAL_ASSURANCE_SCRIPT } from './visual-assurance-page.ts';
 
@@ -38,7 +39,7 @@ export class VisualAssurancePanel implements vscode.Disposable {
       // this panel's own message contract, because "go to another page" is not this panel's business.
       const navigation = navigationTarget(raw);
       if (navigation) return void navigateTo(navigation);
- void this.receive(raw); }, null, this.subscriptions);
+ void this.router.route(raw); }, null, this.subscriptions);
     panel.onDidDispose(() => this.dispose(), null, this.subscriptions);
     this.render();
   }
@@ -57,73 +58,119 @@ export class VisualAssurancePanel implements vscode.Disposable {
     return VisualAssurancePanel.current;
   }
 
-  private async receive(raw: unknown): Promise<void> {
-    const message = (raw && typeof raw === 'object' ? raw : {}) as VisualMessage;
-    if (this.busy) return;
-    if (message.type === 'refresh') { await this.store.refresh(); return; }
-    if (message.type === 'open' && message.path) return this.open(message.path);
-    if (message.type === 'network-doctor') {
+  /**
+   * The nine messages this panel speaks, enumerated. `[UXH:REQ-134]` `[UXH:AC-014]`
+   *
+   * **Three of these are ceremonies and are reproduced exactly.** `attest` demands the server ID
+   * typed back before recording that a person trusted and authenticated an MCP host; `promote-candidate`
+   * demands the record ID because promoting reopens design capture and invalidates downstream
+   * approvals; `record` with a remote URL asks before contacting the network. Those prompts, their
+   * exact-match comparisons and their refusals are unchanged — a ceremony that a migration made one
+   * click easier would be worse than the open type set this change is closing `[INT:CON-113]`.
+   *
+   * `this.busy` is checked once for all of them, as the chain did: an operation in flight means no
+   * second one starts, and that guard has to sit in front of every branch rather than inside some.
+   */
+  private router = registerMessageRouter('singularityFlow.visualAssurance', {
+    refresh: () => this.guard(() => this.store.refresh()),
+    open: (message) => {
+      const path = stringField(message, 'path');
+      return path ? this.guard(() => this.open(path)) : undefined;
+    },
+    'network-doctor': () => this.guard(async () => {
       const confirmed = await vscode.window.showWarningMessage(
         'Run network diagnostics against configured MCP hosts? This may contact external design and browser services.',
         { modal: true }, 'Run network doctor'
       );
       if (confirmed !== 'Run network doctor') return;
-      return this.operate('MCP network diagnostics completed.', ['mcp', 'doctor', '--network', '--json']);
-    }
-    if (message.type === 'warm' && message.server) {
-      const confirmed = await vscode.window.showWarningMessage(
-        `Contact and warm MCP server '${message.server}'?`, { modal: true }, 'Warm server'
-      );
-      if (confirmed !== 'Warm server') return;
-      return this.operate(`MCP server '${message.server}' warmed.`, ['mcp', 'warm', message.server, '--network', '--json']);
-    }
-    if (message.type === 'attest' && message.server) {
-      const confirmation = await vscode.window.showInputBox({
-        title: `Attest MCP host readiness · ${message.server}`,
-        prompt: `Type ${message.server} to confirm that you trusted, started, and authenticated this MCP host on this machine.`,
-        placeHolder: message.server,
-        ignoreFocusOut: true
-      });
-      if (confirmation !== message.server) {
-        if (confirmation !== undefined) void vscode.window.showWarningMessage(`Readiness was not attested. Enter the exact server ID: ${message.server}`);
-        return;
-      }
-      return this.operateText(`MCP host readiness attested for '${message.server}'.`, ['mcp', 'attest', message.server, '--confirm', message.server]);
-    }
-    if (message.type === 'inventory') return this.operate(
-      'Deterministic design inventory generated.', ['wm', 'design-inventory', '--from-records', '--json']
-    );
-    if (message.type === 'promote-candidate' && message.candidateRecordId) {
-      const confirmation = await vscode.window.showInputBox({
-        title: 'Promote design-source candidate',
-        prompt: 'This reopens the design capture phase and invalidates downstream approvals. Type the exact candidate record ID to continue.',
-        placeHolder: message.candidateRecordId, ignoreFocusOut: true
-      });
-      if (confirmation !== message.candidateRecordId) return;
-      return this.operateText('Design candidate promoted; capture and downstream phases reopened.', [
-        'mcp', 'design-sources', 'promote', message.candidateRecordId, '--confirm', message.candidateRecordId
-      ]);
-    }
-    if (message.type === 'compare' && message.expected && message.actual) {
-      const args = ['visual', 'compare', '--expected', message.expected, '--actual', message.actual];
-      addOption(args, '--profile', message.profile); args.push('--json');
-      return this.operate('Visual comparison recorded.', args);
-    }
-    if (message.type === 'record' && message.server && message.tool && message.kind) {
-      const args = ['mcp', 'record', message.server, '--tool', message.tool, '--kind', message.kind];
-      addOption(args, '--output', message.output); addOption(args, '--output-url', message.outputUrl);
-      addOption(args, '--file-key', message.fileKey); addOption(args, '--file-version', message.fileVersion);
-      addOption(args, '--profile-id', message.profileId); addOption(args, '--screen-id', message.screenId);
-      addOption(args, '--state-id', message.stateId);
-      for (const node of message.nodes ?? []) addOption(args, '--node', node);
-      if (message.outputUrl) {
+      await this.operate('MCP network diagnostics completed.', ['mcp', 'doctor', '--network', '--json']);
+    }),
+    warm: (message) => {
+      const server = stringField(message, 'server');
+      if (!server) return;
+      return this.guard(async () => {
         const confirmed = await vscode.window.showWarningMessage(
-          `Download and hash MCP evidence from ${message.outputUrl}?`, { modal: true }, 'Record remote evidence'
+          `Contact and warm MCP server '${server}'?`, { modal: true }, 'Warm server'
         );
-        if (confirmed !== 'Record remote evidence') return;
-      }
-      return this.operateText('Governed MCP evidence recorded.', args);
+        if (confirmed !== 'Warm server') return;
+        await this.operate(`MCP server '${server}' warmed.`, ['mcp', 'warm', server, '--network', '--json']);
+      });
+    },
+    attest: (message) => {
+      const server = stringField(message, 'server');
+      if (!server) return;
+      return this.guard(async () => {
+        const confirmation = await vscode.window.showInputBox({
+          title: `Attest MCP host readiness · ${server}`,
+          prompt: `Type ${server} to confirm that you trusted, started, and authenticated this MCP host on this machine.`,
+          placeHolder: server,
+          ignoreFocusOut: true
+        });
+        if (confirmation !== server) {
+          if (confirmation !== undefined) void vscode.window.showWarningMessage(`Readiness was not attested. Enter the exact server ID: ${server}`);
+          return;
+        }
+        await this.operateText(`MCP host readiness attested for '${server}'.`, ['mcp', 'attest', server, '--confirm', server]);
+      });
+    },
+    inventory: () => this.guard(() => this.operate(
+      'Deterministic design inventory generated.', ['wm', 'design-inventory', '--from-records', '--json']
+    )),
+    'promote-candidate': (message) => {
+      const candidateRecordId = stringField(message, 'candidateRecordId');
+      if (!candidateRecordId) return;
+      return this.guard(async () => {
+        const confirmation = await vscode.window.showInputBox({
+          title: 'Promote design-source candidate',
+          prompt: 'This reopens the design capture phase and invalidates downstream approvals. Type the exact candidate record ID to continue.',
+          placeHolder: candidateRecordId, ignoreFocusOut: true
+        });
+        if (confirmation !== candidateRecordId) return;
+        await this.operateText('Design candidate promoted; capture and downstream phases reopened.', [
+          'mcp', 'design-sources', 'promote', candidateRecordId, '--confirm', candidateRecordId
+        ]);
+      });
+    },
+    compare: (message) => {
+      const expected = stringField(message, 'expected');
+      const actual = stringField(message, 'actual');
+      if (!expected || !actual) return;
+      return this.guard(async () => {
+        const args = ['visual', 'compare', '--expected', expected, '--actual', actual];
+        addOption(args, '--profile', stringField(message, 'profile') ?? undefined); args.push('--json');
+        await this.operate('Visual comparison recorded.', args);
+      });
+    },
+    record: (message) => {
+      const server = stringField(message, 'server');
+      const tool = stringField(message, 'tool');
+      const kind = stringField(message, 'kind');
+      if (!server || !tool || !kind) return;
+      return this.guard(async () => {
+        const args = ['mcp', 'record', server, '--tool', tool, '--kind', kind];
+        const option = (flag: string, name: string) => addOption(args, flag, stringField(message, name) ?? undefined);
+        option('--output', 'output'); option('--output-url', 'outputUrl');
+        option('--file-key', 'fileKey'); option('--file-version', 'fileVersion');
+        option('--profile-id', 'profileId'); option('--screen-id', 'screenId');
+        option('--state-id', 'stateId');
+        const nodes = Array.isArray(message.nodes) ? message.nodes : [];
+        for (const node of nodes) if (typeof node === 'string' && node) addOption(args, '--node', node);
+        const outputUrl = stringField(message, 'outputUrl');
+        if (outputUrl) {
+          const confirmed = await vscode.window.showWarningMessage(
+            `Download and hash MCP evidence from ${outputUrl}?`, { modal: true }, 'Record remote evidence'
+          );
+          if (confirmed !== 'Record remote evidence') return;
+        }
+        await this.operateText('Governed MCP evidence recorded.', args);
+      });
     }
+  });
+
+  /** One busy check in front of every message, exactly where the chain's single `if` sat. */
+  private async guard(action: () => Promise<unknown>): Promise<void> {
+    if (this.busy) return;
+    await action();
   }
 
   private async operate(success: string, args: string[]): Promise<void> {

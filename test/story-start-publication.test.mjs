@@ -160,6 +160,24 @@ test('non-interactive Story start requires an explicit base before mutation', as
     { allowFailure: true }).status, 1);
 });
 
+test('workspace branch preflight proves the exact destination without creating it', async () => {
+  const { root } = await repository();
+  const originalHead = git(root, 'rev-parse', 'HEAD').stdout.trim();
+  const result = JSON.parse(flow(root, [
+    'workspace', 'branches', '--json', '--preflight-story', 'STORY-PREVIEW',
+    '--from-branch', 'release/24.3'
+  ]).stdout);
+
+  assert.equal(result.preflight.passed, true);
+  assert.equal(result.preflight.storyBranch, 'STORY-PREVIEW');
+  assert.equal(result.preflight.remote, 'origin');
+  assert.equal(result.preflight.destinationRef, 'refs/heads/STORY-PREVIEW');
+  assert.equal(result.preflight.repositories[0].baseBranch, 'release/24.3');
+  assert.equal(git(root, 'branch', '--show-current').stdout.trim(), 'main');
+  assert.equal(git(root, 'rev-parse', 'HEAD').stdout.trim(), originalHead);
+  assert.equal(git(root, 'ls-remote', 'origin', 'refs/heads/STORY-PREVIEW').stdout.trim(), '');
+});
+
 test('remote publication preflight failure creates no branch, Story state, or session change', async () => {
   const { root } = await repository();
   git(root, 'config', 'remote.origin.receivepack', '/usr/bin/false');

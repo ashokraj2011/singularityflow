@@ -543,7 +543,10 @@ export async function startCommand(positionals, options) {
       : explicitBase
         ? [explicitBase]
         : [];
-  const { storyBaseForRepository, prepareCapabilityRepositories, printCapabilityBase } = await import('./capability-start.mjs');
+  const {
+    storyBaseForRepository, preflightStoryRepositories,
+    prepareCapabilityRepositories, printCapabilityBase
+  } = await import('./capability-start.mjs');
   if (materializedSeed && requestedBase.length
     && requestedBase.some((value) => value !== materializedSeed.parentBranch)) {
     throw new SingularityFlowError(
@@ -573,6 +576,12 @@ export async function startCommand(positionals, options) {
     );
   }
   const baseAtStart = storyBase.localBase;
+  const publishRequired = (config?.git?.publish ?? 'required') !== 'off';
+  const capabilityPreflight = storyBase.scope === 'capability'
+    ? preflightStoryRepositories(storyBase.workspaceRoot, storyBase.plan, canonicalBranch, {
+        remote, publishRequired
+      })
+    : null;
   const configurationRemote = await resolveConfigurationRemote(root, remote);
   if (!config && !configurationRemote) {
     throw new SingularityFlowError(
@@ -598,7 +607,7 @@ export async function startCommand(positionals, options) {
     );
   }
   const baseCommitAtStart = materializedSeed?.baseCommit ?? refHead(root, remoteBaseRef);
-  if ((config?.git?.publish ?? 'required') !== 'off') {
+  if (publishRequired && !capabilityPreflight) {
     const dryRun = preflightPushBranch(
       root, remote, materializedSeed ? remoteStoryRef : remoteBaseRef, canonicalBranch
     );
@@ -6184,12 +6193,47 @@ async function workspaceCommand(positionals, options) {
   if (subcommand === 'branches') {
     const root = repoRoot();
     const definition = await loadConfig(root);
-    const { storyBaseCatalog } = await import('./capability-start.mjs');
+    const {
+      storyBaseCatalog, storyBaseForRepository, preflightStoryRepositories
+    } = await import('./capability-start.mjs');
     const catalog = await storyBaseCatalog(root, {
       remote: definition.git?.remote ?? 'origin',
       defaultBranch: definition.defaultBaseBranch,
       capabilityId: optionString(options, 'capability')
     });
+    const storyId = optionString(options, 'preflight-story');
+    let preflight = null;
+    if (storyId) {
+      validateId(definition, storyId);
+      const selected = await storyBaseForRepository(root, {
+        values: optionStrings(options, 'from-branch'),
+        interactive: false,
+        remote: definition.git?.remote ?? 'origin',
+        defaultBranch: definition.defaultBaseBranch,
+        capabilityId: optionString(options, 'capability')
+      });
+      const repositories = preflightStoryRepositories(
+        selected.workspaceRoot, selected.plan, storyId,
+        {
+          remote: selected.remote,
+          publishRequired: (definition.git?.publish ?? 'required') !== 'off'
+        }
+      );
+      preflight = {
+        passed: true,
+        storyBranch: storyId,
+        remote: selected.remote,
+        destinationRef: `refs/heads/${storyId}`,
+        repositories: repositories.map((entry) => ({
+          repository: entry.repository,
+          remote: entry.remote,
+          baseBranch: entry.baseBranch,
+          baseCommit: entry.baseCommit,
+          destinationRef: entry.destinationRef,
+          publishRequired: entry.publishRequired
+        }))
+      };
+    }
     const result = {
       resultType: 'capability-branches',
       schemaVersion: 2,
@@ -6203,7 +6247,8 @@ async function workspaceCommand(positionals, options) {
       // Reported rather than thrown: the editor should render the branches it does know about and
       // say which repositories it could not reach, not show an empty list or an error dialog.
       unreachable: catalog.unreachable,
-      choices: catalog.choices
+      choices: catalog.choices,
+      preflight
     };
     if (optionBoolean(options, 'json')) return console.log(JSON.stringify(result, null, 2));
     console.log(catalog.scope === 'capability'

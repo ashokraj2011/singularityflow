@@ -4,7 +4,9 @@ import { mkdtemp, mkdir, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
 
-import { publishedBranches, prepareCapabilityRepositories } from '../src/capability-start.mjs';
+import {
+  preflightStoryRepositories, publishedBranches, prepareCapabilityRepositories
+} from '../src/capability-start.mjs';
 import { parseBaseSelection, resolveCapabilityBase } from '../src/capability-branches.mjs';
 import { run } from '../src/util.mjs';
 import { branch as currentBranch } from '../src/git.mjs';
@@ -106,4 +108,48 @@ test('a dirty sibling refuses rather than having its work moved', async () => {
   // Uncommitted work in a sibling is not this command's to stash.
   assert.throws(() => prepareCapabilityRepositories(base, { repositories, resolution }, 'S-9'),
     /clean|uncommitted|dirty/i);
+});
+
+test('publication preflight checks every required repository before any branch moves', async () => {
+  const base = await mkdtemp(path.join(tmpdir(), 'sflow-capability-'));
+  const repositories = [
+    await repository(base, 'payments-api', ['main']),
+    await repository(base, 'payments-web', ['main'])
+  ];
+  const { published } = publishedBranches(repositories);
+  const resolution = resolveCapabilityBase({
+    repositories: published, selection: parseBaseSelection(['main'])
+  });
+  const blocked = path.join(base, repositories[1].path);
+  git(blocked, 'config', 'remote.origin.receivepack', '/usr/bin/false');
+
+  assert.throws(
+    () => preflightStoryRepositories(base, { repositories, resolution }, 'S-READONLY'),
+    /payments-web|Cannot publish/
+  );
+  for (const repository of repositories) {
+    const root = path.join(base, repository.path);
+    assert.equal(currentBranch(root), 'main');
+    assert.equal(run('git', ['show-ref', '--verify', '--quiet', 'refs/heads/S-READONLY'], {
+      cwd: root, allowFailure: true
+    }).status, 1);
+  }
+});
+
+test('publication preflight refuses a required repository that is not cloned', async () => {
+  const base = await mkdtemp(path.join(tmpdir(), 'sflow-capability-'));
+  const present = await repository(base, 'payments-api', ['main']);
+  const absent = {
+    id: 'payments-web', url: path.join(base, 'payments-web.git'),
+    path: path.join('work', 'payments-web'), defaultBranch: 'main', capabilities: ['payments']
+  };
+  const resolution = resolveCapabilityBase({
+    repositories: { 'payments-api': ['main'], 'payments-web': ['main'] },
+    selection: parseBaseSelection(['main'])
+  });
+  assert.throws(
+    () => preflightStoryRepositories(base, { repositories: [present, absent], resolution }, 'S-MISSING'),
+    /not cloned.*Nothing was changed/i
+  );
+  assert.equal(currentBranch(path.join(base, present.path)), 'main');
 });

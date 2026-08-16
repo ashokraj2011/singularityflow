@@ -21,7 +21,10 @@ import {
   baseBranchRecord, baseRefusalReport, branchChoices, capabilityRepositories,
   parseBaseSelection, parseRemoteHeads, resolveCapabilityBase
 } from './capability-branches.mjs';
-import { assertClean, branch as currentBranch, checkout, repoRoot } from './git.mjs';
+import {
+  assertClean, branch as currentBranch, checkout, fetchRemote, preflightPushBranch,
+  refExists, refHead, repoRoot
+} from './git.mjs';
 import { readWorkspace } from './workspace.mjs';
 import { activeWorkspaceFile, workspaceContextForRepository, workspaceRegistryFile } from './workspace-context.mjs';
 import { nowIso, run, SingularityFlowError } from './util.mjs';
@@ -254,6 +257,70 @@ export async function planCapabilityBase(workspace, capability, options = {}, {
     resolution,
     record: baseBranchRecord(resolution, { capability, selectedAt: nowIso() })
   };
+}
+
+/**
+ * Re-fetch and prove every required repository immediately before a Story start mutates any of
+ * them. Branch discovery proves read access; this second pass binds the exact commit and exercises
+ * write authorization for the exact destination ref. Keeping it separate from checkout makes a
+ * refusal atomic across a capability: a dirty, missing, moved, read-only, or already-published
+ * sibling leaves every checkout where it was.
+ */
+export function preflightStoryRepositories(workspaceRoot, plan, storyBranch, {
+  remote = 'origin', publishRequired = true
+} = {}) {
+  const checked = [];
+  for (const repository of plan.repositories) {
+    const target = path.resolve(workspaceRoot ?? '', repository.path);
+    if (!existsSync(path.join(target, '.git'))) {
+      throw new SingularityFlowError(
+        `Required repository '${repository.id}' is not cloned at '${target}'. Nothing was changed.`,
+        { code: 'STORY_REMOTE_UNREACHABLE' }
+      );
+    }
+    const root = repoRoot(target);
+    assertClean(root);
+    fetchRemote(root, remote);
+    const base = plan.resolution.resolved[repository.id];
+    const sourceRef = `refs/remotes/${remote}/${base.branch}`;
+    if (!refExists(root, sourceRef)) {
+      throw new SingularityFlowError(
+        `Selected base branch '${base.branch}' is no longer published for required repository `
+        + `'${repository.id}' on remote '${remote}'. Nothing was changed.`,
+        { code: 'STORY_BASE_INVALID' }
+      );
+    }
+    const destinationRef = `refs/remotes/${remote}/${storyBranch}`;
+    if (refExists(root, destinationRef)) {
+      throw new SingularityFlowError(
+        `Story branch '${storyBranch}' already exists for required repository '${repository.id}' `
+        + `on '${remote}'. Resume it instead of overwriting it. Nothing was changed.`,
+        { code: 'STORY_BRANCH_EXISTS' }
+      );
+    }
+    if (publishRequired) {
+      const dryRun = preflightPushBranch(root, remote, sourceRef, storyBranch);
+      if (dryRun.status !== 0) {
+        throw new SingularityFlowError(
+          `Cannot publish Story branch '${storyBranch}' for required repository '${repository.id}' `
+          + `to '${remote}'. Git reported: `
+          + `${(dryRun.stderr || dryRun.stdout || 'remote rejected the dry-run push').trim()} Nothing was changed.`,
+          { code: 'STORY_PUBLICATION_PREFLIGHT_FAILED' }
+        );
+      }
+    }
+    checked.push({
+      repository: repository.id,
+      root,
+      remote,
+      baseBranch: base.branch,
+      baseCommit: refHead(root, sourceRef),
+      sourceRef,
+      destinationRef: `refs/heads/${storyBranch}`,
+      publishRequired
+    });
+  }
+  return checked;
 }
 
 /**

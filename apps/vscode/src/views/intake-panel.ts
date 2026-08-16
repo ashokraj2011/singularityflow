@@ -11,7 +11,7 @@ import {
 import { navigateTo } from './navigate.ts';
 import { registerMessageRouter, stringField, type InboundMessage } from './messages.ts';
 import {
-  EMPTY_INTAKE_FORM, intakeCommand, intakeHtml, intakeProblems, INTAKE_SCRIPT, SHAPES,
+  EMPTY_INTAKE_FORM, intakeCommand, intakeHtml, intakeIdentifier, intakeProblems, INTAKE_SCRIPT, SHAPES,
   type BaseBranchChoice, type InFlight, type IntakeForm, type ProfileChoice, type Shape, type Tracker
 } from './intake-form.ts';
 import { SingularityFlowClient } from '../cli/client.ts';
@@ -38,6 +38,7 @@ export class IntakePanel {
   private readonly onStarted: (started: Started) => Promise<void>;
   private readonly disposables: vscode.Disposable[] = [];
   private form: IntakeForm;
+  private preflightVersion = 0;
 
   private constructor(
     panel: vscode.WebviewPanel,
@@ -61,7 +62,8 @@ export class IntakePanel {
       // this panel's own message contract, because "go to another page" is not this panel's business.
       const navigation = navigationTarget(raw);
       if (navigation) return void navigateTo(navigation);
- void this.router.route(raw); }, null, this.disposables);
+      return this.router.route(raw);
+    }, null, this.disposables);
     this.panel.onDidDispose(() => this.dispose(), null, this.disposables);
     this.render();
     void this.load();
@@ -133,6 +135,9 @@ export class IntakePanel {
       baseBranch: null,
       baseRemote: baseBranches.remote,
       baseBranchReason: baseBranches.reason,
+      basePreflightPassed: false,
+      basePreflightChecking: false,
+      basePreflightReason: null,
       jiraConfigured: tracker.configured,
       jiraReason: tracker.reason,
       // A tracker that is configured is almost always the one being used, so it leads — but "no
@@ -282,11 +287,22 @@ export class IntakePanel {
   private router = registerMessageRouter('singularityFlow.intake', {
     shape: (message) => {
       const shape = SHAPES.find((entry) => entry.id === stringField(message, 'value'));
-      if (shape) this.update({ shape: shape.id, error: null });
+      if (shape) {
+        this.preflightVersion += 1;
+        this.update({
+          shape: shape.id, error: null,
+          basePreflightPassed: false, basePreflightChecking: false, basePreflightReason: null
+        });
+      }
     },
     tracker: (message) => {
       const tracker = stringField(message, 'value') === 'jira' ? 'jira' : 'none';
-      this.update({ tracker: tracker as Tracker, error: null });
+      this.preflightVersion += 1;
+      this.update({
+        tracker: tracker as Tracker, error: null,
+        basePreflightPassed: false, basePreflightChecking: false, basePreflightReason: null
+      });
+      return this.preflightBaseBranch();
     },
     profile: (message) => {
       const profile = this.form.profiles.find((entry) => entry.id === stringField(message, 'value'));
@@ -294,7 +310,14 @@ export class IntakePanel {
     },
     baseBranch: (message) => {
       const choice = this.form.baseBranchChoices.find((entry) => entry.branch === stringField(message, 'value'));
-      if (choice) this.update({ baseBranch: choice.branch, error: null });
+      if (choice) {
+        this.preflightVersion += 1;
+        this.update({
+          baseBranch: choice.branch, error: null,
+          basePreflightPassed: false, basePreflightChecking: false, basePreflightReason: null
+        });
+        return this.preflightBaseBranch();
+      }
     },
     workType: (message) => {
       const workflow = this.form.storyWorkflows.find((entry) => entry.id === stringField(message, 'value'));
@@ -308,7 +331,17 @@ export class IntakePanel {
     field: (message) => {
       const field = this.writableField(message);
       const value = stringField(message, 'value');
-      if (field && value !== null) this.update({ [field]: value } as Partial<IntakeForm>);
+      if (field && value !== null) {
+        const invalidatesPreflight = field === 'id' || field === 'key';
+        if (invalidatesPreflight) this.preflightVersion += 1;
+        this.update({
+          [field]: value,
+          ...(invalidatesPreflight ? {
+            basePreflightPassed: false, basePreflightChecking: false, basePreflightReason: null
+          } : {})
+        } as Partial<IntakeForm>);
+        if (invalidatesPreflight) return this.preflightBaseBranch();
+      }
     },
     start: () => this.start()
   });
@@ -316,6 +349,41 @@ export class IntakePanel {
   private writableField(message: InboundMessage): string | null {
     const field = stringField(message, 'field');
     return field && IntakePanel.WRITABLE.includes(field) ? field : null;
+  }
+
+  /**
+   * Ask the engine to re-fetch every required base and dry-run the exact Story destination. The
+   * version prevents a slow answer for an earlier branch or identifier from enabling Start.
+   */
+  private async preflightBaseBranch(): Promise<void> {
+    const storyId = intakeIdentifier(this.form);
+    const branch = this.form.baseBranch;
+    if (this.form.shape !== 'story' || !storyId || !branch) return;
+    const version = ++this.preflightVersion;
+    this.update({ basePreflightPassed: false, basePreflightChecking: true, basePreflightReason: null });
+    try {
+      const result = await this.client.run<{ preflight?: { passed?: boolean } }>([
+        'workspace', 'branches', '--json', '--preflight-story', storyId,
+        '--from-branch', branch
+      ]);
+      if (version !== this.preflightVersion) return;
+      if (!result.preflight?.passed) {
+        this.update({
+          basePreflightPassed: false, basePreflightChecking: false,
+          basePreflightReason: 'The remote publication preflight did not return a passing result.'
+        });
+        return;
+      }
+      this.update({
+        basePreflightPassed: true, basePreflightChecking: false, basePreflightReason: null
+      });
+    } catch (error) {
+      if (version !== this.preflightVersion) return;
+      this.update({
+        basePreflightPassed: false, basePreflightChecking: false,
+        basePreflightReason: (error as Error).message
+      });
+    }
   }
 
   private async start(): Promise<void> {

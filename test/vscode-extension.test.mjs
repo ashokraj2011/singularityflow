@@ -2271,6 +2271,7 @@ const INTAKE_CHOICES = {
   workflowReason: null,
   baseBranch: 'main',
   baseRemote: 'origin',
+  basePreflightPassed: true,
   baseBranchChoices: [
     { branch: 'main', present: 1, total: 1, everywhere: true, missingFrom: [] }
   ]
@@ -2505,6 +2506,13 @@ test('an intake form still missing something disables the button and lists why',
   }));
   assert.match(ready, /Starts story <code>checkout-retry<\/code>/);
   assert.match(ready, /<button data-submit="start" >/);
+
+  const waitingForRemote = intakeHtml(intake({
+    shape: 'story', tracker: 'none', id: 'checkout-retry', title: 'A', description: 'B',
+    basePreflightPassed: false, basePreflightChecking: true
+  }));
+  assert.match(waitingForRemote, /Checking remote branch freshness/);
+  assert.match(waitingForRemote, /<button data-submit="start" disabled>/);
 });
 
 test('a refused start is reported on the form that caused it', () => {

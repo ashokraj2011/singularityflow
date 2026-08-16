@@ -79,6 +79,10 @@ export interface IntakeForm {
   baseRemote: string | null;
   /** Why the branches could not be listed, when they could not be. */
   baseBranchReason: string | null;
+  /** True only after the engine has re-fetched every required repository and dry-run the push. */
+  basePreflightPassed: boolean;
+  basePreflightChecking: boolean;
+  basePreflightReason: string | null;
   inFlight: InFlight[];
   busy: boolean;
   error: string | null;
@@ -98,6 +102,7 @@ export const EMPTY_INTAKE_FORM: IntakeForm = {
   shape: 'epic', tracker: 'none', key: '', id: '', title: '', description: '', goal: '',
   acceptanceCriteria: '', profile: null, profiles: [], workType: null, storyWorkflows: [],
   baseBranch: null, baseBranchChoices: [], baseRemote: null, baseBranchReason: null,
+  basePreflightPassed: false, basePreflightChecking: false, basePreflightReason: null,
   workflowReason: null,
   jiraConfigured: false, jiraReason: null, inFlight: [], busy: false, error: null
 };
@@ -188,6 +193,11 @@ export function intakeProblems(form: IntakeForm): string[] {
         ?? (form.baseBranchChoices.length
           ? 'Choose the remote base branch from which the Story branch will be created.'
           : 'No remote base branch is available for this Story.'));
+    } else if (form.basePreflightChecking) {
+      problems.push('Checking remote branch freshness and publication access…');
+    } else if (!form.basePreflightPassed) {
+      problems.push(form.basePreflightReason
+        ?? 'Remote publication preflight must succeed before this Story can start.');
     }
   }
   if (identifier && form.inFlight.some((entry) => entry.id === identifier)) {
@@ -389,9 +399,11 @@ function baseBranchHtml(form: IntakeForm): string {
         <span class="choice-detail">${total > 1 ? `all ${choice.total} required repositories` : `published on ${escape(form.baseRemote ?? 'the configured remote')}`}</span>
       </label>`).join('')}
     </div>
-    ${form.baseBranch ? `<p class="meta">Will create <code>${escape(intakeIdentifier(form) || '<Story ID>')}</code>
+    ${form.baseBranch && form.basePreflightPassed ? `<p class="meta">Confirmed: create <code>${escape(intakeIdentifier(form) || '<Story ID>')}</code>
       from <code>${escape(form.baseRemote ?? 'remote')}/${escape(form.baseBranch)}</code> and publish only
-      <code>${escape(form.baseRemote ?? 'remote')}/${escape(intakeIdentifier(form) || '<Story ID>')}</code>.</p>` : ''}
+      <code>${escape(form.baseRemote ?? 'remote')}/refs/heads/${escape(intakeIdentifier(form) || '<Story ID>')}</code>.</p>` : ''}
+    ${form.basePreflightChecking ? '<p class="meta">Checking every required remote…</p>' : ''}
+    ${form.baseBranch && form.basePreflightReason ? `<p class="blockers">${escape(form.basePreflightReason)}</p>` : ''}
   </section>`;
 }
 

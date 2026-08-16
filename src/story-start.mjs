@@ -10,7 +10,9 @@ import {
   refExists,
   refHead
 } from './git.mjs';
-import { prepareCapabilityRepositories, storyBaseForRepository } from './capability-start.mjs';
+import {
+  preflightStoryRepositories, prepareCapabilityRepositories, storyBaseForRepository
+} from './capability-start.mjs';
 import { setAgentSession } from './session.mjs';
 import {
   commitAndPublish,
@@ -115,6 +117,12 @@ export async function startStory(root, {
       defaultBranch: initialDefinition.defaultBaseBranch,
       capabilityId
     });
+    const publishRequired = (initialDefinition.git?.publish ?? 'required') !== 'off';
+    const capabilityPreflight = storyBase.scope === 'capability'
+      ? preflightStoryRepositories(storyBase.workspaceRoot, storyBase.plan, id, {
+          remote, publishRequired
+        })
+      : null;
     fetchRemote(root, remote);
     const remoteBaseRef = `refs/remotes/${remote}/${storyBase.localBase}`;
     if (!refExists(root, remoteBaseRef)) {
@@ -124,7 +132,7 @@ export async function startStory(root, {
       );
     }
     baseCommit = refHead(root, remoteBaseRef);
-    if ((initialDefinition.git?.publish ?? 'required') !== 'off') {
+    if (publishRequired && !capabilityPreflight) {
       const dryRun = preflightPushBranch(root, remote, remoteBaseRef, id);
       if (dryRun.status !== 0) {
         throw new SingularityFlowError(

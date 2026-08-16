@@ -55,6 +55,7 @@ import {
   ACKNOWLEDGE_ACTION_ID, acknowledgementKey, homeAcknowledgementFor, type HomeAcknowledgement
 } from './views/home-acknowledgement.ts';
 import { activeRepository, gatewaySession } from './gateway-session.ts';
+import { primaryAction } from '../../../src/gateway/result.mjs';
 
 /** Injected by esbuild: the commit and time this bundle was built from. */
 declare const __SFLOW_BUILD__: string;
@@ -1569,6 +1570,44 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
     }
   };
 
+  /**
+   * What the home says, for the chrome that is always on screen. `[UXH:AC-002]` `[DHR:REQ-070]`
+   *
+   * The gate count already comes from the card's own derivation, which is half of AC-002. The other
+   * half is the two facts the home computes and the status bar never showed:
+   *
+   *   - **Recovery required.** `[DHR:REQ-070]` rule 1, the highest-priority state in the whole
+   *     ordering — a half-finished publication, and the one situation where doing something else
+   *     first can lose work. The home promotes it above everything; the status bar rendered the
+   *     ordinary "Story · phase" beside it.
+   *   - **Decisions waiting on you.** Somebody is blocked on this reader's approval. The home counts
+   *     it and names it separately from their own work, because "you have work in progress" and
+   *     "you are the blocker" are different obligations.
+   *
+   * Reading the same envelope rather than recomputing from `store.snapshot` is the point. Two
+   * surfaces that each decide what is most important will eventually disagree about it, and the one
+   * that is always visible is the one a reader trusts.
+   */
+  const homeChromeFor = async () => {
+    const root = activeRepository();
+    if (!root) return null;
+    try {
+      const { kernel } = gatewaySession(root);
+      const resolution = await kernel.resolve({ utterance: 'home' });
+      if (resolution.kind !== 'read' || resolution.next.length !== 1) return null;
+      const envelope = await kernel.read({ resolutionId: resolution.next[0].handle });
+      const recovery = (envelope.why ?? []).find((entry: { code: string }) => entry.code === 'home.recovery-required');
+      return {
+        recoveryWorkId: recovery?.slots?.work ?? null,
+        decisions: Number(envelope.data?.needsYourDecision ?? 0),
+        /** The one filled button on the card, so the chrome names the same next step. */
+        leads: primaryAction(envelope)?.label ?? null
+      };
+    } catch {
+      return null;
+    }
+  };
+
   /** Which Story the status bar is currently about, so a late gate count can be discarded. */
   let statusWorkId: string | null = null;
 
@@ -1616,6 +1655,32 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
         status.tooltip = `${where}${workflow.workItem.title ?? 'Governed Story workflow'}`
           + `\n${gates.unmet} unmet, ${gates.outstanding - gates.unmet} not evaluated`;
       });
+      /**
+       * The home's two obligations, layered over the Story line. `[UXH:AC-002]` `[DHR:REQ-070]`
+       *
+       * Same fire-and-forget discipline as the gate count, and the same staleness guard: a fact
+       * about the previous Story rendered beside the current one is worse than none.
+       *
+       * Recovery replaces the text rather than appending to it. Rule 1 exists because a
+       * half-finished publication is the state where doing anything else first can lose work, and
+       * appending it to "WRK-1978 · implement" would put it at the same weight as the phase name.
+       */
+      void homeChromeFor().then((home) => {
+        if (!home || statusWorkId !== renderedFor) return;
+        if (home.recoveryWorkId) {
+          status.text = `$(warning) ${home.recoveryWorkId} · finish publishing`;
+          status.tooltip = `${where}A publication was interrupted and is not finished.`
+            + '\nDoing anything else first can lose work.'
+            + (home.leads ? `\nNext: ${home.leads}` : '');
+          return;
+        }
+        if (home.decisions) {
+          // Appended, not substituted: their own work is still what they came here for.
+          status.text = `${status.text} · $(person) ${home.decisions}`;
+          status.tooltip = `${status.tooltip}`
+            + `\n${home.decisions} decision(s) are waiting on you.`;
+        }
+      });
       return;
     }
     if (!initiative) {
@@ -1624,6 +1689,20 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
         ? `Working in ${workspaceLabel}. Nothing governed is checked out on this branch.`
         : 'Nothing governed is checked out on this branch.';
       status.show();
+      /**
+       * Having nothing checked out does not mean nothing is waiting on you. `[DHR:REQ-062]`
+       *
+       * This branch read as "No work" while approvals sat in the reader's queue — the state a
+       * person is most likely to be in when they have just finished something, and exactly when
+       * being told they are the blocker is most useful.
+       */
+      statusWorkId = null;
+      void homeChromeFor().then((home) => {
+        if (!home?.decisions || statusWorkId !== null) return;
+        status.text = `$(person) ${where}${home.decisions} waiting on you`;
+        status.tooltip = `${home.decisions} decision(s) are waiting on you.`
+          + '\nNothing governed is checked out on this branch.';
+      });
       return;
     }
     const phase = initiative.state.currentPhase ?? 'complete';

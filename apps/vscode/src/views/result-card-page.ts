@@ -138,6 +138,25 @@ function gateRow(row: ChecklistRow): string {
  */
 const MARKS = Object.freeze({ done: '✓', current: '●', pending: '○' });
 
+/**
+ * One sentence per rest state. `[UXH:REQ-051]` `[INT:REQ-041]`
+ *
+ * This was a two-branch ternary over a field with three live values, so `complete` and
+ * `informational` rendered the same words — "Nothing further is needed" for work that had *finished*
+ * and for a briefing that simply had nothing to add. A reader cannot tell those apart, and they are
+ * the difference between "you are done" and "there was nothing to say".
+ *
+ * A record rather than a chain, so the compiler pairs it with `REST_STATES`: adding a state without
+ * a sentence is now a visible gap rather than a silent fall-through to the friendliest wording.
+ */
+const REST_SENTENCES: Readonly<Record<string, string>> = Object.freeze({
+  blocked: 'There is no step you can take here right now.',
+  complete: 'This work is finished; nothing further is needed.',
+  informational: 'This is a read. There is nothing to do with it.',
+  unavailable: 'This build cannot answer that yet. The terminal equivalent still can.',
+  'awaiting-decision': 'This is waiting on a decision only a person can make.'
+});
+
 function railHtml(view: ResultCardView): string {
   if (!view.rail.length) return '';
   return `<ul class="sf-rail" aria-label="Phase progress">${view.rail.map((phase) => `<li
@@ -262,9 +281,7 @@ export function resultCardHtml(view: ResultCardView, { now = Date.now() }: { now
    * statement, is indistinguishable from one that failed to load.
    */
   const rest = !footerActions.length && view.rest
-    ? `<p class="sf-card-rest">${escape(view.rest === 'blocked'
-      ? 'There is no step you can take here right now.'
-      : 'Nothing further is needed.')}</p>`
+    ? `<p class="sf-card-rest">${escape(REST_SENTENCES[view.rest] ?? REST_SENTENCES.informational)}</p>`
     : '';
 
   const details = `<details><summary>Technical details</summary><pre>${escape(

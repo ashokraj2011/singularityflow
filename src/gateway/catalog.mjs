@@ -240,7 +240,68 @@ export const COMPOSED_CODES = Object.freeze({
         'readiness.awaiting-a-human-decision', 'readiness.produce-the-artifact'].includes(code))
 });
 
+/**
+ * The codes that may appear in `warnings[]`, enumerated. `[UXH:REQ-061]` `[INT:CON-010]`
+ *
+ * `why[]` and `warnings[]` are two of the four channels a result keeps apart, and until now they
+ * drew from one flat list of 106 codes with nothing distinguishing them. Two consequences, and the
+ * second is the one that matters:
+ *
+ *   - Nothing could answer "what warnings does this product emit?". `RESOLUTION_REASONS` is the
+ *     model here: a named subset is what lets a translator, a test or a support engineer enumerate
+ *     a channel rather than grep for it.
+ *   - Nothing stopped a producer putting a reason in the warning channel or a warning in the reason
+ *     channel. `[UXH:REQ-061]` forbids merging the channels, and a rule with no check is a
+ *     convention — this is the same class as `preserved[]` claiming a scope whose effect is true,
+ *     which *is* rejected at construction.
+ *
+ * Every entry is also in `REASON_CODES`, asserted below: one vocabulary with a subset view, never a
+ * second vocabulary. What makes a code belong here is that it reports something the operation could
+ * not establish — all four carry `source: 'unavailable'` — which is the same not-checked distinction
+ * the checklist draws between `unmet` and `unknown`, at the level of the whole result.
+ */
+export const WARNING_CODES = Object.freeze([
+  /** The My Flow briefing is cross-workspace; a planner that read one repository says so. */
+  'home.briefing-unavailable',
+  /** `git status` could not be read, so "no local changes" would be a guess rather than a finding. */
+  'return.local-changes-unread',
+  /** No reconciliation record exists for this interval, so the comparison was not made. */
+  'return.reconciliation-unavailable',
+  /** The work list covers one repository; anything in a sibling is absent rather than empty. */
+  'work.single-repository-scope',
+  /** A readiness answer computed from some of its inputs, and it says which were missing. */
+  'readiness.partial-inputs',
+  /** Impact was assessed without a piece of evidence it would ordinarily use. */
+  'impact.evidence-gap',
+  /** Tests were located by path convention rather than by a declared mapping. */
+  'impact.tests-by-path-convention',
+  /** The documentation this explanation drew on carries no release stamp. */
+  'explain.unstamped-docs',
+  /** A workspace field the registry does not carry, named per field rather than as one blur. */
+  'workspace.evidence-gap',
+  /**
+   * Uncommitted work exists in the tree this answer was computed against.
+   *
+   * A disclosure rather than a problem: the reader's local changes are real and the result is still
+   * correct, but anything derived from the committed tree does not account for them.
+   */
+  'work.local-changes-present'
+]);
+
 const CODES = new Set(REASON_CODES);
+
+const WARNINGS = new Set(WARNING_CODES);
+
+const uncatalogued = WARNING_CODES.filter((code) => !CODES.has(code));
+if (uncatalogued.length) {
+  throw new SingularityFlowError(`Warning codes missing from the reason catalog: ${uncatalogued.join(', ')}.`,
+    { code: 'WARNING_CATALOG_ORPHAN', details: { uncatalogued } });
+}
+
+/** Whether a code is one this product may say in the warning channel. */
+export function isWarningCode(code) {
+  return WARNINGS.has(code);
+}
 
 /** Duplicates across families would make the catalog ambiguous about which family owns a code. */
 const duplicates = REASON_CODES.filter((code, index) => REASON_CODES.indexOf(code) !== index);

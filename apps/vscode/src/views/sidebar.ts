@@ -33,6 +33,10 @@ const SECTION_META: Record<SidebarSection, {
   inbox: {
     label: 'Inbox', icon: 'inbox', actions: [
       { id: 'inbox-open', label: 'Open inbox', icon: 'inbox' },
+      // Approvals were reachable only from the command palette, which is where a reader looks last.
+      // The inbox is where "what is waiting on me" already lives, so the decision screen belongs
+      // beside it rather than one search away.
+      { id: 'approvals-open', label: 'Open approvals', icon: 'approval' },
       { id: 'visual-assurance', label: 'Review visual evidence', icon: 'compare' },
       // Every section reads from the one shared snapshot, so a failed refresh empties them together.
       // Inbox was the only one of the two affected sections with no way to ask for another go.
@@ -60,6 +64,20 @@ const SECTION_META: Record<SidebarSection, {
       // state the gateway itself was in. Lifecycle, because "what does this change touch" is a
       // question about work in flight.
       { id: 'impact-form', label: 'Impact of a change', icon: 'compare' },
+      /**
+       * Four more destinations belong here and do not fit. `[UXH:REQ-051]`
+       *
+       * The journey, Stories, evidence and impact analysis are all work in flight, which is what
+       * this section is — and a section header renders its actions as a single row of icons beside
+       * the label. Four fit. Adding four more pushed them over the word "Lifecycle" itself, which
+       * was caught by opening the editor and looking: every wiring test passed, because the ids all
+       * resolve to real commands and nothing a test can read was wrong.
+       *
+       * Left out rather than crammed in. They are still reachable from the command palette, which
+       * is worse than a menu entry and better than a section whose own name is illegible; giving
+       * them a proper home means a submenu or an expanded-body list, which is a design change
+       * rather than another entry in this array.
+       */
       { id: 'visual-assurance', label: 'Open visual assurance', icon: 'visual' },
       { id: 'refresh', label: 'Refresh lifecycle', icon: 'refresh' }
     ],
@@ -76,7 +94,21 @@ const SECTION_META: Record<SidebarSection, {
    */
   configuration: {
     label: 'Configuration', icon: 'configuration', actions: [
-      { id: 'configuration-center', label: 'Open Configuration Center', icon: 'configuration' }
+      { id: 'configuration-center', label: 'Open Configuration Center', icon: 'configuration' },
+      // A review queue rather than a tab: proposals arrive from other people and wait for a
+      // decision, so they are found by looking rather than by remembering a command name.
+      /**
+       * Map a capability, restored to the sidebar.
+       *
+       * `capability-map` stayed in `ACTION_COMMANDS` after the Configuration Center absorbed the
+       * four title-bar shortcuts, and no section listed it — a live mapping to a real command that
+       * nothing rendered, which is the same "declared, never reaching a consumer" shape this shell
+       * keeps producing. Mapping a capability is how a workspace gets its first one, so it is worth
+       * a click of its own rather than a tab inside the Center.
+       */
+      { id: 'capability-map', label: 'Map a capability', icon: 'capability' },
+      { id: 'capability-proposals', label: 'Review capability proposals', icon: 'capability' },
+      { id: 'flow-impact', label: 'Flow impact studies and reports', icon: 'impact' }
     ],
     empty: {
       text: 'No governed configuration is loaded. It lives on the capability’s configuration branch, not on main.',
@@ -109,7 +141,21 @@ const SECTION_META: Record<SidebarSection, {
   },
 };
 
+/**
+ * The home, reachable from the sidebar at last. `[UXH:REQ-020]` `[UXH:D1]`
+ *
+ * My Work is not inbox, workspace, lifecycle or configuration business — it is where a person
+ * starts before they know which of those they want, which is why it sits in the brand header above
+ * the sections rather than inside one. It had **no entry in this sidebar at all**: reachable from
+ * the status bar, the result card's footer and the command palette, which is where a reader looks
+ * last. `my-work` runs the same command the status bar does, so both lead to one place.
+ *
+ * (This note lives out here deliberately. Inside the header template literal, the backticks around
+ * a clause anchor close the string — the trap `result-card-page.ts` already records, and which this
+ * comment hit on its first attempt.)
+ */
 const ACTION_COMMANDS: Record<string, string> = {
+  'my-work': 'singularityFlow.myWork',
   'workspace-create': 'singularityFlow.createWorkspace',
   'workspace-manage': 'singularityFlow.openWorkspaces',
   'work-start': 'singularityFlow.startWork',
@@ -125,7 +171,10 @@ const ACTION_COMMANDS: Record<string, string> = {
   'activity-log': 'singularityFlow.openActivityLog',
   'logs-open': 'singularityFlow.openWorkspaceLogs',
   'logs-refresh': 'singularityFlow.refreshWorkspaceLogs',
-  'configuration-center': 'singularityFlow.openConfigurationCenter'
+  'configuration-center': 'singularityFlow.openConfigurationCenter',
+  'approvals-open': 'singularityFlow.openApprovals',
+  'capability-proposals': 'singularityFlow.reviewCapabilityProposals',
+  'flow-impact': 'singularityFlow.openFlowImpact'
 };
 
 /** Render order is the key order of SECTION_META above: inbox, workspaces, lifecycle, configuration, help, logs. */
@@ -340,6 +389,11 @@ export class SidebarViewProvider implements vscode.WebviewViewProvider, vscode.D
            generic workflow glyph reversed out of a green tile, which was a placeholder standing in
            for a logo that did not exist yet. */
         .brand-symbol { flex:none; display:block; }
+        /* Pushed to the right of the lockup and before the status dot, so the header stays one row. */
+        .brand-home { margin-left:auto; display:flex; align-items:center; gap:5px; font:inherit; font-size:.86em;
+          padding:3px 9px; border-radius:11px; cursor:pointer; white-space:nowrap;
+          border:1px solid var(--vscode-panel-border); background:transparent; color:var(--vscode-foreground); }
+        .brand-home:hover { background:var(--vscode-list-hoverBackground); }
         .brand-copy { min-width:0; line-height:1.05; }
         .brand-copy small { display:block; color:var(--accent); font-size:9px; font-weight:700; letter-spacing:.16em; text-transform:uppercase; }
         .brand-copy strong { display:block; margin-top:3px; font-size:15px; font-weight:650; letter-spacing:.01em; }
@@ -406,6 +460,8 @@ export class SidebarViewProvider implements vscode.WebviewViewProvider, vscode.D
       </style></head><body>
       <header class="brand">${brandSymbol(30)}
         <span class="brand-copy"><small>Singularity</small><strong>Flow</strong></span>
+        <button class="brand-home" data-action="my-work" type="button"
+          title="Talk to SFlow — your work, and what to do next">${icon('prompt', { size: 14 })}<span>Talk to SFlow</span></button>
         <span class="brand-status${ready ? '' : ' connecting'}" role="img"
           aria-label="${ready ? 'Connected' : 'Connecting'}"
           title="${ready ? 'Connected to the Singularity Flow CLI' : 'Connecting to the Singularity Flow CLI…'}"></span></header>

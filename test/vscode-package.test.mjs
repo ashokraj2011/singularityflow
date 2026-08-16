@@ -25,6 +25,15 @@ test('the installed VS Code CLI carries the canonical Help manual', async () => 
   assert.ok(manual.topics.some((topic) => topic.id === 'workspaces-and-capabilities'));
 });
 
+test('the CommonJS extension build uses a host-safe package root without import.meta warnings', () => {
+  const extension = path.join(root, 'apps', 'vscode');
+  const result = spawnSync(process.execPath, ['esbuild.mjs'], { cwd: extension, encoding: 'utf8' });
+  const output = `${result.stdout}${result.stderr}`;
+
+  assert.equal(result.status, 0, output);
+  assert.doesNotMatch(output, /empty-import-meta|import\.meta.*not available/i, output);
+});
+
 test('the local VS Code demo does not require a remote it deliberately omits', () => {
   const configured = configureLocalDemoWorkflow([
     'git:',

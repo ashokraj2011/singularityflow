@@ -48,7 +48,9 @@ import {
   type EvidenceCatalogItem, type EvidenceTarget
 } from './evidence.ts';
 import type { EvidenceSourceKind } from './views/evidence-manager.ts';
-import { onResultAction, showRefusal } from './views/result-panel.ts';
+import { onResultAction, showRefusal, showResultCard } from './views/result-panel.ts';
+import { buildResultCard } from './views/result-card-model.ts';
+import { activeRepository, gatewaySession } from './gateway-session.ts';
 
 /** Injected by esbuild: the commit and time this bundle was built from. */
 declare const __SFLOW_BUILD__: string;
@@ -104,22 +106,39 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
   // The version does not change between development reinstalls, so it cannot answer this.
   output.appendLine(`Singularity Flow — build ${typeof __SFLOW_BUILD__ === 'string' ? __SFLOW_BUILD__ : 'unstamped'}`);
   /**
-   * What a button on a result card does. `[UXH:REQ-031]`
+   * What a button on a result card does. `[UXH:REQ-031]` `[DHR:REQ-086]`
    *
-   * One handler for every card, and it dispatches by the action's stable id — the card never puts a
-   * handle or an operation name in the DOM, so a click cannot name something that was not offered.
+   * One handler for every card, dispatching by the action's stable id — the card never puts a handle
+   * or an operation name in the DOM, so a click cannot name something that was not offered.
    *
-   * Today it runs the action's *terminal equivalent* through the same CLI the rest of the extension
-   * uses. That is honest but weaker than the contract allows: `createActionExecutor` re-resolves a
-   * handle against the current world before dispatching, and a handle cannot cross a process
-   * boundary, so nothing here re-resolves. Closing that needs the gateway running in the extension
-   * host or a CLI verb that takes a handle — until then the fallback command is the whole mechanism,
-   * and saying so here is better than a comment implying the executor is already in the loop.
+   * Two paths, and which one applies is a property of where the card came from rather than a
+   * setting. A card built from a gateway result carries live handles, so it goes through the
+   * executor, which re-resolves against the world as it is now and refuses if anything moved. A card
+   * built from a CLI refusal carries no handle — the process that signed one has exited — so its
+   * only mechanism is the terminal equivalent the producer supplied.
+   *
+   * The fallback is not a quiet downgrade: `showCardResult` is what re-renders after a dispatch, so
+   * a stale handle produces a visible recovery card rather than a command that silently ran against
+   * a world the reader was not looking at.
    */
-  onResultAction(async ({ actionId, view }) => {
+  onResultAction(async ({ actionId, view, origin }) => {
     const action = view.actions.find((entry) => entry.id === actionId)
       ?? view.checklist.map((row) => row.action).find((entry) => entry?.id === actionId);
-    if (!action?.command) {
+    if (!action) return;
+
+    const root = activeRepository();
+    if (root && origin === 'gateway') {
+      try {
+        const { executor } = gatewaySession(root);
+        const outcome = await executor.execute({ ...action, handle: action.handle, executable: false });
+        if (outcome.result) showResultCard(buildResultCard(outcome.result), { origin: 'gateway' });
+        return;
+      } catch (error) {
+        output.appendLine(`[result] ${actionId} could not be dispatched in-process: ${(error as Error).message}`);
+      }
+    }
+
+    if (!action.command) {
       output.appendLine(`[result] '${actionId}' has no terminal equivalent to run in this build.`);
       return;
     }
@@ -127,6 +146,33 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
     terminal.show(true);
     terminal.sendText(action.command, false);
   });
+
+  /**
+   * `My Work` — the home, resolved in this process. `[UXH:REQ-020]` `[UXH:D1]`
+   *
+   * The whole path in one command: words in, an opaque handle back, the handle revalidated against
+   * the current world, and a v2 envelope rendered by the same card every other result uses. Nothing
+   * here knows what a home is, which is the point — the shell renders results, and `home.overview`
+   * is one.
+   */
+  context.subscriptions.push(vscode.commands.registerCommand('singularityFlow.myWork', async () => {
+    const root = activeRepository();
+    if (!root) {
+      showRefusal('No folder is open, so there is no repository to read.',
+        { headline: 'No workspace selected' });
+      return;
+    }
+    try {
+      const { kernel } = gatewaySession(root);
+      const resolution = await kernel.resolve({ utterance: 'home' });
+      const envelope = resolution.kind === 'read' && resolution.next.length === 1
+        ? await kernel.read({ resolutionId: resolution.next[0].handle })
+        : resolution;
+      showResultCard(buildResultCard(envelope), { origin: 'gateway' });
+    } catch (error) {
+      showRefusal(error, { headline: 'Could not read your work' });
+    }
+  }));
 
   const secureCredentials = new SecureCredentials(context.secrets);
   const resolvedCliEnvironment = async (): Promise<NodeJS.ProcessEnv> => {

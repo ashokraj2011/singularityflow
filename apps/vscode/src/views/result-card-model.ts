@@ -27,6 +27,14 @@ export type ChecklistRow = {
 
 export type CardAction = {
   readonly id: string;
+  /**
+   * The opaque handle, kept in the model and never in the markup.
+   *
+   * The extension host needs it to dispatch through the executor; the webview must never see it.
+   * That split is the whole reason the model and the page are separate modules — this field exists
+   * on one side of a boundary the other side cannot reach, and a test asserts the markup is clean.
+   */
+  readonly handle: string;
   readonly label: string;
   readonly emphasis: 'primary' | 'secondary' | 'link';
   readonly interaction: string;
@@ -122,6 +130,7 @@ function actionOf(entry: any): CardAction {
   const text = message(entry.reasonCode, entry.slots ?? {});
   return {
     id: entry.id,
+    handle: entry.handle,
     // The producer's label leads; the reason code explains underneath rather than replacing it.
     label: entry.label,
     emphasis: entry.emphasis,

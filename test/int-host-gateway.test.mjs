@@ -12,6 +12,7 @@ import { tmpdir } from 'node:os';
 import path from 'node:path';
 
 import { DEFAULT_GATEWAY_POLICY, resolveGatewayPolicy } from '../src/gateway/policy.mjs';
+import { gatewayPlanners } from '../src/gateway/planners/index.mjs';
 import { createHostGateway, hostBinding } from '../src/gateway/host.mjs';
 import { gatewayRegistry } from '../src/gateway/operations.mjs';
 import { run } from '../src/util.mjs';
@@ -76,14 +77,14 @@ test('the binding names the repository and branch it was computed in', async (t)
 test('a host session requires the session it is issuing handles for', () => {
   // A default would be a shared session ID, under which a handle issued in one window verifies in
   // another — the confusion binding exists to prevent.
-  assert.throws(() => createHostGateway({ root: '/tmp', hostSessionId: null }), /requires the host session/);
+  assert.throws(() => createHostGateway({ root: '/tmp', hostSessionId: null, planners: gatewayPlanners() }), /requires the host session/);
 });
 
 test('resolve issues a handle and read revalidates it against the world', async (t) => {
   const root = await repository();
   t.after(() => rm(root, { recursive: true, force: true }));
 
-  const { kernel } = createHostGateway({ root, hostSessionId: 'sess-1', workspaceId: 'w1' });
+  const { kernel } = createHostGateway({ root, hostSessionId: 'sess-1', workspaceId: 'w1', planners: gatewayPlanners() });
   const resolution = await kernel.resolve({ utterance: 'home' });
 
   assert.equal(resolution.kind, 'read');
@@ -106,11 +107,11 @@ test('a handle is single-session: the same words in another session do not redee
   const root = await repository();
   t.after(() => rm(root, { recursive: true, force: true }));
 
-  const first = createHostGateway({ root, hostSessionId: 'sess-1' });
+  const first = createHostGateway({ root, hostSessionId: 'sess-1', planners: gatewayPlanners() });
   const resolution = await first.kernel.resolve({ utterance: 'home' });
   const handle = resolution.next[0].handle;
 
-  const second = createHostGateway({ root, hostSessionId: 'sess-2' });
+  const second = createHostGateway({ root, hostSessionId: 'sess-2', planners: gatewayPlanners() });
   const refused = await second.kernel.read({ resolutionId: handle });
   assert.equal(refused.kind, 'refusal');
   assert.equal(refused.why[0].code, 'gateway.handle-unknown');

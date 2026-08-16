@@ -11,6 +11,8 @@ import { readFile } from 'node:fs/promises';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 
+import { codeOccurrences } from './source-text.mjs';
+
 const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 const view = (name) => path.join(root, 'apps', 'vscode', 'src', 'views', name);
 const { fidelityNote, refusalFor } = await import(view('refusal.ts'));
@@ -58,9 +60,8 @@ test('no refusal site shows a bare error toast', async () => {
   assert.match(navigate, /Could not open the Singularity Flow view/);
 
   // Calls, not mentions: the panel's own docblock names the thing it replaces.
-  const panel = (await readFile(view('result-panel.ts'), 'utf8'))
-    .replace(/\/\*[\s\S]*?\*\//g, '').replace(/^\s*\/\/.*$/gm, '');
-  assert.equal(panel.split('showErrorMessage(').length - 1, 1,
+  const panel = await readFile(view('result-panel.ts'), 'utf8');
+  assert.equal(codeOccurrences(panel, 'showErrorMessage('), 1,
     'the panel keeps exactly one last-resort toast, for a failure to render a failure');
 });
 

@@ -2,8 +2,8 @@ import { createHash } from 'node:crypto';
 import { cp, mkdir, readFile, readdir, writeFile } from 'node:fs/promises';
 import { existsSync } from 'node:fs';
 import path from 'node:path';
-import { fileURLToPath } from 'node:url';
 import YAML from 'yaml';
+import { PACKAGE_ROOT } from './package-root.mjs';
 import {
   secureRepositoryPath,
   SingularityFlowError,
@@ -50,27 +50,6 @@ export const WORKFLOW_PATH = 'singularity/workflow.yml';
 export const CONTROL_ROOT = 'singularity';
 const LEGACY_CONTROL_ROOT = '.singularity';
 export const DEFAULT_PLANNING_PROMPT = 'singularity/prompts/copilot-planning.md';
-/**
- * This installed package's own root, for the assets shipped inside it.
- *
- * Resolved when an asset is wanted rather than when this module loads. `import.meta` is empty under
- * the CommonJS output format the VS Code extension bundles to, so `import.meta.url` is `undefined`
- * there and computing this at load time threw `ERR_INVALID_ARG_TYPE` the moment anything imported
- * this module. The return briefing imports it dynamically, precisely when someone asks for a
- * briefing — so the bundle loaded cleanly and the failure surfaced later and elsewhere, as a path
- * error naming no path.
- *
- * Nothing on the config-loading path needs this. It addresses `templates/`, which a bundle has no
- * copy of, so deferring costs nothing and the refusal below says what is actually missing.
- */
-function packageRoot() {
-  const here = import.meta.url;
-  if (typeof here !== 'string') {
-    throw new SingularityFlowError(
-      'Packaged templates are not reachable from a bundled build; run this through the CLI.');
-  }
-  return path.resolve(path.dirname(fileURLToPath(here)), '..');
-}
 const INITIALIZATION_MAPPINGS = [
   ['workflow.yml', WORKFLOW_PATH],
   ['portfolio.yml', 'singularity/portfolio.yml'],
@@ -767,7 +746,7 @@ export async function copyMissingFiles(source, destination, installed = [], rela
 export async function ensureRepositoryTemplates(root, definition = null, { templatesRoot = null } = {}) {
   const target = templatesRoot ?? definition?.templatesRoot ?? 'singularity/templates';
   assertRelative(target, 'templatesRoot');
-  return copyMissingFiles(path.join(packageRoot(), 'templates', 'artifacts'), path.join(root, target));
+  return copyMissingFiles(path.join(PACKAGE_ROOT, 'templates', 'artifacts'), path.join(root, target));
 }
 
 async function copyIfMissing(source, destination) {
@@ -783,14 +762,14 @@ export async function initializeDefinition(root) {
   }
   const wrote = [];
   for (const [source, destination] of INITIALIZATION_MAPPINGS) {
-    if (await copyIfMissing(path.join(packageRoot(), 'templates', source), path.join(root, destination))) wrote.push(destination);
+    if (await copyIfMissing(path.join(PACKAGE_ROOT, 'templates', source), path.join(root, destination))) wrote.push(destination);
   }
   // Directory mappings above are skipped once the destination exists, so re-running init on a
   // repository created by an earlier version would never receive template files added since.
   // Merge in any missing ones without overwriting local edits.
   for (const [source, destination] of [['artifacts', 'singularity/templates'], ['agents', '.github/agents']]) {
     if (wrote.includes(destination)) continue;
-    for (const file of await copyMissingFiles(path.join(packageRoot(), 'templates', source), path.join(root, destination))) {
+    for (const file of await copyMissingFiles(path.join(PACKAGE_ROOT, 'templates', source), path.join(root, destination))) {
       wrote.push(path.posix.join(destination, file));
     }
   }
@@ -816,7 +795,7 @@ async function initializationFiles(source, destination, output = []) {
 export async function initializationStatus(root) {
   const expectedFiles = [];
   for (const [source, destination] of INITIALIZATION_MAPPINGS) {
-    const absolute = path.join(packageRoot(), 'templates', source);
+    const absolute = path.join(PACKAGE_ROOT, 'templates', source);
     if ((await readdir(path.dirname(absolute), { withFileTypes: true })).some((entry) => entry.name === path.basename(absolute) && entry.isDirectory())) {
       await initializationFiles(absolute, destination, expectedFiles);
     } else expectedFiles.push(destination);

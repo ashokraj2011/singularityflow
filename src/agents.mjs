@@ -3,29 +3,13 @@ import { lookup as dnsLookup } from 'node:dns/promises';
 import { copyFile, mkdir, readFile, readdir } from 'node:fs/promises';
 import { request as httpsRequest } from 'node:https';
 import path from 'node:path';
-import { fileURLToPath } from 'node:url';
 import { BlockList, isIP } from 'node:net';
 import YAML from 'yaml';
 import { exists, nowIso, posix, secureRepositoryPath, snapshot, writeJson, writeText, SingularityFlowError } from './util.mjs';
+import { PACKAGE_ROOT } from './package-root.mjs';
 
 export const AGENT_LOCK_PATH = 'singularity/agents.lock.yml';
 export const AGENT_MAPPING_PATH = 'singularity/agent-mappings.yml';
-/**
- * This installed package's own root, for the agents shipped inside it.
- *
- * Deferred for the same reason as the one in `config.mjs`: `import.meta` is empty under the
- * CommonJS output format the VS Code extension bundles to, so resolving this at load time threw the
- * moment anything imported this module — and what it addresses, `plugin/` and `templates/agents`,
- * is not in a bundle to begin with.
- */
-function packageRoot() {
-  const here = import.meta.url;
-  if (typeof here !== 'string') {
-    throw new SingularityFlowError(
-      'Packaged agents are not reachable from a bundled build; run this through the CLI.');
-  }
-  return path.resolve(path.dirname(fileURLToPath(here)), '..');
-}
 const DEFAULT_MAX_BYTES = 1024 * 1024;
 const HARD_MAX_BYTES = 10 * 1024 * 1024;
 const TOKEN_PATTERN = /\{([^}]+)\}/g;
@@ -265,8 +249,8 @@ async function agentFiles(directory) {
 export async function discoverAgents(root) {
   const locations = [
     ['repository', path.join(root, '.github/agents')],
-    ['plugin', path.join(packageRoot(), 'plugin/agents')],
-    ['bundled', path.join(packageRoot(), 'templates/agents')]
+    ['plugin', path.join(PACKAGE_ROOT, 'plugin/agents')],
+    ['bundled', path.join(PACKAGE_ROOT, 'templates/agents')]
   ];
   const agents = new Map();
   for (const [scope, directory] of locations) {

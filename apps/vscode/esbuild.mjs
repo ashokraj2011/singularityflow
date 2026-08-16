@@ -22,6 +22,33 @@ const describe = (command, fallback) => {
 const BUILD = `${describe('git rev-parse --short HEAD', 'unknown')}${
   describe('git status --porcelain', '') ? '+local' : ''} ${new Date().toISOString().slice(0, 16)}Z`;
 
+/**
+ * Core resolves its installed assets from ESM `import.meta.url`. The extension is CommonJS and
+ * stages that same package beneath `<extension>/cli`, so replace only that host boundary with a
+ * resolver based on the bundle's real `__dirname`. In a development host there is no staged CLI;
+ * the repository root is two levels above the extension directory.
+ */
+const packageRootPlugin = {
+  name: 'singularity-flow-package-root',
+  setup(buildContext) {
+    buildContext.onResolve({ filter: /package-root\.mjs$/ }, () => ({
+      path: 'package-root', namespace: 'singularity-flow'
+    }));
+    buildContext.onLoad({ filter: /^package-root$/, namespace: 'singularity-flow' }, () => ({
+      loader: 'js',
+      contents: `
+        import { existsSync } from 'node:fs';
+        import path from 'node:path';
+        const extensionRoot = path.resolve(__dirname, '..');
+        const stagedCliRoot = path.join(extensionRoot, 'cli');
+        export const PACKAGE_ROOT = existsSync(path.join(stagedCliRoot, 'package.json'))
+          ? stagedCliRoot
+          : path.resolve(extensionRoot, '..', '..');
+      `
+    }));
+  }
+};
+
 const options = {
   entryPoints: ['src/extension.ts'],
   bundle: true,
@@ -31,6 +58,7 @@ const options = {
   format: 'cjs',
   external: ['vscode'],
   define: { __SFLOW_BUILD__: JSON.stringify(BUILD) },
+  plugins: [packageRootPlugin],
   sourcemap: true,
   logLevel: 'info'
 };

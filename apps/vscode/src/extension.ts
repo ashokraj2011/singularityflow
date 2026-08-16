@@ -48,6 +48,7 @@ import {
   type EvidenceCatalogItem, type EvidenceTarget
 } from './evidence.ts';
 import type { EvidenceSourceKind } from './views/evidence-manager.ts';
+import { onFormSubmit, showForm, useDraftStore } from './views/form-panel.ts';
 import { onResultAction, showRefusal, showResultCard } from './views/result-panel.ts';
 import { buildResultCard, gateSummary } from './views/result-card-model.ts';
 import { activeRepository, gatewaySession } from './gateway-session.ts';
@@ -130,7 +131,15 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
     if (root && origin === 'gateway') {
       try {
         const { executor } = gatewaySession(root);
-        const outcome = await executor.execute({ ...action, handle: action.handle, executable: false });
+        /**
+         * The action as the envelope described it, not as this host assumed.
+         *
+         * It used to force `executable: false`, which made every press a *selection* — right for a
+         * disambiguation choice, wrong for a read handle, and the wrongness surfaced as "that
+         * choice is no longer current", blaming drift for a guess. The executor already knows what
+         * to do with each; it only needed to be told which one this is.
+         */
+        const outcome = await executor.execute(action);
         if (outcome.result) showResultCard(buildResultCard(outcome.result), { origin: 'gateway' });
         return;
       } catch (error) {
@@ -171,6 +180,56 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
       showResultCard(buildResultCard(envelope), { origin: 'gateway' });
     } catch (error) {
       showRefusal(error, { headline: 'Could not read your work' });
+    }
+  }));
+
+  /**
+   * `Impact of a change…` — the first form the shell renders from a schema. `[UXH:REQ-070]`
+   *
+   * `impact-quick-v1` rather than one of the 25 bespoke panels, deliberately. `[UXH:REQ-075]` lets
+   * a specialised form remain "when they provide richer domain validation", and the large ones do —
+   * `intake-form.ts` populates repository pickers from the snapshot, which no schema declares.
+   * Replacing those first would trade a better form for a more general one. This is a surface that
+   * did not exist: three optional arguments on an implemented planner, reachable today.
+   *
+   * It is also the whole P5 path in one command — schema to form, form to registered operation,
+   * operation to the same result card every other answer uses. Nothing between the button and the
+   * kernel knows what an impact is.
+   */
+  useDraftStore(context.workspaceState);
+  onFormSubmit(async ({ schemaId, goal, values }) => {
+    const root = activeRepository();
+    if (!root) {
+      // Not a silent return: the form has just closed, and a reader who filled one in and pressed
+      // the button is owed a reason rather than an empty editor. `[UXH:CON-007]`
+      showRefusal('The repository is no longer resolved, so nothing was submitted.',
+        { headline: 'No workspace selected' });
+      return;
+    }
+    try {
+      const { kernel } = gatewaySession(root);
+      const resolution = await kernel.resolve({ goalHint: goal, arguments: values });
+      const envelope = resolution.kind === 'read' && resolution.next.length === 1
+        ? await kernel.read({ resolutionId: resolution.next[0].handle })
+        : resolution;
+      showResultCard(buildResultCard(envelope), { origin: 'gateway' });
+    } catch (error) {
+      // The refusal is the answer, and it renders as a card like any other `[UXH:CON-007]`.
+      showRefusal(error, { headline: `Could not run ${schemaId.replace(/-v\d+$/, '')}` });
+    }
+  });
+  context.subscriptions.push(vscode.commands.registerCommand('singularityFlow.impactForm', () => {
+    if (!activeRepository()) {
+      showRefusal('No folder is open, so there is no repository to compare.',
+        { headline: 'No workspace selected' });
+      return;
+    }
+    if (!showForm({
+      schemaId: 'impact-quick-v1', goal: 'impact.quick',
+      title: 'Impact of a change', command: 'sflow impact'
+    })) {
+      showRefusal('This build has no argument schema for that operation.',
+        { headline: 'Nothing to ask for' });
     }
   }));
 

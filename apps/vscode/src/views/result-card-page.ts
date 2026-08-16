@@ -195,6 +195,16 @@ export function resultCardHtml(view: ResultCardView): string {
  * result changes, and per-button listeners are how a re-render silently stops responding.
  */
 export const RESULT_CARD_SCRIPT = `
+/**
+ * The handle every other view's script opens with, and this one did not have.
+ *
+ * \`VSCODE_API_SCRIPT\` acquires the API once as \`window.__sfVscode\`, because \`acquireVsCodeApi\`
+ * may only be called once per document. Referring to a bare \`vscode\` therefore threw a
+ * ReferenceError on the first line of the handler — silently, inside a webview, with no output
+ * channel entry and no visible change — so **every action button on every result card did
+ * nothing**. Rendering was verified by eye and looked right; pressing was not.
+ */
+const vscode = window.__sfVscode;
 document.addEventListener('click', (event) => {
   const button = event.target instanceof Element ? event.target.closest('[data-action-id]') : null;
   if (!button) return;

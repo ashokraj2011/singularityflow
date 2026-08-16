@@ -75,6 +75,30 @@ test('the two opt-outs are the two pages that cannot run a script', async () => 
   }
 });
 
+test('every script that posts a message has a handle to post it with', async () => {
+  /**
+   * The third failure in this file with no symptom, and the worst of them.
+   *
+   * `acquireVsCodeApi()` may be called once per document, so `page()` acquires it as
+   * `window.__sfVscode` and every view's script opens by aliasing it. `result-card-page.ts` did
+   * not, and a bare `vscode` threw a ReferenceError on the handler's first line — inside a webview,
+   * with no output-channel entry and nothing on screen. **Every action button on every result card
+   * did nothing**, in the panel built to remove dead ends, and it survived a by-eye pass because
+   * the card rendered perfectly.
+   *
+   * A source check rather than a fixture: no HTML test evaluates a script, so this fact is visible
+   * only here.
+   */
+  const offenders = [];
+  for (const { name, code } of await fullPageViews()) {
+    const uses = /[^_.\w]vscode\s*\.\s*(postMessage|getState|setState)/.test(code);
+    const declares = /const\s+vscode\s*=|acquireVsCodeApi\(\)/.test(code);
+    if (uses && !declares) offenders.push(name);
+  }
+  assert.deepEqual(offenders, [],
+    `these scripts call a 'vscode' they never acquired, so every button in them throws: ${offenders.join(', ')}`);
+});
+
 test('a page that names itself does not link to itself', async () => {
   const { footerNav } = await import('../apps/vscode/src/views/webview.ts');
   const journey = footerNav('journey');

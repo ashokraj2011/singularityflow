@@ -96,6 +96,19 @@ export function formModel(schemaId, { defaults = {} } = {}) {
     const ceremony = isCeremony(name);
     return Object.freeze({
       name,
+      /**
+       * What the field is called on screen, as opposed to on the wire.
+       *
+       * The first rendered form showed `baseRef`, `targetRef` and `includeWorktree` — the argument
+       * names, in front of a reader who is not writing a call. Derived rather than listed, so a new
+       * schema field gets a readable label without anyone remembering to add one, and `spec.label`
+       * wins when a name genuinely does not humanise (an acronym, a term of art).
+       */
+      label: spec.label ?? name
+        .replace(/([a-z0-9])([A-Z])/g, '$1 $2')
+        .replace(/^./, (letter) => letter.toUpperCase())
+        .toLowerCase()
+        .replace(/^./, (letter) => letter.toUpperCase()),
       type: spec.type,
       control,
       required: spec.required === true,

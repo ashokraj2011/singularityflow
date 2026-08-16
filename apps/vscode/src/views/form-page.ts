@@ -21,6 +21,8 @@ import { escape } from './webview.ts';
 /** The shape `formModel()` returns. Declared here so the page can be typed against the model. */
 export type FormField = {
   readonly name: string;
+  /** What the field is called on screen. The `name` is what goes on the wire. */
+  readonly label: string;
   readonly type: string;
   readonly control: string | null;
   readonly required: boolean;
@@ -67,7 +69,7 @@ const id = (schemaId: string, name: string) => `sf-${schemaId}-${name}`;
  */
 function control(schemaId: string, field: FormField, problem: string | null): string {
   const fieldId = id(schemaId, field.name);
-  const label = `<label for="${escape(fieldId)}">${escape(field.name)}${
+  const label = `<label for="${escape(fieldId)}">${escape(field.label ?? field.name)}${
     field.required ? '<span class="sf-required" aria-hidden="true">*</span>' : ''}</label>`;
   const note = problem ? `<p class="sf-form-problem">${escape(problem)}</p>` : '';
   const common = `id="${escape(fieldId)}" name="${escape(field.name)}"${field.required ? ' required' : ''}`;
@@ -148,7 +150,8 @@ export function formHtml(view: FormView, {
    * partial form cannot.
    */
   const equivalent = terminal
-    ? `<details class="sf-terminal"><summary>Terminal equivalent</summary><pre>${escape(terminal)}</pre></details>`
+    ? `<details class="sf-terminal"><summary>Terminal equivalent</summary><pre data-terminal>${
+      escape(terminal)}</pre></details>`
     : '';
 
   return `<form class="sf-form" data-schema="${escape(view.schemaId)}">${fields}${gap}${equivalent}</form>`;

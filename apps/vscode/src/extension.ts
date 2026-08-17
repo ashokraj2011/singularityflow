@@ -1111,6 +1111,11 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
         repositoryPath: selected.repositoryPath ?? leadPath
       };
       await refreshWorkspaceTree();
+      // The Workspaces page is retained when hidden and owns its own row snapshot. Refresh it from
+      // the same machine-wide registry before any other screen follows the new repository, so the
+      // old workspace cannot remain labelled active beside a Navigator that already moved on.
+      const { WorkspacesPanel } = await import('./views/workspaces-panel.ts');
+      await WorkspacesPanel.activeWorkspaceChanged(target);
       // When activation began without a selected workspace, Lifecycle and Configuration were
       // registered with their honest empty-state providers and the repository services below were
       // never created. Reload this same window once so extension activation can bind those views to

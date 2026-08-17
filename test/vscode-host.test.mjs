@@ -2336,6 +2336,76 @@ test('a workspace can be renamed and copied from the editor, and never onto anot
   assert.equal(registered.inputBoxes.length, 0, 'nothing was asked through a prompt');
 });
 
+test('an open Workspaces panel follows the active workspace instead of retaining the previous one', async (t) => {
+  if (!requireBundle(t)) return;
+  const org = await organisation();
+  const registry = path.join(org.base, 'registry.json');
+  const selection = path.join(org.base, 'active-workspace.json');
+  const workspaces = path.join(org.base, 'workspaces');
+  const previousRegistry = process.env.SINGULARITY_FLOW_WORKSPACE_REGISTRY;
+  const previousSelection = process.env.SINGULARITY_FLOW_ACTIVE_WORKSPACE;
+  process.env.SINGULARITY_FLOW_WORKSPACE_REGISTRY = registry;
+  process.env.SINGULARITY_FLOW_ACTIVE_WORKSPACE = selection;
+  t.after(() => {
+    if (previousRegistry == null) delete process.env.SINGULARITY_FLOW_WORKSPACE_REGISTRY;
+    else process.env.SINGULARITY_FLOW_WORKSPACE_REGISTRY = previousRegistry;
+    if (previousSelection == null) delete process.env.SINGULARITY_FLOW_ACTIVE_WORKSPACE;
+    else process.env.SINGULARITY_FLOW_ACTIVE_WORKSPACE = previousSelection;
+  });
+
+  const cli = (args) => {
+    const result = spawnSync(process.execPath, [path.join(packageRoot, 'bin', 'singularity-flow.mjs'), ...args], {
+      encoding: 'utf8', env: process.env
+    });
+    assert.equal(result.status, 0, `${args.join(' ')}\n${result.stderr}`);
+    return result.stdout;
+  };
+  for (const id of ['alpha', 'beta']) {
+    cli(['workspace', 'create', '--local', '--json', '--id', id, '--base', workspaces,
+      '--lead', 'platform', '--repository', `platform=${org.lead}`,
+      '--capability', 'payments', '--confirm', id, '--no-clone']);
+  }
+  cli(['workspace', 'use', 'alpha', '--json']);
+
+  const { api, registered } = stubVscode();
+  api.workspace.workspaceFolders = undefined;
+  const extension = loadExtension(api);
+  await extension.activate(context());
+  await registered.commands.get('singularityFlow.openWorkspaces')();
+  const panel = registered.panels.find((entry) => entry.id === 'singularityFlow.workspaces');
+  assert.ok(panel);
+
+  const row = (name) => panel.webview.html.match(
+    new RegExp(`<tr[^>]*>(?:(?!<\\/tr>)[\\s\\S])*?>${name}<\\/a>(?:(?!<\\/tr>)[\\s\\S])*?<\\/tr>`)
+  )?.[0] ?? '';
+  await until(() => row('alpha').includes('active'));
+  assert.doesNotMatch(row('beta'), /active/);
+  assert.match(panel.webview.html, /<h3>[\s\S]*?alpha<\/h3>[\s\S]*?active/);
+
+  const betaRoot = path.join(await realpath(workspaces), 'beta');
+  await panel.post({ type: 'switch', path: betaRoot });
+  assert.ok(row('beta').includes('active') && !row('alpha').includes('active'), [
+    `alpha row: ${row('alpha')}`,
+    `beta row: ${row('beta')}`,
+    `errors: ${registered.errors.join(' | ')}`,
+    `output: ${registered.output.join(' | ')}`
+  ].join('\n'));
+  assert.match(panel.webview.html, /<h3>[\s\S]*?beta<\/h3>[\s\S]*?active/,
+    'the detail selection moves with the newly active workspace');
+
+  const durable = JSON.parse(cli(['workspace', 'list', '--json']));
+  assert.equal(durable.find((entry) => entry.active)?.name, 'beta',
+    'the panel agrees with the machine-wide active-workspace record');
+
+  // Reproduce the screenshot's second route: another surface changes the durable selection while
+  // this retained panel is open, then the user opens Workspaces again. Revealing the singleton must
+  // re-read rather than presenting the rows captured the first time it was created.
+  cli(['workspace', 'use', 'alpha', '--json']);
+  await registered.commands.get('singularityFlow.openWorkspaces')();
+  await until(() => row('alpha').includes('active') && !row('beta').includes('active'));
+  assert.match(panel.webview.html, /<h3>[\s\S]*?alpha<\/h3>[\s\S]*?active/);
+});
+
 /** Every command package.json contributes. The palette offers all of them, always. */
 function contributedCommands() {
   const manifest = JSON.parse(readFileSync(path.join(packageRoot, 'apps/vscode/package.json'), 'utf8'));

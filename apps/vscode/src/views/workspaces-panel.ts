@@ -58,7 +58,7 @@ export class WorkspacesPanel {
     this.onMessage = onMessage;
     this.loadDetails = loadDetails;
     this.rows = workspaceRows(entries);
-    this.selected = selected;
+    this.selected = this.initialSelection(selected);
     // Return the promise so sequential UI events (typing, then immediately saving) are observed in
     // order by hosts and test doubles that support async listeners. VS Code itself ignores the
     // return value, but the edit-save message also carries the current field value as a safeguard.
@@ -71,7 +71,7 @@ export class WorkspacesPanel {
     }, null, this.disposables);
     this.panel.onDidDispose(() => this.dispose(), null, this.disposables);
     this.render();
-    if (selected) void this.select(selected);
+    if (this.selected) void this.select(this.selected);
   }
 
   static show(
@@ -84,7 +84,11 @@ export class WorkspacesPanel {
   ): WorkspacesPanel {
     if (WorkspacesPanel.current) {
       WorkspacesPanel.current.panel.reveal(vscode.ViewColumn.Active);
-      if (selected) void WorkspacesPanel.current.select(selected);
+      // The panel is retained when hidden. Revealing its original rows made an old active marker
+      // look authoritative even after the Navigator and CLI had switched workspaces. Re-read the
+      // machine-wide registry every time the page is opened, preferring the explicitly clicked row
+      // and otherwise the workspace that is active now.
+      void WorkspacesPanel.current.refresh(selected, true);
       return WorkspacesPanel.current;
     }
     const panel = vscode.window.createWebviewPanel(
@@ -95,6 +99,16 @@ export class WorkspacesPanel {
       });
     WorkspacesPanel.current = new WorkspacesPanel(panel, entries, reload, onMessage, loadDetails, selected);
     return WorkspacesPanel.current;
+  }
+
+  /** Keep an already-open panel in step with a workspace switch performed by another surface. */
+  static async activeWorkspaceChanged(path: string | null = null): Promise<void> {
+    if (WorkspacesPanel.current) await WorkspacesPanel.current.refresh(path, true);
+  }
+
+  private initialSelection(selected: string | null): string | null {
+    if (selected && this.rows.some((row) => row.path === selected)) return selected;
+    return this.rows.find((row) => row.active)?.path ?? null;
   }
 
   private render(): void {
@@ -111,10 +125,15 @@ export class WorkspacesPanel {
     );
   }
 
-  private async refresh(): Promise<void> {
+  private async refresh(preferred: string | null = null, preferActive = false): Promise<void> {
     this.rows = workspaceRows(await this.reload());
-    if (this.selected && this.rows.some((row) => row.path === this.selected)) {
-      await this.select(this.selected);
+    const requested = preferred && this.rows.some((row) => row.path === preferred) ? preferred : null;
+    const active = this.rows.find((row) => row.active)?.path ?? null;
+    const retained = this.selected && this.rows.some((row) => row.path === this.selected)
+      ? this.selected : null;
+    const next = requested ?? (preferActive ? active : retained ?? active);
+    if (next) {
+      await this.select(next);
     } else {
       this.selected = null;
       this.details = null;

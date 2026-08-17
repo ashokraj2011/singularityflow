@@ -39,7 +39,10 @@ function home({
   return homeOverviewResult({
     workspace,
     records: { groups: { active: active ? [active] : [] } },
-    subject: { kind: 'repository', id: 'calc', revision: { sourceCommit } },
+    subject: {
+      kind: 'repository', id: 'calc',
+      revision: { sourceCommit, worktreeAlgorithm: 'sflow-worktree-v2' }
+    },
     localChanges
   });
 }
@@ -180,13 +183,25 @@ test('the stored snapshot carries what the next comparison reads, and nothing el
   const acknowledgement = ackFor(home({ active: story() }));
 
   assert.deepEqual(Object.keys(acknowledgement).sort(), [
-    'activeWorkId', 'activeWorkPhase', 'at', 'dirty', 'sourceCommit', 'version', 'worktreeHash', 'workspaceId'
+    'activeWorkId', 'activeWorkPhase', 'at', 'dirty', 'sourceCommit', 'version',
+    'worktreeAlgorithm', 'worktreeHash', 'workspaceId'
   ].sort());
-  assert.equal(acknowledgement.version, 1);
+  assert.equal(acknowledgement.version, 2);
+  assert.equal(acknowledgement.worktreeAlgorithm, 'sflow-worktree-v2');
   assert.equal(acknowledgement.workspaceId, WORKSPACE.id);
   assert.equal(acknowledgement.activeWorkId, 'WRK-1978');
   /** A read that found a clean tree, which is not the same as a tree nobody read. */
   assert.equal(acknowledgement.dirty, false);
+});
+
+test('a legacy fingerprint acknowledgement is stale rather than silently comparable', () => {
+  const result = home();
+  const legacy = {
+    ...ackFor(result), version: 1, worktreeAlgorithm: undefined
+  };
+  const delta = homeDelta(result, legacy);
+  assert.equal(delta.state, 'incomparable');
+  assert.match(delta.summary, /older fingerprint algorithm/i);
 });
 
 test('the key is per workspace and per actor', () => {

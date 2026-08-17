@@ -73,9 +73,11 @@ function fallbackFor(id, label, slots) {
   };
 }
 
-function homeNavigation(entry, { workId = null } = {}) {
-  if (entry.id === 'work.continue' || entry.id === 'work.return') {
-    return workId ? { operationId: entry.id, arguments: { workId } } : { operationId: 'work.list', arguments: {} };
+function homeNavigation(entry, { workId = null, workKind = null } = {}) {
+  if (['work.continue', 'work.return', 'work.readiness'].includes(entry.id)) {
+    return workId
+      ? { operationId: entry.id, arguments: { workId, ...(workKind ? { workKind } : {}) } }
+      : { operationId: 'work.list', arguments: {} };
   }
   if (entry.id === 'workspace.switch') return { operationId: 'workspace.list', arguments: {} };
   if (entry.id === 'repository.explore') {
@@ -303,7 +305,10 @@ export function homeOverviewResult({
      * only a commit would claim to depend on less than it does. Overlaid rather than set, because
      * the commit and the hashes come from the handle this read was authorized by.
      */
-    subject: subjectWith(subject, { revision: { worktreeHash: localChanges?.worktreeHash ?? null } }),
+    subject: subjectWith(subject, { revision: {
+      worktreeHash: localChanges?.worktreeHash ?? null,
+      worktreeAlgorithm: localChanges?.worktreeAlgorithm ?? null
+    } }),
     outcome: {
       status: 'succeeded',
       messageId: 'gateway.home',
@@ -348,7 +353,7 @@ export function homeOverviewResult({
         return choice(entry, index, 'home.local-work-unreconciled', {
           files: String(localChanges.files ?? 0),
           work: active?.id ?? 'none'
-        }, { workId: active?.id ?? null });
+        }, { workId: active?.id ?? null, workKind: active?.kind ?? null });
       }
       if (entry.id === 'work.continue' && leading) {
         return choice(entry, index, recovery ? 'home.recovery-required' : 'home.continue-active-work', {
@@ -357,12 +362,14 @@ export function homeOverviewResult({
           repository: leading.repository ?? 'current',
           phase: leading.phase ?? 'none',
           nextAction: leading.nextAction?.operation ?? 'none'
-        }, { workId: leading.id });
+        }, { workId: leading.id, workKind: leading.kind });
       }
       if (entry.id === 'work.list') {
         return choice(entry, index, 'home.work-summary', { active: String(counts.active), decisions: String(decisions) });
       }
-      return choice(entry, index, 'home.stable-choice', {}, { workId: active?.id ?? null });
+      return choice(entry, index, 'home.stable-choice', {}, {
+        workId: active?.id ?? null, workKind: active?.kind ?? null
+      });
     }),
     restState: null,
     data: {
@@ -376,15 +383,15 @@ export function homeOverviewResult({
       personalization: personalizationFromGitIdentity(actor),
       workspace: { id: workspace.id, name: workspace.name ?? workspace.id },
       counts,
-      activeWork: active ? { id: active.id, title: active.title, phase: active.phase, nextAction: active.nextAction } : null,
+      activeWork: active ? {
+        kind: active.kind, id: active.id, title: active.title, phase: active.phase, nextAction: active.nextAction
+      } : null,
       /**
        * Clean and unread are different answers, and `subject.revision` cannot hold both.
        *
-       * A null `worktreeHash` there means "no uncommitted bytes were bound", which is true of a
-       * clean tree *and* of a tree nobody could read — and a surface that told a returning developer
-       * their worktree is clean on the strength of a failed `git status` would be inventing the one
-       * reassurance they came to check. The record says which: `null` is unread, and `dirty: false`
-       * is a read that found nothing. `work.return` carries it here for the same reason.
+       * The v2 hash identifies both clean and dirty observation state, including index visibility
+       * flags. Dirtiness is therefore read only from this record: `null` is unread, and
+       * `dirty: false` is a read that found nothing. `work.return` carries it here for the same reason.
        */
       localChanges,
       // `[INT:CON-024]`: shown as a count here; selecting it opens the ceremony, never records one.
@@ -444,11 +451,13 @@ export async function homeOverview({ subject = null, root = null, context = {} }
     actor: context.actor ?? null,
     records,
     current: {
+      workId: context.workId ?? context.storyId ?? null,
+      workKind: context.workKind ?? null,
       storyId: context.storyId ?? null,
       repositoryId,
       branch: context.branch ?? null,
       // A direct planner invocation with no selected branch is scoped to this repository.
-      repositoryScoped: !context.storyId && !context.branch
+      repositoryScoped: !context.workId && !context.storyId && !context.branch
     },
     subject,
     otherWorkspaces,

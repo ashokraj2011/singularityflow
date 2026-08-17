@@ -6,6 +6,8 @@ import { canonicalJson } from './records.mjs';
 import { scopedReadSync } from './read-scope.mjs';
 import { run } from './util.mjs';
 
+export const WORKTREE_FINGERPRINT_ALGORITHM = 'sflow-worktree-v2';
+
 function sha256(value) {
   return createHash('sha256').update(value).digest('hex');
 }
@@ -34,13 +36,15 @@ function withoutConfiguredFilters(root, args) {
   return [...overrides, ...args];
 }
 
-function fileEntry(root, relative) {
+function fileEntry(root, relative, { sparseAbsent = false } = {}) {
   const absolute = path.join(root, relative);
   let stat;
   try {
     stat = lstatSync(absolute);
   } catch (error) {
-    if (error?.code === 'ENOENT') return { path: relative, type: 'missing', mode: null, object: null };
+    if (error?.code === 'ENOENT') return {
+      path: relative, type: sparseAbsent ? 'sparse-absent' : 'missing', mode: null, object: null
+    };
     throw error;
   }
 
@@ -83,6 +87,30 @@ function fileEntry(root, relative) {
   return { path: relative, type: 'other', mode: String(stat.mode), object: null };
 }
 
+function indexEntries(listing, flagsListing) {
+  const flags = new Map(splitNull(flagsListing).map((entry) => [entry.slice(2), entry[0]]));
+  return splitNull(listing).map((entry) => {
+    const tab = entry.indexOf('\t');
+    const [mode, object, stageText] = entry.slice(0, tab).split(' ');
+    const relative = entry.slice(tab + 1);
+    const tag = flags.get(relative) ?? 'H';
+    return {
+      path: relative,
+      mode,
+      object,
+      stage: Number(stageText),
+      assumeUnchanged: /^[a-z]$/.test(tag),
+      skipWorktree: tag.toUpperCase() === 'S'
+    };
+  }).sort((left, right) => left.path < right.path ? -1
+    : left.path > right.path ? 1 : left.stage - right.stage);
+}
+
+function indexedBytes(root, object) {
+  const result = run('git', ['cat-file', 'blob', object], { cwd: root, encoding: 'buffer' });
+  return Buffer.isBuffer(result.stdout) ? result.stdout : Buffer.from(result.stdout);
+}
+
 /**
  * Content-address the repository state without writing Git objects or invoking clean filters.
  *
@@ -105,7 +133,9 @@ export function worktreeFingerprint(root) {
     // Hashing the stage listing avoids `write-tree`, which can itself create a tree for staged
     // changes. It also remains defined for conflicted indexes because all stages are retained.
     const indexListing = run('git', ['ls-files', '--stage', '-z'], { cwd: root }).stdout;
-    const indexTree = sha256(indexListing);
+    const flagsListing = run('git', ['ls-files', '-v', '-z'], { cwd: root }).stdout;
+    const indexManifest = indexEntries(indexListing, flagsListing);
+    const indexTree = sha256(canonicalJson(indexManifest));
     // HEAD and the index listing already content-address every unchanged tracked path. Reading
     // every file again would turn one dirty README into a full-repository byte scan, so only paths
     // whose worktree state differs plus untracked paths are included in the visible-byte manifest.
@@ -115,18 +145,37 @@ export function worktreeFingerprint(root) {
       ]), { cwd: root }).stdout
       : run('git', ['ls-files', '--cached', '-z'], { cwd: root }).stdout;
     const untracked = run('git', ['ls-files', '--others', '--exclude-standard', '-z'], { cwd: root }).stdout;
-    const paths = [...new Set([...splitNull(changed), ...splitNull(untracked)])].sort();
-    const manifest = paths.map((relative) => fileEntry(root, relative));
+    const stageZero = new Map(indexManifest.filter((entry) => entry.stage === 0)
+      .map((entry) => [entry.path, entry]));
+    const hidden = indexManifest.filter((entry) => entry.stage === 0
+      && (entry.assumeUnchanged || entry.skipWorktree));
+    const paths = [...new Set([
+      ...splitNull(changed), ...splitNull(untracked), ...hidden.map((entry) => entry.path)
+    ])].sort((left, right) => left < right ? -1 : left > right ? 1 : 0);
+    const manifest = paths.map((relative) => fileEntry(root, relative, {
+      sparseAbsent: Boolean(stageZero.get(relative)?.skipWorktree)
+    }));
+    const currentByPath = new Map(manifest.map((entry) => [entry.path, entry]));
+    const hiddenChanges = hidden.filter((entry) => {
+      const current = currentByPath.get(entry.path);
+      if (current?.type === 'sparse-absent' && entry.skipWorktree) return false;
+      if (!current || !['file', 'symlink', 'directory'].includes(current.type)) return true;
+      if (current.mode !== entry.mode) return true;
+      if (current.type === 'directory') return current.object !== entry.object || current.dirty === true;
+      return current.object !== sha256(indexedBytes(root, entry.object));
+    }).map((entry) => entry.path);
     const workingTree = sha256(canonicalJson(manifest));
     const status = run('git', withoutConfiguredFilters(root, [
       'status', '--porcelain=v1', '-z', '--untracked-files=all', '--ignore-submodules=none'
     ]), { cwd: root }).stdout;
-    const trees = { headTree, indexTree, workingTree };
+    const trees = { algorithm: WORKTREE_FINGERPRINT_ALGORITHM, headTree, indexTree, workingTree };
     return Object.freeze({
       ...trees,
       sha256: sha256(canonicalJson(trees)),
-      dirty: Boolean(status),
-      paths: Object.freeze(paths)
+      dirty: Boolean(status) || hiddenChanges.length > 0,
+      paths: Object.freeze(paths),
+      hiddenChanges: Object.freeze(hiddenChanges),
+      diagnosticCodes: Object.freeze(hiddenChanges.length ? ['WORKTREE_HIDDEN_CHANGE'] : [])
     });
   });
 }

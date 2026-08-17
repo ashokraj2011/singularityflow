@@ -12,11 +12,22 @@
  */
 import { buildRepositorySubjectIndex } from '../repository-subject-index.mjs';
 import { matchApprovalAuthority } from '../approval-authority.mjs';
+import { subjectKey, validateSubjectKey } from '../subject-ref.mjs';
 
 /** In render order. A reader scans top-down and should hit their own work first. */
 export const WORK_GROUP_ORDER = Object.freeze([
   'recovery-required', 'waiting-on-you', 'active', 'waiting-on-others', 'recently-completed'
 ]);
+
+/** Resolve a typed subject, permitting a legacy bare ID only when it is unambiguous. */
+export function resolveWorkRecord(records, { workId, workKind = null } = {}) {
+  const matches = (records?.items ?? []).filter((entry) => entry.id === workId
+    && (!workKind || entry.kind === workKind));
+  if (matches.length <= 1) return matches[0] ?? null;
+  const error = new Error(`Work ID '${workId}' exists as more than one governed subject; supply workKind.`);
+  error.code = 'WORK_SUBJECT_AMBIGUOUS';
+  throw error;
+}
 
 /** Phase statuses that mean the work is finished rather than paused. */
 const COMPLETE_STATUSES = new Set(['approved', 'complete', 'completed']);
@@ -112,9 +123,10 @@ function mayDecideApproval(workflow, phase, actor, submitted, fallbackAuthoritie
  * self-approval rule permits this exact submitter relationship. Missing or malformed authority is
  * fail-closed into `waiting-on-others`; Home never advertises a ceremony the reader cannot perform.
  */
-function classify(workflow, { pendingPublication, actor, approvalAuthorities = null }) {
-  if (pendingPublication) {
-    return { group: 'recovery-required', because: 'publication.pending' };
+function classify(workflow, { recovery, actor, approvalAuthorities = null }) {
+  if (recovery?.status === 'pending' || recovery?.status === 'unreadable') {
+    return { group: 'recovery-required', because: recovery.status === 'unreadable'
+      ? 'publication.marker-unreadable' : 'publication.pending' };
   }
   const phaseId = workflow.currentPhase ?? null;
   const phase = phaseId ? workflow.phases?.[phaseId] : null;
@@ -163,9 +175,10 @@ function nextAction(workflow, group) {
   return { operation: 'work.readiness', reasonCode: 'work.check-readiness' };
 }
 
-function blockersOf(workflow, { pendingPublication }) {
+function blockersOf(workflow, { recovery }) {
   const blockers = [];
-  if (pendingPublication) blockers.push('publication-pending');
+  if (recovery?.status === 'pending') blockers.push('publication-pending');
+  if (recovery?.status === 'unreadable') blockers.push('publication-marker-unreadable');
   const phaseId = workflow.currentPhase ?? null;
   const phase = phaseId ? workflow.phases?.[phaseId] : null;
   if (phase?.status === 'awaiting_approval') {
@@ -195,23 +208,27 @@ export async function workRecords(root, {
   // but omission can no longer silently mean "there are no interrupted publications".
   let pending = pendingPublications;
   if (pending == null) {
-    const { readPendingPublication } = await import('../publication-pending.mjs');
+    const { inspectPendingPublication } = await import('../publication-pending.mjs');
     const discovered = await Promise.all(['story', 'initiative'].flatMap((kind) =>
       index.list(kind).map(async (subject) => {
-        const marker = await readPendingPublication(root, {
+        const recovery = await inspectPendingPublication(root, {
           kind, id: subject.id, migrate: false
-        }).catch(() => null);
-        return marker ? subject.id : null;
+        });
+        return [subjectKey({ kind, id: subject.id }), recovery];
       })));
-    pending = new Set(discovered.filter(Boolean));
+    pending = new Map(discovered);
+  } else if (pending instanceof Set) {
+    pending = new Map([...pending].map((key) => [validateSubjectKey(key), {
+      status: 'pending', subject: { kind: String(key).split(':', 1)[0], id: String(key).slice(String(key).indexOf(':') + 1) }
+    }]));
   }
 
   for (const kind of ['story', 'initiative']) {
     for (const subject of index.list(kind)) {
       const workflow = subject.state ?? {};
-      const pendingPublication = pending.has?.(subject.id) ?? false;
+      const recovery = pending.get?.(subjectKey({ kind, id: subject.id })) ?? { status: 'absent' };
       const { group, because } = classify(workflow, {
-        pendingPublication,
+        recovery,
         actor,
         approvalAuthorities: definition?.approvalAuthorities ?? portfolio?.approvalAuthorities ?? null
       });
@@ -235,7 +252,12 @@ export async function workRecords(root, {
         // Where this work sits in its own lifecycle, from the pinned definition `[UXH:REQ-050]`.
         rail: phaseRail(workflow),
         lastMaterialEvent: lastMaterialEvent(workflow),
-        blockers: blockersOf(workflow, { pendingPublication }),
+        blockers: blockersOf(workflow, { recovery }),
+        recovery: recovery.status === 'absent' ? null : {
+          status: recovery.status,
+          path: recovery.path ?? null,
+          code: recovery.code ?? null
+        },
         group,
         // `[INT:REQ-061]`: why it is on this screen, in the record rather than in the renderer.
         whyVisible: because,

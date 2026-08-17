@@ -56,12 +56,17 @@ test('a subject revision declares both, and null means unread', async (t) => {
   const root = await repository();
   t.after(() => rm(root, { recursive: true, force: true }));
 
-  // Clean tree: there is no worktree hash to report, and that is a fact rather than a gap.
-  assert.deepEqual(localChangesFor(root), { dirty: false, files: 0, worktreeHash: null, paths: [] });
+  // Clean trees are still bound to their index visibility state.
+  const clean = localChangesFor(root);
+  assert.equal(clean.dirty, false);
+  assert.equal(clean.files, 0);
+  assert.match(clean.worktreeHash, /^[0-9a-f]{64}$/);
+  assert.equal(clean.worktreeAlgorithm, 'sflow-worktree-v2');
+  assert.deepEqual(clean.paths, []);
 
   const result = workContinueResult(item(), {});
   assert.deepEqual(Object.keys(result.subject.revision).sort(),
-    ['lifecycleHash', 'policyHash', 'registryHash', 'sourceCommit', 'worktreeHash']);
+    ['lifecycleHash', 'policyHash', 'registryHash', 'sourceCommit', 'worktreeAlgorithm', 'worktreeHash']);
   assert.equal(result.subject.revision.sourceCommit, null);
   assert.equal(result.subject.revision.worktreeHash, null);
 });

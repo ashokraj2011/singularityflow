@@ -1,9 +1,9 @@
 import { randomUUID } from 'node:crypto';
-import { lstat, readFile, readdir } from 'node:fs/promises';
+import { lstat, mkdir, readFile, readdir } from 'node:fs/promises';
 import path from 'node:path';
 import { withSubjectLock } from './subject-lock.mjs';
 import { authorizedMcpOrigins, safeMcpTargetUrl } from './mcp-target.mjs';
-import { recordSha256 } from './records.mjs';
+import { canonicalJson, recordSha256 } from './records.mjs';
 import {
   exists, nowIso, posix, secureRepositoryPath, SingularityFlowError, snapshot,
   writeAtomic, writeJson
@@ -217,16 +217,12 @@ async function writeMcpEvidence(root, workflow, {
   return withSubjectLock(root, { kind: 'story', id: workflow.workItem.id }, async () => {
     if (await recordCount(recordsDirectory) >= MAX_RECORDS) throw new SingularityFlowError(`MCP evidence limit reached (${MAX_RECORDS} records).`, { code: 'MCP_EVIDENCE_LIMIT' });
     let output = null;
-    let snapshotObservation = null;
     if (outputPath) {
       const source = await secureRepositoryPath(root, outputPath, { label: 'MCP evidence source', mustExist: true, type: 'file' });
       const sourceInfo = await lstat(source.absolute);
       if (!sourceInfo.isFile() || sourceInfo.isSymbolicLink()) throw new SingularityFlowError('MCP evidence source must be a regular, non-symbolic-link file.', { code: 'MCP_EVIDENCE_UNSAFE_PATH' });
       if (sourceInfo.size > MAX_OUTPUT_BYTES) throw new SingularityFlowError(`MCP evidence output exceeds ${MAX_OUTPUT_BYTES} bytes.`, { code: 'MCP_EVIDENCE_LIMIT' });
       const bytes = await readFile(source.absolute);
-      if (tool === 'browser_snapshot' && authorizedOrigins.length) {
-        snapshotObservation = observedPage(bytes, { authorizedOrigins });
-      }
       const relative = posix(path.join('context', 'mcp', 'outputs', id, sanitizeName(source.relative)));
       const target = await secureRepositoryPath(itemRoot, relative, { label: 'Managed MCP evidence output' });
       await writeAtomic(target.absolute, bytes);
@@ -236,9 +232,6 @@ async function writeMcpEvidence(root, workflow, {
     }
     if (outputUrl) {
       const downloaded = await downloadOutput(outputUrl);
-      if (tool === 'browser_snapshot' && authorizedOrigins.length) {
-        snapshotObservation = observedPage(downloaded.bytes, { authorizedOrigins });
-      }
       const relative = posix(path.join('context', 'mcp', 'outputs', id, downloaded.name));
       const target = await secureRepositoryPath(itemRoot, relative, { label: 'Managed MCP evidence output' });
       await writeAtomic(target.absolute, downloaded.bytes);
@@ -246,14 +239,9 @@ async function writeMcpEvidence(root, workflow, {
       output = { path: relative, sha256: captured.sha256, bytes: captured.size, mediaType: downloaded.mediaType, sourceDisposition: 'remote-copy', sourceUrl: downloaded.sourceUrl, redirects: downloaded.redirects };
       if (kind === 'visual-artifact' && output.mediaType !== 'image/png') throw new SingularityFlowError('Visual-artifact evidence must be a PNG file.', { code: 'MCP_EVIDENCE_INVALID' });
     }
-    if (tool === 'browser_snapshot' && authorizedOrigins.length && !snapshotObservation) {
-      throw new SingularityFlowError('Origin-bound browser snapshot evidence requires a captured Playwright snapshot output.', {
-        code: 'MCP_EVIDENCE_OUTPUT_REQUIRED'
-      });
-    }
     const generation = Number(workflow.phases[activePhase]?.generation ?? 0) + 1;
     const record = {
-      schemaVersion: 2,
+      schemaVersion: 3,
       id,
       kind,
       workId: workflow.workItem.id,
@@ -265,13 +253,11 @@ async function writeMcpEvidence(root, workflow, {
       agent,
       actor,
       recordedAt: nowIso(),
-      captureSource: originReceipt
-        ? 'observed-by-mcp-host'
-        : snapshotObservation ? 'verified-from-captured-output' : 'declared-by-agent',
+      captureSource: originReceipt ? 'observed-by-mcp-host' : 'declared-by-agent',
       note: note ?? null,
       targetOrigin,
-      observedFinalUrlSha256: originReceipt?.observedFinalUrlSha256 ?? snapshotObservation?.finalUrlSha256 ?? null,
-      observedFinalOrigin: originReceipt?.observedFinalOrigin ?? snapshotObservation?.finalOrigin ?? null,
+      observedFinalUrlSha256: originReceipt?.observedFinalUrlSha256 ?? null,
+      observedFinalOrigin: originReceipt?.observedFinalOrigin ?? null,
       originReceipt,
       output,
       ...(kind === 'design-source' ? {
@@ -293,7 +279,16 @@ async function writeMcpEvidence(root, workflow, {
 }
 
 export async function recordMcpEvidence(root, workflow, values = {}) {
-  return writeMcpEvidence(root, workflow, values);
+  const result = await writeMcpEvidence(root, workflow, values);
+  if (values.tool === 'browser_snapshot') {
+    return {
+      ...result,
+      gateSatisfying: false,
+      noticeCode: 'mcp.evidence-observation-required',
+      diagnosticCodes: ['MCP_EVIDENCE_OBSERVATION_REQUIRED']
+    };
+  }
+  return result;
 }
 
 /**
@@ -304,9 +299,112 @@ export async function recordMcpEvidence(root, workflow, values = {}) {
 export async function recordObservedMcpNavigationEvidence(root, workflow, {
   server, phase, agent = null, actor = null, targetUrl, smokeReceipt, itemDirectory = null
 } = {}) {
-  return writeMcpEvidence(root, workflow, {
-    server, tool: 'browser_navigate', phase, agent, actor, targetUrl, itemDirectory
-  }, { liveSmokeReceipt: smokeReceipt });
+  void root; void workflow; void server; void phase; void agent; void actor;
+  void targetUrl; void smokeReceipt; void itemDirectory;
+  throw new SingularityFlowError('A navigation cannot be recorded without its exact host snapshot transaction.', {
+    code: 'MCP_EVIDENCE_OBSERVATION_REQUIRED'
+  });
+}
+
+/**
+ * Persist one host-observed browser transaction as an inseparable navigation/snapshot pair.
+ * The snapshot bytes come directly from the exact `tools/call` result in the same MCP process.
+ */
+export async function recordObservedMcpBrowserCapture(root, workflow, {
+  server, phase, agent = null, actor = null, targetUrl, observedFinalUrl,
+  snapshotResult, smokeReceipt, itemDirectory = null
+} = {}) {
+  const configured = workflow.resolution?.mcpServers?.[server];
+  if (!configured) throw new SingularityFlowError(`MCP server '${server}' is not pinned for this work item.`);
+  const activePhase = validateCommon(workflow, configured, {
+    server, tool: 'browser_navigate', phase, agent
+  });
+  if (!snapshotResult || typeof snapshotResult !== 'object') {
+    throw new SingularityFlowError('The MCP host did not return the exact browser snapshot result.', {
+      code: 'MCP_EVIDENCE_OBSERVATION_REQUIRED'
+    });
+  }
+  const authorizedOrigins = authorizedMcpOrigins(workflow, server);
+  const originReceipt = verifiedNavigationReceipt(
+    configured, server, targetUrl, authorizedOrigins, smokeReceipt
+  );
+  const finalUrl = safeMcpTargetUrl(observedFinalUrl, { label: 'MCP host observed final URL' });
+  if (recordSha256(finalUrl.toString()) !== originReceipt.observedFinalUrlSha256
+      || finalUrl.origin !== originReceipt.observedFinalOrigin) {
+    throw new SingularityFlowError('The snapshot transaction does not match the observed navigation receipt.', {
+      code: 'MCP_EVIDENCE_OUTPUT_RECEIPT_MISMATCH'
+    });
+  }
+
+  const itemRoot = itemDirectory ?? path.join(
+    root, workflow.resolution?.workItemRoot ?? 'singularity/work-items', workflow.workItem.id
+  );
+  const recordsDirectory = path.join(itemRoot, 'context', 'mcp', 'records');
+  const captureId = `capture-${randomUUID()}`;
+  const outputRelative = posix(path.join('context', 'mcp', 'outputs', captureId, 'browser-snapshot.json'));
+  await mkdir(itemRoot, { recursive: true });
+  const outputTarget = await secureRepositoryPath(itemRoot, outputRelative, {
+    label: 'Managed MCP browser snapshot output'
+  });
+  const outputBytes = Buffer.from(canonicalJson(snapshotResult));
+  const generation = Number(workflow.phases[activePhase]?.generation ?? 0) + 1;
+
+  return withSubjectLock(root, { kind: 'story', id: workflow.workItem.id }, async () => {
+    if (await recordCount(recordsDirectory) > MAX_RECORDS - 2) {
+      throw new SingularityFlowError(`MCP evidence limit reached (${MAX_RECORDS} records).`, {
+        code: 'MCP_EVIDENCE_LIMIT'
+      });
+    }
+    await writeAtomic(outputTarget.absolute, outputBytes);
+    const captured = await snapshot(outputTarget.absolute);
+    const output = {
+      path: outputRelative, sha256: captured.sha256, bytes: captured.size,
+      mediaType: 'application/json', sourceDisposition: 'mcp-host-capture'
+    };
+    const observationReceipt = {
+      schemaVersion: 1,
+      source: 'playwright-mcp-live-capture',
+      captureId,
+      subject: { kind: 'story', id: workflow.workItem.id },
+      phase: activePhase,
+      targetGeneration: generation,
+      server,
+      hostReference: configured.hostReference,
+      hostEntrySha256: smokeReceipt.hostEntrySha256,
+      policySha256: smokeReceipt.policySha256,
+      requestedUrlSha256: smokeReceipt.requestedUrlSha256,
+      observedFinalUrlSha256: originReceipt.observedFinalUrlSha256,
+      finalOrigin: originReceipt.observedFinalOrigin,
+      tool: 'browser_snapshot',
+      output: {
+        path: output.path, sha256: output.sha256, bytes: output.bytes, mediaType: output.mediaType
+      },
+      capturedAt: smokeReceipt.checkedAt
+    };
+    const common = {
+      schemaVersion: 3,
+      kind: 'tool-call',
+      workId: workflow.workItem.id,
+      phase: activePhase,
+      targetGeneration: generation,
+      server,
+      hostReference: configured.hostReference,
+      agent,
+      actor,
+      recordedAt: smokeReceipt.checkedAt,
+      captureSource: 'observed-by-mcp-host',
+      captureId,
+      targetOrigin: finalUrl.origin,
+      observedFinalUrlSha256: originReceipt.observedFinalUrlSha256,
+      observedFinalOrigin: finalUrl.origin,
+      observationReceipt
+    };
+    const navigation = { ...common, id: `${captureId}-navigate`, tool: 'browser_navigate', output: null };
+    const snapshotRecord = { ...common, id: `${captureId}-snapshot`, tool: 'browser_snapshot', output };
+    await writeJson(path.join(recordsDirectory, `${navigation.id}.json`), navigation);
+    await writeJson(path.join(recordsDirectory, `${snapshotRecord.id}.json`), snapshotRecord);
+    return Object.freeze({ captureId, navigation, snapshot: snapshotRecord });
+  });
 }
 
 async function candidateRecordFiles(directory) {
@@ -333,7 +431,7 @@ export async function verifyMcpEvidence(root, workflow, { itemDirectory = null }
     if (record.schemaVersion === 1) record = { ...record, kind: 'tool-call', targetGeneration: record.generation };
     records.push(record);
     const prefix = `MCP evidence '${record.id ?? path.basename(absolute)}'`;
-    if (![1, 2].includes(record.schemaVersion)) errors.push(`${prefix} has unsupported schemaVersion '${record.schemaVersion}'.`);
+    if (![1, 2, 3].includes(record.schemaVersion)) errors.push(`${prefix} has unsupported schemaVersion '${record.schemaVersion}'.`);
     if (record.workId !== workflow.workItem.id) errors.push(`${prefix} belongs to work item '${record.workId ?? 'unknown'}'.`);
     const configured = workflow.resolution?.mcpServers?.[record.server];
     if (!configured) { errors.push(`${prefix} references MCP server '${record.server ?? 'unknown'}' outside the pinned work-item policy.`); continue; }
@@ -342,22 +440,24 @@ export async function verifyMcpEvidence(root, workflow, { itemDirectory = null }
     if (record.tool === 'browser_navigate' && authorizedOrigins.length) {
       if (!record.targetOrigin) errors.push(`${prefix} does not identify its browser navigation origin.`);
       else if (!authorizedOrigins.includes(record.targetOrigin)) errors.push(`${prefix} navigation origin '${record.targetOrigin}' is outside the Story authorization.`);
-      if (record.captureSource !== 'observed-by-mcp-host' || record.originReceipt?.source !== 'playwright-mcp-live-smoke') {
-        errors.push(`${prefix} is agent-declared navigation rather than a live MCP host observation.`);
-      }
+      if (record.schemaVersion === 3 && record.captureSource === 'observed-by-mcp-host') {
+        if (!record.captureId || record.observationReceipt?.captureId !== record.captureId) {
+          errors.push(`[MCP_EVIDENCE_OUTPUT_RECEIPT_MISMATCH] ${prefix} has no matching host observation receipt.`);
+        }
+      } else warnings.push(`${prefix} is retained for audit but cannot satisfy a host-observed browser gate.`);
       if (!record.observedFinalOrigin || record.observedFinalOrigin !== record.targetOrigin) {
         errors.push(`${prefix} observed final origin does not match its authorized target origin.`);
       }
-      if (record.originReceipt?.policySha256 !== recordSha256(configured)
-          || record.originReceipt?.observedFinalOrigin !== record.observedFinalOrigin) {
-        errors.push(`${prefix} live MCP origin receipt does not match its pinned policy or observed result.`);
+      if (record.schemaVersion === 3 && record.captureSource === 'observed-by-mcp-host'
+          && (record.observationReceipt?.policySha256 !== recordSha256(configured)
+          || record.observationReceipt?.finalOrigin !== record.observedFinalOrigin)) {
+        errors.push(`[MCP_EVIDENCE_OUTPUT_RECEIPT_MISMATCH] ${prefix} host receipt does not match its pinned policy or observed result.`);
       }
     }
     if (record.tool === 'browser_snapshot' && authorizedOrigins.length) {
-      if (record.captureSource !== 'verified-from-captured-output') {
-        errors.push(`${prefix} does not carry a kernel-verified Playwright Page URL.`);
-      }
-      if (!record.observedFinalOrigin || !authorizedOrigins.includes(record.observedFinalOrigin)) {
+      if (record.schemaVersion !== 3 || record.captureSource !== 'observed-by-mcp-host') {
+        warnings.push(`${prefix} is agent-supplied or legacy evidence and is retained for audit only; it cannot satisfy the origin gate.`);
+      } else if (!record.observedFinalOrigin || !authorizedOrigins.includes(record.observedFinalOrigin)) {
         errors.push(`${prefix} snapshot origin is absent or outside the Story authorization.`);
       }
     }
@@ -365,7 +465,11 @@ export async function verifyMcpEvidence(root, workflow, { itemDirectory = null }
     if (configured.phases.length && !configured.phases.includes(record.phase)) errors.push(`${prefix} is outside MCP server '${record.server}' phase scope.`);
     if (configured.agents.length && !configured.agents.includes(record.agent)) errors.push(`${prefix} was recorded by governed agent '${record.agent ?? 'unknown'}', outside the pinned assignment.`);
     if (!TOOL.test(record.tool ?? '')) errors.push(`${prefix} has an invalid tool name.`);
-    else if (configured.tools.length && !configured.tools.includes(record.tool)) errors.push(`${prefix} records disallowed tool '${record.tool}'.`);
+    else if (configured.tools.length && !configured.tools.includes(record.tool)
+        && !(record.schemaVersion === 3 && record.captureSource === 'observed-by-mcp-host'
+          && record.tool === 'browser_snapshot')) {
+      errors.push(`${prefix} records disallowed tool '${record.tool}'.`);
+    }
     if (record.kind === 'design-source') {
       if (!record.fileKey || !record.fileVersion || !Array.isArray(record.nodes)) errors.push(`${prefix} is missing design-source identity fields.`);
       if (record.format !== 'figma-mcp-metadata-xml' && record.format !== 'figma-rest-file-json' && record.format !== 'sflow-design-nodes-v1') errors.push(`${prefix} has unsupported design-source format '${record.format}'.`);
@@ -385,7 +489,7 @@ export async function verifyMcpEvidence(root, workflow, { itemDirectory = null }
       if (!current.exists) errors.push(`${prefix} output is missing: ${record.output.path}`);
       else if (current.sha256 !== record.output.sha256 || current.size !== record.output.bytes) errors.push(`${prefix} output changed after capture: ${record.output.path}`);
       else {
-        if (record.tool === 'browser_snapshot' && authorizedOrigins.length) {
+        if (record.tool === 'browser_snapshot' && authorizedOrigins.length && record.schemaVersion < 3) {
           try {
             const observed = observedPage(await readFile(target.absolute), { authorizedOrigins, label: prefix });
             if (observed.finalUrlSha256 !== record.observedFinalUrlSha256 || observed.finalOrigin !== record.observedFinalOrigin) {
@@ -393,9 +497,41 @@ export async function verifyMcpEvidence(root, workflow, { itemDirectory = null }
             }
           } catch (error) { errors.push(`${prefix} cannot verify its captured Page URL: ${error.message}`); }
         }
+        if (record.schemaVersion === 3 && record.captureSource === 'observed-by-mcp-host') {
+          const receipt = record.observationReceipt;
+          if (!receipt || receipt.schemaVersion !== 1
+              || receipt.source !== 'playwright-mcp-live-capture'
+              || receipt.subject?.kind !== 'story' || receipt.subject?.id !== workflow.workItem.id
+              || receipt.phase !== record.phase
+              || Number(receipt.targetGeneration) !== Number(record.targetGeneration)
+              || receipt.server !== record.server || receipt.hostReference !== configured.hostReference
+              || receipt.captureId !== record.captureId
+              || receipt.policySha256 !== recordSha256(configured)
+              || receipt.observedFinalUrlSha256 !== record.observedFinalUrlSha256
+              || receipt.finalOrigin !== record.observedFinalOrigin
+              || receipt.output?.path !== record.output.path
+              || receipt.output?.sha256 !== current.sha256 || receipt.output?.bytes !== current.size
+              || receipt.output?.mediaType !== record.output.mediaType) {
+            errors.push(`[MCP_EVIDENCE_OUTPUT_RECEIPT_MISMATCH] ${prefix} output does not match its host observation receipt.`);
+          }
+        }
         passes.push(`MCP evidence output: ${record.server}/${record.tool}@${current.sha256.slice(0, 8)}`);
       }
     } else if (configured.evidence.captureResults) warnings.push(`${prefix} has no durable output although result capture is requested by policy.`);
+  }
+  const observedCaptures = new Map();
+  for (const record of records.filter((entry) => entry.schemaVersion === 3
+      && entry.captureSource === 'observed-by-mcp-host')) {
+    const list = observedCaptures.get(record.captureId) ?? [];
+    list.push(record);
+    observedCaptures.set(record.captureId, list);
+  }
+  for (const [captureId, paired] of observedCaptures) {
+    const tools = paired.map((entry) => entry.tool).sort();
+    const receipts = new Set(paired.map((entry) => recordSha256(entry.observationReceipt ?? null)));
+    if (paired.length !== 2 || tools.join(',') !== 'browser_navigate,browser_snapshot' || receipts.size !== 1) {
+      errors.push(`[MCP_EVIDENCE_RECEIPT_REPLAYED] Browser capture '${captureId}' is incomplete, duplicated, or has mismatched receipts.`);
+    }
   }
   if (records.length) passes.push(`MCP evidence integrity: ${records.length} record(s)`);
   return { errors, warnings, passes, records };
@@ -420,7 +556,10 @@ export async function verifyPhaseMcpRequirements(root, workflow, phase, {
     if (!authorizedMcpOrigins(workflow, server).length) continue;
     const observedNavigation = records.find((record) =>
       record.server === server && record.tool === 'browser_navigate'
-      && record.captureSource === 'observed-by-mcp-host'
+      && record.schemaVersion === 3 && record.captureSource === 'observed-by-mcp-host'
+      && records.some((candidate) => candidate.schemaVersion === 3
+        && candidate.captureId === record.captureId && candidate.tool === 'browser_snapshot'
+        && candidate.captureSource === 'observed-by-mcp-host')
     );
     if (!observedNavigation) {
       errors.push(
@@ -429,9 +568,16 @@ export async function verifyPhaseMcpRequirements(root, workflow, phase, {
     } else passes.push(`${server}/origin: ${observedNavigation.observedFinalOrigin}`);
   }
   for (const requirement of requirements) {
+    const originBoundBrowser = requirement.tool.startsWith('browser_')
+      && authorizedMcpOrigins(workflow, requirement.server).length > 0;
     const matches = records.filter((record) =>
       record.server === requirement.server
       && record.tool === requirement.tool
+      && (!originBoundBrowser || (record.schemaVersion === 3
+        && record.captureSource === 'observed-by-mcp-host'
+        && records.some((candidate) => candidate.captureId === record.captureId
+          && candidate.tool === (record.tool === 'browser_snapshot' ? 'browser_navigate' : 'browser_snapshot')
+          && candidate.schemaVersion === 3 && candidate.captureSource === 'observed-by-mcp-host')))
       && (!requirement.outputRequired || Boolean(record.output?.sha256))
     );
     if (matches.length < requirement.minimum) {

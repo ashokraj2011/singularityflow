@@ -29,7 +29,7 @@ import { catalogued } from '../catalog.mjs';
 import { localChangesFor } from './work-continue.mjs';
 import { subjectWith } from '../handles.mjs';
 import { noEffects, plannerNavigation, preservedAll, sflowResult } from '../result.mjs';
-import { workRecords } from '../work-records.mjs';
+import { resolveWorkRecord, workRecords } from '../work-records.mjs';
 import { branch, head } from '../../git.mjs';
 
 /**
@@ -168,7 +168,8 @@ export function workReturnResult(item, {
       id: item.id,
       revision: {
         sourceCommit: report?.baseline?.sourceBaseCommit ?? null,
-        worktreeHash: localChanges?.worktreeHash ?? null
+        worktreeHash: localChanges?.worktreeHash ?? null,
+        worktreeAlgorithm: localChanges?.worktreeAlgorithm ?? null
       }
     }),
     outcome: {
@@ -205,7 +206,7 @@ export function workReturnResult(item, {
         emphasis: 'primary',
         executable: false,
         fallback: { label: 'Reconcile', command: `sflow story interval reconcile --work-id ${item.id}` }
-      }, 'work.continue', { workId: item.id })]
+      }, 'work.continue', { workId: item.id, workKind: item.kind })]
       : [],
     /**
      * Nothing to do is an answer `[INT:REQ-041]`.
@@ -253,7 +254,7 @@ export function workReturnResult(item, {
 export async function workReturn({ arguments: args = {}, subject = null, root = null, context = {} } = {}) {
   if (!root) throw new SingularityFlowError('work.return requires the repository root it should read.', { code: 'WORK_RETURN_NO_ROOT' });
   const records = await workRecords(root, { includeCompleted: true, ...context });
-  const item = records.items.find((entry) => entry.id === args.workId);
+  const item = resolveWorkRecord(records, args);
   if (!item) {
     return sflowResult({
       kind: 'refusal',

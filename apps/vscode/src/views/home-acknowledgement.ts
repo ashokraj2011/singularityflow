@@ -36,12 +36,13 @@
  * happen to be present.
  */
 export type HomeAcknowledgement = {
-  readonly version: 1;
+  readonly version: 2;
   readonly at: string;
   readonly workspaceId: string | null;
   readonly sourceCommit: string | null;
-  /** Null is *clean*; absent (`undefined`) is *not read*. The two are never merged — see below. */
+  /** Null is unread; v2 fingerprints clean and dirty repository observation state alike. */
   readonly worktreeHash: string | null;
+  readonly worktreeAlgorithm: string;
   readonly dirty: boolean | null;
   readonly activeWorkId: string | null;
   readonly activeWorkPhase: string | null;
@@ -55,6 +56,7 @@ export type HomeDelta = {
   readonly changes: readonly string[];
   /** Why no comparison was possible. Null unless `state` is `incomparable`. */
   readonly obstacle: string | null;
+  readonly code?: string;
   readonly heading: string;
   readonly summary: string;
   /**
@@ -81,7 +83,7 @@ export const ACKNOWLEDGE_ACTION_ID = 'home:acknowledge';
  */
 function factsOf(result: any): {
   workspaceId: string | null; sourceCommit: string | null;
-  worktreeHash: string | null; dirty: boolean | null;
+  worktreeHash: string | null; worktreeAlgorithm: string | null; dirty: boolean | null;
   activeWorkId: string | null; activeWorkPhase: string | null;
 } {
   const local = result?.data?.localChanges;
@@ -91,12 +93,12 @@ function factsOf(result: any): {
     /**
      * `dirty` comes from the record, never from the hash.
      *
-     * `worktreeHash` is null both for a clean tree and for a tree Git could not read, so deriving
-     * dirtiness from it would report "your worktree is clean" on the strength of a failed
-     * `git status`. The record is null only when nothing was read, and says `dirty: false` when a
+     * A hash identifies observation state, not dirtiness, so deriving dirtiness from it would
+     * report the wrong thing. The record is null only when nothing was read, and says `dirty: false` when a
      * read found nothing — which is the distinction this whole module is about.
      */
     worktreeHash: result?.subject?.revision?.worktreeHash ?? null,
+    worktreeAlgorithm: result?.subject?.revision?.worktreeAlgorithm ?? null,
     dirty: local ? Boolean(local.dirty) : null,
     activeWorkId: result?.data?.activeWork?.id ?? null,
     activeWorkPhase: result?.data?.activeWork?.phase ?? null
@@ -114,7 +116,8 @@ function factsOf(result: any): {
 export function homeAcknowledgementFor(result: any, now: () => Date = () => new Date()): HomeAcknowledgement | null {
   const facts = factsOf(result);
   if (!facts.sourceCommit && facts.dirty === null) return null;
-  return Object.freeze({ version: 1, at: now().toISOString(), ...facts });
+  if (!facts.worktreeAlgorithm) return null;
+  return Object.freeze({ version: 2, at: now().toISOString(), ...facts }) as HomeAcknowledgement;
 }
 
 /** The `globalState` key. Per workspace and per actor, because a delta is personal to both. */
@@ -192,6 +195,20 @@ export function homeDelta(result: any, acknowledgement: HomeAcknowledgement | nu
       summary: storable
         ? 'You have not marked this home as checked, so there is nothing to compare against yet.'
         : 'This repository could not be read, so there is nothing to compare against yet.',
+      action
+    });
+  }
+
+  if (acknowledgement.version !== 2 || !acknowledgement.worktreeAlgorithm
+      || acknowledgement.worktreeAlgorithm !== facts.worktreeAlgorithm) {
+    return Object.freeze({
+      state: 'incomparable' as const,
+      at: acknowledgement.at,
+      changes: [],
+      obstacle: 'the saved acknowledgement uses an older worktree fingerprint algorithm',
+      code: 'FINGERPRINT_ALGORITHM_STALE',
+      heading: 'Could not compare',
+      summary: 'The saved acknowledgement uses an older fingerprint algorithm. Mark this home as checked to establish a new trustworthy baseline.',
       action
     });
   }

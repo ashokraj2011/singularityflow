@@ -166,7 +166,10 @@ const optional = (type, extra = {}) => ({ type, required: false, ...extra });
 
 export const ARGUMENT_SCHEMAS = Object.freeze([
   schema('no-arguments-v1', {}),
-  schema('work-subject-v1', { workId: required('identifier') }),
+  schema('work-subject-v1', {
+    workId: required('identifier'),
+    workKind: optional('enum', { values: ['story', 'initiative'] })
+  }),
   schema('work-list-v1', {
     group: optional('enum', { values: WORK_GROUPS }),
     includeCompleted: optional('boolean')

@@ -16,6 +16,7 @@ const binding = {
   subjectId: null,
   sourceCommit: null,
   worktreeHash: null,
+  worktreeAlgorithm: 'sflow-worktree-v2',
   lifecycleRevision: null,
   policyHash: 'sha256:policy',
   registryHash: 'sha256:registry',

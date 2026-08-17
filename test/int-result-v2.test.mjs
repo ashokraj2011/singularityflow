@@ -143,7 +143,7 @@ test('subject revisions are always present in shape, even when unknown', () => {
   // which is indistinguishable from a producer that forgot the field.
   const result = read({ subject: { kind: 'story', id: 'WRK-123' } });
   assert.deepEqual(Object.keys(result.subject.revision).sort(),
-    ['lifecycleHash', 'policyHash', 'registryHash', 'sourceCommit', 'worktreeHash']);
+    ['lifecycleHash', 'policyHash', 'registryHash', 'sourceCommit', 'worktreeAlgorithm', 'worktreeHash']);
   assert.equal(result.subject.revision.sourceCommit, null);
   /**
    * `worktreeHash` is a fifth field, not a variant of the first.

@@ -76,10 +76,10 @@ test('the headline carries the gate count, and it matches the checklist', () => 
    * which throws away the unmet/unknown distinction in the one line most readers stop at.
    */
   assert.equal(card.gates.unmet, 2);
-  assert.equal(card.headline, 'Not ready to submit — 2 of 7 gates unmet, 4 not evaluated');
+  assert.equal(card.headline, 'Not ready to submit — 2 of 8 gates unmet, 4 not evaluated');
 
   // A readiness read that finds nothing wrong is not headlined as a problem.
-  assert.equal(buildResultCard(blocked([])).headline, 'Here is what SFlow found — 4 of 7 gates not evaluated');
+  assert.equal(buildResultCard(blocked([])).headline, 'Here is what SFlow found — 4 of 8 gates not evaluated');
 
   // The status bar derives the same numbers from the same function `[UXH:AC-002]`.
   assert.deepEqual(gateSummary(blocked(['approvals-outstanding', 'required-artifact-missing'])), card.gates);

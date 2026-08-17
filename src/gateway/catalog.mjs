@@ -71,6 +71,7 @@ export const KERNEL_CODES = Object.freeze([
   'gateway.handle-drifted',
   'gateway.handle-binding-invalid',
   'gateway.handle-invalid',
+  'gateway.fingerprint-algorithm-stale',
   /** A handle failed for a reason this build has no name for. See the module note. */
   'gateway.handle-unrecognised'
 ]);
@@ -95,7 +96,8 @@ export const HOME_CODES = Object.freeze([
   'home.needs-your-decision',
   'home.nothing-waiting',
   'home.work-summary',
-  'home.stable-choice'
+  'home.stable-choice',
+  'home.selection-stale'
 ]);
 
 /** The canonical developer recommendation and its honest empty-state alternatives. */
@@ -134,6 +136,7 @@ export const WORK_CODES = Object.freeze([
   'work.final-phase-approved',
   'work.in-progress',
   'work.blocked.publication-pending',
+  'work.blocked.publication-marker-unreadable',
   'work.blocked.approvals-outstanding',
   'work.blocked.required-artifact-missing',
   'work.blocked.unrecognised'
@@ -176,6 +179,7 @@ export const READINESS_CODES = Object.freeze([
   'readiness.blocked',
   'readiness.partial-inputs',
   'readiness.publication-pending',
+  'readiness.publication-marker-unreadable',
   'readiness.approvals-outstanding',
   'readiness.required-artifact-missing',
   'readiness.tests',
@@ -184,6 +188,7 @@ export const READINESS_CODES = Object.freeze([
   'readiness.unclaimed-changes',
   'readiness.unrecognised-gate',
   'readiness.resume-publication',
+  'readiness.repair-publication-marker',
   'readiness.awaiting-a-human-decision',
   'readiness.produce-the-artifact',
   'readiness.no-known-step'
@@ -209,7 +214,9 @@ export const SURFACE_CODES = Object.freeze([
   'approval.you-are-authorized',
   'approval.requires-an-authorized-reviewer',
   'recovery.resume-publication',
-  'publication.pending'
+  'publication.pending',
+  'publication.marker-unreadable',
+  'mcp.evidence-observation-required'
 ]);
 
 /** Every code, in one frozen set, which is the thing a surface actually needs. */
@@ -292,6 +299,8 @@ export const WARNING_CODES = Object.freeze([
   'explain.unstamped-docs',
   /** A workspace field the registry does not carry, named per field rather than as one blur. */
   'workspace.evidence-gap',
+  /** Agent-declared browser bytes were retained, but no MCP host observed the browser transaction. */
+  'mcp.evidence-observation-required',
   /**
    * Uncommitted work exists in the tree this answer was computed against.
    *

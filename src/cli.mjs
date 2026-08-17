@@ -44,6 +44,7 @@ import { nextStepsSnapshot, nextStepsText } from './nextsteps.mjs';
 import { loadHelpDocument } from './help.mjs';
 import { agentMappingStatus, agentStatus, discoverAgents, lockAgent, prepareRemoteOutputs, remoteOutputConflicts, syncAgent } from './agents.mjs';
 import { attestMcpHost, mcpDoctor, mcpStatus, recordMcpEvidence, scaffoldFigmaMcp, smokeMcpHost, warmMcpHost, scaffoldPlaywrightMcp } from './mcp.mjs';
+import { message as gatewayMessage } from './gateway/messages.mjs';
 import { normalizeMcpTargetOrigin } from './mcp-target.mjs';
 import { approvedDesignSourceBinding, verifyDesignSourceLifecycle } from './design-sources.mjs';
 import { generateDesignInventory } from './design-inventory.mjs';
@@ -2366,6 +2367,10 @@ async function mcpCommand(positionals, options) {
       actor: session.actor
     });
     console.log(`Recorded MCP provenance at ${result.file}. It will be committed by the next normal lifecycle publication.`);
+    if (result.noticeCode) {
+      const notice = gatewayMessage(result.noticeCode);
+      console.warn(`Warning: ${notice.label}${notice.detail ? ` — ${notice.detail}` : ''}`);
+    }
     return;
   }
   if (subcommand === 'design-sources') {

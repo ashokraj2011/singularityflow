@@ -10,7 +10,7 @@ import { MCP_SCAFFOLD_VERSIONS, MCP_WORKSPACE_PATH } from './mcp-host.mjs';
 import {
   authorizedMcpOrigins, MCP_SMOKE_MAX_AGE_MS, normalizeMcpTargetOrigin, safeMcpTargetUrl
 } from './mcp-target.mjs';
-import { recordObservedMcpNavigationEvidence } from './mcp-evidence.mjs';
+import { recordObservedMcpBrowserCapture } from './mcp-evidence.mjs';
 import { exists, nowIso, SingularityFlowError, writeJson } from './util.mjs';
 
 const SAFE_ID = /^[a-z0-9]+(?:-[a-z0-9]+)*$/;
@@ -152,6 +152,20 @@ function matchingHostRows(rows, server) {
 
 function policyHash(server) { return recordSha256(server); }
 
+function finalUrlFromSnapshotResult(snapshotResult) {
+  const text = (snapshotResult?.content ?? [])
+    .filter((entry) => entry?.type === 'text')
+    .map((entry) => entry.text)
+    .join('\n');
+  const reported = text.match(/Page URL:\s*(\S+)/i)?.[1] ?? null;
+  if (!reported) {
+    throw new SingularityFlowError('The exact MCP snapshot result does not report its final URL.', {
+      code: 'MCP_EVIDENCE_OBSERVATION_REQUIRED'
+    });
+  }
+  return safeMcpTargetUrl(reported, { label: 'MCP snapshot observed final URL' });
+}
+
 function rpcSmoke(entry, { url, cwd, timeoutMs = 45_000 } = {}) {
   if (entry?.command !== 'npx' || !exactPlaywrightPin(entry)) {
     throw new SingularityFlowError('The live Playwright smoke test only runs the exact release-managed npx package.', { code: 'MCP_SMOKE_UNSUPPORTED_HOST' });
@@ -222,7 +236,8 @@ function rpcSmoke(entry, { url, cwd, timeoutMs = 45_000 } = {}) {
       finish(null, {
         status: 'passed', tools: [...REQUIRED_SMOKE_TOOLS],
         finalUrl: finalUrl.toString(), finalOrigin,
-        protocolVersion: initialized?.protocolVersion ?? null
+        protocolVersion: initialized?.protocolVersion ?? null,
+        snapshotResult
       });
     })().catch((error) => finish(error?.code ? error : new SingularityFlowError(`Playwright MCP smoke test failed: ${error.message}`, { code: 'MCP_SMOKE_FAILED', cause: error })));
   });
@@ -249,7 +264,9 @@ export async function smokeMcpHost(root, definition, serverId, {
   if (!entry) throw new SingularityFlowError(`Host entry '${server.hostReference}' is absent.`, { code: 'MCP_HOST_CONFIG_MISSING' });
   const result = await probe(entry, { url, server, cwd: root });
   if (result?.status !== 'passed') throw new SingularityFlowError(`MCP smoke test failed for '${serverId}'.`, { code: 'MCP_SMOKE_FAILED' });
-  const observedFinalUrl = safeMcpTargetUrl(result.finalUrl, { label: 'MCP smoke observed final URL' });
+  const observedFinalUrl = evidence?.workflow
+    ? finalUrlFromSnapshotResult(result.snapshotResult)
+    : safeMcpTargetUrl(result.finalUrl, { label: 'MCP smoke observed final URL' });
   const finalOrigin = normalizeMcpTargetOrigin(result.finalOrigin, {
     required: true,
     label: 'MCP smoke final origin'
@@ -261,6 +278,7 @@ export async function smokeMcpHost(root, definition, serverId, {
   if (REQUIRED_SMOKE_TOOLS.some((tool) => !tools.has(tool))) {
     throw new SingularityFlowError('MCP smoke did not exercise the complete required browser tool set.', { code: 'MCP_SMOKE_INCOMPLETE' });
   }
+  const { snapshotResult, ...receiptResult } = result;
   const receipt = {
     schemaVersion: 1,
     serverId,
@@ -271,7 +289,7 @@ export async function smokeMcpHost(root, definition, serverId, {
     hostEntrySha256: recordSha256(entry),
     policySha256: policyHash(server),
     result: {
-      ...result,
+      ...receiptResult,
       finalUrl: undefined,
       finalUrlSha256: recordSha256(observedFinalUrl.toString())
     }
@@ -281,12 +299,19 @@ export async function smokeMcpHost(root, definition, serverId, {
   await writeJson(file, receipt);
   let evidenceRecord = null;
   if (evidence?.workflow) {
-    evidenceRecord = await recordObservedMcpNavigationEvidence(root, evidence.workflow, {
+    if (!snapshotResult) {
+      throw new SingularityFlowError('The MCP host did not return an exact snapshot result for evidence capture.', {
+        code: 'MCP_EVIDENCE_OBSERVATION_REQUIRED'
+      });
+    }
+    evidenceRecord = await recordObservedMcpBrowserCapture(root, evidence.workflow, {
       server: serverId,
       phase: evidence.phase,
       agent: evidence.agent,
       actor: evidence.actor,
       targetUrl: url.toString(),
+      observedFinalUrl: observedFinalUrl.toString(),
+      snapshotResult,
       smokeReceipt: receipt,
       itemDirectory: evidence.itemDirectory ?? null
     });

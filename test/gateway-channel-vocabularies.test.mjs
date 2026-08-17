@@ -136,7 +136,7 @@ test('a capability this build lacks rests as unavailable, not as blocked', async
     planners: new Map(),
     binding: {
       workspaceId: null, repository: '/tmp', branch: 'main', subjectKind: null, subjectId: null,
-      sourceCommit: null, worktreeHash: null, lifecycleRevision: null,
+      sourceCommit: null, worktreeHash: null, worktreeAlgorithm: 'sflow-worktree-v2', lifecycleRevision: null,
       policyHash: 'sha256:test', registryHash: 'test', actorId: 'dev@example.test', hostSessionId: 's'
     },
     handles: createHandleAuthority({ now: () => 0 }),

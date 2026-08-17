@@ -60,7 +60,7 @@ test('the home renders one menu, from the envelope', async () => {
    * the kernel instead of deriving in parallel.
    */
   const source = codeOnly(await read('src', 'commands', 'home.mjs'));
-  assert.match(source, /const menu = envelope\.next\.filter/);
+  assert.match(source, /const menu = homeEnvelope\.next\.filter/);
   assert.ok(!/choices\.forEach/.test(source), 'the projection is no longer a second menu');
   // The primary is hoisted out of the list, so the computed step and the goals are not peers.
   assert.match(source, /action\.id !== leads\?\.id/);

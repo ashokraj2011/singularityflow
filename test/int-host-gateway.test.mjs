@@ -69,10 +69,12 @@ test('the binding names the repository and branch it was computed in', async (t)
   assert.equal(binding.policyHash, policy.contentHash);
   assert.equal(binding.registryHash, registry.contentHash);
   // Declared, never absent: a missing field cannot be told from one that did not apply.
-  for (const field of ['subjectKind', 'subjectId', 'worktreeHash', 'lifecycleRevision']) {
+  for (const field of ['subjectKind', 'subjectId', 'lifecycleRevision']) {
     assert.ok(field in binding, `${field} is not declared`);
     assert.equal(binding[field], null);
   }
+  assert.match(binding.worktreeHash, /^[0-9a-f]{64}$/);
+  assert.equal(binding.worktreeAlgorithm, 'sflow-worktree-v2');
 });
 
 test('a host session requires the session it is issuing handles for', () => {
@@ -242,8 +244,8 @@ test('a home declares the uncommitted bytes its ordering depended on', async (t)
   const before = await clean.kernel.read({
     resolutionId: (await clean.kernel.resolve({ utterance: 'home' })).next[0].handle
   });
-  /** Null here is a read that found nothing; `data.localChanges` is what says which. */
-  assert.equal(before.subject.revision.worktreeHash, null);
+  /** The hash binds observation state; `data.localChanges` is what says whether it is dirty. */
+  assert.match(before.subject.revision.worktreeHash, /^[0-9a-f]{64}$/);
   assert.equal(before.data.localChanges.dirty, false);
 
   await writeFile(path.join(root, 'README.md'), '# fixture\nlocal edit\n');
@@ -256,6 +258,21 @@ test('a home declares the uncommitted bytes its ordering depended on', async (t)
   assert.equal(after.data.localChanges.dirty, true);
   // The commit did not move, so a consumer reading only that would report no change at all.
   assert.equal(after.subject.revision.sourceCommit, before.subject.revision.sourceCommit);
+});
+
+test('editing an assume-unchanged file invalidates an issued read handle', async (t) => {
+  const root = await repository();
+  t.after(() => rm(root, { recursive: true, force: true }));
+  run('git', ['update-index', '--assume-unchanged', 'README.md'], { cwd: root });
+  const { kernel } = createHostGateway({
+    root, hostSessionId: 's-hidden-drift', planners: gatewayPlanners()
+  });
+  const issued = (await kernel.resolve({ utterance: 'home' })).next[0].handle;
+  await writeFile(path.join(root, 'README.md'), '# hidden edit\n');
+
+  const refused = await kernel.read({ resolutionId: issued });
+  assert.equal(refused.kind, 'refusal');
+  assert.equal(refused.why[0].code, 'gateway.handle-drifted');
 });
 
 test('editing bytes inside an already-dirty path invalidates an issued read handle', async (t) => {

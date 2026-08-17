@@ -17,8 +17,10 @@ function inRepository(item, repositoryId) {
   return item.repositoryId === repositoryId;
 }
 
-function matchesCurrent(item, { storyId = null, repositoryId = null, branch = null } = {}) {
-  if (storyId) return item.id === storyId && inRepository(item, repositoryId);
+function matchesCurrent(item, { workId = null, workKind = null, storyId = null, repositoryId = null, branch = null } = {}) {
+  const selectedId = workId ?? storyId;
+  if (selectedId) return item.id === selectedId && (!workKind || item.kind === workKind)
+    && inRepository(item, repositoryId);
   if (!branch || !inRepository(item, repositoryId)) return false;
   return branchesOf(item).includes(branch);
 }
@@ -31,6 +33,8 @@ function matchesCurrent(item, { storyId = null, repositoryId = null, branch = nu
  * repository and branch and therefore never promotes another repository's first active item.
  */
 export function deriveHomeState(records = {}, {
+  workId = null,
+  workKind = null,
   storyId = null,
   repositoryId = null,
   branch = null,
@@ -46,11 +50,13 @@ export function deriveHomeState(records = {}, {
     ?? WORK_GROUP_ORDER.find((group) => groups[group].includes(item))
     ?? null;
   const actionable = allItems.filter((item) => groupOf(item) !== 'recently-completed');
-  let currentWork = actionable.find((item) => matchesCurrent(item, { storyId, repositoryId, branch })) ?? null;
+  let currentWork = actionable.find((item) => matchesCurrent(item, {
+    workId, workKind, storyId, repositoryId, branch
+  })) ?? null;
 
   // A repository-only read with no branch selector preserves the long-standing deterministic
   // behavior: its first recovery or active item leads. Supplying a branch disables this fallback.
-  if (!currentWork && repositoryScoped && !storyId && !branch) {
+  if (!currentWork && repositoryScoped && !workId && !storyId && !branch) {
     currentWork = groups['recovery-required'][0] ?? groups.active[0] ?? null;
   }
 

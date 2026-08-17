@@ -16,13 +16,13 @@ import { primaryAction } from '../gateway/result.mjs';
 import { optionBoolean, optionString } from '../util.mjs';
 import { identity, localGitDisplayName } from '../git.mjs';
 
-function renderConversation(conversation, envelope) {
+function renderConversation(conversation, homeEnvelope) {
   if (!conversation) return;
-  const current = envelope.data?.activeWork;
+  const current = homeEnvelope.data?.activeWork;
   console.log('\nI found');
   console.log(current
     ? `${current.id}${current.title ? ` — ${current.title}` : ''}${current.phase ? ` · ${current.phase}` : ''}`
-    : `${envelope.data?.workspace?.name ?? 'This workspace'} · no current governed work on this branch`);
+    : `${homeEnvelope.data?.workspace?.name ?? 'This workspace'} · no current governed work on this branch`);
 
   console.log('\nNext');
   if (conversation.route) {
@@ -48,17 +48,30 @@ function renderConversation(conversation, envelope) {
   console.log('Nothing yet. Conversation planning is read-only; mutations run only after explicit confirmation.');
 }
 
-function render(envelope, { context, selected, actor }, conversation = null) {
-  const active = envelope.data?.activeWork ?? null;
+function render(homeEnvelope, answerEnvelope, { context, selected, actor }, conversation = null) {
+  const active = homeEnvelope.data?.activeWork ?? null;
   console.log(`Singularity Flow home — ${context.workspaceName}`);
   console.log(`Actor: ${actor.name}${actor.email ? ` <${actor.email}>` : ''}`);
   console.log(`Repository: ${selected.id} · ${selected.branch} @ ${(selected.head ?? 'unavailable').slice(0, 12)}`);
   console.log(`Freshness: ${new Date().toISOString()} · local only`);
-  if (envelope.data?.personalization?.replyName) console.log(`\nHello, ${envelope.data.personalization.replyName}.`);
+  if (homeEnvelope.data?.personalization?.replyName) console.log(`\nHello, ${homeEnvelope.data.personalization.replyName}.`);
   console.log(`\n${active
     ? `${active.id} is in ${active.phase ?? 'its workflow'}.`
-    : `${context.workspaceName} has ${envelope.outcome.slots.active ?? 0} active governed work item(s).`}`);
-  renderConversation(conversation, envelope);
+    : `${context.workspaceName} has ${homeEnvelope.outcome.slots.active ?? 0} active governed work item(s).`}`);
+  renderConversation(conversation, homeEnvelope);
+  if (answerEnvelope) {
+    console.log('\nAnswer');
+    console.log(message(answerEnvelope.outcome.messageId, answerEnvelope.outcome.slots).label);
+    for (const finding of answerEnvelope.why ?? []) {
+      console.log(`- ${message(finding.code, finding.slots).label}`);
+    }
+    if (answerEnvelope.checklist?.length) {
+      console.log('\nChecklist');
+      for (const item of answerEnvelope.checklist) {
+        console.log(`- [${item.state}] ${message(item.labelCode, item.slots).label}`);
+      }
+    }
+  }
 
   /**
    * The one legal next action, named as one thing `[UXH:REQ-023]`.
@@ -67,22 +80,48 @@ function render(envelope, { context, selected, actor }, conversation = null) {
    * choose between and this is the step the kernel computed. Collapsing them into one numbered list
    * would put a computed answer and six equal options at the same weight.
    */
-  const leads = primaryAction(envelope);
+  const leads = primaryAction(answerEnvelope ?? homeEnvelope);
   if (leads) {
     const route = leads.fallback?.skill ?? leads.fallback?.command;
     console.log(`\nNext: ${leads.label}${route ? `  (${route})` : ''}`);
   }
 
   /** The menu and every detail line come from the one gateway envelope `[UXH:AC-002]`. */
-  const menu = envelope.next.filter((action) => action.id !== leads?.id);
+  const menu = homeEnvelope.next.filter((action) => answerEnvelope || action.id !== leads?.id);
   console.log('\nWhat is on your mind today?');
   menu.forEach((action, index) => {
     const route = action.fallback?.skill ?? action.fallback?.command;
     console.log(`${index + 1}. ${action.label} — ${message(action.reasonCode).label}${route ? ` · ${route}` : ''}`);
   });
-  if (envelope.warnings.length) {
-    console.log(`\nNotices:\n- ${envelope.warnings.map((entry) => message(entry.code, entry.slots).label).join('\n- ')}`);
+  const warnings = [...homeEnvelope.warnings, ...(answerEnvelope?.warnings ?? [])];
+  if (answerEnvelope?.why?.some((entry) => entry.code === 'work.not-in-this-repository')) {
+    warnings.push({ code: 'home.selection-stale', slots: { work: active?.id ?? 'unknown' } });
   }
+  if (warnings.length) {
+    console.log(`\nNotices:\n- ${warnings.map((entry) => message(entry.code, entry.slots).label).join('\n- ')}`);
+  }
+}
+
+/** One context-preserving payload for JSON, Copilot, and editor adapters. */
+export function compositeHomeEnvelope(homeEnvelope, answerEnvelope = null, conversation = null) {
+  const envelope = answerEnvelope ?? homeEnvelope;
+  const selectedSubject = homeEnvelope.data?.activeWork
+    ? { kind: homeEnvelope.data.activeWork.kind ?? 'story', id: homeEnvelope.data.activeWork.id }
+    : null;
+  const selectionStale = answerEnvelope?.why?.some((entry) => entry.code === 'work.not-in-this-repository')
+    ? { code: 'HOME_SELECTION_STALE', subject: selectedSubject }
+    : null;
+  return {
+    ...envelope,
+    data: {
+      ...envelope.data,
+      home: homeEnvelope.data,
+      answer: answerEnvelope?.data ?? null,
+      selectedSubject,
+      ...(selectionStale ? { selectionStale } : {}),
+      ...(conversation ? { conversation } : {})
+    }
+  };
 }
 
 export async function run(_argv, { options }) {
@@ -112,7 +151,9 @@ export async function run(_argv, { options }) {
       workspace: { id: context.workspaceId, name: context.workspaceName },
       repositoryId: selected.id,
       branch: selected.branch,
-      storyId: context.storyId ?? null
+      storyId: context.storyId ?? null,
+      workId: context.storyId ?? null,
+      workKind: context.storyId ? 'story' : null
     },
     workspaceId: context.workspaceId ?? null
   });
@@ -141,30 +182,30 @@ export async function run(_argv, { options }) {
    * mutation-shaped request remains a proposal in `data.conversation`; natural language never
    * becomes mutation consent.
    */
-  let envelope = homeEnvelope;
+  let answerEnvelope = null;
   if (request && conversation?.route?.automatic) {
-    const workId = homeEnvelope.data?.activeWork?.id
+    const selectedWork = homeEnvelope.data?.activeWork ?? null;
+    const workId = selectedWork?.id
       ?? homeEnvelope.next.find((entry) => entry.slots?.work)?.slots?.work
       ?? null;
     const workOperations = new Set(['work.continue', 'work.return', 'work.readiness']);
     const routed = kernel.resolve({
       utterance: request,
-      arguments: workOperations.has(conversation.route.operationId) && workId ? { workId } : {}
+      arguments: workOperations.has(conversation.route.operationId) && workId
+        ? { workId, ...(selectedWork?.kind ? { workKind: selectedWork.kind } : {}) }
+        : {}
     });
-    envelope = routed.next.length === 1 && routed.kind === 'read'
+    answerEnvelope = routed.next.length === 1 && routed.kind === 'read'
       ? await kernel.read({ resolutionId: routed.next[0].handle })
       : routed;
   }
 
+  const envelope = compositeHomeEnvelope(homeEnvelope, answerEnvelope, conversation);
+
   if (optionBoolean(options, 'json')) {
     return console.log(JSON.stringify({
-      ...envelope,
-      data: {
-        ...envelope.data,
-        home: homeEnvelope.data,
-        ...(conversation ? { conversation } : {})
-      }
+      ...envelope
     }, null, 2));
   }
-  render(envelope, { context, selected, actor }, conversation);
+  render(homeEnvelope, answerEnvelope, { context, selected, actor }, conversation);
 }

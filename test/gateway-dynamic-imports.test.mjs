@@ -23,6 +23,7 @@ import { fileURLToPath } from 'node:url';
 
 const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 const gateway = path.join(root, 'src', 'gateway');
+const sourceRoot = path.join(root, 'src');
 
 async function sourceFiles(directory) {
   const found = [];
@@ -81,4 +82,22 @@ test('every name a gateway module destructures from a deferred import is exporte
   // A pattern that stops matching would otherwise turn this into a green check over nothing.
   assert.ok(checked >= 3, `expected deferred imports to check, found ${checked}`);
   assert.deepEqual(missing, [], `deferred imports naming exports that do not exist:\n  ${missing.join('\n  ')}`);
+});
+
+test('package-root values use the shared uppercase resolver and never an ambiguous packageRoot binding', async () => {
+  const violations = [];
+  const ambiguousBindings = [
+    /\b(?:const|let|var)\s+packageRoot\b/,
+    /\bfunction\s+\w+\s*\([^)]*\bpackageRoot\b/,
+    /\([^)]*\bpackageRoot\b[^)]*\)\s*=>/,
+    /\bpackageRoot\s*=>/
+  ];
+  for (const file of await sourceFiles(sourceRoot)) {
+    const source = await readFile(file, 'utf8');
+    if (ambiguousBindings.some((pattern) => pattern.test(source))) {
+      violations.push(path.relative(root, file));
+    }
+  }
+  assert.deepEqual(violations, [],
+    `lower-camel packageRoot bindings obscure whether the value is the installed package root or a local directory:\n  ${violations.join('\n  ')}`);
 });

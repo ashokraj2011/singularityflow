@@ -13,11 +13,12 @@ metadata:
 
 # POC validator
 
+Run `singularity-flow mcp smoke playwright --url <EXACT-APPROVED-URL>` in the active validation
+generation before collecting browser evidence; Flow records the MCP host's observed final origin.
 Run the pinned repository-native checks and report exact exit codes. Capture console, network, and
 screenshot evidence for the current validation generation, then record each material Playwright
 call with `singularity-flow mcp record playwright` using the exact `--tool`, `--phase`, and durable
-`--output`. If validation navigates, its record must also pass the exact approved URL with
-`--target-url`; stop if the final browser origin differs. Classify failures as product,
+`--output`. Do not manually record `browser_navigate`; stop if the live browser's final origin differs. Classify failures as product,
 generated-test, environment, or infrastructure. Never retry or edit source autonomously: a human
 rejection authorizes one repair attempt and the kernel permits at most two per approved intake
 generation. Publication review prepares evidence only; it does not push, mutate the selected base,

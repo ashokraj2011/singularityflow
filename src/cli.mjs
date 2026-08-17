@@ -2285,9 +2285,28 @@ async function mcpCommand(positionals, options) {
   }
   if (subcommand === 'smoke') {
     const server = requirePositional(positionals, 2, 'MCP server');
-    const result = await smokeMcpHost(root, config, server, { targetUrl: optionString(options, 'url') });
+    const session = await loadSession(root, { required: false });
+    let evidence = null;
+    if (session?.workId) {
+      const workflow = await loadStoryAggregate(root, config, session.workId);
+      const phaseId = optionString(options, 'phase') ?? workflow.currentPhase;
+      const phase = workflow.phases?.[phaseId];
+      const browserEvidenceRequired = phase?.mcp?.requiredServers?.includes(server)
+        && phase.mcp.evidence?.some((requirement) =>
+          requirement.server === server && requirement.tool.startsWith('browser_')
+        );
+      if (browserEvidenceRequired) {
+        evidence = { workflow, phase: phaseId, agent: session.agent, actor: session.actor };
+      }
+    }
+    const result = await smokeMcpHost(root, config, server, {
+      targetUrl: optionString(options, 'url'), evidence
+    });
     if (optionBoolean(options, 'json')) return console.log(JSON.stringify(result, null, 2));
     console.log(`MCP ${server} live smoke passed for ${result.authorizedOrigin}. Receipt: ${result.path}`);
+    if (result.evidence) {
+      console.log(`Recorded host-observed navigation evidence at ${result.evidence.file}. It will be committed by the next normal lifecycle publication.`);
+    }
     return;
   }
   if (subcommand === 'warm') {
@@ -2346,7 +2365,7 @@ async function mcpCommand(positionals, options) {
       agent: session.agent,
       actor: session.actor
     });
-    console.log(`Recorded declared MCP provenance at ${result.file}. It will be committed by the next normal lifecycle publication.`);
+    console.log(`Recorded MCP provenance at ${result.file}. It will be committed by the next normal lifecycle publication.`);
     return;
   }
   if (subcommand === 'design-sources') {

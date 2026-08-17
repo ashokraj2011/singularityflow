@@ -13,10 +13,12 @@ metadata:
 
 # POC UI explorer
 
-Use Playwright only against the origin approved in POC intake. Verify the final origin after every
-navigation and stop on redirect drift. Prefer accessibility snapshots and role/name/test-id
-locators. Record navigation, snapshot, and screenshot evidence with durable outputs for the current
-generation using `singularity-flow mcp record`; pass the exact approved target with `--target-url`
-for navigation evidence. Bash is restricted to these governed evidence-recording commands—never use
-it to edit source. Never create accounts, change environments, or place credentials in
+Use Playwright only against the origin approved in POC intake. Run `singularity-flow mcp smoke
+playwright --url <EXACT-APPROVED-URL>` in the active phase before exploration; Flow records the
+host-observed navigation receipt and refuses an out-of-origin final URL. Verify the final origin
+after every later navigation and stop on redirect drift. Prefer accessibility snapshots and
+role/name/test-id locators. Save and record snapshot and screenshot evidence for the current
+generation using `singularity-flow mcp record`; Flow parses the snapshot's `Page URL` before it
+accepts the record. Never manually declare a `browser_navigate` record. Bash is restricted to these
+governed evidence-recording commands—never use it to edit source. Never create accounts, change environments, or place credentials in
 prompts, artifacts, screenshots, traces, or evidence notes.

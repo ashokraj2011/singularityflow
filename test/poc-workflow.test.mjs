@@ -104,9 +104,11 @@ test('the repair and publication templates refuse autonomous success', async () 
   assert.match(validation, /maximum two human-authorized attempts/i);
   assert.match(validation, /Do not retry automatically/i);
   assert.match(agent, /Never start a retry yourself/i);
-  assert.match(agent, /--target-url/);
+  assert.match(agent, /mcp smoke playwright --url/);
+  assert.match(agent, /never manually declare `browser_navigate`/i);
   assert.match(validator, /mcp record playwright/);
-  assert.match(validator, /--target-url/);
+  assert.match(validator, /mcp smoke playwright --url/);
+  assert.match(validator, /Do not manually record `browser_navigate`/i);
   assert.match(publication, /does not create a pull request/i);
   assert.match(publication, /never\s+write or force-update the selected base/i);
   assert.doesNotMatch(`${validation}\n${publication}\n${agent}`, /failed payment|retry a payment/i);

@@ -390,9 +390,9 @@ async function validatePreparedPlan(plan) {
 async function installedPluginRoot(execute, environment, expectedVersion) {
   const npmRoot = executeOrThrow(execute, 'npm', ['root', '--global'], { env: environment }).stdout.trim();
   if (!npmRoot) throw new SingularityFlowError('npm did not report its global package directory after installation.');
-  const packageRoot = path.join(npmRoot, REINSTALL_SURFACES.npmPackage);
-  const packageFile = path.join(packageRoot, 'package.json');
-  const pluginFile = path.join(packageRoot, 'plugin', 'plugin.json');
+  const installedPackageDirectory = path.join(npmRoot, REINSTALL_SURFACES.npmPackage);
+  const packageFile = path.join(installedPackageDirectory, 'package.json');
+  const pluginFile = path.join(installedPackageDirectory, 'plugin', 'plugin.json');
   await regularFile(packageFile, 'installed package.json');
   await regularFile(pluginFile, 'installed plugin/plugin.json');
   const [product, plugin] = await Promise.all([
@@ -405,7 +405,7 @@ async function installedPluginRoot(execute, environment, expectedVersion) {
       || plugin.name !== 'singularity-flow' || plugin.version !== expectedVersion) {
     throw new SingularityFlowError('The installed npm package does not contain the expected versioned Copilot plugin.');
   }
-  return path.join(packageRoot, 'plugin');
+  return path.join(installedPackageDirectory, 'plugin');
 }
 
 function renderTelemetryWrapper() {

@@ -1,7 +1,8 @@
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { cp, mkdir, readFile } from 'node:fs/promises';
+import { cp, mkdir, readFile, readdir } from 'node:fs/promises';
 import YAML from 'yaml';
+import { parseAgentDependencies } from './agents.mjs';
 import { loadDefinition, validateDefinition, WORKFLOW_PATH } from './config.mjs';
 import { exists, writeText } from './util.mjs';
 
@@ -79,18 +80,51 @@ export async function installWorkflow(root, id, { replace = false, dryRun = fals
   for (const authority of authorityIds) {
     next.approvalAuthorities[authority] ??= structuredClone(starter.approvalAuthorities[authority]);
   }
+  // A packaged workflow is not usable when its browser/tool policy remains stranded in the
+  // starter definition. Merge only servers assigned to one of the installed phases, preserving
+  // repository host/approval choices while adding the packaged phase, agent, tool, and evidence
+  // contract. This is especially important for profiles added after a repository was initialized.
+  next.mcpServers ??= {};
+  for (const [serverId, packaged] of Object.entries(starter.mcpServers ?? {})) {
+    if (!(packaged.phases ?? []).some((phase) => phaseIds.has(phase))) continue;
+    const current = next.mcpServers[serverId];
+    if (!current) {
+      next.mcpServers[serverId] = structuredClone(packaged);
+      continue;
+    }
+    next.mcpServers[serverId] = {
+      ...current,
+      agents: [...new Set([...(current.agents ?? []), ...(packaged.agents ?? [])])],
+      phases: [...new Set([...(current.phases ?? []), ...(packaged.phases ?? []).filter((phase) => phaseIds.has(phase))])],
+      tools: [...new Set([...(current.tools ?? []), ...(packaged.tools ?? [])])],
+      evidence: {
+        captureToolCalls: current.evidence?.captureToolCalls !== false || packaged.evidence?.captureToolCalls === true,
+        captureResults: current.evidence?.captureResults === true || packaged.evidence?.captureResults === true
+      }
+    };
+  }
   validateDefinition(next);
   const files = [];
   for (const phaseId of phaseIds) {
     const template = profile.templateOverrides?.[phaseId] ?? starter.phases[phaseId].defaultTemplate;
-    if (!template?.startsWith('agent:')) files.push({ source: path.join(packageRoot, 'templates', 'artifacts', template), target: path.join(root, installed.templatesRoot, template) });
+    if (!template?.startsWith('agent:')) files.push({ source: path.join(packageRoot, 'templates', 'artifacts', template), target: path.join(root, installed.templatesRoot, template), overwrite: replace });
+  }
+  // Copy the default packaged agent modules that make the new phases immediately selectable.
+  // Existing repository agents always win discovery and are never overwritten by workflow install.
+  for (const entry of await readdir(path.join(packageRoot, 'templates', 'agents'), { withFileTypes: true })) {
+    if (!entry.isFile() || !/(?:\.agent)?\.md$/i.test(entry.name)) continue;
+    const source = path.join(packageRoot, 'templates', 'agents', entry.name);
+    const agent = parseAgentDependencies(await readFile(source, 'utf8'), { source });
+    if (agent.defaultFor.some((phase) => phaseIds.has(phase))) {
+      files.push({ source, target: path.join(root, '.github', 'agents', entry.name), overwrite: false });
+    }
   }
   const copied = [];
-  for (const file of files) if (replace || !(await exists(file.target))) copied.push(path.relative(root, file.target).replaceAll(path.sep, '/'));
+  for (const file of files) if (file.overwrite || !(await exists(file.target))) copied.push(path.relative(root, file.target).replaceAll(path.sep, '/'));
   const changedFiles = [WORKFLOW_PATH, ...copied];
   if (!dryRun) {
     await writeText(path.join(root, WORKFLOW_PATH), YAML.stringify(next));
-    for (const file of files) if (replace || !(await exists(file.target))) { await mkdir(path.dirname(file.target), { recursive: true }); await cp(file.source, file.target); }
+    for (const file of files) if (file.overwrite || !(await exists(file.target))) { await mkdir(path.dirname(file.target), { recursive: true }); await cp(file.source, file.target); }
   }
   return { id, dryRun, replace, files: changedFiles };
 }

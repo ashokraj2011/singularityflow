@@ -204,9 +204,9 @@ mcpServers:
   playwright:
     label: Playwright browser automation
     hostReference: playwright
-    agents: [qa, product-designer]
-    phases: [design-intake, design-inventory, verification, visual-verification, conformance]
-    tools: [browser_navigate, browser_snapshot, browser_click, browser_take_screenshot]
+    agents: [qa, product-designer, poc-automation]
+    phases: [design-intake, design-inventory, verification, visual-verification, conformance, poc-ui-exploration, poc-validation]
+    tools: [browser_navigate, browser_snapshot, browser_click, browser_fill_form, browser_hover, browser_press_key, browser_resize, browser_take_screenshot, browser_console_messages, browser_network_requests]
     required: false
     approval: confirm
     evidence:
@@ -351,6 +351,28 @@ workTypes:
       verify: quick-fix/verify.md
     phaseOverrides:
       verify: { inputs: [implement] }
+
+  poc-workflow:
+    label: POC workflow
+    # A governed UI-regression proof of concept: understand the requested target, calculate the
+    # change footprint, observe the live UI, author repository-native Playwright tests, validate
+    # them with bounded repair, and stop at a human publication decision. The selected remote base
+    # and isolated Story branch are supplied by normal Story start; this profile never writes the
+    # selected base branch directly.
+    phases: [poc-intake, poc-impact-analysis, poc-ui-exploration, poc-test-generation, poc-validation, poc-publication-review]
+    templateOverrides:
+      poc-intake: poc-workflow/intake.md
+      poc-impact-analysis: poc-workflow/impact-analysis.md
+      poc-ui-exploration: poc-workflow/ui-exploration.md
+      poc-test-generation: poc-workflow/test-generation.md
+      poc-validation: poc-workflow/validation.md
+      poc-publication-review: poc-workflow/publication-review.md
+    phaseOverrides:
+      poc-impact-analysis: { inputs: [poc-intake] }
+      poc-ui-exploration: { inputs: [poc-intake, poc-impact-analysis] }
+      poc-test-generation: { inputs: [poc-intake, poc-impact-analysis, poc-ui-exploration] }
+      poc-validation: { inputs: [poc-impact-analysis, poc-ui-exploration, poc-test-generation] }
+      poc-publication-review: { inputs: [poc-intake, poc-impact-analysis, poc-ui-exploration, poc-test-generation, poc-validation] }
 
   spec-driven-standard:
     label: Spec-Driven Standard
@@ -545,6 +567,89 @@ phases:
     writeScope: artifact-only
     comparison: { identifiers: [acceptance-criteria, specification], verdicts: [matched, partial, missing, deviated, unplanned], exactFileLineEvidence: true }
     approval: { authorities: [quality-reviewers, architecture-reviewers], minimum: 1, rejectTo: [implementation-spec, fix-spec, implementation, verification, conformance] }
+
+  # POC workflow phases are intentionally private to `poc-workflow`. A failed validation is
+  # rejected to exploration, generation, or validation for a human-directed repair generation;
+  # there is no autonomous convergence loop and publication remains a separate human gate.
+  poc-intake:
+    label: POC intent and environment
+    defaultTemplate: poc-workflow/intake.md
+    artifact:
+      path: artifacts/poc-intake/intake.md
+      kind: poc-intake
+      minimumBytes: 500
+      validation: { requiredHeadings: [Objective and scope, Repository and branch context, Target environment, Test intent and acceptance criteria, Safety and access] }
+    worldModel: { views: [business, testing, security], depth: standard }
+    clarification:
+      mode: required
+      maxQuestions: 5
+      topics: [test intent, target environment, acceptance criteria, access and safety, exclusions]
+    writeScope: artifact-only
+    approval: { authorities: [product-approvers], minimum: 1, rejectTo: [poc-intake] }
+  poc-impact-analysis:
+    label: Regression impact analysis
+    defaultTemplate: poc-workflow/impact-analysis.md
+    artifact:
+      path: artifacts/poc-impact-analysis/impact-analysis.md
+      kind: impact-analysis
+      minimumBytes: 600
+      validation: { requiredHeadings: [Compared revisions, Changed-code evidence, Regression footprint, Proposed scenarios, Risks and unknowns] }
+    worldModel: { views: [architecture, development, testing, security], depth: deep }
+    clarification: { mode: when-needed, maxQuestions: 3, topics: [change boundary, affected routes, test seams, risk, unknowns] }
+    writeScope: artifact-only
+    approval: { authorities: [quality-reviewers], minimum: 1, rejectTo: [poc-intake, poc-impact-analysis] }
+  poc-ui-exploration:
+    label: Governed UI exploration
+    defaultTemplate: poc-workflow/ui-exploration.md
+    artifact:
+      path: artifacts/poc-ui-exploration/ui-exploration.md
+      kind: ui-exploration-evidence
+      minimumBytes: 700
+      validation: { requiredHeadings: [Authorized target, Observed journeys and states, Accessibility and locator evidence, Visual and runtime evidence, Coverage gaps] }
+    worldModel: { views: [testing, development, security], depth: deep, evidence: true }
+    clarification: { mode: when-needed, maxQuestions: 3, topics: [environment access, test data, observed behavior, accessibility, evidence gaps] }
+    writeScope: artifact-only
+    approval: { authorities: [quality-reviewers], minimum: 1, rejectTo: [poc-impact-analysis, poc-ui-exploration] }
+  poc-test-generation:
+    label: Playwright test generation
+    defaultTemplate: poc-workflow/test-generation.md
+    artifact:
+      path: artifacts/poc-test-generation/test-generation.md
+      kind: implementation-summary
+      minimumBytes: 600
+      validation: { requiredHeadings: [Repository-native design, Files changed, Scenario traceability, Locator and test-data strategy, Deviations and residual risk] }
+    worldModel: { views: [development, testing, architecture, security], depth: deep }
+    clarification: { mode: when-needed, maxQuestions: 3, topics: [framework conventions, fixtures, test data, approved deviations, implementation blockers] }
+    writeScope: source-and-artifact
+    approval: { authorities: [engineering-reviewers], minimum: 1, rejectTo: [poc-ui-exploration, poc-test-generation] }
+    qualityCommands:
+      - { id: git-diff-check, argv: [git, diff, --check], modelPolicy: never }
+  poc-validation:
+    label: Playwright validation and bounded repair
+    defaultTemplate: poc-workflow/validation.md
+    artifact:
+      path: artifacts/poc-validation/validation.md
+      kind: test-evidence
+      minimumBytes: 800
+      validation: { requiredHeadings: [Validation scope, Commands and environment, Scenario results, Evidence inventory, Repair attempts, Final verdict] }
+    worldModel: { views: [testing, development, security], depth: deep, evidence: true }
+    clarification: { mode: when-needed, maxQuestions: 3, topics: [failure classification, environment, evidence, repair scope, residual risk] }
+    writeScope: source-and-artifact
+    approval: { authorities: [quality-reviewers], minimum: 1, rejectTo: [poc-ui-exploration, poc-test-generation, poc-validation] }
+    qualityCommands:
+      - { id: git-diff-check, argv: [git, diff, --check], modelPolicy: never }
+  poc-publication-review:
+    label: Publication and PR review
+    defaultTemplate: poc-workflow/publication-review.md
+    artifact:
+      path: artifacts/poc-publication-review/publication-review.md
+      kind: publication-review
+      minimumBytes: 700
+      validation: { requiredHeadings: [Publication boundary, Change and coverage summary, Validation evidence, Residual risk and rollback, Human decision] }
+    worldModel: { views: [release, testing, development, security], depth: standard, evidence: true }
+    clarification: { mode: when-needed, maxQuestions: 3, topics: [publication target, evidence gaps, residual risk, rollback, reviewer decision] }
+    writeScope: artifact-only
+    approval: { authorities: [quality-reviewers, engineering-reviewers], minimum: 2, rejectTo: [poc-impact-analysis, poc-ui-exploration, poc-test-generation, poc-validation, poc-publication-review] }
 
   # ---------------------------------------------------------------------------------------------
   # Spec-driven phases. Ordinary phases in every respect: they use the same generation, input,

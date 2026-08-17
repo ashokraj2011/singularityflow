@@ -319,6 +319,17 @@ sflow-wm-minimal --phase visual-verification
 sflow-wm-minimal --phase conformance
 ```
 
+#### POC workflow
+
+```bash
+sflow-wm-minimal --phase poc-intake
+sflow-wm-minimal --phase poc-impact-analysis
+sflow-wm-minimal --phase poc-ui-exploration
+sflow-wm-minimal --phase poc-test-generation
+sflow-wm-minimal --phase poc-validation
+sflow-wm-minimal --phase poc-publication-review
+```
+
 You normally run only the current phase's command when Singularity Flow reports
 that grounding is missing or stale; running every command in advance is not
 required. To operate on a branch without checking it out first, add

@@ -21,7 +21,7 @@ Usage:
     --no-model disables every kernel-owned model invocation. Equivalent: SINGULARITY_FLOW_NO_MODEL=1.
   singularity-flow about
   singularity-flow --version | --build
-    (--version is a bare semver for scripts; --build adds the commit and checkout it was packed from)
+    (--version is a bare semver for scripts; --build adds the commit or validated source digest)
   singularity-flow help [TOPIC|COMMAND] [--json]
   sflow specify [WORK-ID] [--json]
   sflow plan [WORK-ID] [--json]

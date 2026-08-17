@@ -6,20 +6,20 @@
  * line. This writes the one fact that distinguishes them, at the only moment it is knowable: while
  * the tarball is being packed, inside the checkout being packed.
  *
- * Run by `install.sh` immediately before `npm pack`, and reverted immediately after, so the
- * committed file stays the honest placeholder and only the tarball carries a commit. Reverting is
- * the caller's job (`git checkout -- src/build-info.mjs`) because the caller is the one that knows
- * when packing finished, and because a stamper that restored itself would race its own output.
+ * Run by `install.sh` immediately before `npm pack`, and restored from a byte-for-byte temporary
+ * backup immediately after, so the committed file stays the honest placeholder and only the
+ * tarball carries a commit. Restoration is the caller's job because the caller is the one that
+ * knows when packing finished, and because a stamper that restored itself would race its own output.
  *
  * `--print` reports what would be written without writing, which is what CI wants when it only needs
  * to record the provenance of an artifact it built some other way.
  *
  * Usage: `node scripts/stamp-build-info.mjs [--print]`
  */
-import { readFile, writeFile } from 'node:fs/promises';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { spawnSync } from 'node:child_process';
+import { stampBuildInfo, stampBuildInfoFile } from '../src/build-info-stamp.mjs';
 
 const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 const target = path.join(root, 'src', 'build-info.mjs');
@@ -31,20 +31,25 @@ const target = path.join(root, 'src', 'build-info.mjs');
  */
 function git(...args) {
   const result = spawnSync('git', args, { cwd: root, encoding: 'utf8' });
-  if (result.status !== 0) return null;
-  return result.stdout.trim() || null;
+  if (result.status !== 0) return { ok: false, value: null };
+  return { ok: true, value: result.stdout.trim() };
 }
 
 export function buildInfoFacts() {
-  const commit = git('rev-parse', 'HEAD');
+  const commitResult = git('rev-parse', 'HEAD');
+  const commit = commitResult.ok && commitResult.value ? commitResult.value : null;
+  const status = commit ? git('status', '--porcelain') : { ok: false, value: null };
+  const branch = commit ? git('rev-parse', '--abbrev-ref', 'HEAD') : { ok: false, value: null };
   return {
     commit,
-    branch: commit ? git('rev-parse', '--abbrev-ref', 'HEAD') : null,
+    /** Reinstall uses a content digest instead because it deliberately executes no Git command. */
+    sourceSha256: null,
+    branch: branch.ok && branch.value ? branch.value : null,
     // `--porcelain` is empty exactly when the tree is clean. Untracked files count: they can be
-    // imported by the build even though Git is not tracking them.
-    dirty: commit ? Boolean(git('status', '--porcelain')) : false,
-    builtAt: new Date().toISOString(),
-    builtFrom: root
+    // imported by the build even though Git is not tracking them. A failed read is unknown, not
+    // clean, so it is represented as null.
+    dirty: status.ok ? Boolean(status.value) : null,
+    builtAt: new Date().toISOString()
   };
 }
 
@@ -55,18 +60,7 @@ export function buildInfoFacts() {
  * thing that stops the next person deleting it as clutter or adding it to `.gitignore` — which would
  * silently remove it from the tarball, since npm falls back to `.gitignore` with no `.npmignore`.
  */
-export function stamp(source, facts) {
-  const literal = (value) => (value === null ? 'null' : typeof value === 'boolean' ? String(value) : `'${String(value).replace(/'/g, "\\'")}'`);
-  let stamped = source;
-  for (const [key, value] of Object.entries(facts)) {
-    const pattern = new RegExp(`(^\\s*${key}:\\s*)[^,\\n]*(,?)$`, 'm');
-    if (!pattern.test(stamped)) {
-      throw new Error(`src/build-info.mjs has no '${key}' field to stamp. Update this script and that file together.`);
-    }
-    stamped = stamped.replace(pattern, `$1${literal(value)}$2`);
-  }
-  return stamped;
-}
+export const stamp = stampBuildInfo;
 
 /**
  * Only when run as a command — never on import.
@@ -80,7 +74,7 @@ if (process.argv[1] && path.resolve(process.argv[1]) === fileURLToPath(import.me
   if (process.argv.includes('--print')) {
     console.log(JSON.stringify(facts, null, 2));
   } else {
-    await writeFile(target, stamp(await readFile(target, 'utf8'), facts), 'utf8');
-    console.log(`Stamped build info: ${facts.commit ? facts.commit.slice(0, 8) : 'no commit'}${facts.dirty ? ' (dirty tree)' : ''} from ${facts.builtFrom}`);
+    await stampBuildInfoFile(target, facts);
+    console.log(`Stamped build info: ${facts.commit ? facts.commit.slice(0, 8) : 'no commit'}${facts.dirty ? ' (dirty tree)' : ''}`);
   }
 }

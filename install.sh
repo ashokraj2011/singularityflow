@@ -299,23 +299,32 @@ else
   npm test
 fi
 
-# Stamp which checkout this tarball came from, so the installed CLI can say so later.
+# Stamp which source revision this tarball came from, so the installed CLI can say so later.
 #
 # After the tests deliberately: the suite runs against the committed placeholder, so a stamp that
 # changes on every run can never make a test flaky. Restored by the trap below however this exits —
 # a failure between here and `npm pack` would otherwise leave the tree dirty and the *next* run of
 # this script would refuse it at the uncommitted-changes guard above.
 #
-# Skipped, not fatal, when the stamper is absent, and a warning rather than an abort when it fails.
-# install.sh has to run from a bare copy of itself — `test/local-install-script.test.mjs` does exactly
-# that with only this file present — and provenance is metadata about a build, so it must never be
-# the reason a working build does not happen.
-restore_build_info() { git -C "$PROJECT_DIR" checkout -- src/build-info.mjs 2>/dev/null || true; }
+# A bare test copy contains only install.sh, so it has nothing to stamp. A real checkout containing
+# build-info.mjs must also contain a working stamper: silently installing the placeholder would make
+# the packaged CLI falsely call itself a development checkout.
+BUILD_INFO_BACKUP=''
+restore_build_info() {
+  if [[ -n "$BUILD_INFO_BACKUP" && -f "$BUILD_INFO_BACKUP" ]]; then
+    cp "$BUILD_INFO_BACKUP" "$PROJECT_DIR/src/build-info.mjs"
+    rm -f "$BUILD_INFO_BACKUP"
+  fi
+}
 if [[ -f "$PROJECT_DIR/scripts/stamp-build-info.mjs" ]]; then
   printf '%s\n' 'Stamping build provenance...'
+  BUILD_INFO_BACKUP="$(mktemp "${TMPDIR:-/tmp}/sflow-build-info.XXXXXX")"
+  cp "$PROJECT_DIR/src/build-info.mjs" "$BUILD_INFO_BACKUP"
   trap restore_build_info EXIT
-  node "$PROJECT_DIR/scripts/stamp-build-info.mjs" \
-    || printf '%s\n' 'Warning: build provenance was not stamped; the installed CLI will not name its commit.' >&2
+  node "$PROJECT_DIR/scripts/stamp-build-info.mjs"
+elif [[ -f "$PROJECT_DIR/src/build-info.mjs" ]]; then
+  printf '%s\n' 'Error: build provenance stamper is missing; refusing to package an unidentified build.' >&2
+  exit 1
 fi
 
 printf '%s\n' 'Creating the distribution tarball...'

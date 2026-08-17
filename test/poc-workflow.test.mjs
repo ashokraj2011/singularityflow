@@ -99,10 +99,14 @@ test('the repair and publication templates refuse autonomous success', async () 
   const validation = await readFile(path.join(ROOT, 'templates/artifacts/poc-workflow/validation.md'), 'utf8');
   const publication = await readFile(path.join(ROOT, 'templates/artifacts/poc-workflow/publication-review.md'), 'utf8');
   const agent = await readFile(path.join(ROOT, 'templates/agents/poc-automation.agent.md'), 'utf8');
+  const validator = await readFile(path.join(ROOT, 'templates/agents/poc-validator.agent.md'), 'utf8');
 
   assert.match(validation, /maximum two human-authorized attempts/i);
   assert.match(validation, /Do not retry automatically/i);
   assert.match(agent, /Never start a retry yourself/i);
+  assert.match(agent, /--target-url/);
+  assert.match(validator, /mcp record playwright/);
+  assert.match(validator, /--target-url/);
   assert.match(publication, /does not create a pull request/i);
   assert.match(publication, /never\s+write or force-update the selected base/i);
   assert.doesNotMatch(`${validation}\n${publication}\n${agent}`, /failed payment|retry a payment/i);

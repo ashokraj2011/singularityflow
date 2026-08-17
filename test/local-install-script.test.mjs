@@ -20,6 +20,10 @@ test('local installer performs a safe ordered pull, pack, global install, and pl
   assert.match(script, /npm ci --registry="\$REGISTRY"/);
   assert.match(script, /export NPM_CONFIG_REGISTRY="\$REGISTRY"/);
   assert.match(script, /npm run vscode:build/);
+  assert.match(script, /scripts\/stamp-build-info\.mjs/);
+  assert.match(script, /BUILD_INFO_BACKUP/);
+  assert.doesNotMatch(script, /git[^\n]*checkout[^\n]*build-info\.mjs/,
+    'restoration must use the byte backup rather than rewriting through Git');
   assert.match(script, /npm pack --json/);
   assert.match(script, /npm uninstall --global singularity-flow/);
   assert.match(script, /npm install --global "\$PROJECT_DIR\/\$TARBALL" --registry="\$REGISTRY"/);
@@ -42,6 +46,7 @@ test('local installer performs a safe ordered pull, pack, global install, and pl
   assert.match(script, /Prompt\/response content remains disabled/);
   assert.ok(script.indexOf('git pull --ff-only') < script.indexOf('npm ci --registry="$REGISTRY"'));
   assert.ok(script.indexOf('npm ci --registry="$REGISTRY"') < script.indexOf('npm pack --json'));
+  assert.ok(script.indexOf('scripts/stamp-build-info.mjs') < script.indexOf('npm pack --json'));
   assert.ok(script.indexOf('npm pack --json') < script.indexOf('npm install --global "$PROJECT_DIR/$TARBALL"'));
   assert.ok(script.indexOf('npm install --global "$PROJECT_DIR/$TARBALL"') < script.indexOf('singularity-flow plugin install'));
 });

@@ -299,8 +299,38 @@ else
   npm test
 fi
 
+# Stamp which source revision this tarball came from, so the installed CLI can say so later.
+#
+# After the tests deliberately: the suite runs against the committed placeholder, so a stamp that
+# changes on every run can never make a test flaky. Restored by the trap below however this exits —
+# a failure between here and `npm pack` would otherwise leave the tree dirty and the *next* run of
+# this script would refuse it at the uncommitted-changes guard above.
+#
+# A bare test copy contains only install.sh, so it has nothing to stamp. A real checkout containing
+# build-info.mjs must also contain a working stamper: silently installing the placeholder would make
+# the packaged CLI falsely call itself a development checkout.
+BUILD_INFO_BACKUP=''
+restore_build_info() {
+  if [[ -n "$BUILD_INFO_BACKUP" && -f "$BUILD_INFO_BACKUP" ]]; then
+    cp "$BUILD_INFO_BACKUP" "$PROJECT_DIR/src/build-info.mjs"
+    rm -f "$BUILD_INFO_BACKUP"
+  fi
+}
+if [[ -f "$PROJECT_DIR/scripts/stamp-build-info.mjs" ]]; then
+  printf '%s\n' 'Stamping build provenance...'
+  BUILD_INFO_BACKUP="$(mktemp "${TMPDIR:-/tmp}/sflow-build-info.XXXXXX")"
+  cp "$PROJECT_DIR/src/build-info.mjs" "$BUILD_INFO_BACKUP"
+  trap restore_build_info EXIT
+  node "$PROJECT_DIR/scripts/stamp-build-info.mjs"
+elif [[ -f "$PROJECT_DIR/src/build-info.mjs" ]]; then
+  printf '%s\n' 'Error: build provenance stamper is missing; refusing to package an unidentified build.' >&2
+  exit 1
+fi
+
 printf '%s\n' 'Creating the distribution tarball...'
 PACK_OUTPUT="$(npm pack --json)"
+restore_build_info
+trap - EXIT
 TARBALL="$(PACK_OUTPUT="$PACK_OUTPUT" node -e '
   const result = JSON.parse(process.env.PACK_OUTPUT);
   if (!result?.[0]?.filename) throw new Error('"'"'npm pack did not report a tarball filename.'"'"');
@@ -330,6 +360,9 @@ printf '%s\n' 'Configuring Copilot model, token, and cost telemetry...'
 if [[ "$CLI_ONLY" != "on" ]]; then install_copilot_telemetry; fi
 
 printf '\nInstalled Singularity Flow %s\n' "$(singularity-flow --version)"
+# Named explicitly, because the CLI on PATH is a *copy* and not a link to this checkout: editing
+# these sources changes nothing about the installed command until install.sh runs again.
+printf 'Built from checkout: %s\n' "$PROJECT_DIR"
 printf 'Distribution tarball: %s/%s\n' "$PROJECT_DIR" "$TARBALL"
 printf 'Registry: %s\n' "$REGISTRY"
 if [[ "$CLI_ONLY" != "on" ]]; then

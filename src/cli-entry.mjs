@@ -4,6 +4,7 @@ import { commandTimer, recordCommandTiming, writeCommandTimings } from './dx-com
 import { repoRoot } from './git.mjs';
 import { parseArgs, SingularityFlowError } from './util.mjs';
 import { VERSION } from './version.mjs';
+import { versionLine } from './build-info.mjs';
 import { resolveModelMode, stripGlobalModelOptions } from './model-mode.mjs';
 import { withOperationContext } from './operation-context.mjs';
 
@@ -80,6 +81,20 @@ export async function main(argv) {
   const localOnlyRequest = effectiveArgv[0] === 'reinstall';
   let root = localOnlyRequest ? null : rootIfAvailable();
   const argvSha256 = createHash('sha256').update(JSON.stringify(effectiveArgv)).digest('hex');
+  /**
+   * Which build this is, on its own flag rather than folded into `--version`.
+   *
+   * `--version` is a machine-parsed contract: `reinstall.mjs` compares its output to the planned
+   * version with `!==`, so appending provenance to it would make every `--clean-reinstall` throw.
+   * `test/cli.test.mjs`'s "print only the package version" was guarding exactly that, and it was
+   * right. So the version stays a bare semver forever and the provenance gets its own opt-in flag.
+   */
+  if (effectiveArgv.length === 1 && effectiveArgv[0] === '--build') {
+    return withOperationContext({
+      operation: { id: 'version', modelPolicy: 'never', classification: 'read', output: 'human' },
+      modelMode, root, argvSha256, argvHash: `sha256:${argvSha256}`, command: 'version', startedAt: new Date().toISOString()
+    }, () => console.log(versionLine()));
+  }
   if (effectiveArgv.length === 1 && ['--version', '-v'].includes(effectiveArgv[0])) {
     return withOperationContext({
       operation: { id: 'version', modelPolicy: 'never', classification: 'read', output: 'human' },

@@ -5,6 +5,7 @@ import {
 } from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
+import { stampBuildInfoFile } from './build-info-stamp.mjs';
 import { installDirectSkills, isManagedDirectSkill, uninstallDirectSkills } from './direct-skills.mjs';
 import { commandExists, run, SingularityFlowError } from './util.mjs';
 
@@ -223,6 +224,7 @@ export async function buildReinstallBundle({
   checkout,
   registry,
   cliOnly = false,
+  sourceSha256 = null,
   execute = run,
   tempRoot = os.tmpdir(),
   log = console.log
@@ -234,6 +236,12 @@ export async function buildReinstallBundle({
   await mkdir(artifacts, { recursive: true, mode: 0o700 });
   await mkdir(npmCache, { recursive: true, mode: 0o700 });
   await copyCheckout(checkout, source);
+  const copiedSourceSha256 = await reinstallSourceDigest(source);
+  if (sourceSha256 && copiedSourceSha256 !== sourceSha256) {
+    throw new SingularityFlowError(
+      'The reinstall checkout changed while its isolated package source was being copied. Preview the reinstall again.'
+    );
+  }
   // Validation is isolated from the user's npm cache as well as the checkout. A preview may
   // download dependencies, but every temporary byte stays inside the content-addressed plan.
   const env = { ...process.env, NPM_CONFIG_REGISTRY: registry, NPM_CONFIG_CACHE: npmCache };
@@ -247,6 +255,23 @@ export async function buildReinstallBundle({
   // commands inspect Git metadata, so this transaction runs a focused safety suite
   // that covers its package, plugin, and direct-skill surfaces without invoking Git.
   executeOrThrow(execute, 'npm', ['run', 'test:reinstall'], { cwd: source, env, stdio: 'inherit' });
+  const buildInfoFile = path.join(source, 'src', 'build-info.mjs');
+  const buildInfo = await lstat(buildInfoFile).catch(() => null);
+  if (buildInfo) {
+    if (!buildInfo.isFile() || buildInfo.isSymbolicLink()) {
+      throw new SingularityFlowError(`The selected checkout does not contain a regular build-information module: ${buildInfoFile}`);
+    }
+    // Reinstall intentionally runs no Git command. Its pre-existing source digest is stronger than
+    // a guessed commit: it identifies the exact validated bytes that were copied into this isolated
+    // package source, including legitimate local changes.
+    await stampBuildInfoFile(buildInfoFile, {
+      commit: null,
+      sourceSha256: copiedSourceSha256,
+      branch: null,
+      dirty: null,
+      builtAt: new Date().toISOString()
+    });
+  }
   executeOrThrow(execute, 'npm', ['pack', '--pack-destination', artifacts, `--registry=${registry}`], { cwd: source, env, stdio: 'inherit' });
   const tarball = await findPackedFile(artifacts, '.tgz');
   let vsix = null;
@@ -314,7 +339,15 @@ export async function prepareLocalReinstall({
   const effectiveRegistry = normalizeReinstallRegistry(registry || execute('npm', ['config', 'get', 'registry'], { allowFailure: true }).stdout.trim());
   const installed = inspectLocalProduct({ execute, exists, homeDirectory, environment });
   const sourceSha256 = await reinstallSourceDigest(validated.checkout);
-  const bundle = await build({ checkout: validated.checkout, registry: effectiveRegistry, cliOnly, execute, tempRoot, log });
+  const bundle = await build({
+    checkout: validated.checkout,
+    registry: effectiveRegistry,
+    cliOnly,
+    sourceSha256,
+    execute,
+    tempRoot,
+    log
+  });
   const tarballSha256 = await fileHash(bundle.tarball);
   const vsixSha256 = await fileHash(bundle.vsix);
   const fingerprint = reinstallFingerprint({ checkout: validated.checkout, version: validated.version, tarballSha256, vsixSha256 });

@@ -310,8 +310,12 @@ Usage:
   singularity-flow story submit
   singularity-flow story converge [--work-id ID] [--assisted [--model NAME]] [--json]
   singularity-flow story adjudicate <ITEM-ID> [--item ITEM-ID]...
-    --disposition rework|accepted-deviation|dismissed|deferred [--reason TEXT]
+    --disposition rework|update-intent|accepted-deviation|dismissed|deferred [--reason TEXT]
     [--classification missing|partial|contradicts|unplanned] [--clause ID]... [--json]
+  singularity-flow story intent-amendment status [--work-id ID] [--json]
+  singularity-flow story intent-amendment propose --file AMENDED-SPEC.md --reason TEXT [--work-id ID]
+  singularity-flow story intent-amendment decide <AMD-ID> --decision approve|reject --confirm <AMD-ID>
+  singularity-flow story intent-amendment acknowledge [AMD-ID]
   singularity-flow constitution check|show [--work-type ID] [--path FILE] [--json]
   singularity-flow constitution generate [--work-type ID] [--path FILE] [--dry-run]
   singularity-flow constitution except <ARTICLE-ID> --reason TEXT [--scope TEXT] [--expires ISO] [--work-id ID]

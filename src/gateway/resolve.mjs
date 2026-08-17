@@ -62,6 +62,46 @@ const HELP_FALLBACK = Object.freeze({
   skill: '/sflow-about'
 });
 
+/**
+ * Issue the one safe way out of a failed selection.
+ *
+ * Recovery used to return `goal:home`, which merely looked like a handle. The executor correctly
+ * refused it because the handle authority had never issued it, leaving the reader in a loop of
+ * `HANDLE_UNKNOWN` refusals. Recovery is a read, so issue a read handle for the registered Home
+ * operation after the same policy and argument checks as any other resolution.
+ */
+function homeRecoveryAction({ registry, policy, handles, binding }) {
+  const operation = registry.operations.find((entry) => entry.id === 'home.overview');
+  if (!operation) return null;
+  const permission = operationPermission(policy, operation.id, { registry });
+  if (!permission.reachable || operation.classification !== 'read') return null;
+  let args;
+  try {
+    args = validateArguments(operation.gateway.argumentSchema, {});
+  } catch {
+    return null;
+  }
+  const { reference } = handles.issueRead({
+    operationId: operation.id,
+    classification: operation.classification,
+    arguments: args,
+    binding
+  });
+  return {
+    handle: reference.id,
+    id: 'recover:home',
+    label: 'Start again from home',
+    rank: 0,
+    kind: 'read',
+    reasonCode: 'resolution.selection-handle.invalid',
+    confirmation: permission.confirmation,
+    interaction: 'recovery',
+    emphasis: 'primary',
+    executable: permission.executable,
+    fallback: HELP_FALLBACK
+  };
+}
+
 function refusal(operationId, messageId, why, { next = [], restState = 'blocked' } = {}) {
   return sflowResult({
     kind: 'refusal',
@@ -88,20 +128,28 @@ function refusal(operationId, messageId, why, { next = [], restState = 'blocked'
  * same typo-tolerance the CLI already uses for commands — offered as suggestions the user picks
  * from, never as a match the resolver acted on.
  */
-function clarification(utterance, why) {
+function clarification(utterance, why, context) {
   const nearest = nearestNames(normalizeAlias(utterance).split(' ').at(-1) ?? '', BROAD_GOALS, { limit: 3 });
   const suggestions = (nearest.length ? nearest : ['home', 'work.list', 'help']);
-  return sflowResult({
-    kind: 'clarification',
-    operation: { id: 'gateway.resolve', classification: 'read' },
-    outcome: { status: 'succeeded', messageId: 'gateway.clarification', slots: { utterance } },
-    effects: noEffects(),
-    why,
-    next: suggestions.map((goal, index) => ({
-      handle: `goal:${goal}`,
+  const offered = [];
+  for (const goal of suggestions) {
+    const operation = context.registry.operations.find((entry) => {
+      if (entry.classification !== 'read' || !entry.gateway.goals.includes(goal)) return false;
+      if (!context.permissions.get(entry.id)?.reachable) return false;
+      try { validateArguments(entry.gateway.argumentSchema, {}); return true; } catch { return false; }
+    });
+    if (!operation) continue;
+    const { reference } = context.handles.issueSelection({
+      operationId: operation.id,
+      classification: operation.classification,
+      arguments: {},
+      binding: context.binding
+    });
+    offered.push({
+      handle: reference.id,
       id: `goal:${goal}`,
       label: goal,
-      rank: index,
+      rank: offered.length,
       kind: 'clarification',
       reasonCode: 'resolution.no-match',
       confirmation: 'none',
@@ -109,8 +157,20 @@ function clarification(utterance, why) {
       interaction: 'navigation',
       executable: false,
       fallback: HELP_FALLBACK
-    })),
-    restState: null
+    });
+  }
+  if (!offered.length) {
+    const recovery = homeRecoveryAction(context);
+    if (recovery) offered.push(recovery);
+  }
+  return sflowResult({
+    kind: 'clarification',
+    operation: { id: 'gateway.resolve', classification: 'read' },
+    outcome: { status: 'succeeded', messageId: 'gateway.clarification', slots: { utterance } },
+    effects: noEffects(),
+    why,
+    next: offered,
+    restState: offered.length ? null : 'blocked'
   });
 }
 
@@ -138,19 +198,28 @@ function missingArguments(incomplete, context) {
       reference: operationId,
       slots: { fields: fields.join(', ') }
     })),
-    next: entries.map(([operationId, fields], index) => ({
-      handle: `needs:${operationId}:${fields.join(',')}`,
-      id: `needs:${operationId}`,
-      label: `${operationId} — needs ${fields.join(', ')}`,
-      rank: index,
-      kind: 'clarification',
-      reasonCode: 'resolution.arguments.missing',
-      confirmation: 'none',
-      /** The missing value is what the host collects, so this opens a form `[UXH:REQ-070]`. */
-      interaction: 'form',
-      executable: false,
-      fallback: HELP_FALLBACK
-    })),
+    next: entries.map(([operationId, fields], index) => {
+      const operation = context.registry.operations.find((entry) => entry.id === operationId);
+      const { reference } = context.handles.issueSelection({
+        operationId,
+        classification: operation.classification,
+        arguments: context.arguments,
+        binding: context.binding
+      });
+      return {
+        handle: reference.id,
+        id: `needs:${operationId}`,
+        label: `${operationId} — needs ${fields.join(', ')}`,
+        rank: index,
+        kind: 'clarification',
+        reasonCode: 'resolution.arguments.missing',
+        confirmation: 'none',
+        /** The missing value is what the host collects, so this opens a form `[UXH:REQ-070]`. */
+        interaction: 'form',
+        executable: false,
+        fallback: HELP_FALLBACK
+      };
+    }),
     restState: null
   });
 }
@@ -272,7 +341,7 @@ export function resolveIntent(request = {}, {
   const permissions = new Map(registry.operations.map((operation) => [
     operation.id, operationPermission(policy, operation.id, { registry })
   ]));
-  const context = { arguments: proposed, binding, subject, permissions };
+  const context = { arguments: proposed, binding, subject, permissions, registry, policy, handles };
 
   // ---- 1. A selection handle is an answer already given, so nothing below may reopen it.
   let matchedBy = null;
@@ -283,16 +352,18 @@ export function resolveIntent(request = {}, {
     try {
       record = handles.verify({ id: selectionHandle }, { kind: 'selection', binding, consume: true });
     } catch (error) {
+      const recovery = homeRecoveryAction({ registry, policy, handles, binding });
       return refusal('gateway.resolve', 'gateway.refused', [
         { code: 'resolution.selection-handle.invalid', source: 'deterministic', reference: error.code ?? null }
-      ], { next: [{
-        handle: 'goal:home', id: 'recover:home', label: 'Start again from home', rank: 0, kind: 'clarification',
-        reasonCode: 'resolution.selection-handle.invalid', confirmation: 'none',
-        // Getting back to somewhere known after a stale handle is the recovery class exactly.
-        interaction: 'recovery', emphasis: 'primary', executable: false, fallback: HELP_FALLBACK
-      }], restState: null });
+      ], { next: recovery ? [recovery] : [], restState: recovery ? null : 'blocked' });
     }
     pool = pool.filter((operation) => operation.id === record.operationId);
+    // The handle is the selected answer in full: operation and the arguments the kernel validated
+    // when it issued it. Re-reading `request.arguments` here lets the next caller erase those
+    // arguments by sending only the opaque handle, which is exactly what every host is required to
+    // do. The result was a second clarification asking for a work ID already present in the signed
+    // choice.
+    context.arguments = record.arguments;
     matchedBy = MATCH_SELECTION_HANDLE;
     why.push(reason('resolution.matched.selection-handle'));
   }
@@ -351,7 +422,7 @@ export function resolveIntent(request = {}, {
   }
 
   if (!matchedBy || !pool.length) {
-    return clarification(utterance, [reason('resolution.no-match', { slots: { utterance } })]);
+    return clarification(utterance, [reason('resolution.no-match', { slots: { utterance } })], context);
   }
 
   // ---- 5. Intersect with what is legal right now. A legal-action set that was not supplied is
@@ -373,7 +444,7 @@ export function resolveIntent(request = {}, {
   const incomplete = new Map();
   for (const operation of pool) {
     try {
-      typed.push([operation, validateArguments(operation.gateway.argumentSchema, proposed)]);
+      typed.push([operation, validateArguments(operation.gateway.argumentSchema, context.arguments)]);
     } catch (error) {
       if (error.code === 'MISSING_OPERATION_ARGUMENT') {
         incomplete.set(operation.id, [...(incomplete.get(operation.id) ?? []), error.details.field]);

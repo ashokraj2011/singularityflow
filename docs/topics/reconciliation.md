@@ -11,9 +11,9 @@ related:
   - work-intervals
   - escalation
   - sequence-gates
-version: 2
+version: 3
 ---
-`sflow story interval reconcile` deterministically compares reality against the starting contract: claimed vs. changed paths, protected paths, required checks bound to the exact commit, clause coverage. Verdicts: clear · attention · blocked · incomplete — and `clear` explicitly does not claim semantic correctness. Findings are facts; a human chooses what they mean: `aligned`, `continue-work`, `update-intent` (the plan was wrong — the affected phase reopens for a corrected intent and your code stays; the diff becomes evidence for the new intent, not auto-approved), `record-deviation`, or `escalate`. Final submission requires a clean reconciliation bound to the submitted commit.
+`sflow story interval reconcile` deterministically compares reality against the starting contract: claimed vs. changed paths, protected paths, required checks bound to the exact commit, and clause coverage. Verdicts are clear · attention · blocked · incomplete, and `clear` explicitly does not claim semantic correctness. Convergence findings are facts; a human dispositions each one as `rework`, `update-intent`, `accepted-deviation`, `dismissed`, or `deferred`. Final submission requires a clean reconciliation bound to the submitted commit.
 
 ## Purpose and prerequisites
 
@@ -27,11 +27,13 @@ Use this topic when the current goal matches **reconciliation**. Start in a gove
 
 ## Guided workflow
 
-1. Read the current state with `sflow home`, `sflow status`, or the relevant list/status form.
-2. Review the repository, workspace, Work ID, phase, actor, and any warnings before selecting an action.
-3. Preview or prepare the operation when the command offers a dry-run, plan, packet, or exact confirmation.
-4. Run the smallest applicable command from this topic. Do not substitute an undocumented subcommand.
-5. Re-read state after completion. In Copilot, return to `/sf-home`; in VS Code, refresh the relevant view if it has not already refreshed.
+1. Reconcile the active work interval, then run `sflow story converge`.
+2. Record each human disposition with `sflow story adjudicate`. An `update-intent` decision must name the clause with `--clause` and blocks advancement just like rework.
+3. For code that must change, use the separately offered `sflow story rework --confirm` transition.
+4. For intent that must change, prepare amended specification Markdown and run `sflow story intent-amendment propose --file AMENDED-SPEC.md --reason TEXT`. This publishes a proposal; it does not edit the approved specification.
+5. An authorized specification reviewer runs `sflow story intent-amendment decide AMD-NNN --decision approve|reject --confirm AMD-NNN`. Approval creates a new specification generation, invalidates downstream approvals, and labels existing evidence as affected or preserved.
+6. The developer reads the recorded clause and blast-radius summary, then runs `sflow story intent-amendment acknowledge AMD-NNN`. Submission remains blocked until this acknowledgement.
+7. Replay the downstream phases. Existing unaffected evidence remains in place; affected evidence must be regenerated or revalidated through the normal publication and approval gates.
 
 ## State and safety
 

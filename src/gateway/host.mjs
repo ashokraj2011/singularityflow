@@ -30,6 +30,7 @@ import { createHandleAuthority } from './handles.mjs';
 import { gatewayRegistry } from './operations.mjs';
 import { DEFAULT_GATEWAY_POLICY, resolveGatewayPolicy } from './policy.mjs';
 import { branch, head, identity, localGitDisplayName, repoRoot } from '../git.mjs';
+import { worktreeFingerprint } from '../worktree-fingerprint.mjs';
 
 /**
  * The world a handle is bound to, read once per session. `[INT:REQ-034]` `[DHR:REQ-081]`
@@ -42,12 +43,15 @@ import { branch, head, identity, localGitDisplayName, repoRoot } from '../git.mj
  */
 export function hostBinding(root, { workspaceId = null, hostSessionId, subject = null, registry, policy } = {}) {
   const actor = identity(root, { offline: true });
+  const workingTree = worktreeFingerprint(root);
   return Object.freeze({
     workspaceId,
     subjectKind: subject?.kind ?? null,
     subjectId: subject?.id ?? null,
     sourceCommit: head(root) ?? null,
-    worktreeHash: null,
+    // Clean remains null as the explicit "no local changes" value. Once dirty, this binds the
+    // handle to exact bytes rather than to the shape of `git status`.
+    worktreeHash: workingTree.dirty ? workingTree.sha256 : null,
     repository: root,
     branch: branch(root) ?? null,
     lifecycleRevision: subject?.revision?.lifecycleHash ?? null,

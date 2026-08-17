@@ -2,14 +2,21 @@ import { randomUUID } from 'node:crypto';
 import { mkdir, readFile, rename, rm, stat, writeFile } from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
+import { Worker } from 'node:worker_threads';
 import { gitDir } from './git.mjs';
 import { SingularityFlowError, nowIso } from './util.mjs';
 
 const PROCESS_TOKEN = randomUUID();
-const DEFAULT_TTL_MS = 15 * 60 * 1000;
+// A heartbeat renews active `withSubjectLock` leases. Three hours is the fail-safe if a worker
+// cannot start: one configured quality command may legally run for two hours.
+const DEFAULT_TTL_MS = 3 * 60 * 60 * 1000;
 
 function safe(value) {
   return encodeURIComponent(String(value)).replace(/%/g, '_');
+}
+
+function heartbeatPath(directory, owner) {
+  return path.join(directory, `heartbeat-${safe(owner.lockToken)}`);
 }
 
 export function subjectLockPath(root, subject) {
@@ -49,12 +56,14 @@ async function readOwner(directory) {
  */
 const ACQUISITION_GRACE_MS = 30 * 1000;
 
-function stale(owner, ttlMs, directoryAgeMs) {
+function stale(owner, ttlMs, directoryAgeMs, heartbeatModifiedAt = null) {
   if (owner === undefined || owner === null) return directoryAgeMs > ACQUISITION_GRACE_MS;
   const acquired = Date.parse(owner.acquiredAt ?? '');
   if (!Number.isFinite(acquired)) return true;
   const expiry = Date.parse(owner.expiresAt ?? '');
-  const deadline = Number.isFinite(expiry) ? expiry : acquired + ttlMs;
+  const recordedDeadline = Number.isFinite(expiry) ? expiry : acquired + ttlMs;
+  const heartbeatDeadline = Number.isFinite(heartbeatModifiedAt) ? heartbeatModifiedAt + ttlMs : 0;
+  const deadline = Math.max(recordedDeadline, heartbeatDeadline);
   // Liveness shortens the wait; it does not grant an indefinite hold. This check used to come first
   // and return "held" outright, so a PID the OS had recycled to an unrelated live process satisfied
   // it forever: the TTL never applied, and the only way out was deleting a file inside `.git` by
@@ -91,6 +100,53 @@ async function directoryAge(directory) {
   return Date.now() - info.mtimeMs;
 }
 
+async function heartbeatModifiedAt(directory, owner) {
+  if (!owner?.lockToken) return null;
+  const info = await stat(heartbeatPath(directory, owner)).catch(() => null);
+  return info?.mtimeMs ?? null;
+}
+
+/**
+ * Renew a lease even while the main thread is inside a synchronous external quality command.
+ *
+ * A normal timer cannot do that: `spawnSync` blocks the JavaScript event loop for the entire
+ * Playwright/test run. The worker touches a lock-token-specific file, never rewrites owner.json.
+ * Token-specific is load-bearing: if the directory is atomically reclaimed between a check and a
+ * touch, the old worker cannot refresh the new owner's differently named heartbeat.
+ */
+function startHeartbeat(directory, owner, ttlMs) {
+  if (!Number.isFinite(ttlMs) || ttlMs < 1_000) return null;
+  const intervalMs = Math.max(250, Math.min(30_000, Math.floor(ttlMs / 3)));
+  const worker = new Worker(`
+    const { utimesSync } = require('node:fs');
+    const { parentPort, workerData } = require('node:worker_threads');
+    const stop = () => { clearInterval(timer); parentPort.close(); };
+    const beat = () => {
+      try {
+        const now = new Date();
+        utimesSync(workerData.file, now, now);
+      } catch {
+        stop();
+      }
+    };
+    const timer = setInterval(beat, workerData.intervalMs);
+    parentPort.on('message', stop);
+  `, {
+    eval: true,
+    // CLI/test processes may themselves use `--input-type=module`; inheriting it turns an eval
+    // worker into ESM and makes the deliberately self-contained CommonJS heartbeat fail.
+    execArgv: [],
+    workerData: { file: heartbeatPath(directory, owner), intervalMs }
+  });
+  worker.unref();
+  return worker;
+}
+
+async function stopHeartbeat(worker) {
+  if (!worker) return;
+  await worker.terminate();
+}
+
 export async function acquireSubjectLock(root, subject, { ttlMs = DEFAULT_TTL_MS } = {}) {
   const directory = subjectLockPath(root, subject);
   await mkdir(path.dirname(directory), { recursive: true });
@@ -113,12 +169,18 @@ export async function acquireSubjectLock(root, subject, { ttlMs = DEFAULT_TTL_MS
       // process dies mid-write, and the next acquirer reads that as an unowned lock.
       const pending = `${path.join(directory, 'owner.json')}.${owner.lockToken}`;
       await writeFile(pending, `${JSON.stringify(owner, null, 2)}\n`, { flag: 'wx' });
+      await writeFile(heartbeatPath(directory, owner), '', { flag: 'wx', mode: 0o600 });
       await rename(pending, path.join(directory, 'owner.json'));
       return owner;
     } catch (error) {
       if (error?.code !== 'EEXIST') throw error;
       const existing = await readOwner(directory);
-      if (!stale(existing, ttlMs, await directoryAge(directory))) {
+      if (!stale(
+        existing,
+        ttlMs,
+        await directoryAge(directory),
+        await heartbeatModifiedAt(directory, existing)
+      )) {
         const held = existing
           ? `PID ${existing.pid ?? 'unknown'} on ${existing.host ?? 'unknown'} since ${existing.acquiredAt ?? 'unknown'}`
           : 'another process that is still acquiring it';
@@ -141,10 +203,13 @@ export async function releaseSubjectLock(root, subject, owner) {
   return true;
 }
 
-export async function withSubjectLock(root, subject, callback, options) {
-  const owner = await acquireSubjectLock(root, subject, options);
+export async function withSubjectLock(root, subject, callback, options = {}) {
+  const ttlMs = options.ttlMs ?? DEFAULT_TTL_MS;
+  const owner = await acquireSubjectLock(root, subject, { ...options, ttlMs });
+  const heartbeat = startHeartbeat(subjectLockPath(root, subject), owner, ttlMs);
   try { return await callback(owner); }
   finally {
+    await stopHeartbeat(heartbeat);
     // A false release means the lock we were holding is no longer ours — it was reclaimed as stale
     // while we were working, so something else may have been mutating the same subject alongside
     // us. Discarding that quietly is how a concurrent mutation becomes invisible.

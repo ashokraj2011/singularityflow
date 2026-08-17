@@ -11,7 +11,7 @@ import os from 'node:os';
 import path from 'node:path';
 import test from 'node:test';
 
-import { acquireSubjectLock, subjectLockPath } from '../src/subject-lock.mjs';
+import { acquireSubjectLock, subjectLockPath, withSubjectLock } from '../src/subject-lock.mjs';
 import { GOVERNED_ROOTS, initializeDefinition } from '../src/config.mjs';
 import { isApplicationPath } from '../src/work-intervals.mjs';
 import { assertNotDefaultBranch, defaultBranchName, protectedBranchNames } from '../src/git.mjs';
@@ -122,6 +122,34 @@ test('a live holder still keeps its lock until the lock expires', async (t) => {
   const subject = { kind: 'story', id: 'LOCK-2', branch: 'main' };
   await acquireSubjectLock(root, subject);
   await assert.rejects(() => acquireSubjectLock(root, subject), /is locked by PID/);
+});
+
+test('a synchronous long-running validation cannot outlive and lose its subject lease', async (t) => {
+  const root = await repository('main');
+  t.after(() => rm(root, { recursive: true, force: true }));
+  const subject = { kind: 'story', id: 'LOCK-LONG', branch: 'main' };
+  const lockModule = new URL('../src/subject-lock.mjs', import.meta.url).href;
+
+  const child = await withSubjectLock(root, subject, async () => run(process.execPath, [
+    '--input-type=module',
+    '--eval',
+    [
+      `import { acquireSubjectLock, releaseSubjectLock } from ${JSON.stringify(lockModule)};`,
+      'await new Promise((resolve) => setTimeout(resolve, 1800));',
+      `const root = ${JSON.stringify(root)};`,
+      `const subject = ${JSON.stringify(subject)};`,
+      'try {',
+      '  const owner = await acquireSubjectLock(root, subject, { ttlMs: 1200 });',
+      "  console.log('ACQUIRED');",
+      '  await releaseSubjectLock(root, subject, owner);',
+      '} catch (error) {',
+      "  console.log(/is locked by PID/.test(error.message) ? 'LOCKED' : `ERROR:${error.message}`);",
+      '}'
+    ].join('\n')
+  ], { cwd: root, timeoutMs: 5_000 }), { ttlMs: 1200 });
+
+  assert.equal(child.stdout.trim(), 'LOCKED',
+    'the independent heartbeat must renew while the main thread is blocked in spawnSync');
 });
 
 test('two processes cannot both reclaim the same abandoned lock', async (t) => {

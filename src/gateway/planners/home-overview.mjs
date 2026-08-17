@@ -14,7 +14,7 @@
 import { readWorkspaceRegistry } from '../../workspace.mjs';
 import { workspaceRegistryFile } from '../../workspace-context.mjs';
 import { subjectWith } from '../handles.mjs';
-import { noEffects, sflowResult } from '../result.mjs';
+import { noEffects, plannerNavigation, sflowResult } from '../result.mjs';
 import { localChangesFor } from './work-continue.mjs';
 import { deriveHomeState } from '../home-work-projection.mjs';
 import { WORK_GROUP_ORDER, workRecords } from '../work-records.mjs';
@@ -73,8 +73,23 @@ function fallbackFor(id, label, slots) {
   };
 }
 
-function choice(entry, index, reasonCode, slots = {}) {
-  return {
+function homeNavigation(entry, { workId = null } = {}) {
+  if (entry.id === 'work.continue' || entry.id === 'work.return') {
+    return workId ? { operationId: entry.id, arguments: { workId } } : { operationId: 'work.list', arguments: {} };
+  }
+  if (entry.id === 'workspace.switch') return { operationId: 'workspace.list', arguments: {} };
+  if (entry.id === 'repository.explore') {
+    return { operationId: 'repository.explore', arguments: { repositoryId: 'current' } };
+  }
+  if (entry.id === 'help.explain') {
+    return { operationId: 'help.explain', arguments: { question: 'how does sflow work' } };
+  }
+  return { operationId: entry.id, arguments: {} };
+}
+
+function choice(entry, index, reasonCode, slots = {}, navigation = {}) {
+  const target = homeNavigation(entry, navigation);
+  return plannerNavigation({
     handle: `home:${entry.id}`,
     /** The choice, not its position. Reordering the menu must not rename its items. */
     id: `home:${entry.id}`,
@@ -103,7 +118,7 @@ function choice(entry, index, reasonCode, slots = {}) {
     executable: false,
     fallback: fallbackFor(entry.id, entry.label, slots),
     slots
-  };
+  }, target.operationId, target.arguments);
 }
 
 /**
@@ -333,7 +348,7 @@ export function homeOverviewResult({
         return choice(entry, index, 'home.local-work-unreconciled', {
           files: String(localChanges.files ?? 0),
           work: active?.id ?? 'none'
-        });
+        }, { workId: active?.id ?? null });
       }
       if (entry.id === 'work.continue' && active) {
         return choice(entry, index, 'home.continue-active-work', {
@@ -342,12 +357,12 @@ export function homeOverviewResult({
           repository: active.repository ?? 'current',
           phase: active.phase ?? 'none',
           nextAction: active.nextAction?.operation ?? 'none'
-        });
+        }, { workId: active.id });
       }
       if (entry.id === 'work.list') {
         return choice(entry, index, 'home.work-summary', { active: String(counts.active), decisions: String(decisions) });
       }
-      return choice(entry, index, 'home.stable-choice');
+      return choice(entry, index, 'home.stable-choice', {}, { workId: active?.id ?? null });
     }),
     restState: null,
     data: {

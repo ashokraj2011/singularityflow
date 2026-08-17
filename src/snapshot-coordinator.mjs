@@ -1,8 +1,7 @@
 import { createHash } from 'node:crypto';
-import { lstat, readFile, readlink } from 'node:fs/promises';
-import path from 'node:path';
 import { TimingCollector } from './dx-timings.mjs';
 import { SingularityFlowError, run } from './util.mjs';
+import { worktreeFingerprint } from './worktree-fingerprint.mjs';
 
 function parseStatus(value) {
   const tokens = value.split('\0').filter(Boolean);
@@ -27,31 +26,16 @@ function parseStatus(value) {
 }
 
 async function worktreeRevision(root) {
-  // Porcelain v2 carries the branch, HEAD, changed-path catalog, and untracked-path catalog in one
-  // process. The two diffs still hash actual tracked bytes; untracked bytes are read below. This is
-  // the exact-content invariant without the dozen Git subprocesses the original coordinator used.
+  // Porcelain v2 carries the branch, HEAD, and changed-path catalog in one process. The shared Git
+  // tree fingerprint supplies the exact bytes and modes; every surface now means the same thing
+  // when it calls a value `worktreeHash`.
   const status = run('git', ['status', '--porcelain=v2', '--branch', '-z', '--untracked-files=all'], { cwd: root });
   const parsed = parseStatus(status.stdout);
-  const diff = run('git', ['diff', '--binary', '--no-ext-diff', '--'], { cwd: root });
-  const staged = run('git', ['diff', '--cached', '--binary', '--no-ext-diff', '--'], { cwd: root });
-  const digest = createHash('sha256')
-    .update(status.stdout)
-    .update('\0WORKTREE-DIFF\0')
-    .update(diff.stdout)
-    .update('\0INDEX-DIFF\0')
-    .update(staged.stdout);
-  for (const file of parsed.untrackedFiles) {
-    const absolute = path.join(root, file);
-    const stat = await lstat(absolute);
-    digest.update('\0UNTRACKED\0').update(file).update('\0');
-    if (stat.isSymbolicLink()) digest.update('symlink\0').update(await readlink(absolute));
-    else if (stat.isFile()) digest.update('file\0').update(await readFile(absolute));
-    else digest.update(`other:${stat.mode}`);
-  }
+  const fingerprint = worktreeFingerprint(root);
   return {
     branch: parsed.branchName,
     head: parsed.commit,
-    worktreeHash: digest.digest('hex'),
+    worktreeHash: fingerprint.sha256,
     changedFiles: parsed.changedFiles
   };
 }

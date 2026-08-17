@@ -92,6 +92,30 @@ export const INTERACTION_CLASSES = Object.freeze([
 export const ACTION_EMPHASIS = Object.freeze(['primary', 'secondary', 'link']);
 
 /**
+ * Planner-only routing metadata.
+ *
+ * A planner must tell the kernel which registered operation and typed arguments a navigation row
+ * means, but a host must never receive that authority as reconstructable fields. A symbol survives
+ * in-process validation, is ignored by JSON, and is stripped when the kernel replaces the
+ * planner's display placeholder with an issued selection handle.
+ */
+export const PLANNER_NAVIGATION_TARGET = Symbol('sflow.planner-navigation-target');
+
+export function plannerNavigation(action, operationId, args = {}) {
+  return {
+    ...action,
+    [PLANNER_NAVIGATION_TARGET]: Object.freeze({
+      operationId: String(operationId ?? ''),
+      arguments: Object.freeze({ ...args })
+    })
+  };
+}
+
+export function plannerNavigationTarget(action) {
+  return action?.[PLANNER_NAVIGATION_TARGET] ?? null;
+}
+
+/**
  * Why a result offers nothing further to do. `[UXH:REQ-051]` `[INT:REQ-041]`
  *
  * `restState` was a free string in a contract whose entire premise is that a surface never has to
@@ -334,7 +358,7 @@ function frozenNextActions(entries) {
     }
     if (!entry?.reasonCode) invalid(`next[${index}] has no reason code`);
     requireCatalogued(entry.reasonCode, `next[${index}].reasonCode`);
-    return Object.freeze({
+    const frozen = {
       handle: String(entry.handle),
       id: String(entry.id),
       label: String(entry.label),
@@ -368,7 +392,18 @@ function frozenNextActions(entries) {
       // An authorization decision is never executable by an ambient tool `[INT:CON-113]`.
       executable: entry.confirmation === 'ceremony' ? false : entry.executable !== false,
       fallback: entry.fallback ? Object.freeze({ ...entry.fallback }) : null
-    });
+    };
+    const navigation = plannerNavigationTarget(entry);
+    if (navigation) {
+      Object.defineProperty(frozen, PLANNER_NAVIGATION_TARGET, {
+        value: Object.freeze({
+          operationId: String(navigation.operationId ?? ''),
+          arguments: Object.freeze({ ...(navigation.arguments ?? {}) })
+        }),
+        enumerable: false
+      });
+    }
+    return Object.freeze(frozen);
   }));
 
   /**

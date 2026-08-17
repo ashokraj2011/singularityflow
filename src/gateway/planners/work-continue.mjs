@@ -12,13 +12,12 @@
  * reads. A version of this that accepted "where we left off" as context would work beautifully until
  * the day someone returned after a week, and then be confidently wrong.
  */
-import { createHash } from 'node:crypto';
-
 import { changedFiles, changes, head } from '../../git.mjs';
 import { SingularityFlowError } from '../../util.mjs';
+import { worktreeFingerprint } from '../../worktree-fingerprint.mjs';
 import { catalogued } from '../catalog.mjs';
 import { subjectWith } from '../handles.mjs';
-import { noEffects, preservedAll, sflowResult } from '../result.mjs';
+import { noEffects, plannerNavigation, preservedAll, sflowResult } from '../result.mjs';
 import { workRecords } from '../work-records.mjs';
 
 function notFound(workId) {
@@ -34,7 +33,7 @@ function notFound(workId) {
      * the reader looking for the right repository instead of for their work.
      */
     preserved: preservedAll('work.nothing-was-carried-out', { reference: workId }),
-    next: [{
+    next: [plannerNavigation({
       handle: 'goal:work.list',
       id: 'recover:work.list',
       label: 'See current work',
@@ -46,7 +45,7 @@ function notFound(workId) {
       emphasis: 'primary',
       executable: false,
       fallback: { label: 'See current work', command: 'sflow inbox' }
-    }],
+    }, 'work.list', {})],
     restState: null
   });
 }
@@ -120,7 +119,7 @@ export function workContinueResult(item, { subject = null, localChanges = null, 
      * next action would collapse those two steps into one, which is exactly the collapse that makes
      * a returning developer advance a phase they had not yet understood.
      */
-    next: actions.map((operation, index) => ({
+    next: actions.map((operation, index) => plannerNavigation({
       handle: `continue:${item.id}:${operation}`,
       id: `continue:${operation}`,
       label: operation,
@@ -137,7 +136,7 @@ export function workContinueResult(item, { subject = null, localChanges = null, 
       emphasis: index === 0 ? 'primary' : 'secondary',
       executable: false,
       fallback: { label: operation, command: `sflow status --work-id ${item.id}` }
-    })),
+    }, operation, { workId: item.id })),
     restState: actions.length ? null : 'blocked',
     data: {
       work: item,
@@ -196,13 +195,7 @@ export function localChangesFor(root) {
   return {
     dirty: true,
     files: paths.length,
-    /**
-     * A digest of the status output, not of the file contents.
-     *
-     * It answers "are these the same uncommitted bytes I was looking at?", which is what a handle
-     * bound to a dirty tree needs, and it answers it without reading every changed file.
-     */
-    worktreeHash: createHash('sha256').update(dirty).digest('hex'),
+    worktreeHash: worktreeFingerprint(root).sha256,
     paths: paths.slice(0, 100)
   };
 }

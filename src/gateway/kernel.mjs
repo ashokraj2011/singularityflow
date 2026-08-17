@@ -12,11 +12,16 @@
  * simply unused is one flag away from being live, and the flag is usually set by someone debugging.
  */
 import { createHandleAuthority, subjectFromBinding } from './handles.mjs';
+import { validateArguments } from './argument-schemas.mjs';
 import { DEFAULT_GATEWAY_POLICY, operationPermission, resolveGatewayPolicy } from './policy.mjs';
 import { gatewayRegistry } from './operations.mjs';
 import { catalogued } from './catalog.mjs';
-import { noEffects, preservedAll, sflowResult, validateSflowResult } from './result.mjs';
+import {
+  noEffects, PLANNER_NAVIGATION_TARGET, plannerNavigationTarget, preservedAll, sflowResult,
+  validateSflowResult
+} from './result.mjs';
 import { resolveIntent } from './resolve.mjs';
+import { SingularityFlowError } from '../util.mjs';
 
 /**
  * Narration IDs a kernel-side result can carry, so a surface can translate all of them.
@@ -121,6 +126,54 @@ export function createGatewayKernel({
    * the wrong one in a render loop, which is why the host recomputes here and not per frame.
    */
   const currentBinding = () => (typeof binding === 'function' ? binding() : binding);
+  const currentLegalActions = (subject) => typeof legalActions === 'function'
+    ? legalActions(subject)
+    : legalActions;
+
+  /**
+   * Turn planner suggestions into authority-issued selections.
+   *
+   * Prefixes such as `home:` and `goal:` remain display placeholders inside pure planner tests.
+   * They never cross the kernel boundary. The operation must exist, be reachable under current
+   * policy, and accept the planner's exact arguments before the handle authority signs it.
+   */
+  function sealPlannerNavigation(result, issuedAgainst) {
+    if (!(result.next ?? []).length) return result;
+    const next = result.next.map((action, index) => {
+      if (action.confirmation === 'ceremony' || action.executable === true) return action;
+      const target = plannerNavigationTarget(action);
+      if (!target?.operationId) {
+        throw new SingularityFlowError(
+          `Planner '${result.operation.id}' returned navigation next[${index}] without a target operation.`,
+          { code: 'PLANNER_NAVIGATION_TARGET_MISSING' }
+        );
+      }
+      const operation = registry.operations.find((entry) => entry.id === target.operationId);
+      if (!operation) {
+        throw new SingularityFlowError(
+          `Planner '${result.operation.id}' targeted unregistered operation '${target.operationId}'.`,
+          { code: 'PLANNER_NAVIGATION_TARGET_UNKNOWN' }
+        );
+      }
+      const permission = operationPermission(policy, operation.id, { registry });
+      if (!permission.reachable) {
+        throw new SingularityFlowError(
+          `Planner '${result.operation.id}' targeted operation '${operation.id}', which current policy cannot reach.`,
+          { code: 'PLANNER_NAVIGATION_TARGET_DENIED' }
+        );
+      }
+      const args = validateArguments(operation.gateway.argumentSchema, target.arguments);
+      const { reference } = handles.issueSelection({
+        operationId: operation.id,
+        classification: operation.classification,
+        arguments: args,
+        binding: issuedAgainst
+      });
+      const { [PLANNER_NAVIGATION_TARGET]: _target, ...visible } = action;
+      return { ...visible, handle: reference.id };
+    });
+    return sflowResult({ ...result, next });
+  }
 
   /**
    * Run a planner and hold its output to the same contract as everything else.
@@ -129,7 +182,7 @@ export function createGatewayKernel({
    * planner that returns something shaped like a result is exactly the thing that would otherwise
    * reach a host and be rendered as if the kernel had produced it.
    */
-  async function invoke(operation, args, subject) {
+  async function invoke(operation, args, subject, issuedAgainst = currentBinding()) {
     const planner = planners.get(operation.gateway.planner);
     if (typeof planner !== 'function') {
       // A capability this build genuinely lacks, reported as absent rather than as forbidden.
@@ -139,8 +192,10 @@ export function createGatewayKernel({
     const context = typeof plannerContext === 'function'
       ? plannerContext({ operation, arguments: args, subject })
       : plannerContext;
-    const produced = await planner({ operation, arguments: args, subject, registry, policy, root, context: context ?? {} });
-    return validateSflowResult(produced);
+    const produced = validateSflowResult(
+      await planner({ operation, arguments: args, subject, registry, policy, root, context: context ?? {} })
+    );
+    return validateSflowResult(sealPlannerNavigation(produced, issuedAgainst));
   }
 
   return Object.freeze({
@@ -151,7 +206,14 @@ export function createGatewayKernel({
 
     /** `sflow_resolve`: the only entry point that takes words. */
     resolve(request = {}, { subject = null } = {}) {
-      return resolveIntent(request, { registry, policy, handles, legalActions, binding: currentBinding(), subject });
+      return resolveIntent(request, {
+        registry,
+        policy,
+        handles,
+        legalActions: currentLegalActions(subject),
+        binding: currentBinding(),
+        subject
+      });
     },
 
     /** `sflow_read`: a resolved read handle, revalidated against the world, and nothing else. */
@@ -183,7 +245,7 @@ export function createGatewayKernel({
        * revalidation just compared, so a result's declared revision is the revision its own
        * authorization was checked against rather than a second read that could disagree with it.
        */
-      return invoke(operation, record.arguments, subjectFromBinding(record.binding));
+      return invoke(operation, record.arguments, subjectFromBinding(record.binding), record.binding);
     },
 
     /**
@@ -194,15 +256,26 @@ export function createGatewayKernel({
      * reason not to call it, and a stale action list is worse than none.
      */
     next({ scope = 'home', subject = null } = {}) {
-      const legal = (legalActions ? legalActions(subject) : null)
+      const issuedAgainst = currentBinding();
+      const legal = currentLegalActions(subject)
         ?? registry.operations.filter((entry) => entry.classification === 'read').map((entry) => entry.id);
       const offered = legal
         .map((id) => registry.operations.find((entry) => entry.id === id))
         .filter(Boolean)
         .map((operation) => ({ operation, permission: operationPermission(policy, operation.id, { registry }) }))
         .filter(({ permission }) => permission.reachable)
-        .map(({ operation, permission }, index) => ({
-          handle: `next:${operation.id}`,
+        .map(({ operation, permission }, index) => ({ operation, permission, index }))
+        .map(({ operation, permission, index }) => ({
+          handle: permission.confirmation === 'ceremony'
+            ? `ceremony:${operation.id}`
+            : handles.issueSelection({
+                operationId: operation.id,
+                classification: operation.classification,
+                // Selection is allowed to precede form collection. Resolution restores these
+                // exact bytes and either validates them or asks for the missing typed fields.
+                arguments: {},
+                binding: issuedAgainst
+              }).reference.id,
           id: `legal:${operation.id}`,
           label: operation.gateway.aliases.en.phrases[0],
           rank: index,

@@ -1,7 +1,10 @@
 import {
-  commitAndPublish, loadWorkflow, resolveWorkItem, saveWorkflow, syncPublication, validateWorkflow,
-  workflowPath
+  acknowledgeIntentAmendment, commitAndPublish, decideIntentAmendment, loadWorkflow,
+  pendingIntentAmendmentAcknowledgement, resolveWorkItem, saveWorkflow, syncPublication,
+  validateWorkflow, workflowPath
 } from './state.mjs';
+
+export { acknowledgeIntentAmendment, decideIntentAmendment, pendingIntentAmendmentAcknowledgement };
 import {
   commitInitiativeChange, initiativeStatePath, loadInitiative, saveInitiative, syncInitiativePublication
 } from './initiative-state.mjs';

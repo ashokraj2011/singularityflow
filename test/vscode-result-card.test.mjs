@@ -323,4 +323,6 @@ test('an action carries how it is dispatched, so the host does not have to guess
   assert.ok(!/executor\.execute\(\{[^}]*executable: false/.test(source),
     'the host is still forcing a dispatch mode onto every action');
   assert.match(source, /executor\.execute\(action\)/);
+  assert.match(source, /outcome\.outcome === 'ceremony'[\s\S]{0,700}createTerminal/,
+    'a ceremony returned by the executor must open its governed host surface rather than disappear');
 });

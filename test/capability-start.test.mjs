@@ -110,6 +110,29 @@ test('a dirty sibling refuses rather than having its work moved', async () => {
     /clean|uncommitted|dirty/i);
 });
 
+test('a late sibling failure rolls earlier capability checkouts back atomically', async () => {
+  const base = await mkdtemp(path.join(tmpdir(), 'sflow-capability-'));
+  const repositories = [
+    await repository(base, 'payments-api', ['main']),
+    await repository(base, 'payments-web', ['main'])
+  ];
+  await writeFile(path.join(base, repositories[1].path, 'scratch.txt'), 'arrived after preflight\n');
+  const resolution = resolveCapabilityBase({
+    repositories: { 'payments-api': ['main'], 'payments-web': ['main'] },
+    selection: parseBaseSelection(['main'])
+  });
+
+  assert.throws(
+    () => prepareCapabilityRepositories(base, { repositories, resolution }, 'S-RACE'),
+    /clean|uncommitted|dirty/i
+  );
+  const first = path.join(base, repositories[0].path);
+  assert.equal(currentBranch(first), 'main', 'the earlier repository remained on the Story branch');
+  assert.equal(run('git', ['show-ref', '--verify', '--quiet', 'refs/heads/S-RACE'], {
+    cwd: first, allowFailure: true
+  }).status, 1, 'the rolled-back local Story branch remained behind');
+});
+
 test('publication preflight checks every required repository before any branch moves', async () => {
   const base = await mkdtemp(path.join(tmpdir(), 'sflow-capability-'));
   const repositories = [

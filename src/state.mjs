@@ -1331,6 +1331,14 @@ async function qualityChecks(root, phase, config) {
 export async function submitPhase(root, config, workflow, { phaseId, runChecks = true, persist = true } = {}) {
   await assertNoPendingPublication(root, config, workflow, 'submit for approval');
   const phase = await assertPhaseSequence(root, workflow, 'submit for approval', { requestedPhase: phaseId }); const session = await loadSession(root);
+  const unacknowledgedAmendment = pendingIntentAmendmentAcknowledgement(workflow);
+  if (unacknowledgedAmendment) {
+    throw new SingularityFlowError(
+      `Intent amendment '${unacknowledgedAmendment.id}' changed ${unacknowledgedAmendment.changedClauses?.join(', ') || 'the specification'}. `
+      + `Acknowledge it before revalidation with singularity-flow story intent-amendment acknowledge ${unacknowledgedAmendment.id}.`,
+      { code: 'INTENT_AMENDMENT_ACKNOWLEDGEMENT_REQUIRED' }
+    );
+  }
   assertRequiredAssignment(workflow, phase);
   await assertMcpPhaseReadiness(root, workflow, phase);
   const mcpEvidence = await verifyPhaseMcpRequirements(root, workflow, phase, {
@@ -1453,6 +1461,7 @@ export async function submitPhase(root, config, workflow, { phaseId, runChecks =
       });
     }
     else { workflow.currentPhase = null; workflow.status = 'complete'; }
+    await markIntentAmendmentRevalidated(root, config, workflow, phase, phase.submittedAt, session.actor);
     workflow.history.push(waiver?.eligible ? {
       at: phase.submittedAt,
       actor: actorKey(session.actor),
@@ -1616,6 +1625,7 @@ export async function approvePhase(root, config, workflow, {
       }
     }
     else { workflow.currentPhase = null; workflow.status = 'complete'; }
+    await markIntentAmendmentRevalidated(root, config, workflow, phase, decision.at, session.actor);
   }
   workflow.history.push({ at: decision.at, actor: key, agent: session.agent, event: decision.selfApproval ? 'phase_self_approved' : 'phase_approved', phase: phase.id, detail: reached ? `threshold reached${workflow.currentPhase ? `; advanced to ${workflow.currentPhase}` : '; complete'}` : 'approval recorded' });
   if (persist) {
@@ -1814,6 +1824,323 @@ export async function rejectPhase(root, config, workflow, { phaseId, target, rea
       nextPhase: targetId
     })
   };
+}
+
+function intentAmendmentSummary(workflow, proposalId) {
+  return (workflow.intentAmendments ?? []).find((entry) => entry.id === proposalId) ?? null;
+}
+
+function intentAmendmentPath(root, config, workflow, relative, label) {
+  const itemRoot = path.resolve(workDir(root, config, workflow.workItem.id));
+  const target = path.resolve(root, relative ?? '');
+  if (target === itemRoot || !target.startsWith(`${itemRoot}${path.sep}`)) {
+    throw new SingularityFlowError(`${label} must remain inside Story '${workflow.workItem.id}'.`, {
+      code: 'INTENT_AMENDMENT_INVALID'
+    });
+  }
+  return target;
+}
+
+/** An approved amendment that this checkout has not yet acknowledged. */
+export function pendingIntentAmendmentAcknowledgement(workflow) {
+  return [...(workflow.intentAmendments ?? [])]
+    .reverse()
+    .find((entry) => entry.status === 'approved' && !entry.acknowledgedAt) ?? null;
+}
+
+async function persistIntentAmendmentRecord(root, config, workflow, summary, record) {
+  const file = intentAmendmentPath(root, config, workflow, summary.recordPath, 'Intent-amendment record');
+  await writeJson(file, record);
+}
+
+/**
+ * Record the authority decision and, once its threshold is reached, install the approved intent.
+ *
+ * This is deliberately not `rejectPhase`: code rework and corrected intent have different
+ * authority, different evidence consequences, and different next actions. The specification gains
+ * a new approved generation; downstream phases are replayed through the ordinary sequence while
+ * their existing evidence is retained and labelled affected or preserved.
+ */
+export async function decideIntentAmendment(root, config, workflow, proposal, {
+  decision,
+  reason = null,
+  channel = 'terminal',
+  actionContext = null
+} = {}) {
+  if (!['approve', 'reject'].includes(decision)) {
+    throw new SingularityFlowError("Intent-amendment decision must be 'approve' or 'reject'.", {
+      code: 'INTENT_AMENDMENT_DECISION_INVALID'
+    });
+  }
+  const summary = intentAmendmentSummary(workflow, proposal?.id);
+  if (!summary || summary.status !== 'proposed' || proposal?.status !== 'proposed') {
+    throw new SingularityFlowError(`Intent amendment '${proposal?.id ?? 'unknown'}' is not awaiting a decision.`, {
+      code: 'INTENT_AMENDMENT_NOT_PENDING'
+    });
+  }
+  if (summary.proposalSha256 !== proposal.proposalSha256) {
+    throw new SingularityFlowError(`Intent amendment '${proposal.id}' no longer matches its workflow binding.`, {
+      code: 'INTENT_AMENDMENT_INVALID'
+    });
+  }
+  const specification = workflow.phases.specification;
+  if (!specification) {
+    throw new SingularityFlowError(`Work type '${workflow.workItem.workType}' has no specification phase to amend.`, {
+      code: 'INTENT_AMENDMENT_UNSUPPORTED'
+    });
+  }
+  const session = await loadSession(root);
+  const authority = requireApprovalAuthority(
+    workflow.resolution.approvalAuthorities ?? config.approvalAuthorities,
+    specification.approvalPolicy,
+    session.actor
+  );
+  const key = actorKey(session.actor);
+  const decisions = [...(proposal.decisions ?? [])];
+  if (decisions.some((entry) => actorKey(entry.actor) === key)) {
+    throw new SingularityFlowError(`${key} already decided intent amendment ${proposal.id}; decisions require distinct identities.`);
+  }
+  const selfApproval = actorKey(proposal.proposedBy ?? {}) === key;
+  if (selfApproval && specification.approvalPolicy.allowSelfApproval === false) {
+    throw new SingularityFlowError(
+      `Specification policy prohibits the proposer from approving intent amendment '${proposal.id}'. Ask another authorized Git identity.`
+    );
+  }
+  const at = nowIso();
+  const recorded = {
+    decision: decision === 'approve' ? 'approved' : 'rejected',
+    at,
+    actor: structuredClone(session.actor),
+    agent: session.agent ?? null,
+    authorityGroup: authority.authorityGroup,
+    identityAssurance: authority.identityAssurance,
+    channel,
+    reason: reason?.trim() || null,
+    selfApproval,
+    ...(actionContext ? { actionContext } : {})
+  };
+  decisions.push(recorded);
+  proposal.decisions = decisions;
+
+  if (decision === 'reject') {
+    proposal.status = 'rejected';
+    proposal.decidedAt = at;
+    proposal.decision = recorded;
+    Object.assign(summary, { status: 'rejected', decidedAt: at, decision: recorded });
+    workflow.history.push({
+      at, actor: key, agent: session.agent, event: 'intent_amendment_rejected',
+      phase: 'specification', detail: `${proposal.id}: ${recorded.reason ?? 'rejected by specification authority'}`
+    });
+    await persistIntentAmendmentRecord(root, config, workflow, summary, proposal);
+    return { proposal, reached: true, applied: false, affectedPhases: [], preservedEvidence: [] };
+  }
+
+  const approvals = decisions.filter((entry) => entry.decision === 'approved');
+  const minimum = specification.approvalPolicy.minimum ?? 1;
+  if (approvals.length < minimum) {
+    proposal.status = 'proposed';
+    proposal.approvals = { reached: approvals.length, required: minimum };
+    Object.assign(summary, { approvals: proposal.approvals });
+    await persistIntentAmendmentRecord(root, config, workflow, summary, proposal);
+    return { proposal, reached: false, applied: false, affectedPhases: [], preservedEvidence: [] };
+  }
+
+  const specificationPath = requiredRepoPath(config, workflow, specification);
+  if (specificationPath !== proposal.specification?.artifact) {
+    throw new SingularityFlowError(`Intent amendment '${proposal.id}' targets a different specification artifact.`, {
+      code: 'INTENT_AMENDMENT_INVALID'
+    });
+  }
+  const specificationFile = path.join(root, specificationPath);
+  const current = await snapshot(specificationFile);
+  if (!current.exists || current.sha256 !== proposal.specification.beforeSha256) {
+    throw new SingularityFlowError(
+      `Specification changed after intent amendment '${proposal.id}' was proposed. Create a new proposal against the current generation.`,
+      { code: 'INTENT_AMENDMENT_STALE' }
+    );
+  }
+  const proposedFile = intentAmendmentPath(root, config, workflow,
+    proposal.specification.proposedPath, 'Proposed specification');
+  const proposedText = await readFile(proposedFile, 'utf8');
+  const proposedSnapshot = await snapshot(proposedFile);
+  if (proposedSnapshot.sha256 !== proposal.specification.proposedSha256) {
+    throw new SingularityFlowError(`Intent amendment '${proposal.id}' proposed bytes changed after review.`, {
+      code: 'INTENT_AMENDMENT_STALE'
+    });
+  }
+
+  await writeText(specificationFile, proposedText);
+  const priorGeneration = Number(specification.generation ?? 0);
+  specification.approvals.forEach((approval) => {
+    if (!approval.invalidatedAt) approval.invalidatedAt = at;
+  });
+  specification.generation = priorGeneration + 1;
+  specification.status = 'approved';
+  specification.submittedAt = at;
+  specification.approvedAt = at;
+  specification.approvedBy = key;
+  specification.generatedAt = at;
+  specification.generatedBy = structuredClone(proposal.proposedBy ?? session.actor);
+  const amendmentApproval = {
+    ...recorded,
+    decision: 'approved',
+    phase: specification.id,
+    generation: specification.generation,
+    intentAmendmentId: proposal.id,
+    changedClauses: [...(proposal.diff?.changed ?? [])],
+    artifactSha256: [{ path: specificationPath, sha256: proposedSnapshot.sha256 }]
+  };
+  specification.approvals.push(amendmentApproval);
+  await updateArtifactMetadata(root, config, workflow, specification);
+  await registerApprovedSnapshot(root, config, workflow, specification);
+  await writeDecision(root, config, workflow, specification, amendmentApproval);
+
+  const specificationIndex = workflow.phaseOrder.indexOf(specification.id);
+  const nextIndex = specificationIndex + 1;
+  if (specificationIndex < 0 || nextIndex >= workflow.phaseOrder.length) {
+    throw new SingularityFlowError('An intent amendment requires a downstream phase to revalidate.', {
+      code: 'INTENT_AMENDMENT_UNSUPPORTED'
+    });
+  }
+  const changedClauses = [...(proposal.diff?.changed ?? [])];
+  const evidencePaths = new Set([
+    ...(proposal.radius?.artifacts ?? []),
+    ...(proposal.radius?.tests ?? [])
+  ].map(posix));
+  const affectedPhases = [];
+  const preservedEvidence = [];
+  for (let index = nextIndex; index < workflow.phaseOrder.length; index += 1) {
+    const phase = workflow.phases[workflow.phaseOrder[index]];
+    let directlyAffected = phase.id === 'convergence'
+      || (phase.id === 'implementation' && Number(proposal.radius?.totals?.affected ?? 0) > 0);
+    for (const artifact of phase.artifacts ?? []) {
+      let affected = evidencePaths.has(posix(artifact.path));
+      if (!affected) {
+        const artifactFile = path.join(root, artifact.path);
+        if (existsSync(artifactFile)) {
+          const text = await readFile(artifactFile, 'utf8').catch(() => '');
+          affected = changedClauses.some((clauseId) => text.includes(clauseId));
+        }
+      }
+      artifact.intentAmendment = {
+        id: proposal.id,
+        state: affected ? 'affected-revalidation-required' : 'preserved-unaffected',
+        fromSpecificationGeneration: priorGeneration,
+        toSpecificationGeneration: specification.generation
+      };
+      if (affected) directlyAffected = true;
+      else preservedEvidence.push(artifact.path);
+    }
+    if (directlyAffected) affectedPhases.push(phase.id);
+    phase.approvals.forEach((approval) => {
+      if (!approval.invalidatedAt) approval.invalidatedAt = at;
+    });
+    phase.status = index === nextIndex ? 'in_progress' : 'not_started';
+    phase.submittedAt = null;
+    phase.approvedAt = null;
+    phase.approvedBy = null;
+    phase.rejectedAt = at;
+    phase.rejectedBy = key;
+    phase.rejectionReason = `Revalidate after approved intent amendment ${proposal.id}.`;
+    phase.intentAmendmentRevalidation = {
+      id: proposal.id,
+      state: directlyAffected ? 'affected' : 'evidence-preserved',
+      changedClauses,
+      acknowledgedAt: null,
+      revalidatedAt: null
+    };
+    await updateArtifactMetadata(root, config, workflow, phase);
+  }
+  workflow.currentPhase = workflow.phaseOrder[nextIndex];
+  workflow.status = 'in_progress';
+
+  proposal.status = 'approved';
+  proposal.decidedAt = at;
+  proposal.decision = recorded;
+  proposal.application = {
+    fromSpecificationGeneration: priorGeneration,
+    toSpecificationGeneration: specification.generation,
+    affectedPhases,
+    preservedEvidence: [...new Set(preservedEvidence)].sort(),
+    acknowledgementRequired: true
+  };
+  Object.assign(summary, {
+    status: 'approved', decidedAt: at, decision: recorded,
+    changedClauses, affectedPhases,
+    preservedEvidence: proposal.application.preservedEvidence,
+    acknowledgementRequired: true,
+    acknowledgedAt: null,
+    revalidatedPhases: []
+  });
+  workflow.history.push({
+    at, actor: key, agent: session.agent, event: 'intent_amendment_approved', phase: 'specification',
+    detail: `${proposal.id} created specification generation ${specification.generation}; `
+      + `${affectedPhases.length} phase(s) affected and ${proposal.application.preservedEvidence.length} evidence item(s) preserved`
+  });
+  await persistIntentAmendmentRecord(root, config, workflow, summary, proposal);
+  return {
+    proposal,
+    reached: true,
+    applied: true,
+    affectedPhases,
+    preservedEvidence: proposal.application.preservedEvidence
+  };
+}
+
+/** Record the human beat required before an amended Story can be submitted again. */
+export async function acknowledgeIntentAmendment(root, config, workflow, proposalId = null) {
+  const summary = proposalId
+    ? intentAmendmentSummary(workflow, proposalId)
+    : pendingIntentAmendmentAcknowledgement(workflow);
+  if (!summary || summary.status !== 'approved') {
+    throw new SingularityFlowError('There is no approved intent amendment awaiting acknowledgement.', {
+      code: 'INTENT_AMENDMENT_ACKNOWLEDGEMENT_UNNEEDED'
+    });
+  }
+  if (summary.acknowledgedAt) return { ...summary, acknowledged: false };
+  const session = await loadSession(root);
+  const at = nowIso();
+  summary.acknowledgedAt = at;
+  summary.acknowledgedBy = structuredClone(session.actor);
+  summary.acknowledgementRequired = false;
+  for (const phase of Object.values(workflow.phases ?? {})) {
+    if (phase.intentAmendmentRevalidation?.id === summary.id) {
+      phase.intentAmendmentRevalidation.acknowledgedAt = at;
+    }
+  }
+  const record = await readJson(intentAmendmentPath(root, config, workflow, summary.recordPath,
+    'Intent-amendment record'));
+  record.acknowledgedAt = at;
+  record.acknowledgedBy = structuredClone(session.actor);
+  await persistIntentAmendmentRecord(root, config, workflow, summary, record);
+  workflow.history.push({
+    at, actor: actorKey(session.actor), agent: session.agent, event: 'intent_amendment_acknowledged',
+    phase: workflow.currentPhase, detail: `${summary.id} acknowledged before downstream revalidation`
+  });
+  return { ...summary, acknowledged: true };
+}
+
+async function markIntentAmendmentRevalidated(root, config, workflow, phase, at, actor) {
+  const id = phase.intentAmendmentRevalidation?.id;
+  if (!id) return;
+  const summary = intentAmendmentSummary(workflow, id);
+  if (!summary) return;
+  phase.intentAmendmentRevalidation.revalidatedAt = at;
+  phase.intentAmendmentRevalidation.revalidatedBy = actor;
+  summary.revalidatedPhases = [...new Set([...(summary.revalidatedPhases ?? []), phase.id])];
+  const required = workflow.phaseOrder.slice(workflow.phaseOrder.indexOf('specification') + 1);
+  if (required.every((phaseId) => summary.revalidatedPhases.includes(phaseId))) {
+    summary.status = 'revalidated';
+    summary.revalidatedAt = at;
+  }
+  const record = await readJson(intentAmendmentPath(root, config, workflow, summary.recordPath,
+    'Intent-amendment record'));
+  record.revalidatedPhases = summary.revalidatedPhases;
+  if (summary.revalidatedAt) {
+    record.status = 'revalidated';
+    record.revalidatedAt = summary.revalidatedAt;
+  }
+  await persistIntentAmendmentRecord(root, config, workflow, summary, record);
 }
 
 export async function reopenWorkflow(root, config, workflow, { target, reason, channel = 'terminal', actionContext = null } = {}) {

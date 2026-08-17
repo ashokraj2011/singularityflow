@@ -83,6 +83,17 @@ function httpsUrl(value, label) {
   return parsed;
 }
 
+function confinedAuthenticatedUrl(value, scope, label) {
+  const target = httpsUrl(value, label);
+  if (target.origin !== scope.origin || !target.pathname.startsWith(scope.pathname)) {
+    throw new SingularityFlowError(
+      `${label} is outside the configured authenticated provider repository.`,
+      { code: 'STORAGE_REFERENCE_OUTSIDE_PROVIDER' }
+    );
+  }
+  return target;
+}
+
 async function fetchBytes(url, {
   fetchImpl = globalThis.fetch,
   headers = {},
@@ -158,21 +169,38 @@ export function storageAdapter(providerId, provider, runtime = {}) {
     }
   };
   if (type === 'artifactory') {
-    const base = httpsUrl(provider.baseUrl, `Artifactory provider '${providerId}' baseUrl`).toString().replace(/\/$/, '');
+    const base = httpsUrl(provider.baseUrl, `Artifactory provider '${providerId}' baseUrl`);
+    if (base.search || base.hash) {
+      throw new SingularityFlowError(`Artifactory provider '${providerId}' baseUrl must not contain a query or fragment.`);
+    }
+    // URL resolution treats a path without a trailing slash as a filename. Normalize once, then
+    // define the smallest scope to which this provider's bearer token may ever be sent.
+    base.pathname = `${base.pathname.replace(/\/+$/, '')}/`;
+    const repositoryScope = new URL(`${encodeURIComponent(provider.repository)}/`, base);
+    const referenceUrl = (reference = {}) => {
+      if (reference.url) {
+        return confinedAuthenticatedUrl(reference.url, repositoryScope, 'Artifactory object URL');
+      }
+      const objectId = String(reference.objectId ?? '').trim();
+      if (!objectId) throw new SingularityFlowError('Artifactory object reference requires a URL or object ID.');
+      const prefix = `${provider.repository}/`;
+      const relative = objectId.startsWith(prefix) ? objectId.slice(prefix.length) : objectId;
+      return confinedAuthenticatedUrl(new URL(relative, repositoryScope), repositoryScope, 'Artifactory object URL');
+    };
     const headers = () => bearer(runtime, providerId);
     return {
       async put({ initiativeId, filename, bytes, sha256: contentSha }) {
         const objectPath = `${provider.repository}/singularity-flow/${encodeURIComponent(initiativeId)}/${contentSha}/${encodeURIComponent(filename)}`;
-        const url = `${base}/${objectPath}`;
+        const url = new URL(objectPath.slice(`${provider.repository}/`.length), repositoryScope);
         await fetchBytes(url, { fetchImpl: runtime.fetchImpl, headers: headers(), method: 'PUT', body: bytes, maxBytes: bytes.length + 1 });
-        return { objectId: objectPath, url, version: contentSha, etag: null };
+        return { objectId: objectPath, url: url.toString(), version: contentSha, etag: null };
       },
       async get(reference, { maxBytes }) {
-        const result = await fetchBytes(httpsUrl(reference.url, 'Artifactory object URL'), { fetchImpl: runtime.fetchImpl, headers: headers(), maxBytes });
+        const result = await fetchBytes(referenceUrl(reference), { fetchImpl: runtime.fetchImpl, headers: headers(), maxBytes });
         return { bytes: result.bytes, mimeType: result.response.headers?.get?.('content-type')?.split(';')[0] ?? 'application/octet-stream', version: result.response.headers?.get?.('etag') ?? reference.version };
       },
       async head(reference) {
-        const result = await fetchBytes(httpsUrl(reference.url, 'Artifactory object URL'), { fetchImpl: runtime.fetchImpl, headers: headers(), method: 'HEAD', maxBytes: 1 });
+        const result = await fetchBytes(referenceUrl(reference), { fetchImpl: runtime.fetchImpl, headers: headers(), method: 'HEAD', maxBytes: 1 });
         return { exists: true, version: result.response.headers?.get?.('etag') ?? reference.version, etag: result.response.headers?.get?.('etag') ?? null };
       }
     };

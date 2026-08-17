@@ -205,6 +205,21 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
         if (outcome.result) showResultCard(buildResultCard(outcome.result), {
           origin: 'gateway', historyMode: 'push'
         });
+        /**
+         * A ceremony is a destination, not a gateway mutation. The executor deliberately hands it
+         * back to the host, so returning here without opening that destination made approval and
+         * review buttons appear to work while doing nothing. Until a dedicated review webview is
+         * supplied, the authored terminal equivalent is the governed ceremony surface.
+         */
+        if (outcome.outcome === 'ceremony') {
+          if (!action.command) {
+            output.appendLine(`[result] '${actionId}' has no ceremony surface in this build.`);
+            return;
+          }
+          const terminal = vscode.window.createTerminal({ name: 'Singularity Flow review' });
+          terminal.show(true);
+          terminal.sendText(action.command, false);
+        }
         return;
       } catch (error) {
         output.appendLine(`[result] ${actionId} could not be dispatched in-process: ${(error as Error).message}`);

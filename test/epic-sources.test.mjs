@@ -7,7 +7,7 @@ import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import YAML from 'yaml';
 import { initializeDefinition } from '../src/config.mjs';
-import { detachEpicSource, jiraSnapshotSource, listEpicSources, pinJiraEpicAttachments, registerEpicSource, verifyEpicSources } from '../src/epic-sources.mjs';
+import { detachEpicSource, jiraSnapshotSource, listEpicSources, pinJiraEpicAttachments, registerEpicSource, storageAdapter, verifyEpicSources } from '../src/epic-sources.mjs';
 import {
   adoptEpicStory, completeEpicIntake, completeEpicPublication, prepareEpicStorySpecifications, splitEpicStory,
   updateEpicStory, verifyEpicPlanningPackage
@@ -102,6 +102,39 @@ async function repository() {
   });
   return root;
 }
+
+test('Artifactory bearer credentials never leave the configured repository scope', async () => {
+  const requests = [];
+  const fetchImpl = async (url, init = {}) => {
+    requests.push({ url: String(url), init });
+    return response('# governed source\n', { method: init.method ?? 'GET' });
+  };
+  const adapter = storageAdapter('corporate', {
+    type: 'artifactory',
+    baseUrl: 'https://artifacts.example.test/artifactory',
+    repository: 'releases'
+  }, { token: 'do-not-leak', fetchImpl });
+
+  await assert.rejects(
+    () => adapter.get({ url: 'https://attacker.example/collect' }, { maxBytes: 1024 }),
+    (error) => error.code === 'STORAGE_REFERENCE_OUTSIDE_PROVIDER'
+  );
+  await assert.rejects(
+    () => adapter.head({ url: 'https://artifacts.example.test/api/security/users' }),
+    (error) => error.code === 'STORAGE_REFERENCE_OUTSIDE_PROVIDER'
+  );
+  await assert.rejects(
+    () => adapter.get({ objectId: '../../api/system/configuration' }, { maxBytes: 1024 }),
+    (error) => error.code === 'STORAGE_REFERENCE_OUTSIDE_PROVIDER'
+  );
+  assert.equal(requests.length, 0, 'out-of-scope references are rejected before credentials or network are used');
+
+  const result = await adapter.get({ objectId: 'releases/team/spec.md' }, { maxBytes: 1024 });
+  assert.equal(result.bytes.toString(), '# governed source\n');
+  assert.equal(requests.length, 1);
+  assert.equal(requests[0].url, 'https://artifacts.example.test/artifactory/releases/team/spec.md');
+  assert.equal(requests[0].init.headers.Authorization, 'Bearer do-not-leak');
+});
 
 test('Epic sources pin remote bytes outside Git and detect record or content tampering', async () => {
   const root = await repository();

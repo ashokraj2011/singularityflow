@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { mkdir, mkdtemp, writeFile } from 'node:fs/promises';
+import { mkdir, mkdtemp, readFile, rm, writeFile } from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
 
@@ -8,10 +8,19 @@ import { HOME_CHOICES, MAX_HOME_CHOICES, homeOverview, homeOverviewResult } from
 import { gatewayRegistry } from '../src/gateway/operations.mjs';
 import { workContinue } from '../src/gateway/planners/work-continue.mjs';
 import { workReadiness } from '../src/gateway/planners/work-readiness.mjs';
-import { checklistSummary, primaryAction, validateSflowResult } from '../src/gateway/result.mjs';
+import { checklistSummary, plannerNavigationTarget, primaryAction, validateSflowResult } from '../src/gateway/result.mjs';
+import { localPendingPublicationPath } from '../src/publication-pending.mjs';
+import { run } from '../src/util.mjs';
+import { codeOnly } from './source-text.mjs';
 
 const ACTOR = { login: 'dev-1', email: 'dev-1@example.com', name: 'Dev One' };
 const OTHER = { login: 'dev-2', email: 'dev-2@example.com', name: 'Dev Two' };
+const APPROVAL_AUTHORITIES = {
+  developers: {
+    label: 'Developers', allowAnyGitIdentity: false, githubTeams: [],
+    members: [{ name: ACTOR.name, email: ACTOR.email, githubLogin: ACTOR.login }]
+  }
+};
 
 async function fixture(stories) {
   const root = await mkdtemp(path.join(os.tmpdir(), 'sflow-home-'));
@@ -23,12 +32,13 @@ async function fixture(stories) {
   return root;
 }
 
-const story = (id, phases, { currentPhase, history = [], title = id }) => ({
+const story = (id, phases, { currentPhase, history = [], title = id, resolution = null }) => ({
   workItem: { id, title, workType: 'feature', branch: `wi/${id}` },
   phaseOrder: Object.keys(phases),
   currentPhase,
   phases,
-  history
+  history,
+  ...(resolution ? { resolution } : {})
 });
 
 const inProgress = (id, title = id) => story(id, { design: { status: 'in_progress', generation: 1, label: 'Design' } }, {
@@ -45,6 +55,13 @@ test('the home menu is at most six choices, all from the stable set', async () =
   // `[INT:IFC-001]`: a menu item resolves a goal; it never acts.
   assert.equal(result.next.every((entry) => entry.executable === false), true);
   for (const entry of result.next) assert.ok(entry.fallback.command, 'every item needs a fallback command');
+});
+
+test('the Home command renders one gateway projection', async () => {
+  const source = codeOnly(await readFile(new URL('../src/commands/home.mjs', import.meta.url), 'utf8'));
+  assert.doesNotMatch(source, /developerHome|developer-home\.mjs/);
+  assert.match(source, /kernel\.resolve\(\{ utterance: 'home'/);
+  assert.match(source, /kernel\.read\(\{ resolutionId/);
 });
 
 test('an active Story leads the menu and names what continuing means', async () => {
@@ -67,9 +84,13 @@ test('with no workspace the menu does not pretend work exists', async () => {
   assert.equal(result.why[0].code, 'home.no-workspace-selected');
 });
 
-test('the cross-workspace briefing is declared unavailable, not silently absent', async () => {
-  const root = await fixture({ 'WRK-1': inProgress('WRK-1') });
-  const result = await homeOverview({ root, context: { actor: ACTOR } });
+test('the cross-workspace briefing is declared unavailable when the registry cannot answer', () => {
+  const active = { id: 'WRK-1', kind: 'story', phase: 'design', group: 'active', blockers: [], nextAction: null };
+  const result = homeOverviewResult({
+    workspace: { id: 'w', name: 'W' },
+    records: { groups: { active: [active], 'waiting-on-you': [] }, items: [active] },
+    otherWorkspaces: null
+  });
   assert.equal(result.data.briefingAvailable, false);
   assert.ok(result.warnings.some((entry) => entry.code === 'home.briefing-unavailable'));
 });
@@ -77,9 +98,13 @@ test('the cross-workspace briefing is declared unavailable, not silently absent'
 test('decisions are counted on the menu and never recorded from it', async () => {
   // `[INT:CON-024]`.
   const root = await fixture({
-    'WRK-2': story('WRK-2', { design: { status: 'awaiting_approval', generation: 1, approvalPolicy: { minimum: 1 } } }, {
+    'WRK-2': story('WRK-2', { design: {
+      status: 'awaiting_approval', generation: 1,
+      approvalPolicy: { authorities: ['developers'], minimum: 1, allowSelfApproval: false }
+    } }, {
       currentPhase: 'design',
-      history: [{ event: 'phase_submitted', phase: 'design', actor: OTHER, at: '2026-08-02T10:00:00.000Z' }]
+      history: [{ event: 'phase_submitted', phase: 'design', actor: OTHER, at: '2026-08-02T10:00:00.000Z' }],
+      resolution: { approvalAuthorities: APPROVAL_AUTHORITIES }
     })
   });
   const result = await homeOverview({ root, context: { actor: ACTOR } });
@@ -343,6 +368,41 @@ test('an interrupted publication outranks the active Story', () => {
   assert.equal(result.why[0].reference, 'W-9');
   // Same button, different reason: both are continued by `work.continue` `[DHR:REQ-070]`.
   assert.equal(result.next[0].id, 'home:work.continue');
+  assert.deepEqual(plannerNavigationTarget(result.next[0]), {
+    operationId: 'work.continue', arguments: { workId: 'W-9' }
+  });
+  assert.equal(result.next[0].reasonCode, 'home.recovery-required');
+});
+
+test('production Home discovers an interrupted publication without caller injection', async (t) => {
+  const root = await fixture({ 'WRK-9': inProgress('WRK-9', 'Recover me') });
+  t.after(() => rm(root, { recursive: true, force: true }));
+  run('git', ['init', '-q', '-b', 'main'], { cwd: root });
+  run('git', ['config', 'user.name', 'Home Test'], { cwd: root });
+  run('git', ['config', 'user.email', 'home@example.test'], { cwd: root });
+  run('git', ['add', '-A'], { cwd: root });
+  run('git', ['commit', '-qm', 'fixture'], { cwd: root });
+  const marker = localPendingPublicationPath(root, 'story', 'WRK-9');
+  await mkdir(path.dirname(marker), { recursive: true });
+  await writeFile(marker, JSON.stringify({ schemaVersion: 2, subject: { kind: 'story', id: 'WRK-9' } }));
+
+  const result = await homeOverview({
+    root,
+    context: { actor: ACTOR, workspace: { id: 'w', name: 'W' } }
+  });
+  assert.equal(result.why[0].code, 'home.recovery-required');
+  assert.equal(result.next[0].slots.work, 'WRK-9');
+});
+
+test('a single-workspace Home does not warn about a briefing that has no other workspace to read', () => {
+  const empty = {
+    'recovery-required': [], 'waiting-on-you': [], active: [],
+    'waiting-on-others': [], 'recently-completed': []
+  };
+  const result = homeOverviewResult({
+    workspace: { id: 'w', name: 'W' }, records: { groups: empty, items: [] }, otherWorkspaces: 0
+  });
+  assert.ok(!result.warnings.some((entry) => entry.code === 'home.briefing-unavailable'));
 });
 
 test('a decision waiting on you is named, not folded into the count', () => {

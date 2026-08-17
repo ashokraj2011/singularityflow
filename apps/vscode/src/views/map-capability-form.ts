@@ -40,7 +40,7 @@ export interface MapCapabilityForm {
 }
 
 export const EMPTY_MAP_FORM: MapCapabilityForm = {
-  lead: '', leads: [], capabilityId: '', name: '', kind: 'collection',
+  lead: '', leads: [], capabilityId: '', name: '', kind: 'delivery',
   parent: '', parents: [], repositoryUrl: '', metadata: [], jiraProject: '', teams: '',
   loaded: false, busy: false, notice: null, error: null
 };

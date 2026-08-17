@@ -327,7 +327,7 @@ export function homeOverviewResult({
      * a background job or a workspace-switch hook. Reporting "not checked" for a thing nobody
      * looked at is the same distinction this planner already draws about the worktree.
      */
-    warnings: [{
+    warnings: otherWorkspaces === 0 ? [] : [{
       code: 'home.briefing-unavailable',
       source: 'unavailable',
       slots: {
@@ -350,14 +350,14 @@ export function homeOverviewResult({
           work: active?.id ?? 'none'
         }, { workId: active?.id ?? null });
       }
-      if (entry.id === 'work.continue' && active) {
-        return choice(entry, index, 'home.continue-active-work', {
-          work: active.id,
-          title: active.title,
-          repository: active.repository ?? 'current',
-          phase: active.phase ?? 'none',
-          nextAction: active.nextAction?.operation ?? 'none'
-        }, { workId: active.id });
+      if (entry.id === 'work.continue' && leading) {
+        return choice(entry, index, recovery ? 'home.recovery-required' : 'home.continue-active-work', {
+          work: leading.id,
+          title: leading.title,
+          repository: leading.repository ?? 'current',
+          phase: leading.phase ?? 'none',
+          nextAction: leading.nextAction?.operation ?? 'none'
+        }, { workId: leading.id });
       }
       if (entry.id === 'work.list') {
         return choice(entry, index, 'home.work-summary', { active: String(counts.active), decisions: String(decisions) });
@@ -438,7 +438,7 @@ export async function homeOverview({ subject = null, root = null, context = {} }
   if (!root) return homeOverviewResult({ workspace: null, subject });
   const repositoryId = context.repositoryId ?? root;
   const otherWorkspaces = await countOtherWorkspaces(context);
-  const records = await workRecords(root, { ...context, repositoryId });
+  const records = context.records ?? await workRecords(root, { ...context, repositoryId });
   return homeOverviewResult({
     workspace: context.workspace ?? { id: root, name: context.workspaceName ?? root },
     actor: context.actor ?? null,

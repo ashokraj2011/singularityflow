@@ -262,28 +262,17 @@ export async function storyFetchCommand(positionals, options) {
 /**
  * `sflow story return` — the briefing, with the reconciliation it was missing. `[DHR:REQ-040]`
  *
- * This rendered `developerReturn` alone: a rich projection of where the Story stands, and no
- * comparison of local work against the plan. The one question the command's name asks — what
- * changed while you were away — was the one thing it did not answer, because the reconciliation
- * lived behind `story interval reconcile` and nothing composed the two.
- *
- * The same shape as `sflow home` `[UXH:C2]`: `sflow-result` v2 is the transport, `work.return` is
- * the operation, and the projection supplies the detail the envelope has no field for. Neither is a
- * fallback for the other — the projection knows this Story's phase tally, the envelope knows
- * whether the changed paths were planned, and a reader needs both.
+ * The `work.return` envelope is the only projection. It carries lifecycle progress, repository
+ * state and reconciliation evidence together, so the CLI cannot disagree with VS Code by scanning
+ * and ordering the same Story a second time `[UXH:C2]`.
  */
 async function storyReturnCommand(positionals, options, root) {
-  const [{ developerReturn }, { createHostGateway }, { gatewayPlanners }, { message }] = await Promise.all([
-    import('../developer-home.mjs'), import('../gateway/host.mjs'),
-    import('../gateway/planners/index.mjs'), import('../gateway/messages.mjs')
+  const [{ createHostGateway }, { gatewayPlanners }, { message }] = await Promise.all([
+    import('../gateway/host.mjs'), import('../gateway/planners/index.mjs'), import('../gateway/messages.mjs')
   ]);
 
-  const projection = await developerReturn({
-    workId: positionals[2] ?? optionString(options, 'work-id'),
-    root,
-    hostSession: optionString(options, 'host-session')
-  });
-  const workId = projection.context.story.id;
+  const workId = positionals[2] ?? optionString(options, 'work-id');
+  if (!workId) throw new SingularityFlowError('story return requires a Story ID.');
 
   /**
    * A fresh session per invocation, as everywhere else a command builds a kernel.
@@ -294,7 +283,8 @@ async function storyReturnCommand(positionals, options, root) {
   const { kernel } = createHostGateway({
     root,
     hostSessionId: optionString(options, 'host-session') ?? `cli_${randomUUID()}`,
-    planners: gatewayPlanners()
+    planners: gatewayPlanners(),
+    plannerContext: { storyId: workId }
   });
   const resolution = await kernel.resolve({ utterance: 'what changed while I was away', arguments: { workId } });
   const envelope = resolution.kind === 'read' && resolution.next.length === 1
@@ -302,15 +292,18 @@ async function storyReturnCommand(positionals, options, root) {
     : resolution;
 
   if (optionBoolean(options, 'json')) {
-    return console.log(JSON.stringify({ ...envelope, data: { ...envelope.data, story: projection } }, null, 2));
+    return console.log(JSON.stringify(envelope, null, 2));
   }
 
+  const work = envelope.data?.workItem ?? { id: workId, title: workId, rail: [] };
+  const repository = envelope.data?.repository ?? {};
+  const local = envelope.data?.localChanges;
   console.log(`Singularity Flow return — ${workId}`);
-  console.log(`${projection.briefing.headline}`);
-  console.log(`Branch: ${projection.context.repository.branch} @ ${(projection.context.repository.head ?? 'unavailable').slice(0, 12)}`);
-  console.log(`Working tree: ${projection.context.repository.dirty ? `${projection.context.repository.changedFiles.length} changed path(s)` : 'clean'}`);
-  console.log(`Progress: ${projection.briefing.lifecycle.approved}/${projection.briefing.lifecycle.total} phases approved`);
-  if (projection.briefing.recovery.required) console.warn('Recovery: a pending publication must be resolved first.');
+  console.log(`${work.id} returns to ${work.phaseLabel ?? work.phase ?? 'its workflow'} (${work.status ?? 'active'}).`);
+  console.log(`Branch: ${repository.branch ?? 'unavailable'} @ ${(repository.head ?? 'unavailable').slice(0, 12)}`);
+  console.log(`Working tree: ${local === null ? 'unread' : local?.dirty ? `${local.files} changed path(s)` : 'clean'}`);
+  console.log(`Progress: ${envelope.data?.lifecycle?.approved ?? 0}/${envelope.data?.lifecycle?.total ?? 0} phases approved`);
+  if (envelope.data?.recovery?.required) console.warn('Recovery: a pending publication must be resolved first.');
 
   /**
    * The reconciliation, in the reader's words rather than as codes.
@@ -328,8 +321,13 @@ async function storyReturnCommand(positionals, options, root) {
     console.log(`  ${row.state === 'met' ? '✓' : row.state === 'unmet' ? '✗' : '○'} ${said.label}`);
   }
 
-  console.log('\nNext choices:');
-  projection.choices.forEach((choice, index) => console.log(`${index + 1}. ${choice.label} — ${choice.detail}`));
+  if (envelope.next.length) {
+    console.log('\nNext choices:');
+    envelope.next.forEach((choice, index) => {
+      const said = message(choice.reasonCode, choice.slots);
+      console.log(`${index + 1}. ${choice.label} — ${said.label}`);
+    });
+  }
 }
 
 export async function storyCommand(positionals, options) {

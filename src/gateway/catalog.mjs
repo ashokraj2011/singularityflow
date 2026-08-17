@@ -159,6 +159,7 @@ export const RETURN_CODES = Object.freeze([
   'return.clean-worktree',
   'return.local-changes-unread',
   'return.reconciliation-unavailable',
+  'return.acknowledgement-boundary-unavailable',
   'return.reconcile-before-submitting',
   'return.nothing-was-carried-out'
 ]);
@@ -198,6 +199,8 @@ export const SURFACE_CODES = Object.freeze([
   'approval.waiting',
   'approval.you-submitted-it',
   'approval.awaiting-a-reviewer',
+  'approval.you-are-authorized',
+  'approval.requires-an-authorized-reviewer',
   'recovery.resume-publication',
   'publication.pending'
 ]);
@@ -268,6 +271,8 @@ export const WARNING_CODES = Object.freeze([
   'return.local-changes-unread',
   /** No reconciliation record exists for this interval, so the comparison was not made. */
   'return.reconciliation-unavailable',
+  /** An acknowledgement exists, but this report was not computed from its snapshot. */
+  'return.acknowledgement-boundary-unavailable',
   /** The work list covers one repository; anything in a sibling is absent rather than empty. */
   'work.single-repository-scope',
   /** A readiness answer computed from some of its inputs, and it says which were missing. */

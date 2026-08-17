@@ -149,7 +149,7 @@ export const RESULT_MESSAGES = Object.freeze({
    * `current-state` carries its own explanation because the *absence* of a delta is the fact: a
    * reader who is not told this is everything will read it as everything-that-changed.
    */
-  'return.current-state': M('Current state', 'There is no record of when you were last here, so this is everything rather than a delta.'),
+  'return.current-state': M('Current state', 'This covers the governed interval rather than claiming an acknowledgement-relative delta.'),
   'return.since-you-were-here': M('Since you were here'),
   'return.reconciled': M('{changed} path(s) changed, {unplanned} outside the plan'),
   'return.no-open-interval': M('No governed work interval is open', 'Your local work is untouched; it is simply not attached to a governed interval.'),
@@ -160,6 +160,7 @@ export const RESULT_MESSAGES = Object.freeze({
   'return.clean-worktree': M('Application tree committed', '{uncommitted} uncommitted application path(s).'),
   'return.local-changes-unread': M('Local changes were not read'),
   'return.reconciliation-unavailable': M('No reconciliation for {work}', 'Nothing was compared, so nothing here is a verdict on your work.'),
+  'return.acknowledgement-boundary-unavailable': M('Showing the full interval', 'The acknowledgement is recorded, but it is not a Git baseline for this reconciliation.'),
   'return.reconcile-before-submitting': M('Reconcile before submitting'),
   'return.nothing-was-carried-out': M('Nothing was carried out', 'This is a read. Your work is untouched.'),
 
@@ -179,6 +180,8 @@ export const RESULT_MESSAGES = Object.freeze({
   'approval.waiting': M('Waiting on a decision'),
   'approval.you-submitted-it': M('You submitted this'),
   'approval.awaiting-a-reviewer': M('Waiting for a reviewer'),
+  'approval.you-are-authorized': M('Your approval decision is needed'),
+  'approval.requires-an-authorized-reviewer': M('Waiting for an authorized reviewer'),
   'recovery.resume-publication': M('Finish the interrupted publication'),
   'publication.pending': M('A publication is unfinished')
 });

@@ -10,13 +10,21 @@ import { validateSflowResult } from '../src/gateway/result.mjs';
 
 const ACTOR = { login: 'dev-1', email: 'dev-1@example.com', name: 'Dev One' };
 const OTHER = { login: 'dev-2', email: 'dev-2@example.com', name: 'Dev Two' };
+const OUTSIDER = { login: 'outsider', email: 'outsider@example.com', name: 'Dev One' };
+const APPROVAL_AUTHORITIES = {
+  developers: {
+    label: 'Developers', allowAnyGitIdentity: false, githubTeams: [],
+    members: [{ name: ACTOR.name, email: ACTOR.email, githubLogin: ACTOR.login }]
+  }
+};
 
-const story = (id, phases, { currentPhase, history = [], title = id }) => ({
+const story = (id, phases, { currentPhase, history = [], title = id, resolution = null }) => ({
   workItem: { id, title, workType: 'feature', branch: `wi/${id}` },
   phaseOrder: Object.keys(phases),
   currentPhase,
   phases,
-  history
+  history,
+  ...(resolution ? { resolution } : {})
 });
 
 /**
@@ -42,24 +50,50 @@ test('work is grouped by whether it is yours to move', async () => {
       currentPhase: 'design',
       history: [{ event: 'work_started', phase: 'design', actor: ACTOR, at: '2026-08-01T10:00:00.000Z' }]
     }),
-    'WRK-2': story('WRK-2', { design: { status: 'awaiting_approval', generation: 1, approvalPolicy: { minimum: 1 } } }, {
+    'WRK-2': story('WRK-2', { design: {
+      status: 'awaiting_approval', generation: 1,
+      approvalPolicy: { authorities: ['developers'], minimum: 1, allowSelfApproval: false }
+    } }, {
       currentPhase: 'design',
-      history: [{ event: 'phase_submitted', phase: 'design', actor: OTHER, at: '2026-08-02T10:00:00.000Z' }]
+      history: [{ event: 'phase_submitted', phase: 'design', actor: OTHER, at: '2026-08-02T10:00:00.000Z' }],
+      resolution: { approvalAuthorities: APPROVAL_AUTHORITIES }
     }),
-    'WRK-3': story('WRK-3', { design: { status: 'awaiting_approval', generation: 2, approvalPolicy: { minimum: 1 } } }, {
+    'WRK-3': story('WRK-3', { design: {
+      status: 'awaiting_approval', generation: 2,
+      approvalPolicy: { authorities: ['developers'], minimum: 1, allowSelfApproval: false }
+    } }, {
       currentPhase: 'design',
-      history: [{ event: 'phase_submitted', phase: 'design', actor: ACTOR, at: '2026-08-03T10:00:00.000Z' }]
+      history: [{ event: 'phase_submitted', phase: 'design', actor: ACTOR, at: '2026-08-03T10:00:00.000Z' }],
+      resolution: { approvalAuthorities: APPROVAL_AUTHORITIES }
     })
   });
 
   const records = await workRecords(root, { actor: ACTOR });
   const groupOf = (id) => records.items.find((item) => item.id === id).group;
   assert.equal(groupOf('WRK-1'), 'active');
-  // Someone else submitted it, so it is a review waiting on this reader.
+  // Someone else submitted it and this reader belongs to the pinned authority group.
   assert.equal(groupOf('WRK-2'), 'waiting-on-you');
   // This reader submitted it, so it is waiting on somebody who is not them.
   assert.equal(groupOf('WRK-3'), 'waiting-on-others');
   assert.deepEqual(records.groupOrder, [...WORK_GROUP_ORDER]);
+});
+
+test('approval work is not assigned to an unauthorized identity or a same-name collision', async () => {
+  const root = await fixture({
+    'WRK-4': story('WRK-4', { design: {
+      status: 'awaiting_approval', generation: 1,
+      approvalPolicy: { authorities: ['developers'], minimum: 1, allowSelfApproval: false }
+    } }, {
+      currentPhase: 'design',
+      history: [{ event: 'phase_submitted', phase: 'design', actor: ACTOR, at: '2026-08-03T10:00:00.000Z' }],
+      resolution: { approvalAuthorities: APPROVAL_AUTHORITIES }
+    })
+  });
+
+  const item = (await workRecords(root, { actor: OUTSIDER })).items[0];
+  assert.equal(item.group, 'waiting-on-others');
+  assert.equal(item.whyVisible, 'approval.requires-an-authorized-reviewer');
+  assert.equal(item.nextAction.operation, 'work.continue');
 });
 
 test('a pending publication outranks every other grouping', async () => {
@@ -116,14 +150,21 @@ test('the last material event ignores bookkeeping', () => {
 test('every item explains why it is visible and what to do about it', async () => {
   const root = await fixture({
     'WRK-1': story('WRK-1', {
-      design: { status: 'awaiting_approval', generation: 3, label: 'Design', approvalPolicy: { minimum: 2 }, approvals: [{ decision: 'approved' }] }
-    }, { currentPhase: 'design', title: 'Address validation' })
+      design: {
+        status: 'awaiting_approval', generation: 3, label: 'Design',
+        approvalPolicy: { authorities: ['developers'], minimum: 2, allowSelfApproval: false },
+        approvals: [{ decision: 'approved' }]
+      }
+    }, {
+      currentPhase: 'design', title: 'Address validation',
+      resolution: { approvalAuthorities: APPROVAL_AUTHORITIES }
+    })
   });
   const item = (await workRecords(root, { actor: ACTOR })).items[0];
   assert.equal(item.title, 'Address validation');
   assert.equal(item.phase, 'design');
   assert.equal(item.generation, 3);
-  assert.equal(item.whyVisible, 'approval.awaiting-a-reviewer');
+  assert.equal(item.whyVisible, 'approval.you-are-authorized');
   assert.ok(item.blockers.includes('approvals-outstanding'));
   assert.equal(item.nextAction.operation, 'review.packet');
 });

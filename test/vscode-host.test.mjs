@@ -1694,10 +1694,8 @@ test('the capability editor delegates creation to the mapping form that accepts 
     entry.id === 'singularityFlow.mapCapability') ?? null);
   assert.ok(mapping, 'adding opens the governed capability mapping form');
   assert.match(mapping.webview.html, /Repository it ships from/);
-  assert.match(mapping.webview.html, /choose Delivery above; the Git clone URL field will appear here/,
-    'a Collection explains how to expose repository entry instead of silently hiding it');
-  await mapping.post({ type: 'field', field: 'kind', value: 'delivery' });
-  await mapping.post({ type: 'redraw' });
+  assert.match(mapping.webview.html, /<option value="delivery" selected>Delivery<\/option>/,
+    'new capabilities default to Delivery');
   assert.match(mapping.webview.html, /Clone URL/,
     'the creation path has an explicit place for a new Git repository URL');
   assert.doesNotMatch(panel.webview.html, /New capability/,
@@ -2733,12 +2731,13 @@ test('a window with nothing open can map a capability from scratch', async (t) =
   assert.doesNotMatch(panel.webview.html, /Workflow state branch/);
   // Kind is a closed structural choice, so it is a dropdown rather than free text.
   assert.match(panel.webview.html, /<select data-map="kind">/);
+  assert.match(panel.webview.html, /<option value="delivery" selected>Delivery<\/option>/,
+    'Delivery is the default capability kind');
   assert.doesNotMatch(panel.webview.html, /Where the map lives|Read the map/,
     'repository selection is part of the capability form rather than a separate setup step');
 
   // With no registered map, the first shipping repository is the only possible candidate and is
   // selected in place. There is no second URL field or button to press.
-  await panel.post({ type: 'field', field: 'kind', value: 'delivery' });
   await panel.post({ type: 'redraw' });
   await panel.post({ type: 'field', field: 'repositoryUrl', value: bare });
   await panel.post({ type: 'repositoryCommitted', value: bare });

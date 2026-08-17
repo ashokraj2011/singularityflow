@@ -85,8 +85,8 @@ test('every code a result can carry still has a sentence, after the move', () =>
 });
 
 test('the home falls back to the catalog, not to a raw code', async () => {
-  // The gap that exposed the split: the two vocabularies do not agree on choice ids, so a menu
-  // entry the projection does not track must still read as a sentence.
+  // The envelope is the only projection now, and its reason always renders through the catalog.
   const source = codeOnly(await read('src', 'commands', 'home.mjs'));
-  assert.match(source, /detail\.get\(goal\) \?\? message\(action\.reasonCode\)\.label/);
+  assert.match(source, /message\(action\.reasonCode\)\.label/);
+  assert.doesNotMatch(source, /detail\.get\(goal\)/);
 });

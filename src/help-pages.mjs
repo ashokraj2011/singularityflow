@@ -238,6 +238,23 @@ const PAGES = Object.freeze({
     examples: [['singularity-flow nextsteps PAY-1', 'Valid next actions for PAY-1.']],
     seeAlso: ['status', 'next', 'doctor']
   },
+  recommend: {
+    summary: 'Show one grounded next-step recommendation for the active developer context.',
+    description: [
+      'Combines My Work selection, recovery priority, and the ordered lifecycle guidance into one',
+      'read-only answer. It explains the active workspace, Story, phase, evidence already captured,',
+      'preflight state, expected effects, and whether explicit authorization will be required.',
+      '',
+      'The displayed command is a preview, never ambient execution authority. Use `next` only after',
+      'reviewing the recommendation and explicitly deciding to carry out one lifecycle action.'
+    ],
+    options: [
+      ['--workspace ID', 'Read the selected registered workspace instead of the current active one.'],
+      ['--json', 'Emit the shared `developer.next` result used by VS Code and Copilot.']
+    ],
+    examples: [['singularity-flow recommend', 'The one recommended next step for the active workspace and Story.']],
+    seeAlso: ['home', 'nextsteps', 'next', 'doctor']
+  },
   doctor: {
     summary: 'Diagnose the repository, the Story, and the tooling around them.',
     description: [

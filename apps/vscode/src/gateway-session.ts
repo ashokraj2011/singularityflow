@@ -11,33 +11,37 @@
  * happily as in the CLI, and an extension host is exactly the long-lived session the binding thunk
  * was written for: it outlives branch switches, which is when a stale handle must stop verifying.
  *
- * ## Six planners, not seven, and the contract already knows
+ * ## Host-safe planners, declared explicitly
  *
  * `help-explain` reaches the documentation subsystem, which resolves its own location through
  * `import.meta.url` — correct under ESM and empty in the CommonJS bundle a VS Code extension loads.
- * Rather than shimming it, this host declares the six it has. The kernel's registry-versus-map
- * distinction covers the rest: `help.explain` resolves, finds no planner, and returns
+ * Rather than shimming it, this host declares only the planners it can bundle safely. The kernel's
+ * registry-versus-map distinction covers the rest: `help.explain` resolves, finds no planner, and returns
  * `gateway.planner-unavailable`, which renders as "this build cannot answer that yet" and points at
  * the CLI. A capability the host genuinely lacks, reported as one.
  */
 import { createActionExecutor } from '../../../src/gateway/executor.mjs';
 import { createHostGateway } from '../../../src/gateway/host.mjs';
+import { developerNext } from '../../../src/gateway/planners/developer-next.mjs';
 import { homeOverview } from '../../../src/gateway/planners/home-overview.mjs';
 import { impactQuick } from '../../../src/gateway/planners/impact-quick.mjs';
 import { workContinue } from '../../../src/gateway/planners/work-continue.mjs';
 import { workList } from '../../../src/gateway/planners/work-list.mjs';
 import { workReadiness } from '../../../src/gateway/planners/work-readiness.mjs';
 import { workReturn } from '../../../src/gateway/planners/work-return.mjs';
+import { workStartIntake } from '../../../src/gateway/planners/work-start-intake.mjs';
 import { workspaceList } from '../../../src/gateway/planners/workspace-list.mjs';
 
 /** What this host can answer without leaving the editor process. */
 export function editorPlanners(): Map<string, unknown> {
   return new Map<string, unknown>([
+    ['developer-next', developerNext],
     ['home-overview', homeOverview],
     ['work-list', workList],
     ['work-continue', workContinue],
     ['work-readiness', workReadiness],
     ['work-return', workReturn],
+    ['work-start-intake', workStartIntake],
     ['workspace-list', workspaceList],
     ['impact-quick', impactQuick]
   ]);

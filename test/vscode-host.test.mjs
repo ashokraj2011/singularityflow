@@ -695,7 +695,7 @@ test('My Work resolves an active workspace when no editor folder is open', async
     'My Work personalizes the reply from the effective Git display name');
   assert.match(visible, /You have work in progress/,
     'the active Story in the workspace lead repository is visible');
-  assert.match(visible, /Continue current work/);
+  assert.match(visible, /Resume the active Story/);
   assert.ok(registered.output.some((line) => /active-home/.test(line)
     && /Governed repository:/.test(line)),
   'the gateway root came from the machine-wide active workspace');

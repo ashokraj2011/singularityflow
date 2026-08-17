@@ -7,6 +7,7 @@ import path from 'node:path';
 import { createGatewayKernel } from '../src/gateway/kernel.mjs';
 import { EXPLAIN_PREVIEW_BYTES, helpExplain } from '../src/gateway/planners/help-explain.mjs';
 import { WORKSPACE_LIST_EVIDENCE_GAPS, workspaceList } from '../src/gateway/planners/workspace-list.mjs';
+import { workStartIntake } from '../src/gateway/planners/work-start-intake.mjs';
 import { gatewayRegistry, unimplementedPlanners } from '../src/gateway/operations.mjs';
 import { gatewayPlanners } from '../src/gateway/planners/index.mjs';
 import {
@@ -28,6 +29,23 @@ const binding = {
   actorId: 'dev-1',
   hostSessionId: 'sess-1'
 };
+
+test('start intake carries bounded conversational defaults and changes nothing', () => {
+  const result = workStartIntake({ arguments: {
+    source: 'bug-report', shape: 'story', workType: 'bug-fix', summary: 'Retry checkout safely'
+  } });
+  validateSflowResult(result);
+  assert.equal(result.operation.id, 'work.start.intake');
+  assert.deepEqual({ ...result.effects }, {
+    contextChanged: false, stateChanged: false, filesChanged: false,
+    gitRefsChanged: false, publicationCreated: false, externalSystemsChanged: false
+  });
+  assert.deepEqual(result.data.defaults, {
+    source: 'bug-report', workspaceId: null, repositoryId: null, shape: 'story',
+    workType: 'bug-fix', summary: 'Retry checkout safely'
+  });
+  assert.ok(result.data.requiredInputs.includes('remote base branch'));
+});
 
 /**
  * A registry of our own, never the machine's.

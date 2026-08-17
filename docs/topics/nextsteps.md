@@ -9,10 +9,11 @@ commands:
   - nextsteps
   - guide
   - next
+  - recommend
 related:
   - getting-started
   - sequence-gates
-version: 2
+version: 3
 ---
 `sflow nextsteps` computes the ordered, valid next actions from pinned state — NOW, THEN, and alternatives, each with a reason and a runnable command. Command results follow the same narration contract: outputs explain why you are seeing them (which state, which pin, which rule) and end with a next action or an explicit rest state. Refusals name each unmet condition, its evidence, and the repair command — a gate is never "no," it is "not yet, and here is the path."
 
@@ -22,7 +23,7 @@ Use this topic when the current goal matches **nextsteps**. Start in a governed 
 
 ## Use it from each surface
 
-- **Shell:** `sflow nextsteps`, `sflow guide`, `sflow next`. Run `singularity-flow nextsteps --help` for the exact forms supported by this build.
+- **Shell:** `sflow recommend` gives one grounded recommendation; `sflow nextsteps` shows the full ordered plan; `sflow next` explicitly executes one lifecycle action. Run `singularity-flow recommend --help` for the exact forms supported by this build.
 - **Copilot:** `/sf-nextsteps`, `/sf-next`. The skill must preserve the CLI result and ask before any governed mutation.
 - **VS Code:** open Singularity Flow **Lifecycle**. The extension renders engine results; it does not independently decide lifecycle state.
 

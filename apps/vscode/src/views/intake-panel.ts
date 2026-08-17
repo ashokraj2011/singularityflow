@@ -27,6 +27,13 @@ export interface IntakeTarget {
   workspace: string | null;
   repository: string;
   branch: string | null;
+  defaults?: IntakeDefaults;
+}
+
+export interface IntakeDefaults {
+  shape?: Shape | null;
+  workType?: string | null;
+  summary?: string | null;
 }
 
 export class IntakePanel {
@@ -36,6 +43,7 @@ export class IntakePanel {
   private readonly client: SingularityFlowClient;
   private readonly output: vscode.OutputChannel;
   private readonly onStarted: (started: Started) => Promise<void>;
+  private readonly defaults: IntakeDefaults;
   private readonly disposables: vscode.Disposable[] = [];
   private form: IntakeForm;
   private preflightVersion = 0;
@@ -51,11 +59,15 @@ export class IntakePanel {
     this.client = client;
     this.output = output;
     this.onStarted = onStarted;
+    this.defaults = target.defaults ?? {};
     this.form = {
       ...EMPTY_INTAKE_FORM,
       targetWorkspace: target.workspace,
       targetRepository: target.repository,
-      targetBranch: target.branch
+      targetBranch: target.branch,
+      ...(this.defaults.shape ? { shape: this.defaults.shape } : {}),
+      ...(this.defaults.summary ? { title: this.defaults.summary } : {}),
+      ...(this.defaults.workType ? { workType: this.defaults.workType } : {})
     };
     this.panel.webview.onDidReceiveMessage((raw: unknown) => {
       // The shared footer is the one way out of a full-page view. Handled here rather than through
@@ -127,7 +139,8 @@ export class IntakePanel {
       storyWorkflows: storyWorkflows.workflows,
       // `feature` is the familiar starter workflow. A repository with one workflow needs no extra
       // click; multiple custom workflows remain an explicit, visible choice in the form.
-      workType: storyWorkflows.workflows.find((entry) => entry.id === 'feature')?.id
+      workType: storyWorkflows.workflows.find((entry) => entry.id === this.defaults.workType)?.id
+        ?? storyWorkflows.workflows.find((entry) => entry.id === 'feature')?.id
         ?? storyWorkflows.workflows[0]?.id ?? null,
       workflowReason: storyWorkflows.reason,
       baseBranchChoices: baseBranches.choices,

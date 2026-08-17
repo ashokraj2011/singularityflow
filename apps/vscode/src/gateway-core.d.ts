@@ -85,11 +85,13 @@ declare module '*/gateway/result.mjs' {
 }
 
 declare module '*/gateway/planners/home-overview.mjs' { export const homeOverview: unknown; }
+declare module '*/gateway/planners/developer-next.mjs' { export const developerNext: unknown; }
 declare module '*/gateway/planners/impact-quick.mjs' { export const impactQuick: unknown; }
 declare module '*/gateway/planners/work-continue.mjs' { export const workContinue: unknown; }
 declare module '*/gateway/planners/work-list.mjs' { export const workList: unknown; }
 declare module '*/gateway/planners/work-readiness.mjs' { export const workReadiness: unknown; }
 declare module '*/gateway/planners/work-return.mjs' { export const workReturn: unknown; }
+declare module '*/gateway/planners/work-start-intake.mjs' { export const workStartIntake: unknown; }
 declare module '*/gateway/planners/workspace-list.mjs' { export const workspaceList: unknown; }
 
 /**

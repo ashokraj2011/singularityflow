@@ -130,14 +130,40 @@ export async function run(_argv, { options }) {
    * `[INT:CON-036]` working as designed rather than an inconvenience to route around.
    */
   const resolution = await kernel.resolve({ utterance: 'home' });
-  const envelope = resolution.next.length === 1 && resolution.kind === 'read'
+  const homeEnvelope = resolution.next.length === 1 && resolution.kind === 'read'
     ? await kernel.read({ resolutionId: resolution.next[0].handle })
     : resolution;
+
+  /**
+   * Read-only conversational routes may be answered immediately.
+   *
+   * The route still goes back through resolve/read with the active Work ID from durable Home. A
+   * mutation-shaped request remains a proposal in `data.conversation`; natural language never
+   * becomes mutation consent.
+   */
+  let envelope = homeEnvelope;
+  if (request && conversation?.route?.automatic) {
+    const workId = homeEnvelope.data?.activeWork?.id
+      ?? homeEnvelope.next.find((entry) => entry.slots?.work)?.slots?.work
+      ?? null;
+    const workOperations = new Set(['work.continue', 'work.return', 'work.readiness']);
+    const routed = kernel.resolve({
+      utterance: request,
+      arguments: workOperations.has(conversation.route.operationId) && workId ? { workId } : {}
+    });
+    envelope = routed.next.length === 1 && routed.kind === 'read'
+      ? await kernel.read({ resolutionId: routed.next[0].handle })
+      : routed;
+  }
 
   if (optionBoolean(options, 'json')) {
     return console.log(JSON.stringify({
       ...envelope,
-      data: { ...envelope.data, ...(conversation ? { conversation } : {}) }
+      data: {
+        ...envelope.data,
+        home: homeEnvelope.data,
+        ...(conversation ? { conversation } : {})
+      }
     }, null, 2));
   }
   render(envelope, { context, selected, actor }, conversation);

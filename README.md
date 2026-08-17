@@ -22,7 +22,8 @@ Then, on a repository you care about:
 | --- | --- |
 | Set up a repository you already have | `singularity-flow init` |
 | Set up a new capability, with its configuration branch and ledger | `singularity-flow bootstrap <REPOSITORY-URL>` |
-| Find out what to do next, at any point | `singularity-flow next` |
+| Get one personalized, read-only recommendation | `singularity-flow recommend` |
+| Execute or inspect the governed next step | `singularity-flow next` / `singularity-flow nextsteps WORK-123` |
 | Orient yourself or return to a Story without changing state | `sflow home` / `sflow story return WORK-123` |
 | See what a command does, with examples | `singularity-flow <command> --help` |
 

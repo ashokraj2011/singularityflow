@@ -81,7 +81,7 @@ function render(target: vscode.WebviewPanel, view: ResultCardView, note: string 
    * Worth stating because the failure has no symptom a test can see: the HTML this function returns
    * is byte-identical either way, and a fixture rendered outside a webview has no CSP to enforce.
    */
-  const isHome = view.details.operation === 'home.overview';
+  const isHome = ['home.overview', 'developer.next'].includes(view.details.operation ?? '');
   const contextNavigation = `<nav class="sf-result-nav" aria-label="Result navigation">
     ${history.length ? '<button type="button" data-result-nav="back">← Back</button>' : ''}
     ${isHome ? '<span aria-current="page">My Work</span>' : '<button type="button" data-result-nav="home">My Work</button>'}

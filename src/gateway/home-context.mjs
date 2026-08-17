@@ -14,8 +14,8 @@ async function workspaceContext(workspaceReference) {
   return active;
 }
 
-/** Resolve the repository Home is about once, without reading or projecting governed work. */
-export async function homeRepository(workspaceReference = null) {
+/** Resolve the repository every developer-facing projection is about, once. */
+export async function developerRepository(workspaceReference = null) {
   const context = await workspaceContext(workspaceReference);
   const status = await workspaceStatus(context.workspacePath);
   const selected = status.repositories.find((item) => item.id === context.repositoryId)
@@ -24,3 +24,6 @@ export async function homeRepository(workspaceReference = null) {
   if (!selected) throw new SingularityFlowError(`Workspace '${context.workspaceId}' has no repositories.`);
   return { context, status, selected, root: selected.absolutePath ?? null };
 }
+
+/** Compatibility name retained for the existing Home command. */
+export const homeRepository = developerRepository;

@@ -1,9 +1,9 @@
 {
   "schemaVersion": 1,
   "generatedFrom": "docs/topics",
-  "sourceCommit": "6e811d9cdf06d4750d9f03d2f7ca49f2c2c3c39d",
+  "sourceCommit": "d87794d66efa60e952e47ce46491003ef79c2ea2",
   "topicCount": 51,
-  "contentSha256": "6a7e4958ea4aaaceb880729e416d1bc9d1ed1c2ec1ba8b1fc055d0ad70faecca",
+  "contentSha256": "91171f463bb0ee6751f8373c751d4c90613610e1ac92898d882dbc85fb159430",
   "topics": [
     {
       "id": "activity-and-prompt-audit",
@@ -204,8 +204,8 @@
     {
       "id": "nextsteps",
       "title": "Guidance — nextsteps and the narration contract",
-      "version": 2,
-      "sha256": "416e216f37041ea7fafd6e01ac53eb9b4b605f0eeccd13d4f48e6d641a63f82b",
+      "version": 3,
+      "sha256": "a042e04411a0b4b66041b50f7b84eb8a0f36f863314800333fc0a00af91b33b7",
       "file": "nextsteps.md"
     },
     {

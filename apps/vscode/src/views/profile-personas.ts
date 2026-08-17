@@ -26,60 +26,69 @@ export interface ProfilePersona {
 
 const BASE_SECTIONS = ['favorites', 'inbox', 'workspaces', 'lifecycle', 'configuration', 'help', 'logs'] as const;
 
+/**
+ * Capability mapping is the entry point for describing what the organisation builds. Keep it in
+ * every persona's first-use Favorites while still allowing a person to unpin it explicitly.
+ * Centralising the invariant here means a newly added persona cannot accidentally omit it.
+ */
+function personaMenus(...menuIds: string[]): readonly string[] {
+  return Object.freeze([...new Set([...menuIds, 'capability-map'])]);
+}
+
 export const PROFILE_PERSONAS: readonly ProfilePersona[] = Object.freeze([
   {
     id: 'product-owner', label: 'Product owner', description: 'outcomes, intake, and decisions',
-    menuIds: ['my-work', 'work-start', 'inbox-open', 'approvals-open'],
+    menuIds: personaMenus('my-work', 'work-start', 'inbox-open', 'approvals-open'),
     sectionOrder: ['favorites', 'inbox', 'lifecycle', 'workspaces', 'configuration', 'help', 'logs']
   },
   {
     id: 'business-analyst', label: 'Business analyst', description: 'requirements, impact, and intake',
-    menuIds: ['my-work', 'work-start', 'impact-form', 'inbox-open'],
+    menuIds: personaMenus('my-work', 'work-start', 'impact-form', 'inbox-open'),
     sectionOrder: ['favorites', 'lifecycle', 'inbox', 'configuration', 'workspaces', 'help', 'logs']
   },
   {
     id: 'product-designer', label: 'Product designer', description: 'visual evidence and experience',
-    menuIds: ['my-work', 'visual-assurance', 'impact-form', 'work-start'],
+    menuIds: personaMenus('my-work', 'visual-assurance', 'impact-form', 'work-start'),
     sectionOrder: ['favorites', 'lifecycle', 'inbox', 'configuration', 'workspaces', 'help', 'logs']
   },
   {
     id: 'architect', label: 'Architect', description: 'system impact and governed design',
-    menuIds: ['my-work', 'impact-form', 'flow-impact', 'configuration-center'],
+    menuIds: personaMenus('my-work', 'impact-form', 'flow-impact', 'configuration-center'),
     sectionOrder: ['favorites', 'configuration', 'lifecycle', 'inbox', 'workspaces', 'help', 'logs']
   },
   {
     id: 'developer', label: 'Developer', description: 'current work, change impact, and diagnostics',
-    menuIds: ['my-work', 'work-start', 'impact-form', 'logs-open'],
+    menuIds: personaMenus('my-work', 'work-start', 'impact-form', 'logs-open'),
     sectionOrder: ['favorites', 'lifecycle', 'inbox', 'workspaces', 'logs', 'help', 'configuration']
   },
   {
     id: 'qa', label: 'QA', description: 'verification, evidence, and decisions',
-    menuIds: ['my-work', 'inbox-open', 'visual-assurance', 'approvals-open'],
+    menuIds: personaMenus('my-work', 'inbox-open', 'visual-assurance', 'approvals-open'),
     sectionOrder: ['favorites', 'inbox', 'lifecycle', 'logs', 'workspaces', 'help', 'configuration']
   },
   {
     id: 'security', label: 'Security', description: 'risk, audit, and approval evidence',
-    menuIds: ['my-work', 'inbox-open', 'approvals-open', 'prompt-audit'],
+    menuIds: personaMenus('my-work', 'inbox-open', 'approvals-open', 'prompt-audit'),
     sectionOrder: ['favorites', 'inbox', 'configuration', 'lifecycle', 'logs', 'workspaces', 'help']
   },
   {
     id: 'delivery-manager', label: 'Delivery manager', description: 'flow, queues, and delivery health',
-    menuIds: ['my-work', 'inbox-open', 'approvals-open', 'workspace-manage'],
+    menuIds: personaMenus('my-work', 'inbox-open', 'approvals-open', 'workspace-manage'),
     sectionOrder: ['favorites', 'inbox', 'lifecycle', 'workspaces', 'logs', 'configuration', 'help']
   },
   {
     id: 'operations', label: 'Operations', description: 'workspaces, runtime impact, and logs',
-    menuIds: ['my-work', 'workspace-manage', 'logs-open', 'impact-form'],
+    menuIds: personaMenus('my-work', 'workspace-manage', 'logs-open', 'impact-form'),
     sectionOrder: ['favorites', 'workspaces', 'logs', 'lifecycle', 'inbox', 'configuration', 'help']
   },
   {
     id: 'admin', label: 'Admin', description: 'workspace and product configuration',
-    menuIds: ['workspace-manage', 'configuration-center', 'capability-map', 'logs-open'],
+    menuIds: personaMenus('workspace-manage', 'configuration-center', 'capability-map', 'logs-open'),
     sectionOrder: ['favorites', 'workspaces', 'configuration', 'logs', 'help', 'inbox', 'lifecycle']
   },
   {
     id: 'other', label: 'General', description: 'a balanced view of governed work',
-    menuIds: ['my-work', 'work-start', 'inbox-open'],
+    menuIds: personaMenus('my-work', 'work-start', 'inbox-open'),
     sectionOrder: BASE_SECTIONS
   }
 ]);

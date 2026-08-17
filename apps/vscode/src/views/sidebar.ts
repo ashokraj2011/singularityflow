@@ -221,7 +221,8 @@ export const FAVORITE_MENUS: readonly FavoriteMenu[] = Object.freeze([
   { id: 'help-open', label: 'Help Center', description: 'offline guides and commands', icon: 'help', command: ACTION_COMMANDS['help-open']! }
 ]);
 
-const FAVORITES_KEY = 'singularityFlow.navigationFavorites.v1';
+const FAVORITES_KEY = 'singularityFlow.navigationFavorites.v2';
+const LEGACY_FAVORITES_KEY = 'singularityFlow.navigationFavorites.v1';
 const FAVORITE_BY_ID = new Map(FAVORITE_MENUS.map((menu) => [menu.id, menu]));
 
 const ALL_SECTIONS = Object.freeze(Object.keys(SECTION_META) as SidebarSection[]);
@@ -267,10 +268,17 @@ export class SidebarViewProvider implements vscode.WebviewViewProvider, vscode.D
     // distinct lets the sidebar be useful immediately without resurrecting favorites somebody
     // explicitly removed.
     const stored = state.get<unknown>(FAVORITES_KEY);
-    this.favoritesCustomized = Array.isArray(stored);
-    this.favoriteIds = Array.isArray(stored)
-      ? [...new Set(stored.filter((id): id is string => typeof id === 'string' && FAVORITE_BY_ID.has(id)))]
+    const legacy = stored === undefined ? state.get<unknown>(LEGACY_FAVORITES_KEY) : undefined;
+    const saved = Array.isArray(stored)
+      ? stored
+      : Array.isArray(legacy) ? [...legacy, 'capability-map'] : null;
+    this.favoritesCustomized = saved !== null;
+    this.favoriteIds = saved
+      ? [...new Set(saved.filter((id): id is string => typeof id === 'string' && FAVORITE_BY_ID.has(id)))]
       : this.personaFavoriteIds();
+    // Existing installations receive this important entry once. Subsequent choices use v2, so a
+    // person can still unpin it and that explicit choice will survive reloads and persona changes.
+    if (Array.isArray(legacy) && !Array.isArray(stored)) void state.update(FAVORITES_KEY, this.favoriteIds);
     this.bound.add('favorites');
     this.refreshFavorites();
   }

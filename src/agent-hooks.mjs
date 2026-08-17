@@ -114,11 +114,19 @@ export async function sessionStartAgentHook(root, definition, workflow, payload 
   const activeWorkId = workflow?.workItem?.id ?? null;
   const sameCopilotSession = Boolean(sessionId && previous?.sessionId === sessionId && previous?.repositoryRoot === root);
   const previousSelectionStillActive = sameCopilotSession && previous?.workId && previous.workId === activeWorkId && previous.workItemSelectionRequired !== true;
-  const workItemSelectionRequired = policy.workItemSelection === 'prompt'
-    ? !previousSelectionStillActive
-    : policy.workItemSelection === 'reuse'
-      ? !activeWorkId
-      : false;
+  // A workspace-only handoff is an explicit request not to adopt the checked-out Story. Preserve
+  // that one-shot gate even for repositories whose older session policy is `off`; attachment clears
+  // it after the contributor chooses a Story.
+  const workspaceSelectionGate = previous?.source === 'workspace'
+    && previous?.repositoryRoot === root
+    && previous?.workItemSelectionRequired === true;
+  const workItemSelectionRequired = workspaceSelectionGate
+    ? true
+    : policy.workItemSelection === 'prompt'
+      ? !previousSelectionStillActive
+      : policy.workItemSelection === 'reuse'
+        ? !activeWorkId
+        : false;
   const selectedWorkId = workItemSelectionRequired ? null : activeWorkId;
   const phaseAgent = phase?.defaultAgent
     ?? definition.agentCatalog?.find((agent) => agent.defaultFor.includes(phase?.id))?.id
@@ -126,7 +134,8 @@ export async function sessionStartAgentHook(root, definition, workflow, payload 
   const valid = selectedWorkId ? validAgentSession(definition, existing, selectedWorkId, null, phase?.id ?? null) : false;
   if (selectedWorkId && phase && !phaseAgent) throw new Error(`Phase '${phase.id}' has no configured governed agent.`);
   const record = await recordCopilotSession(root, {
-    sessionId, source, repositoryRoot: root, workId: selectedWorkId, candidateWorkId: activeWorkId, phase: phase?.id ?? null, policy,
+    sessionId, source: workspaceSelectionGate ? 'workspace' : source,
+    repositoryRoot: root, workId: selectedWorkId, candidateWorkId: activeWorkId, phase: phase?.id ?? null, policy,
     workItemSelectionRequired,
     selectionRequired: false, selectedAgent: valid ? existing.agent : phaseAgent,
     startedAt: new Date().toISOString()

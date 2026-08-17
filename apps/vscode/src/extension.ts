@@ -66,6 +66,8 @@ declare const __SFLOW_BUILD__: string;
 const COPILOT_HANDOFF_KEY = 'singularityFlow.pendingCopilotHandoff';
 
 interface PendingCopilotHandoff {
+  /** Workspace handoffs must never infer a Story from the repository's checked-out branch. */
+  kind: 'workspace' | 'story';
   repository: string;
   workId: string | null;
   workspaceName?: string | null;
@@ -1202,12 +1204,16 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
           onOutput: (text) => output.append(text)
         });
         const attached = await chooser.run<{
-          repositoryPath: string; storyId?: string | null; workspaceName?: string;
+          repositoryPath: string; workspaceName?: string;
         }>(['session', 'workspace', chosen.path, '--json']);
         const target = path.resolve(attached.repositoryPath || chosen.lead);
         const pending: PendingCopilotHandoff = {
+          kind: 'workspace',
           repository: target,
-          workId: attached.storyId ?? null,
+          // Choosing a workspace is not choosing a Story. The repository may currently have a
+          // Story branch checked out, but that is only a candidate until the contributor selects
+          // it explicitly in /sf-session.
+          workId: null,
           workspaceName: attached.workspaceName ?? chosen.name,
           requestedAt: new Date().toISOString()
         };
@@ -2511,6 +2517,7 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
       'Use this repository as the working directory for every file and shell operation.',
       'This workspace is attached, but no governed Story is selected yet.',
       'Ask the contributor to run /sf-session and choose the exact Story before lifecycle work.',
+      'Do not treat the checked-out Story or the only available Story as an implicit selection.',
       'Do not inspect or modify another repository merely because it was open in the previous chat.'
     ].join('\n');
     await vscode.commands.executeCommand('workbench.action.chat.newChat');
@@ -2951,6 +2958,7 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
         ) === true;
         if (!targetIsOpen) {
           const pending: PendingCopilotHandoff = {
+            kind: workId ? 'story' : 'workspace',
             repository: target,
             workId,
             requestedAt: new Date().toISOString()
@@ -3000,7 +3008,9 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
     // an endless retry loop; the visible error leaves the person in the correct repository.
     await context.globalState.update(COPILOT_HANDOFF_KEY, undefined);
     try {
-      if (pendingHandoff.workId || store.current.snapshot?.workflow?.workItem.id) {
+      // The discriminator is intentional: legacy handoffs without it fail closed to workspace
+      // selection instead of inferring a Story from mutable repository state after the reload.
+      if (pendingHandoff.kind === 'story' && pendingHandoff.workId) {
         await openGovernedCopilot(pendingHandoff.workId);
       } else {
         await openWorkspaceCopilot(pendingHandoff.workspaceName);

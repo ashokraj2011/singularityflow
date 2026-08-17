@@ -9,7 +9,7 @@ import * as vscode from 'vscode';
 import type { TreeNode } from './tree-model.ts';
 import { brandSymbol, contentSecurityPolicy, escape, icon, ICON_NAMES, nonce, type IconName } from './webview.ts';
 
-export type SidebarSection = 'workspaces' | 'lifecycle' | 'inbox' | 'logs' | 'configuration' | 'help';
+export type SidebarSection = 'favorites' | 'workspaces' | 'lifecycle' | 'inbox' | 'logs' | 'configuration' | 'help';
 
 interface TreeSource {
   readonly onDidChangeTreeData: vscode.Event<TreeNode | undefined>;
@@ -30,6 +30,15 @@ const SECTION_META: Record<SidebarSection, {
   actions: Array<{ id: string; label: string; icon: IconName }>;
   empty: { text: string; action: string; actionLabel: string };
 }> = {
+  favorites: {
+    label: 'Favorites', icon: 'favorite', actions: [
+      { id: 'favorites-manage', label: 'Choose favorite menus', icon: 'edit' }
+    ],
+    empty: {
+      text: 'Pin the menus you use most. Favorites are personal to this VS Code installation.',
+      action: 'favorites-manage', actionLabel: 'Choose favorites'
+    }
+  },
   inbox: {
     label: 'Inbox', icon: 'inbox', actions: [
       { id: 'inbox-open', label: 'Open inbox', icon: 'inbox' },
@@ -155,6 +164,7 @@ const SECTION_META: Record<SidebarSection, {
  * comment hit on its first attempt.)
  */
 const ACTION_COMMANDS: Record<string, string> = {
+  'favorites-manage': 'singularityFlow.manageFavorites',
   'my-work': 'singularityFlow.myWork',
   'workspace-create': 'singularityFlow.createWorkspace',
   'workspace-manage': 'singularityFlow.openWorkspaces',
@@ -177,7 +187,43 @@ const ACTION_COMMANDS: Record<string, string> = {
   'flow-impact': 'singularityFlow.openFlowImpact'
 };
 
-/** Render order is the key order of SECTION_META above: inbox, workspaces, lifecycle, configuration, help, logs. */
+interface FavoriteMenu {
+  readonly id: string;
+  readonly label: string;
+  readonly description: string;
+  readonly icon: IconName;
+  readonly command: string;
+}
+
+/**
+ * The bounded menu people may personalize.
+ *
+ * Favorites are navigation, not a second command registry. Every destination names the same
+ * contributed command its original menu uses, so pinning cannot create a shortcut around a
+ * confirmation, repository check, or lifecycle gate.
+ */
+export const FAVORITE_MENUS: readonly FavoriteMenu[] = Object.freeze([
+  { id: 'my-work', label: 'My Work', description: 'current work and next actions', icon: 'home', command: ACTION_COMMANDS['my-work']! },
+  { id: 'work-start', label: 'Start intake', description: 'begin governed work', icon: 'start', command: ACTION_COMMANDS['work-start']! },
+  { id: 'inbox-open', label: 'Inbox', description: 'work waiting on you', icon: 'inbox', command: ACTION_COMMANDS['inbox-open']! },
+  { id: 'approvals-open', label: 'Approvals', description: 'governed decisions', icon: 'approval', command: ACTION_COMMANDS['approvals-open']! },
+  { id: 'workspace-manage', label: 'Workspaces', description: 'choose and manage workspaces', icon: 'workspace', command: ACTION_COMMANDS['workspace-manage']! },
+  { id: 'configuration-center', label: 'Configuration Center', description: 'governed product configuration', icon: 'configuration', command: ACTION_COMMANDS['configuration-center']! },
+  { id: 'capability-map', label: 'Map a capability', description: 'capability ownership and repositories', icon: 'capability', command: ACTION_COMMANDS['capability-map']! },
+  { id: 'visual-assurance', label: 'Visual assurance', description: 'design and comparison evidence', icon: 'visual', command: ACTION_COMMANDS['visual-assurance']! },
+  { id: 'impact-form', label: 'Impact of a change', description: 'quick change analysis', icon: 'compare', command: ACTION_COMMANDS['impact-form']! },
+  { id: 'flow-impact', label: 'Flow impact', description: 'studies and reports', icon: 'impact', command: ACTION_COMMANDS['flow-impact']! },
+  { id: 'logs-open', label: 'Workspace logs', description: 'combined workspace timeline', icon: 'commit', command: ACTION_COMMANDS['logs-open']! },
+  { id: 'activity-log', label: 'Activity log', description: 'governed activity', icon: 'commit', command: ACTION_COMMANDS['activity-log']! },
+  { id: 'prompt-audit', label: 'Prompt audit', description: 'what was sent to models', icon: 'prompt', command: ACTION_COMMANDS['prompt-audit']! },
+  { id: 'help-open', label: 'Help Center', description: 'offline guides and commands', icon: 'help', command: ACTION_COMMANDS['help-open']! }
+]);
+
+const FAVORITES_KEY = 'singularityFlow.navigationFavorites.v1';
+const FIRST_USE_FAVORITES = Object.freeze(['my-work', 'work-start', 'inbox-open']);
+const FAVORITE_BY_ID = new Map(FAVORITE_MENUS.map((menu) => [menu.id, menu]));
+
+/** Render order is the key order above: favorites, inbox, workspaces, lifecycle, configuration, help, logs. */
 const SECTION_ORDER = Object.freeze(Object.keys(SECTION_META) as SidebarSection[]);
 const KNOWN_ICONS = new Set<string>(ICON_NAMES);
 
@@ -200,7 +246,7 @@ function hasAction(node: TreeNode): boolean {
 
 export class SidebarViewProvider implements vscode.WebviewViewProvider, vscode.Disposable {
   private readonly roots: Record<SidebarSection, readonly TreeNode[]> = {
-    workspaces: [], lifecycle: [], inbox: [], logs: [], configuration: [], help: []
+    favorites: [], workspaces: [], lifecycle: [], inbox: [], logs: [], configuration: [], help: []
   };
   private readonly subscriptions: vscode.Disposable[] = [];
   private readonly nodeIndex = new Map<string, TreeNode>();
@@ -210,6 +256,65 @@ export class SidebarViewProvider implements vscode.WebviewViewProvider, vscode.D
   private view: vscode.WebviewView | null = null;
   private freshness: string | null = null;
   private awaitingFirstRead = false;
+  private favoriteIds: string[];
+
+  constructor(private readonly state: Pick<vscode.Memento, 'get' | 'update'>) {
+    // A missing preference is a first visit; an empty array is an intentional choice. Keeping those
+    // distinct lets the sidebar be useful immediately without resurrecting favorites somebody
+    // explicitly removed.
+    const stored = state.get<unknown>(FAVORITES_KEY);
+    this.favoriteIds = Array.isArray(stored)
+      ? [...new Set(stored.filter((id): id is string => typeof id === 'string' && FAVORITE_BY_ID.has(id)))]
+      : [...FIRST_USE_FAVORITES];
+    this.bound.add('favorites');
+    this.refreshFavorites();
+  }
+
+  private refreshFavorites(): void {
+    this.roots.favorites = this.favoriteIds.flatMap((id) => {
+      const menu = FAVORITE_BY_ID.get(id);
+      return menu ? [{
+        kind: 'action' as const,
+        id: `favorite:${menu.id}`,
+        label: menu.label,
+        description: menu.description,
+        icon: menu.icon,
+        runCommand: menu.command
+      }] : [];
+    });
+    this.render();
+  }
+
+  async manageFavorites(): Promise<void> {
+    const chosen = await vscode.window.showQuickPick(FAVORITE_MENUS.map((menu) => ({
+      label: menu.label,
+      description: menu.description,
+      picked: this.favoriteIds.includes(menu.id),
+      menuId: menu.id
+    })), {
+      title: 'Choose favorite Singularity Flow menus',
+      placeHolder: 'Select the menus to keep at the top of the sidebar',
+      canPickMany: true,
+      ignoreFocusOut: true
+    });
+    if (chosen === undefined) return;
+    const selections = Array.isArray(chosen) ? chosen : [chosen];
+    const previous = new Set(this.favoriteIds);
+    this.favoriteIds = selections.map((item) => item.menuId).filter((id) => FAVORITE_BY_ID.has(id));
+    await this.state.update(FAVORITES_KEY, this.favoriteIds);
+    this.refreshFavorites();
+    const added = this.favoriteIds.filter((id) => !previous.has(id))
+      .map((id) => FAVORITE_BY_ID.get(id)?.label).filter((label): label is string => Boolean(label));
+    if (added.length === 1) void vscode.window.showInformationMessage(`${added[0]} added to Favorites.`);
+    else if (added.length > 1) void vscode.window.showInformationMessage(`${added.length} menus added to Favorites.`);
+  }
+
+  private async removeFavorite(id: string): Promise<void> {
+    if (!FAVORITE_BY_ID.has(id) || !this.favoriteIds.includes(id)) return;
+    this.favoriteIds = this.favoriteIds.filter((candidate) => candidate !== id);
+    await this.state.update(FAVORITES_KEY, this.favoriteIds);
+    this.refreshFavorites();
+  }
 
   /**
    * Say when what is on screen is not confirmed.
@@ -273,6 +378,10 @@ export class SidebarViewProvider implements vscode.WebviewViewProvider, vscode.D
   private receive(message: unknown): void {
     if (!message || typeof message !== 'object') return;
     const value = message as { type?: unknown; action?: unknown; key?: unknown };
+    if (value.type === 'favorite-remove' && typeof value.action === 'string') {
+      void this.removeFavorite(value.action);
+      return;
+    }
     if (value.type === 'action' && typeof value.action === 'string') {
       const command = ACTION_COMMANDS[value.action];
       if (command) void vscode.commands.executeCommand(command);
@@ -302,11 +411,14 @@ export class SidebarViewProvider implements vscode.WebviewViewProvider, vscode.D
     const hasChildren = Boolean(node.children?.length);
     const directAction = actionable && !hasChildren;
     const currentPhase = node.contextValue === 'sflow.story.phase.current';
-    const row = `<span class="node-row${actionable ? ' actionable' : ''}${currentPhase ? ' current-phase-row' : ''}"${directAction
+    const row = `<span class="node-row${actionable ? ' actionable' : ''}${currentPhase ? ' current-phase-row' : ''}"${actionable
+      ? ` data-selection-key="node:${escape(node.id)}"` : ''}${directAction
       ? ` role="button" tabindex="0" data-node="${escape(key)}"` : ''} title="${tooltip}">
         <span class="node-icon">${icon(semanticIcon(node), { size: 16 })}</span>
         <span class="node-copy"><span class="node-label">${escape(node.label)}</span>${description}</span>
-        ${actionable ? (hasChildren
+        ${section === 'favorites'
+          ? `<button class="favorite-remove" type="button" data-remove-favorite="${escape(node.id.replace(/^favorite:/, ''))}" aria-label="Unpin ${escape(node.label)}" title="Unpin ${escape(node.label)}">${icon('close', { size: 14 })}</button>`
+          : actionable ? (hasChildren
           ? `<button class="node-open" type="button" data-open-node="${escape(key)}" aria-label="Open ${escape(node.label)}" title="Open ${escape(node.label)}">${icon('next', { size: 14 })}</button>`
           : `<span class="node-open" aria-hidden="true">${icon('next', { size: 14 })}</span>`) : ''}
       </span>`;
@@ -324,7 +436,7 @@ export class SidebarViewProvider implements vscode.WebviewViewProvider, vscode.D
   private renderSection(section: SidebarSection): string {
     const meta = SECTION_META[section];
     const actions = meta.actions.map((action) => `<button class="icon-button" type="button"
-      data-action="${escape(action.id)}" aria-label="${escape(action.label)}" title="${escape(action.label)}">
+      data-action="${escape(action.id)}" data-selection-key="action:${escape(action.id)}" aria-label="${escape(action.label)}" title="${escape(action.label)}">
       ${icon(action.icon, { size: 16 })}</button>`).join('');
     const nodes = this.roots[section];
     /**
@@ -342,15 +454,20 @@ export class SidebarViewProvider implements vscode.WebviewViewProvider, vscode.D
     const content = nodes.length
       ? nodes.map((node, index) => this.renderNode(section, node, [index])).join('')
       : this.awaitingFirstRead
-        ? `<div class="empty"><p>Reading the repository…</p></div>`
+        ? `<div class="empty"><p>Reading the governed repository. My Work will refresh as soon as it is ready.</p>
+            <button class="empty-action" type="button" data-action="my-work" data-selection-key="action:my-work">Open My Work</button>
+          </div>`
         : this.bound.has(section)
           ? `<div class="empty"><p>${escape(meta.empty.text)}</p>
-            <button class="empty-action" type="button" data-action="${escape(meta.empty.action)}">${escape(meta.empty.actionLabel)}</button>
+            <button class="empty-action" type="button" data-action="${escape(meta.empty.action)}" data-selection-key="action:${escape(meta.empty.action)}">${escape(meta.empty.actionLabel)}</button>
           </div>`
           // Bound but not yet reported, versus never connected: saying "nothing here" while the CLI is
           // still being spawned is a lie the reader has no way to detect.
-          : `<div class="empty"><p>Connecting to the Singularity Flow CLI…</p></div>`;
-    return `<details class="section" data-section="${section}" open>
+          : `<div class="empty"><p>Connecting to the Singularity Flow CLI. If this takes longer than expected, open Help for setup and diagnostics.</p>
+              <button class="empty-action" type="button" data-action="help-open" data-selection-key="action:help-open">Open Help Center</button>
+            </div>`;
+    const initiallyOpen = section === 'favorites' || section === 'lifecycle' ? ' open' : '';
+    return `<details class="section" data-section="${section}"${initiallyOpen}>
       <summary class="section-heading">
         <span class="section-title">${icon(meta.icon, { size: 16 })}<span>${escape(meta.label)}</span></span>
         <span class="section-actions">${actions}</span>
@@ -366,7 +483,8 @@ export class SidebarViewProvider implements vscode.WebviewViewProvider, vscode.D
     const sections = SECTION_ORDER.map((section) => this.renderSection(section)).join('');
     // The status dot was hard-coded green, so it said "ready" while the CLI was still being found —
     // and said it just as confidently when resolution had failed.
-    const ready = SECTION_ORDER.every((section) => this.bound.has(section));
+    const ready = SECTION_ORDER.filter((section) => section !== 'favorites')
+      .every((section) => this.bound.has(section));
     this.view.webview.html = `<!doctype html><html><head><meta charset="utf-8">
       <meta name="viewport" content="width=device-width,initial-scale=1">
       <meta http-equiv="Content-Security-Policy" content="${contentSecurityPolicy(this.view.webview, token)}">
@@ -394,6 +512,8 @@ export class SidebarViewProvider implements vscode.WebviewViewProvider, vscode.D
           padding:3px 9px; border-radius:11px; cursor:pointer; white-space:nowrap;
           border:1px solid var(--vscode-panel-border); background:transparent; color:var(--vscode-foreground); }
         .brand-home:hover { background:var(--vscode-list-hoverBackground); }
+        .brand-home:active { transform:translateY(1px); }
+        .brand-home.last-opened { border-color:var(--accent); color:var(--accent); background:var(--quiet); }
         .brand-copy { min-width:0; line-height:1.05; }
         .brand-copy small { display:block; color:var(--accent); font-size:9px; font-weight:700; letter-spacing:.16em; text-transform:uppercase; }
         .brand-copy strong { display:block; margin-top:3px; font-size:15px; font-weight:650; letter-spacing:.01em; }
@@ -414,6 +534,8 @@ export class SidebarViewProvider implements vscode.WebviewViewProvider, vscode.D
         .icon-button { display:grid; place-items:center; width:30px; height:30px; padding:0; border:0; border-radius:6px;
           color:var(--vscode-icon-foreground); background:transparent; cursor:pointer; }
         .icon-button:hover { color:var(--accent); background:var(--vscode-toolbar-hoverBackground); }
+        .icon-button:active { transform:translateY(1px); }
+        .icon-button.last-opened { color:var(--accent); background:var(--quiet); box-shadow:inset 0 0 0 1px var(--accent); }
         .icon-button:focus-visible,.actionable:focus-visible { outline:1px solid var(--vscode-focusBorder); outline-offset:-1px; }
         .section-body { padding:4px 6px 7px; }
         .node { display:block; }
@@ -426,6 +548,9 @@ export class SidebarViewProvider implements vscode.WebviewViewProvider, vscode.D
         .depth-1 .node-row { padding-left:8px; } .depth-2 .node-row { padding-left:16px; } .depth-3 .node-row { padding-left:24px; }
         .node-row.actionable { cursor:pointer; }
         .node-row.actionable:hover { background:var(--vscode-list-hoverBackground); color:var(--vscode-list-hoverForeground); }
+        .node-row.actionable:active { transform:translateY(1px); }
+        .node-row.actionable.last-opened { color:var(--vscode-list-activeSelectionForeground,var(--vscode-foreground));
+          background:var(--vscode-list-activeSelectionBackground,var(--quiet)); box-shadow:inset 2px 0 0 var(--accent); }
         .node-icon { display:grid; place-items:center; flex:0 0 17px; height:18px; color:var(--vscode-icon-foreground); }
         .current-phase-row { border-left:2px solid var(--accent); background:var(--quiet); }
         .current-phase-row .node-icon { color:var(--accent); animation:sf-current-phase-pulse 1.65s ease-in-out infinite; }
@@ -438,6 +563,10 @@ export class SidebarViewProvider implements vscode.WebviewViewProvider, vscode.D
         .node-label { overflow:hidden; text-overflow:ellipsis; white-space:nowrap; font-weight:500; }
         .node-description { overflow:hidden; text-overflow:ellipsis; white-space:nowrap; color:var(--vscode-descriptionForeground); font-size:11px; }
         .node-open { display:grid; place-items:center; width:25px; height:25px; padding:0; border:0; border-radius:4px; opacity:0; color:var(--accent); background:transparent; }
+        .favorite-remove { display:grid; place-items:center; width:25px; height:25px; padding:0; border:0; border-radius:4px;
+          color:var(--vscode-descriptionForeground); background:transparent; cursor:pointer; }
+        .favorite-remove:hover { color:var(--vscode-errorForeground); background:var(--vscode-toolbar-hoverBackground); }
+        .favorite-remove:focus-visible { outline:1px solid var(--vscode-focusBorder); outline-offset:1px; }
         button.node-open:hover { opacity:1; background:var(--vscode-toolbar-hoverBackground); }
         .actionable:hover .node-open,.actionable:focus-visible .node-open { opacity:1; }
         /* A focused control at zero opacity is an invisible focus target: keyboard users tabbed onto
@@ -450,6 +579,8 @@ export class SidebarViewProvider implements vscode.WebviewViewProvider, vscode.D
         .empty-action { padding:4px 10px; border:0; border-radius:3px; cursor:pointer;
           color:var(--vscode-button-foreground); background:var(--vscode-button-background); font-size:11px; }
         .empty-action:hover { background:var(--vscode-button-hoverBackground); }
+        .empty-action:active { transform:translateY(1px); }
+        .empty-action.last-opened { box-shadow:0 0 0 1px var(--vscode-focusBorder); }
         .empty-action:focus-visible { outline:1px solid var(--vscode-focusBorder); outline-offset:2px; }
         /* Quiet on purpose. It qualifies what is already on screen; it is not an alert, and a
            sidebar that shouts every time it refreshes is worse than one that is briefly stale. */
@@ -460,8 +591,8 @@ export class SidebarViewProvider implements vscode.WebviewViewProvider, vscode.D
       </style></head><body>
       <header class="brand">${brandSymbol(30)}
         <span class="brand-copy"><small>Singularity</small><strong>Flow</strong></span>
-        <button class="brand-home" data-action="my-work" type="button"
-          title="Talk to SFlow — your work, and what to do next">${icon('prompt', { size: 14 })}<span>Talk to SFlow</span></button>
+        <button class="brand-home" data-action="my-work" data-selection-key="action:my-work" type="button"
+          title="My Work — current work and next actions">${icon('home', { size: 14 })}<span>My Work</span></button>
         <span class="brand-status${ready ? '' : ' connecting'}" role="img"
           aria-label="${ready ? 'Connected' : 'Connecting'}"
           title="${ready ? 'Connected to the Singularity Flow CLI' : 'Connecting to the Singularity Flow CLI…'}"></span></header>
@@ -469,6 +600,13 @@ export class SidebarViewProvider implements vscode.WebviewViewProvider, vscode.D
       <main>${sections}</main>
       <script nonce="${token}">
         const vscode=acquireVsCodeApi(); const prior=vscode.getState()||{};
+        const markLastOpened=(target)=>{
+          const selected=target?.closest?.('[data-selection-key]'); if(!selected) return;
+          const key=selected.dataset.selectionKey;
+          for(const item of document.querySelectorAll('[data-selection-key]')) item.classList.toggle('last-opened',item.dataset.selectionKey===key);
+          const state=vscode.getState()||{}; state.__lastOpened=key; vscode.setState(state);
+        };
+        if(typeof prior.__lastOpened==='string') for(const item of document.querySelectorAll('[data-selection-key]')) item.classList.toggle('last-opened',item.dataset.selectionKey===prior.__lastOpened);
         for(const section of document.querySelectorAll('[data-section]')){
           if(Object.prototype.hasOwnProperty.call(prior,section.dataset.section)) section.open=Boolean(prior[section.dataset.section]);
           section.addEventListener('toggle',()=>{const state=vscode.getState()||{};state[section.dataset.section]=section.open;vscode.setState(state);});
@@ -507,12 +645,13 @@ export class SidebarViewProvider implements vscode.WebviewViewProvider, vscode.D
           });
         }
         document.addEventListener('click',(event)=>{
-          const action=event.target.closest('[data-action]'); if(action){event.preventDefault();event.stopPropagation();vscode.postMessage({type:'action',action:action.dataset.action});return;}
-          const openNode=event.target.closest('[data-open-node]'); if(openNode){event.preventDefault();event.stopPropagation();vscode.postMessage({type:'node',key:openNode.dataset.openNode});return;}
-          const node=event.target.closest('[data-node]'); if(node&&!event.target.closest('summary')) vscode.postMessage({type:'node',key:node.dataset.node});
-          else if(node&&node.closest('.leaf')) vscode.postMessage({type:'node',key:node.dataset.node});
+          const removeFavorite=event.target.closest('[data-remove-favorite]'); if(removeFavorite){event.preventDefault();event.stopPropagation();vscode.postMessage({type:'favorite-remove',action:removeFavorite.dataset.removeFavorite});return;}
+          const action=event.target.closest('[data-action]'); if(action){event.preventDefault();event.stopPropagation();markLastOpened(action);vscode.postMessage({type:'action',action:action.dataset.action});return;}
+          const openNode=event.target.closest('[data-open-node]'); if(openNode){event.preventDefault();event.stopPropagation();markLastOpened(openNode.closest('.node-row'));vscode.postMessage({type:'node',key:openNode.dataset.openNode});return;}
+          const node=event.target.closest('[data-node]'); if(node&&!event.target.closest('summary')){markLastOpened(node);vscode.postMessage({type:'node',key:node.dataset.node});}
+          else if(node&&node.closest('.leaf')){markLastOpened(node);vscode.postMessage({type:'node',key:node.dataset.node});}
         });
-        document.addEventListener('keydown',(event)=>{if((event.key==='Enter'||event.key===' ')&&event.target.matches('[data-node]')){event.preventDefault();vscode.postMessage({type:'node',key:event.target.dataset.node});}});
+        document.addEventListener('keydown',(event)=>{if((event.key==='Enter'||event.key===' ')&&event.target.matches('[data-node]')){event.preventDefault();markLastOpened(event.target);vscode.postMessage({type:'node',key:event.target.dataset.node});}});
       </script></body></html>`;
   }
 

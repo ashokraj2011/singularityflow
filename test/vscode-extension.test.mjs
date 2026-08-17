@@ -2154,6 +2154,7 @@ test('every core semantic icon resolves for native trees and theme-aware states 
 
 test('the compact sidebar uses distinct modern icons for navigation and task actions', async () => {
   const content = await readFile(source('views/sidebar.ts'), 'utf8');
+  assert.match(content, /label: 'Favorites', icon: 'favorite'/);
   assert.match(content, /label: 'Workspaces', icon: 'workspace'/);
   assert.match(content, /label: 'Lifecycle', icon: 'workflow'/);
   assert.match(content, /label: 'Inbox', icon: 'inbox'/);

@@ -472,7 +472,11 @@ block the action. Archived workspaces move into a separate VS Code folder while
 their checkouts, branches, generated artifacts, approvals, and history remain
 available for inspection and restore.
 
-The VS Code sidebar deliberately separates work from setup. **Lifecycle** is the
+The VS Code sidebar deliberately separates work from setup. **Favorites** stays at the top and lets
+each developer pin the menus they use most through **Choose favorites**; those selections are stored
+only in personal VS Code state and never enter governed repository configuration. First-time users
+start with My Work, Start intake, and Inbox pinned. Favorites and Lifecycle open by default while the
+supporting sections remain collapsed; the sidebar remembers later choices. **Lifecycle** is the
 intake and delivery view: start Initiative, Epic, or Story intake, choose the
 workflow for that work, inspect the selected workflow's phases and artifacts,
 run the next action, and make approval decisions. Workflow choices disappear

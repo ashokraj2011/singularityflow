@@ -118,6 +118,7 @@ const PAGES = Object.freeze({
       ['--title TEXT', 'Story title, when there is no tracker to read it from.'],
       ['--jira', 'Read the Story from Jira instead of the command line.'],
       ['--story-file FILE', 'Read the Story from a YAML file.'],
+      ['--target-url URL', 'Exact authorized browser target. Required by the POC workflow and pinned into Story state.'],
       ['--base BRANCH', 'Cut from this branch instead of the configured default.'],
       ['--fetch', 'Fetch the remote before creating the branch.'],
       ['--json', 'Emit the created Story as JSON.']

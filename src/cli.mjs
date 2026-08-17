@@ -44,6 +44,7 @@ import { nextStepsSnapshot, nextStepsText } from './nextsteps.mjs';
 import { loadHelpDocument } from './help.mjs';
 import { agentMappingStatus, agentStatus, discoverAgents, lockAgent, prepareRemoteOutputs, remoteOutputConflicts, syncAgent } from './agents.mjs';
 import { attestMcpHost, mcpDoctor, mcpStatus, recordMcpEvidence, scaffoldFigmaMcp, smokeMcpHost, warmMcpHost, scaffoldPlaywrightMcp } from './mcp.mjs';
+import { normalizeMcpTargetOrigin } from './mcp-target.mjs';
 import { approvedDesignSourceBinding, verifyDesignSourceLifecycle } from './design-sources.mjs';
 import { generateDesignInventory } from './design-inventory.mjs';
 import { evaluateVisualCoverage } from './visual-coverage.mjs';
@@ -498,6 +499,14 @@ export async function startCommand(positionals, options) {
     }
   }
 
+  const preselectedWorkType = receipt?.answers['workflow-template'] ?? optionString(options, 'work-type');
+  if (preselectedWorkType === 'poc-workflow') {
+    normalizeMcpTargetOrigin(optionString(options, 'target-url'), {
+      required: true,
+      label: 'POC target URL'
+    });
+  }
+
   const materializedSeedText = fileAtRef(root,
     refExists(root, remoteStoryRef) ? remoteStoryRef : localStoryRef,
     storySeedRelative);
@@ -709,6 +718,11 @@ export async function startCommand(positionals, options) {
     selection: receipt?.answers['workflow-template'] ?? optionString(options, 'work-type') ?? seed?.suggestedWorkType ?? null,
     nonInteractiveHint: 'Pass --work-type <id> to choose one without a terminal.'
   });
+  const targetOrigin = normalizeMcpTargetOrigin(optionString(options, 'target-url'), {
+    required: workType === 'poc-workflow',
+    label: 'POC target URL'
+  });
+  if (targetOrigin) source = { ...source, targetOrigin };
   const resolvedWorkType = resolveWorkType(config, workType);
   const selectedAgent = await activatePhaseAgent(
     root, config, id, resolvedWorkType.phases[0], optionString(options, 'agent') ?? null
@@ -2309,6 +2323,7 @@ async function mcpCommand(positionals, options) {
       outputPath: optionString(options, 'output'),
       outputUrl: optionString(options, 'output-url'),
       note: optionString(options, 'note'),
+      targetUrl: optionString(options, 'target-url'),
       kind: optionString(options, 'kind', 'tool-call'),
       fileKey: optionString(options, 'file-key'),
       fileVersion: optionString(options, 'file-version'),

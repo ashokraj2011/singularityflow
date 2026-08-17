@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
 
-import { consumeRepairAttempt } from '../src/repair-budget.mjs';
+import { consumeRepairAttempt, repairBudgetPhaseForRejection } from '../src/repair-budget.mjs';
 
 test('repair budgets stop a third repair and reset only on a new intent generation', () => {
   const workflow = {
@@ -32,4 +32,29 @@ test('repair budgets stop a third repair and reset only on a new intent generati
   });
   assert.equal(reset.resetGeneration, 2);
   assert.equal(reset.attempts.length, 1);
+});
+
+test('repair budgets follow the reopened validation boundary without counting passing review edits', () => {
+  const workflow = {
+    phaseOrder: ['poc-intake', 'poc-test-generation', 'poc-validation', 'poc-publication-review'],
+    phases: {
+      'poc-intake': { id: 'poc-intake' },
+      'poc-test-generation': { id: 'poc-test-generation' },
+      'poc-validation': {
+        id: 'poc-validation', validationVerdict: 'passed',
+        repairBudget: { maxAttempts: 2, resetOnPhase: 'poc-intake' }
+      },
+      'poc-publication-review': { id: 'poc-publication-review' }
+    }
+  };
+  assert.equal(repairBudgetPhaseForRejection(
+    workflow, workflow.phases['poc-validation'], 'poc-validation'
+  ), null, 'a passing validation review correction is not a failed-test repair');
+  workflow.phases['poc-validation'].validationVerdict = 'failed';
+  assert.equal(repairBudgetPhaseForRejection(
+    workflow, workflow.phases['poc-validation'], 'poc-test-generation'
+  )?.id, 'poc-validation');
+  assert.equal(repairBudgetPhaseForRejection(
+    workflow, workflow.phases['poc-publication-review'], 'poc-test-generation'
+  )?.id, 'poc-validation', 'publication rejection cannot bypass the validation budget');
 });

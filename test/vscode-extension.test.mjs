@@ -305,7 +305,7 @@ test('no CLI anywhere fails with both places named', () => {
   }
 });
 
-test('wm build gets the long timeout; everything else does not', async () => {
+test('world-model builds and lifecycle submissions get operation-appropriate long timeouts', async () => {
   const timeouts = [];
   const client = new SingularityFlowClient({
     location: { executable: 'node', cli: '/cli.mjs', source: 'setting' },
@@ -317,12 +317,14 @@ test('wm build gets the long timeout; everything else does not', async () => {
   globalThis.setTimeout = (fn, ms, ...rest) => { timeouts.push(ms); return original(fn, 1, ...rest); };
   try {
     await client.run(['wm', 'build']).catch(() => {});
+    await client.run(['submit', '--phase', 'poc-validation']).catch(() => {});
     await client.run(['initiative', 'status']).catch(() => {});
   } finally {
     globalThis.setTimeout = original;
   }
   assert.equal(timeouts[0], 15 * 60_000);
-  assert.equal(timeouts[1], 120_000);
+  assert.equal(timeouts[1], 30 * 60_000);
+  assert.equal(timeouts[2], 120_000);
 });
 
 test('phases are read in declared order with the state each is in', () => {
@@ -2460,6 +2462,7 @@ test('POC Story intake explains the browser preflight and bounded validation bef
   const html = intakeHtml(intake({
     shape: 'story', tracker: 'none', id: 'poc-checkout', title: 'Checkout POC',
     description: 'Generate and validate checkout regression coverage',
+    targetUrl: 'https://staging.example.test/checkout',
     workType: 'poc-workflow',
     storyWorkflows: [...INTAKE_CHOICES.storyWorkflows, {
       id: 'poc-workflow', label: 'POC workflow', description: 'Governed browser test generation',
@@ -2468,6 +2471,15 @@ test('POC Story intake explains the browser preflight and bounded validation bef
   }));
   assert.match(html, /POC browser readiness/);
   assert.match(html, /mcp smoke playwright --url/);
+  assert.match(html, /data-field="targetUrl"/);
+  assert.deepEqual(intakeProblems(intake({
+    shape: 'story', tracker: 'none', id: 'poc-checkout', title: 'Checkout POC',
+    description: 'Generate coverage', workType: 'poc-workflow', targetUrl: ''
+  })).some((problem) => /authorized HTTPS target URL/.test(problem)), true);
+  assert.ok(intakeCommand(intake({
+    shape: 'story', tracker: 'none', id: 'poc-checkout', title: 'Checkout POC',
+    description: 'Generate coverage', workType: 'poc-workflow', targetUrl: 'https://staging.example.test'
+  })).includes('--target-url'));
   assert.match(html, /at most two/);
 });
 

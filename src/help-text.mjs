@@ -50,7 +50,7 @@ Usage:
   singularity-flow regression analyze [--base main] [--good REF] [--bad HEAD] [--path PATH]... [--max 20] [--json]
   singularity-flow start <WORK-ID> [--jira | --story-file FILE] [--title TEXT] [--description TEXT]
     [--acceptance-criteria TEXT] [--document FILE]... [--document-url URL]... --from-branch BRANCH [--fetch] [--allow-dirty]
-    [--work-type ID] [--agent ID] [--ref CANONICAL-BRANCH] [--capability ID] [--selection-receipt TOKEN]
+    [--work-type ID] [--target-url AUTHORIZED-URL] [--agent ID] [--ref CANONICAL-BRANCH] [--capability ID] [--selection-receipt TOKEN]
   singularity-flow choices begin start <WORK-ID> [--json]
   singularity-flow choices begin approve <WORK-ID> [--fetch] [--json]
   singularity-flow choices answer <TOKEN> <CHOICE> <ID> [--json]
@@ -156,7 +156,7 @@ Usage:
   singularity-flow mcp warm <SERVER> --network
   singularity-flow mcp attest <SERVER> --confirm <SERVER>
   singularity-flow mcp record <SERVER> --tool TOOL [--kind tool-call|design-source|visual-artifact]
-    [--phase PHASE] [--output PATH|--output-url HTTPS-URL] [--file-key KEY] [--file-version VERSION] [--node NODE] [--note TEXT]
+    [--phase PHASE] [--target-url AUTHORIZED-URL] [--output PATH|--output-url HTTPS-URL] [--file-key KEY] [--file-version VERSION] [--node NODE] [--note TEXT]
   singularity-flow mcp design-sources status [--json]
   singularity-flow mcp design-sources promote <RECORD-ID> --confirm <RECORD-ID> [--reason TEXT]
   singularity-flow visual status [--json]
@@ -300,7 +300,7 @@ Usage:
   singularity-flow epic drift observe|adopt|restore-plan [--epic EPIC-KEY]
   singularity-flow story branch create <BRANCH> --parent <STORY-KEY>
   singularity-flow story branch attach|status|promote --parent <STORY-KEY> [--mode pr|direct]
-  singularity-flow story start <STORY-KEY> --from-branch BRANCH [--selection-receipt TOKEN] [--fetch]
+  singularity-flow story start <STORY-KEY> --from-branch BRANCH [--target-url AUTHORIZED-URL] [--selection-receipt TOKEN] [--fetch]
   singularity-flow story inbox [--assigned-to-me] [--project KEY] [--json]
   singularity-flow story fetch <STORY-KEY> [--directory PATH] [--json]
   singularity-flow story interval status|checkpoint|reconcile|escalate [--parent STORY-KEY]

@@ -131,7 +131,12 @@ test('phase readiness requires a hash-bound live smoke receipt when configured',
   await scaffoldPlaywrightMcp(root);
   await attestMcpHost(root, definition, 'playwright', { confirmation: 'playwright' });
   const phase = { id: 'verification', mcp: { requiredServers: ['playwright'], requireSmoke: true, evidence: [] } };
-  const workflow = { resolution: { mcpServers: definition.mcpServers } };
+  const workflow = {
+    resolution: { mcpServers: definition.mcpServers },
+    mcpAuthorizations: {
+      playwright: { schemaVersion: 1, origins: ['https://example.test'], source: 'story-intake', pinnedAt: new Date().toISOString() }
+    }
+  };
   await assert.rejects(() => assertMcpPhaseReadiness(root, workflow, phase), /no successful live smoke receipt/);
   const receipt = await smokeMcpHost(root, definition, 'playwright', {
     targetUrl: 'https://example.test/health',
@@ -139,9 +144,51 @@ test('phase readiness requires a hash-bound live smoke receipt when configured',
   });
   assert.equal(receipt.authorizedOrigin, 'https://example.test');
   await assert.doesNotReject(() => assertMcpPhaseReadiness(root, workflow, phase));
+  const wrongOrigin = structuredClone(workflow);
+  wrongOrigin.mcpAuthorizations.playwright.origins = ['https://staging.example.test'];
+  await assert.rejects(() => assertMcpPhaseReadiness(root, wrongOrigin, phase), /not authorized for this Story/);
+  await writeFile(receipt.path, `${JSON.stringify({ ...receipt, checkedAt: '2020-01-01T00:00:00.000Z' }, null, 2)}\n`);
+  await assert.rejects(() => assertMcpPhaseReadiness(root, workflow, phase), /older than 24 hours/);
+  await writeFile(receipt.path, `${JSON.stringify({
+    ...receipt,
+    result: { status: 'passed', tools: ['browser_navigate'] }
+  }, null, 2)}\n`);
+  await assert.rejects(() => assertMcpPhaseReadiness(root, workflow, phase), /receipt structure or server identity is invalid/);
+  await assert.rejects(() => smokeMcpHost(root, definition, 'playwright', {
+    targetUrl: 'https://example.test',
+    probe: async () => ({
+      status: 'passed', tools: ['browser_navigate', 'browser_snapshot', 'browser_close'],
+      finalOrigin: 'https://redirect.example.test'
+    })
+  }), /ended outside the authorized origin/);
   await assert.rejects(() => smokeMcpHost(root, definition, 'playwright', {
     targetUrl: 'https://user:secret@example.test/health', probe: async () => ({ status: 'passed' })
   }), /must not contain credentials/);
+});
+
+test('browser navigation evidence is bound to the Story-authorized origin', async () => {
+  const root = await repository('sflow-mcp-origin-evidence-');
+  const workflow = {
+    workItem: { id: 'WORK-ORIGIN' }, currentPhase: 'verification', phaseOrder: ['verification'],
+    phases: { verification: { generation: 0, status: 'in_progress' } },
+    resolution: { mcpServers: configured() },
+    mcpAuthorizations: {
+      playwright: { schemaVersion: 1, origins: ['https://staging.example.test'], source: 'story-intake', pinnedAt: new Date().toISOString() }
+    }
+  };
+  await assert.rejects(() => recordMcpEvidence(root, workflow, {
+    server: 'playwright', tool: 'browser_navigate', phase: 'verification', agent: 'qa'
+  }), /requires --target-url/);
+  await assert.rejects(() => recordMcpEvidence(root, workflow, {
+    server: 'playwright', tool: 'browser_navigate', phase: 'verification', agent: 'qa',
+    targetUrl: 'https://production.example.test'
+  }), /outside this Story's authorization/);
+  const recorded = await recordMcpEvidence(root, workflow, {
+    server: 'playwright', tool: 'browser_navigate', phase: 'verification', agent: 'qa',
+    targetUrl: 'https://staging.example.test/checkout'
+  });
+  assert.equal(recorded.record.targetOrigin, 'https://staging.example.test');
+  assert.equal((await verifyMcpEvidence(root, workflow)).errors.length, 0);
 });
 
 test('phase MCP evidence requirements are generation-bound and require durable outputs', async () => {

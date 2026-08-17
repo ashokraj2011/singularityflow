@@ -30,6 +30,10 @@ function run(command, args, cwd, { allowFailure = false } = {}) {
   const result = spawnSync(command, args, {
     cwd,
     encoding: 'utf8',
+    // Repository snapshots intentionally carry the complete multi-surface read model. Keep this
+    // harness above Node's 1 MiB default, matching the bounded extension client instead of killing
+    // a valid snapshot with ENOBUFS as the catalog grows.
+    maxBuffer: 40 * 1024 * 1024,
     env: {
       ...process.env,
       NODE_ENV: 'test',

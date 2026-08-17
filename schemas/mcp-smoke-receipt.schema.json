@@ -14,10 +14,21 @@
     "policySha256": { "type": "string", "pattern": "^[a-f0-9]{64}$" },
     "result": {
       "type": "object",
-      "required": ["status", "tools"],
+      "required": ["status", "tools", "finalOrigin"],
       "properties": {
         "status": { "const": "passed" },
-        "tools": { "type": "array", "minItems": 1, "uniqueItems": true, "items": { "type": "string" } },
+        "tools": {
+          "type": "array",
+          "minItems": 3,
+          "uniqueItems": true,
+          "items": { "type": "string" },
+          "allOf": [
+            { "contains": { "const": "browser_navigate" } },
+            { "contains": { "const": "browser_snapshot" } },
+            { "contains": { "const": "browser_close" } }
+          ]
+        },
+        "finalOrigin": { "type": "string", "format": "uri" },
         "protocolVersion": { "type": ["string", "null"] }
       },
       "additionalProperties": true

@@ -51,3 +51,15 @@ export function consumeRepairAttempt(workflow, phase, { targetPhase, actor, at, 
   workflow.repairBudgets[phase.id] = state;
   return structuredClone(state);
 }
+
+export function repairBudgetPhaseForRejection(workflow, sourcePhase, targetPhaseId) {
+  const sourceIndex = workflow.phaseOrder?.indexOf(sourcePhase.id) ?? -1;
+  const targetIndex = workflow.phaseOrder?.indexOf(targetPhaseId) ?? -1;
+  if (sourceIndex < 0 || targetIndex < 0 || targetIndex > sourceIndex) return null;
+  const candidates = workflow.phaseOrder
+    .slice(targetIndex, sourceIndex + 1)
+    .map((id) => workflow.phases?.[id])
+    .filter((phase) => phase?.repairBudget)
+    .filter((phase) => phase.id !== sourcePhase.id || sourcePhase.validationVerdict === 'failed');
+  return candidates.at(-1) ?? null;
+}

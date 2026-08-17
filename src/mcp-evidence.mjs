@@ -2,6 +2,7 @@ import { randomUUID } from 'node:crypto';
 import { lstat, readFile, readdir } from 'node:fs/promises';
 import path from 'node:path';
 import { withSubjectLock } from './subject-lock.mjs';
+import { authorizedMcpOrigins, safeMcpTargetUrl } from './mcp-target.mjs';
 import {
   exists, nowIso, posix, secureRepositoryPath, SingularityFlowError, snapshot,
   writeAtomic, writeJson
@@ -100,6 +101,7 @@ async function recordCount(directory) {
 
 export async function recordMcpEvidence(root, workflow, {
   server, tool, phase, outputPath = null, outputUrl = null, note = null, agent = null, actor = null,
+  targetUrl = null,
   kind = 'tool-call', fileKey = null, fileVersion = null, fileVersionCreatedAt = null,
   nodes = [], format = null, profileId = null, screenId = null, stateId = null,
   itemDirectory = null
@@ -108,6 +110,22 @@ export async function recordMcpEvidence(root, workflow, {
   if (!configured) throw new SingularityFlowError(`MCP server '${server}' is not pinned for this work item.`);
   if (!['tool-call', 'design-source', 'visual-artifact'].includes(kind)) throw new SingularityFlowError(`Unsupported MCP evidence kind '${kind}'.`, { code: 'MCP_EVIDENCE_INVALID' });
   const activePhase = validateCommon(workflow, configured, { server, tool, phase, agent });
+  let targetOrigin = null;
+  const authorizedOrigins = authorizedMcpOrigins(workflow, server);
+  if (tool === 'browser_navigate' && authorizedOrigins.length) {
+    if (!targetUrl) {
+      throw new SingularityFlowError('Authorized browser navigation evidence requires --target-url.', {
+        code: 'MCP_EVIDENCE_TARGET_REQUIRED'
+      });
+    }
+    targetOrigin = safeMcpTargetUrl(targetUrl, { label: 'MCP navigation target URL' }).origin;
+    if (!authorizedOrigins.includes(targetOrigin)) {
+      throw new SingularityFlowError(
+        `MCP navigation target origin '${targetOrigin}' is outside this Story's authorization.`,
+        { code: 'MCP_EVIDENCE_TARGET_UNAUTHORIZED' }
+      );
+    }
+  }
   if (note && SECRET.test(note)) throw new SingularityFlowError('MCP evidence notes must not contain credentials or secrets.', { code: 'MCP_EVIDENCE_SECRET' });
   if (outputPath && outputUrl) throw new SingularityFlowError('Use either --output or --output-url, not both.');
   if (kind !== 'tool-call' && !outputPath && !outputUrl) throw new SingularityFlowError(`${kind} evidence requires --output or --output-url.`, { code: 'MCP_EVIDENCE_OUTPUT_REQUIRED' });
@@ -168,6 +186,7 @@ export async function recordMcpEvidence(root, workflow, {
       recordedAt: nowIso(),
       captureSource: 'declared-by-agent',
       note: note ?? null,
+      targetOrigin,
       output,
       ...(kind === 'design-source' ? {
         fileKey: String(fileKey).trim(),
@@ -216,6 +235,11 @@ export async function verifyMcpEvidence(root, workflow, { itemDirectory = null }
     const configured = workflow.resolution?.mcpServers?.[record.server];
     if (!configured) { errors.push(`${prefix} references MCP server '${record.server ?? 'unknown'}' outside the pinned work-item policy.`); continue; }
     if (record.hostReference !== configured.hostReference) errors.push(`${prefix} host reference differs from the pinned policy.`);
+    const authorizedOrigins = authorizedMcpOrigins(workflow, record.server);
+    if (record.tool === 'browser_navigate' && authorizedOrigins.length) {
+      if (!record.targetOrigin) errors.push(`${prefix} does not identify its browser navigation origin.`);
+      else if (!authorizedOrigins.includes(record.targetOrigin)) errors.push(`${prefix} navigation origin '${record.targetOrigin}' is outside the Story authorization.`);
+    }
     if (!workflow.phaseOrder.includes(record.phase)) errors.push(`${prefix} references unknown phase '${record.phase ?? 'unknown'}'.`);
     if (configured.phases.length && !configured.phases.includes(record.phase)) errors.push(`${prefix} is outside MCP server '${record.server}' phase scope.`);
     if (configured.agents.length && !configured.agents.includes(record.agent)) errors.push(`${prefix} was recorded by governed agent '${record.agent ?? 'unknown'}', outside the pinned assignment.`);

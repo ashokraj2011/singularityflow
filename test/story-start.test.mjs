@@ -131,6 +131,30 @@ test('Story intake pins refreshed remote configuration and world-model files fro
   assert.match(await readFile(path.join(clone, 'singularity/world-model/manifest.json'), 'utf8'), /"marker":"remote"/);
 });
 
+test('POC Story intake requires and durably pins the authorized browser origin', async () => {
+  const root = await repository();
+  const source = manualStorySource('POC-901', { title: 'Generate staging regression coverage' });
+
+  await assert.rejects(() => startStory(root, {
+    id: 'POC-901', source, workType: 'poc-workflow', baseBranch: 'main'
+  }), /POC target URL is required/);
+
+  const created = await startStory(root, {
+    id: 'POC-901', source, workType: 'poc-workflow', baseBranch: 'main',
+    targetUrl: 'https://staging.example.test/application/start'
+  });
+  assert.equal(created.resumed, false);
+  assert.equal(created.workflow.workItem.source.targetOrigin, 'https://staging.example.test');
+  assert.deepEqual(created.workflow.mcpAuthorizations.playwright.origins, ['https://staging.example.test']);
+
+  const resumed = await startStory(root, {
+    id: 'POC-901', source: manualStorySource('POC-901', { title: 'Existing POC' }),
+    workType: 'poc-workflow'
+  });
+  assert.equal(resumed.resumed, true);
+  assert.deepEqual(resumed.workflow.mcpAuthorizations.playwright.origins, ['https://staging.example.test']);
+});
+
 test('manual Story source requires only a Work ID and title while normalizing optional lists', () => {
   const source = manualStorySource('LOCAL-2', {
     title: 'Small local Story',

@@ -56,6 +56,8 @@ export interface IntakeForm {
   goal: string;
   /** How it will be judged done. A Story asks for it. */
   acceptanceCriteria: string;
+  /** Exact browser origin pinned for the POC workflow. */
+  targetUrl: string;
   profile: string | null;
   profiles: ProfileChoice[];
   /** Story workflow selected from workflow.yml. Passed explicitly because VS Code has no TTY. */
@@ -100,7 +102,7 @@ export interface BaseBranchChoice {
 export const EMPTY_INTAKE_FORM: IntakeForm = {
   targetWorkspace: null, targetRepository: null, targetBranch: null,
   shape: 'epic', tracker: 'none', key: '', id: '', title: '', description: '', goal: '',
-  acceptanceCriteria: '', profile: null, profiles: [], workType: null, storyWorkflows: [],
+  acceptanceCriteria: '', targetUrl: '', profile: null, profiles: [], workType: null, storyWorkflows: [],
   baseBranch: null, baseBranchChoices: [], baseRemote: null, baseBranchReason: null,
   basePreflightPassed: false, basePreflightChecking: false, basePreflightReason: null,
   workflowReason: null,
@@ -188,6 +190,18 @@ export function intakeProblems(form: IntakeForm): string[] {
     } else if (!form.storyWorkflows.length) {
       problems.push(form.workflowReason ?? 'No Story workflow is configured in singularity/workflow.yml.');
     }
+    if (form.workType === 'poc-workflow') {
+      if (!form.targetUrl.trim()) problems.push('Enter the exact authorized HTTPS target URL for this POC.');
+      else {
+        try {
+          const target = new URL(form.targetUrl.trim());
+          const loopback = ['localhost', '127.0.0.1', '::1'].includes(target.hostname);
+          if (target.username || target.password || (target.protocol !== 'https:' && !(target.protocol === 'http:' && loopback))) {
+            problems.push('The POC target must be HTTPS, except for loopback HTTP, and must not contain credentials.');
+          }
+        } catch { problems.push('Enter an absolute authorized URL for the POC target.'); }
+      }
+    }
     if (!form.baseBranch) {
       problems.push(form.baseBranchReason
         ?? (form.baseBranchChoices.length
@@ -244,10 +258,11 @@ export function intakeCommand(form: IntakeForm): string[] {
   // One base for the whole capability. Omitted entirely when nothing was chosen, so the
   // single-repository default is reached by the same code path it always was.
   const capabilityBase = form.baseBranch ? ['--from-branch', form.baseBranch] : [];
-  if (tracked) return ['story', 'start', identifier, '--json', '--fetch', '--work-type', form.workType!, ...capabilityBase];
+  const target = form.workType === 'poc-workflow' ? ['--target-url', form.targetUrl.trim()] : [];
+  if (tracked) return ['story', 'start', identifier, '--json', '--fetch', '--work-type', form.workType!, ...target, ...capabilityBase];
   const args = ['start', identifier, '--json', '--fetch',
     '--title', form.title.trim(), '--description', form.description.trim(),
-    '--work-type', form.workType!, ...capabilityBase];
+    '--work-type', form.workType!, ...target, ...capabilityBase];
   if (form.acceptanceCriteria.trim()) {
     args.push('--acceptance-criteria', form.acceptanceCriteria.trim());
   }
@@ -438,9 +453,13 @@ function pocReadinessHtml(form: IntakeForm): string {
     <p class="question">Starting creates the isolated Story and opens governed intent intake. Before
       UI exploration, this workflow requires a current Playwright host attestation, a live smoke
       against the authorized target origin, and generation-bound browser evidence.</p>
+    <p><label>Authorized target URL <input type="url" value="${escape(form.targetUrl)}"
+      data-field="targetUrl" placeholder="https://staging.example.com" size="48"></label></p>
+    <p class="muted">The Story pins the URL's origin. Smoke receipts and navigation evidence for a
+      different origin are refused.</p>
     <pre><code>singularity-flow mcp scaffold playwright
 singularity-flow mcp attest playwright --confirm playwright
-singularity-flow mcp smoke playwright --url &lt;AUTHORIZED-URL&gt;</code></pre>
+singularity-flow mcp smoke playwright --url ${escape(form.targetUrl || '<AUTHORIZED-URL>')}</code></pre>
     <p class="meta">The later validation gate runs TypeScript compilation and the repository's
       Playwright tests. Failed validation cannot be approved; a reviewer may authorize at most two
       repair attempts.</p>

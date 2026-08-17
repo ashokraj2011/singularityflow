@@ -544,7 +544,8 @@
             "id": { "type": "string", "minLength": 1 },
             "command": { "type": "string", "minLength": 1 },
             "argv": { "type": "array", "minItems": 1, "items": { "type": "string" } },
-            "modelPolicy": { "enum": ["never", "required", "unknown"] }
+            "modelPolicy": { "enum": ["never", "required", "unknown"] },
+            "timeoutMs": { "type": "integer", "minimum": 1000, "maximum": 7200000 }
           },
           "oneOf": [
             { "required": ["command"], "not": { "required": ["argv"] } },

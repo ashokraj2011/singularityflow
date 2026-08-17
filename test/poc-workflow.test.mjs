@@ -1,11 +1,12 @@
 import assert from 'node:assert/strict';
-import { mkdtemp, readFile, rm } from 'node:fs/promises';
+import { mkdtemp, readFile, rm, writeFile } from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
 import test from 'node:test';
 import YAML from 'yaml';
 
 import { initializeDefinition, loadDefinition, resolveWorkType, validateDefinition } from '../src/config.mjs';
+import { installWorkflow } from '../src/workflow-catalog.mjs';
 
 const ROOT = path.resolve(path.dirname(new URL(import.meta.url).pathname), '..');
 const PHASES = [
@@ -96,4 +97,30 @@ test('the repair and publication templates refuse autonomous success', async () 
   assert.match(publication, /does not create a pull request/i);
   assert.match(publication, /never\s+write or force-update the selected base/i);
   assert.doesNotMatch(`${validation}\n${publication}\n${agent}`, /failed payment|retry a payment/i);
+});
+
+test('catalog installation upgrades an older repository with POC agents and MCP routing', async (t) => {
+  const root = await mkdtemp(path.join(os.tmpdir(), 'sflow-poc-upgrade-'));
+  t.after(() => rm(root, { recursive: true, force: true }));
+  await initializeDefinition(root);
+
+  const workflowPath = path.join(root, 'singularity/workflow.yml');
+  const old = YAML.parse(await readFile(workflowPath, 'utf8'));
+  delete old.workTypes['poc-workflow'];
+  for (const phase of PHASES) delete old.phases[phase];
+  old.mcpServers.playwright.agents = old.mcpServers.playwright.agents.filter((agent) => agent !== 'poc-automation');
+  old.mcpServers.playwright.phases = old.mcpServers.playwright.phases.filter((phase) => !PHASES.includes(phase));
+  old.mcpServers.playwright.tools = ['browser_navigate', 'browser_snapshot', 'browser_click', 'browser_take_screenshot'];
+  await writeFile(workflowPath, YAML.stringify(old));
+  await rm(path.join(root, '.github/agents/poc-automation.agent.md'));
+  await rm(path.join(root, 'singularity/templates/poc-workflow'), { recursive: true });
+
+  const result = await installWorkflow(root, 'poc-workflow');
+  assert.ok(result.files.includes('.github/agents/poc-automation.agent.md'));
+  const upgraded = await loadDefinition(root);
+  const resolved = resolveWorkType(upgraded, 'poc-workflow');
+  assert.ok(upgraded.mcpServers.playwright.phases.includes('poc-ui-exploration'));
+  assert.ok(upgraded.mcpServers.playwright.tools.includes('browser_fill_form'));
+  assert.ok(upgraded.mcpServers.playwright.agents.includes('poc-automation'));
+  for (const phase of resolved.phases) assert.equal(phase.defaultAgent, 'poc-automation');
 });

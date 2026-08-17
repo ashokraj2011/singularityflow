@@ -307,15 +307,26 @@ analysis. Planning has one approval over the editable Story list, parent
 specification, and every per-Story specification.
 
 There is **one navigation for every contributor**. The VS Code activity-bar view
-uses four stable areas:
+uses these stable sections:
 
 ```text
+Favorites       Personal shortcuts to frequently used menus
+Inbox           Generated documents · review packets · approvals · portfolio dashboard
 Workspaces      Local directory · selected capabilities · repositories · health
 Lifecycle       Intake · workflow selection · phases · artifacts · progress · decisions
-Inbox           Generated documents · review packets · approvals · portfolio dashboard
 Configuration   Workflow/Artifact Designers · agents · prompts · skills · prompt packs ·
                 capabilities · integrations · world-model rules
+Help            Offline topics · command reference · troubleshooting
+Logs            Activity · prompts · Copilot usage · workspace operations
 ```
+
+Favorites begins with My Work, Start intake, and Inbox on a developer's first visit. Use **Favorites
+→ Choose favorites** to change that set or pin other commonly used menus. An explicitly empty set is
+preserved. Favorites contain only stable menu IDs in personal VS Code state; they are never written
+to governed files. Opening a favorite runs the original command with the same repository, lifecycle,
+confirmation, and authority checks. Use the inline unpin button to remove a shortcut. Favorites and
+Lifecycle open by default; other sections stay collapsed until needed, and later choices are
+preserved.
 
 The guidance role chosen during onboarding can filter instructions, but workflow
 phases choose governed agents. It never grants approval authority. The active

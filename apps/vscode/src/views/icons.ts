@@ -14,6 +14,7 @@
  */
 const BASE_PATHS = {
   // Product structure
+  home: '<path d="m3 11 9-8 9 8"/><path d="M5 10v11h14V10M9 21v-7h6v7"/>',
   workspace: '<rect x="3" y="3" width="8" height="8" rx="2.2"/><rect x="13" y="3" width="8" height="8" rx="2.2"/><rect x="3" y="13" width="8" height="8" rx="2.2"/><rect x="13" y="13" width="8" height="8" rx="2.2"/>',
   workspaceManage: '<rect x="3" y="4" width="18" height="16" rx="3"/><path d="M7 9h10M7 13h7M7 17h4"/>',
   workspaceAdd: '<rect x="3" y="4" width="14" height="16" rx="3"/><path d="M7 9h6M7 13h4M19 14v7M15.5 17.5h7"/>',
@@ -75,6 +76,7 @@ const BASE_PATHS = {
   refresh: '<path d="M20 11a8 8 0 1 0-2.3 6M20 5v6h-6"/>',
   close: '<path d="M6 6l12 12M18 6 6 18"/>',
   search: '<circle cx="11" cy="11" r="7"/><path d="m16 16 5 5"/>',
+  favorite: '<path d="m12 2.8 2.8 5.7 6.3.9-4.6 4.5 1.1 6.3-5.6-3-5.6 3 1.1-6.3-4.6-4.5 6.3-.9z"/>',
 
   // States
   ok: '<circle cx="12" cy="12" r="9"/><path d="m8 12 2.7 2.7L16.5 9"/>',
@@ -130,6 +132,7 @@ export function icon(name: IconName, { size = 16 }: { size?: 14 | 16 | 20 | 24 }
 export const TREE_ICONS = {
   // The three entry points use the restrained brand accent. Everything beneath them stays neutral
   // unless it communicates status, so the sidebar does not become a wall of green glyphs.
+  home: { id: 'home', color: 'charts.green' },
   workspace: { id: 'root-folder', color: 'charts.green' },
   workspaceManage: { id: 'project' }, workspaceAdd: { id: 'new-folder' },
   capability: { id: 'type-hierarchy', color: 'charts.green' },
@@ -143,6 +146,7 @@ export const TREE_ICONS = {
   pack: { id: 'package' }, approval: { id: 'verified' }, inbox: { id: 'inbox', color: 'charts.green' }, jira: { id: 'issues' },
   archive: { id: 'archive' },
   help: { id: 'question', color: 'charts.green' }, start: { id: 'play-circle' },
+  favorite: { id: 'star-full', color: 'charts.yellow' },
   worldModel: { id: 'globe' }, story: { id: 'git-pull-request' }, initiative: { id: 'milestone' },
   mcp: { id: 'plug' },
   visual: { id: 'preview', color: 'charts.green' }, compare: { id: 'diff' },

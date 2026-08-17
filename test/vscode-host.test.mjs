@@ -169,7 +169,7 @@ const settle = () => new Promise((resolve) => setTimeout(resolve, 400));
 
 /** Enough of the VS Code API for activation to complete and for the tree to be read. */
 function stubVscode() {
-  const registered = { commands: new Map(), trees: new Map(), webviewViews: new Map(), statusBars: [], errors: [], warnings: [], output: [], inputBoxes: [], panels: [], quickPicks: [], openDialogs: [], openedDocuments: [], answers: [], infos: [], diagnostics: new Map(), saveListeners: [], watchers: [], executedCommands: [], pickedFile: null, pickedFolder: null };
+  const registered = { commands: new Map(), trees: new Map(), webviewViews: new Map(), statusBars: [], errors: [], warnings: [], output: [], inputBoxes: [], panels: [], quickPicks: [], openDialogs: [], openedDocuments: [], answers: [], infos: [], diagnostics: new Map(), saveListeners: [], watchers: [], executedCommands: [], pickedFile: null, pickedFolder: null, pickedFavorites: undefined };
 
   class EventEmitter {
     constructor() { this.listeners = new Set(); }
@@ -281,6 +281,10 @@ function stubVscode() {
   };
   api.window.showQuickPick = async (items, options) => {
     registered.quickPicks.push({ items, options });
+    if (options?.canPickMany) {
+      if (registered.pickedFavorites === null) return undefined;
+      return registered.pickedFavorites ?? (items[0] ? [items[0]] : []);
+    }
     return registered.pickedLens === null ? undefined : (items[0] ?? undefined);
   };
   registered.warningActions = [];
@@ -784,8 +788,11 @@ test('the visible sidebar is one branded, scrollable navigation surface', async 
   const navigation = registered.webviewViews.get('singularityFlow.navigation');
   assert.ok(navigation, 'the visible webview provider is registered');
   assert.match(navigation.webview.html, /<small>Singularity<\/small><strong>Flow<\/strong>/);
+  assert.match(navigation.webview.html, /title="My Work — current work and next actions"[^>]*>[\s\S]*?<span>My Work<\/span>/);
+  assert.doesNotMatch(navigation.webview.html, />Talk to SFlow<\/span>/,
+    'the compatibility alias is not presented as visible navigation');
   for (const [section, label] of Object.entries({
-    workspaces: 'Workspaces', lifecycle: 'Lifecycle', inbox: 'Inbox',
+    favorites: 'Favorites', workspaces: 'Workspaces', lifecycle: 'Lifecycle', inbox: 'Inbox',
     configuration: 'Configuration', help: 'Help'
   })) {
     assert.match(navigation.webview.html, new RegExp(`data-section="${section}"`));
@@ -797,9 +804,67 @@ test('the visible sidebar is one branded, scrollable navigation surface', async 
     'section names use a restrained medium weight rather than full bold');
   assert.doesNotMatch(sectionTitleRule, /text-transform:uppercase/,
     'section names are not forced to all caps');
+  assert.match(navigation.webview.html, /data-section="favorites" open/);
+  assert.match(navigation.webview.html, /data-section="lifecycle" open/);
+  for (const section of ['workspaces', 'inbox', 'configuration', 'help', 'logs']) {
+    assert.doesNotMatch(navigation.webview.html, new RegExp(`data-section="${section}" open`),
+      `${section} starts collapsed to keep the first view calm`);
+  }
+  assert.match(navigation.webview.html, /\.node-row\.actionable\.last-opened/);
   assert.match(navigation.webview.html, /default-src 'none'/);
   assert.doesNotMatch(navigation.webview.html, /unsafe-inline|unsafe-eval/);
   assert.match(navigation.webview.html, /prefers-reduced-motion/);
+});
+
+test('developers can choose, launch, unpin, and retain favorite menus', async (t) => {
+  if (!requireBundle(t)) return;
+  const values = new Map();
+  const { api, registered } = stubVscode();
+  api.workspace.workspaceFolders = undefined;
+  const extension = loadExtension(api);
+  await extension.activate(context(values));
+
+  const navigation = registered.webviewViews.get('singularityFlow.navigation');
+  assert.match(navigation.webview.html, /data-section="favorites"/);
+  assert.match(navigation.webview.html, /aria-label="Choose favorite menus"/);
+  assert.match(navigation.webview.html, /aria-label="Unpin My Work"/);
+  assert.match(navigation.webview.html, /aria-label="Unpin Start intake"/);
+  assert.match(navigation.webview.html, /aria-label="Unpin Inbox"/);
+  assert.ok(registered.commands.has('singularityFlow.manageFavorites'));
+
+  registered.pickedFavorites = [
+    { menuId: 'my-work' }, { menuId: 'work-start' }, { menuId: 'inbox-open' }, { menuId: 'help-open' }
+  ];
+  await navigation.post({ type: 'action', action: 'favorites-manage' });
+  await until(() => registered.quickPicks.length === 1);
+  assert.equal(registered.quickPicks[0].options.canPickMany, true);
+  assert.equal(registered.quickPicks[0].options.title, 'Choose favorite Singularity Flow menus');
+  await until(() => navigation.webview.html.includes('aria-label="Unpin Help Center"'));
+  assert.deepEqual(values.get('singularityFlow.navigationFavorites.v1'),
+    ['my-work', 'work-start', 'inbox-open', 'help-open']);
+  assert.ok(registered.infos.includes('Help Center added to Favorites.'));
+
+  await navigation.post({ type: 'node', key: 'favorites:0' });
+  await until(() => registered.executedCommands.some((entry) => entry.id === 'singularityFlow.myWork'));
+
+  await navigation.post({ type: 'favorite-remove', action: 'my-work' });
+  await until(() => !navigation.webview.html.includes('aria-label="Unpin My Work"'));
+  assert.deepEqual(values.get('singularityFlow.navigationFavorites.v1'),
+    ['work-start', 'inbox-open', 'help-open']);
+});
+
+test('an intentionally empty Favorites preference stays empty', async (t) => {
+  if (!requireBundle(t)) return;
+  const values = new Map([['singularityFlow.navigationFavorites.v1', []]]);
+  const { api, registered } = stubVscode();
+  api.workspace.workspaceFolders = undefined;
+  const extension = loadExtension(api);
+  await extension.activate(context(values));
+
+  const navigation = registered.webviewViews.get('singularityFlow.navigation');
+  assert.doesNotMatch(navigation.webview.html, /aria-label="Unpin My Work"/);
+  assert.match(navigation.webview.html, /Pin the menus you use most/);
+  assert.match(navigation.webview.html, />Choose favorites<\/button>/);
 });
 
 test('Help is available without a workspace and opens the canonical offline manual', async (t) => {

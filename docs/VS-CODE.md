@@ -9,7 +9,30 @@ database.
 
 ## Navigation model
 
-The Singularity Flow activity bar contains four primary views.
+The Singularity Flow activity bar contains one compact Navigator with Favorites, Inbox, Workspaces,
+Lifecycle, Configuration, Help, and Logs sections.
+
+On a first visit, Favorites and Lifecycle are expanded while the supporting sections remain
+collapsed. Expand or collapse any section once and the Navigator preserves that preference.
+Clickable rows have distinct hover, pressed, keyboard-focus, and last-opened states so the result
+of a navigation choice remains visible after the click.
+
+### Favorites
+
+Favorites answers **where are the menus I use every day?**
+
+- A new installation starts with My Work, Start intake, and Inbox pinned. This is only a first-use
+  suggestion; removing every favorite is remembered as an intentional empty list.
+- Open **Choose favorites** from the section header or its empty state.
+- Select any combination of My Work, intake, Inbox, Approvals, Workspaces, Configuration Center,
+  capability mapping, visual assurance, impact, logs, prompt audit, and Help.
+- Click a favorite to run the original registered command with all of its normal repository,
+  lifecycle, confirmation, and authority checks.
+- Use the inline unpin control to remove one. Reopen **Choose favorites** to replace the complete set.
+  A short confirmation identifies newly pinned menus.
+
+Favorites are stored in VS Code global state for this installation. They are personal navigation
+preferences, not governed workflow state, and are never committed or pushed.
 
 ### Workspaces
 

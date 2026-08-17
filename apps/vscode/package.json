@@ -147,6 +147,11 @@
     },
     "commands": [
       {
+        "command": "singularityFlow.manageFavorites",
+        "title": "Singularity Flow: Choose Favorite Menus",
+        "icon": "$(star-full)"
+      },
+      {
         "command": "singularityFlow.openWorkspaces",
         "title": "Singularity Flow: Workspaces",
         "icon": "$(list-unordered)"

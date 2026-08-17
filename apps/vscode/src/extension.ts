@@ -623,12 +623,15 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
   // One continuous navigation surface replaces five independently-sized native panes. The hidden
   // native TreeViews remain compatibility adapters for their mature, tested read models and context
   // commands; the webview binds to the exact same providers so it cannot tell a different story.
-  const sidebar = new SidebarViewProvider();
+  const sidebar = new SidebarViewProvider(context.globalState);
   sidebar.bind('workspaces', workspaceTree);
   sidebar.bind('logs', logsTree);
   sidebar.bind('help', helpTree);
   context.subscriptions.push(sidebar, vscode.window.registerWebviewViewProvider(
     'singularityFlow.navigation', sidebar, { webviewOptions: { retainContextWhenHidden: true } }
+  ));
+  context.subscriptions.push(vscode.commands.registerCommand(
+    'singularityFlow.manageFavorites', () => sidebar.manageFavorites()
   ));
   context.subscriptions.push(vscode.commands.registerCommand('singularityFlow.openHelp', async (node?: TreeNode) => {
     try {

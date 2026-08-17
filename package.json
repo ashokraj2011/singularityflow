@@ -61,6 +61,7 @@
     "codeowners:generate": "node scripts/generate-codeowners.mjs --write",
     "codeowners:check": "node scripts/generate-codeowners.mjs",
     "gate": "node scripts/gate.mjs",
+    "poc:release-gate": "node scripts/poc-release-gate.mjs",
     "wm:minimal": "node bin/sflow-wm-minimal.mjs",
     "identities:replace": "node scripts/replace-identities.mjs",
     "pack:dry": "npm pack --dry-run",

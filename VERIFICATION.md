@@ -89,6 +89,25 @@ The current packaged diagnostic tutorials are `sflow explain diagnostics-and-reg
 
 ## Release commands
 
+For a POC release candidate, run the dedicated packaged smoke gate:
+
+```bash
+npm run poc:release-gate
+```
+
+It type-checks and packages the VS Code extension, validates the seeded POC workflow and Playwright
+MCP policy, and drives the shipped CommonJS bundle through a real Git journey. The journey explicitly
+selects `origin/main`, creates and publishes only an isolated POC Story branch, authors and submits
+the intake artifact, records an independent approval, advances the phase, opens the governed native
+Copilot handoff, and recovers My Work plus the handoff after a fresh extension activation. It also
+proves the selected base ref never changes and finishes with the npm package dry run.
+
+The journey uses deterministic light grounding for its Copilot handoff so this gate never invokes a
+model or spends tokens. `test/poc-workflow.test.mjs` separately holds the shipped POC workflow's
+standard/deep grounding, MCP evidence, validation, repair-budget, and publication-review contracts.
+
+The complete general release checks remain:
+
 ```bash
 npm test
 npm run check

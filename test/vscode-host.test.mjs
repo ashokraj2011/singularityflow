@@ -16,7 +16,7 @@ import assert from 'node:assert/strict';
 import { createRequire } from 'node:module';
 import { spawnSync } from 'node:child_process';
 import { existsSync, mkdtempSync, readdirSync, readFileSync, statSync } from 'node:fs';
-import { mkdtemp, mkdir, readdir, readFile, realpath, writeFile } from 'node:fs/promises';
+import { mkdtemp, mkdir, readdir, readFile, realpath, rm, writeFile } from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -1476,6 +1476,214 @@ test('a manual Story is submitted end to end from the editor', async (t) => {
     run('git', ['rev-parse', 'HEAD'], { cwd: root }).stdout.trim(),
     'the packaged editor published only the Story branch'
   );
+});
+
+test('the packaged POC release candidate journey survives publication, review, Copilot handoff, and restart', async (t) => {
+  if (!requireBundle(t)) return;
+  const reviewer = { name: 'QA Reviewer', email: 'qa.reviewer@example.com' };
+  const base = await mkdtemp(path.join(os.tmpdir(), 'sflow-poc-release-candidate-'));
+  t.after(() => rm(base, { recursive: true, force: true }));
+  const root = path.join(base, 'application');
+  await mkdir(root);
+  run('git', ['init', '-q', '-b', 'main', root], { cwd: base });
+  run('git', ['config', 'user.name', 'Initiative Owner'], { cwd: root });
+  run('git', ['config', 'user.email', EMAIL], { cwd: root });
+  await writeFile(path.join(root, 'README.md'), '# POC application\n');
+  const initialized = spawnSync(process.execPath,
+    [path.join(packageRoot, 'bin', 'singularity-flow.mjs'), 'init'],
+    { cwd: root, encoding: 'utf8' });
+  assert.equal(initialized.status, 0, initialized.stderr);
+
+  // Both governed configuration files carry authorities. Give the author and an independent
+  // reviewer access to every seeded group so this one journey can prove the real approval path
+  // without weakening or replacing the workflow's authority policy.
+  const members = [
+    { name: 'Initiative Owner', email: EMAIL },
+    reviewer
+  ];
+  const portfolioFile = path.join(root, 'singularity/portfolio.yml');
+  const portfolio = YAML.parse(await readFile(portfolioFile, 'utf8'));
+  for (const authority of Object.values(portfolio.approvalAuthorities ?? {})) authority.members = members;
+  await writeFile(portfolioFile, YAML.stringify(portfolio));
+  const workflowFile = path.join(root, 'singularity/workflow.yml');
+  const definition = YAML.parse(await readFile(workflowFile, 'utf8'));
+  for (const authority of Object.values(definition.approvalAuthorities ?? {})) authority.members = members;
+  definition.worldModel.grounding = 'off';
+  // Keep this release smoke model-independent. The structural POC tests below the gate hold the
+  // shipped standard/deep policy; this journey needs a deterministic repository inventory so it
+  // can prove the native Copilot handoff without invoking a provider or spending tokens.
+  definition.phases['poc-impact-analysis'].worldModel.depth = 'light';
+  await writeFile(workflowFile, YAML.stringify(definition));
+  run('git', ['add', '.'], { cwd: root });
+  run('git', ['commit', '-m', 'Initialize governed POC repository'], { cwd: root });
+
+  const remote = path.join(base, 'application.git');
+  run('git', ['init', '--bare', '--initial-branch=main', remote], { cwd: base });
+  run('git', ['remote', 'add', 'origin', remote], { cwd: root });
+  run('git', ['push', '-u', 'origin', 'main'], { cwd: root });
+  const baseCommit = run('git', ['rev-parse', 'HEAD'], { cwd: root }).stdout.trim();
+
+  const values = new Map();
+  const { api, registered } = stubVscode();
+  api.workspace.workspaceFolders = [{ uri: { fsPath: root } }];
+  const extension = loadExtension(api);
+  await extension.activate(context(values));
+
+  // Intake is driven through the shipped CommonJS bundle. The explicit base selection exercises
+  // the live remote preflight; the POC target is carried into the Story's governed MCP origin.
+  await registered.commands.get('singularityFlow.startWork')();
+  const intake = registered.panels.find((entry) => entry.id === 'singularityFlow.intake');
+  assert.ok(intake, 'the packaged extension opens governed intake');
+  await intake.post({ type: 'shape', value: 'story' });
+  await until(() => intake.webview.html.includes('data-work-type="poc-workflow"') ? true : null,
+    { what: 'the packaged POC workflow to appear in Story intake' });
+  await intake.post({ type: 'workType', value: 'poc-workflow' });
+  await intake.post({ type: 'tracker', value: 'none' });
+  await intake.post({ type: 'field', field: 'id', value: 'POC-RC-1' });
+  await intake.post({ type: 'baseBranch', value: 'main' });
+  await intake.post({ type: 'field', field: 'title', value: 'Checkout regression demonstration' });
+  await intake.post({ type: 'field', field: 'description', value: 'Generate governed browser regression coverage for checkout.' });
+  await intake.post({ type: 'field', field: 'acceptanceCriteria', value: 'Checkout succeeds and deterministic evidence is retained.' });
+  await intake.post({ type: 'field', field: 'targetUrl', value: 'https://staging.example.test/application' });
+  await until(() => /Confirmed: create <code>POC-RC-1<\/code>/.test(intake.webview.html) ? true : null,
+    { what: 'the explicit base-branch publication preflight to pass' });
+  await intake.post({ type: 'start' });
+
+  await until(() => run('git', ['branch', '--show-current'], { cwd: root }).stdout.trim() === 'POC-RC-1'
+    ? true : null, { what: 'the isolated POC Story branch to be created' });
+  await until(() => registered.infos.find((message) => /Story POC-RC-1 started/.test(message)) ?? null,
+    { what: 'the packaged editor to report the POC Story start' });
+  assert.equal(run('git', ['rev-parse', 'POC-RC-1^'], { cwd: root }).stdout.trim(), baseCommit,
+    'the Story starts at the exact refreshed remote base commit');
+  assert.equal(run('git', ['ls-remote', 'origin', 'refs/heads/main'], { cwd: root }).stdout.split(/\s+/)[0], baseCommit,
+    'starting the Story never changes the selected base ref');
+  assert.equal(run('git', ['ls-remote', 'origin', 'refs/heads/POC-RC-1'], { cwd: root }).stdout.split(/\s+/)[0],
+    run('git', ['rev-parse', 'HEAD'], { cwd: root }).stdout.trim(),
+    'the packaged intake publishes only the isolated Story ref');
+
+  const cli = (args, actor = 'Initiative Owner') => spawnSync(process.execPath,
+    [path.join(packageRoot, 'bin', 'singularity-flow.mjs'), ...args], {
+      cwd: root, encoding: 'utf8',
+      env: { ...process.env, NODE_ENV: 'test', SINGULARITY_FLOW_TEST_IDENTITY: actor }
+    });
+  const phaseArtifact = path.join(root,
+    'singularity/work-items/POC-RC-1/artifacts/poc-intake/intake.md');
+  let artifact = await readFile(phaseArtifact, 'utf8');
+  artifact = artifact
+    .replace(/TODO:[^\n]*/g, 'Verified POC evidence for the governed checkout journey and its authorized staging boundary.')
+    .replace(/\bTODO\b/g, 'verified POC evidence');
+  artifact += '\n\nRelease-candidate evidence: the selected base, Story branch, target origin, acceptance criterion, safety boundary, and independent review are explicit and reproducible.\n';
+  await writeFile(phaseArtifact, artifact);
+  for (const args of [
+    ['phase', 'publish', 'poc-intake', '--authored', 'human'],
+    ['submit', '--phase', 'poc-intake']
+  ]) {
+    const result = cli(args);
+    assert.equal(result.status, 0, `${args.join(' ')} failed:\n${result.stderr}`);
+  }
+  assert.equal(run('git', ['ls-remote', 'origin', 'refs/heads/main'], { cwd: root }).stdout.split(/\s+/)[0], baseCommit,
+    'generation and submission leave the selected base ref unchanged');
+
+  // Change the actual Git identity before refreshing the editor. My Work must classify the
+  // approval against this email, and the packaged Approvals surface must permit the real receipt
+  // ceremony for that independent reviewer.
+  run('git', ['config', 'user.name', reviewer.name], { cwd: root });
+  run('git', ['config', 'user.email', reviewer.email], { cwd: root });
+  const previousTestIdentity = process.env.SINGULARITY_FLOW_TEST_IDENTITY;
+  process.env.SINGULARITY_FLOW_TEST_IDENTITY = reviewer.name;
+  t.after(() => {
+    if (previousTestIdentity == null) delete process.env.SINGULARITY_FLOW_TEST_IDENTITY;
+    else process.env.SINGULARITY_FLOW_TEST_IDENTITY = previousTestIdentity;
+  });
+  const canonicalRoot = await realpath(root);
+  const reviewHost = stubVscode();
+  reviewHost.api.workspace.workspaceFolders = [{ uri: { fsPath: canonicalRoot } }];
+  const reviewExtension = loadExtension(reviewHost.api);
+  await reviewExtension.activate(context(values));
+  await reviewHost.registered.commands.get('singularityFlow.myWork')();
+  const result = reviewHost.registered.panels.find((entry) => entry.id === 'singularityFlow.result');
+  assert.ok(result, 'My Work renders from the packaged extension');
+  const homeText = result.webview.html.replace(/<style[\s\S]*?<\/style>/g, '')
+    .replace(/<[^>]+>/g, ' ').replace(/\s+/g, ' ').trim();
+  assert.match(homeText, /1 decision\(s\) are waiting on you/,
+    'My Work and the review surface agree that this reviewer can decide');
+  await reviewHost.registered.commands.get('singularityFlow.openApprovals')();
+  const approvals = await until(() => reviewHost.registered.panels
+    .find((entry) => entry.id === 'singularityFlow.approvals') ?? null,
+  { what: 'the packaged Approvals surface to open' });
+  const approvalText = approvals.webview.html.replace(/<style[\s\S]*?<\/style>/g, '')
+    .replace(/<[^>]+>/g, ' ').replace(/\s+/g, ' ').trim();
+  assert.match(approvalText, /POC intent and environment/);
+  assert.match(approvalText, /1 waiting for you/);
+  assert.match(approvalText, /signing as qa\.reviewer@example\.com/);
+
+  reviewHost.registered.typed = 'poc-intake';
+  await approvals.post({ type: 'approve', id: 'story-phase:poc-intake' });
+  const workflowStateFile = path.join(root, 'singularity/work-items/POC-RC-1/workflow.json');
+  await until(() => {
+    const state = JSON.parse(readFileSync(workflowStateFile, 'utf8'));
+    return state.currentPhase === 'poc-impact-analysis' ? state : null;
+  }, { what: 'the independent approval to advance the POC Story' });
+  assert.equal(run('git', ['ls-remote', 'origin', 'refs/heads/POC-RC-1'], { cwd: root }).stdout.split(/\s+/)[0],
+    run('git', ['rev-parse', 'HEAD'], { cwd: root }).stdout.trim(),
+    'the approval is durably published to the Story ref');
+  assert.equal(run('git', ['ls-remote', 'origin', 'refs/heads/main'], { cwd: root }).stdout.split(/\s+/)[0], baseCommit,
+    'review and advancement still never write the selected base ref');
+
+  const beforeAttach = cli(['session', 'status', '--json'], reviewer.name);
+  assert.equal(beforeAttach.status, 0, beforeAttach.stderr);
+  assert.equal(JSON.parse(beforeAttach.stdout).candidateWorkId, 'POC-RC-1',
+    'the shell discovers the same durable Story before local session attachment');
+  const attached = cli(['session', 'attach', 'POC-RC-1', '--json'], reviewer.name);
+  assert.equal(attached.status, 0, attached.stderr);
+  const session = cli(['session', 'status', '--json'], reviewer.name);
+  assert.equal(session.status, 0, session.stderr);
+  const sessionStatus = JSON.parse(session.stdout);
+  assert.equal(sessionStatus.workId, 'POC-RC-1');
+  assert.equal(sessionStatus.ready, true);
+  assert.equal(run('git', ['branch', '--show-current'], { cwd: root }).stdout.trim(), 'POC-RC-1',
+    'the shell sees the same Story branch as the editor');
+  await until(() => reviewHost.registered.statusBars.some((item) =>
+    /POC-RC-1/.test(item.text) && /poc-impact-analysis/.test(item.text)) ? true : null,
+  { what: 'the VS Code status bar to show the advanced POC phase' });
+
+  const grounded = cli(['wm', 'light', '--phase', 'poc-impact-analysis'], reviewer.name);
+  assert.equal(grounded.status, 0, grounded.stderr);
+  await reviewHost.registered.commands.get('singularityFlow.openCopilot')();
+  const handoff = reviewHost.registered.executedCommands
+    .filter((entry) => entry.id === 'workbench.action.chat.open').at(-1);
+  const copilotResult = result.webview.html.replace(/<style[\s\S]*?<\/style>/g, '')
+    .replace(/<[^>]+>/g, ' ').replace(/\s+/g, ' ').trim().slice(0, 2_000);
+  assert.ok(handoff, `the native Copilot handoff opens from the packaged extension; result: ${copilotResult}; output: ${reviewHost.registered.output.slice(-8).map((entry) => entry.slice(0, 500)).join(' | ')}`);
+  assert.match(handoff.args[0].query, /Story: POC-RC-1/);
+  assert.ok(handoff.args[0].query.includes(`Working directory: ${canonicalRoot}`));
+  assert.match(handoff.args[0].query, /poc-impact-analysis/i);
+
+  // A fresh activation with the persisted one-shot handoff is the deterministic extension-host
+  // equivalent of reopening VS Code after its repository switch. The Story and phase must be read
+  // back from Git; the global-state record is only the navigation request, never lifecycle state.
+  values.set('singularityFlow.pendingCopilotHandoff', {
+    kind: 'story', repository: canonicalRoot, workId: 'POC-RC-1', requestedAt: new Date().toISOString()
+  });
+  const restarted = stubVscode();
+  restarted.api.workspace.workspaceFolders = [{ uri: { fsPath: canonicalRoot } }];
+  const restartedExtension = loadExtension(restarted.api);
+  await restartedExtension.activate(context(values));
+  const resumed = await until(() => restarted.registered.executedCommands
+    .find((entry) => entry.id === 'workbench.action.chat.open') ?? null,
+  { what: 'the pending Copilot handoff to resume after fresh activation' });
+  assert.match(resumed.args[0].query, /Story: POC-RC-1/);
+  assert.equal(values.get('singularityFlow.pendingCopilotHandoff'), undefined,
+    'the restart handoff is consumed exactly once');
+  await restarted.registered.commands.get('singularityFlow.myWork')();
+  const restartedHome = restarted.registered.panels
+    .find((entry) => entry.id === 'singularityFlow.result');
+  assert.ok(restartedHome, 'My Work recovers after a fresh extension activation');
+  assert.match(restartedHome.webview.html, /POC-RC-1/);
+  assert.match(restartedHome.webview.html, /poc-impact-analysis/i);
+  assert.deepEqual(registered.errors, []);
+  assert.deepEqual(reviewHost.registered.errors, []);
+  assert.deepEqual(restarted.registered.errors, []);
 });
 
 test('starting work before any approver is named says so first, and offers the file to fix', async (t) => {

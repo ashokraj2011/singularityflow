@@ -16,6 +16,11 @@ untouched — it builds a throwaway one, takes a work item through every governe
 step, and removes it. It is the fastest way to see what the rest of this document
 describes.
 
+Before a POC demo or release candidate, run `npm run poc:release-gate`. It packages the actual VS
+Code extension and proves the seeded POC workflow against a throwaway real Git remote, independent
+reviewer, native Copilot handoff, and restart recovery without invoking a model. See
+[the verification checklist](./VERIFICATION.md) for the evidence boundary.
+
 Then, on a repository you care about:
 
 | You want to | Run |

@@ -99,6 +99,13 @@ test('resolve issues a handle and read revalidates it against the world', async 
   assert.equal(envelope.schemaVersion, 2);
   assert.equal(envelope.operation.id, 'home.overview');
   assert.equal(envelope.outcome.status, 'succeeded');
+  assert.equal(envelope.data.personalization.source, 'git-identity');
+  assert.equal(envelope.data.personalization.displayName, 'Dev');
+  assert.equal(envelope.data.personalization.replyName, 'Dev');
+  assert.equal(hostBinding(root, {
+    hostSessionId: 'sess-1', registry: gatewayRegistry(),
+    policy: resolveGatewayPolicy([DEFAULT_GATEWAY_POLICY], { registry: gatewayRegistry() }), workspaceId: 'w1'
+  }).actorId, 'dev@example.test', 'the signed binding still uses the stable email, never the greeting name');
   assert.ok(envelope.next.length, 'the home offers choices');
   assert.equal(envelope.next.filter((action) => action.emphasis === 'primary').length, 1);
 });

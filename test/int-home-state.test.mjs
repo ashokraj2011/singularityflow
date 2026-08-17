@@ -33,7 +33,11 @@ test('every surface recognizes a started Story through any registered branch', (
 
   const result = homeOverviewResult({
     workspace: { id: 'calc-app', name: 'calc-app' }, records,
+    actor: { name: 'Ada Lovelace', email: 'ada@example.test' },
     current: { repositoryId: 'calc', branch: 'WRK-890', repositoryScoped: false }
+  });
+  assert.deepEqual(result.data.personalization, {
+    schemaVersion: 1, source: 'git-identity', displayName: 'Ada Lovelace', replyName: 'Ada'
   });
   assert.equal(result.data.activeWork?.id, 'WRK-890');
   assert.equal(result.next[0].id, 'home:work.continue');
@@ -82,5 +86,7 @@ test('the Copilot home skill explicitly routes every home goal and refreshes aft
     assert.match(skill, new RegExp(`\\*\\*${heading}\\*\\*`));
   }
   assert.match(skill, /automatic invocation is not mutation consent/);
+  assert.match(skill, /data\.home\.personalization\.replyName/);
+  assert.match(skill, /Do not derive a name from email, login/);
   assert.match(skill, /After a selected flow completes, run `singularity-flow home`/);
 });

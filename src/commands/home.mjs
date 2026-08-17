@@ -61,6 +61,7 @@ function render(envelope, projection, conversation = null) {
   console.log(`Actor: ${actor.name}${actor.email ? ` <${actor.email}>` : ''}`);
   console.log(`Repository: ${context.repository.repositoryId} · ${context.repository.branch} @ ${(context.repository.head ?? 'unavailable').slice(0, 12)}`);
   console.log(`Freshness: ${context.freshness.capturedAt} · local only`);
+  if (projection.personalization?.replyName) console.log(`\nHello, ${projection.personalization.replyName}.`);
   console.log(`\n${briefing.headline}`);
   renderConversation(conversation, projection);
 
@@ -134,7 +135,9 @@ export async function run(_argv, { options }) {
     // The CLI is the host that has all of them.
     planners: gatewayPlanners(),
     plannerContext: {
-      actor: projection.actor,
+      // Personalization is specifically local `git config user.name`; authority still uses the
+      // full resolved actor carried separately by the projection and gateway binding.
+      actor: { ...projection.actor, name: projection.personalization?.displayName ?? null },
       workspace: projection.context.workspace,
       repositoryId: projection.context.repository.repositoryId,
       branch: projection.context.repository.branch,

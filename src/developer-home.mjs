@@ -1,5 +1,5 @@
 import { createHash } from 'node:crypto';
-import { branch, changedFiles, changes, head, identity, repoRoot } from './git.mjs';
+import { branch, changedFiles, changes, head, identity, localGitDisplayName, repoRoot } from './git.mjs';
 import { readPendingPublication } from './publication-pending.mjs';
 import { buildRepositorySubjectIndex, resolveContext } from './repository-subject-index.mjs';
 import { deriveHomeState } from './gateway/home-work-projection.mjs';
@@ -9,6 +9,7 @@ import {
 } from './workspace-context.mjs';
 import { workspaceStatus } from './workspace.mjs';
 import { SingularityFlowError } from './util.mjs';
+import { personalizationFromGitIdentity } from './personalization.mjs';
 
 const HANDLE_TTL_MS = 15 * 60 * 1000;
 const MAX_CHOICES = 6;
@@ -277,6 +278,9 @@ export async function developerHome({ workspaceReference = null, hostSession = n
     resultType: 'developer-home',
     asOf: now,
     actor,
+    personalization: personalizationFromGitIdentity({
+      name: selectedRepository.state === 'ready' ? localGitDisplayName(selectedRepository.absolutePath) : null
+    }),
     context: {
       workspace: { id: context.workspaceId, name: context.workspaceName },
       repository: revision,

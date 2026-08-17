@@ -259,11 +259,15 @@ test('the phase rail renders as Screen B draws it', () => {
     operation: { id: 'home.overview', classification: 'read' }, subject: null,
     outcome: { status: 'succeeded', messageId: 'gateway.home', slots: {} },
     effects: { contextChanged: false, stateChanged: false, filesChanged: false, gitRefsChanged: false, publicationCreated: false, externalSystemsChanged: false },
-    why: [], warnings: [], preserved: [], checklist: [], next: [], restState: 'informational', data: { rail }
+    why: [], warnings: [], preserved: [], checklist: [], next: [], restState: 'informational',
+    data: { rail, personalization: { source: 'git-identity', displayName: 'A<script>', replyName: 'A<script>' } }
   });
   assert.equal(card.rail.length, 5);
+  assert.equal(card.replyName, 'A<script>');
 
   const html = resultCardHtml(card);
+  assert.match(html, /Hello, A&lt;script&gt;\./);
+  assert.doesNotMatch(html, /Hello, A<script>\./);
   const marks = [...html.matchAll(/class="sf-rail-mark" aria-hidden="true">(.)</g)].map(([, mark]) => mark);
   assert.deepEqual(marks, ['✓', '✓', '●', '○', '○']);
   // A screen reader hears the position, not five names in a row.

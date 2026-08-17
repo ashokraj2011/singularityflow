@@ -60,6 +60,8 @@ export type CardAction = {
 export type ResultCardView = {
   readonly tone: 'refusal' | 'clarification' | 'ceremony' | 'read';
   readonly headline: string;
+  /** Presentation-only name from the local Git identity; never an authority or binding input. */
+  readonly replyName: string | null;
   readonly why: readonly Message[];
   readonly warnings: readonly Message[];
   readonly checklist: readonly ChecklistRow[];
@@ -241,6 +243,10 @@ export function buildResultCard(result: any, { acknowledgement }: ResultCardOpti
   return Object.freeze({
     tone,
     headline: headlineOf(result, gates),
+    replyName: result.operation?.id === 'home.overview'
+      && typeof result.data?.personalization?.replyName === 'string'
+      ? result.data.personalization.replyName
+      : null,
     why,
     warnings: (result.warnings ?? []).map((entry: any) => message(entry.code, entry.slots)),
     checklist,

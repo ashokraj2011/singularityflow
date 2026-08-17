@@ -40,6 +40,7 @@ export const RESULT_CARD_STYLE = `
 .sf-card-refusal { border-left: 3px solid var(--vscode-editorWarning-foreground); }
 .sf-card-ceremony { border-left: 3px solid var(--vscode-charts-purple, var(--vscode-textLink-foreground)); }
 .sf-card h3 { margin: 0; font-size: 1.02em; font-weight: 600; display: flex; align-items: center; gap: 8px; }
+.sf-card-greeting { margin: 0; color: var(--vscode-descriptionForeground); }
 .sf-rail { display: flex; flex-wrap: wrap; align-items: center; gap: 4px 10px; margin: 0; padding: 0; list-style: none;
   font-size: .92em; color: var(--vscode-descriptionForeground); }
 .sf-rail li { display: flex; align-items: center; gap: 5px; }
@@ -295,6 +296,7 @@ export function resultCardHtml(view: ResultCardView, { now = Date.now() }: { now
    * chosen. The old panel put it in the same place, and that part of it was right.
    */
   return `<section class="sf-card sf-card-${view.tone}">
+    ${view.replyName ? `<p class="sf-card-greeting">Hello, ${escape(view.replyName)}.</p>` : ''}
     <h3>${icon(view.tone === 'refusal' ? 'statusBlocked' : 'statusCurrent')} ${escape(view.headline)}</h3>
     ${railHtml(view)}${sinceHtml(view, now)}${why}${warnings}${gates}${preserved}${actions}${rest}${details}
   </section>`;

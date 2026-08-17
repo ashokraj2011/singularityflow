@@ -29,7 +29,7 @@ import { createGatewayKernel } from './kernel.mjs';
 import { createHandleAuthority } from './handles.mjs';
 import { gatewayRegistry } from './operations.mjs';
 import { DEFAULT_GATEWAY_POLICY, resolveGatewayPolicy } from './policy.mjs';
-import { branch, head, identity, repoRoot } from '../git.mjs';
+import { branch, head, identity, localGitDisplayName, repoRoot } from '../git.mjs';
 
 /**
  * The world a handle is bound to, read once per session. `[INT:REQ-034]` `[DHR:REQ-081]`
@@ -119,9 +119,21 @@ export function createHostGateway({
   const binding = () => hostBinding(root, { workspaceId, hostSessionId, subject, registry, policy });
   const context = () => {
     const current = binding();
+    /**
+     * Presentation identity is deliberately separate from the signed binding.
+     *
+     * The binding keeps using email/login as the stable actor ID. Planners also receive the local
+     * Git display name so a read result can address its reader, but changing that name never changes
+     * authority and no handle trusts it.
+     */
+    const actor = identity(root, { offline: true });
     const supplied = typeof plannerContext === 'function' ? plannerContext() : plannerContext;
     return {
-      actor: current.actorId ? { email: current.actorId } : null,
+      actor: {
+        name: localGitDisplayName(root),
+        email: actor.email ?? (current.actorId?.includes('@') ? current.actorId : null),
+        login: actor.login ?? (!current.actorId?.includes('@') ? current.actorId : null)
+      },
       workspace: { id: current.workspaceId ?? root, name: current.workspaceId ?? root },
       repositoryId: root,
       branch: current.branch,

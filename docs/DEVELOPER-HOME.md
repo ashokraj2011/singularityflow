@@ -21,6 +21,12 @@ captured. The briefing then offers at most six currently reachable choices, orde
 with recovery and active work before less urgent actions. Every choice includes a
 plain CLI fallback.
 
+Human replies use the local Git identity's display name once as a greeting. The JSON
+contract exposes this separately as `personalization.displayName` and
+`personalization.replyName`. It is presentation only: authorization and signed
+handles continue to bind to the stable Git email or login, and SFlow never guesses a
+name from an email address, request text, or conversation memory.
+
 Choosing **Mark as checked** stores a presentation-only acknowledgement in VS Code
 global state. It does not enter the repository. On the next visit, the panel compares
 the acknowledged repository revision, Story phase/status, HEAD, and worktree

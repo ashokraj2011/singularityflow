@@ -1,9 +1,9 @@
 {
   "schemaVersion": 1,
   "generatedFrom": "docs/topics",
-  "sourceCommit": "74f149b7b9ef04b9bdbcd8bee0245e8cb60f933e",
+  "sourceCommit": "9fda64f9c3bdaa1884141b06f290b6ab60252576",
   "topicCount": 51,
-  "contentSha256": "1f4dd61f09b0c9a8560490a489f386e978ae9e6f80053dfbc03da9e610519566",
+  "contentSha256": "65ca3327c33440fd080daf2467c19a3ba79741ee8e3d14712c47d553b3e53ff4",
   "topics": [
     {
       "id": "activity-and-prompt-audit",
@@ -78,8 +78,8 @@
     {
       "id": "developer-home",
       "title": "Developer Home and returning to work",
-      "version": 3,
-      "sha256": "f7517b614e2a8c3c337d9ecd67a6d2882481bcdc82917b3a72a3beec3a16dbbf",
+      "version": 4,
+      "sha256": "a58f1ba03751df28372dd5614024f773edf994351dacdcab5b0200dedd44af42",
       "file": "developer-home.md"
     },
     {

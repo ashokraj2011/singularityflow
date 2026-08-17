@@ -229,6 +229,24 @@ const PAGES = Object.freeze({
     ],
     seeAlso: ['nextsteps', 'progress', 'doctor']
   },
+  approvals: {
+    summary: 'Show the Story approval chain with every phase document and human decision.',
+    description: [
+      'Reads the pinned Story aggregate and joins the immutable phase order, required documents,',
+      'authority groups, thresholds, and recorded approvers into one read-only view.',
+      '',
+      'The default view shows current approvals. JSON also retains invalidated earlier decisions,',
+      'including their generation and invalidation time, without treating them as active.'
+    ],
+    options: [
+      ['--json', 'Emit the versioned approval-chain projection, including current and invalidated decisions.']
+    ],
+    examples: [
+      ['singularity-flow approvals PAY-1', 'Show each phase, its governed document, required authority, and approver.'],
+      ['singularity-flow approval-chain PAY-1 --json', 'Read the same chain through the compatibility alias as structured data.']
+    ],
+    seeAlso: ['status', 'progress', 'inbox', 'review', 'approve']
+  },
   nextsteps: {
     summary: 'List the actions that are valid right now, and the command for each.',
     description: [

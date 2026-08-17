@@ -6,6 +6,7 @@ aliases:
   - approval-ceremony
   - stale-approval
 commands:
+  - approvals
   - approve
   - reject
   - inbox
@@ -13,7 +14,7 @@ related:
   - waivers
   - inbox-and-review
   - sequence-gates
-version: 2
+version: 3
 ---
 Approval is an authorization event, never an agent utterance. Authority comes from `approvalAuthorities` groups in pinned configuration; the ceremony shows the exact artifact and its SHA-256, then requires typing the exact confirmation — nothing auto-fills it. The record binds identity, authority group, and artifact hash, verifiable offline. If artifact bytes change afterward, the approval goes stale automatically; the old signature remains in history attached to the bytes it actually covered. Agents cannot approve; self-approval can be forbidden by policy. Rejections require reasons — which become pinned context the next generation literally reads.
 
@@ -23,13 +24,13 @@ Use this topic when the current goal matches **approvals**. Start in a governed 
 
 ## Use it from each surface
 
-- **Shell:** `sflow approve`, `sflow reject`, `sflow inbox`. Run `singularity-flow approve --help` for the exact forms supported by this build.
+- **Shell:** `sflow approvals [WORK-ID]` shows the phase-by-phase document and approval chain. `sflow approve`, `sflow reject`, and `sflow inbox` perform or find review work. Run `singularity-flow approvals --help` for the exact read-only form supported by this build.
 - **Copilot:** `/sf-approve`, `/sf-reject`, `/sf-inbox`. The skill must preserve the CLI result and ask before any governed mutation.
 - **VS Code:** open Singularity Flow **Inbox and Approvals**. The extension renders engine results; it does not independently decide lifecycle state.
 
 ## Guided workflow
 
-1. Read the current state with `sflow home`, `sflow status`, or the relevant list/status form.
+1. Read the current state with `sflow home`, `sflow status`, or `sflow approvals [WORK-ID]` to see every phase document, authority group, threshold, and recorded approver.
 2. Review the repository, workspace, Work ID, phase, actor, and any warnings before selecting an action.
 3. Preview or prepare the operation when the command offers a dry-run, plan, packet, or exact confirmation.
 4. Run the smallest applicable command from this topic. Do not substitute an undocumented subcommand.

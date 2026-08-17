@@ -7,6 +7,7 @@
  */
 import { MESSAGES, REASONS } from './messages.mjs';
 import { preservedEverything } from './command-result.mjs';
+import { approvalChainText } from '../approval-chain.mjs';
 import * as style from '../style.mjs';
 
 /**
@@ -61,6 +62,9 @@ const REST_STATE_LINES = Object.freeze({
 });
 
 export function renderCommandResult(result) {
+  if (result.operation.id === 'approvals' && result.data?.approvalChain) {
+    return approvalChainText(result.data.approvalChain).trimEnd();
+  }
   // A refusal is the one outcome the reader must not skim past, so it is the one that gets weight.
   const emphasise = ['refused', 'failed'].includes(result.outcome.status) ? style.failure : style.heading;
   const lines = [emphasise(headline(result))];

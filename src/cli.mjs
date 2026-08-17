@@ -8103,6 +8103,7 @@ async function dispatch(command, positionals, options) {
     inbox: () => inboxCommand(options),
     finalize: () => finalizeCommand(options),
     status: () => statusCommand(positionals, options),
+    approvals: async () => (await import('./commands/approvals.mjs')).run(argv, { positionals, options }),
     progress: () => progressCommand(positionals, options),
     report: () => reportCommand(positionals, options),
     impact: () => impactCommand(positionals, options),

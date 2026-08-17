@@ -1373,10 +1373,16 @@ singularity-flow telemetry reconcile implementation
 From a terminal:
 
 ```bash
+singularity-flow approvals ENG-142
 singularity-flow approve design --work-id ENG-142 --fetch
 singularity-flow reject design --work-id ENG-142 --fetch --to requirements --reason "Failure behavior is missing"
 singularity-flow reopen ENG-142 --fetch --to implementation --reason "Production feedback requires a safer rollback"
 ```
+
+`approvals` is read-only. It shows each phase beside the governed document or artifact-set members
+being approved, the pinned authority groups and threshold, the current approvers, and what remains.
+The `approval-chain` alias returns the same view. Add `--json` to inspect invalidated earlier
+decisions without counting them as current approvals.
 
 Approval first verifies the reviewer’s Git/GitHub identity against the phase authority groups, activates the phase agent, shows artifact hashes, checks, token usage, prior approvals, and any self-approval warning, and requires the phase name as confirmation. When Copilot lacks persistent shell stdin, `/sf-approve` collects that exact confirmation with a one-time receipt and runs the same approval itself; it never uses `--yes`. Multi-approval thresholds require distinct human identities.
 
@@ -1781,6 +1787,7 @@ evidence workflow.
 | `singularity-flow session status` | Inspect work-item and agent binding readiness for the current Copilot session. |
 | `sflow-inbox [--offline] [--json]` | Fetch and list committed remote phases awaiting approval; equivalent to `singularity-flow inbox`. |
 | `singularity-flow status [ID]` | Show phase, governed agent, artifacts, human approvals, usage, and warnings. |
+| `singularity-flow approvals [ID]` | Show the ordered phase approval chain with governed document names, authority groups, thresholds, and recorded approvers. Use `--json` to include invalidated decision history. |
 | `singularity-flow progress [ID]` | Show deterministic completion percentage and phase/approval progress. |
 | `singularity-flow report [ID] [--format md\|html\|json]` | Derive wall-clock timing, approval latency, rework, token, cost, and bottleneck metrics. |
 | `singularity-flow guide [ID]` | Explain the selected workflow template and show the exact next valid skill and CLI command. |

@@ -155,6 +155,7 @@ Usage:
   singularity-flow mcp doctor [--server ID] [--network] [--json]
   singularity-flow mcp warm <SERVER> --network
   singularity-flow mcp attest <SERVER> --confirm <SERVER>
+  singularity-flow mcp smoke <SERVER> --url AUTHORIZED-URL [--phase PHASE] [--json]
   singularity-flow mcp record <SERVER> --tool TOOL [--kind tool-call|design-source|visual-artifact]
     [--phase PHASE] [--target-url AUTHORIZED-URL] [--output PATH|--output-url HTTPS-URL] [--file-key KEY] [--file-version VERSION] [--node NODE] [--note TEXT]
   singularity-flow mcp design-sources status [--json]

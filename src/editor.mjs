@@ -3,7 +3,6 @@ import { existsSync } from 'node:fs';
 import { createHash } from 'node:crypto';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
-import { fileURLToPath } from 'node:url';
 import YAML from 'yaml';
 import {
   add, assertNotDefaultBranch, branch, changedFiles, commit, GITHUB_LOOKUP, head, identity, localBranches,
@@ -89,8 +88,8 @@ import { verifyMcpEvidence } from './mcp-evidence.mjs';
 import { IMPACT_CONFIG_PATH, normalizeImpactDefinition } from './impact-config.mjs';
 import { modelFreedomSnapshot } from './model-freedom.mjs';
 import { operationContext } from './operation-context.mjs';
+import { PACKAGE_ROOT } from './package-root.mjs';
 
-const packageRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 export const REPOSITORY_SKILLS_ROOT = '.github/skills';
 const DEFAULT_WORLD_MODEL_PROMPT = 'singularity/prompts/worldmodel-builder.md';
 const PROMPTS_ROOT = 'singularity/prompts';
@@ -258,7 +257,7 @@ function skillFrontmatter(content, fallbackId) {
 }
 
 async function bundledFlowSkills() {
-  const skillsRoot = path.join(packageRoot, 'plugin', 'skills');
+  const skillsRoot = path.join(PACKAGE_ROOT, 'plugin', 'skills');
   const entries = (await readdir(skillsRoot, { withFileTypes: true }))
     .filter((entry) => entry.isDirectory() && entry.name.startsWith('sflow-'));
   const output = await Promise.all(entries.map(async (entry) => {
@@ -292,7 +291,7 @@ async function worldModelPrompt(root, definition) {
     type: 'file'
   });
   if (!builtin && prompt.exists) return { path: relative, name: path.posix.basename(relative), content: await readFile(prompt.absolute, 'utf8'), missing: false, builtin };
-  const fallback = path.join(packageRoot, 'templates/worldmodel-builder.md');
+  const fallback = path.join(PACKAGE_ROOT, 'templates/worldmodel-builder.md');
   return { path: relative, name: path.posix.basename(relative), content: await readFile(fallback, 'utf8'), missing: true, builtin };
 }
 
@@ -306,7 +305,7 @@ async function planningPrompt(root, definition) {
   if (prompt.exists) {
     return { path: relative, name: path.posix.basename(relative), content: await readFile(prompt.absolute, 'utf8'), missing: false, builtin: false };
   }
-  const fallback = path.join(packageRoot, 'templates/copilot-planning.md');
+  const fallback = path.join(PACKAGE_ROOT, 'templates/copilot-planning.md');
   return { path: relative, name: path.posix.basename(relative), content: await readFile(fallback, 'utf8'), missing: true, builtin: true };
 }
 
@@ -653,7 +652,7 @@ async function fullRepositorySnapshot(root, requestedWorkId = null, requestedIni
       id: agent.id,
       scope: agent.scope,
       path: agent.source,
-      packagePath: agent.scope === 'repository' ? null : posix(path.relative(packageRoot, agent.file)),
+      packagePath: agent.scope === 'repository' ? null : posix(path.relative(PACKAGE_ROOT, agent.file)),
       content: agent.text,
       sha256: agent.sha256,
       editable: agent.scope === 'repository' && !agent.source.startsWith('..'),
@@ -665,7 +664,7 @@ async function fullRepositorySnapshot(root, requestedWorkId = null, requestedIni
       exists: agentMappings.exists,
       content: agentMappings.exists
         ? await readFile(agentMappings.absolute, 'utf8')
-        : await readFile(path.join(packageRoot, 'templates', 'agent-mappings.yml'), 'utf8'),
+        : await readFile(path.join(PACKAGE_ROOT, 'templates', 'agent-mappings.yml'), 'utf8'),
       rows: mappingStatus.rows
     },
     agentsLock: { path: AGENT_LOCK_PATH, exists: lockExists, content: lockExists ? await readFile(agentLock.absolute, 'utf8') : '# No remote agents are trusted yet.\n' },
@@ -975,7 +974,7 @@ async function configurationSlice(root) {
       id: agent.id,
       scope: agent.scope,
       path: agent.source,
-      packagePath: agent.scope === 'repository' ? null : posix(path.relative(packageRoot, agent.file)),
+      packagePath: agent.scope === 'repository' ? null : posix(path.relative(PACKAGE_ROOT, agent.file)),
       content: agent.text,
       sha256: agent.sha256,
       editable: agent.scope === 'repository' && !agent.source.startsWith('..'),
@@ -987,7 +986,7 @@ async function configurationSlice(root) {
       exists: agentMappings.exists,
       content: agentMappings.exists
         ? await readFile(agentMappings.absolute, 'utf8')
-        : await readFile(path.join(packageRoot, 'templates', 'agent-mappings.yml'), 'utf8'),
+        : await readFile(path.join(PACKAGE_ROOT, 'templates', 'agent-mappings.yml'), 'utf8'),
       rows: mappingStatus.rows
     },
     agentsLock: {
@@ -1109,7 +1108,7 @@ export async function bootstrapWorkspacePortfolio(root, {
     const authorities = Object.values(starter.approvalAuthorities ?? {});
     repairedEmptyStarter = authorities.some((authority) => !(authority?.members ?? []).length);
   } else {
-    starter = YAML.parse(await readFile(path.join(packageRoot, 'templates', 'portfolio.yml'), 'utf8'));
+    starter = YAML.parse(await readFile(path.join(PACKAGE_ROOT, 'templates', 'portfolio.yml'), 'utf8'));
   }
   const gitActor = identity(root);
   const email = String(approvalEmail ?? gitActor.email ?? '').trim().toLowerCase();

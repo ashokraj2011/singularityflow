@@ -10,6 +10,7 @@ import { MCP_SCAFFOLD_VERSIONS, MCP_WORKSPACE_PATH } from './mcp-host.mjs';
 import {
   authorizedMcpOrigins, MCP_SMOKE_MAX_AGE_MS, normalizeMcpTargetOrigin, safeMcpTargetUrl
 } from './mcp-target.mjs';
+import { recordObservedMcpNavigationEvidence } from './mcp-evidence.mjs';
 import { exists, nowIso, SingularityFlowError, writeJson } from './util.mjs';
 
 const SAFE_ID = /^[a-z0-9]+(?:-[a-z0-9]+)*$/;
@@ -212,30 +213,48 @@ function rpcSmoke(entry, { url, cwd, timeoutMs = 45_000 } = {}) {
       if (!reportedUrl) {
         throw new SingularityFlowError('Playwright MCP smoke could not verify the browser final URL.', { code: 'MCP_SMOKE_ORIGIN_UNKNOWN' });
       }
-      const finalOrigin = safeMcpTargetUrl(reportedUrl, { label: 'Playwright MCP final URL' }).origin;
+      const finalUrl = safeMcpTargetUrl(reportedUrl, { label: 'Playwright MCP final URL' });
+      const finalOrigin = finalUrl.origin;
       if (finalOrigin !== url.origin) {
         throw new SingularityFlowError(`Playwright MCP smoke redirected outside the authorized origin (${url.origin}).`, { code: 'MCP_SMOKE_ORIGIN_DRIFT' });
       }
       await request('tools/call', { name: 'browser_close', arguments: {} }).catch(() => null);
-      finish(null, { status: 'passed', tools: [...REQUIRED_SMOKE_TOOLS], finalOrigin, protocolVersion: initialized?.protocolVersion ?? null });
+      finish(null, {
+        status: 'passed', tools: [...REQUIRED_SMOKE_TOOLS],
+        finalUrl: finalUrl.toString(), finalOrigin,
+        protocolVersion: initialized?.protocolVersion ?? null
+      });
     })().catch((error) => finish(error?.code ? error : new SingularityFlowError(`Playwright MCP smoke test failed: ${error.message}`, { code: 'MCP_SMOKE_FAILED', cause: error })));
   });
 }
 
-export async function smokeMcpHost(root, definition, serverId, { targetUrl, probe = rpcSmoke } = {}) {
-  const server = definition.mcpServers?.[serverId];
+export async function smokeMcpHost(root, definition, serverId, {
+  targetUrl, probe = rpcSmoke, evidence = null
+} = {}) {
+  const server = evidence?.workflow?.resolution?.mcpServers?.[serverId]
+    ?? definition.mcpServers?.[serverId];
   if (!server) throw new SingularityFlowError(`Unknown governed MCP server '${serverId}'.`, { code: 'MCP_SERVER_UNKNOWN' });
   if (!targetUrl) throw new SingularityFlowError('MCP smoke requires --url with an authorized HTTPS or loopback target.', { code: 'MCP_SMOKE_URL_REQUIRED' });
   const url = safeMcpTargetUrl(targetUrl, { label: 'MCP smoke URL' });
+  if (evidence?.workflow) {
+    const authorizedOrigins = authorizedMcpOrigins(evidence.workflow, serverId);
+    if (authorizedOrigins.length && !authorizedOrigins.includes(url.origin)) {
+      throw new SingularityFlowError(
+        `MCP smoke target origin '${url.origin}' is outside this Story's authorization.`,
+        { code: 'MCP_EVIDENCE_TARGET_UNAUTHORIZED' }
+      );
+    }
+  }
   const entry = (await hostEntryMap(root)).get(server.hostReference);
   if (!entry) throw new SingularityFlowError(`Host entry '${server.hostReference}' is absent.`, { code: 'MCP_HOST_CONFIG_MISSING' });
   const result = await probe(entry, { url, server, cwd: root });
   if (result?.status !== 'passed') throw new SingularityFlowError(`MCP smoke test failed for '${serverId}'.`, { code: 'MCP_SMOKE_FAILED' });
+  const observedFinalUrl = safeMcpTargetUrl(result.finalUrl, { label: 'MCP smoke observed final URL' });
   const finalOrigin = normalizeMcpTargetOrigin(result.finalOrigin, {
     required: true,
     label: 'MCP smoke final origin'
   });
-  if (finalOrigin !== url.origin) {
+  if (observedFinalUrl.origin !== finalOrigin || finalOrigin !== url.origin) {
     throw new SingularityFlowError(`MCP smoke ended outside the authorized origin (${url.origin}).`, { code: 'MCP_SMOKE_ORIGIN_DRIFT' });
   }
   const tools = new Set(result.tools ?? []);
@@ -248,14 +267,31 @@ export async function smokeMcpHost(root, definition, serverId, { targetUrl, prob
     hostReference: server.hostReference,
     checkedAt: nowIso(),
     authorizedOrigin: url.origin,
+    requestedUrlSha256: recordSha256(url.toString()),
     hostEntrySha256: recordSha256(entry),
     policySha256: policyHash(server),
-    result
+    result: {
+      ...result,
+      finalUrl: undefined,
+      finalUrlSha256: recordSha256(observedFinalUrl.toString())
+    }
   };
   const file = smokeReceiptPath(root, serverId);
   await mkdir(path.dirname(file), { recursive: true });
   await writeJson(file, receipt);
-  return { ...receipt, path: file };
+  let evidenceRecord = null;
+  if (evidence?.workflow) {
+    evidenceRecord = await recordObservedMcpNavigationEvidence(root, evidence.workflow, {
+      server: serverId,
+      phase: evidence.phase,
+      agent: evidence.agent,
+      actor: evidence.actor,
+      targetUrl: url.toString(),
+      smokeReceipt: receipt,
+      itemDirectory: evidence.itemDirectory ?? null
+    });
+  }
+  return { ...receipt, path: file, evidence: evidenceRecord };
 }
 
 async function readSmokeReceipt(root, serverId) {
@@ -267,6 +303,8 @@ function validSmokeReceipt(receipt, { serverId, configured, expectedOrigins, now
   if (!receipt || receipt.error || receipt.schemaVersion !== 1 || receipt.serverId !== serverId
     || receipt.hostReference !== configured.hostReference || receipt.result?.status !== 'passed'
     || !Array.isArray(receipt.result?.tools)
+    || !/^[a-f0-9]{64}$/.test(receipt.requestedUrlSha256 ?? '')
+    || !/^[a-f0-9]{64}$/.test(receipt.result?.finalUrlSha256 ?? '')
     || REQUIRED_SMOKE_TOOLS.some((tool) => !receipt.result.tools.includes(tool))) {
     return { valid: false, reason: 'receipt structure or server identity is invalid' };
   }

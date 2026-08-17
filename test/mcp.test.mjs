@@ -140,7 +140,10 @@ test('phase readiness requires a hash-bound live smoke receipt when configured',
   await assert.rejects(() => assertMcpPhaseReadiness(root, workflow, phase), /no successful live smoke receipt/);
   const receipt = await smokeMcpHost(root, definition, 'playwright', {
     targetUrl: 'https://example.test/health',
-    probe: async (_entry, { url }) => ({ status: 'passed', tools: ['browser_navigate', 'browser_snapshot', 'browser_close'], finalOrigin: url.origin })
+    probe: async (_entry, { url }) => ({
+      status: 'passed', tools: ['browser_navigate', 'browser_snapshot', 'browser_close'],
+      finalUrl: url.toString(), finalOrigin: url.origin
+    })
   });
   assert.equal(receipt.authorizedOrigin, 'https://example.test');
   await assert.doesNotReject(() => assertMcpPhaseReadiness(root, workflow, phase));
@@ -158,7 +161,7 @@ test('phase readiness requires a hash-bound live smoke receipt when configured',
     targetUrl: 'https://example.test',
     probe: async () => ({
       status: 'passed', tools: ['browser_navigate', 'browser_snapshot', 'browser_close'],
-      finalOrigin: 'https://redirect.example.test'
+      finalUrl: 'https://redirect.example.test/landing', finalOrigin: 'https://redirect.example.test'
     })
   }), /ended outside the authorized origin/);
   await assert.rejects(() => smokeMcpHost(root, definition, 'playwright', {
@@ -168,9 +171,13 @@ test('phase readiness requires a hash-bound live smoke receipt when configured',
 
 test('browser navigation evidence is bound to the Story-authorized origin', async () => {
   const root = await repository('sflow-mcp-origin-evidence-');
+  await scaffoldPlaywrightMcp(root);
   const workflow = {
     workItem: { id: 'WORK-ORIGIN' }, currentPhase: 'verification', phaseOrder: ['verification'],
-    phases: { verification: { generation: 0, status: 'in_progress' } },
+    phases: { verification: {
+      id: 'verification', generation: 0, status: 'in_progress',
+      mcp: { evidence: [{ server: 'playwright', tool: 'browser_navigate', minimum: 1, outputRequired: false }] }
+    } },
     resolution: { mcpServers: configured() },
     mcpAuthorizations: {
       playwright: { schemaVersion: 1, origins: ['https://staging.example.test'], source: 'story-intake', pinnedAt: new Date().toISOString() }
@@ -183,11 +190,61 @@ test('browser navigation evidence is bound to the Story-authorized origin', asyn
     server: 'playwright', tool: 'browser_navigate', phase: 'verification', agent: 'qa',
     targetUrl: 'https://production.example.test'
   }), /outside this Story's authorization/);
-  const recorded = await recordMcpEvidence(root, workflow, {
+  await assert.rejects(() => recordMcpEvidence(root, workflow, {
     server: 'playwright', tool: 'browser_navigate', phase: 'verification', agent: 'qa',
     targetUrl: 'https://staging.example.test/checkout'
+  }), /must come from a live Playwright MCP observation/);
+  const smoke = await smokeMcpHost(root, { mcpServers: configured() }, 'playwright', {
+    targetUrl: 'https://staging.example.test/checkout',
+    evidence: { workflow, phase: 'verification', agent: 'qa' },
+    probe: async (_entry, { url }) => ({
+      status: 'passed', tools: ['browser_navigate', 'browser_snapshot', 'browser_close'],
+      finalUrl: url.toString(), finalOrigin: url.origin
+    })
   });
-  assert.equal(recorded.record.targetOrigin, 'https://staging.example.test');
+  assert.equal(smoke.evidence.record.targetOrigin, 'https://staging.example.test');
+  assert.equal(smoke.evidence.record.captureSource, 'observed-by-mcp-host');
+  assert.equal(smoke.evidence.record.observedFinalOrigin, 'https://staging.example.test');
+  assert.equal(JSON.stringify(smoke).includes('/checkout'), false, 'receipts must not persist target URL paths or query strings');
+  assert.equal((await verifyMcpEvidence(root, workflow)).errors.length, 0);
+  assert.equal((await verifyPhaseMcpRequirements(root, workflow, workflow.phases.verification)).errors.length, 0);
+  workflow.phases.verification.generation = 1;
+  assert.match(
+    (await verifyPhaseMcpRequirements(root, workflow, workflow.phases.verification)).errors.join('\n'),
+    /generation 2 requires a live, host-observed navigation receipt/
+  );
+});
+
+test('origin-bound browser snapshots verify the Page URL in captured bytes', async () => {
+  const root = await repository('sflow-mcp-snapshot-origin-');
+  await mkdir(path.join(root, 'singularity/work-items/WORK-SNAPSHOT'), { recursive: true });
+  const workflow = {
+    workItem: { id: 'WORK-SNAPSHOT' }, currentPhase: 'verification', phaseOrder: ['verification'],
+    phases: { verification: { generation: 0, status: 'in_progress' } },
+    resolution: { mcpServers: normalizeMcpServers({
+      playwright: {
+        hostReference: 'playwright', agents: ['qa'], phases: ['verification'],
+        tools: ['browser_snapshot'], evidence: { captureToolCalls: true, captureResults: true }
+      }
+    }, { agents: ['qa'], phases: ['verification'] }) },
+    mcpAuthorizations: {
+      playwright: { schemaVersion: 1, origins: ['https://staging.example.test'], source: 'story-intake', pinnedAt: new Date().toISOString() }
+    }
+  };
+  await writeFile(path.join(root, 'wrong-snapshot.txt'), '- Page URL: https://production.example.test/checkout\n');
+  await assert.rejects(() => recordMcpEvidence(root, workflow, {
+    server: 'playwright', tool: 'browser_snapshot', phase: 'verification', agent: 'qa',
+    outputPath: 'wrong-snapshot.txt'
+  }), /outside this Story's authorization/);
+  assert.equal(await readFile(path.join(root, 'wrong-snapshot.txt'), 'utf8'), '- Page URL: https://production.example.test/checkout\n');
+  await writeFile(path.join(root, 'right-snapshot.txt'), '- Page URL: https://staging.example.test/checkout?state=ready\n');
+  const recorded = await recordMcpEvidence(root, workflow, {
+    server: 'playwright', tool: 'browser_snapshot', phase: 'verification', agent: 'qa',
+    outputPath: 'right-snapshot.txt'
+  });
+  assert.equal(recorded.record.captureSource, 'verified-from-captured-output');
+  assert.equal(recorded.record.observedFinalOrigin, 'https://staging.example.test');
+  assert.equal(recorded.record.observedFinalUrlSha256.length, 64);
   assert.equal((await verifyMcpEvidence(root, workflow)).errors.length, 0);
 });
 

@@ -210,16 +210,16 @@ async function writePackageIndexes(root, config, workflow, manifest, packageReco
     const group = hashes.get(record.sha256) ?? []; group.push(record.id); hashes.set(record.sha256, group);
   }
   const duplicates = [...hashes.entries()].filter(([, ids]) => ids.length > 1).map(([sha256, ids]) => ({ sha256, documents: ids }));
-  const packageRoot = path.join(workDir(root, config, workflow.workItem.id), 'inputs', 'packages', packageRecord.id);
-  const packageRelative = posix(path.relative(root, packageRoot)); await mkdir(packageRoot, { recursive: true });
+  const documentPackageDirectory = path.join(workDir(root, config, workflow.workItem.id), 'inputs', 'packages', packageRecord.id);
+  const packageRelative = posix(path.relative(root, documentPackageDirectory)); await mkdir(documentPackageDirectory, { recursive: true });
   const audit = { schemaVersion: 1, id: packageRecord.id, name: packageRecord.name, importedAt: packageRecord.importedAt, fileCount: records.length, totalBytes, extensions, emptyFiles: records.filter((item) => item.size === 0).map((item) => item.id), duplicates, files: records.map(({ id, label, sourceRelativePath, path: filePath, mimeType: type, size, sha256 }) => ({ id, label, sourceRelativePath, path: filePath, mimeType: type, size, sha256 })) };
-  await writeJson(path.join(packageRoot, 'manifest.json'), audit);
+  await writeJson(path.join(documentPackageDirectory, 'manifest.json'), audit);
   const inventory = [`# Design package ${packageRecord.id} — ${packageRecord.name}`, '', `- Files: **${records.length}**`, `- Bytes: **${totalBytes}**`, `- Empty files: **${audit.emptyFiles.length}**`, `- Duplicate groups: **${duplicates.length}**`, '', '| ID | Relative source path | Type | Bytes | SHA-256 |', '|---|---|---|---:|---|', ...records.map((item) => `| ${item.id} | ${item.sourceRelativePath} | ${item.mimeType} | ${item.size} | \`${item.sha256}\` |`), '', '## File types', '', ...Object.entries(extensions).sort().map(([extension, count]) => `- ${extension}: ${count}`), ''];
-  await writeText(path.join(packageRoot, 'inventory.md'), `${inventory.join('\n')}\n`);
+  await writeText(path.join(documentPackageDirectory, 'inventory.md'), `${inventory.join('\n')}\n`);
   const images = records.filter((item) => item.mimeType?.startsWith('image/'));
-  const cards = images.map((item) => { const relative = posix(path.relative(packageRoot, path.join(root, item.path))); return `<figure><img loading="lazy" src="${escapeHtml(relative)}" alt="${escapeHtml(item.label)}"><figcaption><strong>${escapeHtml(item.sourceRelativePath)}</strong><small>${escapeHtml(item.id)} · ${escapeHtml(item.sha256.slice(0, 12))}</small></figcaption></figure>`; }).join('');
+  const cards = images.map((item) => { const relative = posix(path.relative(documentPackageDirectory, path.join(root, item.path))); return `<figure><img loading="lazy" src="${escapeHtml(relative)}" alt="${escapeHtml(item.label)}"><figcaption><strong>${escapeHtml(item.sourceRelativePath)}</strong><small>${escapeHtml(item.id)} · ${escapeHtml(item.sha256.slice(0, 12))}</small></figcaption></figure>`; }).join('');
   const gallery = `<!doctype html><html><head><meta charset="utf-8"><meta name="viewport" content="width=device-width"><title>${escapeHtml(packageRecord.name)} gallery</title><style>body{font:16px/1.5 Inter,system-ui,sans-serif;margin:32px;background:#f5f7f5;color:#17251d}h1{color:#16472b}.grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(260px,1fr));gap:18px}figure{margin:0;background:#fff;border:1px solid #d7dfda;border-radius:14px;overflow:hidden;box-shadow:0 8px 24px #183f2a12}img{display:block;width:100%;height:260px;object-fit:contain;background:#eef2ef}figcaption{display:flex;flex-direction:column;padding:14px}small{color:#68756d}</style></head><body><h1>${escapeHtml(packageRecord.name)}</h1><p>${images.length} image preview(s) from ${records.length} files. Open source files at original resolution.</p><div class="grid">${cards || '<p>No image files were detected.</p>'}</div></body></html>`;
-  await writeText(path.join(packageRoot, 'gallery.html'), gallery);
+  await writeText(path.join(documentPackageDirectory, 'gallery.html'), gallery);
   Object.assign(packageRecord, { fileCount: records.length, totalBytes, manifestPath: `${packageRelative}/manifest.json`, inventoryPath: `${packageRelative}/inventory.md`, galleryPath: `${packageRelative}/gallery.html`, imageCount: images.length, duplicateGroups: duplicates.length, emptyFiles: audit.emptyFiles.length });
 }
 

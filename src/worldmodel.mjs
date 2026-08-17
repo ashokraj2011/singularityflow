@@ -3,7 +3,6 @@ import { existsSync, readFileSync, realpathSync } from 'node:fs';
 import { createHash } from 'node:crypto';
 import os from 'node:os';
 import path from 'node:path';
-import { fileURLToPath } from 'node:url';
 import {
   add, assertNotDefaultBranch, branch, changedFiles, fetchRemote, gitDir, hasRemote, head, pushBranch,
   refExists, validBranch
@@ -50,8 +49,8 @@ import { resolveReference } from './harness-imports.mjs';
 import {
   clearCompositionCache, compositionCacheEnabled, compositionCacheStatus, memoizeComposition
 } from './composition-cache.mjs';
+import { PACKAGE_ROOT } from './package-root.mjs';
 
-const packageRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 const configRelative = 'singularity/worldmodel.json';
 const CHECKPOINT_SCHEMA_VERSION = 1;
 const MAX_DISCOVERY_PACKET_BYTES = 24 * 1024;
@@ -204,7 +203,7 @@ function defaults() {
 }
 
 function requireTemplate(name) {
-  const file = path.join(packageRoot, 'templates', name);
+  const file = path.join(PACKAGE_ROOT, 'templates', name);
   if (!existsSync(file)) throw new SingularityFlowError(`Packaged world-model template is missing: ${name}`);
   return requireText(file);
 }
@@ -364,13 +363,13 @@ function render(template, root, config, options) {
 async function init(root) {
   const promptFile = path.join(root, 'singularity/prompts/worldmodel-builder.md');
   await mkdir(path.dirname(promptFile), { recursive: true });
-  if (!existsSync(promptFile)) await copyFile(path.join(packageRoot, 'templates/worldmodel-builder.md'), promptFile);
+  if (!existsSync(promptFile)) await copyFile(path.join(PACKAGE_ROOT, 'templates/worldmodel-builder.md'), promptFile);
   console.log('World-model builder prompt initialized; phase routing comes from singularity/workflow.yml.');
 }
 
 async function prompt(root, config, options) {
   const source = config.promptSource === 'builtin'
-    ? path.join(packageRoot, 'templates/worldmodel-builder.md')
+    ? path.join(PACKAGE_ROOT, 'templates/worldmodel-builder.md')
     : path.resolve(root, config.promptSource);
   const rendered = render(await readFile(source, 'utf8'), root, config, options);
   const destination = optionString(options, 'out');
@@ -1212,7 +1211,7 @@ async function build(root, config, options) {
   const staging = path.join(temporary, 'output');
   const analysisRoot = path.join(temporary, 'repository');
   await mkdir(staging, { recursive: true });
-  const source = config.promptSource === 'builtin' ? path.join(packageRoot, 'templates/worldmodel-builder.md') : path.resolve(root, config.promptSource);
+  const source = config.promptSource === 'builtin' ? path.join(PACKAGE_ROOT, 'templates/worldmodel-builder.md') : path.resolve(root, config.promptSource);
   const buildConfig = { ...config, outputDir: staging };
   const generatedAt = new Date().toISOString();
   const generatedDate = new Intl.DateTimeFormat('en-GB', { day: 'numeric', month: 'long', year: 'numeric', timeZone: 'UTC' }).format(new Date(generatedAt));
@@ -2157,7 +2156,7 @@ async function showPrompt(root, options) {
   if (!/^[a-z0-9][a-z0-9-]{0,63}$/.test(skillId)) {
     throw new SingularityFlowError('Option --skill must be a valid Copilot skill ID containing lowercase letters, numbers, or hyphens.');
   }
-  const skillFile = path.join(packageRoot, 'plugin', 'skills', skillId, 'SKILL.md');
+  const skillFile = path.join(PACKAGE_ROOT, 'plugin', 'skills', skillId, 'SKILL.md');
   if (!existsSync(skillFile)) {
     throw new SingularityFlowError(`Unknown packaged Copilot skill '${skillId}'.`);
   }

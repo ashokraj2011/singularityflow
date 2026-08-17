@@ -33,7 +33,8 @@ records with repository-relative paths and hashes. Redact personal data and secr
 artifacts and distinguish unavailable evidence from passing evidence.
 
 Submission is blocked unless the current generation contains durable Playwright console, network,
-and screenshot MCP records. A failed executable check is reviewable but cannot be approved; a human
+and screenshot MCP records plus a live, host-observed navigation receipt from `mcp smoke playwright
+--url <EXACT-APPROVED-URL>`. A failed executable check is reviewable but cannot be approved; a human
 rejection is the only transition that authorizes and consumes a repair attempt.
 
 ## Repair attempts

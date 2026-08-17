@@ -1,7 +1,6 @@
 import { createHash, randomUUID } from 'node:crypto';
 import { readFile } from 'node:fs/promises';
 import path from 'node:path';
-import { fileURLToPath } from 'node:url';
 import YAML from 'yaml';
 import { artifactBlockMarkers, PHASE_SCOPE } from './planning-scope.mjs';
 import { renderAgentSkills } from './agents.mjs';
@@ -52,11 +51,11 @@ import {
   writeJson,
   writeText
 } from './util.mjs';
+import { PACKAGE_ROOT } from './package-root.mjs';
 
 const SESSION_ID = /^[a-zA-Z0-9][a-zA-Z0-9._-]{0,127}$/;
 const INITIATIVE_METADATA = /^<!-- singularity-flow:initiative-metadata[\s\S]*?-->/;
 const WORK_ITEM_METADATA = /^<!-- singularity-flow:metadata\n[\s\S]*?\n-->/;
-const packageRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 
 function sha256(value) {
   return createHash('sha256').update(value).digest('hex');
@@ -102,7 +101,7 @@ async function planningPrompt(root, definition) {
     return { config, absolute: prompt.absolute, path: prompt.relative, content, builtin: false, ...info };
   }
   if (config.promptSource !== DEFAULT_PLANNING_PROMPT) throw new SingularityFlowError(`Planning prompt is missing: ${config.promptSource}`);
-  const fallback = path.join(packageRoot, 'templates', 'copilot-planning.md');
+  const fallback = path.join(PACKAGE_ROOT, 'templates', 'copilot-planning.md');
   const content = await readFile(fallback, 'utf8');
   const info = await snapshot(fallback);
   return { config, absolute: fallback, path: 'builtin:copilot-planning.md', content, builtin: true, ...info };

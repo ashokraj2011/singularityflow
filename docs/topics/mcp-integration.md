@@ -1,7 +1,7 @@
 ---
 id: mcp-integration
 title: MCP integration
-version: 3
+version: 4
 aliases:
   - mcp
   - playwright
@@ -37,6 +37,11 @@ Use this topic when the current goal matches **mcp integration**. Start in a gov
 3. Preview or prepare the operation when the command offers a dry-run, plan, packet, or exact confirmation.
 4. Run the smallest applicable command from this topic. Do not substitute an undocumented subcommand.
 5. Re-read state after completion. In Copilot, return to `/sf-home`; in VS Code, refresh the relevant view if it has not already refreshed.
+
+For an origin-bound Story, run `sflow mcp smoke playwright --url <AUTHORIZED-URL>` in every phase
+generation that collects browser evidence. The live MCP host's observed final URL becomes the
+navigation receipt. Manual `browser_navigate` declarations are refused, and a saved
+`browser_snapshot` is accepted only when its reported `Page URL` remains on the authorized origin.
 
 ## State and safety
 

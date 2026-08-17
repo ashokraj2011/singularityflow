@@ -189,7 +189,11 @@ target before preparing that phase:
 singularity-flow mcp smoke playwright --url https://staging.example.test/health
 ```
 
-The receipt stores only the authorized origin and hash-bound host/policy identity. It is
+The receipt stores the authorized origin, hashes of the requested and observed final URLs, and
+hash-bound host/policy identity; it does not persist query strings or URL credentials. In an active
+phase that requires browser evidence, the same live call creates a generation-bound
+`browser_navigate` evidence record from the MCP host's observed final URL. Agent-declared
+navigation records are refused. It is
 machine-local, expires when either configuration changes, and does not replace host trust or
 authentication. Redirects outside the requested origin fail the smoke test.
 
@@ -237,6 +241,11 @@ and writes its typed provenance record under:
 ```text
 singularity/work-items/WORK-123/context/mcp/records/
 ```
+
+For an origin-bound `browser_snapshot`, the output is mandatory. Flow parses the captured
+Playwright `Page URL`, compares its origin with the Story authorization, and binds that observation
+to the record. Run `mcp smoke` again in every browser-evidence generation; do not use `mcp record
+--tool browser_navigate` as a substitute.
 
 The governance gate verifies the server, phase, governed agent, allowed tool,
 output path, size and SHA-256. The record is an explicit declaration by the agent;

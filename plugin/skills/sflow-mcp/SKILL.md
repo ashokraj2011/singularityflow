@@ -13,9 +13,9 @@ argument-hint: "status | doctor | attest <server> | smoke playwright --url <url>
 - List governed assignments and detected host configuration: `singularity-flow mcp status`.
 - Diagnose static host and policy readiness without contacting a server: `singularity-flow mcp doctor`.
 - After reviewing, trusting, starting, and authenticating the server in the host, create a machine-local readiness receipt: `singularity-flow mcp attest <SERVER> --confirm <SERVER>`.
-- With explicit network/browser consent, prove the Playwright protocol, required tools, browser launch, authorized navigation, snapshot, same-origin result, and close: `singularity-flow mcp smoke playwright --url <AUTHORIZED-URL>`.
+- With explicit network/browser consent, prove the Playwright protocol, required tools, browser launch, authorized navigation, snapshot, same-origin result, and close: `singularity-flow mcp smoke playwright --url <AUTHORIZED-URL>`. In an active origin-bound phase, this also records generation-bound navigation evidence from the MCP host's observed final URL.
 - Merge an explicit VS Code host entry without replacing unrelated servers: `singularity-flow mcp scaffold playwright` or `singularity-flow mcp scaffold figma` (`--local` selects Figma's desktop endpoint).
-- Record a material tool call: `singularity-flow mcp record <SERVER> --tool <TOOL> --phase <PHASE> [--output <PATH>] [--note TEXT]`. Browser navigation for an origin-bound Story also requires `--target-url <AUTHORIZED-URL>`.
+- Record a material tool call: `singularity-flow mcp record <SERVER> --tool <TOOL> --phase <PHASE> [--output <PATH>] [--note TEXT]`. Do not manually record `browser_navigate` for an origin-bound Story; only the live smoke can issue that receipt. A `browser_snapshot` record must include the saved Playwright snapshot, and Flow verifies its reported `Page URL` against the Story authorization.
 - Record pinned Figma metadata: `singularity-flow mcp record figma --kind design-source --tool get_metadata --phase design-intake --output <XML> --file-key <KEY> --file-version <VERSION> [--node 1:3]`.
 - Inspect the exact approved source set downstream prompts will use: `singularity-flow mcp design-sources status`.
 

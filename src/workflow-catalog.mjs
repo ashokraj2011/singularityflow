@@ -1,13 +1,12 @@
 import path from 'node:path';
-import { fileURLToPath } from 'node:url';
 import { cp, mkdir, readFile, readdir } from 'node:fs/promises';
 import YAML from 'yaml';
 import { parseAgentDependencies } from './agents.mjs';
 import { loadDefinition, validateDefinition, WORKFLOW_PATH } from './config.mjs';
 import { exists, writeText } from './util.mjs';
+import { PACKAGE_ROOT } from './package-root.mjs';
 
-const packageRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
-const starterPath = path.join(packageRoot, 'templates', 'workflow.yml');
+const starterPath = path.join(PACKAGE_ROOT, 'templates', 'workflow.yml');
 
 async function starterDefinition() { return validateDefinition(YAML.parse(await readFile(starterPath, 'utf8'))); }
 function canonical(value) {
@@ -107,13 +106,13 @@ export async function installWorkflow(root, id, { replace = false, dryRun = fals
   const files = [];
   for (const phaseId of phaseIds) {
     const template = profile.templateOverrides?.[phaseId] ?? starter.phases[phaseId].defaultTemplate;
-    if (!template?.startsWith('agent:')) files.push({ source: path.join(packageRoot, 'templates', 'artifacts', template), target: path.join(root, installed.templatesRoot, template), overwrite: replace });
+    if (!template?.startsWith('agent:')) files.push({ source: path.join(PACKAGE_ROOT, 'templates', 'artifacts', template), target: path.join(root, installed.templatesRoot, template), overwrite: replace });
   }
   // Copy the default packaged agent modules that make the new phases immediately selectable.
   // Existing repository agents always win discovery and are never overwritten by workflow install.
-  for (const entry of await readdir(path.join(packageRoot, 'templates', 'agents'), { withFileTypes: true })) {
+  for (const entry of await readdir(path.join(PACKAGE_ROOT, 'templates', 'agents'), { withFileTypes: true })) {
     if (!entry.isFile() || !/(?:\.agent)?\.md$/i.test(entry.name)) continue;
-    const source = path.join(packageRoot, 'templates', 'agents', entry.name);
+    const source = path.join(PACKAGE_ROOT, 'templates', 'agents', entry.name);
     const agent = parseAgentDependencies(await readFile(source, 'utf8'), { source });
     if (agent.defaultFor.some((phase) => phaseIds.has(phase))) {
       files.push({ source, target: path.join(root, '.github', 'agents', entry.name), overwrite: false });

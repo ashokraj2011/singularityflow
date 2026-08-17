@@ -156,6 +156,14 @@ export const MESSAGES = Object.freeze({
     // The sandbox is created and removed inside the command. The repository the reader is standing
     // in is untouched, which is the whole reason this is safe to run first.
     preserves: true
+  },
+  'recommend.ready': {
+    headline: (s) => `${s.name ? `${slot(s.name)}, ` : ''}${slot(s.workId)} is at ${slot(s.phase)}. Next: ${slot(s.action)}.`,
+    preserves: true
+  },
+  'recommend.no-current-work': {
+    headline: (s) => `${s.name ? `${slot(s.name)}, ` : ''}no governed work is currently selected.`,
+    preserves: true
   }
 });
 
@@ -204,6 +212,9 @@ export const REASONS = Object.freeze({
   },
   'docs.subject-unresolved': {
     render: () => 'no work item resolves here, so only the concept could be served'
+  },
+  'recommend.from-durable-state': {
+    render: () => 'the recommendation was reconstructed from durable workspace, repository, lifecycle, and evidence records'
   }
 });
 

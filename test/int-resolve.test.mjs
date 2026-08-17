@@ -57,9 +57,15 @@ test('ordinary language selects a read planner without executing a mutation', ()
   assert.equal(readiness.why[0].code, 'resolution.matched.conversation');
   assert.equal(readiness.next[0].reasonCode, 'resolution.matched.conversation');
 
-  const start = resolve({ utterance: 'Please start a new bug fix' });
+  const startContext = setup();
+  const start = resolveIntent({ utterance: 'Please start a new bug fix' }, startContext);
   assert.equal(start.kind, 'read');
   assert.equal(start.operation.id, 'work.start.intake');
+  const startHandle = startContext.handles.verify(
+    { id: start.next[0].handle }, { kind: 'read', binding: startContext.binding }
+  );
+  assert.equal(startHandle.arguments.shape, 'story');
+  assert.equal(startHandle.arguments.workType, 'bug-fix');
 
   const generate = resolve({ utterance: 'Generate the active phase', arguments: { workId: 'WRK-123' } });
   assert.equal(generate.kind, 'read');
@@ -163,10 +169,12 @@ test('legality is the last word, and an absent legal set is not permission', () 
   assert.equal(permitted.kind, 'read');
 });
 
-test('policy denial removes an operation from resolution entirely', () => {
+test('policy denial removes that operation even when another safe read can answer the intent', () => {
   const policy = resolveGatewayPolicy([DEFAULT_GATEWAY_POLICY, { layer: 'workspace', denied: ['work.list'] }]);
   const result = resolve({ utterance: 'what am I working on' }, { policy });
-  assert.equal(result.kind, 'clarification', 'a denied operation is not matchable, not a refusal that names it');
+  assert.notEqual(result.operation.id, 'work.list', 'a denied operation is not matchable');
+  assert.equal(result.operation.id, 'developer.next');
+  assert.equal(result.kind, 'read');
 });
 
 // ---------------------------------------------------------------------------------------------

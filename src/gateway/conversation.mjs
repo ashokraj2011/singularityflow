@@ -7,7 +7,7 @@
  * never becomes a submit operation merely because those words appeared in conversation.
  */
 
-export const CONVERSATION_SCHEMA_VERSION = 1;
+export const CONVERSATION_SCHEMA_VERSION = 2;
 
 export const DEVELOPER_INTENTS = Object.freeze([
   'orient', 'continue', 'start', 'inspect', 'act', 'recover'
@@ -94,7 +94,7 @@ const ROUTES = Object.freeze([
   }),
   route({
     id: 'orient', intent: 'orient', label: 'Show current developer context',
-    operationId: 'work.list', skill: '/sf-status', automatic: true, confirmation: 'none',
+    operationId: 'developer.next', skill: '/sf-home', automatic: true, confirmation: 'none',
     patterns: [
       /\b(where am i|what am i working on|what i am working on|what is active|what's active|current work|current status)\b/,
       /\b(what should i do|what do i do|what now|what next|show me my day)\b/
@@ -109,7 +109,26 @@ const normalize = (value) => String(value ?? '')
   .replace(/\s+/g, ' ')
   .trim();
 
-function publicRoute(entry) {
+function inferredWork(normalized, entry) {
+  if (entry.intent !== 'start') return null;
+  const shape = /\binitiative\b/.test(normalized) ? 'initiative'
+    : /\bepic\b/.test(normalized) ? 'epic' : 'story';
+  const category = /\bbug(?:\s+fix)?\b/.test(normalized) ? 'bug-fix'
+    : /\bfeature\b/.test(normalized) ? 'feature'
+      : /\bchore\b/.test(normalized) ? 'chore' : null;
+  return Object.freeze({
+    shape,
+    category,
+    /** These are product decisions, not facts extracted from prose. */
+    requiredInputs: Object.freeze([
+      'work description',
+      ...(shape === 'story' ? ['definition of done', 'remote base branch'] : ['success outcome'])
+    ])
+  });
+}
+
+function publicRoute(entry, normalized) {
+  const work = inferredWork(normalized, entry);
   return Object.freeze({
     id: entry.id,
     intent: entry.intent,
@@ -117,7 +136,8 @@ function publicRoute(entry) {
     operationId: entry.operationId,
     recommendedSkill: entry.skill,
     automatic: entry.automatic,
-    confirmation: entry.confirmation
+    confirmation: entry.confirmation,
+    ...(work ? { work } : {})
   });
 }
 
@@ -140,7 +160,7 @@ export function planDeveloperConversation(utterance) {
       intent: null,
       confidence: 'ambiguous',
       route: null,
-      choices: Object.freeze(unique.map(publicRoute)),
+      choices: Object.freeze(unique.map((entry) => publicRoute(entry, normalized))),
       stateSource: 'durable-records',
       effects: EFFECTS_NONE
     });
@@ -158,7 +178,7 @@ export function planDeveloperConversation(utterance) {
     });
   }
 
-  const selected = publicRoute(unique[0]);
+  const selected = publicRoute(unique[0], normalized);
   return Object.freeze({
     schemaVersion: CONVERSATION_SCHEMA_VERSION,
     intent: selected.intent,

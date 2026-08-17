@@ -27,7 +27,7 @@ import { compileOperationRegistry } from './registry.mjs';
  * P0 defines the contract. Every `run` is null, and the count below says so out loud.
  */
 export const GATEWAY_PLANNERS = Object.freeze([
-  'home-overview', 'work-list', 'work-continue', 'work-handoff', 'work-start-intake', 'work-start',
+  'home-overview', 'developer-next', 'work-list', 'work-continue', 'work-handoff', 'work-start-intake', 'work-start',
   'work-draft-save', 'work-readiness', 'work-return', 'workspace-list', 'workspace-switch', 'workspace-materialize',
   'impact-quick', 'impact-quick-assisted', 'impact-what-if', 'impact-what-if-assisted',
   'problem-investigate', 'problem-investigate-assisted', 'repository-explore', 'intent-trace',
@@ -42,7 +42,7 @@ export const GATEWAY_PLANNERS = Object.freeze([
  * passes, nobody notices for weeks. A count that a test asserts against turns that from an invisible
  * smell into a number someone has to look at and lower.
  */
-export const MAX_UNIMPLEMENTED_GATEWAY_PLANNERS = 19;
+export const MAX_UNIMPLEMENTED_GATEWAY_PLANNERS = 18;
 
 /**
  * Which declared planners this build does not have.
@@ -88,6 +88,25 @@ export const GATEWAY_DECLARATIONS = Object.freeze([
     argumentSchema: 'no-arguments-v1',
     planner: 'home-overview',
     noModelFixture: 'home-overview-model-free'
+  },
+
+  /**
+   * The one answer to "what should I do next?" across every developer surface.
+   *
+   * It composes the same durable Home projection with the ordered lifecycle guidance used by
+   * `nextsteps`. It remains a read: the recommendation may preview a mutation, but selecting it
+   * first resolves the registered read destination and never executes the displayed command.
+   */
+  {
+    ...READ,
+    id: 'developer.next',
+    modelPolicy: 'never',
+    goals: ['home', 'work.continue'],
+    aliases: en('what should I do next', 'what now', 'recommend my next step'),
+    subjects: ['workspace', 'story', 'initiative', 'epic'],
+    argumentSchema: 'no-arguments-v1',
+    planner: 'developer-next',
+    noModelFixture: 'developer-next-model-free'
   },
 
   // §8.1 A filtered read of records that already exist, never a second work store `[INT:CON-060]`.

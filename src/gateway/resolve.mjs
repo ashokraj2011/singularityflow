@@ -401,6 +401,13 @@ export function resolveIntent(request = {}, {
       if (routed.length) {
         pool = routed;
         matchedBy = MATCH_CONVERSATION;
+        if (conversation.route.operationId === 'work.start.intake' && conversation.route.work) {
+          context.arguments = {
+            ...context.arguments,
+            shape: conversation.route.work.shape,
+            ...(conversation.route.work.category ? { workType: conversation.route.work.category } : {})
+          };
+        }
         why.push(reason('resolution.matched.conversation', {
           reference: conversation.route.id,
           slots: { intent: conversation.intent, skill: conversation.route.recommendedSkill }

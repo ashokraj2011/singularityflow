@@ -98,6 +98,13 @@ export const HOME_CODES = Object.freeze([
   'home.stable-choice'
 ]);
 
+/** The canonical developer recommendation and its honest empty-state alternatives. */
+export const DEVELOPER_CODES = Object.freeze([
+  'developer.recommended-next',
+  'developer.start-with-intake',
+  'developer.no-current-work'
+]);
+
 /**
  * Work: where a record came from, what is true of it, and what it is blocked by.
  *
@@ -207,7 +214,7 @@ export const SURFACE_CODES = Object.freeze([
 
 /** Every code, in one frozen set, which is the thing a surface actually needs. */
 export const REASON_CODES = Object.freeze([
-  ...RESOLUTION_CODES, ...KERNEL_CODES, ...HOME_CODES,
+  ...RESOLUTION_CODES, ...KERNEL_CODES, ...HOME_CODES, ...DEVELOPER_CODES,
   ...WORK_CODES, ...READINESS_CODES, ...RETURN_CODES, ...SURFACE_CODES
 ]);
 

@@ -37,6 +37,7 @@ export const RESULT_MESSAGES = Object.freeze({
    */
   'gateway.read': M('Here is what SFlow found'),
   'gateway.home': M('Your work'),
+  'gateway.developer-next': M('Your recommended next step'),
   'gateway.next': M('What you can do now'),
   'gateway.explained': M('Here is the explanation'),
   'gateway.refused': M('Not ready'),
@@ -96,6 +97,14 @@ export const RESULT_MESSAGES = Object.freeze({
   'home.nothing-waiting': M('Nothing is waiting on you in {workspace}'),
   'home.work-summary': M('{active} active, {decisions} needing you'),
   'home.stable-choice': M('Always available'),
+
+  // ---- Developer recommendation
+  'developer.recommended-next': M('Recommended from the current governed state',
+    'Review what it will change before selecting it.'),
+  'developer.start-with-intake': M('Start by describing the work',
+    'SFlow will ask only for the consequential choices it cannot derive.'),
+  'developer.no-current-work': M('No current work is selected',
+    'Start new work, resume an existing Story, or switch workspace.'),
 
   // ---- Work
   'work.from-governed-records': M('From governed records'),

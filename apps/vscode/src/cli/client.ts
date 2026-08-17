@@ -16,7 +16,7 @@ import {
 import type { RepositorySnapshot } from './snapshot.ts';
 
 const READ_ONLY_COMMANDS = new Set([
-  'about', 'help', 'show', 'choices', 'inbox', 'home', 'status', 'progress',
+  'about', 'help', 'show', 'choices', 'inbox', 'home', 'recommend', 'status', 'progress',
   'guide', 'logs', 'doctor', 'nextsteps', 'snapshot', 'validate'
 ]);
 const READ_ONLY_CONFIGURATION_COMMANDS = new Set([

@@ -2060,6 +2060,10 @@ test('the VS Code Help Center renders searchable concepts and copyable command b
   assert.match(html, /copy-code/);
   assert.match(html, /<table>/);
   assert.doesNotMatch(renderHelpMarkdown('<script>alert(1)</script>'), /<script>/);
+  const topic = renderHelpMarkdown('> Documentation, not instructions.\n\n## Purpose and prerequisites\n\nReadable topic.');
+  assert.match(topic, /<blockquote>Documentation, not instructions\.<\/blockquote>/);
+  assert.match(topic, /<h2>Purpose and prerequisites<\/h2>/);
+  assert.doesNotMatch(topic, /## Purpose/);
 });
 
 test('icons are inline paths, so no font has to be let through the CSP', () => {

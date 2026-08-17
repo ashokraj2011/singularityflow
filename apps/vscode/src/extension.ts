@@ -672,8 +672,9 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
    *
    * This command is registered with the other repository-independent Help commands. Keeping it in
    * the late repository handler table made every topic look actionable while leaving VS Code with
-   * no command to execute. A Markdown document supplies native selection, search, and copy without
-   * introducing a second renderer for the same canonical prose.
+   * no command to execute. The engine-served bytes are inserted into the existing Help Center so a
+   * topic keeps readable Markdown rendering, search, navigation, and copy controls instead of
+   * opening as a raw untitled Markdown editor.
    */
   context.subscriptions.push(vscode.commands.registerCommand('singularityFlow.explainTopic', async (node?: TreeNode) => {
     const id = String(node?.id ?? '').replace(/^help:topic:/, '');
@@ -683,12 +684,25 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
       const served = await new SingularityFlowClient({
         location, repository: process.cwd(), onOutput: (text) => output.append(text)
       }).run<{
-        data?: { served?: { text?: string }; citation?: string; topic?: { title?: string } };
+        data?: { served?: { text?: string }; citation?: string; topic?: { id?: string; title?: string } };
       }>(['explain', id, '--json']);
       const body = served.data?.served?.text ?? '';
-      const content = `${body}\n\n${served.data?.citation ?? ''}\n`;
-      const document = await vscode.workspace.openTextDocument({ language: 'markdown', content });
-      await vscode.window.showTextDocument(document, { preview: true });
+      if (!body) throw new Error(`The engine returned no documentation body for '${id}'.`);
+      const manual = await new SingularityFlowClient({
+        location, repository: process.cwd(), onOutput: (text) => output.append(text)
+      }).run<HelpDocument>(['help', '--json']);
+      const topic = {
+        id: served.data?.topic?.id ?? id,
+        title: served.data?.topic?.title ?? id,
+        content: `${body}\n\n${served.data?.citation ?? ''}`.trim()
+      };
+      const document: HelpDocument = {
+        ...manual,
+        topics: [topic, ...manual.topics.filter((entry) => entry.id !== topic.id)],
+        selectedTopic: topic.id
+      };
+      const { HelpPanel } = await import('./views/help.ts');
+      HelpPanel.show(context, document, topic.id, path.resolve(path.dirname(location.cli), '..'));
     } catch (error) {
       showRefusal(error, { headline: `Could not read topic ${id}` });
     }

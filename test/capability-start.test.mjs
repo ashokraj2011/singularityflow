@@ -5,7 +5,8 @@ import { tmpdir } from 'node:os';
 import path from 'node:path';
 
 import {
-  preflightStoryRepositories, publishedBranches, prepareCapabilityRepositories
+  capabilityPublicationPlan, preflightStoryRepositories, publishCapabilityRepositories,
+  publishedBranches, prepareCapabilityRepositories
 } from '../src/capability-start.mjs';
 import { parseBaseSelection, resolveCapabilityBase } from '../src/capability-branches.mjs';
 import { run } from '../src/util.mjs';
@@ -83,6 +84,69 @@ test('every repository in the capability lands on the Story branch cut from the 
     const merged = run('git', ['branch', '--contains', 'HEAD', '-a'], { cwd: root }).stdout;
     assert.match(merged, /S-42/);
   }
+});
+
+test('capability sibling Story branches are published for another machine', async () => {
+  const base = await mkdtemp(path.join(tmpdir(), 'sflow-capability-'));
+  const repositories = [
+    await repository(base, 'payments-api', ['main']),
+    await repository(base, 'payments-web', ['main'])
+  ];
+  const { published } = publishedBranches(repositories);
+  const resolution = resolveCapabilityBase({
+    repositories: published, selection: parseBaseSelection(['main'])
+  });
+  const plan = { repositories, resolution };
+  const checked = preflightStoryRepositories(base, plan, 'S-REMOTE');
+  prepareCapabilityRepositories(base, plan, 'S-REMOTE');
+
+  const leadRoot = path.join(base, repositories[0].path);
+  const publicationPlan = capabilityPublicationPlan(checked, leadRoot);
+  assert.deepEqual(publicationPlan.map((entry) => entry.repository), ['payments-web']);
+  const result = publishCapabilityRepositories(publicationPlan);
+  assert.equal(result.error, null);
+  assert.deepEqual(result.pending, []);
+  assert.equal(result.published[0].branch, 'S-REMOTE');
+
+  const sibling = path.join(base, repositories[1].path);
+  assert.equal(
+    run('git', ['rev-parse', 'refs/remotes/origin/S-REMOTE'], { cwd: sibling }).stdout.trim(),
+    run('git', ['rev-parse', 'refs/remotes/origin/main'], { cwd: sibling }).stdout.trim()
+  );
+  const clone = path.join(base, 'other-machine');
+  git(base, 'clone', '--quiet', repositories[1].url, clone);
+  assert.equal(run('git', ['show-ref', '--verify', '--quiet', 'refs/remotes/origin/S-REMOTE'], {
+    cwd: clone, allowFailure: true
+  }).status, 0);
+});
+
+test('a post-preflight sibling publication failure returns an exact resumable remainder', async () => {
+  const base = await mkdtemp(path.join(tmpdir(), 'sflow-capability-'));
+  const repositories = [
+    await repository(base, 'lead', ['main']),
+    await repository(base, 'sibling', ['main'])
+  ];
+  const { published } = publishedBranches(repositories);
+  const resolution = resolveCapabilityBase({
+    repositories: published, selection: parseBaseSelection(['main'])
+  });
+  const plan = { repositories, resolution };
+  const checked = preflightStoryRepositories(base, plan, 'S-RECOVER');
+  prepareCapabilityRepositories(base, plan, 'S-RECOVER');
+  const entries = capabilityPublicationPlan(checked, path.join(base, repositories[0].path));
+  const sibling = path.join(base, repositories[1].path);
+  git(sibling, 'config', 'remote.origin.receivepack', '/usr/bin/false');
+  const failed = publishCapabilityRepositories(entries);
+  assert.equal(failed.pending.length, 1);
+  assert.equal(failed.pending[0].repository, 'sibling');
+  assert.match(failed.error, /false|receive|failed|fatal/i);
+
+  git(sibling, 'config', '--unset', 'remote.origin.receivepack');
+  const recovered = publishCapabilityRepositories(failed.pending);
+  assert.equal(recovered.error, null);
+  assert.deepEqual(recovered.pending, []);
+  assert.equal(run('git', ['rev-parse', 'refs/remotes/origin/S-RECOVER'], { cwd: sibling }).stdout.trim(),
+    failed.pending[0].commit);
 });
 
 test('a repository the workspace has not cloned is named, not skipped in silence', async () => {

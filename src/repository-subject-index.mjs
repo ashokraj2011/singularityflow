@@ -1,5 +1,6 @@
 import path from 'node:path';
 import { readdir } from 'node:fs/promises';
+import YAML from 'yaml';
 import { fileAtRef, refHead } from './git.mjs';
 import { SingularityFlowError, exists, readJson, run } from './util.mjs';
 
@@ -151,6 +152,35 @@ function refFiles(root, ref, roots) {
   return result.stdout.split('\0').filter((file) => file.endsWith('/workflow.json') || file.endsWith('/state.json'));
 }
 
+function safeRefRoot(value, fallback) {
+  const candidate = String(value ?? fallback).trim().replace(/\/$/, '');
+  if (!candidate || candidate.startsWith(':') || path.posix.isAbsolute(candidate)
+      || path.posix.normalize(candidate) !== candidate
+      || candidate.split('/').includes('..') || candidate.includes('\\') || candidate.includes('\0')) {
+    return fallback;
+  }
+  return candidate;
+}
+
+/**
+ * State roots belong to the lifecycle branch that carries the state.
+ *
+ * Using the currently checked-out definition for every remote ref made an older Story disappear
+ * as soon as a later configuration revision moved `workItemRoot`. Each Story already carries the
+ * exact definition it was created under, so discovery reads only these two path settings from that
+ * ref and still falls back to the caller's definition for legacy branches without a snapshot.
+ */
+function rootsForRef(root, ref, { workRoot, initiativeRoot }) {
+  let definition = null;
+  try { definition = YAML.parse(fileAtRef(root, ref, 'singularity/workflow.yml') ?? ''); } catch {}
+  let portfolio = null;
+  try { portfolio = YAML.parse(fileAtRef(root, ref, 'singularity/portfolio.yml') ?? ''); } catch {}
+  return {
+    workRoot: safeRefRoot(definition?.workItemRoot, workRoot),
+    initiativeRoot: safeRefRoot(portfolio?.initiativeRoot, initiativeRoot)
+  };
+}
+
 export async function buildRepositorySubjectIndexFromRefs(root, {
   definition = {},
   portfolio = null,
@@ -162,7 +192,8 @@ export async function buildRepositorySubjectIndexFromRefs(root, {
   for (const item of refs) {
     const ref = typeof item === 'string' ? item : item.ref;
     const branch = typeof item === 'string' ? item.split('/').slice(1).join('/') : item.branch;
-    for (const relative of refFiles(root, ref, [workRoot, initiativeRoot])) {
+    const roots = rootsForRef(root, ref, { workRoot, initiativeRoot });
+    for (const relative of refFiles(root, ref, [roots.workRoot, roots.initiativeRoot])) {
       const content = fileAtRef(root, ref, relative);
       const candidate = content && parseEntry(relative, content, {
         source: 'ref', ref, branch, commit: refHead(root, ref)

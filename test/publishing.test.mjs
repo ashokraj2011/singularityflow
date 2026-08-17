@@ -7,6 +7,8 @@ import { fileURLToPath } from 'node:url';
 import { spawnSync } from 'node:child_process';
 import YAML from 'yaml';
 import { storyPublicationPending } from '../src/state.mjs';
+import { writePendingPublication } from '../src/publication-pending.mjs';
+import { loadDefinition } from '../src/config.mjs';
 
 const packageRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..'); const bin = path.join(packageRoot, 'bin/singularity-flow.mjs');
 function run(command, args, cwd, { fail = false, actor = 'Publisher' } = {}) {
@@ -26,6 +28,60 @@ test('failed required push blocks transitions until sync publishes the retained 
   const blocked = flow(root, ['submit'], { fail: true }); assert.equal(blocked.status, 2); assert.match(blocked.stderr, /Out of sequence/); assert.match(blocked.stderr, /Publication is pending/); assert.match(blocked.stderr, /singularity-flow sync/);
   run('git', ['remote', 'set-url', 'origin', remote], root); flow(root, ['sync']); const local = run('git', ['rev-parse', 'HEAD'], root).stdout.trim(); const published = run('git', ['ls-remote', 'origin', 'refs/heads/PUSH-1'], root).stdout.split(/\s+/)[0]; assert.equal(published, local);
   assert.equal(run('git', ['status', '--porcelain'], root).stdout.trim(), '');
+});
+
+test('sync completes an exact pending capability sibling branch publication', async () => {
+  const base = await mkdtemp(path.join(os.tmpdir(), 'sflow-capability-sync-'));
+  const root = path.join(base, 'lead');
+  const remote = path.join(base, 'lead.git');
+  run('git', ['init', '--bare', remote], base);
+  run('git', ['init', '-b', 'main', root], base);
+  run('git', ['config', 'user.name', 'Publisher'], root);
+  run('git', ['config', 'user.email', 'publisher@example.com'], root);
+  run('git', ['remote', 'add', 'origin', remote], root);
+  await writeFile(path.join(root, 'README.md'), '# capability sync\n');
+  flow(root, ['init']);
+  run('git', ['add', '.'], root);
+  run('git', ['commit', '-m', 'init'], root);
+  run('git', ['push', '-u', 'origin', 'main'], root);
+  flow(root, ['start', 'CAPSYNC-1', '--from-branch', 'main']);
+
+  const siblingRemote = path.join(base, 'sibling.git');
+  const sibling = path.join(base, 'sibling');
+  run('git', ['init', '--bare', siblingRemote], base);
+  run('git', ['init', '-b', 'main', sibling], base);
+  run('git', ['config', 'user.name', 'Publisher'], sibling);
+  run('git', ['config', 'user.email', 'publisher@example.com'], sibling);
+  run('git', ['remote', 'add', 'origin', siblingRemote], sibling);
+  run('git', ['commit', '--allow-empty', '-m', 'sibling base'], sibling);
+  run('git', ['push', '-u', 'origin', 'main'], sibling);
+  run('git', ['switch', '-c', 'CAPSYNC-1'], sibling);
+  const siblingCommit = run('git', ['rev-parse', 'HEAD'], sibling).stdout.trim();
+  await writePendingPublication(root, {
+    kind: 'story', id: 'CAPSYNC-1',
+    record: {
+      schemaVersion: 2,
+      subject: { kind: 'story', id: 'CAPSYNC-1' },
+      remote: 'origin', branch: 'CAPSYNC-1', commit: run('git', ['rev-parse', 'HEAD'], root).stdout.trim(),
+      event: null, createdAt: new Date().toISOString(), recoveryStage: 'capability-publication-pending',
+      capabilityPublications: [{
+        schemaVersion: 1, repository: 'sibling', root: sibling, remote: 'origin',
+        branch: 'CAPSYNC-1', commit: siblingCommit, destinationRef: 'refs/heads/CAPSYNC-1'
+      }]
+    }
+  });
+  run('git', ['config', 'remote.origin.receivepack', '/usr/bin/false'], sibling);
+  const failed = flow(root, ['sync'], { fail: true });
+  assert.equal(failed.status, 1);
+  assert.match(failed.stderr, /Capability Story publication still fails for 'sibling'/);
+
+  run('git', ['config', '--unset', 'remote.origin.receivepack'], sibling);
+  flow(root, ['sync']);
+  assert.equal(
+    run('git', ['ls-remote', siblingRemote, 'refs/heads/CAPSYNC-1'], sibling).stdout.split(/\s+/)[0],
+    siblingCommit
+  );
+  assert.equal(await storyPublicationPending(root, await loadDefinition(root), 'CAPSYNC-1'), false);
 });
 
 test('every approval creates and pushes its own atomic decision commit', async () => {

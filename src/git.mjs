@@ -592,6 +592,24 @@ export function pushBranch(root, remote = 'origin', branchName = branch(root)) {
   return git(['push', '-u', remote, `HEAD:refs/heads/${branchName}`], { cwd: root, allowFailure: true });
 }
 
+/** Publish one previously proven commit as a Story branch without depending on current HEAD. */
+export function pushCommitToBranch(root, remote, commitSha, branchName) {
+  validBranch(root, branchName);
+  const commit = git(['rev-parse', '--verify', `${commitSha}^{commit}`], {
+    cwd: root, allowFailure: true
+  });
+  if (commit.status !== 0) {
+    return { ...commit, stderr: commit.stderr || `Commit '${commitSha}' is not available locally.` };
+  }
+  const result = git([
+    'push', remote, `${commit.stdout.trim()}:refs/heads/${branchName}`
+  ], { cwd: root, allowFailure: true });
+  if (result.status === 0 && refExists(root, `refs/heads/${branchName}`)) {
+    configureUpstream(root, branchName, remote);
+  }
+  return result;
+}
+
 /**
  * Prove that the configured remote will accept creation of a Story ref before the worktree moves.
  *

@@ -22,7 +22,7 @@ import {
   parseBaseSelection, parseRemoteHeads, resolveCapabilityBase
 } from './capability-branches.mjs';
 import {
-  assertClean, branch as currentBranch, checkout, fetchRemote, preflightPushBranch,
+  assertClean, branch as currentBranch, checkout, fetchRemote, preflightPushBranch, pushCommitToBranch,
   refExists, refHead, repoRoot
 } from './git.mjs';
 import { readWorkspace } from './workspace.mjs';
@@ -317,10 +317,56 @@ export function preflightStoryRepositories(workspaceRoot, plan, storyBranch, {
       baseCommit: refHead(root, sourceRef),
       sourceRef,
       destinationRef: `refs/heads/${storyBranch}`,
+      branch: storyBranch,
       publishRequired
     });
   }
   return checked;
+}
+
+/**
+ * The lifecycle repository publishes its governed opening commit through the normal Story unit of
+ * work. Every other capability repository still needs the same remote Story ref so another machine
+ * can materialize the complete capability rather than finding only the lead branch.
+ */
+export function capabilityPublicationPlan(preflight, lifecycleRoot) {
+  const primary = repoRoot(lifecycleRoot);
+  return (preflight ?? [])
+    .filter((entry) => entry.publishRequired && repoRoot(entry.root) !== primary)
+    .map((entry) => ({
+      schemaVersion: 1,
+      repository: entry.repository,
+      root: entry.root,
+      remote: entry.remote,
+      branch: entry.branch,
+      commit: entry.baseCommit,
+      destinationRef: entry.destinationRef
+    }));
+}
+
+/** Publish exact preflight-bound sibling commits, returning a resumable remainder on failure. */
+export function publishCapabilityRepositories(entries = []) {
+  const published = [];
+  for (let index = 0; index < entries.length; index += 1) {
+    const entry = entries[index];
+    const result = pushCommitToBranch(entry.root, entry.remote, entry.commit, entry.branch);
+    if (result.status !== 0) {
+      return {
+        published,
+        pending: entries.slice(index),
+        error: (result.stderr || result.stdout || 'remote rejected the Story branch').trim()
+      };
+    }
+    published.push({
+      repository: entry.repository,
+      remote: entry.remote,
+      branch: entry.branch,
+      ref: entry.destinationRef,
+      commit: entry.commit,
+      pushed: true
+    });
+  }
+  return { published, pending: [], error: null };
 }
 
 /**

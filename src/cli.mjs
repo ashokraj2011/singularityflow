@@ -90,7 +90,7 @@ import { completeEpicDelivery, epicDeliveryReadiness } from './epic-completion.m
 
 import { currentLocalEpicReservation, reserveLocalEpicBranch } from './local-identity.mjs';
 import { archiveWorkspace, createWorkspace, createWorkspaceConfiguration, fetchWorkspace, forgetWorkspace, listWorkspaceDocuments, previewWorkspace, previewWorkspaceConfiguration, previewWorkspaceUpdate, readWorkspace, readWorkspaceRegistry, rememberWorkspace, repairWorkspace, restoreWorkspace, duplicateWorkspaceConfiguration, isCloneTarget, stageWorkspaceDocuments, updateWorkspaceConfiguration, workspaceRemoteCapabilities, workspaceRemoteDefaults, remoteDefaultBranch, workspaceRepositoryDefaults, workspaceArchiveReadiness, workspaceStatus } from './workspace.mjs';
-import { materializeConfigurationSnapshot, resolveConfigurationRemote } from './configuration-branch.mjs';
+import { CONFIGURATION_BRANCH, materializeConfigurationSnapshot, resolveConfigurationRemote } from './configuration-branch.mjs';
 import { analyzeWorkspaceImpact, listWorkspaceImpacts, previewWorkspaceImpact, promoteWorkspaceImpact, workspaceImpactStatus } from './workspace-impact.mjs';
 import { activateWorkspaceContext, activeWorkspaceFile, clearActiveWorkspaceContext, discardUnsupportedWorkflowWorkspaces, readActiveWorkspaceContext, workspacePromptLabel, workspaceContextForRepository, workspaceRegistryFile } from './workspace-context.mjs';
 import { appendLedgerIntent, archiveLedger, createLedgerIntent, initializeLedger, ledgerDoctor, ledgerLog, ledgerShow, ledgerStatus, reconcileLedger, verifyLedger } from './ledger.mjs';
@@ -108,6 +108,7 @@ import { localReset, localResetPlan } from './fresh-install-reset.mjs';
 import { applyLocalReinstall, reinstallPlanText, resolveReinstallPlan } from './reinstall.mjs';
 import { capabilityDoctor } from './capability-doctor.mjs';
 import { inspectStatePlanes, reconcileStateProjections } from './state-planes.mjs';
+import { clearPendingPublication, readPendingPublication, writePendingPublication } from './publication-pending.mjs';
 import { InitiativeStateStore, StoryStateStore, loadInitiativeAggregate, loadStoryAggregate } from './state-stores.mjs';
 
 import { SnapshotCoordinator } from './snapshot-coordinator.mjs';
@@ -436,11 +437,44 @@ function assertBaseCarriesGovernance(root, {
   );
 }
 
+async function retainCapabilityPublicationRecovery(root, workId, publication, entries, error, {
+  rootPublished = false
+} = {}) {
+  if (!entries?.length) return null;
+  const existing = await readPendingPublication(root, { kind: 'story', id: workId });
+  // A failure before the governed Story commit exists is fully rolled back by the publication unit;
+  // there is no root branch to recover and sibling refs must remain absent too.
+  if (!rootPublished && !existing) return null;
+  const record = existing?.record ?? {
+    schemaVersion: 2,
+    subject: { kind: 'story', id: workId },
+    branch: publication.branch,
+    remote: publication.remote,
+    commit: publication.commit,
+    event: null,
+    createdAt: nowIso()
+  };
+  const next = {
+    ...record,
+    recoveryStage: record.recoveryStage ?? 'capability-publication-pending',
+    capabilityPublications: entries,
+    error: error?.message ?? String(error ?? 'Capability Story publication is incomplete.')
+  };
+  await writePendingPublication(root, { kind: 'story', id: workId, record: next });
+  return next;
+}
+
 export async function startCommand(positionals, options) {
   const id = requirePositional(positionals, 1, 'work ID');
   const root = repoRoot();
   let config = existsSync(path.join(root, WORKFLOW_PATH)) ? await loadConfig(root) : null;
-  if (config) validateId(config, id);
+  // At this point the command has not established whether this is new work or an existing Story
+  // carrying an older pinned policy. Enforce the transport-safe shape now; the selected lifecycle
+  // branch enforces its exact `idPattern` below, while genuinely new work uses current configuration.
+  validateId({
+    idPattern: '^[A-Za-z0-9][A-Za-z0-9._-]{0,63}$',
+    defaultBaseBranch: config?.defaultBaseBranch
+  }, id);
   const receiptToken = optionString(options, 'selection-receipt');
   let receipt = null;
   if (!optionBoolean(options, 'allow-dirty')) assertClean(root);
@@ -470,16 +504,19 @@ export async function startCommand(positionals, options) {
     ? remoteDefaultBranch(applicationRemote,
       run('git', ['ls-remote', '--symref', applicationRemote, 'HEAD'], { allowFailure: true }).stdout)
     : 'main';
-  const storyWorkflowRelative = config
-    ? posix(path.relative(root, workflowPath(root, config, id)))
-    : posix(path.join('singularity', 'work-items', id, 'workflow.json'));
   const storySeedRelative = posix(path.join('singularity', 'seeds', `${id}.yml`));
   const localStoryRef = `refs/heads/${canonicalBranch}`;
+  const durableStoryAtRef = async (ref, branchName) => {
+    const index = await buildRepositorySubjectIndexFromRefs(root, {
+      definition: config ?? {}, refs: [{ branch: branchName, ref }]
+    });
+    return resolveContext(index, { reference: id, kind: 'story', required: false });
+  };
 
   // Starting is idempotent for durable Stories. A local workflow does not need a new base choice;
   // it is resumed from its own recorded branch and resolution. This check intentionally precedes
   // every remote/base prompt so an offline contributor can resume work already present locally.
-  if (refExists(root, localStoryRef) && fileAtRef(root, localStoryRef, storyWorkflowRelative) !== null) {
+  if (refExists(root, localStoryRef) && await durableStoryAtRef(localStoryRef, canonicalBranch)) {
     return resumeCommand(['resume', id], { ...options, fetch: false });
   }
 
@@ -495,7 +532,7 @@ export async function startCommand(positionals, options) {
     : { status: 1, stdout: '' };
   if (remoteStoryProbe.status === 0 && remoteStoryProbe.stdout.trim()) {
     fetchRemote(root, remote);
-    if (fileAtRef(root, remoteStoryRef, storyWorkflowRelative) !== null) {
+    if (await durableStoryAtRef(remoteStoryRef, canonicalBranch)) {
       return resumeCommand(['resume', id], { ...options, fetch: true });
     }
   }
@@ -527,6 +564,7 @@ export async function startCommand(positionals, options) {
       );
     }
   }
+  if (config && !materializedSeed) validateId(config, id);
   /**
    * The base branch, chosen once for the whole capability.
    *
@@ -555,7 +593,8 @@ export async function startCommand(positionals, options) {
         : [];
   const {
     storyBaseForRepository, preflightStoryRepositories,
-    prepareCapabilityRepositories, printCapabilityBase, rollbackCapabilityRepositories
+    capabilityPublicationPlan, prepareCapabilityRepositories, printCapabilityBase,
+    publishCapabilityRepositories, rollbackCapabilityRepositories
   } = await import('./capability-start.mjs');
   if (materializedSeed && requestedBase.length
     && requestedBase.some((value) => value !== materializedSeed.parentBranch)) {
@@ -592,6 +631,7 @@ export async function startCommand(positionals, options) {
         remote, publishRequired
       })
     : null;
+  const capabilityPublications = capabilityPublicationPlan(capabilityPreflight, root);
   const configurationRemote = await resolveConfigurationRemote(root, remote);
   if (!config && !configurationRemote) {
     throw new SingularityFlowError(
@@ -766,27 +806,70 @@ export async function startCommand(positionals, options) {
     resolved: resolvedWorkType,
     capabilityId: optionString(options, 'capability')
   });
-  const publication = await commitAndPublish(
-    root,
-    config,
-    workflow,
-    { type: 'binding', payload: configurationSnapshot ? {
-      configurationBranch: configurationSnapshot.branch,
-      configurationCommit: configurationSnapshot.commit
-    } : {} },
-    `[${id}][init] start ${workType} workflow`,
-    configurationSnapshot?.paths ?? []
-  );
+  let publication;
+  try {
+    publication = await commitAndPublish(
+      root,
+      config,
+      workflow,
+      { type: 'binding', payload: configurationSnapshot ? {
+        configurationBranch: configurationSnapshot.branch,
+        configurationCommit: configurationSnapshot.commit
+      } : {} },
+      `[${id}][init] start ${workType} workflow`,
+      configurationSnapshot?.paths ?? []
+    );
+  } catch (error) {
+    await retainCapabilityPublicationRecovery(root, id, {
+      remote, branch: canonicalBranch, commit: head(root)
+    }, capabilityPublications, error);
+    throw error;
+  }
   // Spent once the start has landed, not before it is attempted.
   if (receiptToken) await consumeSelectionReceipt(root, receiptToken);
-  for (const document of supportingDocuments) {
-    const records = await addDocuments(root, config, workflow, {
-      files: document.type === 'file' ? [document.path] : [],
-      url: document.type === 'url' ? document.url : null,
-      label: document.label,
-      kind: document.kind
+  try {
+    for (const document of supportingDocuments) {
+      const records = await addDocuments(root, config, workflow, {
+        files: document.type === 'file' ? [document.path] : [],
+        url: document.type === 'url' ? document.url : null,
+        label: document.label,
+        kind: document.kind
+      });
+      await commitAndPublish(root, config, workflow, { type: 'evidence-recorded', payload: { documents: records.map((item) => item.id) } }, `[${id}][documents][upload] ${records.map((item) => item.id).join(',')}`);
+    }
+  } catch (error) {
+    await retainCapabilityPublicationRecovery(root, id, {
+      remote, branch: canonicalBranch, commit: head(root)
+    }, capabilityPublications, error);
+    throw error;
+  }
+  let capabilityPublication = { published: [], pending: [], error: null };
+  if (publication.pushed && capabilityPublications.length) {
+    // Make the cross-repository tail crash-recoverable before the first sibling ref moves. The root
+    // Story is already durable; `sync` can now finish the exact remaining refs after interruption.
+    await retainCapabilityPublicationRecovery(root, id, {
+      remote, branch: canonicalBranch, commit: head(root)
+    }, capabilityPublications, new Error('Capability Story branch publication is in progress.'), {
+      rootPublished: true
     });
-    await commitAndPublish(root, config, workflow, { type: 'evidence-recorded', payload: { documents: records.map((item) => item.id) } }, `[${id}][documents][upload] ${records.map((item) => item.id).join(',')}`);
+    capabilityPublication = publishCapabilityRepositories(capabilityPublications);
+    if (capabilityPublication.pending.length) {
+      const failure = new SingularityFlowError(
+        `Story '${id}' was published in its lifecycle repository, but capability branch publication `
+        + `failed for '${capabilityPublication.pending[0].repository}': ${capabilityPublication.error}. `
+        + 'The remaining exact branch publications were retained; run singularity-flow sync after fixing remote access.',
+        { code: 'STORY_CAPABILITY_PUBLICATION_PENDING' }
+      );
+      await retainCapabilityPublicationRecovery(root, id, {
+        remote, branch: canonicalBranch, commit: head(root)
+      }, capabilityPublication.pending, failure, { rootPublished: true });
+      throw failure;
+    }
+    await clearPendingPublication(root, { kind: 'story', id });
+  } else if (!publication.pushed && capabilityPublications.length) {
+    await retainCapabilityPublicationRecovery(root, id, {
+      remote, branch: canonicalBranch, commit: head(root)
+    }, capabilityPublications, new Error('The lifecycle Story branch is still pending publication.'));
   }
   const startResult = commandResult({
     operation: { id: 'start', classification: 'mutation' },
@@ -821,7 +904,8 @@ export async function startCommand(positionals, options) {
       ...(storyBase.scope === 'capability' ? {
         capabilityBase: {
           ...storyBase.plan.record,
-          prepared: capabilityRepositoriesPrepared ?? []
+          prepared: capabilityRepositoriesPrepared ?? [],
+          publications: capabilityPublication.published
         }
       } : {})
     },
@@ -925,9 +1009,10 @@ async function choicesCommand(positionals, options) {
 async function resumeCommand(positionals, options) {
   const reference = requirePositional(positionals, 1, 'work ID or branch reference');
   const root = repoRoot();
-  const initialConfig = await loadConfig(root);
+  const discovery = await sessionDiscoveryConfiguration(root, sessionRepositoryAuthority(root));
+  const initialConfig = discovery.definition;
   const fetch = optionBoolean(options, 'fetch');
-  const remote = initialConfig.git?.remote ?? 'origin';
+  const remote = discovery.remote;
   if (fetch) fetchRemote(root, remote);
   const refs = [
     { branch: branch(root), ref: branch(root) },
@@ -939,11 +1024,11 @@ async function resumeCommand(positionals, options) {
   const resolved = refSubject
     ? { workId: refSubject.id, branch: refSubject.canonicalBranch, selectedBranch: refSubject.selectedBranch, workflow: refSubject.state, source: refSubject.source }
     : await resolveWorkItem(root, initialConfig, reference, { mutation: true });
-  validateId(initialConfig, resolved.workId);
   const targetBranch = resolved.selectedBranch ?? resolved.branch;
   if (branch(root) !== targetBranch && !optionBoolean(options, 'allow-dirty')) assertClean(root);
   checkout(root, targetBranch, { base: initialConfig.defaultBaseBranch, fetch, existingOnly: true, remote });
   const config = await loadConfig(root);
+  validateId(config, resolved.workId);
   const workflow = await loadStoryAggregate(root, config, resolved.workId);
   const session = await activatePhaseAgent(
     root, config, resolved.workId, currentPhase(workflow), optionString(options, 'agent') ?? null
@@ -3932,7 +4017,8 @@ async function hookCommand(positionals) {
     const candidate = typeof payload.cwd === 'string' && existsSync(payload.cwd) ? payload.cwd : process.cwd();
     const root = repoRoot(candidate);
     if (isWorldModelBuildContext(root, payload)) return console.log('{}');
-    if (!existsSync(path.join(root, WORKFLOW_PATH))) return console.log('{}');
+    const authority = sessionRepositoryAuthority(root);
+    if (!authority) return console.log('{}');
     if (event === 'turn-intent') {
       const { recordCopilotTurnIntent } = await import('./session.mjs');
       return console.log(JSON.stringify(await recordCopilotTurnIntent(root, payload)));
@@ -3943,8 +4029,10 @@ async function hookCommand(positionals) {
       return console.log('{}');
     }
     if (event === 'agent-start') return console.log(JSON.stringify(await copilotAgentStartHook(root, payload)));
-    const config = await loadConfig(root); let workflow = null;
-    try { workflow = await loadStoryAggregate(root, config); } catch { workflow = null; }
+    const { definition: config } = await sessionDiscoveryConfiguration(root, authority); let workflow = null;
+    if (existsSync(path.join(root, WORKFLOW_PATH))) {
+      try { workflow = await loadStoryAggregate(root, config); } catch { workflow = null; }
+    }
     if (event === 'session-start') return console.log(JSON.stringify(await sessionStartAgentHook(root, config, workflow, payload)));
     if (event === 'agent-guard') return console.log(JSON.stringify(await agentGuardHook(root, config, workflow, payload)));
   } catch { console.log('{}'); }
@@ -3965,12 +4053,116 @@ async function hookCommand(positionals) {
  * The caller is always told which of the two answered, because the same JSON otherwise describes
  * two materially different situations.
  */
+function sessionRepositoryRemotes(root) {
+  const names = run('git', ['remote'], { cwd: root, allowFailure: true }).stdout
+    .split(/\r?\n/).map((name) => name.trim()).filter(Boolean);
+  return [...new Set(['origin', ...names].filter((name) => names.includes(name)))];
+}
+
+function definitionAtRef(root, ref) {
+  const source = fileAtRef(root, ref, WORKFLOW_PATH);
+  if (source == null) return null;
+  const definition = YAML.parse(source);
+  validateDefinition(definition);
+  return definition;
+}
+
+/**
+ * A production bootstrap keeps approved configuration on `sflow/config`, not application `main`.
+ * Treat the remote authority (or an already-published lifecycle branch carrying its snapshot) as
+ * proof that the checkout is governed; requiring a working-tree copy made every fresh clone look
+ * uninitialised until somebody manually checked out the Story branch.
+ */
+function sessionRepositoryAuthority(root) {
+  if (!root) return null;
+  if (existsSync(path.join(root, WORKFLOW_PATH))) return { source: 'working-tree', remote: null };
+  for (const remote of sessionRepositoryRemotes(root)) {
+    const configurationRef = `refs/remotes/${remote}/${CONFIGURATION_BRANCH}`;
+    if (refExists(root, configurationRef)) {
+      return { source: 'configuration-branch', remote, ref: `${remote}/${CONFIGURATION_BRANCH}` };
+    }
+    const storyRef = remoteBranches(root, remote)
+      .map((branchName) => `${remote}/${branchName}`)
+      .find((ref) => fileAtRef(root, ref, WORKFLOW_PATH) !== null);
+    if (storyRef) return { source: 'lifecycle-branch', remote, ref: storyRef };
+  }
+  // A --single-branch clone may not have fetched the configuration namespace yet. The session
+  // operation is remote-backed anyway, so prove the authority without changing the checkout.
+  for (const remote of sessionRepositoryRemotes(root)) {
+    const available = run('git', ['ls-remote', '--heads', remote, `refs/heads/${CONFIGURATION_BRANCH}`], {
+      cwd: root, allowFailure: true
+    });
+    if (available.status === 0 && available.stdout.trim()) {
+      return { source: 'configuration-remote', remote, ref: `${remote}/${CONFIGURATION_BRANCH}` };
+    }
+  }
+  return null;
+}
+
+async function sessionDiscoveryConfiguration(root, authority = sessionRepositoryAuthority(root)) {
+  if (existsSync(path.join(root, WORKFLOW_PATH))) {
+    const definition = await loadConfig(root);
+    return { definition, remote: definition.git?.remote ?? 'origin', source: 'working-tree' };
+  }
+  if (!authority?.remote) {
+    throw new SingularityFlowError(
+      `Repository '${root}' has no working-tree definition and no published ${CONFIGURATION_BRANCH} authority.`,
+      { code: 'SESSION_REPOSITORY_NOT_GOVERNED' }
+    );
+  }
+  const localCandidates = [
+    authority.ref,
+    `${authority.remote}/${CONFIGURATION_BRANCH}`,
+    ...localBranches(root),
+    branch(root)
+  ].filter(Boolean);
+  for (const ref of [...new Set(localCandidates)]) {
+    try {
+      const definition = definitionAtRef(root, ref);
+      if (definition) return { definition, remote: authority.remote, source: ref };
+    } catch { /* Try another local authority before requiring the network. */ }
+  }
+  fetchRemote(root, authority.remote);
+  const remoteCandidates = [
+    `${authority.remote}/${CONFIGURATION_BRANCH}`,
+    ...remoteBranches(root, authority.remote).map((branchName) => `${authority.remote}/${branchName}`)
+  ];
+  for (const ref of [...new Set(remoteCandidates)]) {
+    try {
+      const definition = definitionAtRef(root, ref);
+      if (definition) return { definition, remote: authority.remote, source: ref };
+    } catch { /* Try another published ref; attachment validates the selected Story strictly. */ }
+  }
+  throw new SingularityFlowError(
+    `Remote '${authority.remote}' has no readable governed definition on ${CONFIGURATION_BRANCH} or a lifecycle branch.`,
+    { code: 'SESSION_CONFIGURATION_UNAVAILABLE' }
+  );
+}
+
+function validatedRemoteStoryDefinition(root, remoteRef, subject) {
+  const definition = definitionAtRef(root, remoteRef);
+  if (!definition) throw new Error(`missing ${WORKFLOW_PATH}`);
+  validateId(definition, subject.id);
+  const expectedPath = posix(path.join(
+    definition.workItemRoot ?? 'singularity/work-items', subject.id, 'workflow.json'
+  ));
+  if (subject.location.path !== expectedPath) {
+    throw new Error(`state path '${subject.location.path}' does not match pinned root '${expectedPath}'`);
+  }
+  const workflow = JSON.parse(fileAtRef(root, remoteRef, expectedPath) ?? 'null');
+  if (workflow?.workItem?.id !== subject.id) throw new Error('identity mismatch');
+  return { definition, workflow, itemPath: expectedPath };
+}
+
 async function resolveSessionRepository() {
-  const governed = (candidate) => Boolean(candidate) && existsSync(path.join(candidate, WORKFLOW_PATH));
+  const governed = (candidate) => sessionRepositoryAuthority(candidate);
 
   let cwdRoot = null;
   try { cwdRoot = repoRoot(); } catch { /* Not inside a Git repository at all. */ }
-  if (governed(cwdRoot)) return { root: cwdRoot, resolvedFrom: 'working-directory', workspaceId: null };
+  const cwdAuthority = governed(cwdRoot);
+  if (cwdAuthority) {
+    return { root: cwdRoot, resolvedFrom: 'working-directory', workspaceId: null, authority: cwdAuthority };
+  }
 
   let context = null;
   try {
@@ -3993,7 +4185,8 @@ async function resolveSessionRepository() {
         + `Run \`singularity-flow workspace repair ${context.workspacePath}\`.`
     };
   }
-  if (!governed(context.repositoryPath)) {
+  const workspaceAuthority = governed(context.repositoryPath);
+  if (!workspaceAuthority) {
     return {
       root: null,
       reason: 'workspace-repository-not-initialized',
@@ -4003,7 +4196,8 @@ async function resolveSessionRepository() {
   return {
     root: path.resolve(context.repositoryPath),
     resolvedFrom: 'active-workspace',
-    workspaceId: context.workspaceId
+    workspaceId: context.workspaceId,
+    authority: workspaceAuthority
   };
 }
 
@@ -4044,9 +4238,12 @@ async function sessionCommand(positionals, options) {
     const hostAction = 'ready';
     const editorRooted = currentDirectory === repositoryPath;
     if (!requestedStoryId) {
-      const definition = await loadConfig(repositoryPath);
+      const authority = sessionRepositoryAuthority(repositoryPath);
+      const { definition } = await sessionDiscoveryConfiguration(repositoryPath, authority);
       let candidate = null;
-      try { candidate = await loadStoryAggregate(repositoryPath, definition); } catch { /* no Story on this branch */ }
+      if (existsSync(path.join(repositoryPath, WORKFLOW_PATH))) {
+        try { candidate = await loadStoryAggregate(repositoryPath, definition); } catch { /* no Story on this branch */ }
+      }
       await requireCopilotWorkItemSelection(repositoryPath, definition, candidate);
     }
     const result = {
@@ -4089,6 +4286,12 @@ async function sessionCommand(positionals, options) {
   const resolved = await resolveSessionRepository();
   const root = resolved.root;
   if (!root) {
+    if (subcommand === 'attach') {
+      throw new SingularityFlowError(
+        `Cannot attach a Story because no governed repository is active. ${resolved.detail}`,
+        { code: 'SESSION_REPOSITORY_REQUIRED' }
+      );
+    }
     const empty = {
       initialized: false, workId: null, selectionRequired: false, bound: false, activeAgent: null, choices: [],
       resolvedFrom: null, repositoryPath: null, workspaceId: null,
@@ -4097,9 +4300,10 @@ async function sessionCommand(positionals, options) {
     };
     return console.log(optionBoolean(options, 'json') ? JSON.stringify(empty, null, 2) : `No Singularity Flow repository is active. ${resolved.detail}`);
   }
-  const config = await loadConfig(root);
+  const discovery = await sessionDiscoveryConfiguration(root, resolved.authority);
+  const config = discovery.definition;
   if (subcommand === 'candidates') {
-    const remote = config.git?.remote ?? 'origin';
+    const remote = discovery.remote;
     fetchRemote(root, remote);
     const refs = remoteBranches(root, remote).map((branchName) => ({ branch: branchName, ref: `${remote}/${branchName}` }));
     const subjectIndex = await buildRepositorySubjectIndexFromRefs(root, { definition: config, refs });
@@ -4107,7 +4311,7 @@ async function sessionCommand(positionals, options) {
     for (const subject of subjectIndex.list('story')) {
       try {
         const workflow = subject.state;
-        validateDefinition(YAML.parse(fileAtRef(root, subject.location.ref, WORKFLOW_PATH) ?? ''));
+        validatedRemoteStoryDefinition(root, subject.location.ref, subject);
         candidates.push({ id: subject.id, branch: subject.canonicalBranch, title: workflow.workItem.title, status: workflow.status, phase: workflow.currentPhase, commit: subject.location.commit?.slice(0, 8) ?? '' });
       } catch { /* A malformed remote workflow is not selectable. */ }
     }
@@ -4124,13 +4328,12 @@ async function sessionCommand(positionals, options) {
     // generation. Those governed edits must not make the exact, already-synchronized Story
     // branch impossible to select. We still require a clean tree before changing branches or
     // advancing HEAD; the sole exception below only binds local session metadata in place.
-    const remote = config.git?.remote ?? 'origin';
+    const remote = discovery.remote;
     fetchRemote(root, remote);
     const refs = remoteBranches(root, remote).map((branchName) => ({ branch: branchName, ref: `${remote}/${branchName}` }));
     const subjectIndex = await buildRepositorySubjectIndexFromRefs(root, { definition: config, refs });
     const subject = resolveContext(subjectIndex, { reference, kind: 'story' });
     const id = subject.id;
-    validateId(config, id);
     const targetBranch = subject.selectedBranch;
     const alreadyCurrent = branch(root) === targetBranch;
     if (!alreadyCurrent) assertClean(root);
@@ -4138,14 +4341,15 @@ async function sessionCommand(positionals, options) {
     const remoteRef = `refs/remotes/${remote}/${targetBranch}`;
     const remoteSha = refHead(root, remoteRef);
     if (!remoteSha) throw new SingularityFlowError(`No committed lifecycle branch '${targetBranch}' exists on ${remote}. Start it with /sf-start or verify the Story reference.`);
-    const itemPath = subject.location.path;
-    const remoteWorkflow = fileAtRef(root, remoteName, itemPath);
-    const remoteDefinition = fileAtRef(root, remoteName, WORKFLOW_PATH);
+    let pinned;
     try {
-      const parsedWorkflow = JSON.parse(remoteWorkflow ?? 'null');
-      if (parsedWorkflow?.workItem?.id !== id) throw new Error('identity mismatch');
-      validateDefinition(YAML.parse(remoteDefinition ?? ''));
-    } catch { throw new SingularityFlowError(`Remote branch ${remote}/${targetBranch} is not a valid Singularity Flow Story branch. Expected a matching ${itemPath} and valid ${WORKFLOW_PATH}.`); }
+      pinned = validatedRemoteStoryDefinition(root, remoteName, subject);
+    } catch {
+      throw new SingularityFlowError(
+        `Remote branch ${remote}/${targetBranch} is not a valid Singularity Flow Story branch. `
+        + `Expected matching state at ${subject.location.path} and a valid pinned ${WORKFLOW_PATH}.`
+      );
+    }
     const dirtyInPlace = alreadyCurrent && Boolean(changes(root).trim());
     let materialization;
     if (dirtyInPlace) {
@@ -4157,7 +4361,7 @@ async function sessionCommand(positionals, options) {
       }
       materialization = 'bound-current-with-local-changes';
     } else {
-      materialization = checkout(root, targetBranch, { base: config.defaultBaseBranch, existingOnly: true, remote });
+      materialization = checkout(root, targetBranch, { base: pinned.definition.defaultBaseBranch, existingOnly: true, remote });
       try { fastForwardTo(root, remoteName); }
       catch { throw new SingularityFlowError(`Local branch '${targetBranch}' cannot fast-forward to ${remote}/${targetBranch}. Resolve or preserve the local commits in another clone; Singularity Flow will not merge, rebase, reset, or discard them.`); }
     }

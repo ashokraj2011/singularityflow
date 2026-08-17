@@ -631,6 +631,7 @@ phases:
     worldModel: { views: [development, testing, architecture, security], depth: deep }
     clarification: { mode: when-needed, maxQuestions: 3, topics: [framework conventions, fixtures, test data, approved deviations, implementation blockers] }
     writeScope: source-and-artifact
+    sourceBoundary: test-automation
     generation: { task: code }
     approval: { authorities: [engineering-reviewers], minimum: 1, rejectTo: [poc-ui-exploration, poc-test-generation] }
     qualityCommands:
@@ -646,6 +647,7 @@ phases:
     worldModel: { views: [testing, development, security], depth: deep, evidence: true }
     clarification: { mode: when-needed, maxQuestions: 3, topics: [failure classification, environment, evidence, repair scope, residual risk] }
     writeScope: source-and-artifact
+    sourceBoundary: test-automation
     generation: { task: analyze }
     mcp:
       requiredServers: [playwright]
@@ -672,7 +674,7 @@ phases:
     clarification: { mode: when-needed, maxQuestions: 3, topics: [publication target, evidence gaps, residual risk, rollback, reviewer decision] }
     writeScope: artifact-only
     generation: { task: summarize }
-    approval: { authorities: [quality-reviewers, engineering-reviewers], minimum: 2, rejectTo: [poc-intake, poc-impact-analysis, poc-ui-exploration, poc-test-generation, poc-validation, poc-publication-review] }
+    approval: { authorities: [quality-reviewers, engineering-reviewers], requiredAuthorities: [quality-reviewers, engineering-reviewers], minimum: 2, rejectTo: [poc-intake, poc-impact-analysis, poc-ui-exploration, poc-test-generation, poc-validation, poc-publication-review] }
 
   # ---------------------------------------------------------------------------------------------
   # Spec-driven phases. Ordinary phases in every respect: they use the same generation, input,

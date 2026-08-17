@@ -1346,7 +1346,8 @@ Feature work produces stable `AC-n` acceptance criteria and `SPEC-nnn` implement
 remote base branch and an isolated Story branch, captures an authorized target environment and test
 intent, traces changed code to regression scenarios, records confirmed Playwright MCP observations,
 generates repository-native TypeScript tests/Page Objects, and executes hash-bound TypeScript and
-Playwright quality gates. UI exploration and validation require a current host attestation, live
+Playwright quality gates. The kernel confines generation and bounded repair to recognized test-
+automation paths; prompt instructions alone cannot authorize product-source edits. UI exploration and validation require a current host attestation, live
 browser smoke receipt, and complete MCP evidence for the current generation. A failure may be
 rejected for no more than two kernel-enforced human-authorized repair generations; there is no
 autonomous retry loop. Passing validation advances to a separate publication review requiring both
@@ -1662,7 +1663,7 @@ Approve from a terminal:
 singularity-flow approve design --work-id WORK-123 --fetch
 ```
 
-The command fetches the branch, activates its phase agent, displays reviewer identity and authority, hashes, checks, token usage, prior approvals, and any self-approval warning, then requires explicit phase confirmation. If Copilot cannot write to a persistent shell, `/sf-approve` issues a 15-minute receipt for the exact typed phase ID. The CLI independently revalidates the branch HEAD, submitted generation, artifact hashes, human authority, identity threshold, and receipt before committing and pushing the decision.
+The command fetches the branch, activates its phase agent, displays reviewer identity and authority, hashes, checks, token usage, prior approvals, and any self-approval warning, then requires explicit phase confirmation. If Copilot cannot write to a persistent shell, `/sf-approve` issues a 15-minute receipt for the exact typed phase ID. The CLI independently revalidates the branch HEAD, submitted generation, artifact hashes, human authority, identity threshold, any explicitly required functional authority groups, and receipt before committing and pushing the decision.
 
 Reject to an allowed target:
 

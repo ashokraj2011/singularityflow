@@ -29,9 +29,9 @@ const stages = [
     args: ['run', 'vscode:package']
   },
   {
-    label: 'POC workflow and MCP policy',
+    label: 'POC workflow, hardening, and MCP policy',
     command: process.execPath,
-    args: ['--test', 'test/poc-workflow.test.mjs', 'test/mcp.test.mjs']
+    args: ['--test', 'test/poc-workflow.test.mjs', 'test/poc-hardening.test.mjs', 'test/mcp.test.mjs']
   },
   {
     label: 'Packaged POC release-candidate journey',
@@ -74,5 +74,5 @@ if (failed) {
   console.error(`\nPOC release gate failed at "${failed.stage}" (${detail}).`);
   process.exitCode = failed.status || 1;
 } else {
-  console.log('\nPOC release gate passed. The packaged extension, governed POC journey, MCP policy, and package inventories are release-candidate ready.');
+  console.log('\nPOC release gate passed. The packaged extension completed the governed POC lifecycle through both required publication authorities; source boundaries, large-output checks, MCP policy, and package inventory also passed.');
 }

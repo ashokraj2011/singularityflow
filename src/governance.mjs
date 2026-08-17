@@ -4,7 +4,7 @@ import { currentPhase, sourceTreeHash, validateWorkflow, workDir, workflowPublic
 import { exists, snapshot, run } from './util.mjs';
 import { verifyInputsIntegrity } from './inputs.mjs';
 import { verifyAgentIntegrity } from './agents.mjs';
-import { matchApprovalAuthority } from './approval-authority.mjs';
+import { matchApprovalAuthority, remainingRequiredAuthorities } from './approval-authority.mjs';
 import { verifyGroundingRecord } from './grounding.mjs';
 import { verifyClarificationRecord } from './clarifications.mjs';
 import { verifyPhaseTelemetry } from './telemetry.mjs';
@@ -145,8 +145,14 @@ export async function runGovernanceGate(root, config, workflow, { terminal = fal
     const decisions = phase.approvals.filter((item) => !item.invalidatedAt && item.decision === 'approved');
     const distinct = new Set(decisions.map((item) => item.actor?.login ?? item.actor?.email ?? item.actor?.name));
     if (distinct.size < (phase.approvalPolicy.minimum ?? 1)) errors.push(`${phaseId} has ${distinct.size} distinct approvals; requires ${phase.approvalPolicy.minimum ?? 1}`);
+    const missingAuthorities = remainingRequiredAuthorities(phase.approvalPolicy, decisions);
+    if (missingAuthorities.length) errors.push(`${phaseId} is missing required authority decisions from: ${missingAuthorities.join(', ')}`);
     for (const decision of decisions) {
-      const authority = matchApprovalAuthority(workflow.resolution.approvalAuthorities, phase.approvalPolicy, decision.actor);
+      const authority = matchApprovalAuthority(
+        workflow.resolution.approvalAuthorities,
+        { ...phase.approvalPolicy, authorities: [decision.authorityGroup] },
+        decision.actor
+      );
       if (!authority.authorized) errors.push(`${phaseId} approval by '${decision.actor?.email ?? decision.actor?.login ?? decision.actor?.name ?? 'unknown'}' lacks configured authority`);
       else if (decision.authorityGroup !== authority.authorityGroup) errors.push(`${phaseId} approval authority record does not match the pinned policy`);
       if (!decision.identityAssurance) errors.push(`${phaseId} approval is missing identity-assurance metadata`);

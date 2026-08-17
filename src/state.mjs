@@ -34,8 +34,11 @@ import {
 import { beginTelemetryCapture, collectCopilotUsage, recordPhaseTelemetry } from './telemetry.mjs';
 import { contextBoundaryHandoff, normalizeContextPolicy } from './context-policy.mjs';
 import {
-  DEFAULT_APPROVAL_AUTHORITY, normalizeApprovalAuthorities, requireApprovalAuthority
+  approvalRequirementsMet, DEFAULT_APPROVAL_AUTHORITY, normalizeApprovalAuthorities,
+  remainingRequiredAuthorities, requireApprovalAuthority
 } from './approval-authority.mjs';
+import { assertSourceBoundary, normalizeSourceBoundary } from './source-boundary.mjs';
+import { runQualityCommand } from './quality-command-runner.mjs';
 import { createLedgerIntent, ledgerLog, ledgerStatus, reconcileLedger } from './ledger.mjs';
 import { normalizeLedgerConfig } from './ledger-config.mjs';
 import {
@@ -198,6 +201,7 @@ function phaseState(definition, index) {
     template: definition.template,
     worldModel: structuredClone(definition.worldModel ?? {}),
     writeScope: definition.writeScope ?? 'artifact-only',
+    sourceBoundary: normalizeSourceBoundary(definition.sourceBoundary, definition.id),
     comparison: structuredClone(definition.comparison ?? {}),
     mcp: structuredClone(definition.mcp ?? { requiredServers: [], requireSmoke: false, evidence: [] }),
     repairBudget: structuredClone(definition.repairBudget ?? null),
@@ -607,6 +611,10 @@ function normalizeCurrentWorkflow(workflow) {
     phase.repairBudget ??= structuredClone(workflow.resolution.phases?.find((item) => item.id === id)?.repairBudget ?? null);
     delete phase.approvalPolicy.agents;
     phase.writeScope ??= 'source-and-artifact'; phase.comparison ??= {};
+    phase.sourceBoundary ??= normalizeSourceBoundary(
+      workflow.resolution.phases?.find((item) => item.id === id)?.sourceBoundary,
+      id
+    );
     phase.inputs ??= workflow.resolution.phases?.find((item) => item.id === id)?.inputs ?? [];
     phase.remoteOutputs ??= [];
     phase.generation ??= phase.artifacts?.length ? 1 : 0;
@@ -1026,6 +1034,10 @@ export async function publishGeneration(root, config, workflow, { phaseId, usage
     const allowed = `${workDirRelative(config, workflow.workItem.id)}/artifacts/${phase.id}/`;
     const outside = changed.filter((file) => !ignored(config, workflow, file) && !file.startsWith(allowed));
     if (outside.length) throw new SingularityFlowError(`Phase ${phase.id} is artifact-only; move these changes to implementation/verification: ${outside.join(', ')}`);
+  } else {
+    const allowedArtifact = `${workDirRelative(config, workflow.workItem.id)}/artifacts/${phase.id}/`;
+    const sourceChanges = changed.filter((file) => !ignored(config, workflow, file) && !file.startsWith(allowedArtifact));
+    assertSourceBoundary(phase.sourceBoundary, sourceChanges, { phaseId: phase.id });
   }
   /**
    * The specification gate `[SPK:REQ-065]`.
@@ -1299,6 +1311,15 @@ export async function reconcilePhaseTelemetry(root, config, workflow, { phaseId 
   };
 }
 
+function boundedQualityDiagnostic(value, max = 2000) {
+  const text = String(value ?? '');
+  if (text.length <= max) return text;
+  const marker = '\n… diagnostic output truncated …\n';
+  const remaining = max - marker.length;
+  const first = Math.ceil(remaining / 2);
+  return `${text.slice(0, first)}${marker}${text.slice(-(remaining - first))}`;
+}
+
 async function qualityChecks(root, phase, config) {
   const checks = [];
   const sourceCommit = head(root);
@@ -1314,15 +1335,24 @@ async function qualityChecks(root, phase, config) {
       continue;
     }
     const result = policy.argv
-      ? run(policy.argv[0], policy.argv.slice(1), { cwd: root, allowFailure: true, timeoutMs: policy.timeoutMs ?? DEFAULT_QUALITY_COMMAND_TIMEOUT_MS })
-      : run(policy.command, [], { cwd: root, shell: true, allowFailure: true, timeoutMs: policy.timeoutMs ?? DEFAULT_QUALITY_COMMAND_TIMEOUT_MS });
+      ? await runQualityCommand(policy.argv[0], policy.argv.slice(1), { cwd: root, timeoutMs: policy.timeoutMs ?? DEFAULT_QUALITY_COMMAND_TIMEOUT_MS })
+      : await runQualityCommand(policy.command, [], { cwd: root, shell: true, timeoutMs: policy.timeoutMs ?? DEFAULT_QUALITY_COMMAND_TIMEOUT_MS });
+    const infrastructureError = result.error
+      ? `Unable to run quality command: ${result.error.message}`
+      : null;
     checks.push({
       id: policy.id, command, externalModelPolicy: policy.modelPolicy,
       timeoutMs: policy.timeoutMs ?? DEFAULT_QUALITY_COMMAND_TIMEOUT_MS,
       sourceCommit, startedAt, completedAt: nowIso(),
-      status: result.timedOut ? 'blocked' : result.status === 0 ? 'passed' : 'failed',
-      exitCode: result.status, stdout: truncate(result.stdout),
-      stderr: truncate(result.timedOut ? `Command exceeded its ${policy.timeoutMs ?? DEFAULT_QUALITY_COMMAND_TIMEOUT_MS}ms timeout.` : result.stderr)
+      status: result.timedOut || infrastructureError ? 'blocked' : result.status === 0 ? 'passed' : 'failed',
+      exitCode: result.status, stdout: boundedQualityDiagnostic(result.stdout),
+      stderr: boundedQualityDiagnostic(result.timedOut
+        ? `Command exceeded its ${policy.timeoutMs ?? DEFAULT_QUALITY_COMMAND_TIMEOUT_MS}ms timeout.`
+        : infrastructureError ?? result.stderr),
+      stdoutBytes: result.stdoutBytes,
+      stderrBytes: result.stderrBytes,
+      stdoutTruncated: result.stdoutTruncated,
+      stderrTruncated: result.stderrTruncated
     });
   }
   return checks;
@@ -1526,12 +1556,14 @@ export async function approvePhase(root, config, workflow, {
   }
   const session = await loadSession(root);
   const actor = session.actor;
+  const key = actorKey(actor);
+  const active = phase.approvals.filter((item) => !item.invalidatedAt && item.decision === 'approved');
   const authority = requireApprovalAuthority(
     workflow.resolution.approvalAuthorities ?? config.approvalAuthorities,
     phase.approvalPolicy,
-    actor
+    actor,
+    { preferredAuthorities: remainingRequiredAuthorities(phase.approvalPolicy, active) }
   );
-  const key = actorKey(actor); const active = phase.approvals.filter((item) => !item.invalidatedAt && item.decision === 'approved');
   if (active.some((item) => actorKey(item.actor) === key)) throw new SingularityFlowError(`${key} already approved phase ${phase.id}; approvals require distinct identities.`);
 
   /**
@@ -1586,7 +1618,8 @@ export async function approvePhase(root, config, workflow, {
   if (decision.selfApproval && phase.approvalPolicy.allowSelfApproval === false) {
     throw new SingularityFlowError(`Capability and workflow policy prohibit self-approval for phase '${phase.id}'. Ask another authorized Git identity to approve this generation.`);
   }
-  phase.approvals.push(decision); const reached = phase.approvals.filter((item) => !item.invalidatedAt && item.decision === 'approved').length >= (phase.approvalPolicy.minimum ?? 1);
+  phase.approvals.push(decision);
+  const reached = approvalRequirementsMet(phase.approvalPolicy, phase.approvals);
   if (reached) {
     phase.status = 'approved'; phase.approvedAt = decision.at; phase.approvedBy = key;
     closeWorkInterval(workflow, {

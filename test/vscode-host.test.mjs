@@ -1559,6 +1559,18 @@ test('the packaged POC release candidate journey survives publication, review, C
   // shipped standard/deep policy; this journey needs a deterministic repository inventory so it
   // can prove the native Copilot handoff without invoking a provider or spending tokens.
   definition.phases['poc-impact-analysis'].worldModel.depth = 'light';
+  // This packaged lifecycle test is deterministic and offline. Structural MCP tests in the same
+  // release gate hold the shipped Playwright requirements; here we prove every state transition
+  // through completion without depending on a browser or public registry.
+  for (const phaseId of ['poc-ui-exploration', 'poc-validation']) {
+    definition.phases[phaseId].mcp = { requiredServers: [], requireSmoke: false, evidence: [] };
+  }
+  definition.phases['poc-validation'].qualityCommands = [{
+    id: 'large-output-regression',
+    argv: [process.execPath, '-e', "process.stdout.write('x'.repeat(2 * 1024 * 1024))"],
+    modelPolicy: 'never',
+    timeoutMs: 60_000
+  }];
   await writeFile(workflowFile, YAML.stringify(definition));
   run('git', ['add', '.'], { cwd: root });
   run('git', ['commit', '-m', 'Initialize governed POC repository'], { cwd: root });
@@ -1727,6 +1739,60 @@ test('the packaged POC release candidate journey survives publication, review, C
   assert.ok(restartedHome, 'My Work recovers after a fresh extension activation');
   assert.match(restartedHome.webview.html, /POC-RC-1/);
   assert.match(restartedHome.webview.html, /poc-impact-analysis/i);
+
+  // Preview remains useful during the lifecycle, but the outward PR mutation is blocked until
+  // every phase is approved. Then drive the same packaged CLI through all remaining phases.
+  const blockedPreview = cli(['pr', 'describe', 'POC-RC-1', '--format', 'json'], reviewer.name);
+  assert.equal(blockedPreview.status, 0, blockedPreview.stderr);
+  assert.ok(JSON.parse(blockedPreview.stdout).blockedBy.some((entry) => /workflow is in_progress/.test(entry)));
+
+  for (const phaseId of [
+    'poc-impact-analysis', 'poc-ui-exploration', 'poc-test-generation',
+    'poc-validation', 'poc-publication-review'
+  ]) {
+    let before = JSON.parse(await readFile(workflowStateFile, 'utf8'));
+    assert.equal(before.currentPhase, phaseId);
+    const phaseFile = path.join(root, 'singularity/work-items/POC-RC-1', before.phases[phaseId].requiredArtifact.path);
+    if (!existsSync(phaseFile)) {
+      const prepared = cli(['prepare', phaseId], reviewer.name);
+      assert.equal(prepared.status, 0, `prepare ${phaseId} failed:\n${prepared.stderr}`);
+      before = JSON.parse(await readFile(workflowStateFile, 'utf8'));
+    }
+    let phaseText = await readFile(phaseFile, 'utf8');
+    phaseText = phaseText
+      .replace(/TODO:[^\n]*/g, 'Verified evidence is bound to the authorized checkout target, exact Story branch, and reviewed POC acceptance criterion.')
+      .replace(/\bTODO\b/g, 'verified evidence');
+    phaseText += `\n\nPackaged lifecycle evidence for ${phaseId}: the observed boundary, commands, results, risks, rollback, and human decision are explicit and reproducible. `.repeat(8);
+    await writeFile(phaseFile, phaseText);
+    for (const args of [
+      ['phase', 'publish', phaseId, '--authored', 'human'],
+      ['submit', '--phase', phaseId]
+    ]) {
+      const lifecycleResult = cli(args, reviewer.name);
+      assert.equal(lifecycleResult.status, 0, `${args.join(' ')} failed:\n${lifecycleResult.stderr}`);
+    }
+    const firstApproval = cli(['approve', phaseId, '--yes'], reviewer.name);
+    assert.equal(firstApproval.status, 0, `approve ${phaseId} failed:\n${firstApproval.stderr}`);
+    if (phaseId === 'poc-publication-review') {
+      const afterQuality = JSON.parse(await readFile(workflowStateFile, 'utf8'));
+      assert.equal(afterQuality.currentPhase, phaseId, 'one functional approval cannot complete publication');
+      const secondApproval = cli(['approve', phaseId, '--yes'], 'Initiative Owner');
+      assert.equal(secondApproval.status, 0, `second publication approval failed:\n${secondApproval.stderr}`);
+    }
+  }
+  const completed = JSON.parse(await readFile(workflowStateFile, 'utf8'));
+  assert.equal(completed.status, 'complete');
+  assert.equal(completed.currentPhase, null);
+  assert.deepEqual(
+    completed.phases['poc-publication-review'].approvals.filter((entry) => !entry.invalidatedAt).map((entry) => entry.authorityGroup),
+    ['quality-reviewers', 'engineering-reviewers']
+  );
+  assert.equal(completed.phases['poc-validation'].checks[0].status, 'passed');
+  assert.equal(completed.phases['poc-validation'].checks[0].stdoutTruncated, true,
+    'large Playwright-style JSON output is streamed rather than reported as ENOBUFS');
+  const readyPreview = cli(['pr', 'describe', 'POC-RC-1', '--format', 'json'], reviewer.name);
+  assert.equal(readyPreview.status, 0, readyPreview.stderr);
+  assert.deepEqual(JSON.parse(readyPreview.stdout).blockedBy, []);
   assert.deepEqual(registered.errors, []);
   assert.deepEqual(reviewHost.registered.errors, []);
   assert.deepEqual(restarted.registered.errors, []);

@@ -246,6 +246,7 @@
         "type": "object",
         "properties": {
           "writeScope": { "enum": ["artifact-only", "source-and-artifact"] },
+          "sourceBoundary": { "enum": ["unrestricted", "test-automation"] },
           "artifact": { "$ref": "#/$defs/artifactContract" },
           "inputs": { "$ref": "#/$defs/phaseInputs" },
           "clarification": { "$ref": "#/$defs/clarificationPolicy" },
@@ -597,6 +598,11 @@
         "authorities": {
           "type": "array",
           "minItems": 1,
+          "uniqueItems": true,
+          "items": { "type": "string", "pattern": "^[a-z0-9]+(?:-[a-z0-9]+)*$" }
+        },
+        "requiredAuthorities": {
+          "type": "array",
           "uniqueItems": true,
           "items": { "type": "string", "pattern": "^[a-z0-9]+(?:-[a-z0-9]+)*$" }
         },

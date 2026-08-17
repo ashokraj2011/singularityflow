@@ -139,6 +139,8 @@
           "label": { "type": "string" },
           "owner": { "type": ["string", "null"] },
           "status": { "enum": ["not_started", "in_progress", "awaiting_approval", "approved", "cancelled"] },
+          "writeScope": { "enum": ["artifact-only", "source-and-artifact"] },
+          "sourceBoundary": { "enum": ["unrestricted", "test-automation"] },
           "requiredArtifact": { "type": ["object", "null"] },
           "qualityCommands": {
             "type": "array",

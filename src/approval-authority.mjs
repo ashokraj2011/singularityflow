@@ -67,6 +67,7 @@ export function normalizeApprovalPolicy(value = {}, authorities, phaseId) {
     return {
       mode: 'none',
       authorities: [],
+      requiredAuthorities: [],
       minimum: 0,
       rejectTo: [phaseId],
       allowSelfApproval: false,
@@ -95,6 +96,18 @@ export function normalizeApprovalPolicy(value = {}, authorities, phaseId) {
   if (!Number.isInteger(minimum) || minimum < 1) {
     throw new SingularityFlowError(`Phase '${phaseId}' approval.minimum must be a positive integer.`);
   }
+  const required = value.requiredAuthorities ?? [];
+  if (!Array.isArray(required) || new Set(required).size !== required.length) {
+    throw new SingularityFlowError(`Phase '${phaseId}' approval.requiredAuthorities must be a unique array.`);
+  }
+  for (const authorityId of required) {
+    if (!authorityIds.includes(authorityId)) {
+      throw new SingularityFlowError(`Phase '${phaseId}' approval.requiredAuthorities references '${authorityId}', which is not listed in approval.authorities.`);
+    }
+  }
+  if (minimum < required.length) {
+    throw new SingularityFlowError(`Phase '${phaseId}' approval.minimum must be at least ${required.length} to cover every required authority group.`);
+  }
   if (value.maximumChangedPaths != null && (!Number.isInteger(value.maximumChangedPaths) || value.maximumChangedPaths < 1)) {
     throw new SingularityFlowError(`Phase '${phaseId}' approval.maximumChangedPaths must be a positive integer.`);
   }
@@ -116,6 +129,7 @@ export function normalizeApprovalPolicy(value = {}, authorities, phaseId) {
       ? value.maximumChangedPaths
       : null,
     authorities: authorityIds,
+    requiredAuthorities: [...required],
     minimum,
     rejectTo,
     allowSelfApproval: value.allowSelfApproval !== false,
@@ -126,7 +140,23 @@ export function normalizeApprovalPolicy(value = {}, authorities, phaseId) {
   };
 }
 
-export function matchApprovalAuthority(authorities, policy, actor) {
+export function remainingRequiredAuthorities(policy, approvals = []) {
+  const decided = new Set((approvals ?? [])
+    .filter((item) => !item.invalidatedAt && item.decision === 'approved')
+    .map((item) => item.authorityGroup));
+  return (policy?.requiredAuthorities ?? []).filter((authorityId) => !decided.has(authorityId));
+}
+
+export function approvalRequirementsMet(policy, approvals = []) {
+  const active = (approvals ?? []).filter((item) => !item.invalidatedAt && item.decision === 'approved');
+  const identities = new Set(active.map((item) => normalizedLogin(item.actor?.login)
+    || normalizedEmail(item.actor?.email)
+    || String(item.actor?.name ?? '').trim().toLowerCase()).filter(Boolean));
+  return identities.size >= (policy?.minimum ?? 1)
+    && remainingRequiredAuthorities(policy, active).length === 0;
+}
+
+export function matchApprovalAuthority(authorities, policy, actor, { preferredAuthorities = [] } = {}) {
   const registry = normalizeApprovalAuthorities(authorities);
   const email = normalizedEmail(actor?.email);
   const login = normalizedLogin(actor?.login);
@@ -137,7 +167,12 @@ export function matchApprovalAuthority(authorities, policy, actor) {
       reason: 'Approval requires a configured local Git email or an authenticated GitHub login.'
     };
   }
-  for (const authorityId of policy?.authorities ?? []) {
+  const configured = policy?.authorities ?? [];
+  const ordered = [...new Set([
+    ...preferredAuthorities.filter((authorityId) => configured.includes(authorityId)),
+    ...configured
+  ])];
+  for (const authorityId of ordered) {
     const authority = registry[authorityId];
     if (!authority) continue;
     if (
@@ -161,8 +196,8 @@ export function matchApprovalAuthority(authorities, policy, actor) {
   };
 }
 
-export function requireApprovalAuthority(authorities, policy, actor) {
-  const match = matchApprovalAuthority(authorities, policy, actor);
+export function requireApprovalAuthority(authorities, policy, actor, options = {}) {
+  const match = matchApprovalAuthority(authorities, policy, actor, options);
   if (!match.authorized) throw new SingularityFlowError(match.reason);
   return match;
 }

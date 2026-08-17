@@ -135,6 +135,19 @@ export async function readStorySeed(root, workflow) {
   catch { throw new SingularityFlowError(`Story seed ${relative} is not valid YAML.`); }
 }
 
+export function storyLifecycleBlockers(workflow) {
+  const blockers = [];
+  if (workflow.status !== 'complete' || workflow.currentPhase != null) {
+    const current = workflow.currentPhase ? ` at ${workflow.currentPhase}` : '';
+    blockers.push(`${workflow.workItem.id} workflow is ${workflow.status}${current}`);
+  }
+  for (const phaseId of workflow.phaseOrder ?? []) {
+    const phase = workflow.phases?.[phaseId];
+    if (phase?.status !== 'approved') blockers.push(`${phaseId} is ${phase?.status ?? 'missing'}`);
+  }
+  return [...new Set(blockers)];
+}
+
 // Build the complete pull request without contacting GitHub. Always safe to run.
 export async function storyPullRequestPlan(root, config, workflow, { mergeSequence = null } = {}) {
   const seed = await readStorySeed(root, workflow);
@@ -153,11 +166,12 @@ export async function storyPullRequestPlan(root, config, workflow, { mergeSequen
     body: storyPullRequestBody(workflow, seed, { mergeSequence }),
     requiredChecks: seed?.story?.requiredChecks ?? [],
     blockedBy: (() => {
+      const blockers = storyLifecycleBlockers(workflow);
       const entry = mergeSequence?.stories?.find((item) => item.workId === workflow.workItem.id || item.id === workflow.workItem.id);
-      if (!entry) return [];
-      const blockers = [...new Set([...(entry.blockedBy ?? []), ...(entry.mergeBlockedBy ?? [])])];
+      if (!entry) return blockers;
+      blockers.push(...(entry.blockedBy ?? []), ...(entry.mergeBlockedBy ?? []));
       if (!['ready', 'merged'].includes(entry.status)) blockers.push(`${workflow.workItem.id} workflow is ${entry.status}`);
-      return blockers;
+      return [...new Set(blockers)];
     })()
   };
 }

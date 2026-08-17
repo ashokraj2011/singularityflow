@@ -1,9 +1,11 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import {
+  approvalRequirementsMet,
   matchApprovalAuthority,
   normalizeApprovalAuthorities,
   normalizeApprovalPolicy,
+  remainingRequiredAuthorities,
   requireApprovalAuthority
 } from '../src/approval-authority.mjs';
 
@@ -98,4 +100,30 @@ test('approval authority configuration rejects empty restricted groups and dupli
     }),
     /more than once/
   );
+});
+
+test('required authority groups are allocated and covered independently', () => {
+  const policy = normalizeApprovalPolicy({
+    authorities: ['architecture-reviewers', 'git-contributors'],
+    requiredAuthorities: ['architecture-reviewers', 'git-contributors'],
+    minimum: 2
+  }, authorities, 'publication');
+  const first = requireApprovalAuthority(authorities, policy, { email: 'asha@example.com' }, {
+    preferredAuthorities: remainingRequiredAuthorities(policy, [])
+  });
+  assert.equal(first.authorityGroup, 'architecture-reviewers');
+  const decisions = [{ decision: 'approved', actor: { email: 'asha@example.com' }, authorityGroup: first.authorityGroup }];
+  assert.equal(approvalRequirementsMet(policy, decisions), false);
+  assert.deepEqual(remainingRequiredAuthorities(policy, decisions), ['git-contributors']);
+  const second = requireApprovalAuthority(authorities, policy, { email: 'second@example.com' }, {
+    preferredAuthorities: remainingRequiredAuthorities(policy, decisions)
+  });
+  assert.equal(second.authorityGroup, 'git-contributors');
+  decisions.push({ decision: 'approved', actor: { email: 'second@example.com' }, authorityGroup: second.authorityGroup });
+  assert.equal(approvalRequirementsMet(policy, decisions), true);
+  assert.throws(() => normalizeApprovalPolicy({
+    authorities: ['architecture-reviewers', 'git-contributors'],
+    requiredAuthorities: ['architecture-reviewers', 'git-contributors'],
+    minimum: 1
+  }, authorities, 'publication'), /minimum must be at least 2/);
 });

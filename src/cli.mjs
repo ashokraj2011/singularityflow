@@ -61,7 +61,7 @@ import { installWorkflow, simulateWorkflow, simulationText, workflowCatalog, wor
 import { applyRecovery, assignPhase, recoveryPlan, recoveryText, watchSnapshot, watchText } from './collaboration.mjs';
 import { copilotAgentStartHook, agentGuardHook, sessionStartAgentHook } from './agent-hooks.mjs';
 import { approvalInbox, approvalInboxText } from './inbox.mjs';
-import { requireApprovalAuthority } from './approval-authority.mjs';
+import { remainingRequiredAuthorities, requireApprovalAuthority } from './approval-authority.mjs';
 import { answerSelectionReceipt, beginCustomSelectionReceipt, beginSelectionReceipt, consumeSelectionReceipt, resolveCustomSelectionReceipt, resolveSelectionReceipt, selectionReceiptStatus } from './choices.mjs';
 import { loadPortfolio } from './initiative-config.mjs';
 import { KNOWLEDGE_ROOT, currentKnowledge, filterKnowledge, harvestInitiativeKnowledge, readKnowledge, recordKnowledge, resolveKnowledge } from './knowledge.mjs';
@@ -3092,7 +3092,8 @@ async function approveCommand(positionals, options) {
   const approvalAuthority = requireApprovalAuthority(
     workflow.resolution.approvalAuthorities ?? config.approvalAuthorities,
     phase.approvalPolicy,
-    session.actor
+    session.actor,
+    { preferredAuthorities: remainingRequiredAuthorities(phase.approvalPolicy, phase.approvals) }
   );
   console.log(`\nReviewing ${workflow.workItem.id} / ${phase.id}`);
   console.log(`Reviewer: ${session.actor.name ?? session.actor.email ?? session.actor.login} · authority: ${approvalAuthority.authorityLabel} (${approvalAuthority.authorityGroup})`);

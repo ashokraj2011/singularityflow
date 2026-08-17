@@ -46,6 +46,7 @@ test('the packaged POC workflow is isolated, ordered, and fully governed', async
 
   assert.equal(resolved.phases.find((phase) => phase.id === 'poc-ui-exploration').writeScope, 'artifact-only');
   assert.equal(resolved.phases.find((phase) => phase.id === 'poc-test-generation').writeScope, 'source-and-artifact');
+  assert.equal(resolved.phases.find((phase) => phase.id === 'poc-test-generation').sourceBoundary, 'test-automation');
   assert.deepEqual(
     resolved.phases.find((phase) => phase.id === 'poc-validation').approval.rejectTo,
     ['poc-intake', 'poc-ui-exploration', 'poc-test-generation', 'poc-validation']
@@ -57,9 +58,11 @@ test('the packaged POC workflow is isolated, ordered, and fully governed', async
   assert.deepEqual(validation.repairBudget, { maxAttempts: 2, resetOnPhase: 'poc-intake' });
   assert.ok(validation.qualityCommands.some((command) => command.id === 'typescript-compile'));
   assert.ok(validation.qualityCommands.some((command) => command.id === 'playwright-tests'));
+  assert.equal(validation.sourceBoundary, 'test-automation');
   const publication = resolved.phases.find((phase) => phase.id === 'poc-publication-review');
   assert.equal(publication.approval.minimum, 2);
   assert.deepEqual(publication.approval.authorities, ['quality-reviewers', 'engineering-reviewers']);
+  assert.deepEqual(publication.approval.requiredAuthorities, ['quality-reviewers', 'engineering-reviewers']);
 });
 
 test('POC browser access is allowlisted, confirmed, and evidence-capturing', async () => {

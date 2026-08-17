@@ -46,6 +46,7 @@ import { loadImpactDefinition } from './impact-config.mjs';
 import { normalizeExternalCommand } from './external-command-policy.mjs';
 import { materializationPolicy } from './world-model-materialization.mjs';
 import { normalizeRepairBudget } from './repair-budget.mjs';
+import { normalizeSourceBoundary } from './source-boundary.mjs';
 
 export const WORKFLOW_PATH = 'singularity/workflow.yml';
 export const CONTROL_ROOT = 'singularity';
@@ -490,6 +491,7 @@ export function validateDefinition(definition) {
     for (const [workTypeId, workType] of Object.entries(definition.workTypes)) if (workType.templateOverrides?.[id]) assertTemplate(workType.templateOverrides[id], `Work type '${workTypeId}' template override for '${id}'`);
     if (!template && !Object.values(definition.workTypes).some((type) => type.templateOverrides?.[id])) throw new SingularityFlowError(`Phase '${id}' has no default or work-type template.`);
     normalizeApprovalPolicy(phase.approval ?? {}, definition.approvalAuthorities, id);
+    normalizeSourceBoundary(phase.sourceBoundary, id);
     normalizeGenerationPolicy(phase.generation, id);
     phase.mcp = normalizePhaseMcpPolicy(phase.mcp, { servers: definition.mcpServers, phaseId: id });
     phase.repairBudget = normalizeRepairBudget(phase.repairBudget, { phaseId: id, phases: Object.keys(definition.phases) });
@@ -853,12 +855,13 @@ export function resolveWorkType(definition, workTypeId) {
     const template = resolvedTemplate?.source === 'catalog' ? resolvedTemplate.path : declaredTemplate;
     const inputs = normalizePhaseInputs(merged.inputs, `Work type '${workTypeId}' phase '${id}' inputs`);
     const approval = normalizeApprovalPolicy(merged.approval ?? {}, definition.approvalAuthorities, id);
+    const sourceBoundary = normalizeSourceBoundary(merged.sourceBoundary, id);
     const generation = normalizeGenerationPolicy(merged.generation, id);
     const mcp = normalizePhaseMcpPolicy(merged.mcp, { servers: definition.mcpServers, phaseId: id });
     const repairBudget = normalizeRepairBudget(merged.repairBudget, { phaseId: id, phases: workType.phases });
     const clarification = normalizeClarificationPolicy(merged.clarification);
     const specificationQuality = specificationQualityPolicy(merged.specificationQuality ?? {});
-    return { id, order, ...merged, approval, generation, mcp, repairBudget, clarification, specificationQuality, inputs, template };
+    return { id, order, ...merged, approval, generation, mcp, repairBudget, clarification, specificationQuality, sourceBoundary, inputs, template };
   });
   const phaseById = Object.fromEntries(phases.map((phase) => [phase.id, phase]));
   phases = phases.map((phase) => ({

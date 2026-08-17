@@ -15,19 +15,20 @@
  * file while declaring `filesChanged: false` would be lying in the one record the contract exists
  * to make trustworthy. `writeLocal: false`, deliberately and permanently.
  *
- * ## Three states, and none of them is an error
+ * ## Three states, and configuration errors are still errors
  *
  * There is an open interval and it reconciles; there is one and it does not; or there is no
  * interval at all — the developer never started governed work on this phase, or already closed it.
  * The third is `[DHR:REQ-046]`'s unattached local work, and it is a perfectly ordinary answer. The
  * underlying function throws for it, which is right for a command and would be a crashed sidebar
- * here.
+ * here. That ordinary state is checked explicitly. Parse errors, missing packaged resources, and
+ * invalid baselines must propagate; calling all of those "no interval" makes corruption look safe.
  */
 import { SingularityFlowError } from '../../util.mjs';
 import { catalogued } from '../catalog.mjs';
 import { localChangesFor } from './work-continue.mjs';
 import { subjectWith } from '../handles.mjs';
-import { noEffects, preservedAll, sflowResult } from '../result.mjs';
+import { noEffects, plannerNavigation, preservedAll, sflowResult } from '../result.mjs';
 import { workRecords } from '../work-records.mjs';
 
 /**
@@ -168,7 +169,7 @@ export function workReturnResult(item, { report = null, localChanges = null, sub
     preserved: preservedAll('return.nothing-was-carried-out', { reference: item.id }),
     checklist: attached ? returnChecklist(report) : [],
     next: attached && decision?.eligibleForSubmission === false
-      ? [{
+      ? [plannerNavigation({
         handle: `return:${item.id}:reconcile`,
         id: 'return:reconcile',
         label: 'Reconcile this work interval',
@@ -180,7 +181,7 @@ export function workReturnResult(item, { report = null, localChanges = null, sub
         emphasis: 'primary',
         executable: false,
         fallback: { label: 'Reconcile', command: `sflow story interval reconcile --work-id ${item.id}` }
-      }]
+      }, 'work.continue', { workId: item.id })]
       : [],
     /**
      * Nothing to do is an answer `[INT:REQ-041]`.
@@ -240,34 +241,27 @@ export async function workReturn({ arguments: args = {}, subject = null, root = 
 }
 
 /**
- * Reconcile without writing, and treat "no open interval" as an answer.
- *
- * Every failure here is a *missing fact*, not a broken planner: no interval, no baseline, a phase
- * that does not use intervals. The briefing renders in all of them and says which — the alternative
- * is a sidebar that disappears because the developer had not started governed work yet.
+ * Reconcile without writing, and treat only the explicit "no open interval" state as an answer.
  */
-async function reconciliationFor(root, item, context) {
+export async function reconciliationFor(root, item, context) {
   if (context.reconciliation !== undefined) return context.reconciliation;
-  try {
-    /**
-     * Imported here rather than at module load.
-     *
-     * `state.mjs` and `work-intervals.mjs` pull in the publication kernel and the ledger, and this
-     * planner is on the sidebar's path — the read model's own cost is why the snapshot took 62
-     * seconds. A briefing that is never asked for should cost nothing to have.
-     */
-    const [{ reconcileWorkInterval }, { loadWorkflow, workDir }, { loadDefinition }] = await Promise.all([
-      import('../../work-intervals.mjs'), import('../../state.mjs'), import('../../config.mjs')
-    ]);
-    const config = await loadDefinition(root);
-    const workflow = await loadWorkflow(root, config, item.id);
-    if (!workflow?.workIntervals?.current) return null;
-    return await reconcileWorkInterval(root, config, workflow, {
-      itemDirectory: workDir(root, config, workflow.workItem.id),
-      // A read never persists `[INT:CON-041]`. See the module note.
-      writeLocal: false
-    });
-  } catch {
-    return null;
-  }
+  /**
+   * Imported here rather than at module load.
+   *
+   * `state.mjs` and `work-intervals.mjs` pull in the publication kernel and the ledger, and this
+   * planner is on the sidebar's path — the read model's own cost is why the snapshot took 62
+   * seconds. A briefing that is never asked for should cost nothing to have.
+   */
+  const [{ reconcileWorkInterval }, { loadWorkflow, workDir }, { loadDefinition }] = await Promise.all([
+    import('../../work-intervals.mjs'), import('../../state.mjs'), import('../../config.mjs')
+  ]);
+  const config = await loadDefinition(root);
+  const workflow = await loadWorkflow(root, config, item.id);
+  const interval = workflow?.workIntervals?.current;
+  if (!interval || interval.status !== 'open' || interval.phaseId !== workflow.currentPhase) return null;
+  return reconcileWorkInterval(root, config, workflow, {
+    itemDirectory: workDir(root, config, workflow.workItem.id),
+    // A read never persists `[INT:CON-041]`. See the module note.
+    writeLocal: false
+  });
 }

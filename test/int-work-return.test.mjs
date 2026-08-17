@@ -7,8 +7,11 @@
  */
 import test from 'node:test';
 import assert from 'node:assert/strict';
+import { mkdir, mkdtemp, rm, writeFile } from 'node:fs/promises';
+import os from 'node:os';
+import path from 'node:path';
 
-import { returnChecklist, workReturnResult } from '../src/gateway/planners/work-return.mjs';
+import { reconciliationFor, returnChecklist, workReturnResult } from '../src/gateway/planners/work-return.mjs';
 import { validateSflowResult } from '../src/gateway/result.mjs';
 import { RETURN_CODES } from '../src/gateway/catalog.mjs';
 import { RESULT_MESSAGES } from '../src/gateway/messages.mjs';
@@ -82,6 +85,18 @@ test('no open interval is an answer, not a failure', () => {
   assert.ok(result.warnings.some((entry) => entry.code === 'return.reconciliation-unavailable'));
   // And it does not end blank.
   assert.equal(result.restState, 'informational');
+});
+
+test('malformed configuration is not reported as a successful no-interval return', async (t) => {
+  const root = await mkdtemp(path.join(os.tmpdir(), 'sflow-return-config-'));
+  t.after(() => rm(root, { recursive: true, force: true }));
+  await mkdir(path.join(root, 'singularity'), { recursive: true });
+  await writeFile(path.join(root, 'singularity', 'workflow.yml'), 'workTypes: [unterminated\n');
+
+  await assert.rejects(
+    () => reconciliationFor(root, item(), {}),
+    /configuration|YAML|flow collection|unexpected end/i
+  );
 });
 
 test('unplanned changes make the briefing lead with reconciling', () => {

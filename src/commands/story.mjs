@@ -16,11 +16,11 @@
  * pulling the router's whole graph back in here.
  */
 import readline from 'node:readline/promises';
-import { randomUUID } from 'node:crypto';
+import { createHash, randomUUID } from 'node:crypto';
 import path from 'node:path';
 import YAML from 'yaml';
 
-import { amendmentChurn, amendmentRecap } from '../amendment.mjs';
+import { amendmentChurn, amendmentRecap, blastRadius, clauseDiff } from '../amendment.mjs';
 import { assistedConvergencePrompt, assistedConvergenceRelative, buildAssistedConvergenceRecord, parseConvergenceCandidates, serializeAssistedConvergence, unknownReferences } from '../assisted-convergence.mjs';
 import { unwrapProviderLineBreaks } from '../assisted-quality.mjs';
 import { resolveWorkType } from '../config.mjs';
@@ -33,10 +33,13 @@ import { sameRepositoryRemote } from '../initiative-repositories.mjs';
 import { getIssue, getIssueProperty, listMyIssues } from '../jira.mjs';
 import { invokeModel, resolveModelProvider } from '../model-runner.mjs';
 import { loadSession } from '../session.mjs';
-import { evaluateSpecAcceptance, loadActiveSpecRecords, loadSpecRecords } from '../specifications.mjs';
-import { StoryStateStore, actorKey, commitAndPublish, createWorkflow, currentPhase, loadConfig, loadStoryAggregate, rejectPhase, workDir } from '../state-stores.mjs';
+import { evaluateSpecAcceptance, extractClauses, loadActiveSpecRecords, loadSpecRecords } from '../specifications.mjs';
+import {
+  StoryStateStore, acknowledgeIntentAmendment, actorKey, commitAndPublish, createWorkflow,
+  currentPhase, decideIntentAmendment, loadConfig, loadStoryAggregate, rejectPhase, workDir
+} from '../state-stores.mjs';
 import { attachStoryBranch, createStoryBranch, promoteStoryBranch, storyBranchStatus } from '../story-lineage.mjs';
-import { SingularityFlowError, exists, nowIso, optionBoolean, optionNumber, optionString, optionStrings, posix, readJson, requirePositional, run, snapshot, table, writeText } from '../util.mjs';
+import { SingularityFlowError, exists, nowIso, optionBoolean, optionNumber, optionString, optionStrings, posix, readJson, requirePositional, run, snapshot, table, writeJson, writeText } from '../util.mjs';
 import { acknowledgeAmendment, createLocalCheckpoint, escalationPlan, reconcileWorkInterval } from '../work-intervals.mjs';
 import { existsSync } from 'node:fs';
 import { mkdir, readFile } from 'node:fs/promises';
@@ -498,6 +501,7 @@ export async function storyCommand(positionals, options) {
   }
   if (subcommand === 'converge') return storyConvergeCommand(positionals, options);
   if (subcommand === 'adjudicate') return storyAdjudicateCommand(positionals, options);
+  if (subcommand === 'intent-amendment') return storyIntentAmendmentCommand(positionals, options);
   if (subcommand === 'rework') return storyReworkCommand(positionals, options);
   if (subcommand === 'advance') return storyAdvanceCommand(positionals, options);
   if (subcommand === 'status') return (await router()).statusCommand([positionals[0], positionals[2]], options);
@@ -689,13 +693,16 @@ export async function storyConvergeCommand(positionals, options) {
   console.log('is unimplemented or the change unplanned — only a human can say that.');
   console.log(`\nAllowed next: ${projection.allowedNext.join(', ') || 'none'}`);
   if (projection.allowedNext.includes('adjudicate')) {
-    console.log(`  singularity-flow story adjudicate <ITEM-ID> --disposition rework|accepted-deviation|dismissed|deferred [--reason TEXT]`);
+    console.log(`  singularity-flow story adjudicate <ITEM-ID> --disposition rework|update-intent|accepted-deviation|dismissed|deferred [--reason TEXT]`);
   }
   if (projection.allowedNext.includes('create-rework')) {
     // `story rework`, not `reject convergence`. Convergence is `in_progress` when its findings are
     // adjudicated, and `reject` requires a submitted phase — so the instruction printed here used
     // to be one the reader could not carry out, which is worse than printing nothing.
     console.log('  singularity-flow story rework --confirm');
+  }
+  if (projection.allowedNext.includes('propose-intent-amendment')) {
+    console.log('  singularity-flow story intent-amendment propose --file <AMENDED-SPEC.md> --reason <TEXT>');
   }
   if (projection.allowedNext.includes('advance-to-verification')) console.log('  singularity-flow story advance --confirm');
 }
@@ -757,6 +764,291 @@ export async function storyAdjudicateCommand(positionals, options) {
   for (const decision of decisions) console.log(`Recorded ${decision.disposition} on ${decision.itemId} by ${decision.actor}.`);
   console.log(`Blocking findings: ${projection.unresolvedBlockers.length ? projection.unresolvedBlockers.join(', ') : 'none'}`);
   console.log(`Allowed next: ${projection.allowedNext.join(', ') || 'none'}`);
+}
+
+function amendmentDirectoryRelative(root, config, workflow) {
+  return posix(path.join(path.relative(root, workDir(root, config, workflow.workItem.id)),
+    'context', 'intent-amendments'));
+}
+
+function proposalDigest(value) {
+  return createHash('sha256').update(JSON.stringify(value)).digest('hex');
+}
+
+async function proposeIntentAmendment(root, config, workflow, projection, options) {
+  const findings = (projection.findings ?? []).filter((finding) => finding.disposition === 'update-intent');
+  if (!findings.length) {
+    throw new SingularityFlowError(
+      'No convergence finding is dispositioned as update-intent, so there is no intent amendment to propose.',
+      { code: 'INTENT_AMENDMENT_NOT_AUTHORIZED' }
+    );
+  }
+  if ((workflow.intentAmendments ?? []).some((entry) => entry.status === 'proposed')) {
+    throw new SingularityFlowError('An intent amendment is already awaiting an authority decision.', {
+      code: 'INTENT_AMENDMENT_ALREADY_PENDING'
+    });
+  }
+  const specification = workflow.phases.specification;
+  if (!specification?.requiredArtifact?.path) {
+    throw new SingularityFlowError(`Work type '${workflow.workItem.workType}' has no specification artifact to amend.`, {
+      code: 'INTENT_AMENDMENT_UNSUPPORTED'
+    });
+  }
+  const candidate = optionString(options, 'file');
+  if (!candidate) {
+    throw new SingularityFlowError(
+      'Provide the proposed specification bytes with --file <MARKDOWN>. The existing specification is not edited until authority approval.',
+      { code: 'INTENT_AMENDMENT_FILE_REQUIRED' }
+    );
+  }
+  const reason = optionString(options, 'reason');
+  if (!reason?.trim()) {
+    throw new SingularityFlowError('An intent-amendment proposal requires --reason.', {
+      code: 'INTENT_AMENDMENT_REASON_REQUIRED'
+    });
+  }
+  const specificationPath = posix(path.join(
+    path.relative(root, workDir(root, config, workflow.workItem.id)), specification.requiredArtifact.path
+  ));
+  const currentText = await readFile(path.join(root, specificationPath), 'utf8');
+  const proposedText = await readFile(path.resolve(candidate), 'utf8');
+  if (Buffer.byteLength(proposedText, 'utf8') > 2 * 1024 * 1024) {
+    throw new SingularityFlowError('An intent-amendment specification may not exceed 2 MiB.', {
+      code: 'INTENT_AMENDMENT_INVALID'
+    });
+  }
+  const beforeClauses = extractClauses(currentText, { sourcePath: specificationPath });
+  const afterClauses = extractClauses(proposedText, { sourcePath: specificationPath });
+  const diff = clauseDiff(beforeClauses, afterClauses, {
+    beforeMarkdown: currentText,
+    afterMarkdown: proposedText
+  });
+  if (!diff.changed.length) {
+    throw new SingularityFlowError('The proposed specification does not change any governed clause.', {
+      code: 'INTENT_AMENDMENT_EMPTY'
+    });
+  }
+  const requiredClauses = [...new Set(findings.flatMap((finding) => finding.clauseIds ?? []))].sort();
+  const missed = requiredClauses.filter((clauseId) => !diff.changed.includes(clauseId));
+  if (missed.length) {
+    throw new SingularityFlowError(
+      `The proposal does not revise the clause(s) named by update-intent: ${missed.join(', ')}.`,
+      { code: 'INTENT_AMENDMENT_INCOMPLETE' }
+    );
+  }
+  const records = await loadActiveSpecRecords(workDir(root, config, workflow.workItem.id), workflow);
+  const plannedClaims = Object.assign({}, ...(records.planned ?? []).map((record) => record.claims ?? {}));
+  const observedClaims = Object.assign({}, ...(records.observed ?? []).map((record) => record.claims ?? {}));
+  const radius = blastRadius(diff, { claims: plannedClaims }, { observed: { claims: observedClaims } });
+  const session = await loadSession(root);
+  const index = (workflow.intentAmendments ?? []).length + 1;
+  const id = `AMD-${String(index).padStart(3, '0')}`;
+  const directory = amendmentDirectoryRelative(root, config, workflow);
+  const beforePath = posix(path.join(directory, `${id}-before.md`));
+  const proposedPath = posix(path.join(directory, `${id}-proposed.md`));
+  const recordPath = posix(path.join(directory, `${id}.json`));
+  const beforeSha256 = createHash('sha256').update(currentText).digest('hex');
+  const proposedSha256 = createHash('sha256').update(proposedText).digest('hex');
+  const proposedAt = nowIso();
+  const core = {
+    schemaVersion: 1,
+    resultType: 'intent-amendment-proposal',
+    id,
+    workId: workflow.workItem.id,
+    status: 'proposed',
+    proposedAt,
+    proposedBy: structuredClone(session.actor),
+    reason: reason.trim(),
+    convergence: {
+      iteration: projection.iteration,
+      sha256: projection.convergenceSha256,
+      findingIds: findings.map((finding) => finding.id),
+      itemIds: findings.map((finding) => finding.itemId)
+    },
+    specification: {
+      artifact: specificationPath,
+      generation: specification.generation,
+      beforePath,
+      beforeSha256,
+      proposedPath,
+      proposedSha256
+    },
+    requiredClauses,
+    diff,
+    radius,
+    decisions: []
+  };
+  const proposal = { ...core, proposalSha256: proposalDigest(core), recordPath };
+  const summary = {
+    id,
+    status: 'proposed',
+    proposedAt,
+    proposedBy: structuredClone(session.actor),
+    reason: reason.trim(),
+    proposalSha256: proposal.proposalSha256,
+    recordPath,
+    changedClauses: diff.changed,
+    findingIds: proposal.convergence.findingIds,
+    affectedClaims: radius.totals.affected,
+    acknowledgementRequired: false
+  };
+  const beforeWorkflow = structuredClone(workflow);
+  const publication = await commitAndPublish(
+    root,
+    config,
+    workflow,
+    {
+      type: 'intent-amendment-proposed',
+      phaseId: 'specification',
+      generation: specification.generation,
+      payload: { proposalId: id, proposalSha256: proposal.proposalSha256, changedClauses: diff.changed }
+    },
+    `[${workflow.workItem.id}][intent-amendment:propose] ${id}`,
+    [],
+    {
+      rollbackWorkflow: beforeWorkflow,
+      beforeStateWrite: async () => {
+        await mkdir(path.join(root, directory), { recursive: true });
+        await writeText(path.join(root, beforePath), currentText);
+        await writeText(path.join(root, proposedPath), proposedText);
+        await writeJson(path.join(root, recordPath), proposal);
+        workflow.intentAmendments ??= [];
+        workflow.intentAmendments.push(summary);
+        workflow.history.push({
+          at: proposedAt,
+          actor: actorKey(session.actor),
+          agent: session.agent,
+          event: 'intent_amendment_proposed',
+          phase: 'convergence',
+          detail: `${id} proposes ${diff.changed.length} clause change(s): ${diff.changed.join(', ')}`
+        });
+      }
+    }
+  );
+  return { proposal, summary, publication };
+}
+
+async function decideProposedIntentAmendment(root, config, workflow, proposalId, options) {
+  const summary = (workflow.intentAmendments ?? []).find((entry) => entry.id === proposalId);
+  if (!summary) throw new SingularityFlowError(`Unknown intent amendment '${proposalId}'.`);
+  const proposal = await readJson(path.join(root, summary.recordPath));
+  const decision = optionString(options, 'decision');
+  if (!['approve', 'reject'].includes(decision)) {
+    throw new SingularityFlowError("Pass --decision approve or --decision reject.", {
+      code: 'INTENT_AMENDMENT_DECISION_INVALID'
+    });
+  }
+  const confirmation = options.confirm === true ? null : optionString(options, 'confirm');
+  if (confirmation !== proposalId) {
+    throw new SingularityFlowError(
+      `Authority decision requires exact confirmation: --confirm ${proposalId}.`,
+      { code: 'INTENT_AMENDMENT_CONFIRMATION_REQUIRED' }
+    );
+  }
+  const beforeWorkflow = structuredClone(workflow);
+  let transition;
+  const publication = await commitAndPublish(
+    root,
+    config,
+    workflow,
+    {
+      type: decision === 'approve' ? 'intent-amendment-approved' : 'intent-amendment-rejected',
+      phaseId: 'specification',
+      generation: workflow.phases.specification?.generation ?? null,
+      payload: { proposalId, proposalSha256: proposal.proposalSha256, decision }
+    },
+    `[${workflow.workItem.id}][intent-amendment:${decision}] ${proposalId}`,
+    [],
+    {
+      rollbackWorkflow: beforeWorkflow,
+      beforeStateWrite: async () => {
+        transition = await decideIntentAmendment(root, config, workflow, proposal, {
+          decision,
+          reason: optionString(options, 'reason'),
+          channel: 'terminal',
+          actionContext: activeActionContext()
+        });
+      }
+    }
+  );
+  return { transition, publication };
+}
+
+async function acknowledgeApprovedIntentAmendment(root, config, workflow, proposalId) {
+  const beforeWorkflow = structuredClone(workflow);
+  let acknowledgement;
+  const publication = await commitAndPublish(
+    root,
+    config,
+    workflow,
+    {
+      type: 'intent-amendment-acknowledged',
+      phaseId: workflow.currentPhase,
+      generation: currentPhase(workflow)?.generation ?? null,
+      payload: { proposalId: proposalId ?? null }
+    },
+    `[${workflow.workItem.id}][intent-amendment:acknowledge] ${proposalId ?? 'latest'}`,
+    [],
+    {
+      rollbackWorkflow: beforeWorkflow,
+      beforeStateWrite: async () => {
+        acknowledgement = await acknowledgeIntentAmendment(root, config, workflow, proposalId);
+      }
+    }
+  );
+  return { acknowledgement, publication };
+}
+
+export async function storyIntentAmendmentCommand(positionals, options) {
+  const root = repoRoot();
+  const config = await loadConfig(root);
+  const workflow = await loadStoryAggregate(root, config, optionString(options, 'work-id'));
+  const action = positionals[2] ?? 'status';
+  if (action === 'status') {
+    const amendments = workflow.intentAmendments ?? [];
+    if (optionBoolean(options, 'json')) return console.log(JSON.stringify(amendments, null, 2));
+    if (!amendments.length) return console.log(`Story ${workflow.workItem.id} has no intent amendments.`);
+    for (const amendment of amendments) {
+      console.log(`${amendment.id}\t${amendment.status}\t${amendment.changedClauses?.join(', ') || 'no clauses'}`
+        + `${amendment.acknowledgementRequired ? '\tacknowledgement required' : ''}`);
+    }
+    return;
+  }
+  if (action === 'propose') {
+    const subject = await convergenceSubject(root, config, workflow);
+    const projection = await readConvergence(root, subject.itemRelative, subject.iteration);
+    if (!projection) throw new SingularityFlowError(`Convergence iteration ${subject.iteration} has not been run.`);
+    const result = await proposeIntentAmendment(root, config, workflow, projection, options);
+    if (optionBoolean(options, 'json')) return console.log(JSON.stringify(result, null, 2));
+    console.log(`Proposed ${result.proposal.id} for ${result.proposal.diff.changed.join(', ')}; commit ${result.publication.sha.slice(0, 8)}.`);
+    console.log(`Authority decision: singularity-flow story intent-amendment decide ${result.proposal.id} --decision approve|reject --confirm ${result.proposal.id}`);
+    return;
+  }
+  if (action === 'decide') {
+    const proposalId = requirePositional(positionals, 3, 'intent amendment ID');
+    const result = await decideProposedIntentAmendment(root, config, workflow, proposalId, options);
+    if (optionBoolean(options, 'json')) return console.log(JSON.stringify(result, null, 2));
+    if (!result.transition.reached) {
+      console.log(`Recorded approval for ${proposalId}; ${result.transition.proposal.approvals.reached}/${result.transition.proposal.approvals.required} authority decisions.`);
+      return;
+    }
+    if (!result.transition.applied) {
+      console.log(`Rejected ${proposalId}; the specification and existing evidence were not changed.`);
+      return;
+    }
+    console.log(`Approved ${proposalId}; specification generation ${result.transition.proposal.application.toSpecificationGeneration} is active.`);
+    console.log(`${result.transition.affectedPhases.length} phase(s) require revalidation; ${result.transition.preservedEvidence.length} unaffected evidence item(s) were preserved.`);
+    console.log(`Acknowledge before submitting: singularity-flow story intent-amendment acknowledge ${proposalId}`);
+    return;
+  }
+  if (action === 'acknowledge') {
+    const proposalId = positionals[3] ?? null;
+    const result = await acknowledgeApprovedIntentAmendment(root, config, workflow, proposalId);
+    if (optionBoolean(options, 'json')) return console.log(JSON.stringify(result, null, 2));
+    console.log(`Acknowledged ${result.acknowledgement.id}; downstream evidence can now be revalidated.`);
+    return;
+  }
+  throw new SingularityFlowError(`Unknown Story intent-amendment action '${action}'.`);
 }
 
 /**

@@ -1,42 +1,11 @@
-import { createHash } from 'node:crypto';
-import { mkdirSync, mkdtempSync, rmSync } from 'node:fs';
 import path from 'node:path';
 import { branch, gitDir, head } from './git.mjs';
 import { canonicalJson, recordSha256 } from './records.mjs';
 import { SingularityFlowError, ensureDir, nowIso, readJson, run, writeAtomic } from './util.mjs';
+import { worktreeFingerprint } from './worktree-fingerprint.mjs';
 
 const PLAN_SCHEMA_VERSION = 2;
 const DEFAULT_TTL_MS = 15 * 60 * 1000;
-
-function worktreeHash(root) {
-  const temporaryRoot = path.join(gitDir(root), 'singularity-flow', 'temporary-indexes');
-  mkdirSync(temporaryRoot, { recursive: true });
-  const scratch = mkdtempSync(path.join(temporaryRoot, 'action-plan-'));
-  const indexPath = path.join(scratch, 'index');
-  const env = { ...process.env, GIT_INDEX_FILE: indexPath };
-  try {
-    const headTree = run('git', ['rev-parse', 'HEAD^{tree}'], { cwd: root }).stdout.trim();
-    // `write-tree` reads the real index without changing it. Binding this tree separately matters
-    // when a staged blob differs from both HEAD and the working-tree copy.
-    const indexTree = run('git', ['write-tree'], { cwd: root }).stdout.trim();
-    // A private index converts the complete visible working tree (including untracked paths, file
-    // modes, deletions and symlinks) into Git's canonical tree representation. Unlike porcelain
-    // status, the tree id changes when bytes inside an already-dirty path change.
-    run('git', ['read-tree', 'HEAD'], { cwd: root, env });
-    run('git', ['add', '-A'], { cwd: root, env });
-    const workingTree = run('git', ['write-tree'], { cwd: root, env }).stdout.trim();
-    return {
-      headTree,
-      indexTree,
-      workingTree,
-      sha256: createHash('sha256')
-        .update(canonicalJson({ headTree, indexTree, workingTree }))
-        .digest('hex')
-    };
-  } finally {
-    rmSync(scratch, { recursive: true, force: true });
-  }
-}
 
 function planDirectory(root) {
   return path.join(gitDir(root), 'singularity-flow', 'action-plans');
@@ -150,7 +119,7 @@ function normalizeAction(item, index, revision) {
 }
 
 export function repositoryActionRevision(root, lifecycleSnapshot) {
-  const workingTree = worktreeHash(root);
+  const workingTree = worktreeFingerprint(root);
   return {
     branch: branch(root),
     head: head(root),

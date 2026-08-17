@@ -223,8 +223,21 @@ test('next computes legal actions and offers none of them as executable', () => 
   assert.equal(result.kind, 'read');
   assert.equal(result.next.length, 2);
   assert.equal(result.next.every((entry) => entry.executable === false), true);
-  assert.equal(result.next.find((entry) => entry.handle.endsWith('review.open')).kind, 'ceremony');
+  assert.match(result.next.find((entry) => entry.id === 'legal:work.list').handle, /^sel_/);
+  assert.equal(result.next.find((entry) => entry.id === 'legal:review.open').kind, 'ceremony');
   assert.deepEqual({ ...result.effects }, noEffects());
+});
+
+test('a legal-next navigation choice is authority-issued and reaches its planner', async () => {
+  const planners = new Map([['work-list', readResult]]);
+  const kernel = createGatewayKernel({ binding, planners, legalActions: () => ['work.list'] });
+  const offered = kernel.next({ scope: 'home' }).next[0];
+  assert.match(offered.handle, /^sel_/);
+
+  const selected = kernel.resolve({ selectionHandle: offered.handle });
+  assert.equal(selected.operation.id, 'work.list');
+  const read = await kernel.read({ resolutionId: selected.next[0].handle });
+  assert.equal(read.operation.id, 'work.list');
 });
 
 test('next with nothing legal is an answer, not a dead end', () => {

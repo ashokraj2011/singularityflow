@@ -13,7 +13,7 @@
  * result is indistinguishable from a clean one.
  */
 import { SingularityFlowError } from '../../util.mjs';
-import { noEffects, sflowResult } from '../result.mjs';
+import { noEffects, plannerNavigation, sflowResult } from '../result.mjs';
 import { workRecords } from '../work-records.mjs';
 
 /** Everything §8.5 asks for that changed paths alone cannot answer. Named, so the absence is visible. */
@@ -80,7 +80,7 @@ export function impactQuickResult({
       ...IMPACT_EVIDENCE_GAPS.map((field) => ({ code: 'impact.evidence-gap', source: 'unavailable', slots: { field } })),
       { code: 'impact.tests-by-path-convention', source: 'deterministic', slots: { matched: String(tests.length) } }
     ],
-    next: activeWork.map((item, index) => ({
+    next: activeWork.map((item, index) => plannerNavigation({
       handle: `impact:work:${item.id}`,
       id: `impact:work:${item.id}`,
       label: item.title,
@@ -95,7 +95,7 @@ export function impactQuickResult({
        */
       executable: false,
       fallback: { label: 'See this work', command: `sflow status --work-id ${item.id}` }
-    })),
+    }, 'work.continue', { workId: item.id })),
     restState: activeWork.length ? null : 'informational',
     data: {
       // `[INT:IFC-031]`: the report names exactly what it was computed from.

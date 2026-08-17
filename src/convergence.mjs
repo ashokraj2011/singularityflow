@@ -407,9 +407,13 @@ function governedFindings(adjudications, { facts, candidates }) {
 function allowedTransitions({ facts, candidates, findings, blockers }) {
   const disposed = new Set(findings.map((finding) => finding.itemId));
   const undisposed = [...facts, ...candidates].filter((item) => !disposed.has(item.id));
+  const blockerFindings = findings.filter((finding) => blockers.includes(finding.id));
   const next = [];
   if (undisposed.length) next.push('adjudicate');
-  if (blockers.length) next.push('create-rework');
+  if (blockerFindings.some((finding) => finding.disposition === 'rework')) next.push('create-rework');
+  if (blockerFindings.some((finding) => finding.disposition === 'update-intent')) {
+    next.push('propose-intent-amendment');
+  }
   if (!undisposed.length && !blockers.length) next.push('advance-to-verification');
   return next;
 }

@@ -10,7 +10,7 @@
  * partial answer and a wrong one.
  */
 import { SingularityFlowError } from '../../util.mjs';
-import { noEffects, sflowResult } from '../result.mjs';
+import { noEffects, plannerNavigation, sflowResult } from '../result.mjs';
 import { WORK_GROUP_ORDER, workRecords } from '../work-records.mjs';
 
 export function workListResult(records, { subject = null, group = null, repositoryScope = null } = {}) {
@@ -36,7 +36,7 @@ export function workListResult(records, { subject = null, group = null, reposito
     warnings: [{ code: 'work.single-repository-scope', source: 'unavailable', slots: { repository: repositoryScope ?? 'current' } }],
     next: shown
       .filter((item) => item.nextAction)
-      .map((item, index) => ({
+      .map((item, index) => plannerNavigation({
         handle: `work:${item.id}`,
         id: `work:${item.id}`,
         label: item.title,
@@ -52,7 +52,7 @@ export function workListResult(records, { subject = null, group = null, reposito
          */
         executable: false,
         fallback: { label: item.nextAction.operation, command: `sflow status --work-id ${item.id}` }
-      })),
+      }, item.nextAction.operation, { workId: item.id })),
     restState: shown.length ? null : 'informational',
     data: {
       group: group ?? null,

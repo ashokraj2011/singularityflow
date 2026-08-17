@@ -395,9 +395,10 @@ const PAGES = Object.freeze({
     seeAlso: ['start', 'status', 'inbox']
   },
   story: {
-    summary: 'Story-level operations: branches, intervals, checks, and finalisation.',
+    summary: 'Story-level operations: branches, intervals, convergence, intent amendments, checks, and finalisation.',
     examples: [
       ['singularity-flow story branch create --parent PAY-1 --name PAY-1-ui', 'Create a governed child branch.'],
+      ['singularity-flow story intent-amendment propose --file amended-spec.md --reason "Retry policy changed"', 'Propose corrected intent for an update-intent finding without editing the approved specification.'],
       ['singularity-flow story checks PAY-1', 'Record CI evidence against the submitted packet.']
     ],
     seeAlso: ['start', 'submit', 'epic']

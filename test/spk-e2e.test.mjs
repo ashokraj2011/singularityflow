@@ -185,6 +185,10 @@ test('a Story runs specification through release from a fresh clone', async (t) 
     'that omission is for.', '',
     '## Changes', '', '- `src/payments/retry.ts`: new retry handler serving E2E:REQ-001.', ''
   ].join('\n'));
+  await write(root, `singularity/work-items/${WORK}/artifacts/implementation/operator-notes.md`, [
+    '# Operator notes', '',
+    'The provider sandbox and local retry harness remain available for later verification.', ''
+  ].join('\n'));
   sflow(root, ['prepare', 'implementation'], { allowFailure: true });
   await completePhase(root, 'implementation');
   assert.equal((await workflowOf(root)).phases.implementation.status, 'approved');
@@ -253,9 +257,68 @@ test('a Story runs specification through release from a fresh clone', async (t) 
   assert.notEqual(second.bindings.reconciliation.sha256, iteration.bindings.reconciliation.sha256,
     'the second iteration bound the first iteration\'s reconciliation');
 
-  for (const fact of second.facts) {
+  assert.ok(second.facts.length, 'the second implementation generation produced no convergence facts');
+  const intentFinding = second.facts[0];
+  sflow(root, ['story', 'adjudicate', intentFinding.id, '--disposition', 'update-intent',
+    '--clause', 'E2E:REQ-001', '--reason', 'The approved intent must limit retries to a payments operator.']);
+  for (const fact of second.facts.filter((entry) => entry.id !== intentFinding.id)) {
     sflow(root, ['story', 'adjudicate', fact.id, '--disposition', 'accepted-deviation',
       '--reason', 'Trace evidence is recorded in the implementation summary and reviewed.']);
+  }
+  const intentBlocked = JSON.parse(sflow(root, ['story', 'converge', '--json']).stdout);
+  assert.deepEqual(intentBlocked.allowedNext, ['propose-intent-amendment']);
+
+  // ---- corrected intent: proposal, authority decision, acknowledgement and selective replay -----
+  const amendmentFile = path.join(await mkdtemp(path.join(os.tmpdir(), 'sflow-e2e-amendment-')), 'spec.md');
+  await writeFile(amendmentFile, [
+    '# Specification — Retry a failed payment', '',
+    '## Actors', '', 'An operator holding the payments role.', '',
+    '## User scenarios', '',
+    '- **Given** a payment that failed at the provider',
+    '  **When** an operator retries it',
+    '  **Then** a new attempt is created and the original is preserved.', '',
+    '## Requirements', '',
+    '- Only an operator holding the payments role may create a new attempt for a failed payment. [E2E:REQ-001]',
+    '- Every retry preserves the original failed attempt and its provider response without mutation. [E2E:REQ-002]', ''
+  ].join('\n'));
+  const proposed = JSON.parse(sflow(root, ['story', 'intent-amendment', 'propose',
+    '--file', amendmentFile, '--reason', 'Make retry authority explicit.', '--json']).stdout);
+  assert.equal(proposed.proposal.id, 'AMD-001');
+  assert.deepEqual(proposed.proposal.diff.revised, ['E2E:REQ-001', 'E2E:REQ-002']);
+  assert.equal((await workflowOf(root)).phases.specification.generation, 1,
+    'a proposal changed approved intent before authority approval');
+
+  const decided = JSON.parse(sflow(root, ['story', 'intent-amendment', 'decide', 'AMD-001',
+    '--decision', 'approve', '--confirm', 'AMD-001', '--json']).stdout);
+  assert.equal(decided.transition.applied, true);
+  const amended = await workflowOf(root);
+  assert.equal(amended.phases.specification.generation, 2);
+  assert.equal(amended.currentPhase, 'planning');
+  assert.equal(amended.intentAmendments[0].status, 'approved');
+  assert.ok(amended.intentAmendments[0].preservedEvidence.some((entry) => entry.endsWith('/operator-notes.md')),
+    'unaffected operator evidence was discarded instead of preserved');
+  assert.equal(amended.phases.implementation.artifacts
+    .find((entry) => entry.path.endsWith('/operator-notes.md')).intentAmendment.state, 'preserved-unaffected');
+  assert.ok(amended.phases.implementation.approvals.every((entry) => entry.invalidatedAt),
+    'downstream approvals survived an approved intent change');
+
+  const unacknowledged = sflow(root, ['submit', 'planning', '--skip-checks'], { allowFailure: true });
+  assert.notEqual(unacknowledged.status, 0, 'downstream submission ignored the acknowledgement beat');
+  assert.match(unacknowledged.output, /INTENT_AMENDMENT_ACKNOWLEDGEMENT_REQUIRED|Acknowledge it before revalidation/);
+  sflow(root, ['story', 'intent-amendment', 'acknowledge', 'AMD-001']);
+  assert.ok((await workflowOf(root)).intentAmendments[0].acknowledgedAt);
+
+  // Re-publish existing evidence through ordinary generation and approval gates. Unaffected bytes
+  // stay in place; their preservation label is evidence, not an automatic re-approval.
+  sflow(root, ['spec', 'tasks']);
+  await completePhase(root, 'planning');
+  await completePhase(root, 'implementation');
+
+  const third = JSON.parse(sflow(root, ['story', 'converge', '--json']).stdout);
+  assert.equal(third.iteration, 3, 'intent revalidation did not create a fresh convergence iteration');
+  for (const fact of third.facts) {
+    sflow(root, ['story', 'adjudicate', fact.id, '--disposition', 'accepted-deviation',
+      '--reason', 'The amended intent and retained implementation evidence were revalidated.']);
   }
   const resolved = JSON.parse(sflow(root, ['story', 'converge', '--json']).stdout);
   assert.deepEqual(resolved.unresolvedBlockers, []);
@@ -310,8 +373,11 @@ test('a Story runs specification through release from a fresh clone', async (t) 
   for (const phase of ['specification', 'planning', 'implementation', 'convergence', 'verification', 'release']) {
     assert.equal(complete.phases[phase].status, 'approved', `${phase} is ${complete.phases[phase].status}`);
   }
-  // Two implementation generations, because a human sent it back once.
-  assert.equal(complete.phases.implementation.generation, 2);
+  // Three implementation generations: one governed rework and one corrected-intent revalidation.
+  assert.equal(complete.phases.implementation.generation, 3);
   assert.equal(complete.changeRequests.length, 1);
   assert.equal(complete.changeRequests[0].status, 'resolved', 'the change request was never resolved by the rework');
+  assert.equal(complete.intentAmendments[0].status, 'revalidated');
+  assert.deepEqual(complete.intentAmendments[0].revalidatedPhases,
+    ['planning', 'implementation', 'convergence', 'verification', 'release']);
 });

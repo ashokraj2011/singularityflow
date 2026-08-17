@@ -70,6 +70,10 @@ test('switching branch invalidates a handle resolved before the switch', async (
   assert.equal(result.next.length, 1);
   assert.equal(result.next[0].interaction, 'recovery');
   assert.equal(result.next[0].emphasis, 'primary');
+  assert.match(result.next[0].handle, /^rea_/);
+  const recovered = await executor.execute(result.next[0]);
+  assert.equal(recovered.outcome, 'read');
+  assert.equal(recovered.result.operation.id, 'home.overview');
   // And it says nothing was carried out `[DHR:REQ-061]`.
   assert.equal(result.preserved[0].scope, 'all');
 });
@@ -88,6 +92,23 @@ test('a stale refusal is a result, never a thrown error', async (t) => {
   assert.equal(outcome, 'stale');
   assert.equal(result.kind, 'refusal');
   assert.equal(result.why[0].code, 'gateway.handle-unknown');
+  const recovered = await executor.execute(result.next[0]);
+  assert.equal(recovered.outcome, 'read');
+  assert.equal(recovered.result.operation.id, 'home.overview');
+});
+
+test('an invalid selection offers a signed recovery that reaches Home', async (t) => {
+  const root = await repository();
+  t.after(() => rm(root, { recursive: true, force: true }));
+  const gateway = createHostGateway({ root, hostSessionId: 's1', planners: gatewayPlanners() });
+  const executor = createActionExecutor({ gateway });
+
+  const refused = await gateway.kernel.resolve({ selectionHandle: 'sel_not-issued' });
+  assert.equal(refused.kind, 'refusal');
+  assert.match(refused.next[0].handle, /^rea_/);
+  const recovered = await executor.execute(refused.next[0]);
+  assert.equal(recovered.outcome, 'read');
+  assert.equal(recovered.result.operation.id, 'home.overview');
 });
 
 test('a ceremony is handed back to be opened, never carried out', async (t) => {

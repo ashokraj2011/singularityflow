@@ -639,7 +639,7 @@ test('My Work resolves an active workspace when no editor folder is open', async
   const started = spawnSync(process.execPath, [path.join(packageRoot, 'bin', 'singularity-flow.mjs'),
     'start', 'STORY-ACTIVE', '--title', 'Active workspace Story',
     '--description', 'Prove My Work can resolve it without an editor folder.',
-    '--acceptance-criteria', 'My Work displays the active Story', '--work-type', 'feature',
+    '--acceptance-criteria', 'My Work displays the active Story', '--work-type', 'quick-fix',
     '--agent', 'developer', '--base', 'INIT-CHECKOUT'], {
     cwd: root, encoding: 'utf8', env: process.env
   });
@@ -660,9 +660,15 @@ test('My Work resolves an active workspace when no editor folder is open', async
     encoding: 'utf8', env
   });
   assert.equal(create.status, 0, create.stderr);
+  const created = JSON.parse(create.stdout);
   const use = spawnSync(process.execPath, [path.join(packageRoot, 'bin', 'singularity-flow.mjs'),
     'workspace', 'use', 'active-home', '--json'], { encoding: 'utf8', env });
   assert.equal(use.status, 0, use.stderr);
+  const workspaceLead = path.join(created.workspace.path, created.workspace.repositories.lead.path);
+  const prepared = spawnSync(process.execPath, [path.join(packageRoot, 'bin', 'singularity-flow.mjs'),
+    'prepare'], { cwd: workspaceLead, encoding: 'utf8', env });
+  assert.equal(prepared.status, 0, prepared.stderr);
+  await writeFile(path.join(workspaceLead, 'local-poc-change.txt'), 'uncommitted application work\n');
 
   const previousRegistry = process.env.SINGULARITY_FLOW_WORKSPACE_REGISTRY;
   const previousSelection = process.env.SINGULARITY_FLOW_ACTIVE_WORKSPACE;
@@ -694,6 +700,17 @@ test('My Work resolves an active workspace when no editor folder is open', async
     && /Governed repository:/.test(line)),
   'the gateway root came from the machine-wide active workspace');
   assert.doesNotMatch(result.webview.html, /No workspace selected|No folder is open/);
+
+  // Drive the packaged CommonJS bundle through a real open work interval. This is the path that
+  // used to lose import.meta-based package roots and then disguise the exception as "no interval".
+  assert.match(result.webview.html, /data-action-id="home:work\.return"/);
+  await result.post({ type: 'sflow.action', actionId: 'home:work.return' });
+  await until(() => /data-action-id="resolved:work\.return"/.test(result.webview.html) ? true : null);
+  await result.post({ type: 'sflow.action', actionId: 'resolved:work.return' });
+  await until(() => /gateway\.returned/.test(result.webview.html) ? true : null);
+  assert.match(result.webview.html, /path\(s\) changed/,
+    'the built extension reconciles the real interval instead of returning a hidden failure');
+  assert.doesNotMatch(result.webview.html, /No governed work interval is open/);
 });
 
 test('a selected workspace with a missing lead repository offers repair instead of claiming no workspace is active', async (t) => {

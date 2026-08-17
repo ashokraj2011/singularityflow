@@ -14,6 +14,7 @@ import path from 'node:path';
 import { DEFAULT_GATEWAY_POLICY, resolveGatewayPolicy } from '../src/gateway/policy.mjs';
 import { gatewayPlanners } from '../src/gateway/planners/index.mjs';
 import { createHostGateway, hostBinding } from '../src/gateway/host.mjs';
+import { createActionExecutor } from '../src/gateway/executor.mjs';
 import { gatewayRegistry } from '../src/gateway/operations.mjs';
 import { run } from '../src/util.mjs';
 
@@ -176,6 +177,38 @@ test('a long-lived host derives home state from the current branch on every read
   assert.equal(elsewhere.next[0].id, 'home:work.list');
 });
 
+test('planner navigation is sealed by the kernel and reaches the selected operation', async (t) => {
+  const root = await repository();
+  t.after(() => rm(root, { recursive: true, force: true }));
+  const directory = path.join(root, 'singularity', 'work-items', 'WRK-SEALED');
+  await mkdir(directory, { recursive: true });
+  await writeFile(path.join(directory, 'workflow.json'), JSON.stringify({
+    workItem: { id: 'WRK-SEALED', title: 'Sealed navigation', branch: 'main', workType: 'feature' },
+    lineage: { canonicalBranch: 'main', childBranches: [] },
+    phaseOrder: ['intake'], currentPhase: 'intake',
+    phases: { intake: { label: 'Intake', status: 'in_progress', generation: 1 } },
+    history: [{ event: 'work_started', phase: 'intake', at: '2026-08-16T10:00:00.000Z' }]
+  }));
+
+  const gateway = createHostGateway({ root, hostSessionId: 's-sealed', planners: gatewayPlanners() });
+  const homeResolution = await gateway.kernel.resolve({ utterance: 'home' });
+  const home = await gateway.kernel.read({ resolutionId: homeResolution.next[0].handle });
+  const offered = home.next.find((entry) => entry.id === 'home:work.continue');
+  assert.match(offered.handle, /^sel_[0-9a-f]{32}$/,
+    'the planner prefix never crosses the kernel boundary');
+
+  const executor = createActionExecutor({ gateway });
+  const selected = await executor.execute(offered);
+  assert.equal(selected.outcome, 'resolved');
+  assert.equal(selected.result.operation.id, 'work.continue');
+  assert.match(selected.result.next[0].handle, /^rea_[0-9a-f]{32}$/);
+
+  const continued = await executor.execute(selected.result.next[0]);
+  assert.equal(continued.outcome, 'read');
+  assert.equal(continued.result.operation.id, 'work.continue');
+  assert.equal(continued.result.outcome.status, 'succeeded');
+});
+
 test('a read declares the revision its handle was bound to, not a row of nulls', async (t) => {
   const root = await repository();
   t.after(() => rm(root, { recursive: true, force: true }));
@@ -223,4 +256,25 @@ test('a home declares the uncommitted bytes its ordering depended on', async (t)
   assert.equal(after.data.localChanges.dirty, true);
   // The commit did not move, so a consumer reading only that would report no change at all.
   assert.equal(after.subject.revision.sourceCommit, before.subject.revision.sourceCommit);
+});
+
+test('editing bytes inside an already-dirty path invalidates an issued read handle', async (t) => {
+  const root = await repository();
+  t.after(() => rm(root, { recursive: true, force: true }));
+  const target = path.join(root, 'README.md');
+  await writeFile(target, '# dirty version one\n');
+
+  const { kernel } = createHostGateway({
+    root,
+    hostSessionId: 's-worktree-drift',
+    planners: gatewayPlanners()
+  });
+  const resolution = await kernel.resolve({ utterance: 'home' });
+  const issued = resolution.next[0].handle;
+
+  // Git status is still exactly "README.md modified"; only the reviewed bytes changed.
+  await writeFile(target, '# dirty version two\n');
+  const refused = await kernel.read({ resolutionId: issued });
+  assert.equal(refused.kind, 'refusal');
+  assert.equal(refused.why[0].code, 'gateway.handle-drifted');
 });

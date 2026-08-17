@@ -47,23 +47,21 @@ const RECOVERABLE = Object.freeze(new Set([
  * forbids a dead end and `[DHR:REQ-063]` says going back alters presentation only — so this offers
  * to recompute, never to force through.
  */
-function recoveryAction(scope) {
+function recoveryAction(scope, issued) {
+  if (!issued?.handle) return null;
   return {
-    handle: `goal:${scope}`,
+    ...issued,
     id: `recover:${scope}`,
     label: 'Ask again from here',
     rank: 0,
-    kind: 'clarification',
     reasonCode: 'resolution.selection-handle.invalid',
     interaction: 'recovery',
     emphasis: 'primary',
-    confirmation: 'none',
-    executable: false,
     fallback: { label: 'Start again', command: `sflow ${scope === 'home' ? 'home' : 'explain'}` }
   };
 }
 
-function staleRefusal(code, { scope, actionId }) {
+function staleRefusal(code, { scope, actionId, recovery }) {
   return sflowResult({
     kind: 'refusal',
     operation: { id: 'gateway.read', classification: 'read' },
@@ -78,7 +76,7 @@ function staleRefusal(code, { scope, actionId }) {
      * saying so is the difference between re-asking and going to inspect the branch.
      */
     preserved: preservedAll('gateway.nothing-was-carried-out'),
-    next: RECOVERABLE.has(code) ? [recoveryAction(scope)] : [],
+    next: RECOVERABLE.has(code) && recovery ? [recoveryAction(scope, recovery)] : [],
     restState: RECOVERABLE.has(code) ? null : 'blocked'
   });
 }
@@ -137,7 +135,14 @@ export function createActionExecutor({ gateway, scope = 'home' } = {}) {
      * do next in this surface" is the host's question, not its.
      */
     if (result.kind === 'refusal' && HANDLE_FAILURE_CODES.includes(result.why[0]?.code)) {
-      return { outcome: 'stale', result: staleRefusal(result.why[0].code, { scope, actionId: action.id }) };
+      // Ask the kernel for a current, signed read handle. A recovery prefix is not authority and is
+      // intentionally unusable; the button must be as bound and expiring as every other read.
+      const resolved = await kernel.resolve({ utterance: scope === 'home' ? 'home' : 'help' });
+      const recovery = resolved.next?.find((entry) => entry.executable === true) ?? null;
+      return {
+        outcome: 'stale',
+        result: staleRefusal(result.why[0].code, { scope, actionId: action.id, recovery })
+      };
     }
     return { outcome: 'read', result };
   }

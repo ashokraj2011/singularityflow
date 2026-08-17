@@ -2658,7 +2658,11 @@ singularity-flow story start|inbox|fetch|checks|finalize
 singularity-flow story return [WORK-ID] [--json]
 singularity-flow story submit
 singularity-flow story converge [--assisted] [--json]
-singularity-flow story adjudicate <ITEM-ID> --disposition rework|accepted-deviation|dismissed|deferred [--reason TEXT]
+singularity-flow story adjudicate <ITEM-ID> --disposition rework|update-intent|accepted-deviation|dismissed|deferred [--reason TEXT]
+singularity-flow story intent-amendment status [--json]
+singularity-flow story intent-amendment propose --file AMENDED-SPEC.md --reason TEXT
+singularity-flow story intent-amendment decide <AMD-ID> --decision approve|reject --confirm <AMD-ID>
+singularity-flow story intent-amendment acknowledge [AMD-ID]
 singularity-flow story rework [--reason TEXT] [--confirm]
 singularity-flow story advance [--confirm]
 singularity-flow initiative start|resume|phase|context|documents|checklist

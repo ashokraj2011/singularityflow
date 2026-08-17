@@ -13,7 +13,7 @@
 import { docsHandle, servedBody } from '../../commands/explain.mjs';
 import { docsManifest } from '../../docs-manifest.mjs';
 import { loadTopics, nearestTopicIds, resolveTopic } from '../../docs-topics.mjs';
-import { noEffects, sflowResult } from '../result.mjs';
+import { noEffects, plannerNavigation, sflowResult } from '../result.mjs';
 
 /** The ceiling on a served body. Beyond it the reader gets a preview and a handle `[INT:CON-037]`. */
 export const EXPLAIN_PREVIEW_BYTES = 4000;
@@ -21,7 +21,7 @@ export const EXPLAIN_PREVIEW_BYTES = 4000;
 const FALLBACK = Object.freeze({ label: 'List every topic', command: 'sflow explain' });
 
 function suggestion(topicId, index, reasonCode) {
-  return {
+  return plannerNavigation({
     handle: `topic:${topicId}`,
     id: `topic:${topicId}`,
     label: topicId,
@@ -34,7 +34,7 @@ function suggestion(topicId, index, reasonCode) {
     topic: topicId,
     executable: false,
     fallback: FALLBACK
-  };
+  }, 'help.explain', { question: topicId, topic: topicId });
 }
 
 function ask(messageSlots, topicIds, reasonCode, why) {

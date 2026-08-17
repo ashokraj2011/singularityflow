@@ -334,27 +334,60 @@ export function preflightStoryRepositories(workspaceRoot, plan, storyBranch, {
  * A dirty repository is refused rather than stashed. Uncommitted work in a sibling repository is not
  * this command's to move.
  */
-export function prepareCapabilityRepositories(workspaceRoot, plan, storyBranch, { remote = 'origin' } = {}) {
-  const prepared = [];
-  for (const repository of plan.repositories) {
-    const target = path.resolve(workspaceRoot, repository.path);
-    const base = plan.resolution.resolved[repository.id];
-    if (!existsSync(path.join(target, '.git'))) {
-      prepared.push({ repository: repository.id, target, base: base.branch, action: 'absent' });
+export function rollbackCapabilityRepositories(prepared, storyBranch) {
+  const failures = [];
+  for (const entry of [...(prepared ?? [])].reverse()) {
+    if (entry.action !== 'switched' || !entry.from) continue;
+    const restored = run('git', ['switch', entry.from], { cwd: entry.target, allowFailure: true });
+    if (restored.status !== 0) {
+      failures.push(`${entry.repository}: ${(restored.stderr || restored.stdout).trim() || 'switch failed'}`);
       continue;
     }
-    const root = repoRoot(target);
-    assertClean(root);
-    const already = currentBranch(root);
-    checkout(root, storyBranch, { base: base.branch, fetch: true, remote, preferRemoteBase: true });
-    prepared.push({
-      repository: repository.id,
-      target: root,
-      base: base.branch,
-      source: base.source,
-      action: already === storyBranch ? 'already-on-branch' : 'switched',
-      from: already
-    });
+    if (entry.checkoutMode?.startsWith('created-from-')) {
+      const removed = run('git', ['branch', '-D', storyBranch], { cwd: entry.target, allowFailure: true });
+      if (removed.status !== 0) {
+        failures.push(`${entry.repository}: ${(removed.stderr || removed.stdout).trim() || 'branch cleanup failed'}`);
+      }
+    }
+  }
+  return failures;
+}
+
+export function prepareCapabilityRepositories(workspaceRoot, plan, storyBranch, { remote = 'origin' } = {}) {
+  const prepared = [];
+  try {
+    for (const repository of plan.repositories) {
+      const target = path.resolve(workspaceRoot, repository.path);
+      const base = plan.resolution.resolved[repository.id];
+      if (!existsSync(path.join(target, '.git'))) {
+        prepared.push({ repository: repository.id, target, base: base.branch, action: 'absent' });
+        continue;
+      }
+      const root = repoRoot(target);
+      assertClean(root);
+      const already = currentBranch(root);
+      const checkoutMode = checkout(root, storyBranch, {
+        base: base.branch, fetch: true, remote, preferRemoteBase: true
+      });
+      prepared.push({
+        repository: repository.id,
+        target: root,
+        base: base.branch,
+        source: base.source,
+        action: already === storyBranch ? 'already-on-branch' : 'switched',
+        from: already,
+        checkoutMode
+      });
+    }
+  } catch (error) {
+    const rollbackFailures = rollbackCapabilityRepositories(prepared, storyBranch);
+    if (rollbackFailures.length) {
+      throw new SingularityFlowError(
+        `${error.message} Capability checkout rollback also failed for ${rollbackFailures.join('; ')}.`,
+        { code: error.code ?? 'STORY_CAPABILITY_PREPARATION_FAILED', cause: error }
+      );
+    }
+    throw error;
   }
   return prepared;
 }

@@ -148,8 +148,9 @@ const STORY_READ_SUBCOMMANDS = Object.freeze(['inbox', 'status', 'return']);
 const STORY_MUTATION_SUBCOMMANDS = Object.freeze(['start', 'fetch', 'submit', 'finalize', 'checks', 'adjudicate', 'rework', 'advance']);
 const STORY_INTERVAL_ACTIONS = Object.freeze(['status', 'checkpoint', 'reconcile', 'escalate', 'acknowledge']);
 const STORY_BRANCH_ACTIONS = Object.freeze(['status', 'create', 'attach', 'promote']);
+const STORY_INTENT_AMENDMENT_ACTIONS = Object.freeze(['status', 'propose', 'decide', 'acknowledge']);
 const STORY_SUBCOMMANDS = Object.freeze([
-  'converge', 'interval', 'branch', ...STORY_READ_SUBCOMMANDS, ...STORY_MUTATION_SUBCOMMANDS
+  'converge', 'interval', 'branch', 'intent-amendment', ...STORY_READ_SUBCOMMANDS, ...STORY_MUTATION_SUBCOMMANDS
 ]);
 
 /** Every command whose subcommands a resolver owns, for the guard that keeps these honest. */
@@ -279,6 +280,13 @@ function resolveStoryOperation(definition, positionals, options) {
     const action = positionals[2] ?? 'status';
     if (!STORY_BRANCH_ACTIONS.includes(action)) return unknownSubcommand('story branch', action, STORY_BRANCH_ACTIONS, 'action');
     return never(`story.branch.${action}`, definition, action === 'status' ? 'read' : 'mutation');
+  }
+  if (subcommand === 'intent-amendment') {
+    const action = positionals[2] ?? 'status';
+    if (!STORY_INTENT_AMENDMENT_ACTIONS.includes(action)) {
+      return unknownSubcommand('story intent-amendment', action, STORY_INTENT_AMENDMENT_ACTIONS, 'action');
+    }
+    return never(`story.intent-amendment.${action}`, definition, action === 'status' ? 'read' : 'mutation');
   }
   return unknownSubcommand('story', subcommand, STORY_SUBCOMMANDS);
 }
@@ -463,6 +471,8 @@ export function operationCatalog() {
       .map((name) => never(`story.interval.${name}`, storyDefinition, name === 'status' ? 'read' : 'mutation')),
     ...STORY_BRANCH_ACTIONS
       .map((name) => never(`story.branch.${name}`, storyDefinition, name === 'status' ? 'read' : 'mutation')),
+    ...STORY_INTENT_AMENDMENT_ACTIONS
+      .map((name) => never(`story.intent-amendment.${name}`, storyDefinition, name === 'status' ? 'read' : 'mutation')),
     ...CONSTITUTION_READ_SUBCOMMANDS.map((name) => never(`constitution.${name}`, constitutionDefinition, 'read')),
     ...CONSTITUTION_MUTATION_SUBCOMMANDS.map((name) => never(`constitution.${name}`, constitutionDefinition, 'mutation'))
   ];

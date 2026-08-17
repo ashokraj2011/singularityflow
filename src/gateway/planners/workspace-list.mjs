@@ -14,7 +14,7 @@
  */
 import { readWorkspaceRegistry } from '../../workspace.mjs';
 import { readActiveWorkspaceContext, workspaceRegistryFile, activeWorkspaceFile } from '../../workspace-context.mjs';
-import { noEffects, sflowResult } from '../result.mjs';
+import { noEffects, plannerNavigation, sflowResult } from '../result.mjs';
 
 /** What §8.4 asks for that the registry alone cannot answer. Declared, never guessed. */
 export const WORKSPACE_LIST_EVIDENCE_GAPS = Object.freeze(['repositoryCount', 'activeWorkCount', 'health']);
@@ -59,7 +59,7 @@ export async function workspaceList({ subject = null, env = process.env } = {}) 
       source: 'unavailable',
       slots: { field }
     })),
-    next: workspaces.map((workspace, index) => ({
+    next: workspaces.map((workspace, index) => plannerNavigation({
       handle: `workspace:${workspace.id}`,
       id: `workspace:${workspace.id}`,
       label: workspace.name,
@@ -71,7 +71,7 @@ export async function workspaceList({ subject = null, env = process.env } = {}) 
       // Switching is a separate resolved operation. This is a list, not a set of switch buttons.
       executable: false,
       fallback: { label: 'Switch workspace', command: `sflow workspace use ${workspace.id}` }
-    })),
+    }, 'workspace.switch', { workspaceId: workspace.id })),
     // An empty registry is an answer, and the guidance for it is attach or materialize `[INT:REQ-154]`.
     restState: workspaces.length ? null : 'informational',
     data: { workspaces, registryFile, evidenceGaps: [...WORKSPACE_LIST_EVIDENCE_GAPS] }

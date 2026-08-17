@@ -12,7 +12,7 @@
  */
 import { SingularityFlowError } from '../../util.mjs';
 import { catalogued } from '../catalog.mjs';
-import { noEffects, preservedAll, sflowResult } from '../result.mjs';
+import { noEffects, plannerNavigation, preservedAll, sflowResult } from '../result.mjs';
 import { workRecords } from '../work-records.mjs';
 
 /**
@@ -107,7 +107,7 @@ export function workReadinessResult(item, { subject = null } = {}) {
       source: 'unavailable',
       slots: { missing: 'tests, stale-approvals, clarifications, unclaimed-changes' }
     }],
-    next: actionable.map((entry, index) => ({
+    next: actionable.map((entry, index) => plannerNavigation({
       handle: `readiness:${item.id}:${entry.blocker}`,
       id: `fix:${entry.blocker}`,
       /**
@@ -132,7 +132,7 @@ export function workReadinessResult(item, { subject = null } = {}) {
       emphasis: 'secondary',
       executable: false,
       fallback: { label: entry.action, command: `sflow status --work-id ${item.id}` }
-    })),
+    }, entry.action, { workId: item.id })),
     /**
      * One row per gate, met and unmet alike `[UXH:REQ-062]` `[UXH:AC-003]`.
      *

@@ -10,6 +10,7 @@ import {
 import { workspaceStatus } from './workspace.mjs';
 import { SingularityFlowError } from './util.mjs';
 import { personalizationFromGitIdentity } from './personalization.mjs';
+import { worktreeFingerprint } from './worktree-fingerprint.mjs';
 
 const HANDLE_TTL_MS = 15 * 60 * 1000;
 const MAX_CHOICES = 6;
@@ -66,12 +67,13 @@ function boundedChangedFiles(root, dirty) {
 
 function repositoryRevision(repository, storyId = null) {
   const dirty = repository.state === 'ready' ? changes(repository.absolutePath) : '';
+  const fingerprint = repository.state === 'ready' ? worktreeFingerprint(repository.absolutePath) : null;
   return {
     repositoryId: repository.id,
     branch: repository.branch,
     head: repository.head,
     storyId,
-    worktreeHash: digest(dirty),
+    worktreeHash: fingerprint?.sha256 ?? null,
     dirty: Boolean(dirty.trim()),
     changedFiles: boundedChangedFiles(repository.absolutePath, dirty)
   };
@@ -313,12 +315,13 @@ export async function developerReturn({ workId = null, root = null, hostSession 
   }).catch(() => null);
   const lifecycle = phaseSummary(workflow);
   const dirtyText = changes(repository);
+  const fingerprint = worktreeFingerprint(repository);
   const revision = {
     repositoryId: null,
     branch: currentBranch,
     head: head(repository),
     storyId: selected.id,
-    worktreeHash: digest(dirtyText),
+    worktreeHash: fingerprint.sha256,
     dirty: Boolean(dirtyText.trim()),
     changedFiles: boundedChangedFiles(repository, dirtyText)
   };

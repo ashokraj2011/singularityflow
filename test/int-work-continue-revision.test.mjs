@@ -100,7 +100,8 @@ test('the worktree hash tracks the uncommitted bytes and nothing else', async (t
   // Same set of changes, read twice: a handle bound to these bytes must stay valid.
   assert.equal(localChangesFor(root).worktreeHash, first.worktreeHash);
 
-  await writeFile(path.join(root, 'two.txt'), 'b\n');
+  // The path and status shape are unchanged. Only a content-aware fingerprint can see this edit.
+  await writeFile(path.join(root, 'one.txt'), 'different bytes\n');
   assert.notEqual(localChangesFor(root).worktreeHash, first.worktreeHash);
 });
 

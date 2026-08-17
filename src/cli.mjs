@@ -554,7 +554,7 @@ export async function startCommand(positionals, options) {
         : [];
   const {
     storyBaseForRepository, preflightStoryRepositories,
-    prepareCapabilityRepositories, printCapabilityBase
+    prepareCapabilityRepositories, printCapabilityBase, rollbackCapabilityRepositories
   } = await import('./capability-start.mjs');
   if (materializedSeed && requestedBase.length
     && requestedBase.some((value) => value !== materializedSeed.parentBranch)) {
@@ -634,10 +634,14 @@ export async function startCommand(positionals, options) {
   });
   const originalSession = await loadSession(root, { required: false });
   const originalCopilotSession = await loadCopilotSession(root);
+  let createdBranch = false;
+  let capabilityRepositoriesPrepared = null;
+  let configurationSnapshot = null;
+  try {
   const checkoutResult = checkout(root, canonicalBranch, materializedSeed
     ? { base: baseAtStart, fetch: true, existingOnly: true, remote }
     : { base: baseAtStart, fetch: false, remote, preferRemoteBase: true });
-  const createdBranch = checkoutResult.startsWith('created-from-');
+  createdBranch = checkoutResult.startsWith('created-from-');
 
   /**
    * The siblings follow the same base.
@@ -646,15 +650,12 @@ export async function startCommand(positionals, options) {
    * moved four other repositories onto a branch for it. Each is refused if dirty, and a repository
    * the workspace has not cloned is named rather than silently left behind.
    */
-  let capabilityRepositoriesPrepared = null;
   if (storyBase.scope === 'capability') {
     capabilityRepositoriesPrepared = prepareCapabilityRepositories(
       storyBase.workspaceRoot, storyBase.plan, canonicalBranch, { remote }
     );
     if (!optionBoolean(options, 'json')) printCapabilityBase(storyBase.plan, capabilityRepositoriesPrepared);
   }
-  let configurationSnapshot = null;
-  try {
   // Application branches do not own shared configuration. A new Story receives the exact approved
   // configuration revision here, before any selection or generation happens, and the initial Story
   // commit publishes the copied files together with their provenance record.
@@ -849,6 +850,15 @@ export async function startCommand(positionals, options) {
     // Existing remote/local Story branches and partially-created workflow state are never deleted.
     const workflowCreated = config ? existsSync(workflowPath(root, config, id)) : false;
     if (!workflowCreated) {
+      const rollbackFailures = rollbackCapabilityRepositories(
+        capabilityRepositoriesPrepared, canonicalBranch
+      );
+      if (rollbackFailures.length) {
+        console.warn(
+          `Warning: start failed before creating workflow state, and capability rollback failed for `
+          + `${rollbackFailures.join('; ')}. The original error follows.`
+        );
+      }
       await restoreAgentSession(root, originalSession);
       await restoreCopilotSession(root, originalCopilotSession);
     }

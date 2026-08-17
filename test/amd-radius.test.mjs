@@ -189,6 +189,22 @@ test('update-intent and accepted-deviation are not the same decision', async () 
   assert.ok(advancementBlocked(projection('update-intent')).length, 'a known-wrong plan did not block the Story');
 });
 
+test('update-intent offers an amendment transition and never advertises code rework by itself', async () => {
+  const { convergenceProjection } = await import('../src/convergence.mjs');
+  const facts = [{ id: 'CF-1', kind: 'claim-without-observed-evidence', clauseIds: ['S:AC-003'] }];
+  const projection = convergenceProjection({
+    workId: 'WORK-1',
+    bindings: { iteration: 1 },
+    facts,
+    adjudications: [{
+      itemId: 'CF-1', disposition: 'update-intent', reason: 'the intended retry behavior changed',
+      clauseIds: ['S:AC-003'], actor: 'owner@example.test', at: '2026-08-17T00:00:00.000Z'
+    }]
+  });
+  assert.ok(projection.allowedNext.includes('propose-intent-amendment'));
+  assert.ok(!projection.allowedNext.includes('create-rework'));
+});
+
 test('a verdict recorded before a revision is unverified, not wrong', async () => {
   /**
    * `[AMD:REQ-050]`. The reconciliation said `matched` against text the specification no longer

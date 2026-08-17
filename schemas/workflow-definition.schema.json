@@ -250,6 +250,8 @@
           "inputs": { "$ref": "#/$defs/phaseInputs" },
           "clarification": { "$ref": "#/$defs/clarificationPolicy" },
           "generation": { "$ref": "#/$defs/generationPolicy" },
+          "mcp": { "$ref": "#/$defs/phaseMcpPolicy" },
+          "repairBudget": { "$ref": "#/$defs/repairBudget" },
           "qualityCommands": {
             "type": "array",
             "items": { "$ref": "#/$defs/qualityCommand" }
@@ -396,6 +398,41 @@
           },
           "additionalProperties": false
         }
+      },
+      "additionalProperties": false
+    },
+    "phaseMcpPolicy": {
+      "type": "object",
+      "properties": {
+        "requiredServers": {
+          "type": "array",
+          "uniqueItems": true,
+          "items": { "type": "string", "pattern": "^[a-z0-9]+(?:-[a-z0-9]+)*$" }
+        },
+        "requireSmoke": { "type": "boolean", "default": false },
+        "evidence": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "required": ["server", "tool"],
+            "properties": {
+              "server": { "type": "string", "pattern": "^[a-z0-9]+(?:-[a-z0-9]+)*$" },
+              "tool": { "type": "string", "pattern": "^[A-Za-z0-9_.-]+$" },
+              "minimum": { "type": "integer", "minimum": 1, "maximum": 100 },
+              "outputRequired": { "type": "boolean", "default": true }
+            },
+            "additionalProperties": false
+          }
+        }
+      },
+      "additionalProperties": false
+    },
+    "repairBudget": {
+      "type": "object",
+      "required": ["maxAttempts"],
+      "properties": {
+        "maxAttempts": { "type": "integer", "minimum": 1, "maximum": 100 },
+        "resetOnPhase": { "type": ["string", "null"], "pattern": "^[a-z0-9]+(?:-[a-z0-9]+)*$" }
       },
       "additionalProperties": false
     },

@@ -74,14 +74,15 @@ A conceptual Playwright host entry looks like this:
   "servers": {
     "playwright": {
       "command": "npx",
-      "args": ["-y", "@playwright/mcp@<approved-version>"]
+      "args": ["-y", "@playwright/mcp@<approved-version>", "--isolated", "--headless"]
     }
   }
 }
 ```
 
 Use the release-managed version produced by `mcp scaffold` instead of copying the
-placeholder above. In VS Code, run **MCP: List Servers** to review, trust and start
+placeholder above. The scaffold also supplies a machine-local output directory, bounded output,
+fixed viewport, and action/navigation timeouts for deterministic runs. In VS Code, run **MCP: List Servers** to review, trust and start
 the entry. For Copilot CLI, configure the same server using its MCP configuration
 command and inspect it with:
 
@@ -179,6 +180,18 @@ singularity-flow mcp attest playwright --confirm playwright
 The attestation is invalidated if either the host entry or governed policy changes.
 It records what the user reviewed; it is not proof that Flow intercepted an MCP
 transport.
+
+For a phase that declares `mcp.requireSmoke: true`, prove the package, protocol, tool catalog,
+browser launch, authorized navigation, accessibility snapshot, and browser close against a safe
+target before preparing that phase:
+
+```bash
+singularity-flow mcp smoke playwright --url https://staging.example.test/health
+```
+
+The receipt stores only the authorized origin and hash-bound host/policy identity. It is
+machine-local, expires when either configuration changes, and does not replace host trust or
+authentication. Redirects outside the requested origin fail the smoke test.
 
 ## Using MCP during governed work
 
@@ -310,6 +323,7 @@ singularity-flow mcp scaffold figma [--local]
 singularity-flow mcp status
 singularity-flow mcp doctor
 singularity-flow mcp attest <SERVER> --confirm <SERVER>
+singularity-flow mcp smoke playwright --url <AUTHORIZED-URL>
 singularity-flow mcp record <SERVER> --tool <TOOL> --phase <PHASE> --output <PATH> --note <TEXT>
 ```
 

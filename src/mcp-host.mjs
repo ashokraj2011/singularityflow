@@ -39,7 +39,20 @@ export function playwrightHostEntry({ packageVersion = MCP_SCAFFOLD_VERSIONS.pla
       code: 'MCP_FLOATING_PACKAGE_FORBIDDEN'
     });
   }
-  return { type: 'stdio', command: 'npx', args: ['-y', `@playwright/mcp@${packageVersion}`] };
+  return {
+    type: 'stdio',
+    command: 'npx',
+    args: [
+      '-y', `@playwright/mcp@${packageVersion}`,
+      '--isolated',
+      '--headless',
+      '--output-dir', '.git/singularity-flow/mcp/playwright-output',
+      '--output-max-size', '5242880',
+      '--viewport-size', '1440x900',
+      '--timeout-action', '10000',
+      '--timeout-navigation', '30000'
+    ]
+  };
 }
 
 export async function scaffoldMcpServer(root, { serverId, entry, replaceServer = false } = {}) {

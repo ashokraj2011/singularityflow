@@ -43,7 +43,7 @@ import { runFirstRunGuide } from './first-run-guide.mjs';
 import { nextStepsSnapshot, nextStepsText } from './nextsteps.mjs';
 import { loadHelpDocument } from './help.mjs';
 import { agentMappingStatus, agentStatus, discoverAgents, lockAgent, prepareRemoteOutputs, remoteOutputConflicts, syncAgent } from './agents.mjs';
-import { attestMcpHost, mcpDoctor, mcpStatus, recordMcpEvidence, scaffoldFigmaMcp, warmMcpHost, scaffoldPlaywrightMcp } from './mcp.mjs';
+import { attestMcpHost, mcpDoctor, mcpStatus, recordMcpEvidence, scaffoldFigmaMcp, smokeMcpHost, warmMcpHost, scaffoldPlaywrightMcp } from './mcp.mjs';
 import { approvedDesignSourceBinding, verifyDesignSourceLifecycle } from './design-sources.mjs';
 import { generateDesignInventory } from './design-inventory.mjs';
 import { evaluateVisualCoverage } from './visual-coverage.mjs';
@@ -2254,9 +2254,16 @@ async function mcpCommand(positionals, options) {
       server.reasons.forEach((reason) => console.log(`  ${server.id}: ${reason}`));
       console.log(`MCP ${server.id}: ${server.readiness}`);
     }
-    if (servers.some((server) => server.readiness === 'misconfigured')) {
-      throw new SingularityFlowError('MCP diagnostics found configuration errors.', { code: 'MCP_HOST_CONFIG_INVALID' });
+    if (servers.some((server) => server.readiness === 'misconfigured' || (server.policy.required && server.readiness !== 'ready'))) {
+      throw new SingularityFlowError('MCP diagnostics found blocking readiness errors.', { code: 'MCP_HOST_CONFIG_INVALID' });
     }
+    return;
+  }
+  if (subcommand === 'smoke') {
+    const server = requirePositional(positionals, 2, 'MCP server');
+    const result = await smokeMcpHost(root, config, server, { targetUrl: optionString(options, 'url') });
+    if (optionBoolean(options, 'json')) return console.log(JSON.stringify(result, null, 2));
+    console.log(`MCP ${server} live smoke passed for ${result.authorizedOrigin}. Receipt: ${result.path}`);
     return;
   }
   if (subcommand === 'warm') {

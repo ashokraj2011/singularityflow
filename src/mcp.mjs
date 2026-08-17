@@ -7,8 +7,8 @@ export {
   MCP_SCAFFOLD_VERSIONS, MCP_WORKSPACE_PATH, figmaHostEntry, playwrightHostEntry, scaffoldFigmaMcp,
   scaffoldMcpServer, scaffoldPlaywrightMcp
 } from './mcp-host.mjs';
-export { listMcpEvidence, recordMcpEvidence, verifyMcpEvidence } from './mcp-evidence.mjs';
-export { attestMcpHost, inspectMcpHostEntries, mcpDoctor, warmMcpHost } from './mcp-readiness.mjs';
+export { listMcpEvidence, recordMcpEvidence, verifyMcpEvidence, verifyPhaseMcpRequirements } from './mcp-evidence.mjs';
+export { assertMcpPhaseReadiness, attestMcpHost, inspectMcpHostEntries, mcpDoctor, smokeMcpHost, warmMcpHost } from './mcp-readiness.mjs';
 
 const ID = /^[a-z0-9]+(?:-[a-z0-9]+)*$/;
 const TOOL = /^[A-Za-z0-9_.-]+(?:\/(?:\*|[A-Za-z0-9_.-]+))?$/;
@@ -64,6 +64,47 @@ export function normalizeMcpServers(value = {}, { agents = [], phases = [] } = {
     };
   }
   return normalized;
+}
+
+export function normalizePhaseMcpPolicy(value = null, { servers = {}, phaseId = 'phase' } = {}) {
+  if (value == null) return { requiredServers: [], requireSmoke: false, evidence: [] };
+  if (!value || typeof value !== 'object' || Array.isArray(value)) {
+    throw new SingularityFlowError(`Phase '${phaseId}' mcp policy must be an object.`);
+  }
+  for (const key of Object.keys(value)) {
+    if (!['requiredServers', 'requireSmoke', 'evidence'].includes(key)) {
+      throw new SingularityFlowError(`Phase '${phaseId}' mcp policy contains unknown field '${key}'.`);
+    }
+  }
+  const requiredServers = stringList(value.requiredServers, `Phase '${phaseId}' mcp.requiredServers`);
+  for (const serverId of requiredServers) {
+    const server = servers[serverId];
+    if (!server) throw new SingularityFlowError(`Phase '${phaseId}' requires unknown MCP server '${serverId}'.`);
+    if (server.phases.length && !server.phases.includes(phaseId)) {
+      throw new SingularityFlowError(`Phase '${phaseId}' requires MCP server '${serverId}', but that server is not allowed in the phase.`);
+    }
+  }
+  if (value.requireSmoke != null && typeof value.requireSmoke !== 'boolean') {
+    throw new SingularityFlowError(`Phase '${phaseId}' mcp.requireSmoke must be boolean.`);
+  }
+  if (value.requireSmoke === true && !requiredServers.length) {
+    throw new SingularityFlowError(`Phase '${phaseId}' cannot require an MCP smoke test without requiredServers.`);
+  }
+  const evidence = value.evidence ?? [];
+  if (!Array.isArray(evidence)) throw new SingularityFlowError(`Phase '${phaseId}' mcp.evidence must be an array.`);
+  const normalizedEvidence = evidence.map((entry, index) => {
+    const label = `Phase '${phaseId}' mcp.evidence[${index}]`;
+    if (!entry || typeof entry !== 'object' || Array.isArray(entry)) throw new SingularityFlowError(`${label} must be an object.`);
+    for (const key of Object.keys(entry)) if (!['server', 'tool', 'minimum', 'outputRequired'].includes(key)) throw new SingularityFlowError(`${label} contains unknown field '${key}'.`);
+    const server = servers[entry.server];
+    if (!server) throw new SingularityFlowError(`${label} references unknown MCP server '${entry.server ?? ''}'.`);
+    if (!server.tools.includes(entry.tool)) throw new SingularityFlowError(`${label} references tool '${entry.tool ?? ''}' outside server '${entry.server}' allowlist.`);
+    const minimum = entry.minimum ?? 1;
+    if (!Number.isInteger(minimum) || minimum < 1 || minimum > 100) throw new SingularityFlowError(`${label}.minimum must be an integer from 1 through 100.`);
+    if (entry.outputRequired != null && typeof entry.outputRequired !== 'boolean') throw new SingularityFlowError(`${label}.outputRequired must be boolean.`);
+    return { server: entry.server, tool: entry.tool, minimum, outputRequired: entry.outputRequired !== false };
+  });
+  return { requiredServers, requireSmoke: value.requireSmoke === true, evidence: normalizedEvidence };
 }
 
 export function mcpServersForContext(definition, { agent, phase } = {}) {

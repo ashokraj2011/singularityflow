@@ -5,6 +5,7 @@ import path from 'node:path';
 import test from 'node:test';
 import { execFileSync } from 'node:child_process';
 import {
+  assertMcpPhaseReadiness,
   attestMcpHost,
   mcpDoctor,
   mcpHostInventory,
@@ -12,7 +13,9 @@ import {
   mcpStatus,
   normalizeMcpServers,
   recordMcpEvidence,
+  smokeMcpHost,
   verifyMcpEvidence,
+  verifyPhaseMcpRequirements,
   renderMcpPromptPolicy,
   scaffoldPlaywrightMcp,
   validateMcpAgentTools
@@ -108,6 +111,10 @@ test('Playwright scaffold is explicit and never replaces host configuration sile
   assert.equal(result.path, '.vscode/mcp.json');
   const text = await readFile(path.join(root, result.path), 'utf8');
   assert.match(text, /@playwright\/mcp@0\.0\.79/);
+  const playwright = JSON.parse(text).servers.playwright;
+  for (const option of ['--isolated', '--headless', '--output-dir', '--output-max-size', '--viewport-size', '--timeout-action', '--timeout-navigation']) {
+    assert.ok(playwright.args.includes(option), `${option} is missing from deterministic scaffold`);
+  }
   const unchanged = await scaffoldPlaywrightMcp(root);
   assert.equal(unchanged.changed, false);
   const document = JSON.parse(text);
@@ -116,6 +123,53 @@ test('Playwright scaffold is explicit and never replaces host configuration sile
   const merged = await scaffoldPlaywrightMcp(root);
   assert.equal(merged.changed, false);
   assert.ok(JSON.parse(await readFile(path.join(root, result.path))).servers.corporate);
+});
+
+test('phase readiness requires a hash-bound live smoke receipt when configured', async () => {
+  const root = await repository('sflow-mcp-smoke-readiness-');
+  const definition = { mcpServers: configured() };
+  await scaffoldPlaywrightMcp(root);
+  await attestMcpHost(root, definition, 'playwright', { confirmation: 'playwright' });
+  const phase = { id: 'verification', mcp: { requiredServers: ['playwright'], requireSmoke: true, evidence: [] } };
+  const workflow = { resolution: { mcpServers: definition.mcpServers } };
+  await assert.rejects(() => assertMcpPhaseReadiness(root, workflow, phase), /no successful live smoke receipt/);
+  const receipt = await smokeMcpHost(root, definition, 'playwright', {
+    targetUrl: 'https://example.test/health',
+    probe: async (_entry, { url }) => ({ status: 'passed', tools: ['browser_navigate', 'browser_snapshot', 'browser_close'], finalOrigin: url.origin })
+  });
+  assert.equal(receipt.authorizedOrigin, 'https://example.test');
+  await assert.doesNotReject(() => assertMcpPhaseReadiness(root, workflow, phase));
+  await assert.rejects(() => smokeMcpHost(root, definition, 'playwright', {
+    targetUrl: 'https://user:secret@example.test/health', probe: async () => ({ status: 'passed' })
+  }), /must not contain credentials/);
+});
+
+test('phase MCP evidence requirements are generation-bound and require durable outputs', async () => {
+  const root = await repository('sflow-mcp-required-evidence-');
+  const output = path.join(root, 'snapshot.txt');
+  await mkdir(path.join(root, 'singularity/work-items/STORY-1'), { recursive: true });
+  await writeFile(output, 'accessible page snapshot\n');
+  const servers = normalizeMcpServers({
+    playwright: {
+      agents: ['qa'], phases: ['verification'], tools: ['browser_snapshot'],
+      evidence: { captureToolCalls: true, captureResults: true }
+    }
+  }, { agents: ['qa'], phases: ['verification'] });
+  const phase = {
+    id: 'verification', generation: 0, status: 'in_progress',
+    mcp: { evidence: [{ server: 'playwright', tool: 'browser_snapshot', minimum: 1, outputRequired: true }] }
+  };
+  const workflow = {
+    workItem: { id: 'STORY-1' }, currentPhase: 'verification', phaseOrder: ['verification'],
+    phases: { verification: phase }, resolution: { mcpServers: servers }
+  };
+  const missing = await verifyPhaseMcpRequirements(root, workflow, phase);
+  assert.match(missing.errors.join('\n'), /requires 1 MCP evidence/);
+  await recordMcpEvidence(root, workflow, {
+    server: 'playwright', tool: 'browser_snapshot', phase: 'verification', agent: 'qa', outputPath: 'snapshot.txt'
+  });
+  const ready = await verifyPhaseMcpRequirements(root, workflow, phase);
+  assert.equal(ready.errors.length, 0);
 });
 
 test('preflight-readiness-lines: MCP doctor requires a current machine-local host readiness attestation', async () => {

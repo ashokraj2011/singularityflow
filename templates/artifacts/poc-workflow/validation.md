@@ -13,7 +13,9 @@ and acceptance/risk items covered. Say explicitly what this run does not validat
 |---|---|---|---|---|---|
 | 1 | Record the repository-native compile/lint/test command | exact path | integer | elapsed time | passed/failed/not-run |
 
-Record commands actually executed, not recommended commands. Include dependency, browser, runtime,
+The seeded contract executes `git diff --check`, `npx --no-install tsc --noEmit`, and
+`npx --no-install playwright test --reporter=json`. Record commands actually executed, not
+recommended commands. Include dependency, browser, runtime,
 and relevant configuration versions without copying tokens or machine secrets.
 
 ## Scenario results
@@ -29,6 +31,10 @@ Never infer a pass from generated code, a screenshot, or another scenario.
 List JSON/HTML reports, traces, screenshots, videos, console messages, network summaries, and MCP
 records with repository-relative paths and hashes. Redact personal data and secrets. Explain missing
 artifacts and distinguish unavailable evidence from passing evidence.
+
+Submission is blocked unless the current generation contains durable Playwright console, network,
+and screenshot MCP records. A failed executable check is reviewable but cannot be approved; a human
+rejection is the only transition that authorizes and consumes a repair attempt.
 
 ## Repair attempts
 

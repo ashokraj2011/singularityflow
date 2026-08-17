@@ -18,6 +18,8 @@ environment changes, or production traffic.
 | Pinned base commit | Record the exact refreshed remote commit |
 | Isolated Story branch | Record the Story branch; it must differ from the selected base |
 | Existing test framework | Record the detected Playwright configuration, test roots, and commands |
+| TypeScript validation | Record the exact local command; the seeded gate runs `npx --no-install tsc --noEmit` |
+| Playwright validation | Record approved overrides; the seeded gate runs `npx --no-install playwright test --reporter=json` |
 
 Do not accept a local-only base branch or silently choose a default. The normal Story-start
 preflight owns remote access, ancestry, branch creation, and publication of the isolated Story ref.
@@ -31,6 +33,20 @@ preflight owns remote access, ancestry, branch creation, and publication of the 
 | Browsers and viewports | Record the required browser projects and deterministic sizes |
 | Test-data boundary | Record reusable fixtures/accounts and cleanup requirements |
 | Access method | Name a secret reference or host-managed login; never record a secret value |
+| MCP readiness | Record scaffold, attestation, and live-smoke receipt status for this exact origin |
+
+Before approving intake, configure and verify the browser host:
+
+```text
+singularity-flow mcp scaffold playwright
+singularity-flow mcp attest playwright --confirm playwright
+singularity-flow mcp smoke playwright --url <AUTHORIZED-URL>
+```
+
+The smoke receipt is machine-local and becomes stale whenever the host entry or governed MCP policy
+changes. If the repository uses a nonstandard TypeScript or Playwright command, update the POC
+phase quality commands through governed configuration before starting the Story; never silently
+skip either executable gate.
 
 ## Test intent and acceptance criteria
 

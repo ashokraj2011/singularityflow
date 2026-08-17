@@ -1,6 +1,7 @@
 import { mkdir, readFile } from 'node:fs/promises';
-import { execFile } from 'node:child_process';
+import { execFile, spawn } from 'node:child_process';
 import { promisify } from 'node:util';
+import { createInterface } from 'node:readline';
 import os from 'node:os';
 import path from 'node:path';
 import { gitDir, identity } from './git.mjs';
@@ -24,6 +25,11 @@ function receiptPath(root, serverId) {
   return path.join(gitDir(root), 'singularity-flow', 'mcp', 'readiness', `${serverId}.json`);
 }
 
+function smokeReceiptPath(root, serverId) {
+  if (!SAFE_ID.test(serverId)) throw new SingularityFlowError(`Invalid MCP server ID '${serverId}'.`, { code: 'MCP_SERVER_UNKNOWN' });
+  return path.join(gitDir(root), 'singularity-flow', 'mcp', 'smoke', `${serverId}.json`);
+}
+
 function structurallyValidHostEntry(entry) {
   if (!entry || typeof entry !== 'object' || Array.isArray(entry)) return false;
   if (entry.type === 'http' || entry.url != null) {
@@ -40,6 +46,22 @@ function exactPlaywrightPin(entry) {
   if (entry?.command !== 'npx') return true;
   const spec = (entry.args ?? []).find((arg) => String(arg).startsWith('@playwright/mcp@'));
   return spec === `@playwright/mcp@${MCP_SCAFFOLD_VERSIONS.playwright}`;
+}
+
+function deterministicPlaywrightProfile(entry) {
+  const args = entry?.args ?? [];
+  const valueFor = (flag) => {
+    const index = args.indexOf(flag);
+    return index < 0 ? null : args[index + 1] ?? null;
+  };
+  return exactPlaywrightPin(entry)
+    && args.includes('--isolated')
+    && args.includes('--headless')
+    && valueFor('--output-dir') === '.git/singularity-flow/mcp/playwright-output'
+    && valueFor('--output-max-size') === '5242880'
+    && valueFor('--viewport-size') === '1440x900'
+    && valueFor('--timeout-action') === '10000'
+    && valueFor('--timeout-navigation') === '30000';
 }
 
 export async function inspectMcpHostEntries(root, { home = os.homedir() } = {}) {
@@ -133,6 +155,131 @@ function matchingHostRows(rows, server) {
 
 function policyHash(server) { return recordSha256(server); }
 
+function rpcSmoke(entry, { url, cwd, timeoutMs = 45_000 } = {}) {
+  if (entry?.command !== 'npx' || !exactPlaywrightPin(entry)) {
+    throw new SingularityFlowError('The live Playwright smoke test only runs the exact release-managed npx package.', { code: 'MCP_SMOKE_UNSUPPORTED_HOST' });
+  }
+  return new Promise((resolve, reject) => {
+    const child = spawn(entry.command, entry.args ?? [], { cwd, stdio: ['pipe', 'pipe', 'pipe'], env: process.env });
+    const lines = createInterface({ input: child.stdout });
+    const pending = new Map();
+    let nextId = 1;
+    let stderr = '';
+    let settled = false;
+    const timer = setTimeout(() => finish(new SingularityFlowError('Playwright MCP smoke test timed out.', { code: 'MCP_SMOKE_FAILED' })), timeoutMs);
+    const finish = (error, value = null) => {
+      if (settled) return;
+      settled = true;
+      clearTimeout(timer);
+      lines.close();
+      if (!child.killed) child.kill('SIGTERM');
+      for (const waiter of pending.values()) waiter.reject(error ?? new Error('MCP smoke transport closed.'));
+      pending.clear();
+      if (error) reject(error); else resolve(value);
+    };
+    child.stderr.on('data', (chunk) => { stderr = `${stderr}${chunk}`.slice(-4096); });
+    child.on('error', (error) => finish(new SingularityFlowError(`Could not start Playwright MCP: ${error.message}`, { code: 'MCP_SMOKE_FAILED', cause: error })));
+    child.on('exit', (code) => {
+      if (pending.size) finish(new SingularityFlowError(`Playwright MCP exited during smoke test (${code}): ${stderr.trim()}`, { code: 'MCP_SMOKE_FAILED' }));
+    });
+    lines.on('line', (line) => {
+      let message;
+      try { message = JSON.parse(line); } catch { return; }
+      if (message.id == null || !pending.has(message.id)) return;
+      const waiter = pending.get(message.id); pending.delete(message.id);
+      if (message.error) waiter.reject(new SingularityFlowError(`MCP ${waiter.method} failed: ${message.error.message ?? 'unknown error'}`, { code: 'MCP_SMOKE_FAILED' }));
+      else waiter.resolve(message.result);
+    });
+    const send = (message) => child.stdin.write(`${JSON.stringify(message)}\n`);
+    const request = (method, params = {}) => new Promise((resolveRequest, rejectRequest) => {
+      const id = nextId++; pending.set(id, { resolve: resolveRequest, reject: rejectRequest, method });
+      send({ jsonrpc: '2.0', id, method, params });
+    });
+    (async () => {
+      const initialized = await request('initialize', {
+        protocolVersion: '2024-11-05', capabilities: {}, clientInfo: { name: 'singularity-flow-smoke', version: '1' }
+      });
+      send({ jsonrpc: '2.0', method: 'notifications/initialized', params: {} });
+      const catalog = await request('tools/list');
+      const names = new Set((catalog?.tools ?? []).map((tool) => tool.name));
+      for (const tool of ['browser_navigate', 'browser_snapshot', 'browser_close']) {
+        if (!names.has(tool)) throw new SingularityFlowError(`Playwright MCP smoke test requires tool '${tool}'.`, { code: 'MCP_SMOKE_FAILED' });
+      }
+      let snapshotResult = null;
+      for (const [name, args] of [['browser_navigate', { url: url.toString() }], ['browser_snapshot', {}]]) {
+        const result = await request('tools/call', { name, arguments: args });
+        if (result?.isError) throw new SingularityFlowError(`Playwright MCP ${name} returned an error.`, { code: 'MCP_SMOKE_FAILED' });
+        if (name === 'browser_snapshot') snapshotResult = result;
+      }
+      const snapshotText = (snapshotResult?.content ?? []).filter((entry) => entry?.type === 'text').map((entry) => entry.text).join('\n');
+      const reportedUrl = snapshotText.match(/Page URL:\s*(\S+)/i)?.[1] ?? null;
+      if (reportedUrl && new URL(reportedUrl).origin !== url.origin) {
+        throw new SingularityFlowError(`Playwright MCP smoke redirected outside the authorized origin (${url.origin}).`, { code: 'MCP_SMOKE_ORIGIN_DRIFT' });
+      }
+      await request('tools/call', { name: 'browser_close', arguments: {} }).catch(() => null);
+      finish(null, { status: 'passed', tools: ['browser_navigate', 'browser_snapshot', 'browser_close'], protocolVersion: initialized?.protocolVersion ?? null });
+    })().catch((error) => finish(error?.code ? error : new SingularityFlowError(`Playwright MCP smoke test failed: ${error.message}`, { code: 'MCP_SMOKE_FAILED', cause: error })));
+  });
+}
+
+export async function smokeMcpHost(root, definition, serverId, { targetUrl, probe = rpcSmoke } = {}) {
+  const server = definition.mcpServers?.[serverId];
+  if (!server) throw new SingularityFlowError(`Unknown governed MCP server '${serverId}'.`, { code: 'MCP_SERVER_UNKNOWN' });
+  if (!targetUrl) throw new SingularityFlowError('MCP smoke requires --url with an authorized HTTPS or loopback target.', { code: 'MCP_SMOKE_URL_REQUIRED' });
+  const requestedUrl = new URL(targetUrl);
+  if (requestedUrl.username || requestedUrl.password) throw new SingularityFlowError('MCP smoke URL must not contain credentials.', { code: 'MCP_SMOKE_URL_UNSAFE' });
+  const url = safeHttpUrl(requestedUrl);
+  const entry = (await hostEntryMap(root)).get(server.hostReference);
+  if (!entry) throw new SingularityFlowError(`Host entry '${server.hostReference}' is absent.`, { code: 'MCP_HOST_CONFIG_MISSING' });
+  const result = await probe(entry, { url, server, cwd: root });
+  if (result?.status !== 'passed') throw new SingularityFlowError(`MCP smoke test failed for '${serverId}'.`, { code: 'MCP_SMOKE_FAILED' });
+  const receipt = {
+    schemaVersion: 1,
+    serverId,
+    hostReference: server.hostReference,
+    checkedAt: nowIso(),
+    authorizedOrigin: url.origin,
+    hostEntrySha256: recordSha256(entry),
+    policySha256: policyHash(server),
+    result
+  };
+  const file = smokeReceiptPath(root, serverId);
+  await mkdir(path.dirname(file), { recursive: true });
+  await writeJson(file, receipt);
+  return { ...receipt, path: file };
+}
+
+async function readSmokeReceipt(root, serverId) {
+  try { return JSON.parse(await readFile(smokeReceiptPath(root, serverId), 'utf8')); }
+  catch (error) { if (error?.code === 'ENOENT') return null; return { error: error.message }; }
+}
+
+export async function assertMcpPhaseReadiness(root, workflow, phase) {
+  const policy = phase?.mcp ?? { requiredServers: [], requireSmoke: false };
+  if (!policy.requiredServers?.length) return { servers: [] };
+  const definition = { mcpServers: workflow.resolution?.mcpServers ?? {} };
+  const report = await mcpDoctor(root, definition);
+  const errors = [];
+  const servers = [];
+  for (const serverId of policy.requiredServers) {
+    const configured = definition.mcpServers[serverId];
+    const status = report.servers.find((entry) => entry.id === serverId);
+    if (!configured || !status) errors.push(`Required MCP server '${serverId}' is not pinned in this Story.`);
+    else if (status.readiness !== 'ready') errors.push(`MCP server '${serverId}' is ${status.readiness}: ${status.reasons.join(' ')}`);
+    let smoke = null;
+    if (configured && policy.requireSmoke) {
+      smoke = await readSmokeReceipt(root, serverId);
+      if (!smoke || smoke.error) errors.push(`MCP server '${serverId}' has no successful live smoke receipt. Run singularity-flow mcp smoke ${serverId} --url <AUTHORIZED_URL>.`);
+      else if (smoke.hostEntrySha256 !== status?.host?.entrySha256 || smoke.policySha256 !== status?.policy?.sha256 || smoke.result?.status !== 'passed') {
+        errors.push(`MCP server '${serverId}' live smoke receipt is stale or unsuccessful.`);
+      }
+    }
+    servers.push({ ...status, smoke });
+  }
+  if (errors.length) throw new SingularityFlowError(`Phase '${phase.id}' MCP readiness is blocked:\n- ${errors.join('\n- ')}`, { code: 'MCP_PHASE_NOT_READY', details: { phase: phase.id, errors } });
+  return { servers };
+}
+
 export async function attestMcpHost(root, definition, serverId, { confirmation } = {}) {
   if (confirmation !== serverId) {
     throw new SingularityFlowError(`Re-run with --confirm ${serverId} after starting, trusting, and authenticating the server in the host.`, {
@@ -166,7 +313,7 @@ export async function attestMcpHost(root, definition, serverId, { confirmation }
 
 export async function mcpDoctor(root, definition, options = {}) {
   const hostRows = await inspectMcpHostEntries(root, options);
-  const entries = options.network ? await hostEntryMap(root, options) : new Map();
+  const entries = await hostEntryMap(root, options);
   const globalErrors = hostRows.filter((row) => row.error).map((row) => `${row.surface}: ${row.error}`);
   const servers = [];
   for (const server of Object.values(definition.mcpServers ?? {})) {
@@ -188,6 +335,9 @@ export async function mcpDoctor(root, definition, options = {}) {
     } else if (server.id === 'playwright' && rows.some((row) => !row.exactPackagePin)) {
       readiness = 'misconfigured';
       reasons.push(`Playwright scaffold must use @playwright/mcp@${MCP_SCAFFOLD_VERSIONS.playwright}.`);
+    } else if (server.id === 'playwright' && !deterministicPlaywrightProfile(entries.get(server.hostReference))) {
+      readiness = 'misconfigured';
+      reasons.push('Playwright host entry must use the deterministic isolated/headless output, viewport, and timeout profile produced by mcp scaffold.');
     } else {
       const receipt = await readReceipt(root, server.id);
       if (!receipt || receipt.error) {

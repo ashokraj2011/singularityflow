@@ -431,6 +431,22 @@ function storyWorkflowHtml(form: IntakeForm): string {
   </section>`;
 }
 
+function pocReadinessHtml(form: IntakeForm): string {
+  if (form.shape !== 'story' || form.workType !== 'poc-workflow') return '';
+  return `<section class="plain">
+    <h2>${icon('mcp')}POC browser readiness</h2>
+    <p class="question">Starting creates the isolated Story and opens governed intent intake. Before
+      UI exploration, this workflow requires a current Playwright host attestation, a live smoke
+      against the authorized target origin, and generation-bound browser evidence.</p>
+    <pre><code>singularity-flow mcp scaffold playwright
+singularity-flow mcp attest playwright --confirm playwright
+singularity-flow mcp smoke playwright --url &lt;AUTHORIZED-URL&gt;</code></pre>
+    <p class="meta">The later validation gate runs TypeScript compilation and the repository's
+      Playwright tests. Failed validation cannot be approved; a reviewer may authorize at most two
+      repair attempts.</p>
+  </section>`;
+}
+
 /** A workflow reads left-to-right, while wrapping whole steps together on narrow editor columns. */
 function phaseRailHtml(phases: string[]): string {
   const label = `Ordered phases: ${phases.join(', ')}`;
@@ -498,6 +514,7 @@ export function intakeHtml(form: IntakeForm): string {
 
   ${profileHtml(form)}
   ${storyWorkflowHtml(form)}
+  ${pocReadinessHtml(form)}
   ${baseBranchHtml(form)}
   ${inFlightHtml(form)}
 

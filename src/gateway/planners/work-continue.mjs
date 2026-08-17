@@ -12,7 +12,7 @@
  * reads. A version of this that accepted "where we left off" as context would work beautifully until
  * the day someone returned after a week, and then be confidently wrong.
  */
-import { changedFiles, changes, head } from '../../git.mjs';
+import { head } from '../../git.mjs';
 import { SingularityFlowError } from '../../util.mjs';
 import { worktreeFingerprint } from '../../worktree-fingerprint.mjs';
 import { catalogued } from '../catalog.mjs';
@@ -172,9 +172,8 @@ export function workContinueResult(item, { subject = null, localChanges = null, 
  * null in production. The same "declared, validated, never reaching a consumer" shape this codebase
  * keeps finding.
  *
- * Two Git reads, both local and both cheap, on a path that is already reading work records. The
- * count is bounded because a reader learns nothing from the four-hundredth path and a card that
- * renders them all is a card nobody scrolls.
+ * The shared content fingerprint supplies both the exact bytes and changed paths, so Home does not
+ * independently scan status and then hash the repository again. The rendered list remains bounded.
  *
  * **Null when Git cannot answer**, which includes a root that is not a repository at all. A read
  * planner that throws because the world lacks something is the failure this codebase has spent the
@@ -183,19 +182,19 @@ export function workContinueResult(item, { subject = null, localChanges = null, 
  * exception is a screen that does not.
  */
 export function localChangesFor(root) {
-  let dirty;
+  let fingerprint;
   try {
-    dirty = changes(root);
+    fingerprint = worktreeFingerprint(root);
   } catch {
     return null;
   }
-  if (!dirty.trim()) return { dirty: false, files: 0, worktreeHash: null, paths: [] };
-  const paths = changedFiles(root)
+  if (!fingerprint.dirty) return { dirty: false, files: 0, worktreeHash: null, paths: [] };
+  const paths = fingerprint.paths
     .filter((candidate) => typeof candidate === 'string' && candidate && !candidate.startsWith('/'));
   return {
     dirty: true,
     files: paths.length,
-    worktreeHash: worktreeFingerprint(root).sha256,
+    worktreeHash: fingerprint.sha256,
     paths: paths.slice(0, 100)
   };
 }

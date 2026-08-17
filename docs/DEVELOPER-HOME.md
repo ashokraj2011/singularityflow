@@ -35,15 +35,18 @@ last checked**. With no trustworthy acknowledgement it says **Current state**.
 
 ## Returning to a Story
 
-`sflow story return WORK-123` resolves the Story through the repository subject
-index. It reports:
+`sflow story return WORK-123` resolves the Story through the same gateway record
+reader as Home. It reports:
 
-- the current phase and generation;
-- phase status, registered artifacts, and approval decisions;
-- pinned configuration, specification, and plan revisions when present;
+- the current phase, status, and lifecycle rail;
 - branch, HEAD, and bounded local changed-file names;
 - an incomplete publication that requires recovery; and
-- the immediate legal next action.
+- reconciliation evidence and the immediate legal next action.
+
+An acknowledgement timestamp is not treated as a Git baseline. Unless a report was
+actually computed from the acknowledged snapshot, Return labels the result **Current
+state**, covers the complete governed interval, and discloses that boundary. The My
+Work acknowledgement card can still show its separately bounded snapshot delta.
 
 The VS Code return view groups generated artifacts by phase. Selecting an artifact
 opens the existing governed artifact viewer.
@@ -59,9 +62,9 @@ goal, Git actor, and VS Code panel session. Before navigation or an effect, the 
 re-reads the home result. A changed revision, actor, target, expired handle, or
 different host session rejects the choice and asks the developer to refresh.
 
-The JSON contracts are versioned with `schemaVersion: 1` and use result types
-`developer-home` and `developer-return`. They intentionally omit raw absolute paths
-and hidden work that is not visible to the active identity.
+Both JSON commands return the gateway's `sflow-result` v2 envelope directly. There is
+no parallel `developer-home` or `developer-return` projection. Results intentionally
+omit raw absolute paths and hidden work that is not visible to the active identity.
 
 ## Copilot use
 

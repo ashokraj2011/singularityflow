@@ -31,6 +31,7 @@ import { gatewayRegistry } from './operations.mjs';
 import { DEFAULT_GATEWAY_POLICY, resolveGatewayPolicy } from './policy.mjs';
 import { branch, head, identity, localGitDisplayName, repoRoot } from '../git.mjs';
 import { worktreeFingerprint } from '../worktree-fingerprint.mjs';
+import { withReadScope } from '../read-scope.mjs';
 
 /**
  * The world a handle is bound to, read once per session. `[INT:REQ-034]` `[DHR:REQ-081]`
@@ -146,18 +147,27 @@ export function createHostGateway({
     };
   };
 
+  const kernel = createGatewayKernel({
+    registry,
+    policyLayers,
+    planners,
+    binding,
+    root,
+    plannerContext: context,
+    handles: createHandleAuthority({ now }),
+    readOnly
+  });
+  const scopedKernel = Object.freeze({
+    ...kernel,
+    // Revalidation and the planner both need the current tree. They share one exact fingerprint
+    // during a read, while resolve and a later dispatch still recompute so byte drift invalidates
+    // the handle as designed.
+    read: (request) => withReadScope(() => kernel.read(request))
+  });
+
   return {
     root,
     binding,
-    kernel: createGatewayKernel({
-      registry,
-      policyLayers,
-      planners,
-      binding,
-      root,
-      plannerContext: context,
-      handles: createHandleAuthority({ now }),
-      readOnly
-    })
+    kernel: scopedKernel
   };
 }

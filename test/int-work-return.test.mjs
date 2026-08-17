@@ -57,7 +57,7 @@ test('the planner never lets the reconciliation write', async () => {
   assert.ok(!/writeLocal: true/.test(source));
 });
 
-test('"since you were here" is only said when there is a when', () => {
+test('an acknowledgement is not presented as a reconciliation baseline unless the report used it', () => {
   /**
    * `[DHR:REQ-024]`. A reader told "since you were here" reads the list as a delta, and acts on the
    * assumption that anything absent from it did not change. Without a last-acknowledged time that
@@ -67,9 +67,17 @@ test('"since you were here" is only said when there is a when', () => {
   assert.equal(withoutTime.why[0].code, 'return.current-state');
   assert.equal(withoutTime.why[0].reference, null);
 
-  const withTime = workReturnResult(item(), { report: report(), acknowledgedAt: '2026-08-15T09:00:00.000Z' });
-  assert.equal(withTime.why[0].code, 'return.since-you-were-here');
-  assert.equal(withTime.why[0].reference, '2026-08-15T09:00:00.000Z');
+  const acknowledgedAt = '2026-08-15T09:00:00.000Z';
+  const withTime = workReturnResult(item(), { report: report(), acknowledgedAt });
+  assert.equal(withTime.why[0].code, 'return.current-state');
+  assert.equal(withTime.why[0].reference, null);
+  assert.ok(withTime.warnings.some((entry) => entry.code === 'return.acknowledgement-boundary-unavailable'));
+
+  const bounded = workReturnResult(item(), {
+    report: report({ acknowledgementBaseline: acknowledgedAt }), acknowledgedAt
+  });
+  assert.equal(bounded.why[0].code, 'return.since-you-were-here');
+  assert.equal(bounded.why[0].reference, acknowledgedAt);
 });
 
 test('no open interval is an answer, not a failure', () => {
@@ -161,6 +169,7 @@ test('story return composes the planner rather than a second implementation', as
    */
   const { readFile } = await import('node:fs/promises');
   const source = codeOnly(await readFile(new URL('../src/commands/story.mjs', import.meta.url), 'utf8'));
+  assert.doesNotMatch(source, /developerReturn|developer-home\.mjs/);
   assert.match(source, /kernel\.resolve\(\{ utterance: 'what changed while I was away'/);
   assert.match(source, /kernel\.read\(\{ resolutionId/);
   // And it renders the planner's reasons through the shared catalog, not its own wording.

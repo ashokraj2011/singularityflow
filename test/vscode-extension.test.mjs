@@ -1746,6 +1746,12 @@ const capabilityFixture = [{
   }]
 }];
 
+test('mapping a capability defaults Kind to Delivery', () => {
+  assert.equal(EMPTY_MAP_FORM.kind, 'delivery');
+  assert.match(mapCapabilityHtml(EMPTY_MAP_FORM),
+    /<option value="delivery" selected>Delivery<\/option>/);
+});
+
 test('mapping a capability selects the only map repository without a separate read step', () => {
   const lead = 'https://git.example/platform.git';
   const html = mapCapabilityHtml({
@@ -1762,7 +1768,7 @@ test('capability metadata is included in remote map proposals and incomplete pai
   const form = {
     ...EMPTY_MAP_FORM,
     lead: 'https://git.example/platform.git', loaded: true,
-    capabilityId: 'commerce', metadata: [
+    capabilityId: 'commerce', kind: 'collection', metadata: [
       { key: 'applicationId', value: 'APP-1001' },
       { key: 'costCenter', value: 'CC-42' }
     ]
@@ -1829,6 +1835,7 @@ test('remote capability mapping may create another top-level capability', () => 
     lead: 'https://git.example/platform.git',
     loaded: true,
     capabilityId: 'rule-engine',
+    kind: 'collection',
     parents: [{ id: 'calculator', name: 'Calculator', depth: 0 }],
     parent: ''
   };

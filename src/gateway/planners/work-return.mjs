@@ -30,6 +30,7 @@ import { localChangesFor } from './work-continue.mjs';
 import { subjectWith } from '../handles.mjs';
 import { noEffects, plannerNavigation, preservedAll, sflowResult } from '../result.mjs';
 import { workRecords } from '../work-records.mjs';
+import { branch, head } from '../../git.mjs';
 
 /**
  * What a reconciliation can say about a changed path, in the order a reader meets it.
@@ -49,6 +50,7 @@ const verdictCode = (verdict) => catalogued(`return.${verdict}`, 'return.unrecog
  */
 export function returnChecklist(report) {
   const summary = report?.summary ?? {};
+  const worktree = report?.worktree ?? report?.target ?? {};
   return [
     {
       id: 'planned',
@@ -72,11 +74,11 @@ export function returnChecklist(report) {
     {
       id: 'worktree',
       code: 'return.clean-worktree',
-      state: report?.worktree?.cleanApplicationTree ? 'met' : 'unmet',
+      state: worktree.cleanApplicationTree ? 'met' : 'unmet',
       source: 'evidence',
       evidence: report?.reconciliationSha256 ?? null,
       action: null,
-      slots: { uncommitted: String(report?.worktree?.uncommittedApplicationPaths?.length ?? 0) }
+      slots: { uncommitted: String(worktree.uncommittedApplicationPaths?.length ?? 0) }
     }
   ];
 }
@@ -87,7 +89,9 @@ export function returnChecklist(report) {
  * `report` is null when there is no open interval — not a failure, and the difference is carried in
  * `why[]` rather than by an empty checklist that reads like "nothing changed".
  */
-export function workReturnResult(item, { report = null, localChanges = null, subject = null, acknowledgedAt = null } = {}) {
+export function workReturnResult(item, {
+  report = null, localChanges = null, subject = null, acknowledgedAt = null, repository = null
+} = {}) {
   const attached = Boolean(report);
   const decision = report?.decision ?? null;
 
@@ -98,9 +102,21 @@ export function workReturnResult(item, { report = null, localChanges = null, sub
    * "since you were here" will read the list as a delta and act on the assumption that anything
    * absent from it did not change.
    */
-  const framing = acknowledgedAt ? 'return.since-you-were-here' : 'return.current-state';
+  // An acknowledgement timestamp is not a Git baseline. The reconciliation below is computed from
+  // the work interval's source commit, which may be days older, so labelling it "since you were
+  // here" would overstate the time boundary. A future acknowledgement-relative report can opt in
+  // by carrying the exact timestamp it used as `acknowledgementBaseline`.
+  const acknowledgementBounded = Boolean(
+    acknowledgedAt && report?.acknowledgementBaseline === acknowledgedAt
+  );
+  const framing = acknowledgementBounded ? 'return.since-you-were-here' : 'return.current-state';
 
-  const why = [{ code: framing, source: 'deterministic', reference: acknowledgedAt, slots: {} }];
+  const why = [{
+    code: framing,
+    source: 'deterministic',
+    reference: acknowledgementBounded ? acknowledgedAt : null,
+    slots: {}
+  }];
   if (attached) {
     why.push({
       code: 'return.reconciled',
@@ -128,6 +144,14 @@ export function workReturnResult(item, { report = null, localChanges = null, sub
   }
   if (!attached) {
     warnings.push({ code: 'return.reconciliation-unavailable', source: 'unavailable', slots: { work: item.id } });
+  }
+  if (acknowledgedAt && !acknowledgementBounded) {
+    warnings.push({
+      code: 'return.acknowledgement-boundary-unavailable',
+      source: 'unavailable',
+      reference: acknowledgedAt,
+      slots: {}
+    });
   }
 
   return sflowResult({
@@ -196,6 +220,22 @@ export function workReturnResult(item, { report = null, localChanges = null, sub
       attached,
       localChanges,
       acknowledgedAt,
+      workItem: {
+        id: item.id,
+        title: item.title ?? item.id,
+        kind: item.kind,
+        phase: item.phase ?? null,
+        phaseLabel: item.phaseLabel ?? item.phase ?? null,
+        status: item.status ?? null,
+        group: item.group ?? null,
+        rail: item.rail ?? []
+      },
+      lifecycle: {
+        approved: (item.rail ?? []).filter((phase) => phase.state === 'done').length,
+        total: (item.rail ?? []).length
+      },
+      repository,
+      recovery: { required: item.group === 'recovery-required' },
       reconciliation: report
         ? {
           sha256: report.reconciliationSha256,
@@ -226,6 +266,13 @@ export async function workReturn({ arguments: args = {}, subject = null, root = 
     });
   }
 
+  const localChanges = context.localChanges ?? localChangesFor(root);
+  let repository;
+  try {
+    repository = { branch: context.branch ?? branch(root), head: head(root) };
+  } catch {
+    repository = { branch: context.branch ?? null, head: null };
+  }
   return workReturnResult(item, {
     subject,
     report: await reconciliationFor(root, item, context),
@@ -235,8 +282,9 @@ export async function workReturn({ arguments: args = {}, subject = null, root = 
      * Two briefings that count changed paths differently will disagree in front of someone who has
      * both open, and the one they believe will be whichever they read second.
      */
-    localChanges: context.localChanges ?? localChangesFor(root),
-    acknowledgedAt: context.acknowledgedAt ?? null
+    localChanges,
+    acknowledgedAt: context.acknowledgedAt ?? null,
+    repository
   });
 }
 

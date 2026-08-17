@@ -1,35 +1,28 @@
 /**
  * `sflow home` — the first command served by the gateway kernel.
  *
- * Two shapes come back from one read, and the relationship between them is the point `[UXH:C2]`:
- * `sflow-result` v2 is the transport, `home.overview` is the operation, and the developer-home
- * projection is a thin adapter carried in `data`. Neither of the two bespoke spec types is
- * introduced as a second envelope — a surface that wants the rich briefing reads `data.briefing`,
- * and a surface that only knows the envelope still gets `outcome`, `why[]`, `preserved[]` and
- * `next[]` and can render something honest without knowing what a home is.
- *
- * The human render deliberately reads the *envelope* for its next action rather than the projection,
- * so the one legal next step on the terminal is the same field the sidebar's filled button will
- * read `[UXH:AC-002]`. Two surfaces computing "what leads" independently is how they come to
- * disagree, and the disagreement is invisible until someone screenshots both.
+ * `sflow-result` v2 is the only state projection this command computes. The terminal renderer and
+ * JSON consumer both read the same `home.overview` envelope that VS Code receives, including its
+ * sealed choices, recovery classification and authority-aware counts `[UXH:C2]` `[UXH:AC-002]`.
  */
 import { randomUUID } from 'node:crypto';
 
 import { createHostGateway } from '../gateway/host.mjs';
 import { planDeveloperConversation } from '../gateway/conversation.mjs';
 import { gatewayPlanners } from '../gateway/planners/index.mjs';
-import { developerHome, homeRepository } from '../developer-home.mjs';
+import { homeRepository } from '../gateway/home-context.mjs';
 import { message } from '../gateway/messages.mjs';
 import { primaryAction } from '../gateway/result.mjs';
 import { optionBoolean, optionString } from '../util.mjs';
+import { identity, localGitDisplayName } from '../git.mjs';
 
-function renderConversation(conversation, projection) {
+function renderConversation(conversation, envelope) {
   if (!conversation) return;
-  const current = projection.context.activeStory;
+  const current = envelope.data?.activeWork;
   console.log('\nI found');
   console.log(current
     ? `${current.id}${current.title ? ` — ${current.title}` : ''}${current.phase ? ` · ${current.phase}` : ''}`
-    : `${projection.context.workspace.name} · no current governed work on this branch`);
+    : `${envelope.data?.workspace?.name ?? 'This workspace'} · no current governed work on this branch`);
 
   console.log('\nNext');
   if (conversation.route) {
@@ -55,15 +48,17 @@ function renderConversation(conversation, projection) {
   console.log('Nothing yet. Conversation planning is read-only; mutations run only after explicit confirmation.');
 }
 
-function render(envelope, projection, conversation = null) {
-  const { context, actor, briefing, choices, notices } = projection;
-  console.log(`Singularity Flow home — ${context.workspace.name}`);
+function render(envelope, { context, selected, actor }, conversation = null) {
+  const active = envelope.data?.activeWork ?? null;
+  console.log(`Singularity Flow home — ${context.workspaceName}`);
   console.log(`Actor: ${actor.name}${actor.email ? ` <${actor.email}>` : ''}`);
-  console.log(`Repository: ${context.repository.repositoryId} · ${context.repository.branch} @ ${(context.repository.head ?? 'unavailable').slice(0, 12)}`);
-  console.log(`Freshness: ${context.freshness.capturedAt} · local only`);
-  if (projection.personalization?.replyName) console.log(`\nHello, ${projection.personalization.replyName}.`);
-  console.log(`\n${briefing.headline}`);
-  renderConversation(conversation, projection);
+  console.log(`Repository: ${selected.id} · ${selected.branch} @ ${(selected.head ?? 'unavailable').slice(0, 12)}`);
+  console.log(`Freshness: ${new Date().toISOString()} · local only`);
+  if (envelope.data?.personalization?.replyName) console.log(`\nHello, ${envelope.data.personalization.replyName}.`);
+  console.log(`\n${active
+    ? `${active.id} is in ${active.phase ?? 'its workflow'}.`
+    : `${context.workspaceName} has ${envelope.outcome.slots.active ?? 0} active governed work item(s).`}`);
+  renderConversation(conversation, envelope);
 
   /**
    * The one legal next action, named as one thing `[UXH:REQ-023]`.
@@ -78,48 +73,26 @@ function render(envelope, projection, conversation = null) {
     console.log(`\nNext: ${leads.label}${route ? `  (${route})` : ''}`);
   }
 
-  /**
-   * The menu comes from the envelope; the projection supplies the detail line. `[UXH:AC-002]`
-   *
-   * This printed `projection.choices` — four items — directly below the kernel's own six, which is
-   * two independent answers to "what can I do", rendered one above the other, in the command whose
-   * whole purpose is to show that a surface reads the kernel rather than deriving in parallel.
-   *
-   * The fix is not to pick a winner: both computations had something. The envelope decides *which*
-   * choices exist and in what order — that is `home-overview` and `[DHR:REQ-070]`'s ordering — and
-   * the projection is consulted for what each one says about this repository right now. A choice
-   * the projection knows nothing about still renders, from its own reason code, because a menu that
-   * silently drops the kernel's entries is the disagreement wearing a different hat.
-   */
-  const detail = new Map(choices.map((choice) => [choice.id.replaceAll(':', '.'), choice.detail]));
+  /** The menu and every detail line come from the one gateway envelope `[UXH:AC-002]`. */
   const menu = envelope.next.filter((action) => action.id !== leads?.id);
   console.log('\nWhat is on your mind today?');
   menu.forEach((action, index) => {
-    /**
-     * The projection's sentence when it has one for this choice, the catalog's when it does not.
-     *
-     * The two carry different things: the projection knows "0 visible governed work item(s)" about
-     * *this* repository right now, and the catalog knows what the choice means in general. Neither
-     * is a fallback for the other being broken — a choice with no projection entry is a choice the
-     * projection does not track, which is a fact about coverage rather than a failure.
-     */
-    const goal = action.id.replace(/^home:/, '');
     const route = action.fallback?.skill ?? action.fallback?.command;
-    console.log(`${index + 1}. ${action.label} — ${detail.get(goal) ?? message(action.reasonCode).label}${route ? ` · ${route}` : ''}`);
+    console.log(`${index + 1}. ${action.label} — ${message(action.reasonCode).label}${route ? ` · ${route}` : ''}`);
   });
-  if (notices.length) console.log(`\nNotices:\n- ${notices.join('\n- ')}`);
+  if (envelope.warnings.length) {
+    console.log(`\nNotices:\n- ${envelope.warnings.map((entry) => message(entry.code, entry.slots).label).join('\n- ')}`);
+  }
 }
 
 export async function run(_argv, { options }) {
   const workspaceReference = optionString(options, 'workspace');
   const request = optionString(options, 'request');
   const conversation = request ? planDeveloperConversation(request) : null;
-  const projection = await developerHome({
-    workspaceReference,
-    hostSession: optionString(options, 'host-session')
-  });
-  // The same resolution the projection used, for the one field it is not allowed to carry.
-  const { root } = await homeRepository(workspaceReference);
+  const selection = await homeRepository(workspaceReference);
+  const { root, context, selected } = selection;
+  const resolvedActor = identity(root, { offline: true });
+  const actor = { ...resolvedActor, name: localGitDisplayName(root) ?? resolvedActor.name };
 
   /**
    * One session ID for this invocation, and it is not reused.
@@ -135,15 +108,13 @@ export async function run(_argv, { options }) {
     // The CLI is the host that has all of them.
     planners: gatewayPlanners(),
     plannerContext: {
-      // Personalization is specifically local `git config user.name`; authority still uses the
-      // full resolved actor carried separately by the projection and gateway binding.
-      actor: { ...projection.actor, name: projection.personalization?.displayName ?? null },
-      workspace: projection.context.workspace,
-      repositoryId: projection.context.repository.repositoryId,
-      branch: projection.context.repository.branch,
-      storyId: projection.context.activeStory?.id ?? null
+      // Personalization and authority remain separate inside the host binding.
+      workspace: { id: context.workspaceId, name: context.workspaceName },
+      repositoryId: selected.id,
+      branch: selected.branch,
+      storyId: context.storyId ?? null
     },
-    workspaceId: projection.context.workspace.id ?? null
+    workspaceId: context.workspaceId ?? null
   });
 
   /**
@@ -164,11 +135,10 @@ export async function run(_argv, { options }) {
     : resolution;
 
   if (optionBoolean(options, 'json')) {
-    // The envelope is the document; the projection rides inside it rather than beside it.
     return console.log(JSON.stringify({
       ...envelope,
-      data: { ...envelope.data, home: projection, ...(conversation ? { conversation } : {}) }
+      data: { ...envelope.data, ...(conversation ? { conversation } : {}) }
     }, null, 2));
   }
-  render(envelope, projection, conversation);
+  render(envelope, { context, selected, actor }, conversation);
 }

@@ -1,11 +1,15 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { mkdtemp, rm, writeFile } from 'node:fs/promises';
+import { access, mkdtemp, rm, writeFile } from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
 
 import { run } from '../src/util.mjs';
 import { worktreeFingerprint } from '../src/worktree-fingerprint.mjs';
+
+function looseObjects(root) {
+  return Number(/^count: (\d+)$/m.exec(run('git', ['count-objects', '-v'], { cwd: root }).stdout)?.[1] ?? -1);
+}
 
 test('the shared fingerprint covers unborn repositories without mutating their real index', async (t) => {
   const root = await mkdtemp(path.join(os.tmpdir(), 'sflow-fingerprint-'));
@@ -47,7 +51,47 @@ test('the shared fingerprint remains available while the Git index has merge con
   const before = run('git', ['ls-files', '--stage', '-z'], { cwd: root }).stdout;
   const fingerprint = worktreeFingerprint(root);
   assert.equal(fingerprint.dirty, true);
-  assert.match(fingerprint.indexTree, /^unmerged:[a-f0-9]{64}$/);
+  assert.match(fingerprint.indexTree, /^[a-f0-9]{64}$/);
   assert.equal(run('git', ['ls-files', '--stage', '-z'], { cwd: root }).stdout, before,
     'inspection must preserve every conflict stage in the real index');
+});
+
+test('fingerprinting dirty bytes does not create unreachable Git objects', async (t) => {
+  const root = await mkdtemp(path.join(os.tmpdir(), 'sflow-fingerprint-objects-'));
+  t.after(() => rm(root, { recursive: true, force: true }));
+  run('git', ['init', '-q', '-b', 'main'], { cwd: root });
+  run('git', ['config', 'user.name', 'Fingerprint Test'], { cwd: root });
+  run('git', ['config', 'user.email', 'fingerprint@example.test'], { cwd: root });
+  await writeFile(path.join(root, 'tracked.txt'), 'base\n');
+  run('git', ['add', 'tracked.txt'], { cwd: root });
+  run('git', ['commit', '-qm', 'base'], { cwd: root });
+
+  await writeFile(path.join(root, 'tracked.txt'), 'dirty one\n');
+  const before = looseObjects(root);
+  worktreeFingerprint(root);
+  const afterFirst = looseObjects(root);
+  await writeFile(path.join(root, 'tracked.txt'), 'dirty two\n');
+  worktreeFingerprint(root);
+  const afterSecond = looseObjects(root);
+
+  assert.deepEqual([afterFirst, afterSecond], [before, before]);
+});
+
+test('fingerprinting does not invoke configured clean filters', async (t) => {
+  const root = await mkdtemp(path.join(os.tmpdir(), 'sflow-fingerprint-filter-'));
+  t.after(() => rm(root, { recursive: true, force: true }));
+  run('git', ['init', '-q', '-b', 'main'], { cwd: root });
+  run('git', ['config', 'user.name', 'Fingerprint Test'], { cwd: root });
+  run('git', ['config', 'user.email', 'fingerprint@example.test'], { cwd: root });
+  await writeFile(path.join(root, '.gitattributes'), 'tracked.txt filter=sflow-probe\n');
+  await writeFile(path.join(root, 'tracked.txt'), 'base\n');
+  run('git', ['add', '-A'], { cwd: root });
+  run('git', ['commit', '-qm', 'base'], { cwd: root });
+  run('git', ['config', 'filter.sflow-probe.clean', 'touch filter-invoked; cat'], { cwd: root });
+  run('git', ['config', 'filter.sflow-probe.required', 'true'], { cwd: root });
+  await writeFile(path.join(root, 'tracked.txt'), 'changed\n');
+
+  const fingerprint = worktreeFingerprint(root);
+  assert.equal(fingerprint.dirty, true);
+  await assert.rejects(() => access(path.join(root, 'filter-invoked')));
 });

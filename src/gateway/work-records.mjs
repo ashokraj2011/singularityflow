@@ -11,6 +11,7 @@
  * a bucket assigned by judgement is a bucket that differs between surfaces.
  */
 import { buildRepositorySubjectIndex } from '../repository-subject-index.mjs';
+import { matchApprovalAuthority } from '../approval-authority.mjs';
 
 /** In render order. A reader scans top-down and should hit their own work first. */
 export const WORK_GROUP_ORDER = Object.freeze([
@@ -78,21 +79,40 @@ export function lastMaterialEvent(workflow) {
 
 function actorMatches(actor, candidate) {
   if (!actor || !candidate) return false;
-  const values = [candidate.login, candidate.email, candidate.name].filter(Boolean).map((value) => String(value).toLowerCase());
-  return [actor.login, actor.email, actor.name].filter(Boolean)
+  // A display name is presentation, not identity. Two people called "Alex Smith" must never be
+  // treated as the same submitter on a screen that decides whether an approval is theirs to make.
+  const values = [candidate.login, candidate.email].filter(Boolean).map((value) => String(value).toLowerCase());
+  return [actor.login, actor.email].filter(Boolean)
     .some((value) => values.includes(String(value).toLowerCase()));
+}
+
+function mayDecideApproval(workflow, phase, actor, submitted, fallbackAuthorities = null) {
+  const policy = phase?.approvalPolicy ?? {};
+  let match;
+  try {
+    match = matchApprovalAuthority(
+      workflow?.resolution?.approvalAuthorities ?? fallbackAuthorities,
+      policy,
+      actor
+    );
+  } catch {
+    // Legacy or malformed records do not confer authority by omission. The mutation command will
+    // report the configuration defect if selected; Home merely avoids directing the wrong person
+    // to a ceremony they cannot perform.
+    return false;
+  }
+  if (!match.authorized) return false;
+  return !actorMatches(actor, submitted?.actor) || policy.allowSelfApproval !== false;
 }
 
 /**
  * Which bucket, and why.
  *
- * The `waiting-on-you` rule is narrower than "you could approve this": it is "this is awaiting
- * approval and you are not the person who submitted it". That is not full authority resolution —
- * which needs the approval policy, the authority map and the identity's roles — and it is not
- * claimed to be. It is the half that is knowable from the record in front of us and cannot be
- * wrong in the dangerous direction: nobody is told to approve their own work.
+ * `waiting-on-you` means the pinned approval authority admits this stable email/login and the
+ * self-approval rule permits this exact submitter relationship. Missing or malformed authority is
+ * fail-closed into `waiting-on-others`; Home never advertises a ceremony the reader cannot perform.
  */
-function classify(workflow, { pendingPublication, actor }) {
+function classify(workflow, { pendingPublication, actor, approvalAuthorities = null }) {
   if (pendingPublication) {
     return { group: 'recovery-required', because: 'publication.pending' };
   }
@@ -108,9 +128,12 @@ function classify(workflow, { pendingPublication, actor }) {
   if (phase.status === 'awaiting_approval') {
     const submitted = [...(workflow.history ?? [])].reverse()
       .find((entry) => entry.event === 'phase_submitted' && entry.phase === phaseId);
+    if (mayDecideApproval(workflow, phase, actor, submitted, approvalAuthorities)) {
+      return { group: 'waiting-on-you', because: 'approval.you-are-authorized' };
+    }
     return actorMatches(actor, submitted?.actor)
       ? { group: 'waiting-on-others', because: 'approval.you-submitted-it' }
-      : { group: 'waiting-on-you', because: 'approval.awaiting-a-reviewer' };
+      : { group: 'waiting-on-others', because: 'approval.requires-an-authorized-reviewer' };
   }
   if (COMPLETE_STATUSES.has(phase.status) && phaseId === (workflow.phaseOrder ?? []).at(-1)) {
     return { group: 'recently-completed', because: 'work.final-phase-approved' };
@@ -157,22 +180,41 @@ function blockersOf(workflow, { pendingPublication }) {
 /**
  * Enumerate visible work, grouped and deterministically ordered.
  *
- * `pendingPublications` and `actor` are injected rather than read here: the pending-publication
- * store and identity resolution both have their own callers and their own caching, and a read model
- * that reaches for them itself becomes a second place they can be consulted inconsistently.
+ * Actor identity is supplied by the host. Pending publication state is discovered here unless a
+ * caller supplies an already-scanned set, so omission never acquires the accidental meaning "none".
  */
 export async function workRecords(root, {
-  definition = {}, portfolio = null, actor = null, pendingPublications = new Set(), includeCompleted = false,
+  definition = {}, portfolio = null, actor = null, pendingPublications = null, includeCompleted = false,
   repositoryId = null
 } = {}) {
   const index = await buildRepositorySubjectIndex(root, { definition, portfolio });
   const items = [];
 
+  // Recovery is durable repository state, so the shared record reader owns discovering it. An
+  // injected set remains supported for bounded tests and callers that already performed the scan,
+  // but omission can no longer silently mean "there are no interrupted publications".
+  let pending = pendingPublications;
+  if (pending == null) {
+    const { readPendingPublication } = await import('../publication-pending.mjs');
+    const discovered = await Promise.all(['story', 'initiative'].flatMap((kind) =>
+      index.list(kind).map(async (subject) => {
+        const marker = await readPendingPublication(root, {
+          kind, id: subject.id, migrate: false
+        }).catch(() => null);
+        return marker ? subject.id : null;
+      })));
+    pending = new Set(discovered.filter(Boolean));
+  }
+
   for (const kind of ['story', 'initiative']) {
     for (const subject of index.list(kind)) {
       const workflow = subject.state ?? {};
-      const pendingPublication = pendingPublications.has?.(subject.id) ?? false;
-      const { group, because } = classify(workflow, { pendingPublication, actor });
+      const pendingPublication = pending.has?.(subject.id) ?? false;
+      const { group, because } = classify(workflow, {
+        pendingPublication,
+        actor,
+        approvalAuthorities: definition?.approvalAuthorities ?? portfolio?.approvalAuthorities ?? null
+      });
       if (group === 'recently-completed' && !includeCompleted) continue;
       const phaseId = workflow.currentPhase ?? null;
       const phase = phaseId ? workflow.phases?.[phaseId] : null;

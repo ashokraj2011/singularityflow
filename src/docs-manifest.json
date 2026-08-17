@@ -1,9 +1,9 @@
 {
   "schemaVersion": 1,
   "generatedFrom": "docs/topics",
-  "sourceCommit": "c801bae1db23f249509d9c66d2b9c925c00bb5c0",
+  "sourceCommit": "6e811d9cdf06d4750d9f03d2f7ca49f2c2c3c39d",
   "topicCount": 51,
-  "contentSha256": "d3876bc502e749abfb950a80d0139406949a60a36a6ef94a1c05234a0c69eba4",
+  "contentSha256": "6a7e4958ea4aaaceb880729e416d1bc9d1ed1c2ec1ba8b1fc055d0ad70faecca",
   "topics": [
     {
       "id": "activity-and-prompt-audit",
@@ -190,8 +190,8 @@
     {
       "id": "mcp-integration",
       "title": "MCP integration",
-      "version": 3,
-      "sha256": "eda87db2e00841ea97d2c4339e194031f336d68eecd07f4a1804633522d8d3a0",
+      "version": 4,
+      "sha256": "a62a9ae21acfc5d5e2d2c09c0053d5ead8be4da617069808d9c6c6e1c48aeb15",
       "file": "mcp-integration.md"
     },
     {

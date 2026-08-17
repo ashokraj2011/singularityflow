@@ -28,8 +28,10 @@ regression footprint from filenames alone.
 
 For UI exploration, use only the governed Playwright tools allowed in the prompt and only against
 the approved environment. Prefer accessibility snapshots and role/name/test-id locators over
-brittle CSS or XPath. Record material calls with `singularity-flow mcp record playwright`, and
-store durable screenshots, traces, reports, and logs beneath the active phase artifact directory.
+brittle CSS or XPath. Record every material call with `singularity-flow mcp record playwright`
+using the exact `--tool` and `--phase`; navigation records must also pass the exact approved URL
+with `--target-url`. Store durable screenshots, traces, reports, and logs beneath the active phase
+artifact directory.
 
 For test generation, follow the repository's existing Playwright configuration, fixtures, Page
 Object Model conventions, commands, and TypeScript style. Keep source changes on the isolated

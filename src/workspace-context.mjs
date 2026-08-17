@@ -135,7 +135,8 @@ export function workspacePromptLabel(context) {
 
 export async function buildWorkspaceContext(registryFile, reference, {
   repositoryId = null,
-  storyId = null
+  storyId = null,
+  detectStory = true
 } = {}) {
   const entry = await resolveWorkspaceReference(registryFile, reference);
   const workspace = await readWorkspace(entry.path);
@@ -145,7 +146,8 @@ export async function buildWorkspaceContext(registryFile, reference, {
   if (!repository) {
     throw new SingularityFlowError(`Repository '${selectedRepositoryId}' is not part of workspace '${workspace.name}'.`);
   }
-  const selectedStoryId = portableStoryId(storyId) ?? await detectedStory(repository.absolutePath, repository.branch);
+  const selectedStoryId = portableStoryId(storyId)
+    ?? (detectStory ? await detectedStory(repository.absolutePath, repository.branch) : null);
   const context = {
     schemaVersion: ACTIVE_WORKSPACE_SCHEMA_VERSION,
     workspaceId: workspace.id,

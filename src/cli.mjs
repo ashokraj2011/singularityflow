@@ -32,7 +32,7 @@ import { loadImpactDefinition } from './impact-config.mjs';
 import { collectImpactEvidence, compareImpactReceipts, confirmImpactEnrollment, exportImpactReceipts, hydrateImpactPlan, impactDoctor, importImpactEvidence, listImpactReceipts, recordImpactExposure, verifyImpactReceipt } from './impact.mjs';
 import { registerReference, resolveReference } from './harness-imports.mjs';
 import { beginHarnessInvocation, completeHarnessInvocation, harnessReport } from './harness-events.mjs';
-import { activateWorkItemSession, loadCopilotSession, loadSession, agentSessionStatus, restoreAgentSession, restoreCopilotSession, selectIntakeSource, selectAgent, selectWorkType, setAgentSession } from './session.mjs';
+import { activateWorkItemSession, loadCopilotSession, loadSession, agentSessionStatus, requireCopilotWorkItemSelection, restoreAgentSession, restoreCopilotSession, selectIntakeSource, selectAgent, selectWorkType, setAgentSession } from './session.mjs';
 import { addDocuments, detachDocuments, documentCatalog, fetchRemoteDocument, listRemoteDocuments, previewDocument, viewDocument } from './documents.mjs';
 import { recordClarificationResponses, verifyClarificationRecord } from './clarifications.mjs';
 import { progressBar, progressFlow, progressSnapshot } from './progress.mjs';
@@ -4012,9 +4012,13 @@ async function sessionCommand(positionals, options) {
     const registry = workspaceRegistryFile();
     const selectionFile = activeWorkspaceFile();
     const reference = requirePositional(positionals, 2, 'workspace ID, name, Jira anchor, or directory');
+    const requestedStoryId = optionString(options, 'story');
     const context = await activateWorkspaceContext(registry, selectionFile, reference, {
       repositoryId: optionString(options, 'repository'),
-      storyId: optionString(options, 'story')
+      storyId: requestedStoryId,
+      // Selecting a workspace is not selecting whatever Story its lead clone happens to have
+      // checked out. Only an explicit --story may pin a Story in this operation.
+      detectStory: requestedStoryId != null
     });
     if (context.repositoryState !== 'ready') {
       throw new SingularityFlowError(
@@ -4038,6 +4042,12 @@ async function sessionCommand(positionals, options) {
      */
     const hostAction = 'ready';
     const editorRooted = currentDirectory === repositoryPath;
+    if (!requestedStoryId) {
+      const definition = await loadConfig(repositoryPath);
+      let candidate = null;
+      try { candidate = await loadStoryAggregate(repositoryPath, definition); } catch { /* no Story on this branch */ }
+      await requireCopilotWorkItemSelection(repositoryPath, definition, candidate);
+    }
     const result = {
       attached: true,
       workspaceId: context.workspaceId,

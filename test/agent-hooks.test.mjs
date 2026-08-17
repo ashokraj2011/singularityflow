@@ -6,7 +6,7 @@ import path from 'node:path';
 import { copilotAgentStartHook, sessionStartAgentHook, agentGuardHook } from '../src/agent-hooks.mjs';
 import {
   activateWorkItemSession, agentSessionStatus, clearCopilotTurnIntent, loadSession,
-  recordCopilotTurnIntent, sessionOnlyPrompt, setAgentSession
+  recordCopilotTurnIntent, requireCopilotWorkItemSelection, sessionOnlyPrompt, setAgentSession
 } from '../src/session.mjs';
 
 const definition = {
@@ -148,6 +148,26 @@ test('session start gates only work-item selection and then activates the phase 
   assert.equal(status.selectionRequired, false);
   assert.equal(status.activeAgent, 'architect');
   assert.deepEqual(await agentGuardHook(root, definition, current, { toolName: 'edit', toolArgs: { path: 'src/app.js' } }), {});
+});
+
+test('a workspace-only handoff preserves explicit Story selection for repositories with old policy', async () => {
+  const root = await mkdtemp(path.join(os.tmpdir(), 'sflow-workspace-session-gate-'));
+  const current = workflow({ workItemSelection: 'off', requireBeforeTools: false });
+  await requireCopilotWorkItemSelection(root, definition, current);
+
+  const start = await sessionStartAgentHook(root, definition, current, {
+    sessionId: 'copilot-workspace', source: 'startup'
+  });
+  assert.match(start.additionalContext, /work-item selection is required/);
+  let status = await agentSessionStatus(root, definition, current);
+  assert.equal(status.workItemSelectionRequired, true);
+  assert.equal(status.workId, null);
+  assert.equal(status.candidateWorkId, 'HOOK-1');
+
+  await activateWorkItemSession(root, definition, current);
+  status = await agentSessionStatus(root, definition, current);
+  assert.equal(status.workItemSelectionRequired, false, 'an explicit attachment consumes the gate');
+  assert.equal(status.workId, 'HOOK-1');
 });
 
 test('session-only prompts allow synchronization commands but no implementation work', async () => {

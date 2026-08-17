@@ -171,6 +171,32 @@ export async function recordCopilotSession(root, record) {
   return writeLocalJson(copilotSessionPath(root), { schemaVersion: 1, ...record });
 }
 
+/**
+ * Mark a workspace-only Copilot handoff as deliberately unbound from its checked-out Story.
+ *
+ * The branch is still exposed as a candidate by `session status`, but it is not consent to select
+ * that Story. Persisting the gate in the repository Git directory makes the same decision visible
+ * to VS Code, Copilot hooks, and direct CLI calls without introducing another lifecycle store.
+ */
+export async function requireCopilotWorkItemSelection(root, definition, workflow = null) {
+  const previous = await loadCopilotSession(root);
+  const policy = normalizeSessionPolicy(workflow?.resolution?.session ?? definition.session ?? {});
+  return recordCopilotSession(root, {
+    ...(previous ?? {}),
+    sessionId: null,
+    source: 'workspace',
+    repositoryRoot: root,
+    workId: null,
+    candidateWorkId: workflow?.workItem?.id ?? null,
+    phase: workflow?.currentPhase ?? null,
+    policy,
+    workItemSelectionRequired: true,
+    selectionRequired: false,
+    selectedAgent: null,
+    startedAt: nowIso()
+  });
+}
+
 export function sessionOnlyPrompt(prompt) {
   if (typeof prompt !== 'string') return null;
   const match = prompt.trim().match(/^\/(?:(?:singularity-flow)\/)?sflow-session(?:\s+([A-Za-z0-9._-]+))?$/);

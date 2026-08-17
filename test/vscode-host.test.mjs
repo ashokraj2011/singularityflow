@@ -2538,6 +2538,7 @@ test('a command-palette action attaches Copilot to any saved workspace', async (
   assert.equal(open.args[1], false, 'attachment stays in the same VS Code window');
   const pending = values.get('singularityFlow.pendingCopilotHandoff');
   assert.equal(path.resolve(pending.repository), path.resolve(open.args[0].fsPath));
+  assert.equal(pending.kind, 'workspace');
   assert.equal(pending.workspaceName, 'commerce');
   assert.equal(pending.workId, null);
   assert.match(registered.infos.at(-1), /commerce attached/);
@@ -2546,6 +2547,17 @@ test('a command-palette action attaches Copilot to any saved workspace', async (
 test('a workspace-only handoff opens a fresh chat that asks for explicit Story selection', async (t) => {
   if (!requireBundle(t)) return;
   const root = await demoRepository();
+  const workflowFile = path.join(root, 'singularity/workflow.yml');
+  const workflow = YAML.parse(await readFile(workflowFile, 'utf8'));
+  workflow.git = { ...(workflow.git ?? {}), publish: 'off' };
+  await writeFile(workflowFile, YAML.stringify(workflow));
+  run('git', ['add', workflowFile], { cwd: root });
+  run('git', ['commit', '-m', 'Use local publication for workspace handoff test'], { cwd: root });
+  const started = spawnSync(process.execPath, [path.join(packageRoot, 'bin', 'singularity-flow.mjs'),
+    'start', 'WORKSPACE-CANDIDATE', '--title', 'Candidate Story', '--description', 'Do not select implicitly',
+    '--acceptance-criteria', 'Explicit selection is required', '--work-type', 'feature', '--agent', 'developer',
+    '--base', 'INIT-CHECKOUT'], { cwd: root, encoding: 'utf8', env: process.env });
+  assert.equal(started.status, 0, started.stderr);
   const isolated = await mkdtemp(path.join(os.tmpdir(), 'sflow-workspace-only-handoff-'));
   const previousRegistry = process.env.SINGULARITY_FLOW_WORKSPACE_REGISTRY;
   const previousSelection = process.env.SINGULARITY_FLOW_ACTIVE_WORKSPACE;
@@ -2558,7 +2570,8 @@ test('a workspace-only handoff opens a fresh chat that asks for explicit Story s
     else process.env.SINGULARITY_FLOW_ACTIVE_WORKSPACE = previousSelection;
   });
   const values = new Map([['singularityFlow.pendingCopilotHandoff', {
-    repository: root, workId: null, workspaceName: 'Commerce', requestedAt: new Date().toISOString()
+    kind: 'workspace', repository: root, workId: null, workspaceName: 'Commerce',
+    requestedAt: new Date().toISOString()
   }]]);
   const { api, registered } = stubVscode();
   api.workspace.workspaceFolders = [{ uri: { fsPath: root } }];
@@ -2571,6 +2584,9 @@ test('a workspace-only handoff opens a fresh chat that asks for explicit Story s
   assert.match(opened.args[0].query, /Working directory:/);
   assert.match(opened.args[0].query, /run \/sf-session/);
   assert.match(opened.args[0].query, /no governed Story is selected yet/);
+  assert.match(opened.args[0].query, /checked-out Story.*implicit selection/);
+  assert.doesNotMatch(opened.args[0].query, /Story: WORKSPACE-CANDIDATE/,
+    'the checked-out Story remains a candidate rather than becoming the handoff target');
   assert.equal(values.get('singularityFlow.pendingCopilotHandoff'), undefined);
 });
 
@@ -2606,7 +2622,7 @@ test('a pending Copilot handoff resumes in a fresh chat after the repository win
     else process.env.SINGULARITY_FLOW_ACTIVE_WORKSPACE = previousSelection;
   });
   const values = new Map([['singularityFlow.pendingCopilotHandoff', {
-    repository: root, workId: 'STORY-001', requestedAt: new Date().toISOString()
+    kind: 'story', repository: root, workId: 'STORY-001', requestedAt: new Date().toISOString()
   }]]);
   const { api, registered } = stubVscode();
   api.workspace.workspaceFolders = [{ uri: { fsPath: root } }];

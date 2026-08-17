@@ -612,6 +612,53 @@ test('a session can attach to a saved workspace from outside every repository', 
   assert.notEqual(session.initialized, false);
 });
 
+test('a workspace-only session does not adopt the Story checked out in its repository', async () => {
+  const root = await mkdtemp(path.join(os.tmpdir(), 'sflow-session-workspace-explicit-story-'));
+  const registry = path.join(root, 'registry.json');
+  const selection = path.join(root, 'active.json');
+  const platform = await governedRemoteRepository(root, 'platform');
+  const created = await createWorkspace(workspaceInput(path.join(root, 'workspaces'), {
+    platform: { url: platform, defaultBranch: 'main', required: true, path: 'repos/platform' }
+  }), { confirmation: 'PAY-100' });
+  await rememberWorkspace(registry, created.workspace, created.status);
+
+  const lead = created.status.leadRepositoryPath;
+  run('git', ['checkout', '-b', 'MOB-321'], { cwd: lead });
+  await mkdir(path.join(lead, 'singularity', 'work-items', 'MOB-321'), { recursive: true });
+  await writeFile(path.join(lead, 'singularity', 'work-items', 'MOB-321', 'workflow.json'), JSON.stringify({
+    schemaVersion: 2,
+    workItem: { id: 'MOB-321', branch: 'MOB-321', title: 'Checked-out candidate' },
+    lineage: { canonicalBranch: 'MOB-321', childBranches: [] },
+    currentPhase: 'intake',
+    status: 'active',
+    phaseOrder: ['intake'],
+    phases: { intake: { id: 'intake', status: 'active' } }
+  }));
+
+  const detected = await buildWorkspaceContext(registry, created.workspace.id);
+  assert.equal(detected.storyId, 'MOB-321', 'the fixture proves the branch is a detectable Story candidate');
+
+  const env = {
+    ...process.env,
+    SINGULARITY_FLOW_WORKSPACE_REGISTRY: registry,
+    SINGULARITY_FLOW_ACTIVE_WORKSPACE: selection
+  };
+  const attached = spawnSync(process.execPath, [cli, 'session', 'workspace', created.workspace.id, '--json'], {
+    cwd: root, env, encoding: 'utf8'
+  });
+  assert.equal(attached.status, 0, attached.stderr);
+  assert.equal(JSON.parse(attached.stdout).storyId, null,
+    'choosing only a workspace does not count as choosing its checked-out Story');
+
+  const status = spawnSync(process.execPath, [cli, 'session', 'status', '--json'], {
+    cwd: root, env, encoding: 'utf8'
+  });
+  assert.equal(status.status, 0, status.stderr);
+  const session = JSON.parse(status.stdout);
+  assert.equal(session.workItemSelectionRequired, true);
+  assert.equal(session.workId, null);
+});
+
 test('the working directory still wins over a workspace selected somewhere else', async () => {
   /**
    * The fallback must never override an explicit position. Someone standing inside repository A,

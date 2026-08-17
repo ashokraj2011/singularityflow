@@ -5,9 +5,9 @@
  * catalog is small on purpose: the surface a model can reach should be readable in one sitting by
  * whoever is accountable for it, and a hundred entries is not that.
  *
- * The kernel has roughly a hundred and fifty operations. Twenty-six are declared here. The other
- * hundred and twenty-four are not "not yet reachable" — they are unreachable, because nobody wrote
- * a line for them, which is exactly how an opt-in catalog is supposed to feel.
+ * The kernel has many more operations than are declared here. The others are not "not yet
+ * reachable" — they are unreachable, because nobody wrote a line for them, which is exactly how
+ * an opt-in catalog is supposed to feel.
  *
  * `kernelOperation` is the honest form of "route through the existing operation" `[INT:CON-066]`:
  * the gateway name and the kernel name both appear, so the routing is data a reviewer can check
@@ -24,7 +24,8 @@ import { compileOperationRegistry } from './registry.mjs';
  * but declaring the whole set up front is what lets the registry's rules be real from the start:
  * a declaration naming a planner nobody listed here is rejected at compile time.
  *
- * P0 defines the contract. Every `run` is null, and the count below says so out loud.
+ * Declarations remain import-free; the planner map and ratchet below say which implementations are
+ * present in this build.
  */
 export const GATEWAY_PLANNERS = Object.freeze([
   'home-overview', 'developer-next', 'work-list', 'work-continue', 'work-handoff', 'work-start-intake', 'work-start',
@@ -42,7 +43,7 @@ export const GATEWAY_PLANNERS = Object.freeze([
  * passes, nobody notices for weeks. A count that a test asserts against turns that from an invisible
  * smell into a number someone has to look at and lower.
  */
-export const MAX_UNIMPLEMENTED_GATEWAY_PLANNERS = 18;
+export const MAX_UNIMPLEMENTED_GATEWAY_PLANNERS = 16;
 
 /**
  * Which declared planners this build does not have.

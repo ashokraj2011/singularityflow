@@ -176,6 +176,7 @@ export const ARGUMENT_SCHEMAS = Object.freeze([
   }),
   schema('work-handoff-v1', {
     workId: required('identifier'),
+    workKind: optional('enum', { values: ['story', 'initiative'] }),
     includeLocalChanges: optional('boolean')
   }),
   schema('work-start-intake-v1', {

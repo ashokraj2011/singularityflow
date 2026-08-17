@@ -9,6 +9,7 @@ import * as vscode from 'vscode';
 import path from 'node:path';
 import os from 'node:os';
 import { readFile, rm } from 'node:fs/promises';
+import { gatewayDestination } from './gateway-destination.ts';
 import { resolveCli, SingularityFlowClient } from './cli/client.ts';
 import { validateRepositoryDirectory } from './cli/runner.ts';
 import { WorkspaceStore } from './state.ts';
@@ -207,6 +208,11 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
         if (outcome.result?.operation?.id === 'work.start.intake'
           && outcome.result?.data?.surface === 'start-intake') {
           await vscode.commands.executeCommand('singularityFlow.startWork', outcome.result.data.defaults ?? {});
+          return;
+        }
+        const destination = gatewayDestination(outcome.result);
+        if (destination) {
+          await vscode.commands.executeCommand(destination);
           return;
         }
         if (outcome.result) showResultCard(buildResultCard(outcome.result), {

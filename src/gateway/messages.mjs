@@ -114,6 +114,8 @@ export const RESULT_MESSAGES = Object.freeze({
   'work.local-changes-present': M('You have uncommitted changes', '{files} file(s) changed locally. They are preserved and were not used.'),
   'work.single-repository-scope': M('Only {repository} was read'),
   'work.not-in-this-repository': M('That work is not in this repository'),
+  'work.revision-unavailable': M('The exact repository revision could not be read',
+    'A handoff was not produced because it could not be bound to a commit.'),
   'work.nothing-was-carried-out': M('Nothing was carried out', 'Your work is untouched.'),
   'work.legal-now': M('Available now'),
   'work.no-legal-action': M('Nothing is available to do here'),

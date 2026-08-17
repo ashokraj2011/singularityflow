@@ -138,8 +138,8 @@ export const REST_STATES = Object.freeze([
   /**
    * The operation could not be attempted, and that is not the same as being blocked by a gate.
    *
-   * `gateway.planner-unavailable` is the live case: nineteen registered operations have no planner
-   * in any build, and a host that reports "you may not" for "this build cannot" sends the reader to
+   * `gateway.planner-unavailable` is the live case: some registered operations have no planner in
+   * this build, and a host that reports "you may not" for "this build cannot" sends the reader to
    * argue with a policy that is not the problem.
    */
   'unavailable',

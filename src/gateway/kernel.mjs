@@ -74,7 +74,7 @@ function handleCode(error) {
  * `restState` says which kind of "no" this is. `[UXH:REQ-051]`
  *
  * Every kernel refusal said `blocked`, which reads as "you may not" — right for policy, and wrong
- * for the nineteen registered operations that have no planner in any build. A reader told they are
+ * for a registered operation that has no planner in this build. A reader told they are
  * blocked goes looking for the permission that would unblock them; there isn't one, because the
  * capability is simply absent here. `unavailable` says that, and the card has its own sentence for
  * it pointing at the terminal.

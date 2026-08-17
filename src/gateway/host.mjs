@@ -6,7 +6,7 @@
  * inputs produce the same resolution every time. That purity has to end somewhere, and this is the
  * somewhere — the one module that reads the world and hands the kernel a binding.
  *
- * Until now it ended nowhere. The kernel had 26 declared operations, seven implemented planners, a
+ * Until now it ended nowhere. The kernel had declared operations, only a subset of their planners, a
  * signed handle authority, policy layers and progress contracts, and `grep gateway/ src/` returned
  * no hits outside `src/gateway/` itself. Only tests ever built one. This is its first consumer, and
  * the reason to write the binding carefully is that every later surface inherits it.

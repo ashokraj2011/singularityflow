@@ -92,6 +92,48 @@ For the exact model boundary, model-disabled execution, external-command policy,
 and human-authored artifact flow, read
 [Model independence and manual authorship](docs/MODEL-INDEPENDENCE.md).
 
+## Conversational developer guidance
+
+Developers do not need to memorize the lifecycle command set to find the next safe step. The shell,
+Copilot, and VS Code all read the same durable workspace, repository, and work-item records and use
+the same deterministic guidance planners. They do not share an in-memory conversation or global
+state.
+
+Use the surface that is already open:
+
+| Surface | Start here | What it does |
+| --- | --- | --- |
+| Shell | `singularity-flow recommend` | Shows one personalized, read-only recommendation for the active developer context. |
+| Shell | `singularity-flow home --request "What is blocking this Story?"` | Routes an ordinary-language request to a bounded read planner. |
+| Copilot | `/sf-recommend` | Relays the same recommendation, evidence, required inputs, and disclosed effect. |
+| Copilot | `/sf-home <ordinary request>` | Routes the request through Home; `/sf-home` without a request remains the explicit way back. |
+| VS Code | **My Work** | Opens the shared recommendation card for the selected governed workspace. |
+
+The conversational router recognizes six closed intents. It is deliberately not a free-form command
+parser:
+
+| Intent | Example request | Result |
+| --- | --- | --- |
+| Orient | “What am I working on?” or “What should I do next?” | Shows the active workspace, Story, phase, and one recommended next step. |
+| Continue | “Continue my current Story.” | Offers the current legal continuation; it does not run it automatically. |
+| Start | “Start a new bug fix.” | Opens governed intake with bounded Story and work-type defaults. |
+| Inspect | “What is blocking this Story?” or “What changed while I was away?” | Shows readiness, blockers, progress, or return reconciliation from durable state. |
+| Act | “Generate the active phase.” or “Submit this.” | Previews the governed action and requires explicit authorization before mutation. |
+| Recover | “The publication push is stuck.” | Prioritizes diagnosis, synchronization, and retained-publication recovery. |
+
+A recommendation names the active context, explains why the action is next, summarizes recorded
+artifacts, checks, and approvals, and reports the workspace, repository, identity, worktree, and
+remote preflight state. It also discloses what the action can change and whether confirmation is
+required. New Story intake still requires the work description, definition of done, and an explicit
+remote base branch; conversational wording never supplies those product decisions silently.
+
+All conversational routes resolve to read operations first. Read-only questions may be answered
+immediately, but Continue, Start, Generate, Submit, Next, pull-request creation, and every review or
+approval ceremony require an explicit governed selection. Ambiguous wording asks for clarification,
+the displayed command is only a preview, and raw developer prose is not retained in the routing
+result. Use `singularity-flow nextsteps [WORK-ID]` when you want the full ordered `NOW`, `THEN`, and
+`ALTERNATIVE` plan instead of one recommendation.
+
 ## Requirements
 
 - Node.js 20 or newer for the CLI and VS Code extension build.

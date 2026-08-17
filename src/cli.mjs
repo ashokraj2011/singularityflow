@@ -8045,6 +8045,8 @@ async function commandLogger(command, argv, { json = false, verbose = false } = 
 }
 
 export async function main(argv) {
+  // Bare semver, deliberately: `reinstall.mjs` compares this output to the planned version with
+  // `!==`, so anything appended here fails every `--clean-reinstall`. Build provenance is `--build`.
   if (argv.length === 1 && ['--version', '-v'].includes(argv[0])) return console.log(VERSION);
   // Bare `--help` answers the question a newcomer has in about a screen; `--help --all` is the
   // complete 365-line synopsis, which is a reference and not an introduction.

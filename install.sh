@@ -299,8 +299,29 @@ else
   npm test
 fi
 
+# Stamp which checkout this tarball came from, so the installed CLI can say so later.
+#
+# After the tests deliberately: the suite runs against the committed placeholder, so a stamp that
+# changes on every run can never make a test flaky. Restored by the trap below however this exits —
+# a failure between here and `npm pack` would otherwise leave the tree dirty and the *next* run of
+# this script would refuse it at the uncommitted-changes guard above.
+#
+# Skipped, not fatal, when the stamper is absent, and a warning rather than an abort when it fails.
+# install.sh has to run from a bare copy of itself — `test/local-install-script.test.mjs` does exactly
+# that with only this file present — and provenance is metadata about a build, so it must never be
+# the reason a working build does not happen.
+restore_build_info() { git -C "$PROJECT_DIR" checkout -- src/build-info.mjs 2>/dev/null || true; }
+if [[ -f "$PROJECT_DIR/scripts/stamp-build-info.mjs" ]]; then
+  printf '%s\n' 'Stamping build provenance...'
+  trap restore_build_info EXIT
+  node "$PROJECT_DIR/scripts/stamp-build-info.mjs" \
+    || printf '%s\n' 'Warning: build provenance was not stamped; the installed CLI will not name its commit.' >&2
+fi
+
 printf '%s\n' 'Creating the distribution tarball...'
 PACK_OUTPUT="$(npm pack --json)"
+restore_build_info
+trap - EXIT
 TARBALL="$(PACK_OUTPUT="$PACK_OUTPUT" node -e '
   const result = JSON.parse(process.env.PACK_OUTPUT);
   if (!result?.[0]?.filename) throw new Error('"'"'npm pack did not report a tarball filename.'"'"');
@@ -330,6 +351,9 @@ printf '%s\n' 'Configuring Copilot model, token, and cost telemetry...'
 if [[ "$CLI_ONLY" != "on" ]]; then install_copilot_telemetry; fi
 
 printf '\nInstalled Singularity Flow %s\n' "$(singularity-flow --version)"
+# Named explicitly, because the CLI on PATH is a *copy* and not a link to this checkout: editing
+# these sources changes nothing about the installed command until install.sh runs again.
+printf 'Built from checkout: %s\n' "$PROJECT_DIR"
 printf 'Distribution tarball: %s/%s\n' "$PROJECT_DIR" "$TARBALL"
 printf 'Registry: %s\n' "$REGISTRY"
 if [[ "$CLI_ONLY" != "on" ]]; then

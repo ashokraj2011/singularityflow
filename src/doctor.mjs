@@ -5,6 +5,7 @@ import { initializationStatus, loadDefinition, WORKFLOW_PATH } from './config.mj
 import { loadPortfolio } from './initiative-config.mjs';
 import { loadSession } from './session.mjs';
 import { VERSION } from './version.mjs';
+import { BUILD_INFO, versionLine } from './build-info.mjs';
 import { storyPublicationPending, validateWorkflow, workflowPath, loadStoryAggregate } from './state-stores.mjs';
 import { findLegacyPendingPublications } from './publication-pending.mjs';
 import { inspectStatePlanes } from './state-planes.mjs';
@@ -22,6 +23,25 @@ export async function doctorSnapshot(root, { workId = null, offline = false } = 
   const major = Number(process.versions.node.split('.')[0]);
   checks.push(check('node', major >= 20 ? 'pass' : 'fail', `Node.js ${process.versions.node}`, major >= 20 ? null : 'Install Node.js 20 or newer.'));
   checks.push(check('git', 'pass', `Git repository ${root}`));
+  /**
+   * Which build is running, which `VERSION` alone cannot say.
+   *
+   * The CLI on PATH is a copy, not a link to any checkout, so editing sources changes nothing until
+   * `install.sh` runs again. Two installs from different clones both reported `0.9.0` while their
+   * `cli.mjs` differed by hundreds of lines. This is the line that ends "am I running what I am
+   * editing?", and diagnostics is where somebody asks it.
+   *
+   * A build packed from a dirty tree is a `warn`: it is usable, but it corresponds to no commit
+   * anybody can check out, so a bug found in it cannot be reproduced from source.
+   */
+  checks.push(check(
+    'build',
+    BUILD_INFO.dirty ? 'warn' : 'pass',
+    versionLine(),
+    BUILD_INFO.dirty
+      ? 'This build was packed from a checkout with uncommitted changes, so it matches no commit. Commit, then reinstall.'
+      : null
+  ));
   // The world-model build hands a configured runner command to a shell, so a machine without one
   // can read and publish governed state but cannot build a model. That used to surface as a spawn
   // error deep in a build; naming the platform and the missing tool here is the difference between

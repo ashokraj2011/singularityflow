@@ -1101,7 +1101,7 @@ Start always asks for:
 
 1. A remote base branch published by every required repository; no default is inferred.
 2. Jira story or manual intake.
-3. Workflow template, such as feature, bugfix, chore, or Figma export to mobile app.
+3. Workflow template, such as feature, bugfix, chore, Figma export to mobile app, or POC workflow.
 
 The workflow and governed-agent pickers are deliberately human-driven. There are no public `--type` or `--agent` bypass flags. Non-interactive start fails rather than silently choosing defaults unless `/sf-start` supplies a valid one-time receipt containing the contributor's explicit Copilot choices.
 
@@ -1338,8 +1338,18 @@ Starter work types are:
 | Bugfix | intake → reproduction → fix-design → fix-spec → implementation → verification → conformance |
 | Chore | intake → implementation → verification → conformance |
 | Figma export to mobile app | design-intake → design-inventory → component-mapping → mobile-spec → implementation → visual-verification → conformance |
+| POC workflow | POC intent → impact analysis → UI exploration → Playwright generation → bounded validation/repair → publication review |
 
 Feature work produces stable `AC-n` acceptance criteria and `SPEC-nnn` implementation items. Bugfix work uses a smaller fix specification but retains the same traceability model. Verification links tests and source evidence. Conformance compares approved requirements and specifications with exact code/test evidence.
+
+`poc-workflow` is the packaged UI-regression demonstration flow. It requires an explicitly selected
+remote base branch and an isolated Story branch, captures an authorized target environment and test
+intent, traces changed code to regression scenarios, records confirmed Playwright MCP observations,
+generates repository-native TypeScript tests/Page Objects, and stores exact runner evidence. A
+failure may be rejected for no more than two human-authorized repair generations; there is no
+autonomous retry loop. Passing validation advances to a separate publication review requiring both
+quality and engineering approval. The review prepares the Story-branch diff and PR description but
+does not create a PR or update the selected base without an explicit governed action.
 
 View the immutable phase contract and exact next action for an active work item:
 

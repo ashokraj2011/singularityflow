@@ -32,15 +32,16 @@ test('the extension bundle contains the gateway, not a call out to it', async ()
 test('the editor declares the planners it has and does not pretend to the docs one', async () => {
   /**
    * `help-explain` reaches the documentation subsystem, which resolves its own path through
-   * `import.meta.url` — empty under CommonJS. The honest answer is to declare six and let the
-   * kernel refuse the seventh with `gateway.planner-unavailable`, which is a state the contract
-   * already models. Shimming `import.meta` to make the import survive would produce a planner that
-   * loads and then cannot find its own topics.
+   * `import.meta.url` — empty under CommonJS. The honest answer is to declare the host-safe
+   * planners explicitly and let the kernel refuse the documentation planner with
+   * `gateway.planner-unavailable`, which is a state the contract already models. Shimming
+   * `import.meta` to make the import survive would produce a planner that loads and then cannot
+   * find its own topics.
    */
   const source = await readFile(path.join(root, 'apps', 'vscode', 'src', 'gateway-session.ts'), 'utf8');
   const imported = [...source.matchAll(/planners\/([a-z-]+)\.mjs/g)].map(([, name]) => name).sort();
-  assert.deepEqual(imported, ['home-overview', 'impact-quick', 'work-continue', 'work-list',
-    'work-readiness', 'work-return', 'workspace-list']);
+  assert.deepEqual(imported, ['developer-next', 'home-overview', 'impact-quick', 'work-continue', 'work-list',
+    'work-readiness', 'work-return', 'work-start-intake', 'workspace-list']);
   // `codeOnly`: this file names help-explain in the comment explaining why it excludes it.
   assert.ok(!codeOnly(source).includes('help-explain'), 'the docs planner is not imported');
 

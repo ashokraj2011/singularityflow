@@ -177,6 +177,7 @@ export const ARGUMENT_SCHEMAS = Object.freeze([
   }),
   schema('work-start-intake-v1', {
     source: optional('enum', { values: ['jira', 'initiative', 'story', 'bug-report', 'idea', 'repository-observation', 'finding'] }),
+    shape: optional('enum', { values: ['initiative', 'epic', 'story'] }),
     workspaceId: optional('identifier'),
     repositoryId: optional('identifier'),
     workType: optional('identifier'),

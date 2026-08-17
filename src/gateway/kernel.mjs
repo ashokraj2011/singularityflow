@@ -32,6 +32,7 @@ import { SingularityFlowError } from '../util.mjs';
  */
 export const KERNEL_MESSAGES = Object.freeze([
   'gateway.read', 'gateway.next', 'gateway.explained', 'gateway.refused', 'gateway.home',
+  'gateway.developer-next',
   /**
    * A read that answers "am I ready?" with "no" `[UXH:REQ-062]`.
    *

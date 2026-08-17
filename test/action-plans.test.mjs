@@ -8,6 +8,7 @@ import {
   assertActionPlanFresh,
   createActionPlan,
   loadActionPlan,
+  previewAction,
   readActionResult,
   recordActionResult,
   selectPlannedAction
@@ -42,6 +43,17 @@ function lifecycle(actions = null) {
     }]
   };
 }
+
+test('read-only action previews disclose effects without writing a plan', () => {
+  const gate = previewAction({ timing: 'now', command: 'singularity-flow gate --terminal' });
+  const preview = previewAction({ timing: 'then', command: 'singularity-flow pr STORY-1' });
+  const create = previewAction({ timing: 'then', command: 'singularity-flow pr STORY-1 --create' });
+  assert.equal(gate.effect.class, 'read');
+  assert.equal(gate.confirmation.required, false);
+  assert.equal(preview.effect.class, 'read');
+  assert.equal(create.effect.class, 'mutation');
+  assert.equal(create.confirmation.required, true);
+});
 
 test('action plans are content-addressed, private, and bound to repository/lifecycle revision', async () => {
   const root = await repository();

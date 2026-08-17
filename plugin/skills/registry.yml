@@ -24,6 +24,7 @@ automaticInvocationAllowlist:
   - sflow-nextsteps
   - sflow-progress
   - sflow-quickstart
+  - sflow-recommend
   - sflow-status
 
 classes:
@@ -145,6 +146,7 @@ skills:
   sflow-progress: { class: echo }
   sflow-prompt-log: { class: mutation }
   sflow-quickstart: { class: echo }
+  sflow-recommend: { class: conversational }
   sflow-refresh-branch: { class: mutation }
   sflow-regression-investigate: { class: generative }
   sflow-reject: { class: review }

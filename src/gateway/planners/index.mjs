@@ -10,26 +10,30 @@
  * result-shaped.
  */
 import { helpExplain } from './help-explain.mjs';
+import { developerNext } from './developer-next.mjs';
 import { homeOverview } from './home-overview.mjs';
 import { impactQuick } from './impact-quick.mjs';
 import { workContinue } from './work-continue.mjs';
 import { workReadiness } from './work-readiness.mjs';
 import { workReturn } from './work-return.mjs';
 import { workList } from './work-list.mjs';
+import { workStartIntake } from './work-start-intake.mjs';
 import { workspaceList } from './workspace-list.mjs';
 
 export function gatewayPlanners(overrides = {}) {
   return new Map(Object.entries({
     'help-explain': helpExplain,
+    'developer-next': developerNext,
     'home-overview': homeOverview,
     'impact-quick': impactQuick,
     'work-continue': workContinue,
     'work-readiness': workReadiness,
     'work-return': workReturn,
     'work-list': workList,
+    'work-start-intake': workStartIntake,
     'workspace-list': workspaceList,
     ...overrides
   }));
 }
 
-export { helpExplain, homeOverview, impactQuick, workContinue, workList, workReadiness, workReturn, workspaceList };
+export { developerNext, helpExplain, homeOverview, impactQuick, workContinue, workList, workReadiness, workReturn, workStartIntake, workspaceList };

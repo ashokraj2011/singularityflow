@@ -109,6 +109,7 @@ Usage:
   singularity-flow doctor [WORK-ID] [--offline] [--json]
   singularity-flow home [--workspace ID] [--request TEXT] [--json]
                                                            conversational Home (alias: cockpit)
+  singularity-flow recommend [--workspace ID] [--json]     one grounded next-step recommendation
   singularity-flow logs [--tail N] [--level LEVEL] [--event PATTERN] [--since WHEN] [--json]
   singularity-flow logs path|level
   singularity-flow logs workspace [--source all|activity|prompt|telemetry|workspace]

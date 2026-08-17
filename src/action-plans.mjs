@@ -52,7 +52,8 @@ const READ_ONLY_COMMANDS = new Set([
 
 function effectFor(argv) {
   const command = argv[0] ?? 'unknown';
-  if (READ_ONLY_COMMANDS.has(command)) {
+  if (READ_ONLY_COMMANDS.has(command) || command === 'gate'
+    || (command === 'pr' && !argv.includes('--create'))) {
     return { class: 'read', mutatesState: false, externalSideEffect: false, reversible: true };
   }
   if (command === 'sync' || command === 'resume' || command === 'refresh-branch') {
@@ -66,6 +67,35 @@ function effectFor(argv) {
     return { class: 'generation', mutatesState: true, externalSideEffect: command !== 'prepare', reversible: true };
   }
   return { class: 'mutation', mutatesState: true, externalSideEffect: true, reversible: false };
+}
+
+/**
+ * A read-only preview of a lifecycle action.
+ *
+ * This is the same parser and effect classifier used when a governed action plan is persisted, but
+ * it creates no plan, authorization, file, commit, or publication. Developer surfaces use it to
+ * explain an action before the person chooses whether to create the real, revision-bound plan.
+ */
+export function previewAction(item = {}) {
+  const tokens = tokenize(item.command ?? '');
+  if (tokens[0] !== 'singularity-flow') {
+    throw new SingularityFlowError(`Governed actions must invoke singularity-flow directly: ${item.command ?? ''}`);
+  }
+  const argv = tokens.slice(1);
+  const effect = effectFor(argv);
+  return Object.freeze({
+    timing: item.timing ?? 'now',
+    command: item.command,
+    skill: item.skill ?? null,
+    reason: item.reason ?? null,
+    argv: Object.freeze(argv),
+    executable: (item.timing ?? 'now') === 'now' && !argv.some((value) => /<[^>]+>/.test(value)),
+    effect: Object.freeze(effect),
+    confirmation: Object.freeze({
+      required: effect.mutatesState,
+      mode: effect.mutatesState ? 'one-time-authorization' : 'none'
+    })
+  });
 }
 
 function normalizeAction(item, index, revision) {

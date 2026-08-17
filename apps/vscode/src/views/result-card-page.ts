@@ -79,6 +79,17 @@ export const RESULT_CARD_STYLE = `
 .sf-card details pre { margin: 6px 0 0; padding: 8px; overflow-x: auto; user-select: text;
   background: var(--vscode-textCodeBlock-background); border-radius: 4px; }
 .sf-card-rest { color: var(--vscode-descriptionForeground); font-style: italic; }
+.sf-guidance { display: grid; gap: 10px; padding: 12px; border: 1px solid var(--vscode-panel-border);
+  border-radius: 6px; background: var(--vscode-sideBar-background); }
+.sf-guidance-context { display: grid; grid-template-columns: repeat(auto-fit, minmax(120px, 1fr)); gap: 8px; }
+.sf-guidance-context span { display: grid; gap: 2px; min-width: 0; color: var(--vscode-descriptionForeground); font-size: .85em; }
+.sf-guidance-context strong { color: var(--vscode-foreground); overflow-wrap: anywhere; }
+.sf-guidance-change { margin: 0; }
+.sf-guidance-command { margin: 0; padding: 8px; overflow-x: auto; user-select: text;
+  background: var(--vscode-textCodeBlock-background); border-radius: 4px; }
+.sf-guidance-list { margin: 6px 0 0; padding-left: 20px; }
+.sf-guidance-ready { color: var(--vscode-testing-iconPassed, var(--vscode-charts-green)); }
+.sf-guidance-attention, .sf-guidance-needed, .sf-guidance-unknown { color: var(--vscode-editorWarning-foreground); }
 /*
  * The briefing block. Bordered rather than filled, so it does not compete with the preservation
  * statement — that block is the one a refused reader must not miss, and two filled panels on one
@@ -228,6 +239,42 @@ function sinceHtml(view: ResultCardView, now: number): string {
   </section>`;
 }
 
+function guidanceHtml(view: ResultCardView): string {
+  const guidance = view.guidance;
+  if (!guidance) return '';
+  const context = [
+    ['Workspace', guidance.context.workspace],
+    ['Work', guidance.context.workId],
+    ['Phase', guidance.context.phase]
+  ].filter(([, value]) => value);
+  const contextHtml = context.length ? `<div class="sf-guidance-context">${context.map(([label, value]) =>
+    `<span>${escape(label!)}<strong>${escape(value!)}</strong></span>`).join('')}</div>` : '';
+  const effectLabels: Record<string, string> = {
+    read: 'Nothing. This is a read-only recommendation.',
+    synchronize: 'Synchronizes the retained commit or branch with its configured remote.',
+    decision: 'Records governed lifecycle state and publishes the attributed decision.',
+    generation: 'May update generated artifacts and governed lifecycle records.',
+    mutation: 'May update governed state, Git refs, publication, or an external system.'
+  };
+  const recommendation = guidance.recommendation ? `
+    <p class="sf-guidance-change"><b>This will change:</b> ${escape(effectLabels[guidance.recommendation.effect]
+      ?? effectLabels.mutation)}${guidance.recommendation.confirmationRequired
+    ? ' Nothing runs until you explicitly authorize the governed action.' : ''}</p>
+    <pre class="sf-guidance-command">${escape(guidance.recommendation.command)}</pre>` : '';
+  const preflight = guidance.preflight.length ? `<details><summary>Before you continue</summary>
+    <ul class="sf-guidance-list">${guidance.preflight.map((entry) => `<li class="sf-guidance-${escape(entry.state)}">
+      <b>${escape(entry.id)}</b> — ${escape(entry.detail)}</li>`).join('')}</ul></details>` : '';
+  const evidence = guidance.evidence ? `<details><summary>Evidence already captured</summary>
+    <ul class="sf-guidance-list">
+      <li>Artifacts: ${guidance.evidence.artifacts.recorded}/${guidance.evidence.artifacts.total} recorded</li>
+      <li>Checks: ${guidance.evidence.checks.passed} passed, ${guidance.evidence.checks.failed} failed, ${guidance.evidence.checks.total} total</li>
+      <li>Approvals: ${guidance.evidence.approvals.approved}/${guidance.evidence.approvals.total} approved</li>
+    </ul></details>` : '';
+  const inputs = guidance.requiredInputs.length ? `<details><summary>What SFlow still needs from you</summary>
+    <ul class="sf-guidance-list">${guidance.requiredInputs.map((entry) => `<li>${escape(entry)}</li>`).join('')}</ul></details>` : '';
+  return `<section class="sf-guidance" aria-label="Developer guidance">${contextHtml}${recommendation}${preflight}${evidence}${inputs}</section>`;
+}
+
 export function resultCardHtml(view: ResultCardView, { now = Date.now() }: { now?: number } = {}): string {
   /**
    * A headline and a sentence, separated rather than run together.
@@ -298,7 +345,7 @@ export function resultCardHtml(view: ResultCardView, { now = Date.now() }: { now
   return `<section class="sf-card sf-card-${view.tone}">
     ${view.replyName ? `<p class="sf-card-greeting">Hello, ${escape(view.replyName)}.</p>` : ''}
     <h3>${icon(view.tone === 'refusal' ? 'statusBlocked' : 'statusCurrent')} ${escape(view.headline)}</h3>
-    ${railHtml(view)}${sinceHtml(view, now)}${why}${warnings}${gates}${preserved}${actions}${rest}${details}
+    ${railHtml(view)}${sinceHtml(view, now)}${guidanceHtml(view)}${why}${warnings}${gates}${preserved}${actions}${rest}${details}
   </section>`;
 }
 

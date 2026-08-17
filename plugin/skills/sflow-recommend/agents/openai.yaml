@@ -1,0 +1,4 @@
+interface:
+  display_name: "SFlow Recommend"
+  short_description: "Show one grounded next step"
+  default_prompt: "Use /sf-recommend to show my current governed context and one safe recommended next action."

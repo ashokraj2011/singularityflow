@@ -8114,6 +8114,7 @@ async function dispatch(command, positionals, options) {
     next: () => nextCommand(options),
     run: () => runCommand(options),
     home: async () => (await import('./commands/home.mjs')).run(argv, { positionals, options }),
+    recommend: async () => (await import('./commands/recommend.mjs')).run(positionals, { positionals, options }),
     logs: () => logsCommand(positionals, options),
     doctor: () => doctorCommand(positionals, options),
     review: () => reviewCommand(positionals, options),

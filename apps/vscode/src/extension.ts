@@ -202,6 +202,11 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
          * to do with each; it only needed to be told which one this is.
          */
         const outcome = await executor.execute(action);
+        if (outcome.result?.operation?.id === 'work.start.intake'
+          && outcome.result?.data?.surface === 'start-intake') {
+          await vscode.commands.executeCommand('singularityFlow.startWork', outcome.result.data.defaults ?? {});
+          return;
+        }
         if (outcome.result) showResultCard(buildResultCard(outcome.result), {
           origin: 'gateway', historyMode: 'push'
         });
@@ -257,7 +262,7 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
     }
     try {
       const { kernel, binding } = gatewaySession(active);
-      const resolution = await kernel.resolve({ utterance: 'home' });
+      const resolution = await kernel.resolve({ utterance: 'what should I do next' });
       const envelope = resolution.kind === 'read' && resolution.next.length === 1
         ? await kernel.read({ resolutionId: resolution.next[0].handle })
         : resolution;
@@ -1936,7 +1941,11 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
    * repository's own configuration rather than a list this file keeps, so a portfolio that adds a
    * profile offers it here without the extension being changed.
    */
-  const startWork = async (): Promise<void> => {
+  const startWork = async (defaults: {
+    shape?: 'initiative' | 'epic' | 'story' | null;
+    workType?: string | null;
+    summary?: string | null;
+  } = {}): Promise<void> => {
     // Refresh before asking anything. `start` refuses a dirty tree, and discovering that only after
     // somebody completes the intake form wastes their answers and makes a correct guard look like a
     // dead button. The target is stated here because a selected workspace may point this window at
@@ -1995,7 +2004,8 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
     }, {
       workspace: workspaceLabel,
       repository: repositoryState?.root ?? repository,
-      branch: repositoryState?.branch ?? null
+      branch: repositoryState?.branch ?? null,
+      defaults
     });
   };
 

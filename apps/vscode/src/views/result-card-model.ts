@@ -82,6 +82,21 @@ export type ResultCardView = {
    * that configured its own.
    */
   readonly rail: readonly { readonly id: string; readonly label: string; readonly state: 'done' | 'current' | 'pending' }[];
+  /** Shared developer guidance, present only on the canonical recommendation result. */
+  readonly guidance: {
+    readonly context: { readonly workspace: string | null; readonly workId: string | null; readonly phase: string | null };
+    readonly recommendation: {
+      readonly command: string; readonly skill: string | null; readonly reason: string | null;
+      readonly confirmationRequired: boolean; readonly effect: string;
+    } | null;
+    readonly preflight: readonly { readonly id: string; readonly state: string; readonly detail: string }[];
+    readonly evidence: {
+      readonly artifacts: { readonly recorded: number; readonly total: number };
+      readonly checks: { readonly passed: number; readonly failed: number; readonly total: number };
+      readonly approvals: { readonly approved: number; readonly total: number };
+    } | null;
+    readonly requiredInputs: readonly string[];
+  } | null;
   /**
    * The return briefing, on the card rather than on a home of its own. `[DHR:REQ-024]` `[UXH:REQ-020]`
    *
@@ -243,7 +258,7 @@ export function buildResultCard(result: any, { acknowledgement }: ResultCardOpti
   return Object.freeze({
     tone,
     headline: headlineOf(result, gates),
-    replyName: result.operation?.id === 'home.overview'
+    replyName: ['home.overview', 'developer.next'].includes(result.operation?.id)
       && typeof result.data?.personalization?.replyName === 'string'
       ? result.data.personalization.replyName
       : null,
@@ -262,6 +277,24 @@ export function buildResultCard(result: any, { acknowledgement }: ResultCardOpti
     actions,
     /** Named, not spread: a producer that puts something else in `data` does not start rendering it. */
     rail: Array.isArray(result.data?.rail) ? result.data.rail : [],
+    guidance: result.operation?.id === 'developer.next' && result.data?.guidance
+      ? Object.freeze({
+        context: Object.freeze({
+          workspace: result.data?.workspace?.name ?? result.data?.workspace?.id ?? null,
+          workId: result.data.guidance.workId ?? null,
+          phase: result.data.guidance.currentPhase ?? null
+        }),
+        recommendation: result.data.guidance.recommendation ? Object.freeze({
+          command: result.data.guidance.recommendation.command,
+          skill: result.data.guidance.recommendation.skill ?? null,
+          reason: result.data.guidance.recommendation.reason ?? null,
+          confirmationRequired: result.data.guidance.recommendation.confirmation?.required === true,
+          effect: result.data.guidance.recommendation.effect?.class ?? 'read'
+        }) : null,
+        preflight: Object.freeze([...(result.data.guidance.preflight ?? [])]),
+        evidence: result.data.guidance.evidence ?? null,
+        requiredInputs: Object.freeze([...(result.data.guidance.requiredInputs ?? [])])
+      }) : null,
     /**
      * The delta belongs to `home.overview` and to nothing else.
      *
@@ -269,7 +302,7 @@ export function buildResultCard(result: any, { acknowledgement }: ResultCardOpti
      * host that keeps one store for the whole shell cannot make a readiness card start claiming to
      * know what changed since the reader last looked at it.
      */
-    since: acknowledgement !== undefined && result.operation?.id === 'home.overview'
+    since: acknowledgement !== undefined && ['home.overview', 'developer.next'].includes(result.operation?.id)
       ? homeDelta(result, acknowledgement)
       : null,
     rest: result.restState ?? null,

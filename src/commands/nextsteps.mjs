@@ -16,6 +16,30 @@ function activePhase(workflow) {
   return workflow.currentPhase ? workflow.phases?.[workflow.currentPhase] ?? null : null;
 }
 
+/** Evidence already present in durable lifecycle state; this performs no test or tool invocation. */
+function evidenceSummary(workflow) {
+  const phases = (workflow.phaseOrder ?? []).map((id) => workflow.phases?.[id]).filter(Boolean);
+  const artifacts = phases.flatMap((phase) => phase.artifacts ?? []);
+  const checks = phases.flatMap((phase) => phase.checks ?? []);
+  const approvals = phases.flatMap((phase) => phase.approvals ?? [])
+    .filter((entry) => !entry.invalidatedAt);
+  return {
+    artifacts: {
+      recorded: artifacts.filter((entry) => entry.sha256 || entry.recordedAt || entry.status === 'recorded').length,
+      total: artifacts.length
+    },
+    checks: {
+      passed: checks.filter((entry) => ['passed', 'pass'].includes(entry.status)).length,
+      failed: checks.filter((entry) => ['failed', 'blocked', 'fail'].includes(entry.status)).length,
+      total: checks.length
+    },
+    approvals: {
+      approved: approvals.filter((entry) => entry.decision === 'approved').length,
+      total: approvals.length
+    }
+  };
+}
+
 async function initiativeSnapshot(root, selected) {
   const { initiativeNextActions } = await import('../initiative-report.mjs');
   const initiative = selected.state;
@@ -27,7 +51,8 @@ async function initiativeSnapshot(root, selected) {
     currentPhase: initiative.currentPhase ?? null,
     actions: (await initiativeNextActions(root, selected.id)).map((item) => ({
       timing: 'now', skill: null, command: item.command, reason: item.reason
-    }))
+    })),
+    evidence: evidenceSummary(initiative)
   };
 }
 
@@ -78,8 +103,7 @@ async function storyPrerequisites(root, workflow, selected, modelMode = { enable
   return prerequisites;
 }
 
-export async function resolveSnapshot(positionals) {
-  const root = repoRoot();
+export async function resolveSnapshot(positionals, { root = repoRoot() } = {}) {
   const initialized = existsSync(path.join(root, 'singularity/workflow.yml'));
   if (!initialized) return nextStepsSnapshot({ initialized: false, branch: branch(root) });
   const requestedWorkId = positionals[1] ?? null;
@@ -89,16 +113,19 @@ export async function resolveSnapshot(positionals) {
   if (selected?.kind !== 'story') return nextStepsSnapshot({ branch: branch(root), requestedWorkId });
   const workflow = selected.state;
   const modelMode = operationContext()?.modelMode ?? { enabled: true, source: 'default' };
-  return nextStepsSnapshot({
-    branch: branch(root),
-    workflow,
-    publicationPending: Boolean(await readPendingPublication(root, {
-      kind: 'story', id: selected.id, migrate: false,
-      roots: { workItemRoot: path.dirname(path.dirname(selected.location.path)) }
-    })),
-    prerequisites: await storyPrerequisites(root, workflow, selected, modelMode),
-    modelMode
-  });
+  return {
+    ...nextStepsSnapshot({
+      branch: branch(root),
+      workflow,
+      publicationPending: Boolean(await readPendingPublication(root, {
+        kind: 'story', id: selected.id, migrate: false,
+        roots: { workItemRoot: path.dirname(path.dirname(selected.location.path)) }
+      })),
+      prerequisites: await storyPrerequisites(root, workflow, selected, modelMode),
+      modelMode
+    }),
+    evidence: evidenceSummary(workflow)
+  };
 }
 
 export async function run(_argv, { positionals, options }) {

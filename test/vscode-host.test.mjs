@@ -860,7 +860,7 @@ test('developers can choose, launch, unpin, and retain favorite menus', async (t
   assert.equal(registered.quickPicks[0].options.canPickMany, true);
   assert.equal(registered.quickPicks[0].options.title, 'Choose favorite Singularity Flow menus');
   await until(() => navigation.webview.html.includes('aria-label="Unpin Help Center"'));
-  assert.deepEqual(values.get('singularityFlow.navigationFavorites.v1'),
+  assert.deepEqual(values.get('singularityFlow.navigationFavorites.v2'),
     ['my-work', 'work-start', 'inbox-open', 'help-open']);
   assert.ok(registered.infos.includes('Help Center added to Favorites.'));
 
@@ -869,13 +869,13 @@ test('developers can choose, launch, unpin, and retain favorite menus', async (t
 
   await navigation.post({ type: 'favorite-remove', action: 'my-work' });
   await until(() => !navigation.webview.html.includes('aria-label="Unpin My Work"'));
-  assert.deepEqual(values.get('singularityFlow.navigationFavorites.v1'),
+  assert.deepEqual(values.get('singularityFlow.navigationFavorites.v2'),
     ['work-start', 'inbox-open', 'help-open']);
 });
 
 test('an intentionally empty Favorites preference stays empty', async (t) => {
   if (!requireBundle(t)) return;
-  const values = new Map([['singularityFlow.navigationFavorites.v1', []]]);
+  const values = new Map([['singularityFlow.navigationFavorites.v2', []]]);
   const { api, registered } = stubVscode();
   api.workspace.workspaceFolders = undefined;
   const extension = loadExtension(api);
@@ -885,6 +885,24 @@ test('an intentionally empty Favorites preference stays empty', async (t) => {
   assert.doesNotMatch(navigation.webview.html, /aria-label="Unpin My Work"/);
   assert.match(navigation.webview.html, /Pin the menus you use most/);
   assert.match(navigation.webview.html, />Choose favorites<\/button>/);
+});
+
+test('existing installations receive Map a capability once and may still unpin it', async (t) => {
+  if (!requireBundle(t)) return;
+  const values = new Map([['singularityFlow.navigationFavorites.v1', ['my-work']]]);
+  const { api, registered } = stubVscode();
+  api.workspace.workspaceFolders = undefined;
+  const extension = loadExtension(api);
+  await extension.activate(context(values));
+
+  const navigation = registered.webviewViews.get('singularityFlow.navigation');
+  await until(() => values.has('singularityFlow.navigationFavorites.v2'));
+  assert.deepEqual(values.get('singularityFlow.navigationFavorites.v2'), ['my-work', 'capability-map']);
+  assert.match(navigation.webview.html, /aria-label="Unpin Map a capability"/);
+
+  await navigation.post({ type: 'favorite-remove', action: 'capability-map' });
+  await until(() => !navigation.webview.html.includes('aria-label="Unpin Map a capability"'));
+  assert.deepEqual(values.get('singularityFlow.navigationFavorites.v2'), ['my-work']);
 });
 
 test('menu personas tailor first-use Favorites and section order without overriding personal choices', async (t) => {
@@ -905,6 +923,8 @@ test('menu personas tailor first-use Favorites and section order without overrid
   for (const label of ['My Work', 'Inbox', 'Visual assurance', 'Approvals']) {
     assert.match(navigation.webview.html, new RegExp(`aria-label="Unpin ${label}"`));
   }
+  assert.match(navigation.webview.html, /aria-label="Unpin Map a capability"/,
+    'Map a capability is a first-use Favorite for every persona');
   assert.ok(navigation.webview.html.indexOf('data-section="inbox"')
     < navigation.webview.html.indexOf('data-section="lifecycle"'), 'QA sees decisions before lifecycle');
 
@@ -923,7 +943,7 @@ test('menu personas tailor first-use Favorites and section order without overrid
 
   registered.pickedFavorites = [{ menuId: 'help-open' }];
   await navigation.post({ type: 'action', action: 'favorites-manage' });
-  await until(() => values.get('singularityFlow.navigationFavorites.v1')?.[0] === 'help-open');
+  await until(() => values.get('singularityFlow.navigationFavorites.v2')?.[0] === 'help-open');
   settings.set('role', 'admin');
   navigation.provider.profileChanged();
   await until(() => navigation.webview.html.includes('Change Admin menu persona'));

@@ -23,6 +23,8 @@ test('menu personas are complete, stable, and navigation-only', () => {
     assert.ok(persona.label);
     assert.ok(persona.description);
     assert.ok(persona.menuIds.length >= 3);
+    assert.ok(persona.menuIds.includes('capability-map'),
+      `${persona.id} keeps Map a capability in first-use Favorites`);
     assert.deepEqual([...new Set(persona.sectionOrder)].sort(), [...SECTIONS].sort(),
       `${persona.id} keeps every Navigator section`);
   }
@@ -35,15 +37,15 @@ test('menu personas are complete, stable, and navigation-only', () => {
 
 test('each principal persona receives relevant first-use menu suggestions', () => {
   assert.deepEqual(resolveProfilePersona('developer').menuIds,
-    ['my-work', 'work-start', 'impact-form', 'logs-open']);
+    ['my-work', 'work-start', 'impact-form', 'logs-open', 'capability-map']);
   assert.deepEqual(resolveProfilePersona('architect').menuIds,
-    ['my-work', 'impact-form', 'flow-impact', 'configuration-center']);
+    ['my-work', 'impact-form', 'flow-impact', 'configuration-center', 'capability-map']);
   assert.deepEqual(resolveProfilePersona('qa').menuIds,
-    ['my-work', 'inbox-open', 'visual-assurance', 'approvals-open']);
+    ['my-work', 'inbox-open', 'visual-assurance', 'approvals-open', 'capability-map']);
   assert.deepEqual(resolveProfilePersona('admin').menuIds,
     ['workspace-manage', 'configuration-center', 'capability-map', 'logs-open']);
   assert.deepEqual(resolveProfilePersona('product-owner').menuIds,
-    ['my-work', 'work-start', 'inbox-open', 'approvals-open']);
+    ['my-work', 'work-start', 'inbox-open', 'approvals-open', 'capability-map']);
 });
 
 test('the public VS Code setting and command palette expose every menu persona', async () => {

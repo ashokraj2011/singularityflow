@@ -57,7 +57,8 @@ import { publishLifecycleChange } from './publication-unit-of-work.mjs';
 import { deliverLifecycleNotifications, warnNotificationFailures } from './notifications.mjs';
 import { readConfigurationSource } from './configuration-branch.mjs';
 import { buildDesignSourceSet, classifyDesignSourceCandidates, approvedDesignSourceBinding } from './design-sources.mjs';
-import { verifyMcpEvidence } from './mcp-evidence.mjs';
+import { verifyMcpEvidence, verifyPhaseMcpRequirements } from './mcp-evidence.mjs';
+import { assertMcpPhaseReadiness } from './mcp-readiness.mjs';
 import { assertVisualCoverage } from './visual-coverage.mjs';
 import { buildSpecIndex, loadActiveSpecRecords, predecessorSpecClauses } from './specifications.mjs';
 import {
@@ -70,6 +71,7 @@ import {
 import { operationContext } from './operation-context.mjs';
 import { evaluateExternalCommandForModelMode, externalCommandText } from './external-command-policy.mjs';
 import { assertProducerAllowed } from './manual-authorship.mjs';
+import { consumeRepairAttempt } from './repair-budget.mjs';
 
 export const CONFIG_PATH = WORKFLOW_PATH;
 export const loadConfig = loadDefinition;
@@ -194,6 +196,8 @@ function phaseState(definition, index) {
     worldModel: structuredClone(definition.worldModel ?? {}),
     writeScope: definition.writeScope ?? 'artifact-only',
     comparison: structuredClone(definition.comparison ?? {}),
+    mcp: structuredClone(definition.mcp ?? { requiredServers: [], requireSmoke: false, evidence: [] }),
+    repairBudget: structuredClone(definition.repairBudget ?? null),
     inputs: structuredClone(definition.inputs ?? []),
     generationPolicy: structuredClone(definition.generation ?? { requirement: 'required', producer: 'agent' }),
     approvalPolicy: structuredClone(definition.approval ?? { authorities: [DEFAULT_APPROVAL_AUTHORITY], minimum: 1, rejectTo: [definition.id] }),
@@ -574,6 +578,7 @@ function normalizeCurrentWorkflow(workflow) {
   workflow.collaboration.notifications ??= [];
   workflow.sequenceOverrides ??= [];
   workflow.changeRequests ??= [];
+  workflow.repairBudgets ??= {};
   workflow.workIntervals ??= { schemaVersion: 1, current: null, history: [], escalations: [] };
   workflow.workIntervals.history ??= [];
   workflow.workIntervals.escalations ??= [];
@@ -587,6 +592,8 @@ function normalizeCurrentWorkflow(workflow) {
     phase.approvalPolicy.mode ??= 'required';
     if (phase.approvalPolicy.mode !== 'none') phase.approvalPolicy.authorities ??= [DEFAULT_APPROVAL_AUTHORITY];
     phase.generationPolicy ??= workflow.resolution.phases?.find((item) => item.id === id)?.generation ?? { requirement: 'required', producer: 'agent' };
+    phase.mcp ??= structuredClone(workflow.resolution.phases?.find((item) => item.id === id)?.mcp ?? { requiredServers: [], requireSmoke: false, evidence: [] });
+    phase.repairBudget ??= structuredClone(workflow.resolution.phases?.find((item) => item.id === id)?.repairBudget ?? null);
     delete phase.approvalPolicy.agents;
     phase.writeScope ??= 'source-and-artifact'; phase.comparison ??= {};
     phase.inputs ??= workflow.resolution.phases?.find((item) => item.id === id)?.inputs ?? [];
@@ -712,6 +719,7 @@ export async function preparePhase(root, config, workflow, requested = undefined
 export async function preparePhaseInputs(root, config, workflow, requested = undefined, { dryRun = false } = {}) {
   if (!dryRun) await assertNoPendingPublication(root, config, workflow, 'prepare or change phase inputs');
   const phase = await assertPhaseSequence(root, workflow, 'prepare', { requestedPhase: requested });
+  await assertMcpPhaseReadiness(root, workflow, phase);
   await hydrateImpactPlan(root, workflow);
   const impactGate = impactImplementationGate(workflow, phase.id);
   if (impactGate) throw new SingularityFlowError(impactGate);
@@ -967,6 +975,7 @@ export async function publishGeneration(root, config, workflow, { phaseId, usage
   await assertNoPendingPublication(root, config, workflow, 'publish a generation');
   const phase = await assertPhaseSequence(root, workflow, 'publish a generation', { requestedPhase: phaseId }); const session = await loadSession(root);
   assertRequiredAssignment(workflow, phase);
+  await assertMcpPhaseReadiness(root, workflow, phase);
   await preparePhaseInputs(root, config, workflow, phase.id);
   const effectiveAuthorship = authorship ?? {
     schemaVersion: 1, producer: 'legacy-unspecified', channel: 'legacy', actor: structuredClone(session.actor),
@@ -990,6 +999,11 @@ export async function publishGeneration(root, config, workflow, { phaseId, usage
     : { warnings: [], errors: [], record: null, path: null, sha256: null };
   clarification.warnings.forEach((warning) => console.warn(`Warning: ${warning}`));
   if (clarification.errors.length) throw new SingularityFlowError(`Phase ${phase.id} clarification is not ready:\n- ${clarification.errors.join('\n- ')}`);
+  const mcpEvidence = await verifyPhaseMcpRequirements(root, workflow, phase, {
+    itemDirectory: workDir(root, config, workflow.workItem.id),
+    targetGeneration: phase.generation + 1
+  });
+  if (mcpEvidence.errors.length) throw new SingularityFlowError(`Phase ${phase.id} MCP evidence is not ready:\n- ${mcpEvidence.errors.join('\n- ')}`, { code: 'MCP_EVIDENCE_REQUIRED' });
   const changed = changedFiles(root);
   const protectedPaths = [...new Set([
     ...(config.governance?.protectedPaths ?? []),
@@ -1300,6 +1314,12 @@ export async function submitPhase(root, config, workflow, { phaseId, runChecks =
   await assertNoPendingPublication(root, config, workflow, 'submit for approval');
   const phase = await assertPhaseSequence(root, workflow, 'submit for approval', { requestedPhase: phaseId }); const session = await loadSession(root);
   assertRequiredAssignment(workflow, phase);
+  await assertMcpPhaseReadiness(root, workflow, phase);
+  const mcpEvidence = await verifyPhaseMcpRequirements(root, workflow, phase, {
+    itemDirectory: workDir(root, config, workflow.workItem.id),
+    targetGeneration: phase.generation
+  });
+  if (mcpEvidence.errors.length) throw new SingularityFlowError(`Phase ${phase.id} MCP evidence is not ready:\n- ${mcpEvidence.errors.join('\n- ')}`, { code: 'MCP_EVIDENCE_REQUIRED' });
   if (phaseNeedsGeneration(workflow, phase)) await enforceSequenceGate(root, workflow, 'freshGeneration', 'submit for approval', {
     requestedPhase: phase.id,
     reason: phase.generation < 1 ? 'The phase has no published generation.' : 'The phase was returned for correction and has not been regenerated.'
@@ -1342,8 +1362,10 @@ export async function submitPhase(root, config, workflow, { phaseId, runChecks =
   phase.checks = runChecks ? await qualityChecks(root, phase, config) : [];
   if (phase.id === 'visual-verification') await assertVisualCoverage(root, workflow, { itemDirectory: workDir(root, config, workflow.workItem.id) });
   const errors = await validatePhase(root, config, workflow, phase); const failed = phase.checks.filter((check) => check.status === 'failed' || check.status === 'blocked');
-  if (failed.length) errors.push(`Quality command failed: ${failed.map((check) => check.command).join(', ')}`);
+  const reviewableFailure = Boolean(phase.repairBudget && failed.length);
+  if (failed.length && !reviewableFailure) errors.push(`Quality command failed: ${failed.map((check) => check.command).join(', ')}`);
   if (errors.length) throw new SingularityFlowError(`Phase ${phase.id} is not ready:\n- ${errors.join('\n- ')}`);
+  phase.validationVerdict = failed.length ? 'failed' : 'passed';
   if (phaseUsesWorkInterval(phase)) {
     const itemDirectory = workDir(root, config, workflow.workItem.id);
     const itemRelative = workDirRelative(config, workflow.workItem.id);
@@ -1384,7 +1406,7 @@ export async function submitPhase(root, config, workflow, { phaseId, runChecks =
   const waiver = phase.approvalPolicy.mode === 'policy'
     ? evaluateQuickFixWaiver(root, config, workflow, phase)
     : null;
-  if (phase.approvalPolicy.mode === 'none' || waiver?.eligible) {
+  if (!reviewableFailure && (phase.approvalPolicy.mode === 'none' || waiver?.eligible)) {
     phase.status = 'approved';
     phase.approvedAt = phase.submittedAt;
     phase.approvedBy = null;
@@ -1429,7 +1451,16 @@ export async function submitPhase(root, config, workflow, { phaseId, runChecks =
     } : { at: phase.submittedAt, actor: actorKey(session.actor), agent: session.agent, event: 'phase_completed_without_approval', phase: phase.id, detail: `approval mode none${workflow.currentPhase ? `; advanced to ${workflow.currentPhase}` : '; complete'}` });
   } else {
     phase.status = 'awaiting_approval';
-    workflow.history.push({ at: phase.submittedAt, actor: actorKey(session.actor), agent: session.agent, event: 'phase_submitted', phase: phase.id, detail: `${phase.artifacts.length} artifacts` });
+    workflow.history.push({
+      at: phase.submittedAt,
+      actor: actorKey(session.actor),
+      agent: session.agent,
+      event: reviewableFailure ? 'phase_validation_failed' : 'phase_submitted',
+      phase: phase.id,
+      detail: reviewableFailure
+        ? `${failed.length} quality command(s) failed; human rejection may authorize bounded repair`
+        : `${phase.artifacts.length} artifacts`
+    });
   }
   await updateArtifactMetadata(root, config, workflow, phase);
   await refreshRequiredArtifact(root, config, workflow, phase);
@@ -1459,6 +1490,13 @@ export async function approvePhase(root, config, workflow, {
 } = {}) {
   await assertNoPendingPublication(root, config, workflow, 'approve');
   const phase = await assertPhaseSequence(root, workflow, 'approve', { requestedPhase: phaseId, allowedStatuses: ['awaiting_approval'] });
+  const failedChecks = (phase.checks ?? []).filter((check) => check.status === 'failed' || check.status === 'blocked');
+  if (failedChecks.length) {
+    throw new SingularityFlowError(
+      `Phase '${phase.id}' cannot be approved because ${failedChecks.length} quality command(s) failed. Reject it to an allowed repair phase.`,
+      { code: 'PHASE_VALIDATION_FAILED' }
+    );
+  }
   const session = await loadSession(root);
   const actor = session.actor;
   const authority = requireApprovalAuthority(
@@ -1686,6 +1724,12 @@ export async function rejectPhase(root, config, workflow, { phaseId, target, rea
     reviewPacketSha256: null,
     resolution: null
   };
+  const repairBudget = consumeRepairAttempt(workflow, phase, {
+    targetPhase: targetId,
+    actor: structuredClone(session.actor),
+    at: timestamp,
+    changeRequestId: changeRequest.id
+  });
   for (let index = targetIndex; index < workflow.phaseOrder.length; index += 1) {
     const affected = workflow.phases[workflow.phaseOrder[index]];
     affected.approvals.forEach((approval) => { if (!approval.invalidatedAt) approval.invalidatedAt = timestamp; });
@@ -1724,6 +1768,7 @@ export async function rejectPhase(root, config, workflow, { phaseId, target, rea
     reviewPacketSha256: packet?.packetSha256 ?? null,
     ...(phase.artifactSet ? { artifactSet: phase.artifactSet.setId, bundleSha256: phase.artifactSet.bundleSha256 } : {}),
     ...(requestedMembers.length ? { members: requestedMembers } : {}),
+    ...(repairBudget ? { repairBudget: { consumed: repairBudget.attempts.length, maximum: repairBudget.maximum } } : {}),
     ...(actionContext ? { actionContext } : {})
   };
   phase.approvals.push(decision); await writeDecision(root, config, workflow, phase, decision);
@@ -1744,6 +1789,7 @@ export async function rejectPhase(root, config, workflow, { phaseId, target, rea
   return {
     ...workflow.phases[targetId],
     changeRequest,
+    ...(repairBudget ? { repairBudget } : {}),
     contextBoundary: contextBoundaryHandoff(workflow.resolution.contextPolicy, phase.id, {
       event: 'rejection',
       nextPhase: targetId

@@ -246,6 +246,34 @@ export async function verifyMcpEvidence(root, workflow, { itemDirectory = null }
   return { errors, warnings, passes, records };
 }
 
+export async function verifyPhaseMcpRequirements(root, workflow, phase, {
+  itemDirectory = null,
+  targetGeneration = Number(phase?.generation ?? 0) + 1
+} = {}) {
+  const requirements = phase?.mcp?.evidence ?? [];
+  if (!requirements.length) return { errors: [], passes: [], records: [] };
+  const integrity = await verifyMcpEvidence(root, workflow, { itemDirectory });
+  const errors = [...integrity.errors];
+  const passes = [];
+  const records = integrity.records.filter((record) =>
+    record.phase === phase.id && Number(record.targetGeneration) === Number(targetGeneration)
+  );
+  for (const requirement of requirements) {
+    const matches = records.filter((record) =>
+      record.server === requirement.server
+      && record.tool === requirement.tool
+      && (!requirement.outputRequired || Boolean(record.output?.sha256))
+    );
+    if (matches.length < requirement.minimum) {
+      errors.push(
+        `Phase '${phase.id}' generation ${targetGeneration} requires ${requirement.minimum} MCP evidence record(s) for ${requirement.server}/${requirement.tool}`
+        + `${requirement.outputRequired ? ' with a durable output' : ''}; found ${matches.length}.`
+      );
+    } else passes.push(`${requirement.server}/${requirement.tool}: ${matches.length}/${requirement.minimum}`);
+  }
+  return { errors, passes, records };
+}
+
 export async function listMcpEvidence(root, workflow, options = {}) {
   return (await verifyMcpEvidence(root, workflow, options)).records;
 }

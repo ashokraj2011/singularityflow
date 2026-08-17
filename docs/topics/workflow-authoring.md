@@ -12,7 +12,7 @@ related:
   - configuration
   - agents-and-routing
   - artifacts-and-generation
-version: 2
+version: 3
 ---
 Author work types, ordered phases, gates, artifacts, inputs, and approval policy through governed configuration. Existing work remains pinned to the resolution it started with.
 
@@ -43,8 +43,8 @@ concept. It appears in CLI, Copilot, and VS Code workflow selection and runs thi
 
 Start it from any surface as a normal new Story. Select an explicit remote base branch first; SFlow
 creates and publishes only the isolated Story branch. Intake then records the authorized environment,
-test intent, acceptance criteria, viewports, test data, and secret references. The dedicated
-`poc-automation` agent compares the pinned revisions, records Playwright MCP observations, follows
+test intent, acceptance criteria, viewports, test data, and secret references. Dedicated
+least-privilege analyst, explorer, test-developer, and validator agents compare the pinned revisions, record Playwright MCP observations, follow
 the repository's existing test and Page Object conventions, and produces exact command and evidence
 records. The host must have the Playwright MCP server configured, and every allowed browser call
 retains host confirmation and governed provenance.
@@ -60,6 +60,8 @@ base without an explicit governed publication action.
 sflow workspace branches --json
 sflow start POC-101 --title "Checkout regression demonstration" --from-branch develop --work-type poc-workflow
 sflow mcp doctor
+sflow mcp attest playwright --confirm playwright
+sflow mcp smoke playwright --url https://staging.example.test/health
 sflow status POC-101
 ```
 

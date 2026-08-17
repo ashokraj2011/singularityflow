@@ -2456,6 +2456,21 @@ test('Story workflow phases render as a horizontal rail beneath the workflow nam
   assert.match(STYLE, /\.choice\.workflow-choice \.workflow-step \{[\s\S]*display: inline-flex;/);
 });
 
+test('POC Story intake explains the browser preflight and bounded validation before start', () => {
+  const html = intakeHtml(intake({
+    shape: 'story', tracker: 'none', id: 'poc-checkout', title: 'Checkout POC',
+    description: 'Generate and validate checkout regression coverage',
+    workType: 'poc-workflow',
+    storyWorkflows: [...INTAKE_CHOICES.storyWorkflows, {
+      id: 'poc-workflow', label: 'POC workflow', description: 'Governed browser test generation',
+      phases: ['poc-intake', 'poc-ui-exploration', 'poc-validation']
+    }]
+  }));
+  assert.match(html, /POC browser readiness/);
+  assert.match(html, /mcp smoke playwright --url/);
+  assert.match(html, /at most two/);
+});
+
 test('a tracked Story is fetched by key', () => {
   const form = intake({ shape: 'story', tracker: 'jira', jiraConfigured: true, key: 'ENG-142' });
   assert.deepEqual(intakeProblems(form), []);

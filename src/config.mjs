@@ -39,12 +39,13 @@ import { VERSION } from './version.mjs';
 import { constitutionPolicy } from './constitution.mjs';
 import { assertModelTask } from './model-tasks.mjs';
 import { isTemplateReference, normalizeTemplateCatalog, parseTemplateReference, resolveTemplate } from './template-catalog.mjs';
-import { normalizeMcpServers, validateMcpAgentTools } from './mcp.mjs';
+import { normalizeMcpServers, normalizePhaseMcpPolicy, validateMcpAgentTools } from './mcp.mjs';
 import { normalizeSpecPolicy } from './specifications.mjs';
 import { normalizeHarnessImports } from './harness-imports.mjs';
 import { loadImpactDefinition } from './impact-config.mjs';
 import { normalizeExternalCommand } from './external-command-policy.mjs';
 import { materializationPolicy } from './world-model-materialization.mjs';
+import { normalizeRepairBudget } from './repair-budget.mjs';
 
 export const WORKFLOW_PATH = 'singularity/workflow.yml';
 export const CONTROL_ROOT = 'singularity';
@@ -490,6 +491,8 @@ export function validateDefinition(definition) {
     if (!template && !Object.values(definition.workTypes).some((type) => type.templateOverrides?.[id])) throw new SingularityFlowError(`Phase '${id}' has no default or work-type template.`);
     normalizeApprovalPolicy(phase.approval ?? {}, definition.approvalAuthorities, id);
     normalizeGenerationPolicy(phase.generation, id);
+    phase.mcp = normalizePhaseMcpPolicy(phase.mcp, { servers: definition.mcpServers, phaseId: id });
+    phase.repairBudget = normalizeRepairBudget(phase.repairBudget, { phaseId: id, phases: Object.keys(definition.phases) });
     for (const [index, command] of (phase.qualityCommands ?? []).entries()) normalizeExternalCommand(command, index);
     normalizePhaseInputs(phase.inputs, `Phase '${id}' inputs`);
     normalizeClarificationPolicy(phase.clarification);
@@ -851,9 +854,11 @@ export function resolveWorkType(definition, workTypeId) {
     const inputs = normalizePhaseInputs(merged.inputs, `Work type '${workTypeId}' phase '${id}' inputs`);
     const approval = normalizeApprovalPolicy(merged.approval ?? {}, definition.approvalAuthorities, id);
     const generation = normalizeGenerationPolicy(merged.generation, id);
+    const mcp = normalizePhaseMcpPolicy(merged.mcp, { servers: definition.mcpServers, phaseId: id });
+    const repairBudget = normalizeRepairBudget(merged.repairBudget, { phaseId: id, phases: workType.phases });
     const clarification = normalizeClarificationPolicy(merged.clarification);
     const specificationQuality = specificationQualityPolicy(merged.specificationQuality ?? {});
-    return { id, order, ...merged, approval, generation, clarification, specificationQuality, inputs, template };
+    return { id, order, ...merged, approval, generation, mcp, repairBudget, clarification, specificationQuality, inputs, template };
   });
   const phaseById = Object.fromEntries(phases.map((phase) => [phase.id, phase]));
   phases = phases.map((phase) => ({

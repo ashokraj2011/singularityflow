@@ -2,7 +2,7 @@
 
 ## Governed MCP and visual assurance
 
-MCP remains host-managed: Singularity Flow records which agent, phase, and tool may use it. `sflow mcp doctor` is offline by default; use `sflow mcp doctor --network` only for an explicit connectivity check and `sflow mcp warm <SERVER> --network` to pre-warm a pinned host dependency. Capture local output with `sflow mcp record`; remote output requires an explicit public HTTPS `--output-url` and is copied, size-limited, hashed, and committed as evidence.
+MCP remains host-managed: Singularity Flow records which agent, phase, and tool may use it. `sflow mcp doctor` is offline by default; use `sflow mcp doctor --network` only for an explicit connectivity check, `sflow mcp warm <SERVER> --network` to pre-warm a pinned host dependency, and `sflow mcp smoke playwright --url <AUTHORIZED-URL>` for a live browser/tool smoke receipt. Capture local output with `sflow mcp record`; remote output requires an explicit public HTTPS `--output-url` and is copied, size-limited, hashed, and committed as evidence.
 
 Mobile visual verification is configured per work type under `verification.profiles`. Evidence must name a profile, screen, and state. Use `sflow visual status` to check coverage and `sflow visual compare --expected <record-or-path> --actual <record-or-path> --profile <id>` for a deterministic RGBA8 PNG comparison. Unsupported formats and dimension mismatches are reported honestly; comparison never silently resizes images.
 
@@ -1345,8 +1345,10 @@ Feature work produces stable `AC-n` acceptance criteria and `SPEC-nnn` implement
 `poc-workflow` is the packaged UI-regression demonstration flow. It requires an explicitly selected
 remote base branch and an isolated Story branch, captures an authorized target environment and test
 intent, traces changed code to regression scenarios, records confirmed Playwright MCP observations,
-generates repository-native TypeScript tests/Page Objects, and stores exact runner evidence. A
-failure may be rejected for no more than two human-authorized repair generations; there is no
+generates repository-native TypeScript tests/Page Objects, and executes hash-bound TypeScript and
+Playwright quality gates. UI exploration and validation require a current host attestation, live
+browser smoke receipt, and complete MCP evidence for the current generation. A failure may be
+rejected for no more than two kernel-enforced human-authorized repair generations; there is no
 autonomous retry loop. Passing validation advances to a separate publication review requiring both
 quality and engineering approval. The review prepares the Story-branch diff and PR description but
 does not create a PR or update the selected base without an explicit governed action.
@@ -2115,6 +2117,7 @@ singularity-flow mcp scaffold figma
 singularity-flow mcp status
 singularity-flow mcp doctor
 singularity-flow mcp attest figma --confirm figma
+singularity-flow mcp smoke playwright --url https://staging.example.test/health
 singularity-flow mcp record playwright --tool browser_snapshot --phase verification
 singularity-flow mcp record figma --kind design-source --tool get_metadata \
   --phase design-intake --output figma-metadata.xml \
@@ -2136,7 +2139,8 @@ treated as AI agents. See [docs/CONFIGURATION-CENTER.md](docs/CONFIGURATION-CENT
 reviews, trusts, starts, and authenticates the server in the host and records that
 fact with `mcp attest`. The receipt lives under `.git/singularity-flow/mcp/readiness/`
 and becomes stale when the host entry or governed policy changes. It is an
-attestation, not proof of live connectivity.
+attestation, not proof of live connectivity. A phase with `mcp.requireSmoke: true`
+also requires a current machine-local smoke receipt bound to the same host entry and policy.
 
 When an MCP result matters to a decision, pass `--output`. Flow copies it into the
 active work item's managed MCP context and later verifies its size and SHA-256. This is a
@@ -2559,6 +2563,9 @@ singularity-flow agents status [PACK]
 singularity-flow agents refresh-output <RESOURCE-ID> [--replace]
 singularity-flow mcp list|status|doctor [--json]
 singularity-flow mcp scaffold playwright|figma [--local] [--replace-server]
+singularity-flow mcp attest <SERVER> --confirm <SERVER>
+singularity-flow mcp warm <SERVER> --network [--json]
+singularity-flow mcp smoke playwright --url <AUTHORIZED-URL> [--json]
 singularity-flow mcp record <SERVER> --tool TOOL [--phase PHASE] [--output PATH] [--note TEXT]
 singularity-flow mcp design-sources status [--json]
 singularity-flow mcp design-sources promote <RECORD-ID> --confirm <RECORD-ID> [--reason TEXT]

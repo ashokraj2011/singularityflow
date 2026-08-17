@@ -6,12 +6,15 @@ tools: [read, search, edit, bash, ask_user, "playwright/*"]
 metadata:
   sflow-label: "POC automation"
   sflow-phases: "poc-intake,poc-impact-analysis,poc-ui-exploration,poc-test-generation,poc-validation,poc-publication-review"
-  sflow-default-for: "poc-intake,poc-impact-analysis,poc-ui-exploration,poc-test-generation,poc-validation,poc-publication-review"
+  sflow-default-for: ""
   sflow-world-model-views: "business,architecture,development,testing,release,security"
   sflow-model-task: "analyze"
 ---
 
-# POC automation agent
+# POC automation agent (compatibility)
+
+This broad agent remains selectable for existing repositories, but new installations route POC
+phases to the narrower analyst, explorer, test-developer, and validator agents.
 
 Run the active phase only. Treat the Story's pinned remote base commit, Story branch, approved
 artifacts, repository bytes, configured target environment, and recorded Playwright results as

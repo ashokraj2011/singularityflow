@@ -48,8 +48,15 @@ test('the packaged POC workflow is isolated, ordered, and fully governed', async
   assert.equal(resolved.phases.find((phase) => phase.id === 'poc-test-generation').writeScope, 'source-and-artifact');
   assert.deepEqual(
     resolved.phases.find((phase) => phase.id === 'poc-validation').approval.rejectTo,
-    ['poc-ui-exploration', 'poc-test-generation', 'poc-validation']
+    ['poc-intake', 'poc-ui-exploration', 'poc-test-generation', 'poc-validation']
   );
+  const exploration = resolved.phases.find((phase) => phase.id === 'poc-ui-exploration');
+  const validation = resolved.phases.find((phase) => phase.id === 'poc-validation');
+  assert.deepEqual(exploration.mcp.requiredServers, ['playwright']);
+  assert.equal(exploration.mcp.requireSmoke, true);
+  assert.deepEqual(validation.repairBudget, { maxAttempts: 2, resetOnPhase: 'poc-intake' });
+  assert.ok(validation.qualityCommands.some((command) => command.id === 'typescript-compile'));
+  assert.ok(validation.qualityCommands.some((command) => command.id === 'playwright-tests'));
   const publication = resolved.phases.find((phase) => phase.id === 'poc-publication-review');
   assert.equal(publication.approval.minimum, 2);
   assert.deepEqual(publication.approval.authorities, ['quality-reviewers', 'engineering-reviewers']);
@@ -77,7 +84,9 @@ test('fresh initialization activates the dedicated POC agent and ships every tem
   const definition = await loadDefinition(root);
   const resolved = resolveWorkType(definition, 'poc-workflow');
 
-  for (const phase of resolved.phases) assert.equal(phase.defaultAgent, 'poc-automation');
+  assert.deepEqual(resolved.phases.map((phase) => phase.defaultAgent), [
+    'poc-analyst', 'poc-analyst', 'poc-explorer', 'poc-test-developer', 'poc-validator', 'poc-validator'
+  ]);
   for (const phase of resolved.phases) {
     const template = await readFile(path.join(root, definition.templatesRoot, phase.template), 'utf8');
     for (const heading of definition.phases[phase.id].artifact.validation.requiredHeadings) {
@@ -113,14 +122,22 @@ test('catalog installation upgrades an older repository with POC agents and MCP 
   old.mcpServers.playwright.tools = ['browser_navigate', 'browser_snapshot', 'browser_click', 'browser_take_screenshot'];
   await writeFile(workflowPath, YAML.stringify(old));
   await rm(path.join(root, '.github/agents/poc-automation.agent.md'));
+  for (const agent of ['poc-analyst', 'poc-explorer', 'poc-test-developer', 'poc-validator']) {
+    await rm(path.join(root, `.github/agents/${agent}.agent.md`));
+  }
   await rm(path.join(root, 'singularity/templates/poc-workflow'), { recursive: true });
 
   const result = await installWorkflow(root, 'poc-workflow');
-  assert.ok(result.files.includes('.github/agents/poc-automation.agent.md'));
+  for (const agent of ['poc-analyst', 'poc-explorer', 'poc-test-developer', 'poc-validator']) {
+    assert.ok(result.files.includes(`.github/agents/${agent}.agent.md`));
+  }
   const upgraded = await loadDefinition(root);
   const resolved = resolveWorkType(upgraded, 'poc-workflow');
   assert.ok(upgraded.mcpServers.playwright.phases.includes('poc-ui-exploration'));
   assert.ok(upgraded.mcpServers.playwright.tools.includes('browser_fill_form'));
-  assert.ok(upgraded.mcpServers.playwright.agents.includes('poc-automation'));
-  for (const phase of resolved.phases) assert.equal(phase.defaultAgent, 'poc-automation');
+  assert.ok(upgraded.mcpServers.playwright.agents.includes('poc-explorer'));
+  assert.ok(upgraded.mcpServers.playwright.agents.includes('poc-validator'));
+  assert.deepEqual(resolved.phases.map((phase) => phase.defaultAgent), [
+    'poc-analyst', 'poc-analyst', 'poc-explorer', 'poc-test-developer', 'poc-validator', 'poc-validator'
+  ]);
 });

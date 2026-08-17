@@ -1,0 +1,27 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://singularity-flow.local/schemas/mcp-smoke-receipt.schema.json",
+  "title": "Singularity Flow MCP live smoke receipt",
+  "type": "object",
+  "required": ["schemaVersion", "serverId", "hostReference", "checkedAt", "authorizedOrigin", "hostEntrySha256", "policySha256", "result"],
+  "properties": {
+    "schemaVersion": { "const": 1 },
+    "serverId": { "type": "string", "pattern": "^[a-z0-9]+(?:-[a-z0-9]+)*$" },
+    "hostReference": { "type": "string", "pattern": "^[a-z0-9]+(?:-[a-z0-9]+)*$" },
+    "checkedAt": { "type": "string", "format": "date-time" },
+    "authorizedOrigin": { "type": "string", "format": "uri" },
+    "hostEntrySha256": { "type": "string", "pattern": "^[a-f0-9]{64}$" },
+    "policySha256": { "type": "string", "pattern": "^[a-f0-9]{64}$" },
+    "result": {
+      "type": "object",
+      "required": ["status", "tools"],
+      "properties": {
+        "status": { "const": "passed" },
+        "tools": { "type": "array", "minItems": 1, "uniqueItems": true, "items": { "type": "string" } },
+        "protocolVersion": { "type": ["string", "null"] }
+      },
+      "additionalProperties": true
+    }
+  },
+  "additionalProperties": false
+}

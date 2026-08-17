@@ -46,8 +46,14 @@ test('a never-model parent operation forbids nested model invocation', async () 
 
 test('external commands are classified and model-disabled behavior is deterministic', () => {
   assert.deepEqual(normalizeExternalCommand({ id: 'lint', argv: ['npm', 'run', 'lint'], modelPolicy: 'never' }), {
-    id: 'lint', argv: ['npm', 'run', 'lint'], command: null, modelPolicy: 'never'
+    id: 'lint', argv: ['npm', 'run', 'lint'], command: null, modelPolicy: 'never', timeoutMs: null
   });
+  assert.equal(normalizeExternalCommand({
+    id: 'browser', argv: ['npm', 'test'], modelPolicy: 'never', timeoutMs: 60_000
+  }).timeoutMs, 60_000);
+  assert.throws(() => normalizeExternalCommand({
+    id: 'browser', argv: ['npm', 'test'], modelPolicy: 'never', timeoutMs: 10
+  }), /timeoutMs/);
   assert.equal(evaluateExternalCommandForModelMode('opaque command', { modelEnabled: false }).action, 'skip');
   assert.equal(evaluateExternalCommandForModelMode('opaque command', { modelEnabled: false, unknownStrictness: 'block' }).action, 'block');
   assert.equal(evaluateExternalCommandForModelMode({ id: 'review', command: 'review-tool', modelPolicy: 'required' }, { modelEnabled: false }).action, 'block');

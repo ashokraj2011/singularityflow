@@ -53,6 +53,29 @@ test('start refuses non-interactive selection without a test or UI selection', a
   assert.notEqual(execute('git', ['show-ref', '--verify', '--quiet', 'refs/heads/NO-SELECT'], root, { allowFailure: true }).status, 0);
 });
 
+test('POC start requires its browser target before branch or session mutation', async () => {
+  const root = await repository();
+  const workId = 'POC-TARGET-1';
+  const missing = flow(root, [
+    'start', workId, '--from-branch', 'main', '--work-type', 'poc-workflow',
+    '--title', 'Generate browser coverage', '--description', 'Exercise the governed POC flow.'
+  ], { allowFailure: true });
+  assert.notEqual(missing.status, 0);
+  assert.match(missing.stderr, /--target-url/);
+  assert.equal(execute('git', ['branch', '--show-current'], root).stdout.trim(), 'main');
+  assert.notEqual(execute('git', ['show-ref', '--verify', '--quiet', `refs/heads/${workId}`], root, { allowFailure: true }).status, 0);
+  await assert.rejects(readFile(path.join(root, '.git/singularity-flow/session.json')), { code: 'ENOENT' });
+
+  flow(root, [
+    'start', workId, '--from-branch', 'main', '--work-type', 'poc-workflow',
+    '--target-url', 'https://staging.example.test/application',
+    '--title', 'Generate browser coverage', '--description', 'Exercise the governed POC flow.'
+  ]);
+  const workflow = JSON.parse(await readFile(path.join(root, 'singularity/work-items', workId, 'workflow.json'), 'utf8'));
+  assert.equal(workflow.workItem.source.targetOrigin, 'https://staging.example.test');
+  assert.deepEqual(workflow.mcpAuthorizations.playwright.origins, ['https://staging.example.test']);
+});
+
 test('start JSON uses the same versioned command-result contract as terminal output', async () => {
   const root = await repository();
   const result = flow(root, [

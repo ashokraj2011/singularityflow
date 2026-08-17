@@ -19,6 +19,8 @@ export const CLI_TIMEOUT_MS = 120_000;
 export const SNAPSHOT_TIMEOUT_MS = 120_000;
 /** `wm build` runs a model over a whole repository and legitimately takes minutes. */
 export const WORLD_MODEL_TIMEOUT_MS = 15 * 60_000;
+/** Submission may run repository-native compile and browser suites; keep it above the seeded POC budget. */
+export const VALIDATION_TIMEOUT_MS = 30 * 60_000;
 /** Governed image/PDF previews may carry a 25 MiB document encoded as base64. */
 const MAX_OUTPUT_BYTES = 40 * 1024 * 1024;
 

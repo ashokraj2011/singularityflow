@@ -271,7 +271,7 @@ export class IntakePanel {
   }
 
   /** The fields this form will write. Anything else named by the page is refused. */
-  private static readonly WRITABLE = Object.freeze(['key', 'id', 'title', 'description', 'goal', 'acceptanceCriteria']);
+  private static readonly WRITABLE = Object.freeze(['key', 'id', 'title', 'description', 'goal', 'acceptanceCriteria', 'targetUrl']);
 
   /**
    * The eight messages this panel speaks, enumerated. `[UXH:REQ-134]` `[UXH:AC-014]`

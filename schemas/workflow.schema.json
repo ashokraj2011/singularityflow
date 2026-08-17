@@ -6,6 +6,23 @@
   "required": ["schemaVersion", "workItem", "status", "currentPhase", "phaseOrder", "phases", "history"],
   "properties": {
     "schemaVersion": { "enum": [1, 2] },
+    "mcpAuthorizations": {
+      "type": "object",
+      "additionalProperties": {
+        "type": "object",
+        "required": ["schemaVersion", "origins", "source", "pinnedAt"],
+        "properties": {
+          "schemaVersion": { "const": 1 },
+          "origins": {
+            "type": "array", "minItems": 1, "uniqueItems": true,
+            "items": { "type": "string", "format": "uri" }
+          },
+          "source": { "const": "story-intake" },
+          "pinnedAt": { "type": "string", "format": "date-time" }
+        },
+        "additionalProperties": false
+      }
+    },
     "lineage": {
       "type": "object",
       "properties": {
@@ -123,7 +140,30 @@
           "owner": { "type": ["string", "null"] },
           "status": { "enum": ["not_started", "in_progress", "awaiting_approval", "approved", "cancelled"] },
           "requiredArtifact": { "type": ["object", "null"] },
-          "qualityCommands": { "type": "array", "items": { "type": "string" } },
+          "qualityCommands": {
+            "type": "array",
+            "items": {
+              "oneOf": [
+                { "type": "string", "minLength": 1 },
+                {
+                  "type": "object",
+                  "required": ["id", "modelPolicy"],
+                  "properties": {
+                    "id": { "type": "string", "minLength": 1 },
+                    "command": { "type": "string", "minLength": 1 },
+                    "argv": { "type": "array", "minItems": 1, "items": { "type": "string" } },
+                    "modelPolicy": { "enum": ["never", "required", "unknown"] },
+                    "timeoutMs": { "type": "integer", "minimum": 1000, "maximum": 7200000 }
+                  },
+                  "oneOf": [
+                    { "required": ["command"], "not": { "required": ["argv"] } },
+                    { "required": ["argv"], "not": { "required": ["command"] } }
+                  ],
+                  "additionalProperties": false
+                }
+              ]
+            }
+          },
           "inputs": { "type": "array", "items": { "type": "object" } },
           "artifacts": { "type": "array", "items": { "type": "object" } },
           "checks": { "type": "array", "items": { "type": "object" } },

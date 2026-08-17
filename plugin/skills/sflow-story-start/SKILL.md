@@ -8,23 +8,23 @@ argument-hint: "<JIRA-STORY-KEY>"
 # Start a governed Jira Story
 
 <!-- sflow-output-contract: explicit-selection -->
-**Output contract:** Collect every required choice explicitly; never infer or preselect; preserve errors, artifacts, and next actions.
+**Output contract:** Collect every choice; never infer or preselect; preserve errors and next actions.
 
-1. If no Story key was supplied, run `singularity-flow jira assigned --type Story --json` and ask the contributor to choose one. Never infer a Story.
-2. Run `singularity-flow jira pull <STORY-KEY> --json`. Show the title, description, acceptance criteria, parent Epic, attachments, assignee, status, and project before making changes.
-3. Confirm that the Jira project is routed to the current repository or active Singularity workspace. If it belongs to another configured repository, switch to that repository first. Never start the Story in an arbitrary repository.
-4. Run `git status --short`. Stop when unrelated changes would make intake unsafe.
-5. Run `singularity-flow workspace branches --json`, present every branch published by all required repositories, and require an explicit contributor selection. Stop if any remote is unreachable. Then start `singularity-flow story start <STORY-KEY> --fetch --from-branch <SELECTED-BRANCH>` in an interactive terminal and bridge the displayed workflow choices through `ask_user`.
+1. Without a key, run `singularity-flow jira assigned --type Story --json` and ask the contributor to choose. Never infer it.
+2. Run `singularity-flow jira pull <STORY-KEY> --json`; show its details before mutation.
+3. Verify its Jira project routes to this repository or active workspace; otherwise switch first.
+4. Run `git status --short`; stop for unrelated changes.
+5. Run `singularity-flow workspace branches --json`. Present branches published by every required repository and require a choice; stop if a remote fails. Start `singularity-flow story start <STORY-KEY> --fetch --from-branch <SELECTED-BRANCH>` interactively and bridge workflow choices through `ask_user`. For `poc-workflow`, ask for the exact authorized target and pass `--target-url <AUTHORIZED-URL>`.
 6. If persistent terminal input is unavailable:
    - Run `singularity-flow choices begin start <STORY-KEY> --json`.
-   - Present and record an explicit `base-branch`; never preselect it.
+   - Present and record `base-branch`; never preselect it.
    - Record `jira` for `intake-source`.
    - Present the workflow-template and governed-agent options with `ask_user`.
-   - Record each explicit answer with `singularity-flow choices answer`.
-   - Run `singularity-flow story start <STORY-KEY> --fetch --selection-receipt <TOKEN>` only after the receipt reports `ready: true`.
-7. Show the resulting Epic → Jira Story → canonical branch lineage, selected remote base and commit, selected workflow, governed agent, current phase, generated intake document paths, commit, and exact pushed Story ref. Verify the base ref was not changed.
-8. Only after the canonical Story branch exists, run `singularity-flow wm availability --phase <CURRENT-PHASE> --task "<STORY-TITLE>"`. If exact grounding is missing or stale, show `singularity-flow wm ensure --phase <CURRENT-PHASE> --task "<STORY-TITLE>"` and require explicit contributor authorization before running it. Do not use `--local`: governed publication must complete before phase authoring begins.
-9. Show the world-model generation timestamp, source-tree hash, commit, and push result. If generation fails, leave the Story intake intact and explain that `/sf-phase` remains blocked until `/sf-worldmodel` succeeds on this branch.
-10. Continue only when asked. The next authoring action is `/sf-phase`; `/sf-nextsteps` remains the read-only guide.
+   - Record answers with `singularity-flow choices answer`.
+   - When ready, run `singularity-flow story start <STORY-KEY> --fetch --selection-receipt <TOKEN>`; add `--target-url <AUTHORIZED-URL>` only for `poc-workflow`.
+7. Show the Epic → Jira Story → canonical branch lineage, base/commit, workflow, agent, phase, outputs, commit, and pushed Story ref. Verify the base ref did not move.
+8. Then run `singularity-flow wm availability --phase <CURRENT-PHASE> --task "<STORY-TITLE>"`. If grounding is missing/stale, show the matching `wm ensure` command and require authorization. Never use `--local`.
+9. Show world-model provenance and push status. On failure, keep intake and explain that `/sf-phase` waits for `/sf-worldmodel`.
+10. Continue only when asked; offer `/sf-phase` and read-only `/sf-nextsteps`.
 
 The canonical branch is the exact Jira key. Jira intake pins the normalized issue snapshot in Git; it does not silently update Jira status or create an approval. Main, workspace, and Epic intake never require or warn about a world model.

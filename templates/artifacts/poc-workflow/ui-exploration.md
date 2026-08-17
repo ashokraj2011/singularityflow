@@ -31,6 +31,8 @@ coordinates, and XPath as brittle; do not select them simply because they make o
 
 Inventory each governed MCP call and each durable screenshot, accessibility snapshot, console log,
 network summary, trace, or video. Record its repository-relative path and SHA-256/provenance record.
+Navigation records must pass the exact approved URL through `mcp record --target-url`; a different
+origin is refused even when another machine-local smoke receipt exists.
 Redact or exclude secrets and personal data before publication. A screenshot is evidence of one
 state at one viewport, not proof of every browser or responsive layout.
 

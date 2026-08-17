@@ -10,7 +10,7 @@
 import { existsSync } from 'node:fs';
 import path from 'node:path';
 import {
-  CLI_TIMEOUT_MS, SNAPSHOT_TIMEOUT_MS, WORLD_MODEL_TIMEOUT_MS,
+  CLI_TIMEOUT_MS, SNAPSHOT_TIMEOUT_MS, VALIDATION_TIMEOUT_MS, WORLD_MODEL_TIMEOUT_MS,
   invokeCli, type OutputStream
 } from './runner.ts';
 import type { RepositorySnapshot } from './snapshot.ts';
@@ -227,6 +227,7 @@ export class SingularityFlowClient {
   }
 
   private timeoutFor(args: string[]): number {
+    if (args[0] === 'submit') return VALIDATION_TIMEOUT_MS;
     return (args[0] === 'wm' && args[1] === 'build')
       || (args[0] === 'workspace' && args[1] === 'impact' && args[2] === 'analyze')
       ? WORLD_MODEL_TIMEOUT_MS : CLI_TIMEOUT_MS;

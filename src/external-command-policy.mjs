@@ -4,7 +4,7 @@ export const EXTERNAL_MODEL_POLICIES = Object.freeze(['never', 'required', 'unkn
 
 export function normalizeExternalCommand(value, index = 0) {
   if (typeof value === 'string' && value.trim()) {
-    return { id: value.trim(), command: value.trim(), argv: null, modelPolicy: 'unknown' };
+    return { id: value.trim(), command: value.trim(), argv: null, modelPolicy: 'unknown', timeoutMs: null };
   }
   if (!value || typeof value !== 'object' || Array.isArray(value)) {
     throw new SingularityFlowError(`qualityCommands[${index}] must be a command string or object.`);
@@ -20,7 +20,11 @@ export function normalizeExternalCommand(value, index = 0) {
   }
   const id = String(value.id ?? command ?? argv.join(' ')).trim();
   if (!id) throw new SingularityFlowError(`qualityCommands[${index}].id must be non-empty.`);
-  return { id, command, argv, modelPolicy };
+  const timeoutMs = value.timeoutMs ?? null;
+  if (timeoutMs != null && (!Number.isInteger(timeoutMs) || timeoutMs < 1_000 || timeoutMs > 2 * 60 * 60 * 1_000)) {
+    throw new SingularityFlowError(`qualityCommands[${index}].timeoutMs must be an integer from 1000 through 7200000.`);
+  }
+  return { id, command, argv, modelPolicy, timeoutMs };
 }
 
 export function externalCommandText(value, index = 0) {

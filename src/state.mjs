@@ -71,10 +71,12 @@ import {
 import { operationContext } from './operation-context.mjs';
 import { evaluateExternalCommandForModelMode, externalCommandText } from './external-command-policy.mjs';
 import { assertProducerAllowed } from './manual-authorship.mjs';
-import { consumeRepairAttempt } from './repair-budget.mjs';
+import { consumeRepairAttempt, repairBudgetPhaseForRejection } from './repair-budget.mjs';
+import { normalizeMcpTargetOrigin } from './mcp-target.mjs';
 
 export const CONFIG_PATH = WORKFLOW_PATH;
 export const loadConfig = loadDefinition;
+const DEFAULT_QUALITY_COMMAND_TIMEOUT_MS = 30 * 60 * 1000;
 
 export function validateId(config, id) {
   if (!id || id === '.' || id === '..' || id.includes('/') || id.includes('\\')) throw new SingularityFlowError('Work ID must be one safe identifier without slashes.');
@@ -161,6 +163,7 @@ function sourceSection(label, value, fallback = null) {
 function sourceMarkdown(source) {
   const details = [
     `- Source: ${source.type}`, source.url ? `- URL: ${source.url}` : null,
+    source.targetOrigin ? `- Authorized POC target origin: ${source.targetOrigin}` : null,
     source.status ? `- Status: ${source.status}` : null,
     source.priority ? `- Priority: ${source.priority}` : null,
     source.storyPoints != null ? `- Story points: ${source.storyPoints}` : null,
@@ -398,6 +401,10 @@ export async function createWorkflow(root, config, {
   }
   if (await exists(workflowPath(root, config, id))) throw new SingularityFlowError(`${id} already exists. Use singularity-flow resume ${id}.`);
   const selectedType = workType ?? Object.keys(config.workTypes)[0];
+  const targetOrigin = normalizeMcpTargetOrigin(source?.targetOrigin, {
+    required: selectedType === 'poc-workflow',
+    label: 'POC target URL'
+  });
   const capability = await resolveLifecycleCapability(root, { capabilityId });
   assertCapabilitySource(capability, source);
   const selectedResolution = resolved ?? resolveWorkType(config, selectedType);
@@ -452,6 +459,9 @@ export async function createWorkflow(root, config, {
   const createdAt = nowIso();
   const workflow = {
     schemaVersion: 2,
+    mcpAuthorizations: targetOrigin ? {
+      playwright: { schemaVersion: 1, origins: [targetOrigin], source: 'story-intake', pinnedAt: createdAt }
+    } : {},
     workItem: {
       id, title: title || id, workType: selectedType, workTypeLabel: resolution.label,
       branch: branch(root), baseBranch,
@@ -467,6 +477,7 @@ export async function createWorkflow(root, config, {
       dataMigration: source.dataMigration ?? null,
       securityBoundaryChange: source.securityBoundaryChange ?? null,
       regulatedDataChange: source.regulatedDataChange ?? null,
+      targetOrigin,
       deploymentPolicyChange: source.deploymentPolicyChange ?? null,
       crossRepositoryChange: source.crossRepositoryChange ?? null
       }
@@ -1303,9 +1314,16 @@ async function qualityChecks(root, phase, config) {
       continue;
     }
     const result = policy.argv
-      ? run(policy.argv[0], policy.argv.slice(1), { cwd: root, allowFailure: true })
-      : run(policy.command, [], { cwd: root, shell: true, allowFailure: true });
-    checks.push({ id: policy.id, command, externalModelPolicy: policy.modelPolicy, sourceCommit, startedAt, completedAt: nowIso(), status: result.status === 0 ? 'passed' : 'failed', exitCode: result.status, stdout: truncate(result.stdout), stderr: truncate(result.stderr) });
+      ? run(policy.argv[0], policy.argv.slice(1), { cwd: root, allowFailure: true, timeoutMs: policy.timeoutMs ?? DEFAULT_QUALITY_COMMAND_TIMEOUT_MS })
+      : run(policy.command, [], { cwd: root, shell: true, allowFailure: true, timeoutMs: policy.timeoutMs ?? DEFAULT_QUALITY_COMMAND_TIMEOUT_MS });
+    checks.push({
+      id: policy.id, command, externalModelPolicy: policy.modelPolicy,
+      timeoutMs: policy.timeoutMs ?? DEFAULT_QUALITY_COMMAND_TIMEOUT_MS,
+      sourceCommit, startedAt, completedAt: nowIso(),
+      status: result.timedOut ? 'blocked' : result.status === 0 ? 'passed' : 'failed',
+      exitCode: result.status, stdout: truncate(result.stdout),
+      stderr: truncate(result.timedOut ? `Command exceeded its ${policy.timeoutMs ?? DEFAULT_QUALITY_COMMAND_TIMEOUT_MS}ms timeout.` : result.stderr)
+    });
   }
   return checks;
 }
@@ -1724,12 +1742,13 @@ export async function rejectPhase(root, config, workflow, { phaseId, target, rea
     reviewPacketSha256: null,
     resolution: null
   };
-  const repairBudget = consumeRepairAttempt(workflow, phase, {
+  const budgetPhase = repairBudgetPhaseForRejection(workflow, phase, targetId);
+  const repairBudget = budgetPhase ? consumeRepairAttempt(workflow, budgetPhase, {
     targetPhase: targetId,
     actor: structuredClone(session.actor),
     at: timestamp,
     changeRequestId: changeRequest.id
-  });
+  }) : null;
   for (let index = targetIndex; index < workflow.phaseOrder.length; index += 1) {
     const affected = workflow.phases[workflow.phaseOrder[index]];
     affected.approvals.forEach((approval) => { if (!approval.invalidatedAt) approval.invalidatedAt = timestamp; });

@@ -21,6 +21,7 @@ import {
   validateId
 } from './state-stores.mjs';
 import { SingularityFlowError } from './util.mjs';
+import { normalizeMcpTargetOrigin } from './mcp-target.mjs';
 
 function lines(value) {
   if (Array.isArray(value)) return value.map((item) => String(item).trim()).filter(Boolean);
@@ -84,6 +85,7 @@ export async function startStory(root, {
   agent,
   baseBranch = null,
   capabilityId = null,
+  targetUrl = null,
   files = [],
   urls = []
 } = {}) {
@@ -98,6 +100,13 @@ export async function startStory(root, {
   if (!localExisted) fetchRemote(root, remote);
   const remoteExisted = refExists(root, `refs/remotes/${remote}/${id}`);
   const existed = localExisted || remoteExisted;
+  // Reject incomplete POC intake while the caller is still on its original branch. Validation
+  // after checkout remains below because the selected remote base owns the definitive workflow.
+  const preflightTargetOrigin = normalizeMcpTargetOrigin(targetUrl ?? normalizedSource.targetOrigin, {
+    required: !existed && workType === 'poc-workflow',
+    label: 'POC target URL'
+  });
+  if (preflightTargetOrigin) normalizedSource.targetOrigin = preflightTargetOrigin;
   let storyBase = null;
   let baseCommit = null;
   let capabilityRepositoriesPrepared = null;
@@ -161,6 +170,11 @@ export async function startStory(root, {
   validateId(definition, id);
   if (!definition.workTypes?.[workType]) throw new SingularityFlowError(`Unknown work type '${workType ?? ''}'.`);
   const resolved = resolveWorkType(definition, workType);
+  const targetOrigin = normalizeMcpTargetOrigin(targetUrl ?? normalizedSource.targetOrigin, {
+    required: !existed && workType === 'poc-workflow',
+    label: 'POC target URL'
+  });
+  if (targetOrigin) normalizedSource.targetOrigin = targetOrigin;
   const selectedAgent = agent ?? resolved.phases[0]?.defaultAgent;
   if (!definition.agents?.[selectedAgent]) throw new SingularityFlowError(`Work type '${workType}' has no default governed agent for its first phase.`);
 

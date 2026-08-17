@@ -657,9 +657,9 @@ phases:
     repairBudget: { maxAttempts: 2, resetOnPhase: poc-intake }
     approval: { authorities: [quality-reviewers], minimum: 1, rejectTo: [poc-intake, poc-ui-exploration, poc-test-generation, poc-validation] }
     qualityCommands:
-      - { id: git-diff-check, argv: [git, diff, --check], modelPolicy: never }
-      - { id: typescript-compile, argv: [npx, --no-install, tsc, --noEmit], modelPolicy: never }
-      - { id: playwright-tests, argv: [npx, --no-install, playwright, test, --reporter=json], modelPolicy: never }
+      - { id: git-diff-check, argv: [git, diff, --check], modelPolicy: never, timeoutMs: 60000 }
+      - { id: typescript-compile, argv: [npx, --no-install, tsc, --noEmit], modelPolicy: never, timeoutMs: 300000 }
+      - { id: playwright-tests, argv: [npx, --no-install, playwright, test, --reporter=json], modelPolicy: never, timeoutMs: 1200000 }
   poc-publication-review:
     label: Publication and PR review
     defaultTemplate: poc-workflow/publication-review.md

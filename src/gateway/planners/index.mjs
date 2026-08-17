@@ -13,7 +13,9 @@ import { helpExplain } from './help-explain.mjs';
 import { developerNext } from './developer-next.mjs';
 import { homeOverview } from './home-overview.mjs';
 import { impactQuick } from './impact-quick.mjs';
+import { reviewPacket } from './review-packet.mjs';
 import { workContinue } from './work-continue.mjs';
+import { workHandoff } from './work-handoff.mjs';
 import { workReadiness } from './work-readiness.mjs';
 import { workReturn } from './work-return.mjs';
 import { workList } from './work-list.mjs';
@@ -26,7 +28,9 @@ export function gatewayPlanners(overrides = {}) {
     'developer-next': developerNext,
     'home-overview': homeOverview,
     'impact-quick': impactQuick,
+    'review-packet': reviewPacket,
     'work-continue': workContinue,
+    'work-handoff': workHandoff,
     'work-readiness': workReadiness,
     'work-return': workReturn,
     'work-list': workList,
@@ -36,4 +40,7 @@ export function gatewayPlanners(overrides = {}) {
   }));
 }
 
-export { developerNext, helpExplain, homeOverview, impactQuick, workContinue, workList, workReadiness, workReturn, workStartIntake, workspaceList };
+export {
+  developerNext, helpExplain, homeOverview, impactQuick, reviewPacket, workContinue, workHandoff,
+  workList, workReadiness, workReturn, workStartIntake, workspaceList
+};

@@ -1,19 +1,23 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { mkdtemp, writeFile } from 'node:fs/promises';
+import { mkdir, mkdtemp, writeFile } from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
 
 import { createGatewayKernel } from '../src/gateway/kernel.mjs';
 import { EXPLAIN_PREVIEW_BYTES, helpExplain } from '../src/gateway/planners/help-explain.mjs';
+import { reviewPacket, reviewPacketResult } from '../src/gateway/planners/review-packet.mjs';
+import { workHandoff, workHandoffResult } from '../src/gateway/planners/work-handoff.mjs';
 import { WORKSPACE_LIST_EVIDENCE_GAPS, workspaceList } from '../src/gateway/planners/workspace-list.mjs';
 import { workStartIntake } from '../src/gateway/planners/work-start-intake.mjs';
 import { gatewayRegistry, unimplementedPlanners } from '../src/gateway/operations.mjs';
 import { gatewayPlanners } from '../src/gateway/planners/index.mjs';
 import {
-  ACTION_EMPHASIS, INTERACTION_CLASSES, PRESERVATION_SCOPES, validateSflowResult
+  ACTION_EMPHASIS, INTERACTION_CLASSES, plannerNavigationTarget, PRESERVATION_SCOPES,
+  validateSflowResult
 } from '../src/gateway/result.mjs';
 import { loadTopics, resolveTopic } from '../src/docs-topics.mjs';
+import { run } from '../src/util.mjs';
 
 const binding = {
   workspaceId: 'payments',
@@ -31,6 +35,33 @@ const binding = {
   hostSessionId: 'sess-1'
 };
 
+const workItem = Object.freeze({
+  kind: 'story',
+  id: 'WRK-42',
+  title: 'Make checkout retries safe',
+  repository: 'payments-api',
+  repositoryId: 'payments-api',
+  branch: 'WRK-42',
+  branches: ['WRK-42'],
+  phase: 'specification',
+  phaseLabel: 'Specification',
+  generation: 2,
+  status: 'awaiting_approval',
+  rail: Object.freeze([
+    Object.freeze({ id: 'intake', label: 'Intake', state: 'done', status: 'approved' }),
+    Object.freeze({ id: 'specification', label: 'Specification', state: 'current', status: 'awaiting_approval' }),
+    Object.freeze({ id: 'implementation', label: 'Implementation', state: 'pending', status: null })
+  ]),
+  lastMaterialEvent: Object.freeze({
+    event: 'phase_submitted', phase: 'specification', actor: 'dev-1', at: '2026-08-17T08:00:00.000Z'
+  }),
+  blockers: Object.freeze(['approvals-outstanding']),
+  recovery: null,
+  group: 'waiting-on-you',
+  whyVisible: 'approval.you-are-authorized',
+  nextAction: Object.freeze({ operation: 'review.packet', reasonCode: 'approval.open-the-packet' })
+});
+
 test('start intake carries bounded conversational defaults and changes nothing', () => {
   const result = workStartIntake({ arguments: {
     source: 'bug-report', shape: 'story', workType: 'bug-fix', summary: 'Retry checkout safely'
@@ -46,6 +77,123 @@ test('start intake carries bounded conversational defaults and changes nothing',
     workType: 'bug-fix', summary: 'Retry checkout safely'
   });
   assert.ok(result.data.requiredInputs.includes('remote base branch'));
+});
+
+test('handoff is a record projection with explicit evidence gaps and no effects', () => {
+  const result = workHandoffResult(workItem, {
+    sourceCommit: 'a'.repeat(40),
+    includeLocalChanges: false
+  });
+  validateSflowResult(result);
+
+  assert.equal(result.operation.id, 'work.handoff');
+  assert.equal(result.data.packet.authority, 'projection-only');
+  assert.equal(result.data.packet.reconstruction.conversationUsed, false);
+  assert.equal(result.data.packet.approvedIntent.approvedContentRead, false);
+  assert.equal(result.data.packet.localChanges.state, 'not-read');
+  assert.equal(result.data.packet.tests.state, 'not-read');
+  assert.equal(result.data.packet.openQuestions.state, 'not-read');
+  assert.equal(result.data.packet.revisions.sourceCommit, 'a'.repeat(40));
+  assert.deepEqual(result.data.packet.completedWork.map((entry) => entry.id), ['intake']);
+  assert.deepEqual(result.data.packet.remainingWork.map((entry) => entry.id), ['specification', 'implementation']);
+  assert.equal(Object.values(result.effects).some(Boolean), false);
+
+  const target = plannerNavigationTarget(result.next[0]);
+  assert.deepEqual({ ...target }, {
+    operationId: 'work.continue',
+    arguments: { workId: 'WRK-42', workKind: 'story' }
+  });
+});
+
+test('handoff includes content-bound local evidence only when requested', () => {
+  const result = workHandoffResult(workItem, {
+    sourceCommit: 'b'.repeat(40),
+    includeLocalChanges: true,
+    localChanges: {
+      dirty: true,
+      files: 1,
+      paths: ['src/payment.ts'],
+      hiddenChanges: [],
+      diagnosticCodes: [],
+      worktreeHash: 'sha256:tree',
+      worktreeAlgorithm: 'sflow-worktree-v2'
+    }
+  });
+  assert.equal(result.data.packet.localChanges.state, 'read');
+  assert.deepEqual(result.data.packet.localChanges.paths, ['src/payment.ts']);
+  assert.equal(result.data.packet.revisions.worktreeHash, 'sha256:tree');
+  assert.equal(result.warnings.length, 0, 'included local evidence is not described as unread');
+});
+
+test('review packet resolves the exact work and delegates decisions to the Approvals surface', () => {
+  const result = reviewPacketResult(workItem);
+  validateSflowResult(result);
+  assert.equal(result.operation.id, 'review.packet');
+  assert.equal(result.data.surface, 'approvals');
+  assert.deepEqual(result.data.requestedWork, { id: 'WRK-42', kind: 'story' });
+  assert.equal(result.data.packet.exactReviewArtifactRead, false);
+  assert.equal(result.data.packet.decisionAvailableToActor, true);
+  assert.equal(result.next.length, 0, 'the read must not manufacture an approval action');
+  assert.equal(result.restState, 'informational');
+  assert.equal(Object.values(result.effects).some(Boolean), false);
+});
+
+test('the kernel validates and seals the handoff continuation target', async () => {
+  const planners = gatewayPlanners({
+    'work-handoff': () => workHandoffResult(workItem, { sourceCommit: 'c'.repeat(40) })
+  });
+  const kernel = createGatewayKernel({ binding, planners });
+  const resolved = kernel.resolve({
+    utterance: 'handoff packet',
+    arguments: { workId: 'WRK-42', workKind: 'story' }
+  });
+  const handoff = await kernel.read({ resolutionId: resolved.next[0].handle });
+  assert.match(handoff.next[0].handle, /^sel_/);
+  assert.equal(plannerNavigationTarget(handoff.next[0]), null, 'hosts receive no reconstructable target');
+
+  const continuation = kernel.resolve({ selectionHandle: handoff.next[0].handle });
+  assert.equal(continuation.operation.id, 'work.continue');
+  assert.deepEqual(continuation.data.arguments, { workId: 'WRK-42', workKind: 'story' });
+});
+
+test('production handoff and review planners read a real governed repository without mutating it', async () => {
+  const root = await mkdtemp(path.join(os.tmpdir(), 'sflow-journeys-'));
+  const directory = path.join(root, 'singularity', 'work-items', workItem.id);
+  await mkdir(directory, { recursive: true });
+  await writeFile(path.join(directory, 'workflow.json'), JSON.stringify({
+    workItem: { id: workItem.id, title: workItem.title, workType: 'feature', branch: workItem.branch },
+    phaseOrder: ['intake', 'specification', 'implementation'],
+    currentPhase: 'specification',
+    phases: {
+      intake: { status: 'approved', generation: 1 },
+      specification: { status: 'awaiting_approval', generation: 2 },
+      implementation: { status: 'pending', generation: 0 }
+    },
+    history: [workItem.lastMaterialEvent]
+  }));
+  run('git', ['init', '-q', '-b', 'main', root]);
+  run('git', ['config', 'user.name', 'Gateway Fixture'], { cwd: root });
+  run('git', ['config', 'user.email', 'gateway@example.com'], { cwd: root });
+  run('git', ['add', '.'], { cwd: root });
+  run('git', ['commit', '-q', '-m', 'Fixture'], { cwd: root });
+  const beforeHead = run('git', ['rev-parse', 'HEAD'], { cwd: root }).stdout.trim();
+  const beforeStatus = run('git', ['status', '--porcelain'], { cwd: root }).stdout;
+
+  const handoff = await workHandoff({
+    arguments: { workId: workItem.id, workKind: 'story', includeLocalChanges: false },
+    root,
+    context: { pendingPublications: new Map() }
+  });
+  const review = await reviewPacket({
+    arguments: { workId: workItem.id, workKind: 'story' },
+    root,
+    context: { pendingPublications: new Map() }
+  });
+
+  assert.equal(handoff.data.packet.revisions.sourceCommit, beforeHead);
+  assert.equal(review.data.surface, 'approvals');
+  assert.equal(run('git', ['rev-parse', 'HEAD'], { cwd: root }).stdout.trim(), beforeHead);
+  assert.equal(run('git', ['status', '--porcelain'], { cwd: root }).stdout, beforeStatus);
 });
 
 /**
@@ -201,6 +349,8 @@ async function everyPlannerResult() {
     await helpExplain({ arguments: { topic: 'approvals' } }),
     await helpExplain({ arguments: { question: 'nothing the documentation covers at all' } }),
     await workspaceList({ env }),
+    workHandoffResult(workItem, { sourceCommit: 'd'.repeat(40) }),
+    reviewPacketResult(workItem),
     kernel.resolve({ utterance: 'explain approvals' }),
     kernel.resolve({ utterance: 'zzzz not a phrase anyone would say' }),
     kernel.next({}),

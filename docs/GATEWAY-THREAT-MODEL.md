@@ -150,10 +150,9 @@ is that this is strictly better than a key on disk.
 is named everywhere it is reported and the number is flagged as not-billing, but a user who reasons
 about cost from it will be somewhat wrong `[INT:CON-174]`.
 
-**Planners are declared and not yet implemented.** The registry compiles, the rules bite, and 26
-planners return nothing because they do not exist yet. Until they do, the gateway is a contract with
-no execution path — which is safe, and is not the same as finished. `MAX_UNIMPLEMENTED_GATEWAY_PLANNERS`
-counts them and only goes down.
+**Some planners are declared and not yet implemented.** The registry compiles and the rules bite,
+but the remaining planner gap has no execution path — which is safe, and is not the same as
+finished. `MAX_UNIMPLEMENTED_GATEWAY_PLANNERS` measures that gap and only goes down.
 
 ## Invariants a change must not break
 

@@ -118,6 +118,7 @@ export const WORK_CODES = Object.freeze([
   'work.local-changes-present',
   'work.single-repository-scope',
   'work.not-in-this-repository',
+  'work.revision-unavailable',
   'work.nothing-was-carried-out',
   'work.legal-now',
   'work.no-legal-action',

@@ -12,8 +12,17 @@ database.
 The Singularity Flow activity bar contains one compact Navigator with Favorites, Inbox, Workspaces,
 Lifecycle, Configuration, Help, and Logs sections.
 
-On a first visit, Favorites and Lifecycle are expanded while the supporting sections remain
-collapsed. Expand or collapse any section once and the Navigator preserves that preference.
+Choose a machine-local menu persona from the Navigator header or **Configure User Profile**.
+Product owner, Business analyst, Product designer, Architect, Developer, QA, Security, Delivery
+manager, Operations, Admin, and General personas place their most relevant sections first and seed
+first-use Favorites with useful shortcuts. Persona selection never hides a command, changes a
+governed agent, or grants approval authority. Explicitly customized Favorites survive later persona
+changes.
+
+On a first visit, Favorites and the persona's highest-priority section are expanded while the
+supporting sections remain collapsed. General and Developer open Lifecycle; QA and Product owner
+open Inbox; Architect opens Configuration; Admin opens Workspaces. Expand or collapse any section
+once and the Navigator preserves that preference.
 Clickable rows have distinct hover, pressed, keyboard-focus, and last-opened states so the result
 of a navigation choice remains visible after the click.
 
@@ -21,8 +30,9 @@ of a navigation choice remains visible after the click.
 
 Favorites answers **where are the menus I use every day?**
 
-- A new installation starts with My Work, Start intake, and Inbox pinned. This is only a first-use
-  suggestion; removing every favorite is remembered as an intentional empty list.
+- A new installation starts with persona-relevant Favorites. Until a persona is chosen, the General
+  suggestions are My Work, Start intake, and Inbox. This is only a first-use suggestion; removing
+  every favorite is remembered as an intentional empty list.
 - Open **Choose favorites** from the section header or its empty state.
 - Select any combination of My Work, intake, Inbox, Approvals, Workspaces, Configuration Center,
   capability mapping, visual assurance, impact, logs, prompt audit, and Help.

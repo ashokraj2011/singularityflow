@@ -1121,21 +1121,22 @@ test('an empty workspace form reports every outstanding requirement at once', ()
   assert.match(problems.join(' '), /where the workspace directory/);
   assert.match(problems.join(' '), /identifier/);
   assert.match(problems.join(' '), /display name/);
-  assert.match(problems.join(' '), /local role/);
+  assert.match(problems.join(' '), /menu persona/);
   assert.match(problems.join(' '), /organisation/);
 });
 
-test('workspace creation asks for the person once and keeps identity roles separate', () => {
+test('workspace creation asks for the person once and keeps menu personas separate from identity', () => {
   const html = workspaceFormHtml(withMap(['payments']));
   assert.match(html, /Your local profile/);
   assert.match(html, /data-field="profile-name"/);
   assert.match(html, /data-field="profile-role"/);
-  assert.match(html, /product owner/);
+  assert.match(html, /Product owner/);
+  assert.match(html, /Admin/);
   assert.match(html, /approval records always use the Git identity/);
 
   const missing = withMap(['payments'], { profileName: '', profileRole: '' });
   assert.match(formProblems(missing).join(' '), /display name/);
-  assert.match(formProblems(missing).join(' '), /local role/);
+  assert.match(formProblems(missing).join(' '), /menu persona/);
 });
 
 test('the organisation map is flattened with each capability\'s depth, ancestors and clone URL', () => {

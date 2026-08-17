@@ -3,6 +3,7 @@ import {
   brandLockup, escape, icon } from './webview.ts';
 import type { IconName } from './webview.ts';
 import type { AuthorityView, ConfigurationCenterView, ConfigurationTab, McpServerView } from './configuration-center-model.ts';
+import { PROFILE_PERSONAS } from './profile-personas.ts';
 
 function csv(values: string[]): string { return escape(values.join(', ')); }
 
@@ -256,7 +257,7 @@ function memberText(group: AuthorityView): string {
 function people(view: ConfigurationCenterView, selected: AuthorityView | null): string {
   return `<section class="plain"><h2>${icon('agent')}My local profile</h2>
     <p class="muted">This profile changes guidance only. Governed decisions use the Git and GitHub identities shown in approval records.</p>
-    <form id="profile-form" class="editor-card"><div class="form-grid"><label><span>Name</span><input name="name" type="text" value="${escape(view.profile.name)}"></label><label><span>Role</span><select name="role">${['product-owner','business-analyst','product-designer','architect','developer','qa','security','delivery-manager','operations','other'].map((role) => `<option value="${role}"${role === view.profile.role ? ' selected' : ''}>${role}</option>`).join('')}</select></label></div><div class="card-foot"><button type="submit">Save local profile</button></div></form>
+    <form id="profile-form" class="editor-card"><div class="form-grid"><label><span>Name</span><input name="name" type="text" value="${escape(view.profile.name)}"></label><label><span>Menu persona</span><select name="role">${PROFILE_PERSONAS.map((persona) => `<option value="${persona.id}"${persona.id === view.profile.role ? ' selected' : ''}>${escape(persona.label)}</option>`).join('')}</select><small>Changes menu order and suggestions only.</small></label></div><div class="card-foot"><button type="submit">Save local profile</button></div></form>
     <div class="section-heading"><h2>${icon('team')}Human approval authorities</h2><button class="secondary" data-action="new-authority">Add authority</button></div>
     <p class="muted">People are not agents. These groups match real Git email or authenticated GitHub login when somebody approves or rejects.</p>
     <div class="configuration-list">${view.authorities.map((group) => `<button class="configuration-row secondary" data-authority="${escape(`${group.scope}:${group.id}`)}"><span>${icon('approval')}</span><strong>${escape(group.label)}</strong><small>${group.scope === 'story' ? 'Story workflow' : 'Initiative workflow'} · ${group.allowAnyGitIdentity ? 'any Git identity' : `${group.members.length} member${group.members.length === 1 ? '' : 's'}`}</small></button>`).join('') || '<p class="empty">No approval groups are configured.</p>'}</div>

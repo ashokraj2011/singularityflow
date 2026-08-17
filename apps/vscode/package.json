@@ -67,9 +67,10 @@
             "security",
             "delivery-manager",
             "operations",
+            "admin",
             "other"
           ],
-          "description": "Local role used to simplify guidance. The active governed agent is selected by the workflow phase."
+          "description": "Machine-local menu persona used to order navigation and suggestions. The active governed agent and approval authority are selected independently by the workflow and identity records."
         }
       }
     },
@@ -220,6 +221,11 @@
         "command": "singularityFlow.configureProfile",
         "title": "Singularity Flow: Configure User Profile",
         "icon": "$(account)"
+      },
+      {
+        "command": "singularityFlow.choosePersona",
+        "title": "Singularity Flow: Choose Menu Persona",
+        "icon": "$(person)"
       },
       {
         "command": "singularityFlow.connectJira",

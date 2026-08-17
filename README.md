@@ -1911,9 +1911,10 @@ npm run vscode:package
 code --install-extension apps/vscode/singularity-flow-vscode-0.9.0.vsix --force
 ```
 
-The first-run walkthrough configures the local name and guidance role, Jira through
-VS Code `SecretStorage`, a workspace, and intake. The guidance role only filters
-the interface; workflow phases select governed agents. **Open Governed Context in
+The first-run walkthrough configures the local name and menu persona, Jira through
+VS Code `SecretStorage`, a workspace, and intake. The menu persona only reorders
+the complete Navigator and seeds first-use Favorites; it never hides commands,
+grants authority, or selects an agent. Workflow phases select governed agents. **Open Governed Context in
 Copilot** renders the effective skill, agent instructions, prompt pack, world model,
 approved inputs, artifact template, and phase contract into native Copilot chat.
 Use `/sf-show-prompt` or `sflow wm show-prompt --phase <PHASE>` to inspect the same

@@ -189,6 +189,7 @@ function stubVscode() {
     ThemeIcon: class { constructor(id, color) { this.id = id; this.color = color; } },
     ThemeColor: class { constructor(id) { this.id = id; } },
     StatusBarAlignment: { Left: 1, Right: 2 },
+    ConfigurationTarget: { Global: 1, Workspace: 2 },
     ProgressLocation: { Notification: 15 },
     Uri: { file: (value) => ({ fsPath: value, scheme: 'file' }) },
     RelativePattern: class { constructor(base, pattern) { this.base = base; this.pattern = pattern; } },
@@ -884,6 +885,51 @@ test('an intentionally empty Favorites preference stays empty', async (t) => {
   assert.doesNotMatch(navigation.webview.html, /aria-label="Unpin My Work"/);
   assert.match(navigation.webview.html, /Pin the menus you use most/);
   assert.match(navigation.webview.html, />Choose favorites<\/button>/);
+});
+
+test('menu personas tailor first-use Favorites and section order without overriding personal choices', async (t) => {
+  if (!requireBundle(t)) return;
+  const settings = new Map([['role', 'qa'], ['userName', 'Quinn Analyst']]);
+  const values = new Map();
+  const { api, registered } = stubVscode();
+  api.workspace.workspaceFolders = undefined;
+  api.workspace.getConfiguration = () => ({
+    get: (key) => settings.get(key) ?? '',
+    update: async (key, value) => { settings.set(key, value); }
+  });
+  const extension = loadExtension(api);
+  await extension.activate(context(values));
+
+  const navigation = registered.webviewViews.get('singularityFlow.navigation');
+  assert.match(navigation.webview.html, /Change QA menu persona/);
+  for (const label of ['My Work', 'Inbox', 'Visual assurance', 'Approvals']) {
+    assert.match(navigation.webview.html, new RegExp(`aria-label="Unpin ${label}"`));
+  }
+  assert.ok(navigation.webview.html.indexOf('data-section="inbox"')
+    < navigation.webview.html.indexOf('data-section="lifecycle"'), 'QA sees decisions before lifecycle');
+
+  await navigation.post({ type: 'action', action: 'persona-manage' });
+  await until(() => settings.get('role') === 'product-owner');
+  assert.ok(registered.executedCommands.some((entry) => entry.id === 'singularityFlow.choosePersona'));
+  assert.equal(registered.inputBoxes.length, 0, 'the header persona switch does not ask for the name again');
+  assert.match(navigation.webview.html, /Change Product owner menu persona/);
+
+  settings.set('role', 'architect');
+  navigation.provider.profileChanged();
+  await until(() => navigation.webview.html.includes('Change Architect menu persona'));
+  assert.match(navigation.webview.html, /aria-label="Unpin Flow impact"/);
+  assert.ok(navigation.webview.html.indexOf('data-section="configuration"')
+    < navigation.webview.html.indexOf('data-section="lifecycle"'), 'Architect sees configuration first');
+
+  registered.pickedFavorites = [{ menuId: 'help-open' }];
+  await navigation.post({ type: 'action', action: 'favorites-manage' });
+  await until(() => values.get('singularityFlow.navigationFavorites.v1')?.[0] === 'help-open');
+  settings.set('role', 'admin');
+  navigation.provider.profileChanged();
+  await until(() => navigation.webview.html.includes('Change Admin menu persona'));
+  assert.match(navigation.webview.html, /aria-label="Unpin Help Center"/);
+  assert.doesNotMatch(navigation.webview.html, /aria-label="Unpin Configuration Center"/,
+    'an explicit Favorites choice survives persona changes');
 });
 
 test('Help is available without a workspace and opens the canonical offline manual', async (t) => {

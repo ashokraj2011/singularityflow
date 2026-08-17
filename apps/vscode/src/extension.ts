@@ -39,6 +39,7 @@ import { capabilityProposalArgv } from './views/capability-model.ts';
 import { buildConfigurationTree, unavailableTree, type TreeNode } from './views/tree-model.ts';
 import { NodeTreeProvider } from './views/navigation.ts';
 import { SidebarViewProvider } from './views/sidebar.ts';
+import { PROFILE_PERSONAS, isProfilePersonaId, resolveProfilePersona } from './views/profile-personas.ts';
 import {
   buildWorkspaceTree, capabilityIdOf, workspacePathOf, type CapabilityReadiness
 } from './views/navigation-trees.ts';
@@ -385,11 +386,32 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
     await vscode.commands.executeCommand('singularityFlow.refresh');
   }));
 
+  let refreshPersonaMenus = (): void => {};
   const configurationListener = vscode.workspace.onDidChangeConfiguration?.(async (event) => {
-    if (!event.affectsConfiguration('singularityFlow.modelMode')) return;
-    cliEnvironment = await resolvedCliEnvironment();
+    if (event.affectsConfiguration('singularityFlow.modelMode')) cliEnvironment = await resolvedCliEnvironment();
+    if (event.affectsConfiguration('singularityFlow.role')
+      || event.affectsConfiguration('singularityFlow.userName')) refreshPersonaMenus();
   });
   if (configurationListener) context.subscriptions.push(configurationListener);
+
+  const pickMenuPersona = () => vscode.window.showQuickPick(PROFILE_PERSONAS.map((persona) => ({
+    label: persona.label, description: persona.description, value: persona.id
+  })), {
+    title: 'Choose your menu persona',
+    placeHolder: 'Persona changes navigation only; governed agents and approval authority do not change.'
+  });
+
+  context.subscriptions.push(vscode.commands.registerCommand('singularityFlow.choosePersona', async () => {
+    const role = await pickMenuPersona();
+    if (!role) return;
+    await Promise.all([
+      vscode.workspace.getConfiguration('singularityFlow')
+        .update('role', role.value, vscode.ConfigurationTarget.Global),
+      context.globalState.update('onboardingComplete', true)
+    ]);
+    refreshPersonaMenus();
+    void vscode.window.showInformationMessage(`${role.label} menu is ready. All commands remain available.`);
+  }));
 
   context.subscriptions.push(vscode.commands.registerCommand('singularityFlow.configureProfile', async () => {
     const settings = vscode.workspace.getConfiguration('singularityFlow');
@@ -398,17 +420,17 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
       value: settings.get<string>('userName') ?? '', ignoreFocusOut: true
     });
     if (name == null) return;
-    const role = await vscode.window.showQuickPick([
-      'product-owner', 'business-analyst', 'product-designer', 'architect', 'developer',
-      'qa', 'security', 'delivery-manager', 'operations', 'other'
-    ], { title: 'Choose your role', placeHolder: 'Role filters guidance; governed agents still come from the phase.' });
+    const role = await pickMenuPersona();
     if (!role) return;
     await Promise.all([
       settings.update('userName', name.trim(), vscode.ConfigurationTarget.Global),
-      settings.update('role', role, vscode.ConfigurationTarget.Global),
+      settings.update('role', role.value, vscode.ConfigurationTarget.Global),
       context.globalState.update('onboardingComplete', true)
     ]);
-    void vscode.window.showInformationMessage(`Singularity Flow profile saved for ${name.trim() || role}.`);
+    refreshPersonaMenus();
+    void vscode.window.showInformationMessage(
+      `Singularity Flow profile saved for ${name.trim() || role.label}. ${role.label} menus are ready.`
+    );
   }));
 
   /**
@@ -651,7 +673,11 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
   // One continuous navigation surface replaces five independently-sized native panes. The hidden
   // native TreeViews remain compatibility adapters for their mature, tested read models and context
   // commands; the webview binds to the exact same providers so it cannot tell a different story.
-  const sidebar = new SidebarViewProvider(context.globalState);
+  const sidebar = new SidebarViewProvider(context.globalState, () => {
+    const settings = vscode.workspace.getConfiguration('singularityFlow');
+    return { name: settings.get<string>('userName') ?? '', role: settings.get<string>('role') ?? '' };
+  });
+  refreshPersonaMenus = () => sidebar.profileChanged();
   sidebar.bind('workspaces', workspaceTree);
   sidebar.bind('logs', logsTree);
   sidebar.bind('help', helpTree);
@@ -2547,12 +2573,14 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
     }
     if (message.type === 'profile') {
       try {
+        if (!isProfilePersonaId(message.role)) return 'Choose a supported menu persona.';
         const settings = vscode.workspace.getConfiguration('singularityFlow');
         await Promise.all([
           settings.update('userName', message.name.trim(), vscode.ConfigurationTarget.Global),
           settings.update('role', message.role, vscode.ConfigurationTarget.Global),
           context.globalState.update('onboardingComplete', true)
         ]);
+        refreshPersonaMenus();
         return null;
       } catch (error) { return (error as Error).message; }
     }
@@ -2657,7 +2685,10 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
     const { ConfigurationCenterPanel } = await import('./views/configuration-center.ts');
     ConfigurationCenterPanel.show(context, store, () => {
       const settings = vscode.workspace.getConfiguration('singularityFlow');
-      return { name: settings.get<string>('userName') ?? '', role: settings.get<string>('role') || 'other' };
+      return {
+        name: settings.get<string>('userName') ?? '',
+        role: resolveProfilePersona(settings.get<string>('role')).id
+      };
     }, configurationMessage, tab);
   };
 

@@ -15,6 +15,7 @@
  * not a form to fill in, it is a step taken out of order.
  */
 import { escape, icon } from './webview.ts';
+import { PROFILE_PERSONAS, PROFILE_PERSONA_IDS } from './profile-personas.ts';
 
 /** A repository the selection implies. Derived, never entered. */
 export interface FormRepository {
@@ -71,11 +72,8 @@ export const EMPTY_WORKSPACE_FORM: WorkspaceForm = {
   reading: false, busy: false, error: null
 };
 
-/** The same local guidance roles offered by onboarding and the Configuration Center. */
-export const WORKSPACE_PROFILE_ROLES = [
-  'product-owner', 'business-analyst', 'product-designer', 'architect', 'developer',
-  'qa', 'security', 'delivery-manager', 'operations', 'other'
-] as const;
+/** The same local menu personas offered by onboarding and the Configuration Center. */
+export const WORKSPACE_PROFILE_ROLES = PROFILE_PERSONA_IDS;
 
 /** The nested tree and the flat delivery list, as `capability organisation --json` returns them. */
 export interface RemoteCapability {
@@ -177,7 +175,7 @@ export function formProblems(form: WorkspaceForm): string[] {
   }
   if (!form.profileName.trim()) problems.push('Give your local profile a display name.');
   if (!WORKSPACE_PROFILE_ROLES.includes(form.profileRole as typeof WORKSPACE_PROFILE_ROLES[number])) {
-    problems.push('Choose your local role.');
+    problems.push('Choose your menu persona.');
   }
   if (!form.organisation) problems.push('Choose the organisation whose capabilities this is for.');
   else if (form.reading) problems.push('Wait for the capability map to be read.');
@@ -369,16 +367,16 @@ export function workspaceFormHtml(form: WorkspaceForm): string {
       <label>Display name
         <input type="text" value="${escape(form.profileName)}" data-field="profile-name" placeholder="Your name">
       </label>
-      <label>Role
+      <label>Menu persona
         <select data-field="profile-role">
-          <option value=""${form.profileRole ? '' : ' selected'}>— choose your role —</option>
-          ${WORKSPACE_PROFILE_ROLES.map((role) => `<option value="${role}"${form.profileRole === role ? ' selected' : ''}>${escape(role.replaceAll('-', ' '))}</option>`).join('')}
+          <option value=""${form.profileRole ? '' : ' selected'}>— choose a persona —</option>
+          ${PROFILE_PERSONAS.map((persona) => `<option value="${persona.id}"${form.profileRole === persona.id ? ' selected' : ''}>${escape(persona.label)}</option>`).join('')}
         </select>
       </label>
     </div>
     <p class="muted">Saved locally in VS Code and reused by onboarding and Configuration Center.
-      It changes guidance only; commits and approval records always use the Git identity active when
-      the action is performed.</p>
+      It changes menu order and first-use suggestions only; it never hides commands. Commits and
+      approval records always use the Git identity active when the action is performed.</p>
   </section>
 
   <section>

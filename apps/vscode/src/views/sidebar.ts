@@ -8,6 +8,7 @@
 import * as vscode from 'vscode';
 import type { TreeNode } from './tree-model.ts';
 import { brandSymbol, contentSecurityPolicy, escape, icon, ICON_NAMES, nonce, type IconName } from './webview.ts';
+import { isProfilePersonaId, resolveProfilePersona, type ProfilePersona } from './profile-personas.ts';
 
 export type SidebarSection = 'favorites' | 'workspaces' | 'lifecycle' | 'inbox' | 'logs' | 'configuration' | 'help';
 
@@ -165,6 +166,7 @@ const SECTION_META: Record<SidebarSection, {
  */
 const ACTION_COMMANDS: Record<string, string> = {
   'favorites-manage': 'singularityFlow.manageFavorites',
+  'persona-manage': 'singularityFlow.choosePersona',
   'my-work': 'singularityFlow.myWork',
   'workspace-create': 'singularityFlow.createWorkspace',
   'workspace-manage': 'singularityFlow.openWorkspaces',
@@ -220,11 +222,9 @@ export const FAVORITE_MENUS: readonly FavoriteMenu[] = Object.freeze([
 ]);
 
 const FAVORITES_KEY = 'singularityFlow.navigationFavorites.v1';
-const FIRST_USE_FAVORITES = Object.freeze(['my-work', 'work-start', 'inbox-open']);
 const FAVORITE_BY_ID = new Map(FAVORITE_MENUS.map((menu) => [menu.id, menu]));
 
-/** Render order is the key order above: favorites, inbox, workspaces, lifecycle, configuration, help, logs. */
-const SECTION_ORDER = Object.freeze(Object.keys(SECTION_META) as SidebarSection[]);
+const ALL_SECTIONS = Object.freeze(Object.keys(SECTION_META) as SidebarSection[]);
 const KNOWN_ICONS = new Set<string>(ICON_NAMES);
 
 function semanticIcon(node: TreeNode): IconName {
@@ -257,16 +257,41 @@ export class SidebarViewProvider implements vscode.WebviewViewProvider, vscode.D
   private freshness: string | null = null;
   private awaitingFirstRead = false;
   private favoriteIds: string[];
+  private favoritesCustomized: boolean;
 
-  constructor(private readonly state: Pick<vscode.Memento, 'get' | 'update'>) {
+  constructor(
+    private readonly state: Pick<vscode.Memento, 'get' | 'update'>,
+    private readonly profile: () => { name?: string; role?: string } = () => ({})
+  ) {
     // A missing preference is a first visit; an empty array is an intentional choice. Keeping those
     // distinct lets the sidebar be useful immediately without resurrecting favorites somebody
     // explicitly removed.
     const stored = state.get<unknown>(FAVORITES_KEY);
+    this.favoritesCustomized = Array.isArray(stored);
     this.favoriteIds = Array.isArray(stored)
       ? [...new Set(stored.filter((id): id is string => typeof id === 'string' && FAVORITE_BY_ID.has(id)))]
-      : [...FIRST_USE_FAVORITES];
+      : this.personaFavoriteIds();
     this.bound.add('favorites');
+    this.refreshFavorites();
+  }
+
+  private persona(): ProfilePersona {
+    return resolveProfilePersona(this.profile().role);
+  }
+
+  private personaFavoriteIds(): string[] {
+    return this.persona().menuIds.filter((id) => FAVORITE_BY_ID.has(id));
+  }
+
+  private sectionOrder(): SidebarSection[] {
+    const ordered = this.persona().sectionOrder
+      .filter((section): section is SidebarSection => ALL_SECTIONS.includes(section as SidebarSection));
+    return [...new Set([...ordered, ...ALL_SECTIONS])];
+  }
+
+  /** Re-render machine-local guidance when the VS Code profile changes. */
+  profileChanged(): void {
+    if (!this.favoritesCustomized) this.favoriteIds = this.personaFavoriteIds();
     this.refreshFavorites();
   }
 
@@ -286,20 +311,26 @@ export class SidebarViewProvider implements vscode.WebviewViewProvider, vscode.D
   }
 
   async manageFavorites(): Promise<void> {
-    const chosen = await vscode.window.showQuickPick(FAVORITE_MENUS.map((menu) => ({
+    const persona = this.persona();
+    const preferred = new Map(persona.menuIds.map((id, index) => [id, index]));
+    const menus = [...FAVORITE_MENUS].sort((left, right) =>
+      (preferred.get(left.id) ?? Number.MAX_SAFE_INTEGER) - (preferred.get(right.id) ?? Number.MAX_SAFE_INTEGER));
+    const chosen = await vscode.window.showQuickPick(menus.map((menu) => ({
       label: menu.label,
       description: menu.description,
+      detail: preferred.has(menu.id) ? `Recommended for ${persona.label}` : undefined,
       picked: this.favoriteIds.includes(menu.id),
       menuId: menu.id
     })), {
       title: 'Choose favorite Singularity Flow menus',
-      placeHolder: 'Select the menus to keep at the top of the sidebar',
+      placeHolder: `Select menus to keep at the top · ${persona.label} suggestions appear first`,
       canPickMany: true,
       ignoreFocusOut: true
     });
     if (chosen === undefined) return;
     const selections = Array.isArray(chosen) ? chosen : [chosen];
     const previous = new Set(this.favoriteIds);
+    this.favoritesCustomized = true;
     this.favoriteIds = selections.map((item) => item.menuId).filter((id) => FAVORITE_BY_ID.has(id));
     await this.state.update(FAVORITES_KEY, this.favoriteIds);
     this.refreshFavorites();
@@ -311,6 +342,7 @@ export class SidebarViewProvider implements vscode.WebviewViewProvider, vscode.D
 
   private async removeFavorite(id: string): Promise<void> {
     if (!FAVORITE_BY_ID.has(id) || !this.favoriteIds.includes(id)) return;
+    this.favoritesCustomized = true;
     this.favoriteIds = this.favoriteIds.filter((candidate) => candidate !== id);
     await this.state.update(FAVORITES_KEY, this.favoriteIds);
     this.refreshFavorites();
@@ -466,7 +498,10 @@ export class SidebarViewProvider implements vscode.WebviewViewProvider, vscode.D
           : `<div class="empty"><p>Connecting to the Singularity Flow CLI. If this takes longer than expected, open Help for setup and diagnostics.</p>
               <button class="empty-action" type="button" data-action="help-open" data-selection-key="action:help-open">Open Help Center</button>
             </div>`;
-    const initiallyOpen = section === 'favorites' || section === 'lifecycle' ? ' open' : '';
+    const persona = this.persona();
+    const personaSection = persona.id === 'other'
+      ? 'lifecycle' : persona.sectionOrder.find((candidate) => candidate !== 'favorites');
+    const initiallyOpen = section === 'favorites' || section === personaSection ? ' open' : '';
     return `<details class="section" data-section="${section}"${initiallyOpen}>
       <summary class="section-heading">
         <span class="section-title">${icon(meta.icon, { size: 16 })}<span>${escape(meta.label)}</span></span>
@@ -480,10 +515,14 @@ export class SidebarViewProvider implements vscode.WebviewViewProvider, vscode.D
     if (!this.view) return;
     this.nodeIndex.clear();
     const token = nonce();
-    const sections = SECTION_ORDER.map((section) => this.renderSection(section)).join('');
+    const profile = this.profile();
+    const persona = resolveProfilePersona(profile.role);
+    const configuredPersona = isProfilePersonaId(profile.role);
+    const sectionOrder = this.sectionOrder();
+    const sections = sectionOrder.map((section) => this.renderSection(section)).join('');
     // The status dot was hard-coded green, so it said "ready" while the CLI was still being found —
     // and said it just as confidently when resolution had failed.
-    const ready = SECTION_ORDER.filter((section) => section !== 'favorites')
+    const ready = sectionOrder.filter((section) => section !== 'favorites')
       .every((section) => this.bound.has(section));
     this.view.webview.html = `<!doctype html><html><head><meta charset="utf-8">
       <meta name="viewport" content="width=device-width,initial-scale=1">
@@ -514,10 +553,15 @@ export class SidebarViewProvider implements vscode.WebviewViewProvider, vscode.D
         .brand-home:hover { background:var(--vscode-list-hoverBackground); }
         .brand-home:active { transform:translateY(1px); }
         .brand-home.last-opened { border-color:var(--accent); color:var(--accent); background:var(--quiet); }
+        .brand-persona { display:flex; align-items:center; gap:4px; max-width:105px; padding:3px 7px; border:0;
+          border-radius:10px; cursor:pointer; color:var(--vscode-descriptionForeground); background:transparent; font-size:11px; }
+        .brand-persona span { overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
+        .brand-persona:hover { color:var(--accent); background:var(--vscode-list-hoverBackground); }
+        .brand-persona:focus-visible { outline:1px solid var(--vscode-focusBorder); outline-offset:1px; }
         .brand-copy { min-width:0; line-height:1.05; }
         .brand-copy small { display:block; color:var(--accent); font-size:9px; font-weight:700; letter-spacing:.16em; text-transform:uppercase; }
         .brand-copy strong { display:block; margin-top:3px; font-size:15px; font-weight:650; letter-spacing:.01em; }
-        .brand-status { margin-left:auto; width:7px; height:7px; border-radius:50%; background:var(--accent); box-shadow:0 0 0 3px var(--quiet); }
+        .brand-status { margin-left:4px; width:7px; height:7px; border-radius:50%; background:var(--accent); box-shadow:0 0 0 3px var(--quiet); }
         .brand-status.connecting { background:var(--vscode-descriptionForeground); box-shadow:0 0 0 3px transparent; }
         main { overflow-y:auto; }
         details { margin:0; }
@@ -587,12 +631,19 @@ export class SidebarViewProvider implements vscode.WebviewViewProvider, vscode.D
         .freshness { display:flex; align-items:center; gap:6px; padding:4px 10px; font-size:11px;
           color:var(--vscode-descriptionForeground); background:var(--quiet); }
         .freshness .ico { flex:none; opacity:.8; }
+        @media (max-width:360px) {
+          .brand-home,.brand-persona { min-width:27px; padding:4px 6px; justify-content:center; }
+          .brand-home span,.brand-persona span { display:none; }
+        }
         @media (prefers-reduced-motion:reduce) { * { transition:none!important; animation:none!important; } }
       </style></head><body>
       <header class="brand">${brandSymbol(30)}
         <span class="brand-copy"><small>Singularity</small><strong>Flow</strong></span>
         <button class="brand-home" data-action="my-work" data-selection-key="action:my-work" type="button"
           title="My Work — current work and next actions">${icon('home', { size: 14 })}<span>My Work</span></button>
+        <button class="brand-persona" data-action="persona-manage" data-selection-key="action:persona-manage" type="button"
+          aria-label="${configuredPersona ? `Change ${escape(persona.label)} menu persona` : 'Choose a menu persona'}"
+          title="${configuredPersona ? `${escape(persona.label)} menu · ${escape(persona.description)}. Change persona.` : 'Choose a persona to tailor menu order and suggestions.'}">${icon('agent', { size: 14 })}<span>${configuredPersona ? escape(persona.label) : 'Set persona'}</span></button>
         <span class="brand-status${ready ? '' : ' connecting'}" role="img"
           aria-label="${ready ? 'Connected' : 'Connecting'}"
           title="${ready ? 'Connected to the Singularity Flow CLI' : 'Connecting to the Singularity Flow CLI…'}"></span></header>

@@ -341,6 +341,7 @@ async function demoRepository() {
   };
   const mobile = await child('mobile.git');
   const api = await child('api.git');
+  const lead = await child('lead.git');
 
   const root = path.join(base, 'checkout');
   await mkdir(root);
@@ -369,6 +370,8 @@ async function demoRepository() {
 
   run('git', ['add', '.'], { cwd: root });
   run('git', ['commit', '-m', 'Initialize'], { cwd: root });
+  run('git', ['remote', 'add', 'origin', lead], { cwd: root });
+  run('git', ['push', '-u', 'origin', 'main'], { cwd: root });
   run('git', ['switch', '-c', 'INIT-CHECKOUT'], { cwd: root });
 
   const created = await createInitiative(root, { id: 'INIT-CHECKOUT', profile: 'enterprise-delivery' });
@@ -391,6 +394,7 @@ async function demoRepository() {
   }));
   run('git', ['add', '.'], { cwd: root });
   run('git', ['commit', '-m', 'Breakdown'], { cwd: root });
+  run('git', ['push', '-u', 'origin', 'INIT-CHECKOUT'], { cwd: root });
   return root;
 }
 
@@ -609,10 +613,86 @@ test('a window with nothing open and no active workspace says which of the two t
   assert.equal(configuration.getTreeItem(configurationActions[2]).command.command,
     'singularityFlow.reviewCapabilityProposals',
     'pending organisation changes remain reviewable without an active workspace');
+
+  await registered.commands.get('singularityFlow.myWork')();
+  const refusal = registered.panels.find((entry) => entry.id === 'singularityFlow.result');
+  const refusalText = refusal.webview.html.replace(/<style[\s\S]*?<\/style>/g, '')
+    .replace(/<[^>]+>/g, ' ').replace(/\s+/g, ' ').trim();
+  assert.match(refusalText,
+    /No governed workspace or repository is selected\. Choose a workspace or open a governed repository\./);
+  assert.doesNotMatch(refusalText, /No folder is open/);
+});
+
+test('My Work resolves an active workspace when no editor folder is open', async (t) => {
+  if (!requireBundle(t)) return;
+  const root = await demoRepository();
+  const workflowFile = path.join(root, 'singularity/workflow.yml');
+  const workflow = YAML.parse(await readFile(workflowFile, 'utf8'));
+  workflow.git = { ...(workflow.git ?? {}), publish: 'off' };
+  await writeFile(workflowFile, YAML.stringify(workflow));
+  run('git', ['add', workflowFile], { cwd: root });
+  run('git', ['commit', '-m', 'Use local publication for My Work test'], { cwd: root });
+  const started = spawnSync(process.execPath, [path.join(packageRoot, 'bin', 'singularity-flow.mjs'),
+    'start', 'STORY-ACTIVE', '--title', 'Active workspace Story',
+    '--description', 'Prove My Work can resolve it without an editor folder.',
+    '--acceptance-criteria', 'My Work displays the active Story', '--work-type', 'feature',
+    '--agent', 'developer', '--base', 'INIT-CHECKOUT'], {
+    cwd: root, encoding: 'utf8', env: process.env
+  });
+  assert.equal(started.status, 0, started.stderr);
+  const base = await mkdtemp(path.join(os.tmpdir(), 'sflow-my-work-context-'));
+  const registryFile = path.join(base, 'registry.json');
+  const selectionFile = path.join(base, 'active.json');
+  const env = {
+    ...process.env,
+    SINGULARITY_FLOW_WORKSPACE_REGISTRY: registryFile,
+    SINGULARITY_FLOW_ACTIVE_WORKSPACE: selectionFile
+  };
+  const create = spawnSync(process.execPath, [path.join(packageRoot, 'bin', 'singularity-flow.mjs'),
+    'workspace', 'create', '--local', '--json', '--id', 'active-home',
+    '--base', path.join(base, 'workspaces'), '--lead', 'lead',
+    '--repository', `lead=${root}`, '--default-branch', 'lead=STORY-ACTIVE',
+    '--confirm', 'active-home'], {
+    encoding: 'utf8', env
+  });
+  assert.equal(create.status, 0, create.stderr);
+  const use = spawnSync(process.execPath, [path.join(packageRoot, 'bin', 'singularity-flow.mjs'),
+    'workspace', 'use', 'active-home', '--json'], { encoding: 'utf8', env });
+  assert.equal(use.status, 0, use.stderr);
+
+  const previousRegistry = process.env.SINGULARITY_FLOW_WORKSPACE_REGISTRY;
+  const previousSelection = process.env.SINGULARITY_FLOW_ACTIVE_WORKSPACE;
+  process.env.SINGULARITY_FLOW_WORKSPACE_REGISTRY = registryFile;
+  process.env.SINGULARITY_FLOW_ACTIVE_WORKSPACE = selectionFile;
+  t.after(() => {
+    if (previousRegistry == null) delete process.env.SINGULARITY_FLOW_WORKSPACE_REGISTRY;
+    else process.env.SINGULARITY_FLOW_WORKSPACE_REGISTRY = previousRegistry;
+    if (previousSelection == null) delete process.env.SINGULARITY_FLOW_ACTIVE_WORKSPACE;
+    else process.env.SINGULARITY_FLOW_ACTIVE_WORKSPACE = previousSelection;
+  });
+
+  const { api, registered } = stubVscode();
+  api.workspace.workspaceFolders = undefined;
+  const extension = loadExtension(api);
+  await extension.activate(context());
+  await registered.commands.get('singularityFlow.myWork')();
+
+  const result = registered.panels.find((entry) => entry.id === 'singularityFlow.result');
+  assert.ok(result, 'My Work renders a result without requiring an editor folder');
+  const visible = result.webview.html.replace(/<style[\s\S]*?<\/style>/g, '').replace(/<[^>]+>/g, ' ')
+    .replace(/\s+/g, ' ').trim();
+  assert.match(visible, /You have work in progress/,
+    'the active Story in the workspace lead repository is visible');
+  assert.match(visible, /Continue current work/);
+  assert.ok(registered.output.some((line) => /active-home/.test(line)
+    && /Governed repository:/.test(line)),
+  'the gateway root came from the machine-wide active workspace');
+  assert.doesNotMatch(result.webview.html, /No workspace selected|No folder is open/);
 });
 
 test('a selected workspace with a missing lead repository offers repair instead of claiming no workspace is active', async (t) => {
   if (!requireBundle(t)) return;
+  const unrelated = await demoRepository();
   const org = await organisation();
   const base = await mkdtemp(path.join(os.tmpdir(), 'sflow-missing-lead-'));
   const registryFile = path.join(base, 'registry.json');
@@ -645,7 +725,7 @@ test('a selected workspace with a missing lead repository offers repair instead 
   });
 
   const { api, registered } = stubVscode();
-  api.workspace.workspaceFolders = undefined;
+  api.workspace.workspaceFolders = [{ uri: { fsPath: unrelated } }];
   const extension = loadExtension(api);
   await extension.activate(context());
 
@@ -738,6 +818,32 @@ test('Help is available without a workspace and opens the canonical offline manu
   assert.match(panel.webview.html, /Story intake/);
   assert.match(panel.webview.html, /CLI command reference/);
   assert.match(panel.webview.html, /\/sf-story-start/);
+});
+
+test('clicking an offline topic opens the engine-served Markdown document', async (t) => {
+  if (!requireBundle(t)) return;
+  const root = await demoRepository();
+  const { api, registered } = stubVscode();
+  api.workspace.workspaceFolders = [{ uri: { fsPath: root } }];
+  const extension = loadExtension(api);
+  await extension.activate(context());
+
+  const help = section(registered, 'help');
+  const topics = help.getChildren().find((node) => node.id === 'help:topics');
+  assert.ok(topics, 'the packaged topic group is visible');
+  const [topic] = help.getChildren(topics);
+  assert.ok(topic?.id.startsWith('help:topic:'), 'a real packaged topic is available to click');
+  assert.ok(registered.commands.has('singularityFlow.explainTopic'),
+    'the command rendered on every topic row is registered');
+
+  const navigation = registered.webviewViews.get('singularityFlow.navigation');
+  await navigation.post({ type: 'node', key: 'help:2.0' });
+  const opened = await until(() => registered.openedDocuments.at(-1));
+  assert.equal(opened.language, 'markdown');
+  assert.match(opened.content, /## Purpose and prerequisites/);
+  assert.match(opened.content, new RegExp(`topic ${topic.id.slice('help:topic:'.length)} v\\d+`));
+  assert.match(opened.content, /sflow explain/);
+  assert.deepEqual(registered.errors, []);
 });
 
 test('every shared screen destination is connected through a real webview message', async (t) => {
@@ -1201,6 +1307,88 @@ test('an Epic can be started and its first source pinned entirely from the edito
   }, { what: 'the pinned Epic source to appear in the refreshed tree' });
   assert.equal(sources.description, '1');
   assert.equal(provider.getChildren(sources)[0].label, 'brief.md');
+});
+
+test('Story intake refuses a dirty target before opening the form', async (t) => {
+  if (!requireBundle(t)) return;
+  const { root, registered } = await activated();
+  await writeFile(path.join(root, 'unfinished-change.txt'), 'not ready to govern\n');
+  registered.selfApprovalAnswer = 'Open Source Control';
+
+  await registered.commands.get('singularityFlow.startWork')();
+
+  assert.equal(registered.panels.some((entry) => entry.id === 'singularityFlow.intake'), false,
+    'the form is not shown for a target the engine will refuse');
+  const warning = registered.warnings.find((message) => /Cannot start work/.test(message));
+  assert.match(warning ?? '', /checkout/);
+  assert.match(warning ?? '', /INIT-CHECKOUT/);
+  assert.match(warning ?? '', /unfinished-change\.txt/);
+  assert.ok(registered.executedCommands.some((entry) => entry.id === 'workbench.view.scm'),
+    'the refusal offers the relevant recovery surface');
+});
+
+test('a manual Story is submitted end to end from the editor', async (t) => {
+  if (!requireBundle(t)) return;
+  const base = await mkdtemp(path.join(os.tmpdir(), 'sflow-story-intake-'));
+  const root = path.join(base, 'service');
+  await mkdir(root);
+  run('git', ['init', '-q', '-b', 'main', root], { cwd: base });
+  run('git', ['config', 'user.name', 'Initiative Owner'], { cwd: root });
+  run('git', ['config', 'user.email', EMAIL], { cwd: root });
+  await writeFile(path.join(root, 'README.md'), '# service\n');
+  const initialized = spawnSync(process.execPath,
+    [path.join(packageRoot, 'bin', 'singularity-flow.mjs'), 'init'],
+    { cwd: root, encoding: 'utf8' });
+  assert.equal(initialized.status, 0, initialized.stderr);
+
+  const portfolioFile = path.join(root, 'singularity/portfolio.yml');
+  await writeFile(portfolioFile, (await readFile(portfolioFile, 'utf8'))
+    .replace(/^  publish: \w+$/m, '  publish: off')
+    .replace(/members: \[\]/g, `members: [{ name: Initiative Owner, email: ${EMAIL} }]`));
+  const workflowFile = path.join(root, 'singularity/workflow.yml');
+  const workflow = YAML.parse(await readFile(workflowFile, 'utf8'));
+  workflow.worldModel.grounding = 'off';
+  await writeFile(workflowFile, YAML.stringify(workflow));
+  run('git', ['add', '.'], { cwd: root });
+  run('git', ['commit', '-m', 'Initialize'], { cwd: root });
+  const remote = path.join(base, 'service.git');
+  run('git', ['init', '--bare', '--initial-branch=main', remote], { cwd: base });
+  run('git', ['remote', 'add', 'origin', remote], { cwd: root });
+  run('git', ['push', '-u', 'origin', 'main'], { cwd: root });
+
+  const { api, registered } = stubVscode();
+  api.workspace.workspaceFolders = [{ uri: { fsPath: root } }];
+  const extension = loadExtension(api);
+  await extension.activate(context());
+
+  await registered.commands.get('singularityFlow.startWork')();
+  const intakePanel = registered.panels.find((entry) => entry.id === 'singularityFlow.intake');
+  assert.ok(intakePanel, 'a clean repository opens Story intake');
+  await intakePanel.post({ type: 'shape', value: 'story' });
+  await until(() => intakePanel.webview.html.includes('data-work-type="feature"') ? true : null);
+  assert.match(intakePanel.webview.html, /data-base-branch="main"/);
+  await intakePanel.post({ type: 'baseBranch', value: 'main' });
+  await intakePanel.post({ type: 'tracker', value: 'none' });
+  await intakePanel.post({ type: 'field', field: 'id', value: 'STORY-UI' });
+  await intakePanel.post({ type: 'field', field: 'title', value: 'Area operator' });
+  await intakePanel.post({ type: 'field', field: 'description', value: 'Add an operator called area' });
+  await intakePanel.post({ type: 'field', field: 'acceptanceCriteria', value: 'Testing proves the result' });
+  await intakePanel.post({ type: 'start' });
+
+  await until(() => run('git', ['branch', '--show-current'], { cwd: root }).stdout.trim() === 'STORY-UI'
+    ? true : null, { what: 'the Story branch to be created' });
+  await until(() => registered.infos.find((message) => /Story STORY-UI started/.test(message)) ?? null,
+    { what: 'the editor to report the started Story' });
+  assert.deepEqual(registered.errors, []);
+  assert.deepEqual(registered.warnings, []);
+  assert.equal(run('git', ['log', '-1', '--pretty=%s'], { cwd: root }).stdout.trim(),
+    '[STORY-UI][init] start feature workflow');
+  assert.equal(run('git', ['status', '--porcelain'], { cwd: root }).stdout.trim(), '');
+  assert.equal(
+    run('git', ['ls-remote', 'origin', 'refs/heads/STORY-UI'], { cwd: root }).stdout.split(/\s+/)[0],
+    run('git', ['rev-parse', 'HEAD'], { cwd: root }).stdout.trim(),
+    'the packaged editor published only the Story branch'
+  );
 });
 
 test('starting work before any approver is named says so first, and offers the file to fix', async (t) => {
@@ -2173,9 +2361,11 @@ test('the first explicit workspace selection loads Lifecycle in the same window'
   // other Singularity view had already resolved the selected workspace.
   await initializeDefinition(chosen.openPath);
   await registered.commands.get('singularityFlow.doctor')();
-  const report = await until(() => registered.openedDocuments
+  assert.deepEqual(registered.errors, [], `diagnostics refusal: ${registered.errors.join(' | ')}`);
+  const report = registered.openedDocuments
     .find((document) => typeof document?.content === 'string'
-      && document.content.includes('CAPABILITY AND STATE DIAGNOSTICS')) ?? null);
+      && document.content.includes('CAPABILITY AND STATE DIAGNOSTICS'));
+  assert.ok(report, `diagnostics did not open; warnings: ${registered.warnings.join(' | ')}; output: ${registered.output.join(' | ')}`);
   assert.match(report.content, /CAPABILITY AND STATE DIAGNOSTICS/);
   assert.equal(registered.warnings.some((message) => /Open a repository first/i.test(message)), false);
 });

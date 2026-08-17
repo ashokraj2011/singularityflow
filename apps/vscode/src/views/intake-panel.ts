@@ -11,7 +11,7 @@ import {
 import { navigateTo } from './navigate.ts';
 import { registerMessageRouter, stringField, type InboundMessage } from './messages.ts';
 import {
-  EMPTY_INTAKE_FORM, intakeCommand, intakeHtml, intakeProblems, INTAKE_SCRIPT, SHAPES,
+  EMPTY_INTAKE_FORM, intakeCommand, intakeHtml, intakeIdentifier, intakeProblems, INTAKE_SCRIPT, SHAPES,
   type BaseBranchChoice, type InFlight, type IntakeForm, type ProfileChoice, type Shape, type Tracker
 } from './intake-form.ts';
 import { SingularityFlowClient } from '../cli/client.ts';
@@ -23,6 +23,12 @@ export interface Started {
   currentPhase?: string;
 }
 
+export interface IntakeTarget {
+  workspace: string | null;
+  repository: string;
+  branch: string | null;
+}
+
 export class IntakePanel {
   private static current: IntakePanel | null = null;
 
@@ -31,24 +37,33 @@ export class IntakePanel {
   private readonly output: vscode.OutputChannel;
   private readonly onStarted: (started: Started) => Promise<void>;
   private readonly disposables: vscode.Disposable[] = [];
-  private form: IntakeForm = { ...EMPTY_INTAKE_FORM };
+  private form: IntakeForm;
+  private preflightVersion = 0;
 
   private constructor(
     panel: vscode.WebviewPanel,
     client: SingularityFlowClient,
     output: vscode.OutputChannel,
-    onStarted: (started: Started) => Promise<void>
+    onStarted: (started: Started) => Promise<void>,
+    target: IntakeTarget
   ) {
     this.panel = panel;
     this.client = client;
     this.output = output;
     this.onStarted = onStarted;
+    this.form = {
+      ...EMPTY_INTAKE_FORM,
+      targetWorkspace: target.workspace,
+      targetRepository: target.repository,
+      targetBranch: target.branch
+    };
     this.panel.webview.onDidReceiveMessage((raw: unknown) => {
       // The shared footer is the one way out of a full-page view. Handled here rather than through
       // this panel's own message contract, because "go to another page" is not this panel's business.
       const navigation = navigationTarget(raw);
       if (navigation) return void navigateTo(navigation);
- void this.router.route(raw); }, null, this.disposables);
+      return this.router.route(raw);
+    }, null, this.disposables);
     this.panel.onDidDispose(() => this.dispose(), null, this.disposables);
     this.render();
     void this.load();
@@ -58,11 +73,18 @@ export class IntakePanel {
     context: vscode.ExtensionContext,
     client: SingularityFlowClient,
     output: vscode.OutputChannel,
-    onStarted: (started: Started) => Promise<void>
+    onStarted: (started: Started) => Promise<void>,
+    target: IntakeTarget
   ): IntakePanel {
     if (IntakePanel.current) {
-      IntakePanel.current.panel.reveal(vscode.ViewColumn.Active);
-      return IntakePanel.current;
+      if (IntakePanel.current.form.targetRepository === target.repository
+          && IntakePanel.current.form.targetBranch === target.branch) {
+        IntakePanel.current.panel.reveal(vscode.ViewColumn.Active);
+        return IntakePanel.current;
+      }
+      // A workspace or branch switch changes the mutation target. Never reveal a form that names
+      // the former target while its shared client now points somewhere else.
+      IntakePanel.current.dispose();
     }
     const panel = vscode.window.createWebviewPanel(
       'singularityFlow.intake', 'Start work', vscode.ViewColumn.Active, {
@@ -70,7 +92,7 @@ export class IntakePanel {
         retainContextWhenHidden: true,
         localResourceRoots: [vscode.Uri.joinPath(context.extensionUri, 'media')]
       });
-    IntakePanel.current = new IntakePanel(panel, client, output, onStarted);
+    IntakePanel.current = new IntakePanel(panel, client, output, onStarted, target);
     return IntakePanel.current;
   }
 
@@ -109,13 +131,13 @@ export class IntakePanel {
         ?? storyWorkflows.workflows[0]?.id ?? null,
       workflowReason: storyWorkflows.reason,
       baseBranchChoices: baseBranches.choices,
-      /**
-       * Defaulted to the most widely published branch, which is the first entry — the same default
-       * the terminal prompt takes on an empty answer, so the two surfaces do not disagree about what
-       * "just start" means.
-       */
-      baseBranch: baseBranches.choices[0]?.branch ?? null,
+      // A Story base is an explicit, permanent choice. Even one available branch must be selected.
+      baseBranch: null,
+      baseRemote: baseBranches.remote,
       baseBranchReason: baseBranches.reason,
+      basePreflightPassed: false,
+      basePreflightChecking: false,
+      basePreflightReason: null,
       jiraConfigured: tracker.configured,
       jiraReason: tracker.reason,
       // A tracker that is configured is almost always the one being used, so it leads — but "no
@@ -151,22 +173,27 @@ export class IntakePanel {
    * outside a workspace, or one whose capability is undeclared, is a supported way to work and the
    * form must still open.
    */
-  private async baseBranches(): Promise<{ choices: BaseBranchChoice[]; reason: string | null }> {
+  private async baseBranches(): Promise<{
+    choices: BaseBranchChoice[]; remote: string | null; reason: string | null;
+  }> {
     try {
-      const listed = await this.client.run<{ choices?: BaseBranchChoice[]; unreachable?: { repository: string }[] }>(
+      const listed = await this.client.run<{
+        choices?: BaseBranchChoice[]; remote?: string; unreachable?: { repository: string }[];
+      }>(
         ['workspace', 'branches', '--json']
       );
       const unreachable = listed.unreachable ?? [];
       return {
-        choices: listed.choices ?? [],
+        choices: (listed.choices ?? []).filter((choice) => choice.everywhere),
+        remote: listed.remote ?? null,
         // Named, because a branch missing from the list because a remote was unreachable looks
         // exactly like a branch that does not exist.
         reason: unreachable.length
-          ? `Could not read ${unreachable.map((entry) => entry.repository).join(', ')}, so the branch list may be incomplete.`
+          ? `Could not read ${unreachable.map((entry) => entry.repository).join(', ')}. Remote access is required before starting a Story.`
           : null
       };
     } catch (error) {
-      return { choices: [], reason: (error as Error).message };
+      return { choices: [], remote: null, reason: (error as Error).message };
     }
   }
 
@@ -260,11 +287,22 @@ export class IntakePanel {
   private router = registerMessageRouter('singularityFlow.intake', {
     shape: (message) => {
       const shape = SHAPES.find((entry) => entry.id === stringField(message, 'value'));
-      if (shape) this.update({ shape: shape.id, error: null });
+      if (shape) {
+        this.preflightVersion += 1;
+        this.update({
+          shape: shape.id, error: null,
+          basePreflightPassed: false, basePreflightChecking: false, basePreflightReason: null
+        });
+      }
     },
     tracker: (message) => {
       const tracker = stringField(message, 'value') === 'jira' ? 'jira' : 'none';
-      this.update({ tracker: tracker as Tracker, error: null });
+      this.preflightVersion += 1;
+      this.update({
+        tracker: tracker as Tracker, error: null,
+        basePreflightPassed: false, basePreflightChecking: false, basePreflightReason: null
+      });
+      return this.preflightBaseBranch();
     },
     profile: (message) => {
       const profile = this.form.profiles.find((entry) => entry.id === stringField(message, 'value'));
@@ -272,7 +310,14 @@ export class IntakePanel {
     },
     baseBranch: (message) => {
       const choice = this.form.baseBranchChoices.find((entry) => entry.branch === stringField(message, 'value'));
-      if (choice) this.update({ baseBranch: choice.branch, error: null });
+      if (choice) {
+        this.preflightVersion += 1;
+        this.update({
+          baseBranch: choice.branch, error: null,
+          basePreflightPassed: false, basePreflightChecking: false, basePreflightReason: null
+        });
+        return this.preflightBaseBranch();
+      }
     },
     workType: (message) => {
       const workflow = this.form.storyWorkflows.find((entry) => entry.id === stringField(message, 'value'));
@@ -286,7 +331,17 @@ export class IntakePanel {
     field: (message) => {
       const field = this.writableField(message);
       const value = stringField(message, 'value');
-      if (field && value !== null) this.update({ [field]: value } as Partial<IntakeForm>);
+      if (field && value !== null) {
+        const invalidatesPreflight = field === 'id' || field === 'key';
+        if (invalidatesPreflight) this.preflightVersion += 1;
+        this.update({
+          [field]: value,
+          ...(invalidatesPreflight ? {
+            basePreflightPassed: false, basePreflightChecking: false, basePreflightReason: null
+          } : {})
+        } as Partial<IntakeForm>);
+        if (invalidatesPreflight) return this.preflightBaseBranch();
+      }
     },
     start: () => this.start()
   });
@@ -296,9 +351,50 @@ export class IntakePanel {
     return field && IntakePanel.WRITABLE.includes(field) ? field : null;
   }
 
+  /**
+   * Ask the engine to re-fetch every required base and dry-run the exact Story destination. The
+   * version prevents a slow answer for an earlier branch or identifier from enabling Start.
+   */
+  private async preflightBaseBranch(): Promise<void> {
+    const storyId = intakeIdentifier(this.form);
+    const branch = this.form.baseBranch;
+    if (this.form.shape !== 'story' || !storyId || !branch) return;
+    const version = ++this.preflightVersion;
+    this.update({ basePreflightPassed: false, basePreflightChecking: true, basePreflightReason: null });
+    try {
+      const result = await this.client.run<{ preflight?: { passed?: boolean } }>([
+        'workspace', 'branches', '--json', '--preflight-story', storyId,
+        '--from-branch', branch
+      ]);
+      if (version !== this.preflightVersion) return;
+      if (!result.preflight?.passed) {
+        this.update({
+          basePreflightPassed: false, basePreflightChecking: false,
+          basePreflightReason: 'The remote publication preflight did not return a passing result.'
+        });
+        return;
+      }
+      this.update({
+        basePreflightPassed: true, basePreflightChecking: false, basePreflightReason: null
+      });
+    } catch (error) {
+      if (version !== this.preflightVersion) return;
+      this.update({
+        basePreflightPassed: false, basePreflightChecking: false,
+        basePreflightReason: (error as Error).message
+      });
+    }
+  }
+
   private async start(): Promise<void> {
     // Re-checked here rather than trusted from the page: the disabled button is a courtesy.
     if (intakeProblems(this.form).length || this.form.busy) return;
+    if (this.client.repository !== this.form.targetRepository) {
+      this.update({
+        error: `The active repository changed to ${this.client.repository}. Close this form and start again so the target is explicit.`
+      });
+      return;
+    }
     this.update({ busy: true, error: null });
 
     const args = intakeCommand(this.form);

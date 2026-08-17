@@ -384,7 +384,10 @@ export async function saveWorkflow(root, config, workflow) {
   if (tracked) tracked.stateSha256 = stateFingerprint(file);
 }
 
-export async function createWorkflow(root, config, { id, title, source, baseBranch, canonicalBranch = id, workType, agent, resolved, capabilityId = null } = {}) {
+export async function createWorkflow(root, config, {
+  id, title, source, baseBranch, baseCommit = null, baseRemote = null,
+  canonicalBranch = id, workType, agent, resolved, capabilityId = null
+} = {}) {
   validateId(config, id);
   if (branch(root) !== canonicalBranch) {
     throw new SingularityFlowError(`Current branch ${branch(root)} must match the canonical Story branch ${canonicalBranch}.`);
@@ -445,7 +448,12 @@ export async function createWorkflow(root, config, { id, title, source, baseBran
   const createdAt = nowIso();
   const workflow = {
     schemaVersion: 2,
-    workItem: { id, title: title || id, workType: selectedType, workTypeLabel: resolution.label, branch: branch(root), baseBranch, createdAt, createdBy: actor, source: {
+    workItem: {
+      id, title: title || id, workType: selectedType, workTypeLabel: resolution.label,
+      branch: branch(root), baseBranch,
+      ...(baseCommit ? { baseCommit } : {}),
+      ...(baseRemote ? { baseRemote } : {}),
+      createdAt, createdBy: actor, source: {
       type: source.type,
       key: source.key ?? null,
       url: source.url ?? null,
@@ -457,7 +465,8 @@ export async function createWorkflow(root, config, { id, title, source, baseBran
       regulatedDataChange: source.regulatedDataChange ?? null,
       deploymentPolicyChange: source.deploymentPolicyChange ?? null,
       crossRepositoryChange: source.crossRepositoryChange ?? null
-    } },
+      }
+    },
     lineage: {
       schemaVersion: 1,
       canonicalBranch: branch(root),

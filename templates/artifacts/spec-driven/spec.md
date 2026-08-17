@@ -5,11 +5,14 @@ Scenarios come first, and general requirements come after them `[SPK:REQ-068]`. 
 template's opinion: a requirement written before anyone has described the situation it serves tends
 to describe the system instead of the need, and nobody notices until verification.
 
-Where you do not know something, say so with a marker rather than guessing:
+Where the current Story evidence leaves something material unknown, say so with a marker rather
+than guessing. Use this syntax:
 
-    [NEEDS CLARIFICATION: which roles may retry a failed payment?]
+    [NEEDS CLARIFICATION: <one question grounded in the current Story evidence>]
 
-The question must be one non-empty line. Markers are extracted the same way clauses are, so a marker
+Replace the angle-bracketed placeholder; never copy or ask it as written. The question must be one
+non-empty line and must arise from the pinned sources, approved upstream artifacts, repository world
+model, or a contradiction among them. Markers are extracted the same way clauses are, so a marker
 inside fenced or inline code is ignored `[SPK:REQ-063]`. This phase blocks publication while any
 marker is unresolved, and a marker is only resolved when a later generation removes it *and* records
 the answer `[SPK:REQ-067]` — deleting the text alone is an integrity failure, not an answer.

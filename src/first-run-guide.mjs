@@ -34,7 +34,8 @@ async function configureRepository(root) {
 }
 
 /**
- * Runs a real isolated quick-fix lifecycle without a network, remote, Jira account, or model.
+ * Runs a real isolated quick-fix lifecycle without network access, Jira, or a model. A local bare
+ * remote exercises the same explicit remote-base contract as a team repository.
  * A failed walkthrough remains on disk with diagnostics so the failure can be reproduced.
  */
 export async function runFirstRunGuide({ keep = false, onBoundary } = {}) {
@@ -67,6 +68,9 @@ export async function runFirstRunGuide({ keep = false, onBoundary } = {}) {
     await configureRepository(repository);
     run('git', ['add', '--', ...GOVERNED_ROOTS], { cwd: repository });
     run('git', ['commit', '-m', 'Initialize Singularity Flow'], { cwd: repository });
+    const remote = path.join(directory, 'origin.git');
+    run('git', ['clone', '--bare', '--', repository, remote], { cwd: directory });
+    run('git', ['remote', 'add', 'origin', remote], { cwd: repository });
 
     const story = path.join(directory, 'story.yml');
     await writeFile(story, YAML.stringify({
@@ -78,7 +82,7 @@ export async function runFirstRunGuide({ keep = false, onBoundary } = {}) {
       repositoryCount: 1
     }));
 
-    steps.push(command(cli, repository, ['start', 'TOY-001', '--story-file', story, '--work-type', 'quick-fix', '--agent', 'developer'], env));
+    steps.push(command(cli, repository, ['start', 'TOY-001', '--from-branch', 'main', '--story-file', story, '--work-type', 'quick-fix', '--agent', 'developer'], env));
     await writeFile(path.join(repository, 'greeting.txt'), 'Hello, Singularity Flow!\n');
     steps.push(command(cli, repository, ['prepare', 'implement'], env));
     steps.push(command(cli, repository, ['phase', 'publish', 'implement', '--authored', 'deterministic'], env));

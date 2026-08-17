@@ -269,6 +269,7 @@ export function renderClarificationProtocol(value, phaseId) {
     '',
     ...required.map((line) => `- ${line}`),
     `- Ask one concise batch of no more than ${policy.maxQuestions} questions with the interactive \`ask_user\` tool.`,
+    '- Derive every question only from the current Story’s pinned sources, approved upstream artifacts, repository world model, or contradictions among them. Never reuse example questions or placeholder text from templates.',
     '- Do not ask for information already established by pinned sources, approved upstream artifacts, or the repository world model.',
     '- Treat pinned evidence as fact. Label every hypothesis or proposed design explicitly; never convert it into an acceptance or specification decision without human confirmation.',
     '- For each question, explain briefly why the answer changes the governed output. Offer a recommended/default choice when the evidence supports one.',

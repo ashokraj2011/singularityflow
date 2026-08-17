@@ -114,7 +114,7 @@ test('a Story runs specification through release from a fresh clone', async (t) 
   git(root, 'config', 'user.name', 'End To End');
   git(root, 'config', 'user.email', 'e2e@example.invalid');
 
-  sflow(root, ['start', WORK, '--work-type', 'spec-driven-standard',
+  sflow(root, ['start', WORK, '--from-branch', 'main', '--work-type', 'spec-driven-standard',
     '--title', 'Retry a failed payment', '--description', 'Let an operator retry a payment that failed at the provider.']);
   assert.equal((await workflowOf(root)).currentPhase, 'specification');
 

@@ -99,8 +99,43 @@ test('origin travels with the showing, not with the card', async () => {
   assert.match(panel, /origin: currentOrigin/);
 
   const extension = await readFile(path.join(root, 'apps', 'vscode', 'src', 'extension.ts'), 'utf8');
-  assert.match(extension, /if \(root && origin === 'gateway'\)/,
+  assert.match(extension, /if \(active && origin === 'gateway'\)/,
     'the executor path is taken only for results whose handles are live');
   assert.match(extension, /showResultCard\(buildResultCard\(envelope\), \{ origin: 'gateway' \}\)/,
     'My Work marks its own result as one the executor can re-resolve');
+});
+
+test('every gateway surface uses the validated active repository context', async () => {
+  const session = await readFile(path.join(root, 'apps', 'vscode', 'src', 'gateway-session.ts'), 'utf8');
+  const extension = await readFile(path.join(root, 'apps', 'vscode', 'src', 'extension.ts'), 'utf8');
+
+  assert.doesNotMatch(codeOnly(session), /workspaceFolders/,
+    'the gateway session never derives its repository from the editor folder');
+  assert.match(session, /export function setActiveRepositoryContext/);
+  assert.match(session, /sessionWorkspaceId === workspaceId/,
+    'workspace identity participates in session reuse');
+  assert.doesNotMatch(codeOnly(extension), /gatewaySession\((?!active\))/,
+    'gateway callers always supply the complete resolved context');
+  assert.match(extension,
+    /No governed workspace or repository is selected\. Choose a workspace or open a governed repository\./,
+    'the empty-state message describes both supported resolution paths');
+});
+
+test('changing workspace identity retires the previous gateway session', async () => {
+  const gateway = await import(path.join(root, 'apps', 'vscode', 'src', 'gateway-session.ts'));
+  const first = {
+    root: '/tmp/sflow-context-root', workspaceId: 'workspace-a', workspaceName: 'A',
+    repositoryId: 'lead', origin: 'test'
+  };
+  gateway.setActiveRepositoryContext(first);
+  const original = gateway.gatewaySession(first);
+  assert.equal(gateway.gatewaySession(first), original,
+    'an unchanged context reuses its handle authority');
+
+  const second = { ...first, workspaceId: 'workspace-b', workspaceName: 'B' };
+  gateway.setActiveRepositoryContext(second);
+  const replaced = gateway.gatewaySession(second);
+  assert.notEqual(replaced, original,
+    'the same checkout under another workspace receives a new handle authority');
+  assert.deepEqual(gateway.activeRepositoryContext(), second);
 });

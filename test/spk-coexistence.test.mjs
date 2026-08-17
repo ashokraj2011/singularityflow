@@ -119,11 +119,12 @@ test('a legacy Story runs through the shared phases untouched by the pack', asyn
   git(root, 'checkout', '-q', 'SEED', '--', 'singularity', '.github');
   git(root, 'add', '-A');
   git(root, 'commit', '-m', 'governance');
+  git(root, 'push', '-q', 'origin', 'main');
 
   // `chore` shares `implementation` and `verification` with spec-driven-standard, so it is the work
   // type most exposed to a policy leak through a phase id.
   const WORK = 'CHORE-1';
-  sflow(root, ['start', WORK, '--work-type', 'chore', '--title', 'Rotate the log retention setting',
+  sflow(root, ['start', WORK, '--from-branch', 'main', '--work-type', 'chore', '--title', 'Rotate the log retention setting',
     '--description', 'Retention is 7 days and the policy says 30.']);
 
   const workflowOf = async () =>

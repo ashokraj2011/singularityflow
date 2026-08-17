@@ -54,7 +54,10 @@ import { buildResultCard, gateSummary } from './views/result-card-model.ts';
 import {
   ACKNOWLEDGE_ACTION_ID, acknowledgementKey, homeAcknowledgementFor, type HomeAcknowledgement
 } from './views/home-acknowledgement.ts';
-import { activeRepository, gatewaySession, provideAcknowledgedAt } from './gateway-session.ts';
+import {
+  activeRepositoryContext, gatewaySession, provideAcknowledgedAt,
+  setActiveRepositoryContext, type ActiveRepositoryContext
+} from './gateway-session.ts';
 import { primaryAction } from '../../../src/gateway/result.mjs';
 
 /** Injected by esbuild: the commit and time this bundle was built from. */
@@ -105,6 +108,9 @@ interface FactoryResetPlan {
 }
 
 export async function activate(context: vscode.ExtensionContext): Promise<void> {
+  // Module state can survive a deactivate/reactivate cycle in the same extension host. Until this
+  // activation validates a workspace or folder, no command may inherit the previous routing choice.
+  setActiveRepositoryContext(null);
   const output = vscode.window.createOutputChannel('Singularity Flow');
   context.subscriptions.push(output);
   // First line in the channel, so "which build is actually loaded" is one look rather than a guess.
@@ -183,10 +189,10 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
       ?? view.checklist.map((row) => row.action).find((entry) => entry?.id === actionId);
     if (!action) return;
 
-    const root = activeRepository();
-    if (root && origin === 'gateway') {
+    const active = activeRepositoryContext();
+    if (active && origin === 'gateway') {
       try {
-        const { executor } = gatewaySession(root);
+        const { executor } = gatewaySession(active);
         /**
          * The action as the envelope described it, not as this host assumed.
          *
@@ -228,14 +234,14 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
    * something the gateway established.
    */
   context.subscriptions.push(vscode.commands.registerCommand('singularityFlow.myWork', async () => {
-    const root = activeRepository();
-    if (!root) {
-      showRefusal('No folder is open, so there is no repository to read.',
+    const active = activeRepositoryContext();
+    if (!active) {
+      showRefusal('No governed workspace or repository is selected. Choose a workspace or open a governed repository.',
         { headline: 'No workspace selected' });
       return;
     }
     try {
-      const { kernel, binding } = gatewaySession(root);
+      const { kernel, binding } = gatewaySession(active);
       const resolution = await kernel.resolve({ utterance: 'home' });
       const envelope = resolution.kind === 'read' && resolution.next.length === 1
         ? await kernel.read({ resolutionId: resolution.next[0].handle })
@@ -248,7 +254,7 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
        * stable key rather than sharing `unknown` with every other unresolved repository.
        */
       const key = acknowledgementKey(
-        envelope.data?.workspace?.id ?? binding().workspaceId ?? root,
+        envelope.data?.workspace?.id ?? binding().workspaceId ?? active.root,
         binding().actorId
       );
       const acknowledgement = context.globalState.get<HomeAcknowledgement>(key) ?? null;
@@ -274,8 +280,8 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
    */
   useDraftStore(context.workspaceState);
   onFormSubmit(async ({ schemaId, goal, values }) => {
-    const root = activeRepository();
-    if (!root) {
+    const active = activeRepositoryContext();
+    if (!active) {
       // Not a silent return: the form has just closed, and a reader who filled one in and pressed
       // the button is owed a reason rather than an empty editor. `[UXH:CON-007]`
       showRefusal('The repository is no longer resolved, so nothing was submitted.',
@@ -283,7 +289,7 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
       return;
     }
     try {
-      const { kernel } = gatewaySession(root);
+      const { kernel } = gatewaySession(active);
       const resolution = await kernel.resolve({ goalHint: goal, arguments: values });
       const envelope = resolution.kind === 'read' && resolution.next.length === 1
         ? await kernel.read({ resolutionId: resolution.next[0].handle })
@@ -295,8 +301,8 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
     }
   });
   context.subscriptions.push(vscode.commands.registerCommand('singularityFlow.impactForm', () => {
-    if (!activeRepository()) {
-      showRefusal('No folder is open, so there is no repository to compare.',
+    if (!activeRepositoryContext()) {
+      showRefusal('No governed workspace or repository is selected. Choose a workspace or open a governed repository.',
         { headline: 'No workspace selected' });
       return;
     }
@@ -636,6 +642,32 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
       HelpPanel.show(context, manual, topic, path.resolve(path.dirname(location.cli), '..'));
     } catch (error) {
       showRefusal(error, { headline: 'Could not open Singularity Flow Help' });
+    }
+  }));
+  /**
+   * Render one documentation topic using the selected engine's own served bytes `[DOC:REQ-040]`.
+   *
+   * This command is registered with the other repository-independent Help commands. Keeping it in
+   * the late repository handler table made every topic look actionable while leaving VS Code with
+   * no command to execute. A Markdown document supplies native selection, search, and copy without
+   * introducing a second renderer for the same canonical prose.
+   */
+  context.subscriptions.push(vscode.commands.registerCommand('singularityFlow.explainTopic', async (node?: TreeNode) => {
+    const id = String(node?.id ?? '').replace(/^help:topic:/, '');
+    if (!id) return;
+    try {
+      const location = resolveCli({ extensionPath: context.extensionPath });
+      const served = await new SingularityFlowClient({
+        location, repository: process.cwd(), onOutput: (text) => output.append(text)
+      }).run<{
+        data?: { served?: { text?: string }; citation?: string; topic?: { title?: string } };
+      }>(['explain', id, '--json']);
+      const body = served.data?.served?.text ?? '';
+      const content = `${body}\n\n${served.data?.citation ?? ''}\n`;
+      const document = await vscode.workspace.openTextDocument({ language: 'markdown', content });
+      await vscode.window.showTextDocument(document, { preview: true });
+    } catch (error) {
+      showRefusal(error, { headline: `Could not read topic ${id}` });
     }
   }));
 
@@ -978,7 +1010,13 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
    * it. Opening the lead repository as a folder is still available, as its own action, because
    * editing the code in it is a different intention from working in it.
    */
-  const workspaceSelected: Array<(lead: string, name: string) => void | Promise<void>> = [];
+  type SelectedWorkspace = {
+    workspaceId: string;
+    workspaceName: string;
+    repositoryId: string | null;
+    repositoryPath: string;
+  };
+  const workspaceSelected: Array<(selected: SelectedWorkspace) => void | Promise<void>> = [];
 
   async function selectWorkspace(target: string, leadPath: string, name: string): Promise<void> {
     try {
@@ -987,11 +1025,20 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
         repository: process.cwd(),
         onOutput: (text) => output.append(text)
       });
-      await vscode.window.withProgress(
+      const selected = await vscode.window.withProgress(
         { location: vscode.ProgressLocation.Notification, title: `Working in ${name}` },
         // Recorded machine-wide by the CLI, so the terminal and the editor agree about where you are.
-        () => chooser.run(['workspace', 'use', target, '--json'])
+        () => chooser.run<{
+          workspaceId?: string; workspaceName?: string; repositoryId?: string;
+          repositoryPath?: string; repositoryState?: string;
+        }>(['workspace', 'use', target, '--json'])
       );
+      const selection: SelectedWorkspace = {
+        workspaceId: selected.workspaceId ?? target,
+        workspaceName: selected.workspaceName ?? name,
+        repositoryId: selected.repositoryId ?? null,
+        repositoryPath: selected.repositoryPath ?? leadPath
+      };
       await refreshWorkspaceTree();
       // When activation began without a selected workspace, Lifecycle and Configuration were
       // registered with their honest empty-state providers and the repository services below were
@@ -1004,7 +1051,7 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
         await vscode.commands.executeCommand('workbench.action.reloadWindow');
         return;
       }
-      for (const follow of workspaceSelected) await follow(leadPath, name);
+      for (const follow of workspaceSelected) await follow(selection);
     } catch (error) {
       showRefusal(error, { headline: 'Could not switch workspace' });
     }
@@ -1322,6 +1369,13 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
   // used to require a window reload precisely because this was a constant.
   let { repository } = resolved;
   const { origin } = resolved;
+  setActiveRepositoryContext({
+    root: repository,
+    workspaceId: resolved.workspaceId,
+    workspaceName: resolved.workspaceName,
+    repositoryId: resolved.repositoryId,
+    origin
+  });
   // Which repository this window is acting on, and why that one. Every screen below operates on it,
   // and when it was not the open folder that has to be visible rather than inferred.
   output.appendLine(`Governed repository: ${repository} (${origin})`);
@@ -1329,9 +1383,7 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
   // screen shares, and inferring it from a folder path in a title bar is not the same as being told.
   // Not a constant: choosing a different workspace changes it, and the status bar is where a person
   // checks which one they are in.
-  let workspaceLabel = origin.startsWith('the lead repository of your active workspace, ')
-    ? origin.slice('the lead repository of your active workspace, '.length)
-    : null;
+  let workspaceLabel = resolved.workspaceName;
 
   const settings = vscode.workspace.getConfiguration('singularityFlow');
   let client: SingularityFlowClient;
@@ -1578,10 +1630,10 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
    * that renders `gates 0/0` on a failed read is asserting the first while meaning the second.
    */
   const gateCountFor = async (workId: string) => {
-    const root = activeRepository();
-    if (!root) return null;
+    const active = activeRepositoryContext();
+    if (!active) return null;
     try {
-      const { kernel } = gatewaySession(root);
+      const { kernel } = gatewaySession(active);
       // The registered phrase, not a word that looks like the operation's name.
       const resolution = await kernel.resolve({ utterance: 'am I ready', arguments: { workId } });
       if (resolution.kind !== 'read' || resolution.next.length !== 1) return null;
@@ -1610,10 +1662,10 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
    * that is always visible is the one a reader trusts.
    */
   const homeChromeFor = async () => {
-    const root = activeRepository();
-    if (!root) return null;
+    const active = activeRepositoryContext();
+    if (!active) return null;
     try {
-      const { kernel } = gatewaySession(root);
+      const { kernel } = gatewaySession(active);
       const resolution = await kernel.resolve({ utterance: 'home' });
       if (resolution.kind !== 'read' || resolution.next.length !== 1) return null;
       const envelope = await kernel.read({ resolutionId: resolution.next[0].handle });
@@ -1743,24 +1795,32 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
    * a colleague's workspace can name a directory this machine does not have — so it is reported
    * rather than switched to, and the previous workspace stays selected in the editor.
    */
-  workspaceSelected.push(async (lead, name) => {
-    const target = path.resolve(lead);
+  workspaceSelected.push(async (selected) => {
+    const target = path.resolve(selected.repositoryPath);
     try {
       await validateRepositoryDirectory(target);
     } catch (error) {
       void vscode.window.showWarningMessage(
-        `${name} is recorded as your workspace, but this window is still acting on ${path.basename(repository)}: ${(error as Error).message}`);
+        `${selected.workspaceName} is recorded as your workspace, but this window is still acting on ${path.basename(repository)}: ${(error as Error).message}`);
       return;
     }
     repository = target;
     client.useRepository(target);
     watchGovernedRepository(target);
-    workspaceLabel = name;
+    workspaceLabel = selected.workspaceName;
+    lastHome = null;
+    setActiveRepositoryContext({
+      root: target,
+      workspaceId: selected.workspaceId,
+      workspaceName: selected.workspaceName,
+      repositoryId: selected.repositoryId,
+      origin: `the lead repository of your active workspace, ${selected.workspaceName}`
+    });
     readiness = {};
     await store.refresh();
     void refreshReadiness();
     void refreshWorkspaceLogsTree();
-    output.appendLine(`Governed repository: ${repository} (the lead repository of your active workspace, ${name})`);
+    output.appendLine(`Governed repository: ${repository} (the lead repository of your active workspace, ${selected.workspaceName})`);
   });
 
   /**
@@ -1859,6 +1919,32 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
    * profile offers it here without the extension being changed.
    */
   const startWork = async (): Promise<void> => {
+    // Refresh before asking anything. `start` refuses a dirty tree, and discovering that only after
+    // somebody completes the intake form wastes their answers and makes a correct guard look like a
+    // dead button. The target is stated here because a selected workspace may point this window at
+    // a lead repository other than the folder visible in the title bar.
+    await store.refresh();
+    const repositoryState = store.current.snapshot?.repository;
+    const changedPaths = repositoryState?.changes ?? [];
+    if (changedPaths.length) {
+      const branchName = repositoryState?.branch ?? 'detached HEAD';
+      const repositoryName = path.basename(repositoryState?.root ?? repository);
+      const target = workspaceLabel ? `${workspaceLabel} → ${repositoryName}` : repositoryName;
+      const sample = changedPaths.slice(0, 3).join(', ');
+      const remaining = changedPaths.length - Math.min(changedPaths.length, 3);
+      const open = await vscode.window.showWarningMessage(
+        `Cannot start work in ${target} on ${branchName}: ${changedPaths.length} uncommitted path(s) (${sample}${remaining ? `, +${remaining} more` : ''}).`,
+        {
+          modal: true,
+          detail: `Repository: ${repositoryState?.root ?? repository}\nBranch: ${branchName}\n\n`
+            + `${changedPaths.join('\n')}\n\nCommit or stash these changes before starting governed work.`
+        },
+        'Open Source Control'
+      );
+      if (open === 'Open Source Control') await vscode.commands.executeCommand('workbench.view.scm');
+      return;
+    }
+
     // Checked before anything is asked. The engine refuses to start governed work when no approval
     // authority has a member, and discovering that after a filled-in form — with a message naming a
     // YAML key — is a poor greeting for someone who has just initialized a repository.
@@ -1888,6 +1974,10 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
       if (open === 'Continue safely') await vscode.commands.executeCommand('singularityFlow.continueSafely');
       else if (open === 'Open the journey') await vscode.commands.executeCommand('singularityFlow.openJourney');
       else if (open === 'Show status') await vscode.commands.executeCommand('singularityFlow.openDashboard');
+    }, {
+      workspace: workspaceLabel,
+      repository: repositoryState?.root ?? repository,
+      branch: repositoryState?.branch ?? null
     });
   };
 
@@ -2560,28 +2650,6 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
     'singularityFlow.manageEvidence': manageEvidence,
     'singularityFlow.detachEvidence': detachEvidence as never,
     'singularityFlow.addSource': addSource,
-    /**
-     * Render one documentation topic, using the engine's own served bytes `[DOC:REQ-040]`.
-     *
-     * Deliberately not a webview. A topic is a page of prose with a citation; opening it as a
-     * Markdown preview gives the reader selection, search and copy for free, and gives the extension
-     * nothing to render differently from the terminal.
-     */
-    'singularityFlow.explainTopic': async (node?: TreeNode) => {
-      const id = String(node?.id ?? '').replace(/^help:topic:/, '');
-      if (!id) return;
-      try {
-        const served = await client.run<{
-          data?: { served?: { text?: string }; citation?: string; topic?: { title?: string } };
-        }>(['explain', id, '--json']);
-        const body = served.data?.served?.text ?? '';
-        const content = `${body}\n\n${served.data?.citation ?? ''}\n`;
-        const document = await vscode.workspace.openTextDocument({ language: 'markdown', content });
-        await vscode.window.showTextDocument(document, { preview: true });
-      } catch (error) {
-        showRefusal(error, { headline: 'Could not read topic ${id}' });
-      }
-    },
     'singularityFlow.refresh': async () => {
       await store.refresh();
       void refreshReadiness(true);
@@ -2971,7 +3039,7 @@ async function showImpact(client: SingularityFlowClient, output: vscode.OutputCh
  */
 /** Where the governed repository came from, said in the words a reader would use. */
 type Resolved =
-  | { repository: string; origin: string }
+  | ActiveRepositoryContext & { repository: string }
   | { label: string; reason: string; contextValue?: string; lead?: string | null };
 
 /**
@@ -2983,9 +3051,9 @@ type Resolved =
  * the place people actually start, and answered with "open the repository that contains
  * singularity/workflow.yml", which is a demand rather than an explanation.
  *
- * So three sources, most specific first: the open folder when it is one; the open folder's lead when
- * it is a workspace directory; and otherwise the active workspace's lead. The last is what makes the
- * product usable from a window with something else entirely open.
+ * So three sources, in authority order: the explicitly selected active workspace's lead; otherwise
+ * the open folder when it is governed; otherwise the lead named by an opened workspace directory.
+ * The first is what makes the product usable from a window with something else entirely open.
  */
 async function resolveGovernedRepository(
   context: vscode.ExtensionContext,
@@ -3001,7 +3069,11 @@ async function resolveGovernedRepository(
   const folder = vscode.workspace.workspaceFolders?.[0];
   if (folder) {
     try {
-      return { repository: await validateRepositoryDirectory(folder.uri.fsPath), origin: 'the open folder' };
+      const repository = await validateRepositoryDirectory(folder.uri.fsPath);
+      return {
+        repository, root: repository, origin: 'the open folder', workspaceId: null,
+        workspaceName: null, repositoryId: null
+      };
     } catch (error) {
       // A workspace directory holds repos/, documents/ and workspace.json — it is not itself a
       // repository, but opening it is the obvious thing to do from a file manager, and it knows
@@ -3009,9 +3081,11 @@ async function resolveGovernedRepository(
       const lead = await workspaceLeadDirectory(folder.uri.fsPath);
       if (lead) {
         try {
+          const repository = await validateRepositoryDirectory(lead);
           return {
-            repository: await validateRepositoryDirectory(lead),
-            origin: 'the lead repository of the workspace directory you have open'
+            repository, root: repository,
+            origin: 'the lead repository of the workspace directory you have open',
+            workspaceId: null, workspaceName: null, repositoryId: null
           };
         } catch { /* falls through to the explanation below */ }
       }
@@ -3032,16 +3106,17 @@ async function resolveGovernedRepository(
 /**
  * The lead repository of the active workspace, when there is one.
  *
- * Best effort: no active workspace, a registry that cannot be read, or a lead that is not a governed
- * repository all return null and let the caller explain itself.
+ * No selection returns null so an open folder can be considered. A selected workspace that cannot
+ * be read returns its own repair state instead: silently falling back to an unrelated editor folder
+ * would make different surfaces act on different repositories again.
  */
 async function activeWorkspaceLead(
   context: vscode.ExtensionContext,
   output: vscode.OutputChannel
 ): Promise<Resolved | null> {
   let current: {
-    active?: boolean; workspaceName?: string; workspacePath?: string; repositoryPath?: string;
-    repositoryState?: string;
+    active?: boolean; workspaceId?: string; workspaceName?: string; workspacePath?: string;
+    repositoryId?: string; repositoryPath?: string; repositoryState?: string;
   };
   try {
     const client = new SingularityFlowClient({
@@ -3058,7 +3133,11 @@ async function activeWorkspaceLead(
     current = await client.run(['workspace', 'current', '--json']);
   } catch (error) {
     output.appendLine(`Could not read the active workspace: ${(error as Error).message}`);
-    return null;
+    return {
+      label: 'Active workspace selection could not be read',
+      reason: `Select the workspace again or repair its machine-local record: ${(error as Error).message}`,
+      contextValue: 'sflow.workspace.repositoryUnavailable'
+    };
   }
   if (current.active === false) return null;
   const directory = current.workspacePath;
@@ -3087,8 +3166,13 @@ async function activeWorkspaceLead(
     };
   }
   try {
+    const repository = await validateRepositoryDirectory(lead);
     return {
-      repository: await validateRepositoryDirectory(lead),
+      repository,
+      root: repository,
+      workspaceId: current.workspaceId ?? null,
+      workspaceName: current.workspaceName ?? current.workspaceId ?? directory,
+      repositoryId: current.repositoryId ?? null,
       origin: `the lead repository of your active workspace, ${current.workspaceName ?? directory}`
     };
   } catch (error) {

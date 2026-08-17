@@ -40,6 +40,10 @@ export interface InFlight {
 }
 
 export interface IntakeForm {
+  /** The exact surface context this form will mutate. */
+  targetWorkspace: string | null;
+  targetRepository: string | null;
+  targetBranch: string | null;
   shape: Shape;
   tracker: Tracker;
   /** The tracker key, when there is a tracker: an Initiative, Epic or Story key. */
@@ -67,12 +71,18 @@ export interface IntakeForm {
    * The base branch every repository in the capability will be cut from.
    *
    * The editor has no TTY, so the CLI's prompt never fires here — the choice has to be rendered.
-   * Null means "each repository's own default", which is what start did before this existed.
+   * Null means no choice has been made; a new Story cannot start in that state.
    */
   baseBranch: string | null;
   baseBranchChoices: BaseBranchChoice[];
+  /** Configured publication remote returned by the engine's branch catalog. */
+  baseRemote: string | null;
   /** Why the branches could not be listed, when they could not be. */
   baseBranchReason: string | null;
+  /** True only after the engine has re-fetched every required repository and dry-run the push. */
+  basePreflightPassed: boolean;
+  basePreflightChecking: boolean;
+  basePreflightReason: string | null;
   inFlight: InFlight[];
   busy: boolean;
   error: string | null;
@@ -88,9 +98,11 @@ export interface BaseBranchChoice {
 }
 
 export const EMPTY_INTAKE_FORM: IntakeForm = {
+  targetWorkspace: null, targetRepository: null, targetBranch: null,
   shape: 'epic', tracker: 'none', key: '', id: '', title: '', description: '', goal: '',
   acceptanceCriteria: '', profile: null, profiles: [], workType: null, storyWorkflows: [],
-  baseBranch: null, baseBranchChoices: [], baseBranchReason: null,
+  baseBranch: null, baseBranchChoices: [], baseRemote: null, baseBranchReason: null,
+  basePreflightPassed: false, basePreflightChecking: false, basePreflightReason: null,
   workflowReason: null,
   jiraConfigured: false, jiraReason: null, inFlight: [], busy: false, error: null
 };
@@ -175,6 +187,17 @@ export function intakeProblems(form: IntakeForm): string[] {
       problems.push('Choose the Story workflow, which decides the phases this runs.');
     } else if (!form.storyWorkflows.length) {
       problems.push(form.workflowReason ?? 'No Story workflow is configured in singularity/workflow.yml.');
+    }
+    if (!form.baseBranch) {
+      problems.push(form.baseBranchReason
+        ?? (form.baseBranchChoices.length
+          ? 'Choose the remote base branch from which the Story branch will be created.'
+          : 'No remote base branch is available for this Story.'));
+    } else if (form.basePreflightChecking) {
+      problems.push('Checking remote branch freshness and publication access…');
+    } else if (!form.basePreflightPassed) {
+      problems.push(form.basePreflightReason
+        ?? 'Remote publication preflight must succeed before this Story can start.');
     }
   }
   if (identifier && form.inFlight.some((entry) => entry.id === identifier)) {
@@ -350,32 +373,36 @@ function profileHtml(form: IntakeForm): string {
 /**
  * The base branch for every repository in the capability.
  *
- * Only shown when there is more than one repository — for a single-repository capability the choice
- * is the same one `--base` always made, and a picker offering it would imply a decision that is not
- * there. Coverage is on every row because a branch three repositories out of five publish is a
- * choice a reader can still make, and being told which two are missing beats a refusal later.
+ * Every new Story must show this choice, including a standalone repository with one published
+ * branch. The panel filters out partial capability branches before rendering, so every radio button
+ * represents a base that all required repositories can actually use.
  */
 function baseBranchHtml(form: IntakeForm): string {
+  if (form.shape !== 'story') return '';
   if (form.baseBranchReason) {
     return `<section><h2>${icon('workflow')}Base branch</h2>
-      <p class="question">${escape(form.baseBranchReason)} Each repository will use its own default branch.</p></section>`;
+      <p class="blockers">${escape(form.baseBranchReason)}</p>
+      <p class="question">Nothing will be created until the configured remote can be read.</p></section>`;
   }
-  if (form.baseBranchChoices.length < 2 && !form.baseBranch) return '';
   const total = form.baseBranchChoices[0]?.total ?? 0;
-  if (total < 2) return '';
   return `
   <section>
     <h2>${icon('workflow')}Base branch</h2>
-    <p class="question">Every repository in this capability is cut from the same branch. A branch that
-      is not published in all ${total} of them refuses the start and names the ones that lack it.</p>
+    <p class="question">Choose explicitly. The new Story branch is cut from the latest remote commit
+      and only the Story branch is published.</p>
     <div class="choices">
       ${form.baseBranchChoices.map((choice) => `
       <label class="choice${choice.branch === form.baseBranch ? ' chosen' : ''}">
         <input type="radio" name="baseBranch" value="${escape(choice.branch)}" data-base-branch="${escape(choice.branch)}"${choice.branch === form.baseBranch ? ' checked' : ''}>
         <span class="choice-label">${escape(choice.branch)}</span>
-        <span class="choice-detail">${choice.everywhere ? `all ${choice.total}` : `${choice.present} of ${choice.total}`}${choice.missingFrom.length ? ` — missing from ${escape(choice.missingFrom.join(', '))}` : ''}</span>
+        <span class="choice-detail">${total > 1 ? `all ${choice.total} required repositories` : `published on ${escape(form.baseRemote ?? 'the configured remote')}`}</span>
       </label>`).join('')}
     </div>
+    ${form.baseBranch && form.basePreflightPassed ? `<p class="meta">Confirmed: create <code>${escape(intakeIdentifier(form) || '<Story ID>')}</code>
+      from <code>${escape(form.baseRemote ?? 'remote')}/${escape(form.baseBranch)}</code> and publish only
+      <code>${escape(form.baseRemote ?? 'remote')}/refs/heads/${escape(intakeIdentifier(form) || '<Story ID>')}</code>.</p>` : ''}
+    ${form.basePreflightChecking ? '<p class="meta">Checking every required remote…</p>' : ''}
+    ${form.baseBranch && form.basePreflightReason ? `<p class="blockers">${escape(form.basePreflightReason)}</p>` : ''}
   </section>`;
 }
 
@@ -448,6 +475,10 @@ export function intakeHtml(form: IntakeForm): string {
     <h1>${icon('epic', { size: 20 })}Start work</h1>
     <p class="meta">Work arrives in three shapes and with or without a tracker. Both are answered
       here, and the rest of the form follows from the answers.</p>
+    ${form.targetRepository ? `<p class="meta">Target: ${form.targetWorkspace
+    ? `workspace <strong>${escape(form.targetWorkspace)}</strong> · ` : ''}repository
+      <strong>${escape(form.targetRepository)}</strong>${form.targetBranch
+    ? ` · branch <code>${escape(form.targetBranch)}</code>` : ''}</p>` : ''}
   </header>
 
   <section>

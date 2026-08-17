@@ -9,7 +9,7 @@
  */
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { readFile } from 'node:fs/promises';
+import { readFile, readdir } from 'node:fs/promises';
 
 import { extractClauses } from '../src/specifications.mjs';
 
@@ -200,10 +200,35 @@ test('the starter template leads with scenarios and asks for what is usually lef
   assert.match(template, /\*\*Given\*\*[\s\S]*\*\*When\*\*[\s\S]*\*\*Then\*\*/, 'no Given/When/Then acceptance case');
   assert.match(template, /\*\*Priority:\*\*/, 'scenarios are not prioritized');
 
-  // The marker grammar is shown, and shown inside a comment: a template that shipped a live marker
-  // would block the first publication of every Story on its own boilerplate.
-  assert.match(template, /\[NEEDS CLARIFICATION: [^\]\n]+\]/);
+  // The marker grammar is shown only with a neutral placeholder. A concrete example is still part
+  // of the composed model prompt even when the kernel ignores its HTML comment, so the model can
+  // otherwise mistake an example domain question for the current Story's real ambiguity.
+  assert.match(template, /\[NEEDS CLARIFICATION: <one question grounded in the current Story evidence>\]/);
+  assert.doesNotMatch(template, /failed payment|retry a payment/i);
   assert.deepEqual(extractMarkers(template).markers, [], 'the template ships an unresolved marker');
+});
+
+test('shipped artifact templates contain no live or concrete clarification questions', async () => {
+  const directory = new URL('../templates/artifacts/', import.meta.url);
+  const names = (await readdir(directory, { recursive: true }))
+    .filter((name) => name.endsWith('.md'))
+    .sort();
+  assert.ok(names.length > 0, 'no shipped artifact templates were audited');
+
+  for (const name of names) {
+    const template = await readFile(new URL(name, directory), 'utf8');
+    const extracted = extractMarkers(template);
+    assert.deepEqual(extracted.markers, [], `${name} ships a live clarification marker`);
+    assert.deepEqual(extracted.malformed, [], `${name} ships a malformed clarification marker`);
+
+    for (const match of template.matchAll(/\[NEEDS CLARIFICATION:([^\]\n]*)\]/g)) {
+      assert.match(
+        match[1].trim(),
+        /^<[^>]+>$/,
+        `${name} contains a concrete clarification example that a model could reuse`
+      );
+    }
+  }
 });
 
 test('a starter template contributes no clauses of its own', async () => {

@@ -11,7 +11,7 @@ import { lstat, mkdir, readFile, realpath } from 'node:fs/promises';
 import { fileURLToPath } from 'node:url';
 import YAML from 'yaml';
 import { SingularityFlowError, exists, nowIso, optionBoolean, optionNumber, optionString, optionStrings, parseArgs, posix, readJson, requirePositional, run, snapshot, table, writeJson, writeText } from './util.mjs';
-import { add, assertClean, branch, changes, checkout, commit, fastForwardTo, fetchOrigin, fetchRemote, fileAtRef, gitDir, hasUpstream, head, identity, localBranches, pullFastForward, refExists, refHead, remoteBranches, repoRoot } from './git.mjs';
+import { add, assertClean, branch, changes, checkout, commit, fastForwardTo, fetchOrigin, fetchRemote, fileAtRef, gitDir, hasUpstream, head, identity, localBranches, preflightPushBranch, pullFastForward, refExists, refHead, remoteBranches, repoRoot } from './git.mjs';
 import { buildRepositorySubjectIndex, buildRepositorySubjectIndexFromRefs, resolveContext } from './repository-subject-index.mjs';
 import { approvePhase, assertNoPendingPublication, cancelWorkflow, commitAndPublish, CONFIG_PATH, createWorkflow, currentPhase, loadConfig, preparePhase, preparePhaseInputs, promoteDesignSource, publishGeneration, reconcilePhaseTelemetry, registerArtifact, rejectPhase, reopenWorkflow, resolveWorkItem, saveStoryDraft, transactStory, scanArtifacts, storyPublicationPending, submitPhase, syncPublication, validateId, validateWorkflow, workflowBranchAllowed, workflowPublicationBranch, workflowPath, workDir } from './state-stores.mjs';
 import { copilotTelemetryStatus } from './telemetry.mjs';
@@ -442,6 +442,12 @@ export async function startCommand(positionals, options) {
   const receiptToken = optionString(options, 'selection-receipt');
   let receipt = null;
   if (!optionBoolean(options, 'allow-dirty')) assertClean(root);
+  if (receiptToken && config) {
+    // A base-branch answer is needed before checkout, so the one-time receipt is resolved while it
+    // is still bound to the HEAD on which the contributor reviewed it. Workflow and source answers
+    // are validated again against the definition loaded from the selected base below.
+    receipt = await resolveSelectionReceipt(root, config, receiptToken, { action: 'start', workId: id });
+  }
   const jira = optionBoolean(options, 'jira');
   const storyFile = optionString(options, 'story-file');
   if (jira && storyFile) throw new SingularityFlowError('Choose either --jira or --story-file, not both.');
@@ -462,6 +468,55 @@ export async function startCommand(positionals, options) {
     ? remoteDefaultBranch(applicationRemote,
       run('git', ['ls-remote', '--symref', applicationRemote, 'HEAD'], { allowFailure: true }).stdout)
     : 'main';
+  const storyWorkflowRelative = config
+    ? posix(path.relative(root, workflowPath(root, config, id)))
+    : posix(path.join('singularity', 'work-items', id, 'workflow.json'));
+  const storySeedRelative = posix(path.join('singularity', 'seeds', `${id}.yml`));
+  const localStoryRef = `refs/heads/${canonicalBranch}`;
+
+  // Starting is idempotent for durable Stories. A local workflow does not need a new base choice;
+  // it is resumed from its own recorded branch and resolution. This check intentionally precedes
+  // every remote/base prompt so an offline contributor can resume work already present locally.
+  if (refExists(root, localStoryRef) && fileAtRef(root, localStoryRef, storyWorkflowRelative) !== null) {
+    return resumeCommand(['resume', id], { ...options, fetch: false });
+  }
+
+  // Probe the exact destination ref without substituting local branches. When it exists, fetch it
+  // so we can distinguish a durable workflow (Resume) from an Epic-materialized seed whose parent
+  // base is already pinned. A failed probe is left for storyBaseCatalog to report with the stable
+  // STORY_REMOTE_UNREACHABLE refusal used by every surface.
+  let remoteStoryRef = `refs/remotes/${remote}/${canonicalBranch}`;
+  const remoteStoryProbe = applicationRemote
+    ? run('git', ['ls-remote', '--heads', '--', applicationRemote, `refs/heads/${canonicalBranch}`], {
+      cwd: root, allowFailure: true
+    })
+    : { status: 1, stdout: '' };
+  if (remoteStoryProbe.status === 0 && remoteStoryProbe.stdout.trim()) {
+    fetchRemote(root, remote);
+    if (fileAtRef(root, remoteStoryRef, storyWorkflowRelative) !== null) {
+      return resumeCommand(['resume', id], { ...options, fetch: true });
+    }
+  }
+
+  const materializedSeedText = fileAtRef(root,
+    refExists(root, remoteStoryRef) ? remoteStoryRef : localStoryRef,
+    storySeedRelative);
+  let materializedSeed = null;
+  if (materializedSeedText !== null) {
+    materializedSeed = YAML.parse(materializedSeedText)?.story ?? null;
+    if ((materializedSeed?.workId ?? materializedSeed?.id) !== id) {
+      throw new SingularityFlowError(
+        `Published Story branch '${canonicalBranch}' carries a seed for a different Story. Nothing was changed.`,
+        { code: 'STORY_BRANCH_EXISTS' }
+      );
+    }
+    if (!materializedSeed.parentBranch || !materializedSeed.baseCommit) {
+      throw new SingularityFlowError(
+        `Materialized Story '${id}' does not record its pinned parent branch and base commit. Nothing was changed.`,
+        { code: 'STORY_BASE_INVALID' }
+      );
+    }
+  }
   /**
    * The base branch, chosen once for the whole capability.
    *
@@ -471,17 +526,62 @@ export async function startCommand(positionals, options) {
    * any of them lack it, and is recorded per repository so the evidence says what the work was
    * really built on.
    *
-   * Absent both flags and a terminal, nothing changes — this stays the single-repository start it
-   * has always been.
+   * Absent both flags, a terminal presents the remote-derived choices and requires an answer;
+   * non-interactive callers receive STORY_BASE_REQUIRED before any checkout or session mutation.
    */
   const fromBranch = optionStrings(options, 'from-branch');
-  const { capabilityBaseForRepository } = await import('./capability-start.mjs');
-  const capabilityBase = await capabilityBaseForRepository(root, {
-    values: fromBranch,
-    interactive: !optionBoolean(options, 'json') && !optionBoolean(options, 'yes')
-  });
-  const baseAtStart = capabilityBase?.localBase
-    ?? explicitBase ?? config?.defaultBaseBranch ?? applicationDefault;
+  if (explicitBase && fromBranch.length) {
+    throw new SingularityFlowError('Choose either --from-branch or the compatibility --base option, not both.', {
+      code: 'STORY_BASE_INVALID'
+    });
+  }
+  const receiptBase = receipt?.answers?.['base-branch'] ?? null;
+  const requestedBase = fromBranch.length
+    ? fromBranch
+    : receiptBase
+      ? [receiptBase]
+      : explicitBase
+        ? [explicitBase]
+        : [];
+  const {
+    storyBaseForRepository, preflightStoryRepositories,
+    prepareCapabilityRepositories, printCapabilityBase
+  } = await import('./capability-start.mjs');
+  if (materializedSeed && requestedBase.length
+    && requestedBase.some((value) => value !== materializedSeed.parentBranch)) {
+    throw new SingularityFlowError(
+      `Story '${id}' is already materialized from '${materializedSeed.parentBranch}'. Its pinned base is read-only.`,
+      { code: 'STORY_BASE_INVALID' }
+    );
+  }
+  const storyBase = materializedSeed
+    ? {
+        scope: 'materialized',
+        capability: null,
+        remote,
+        localBase: materializedSeed.parentBranch,
+        pinnedBaseCommit: materializedSeed.baseCommit
+      }
+    : await storyBaseForRepository(root, {
+        values: requestedBase,
+        interactive: !optionBoolean(options, 'json') && !optionBoolean(options, 'yes') && !receiptToken,
+        remote,
+        defaultBranch: config?.defaultBaseBranch ?? applicationDefault,
+        capabilityId: optionString(options, 'capability')
+      });
+  if (explicitBase && storyBase.scope === 'capability') {
+    throw new SingularityFlowError(
+      '--base is a compatibility alias for a standalone repository. Use --from-branch for a capability.',
+      { code: 'STORY_BASE_INVALID' }
+    );
+  }
+  const baseAtStart = storyBase.localBase;
+  const publishRequired = (config?.git?.publish ?? 'required') !== 'off';
+  const capabilityPreflight = storyBase.scope === 'capability'
+    ? preflightStoryRepositories(storyBase.workspaceRoot, storyBase.plan, canonicalBranch, {
+        remote, publishRequired
+      })
+    : null;
   const configurationRemote = await resolveConfigurationRemote(root, remote);
   if (!config && !configurationRemote) {
     throw new SingularityFlowError(
@@ -489,17 +589,45 @@ export async function startCommand(positionals, options) {
       + `repository has the approved sflow/config branch. Map and approve the workspace capability first.`);
   }
   const originalBranch = branch(root);
+  // Fetch and prove the exact source and destination before the first checkout or session change.
+  // Listing branches establishes read access; this dry-run additionally establishes that the
+  // configured publication remote will accept the new Story ref.
+  fetchRemote(root, remote);
+  const remoteBaseRef = `refs/remotes/${remote}/${baseAtStart}`;
+  if (!materializedSeed && !refExists(root, remoteBaseRef)) {
+    throw new SingularityFlowError(
+      `Selected base branch '${baseAtStart}' is no longer published by remote '${remote}'. Nothing was changed.`,
+      { code: 'STORY_BASE_INVALID' }
+    );
+  }
+  if (!materializedSeed && refExists(root, remoteStoryRef)) {
+    throw new SingularityFlowError(
+      `Story branch '${canonicalBranch}' already exists on '${remote}'. Resume it instead of starting it again. Nothing was changed.`,
+      { code: 'STORY_BRANCH_EXISTS' }
+    );
+  }
+  const baseCommitAtStart = materializedSeed?.baseCommit ?? refHead(root, remoteBaseRef);
+  if (publishRequired && !capabilityPreflight) {
+    const dryRun = preflightPushBranch(
+      root, remote, materializedSeed ? remoteStoryRef : remoteBaseRef, canonicalBranch
+    );
+    if (dryRun.status !== 0) {
+      throw new SingularityFlowError(
+        `Cannot publish the new Story branch '${canonicalBranch}' to '${remote}'. `
+        + `Git reported: ${(dryRun.stderr || dryRun.stdout || 'remote rejected the dry-run push').trim()} Nothing was changed.`,
+        { code: 'STORY_PUBLICATION_PREFLIGHT_FAILED' }
+      );
+    }
+  }
   assertBaseCarriesGovernance(root, {
     config, branchName: canonicalBranch, base: baseAtStart, remote, currentBranch: originalBranch,
     configurationRemote
   });
   const originalSession = await loadSession(root, { required: false });
   const originalCopilotSession = await loadCopilotSession(root);
-  const checkoutResult = checkout(root, canonicalBranch, {
-    base: baseAtStart,
-    fetch: optionBoolean(options, 'fetch'),
-    remote
-  });
+  const checkoutResult = checkout(root, canonicalBranch, materializedSeed
+    ? { base: baseAtStart, fetch: true, existingOnly: true, remote }
+    : { base: baseAtStart, fetch: false, remote, preferRemoteBase: true });
   const createdBranch = checkoutResult.startsWith('created-from-');
 
   /**
@@ -510,12 +638,11 @@ export async function startCommand(positionals, options) {
    * the workspace has not cloned is named rather than silently left behind.
    */
   let capabilityRepositoriesPrepared = null;
-  if (capabilityBase) {
-    const { prepareCapabilityRepositories, printCapabilityBase } = await import('./capability-start.mjs');
+  if (storyBase.scope === 'capability') {
     capabilityRepositoriesPrepared = prepareCapabilityRepositories(
-      capabilityBase.workspaceRoot, capabilityBase.plan, canonicalBranch, { remote }
+      storyBase.workspaceRoot, storyBase.plan, canonicalBranch, { remote }
     );
-    if (!optionBoolean(options, 'json')) printCapabilityBase(capabilityBase.plan, capabilityRepositoriesPrepared);
+    if (!optionBoolean(options, 'json')) printCapabilityBase(storyBase.plan, capabilityRepositoriesPrepared);
   }
   let configurationSnapshot = null;
   try {
@@ -533,9 +660,9 @@ export async function startCommand(positionals, options) {
   // template, or world-model policy is what gets pinned into the Story.
   config = await loadConfig(root);
   validateId(config, id);
-  receipt = receiptToken
-    ? await resolveSelectionReceipt(root, config, receiptToken, { action: 'start', workId: id })
-    : null;
+  if (receiptToken && !receipt) {
+    throw new SingularityFlowError('A start selection receipt requires an initialized governed definition before checkout.');
+  }
   const receiptSource = receipt?.answers['intake-source'] ?? null;
   if (declaredSource && receiptSource && declaredSource !== receiptSource) {
     throw new SingularityFlowError(
@@ -615,13 +742,15 @@ export async function startCommand(positionals, options) {
     title: optionString(options, 'title', source.title || id),
     source,
     baseBranch: base,
+    baseCommit: baseCommitAtStart,
+    baseRemote: remote,
     canonicalBranch,
     workType,
     agent: selectedAgent.agent,
     resolved: resolvedWorkType,
     capabilityId: optionString(options, 'capability')
   });
-  await commitAndPublish(
+  const publication = await commitAndPublish(
     root,
     config,
     workflow,
@@ -661,9 +790,21 @@ export async function startCommand(positionals, options) {
       documents: supportingDocuments.length,
       // Present only when a capability base was chosen, so `--json` consumers can tell the
       // single-repository start from the capability-wide one instead of inferring it.
-      ...(capabilityBase ? {
+      base: {
+        branch: base,
+        commit: baseCommitAtStart,
+        remote
+      },
+      publication: {
+        remote,
+        branch: workflow.workItem.branch,
+        ref: `refs/heads/${workflow.workItem.branch}`,
+        pushed: publication.pushed === true,
+        commit: publication.sha
+      },
+      ...(storyBase.scope === 'capability' ? {
         capabilityBase: {
-          ...capabilityBase.plan.record,
+          ...storyBase.plan.record,
           prepared: capabilityRepositoriesPrepared ?? []
         }
       } : {})
@@ -6058,39 +6199,74 @@ async function workspaceCommand(positionals, options) {
    * and the snapshot is read on every refresh.
    */
   if (subcommand === 'branches') {
-    const { branchChoices, capabilityRepositories } = await import('./capability-branches.mjs');
-    const { publishedBranches } = await import('./capability-start.mjs');
-    const context = await readActiveWorkspaceContext(selectionFile, registry, { refresh: false });
-    const workspace = await readWorkspace(context.workspacePath);
-    const capability = optionString(options, 'capability')
-      ?? context.repositoryCapabilities?.[0]
-      ?? null;
-    if (!capability) {
-      throw new SingularityFlowError(
-        `Repository '${context.repositoryId}' declares no capability in workspace '${context.workspaceName}'. `
-        + 'Pass --capability to list branches for one.',
-        { code: 'CAPABILITY_BRANCH_INVALID' }
+    const root = repoRoot();
+    const definition = await loadConfig(root);
+    const {
+      storyBaseCatalog, storyBaseForRepository, preflightStoryRepositories
+    } = await import('./capability-start.mjs');
+    const catalog = await storyBaseCatalog(root, {
+      remote: definition.git?.remote ?? 'origin',
+      defaultBranch: definition.defaultBaseBranch,
+      capabilityId: optionString(options, 'capability')
+    });
+    const storyId = optionString(options, 'preflight-story');
+    let preflight = null;
+    if (storyId) {
+      validateId(definition, storyId);
+      const selected = await storyBaseForRepository(root, {
+        values: optionStrings(options, 'from-branch'),
+        interactive: false,
+        remote: definition.git?.remote ?? 'origin',
+        defaultBranch: definition.defaultBaseBranch,
+        capabilityId: optionString(options, 'capability')
+      });
+      const repositories = preflightStoryRepositories(
+        selected.workspaceRoot, selected.plan, storyId,
+        {
+          remote: selected.remote,
+          publishRequired: (definition.git?.publish ?? 'required') !== 'off'
+        }
       );
+      preflight = {
+        passed: true,
+        storyBranch: storyId,
+        remote: selected.remote,
+        destinationRef: `refs/heads/${storyId}`,
+        repositories: repositories.map((entry) => ({
+          repository: entry.repository,
+          remote: entry.remote,
+          baseBranch: entry.baseBranch,
+          baseCommit: entry.baseCommit,
+          destinationRef: entry.destinationRef,
+          publishRequired: entry.publishRequired
+        }))
+      };
     }
-    const repositories = capabilityRepositories(workspace, capability);
-    const { published, unreachable } = publishedBranches(repositories);
     const result = {
       resultType: 'capability-branches',
-      schemaVersion: 1,
-      capability,
-      repositories: repositories.map((repository) => ({ id: repository.id, defaultBranch: repository.defaultBranch })),
+      schemaVersion: 2,
+      scope: catalog.scope,
+      selectionRequired: true,
+      remote: catalog.remote,
+      capability: catalog.capability,
+      repositories: catalog.repositories.map((repository) => ({
+        id: repository.id, defaultBranch: repository.defaultBranch
+      })),
       // Reported rather than thrown: the editor should render the branches it does know about and
       // say which repositories it could not reach, not show an empty list or an error dialog.
-      unreachable,
-      choices: branchChoices(published)
+      unreachable: catalog.unreachable,
+      choices: catalog.choices,
+      preflight
     };
     if (optionBoolean(options, 'json')) return console.log(JSON.stringify(result, null, 2));
-    console.log(`Base branches for capability '${capability}' (${repositories.length} repositories):`);
+    console.log(catalog.scope === 'capability'
+      ? `Base branches for capability '${catalog.capability}' (${catalog.repositories.length} repositories):`
+      : `Base branches for repository '${catalog.repositoryId}' on '${catalog.remote}':`);
     for (const choice of result.choices) {
       console.log(`  ${choice.branch.padEnd(28)} ${choice.everywhere ? `all ${choice.total}` : `${choice.present} of ${choice.total}`}`
         + (choice.missingFrom.length ? ` — missing from ${choice.missingFrom.join(', ')}` : ''));
     }
-    for (const entry of unreachable) console.warn(`Warning: could not read ${entry.repository} (${entry.url}).`);
+    for (const entry of catalog.unreachable) console.warn(`Warning: could not read ${entry.repository} (${entry.url || catalog.remote}).`);
     return result;
   }
   if (subcommand === 'prune') {

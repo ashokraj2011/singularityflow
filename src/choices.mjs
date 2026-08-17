@@ -54,9 +54,40 @@ function bindActionContext(action, workId, repositoryHead, context) {
   };
 }
 
-function choiceSets(definition, action, workflow = null) {
-  if (action === 'start') return [
-    {
+async function choiceSets(root, definition, action, workflow = null) {
+  if (action === 'start') {
+    const { storyBaseCatalog } = await import('./capability-start.mjs');
+    const catalog = await storyBaseCatalog(root, {
+      remote: definition.git?.remote ?? 'origin',
+      defaultBranch: definition.defaultBaseBranch ?? 'main'
+    });
+    if (catalog.unreachable.length) {
+      const first = catalog.unreachable[0];
+      throw new SingularityFlowError(
+        `Cannot collect Story-start choices because the remote branches of ${catalog.unreachable.map((entry) => entry.repository).join(', ')} cannot be read. `
+        + `${first.detail || 'No Git detail was reported.'}`,
+        { code: 'STORY_REMOTE_UNREACHABLE' }
+      );
+    }
+    const branches = catalog.choices.filter((choice) => choice.everywhere);
+    if (!branches.length) {
+      throw new SingularityFlowError('No branch is published by every required repository.', {
+        code: 'STORY_BASE_INVALID'
+      });
+    }
+    return [
+      {
+        id: 'base-branch',
+        label: 'Remote base branch',
+        options: branches.map((choice) => ({
+          id: choice.branch,
+          label: choice.branch,
+          description: catalog.scope === 'capability'
+            ? `Published by all ${choice.total} required repositories.`
+            : `Published by remote '${catalog.remote}'.`
+        }))
+      },
+      {
       id: 'intake-source',
       label: 'Intake source',
       options: [
@@ -64,8 +95,9 @@ function choiceSets(definition, action, workflow = null) {
         { id: 'manual', label: 'Manual description and documents', description: 'Use supplied story details, local files, and URLs.' }
       ]
     },
-    { id: 'workflow-template', label: 'Workflow template', options: options(Object.entries(definition.workTypes ?? {})) }
-  ];
+      { id: 'workflow-template', label: 'Workflow template', options: options(Object.entries(definition.workTypes ?? {})) }
+    ];
+  }
   if (action === 'approve') {
     const context = approvalContext(workflow);
     const phase = workflow.phases[context.phase];
@@ -197,7 +229,7 @@ export async function beginSelectionReceipt(root, definition, { action, workId, 
     action,
     workId,
     context: action === 'approve' ? approvalContext(workflow) : null,
-    choiceSets: choiceSets(definition, action, workflow)
+    choiceSets: await choiceSets(root, definition, action, workflow)
   });
 }
 
@@ -251,7 +283,7 @@ export async function resolveSelectionReceipt(root, definition, token, { action,
     action,
     workId,
     context: action === 'approve' ? approvalContext(workflow) : null,
-    choiceSets: choiceSets(definition, action, workflow)
+    choiceSets: await choiceSets(root, definition, action, workflow)
   });
 }
 

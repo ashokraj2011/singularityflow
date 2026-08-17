@@ -3,7 +3,7 @@
  *
  * A marker is how a specification says "I would be guessing here" in a way the kernel can act on:
  *
- *     [NEEDS CLARIFICATION: which roles may retry a failed payment?]
+ *     [NEEDS CLARIFICATION: <one question grounded in the current Story evidence>]
  *
  * The value is entirely in what happens next. Under `block`, an unresolved marker stops publication
  * *before any state mutation* `[SPK:REQ-065]` — so the honest admission costs nothing except the

@@ -20,8 +20,6 @@
  * `gateway.planner-unavailable`, which renders as "this build cannot answer that yet" and points at
  * the CLI. A capability the host genuinely lacks, reported as one.
  */
-import * as vscode from 'vscode';
-
 import { createActionExecutor } from '../../../src/gateway/executor.mjs';
 import { createHostGateway } from '../../../src/gateway/host.mjs';
 import { homeOverview } from '../../../src/gateway/planners/home-overview.mjs';
@@ -62,6 +60,27 @@ export type GatewaySession = {
 
 let session: GatewaySession | null = null;
 let sessionRoot: string | null = null;
+let sessionWorkspaceId: string | null = null;
+let sessionWorkspaceName: string | null = null;
+let sessionRepositoryId: string | null = null;
+
+/**
+ * The one validated repository context every editor surface acts on.
+ *
+ * This is deliberately activation-local routing state, not persisted lifecycle state. The active
+ * workspace remains owned by the CLI's machine-wide record; the extension resolves that record once
+ * and publishes the resulting repository here so cards, forms and chrome cannot each invent a
+ * different answer from the folder VS Code happens to have open.
+ */
+export type ActiveRepositoryContext = {
+  readonly root: string;
+  readonly workspaceId: string | null;
+  readonly workspaceName: string | null;
+  readonly repositoryId: string | null;
+  readonly origin: string;
+};
+
+let activeContext: ActiveRepositoryContext | null = null;
 
 /**
  * One session ID per extension activation.
@@ -95,8 +114,10 @@ export function provideAcknowledgedAt(provider: () => string | null): void {
   resetGatewaySession();
 }
 
-export function gatewaySession(root: string, workspaceId: string | null = null): GatewaySession {
-  if (session && sessionRoot === root) return session;
+export function gatewaySession(context: ActiveRepositoryContext): GatewaySession {
+  const { root, workspaceId, workspaceName, repositoryId } = context;
+  if (session && sessionRoot === root && sessionWorkspaceId === workspaceId
+    && sessionWorkspaceName === workspaceName && sessionRepositoryId === repositoryId) return session;
   const host = createHostGateway({
     root,
     hostSessionId: HOST_SESSION_ID,
@@ -115,7 +136,14 @@ export function gatewaySession(root: string, workspaceId: string | null = null):
      * A thunk, not a value: the session outlives any particular acknowledgement, and a captured one
      * would keep answering with the timestamp that was current when the repository was opened.
      */
-    plannerContext: () => ({ acknowledgedAt: acknowledgedAtProvider() }),
+    plannerContext: () => ({
+      acknowledgedAt: acknowledgedAtProvider(),
+      repositoryId: repositoryId ?? root,
+      ...(workspaceId ? {
+        workspace: { id: workspaceId, name: workspaceName ?? workspaceId },
+        workspaceName: workspaceName ?? workspaceId
+      } : {})
+    }),
     // Every implemented planner is a read, and `run()` refuses unconditionally `[INT:CON-033]`.
     readOnly: true
   });
@@ -127,16 +155,32 @@ export function gatewaySession(root: string, workspaceId: string | null = null):
     executor: createActionExecutor({ gateway: host })
   };
   sessionRoot = root;
+  sessionWorkspaceId = workspaceId;
+  sessionWorkspaceName = workspaceName;
+  sessionRepositoryId = repositoryId;
   return session;
 }
 
-/** The repository the editor is currently about, or null when nothing governed is open. */
-export function activeRepository(): string | null {
-  return vscode.workspace.workspaceFolders?.[0]?.uri?.fsPath ?? null;
+/** Replace the editor's resolved routing context and retire handles from the previous one. */
+export function setActiveRepositoryContext(next: ActiveRepositoryContext | null): void {
+  const changed = activeContext?.root !== next?.root
+    || activeContext?.workspaceId !== next?.workspaceId
+    || activeContext?.workspaceName !== next?.workspaceName
+    || activeContext?.repositoryId !== next?.repositoryId;
+  activeContext = next ? Object.freeze({ ...next }) : null;
+  if (changed) resetGatewaySession();
+}
+
+/** The validated context the editor is currently about, or null when none could be resolved. */
+export function activeRepositoryContext(): ActiveRepositoryContext | null {
+  return activeContext;
 }
 
 /** Test seam, and the reload path: a session must not outlive the world it was built for. */
 export function resetGatewaySession(): void {
   session = null;
   sessionRoot = null;
+  sessionWorkspaceId = null;
+  sessionWorkspaceName = null;
+  sessionRepositoryId = null;
 }

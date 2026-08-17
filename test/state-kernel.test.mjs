@@ -54,7 +54,11 @@ async function repository() {
   await writeFile(workflowPath, YAML.stringify(definition));
   run('git', ['add', '.'], root);
   run('git', ['commit', '-m', 'initialize'], root);
-  run(process.execPath, [bin, 'start', 'KERNEL-1', '--ref', 'KERNEL-1', '--title', 'Kernel'], root);
+  const remote = `${root}.git`;
+  run('git', ['init', '--bare', '-b', 'main', remote], root);
+  run('git', ['remote', 'add', 'origin', remote], root);
+  run('git', ['push', '-u', 'origin', 'main'], root);
+  run(process.execPath, [bin, 'start', 'KERNEL-1', '--from-branch', 'main', '--ref', 'KERNEL-1', '--title', 'Kernel'], root);
   return root;
 }
 

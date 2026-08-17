@@ -2279,7 +2279,13 @@ const INTAKE_CHOICES = {
       phases: ['intake', 'reproduction', 'fix-design', 'implementation', 'verification'] }
   ],
   workType: 'feature',
-  workflowReason: null
+  workflowReason: null,
+  baseBranch: 'main',
+  baseRemote: 'origin',
+  basePreflightPassed: true,
+  baseBranchChoices: [
+    { branch: 'main', present: 1, total: 1, everywhere: true, missingFrom: [] }
+  ]
 };
 const intake = (over = {}) => ({ ...EMPTY_INTAKE_FORM, ...INTAKE_CHOICES, ...over });
 
@@ -2292,6 +2298,17 @@ test('the three shapes are offered with what each one leads to', () => {
     assert.match(html, new RegExp(`data-shape="${shape.id}"`));
     assert.match(html, new RegExp(escapeForRegExp(shape.leads.slice(0, 40))));
   }
+});
+
+test('intake names the exact workspace, repository, and branch it will mutate', () => {
+  const html = intakeHtml(intake({
+    targetWorkspace: 'Rule-engine',
+    targetRepository: '/workspaces/rule-engine/repos/ruleengine',
+    targetBranch: 'WRK-2028'
+  }));
+  assert.match(html, /workspace <strong>Rule-engine<\/strong>/);
+  assert.match(html, /repository\s+<strong>\/workspaces\/rule-engine\/repos\/ruleengine<\/strong>/);
+  assert.match(html, /branch <code>WRK-2028<\/code>/);
 });
 
 /** Sentences in the fixtures contain regex metacharacters; matching one literally has to say so. */
@@ -2401,6 +2418,7 @@ test('a Story is the one shape that asks how it will be judged done', () => {
     '--title', 'Retry a failed charge',
     '--description', 'One retry with backoff',
     '--work-type', 'feature',
+    '--from-branch', 'main',
     '--acceptance-criteria', 'Retries once\nGives up after that'
   ]);
   assert.match(intakeHtml(form), /data-field="acceptanceCriteria"/);
@@ -2410,6 +2428,18 @@ test('a Story is the one shape that asks how it will be judged done', () => {
   assert.match(intakeHtml(form), /Story workflow/);
   assert.match(intakeHtml(form), /data-work-type="feature"/);
   assert.match(intakeHtml(form), /reproduction/);
+});
+
+test('a Story requires an explicit base even when only one remote branch is available', () => {
+  const form = intake({
+    shape: 'story', tracker: 'none', id: 'checkout-retry', title: 'Retry a failed charge',
+    description: 'One retry with backoff', baseBranch: null, basePreflightPassed: false
+  });
+  assert.match(intakeProblems(form).join(' '), /Choose the remote base branch/);
+  const html = intakeHtml(form);
+  assert.match(html, /data-base-branch="main"/);
+  assert.doesNotMatch(html, /data-base-branch="main"[^>]*checked/);
+  assert.match(html, /<button data-submit="start" disabled>/);
 });
 
 test('Story workflow phases render as a horizontal rail beneath the workflow name', () => {
@@ -2429,7 +2459,8 @@ test('a tracked Story is fetched by key', () => {
   const form = intake({ shape: 'story', tracker: 'jira', jiraConfigured: true, key: 'ENG-142' });
   assert.deepEqual(intakeProblems(form), []);
   assert.deepEqual(intakeCommand(form), [
-    'story', 'start', 'ENG-142', '--json', '--fetch', '--work-type', 'feature'
+    'story', 'start', 'ENG-142', '--json', '--fetch', '--work-type', 'feature',
+    '--from-branch', 'main'
   ]);
 });
 
@@ -2498,6 +2529,13 @@ test('an intake form still missing something disables the button and lists why',
   }));
   assert.match(ready, /Starts story <code>checkout-retry<\/code>/);
   assert.match(ready, /<button data-submit="start" >/);
+
+  const waitingForRemote = intakeHtml(intake({
+    shape: 'story', tracker: 'none', id: 'checkout-retry', title: 'A', description: 'B',
+    basePreflightPassed: false, basePreflightChecking: true
+  }));
+  assert.match(waitingForRemote, /Checking remote branch freshness/);
+  assert.match(waitingForRemote, /<button data-submit="start" disabled>/);
 });
 
 test('a refused start is reported on the form that caused it', () => {

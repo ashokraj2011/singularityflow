@@ -170,8 +170,8 @@ test('every clone path that had a hard-coded default branch now accepts the capa
   // `start`, `story fetch`, and the governed initiative materialization were three separate places
   // that each decided a base branch on their own.
   const cli = await source('src/cli.mjs');
-  assert.match(cli, /capabilityBaseForRepository\(root, \{/, 'start does not resolve a capability base');
-  assert.match(cli, /capabilityBase\?\.localBase\s*\n?\s*\?\?\s*explicitBase/, 'start ignores the resolved base');
+  assert.match(cli, /storyBaseForRepository\(root, \{/, 'start does not resolve an explicit Story base');
+  assert.match(cli, /const baseAtStart = storyBase\.localBase/, 'start ignores the resolved base');
 
   const story = await source('src/commands/story.mjs');
   assert.match(story, /capabilityBaseForRepository\(target, \{/, 'story fetch does not resolve a capability base');

@@ -60,6 +60,8 @@ test('required clarification produces an explicit interactive stop before author
   assert.match(rendered, /Pause for at least one human response/);
   assert.match(rendered, /no more than 4 questions/);
   assert.match(rendered, /interactive `ask_user` tool/);
+  assert.match(rendered, /Derive every question only from the current Story/);
+  assert.match(rendered, /Never reuse example questions or placeholder text from templates/);
   assert.match(rendered, /Do not author or publish/);
   assert.match(rendered, /scope, acceptance criteria/);
 });

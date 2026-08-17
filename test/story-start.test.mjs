@@ -34,6 +34,10 @@ async function repository() {
   await writeFile(definitionPath, YAML.stringify(definition));
   run('git', ['add', '.'], root);
   run('git', ['commit', '-m', 'initialize'], root);
+  const remote = `${root}.git`;
+  run('git', ['init', '--bare', '-b', 'main', remote], root);
+  run('git', ['remote', 'add', 'origin', remote], root);
+  run('git', ['push', '-u', 'origin', 'main'], root);
   return root;
 }
 
@@ -57,6 +61,7 @@ test('Story intake creates durable manual state and resumes an existing branch',
     source,
     workType: 'feature',
     agent: 'product-owner',
+    baseBranch: 'main',
     files: [sourceFile],
     urls: ['https://example.com/export-reference']
   });
@@ -119,7 +124,8 @@ test('Story intake pins refreshed remote configuration and world-model files fro
   const started = await startStory(clone, {
     id: 'WORK-REMOTE-1',
     source: manualStorySource('WORK-REMOTE-1', { title: 'Use refreshed governance' }),
-    workType: 'chore'
+    workType: 'chore',
+    baseBranch: 'main'
   });
   assert.equal(started.workflow.workItem.workTypeLabel, 'Remote governed chore');
   assert.match(await readFile(path.join(clone, 'singularity/world-model/manifest.json'), 'utf8'), /"marker":"remote"/);

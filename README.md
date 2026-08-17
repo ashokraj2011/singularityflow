@@ -934,13 +934,14 @@ For `figma-mobile`, committed PNG exports are the canonical approval baseline. V
 ## Start and resume
 
 ```bash
-singularity-flow start ENG-142 --title "Add invoice export" --fetch
+singularity-flow workspace branches --json
+singularity-flow start ENG-142 --title "Add invoice export" --from-branch main --fetch
 singularity-flow resume ENG-142 --fetch
 ```
 
-With no source flags, `start` first asks whether intake comes from a Jira story or a manual description and documents. Manual mode asks for the title, audience, problem, outcome, acceptance criteria, and supporting file paths or HTTPS URLs. After source intake is complete, `start` asks only for a workflow template (`feature`, `bugfix`, `chore`, `figma-mobile`, or another configured work type). The first phase activates its default agent; resume activates the current phase's default. The active agent is stored locally in `.git/singularity-flow/session.json`; opening a session does not create a repository commit. It is prompt context, not a real identity or approval credential.
+Every new Story first requires an explicit branch published by every required repository; no branch is preselected, even when only one is available. With no source flags, `start` then asks whether intake comes from a Jira story or a manual description and documents. Manual mode asks for the title, audience, problem, outcome, acceptance criteria, and supporting file paths or HTTPS URLs. After source intake is complete, `start` asks for a workflow template (`feature`, `bugfix`, `chore`, `figma-mobile`, or another configured work type). The first phase activates its default agent; resume activates the current phase's default. The active agent is stored locally in `.git/singularity-flow/session.json`; opening a session does not create a repository commit. It is prompt context, not a real identity or approval credential.
 
-The receipt flow is local and auditable: `singularity-flow choices begin start <WORK-ID> --json` returns the live YAML-derived intake and workflow options; Copilot presents them through `ask_user`; and each exact answer is recorded with `singularity-flow choices answer`. Approval receipts bind to the submitted phase, generation, artifact hashes, and exact phase confirmation. The phase agent is recorded as audit context; approval authority is recalculated from the reviewer’s identity and the pinned authority registry.
+The receipt flow is local and auditable: `singularity-flow choices begin start <WORK-ID> --json` returns the live remote-base, YAML-derived intake, and workflow options; Copilot presents them through `ask_user`; and each exact answer is recorded with `singularity-flow choices answer`. Approval receipts bind to the submitted phase, generation, artifact hashes, and exact phase confirmation. The phase agent is recorded as audit context; approval authority is recalculated from the reviewer’s identity and the pinned authority registry.
 
 Receipt answers use a short-lived filesystem mutation lock, so Copilot can
 submit different answers concurrently from separate CLI processes without
@@ -1026,7 +1027,7 @@ singularity-flow jira status
 singularity-flow jira doctor
 singularity-flow jira pull ENG-142
 singularity-flow jira assigned --project ENG
-singularity-flow start ENG-142 --jira
+singularity-flow start ENG-142 --jira --from-branch main
 ```
 
 Jira Cloud and Jira Data Center are both supported. Data Center uses `JIRA_DEPLOYMENT=data-center` and a Bearer `JIRA_PAT`; the Cloud path uses username plus PAT/API token with Basic authentication. `singularity-flow jira status`, `projects`, `epics --project`, `children`, and `permissions --project` provide read-only discovery. The Copilot CLI exposes the same operations as collision-safe skills:
@@ -1076,6 +1077,7 @@ exists, VS Code fetches and resumes it instead of creating a duplicate.
 
 ```bash
 singularity-flow start WORK-123 \
+  --from-branch main \
   --story-file ./manual-story.yml \
   --document ./additional-context.pdf \
   --document-url https://www.figma.com/design/example
@@ -1087,6 +1089,7 @@ For a short manual request without a story file:
 
 ```bash
 singularity-flow start WORK-123 \
+  --from-branch main \
   --title "Add invoice export" \
   --description "Finance needs a repeatable export of filtered invoices." \
   --acceptance-criteria "An authorized user can export the filtered invoice set."
@@ -1718,7 +1721,7 @@ evidence workflow.
 | `singularity-flow init` | Install editable YAML, templates, agent prompts, and world-model builder prompt. |
 | `singularity-flow factory-reset --dry-run` | Preview a destructive reset of repository Singularity state and local runtime data before reinstalling current npm-package defaults. |
 | `singularity-flow local-reset --dry-run` | Preview removal of every validated local workspace and machine state while preserving installed product surfaces. |
-| `singularity-flow start <ID> [--jira \| --story-file FILE] [--work-type ID] [--agent ID] [--ref BRANCH]` | Import Jira or manual story details, attach optional documents, choose a workflow, and create/push the canonical branch. Non-interactive callers must pass `--work-type`; a failed preflight restores the original branch and removes only the empty branch created by that attempt. The branch defaults to the Work ID; `--ref` decouples its name. |
+| `singularity-flow start <ID> --from-branch BRANCH [--jira \| --story-file FILE] [--work-type ID] [--ref BRANCH]` | Require an explicit published remote base, verify the configured remote before mutation, and create/push only the canonical Story branch. Non-interactive callers must also pass `--work-type`; `--base` remains a standalone-repository compatibility alias. The Story branch defaults to the Work ID; `--ref` decouples its name. |
 | `singularity-flow choices begin\|answer\|status` | Bridge explicit Copilot start and approval choices through a short-lived one-time receipt when persistent terminal stdin is unavailable. |
 | `singularity-flow resume <ID\|BRANCH> --fetch` | Resolve the Work ID/canonical-branch binding, fast-forward it, and activate the current phase agent. |
 | `sflow-agent [ID]` | Select or change the prompt-only governed agent for the current local work-item session. |

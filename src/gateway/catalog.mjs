@@ -42,6 +42,7 @@ export const RESOLUTION_CODES = Object.freeze([
   'resolution.ambiguous',
   'resolution.matched.selection-handle',
   'resolution.matched.phrase',
+  'resolution.matched.conversation',
   'resolution.matched.goal',
   'resolution.nothing-was-carried-out'
 ]);

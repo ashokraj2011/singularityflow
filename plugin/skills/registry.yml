@@ -19,6 +19,7 @@ automaticInvocationAllowlist:
   - sflow-docs
   - sflow-doctor
   - sflow-help
+  - sflow-home
   - sflow-logs
   - sflow-nextsteps
   - sflow-progress
@@ -40,6 +41,12 @@ classes:
     hardMaximumBytes: 65536
   interactive:
     outputContract: explicit-selection
+    warningTokens: 500
+    maximumTokens: 800
+    previewBytes: 16384
+    hardMaximumBytes: 65536
+  guided:
+    outputContract: conversational-guidance
     warningTokens: 500
     maximumTokens: 800
     previewBytes: 16384
@@ -105,7 +112,7 @@ skills:
   sflow-reinstall: { class: mutation }
   sflow-finalize: { class: mutation }
   sflow-help: { class: conversational }
-  sflow-home: { class: interactive }
+  sflow-home: { class: guided }
   sflow-implement: { class: generative }
   sflow-inbox: { class: echo }
   sflow-init: { class: mutation }

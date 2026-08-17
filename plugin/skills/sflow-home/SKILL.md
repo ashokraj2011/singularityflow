@@ -1,25 +1,30 @@
 ---
 name: sflow-home
-description: Open the Singularity Flow home for the current workspace, then explicitly route the contributor's selected goal into the matching guided flow.
-disable-model-invocation: true
+description: Guide developer requests through explicit governed choices.
 
 ---
-# Singularity Flow cockpit
+# Singularity Flow home
 
-<!-- sflow-output-contract: explicit-selection -->
-**Output contract:** Show current state, collect one explicit menu selection, and follow only the selected guided flow. Never infer or preselect a goal.
+<!-- sflow-output-contract: conversational-guidance -->
+**Output contract:** Resolve ordinary language through durable Home and Next projections; reads may run immediately, while every mutation requires an explicit governed choice.
 
-1. Run `singularity-flow home --json`. Preserve its outcome, reasons, warnings, current work, counts, and ordered `next` actions.
-2. Render every returned action label with its detail and `fallback.skill`. Use Copilot's `ask_user` facility to ask the contributor to select exactly one. Do not treat free-form text as an action ID and do not preselect the primary action.
-3. Route the selected action by reading and following the sibling packaged skill below. A Copilot session cannot invoke another slash command inside itself, so follow that skill's instructions directly rather than merely printing its name:
-   - `home:work.continue` → `../sflow-resume/SKILL.md`, preserving the returned `slots.work` as its Work ID.
-   - `home:work.list` → `../sflow-session/SKILL.md`.
-   - `home:work.return` → `../sflow-work-interval/SKILL.md`, using `reconcile` and the returned Work ID when present.
-   - `home:work.start.intake` → `../sflow-start/SKILL.md`. Ask for the Work ID required by that skill before following it.
-   - `home:workspace.switch` → `../sflow-workspace/SKILL.md`.
-   - `home:impact.quick` → `../sflow-workspace-impact/SKILL.md`.
-   - `home:repository.explore` → `../sflow-inspect/SKILL.md`.
-   - `home:help.explain` → `../sflow-help/SKILL.md`.
-4. If the selected action is not in this map, stop and reproduce its `fallback.skill` and `fallback.command`; do not guess a destination.
-5. After a selected flow completes, run `singularity-flow home` once and reproduce the refreshed home. This makes a newly started, resumed, or switched work item visible without requiring the contributor to remember another command.
-6. The initial home read must not mutate lifecycle state. Only the explicitly selected sibling flow may do so. If setup is incomplete, run `singularity-flow doctor` and explain only its failed or warning checks.
+Use this skill for ordinary developer questions about current work, starting or continuing work, blockers, next actions, and recovery. For safety, automatic invocation is not mutation consent.
+
+1. With a natural-language request, run `singularity-flow home --json --request "$ARGUMENTS"`. With no request, run `singularity-flow home --json`.
+2. Read `data.home` and `data.conversation`. State is reconstructed from durable workspace, repository, and lifecycle records; never rely on chat memory as workflow state.
+3. Respond under exactly these headings:
+   - **I found** — workspace, repository, Work ID, phase, freshness, and relevant warning.
+   - **Next** — the one routed read or proposed governed action, including its `/sf-*` route.
+   - **I need from you** — nothing for a read; otherwise the exact selection, argument, or human decision required.
+   - **This will change** — say “Nothing” for planning and reads; for a proposed mutation, name its files, lifecycle state, Git refs, publication, or external effects before asking.
+4. The six intents are `orient`, `continue`, `start`, `inspect`, `act`, and `recover`. If confidence is `none` or `ambiguous`, render the returned Home actions or conversation choices and use `ask_user`; never guess.
+5. A routed read may run immediately using only `singularity-flow status`, `progress`, `nextsteps`, `story return <WORK-ID> --json`, or `doctor`, as appropriate. Do not invoke a mixed read/write skill automatically. For `continue`, `start`, or `act`, show the proposal and use `ask_user`. Follow the sibling skill only after the contributor explicitly selects it:
+   - `/sf-resume` → `../sflow-resume/SKILL.md`
+   - `/sf-start` → `../sflow-start/SKILL.md`
+   - `/sf-phase` → `../sflow-phase/SKILL.md`
+   - `/sf-submit` → `../sflow-submit/SKILL.md`
+   - `/sf-next` → `../sflow-next/SKILL.md`
+6. Approval, rejection, cancellation, resets, destructive operations, and every ceremony require an explicit `/sf-*` invocation. Do not perform them from automatic routing, even after conversational agreement; direct the contributor to the named command so its identity and exact-confirmation contract runs.
+7. Preserve all CLI refusals, warnings, ordered actions, and recovery commands. After a selected flow completes, run `singularity-flow home` and show the refreshed state.
+
+Home action compatibility remains exact: `home:work.continue`, `home:work.list`, `home:work.return`, `home:work.start.intake`, `home:workspace.switch`, `home:impact.quick`, `home:repository.explore`, and `home:help.explain`. Route each only through its returned `fallback.skill`; do not invent a destination.

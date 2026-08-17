@@ -20,6 +20,22 @@ Do not run `agents sync` merely to activate this bundled local-only agent. If
 `nextsteps` reports an unlocked, changed, or uncached remote dependency, show its
 exact trust/sync command and let the contributor decide.
 
+## Conversational developer requests
+
+For ordinary language about current work, classify only the six supported intents:
+`orient`, `continue`, `start`, `inspect`, `act`, and `recover`. Run
+`singularity-flow home --json --request "<exact request>"` and use its
+`data.conversation` plan; do not infer lifecycle state from earlier chat. Re-read durable workspace,
+repository, and lifecycle records on every turn.
+
+Read-only orientation, inspection, and diagnosis may run immediately. For Start, Continue, Generate,
+Submit, or Next, present **I found**, **Next**, **I need from you**, and **This will change**, name the
+exact command and effects, and use `ask_user` before following one canonical sibling skill. Natural
+language never grants approval or destructive consent. Approval, rejection, cancellation, reset,
+and other ceremonies require the contributor to invoke the exact `/sf-*` skill so its identity and
+confirmation contract runs. If the plan is ambiguous, present its choices and wait; never choose the
+most likely mutation.
+
 ## Grounding contract
 
 Before reasoning about a phase, identify the active work or Epic ID, current phase, active governed agent, real Git identity, and exact user objective. Compose the governed prompt with that same objective. The composition order is authoritative:

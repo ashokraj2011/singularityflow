@@ -6,6 +6,7 @@ const CONTRACT_TEXT = Object.freeze({
   'guided-actions': 'Use read-only CLI evidence, preserve warnings and ordered actions, and change nothing unless explicitly requested.',
   'concise-relay': 'Return the named CLI command output verbatim; do not elaborate, re-narrate, or hide errors.',
   'explicit-selection': 'Collect every required choice explicitly; never infer or preselect; preserve errors, artifacts, and next actions.',
+  'conversational-guidance': 'Resolve ordinary language through durable Home and Next projections; reads may run immediately, while every mutation requires an explicit governed choice.',
   'governed-review': 'Show governed artifacts, hashes, identity warnings, and the exact confirmation before recording any decision.',
   'clarification-and-artifact': 'Use the complete governed prompt and approved inputs, ask unresolved questions, then publish and show configured artifacts.',
   'deterministic-mutation': 'Let the CLI validate and mutate state; preserve its exact result, warnings, publication status, artifacts, and next actions.'
@@ -13,6 +14,7 @@ const CONTRACT_TEXT = Object.freeze({
 
 const AUTOMATIC_DESCRIPTIONS = Object.freeze({
   'sflow-help': 'Answer questions about Singularity Flow and its workflow.',
+  'sflow-home': 'Guide developer requests through explicit governed choices.',
   'sflow-nextsteps': 'Show ordered next actions from the current workflow state.',
   'sflow-status': 'Show the current phase, artifacts, checks, and approvals.'
 });
@@ -110,6 +112,14 @@ export async function auditSkillPolicy(repositoryRoot, { write = false } = {}) {
     if (automatic.has(name)) {
       if (skill.frontmatter['disable-model-invocation'] === true) errors.push(`${name}: automatic skill must not disable model invocation`);
       if (descriptionTokens > 15) errors.push(`${name}: automatic description is ${descriptionTokens} estimated tokens; maximum is 15`);
+      if (rule.class === 'guided') {
+        for (const required of [
+          'automatic invocation is not mutation consent',
+          'singularity-flow home --json --request "$ARGUMENTS"',
+          '`ask_user`',
+          'require an explicit `/sf-*` invocation'
+        ]) if (!skill.body.includes(required)) errors.push(`${name}: guided automatic skill must include '${required}'`);
+      }
     } else if (skill.frontmatter['disable-model-invocation'] !== true) {
       errors.push(`${name}: explicit-only skill must set disable-model-invocation: true`);
     }

@@ -18,6 +18,7 @@
  * makes the same inputs produce the same resolution every time `[INT:REQ-030]`.
  */
 import { validateArguments } from './argument-schemas.mjs';
+import { planDeveloperConversation } from './conversation.mjs';
 import { BROAD_GOALS, isBroadGoal } from './goals.mjs';
 import { normalizeAlias } from './registry.mjs';
 import { operationPermission } from './policy.mjs';
@@ -42,6 +43,7 @@ export const RESOLUTION_REASONS = Object.freeze([
   'resolution.ambiguous',
   'resolution.matched.selection-handle',
   'resolution.matched.phrase',
+  'resolution.matched.conversation',
   'resolution.matched.goal'
 ]);
 
@@ -51,6 +53,7 @@ const policyReason = (code, extra = {}) => ({ code, source: 'policy', ...extra }
 /** How the candidate set was narrowed, which decides whether a single survivor may be auto-selected. */
 const MATCH_SELECTION_HANDLE = 'selection-handle';
 const MATCH_PHRASE = 'phrase';
+const MATCH_CONVERSATION = 'conversation';
 const MATCH_GOAL = 'goal';
 
 const HELP_FALLBACK = Object.freeze({
@@ -203,7 +206,7 @@ function candidateResult(candidates, handles, context, why) {
   });
 }
 
-function resolvedResult(operation, args, handles, context, why) {
+function resolvedResult(operation, args, handles, context, why, matchedBy = MATCH_PHRASE) {
   const permission = context.permissions.get(operation.id);
   const kind = operation.classification === 'authorization'
     ? 'ceremony'
@@ -233,7 +236,13 @@ function resolvedResult(operation, args, handles, context, why) {
       label: operation.gateway.aliases.en.phrases[0],
       rank: 0,
       kind,
-      reasonCode: 'resolution.matched.phrase',
+      reasonCode: matchedBy === MATCH_CONVERSATION
+        ? 'resolution.matched.conversation'
+        : matchedBy === MATCH_GOAL
+          ? 'resolution.matched.goal'
+          : matchedBy === MATCH_SELECTION_HANDLE
+            ? 'resolution.matched.selection-handle'
+            : 'resolution.matched.phrase',
       confirmation: permission.confirmation,
       interaction: permission.confirmation === 'ceremony' ? 'ceremony' : (kind === 'read' ? 'read' : 'form'),
       /**
@@ -311,6 +320,24 @@ export function resolveIntent(request = {}, {
     }
   }
 
+  // ---- 3b. Ordinary language may select only a deterministic read planner. The route never
+  //          becomes a mutation; it reconstructs current state and lets the user choose from the
+  //          legal actions that state exposes.
+  if (!matchedBy && utterance) {
+    const conversation = planDeveloperConversation(utterance);
+    if (conversation.route) {
+      const routed = pool.filter((operation) => operation.id === conversation.route.operationId);
+      if (routed.length) {
+        pool = routed;
+        matchedBy = MATCH_CONVERSATION;
+        why.push(reason('resolution.matched.conversation', {
+          reference: conversation.route.id,
+          slots: { intent: conversation.intent, skill: conversation.route.recommendedSkill }
+        }));
+      }
+    }
+  }
+
   // ---- 4. The broad goal hint, validated against a closed vocabulary.
   if (!matchedBy && goalHint) {
     if (!isBroadGoal(goalHint)) {
@@ -383,10 +410,10 @@ export function resolveIntent(request = {}, {
    * `[INT:CON-036]`. A goal hint is the one input the model authors, so it may narrow to a write but
    * may not choose one. A single survivor is returned as a choice the user makes, not a resolution.
    */
-  if (matchedBy === MATCH_GOAL && operation.classification !== 'read') {
+  if ([MATCH_GOAL, MATCH_CONVERSATION].includes(matchedBy) && operation.classification !== 'read') {
     return candidateResult([operation], handles, context,
       [...why, policyReason('resolution.goal-alone-cannot-write', { slots: { operation: operation.id } })]);
   }
 
-  return resolvedResult(operation, args, handles, context, why);
+  return resolvedResult(operation, args, handles, context, why, matchedBy);
 }

@@ -2266,7 +2266,7 @@ The generated shell entry does not override an existing `COPILOT_OTEL_FILE_EXPOR
 
 ## Low-friction cockpit, diagnostics, and guided execution
 
-Run `singularity-flow home` to open the deterministic home. It shows current governed work, repository freshness, blockers, and safe next actions without changing state. In VS Code use **My Work**. The hidden **Talk to SFlow** command remains a compatibility alias to My Work. In Copilot, `/sf-home` shows the same choices, asks for an explicit selection, follows the selected guided flow, and refreshes home afterward.
+Run `singularity-flow home` to open the deterministic home. Add `--request "<ordinary developer request>"` to receive a versioned conversational plan for one of six intents: orient, continue, start, inspect, act, or recover. The plan reads durable state and changes nothing. In VS Code use **My Work**. The hidden **Talk to SFlow** command remains a compatibility alias to My Work. In Copilot, ordinary language routes through the same Home projection. Read-only requests may run immediately; Start, Continue, Generate, Submit, Next, and every ceremony require an explicit governed selection. `/sf-home` remains the explicit escape hatch and refreshes Home after a selected flow.
 
 The shell, Copilot, and VS Code share durable repository and workspace records plus one pure home projection. They do not share an in-memory global store, signed action handles, or navigation history.
 
@@ -2616,7 +2616,7 @@ singularity-flow state reconcile [WORK-ID] --check|--repair-projections [--json]
 singularity-flow logs [--tail N] [--level LEVEL] [--event PATTERN] [--since WHEN] [--json]
 singularity-flow logs path|level
 singularity-flow logs workspace [--source all|activity|prompt|telemetry|workspace] [--repository ID] [--work-id ID] [--phase ID] [--agent ID] [--level error|warn|info|debug] [--since ISO-TIMESTAMP] [--limit N] [--json]
-singularity-flow home [--json]
+singularity-flow home [--workspace ID] [--request TEXT] [--json]
 singularity-flow workspace list|current|use|prompt|copilot
 singularity-flow knowledge list|show|record|harvest|resolve ...
 singularity-flow capability tree|show|of|add|set|remove|map|edit|world-model|organisation|leads

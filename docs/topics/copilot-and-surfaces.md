@@ -14,9 +14,9 @@ related:
   - developer-home
   - help-and-docs
   - governed-execution
-version: 1
+version: 2
 ---
-CLI, Copilot, and VS Code read the same durable repository and workspace records through shared projections. They do not share an in-memory global store, conversation history, or signed handles.
+CLI, Copilot, and VS Code read the same durable repository and workspace records through shared projections. They do not share an in-memory global store, conversation history, or signed handles. Copilot accepts ordinary developer language for six closed intents: orient, continue, start, inspect, act, and recover.
 
 ## Purpose and prerequisites
 
@@ -24,21 +24,21 @@ Use this topic when the current goal matches **copilot and surfaces**. Start in 
 
 ## Use it from each surface
 
-- **Shell:** `sflow about`, `sflow help`, `sflow plugin`. Run `singularity-flow about --help` for the exact forms supported by this build.
-- **Copilot:** `/sf-about`, `/sf-help`. The skill must preserve the CLI result and ask before any governed mutation.
+- **Shell:** `sflow about`, `sflow help`, `sflow plugin`. Use `sflow home --request "What is blocking this Story?" --json` to inspect the conversational plan. Run `singularity-flow about --help` for the exact forms supported by this build.
+- **Copilot:** ask “What am I working on?”, “Continue my Story”, “Start a new bug fix”, “What is blocking this?”, “Generate the active phase”, or “The publication push is stuck.” `/sf-home`, `/sf-start`, and the other `/sf-*` skills remain explicit escape hatches.
 - **VS Code:** open Singularity Flow **Help Center**. The extension renders engine results; it does not independently decide lifecycle state.
 
 ## Guided workflow
 
-1. Read the current state with `sflow home`, `sflow status`, or the relevant list/status form.
+1. Ask naturally or read current state with `sflow home`, `sflow status`, or the relevant list/status form. The conversational layer selects a read planner only; it never turns prose directly into a lifecycle mutation.
 2. Review the repository, workspace, Work ID, phase, actor, and any warnings before selecting an action.
-3. Preview or prepare the operation when the command offers a dry-run, plan, packet, or exact confirmation.
+3. Read-only orientation, inspection, and recovery diagnosis may run immediately. For Start, Continue, Generate, Submit, or Next, review the proposed action and its effects, then explicitly select it. Approval, rejection, cancellation, resets, and destructive operations require their exact `/sf-*` skill and ceremony.
 4. Run the smallest applicable command from this topic. Do not substitute an undocumented subcommand.
 5. Re-read state after completion. In Copilot, return to `/sf-home`; in VS Code, refresh the relevant view if it has not already refreshed.
 
 ## State and safety
 
-These commands can mutate governed or machine-local state: `plugin`. They remain subject to identity, authority, sequence, freshness, branch, worktree, and exact-confirmation checks. Signed handles are session-bound and are never shared between the shell, Copilot, and VS Code. Durable repository and workspace records are the shared source of truth.
+These commands can mutate governed or machine-local state: `plugin`. They remain subject to identity, authority, sequence, freshness, branch, worktree, and exact-confirmation checks. Automatic Home invocation is not mutation consent. Raw developer prose is not retained in the conversational plan; only the deterministic intent and route are returned. Signed handles are session-bound and are never shared between the shell, Copilot, and VS Code. Durable repository and workspace records are the shared source of truth.
 
 ## Troubleshooting
 
@@ -46,6 +46,7 @@ These commands can mutate governed or machine-local state: `plugin`. They remain
 - If a command refuses because state moved, refresh and use the newly rendered action instead of replaying an old handle or confirmation.
 - If publication or synchronization is pending, follow the exact recovery command in the refusal and verify with `sflow doctor`.
 - If a Copilot or VS Code action is unavailable, use the displayed CLI fallback; do not guess a command from the label.
+- If ordinary language is ambiguous, choose from the displayed Home directions or invoke `/sf-home`; the router deliberately refuses to guess between mutations.
 
 ## Related topics
 

@@ -107,7 +107,8 @@ Usage:
   singularity-flow next [--task TEXT] [--fetch] [--yes] [--skip-checks]
   singularity-flow run [--task TEXT] [--yes]
   singularity-flow doctor [WORK-ID] [--offline] [--json]
-  singularity-flow home                                    the cockpit view (alias: cockpit)
+  singularity-flow home [--workspace ID] [--request TEXT] [--json]
+                                                           conversational Home (alias: cockpit)
   singularity-flow logs [--tail N] [--level LEVEL] [--event PATTERN] [--since WHEN] [--json]
   singularity-flow logs path|level
   singularity-flow logs workspace [--source all|activity|prompt|telemetry|workspace]

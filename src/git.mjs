@@ -199,6 +199,11 @@ function cachedGithubAccount(root, { cacheOnly = false } = {}) {
   return { ...result, lookup };
 }
 
+/** The repository's configured presentation name, without account or environment fallbacks. */
+export function localGitDisplayName(root) {
+  return git(['config', '--get', 'user.name'], { cwd: root, allowFailure: true }).stdout.trim() || null;
+}
+
 export function identity(root, { offline = false } = {}) {
   if (process.env.NODE_ENV === 'test' && process.env.SINGULARITY_FLOW_TEST_IDENTITY) {
     return {
@@ -219,7 +224,7 @@ export function identity(root, { offline = false } = {}) {
    * The expense was never these two `git config` reads (~23 ms); it was the `gh` call below, which
    * is cached on disk where the value really is stable.
    */
-  const name = git(['config', '--get', 'user.name'], { cwd: root, allowFailure: true }).stdout.trim();
+  const name = localGitDisplayName(root) ?? '';
   const email = git(['config', '--get', 'user.email'], { cwd: root, allowFailure: true }).stdout.trim();
   /**
    * `offline` no longer means "pretend there is no account". It means "do not dial out for one" —

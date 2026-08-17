@@ -128,6 +128,7 @@ function fromMessage(text: string, details: Record<string, string>, headline?: s
   return Object.freeze({
     tone: 'refusal' as const,
     headline: headline ?? message('gateway.refused').label,
+    replyName: null,
     why: [{ label: text.trim() || 'The command did not complete.' }],
     warnings: [],
     checklist: [],

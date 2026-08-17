@@ -11,7 +11,7 @@ description: Guide developer requests through explicit governed choices.
 Use this skill for ordinary developer questions about current work, starting or continuing work, blockers, next actions, and recovery. For safety, automatic invocation is not mutation consent.
 
 1. With a natural-language request, run `singularity-flow home --json --request "$ARGUMENTS"`. With no request, run `singularity-flow home --json`.
-2. Read `data.home` and `data.conversation`. State is reconstructed from durable workspace, repository, and lifecycle records; never rely on chat memory as workflow state.
+2. Read `data.home` and `data.conversation`. State is reconstructed from durable workspace, repository, and lifecycle records; never rely on chat memory as workflow state. When `data.home.personalization.replyName` is present, open the reply once with `Hello, <replyName>.` Do not derive a name from email, login, the request, or conversation memory, do not invent a nickname, and do not repeat the name under every heading. When it is null, omit the greeting.
 3. Respond under exactly these headings:
    - **I found** — workspace, repository, Work ID, phase, freshness, and relevant warning.
    - **Next** — the one routed read or proposed governed action, including its `/sf-*` route.

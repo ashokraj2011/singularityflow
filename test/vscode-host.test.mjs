@@ -685,6 +685,8 @@ test('My Work resolves an active workspace when no editor folder is open', async
   assert.ok(result, 'My Work renders a result without requiring an editor folder');
   const visible = result.webview.html.replace(/<style[\s\S]*?<\/style>/g, '').replace(/<[^>]+>/g, ' ')
     .replace(/\s+/g, ' ').trim();
+  assert.match(visible, /Hello, \S+\./,
+    'My Work personalizes the reply from the effective Git display name');
   assert.match(visible, /You have work in progress/,
     'the active Story in the workspace lead repository is visible');
   assert.match(visible, /Continue current work/);

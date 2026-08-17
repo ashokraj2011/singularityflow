@@ -18,6 +18,7 @@ import { noEffects, sflowResult } from '../result.mjs';
 import { localChangesFor } from './work-continue.mjs';
 import { deriveHomeState } from '../home-work-projection.mjs';
 import { WORK_GROUP_ORDER, workRecords } from '../work-records.mjs';
+import { personalizationFromGitIdentity } from '../../personalization.mjs';
 
 /** The stable choice set. Six at most, and never one this list does not contain `[INT:REQ-022]`. */
 /**
@@ -140,6 +141,7 @@ function homeRank(entry, { active, recovery, needsReconciliation }) {
 
 export function homeOverviewResult({
   workspace = null,
+  actor = null,
   records = null,
   state = null,
   current = {},
@@ -181,6 +183,7 @@ export function homeOverviewResult({
       /** No workspace means no repository was read, so the worktree is unread rather than clean. */
       data: {
         rail: [], workspace: null, counts: null, localChanges: null,
+        personalization: personalizationFromGitIdentity(actor),
         briefingAvailable: false, choiceSet: lead.map((entry) => entry.id)
       }
     });
@@ -355,6 +358,7 @@ export function homeOverviewResult({
        * pending phases would draw a lifecycle for work nobody has started.
        */
       rail: active?.rail ?? [],
+      personalization: personalizationFromGitIdentity(actor),
       workspace: { id: workspace.id, name: workspace.name ?? workspace.id },
       counts,
       activeWork: active ? { id: active.id, title: active.title, phase: active.phase, nextAction: active.nextAction } : null,
@@ -422,6 +426,7 @@ export async function homeOverview({ subject = null, root = null, context = {} }
   const records = await workRecords(root, { ...context, repositoryId });
   return homeOverviewResult({
     workspace: context.workspace ?? { id: root, name: context.workspaceName ?? root },
+    actor: context.actor ?? null,
     records,
     current: {
       storyId: context.storyId ?? null,

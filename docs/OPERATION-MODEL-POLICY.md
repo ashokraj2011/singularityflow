@@ -10,6 +10,7 @@ Every public operation is classified before its implementation module is importe
 | action | mutation | never | — | — |
 | agent | mutation | never | — | — |
 | agents | mutation | never | — | — |
+| approvals | read | never | — | — |
 | approve | mutation | never | — | — |
 | artifact | mutation | never | — | — |
 | assign | mutation | never | — | — |

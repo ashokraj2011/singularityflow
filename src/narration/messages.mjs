@@ -100,6 +100,10 @@ export const MESSAGES = Object.freeze({
     headline: (s) => `${slot(s.workId)} is at ${slot(s.phase)}.`,
     preserves: true
   },
+  'approvals.reported': {
+    headline: (s) => `${slot(s.workId)} has ${slot(s.received)}/${slot(s.required)} required approval(s) across ${slot(s.phases)} phase(s).`,
+    preserves: true
+  },
   'resume.succeeded': {
     headline: (s) => `Resumed ${slot(s.workId)} on ${slot(s.branch)}.`,
     preserves: false
@@ -174,6 +178,9 @@ export const MESSAGES = Object.freeze({
  * the rail this Story pinned at start" is a reason.
  */
 export const REASONS = Object.freeze({
+  'approvals.from-pinned-state': {
+    render: () => 'the phase order, documents, authority groups, and decisions came from the pinned Story aggregate'
+  },
   'fastpath.phase-not-owned': {
     render: (s) => `this Story is at a phase this verb does not route${s.phase ? ` (${slot(s.phase)})` : ''}`
   },

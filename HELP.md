@@ -1648,6 +1648,12 @@ Starter repositories use soft gates for phase-status and document-phase mistakes
 
 Use `/sf-inbox` or `singularity-flow inbox` before choosing a work item when reviewing across a team. It fetches the configured remote and lists only valid committed work-item branches whose current phase is `awaiting_approval`, oldest first. Each row includes the work/Jira ID, phase, generation, approvals received/required, waiting time, authority groups, artifact path, self-approval warning, and remote commit. `singularity-flow inbox --offline` reads cached remote refs without network access.
 
+Use `singularity-flow approvals [WORK-ID]` (alias `approval-chain`) for the complete read-only Story
+approval chain. It lists each phase with its governed document or artifact-set members, phase status,
+approval threshold, pinned authority groups, and the people whose decisions are currently active.
+`--json` also includes invalidated earlier decisions and their invalidation times without counting them
+as current approvals.
+
 Selecting an inbox item invokes the existing safe session attachment path. The branch must fast-forward exactly to the fetched remote commit; dirty, ahead, diverged, malformed, or missing states stop without merging, rebasing, resetting, stashing, or discarding work. The phase agent activates automatically; the reviewer sees their Git identity and matched authority group and reviews the complete generated documents before separately choosing approval or rejection.
 
 Approve from a terminal:
@@ -2572,6 +2578,7 @@ singularity-flow mcp design-sources promote <RECORD-ID> --confirm <RECORD-ID> [-
 singularity-flow visual status [--json]
 singularity-flow visual compare --expected RECORD-OR-PATH --actual RECORD-OR-PATH [--profile ID] [--json]
 singularity-flow status [WORK-ID] [--json]
+singularity-flow approvals [WORK-ID] [--json]  # alias: approval-chain
 singularity-flow progress [WORK-ID] [--json]
 singularity-flow report [WORK-ID] [--format md|html|json] [--out FILE] [--timings]
 singularity-flow impact status [WORK-ID] [--json]

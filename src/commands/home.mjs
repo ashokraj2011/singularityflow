@@ -16,19 +16,53 @@
 import { randomUUID } from 'node:crypto';
 
 import { createHostGateway } from '../gateway/host.mjs';
+import { planDeveloperConversation } from '../gateway/conversation.mjs';
 import { gatewayPlanners } from '../gateway/planners/index.mjs';
 import { developerHome, homeRepository } from '../developer-home.mjs';
 import { message } from '../gateway/messages.mjs';
 import { primaryAction } from '../gateway/result.mjs';
 import { optionBoolean, optionString } from '../util.mjs';
 
-function render(envelope, projection) {
+function renderConversation(conversation, projection) {
+  if (!conversation) return;
+  const current = projection.context.activeStory;
+  console.log('\nI found');
+  console.log(current
+    ? `${current.id}${current.title ? ` — ${current.title}` : ''}${current.phase ? ` · ${current.phase}` : ''}`
+    : `${projection.context.workspace.name} · no current governed work on this branch`);
+
+  console.log('\nNext');
+  if (conversation.route) {
+    console.log(`${conversation.route.label} (${conversation.route.recommendedSkill})`);
+  } else if (conversation.choices.length) {
+    console.log(conversation.choices.map((choice) => choice.label).join(' · '));
+  } else {
+    console.log('Choose a Home action or describe the work, state, blocker, or recovery you need.');
+  }
+
+  console.log('\nI need from you');
+  if (!conversation.route) {
+    console.log(conversation.choices.length ? 'Choose one of the proposed directions.' : 'Clarify what you want to do.');
+  } else if (conversation.route.confirmation === 'none') {
+    console.log('Nothing. This is a read-only request.');
+  } else if (conversation.route.confirmation === 'ceremony') {
+    console.log('Open the governed decision and provide the required human identity and decision.');
+  } else {
+    console.log('Confirm the proposed action before any governed state changes.');
+  }
+
+  console.log('\nThis will change');
+  console.log('Nothing yet. Conversation planning is read-only; mutations run only after explicit confirmation.');
+}
+
+function render(envelope, projection, conversation = null) {
   const { context, actor, briefing, choices, notices } = projection;
   console.log(`Singularity Flow home — ${context.workspace.name}`);
   console.log(`Actor: ${actor.name}${actor.email ? ` <${actor.email}>` : ''}`);
   console.log(`Repository: ${context.repository.repositoryId} · ${context.repository.branch} @ ${(context.repository.head ?? 'unavailable').slice(0, 12)}`);
   console.log(`Freshness: ${context.freshness.capturedAt} · local only`);
   console.log(`\n${briefing.headline}`);
+  renderConversation(conversation, projection);
 
   /**
    * The one legal next action, named as one thing `[UXH:REQ-023]`.
@@ -77,6 +111,8 @@ function render(envelope, projection) {
 
 export async function run(_argv, { options }) {
   const workspaceReference = optionString(options, 'workspace');
+  const request = optionString(options, 'request');
+  const conversation = request ? planDeveloperConversation(request) : null;
   const projection = await developerHome({
     workspaceReference,
     hostSession: optionString(options, 'host-session')
@@ -126,7 +162,10 @@ export async function run(_argv, { options }) {
 
   if (optionBoolean(options, 'json')) {
     // The envelope is the document; the projection rides inside it rather than beside it.
-    return console.log(JSON.stringify({ ...envelope, data: { ...envelope.data, home: projection } }, null, 2));
+    return console.log(JSON.stringify({
+      ...envelope,
+      data: { ...envelope.data, home: projection, ...(conversation ? { conversation } : {}) }
+    }, null, 2));
   }
-  render(envelope, projection);
+  render(envelope, projection, conversation);
 }

@@ -1,9 +1,9 @@
 {
   "schemaVersion": 1,
   "generatedFrom": "docs/topics",
-  "sourceCommit": "19eccf2962122750e8aede99ffe0eefb1768d9a0",
+  "sourceCommit": "f37b3d998a0720ab2fd513c43c15e88bb90ef774",
   "topicCount": 51,
-  "contentSha256": "d76ff8efbfa76c020b2393d0c01853f3e6364d55bf0d8a736885e6e4eb59fbf1",
+  "contentSha256": "1f6be054bdc606e90f38d5389153471c7e3d066a8c299bfe7086d87f8a83eb63",
   "topics": [
     {
       "id": "activity-and-prompt-audit",
@@ -71,15 +71,15 @@
     {
       "id": "copilot-and-surfaces",
       "title": "Copilot, VS Code, and shell surfaces",
-      "version": 1,
-      "sha256": "94cbfffd43259b73d1b418b6b0cf628dac63925ae060b430cc378e59e3c1478a",
+      "version": 2,
+      "sha256": "9f76e912b48d0096ce31613eebed0bfda565a1f25e71d9f630ad6dbf0ff993a7",
       "file": "copilot-and-surfaces.md"
     },
     {
       "id": "developer-home",
       "title": "Developer Home and returning to work",
-      "version": 2,
-      "sha256": "a5d69dafd19f0b5db81c77132e54494b60cdea0dd822a1a544fc1b737085f155",
+      "version": 3,
+      "sha256": "f7517b614e2a8c3c337d9ecd67a6d2882481bcdc82917b3a72a3beec3a16dbbf",
       "file": "developer-home.md"
     },
     {

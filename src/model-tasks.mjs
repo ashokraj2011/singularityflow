@@ -28,7 +28,7 @@ export const MODEL_TASKS = Object.freeze([
 /**
  * Contract class → task.
  *
- * Five of the six shipped classes are dispatch: they run a CLI command and reproduce its result
+ * Dispatch classes run a CLI command or a deterministic planner and reproduce its result
  * without adding judgment, which is exactly `relay`. `deterministic-mutation` is included here and
  * the specification's own list omits it — an omission rather than a decision, since its contract
  * ("let the CLI validate and mutate state; preserve its exact result") is the relay contract with a
@@ -40,6 +40,7 @@ export const MODEL_TASKS = Object.freeze([
  */
 const CONTRACT_CLASS_TASKS = Object.freeze({
   'guided-actions': 'relay',
+  'conversational-guidance': 'relay',
   'concise-relay': 'relay',
   'explicit-selection': 'relay',
   'governed-review': 'relay',

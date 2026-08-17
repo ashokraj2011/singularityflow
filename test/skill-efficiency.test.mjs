@@ -20,10 +20,10 @@ test('every public skill has a bounded class and output contract', async () => {
  *
  * The list is asserted so widening it stays a deliberate edit with a reviewer on it, and the property
  * is asserted because that is the part that actually matters: no phrasing of a question should be
- * able to cause an approval or a publication. `interactive`, `review`, `generative` and `mutation`
- * all write something; only `echo` and `conversational` are safe for the model to choose by itself.
+ * able to cause an approval or a publication. A `guided` skill may automatically compute its
+ * initial read-only plan, but must collect an explicit choice before following any mutation flow.
  */
-const NON_MUTATING_CLASSES = new Set(['echo', 'conversational']);
+const NON_MUTATING_CLASSES = new Set(['echo', 'conversational', 'guided']);
 
 test('only low-risk read-only skills may trigger automatically', async () => {
   const { policy } = await loadSkillPolicy(root);
@@ -31,7 +31,7 @@ test('only low-risk read-only skills may trigger automatically', async () => {
   // cannot touch governed state, and "how do approvals work?" is precisely the phrasing a newcomer
   // uses. It is also the only entry whose contract forbids answering from the model's own memory.
   assert.deepEqual(policy.automaticInvocationAllowlist, [
-    'sflow-docs', 'sflow-doctor', 'sflow-help', 'sflow-logs',
+    'sflow-docs', 'sflow-doctor', 'sflow-help', 'sflow-home', 'sflow-logs',
     'sflow-nextsteps', 'sflow-progress', 'sflow-quickstart', 'sflow-status'
   ]);
   // Listing approvals is read-only; opening one is not. sflow-inbox asks the reviewer a question and
@@ -51,6 +51,7 @@ test('only low-risk read-only skills may trigger automatically', async () => {
   // A description is routing input. Past 15 tokens it stops being a label and becomes a spec, and
   // the model has 98 of them to choose between.
   assert.ok(automatic.every((row) => row.descriptionTokens <= 15));
+  assert.deepEqual(automatic.filter((row) => row.class === 'guided').map((row) => row.name), ['sflow-home']);
 });
 
 test('generative requirements retains interactive clarification and governed publication', async () => {

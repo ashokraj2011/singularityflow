@@ -59,6 +59,7 @@ export const RESULT_MESSAGES = Object.freeze({
   'resolution.ambiguous': M('More than one thing matches'),
   'resolution.matched.selection-handle': M('Resolved from your choice'),
   'resolution.matched.phrase': M('Resolved from what you typed'),
+  'resolution.matched.conversation': M('Understood as a developer request'),
   'resolution.matched.goal': M('Resolved from the goal'),
   'resolution.nothing-was-carried-out': M('Nothing was carried out', 'Your work is untouched.'),
 

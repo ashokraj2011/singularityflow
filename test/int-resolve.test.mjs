@@ -47,6 +47,33 @@ test('an exact phrase resolves to one operation and a usable read handle', () =>
   validateSflowResult(result);
 });
 
+test('ordinary language selects a read planner without executing a mutation', () => {
+  const readiness = resolve({
+    utterance: 'Could you show what is blocking this Story?',
+    arguments: { workId: 'WRK-123' }
+  });
+  assert.equal(readiness.kind, 'read');
+  assert.equal(readiness.operation.id, 'work.readiness');
+  assert.equal(readiness.why[0].code, 'resolution.matched.conversation');
+  assert.equal(readiness.next[0].reasonCode, 'resolution.matched.conversation');
+
+  const start = resolve({ utterance: 'Please start a new bug fix' });
+  assert.equal(start.kind, 'read');
+  assert.equal(start.operation.id, 'work.start.intake');
+
+  const generate = resolve({ utterance: 'Generate the active phase', arguments: { workId: 'WRK-123' } });
+  assert.equal(generate.kind, 'read');
+  assert.equal(generate.operation.id, 'work.continue');
+  assert.deepEqual({ ...generate.effects }, noEffects());
+});
+
+test('ambiguous conversational actions require clarification', () => {
+  const result = resolve({ utterance: 'Generate and submit the current phase' });
+  assert.equal(result.kind, 'clarification');
+  assert.equal(result.next.every((entry) => entry.executable === false), true);
+  assert.equal(result.why[0].code, 'resolution.no-match');
+});
+
 test('a goal hint alone may narrow to a write, and may never choose one', () => {
   // `[INT:CON-036]`. One survivor is still returned as a candidate, so the user's click selects it.
   const context = setup();

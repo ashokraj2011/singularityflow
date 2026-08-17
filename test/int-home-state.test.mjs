@@ -74,5 +74,13 @@ test('the Copilot home skill explicitly routes every home goal and refreshes aft
     'home:workspace.switch', 'home:impact.quick', 'home:repository.explore', 'home:help.explain'
   ]) assert.match(skill, new RegExp(goal.replaceAll('.', '\\.')));
   assert.match(skill, /ask_user/);
+  assert.match(skill, /singularity-flow home --json --request "\$ARGUMENTS"/);
+  for (const intent of ['orient', 'continue', 'start', 'inspect', 'act', 'recover']) {
+    assert.match(skill, new RegExp(`\\b${intent}\\b`));
+  }
+  for (const heading of ['I found', 'Next', 'I need from you', 'This will change']) {
+    assert.match(skill, new RegExp(`\\*\\*${heading}\\*\\*`));
+  }
+  assert.match(skill, /automatic invocation is not mutation consent/);
   assert.match(skill, /After a selected flow completes, run `singularity-flow home`/);
 });

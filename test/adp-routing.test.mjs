@@ -42,8 +42,8 @@ test('task-resolves-from-pinned-phase', () => {
 
 test('every shipped contract class routes somewhere', async () => {
   /**
-   * `[ADP:REQ-011]`. Five classes are dispatch and resolve to `relay`; the sixth asks questions
-   * before it drafts and needs to be told which it is doing.
+   * `[ADP:REQ-011]`. Dispatch classes resolve to `relay`; the artifact class asks questions before
+   * it drafts and needs to be told which it is doing.
    *
    * This test exists because the specification's own list of classes was short by one.
    * `deterministic-mutation` appears in the shipped registry and in none of the spec's mappings, so

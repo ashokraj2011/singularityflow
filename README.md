@@ -30,8 +30,10 @@ The full documentation map is in [docs/README.md](./docs/README.md).
 The read-only return experience is documented in
 [Developer Home and Story Return](./docs/DEVELOPER-HOME.md).
 In VS Code, **My Work** is the visible home; **Talk to SFlow** is retained only as
-a hidden compatibility alias. In Copilot, `/sf-home` asks the contributor to pick
-one current action, follows that guided flow, and refreshes the home afterward.
+a hidden compatibility alias. In Copilot, developers can ask ordinary questions such as “What am I
+working on?”, “What is blocking this Story?”, or “Start a new bug fix.” `/sf-home` is the explicit
+escape hatch. Reads may run immediately; any mutation is previewed and requires an explicit governed
+selection before it runs.
 
 ## What it is
 

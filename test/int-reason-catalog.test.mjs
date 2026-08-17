@@ -194,6 +194,7 @@ test('a kernel refusal for an unknown handle names which failure it was', async 
   const kernel = createGatewayKernel({
     binding: {
       workspaceId: 'w', subjectKind: null, subjectId: null, sourceCommit: null, worktreeHash: null,
+      worktreeAlgorithm: 'sflow-worktree-v2',
       repository: null, branch: null, lifecycleRevision: null,
       policyHash: 'p', registryHash: 'r', actorId: 'a', hostSessionId: 's'
     }

@@ -100,11 +100,40 @@ test('a pending publication outranks every other grouping', async () => {
   const root = await fixture({
     'WRK-1': story('WRK-1', { design: { status: 'awaiting_approval', generation: 1 } }, { currentPhase: 'design' })
   });
-  const records = await workRecords(root, { actor: ACTOR, pendingPublications: new Set(['WRK-1']) });
+  const records = await workRecords(root, { actor: ACTOR, pendingPublications: new Set(['story:WRK-1']) });
   assert.equal(records.items[0].group, 'recovery-required');
   assert.equal(records.items[0].whyVisible, 'publication.pending');
   assert.ok(records.items[0].blockers.includes('publication-pending'));
   assert.equal(records.items[0].nextAction.operation, 'work.continue');
+});
+
+test('injected recovery state requires a typed subject key', async () => {
+  const root = await fixture({
+    'WRK-1': story('WRK-1', { design: { status: 'in_progress', generation: 1 } }, { currentPhase: 'design' })
+  });
+  await assert.rejects(
+    () => workRecords(root, { actor: ACTOR, pendingPublications: new Set(['WRK-1']) }),
+    (error) => error?.code === 'WORK_PENDING_SUBJECT_KEY_REQUIRED'
+  );
+});
+
+test('Story and Initiative recovery remain isolated when their IDs collide', async () => {
+  const root = await fixture({
+    SAME: story('SAME', { design: { status: 'in_progress', generation: 1 } }, { currentPhase: 'design' })
+  });
+  const initiativeDirectory = path.join(root, 'singularity', 'initiatives', 'SAME');
+  await mkdir(initiativeDirectory, { recursive: true });
+  await writeFile(path.join(initiativeDirectory, 'state.json'), JSON.stringify({
+    initiative: { id: 'SAME', title: 'Same ID initiative', branch: 'SAME' },
+    phaseOrder: ['define'], currentPhase: 'define',
+    phases: { define: { status: 'in_progress', generation: 1 } }, history: []
+  }));
+
+  const records = await workRecords(root, {
+    actor: ACTOR, pendingPublications: new Set(['story:SAME'])
+  });
+  assert.equal(records.items.find((item) => item.kind === 'story').group, 'recovery-required');
+  assert.equal(records.items.find((item) => item.kind === 'initiative').group, 'active');
 });
 
 test('completed work is out of the way unless it is asked for', async () => {

@@ -369,7 +369,7 @@ test('an interrupted publication outranks the active Story', () => {
   // Same button, different reason: both are continued by `work.continue` `[DHR:REQ-070]`.
   assert.equal(result.next[0].id, 'home:work.continue');
   assert.deepEqual(plannerNavigationTarget(result.next[0]), {
-    operationId: 'work.continue', arguments: { workId: 'W-9' }
+    operationId: 'work.continue', arguments: { workId: 'W-9', workKind: 'story' }
   });
   assert.equal(result.next[0].reasonCode, 'home.recovery-required');
 });
@@ -392,6 +392,30 @@ test('production Home discovers an interrupted publication without caller inject
   });
   assert.equal(result.why[0].code, 'home.recovery-required');
   assert.equal(result.next[0].slots.work, 'WRK-9');
+});
+
+test('an unreadable publication marker is visible recovery state and offers diagnostics only', async (t) => {
+  const root = await fixture({ 'WRK-10': inProgress('WRK-10', 'Repair marker') });
+  t.after(() => rm(root, { recursive: true, force: true }));
+  run('git', ['init', '-q', '-b', 'main'], { cwd: root });
+  run('git', ['config', 'user.name', 'Home Test'], { cwd: root });
+  run('git', ['config', 'user.email', 'home@example.test'], { cwd: root });
+  run('git', ['add', '-A'], { cwd: root });
+  run('git', ['commit', '-qm', 'fixture'], { cwd: root });
+  const marker = localPendingPublicationPath(root, 'story', 'WRK-10');
+  await mkdir(path.dirname(marker), { recursive: true });
+  await writeFile(marker, '{not json');
+
+  const home = await homeOverview({
+    root, context: { actor: ACTOR, workspace: { id: 'w', name: 'W' } }
+  });
+  assert.equal(home.why[0].code, 'home.recovery-required');
+  const continued = await workContinue({
+    root, arguments: { workId: 'WRK-10', workKind: 'story' }, context: { actor: ACTOR }
+  });
+  assert.ok(continued.why.some((entry) => entry.code === 'work.blocked.publication-marker-unreadable'));
+  assert.deepEqual(continued.next, []);
+  assert.equal(continued.restState, 'blocked');
 });
 
 test('a single-workspace Home does not warn about a briefing that has no other workspace to read', () => {

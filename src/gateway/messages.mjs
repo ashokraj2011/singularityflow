@@ -81,6 +81,7 @@ export const RESULT_MESSAGES = Object.freeze({
   'gateway.handle-drifted': M('The world moved under that action', '{drifted} changed since it was offered. Ask again and it will be recomputed.'),
   'gateway.handle-binding-invalid': M('That action was not bound to anything checkable'),
   'gateway.handle-invalid': M('That action is not valid'),
+  'gateway.fingerprint-algorithm-stale': M('That action used an older worktree fingerprint', 'Refresh the view before continuing.'),
   'gateway.handle-unrecognised': M('That action failed for a reason this build has no name for'),
 
   // ---- Home
@@ -97,6 +98,7 @@ export const RESULT_MESSAGES = Object.freeze({
   'home.nothing-waiting': M('Nothing is waiting on you in {workspace}'),
   'home.work-summary': M('{active} active, {decisions} needing you'),
   'home.stable-choice': M('Always available'),
+  'home.selection-stale': M('The selected work changed while this answer was being prepared', 'Refresh Home and choose the current subject again.'),
 
   // ---- Developer recommendation
   'developer.recommended-next': M('Recommended from the current governed state',
@@ -122,6 +124,7 @@ export const RESULT_MESSAGES = Object.freeze({
   'work.final-phase-approved': M('The final phase was approved'),
   'work.in-progress': M('In progress'),
   'work.blocked.publication-pending': M('A publication is unfinished'),
+  'work.blocked.publication-marker-unreadable': M('The publication recovery marker cannot be read', 'Repair the marker before attempting lifecycle changes.'),
   'work.blocked.approvals-outstanding': M('Approvals are outstanding'),
   'work.blocked.required-artifact-missing': M('A required artifact is missing'),
   'work.blocked.unrecognised': M('Blocked by {blocker}', 'This build has no name for that blocker.'),
@@ -140,6 +143,7 @@ export const RESULT_MESSAGES = Object.freeze({
    * same string is true whether it passed, failed or was never looked at.
    */
   'readiness.publication-pending': M('Publication'),
+  'readiness.publication-marker-unreadable': M('Publication recovery record'),
   'readiness.approvals-outstanding': M('Approvals'),
   'readiness.required-artifact-missing': M('Required artifact'),
   'readiness.tests': M('Tests'),
@@ -148,6 +152,7 @@ export const RESULT_MESSAGES = Object.freeze({
   'readiness.unclaimed-changes': M('Local changes'),
   'readiness.unrecognised-gate': M('{gate}', 'This build has no name for that gate.'),
   'readiness.resume-publication': M('Finish publishing'),
+  'readiness.repair-publication-marker': M('Repair the publication recovery record'),
   'readiness.awaiting-a-human-decision': M('Waiting for a reviewer'),
   'readiness.produce-the-artifact': M('Produce the artifact'),
   'readiness.no-known-step': M('No step is known for this'),
@@ -192,7 +197,12 @@ export const RESULT_MESSAGES = Object.freeze({
   'approval.you-are-authorized': M('Your approval decision is needed'),
   'approval.requires-an-authorized-reviewer': M('Waiting for an authorized reviewer'),
   'recovery.resume-publication': M('Finish the interrupted publication'),
-  'publication.pending': M('A publication is unfinished')
+  'publication.pending': M('A publication is unfinished'),
+  'publication.marker-unreadable': M('A publication recovery marker cannot be read'),
+  'mcp.evidence-observation-required': M(
+    'This snapshot is retained for audit only',
+    'It was supplied by an agent rather than captured by the MCP host, so it does not satisfy host-observed evidence gates.'
+  )
 });
 
 /**

@@ -57,7 +57,7 @@ const ROUTES = Object.freeze([
   route({
     id: 'inspect-progress', intent: 'inspect', label: 'Show progress and governed artifacts',
     operationId: 'work.list', skill: '/sf-progress', automatic: true, confirmation: 'none',
-    patterns: [/\b(progress|artifacts?|approvals?|what phase|which phase|show the work)\b/]
+    patterns: [/\b(progress|artifacts?|approvals?|what phase|which phase|show (?:the|my) work)\b/]
   }),
   route({
     id: 'act-ceremony', intent: 'act', label: 'Open the governed review decision',

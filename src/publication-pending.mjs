@@ -8,9 +8,19 @@ import {
 } from './publication-journal.mjs';
 import { bindLifecycleEvent } from './lifecycle-event.mjs';
 import { exists, readJson, writeJson } from './util.mjs';
+import { subjectRef } from './subject-ref.mjs';
 
 function safeId(id) {
   return encodeURIComponent(String(id ?? '').trim()).replace(/%/g, '_');
+}
+
+function displayMarkerPath(root, absolute) {
+  if (!absolute) return null;
+  const relative = path.relative(root, absolute);
+  if (relative && relative !== '..' && !relative.startsWith(`..${path.sep}`) && !path.isAbsolute(relative)) {
+    return relative.split(path.sep).join('/');
+  }
+  return `pending-publication/${path.basename(absolute)}`;
 }
 
 export function localPendingPublicationPath(root, kind, id) {
@@ -100,6 +110,37 @@ export async function readPendingPublication(root, { kind, id, legacyPath = null
 
 export async function hasPendingPublication(root, options) {
   return Boolean(await readPendingPublication(root, options));
+}
+
+/** Read-only, fail-closed recovery discovery for Home and other projections. */
+export async function inspectPendingPublication(root, options = {}) {
+  const subject = subjectRef(options, { code: 'WORK_PENDING_SUBJECT_KEY_REQUIRED' });
+  let expectedPath = null;
+  try {
+    expectedPath = localPendingPublicationPath(root, subject.kind, subject.id);
+    const pending = await readPendingPublication(root, { ...options, ...subject, migrate: false });
+    if (!pending) return Object.freeze({ status: 'absent', subject, path: displayMarkerPath(root, expectedPath) });
+    const recordSubject = pending.record?.subject;
+    if (pending.record?.schemaVersion !== 2
+        || recordSubject?.kind !== subject.kind || recordSubject?.id !== subject.id) {
+      const error = new Error('Pending publication marker schema or subject identity is invalid.');
+      error.code = 'PUBLICATION_MARKER_UNREADABLE';
+      throw error;
+    }
+    return Object.freeze({
+      status: 'pending', subject, path: displayMarkerPath(root, pending.path), record: pending.record
+    });
+  } catch (error) {
+    // A projection fixture or ungoverned directory has no Git-local recovery plane at all. This is
+    // distinct from a repository whose marker exists but cannot be read.
+    if (/not a git repository/i.test(error?.message ?? '')) {
+      return Object.freeze({ status: 'absent', subject, path: null });
+    }
+    return Object.freeze({
+      status: 'unreadable', subject, path: displayMarkerPath(root, expectedPath),
+      code: 'PUBLICATION_MARKER_UNREADABLE', error: error?.message ?? 'Marker could not be read.'
+    });
+  }
 }
 
 export async function writePendingPublication(root, { kind, id, record } = {}) {

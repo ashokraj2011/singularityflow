@@ -22,6 +22,7 @@ import {
 } from '../src/mcp.mjs';
 import { initializeDefinition, loadDefinition } from '../src/config.mjs';
 import { doctorSnapshot } from '../src/doctor.mjs';
+import { canonicalJson } from '../src/records.mjs';
 
 const configured = () => normalizeMcpServers({
   playwright: {
@@ -199,28 +200,53 @@ test('browser navigation evidence is bound to the Story-authorized origin', asyn
     evidence: { workflow, phase: 'verification', agent: 'qa' },
     probe: async (_entry, { url }) => ({
       status: 'passed', tools: ['browser_navigate', 'browser_snapshot', 'browser_close'],
-      finalUrl: url.toString(), finalOrigin: url.origin
+      finalUrl: url.toString(), finalOrigin: url.origin,
+      snapshotResult: {
+        content: [{ type: 'text', text: `- Page URL: ${url.toString()}\n- heading "Checkout"` }]
+      }
     })
   });
-  assert.equal(smoke.evidence.record.targetOrigin, 'https://staging.example.test');
-  assert.equal(smoke.evidence.record.captureSource, 'observed-by-mcp-host');
-  assert.equal(smoke.evidence.record.observedFinalOrigin, 'https://staging.example.test');
+  assert.equal(smoke.evidence.navigation.targetOrigin, 'https://staging.example.test');
+  assert.equal(smoke.evidence.snapshot.captureSource, 'observed-by-mcp-host');
+  assert.equal(smoke.evidence.snapshot.observedFinalOrigin, 'https://staging.example.test');
+  assert.equal(smoke.evidence.navigation.captureId, smoke.evidence.snapshot.captureId);
+  const managedSnapshot = path.join(
+    root, 'singularity/work-items/WORK-ORIGIN', smoke.evidence.snapshot.output.path
+  );
+  const exactBytes = await readFile(managedSnapshot, 'utf8');
+  assert.equal(exactBytes, canonicalJson({
+    content: [{ type: 'text', text: '- Page URL: https://staging.example.test/checkout\n- heading "Checkout"' }]
+  }));
   assert.equal(JSON.stringify(smoke).includes('/checkout'), false, 'receipts must not persist target URL paths or query strings');
-  assert.equal((await verifyMcpEvidence(root, workflow)).errors.length, 0);
+  const integrity = await verifyMcpEvidence(root, workflow);
+  assert.equal(integrity.errors.length, 0, integrity.errors.join('\n'));
   assert.equal((await verifyPhaseMcpRequirements(root, workflow, workflow.phases.verification)).errors.length, 0);
+  await writeFile(managedSnapshot, `${exactBytes} `);
+  assert.match((await verifyMcpEvidence(root, workflow)).errors.join('\n'), /output changed after capture/);
+  await writeFile(managedSnapshot, exactBytes);
   workflow.phases.verification.generation = 1;
   assert.match(
     (await verifyPhaseMcpRequirements(root, workflow, workflow.phases.verification)).errors.join('\n'),
     /generation 2 requires a live, host-observed navigation receipt/
   );
+  const recordsDir = path.join(root, 'singularity/work-items/WORK-ORIGIN/context/mcp/records');
+  await writeFile(path.join(recordsDir, `${smoke.evidence.navigation.id}-replay.json`),
+    `${JSON.stringify({ ...smoke.evidence.navigation, id: `${smoke.evidence.navigation.id}-replay` }, null, 2)}\n`);
+  assert.match(
+    (await verifyMcpEvidence(root, workflow)).errors.join('\n'),
+    /MCP_EVIDENCE_RECEIPT_REPLAYED/
+  );
 });
 
-test('origin-bound browser snapshots verify the Page URL in captured bytes', async () => {
+test('agent-supplied browser snapshots remain audit evidence but cannot establish origin', async () => {
   const root = await repository('sflow-mcp-snapshot-origin-');
   await mkdir(path.join(root, 'singularity/work-items/WORK-SNAPSHOT'), { recursive: true });
   const workflow = {
     workItem: { id: 'WORK-SNAPSHOT' }, currentPhase: 'verification', phaseOrder: ['verification'],
-    phases: { verification: { generation: 0, status: 'in_progress' } },
+    phases: { verification: {
+      id: 'verification', generation: 0, status: 'in_progress',
+      mcp: { evidence: [{ server: 'playwright', tool: 'browser_snapshot', minimum: 1, outputRequired: true }] }
+    } },
     resolution: { mcpServers: normalizeMcpServers({
       playwright: {
         hostReference: 'playwright', agents: ['qa'], phases: ['verification'],
@@ -232,20 +258,29 @@ test('origin-bound browser snapshots verify the Page URL in captured bytes', asy
     }
   };
   await writeFile(path.join(root, 'wrong-snapshot.txt'), '- Page URL: https://production.example.test/checkout\n');
-  await assert.rejects(() => recordMcpEvidence(root, workflow, {
+  const wrong = await recordMcpEvidence(root, workflow, {
     server: 'playwright', tool: 'browser_snapshot', phase: 'verification', agent: 'qa',
     outputPath: 'wrong-snapshot.txt'
-  }), /outside this Story's authorization/);
+  });
+  assert.equal(wrong.record.captureSource, 'declared-by-agent');
+  assert.equal(wrong.gateSatisfying, false);
+  assert.equal(wrong.noticeCode, 'mcp.evidence-observation-required');
+  assert.deepEqual(wrong.diagnosticCodes, ['MCP_EVIDENCE_OBSERVATION_REQUIRED']);
   assert.equal(await readFile(path.join(root, 'wrong-snapshot.txt'), 'utf8'), '- Page URL: https://production.example.test/checkout\n');
   await writeFile(path.join(root, 'right-snapshot.txt'), '- Page URL: https://staging.example.test/checkout?state=ready\n');
   const recorded = await recordMcpEvidence(root, workflow, {
     server: 'playwright', tool: 'browser_snapshot', phase: 'verification', agent: 'qa',
     outputPath: 'right-snapshot.txt'
   });
-  assert.equal(recorded.record.captureSource, 'verified-from-captured-output');
-  assert.equal(recorded.record.observedFinalOrigin, 'https://staging.example.test');
-  assert.equal(recorded.record.observedFinalUrlSha256.length, 64);
-  assert.equal((await verifyMcpEvidence(root, workflow)).errors.length, 0);
+  assert.equal(recorded.record.captureSource, 'declared-by-agent');
+  assert.equal(recorded.record.observedFinalOrigin, null);
+  const verified = await verifyMcpEvidence(root, workflow);
+  assert.equal(verified.errors.length, 0);
+  assert.match(verified.warnings.join('\n'), /audit only/);
+  assert.match(
+    (await verifyPhaseMcpRequirements(root, workflow, workflow.phases.verification)).errors.join('\n'),
+    /requires a live, host-observed navigation receipt/
+  );
 });
 
 test('phase MCP evidence requirements are generation-bound and require durable outputs', async () => {

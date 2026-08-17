@@ -567,6 +567,7 @@ export function sflowResult({
            * The asymmetry was the bug. A subject read against uncommitted work says so here.
            */
           worktreeHash: subject.revision?.worktreeHash ?? null,
+          worktreeAlgorithm: subject.revision?.worktreeAlgorithm ?? null,
           lifecycleHash: subject.revision?.lifecycleHash ?? null,
           policyHash: subject.revision?.policyHash ?? null,
           registryHash: subject.revision?.registryHash ?? null

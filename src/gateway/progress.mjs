@@ -128,7 +128,7 @@ export function stopJob(jobId, steps = []) {
  * and so that adding a field to the binding cannot silently narrow what resumption verifies.
  */
 export function resumeBlockers(recorded = {}, current = {}) {
-  const fields = ['actorId', 'subjectId', 'sourceCommit', 'worktreeHash', 'policyHash', 'registryHash', 'providerObservation'];
+  const fields = ['actorId', 'subjectId', 'sourceCommit', 'worktreeHash', 'worktreeAlgorithm', 'policyHash', 'registryHash', 'providerObservation'];
   const drifted = fields.filter((field) => (recorded[field] ?? null) !== (current[field] ?? null));
   const steps = (recorded.completedSteps ?? []).filter((step) => {
     const now = (current.completedSteps ?? []).find((entry) => entry.stepId === step.stepId);

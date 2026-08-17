@@ -54,7 +54,7 @@ function reject(code, detail, details = {}) {
  * to re-confirm reflexively — and a confirmation nobody reads is not a confirmation.
  */
 export const BINDING_FIELDS = Object.freeze([
-  'workspaceId', 'repository', 'branch', 'subjectKind', 'subjectId', 'sourceCommit', 'worktreeHash',
+  'workspaceId', 'repository', 'branch', 'subjectKind', 'subjectId', 'sourceCommit', 'worktreeHash', 'worktreeAlgorithm',
   'lifecycleRevision', 'policyHash', 'registryHash', 'actorId', 'hostSessionId'
 ]);
 
@@ -86,6 +86,7 @@ export function subjectFromBinding(binding) {
     revision: Object.freeze({
       sourceCommit: binding.sourceCommit ?? null,
       worktreeHash: binding.worktreeHash ?? null,
+      worktreeAlgorithm: binding.worktreeAlgorithm ?? null,
       lifecycleHash: binding.lifecycleRevision ?? null,
       policyHash: binding.policyHash ?? null,
       registryHash: binding.registryHash ?? null
@@ -120,6 +121,7 @@ export function subjectWith(subject, { kind = null, id = null, revision = {} } =
     revision: Object.freeze({
       sourceCommit: merged.sourceCommit ?? null,
       worktreeHash: merged.worktreeHash ?? null,
+      worktreeAlgorithm: merged.worktreeAlgorithm ?? null,
       lifecycleHash: merged.lifecycleHash ?? null,
       policyHash: merged.policyHash ?? null,
       registryHash: merged.registryHash ?? null
@@ -255,6 +257,13 @@ export function createHandleAuthority({ secret = randomBytes(32), now = () => Da
       if (entry.consumed) reject('HANDLE_CONSUMED', 'That handle has already been used.');
       if (binding) {
         const current = frozenBinding(binding, { label: 'Revalidation' });
+        if (record.binding.worktreeAlgorithm !== 'sflow-worktree-v2'
+            || current.worktreeAlgorithm !== 'sflow-worktree-v2') {
+          reject('FINGERPRINT_ALGORITHM_STALE', 'The handle uses an unknown or stale worktree fingerprint algorithm.', {
+            recorded: record.binding.worktreeAlgorithm ?? null,
+            current: current.worktreeAlgorithm ?? null
+          });
+        }
         const drifted = BINDING_FIELDS.filter((field) => current[field] !== record.binding[field]);
         if (drifted.length) {
           reject('HANDLE_DRIFTED', `The world moved under that handle: ${drifted.join(', ')} changed.`, { drifted });

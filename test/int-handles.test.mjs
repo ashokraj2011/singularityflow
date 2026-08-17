@@ -15,6 +15,7 @@ const binding = (over = {}) => ({
   subjectId: 'WRK-123',
   sourceCommit: 'a'.repeat(40),
   worktreeHash: null,
+  worktreeAlgorithm: 'sflow-worktree-v2',
   lifecycleRevision: 'lc-7',
   policyHash: 'sha256:policy',
   registryHash: 'sha256:registry',
@@ -95,6 +96,18 @@ test('verification fails when the world moved under the handle', () => {
   );
   assert.throws(() => authority.verify(reference, { kind: 'plan' }), (error) => error.code === 'HANDLE_KIND_MISMATCH');
   assert.throws(() => authority.verify({ id: 'rea_nope' }), (error) => error.code === 'HANDLE_UNKNOWN');
+});
+
+test('an unknown fingerprint algorithm makes a handle stale', () => {
+  const authority = createHandleAuthority();
+  const legacy = binding({ worktreeAlgorithm: null });
+  const { reference } = authority.issueRead({
+    operationId: 'work.list', classification: 'read', binding: legacy
+  });
+  assert.throws(
+    () => authority.verify(reference, { kind: 'read', binding: legacy }),
+    (error) => error.code === 'FINGERPRINT_ALGORITHM_STALE'
+  );
 });
 
 test('a handle from another session is not a handle', () => {
@@ -220,7 +233,7 @@ test('every bound field is declared, and the list is the one the spec names', ()
   // comparison. Pinned so the coverage is visible rather than inferred from that indirection.
   assert.deepEqual([...BINDING_FIELDS], [
     'workspaceId', 'repository', 'branch', 'subjectKind', 'subjectId', 'sourceCommit',
-    'worktreeHash', 'lifecycleRevision', 'policyHash', 'registryHash', 'actorId', 'hostSessionId'
+    'worktreeHash', 'worktreeAlgorithm', 'lifecycleRevision', 'policyHash', 'registryHash', 'actorId', 'hostSessionId'
   ]);
   for (const field of BINDING_FIELDS) {
     const partial = binding();

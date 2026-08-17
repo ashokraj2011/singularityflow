@@ -1,11 +1,11 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { access, mkdtemp, rm, writeFile } from 'node:fs/promises';
+import { access, mkdtemp, rm, unlink, writeFile } from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
 
 import { run } from '../src/util.mjs';
-import { worktreeFingerprint } from '../src/worktree-fingerprint.mjs';
+import { WORKTREE_FINGERPRINT_ALGORITHM, worktreeFingerprint } from '../src/worktree-fingerprint.mjs';
 
 function looseObjects(root) {
   return Number(/^count: (\d+)$/m.exec(run('git', ['count-objects', '-v'], { cwd: root }).stdout)?.[1] ?? -1);
@@ -18,6 +18,7 @@ test('the shared fingerprint covers unborn repositories without mutating their r
 
   const empty = worktreeFingerprint(root);
   assert.equal(empty.dirty, false);
+  assert.equal(empty.algorithm, WORKTREE_FINGERPRINT_ALGORITHM);
   assert.match(empty.sha256, /^[a-f0-9]{64}$/);
 
   await writeFile(path.join(root, 'new.txt'), 'version one\n');
@@ -28,6 +29,46 @@ test('the shared fingerprint covers unborn repositories without mutating their r
 
   await writeFile(path.join(root, 'new.txt'), 'version two\n');
   assert.notEqual(worktreeFingerprint(root).sha256, first.sha256);
+});
+
+test('assume-unchanged bytes and index flags participate in the fingerprint', async (t) => {
+  const root = await mkdtemp(path.join(os.tmpdir(), 'sflow-fingerprint-hidden-'));
+  t.after(() => rm(root, { recursive: true, force: true }));
+  run('git', ['init', '-q', '-b', 'main'], { cwd: root });
+  run('git', ['config', 'user.name', 'Fingerprint Test'], { cwd: root });
+  run('git', ['config', 'user.email', 'fingerprint@example.test'], { cwd: root });
+  await writeFile(path.join(root, 'tracked.txt'), 'base\n');
+  run('git', ['add', 'tracked.txt'], { cwd: root });
+  run('git', ['commit', '-qm', 'base'], { cwd: root });
+
+  const ordinary = worktreeFingerprint(root);
+  run('git', ['update-index', '--assume-unchanged', 'tracked.txt'], { cwd: root });
+  const flagged = worktreeFingerprint(root);
+  assert.notEqual(flagged.sha256, ordinary.sha256, 'the index flag itself changes the revision');
+
+  await writeFile(path.join(root, 'tracked.txt'), 'hidden change\n');
+  const changed = worktreeFingerprint(root);
+  assert.equal(changed.dirty, true);
+  assert.deepEqual(changed.hiddenChanges, ['tracked.txt']);
+  assert.notEqual(changed.sha256, flagged.sha256);
+});
+
+test('an absent skip-worktree path is represented without being called dirty', async (t) => {
+  const root = await mkdtemp(path.join(os.tmpdir(), 'sflow-fingerprint-sparse-'));
+  t.after(() => rm(root, { recursive: true, force: true }));
+  run('git', ['init', '-q', '-b', 'main'], { cwd: root });
+  run('git', ['config', 'user.name', 'Fingerprint Test'], { cwd: root });
+  run('git', ['config', 'user.email', 'fingerprint@example.test'], { cwd: root });
+  await writeFile(path.join(root, 'sparse.txt'), 'indexed\n');
+  run('git', ['add', 'sparse.txt'], { cwd: root });
+  run('git', ['commit', '-qm', 'base'], { cwd: root });
+  run('git', ['update-index', '--skip-worktree', 'sparse.txt'], { cwd: root });
+  await unlink(path.join(root, 'sparse.txt'));
+
+  const fingerprint = worktreeFingerprint(root);
+  assert.equal(fingerprint.dirty, false);
+  assert.ok(fingerprint.paths.includes('sparse.txt'));
+  assert.deepEqual(fingerprint.hiddenChanges, []);
 });
 
 test('the shared fingerprint remains available while the Git index has merge conflicts', async (t) => {

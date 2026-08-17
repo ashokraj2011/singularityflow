@@ -9,9 +9,8 @@
  * configuration domain, and `agents.mjs` behind it, into the static import graph of every fast
  * command. `dx-performance.test.mjs` refuses that, correctly and by name.
  *
- * So: **no imports, and none may be added.** The scope holds a Map and three functions. Anything
- * that needs a dependency belongs in the caller, not here. That constraint is the module's whole
- * reason for existing separately, and the guard test is what will notice if it erodes.
+ * The only dependency is Node's request-context primitive. Keeping this module free of domain
+ * imports still prevents the configuration/agent import cycle that originally motivated it.
  *
  * ## Why it is opt-in
  *
@@ -26,14 +25,14 @@
  * operation returned or threw.
  */
 
-let scope = null;
+import { AsyncLocalStorage } from 'node:async_hooks';
+
+const scopes = new AsyncLocalStorage();
 
 /** Open a read scope for the duration of `fn`, unless one is already open. */
 export async function withReadScope(fn) {
-  if (scope) return fn();
-  scope = new Map();
-  try { return await fn(); }
-  finally { scope = null; }
+  if (scopes.getStore()) return fn();
+  return scopes.run(new Map(), fn);
 }
 
 /**
@@ -44,6 +43,7 @@ export async function withReadScope(fn) {
  * shape that made `loadDefinition` parse the same file seven times.
  */
 export async function scopedRead(key, compute) {
+  const scope = scopes.getStore();
   if (!scope) return compute();
   if (scope.has(key)) return scope.get(key);
   const pending = (async () => compute())();
@@ -60,6 +60,7 @@ export async function scopedRead(key, compute) {
  * call is slow.
  */
 export function scopedReadSync(key, compute) {
+  const scope = scopes.getStore();
   if (!scope) return compute();
   if (scope.has(key)) return scope.get(key);
   const value = compute();
@@ -69,5 +70,5 @@ export function scopedReadSync(key, compute) {
 
 /** Whether a scope is open, for a caller deciding whether a memo would be honoured. */
 export function inReadScope() {
-  return scope !== null;
+  return Boolean(scopes.getStore());
 }

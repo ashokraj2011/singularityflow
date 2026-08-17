@@ -18,7 +18,7 @@ import { worktreeFingerprint } from '../../worktree-fingerprint.mjs';
 import { catalogued } from '../catalog.mjs';
 import { subjectWith } from '../handles.mjs';
 import { noEffects, plannerNavigation, preservedAll, sflowResult } from '../result.mjs';
-import { workRecords } from '../work-records.mjs';
+import { resolveWorkRecord, workRecords } from '../work-records.mjs';
 
 function notFound(workId) {
   return sflowResult({
@@ -67,7 +67,8 @@ export function workContinueResult(item, { subject = null, localChanges = null, 
     }]
     : [];
 
-  const actions = legalActions ?? (item.nextAction ? [item.nextAction.operation] : []);
+  const diagnosticOnly = item.recovery?.status === 'unreadable';
+  const actions = diagnosticOnly ? [] : (legalActions ?? (item.nextAction ? [item.nextAction.operation] : []));
 
   return sflowResult({
     kind: 'read',
@@ -89,7 +90,11 @@ export function workContinueResult(item, { subject = null, localChanges = null, 
     subject: subjectWith(subject, {
       kind: item.kind,
       id: item.id,
-      revision: { sourceCommit, worktreeHash: localChanges?.worktreeHash ?? null }
+      revision: {
+        sourceCommit,
+        worktreeHash: localChanges?.worktreeHash ?? null,
+        worktreeAlgorithm: localChanges?.worktreeAlgorithm ?? null
+      }
     }),
     outcome: {
       status: 'succeeded',
@@ -136,7 +141,7 @@ export function workContinueResult(item, { subject = null, localChanges = null, 
       emphasis: index === 0 ? 'primary' : 'secondary',
       executable: false,
       fallback: { label: operation, command: `sflow status --work-id ${item.id}` }
-    }, operation, { workId: item.id })),
+    }, operation, { workId: item.id, workKind: item.kind })),
     restState: actions.length ? null : 'blocked',
     data: {
       work: item,
@@ -188,14 +193,20 @@ export function localChangesFor(root) {
   } catch {
     return null;
   }
-  if (!fingerprint.dirty) return { dirty: false, files: 0, worktreeHash: null, paths: [] };
+  if (!fingerprint.dirty) return {
+    dirty: false, files: 0, worktreeHash: fingerprint.sha256,
+    worktreeAlgorithm: fingerprint.algorithm, paths: [], hiddenChanges: [], diagnosticCodes: []
+  };
   const paths = fingerprint.paths
     .filter((candidate) => typeof candidate === 'string' && candidate && !candidate.startsWith('/'));
   return {
     dirty: true,
     files: paths.length,
     worktreeHash: fingerprint.sha256,
-    paths: paths.slice(0, 100)
+    worktreeAlgorithm: fingerprint.algorithm,
+    paths: paths.slice(0, 100),
+    hiddenChanges: fingerprint.hiddenChanges.slice(0, 100),
+    diagnosticCodes: [...fingerprint.diagnosticCodes]
   };
 }
 
@@ -211,7 +222,7 @@ function headOf(root) {
 export async function workContinue({ arguments: args = {}, subject = null, root = null, context = {} } = {}) {
   if (!root) throw new SingularityFlowError('work.continue requires the repository root it should read.', { code: 'WORK_CONTINUE_NO_ROOT' });
   const records = await workRecords(root, { includeCompleted: true, ...context });
-  const item = records.items.find((entry) => entry.id === args.workId);
+  const item = resolveWorkRecord(records, args);
   if (!item) return notFound(args.workId);
   return workContinueResult(item, {
     subject,

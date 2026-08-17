@@ -13,7 +13,7 @@
 import { SingularityFlowError } from '../../util.mjs';
 import { catalogued } from '../catalog.mjs';
 import { noEffects, plannerNavigation, preservedAll, sflowResult } from '../result.mjs';
-import { workRecords } from '../work-records.mjs';
+import { resolveWorkRecord, workRecords } from '../work-records.mjs';
 
 /**
  * The smallest legal step for each blocker `[INT:IFC-081]`.
@@ -24,6 +24,7 @@ import { workRecords } from '../work-records.mjs';
  */
 const REMEDIATION = Object.freeze({
   'publication-pending': { action: 'work.continue', reasonCode: 'readiness.resume-publication' },
+  'publication-marker-unreadable': { action: null, reasonCode: 'readiness.repair-publication-marker' },
   'approvals-outstanding': { action: null, reasonCode: 'readiness.awaiting-a-human-decision' },
   'required-artifact-missing': { action: 'work.continue', reasonCode: 'readiness.produce-the-artifact' }
 });
@@ -35,7 +36,7 @@ const REMEDIATION = Object.freeze({
  * failures cannot show a met gate — and "2 of 5 unmet" is a materially different message from
  * "2 problems", which is the one a bare failure list delivers `[UXH:REQ-062]`.
  */
-const GATES = Object.freeze(['publication-pending', 'approvals-outstanding', 'required-artifact-missing']);
+const GATES = Object.freeze(['publication-pending', 'publication-marker-unreadable', 'approvals-outstanding', 'required-artifact-missing']);
 
 /**
  * The four inputs `[INT:IFC-081]` names that a phase record cannot answer.
@@ -132,7 +133,7 @@ export function workReadinessResult(item, { subject = null } = {}) {
       emphasis: 'secondary',
       executable: false,
       fallback: { label: entry.action, command: `sflow status --work-id ${item.id}` }
-    }, entry.action, { workId: item.id })),
+    }, entry.action, { workId: item.id, workKind: item.kind })),
     /**
      * One row per gate, met and unmet alike `[UXH:REQ-062]` `[UXH:AC-003]`.
      *
@@ -193,7 +194,7 @@ export function workReadinessResult(item, { subject = null } = {}) {
 export async function workReadiness({ arguments: args = {}, subject = null, root = null, context = {} } = {}) {
   if (!root) throw new SingularityFlowError('work.readiness requires the repository root it should read.', { code: 'WORK_READINESS_NO_ROOT' });
   const records = await workRecords(root, { includeCompleted: true, ...context });
-  const item = records.items.find((entry) => entry.id === args.workId);
+  const item = resolveWorkRecord(records, args);
   if (!item) {
     return sflowResult({
       kind: 'refusal',

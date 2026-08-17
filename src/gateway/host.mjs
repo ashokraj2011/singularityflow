@@ -50,9 +50,10 @@ export function hostBinding(root, { workspaceId = null, hostSessionId, subject =
     subjectKind: subject?.kind ?? null,
     subjectId: subject?.id ?? null,
     sourceCommit: head(root) ?? null,
-    // Clean remains null as the explicit "no local changes" value. Once dirty, this binds the
-    // handle to exact bytes rather than to the shape of `git status`.
-    worktreeHash: workingTree.dirty ? workingTree.sha256 : null,
+    // Bind even a clean tree: index visibility flags are observation state, and changing one must
+    // stale a handle even when no file byte is currently dirty.
+    worktreeHash: workingTree.sha256,
+    worktreeAlgorithm: workingTree.algorithm,
     repository: root,
     branch: branch(root) ?? null,
     lifecycleRevision: subject?.revision?.lifecycleHash ?? null,
@@ -143,6 +144,8 @@ export function createHostGateway({
       repositoryId: root,
       branch: current.branch,
       storyId: current.subjectId,
+      workId: current.subjectId,
+      workKind: current.subjectKind,
       ...(supplied ?? {})
     };
   };

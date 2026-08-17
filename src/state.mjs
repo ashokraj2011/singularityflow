@@ -54,7 +54,9 @@ import {
   hasPendingPublication,
   localPendingPublicationPath,
   readPendingPublication,
+  writePendingPublication,
 } from './publication-pending.mjs';
+import { publishCapabilityRepositories } from './capability-start.mjs';
 import { lifecycleEvent, recordPublicationProjection } from './lifecycle-event.mjs';
 import { publishLifecycleChange } from './publication-unit-of-work.mjs';
 import { deliverLifecycleNotifications, warnNotificationFailures } from './notifications.mjs';
@@ -2542,13 +2544,35 @@ export async function syncPublication(root, config, workflow) {
     );
   }
   const record = pending?.record ?? { remote: config.git?.remote ?? 'origin', branch: workflowPublicationBranch(root, workflow) };
-  const result = pushBranch(root, record.remote, record.branch); if (result.status !== 0) throw new SingularityFlowError(`Push still fails: ${(result.stderr || result.stdout).trim()}`);
+  const capabilityOnly = pending?.record?.recoveryStage === 'capability-publication-pending';
+  if (!capabilityOnly) {
+    const result = pushBranch(root, record.remote, record.branch);
+    if (result.status !== 0) throw new SingularityFlowError(`Push still fails: ${(result.stderr || result.stdout).trim()}`);
+  }
+  const capability = publishCapabilityRepositories(record.capabilityPublications ?? []);
+  if (capability.pending.length) {
+    await writePendingPublication(root, {
+      kind: 'story', id: workflow.workItem.id,
+      record: {
+        ...record,
+        recoveryStage: 'capability-publication-pending',
+        capabilityPublications: capability.pending,
+        error: capability.error
+      }
+    });
+    throw new SingularityFlowError(
+      `Capability Story publication still fails for '${capability.pending[0].repository}': ${capability.error}`
+    );
+  }
   await clearPendingPublication(root, {
     kind: 'story', id: workflow.workItem.id,
     legacyPath: legacyPendingPublicationPath(root, config, workflow.workItem.id)
   });
   const ledger = await reconcileLedger(root, workflow.resolution?.ledger ?? config.ledger ?? {}, { workId: workflow.workItem.id });
-  return { pushed: head(root), remote: record.remote, branch: record.branch, ledger };
+  return {
+    pushed: head(root), remote: record.remote, branch: record.branch,
+    capabilityPublished: capability.published, ledger
+  };
 }
 
 /**

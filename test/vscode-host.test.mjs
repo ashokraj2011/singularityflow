@@ -904,7 +904,7 @@ test('Help is available without a workspace and opens the canonical offline manu
   assert.match(panel.webview.html, /\/sf-story-start/);
 });
 
-test('clicking an offline topic opens the engine-served Markdown document', async (t) => {
+test('clicking an offline topic renders the engine-served bytes inside Help Center', async (t) => {
   if (!requireBundle(t)) return;
   const root = await demoRepository();
   const { api, registered } = stubVscode();
@@ -921,12 +921,15 @@ test('clicking an offline topic opens the engine-served Markdown document', asyn
     'the command rendered on every topic row is registered');
 
   const navigation = registered.webviewViews.get('singularityFlow.navigation');
+  const documentsBefore = registered.openedDocuments.length;
   await navigation.post({ type: 'node', key: 'help:2.0' });
-  const opened = await until(() => registered.openedDocuments.at(-1));
-  assert.equal(opened.language, 'markdown');
-  assert.match(opened.content, /## Purpose and prerequisites/);
-  assert.match(opened.content, new RegExp(`topic ${topic.id.slice('help:topic:'.length)} v\\d+`));
-  assert.match(opened.content, /sflow explain/);
+  const panel = await until(() => registered.panels.find((entry) => entry.id === 'singularityFlow.helpCenter'));
+  assert.match(panel.webview.html, /<h2>Purpose and prerequisites<\/h2>/);
+  assert.doesNotMatch(panel.webview.html, /## Purpose and prerequisites/);
+  assert.match(panel.webview.html, new RegExp(`topic ${topic.id.slice('help:topic:'.length)} v\\d+`));
+  assert.match(panel.webview.html, /sflow explain/);
+  assert.equal(registered.openedDocuments.length, documentsBefore,
+    'a rendered Help topic does not open a raw Markdown editor');
   assert.deepEqual(registered.errors, []);
 });
 

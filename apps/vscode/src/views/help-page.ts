@@ -87,11 +87,17 @@ export function renderHelpMarkdown(markdown: string): string {
       flushParagraph(); flushList(); (table ??= []).push(cells); continue;
     }
     flushTable();
-    const heading = /^(#{3,5})\s+(.+)$/.exec(line);
+    const heading = /^(#{2,5})\s+(.+)$/.exec(line);
     if (heading) {
       flushParagraph(); flushList();
-      const level = Math.min(5, heading[1]?.length ?? 3);
+      const level = Math.min(5, heading[1]?.length ?? 2);
       rendered.push(`<h${level}>${inline(heading[2] ?? '')}</h${level}>`);
+      continue;
+    }
+    const quote = /^>\s?(.*)$/.exec(line);
+    if (quote) {
+      flushParagraph(); flushList();
+      rendered.push(`<blockquote>${inline(quote[1] ?? '')}</blockquote>`);
       continue;
     }
     const bullet = /^[-*]\s+(.+)$/.exec(line);

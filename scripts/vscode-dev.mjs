@@ -418,6 +418,84 @@ async function demoRepository({ github = false } = {}) {
  */
 export const CLI_PAYLOAD = ['bin', 'src', 'docs', 'templates', 'plugin', 'schemas', 'package.json', 'HELP.md'];
 
+/**
+ * A packaging toolchain that is present in both the public registry and the company mirror.
+ *
+ * `@vscode/vsce` permits a floating `@azure/identity`. Identity 4.13.1 in turn permits newer MSAL
+ * releases, and msal-node 5.5.0 hard-pins msal-common 16.12.0. A mirror that has synchronized only
+ * through 16.11.3 then fails with ETARGET even though none of this repository's dependencies are at
+ * fault. Node 5.1.0 and browser 5.5.0 are the compatible release pair: both require exactly common
+ * 16.3.0. Keep all four versions explicit so a public-registry build and a mirrored build resolve
+ * the same compatible MSAL graph.
+ */
+export const VSCE_TOOLCHAIN = Object.freeze({
+  vsce: '3.9.2',
+  identity: '4.13.1',
+  msalNode: '5.1.0',
+  msalBrowser: '5.5.0',
+  msalCommon: '16.3.0'
+});
+
+export function vsceToolManifest() {
+  return {
+    private: true,
+    dependencies: { '@vscode/vsce': VSCE_TOOLCHAIN.vsce },
+    overrides: {
+      '@azure/identity': VSCE_TOOLCHAIN.identity,
+      '@azure/msal-node': VSCE_TOOLCHAIN.msalNode,
+      '@azure/msal-browser': VSCE_TOOLCHAIN.msalBrowser,
+      '@azure/msal-common': VSCE_TOOLCHAIN.msalCommon
+    }
+  };
+}
+
+async function installedPackageVersion(directory, name) {
+  const manifest = path.join(directory, 'node_modules', ...name.split('/'), 'package.json');
+  return JSON.parse(await readFile(manifest, 'utf8')).version;
+}
+
+/**
+ * Install VSCE in a disposable directory instead of asking npx for today's dependency graph.
+ *
+ * The scratch install honors the caller's npm configuration, including an Artifactory registry,
+ * and is removed after packaging. It never changes this repository's package.json or lockfile.
+ */
+export async function resolveVsce({ tempRoot = os.tmpdir() } = {}) {
+  const directory = await mkdtemp(path.join(tempRoot, 'sflow-vsce-'));
+  try {
+    await writeFile(path.join(directory, 'package.json'), `${JSON.stringify(vsceToolManifest(), null, 2)}\n`);
+    const npm = process.platform === 'win32' ? 'npm.cmd' : 'npm';
+    const install = spawnSync(npm, [
+      'install', '--ignore-scripts', '--no-audit', '--no-fund', '--package-lock=false'
+    ], { cwd: directory, stdio: 'inherit' });
+    if (install.status !== 0) {
+      throw new Error(`npm could not install the pinned VSCE toolchain${install.error ? `: ${install.error.message}` : ''}`);
+    }
+
+    const expected = new Map([
+      ['@vscode/vsce', VSCE_TOOLCHAIN.vsce],
+      ['@azure/identity', VSCE_TOOLCHAIN.identity],
+      ['@azure/msal-node', VSCE_TOOLCHAIN.msalNode],
+      ['@azure/msal-browser', VSCE_TOOLCHAIN.msalBrowser],
+      ['@azure/msal-common', VSCE_TOOLCHAIN.msalCommon]
+    ]);
+    for (const [name, version] of expected) {
+      const actual = await installedPackageVersion(directory, name);
+      if (actual !== version) throw new Error(`Pinned VSCE toolchain expected ${name}@${version}, installed ${actual}.`);
+    }
+
+    const packageJson = JSON.parse(await readFile(
+      path.join(directory, 'node_modules', '@vscode', 'vsce', 'package.json'), 'utf8'
+    ));
+    const relativeEntry = typeof packageJson.bin === 'string' ? packageJson.bin : packageJson.bin?.vsce;
+    if (!relativeEntry) throw new Error('Installed @vscode/vsce package does not declare its vsce executable.');
+    return { directory, entry: path.join(directory, 'node_modules', '@vscode', 'vsce', relativeEntry) };
+  } catch (error) {
+    await rm(directory, { recursive: true, force: true });
+    throw error;
+  }
+}
+
 export async function stageCli({ rootDir = root, extensionDir = extension } = {}) {
   const staged = path.join(extensionDir, 'cli');
   await rm(staged, { recursive: true, force: true });
@@ -432,13 +510,22 @@ export async function stageCli({ rootDir = root, extensionDir = extension } = {}
 async function packageExtension() {
   step('Staging the CLI inside the extension');
   const staged = await stageCli();
+  let vsce = null;
   try {
+    step('Resolving the pinned VSCE toolchain');
+    try {
+      vsce = await resolveVsce();
+    } catch (error) {
+      console.error(`\nPackaging could not resolve the Artifactory-compatible VSCE toolchain: ${error.message}`);
+      console.error('Check that the configured npm registry contains the pinned versions, then retry.');
+      process.exitCode = 1;
+      return;
+    }
     step('Packaging a .vsix');
-    // vsce is not a dependency of this repository; npx fetches it on demand.
-    const pack = spawnSync('npx', ['--yes', '@vscode/vsce', 'package',
+    const pack = spawnSync(process.execPath, [vsce.entry, 'package',
       '--no-dependencies', '--allow-missing-repository'], { cwd: extension, stdio: 'inherit' });
     if (pack.status !== 0) {
-      console.error('\nPackaging needs @vscode/vsce, which npx fetches, so it needs network access.');
+      console.error('\nPackaging could not run the pinned @vscode/vsce toolchain.');
       console.error('Without it, use the development host instead: node scripts/vscode-dev.mjs');
       process.exitCode = 1;
       return;
@@ -446,6 +533,7 @@ async function packageExtension() {
   } finally {
     // Staged only for the package; leaving it would shadow the repository CLI during development.
     await rm(staged, { recursive: true, force: true });
+    if (vsce) await rm(vsce.directory, { recursive: true, force: true });
   }
 
   // Read, not hardcoded. This said `singularity-flow-vscode-0.9.0.vsix` literally, so the first

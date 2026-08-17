@@ -5,7 +5,9 @@ import { mkdtemp } from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { CLI_PAYLOAD, configureLocalDemoWorkflow, stageCli } from '../scripts/vscode-dev.mjs';
+import {
+  CLI_PAYLOAD, VSCE_TOOLCHAIN, configureLocalDemoWorkflow, stageCli, vsceToolManifest
+} from '../scripts/vscode-dev.mjs';
 
 const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 
@@ -32,6 +34,18 @@ test('the CommonJS extension build uses a host-safe package root without import.
 
   assert.equal(result.status, 0, output);
   assert.doesNotMatch(output, /empty-import-meta|import\.meta.*not available/i, output);
+});
+
+test('VS Code packaging pins one Artifactory-compatible MSAL dependency graph', () => {
+  const manifest = vsceToolManifest();
+  assert.deepEqual(manifest.dependencies, { '@vscode/vsce': '3.9.2' });
+  assert.deepEqual(manifest.overrides, {
+    '@azure/identity': '4.13.1',
+    '@azure/msal-node': '5.1.0',
+    '@azure/msal-browser': '5.5.0',
+    '@azure/msal-common': '16.3.0'
+  });
+  assert.equal(VSCE_TOOLCHAIN.msalCommon, '16.3.0');
 });
 
 test('the local VS Code demo does not require a remote it deliberately omits', () => {

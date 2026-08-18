@@ -36,7 +36,26 @@
       },
       "additionalProperties": false
     },
-    "failure": { "type": "object" },
+    "failure": {
+      "type": "object",
+      "required": ["type", "command", "commandArgv", "exitCode", "message"],
+      "properties": {
+        "type": { "type": "string" },
+        "command": { "type": ["string", "null"] },
+        "commandArgv": {
+          "type": ["array", "null"],
+          "minItems": 1,
+          "items": { "type": "string" }
+        },
+        "exitCode": {
+          "type": ["integer", "null"],
+          "minimum": 0,
+          "maximum": 4294967295
+        },
+        "message": { "type": ["string", "null"] }
+      },
+      "additionalProperties": false
+    },
     "evidence": { "type": "array", "items": { "type": "object" } },
     "requestedAction": { "enum": ["policy-decides", "record", "diagnose", "propose", "guided", "bounded-auto"] },
     "parentRepairId": { "type": ["string", "null"] },

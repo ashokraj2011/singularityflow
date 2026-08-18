@@ -1496,7 +1496,8 @@ singularity-flow fault report --source ci --environment ci --type unit-test \
   --log artifacts/test.log --idempotency-key payment-build-1842
 
 singularity-flow fix FLT-... --diagnose-only
-singularity-flow fix FLT-... --plan-only --allow-path src/payment --verify "npm test -- payment"
+singularity-flow fix FLT-... --plan-only --allow-path src/payment \
+  --verify-argv '["npm","test","--","payment"]'
 ```
 
 Node integrations use the same kernel without parsing terminal output:
@@ -1510,15 +1511,20 @@ const repair = await sflow.repair.request({ faultId: fault.faultId, mode: 'polic
 
 Local and IDE execution defaults to guided repair, while CI and staging execution defaults to proposal only.
 An authorized local review of a CI proposal creates a new immutable plan generation rather than editing the CI plan.
-Production, security, requirement, policy, and architecture faults remain diagnosis/challenge only.
+Production and security faults remain diagnosis-only. Requirement, policy, and architecture faults
+remain `challenge-required` until a separate governed ceremony creates a durable challenge or
+amendment record; selecting Fix again joins the same unresolved repair.
 `--auto` cannot raise that ceiling. A guided repair
 creates a local isolated `sflow/repair/*` branch only after the human confirms
-the exact plan hash. Candidate patches enter through `repair attempt`; the
+the exact plan hash. Diagnostic path observations never become mutation authority; at least one
+explicit bounded `--allow-path` is required. Candidate patches enter through `repair attempt`; the
 kernel checks every path before applying them and runs the complete pinned
 verification set as exact argv without a shell in a disposable verification worktree with a scrubbed
 environment. Direct publication, remote Git, shell, deployment, and destructive verifier commands are
-refused. macOS sandboxing or Linux Bubblewrap also denies network and external writes when available;
-the result records the boundary used. It never pushes, approves, merges,
+refused. macOS sandboxing or Linux Bubblewrap also denies network and external writes when a real
+probe succeeds. Runtime and library files on the host remain readable, so plans state
+`host-read-permitted` and require maintainer-reviewed verifiers rather than claiming full host
+isolation. The result records the boundary used. It never pushes, approves, merges,
 releases, deploys, or edits production.
 
 In Copilot use `/sf-fault` and `/sf-fix`. In VS Code unresolved faults appear in

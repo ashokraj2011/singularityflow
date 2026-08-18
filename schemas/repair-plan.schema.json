@@ -22,7 +22,42 @@
     "observationEnvironment": { "enum": ["local", "ide", "copilot", "ci", "integration", "staging", "production"] },
     "executionEnvironment": { "enum": ["local", "ide", "copilot", "ci", "integration", "staging", "production"] },
     "requestedMode": { "enum": ["record", "diagnose", "propose", "guided", "bounded-auto"] },
-    "tools": { "type": "object" },
+    "tools": {
+      "type": "object",
+      "required": ["commands", "sandbox", "network", "externalFilesystem", "environmentNames", "capabilities"],
+      "properties": {
+        "commands": {
+          "type": "array",
+          "items": {
+            "type": "array",
+            "minItems": 1,
+            "items": { "type": "string" }
+          }
+        },
+        "sandbox": {
+          "type": "string",
+          "pattern": "^(macos-sandbox|bubblewrap:/.+|disposable-worktree-only)$"
+        },
+        "network": { "enum": ["denied", "host-not-isolated"] },
+        "externalFilesystem": {
+          "enum": ["denied", "host-read-permitted; external-writes-denied", "host-not-isolated"]
+        },
+        "commandTrust": {
+          "const": "explicit-plan-confirmation; maintainer-reviewed-verifiers-only"
+        },
+        "environmentNames": {
+          "type": "array",
+          "items": { "type": "string" },
+          "uniqueItems": true
+        },
+        "capabilities": {
+          "type": "array",
+          "items": { "type": "string" },
+          "uniqueItems": true
+        }
+      },
+      "additionalProperties": false
+    },
     "escalation": { "type": "array", "items": { "type": "string" }, "uniqueItems": true },
     "policyHash": { "type": "string" },
     "diagnosisSha256": { "type": "string" },

@@ -245,6 +245,7 @@ const PAGES = Object.freeze({
       ['--source SOURCE', 'Adapter or surface that observed the failure.'],
       ['--environment ENV', 'local, ide, copilot, ci, integration, staging, or production.'],
       ['--type TYPE', 'Normalized compile, test, runtime, configuration, security, or other fault type.'],
+      ['--command-argv JSON', 'Exact command argv as a JSON string array; preferred for Windows and machine callers.'],
       ['--log FILE', 'Sanitize and retain a local text log by immutable content hash. Repeatable.'],
       ['--idempotency-key KEY', 'Return the existing fault for a repeated identical report.'],
       ['--json', 'Emit the complete record or list.']
@@ -263,7 +264,8 @@ const PAGES = Object.freeze({
       'governed records, computes the most restrictive effective action ceiling, and pins scope,',
       'verification and budgets before any repair worktree can be created.',
       '',
-      '`--auto` is a request, never extra authority. It degrades to the policy ceiling, and this',
+      'Diagnostic paths are evidence only. Mutation scope remains empty until at least one explicit',
+      '`--allow-path` is reviewed. `--auto` is a request, never extra authority. It degrades to the policy ceiling, and this',
       'build refuses autonomous mutation unless a separately governed adapter is configured.'
     ],
     options: [
@@ -271,13 +273,14 @@ const PAGES = Object.freeze({
       ['--plan-only', 'Preview a hash-bound plan without storing a repair run.'],
       ['--allow-path PATH', 'Explicit repository-relative repair scope. Repeatable.'],
       ['--verify COMMAND', 'Pinned argv-style verification command. Shell operators are refused. Repeatable.'],
+      ['--verify-argv JSON', 'Exact verifier argv as a JSON string array. Repeatable and preferred across platforms.'],
       ['--max-attempts N', 'Reduce the configured attempt budget; it cannot raise it.'],
       ['--auto', 'Request bounded automation; policy may only reduce this request.'],
       ['--json', 'Emit diagnosis, plan and repair state.']
     ],
     examples: [
       ['singularity-flow fix FLT-1842-03 --diagnose-only', 'Shows observed facts separately from hypotheses.'],
-      ['singularity-flow fix FLT-1842-03 --plan-only --allow-path src/payment --verify "npm test -- payment"',
+      ['singularity-flow fix FLT-1842-03 --plan-only --allow-path src/payment --verify-argv \'["npm","test","--","payment"]\'',
         'Previews a bounded guided plan and writes nothing.']
     ],
     seeAlso: ['fault', 'repair', 'regression', 'constitution']

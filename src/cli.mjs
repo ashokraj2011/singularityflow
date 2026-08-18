@@ -84,7 +84,7 @@ import { adoptEpicStory, completeEpicIntake, completeEpicPublication, EPIC_PHASE
 import { createStoryReviewPacket, finalizeStoryDelivery } from './story-lineage.mjs';
 import {
   attemptRepair, authorizeRepair, cancelRepair, diagnoseFault, listFaults, listRepairs,
-  governedFaultRepairPolicy, readFault, readRepair, repairNextActions, reportFault, requestRepair,
+  governedFaultRepairPolicy, parseVerificationArgv, readFault, readRepair, repairNextActions, reportFault, requestRepair,
   wrapCommandWithFaultRepair
 } from './fault-repair.mjs';
 
@@ -3982,6 +3982,10 @@ async function faultCommand(positionals, options) {
     if (sourceFile) envelope = JSON.parse(await readFile(path.resolve(sourceFile), 'utf8'));
     else {
       const exitCode = optionNumber(options, 'exit-code');
+      const commandArgvOption = optionString(options, 'command-argv');
+      const commandArgv = commandArgvOption == null
+        ? null
+        : parseVerificationArgv(commandArgvOption, '--command-argv');
       envelope = {
         source: optionString(options, 'source', 'manual'),
         correlationId: optionString(options, 'correlation-id'),
@@ -3992,7 +3996,7 @@ async function faultCommand(positionals, options) {
         capability: optionString(options, 'capability'),
         build: { id: optionString(options, 'build'), commit: optionString(options, 'commit') },
         failure: {
-          type: optionString(options, 'type', 'unknown'), command: optionString(options, 'command'),
+          type: optionString(options, 'type', 'unknown'), command: optionString(options, 'command'), commandArgv,
           exitCode, message: optionString(options, 'message')
         },
         evidence: optionStrings(options, 'log').map((localPath) => ({ type: 'log', localPath, mediaType: 'text/plain' })),
@@ -4057,11 +4061,16 @@ async function fixCommand(positionals, options) {
       commands: [{ label: 'Preview a bounded repair plan', command: `singularity-flow fix ${faultId} --plan-only --allow-path <PATH> --verify <COMMAND>` }]
     });
   }
+  const verification = [
+    ...optionStrings(options, 'verify'),
+    ...optionStrings(options, 'verify-argv').map((value, index) =>
+      parseVerificationArgv(value, `--verify-argv value ${index + 1}`))
+  ];
   const result = await requestRepair(root, faultId, {
     mode: optionBoolean(options, 'auto') ? 'bounded-auto' : 'policy-decides',
     maxAttempts: optionNumber(options, 'max-attempts'),
     allowedPaths: optionStrings(options, 'allow-path'),
-    verification: optionStrings(options, 'verify'),
+    verification,
     policy: await configuredFaultPolicy(root, { failClosed: true, faultId }),
     executionEnvironment: 'local',
     persist: !optionBoolean(options, 'plan-only')
@@ -4073,7 +4082,16 @@ async function fixCommand(positionals, options) {
     slots: { repairId: result.repair.repairId, status: result.repair.status, preview },
     data: result, changed: !preview, json: optionBoolean(options, 'json'),
     commands: preview
-      ? [{ label: 'Create this governed repair', command: `singularity-flow fix ${faultId}` }]
+      ? [{
+          label: 'Create this governed repair',
+          command: [
+            'singularity-flow', 'fix', faultId,
+            ...(result.plan.requestedMode === 'bounded-auto' ? ['--auto'] : []),
+            '--max-attempts', String(result.plan.budgets.maxAttempts),
+            ...result.plan.allowedPaths.flatMap((entry) => ['--allow-path', entry]),
+            ...result.plan.verification.flatMap((entry) => ['--verify-argv', JSON.stringify(entry.argv)])
+          ].map((entry) => JSON.stringify(entry)).join(' ')
+        }]
       : repairNextActions(result.repair).map((command) => ({ label: 'Continue the governed repair', command }))
   });
 }

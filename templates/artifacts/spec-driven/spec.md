@@ -1,4 +1,4 @@
-# Specification — {{WORK_ID}}
+# Specification — {{work.id}}
 
 <!--
 Scenarios come first, and general requirements come after them `[SPK:REQ-068]`. That ordering is the

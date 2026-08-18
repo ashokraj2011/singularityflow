@@ -1066,6 +1066,14 @@ export async function prepareInitiativePhase(root, id = branch(root), requestedP
         '{{inputs}}': inputSummary(initiative, phaseDefinition, definition),
         '{{metadata}}': JSON.stringify(projectionMetadata, null, 2)
       };
+      const unsupported = [...new Set(text.match(/\{\{[^{}\r\n]+\}\}/g) ?? [])]
+        .filter((token) => !Object.hasOwn(replacements, token));
+      if (unsupported.length) {
+        throw new SingularityFlowError(
+          `Initiative template for '${phaseId}/${output.id}' contains unsupported token(s): ${unsupported.join(', ')}. `
+          + `Supported tokens: ${Object.keys(replacements).join(', ')}.`
+        );
+      }
       for (const [token, value] of Object.entries(replacements)) text = text.replaceAll(token, value ?? '');
       await writeText(target.absolute, text);
       target = await secureInitiativePath(root, portfolio, id, output.path, {

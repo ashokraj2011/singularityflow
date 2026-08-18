@@ -1,4 +1,4 @@
-# Convergence — {{WORK_ID}}
+# Convergence — {{work.id}}
 
 The pre-verification closure loop at requirement altitude `[SPK:CON-038]`. This document is the human
 narrative; `convergence.json` is the authoritative projection `[SPK:REQ-080]`.

@@ -8,7 +8,8 @@ import {
 } from './util.mjs';
 import { branch, changedFiles, head, identity, pushBranch, remoteContains, untrackedFiles } from './git.mjs';
 import {
-  WORKFLOW_PATH, loadDefinition, normalizeSequenceGates, normalizeSessionPolicy, renderArtifactTemplate, resolveWorkType, snapshotResolution
+  WORKFLOW_PATH, loadDefinition, normalizeArtifactTemplateCompatibility, normalizeSequenceGates,
+  normalizeSessionPolicy, renderArtifactTemplate, resolveWorkType, snapshotResolution
 } from './config.mjs';
 import { loadSession } from './session.mjs';
 import { buildArtifactSidecar, serializeArtifactSidecar, sidecarRelativePath } from './artifact-sidecar.mjs';
@@ -803,7 +804,11 @@ export async function preparePhaseInputs(root, config, workflow, requested = und
         rendered.text || '_No phase inputs are declared._',
         ''
       ].join('\n');
-    } else if (await exists(target)) text = await readFile(target, 'utf8');
+    } else if (await exists(target)) {
+      text = normalizeArtifactTemplateCompatibility(await readFile(target, 'utf8'), {
+        id: workflow.workItem.id
+      });
+    }
     else text = await renderArtifactTemplate(root, config, workflow.resolution.phases.find((item) => item.id === phase.id), {
       id: workflow.workItem.id,
       title: workflow.workItem.title,
@@ -883,13 +888,29 @@ export async function scanArtifacts(root, config, workflow, phaseId = undefined)
 }
 
 const PLACEHOLDER = /\b(?:TODO|TBD)\b|\{\{[^}]+\}\}|\[\s*(?:describe|add|insert|provide|record)[^\]]*\]/i;
+function placeholderFinding(text) {
+  // Preserve line positions while excluding kernel-owned metadata from author-content validation.
+  const authored = text.replace(/<!-- singularity-flow:metadata[\s\S]*?-->/, (block) =>
+    '\n'.repeat((block.match(/\n/g) ?? []).length));
+  const match = authored.match(PLACEHOLDER);
+  if (!match || match.index == null) return null;
+  return {
+    value: match[0],
+    line: authored.slice(0, match.index).split('\n').length
+  };
+}
 async function validatePhase(root, config, workflow, phase, { placeholders = true } = {}) {
   const errors = []; const required = requiredRepoPath(config, workflow, phase); const absolute = path.join(root, required);
   if (!(await exists(absolute))) errors.push(`Required artifact missing: ${required}`);
   else {
     const text = await readFile(absolute, 'utf8'); const bytes = Buffer.byteLength(text);
     if (bytes < (phase.requiredArtifact.minimumBytes ?? 1)) errors.push(`Required artifact ${required} is too short (${bytes} bytes).`);
-    if (placeholders && PLACEHOLDER.test(text.replace(/<!-- singularity-flow:metadata[\s\S]*?-->/, ''))) errors.push(`Required artifact ${required} contains TODO/TBD/template placeholders.`);
+    const placeholder = placeholders ? placeholderFinding(text) : null;
+    if (placeholder) {
+      errors.push(
+        `Required artifact ${required} contains unresolved placeholder '${placeholder.value}' at line ${placeholder.line}.`
+      );
+    }
     if (!artifactFor(phase, required)) errors.push(`Required artifact is not registered to ${phase.id}: ${required}`);
   }
   for (const artifact of phase.artifacts) {

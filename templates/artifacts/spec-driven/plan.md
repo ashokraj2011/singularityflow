@@ -1,4 +1,4 @@
-# Implementation plan — {{WORK_ID}}
+# Implementation plan — {{work.id}}
 
 Derived from the approved specification. Cite the clause each decision serves, so convergence can
 join intent to implementation at requirement altitude rather than by path `[SPK:REQ-071]`.

@@ -960,6 +960,20 @@ export async function snapshotResolution(root, definition, resolved) {
   };
 }
 
+export const ARTIFACT_TEMPLATE_TOKENS = Object.freeze({
+  workId: '{{work.id}}',
+  workTitle: '{{work.title}}',
+  workType: '{{work.type}}',
+  phaseId: '{{phase.id}}',
+  phaseLabel: '{{phase.label}}',
+  inputs: '{{inputs}}'
+});
+
+/** Render legacy packaged tokens in already-created repositories without permitting new use. */
+export function normalizeArtifactTemplateCompatibility(text, variables) {
+  return text.replaceAll('{{WORK_ID}}', variables.id ?? '');
+}
+
 export async function renderArtifactTemplate(root, definition, resolvedPhase, variables) {
   const relative = variables.templateSnapshot?.source === 'agent'
     ? path.join(root, variables.templateSnapshot.path)
@@ -973,15 +987,23 @@ export async function renderArtifactTemplate(root, definition, resolvedPhase, va
   if (variables.templateSnapshot?.sha256 && current.sha256 !== variables.templateSnapshot.sha256) {
     throw new SingularityFlowError(`Artifact template for phase '${resolvedPhase.id}' changed after this work item was created. Restore ${file.relative} to ${variables.templateSnapshot.sha256} or start a new work item.`);
   }
-  let text = await readFile(file.absolute, 'utf8');
+  let text = normalizeArtifactTemplateCompatibility(await readFile(file.absolute, 'utf8'), variables);
   const replacements = {
-    '{{work.id}}': variables.id,
-    '{{work.title}}': variables.title,
-    '{{work.type}}': variables.workType,
-    '{{phase.id}}': resolvedPhase.id,
-    '{{phase.label}}': resolvedPhase.label,
-    '{{inputs}}': variables.inputs ?? ''
+    [ARTIFACT_TEMPLATE_TOKENS.workId]: variables.id,
+    [ARTIFACT_TEMPLATE_TOKENS.workTitle]: variables.title,
+    [ARTIFACT_TEMPLATE_TOKENS.workType]: variables.workType,
+    [ARTIFACT_TEMPLATE_TOKENS.phaseId]: resolvedPhase.id,
+    [ARTIFACT_TEMPLATE_TOKENS.phaseLabel]: resolvedPhase.label,
+    [ARTIFACT_TEMPLATE_TOKENS.inputs]: variables.inputs ?? ''
   };
+  const unsupported = [...new Set(text.match(/\{\{[^{}\r\n]+\}\}/g) ?? [])]
+    .filter((token) => !Object.hasOwn(replacements, token));
+  if (unsupported.length) {
+    throw new SingularityFlowError(
+      `Artifact template for phase '${resolvedPhase.id}' contains unsupported token(s): ${unsupported.join(', ')}. `
+      + `Supported tokens: ${Object.keys(replacements).join(', ')}.`
+    );
+  }
   for (const [token, value] of Object.entries(replacements)) text = text.replaceAll(token, value ?? '');
   return text;
 }

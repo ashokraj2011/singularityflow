@@ -33,6 +33,7 @@ function outputsOf(profileId) {
 }
 
 const enterprise = outputsOf('enterprise-delivery');
+const everyOutput = Object.keys(portfolio.initiativeProfiles).flatMap(outputsOf);
 
 /** The substitution prepareInitiativePhase applies, with the same token set. */
 function render(text) {
@@ -73,7 +74,7 @@ test('every template renders with nothing left unsubstituted', async () => {
   // A token the engine does not replace ships to the author as literal braces, and to the gate as a
   // placeholder that fails validation for a reason that names the wrong thing.
   const unresolved = [];
-  for (const output of enterprise) {
+  for (const output of everyOutput) {
     const rendered = render(await readFile(path.join(artifactRoot, output.template), 'utf8'));
     const left = rendered.match(/\{\{[^}]+\}\}/g);
     if (left) unresolved.push(`${output.phaseId}/${output.id}: ${[...new Set(left)].join(', ')}`);

@@ -1,4 +1,4 @@
-# Release conformance — {{WORK_ID}}
+# Release conformance — {{work.id}}
 
 The final human-readable trace `[SPK:REQ-042]`. Evidence lives below `verification/`; this document
 says what it proves.

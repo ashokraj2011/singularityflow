@@ -1,13 +1,15 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { existsSync } from 'node:fs';
-import { mkdtemp, mkdir, readFile, rename, symlink, unlink, writeFile } from 'node:fs/promises';
+import { mkdtemp, mkdir, readFile, readdir, rename, symlink, unlink, writeFile } from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
 import YAML from 'yaml';
 import {
+  ARTIFACT_TEMPLATE_TOKENS,
   initializeDefinition,
   loadDefinition,
+  normalizeArtifactTemplateCompatibility,
   normalizePhaseInputs,
   normalizePlanning,
   normalizeSequenceGates,
@@ -137,6 +139,53 @@ test('artifact rendering enforces the work-item template hash snapshot', async (
     }),
     /changed after this work item was created/
   );
+});
+
+test('every shipped Story artifact template uses only renderer-supported tokens', async () => {
+  const root = await mkdtemp(path.join(os.tmpdir(), 'sflow-template-tokens-'));
+  await initializeDefinition(root);
+  const definition = await loadDefinition(root);
+  const unresolved = [];
+
+  for (const workTypeId of Object.keys(definition.workTypes)) {
+    const workType = resolveWorkType(definition, workTypeId);
+    for (const phase of workType.phases) {
+      if (String(phase.template).startsWith('agent:')) continue;
+      try {
+        const rendered = await renderArtifactTemplate(root, definition, phase, {
+          id: 'TOKEN-1', title: 'Template token audit', workType: workTypeId, inputs: ''
+        });
+        const remaining = [...new Set(rendered.match(/\{\{[^{}\r\n]+\}\}/g) ?? [])];
+        if (remaining.length) unresolved.push(`${workTypeId}/${phase.id}: ${remaining.join(', ')}`);
+      } catch (error) {
+        unresolved.push(`${workTypeId}/${phase.id}: ${error.message}`);
+      }
+    }
+  }
+
+  // Also cover templates kept in the Story library but not selected by a starter workflow today.
+  // An unused template is still selectable through governed configuration and must not become a
+  // delayed production failure when somebody adopts it later.
+  const templateRoot = path.join(root, definition.templatesRoot);
+  const supported = new Set(Object.values(ARTIFACT_TEMPLATE_TOKENS));
+  const files = (await readdir(templateRoot, { recursive: true }))
+    .filter((name) => name.endsWith('.md') && !name.startsWith(`initiatives${path.sep}`));
+  for (const name of files) {
+    const source = await readFile(path.join(templateRoot, name), 'utf8');
+    const unknown = [...new Set(source.match(/\{\{[^{}\r\n]+\}\}/g) ?? [])]
+      .filter((token) => !supported.has(token));
+    if (unknown.length) unresolved.push(`${name}: ${unknown.join(', ')}`);
+  }
+
+  assert.deepEqual(unresolved, []);
+});
+
+test('existing artifacts upgrade the legacy Work ID token without allowing it back into templates', () => {
+  assert.equal(
+    normalizeArtifactTemplateCompatibility('# Specification — {{WORK_ID}}\n', { id: 'OLD-19' }),
+    '# Specification — OLD-19\n'
+  );
+  assert.ok(!Object.values(ARTIFACT_TEMPLATE_TOKENS).includes('{{WORK_ID}}'));
 });
 
 test('Copilot session policy configures work selection while phase agents remain automatic', () => {

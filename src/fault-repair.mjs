@@ -33,9 +33,13 @@ const FAULT_TYPES = new Set([
 ]);
 const ACTION_CEILINGS = Object.freeze(['record', 'diagnose', 'propose', 'guided', 'bounded-auto']);
 const ACTIVE_REPAIR_STATES = new Set([
-  'planned', 'proposed', 'awaiting-authorization', 'authorizing', 'awaiting-patch', 'repairing',
-  'verifying', 'retry-ready', 'needs-human'
+  'recorded', 'diagnosis-ready', 'planned', 'proposed', 'awaiting-authorization', 'authorizing',
+  'awaiting-patch', 'repairing', 'verifying', 'retry-ready', 'needs-human', 'challenge-required'
 ]);
+// `challenge-opened` was emitted before the repair service created or linked a challenge. Keep
+// those legacy records joinable so clicking Fix cannot mint duplicates, but never emit the status
+// for a new repair. A future durable challenge link may terminalize the same repair explicitly.
+const JOINABLE_REPAIR_STATES = new Set([...ACTIVE_REPAIR_STATES, 'challenge-opened']);
 const TERMINAL_REPAIR_STATES = new Set([
   'resolved', 'exhausted', 'cancelled', 'quarantined', 'challenge-opened', 'follow-up-created'
 ]);
@@ -122,40 +126,126 @@ function validDate(value, label, fallback = null) {
  * Remove common credentials before any value reaches storage or model-visible diagnosis.
  * The audit fact records only the rule name and count; it never retains the removed bytes.
  */
+const SENSITIVE_FIELD_NAMES = new Set([
+  'password', 'passwd', 'pwd', 'token', 'authtoken', 'accesstoken', 'refreshtoken', 'idtoken',
+  'sastoken', 'clientsecret', 'clientassertion', 'secret', 'secretkey', 'secretaccesskey',
+  'apikey', 'accesskey', 'accountkey', 'privatekey', 'connectionstring', 'databaseurl', 'dburl',
+  'mongodburi', 'redisurl', 'sharedaccesskey', 'sharedaccesssignature'
+]);
+const SENSITIVE_FIELD_SOURCE = [
+  'password', 'passwd', 'pwd', 'token', 'auth[_-]?token', 'access[_-]?token', 'refresh[_-]?token',
+  'id[_-]?token', 'sas[_-]?token', 'client[_-]?secret', 'client[_-]?assertion', 'secret',
+  'secret[_-]?key', 'secret[_-]?access[_-]?key', 'api[_-]?key', 'access[_-]?key',
+  'account[_-]?key', 'private[_-]?key', 'connection[_-]?string', 'database[_-]?url', 'db[_-]?url',
+  'mongodb[_-]?uri', 'redis[_-]?url', 'shared[_-]?access[_-]?key',
+  'shared[_-]?access[_-]?signature'
+].join('|');
 const SECRET_RULES = Object.freeze([
-  ['authorization', /\b(authorization\s*:\s*(?:bearer|basic)\s+)[^\s,;]+/gi, '$1[REDACTED]'],
-  ['assignment', /\b(password|passwd|pwd|token|secret|api[_-]?key|access[_-]?key)\s*[:=]\s*([^\s,;]+)/gi, '$1=[REDACTED]'],
-  ['github-token', /\b(?:gh[pousr]_[A-Za-z0-9_]{20,}|github_pat_[A-Za-z0-9_]{20,})\b/g, '[REDACTED_GITHUB_TOKEN]'],
-  ['openai-token', /\bsk-[A-Za-z0-9_-]{16,}\b/g, '[REDACTED_API_TOKEN]'],
-  ['aws-key', /\b(?:AKIA|ASIA)[A-Z0-9]{16}\b/g, '[REDACTED_AWS_KEY]'],
-  ['url-credentials', /(https?:\/\/)[^\s/@:]+:[^\s/@]+@/gi, '$1[REDACTED]@']
+  ['private-key', /-----BEGIN(?: [A-Z0-9]+)* PRIVATE KEY-----[\s\S]*?-----END(?: [A-Z0-9]+)* PRIVATE KEY-----/gi,
+    () => '[REDACTED_PRIVATE_KEY]'],
+  ['authorization', /\b(authorization\s*:\s*(?:bearer|basic)\s+)(?!\[REDACTED)[^\s,;]+/gi,
+    (_match, prefix) => `${prefix}[REDACTED]`],
+  ['quoted-assignment', new RegExp(`(["'])(${SENSITIVE_FIELD_SOURCE})\\1\\s*:\\s*(["'])(?!\\[REDACTED)([\\s\\S]*?)\\3`, 'gi'),
+    (_match, keyQuote, key, valueQuote) => `${keyQuote}${key}${keyQuote}:${valueQuote}[REDACTED]${valueQuote}`],
+  ['assignment', new RegExp(`\\b(${SENSITIVE_FIELD_SOURCE})\\s*[:=]\\s*(?!\\[REDACTED)[^\\s,;]+`, 'gi'),
+    (_match, key) => `${key}=[REDACTED]`],
+  ['query-credential', new RegExp(`([?&](?:${SENSITIVE_FIELD_SOURCE})=)(?!%5BREDACTED|\\[REDACTED)[^&#\\s]+`, 'gi'),
+    (_match, prefix) => `${prefix}[REDACTED]`],
+  ['github-token', /\b(?:gh[pousr]_[A-Za-z0-9_]{20,}|github_pat_[A-Za-z0-9_]{20,})\b/g,
+    () => '[REDACTED_GITHUB_TOKEN]'],
+  ['openai-token', /\bsk-[A-Za-z0-9_-]{16,}\b/g, () => '[REDACTED_API_TOKEN]'],
+  ['aws-key', /\b(?:AKIA|ASIA)[A-Z0-9]{16}\b/g, () => '[REDACTED_AWS_KEY]'],
+  ['jwt', /\beyJ[A-Za-z0-9_-]*\.[A-Za-z0-9_-]+\.[A-Za-z0-9_-]+\b/g, () => '[REDACTED_JWT]'],
+  ['url-credentials', /((?:https?|postgres(?:ql)?|mysql|mariadb|mongodb(?:\+srv)?|rediss?|amqps?|mssql):\/\/)[^\s/@:]*:[^\s/@]+@/gi,
+    (_match, scheme) => `${scheme}[REDACTED]@`],
+  ['jdbc-credentials', /(jdbc:[a-z0-9]+:\/\/)[^\s/@:]+:[^\s/@]+@/gi,
+    (_match, scheme) => `${scheme}[REDACTED]@`]
 ]);
 
-export function sanitizeFaultText(value) {
+function sensitiveFieldName(value) {
+  return SENSITIVE_FIELD_NAMES.has(String(value ?? '').replace(/[^a-z0-9]/gi, '').toLowerCase());
+}
+
+function sanitizedMarker(value) {
+  return typeof value === 'string' && /^\[REDACTED(?:_|\])/.test(value);
+}
+
+function sanitizeTextPatterns(value) {
   let text = String(value ?? '');
   const redactions = [];
   for (const [rule, expression, replacement] of SECRET_RULES) {
     let count = 0;
     text = text.replace(expression, (...args) => {
       count += 1;
-      return typeof replacement === 'function' ? replacement(...args) : args[0].replace(expression, replacement);
+      return replacement(...args);
     });
     if (count) redactions.push({ rule, count });
   }
   return { text, redactions };
 }
 
-function sanitizeValue(value, redactions, pathLabel = 'value') {
+function sanitizeStructuredValue(value, redactions, pathLabel, key = null) {
+  if (key != null && sensitiveFieldName(key) && value != null && !sanitizedMarker(value)) {
+    redactions.push({ rule: 'sensitive-field', count: 1, field: pathLabel });
+    return { value: '[REDACTED]', changed: true };
+  }
   if (typeof value === 'string') {
-    const result = sanitizeFaultText(value);
+    const result = sanitizeTextPatterns(value);
     redactions.push(...result.redactions.map((entry) => ({ ...entry, field: pathLabel })));
-    return result.text;
+    return { value: result.text, changed: result.text !== value };
   }
-  if (Array.isArray(value)) return value.map((entry, index) => sanitizeValue(entry, redactions, `${pathLabel}[${index}]`));
+  if (Array.isArray(value)) {
+    let changed = false;
+    const entries = value.map((entry, index) => {
+      const sanitized = sanitizeStructuredValue(entry, redactions, `${pathLabel}[${index}]`);
+      changed ||= sanitized.changed;
+      return sanitized.value;
+    });
+    return { value: entries, changed };
+  }
   if (value && typeof value === 'object') {
-    return Object.fromEntries(Object.entries(value).map(([key, entry]) => [key, sanitizeValue(entry, redactions, `${pathLabel}.${key}`)]));
+    let changed = false;
+    const entries = Object.entries(value).map(([entryKey, entry]) => {
+      const sanitized = sanitizeStructuredValue(entry, redactions, `${pathLabel}.${entryKey}`, entryKey);
+      changed ||= sanitized.changed;
+      return [entryKey, sanitized.value];
+    });
+    return { value: Object.fromEntries(entries), changed };
   }
-  return value;
+  return { value, changed: false };
+}
+
+export function sanitizeFaultText(value) {
+  let text = String(value ?? '');
+  const redactions = [];
+  const source = text.trim();
+  if ((source.startsWith('{') && source.endsWith('}')) || (source.startsWith('[') && source.endsWith(']'))) {
+    try {
+      const parsed = JSON.parse(text);
+      const structured = sanitizeStructuredValue(parsed, redactions, 'json');
+      if (structured.changed) text = JSON.stringify(structured.value, null, text.includes('\n') ? 2 : 0);
+    } catch {
+      // Logs frequently contain JSON fragments around ordinary text. The textual rules below still
+      // redact quoted credential keys; malformed JSON is evidence, not a parsing error.
+    }
+  }
+  // Parse complete JSON before applying textual patterns so escaped quotes cannot make a regex
+  // truncate a credential value and leave its suffix behind. Text logs and malformed JSON still
+  // receive the same deterministic pattern pass.
+  const patterned = sanitizeTextPatterns(text);
+  text = patterned.text;
+  redactions.push(...patterned.redactions);
+  const residual = sanitizeTextPatterns(text);
+  if (residual.redactions.length) {
+    throw new SingularityFlowError('Fault evidence could not be safely redacted.', {
+      code: 'FAULT_REDACTION_INCOMPLETE'
+    });
+  }
+  return { text, redactions };
+}
+
+function sanitizeValue(value, redactions, pathLabel = 'value') {
+  return sanitizeStructuredValue(value, redactions, pathLabel).value;
 }
 
 export function normalizeFaultRepairPolicy(value = {}) {
@@ -360,8 +450,8 @@ function requireId(value, prefix, label) {
 
 function normalizePathPrefix(value, label = 'path') {
   const input = String(value ?? '').trim().replaceAll('\\', '/').replace(/^\.\//, '').replace(/\/$/, '');
-  if (!input || path.posix.isAbsolute(input) || input.split('/').includes('..') || input.includes('\0')) {
-    throw new SingularityFlowError(`${label} must be a repository-relative path without '..'.`, { code: 'REPAIR_SCOPE_INVALID' });
+  if (!input || input === '.' || path.posix.isAbsolute(input) || input.split('/').includes('..') || input.includes('\0')) {
+    throw new SingularityFlowError(`${label} must be a bounded repository-relative path, not the repository root, and may not contain '..'.`, { code: 'REPAIR_SCOPE_INVALID' });
   }
   return input;
 }
@@ -386,8 +476,8 @@ function normalizeFailure(value = {}) {
   const type = value.type ?? 'unknown';
   if (!FAULT_TYPES.has(type)) throw new SingularityFlowError(`Unknown fault type '${type}'.`, { code: 'FAULT_TYPE_INVALID' });
   const exitCode = value.exitCode == null ? null : Number(value.exitCode);
-  if (exitCode != null && (!Number.isInteger(exitCode) || exitCode < 0 || exitCode > 255)) {
-    throw new SingularityFlowError('failure.exitCode must be an integer from 0 through 255.', { code: 'FAULT_FIELD_INVALID' });
+  if (exitCode != null && (!Number.isInteger(exitCode) || exitCode < 0 || exitCode > 0xffff_ffff)) {
+    throw new SingularityFlowError('failure.exitCode must be an unsigned 32-bit integer.', { code: 'FAULT_FIELD_INVALID' });
   }
   if (value.commandArgv != null && !Array.isArray(value.commandArgv)) {
     throw new SingularityFlowError('failure.commandArgv must be an array.', { code: 'FAULT_FIELD_INVALID' });
@@ -577,6 +667,27 @@ async function readFaultFile(file) {
   return requireSchema(await readJson(file), FAULT_ENVELOPE_SCHEMA_VERSION, 'FaultEnvelope');
 }
 
+function requireOccurrenceGroup(record, { signature, groupId, baseline }) {
+  const group = requireSchema(record, 1, 'FaultOccurrenceGroup');
+  const occurrences = group.occurrences;
+  const structurallyValid = group.recordType === 'fault-occurrence-group'
+    && group.signature === signature
+    && group.groupId === groupId
+    && group.baseline === baseline
+    && Array.isArray(occurrences)
+    && occurrences.every((entry) => typeof entry === 'string' && /^FLT-[A-Z0-9][A-Z0-9-]*$/i.test(entry))
+    && new Set(occurrences).size === occurrences.length
+    && group.count === occurrences.length
+    && Number.isFinite(Date.parse(group.firstSeenAt))
+    && Number.isFinite(Date.parse(group.lastSeenAt));
+  if (!structurallyValid) {
+    throw new SingularityFlowError('FaultOccurrenceGroup does not match the fault being recorded.', {
+      code: 'FAULT_RECORD_INTEGRITY_INVALID'
+    });
+  }
+  return group;
+}
+
 export async function readFault(root, faultId) {
   const id = requireId(faultId, 'FLT', 'faultId');
   return readFaultFile(statePath(root, 'faults', `${id}.json`));
@@ -626,11 +737,16 @@ export async function reportFault(root, raw, { policy: configuredPolicy = {}, ac
     };
     const signature = normalizedSignature(core);
     const groupId = `FOG-${signature.slice(-16).toUpperCase()}`;
+    const groupPath = statePath(root, 'groups', `${signature.slice(7)}.json`);
+    const existing = await exists(groupPath)
+      ? requireOccurrenceGroup(await readJson(groupPath), {
+          signature, groupId, baseline: core.build.commit
+        })
+      : null;
+    // Validate the mutable group before writing the immutable fault or rewriting the group.
     const fault = withIntegrity({ ...core, signature, occurrenceGroup: groupId });
     await immutableWrite(root, statePath(root, 'faults', `${faultId}.json`), fault, `Fault '${faultId}'`);
 
-    const groupPath = statePath(root, 'groups', `${signature.slice(7)}.json`);
-    const existing = await exists(groupPath) ? await readJson(groupPath) : null;
     const occurrences = [...new Set([...(existing?.occurrences ?? []), faultId])];
     const groupCore = {
       schemaVersion: 1, recordType: 'fault-occurrence-group', groupId, signature,
@@ -674,7 +790,7 @@ export async function listFaults(root, { status = null, limit = 100 } = {}) {
     const related = (byFault.get(fault.faultId) ?? []).sort((a, b) => b.updatedAt.localeCompare(a.updatedAt));
     const latest = related[0] ?? null;
     const disposition = latest?.status === 'resolved' ? 'resolved'
-      : latest && ACTIVE_REPAIR_STATES.has(latest.status) ? 'repair-active'
+      : latest && JOINABLE_REPAIR_STATES.has(latest.status) ? 'repair-active'
         : 'recorded';
     return { ...fault, disposition, repair: latest ? { repairId: latest.repairId, status: latest.status } : null };
   }).filter((fault) => !status || fault.disposition === status)
@@ -812,10 +928,18 @@ export function parseVerificationCommand(value) {
   const argv = [];
   let current = '';
   let quote = null;
-  let escaped = false;
-  for (const character of text) {
-    if (escaped) { current += character; escaped = false; continue; }
-    if (character === '\\' && quote !== "'") { escaped = true; continue; }
+  for (let index = 0; index < text.length; index += 1) {
+    const character = text[index];
+    if (character === '\\' && quote !== "'") {
+      const next = text[index + 1];
+      // Preserve ordinary Windows path separators. Backslash is an escape only where it has an
+      // unambiguous quoting purpose; `C:\Program Files\node.exe` must remain byte-for-byte intact.
+      if (next === quote || (!quote && (next === '"' || next === "'" || next === '\\' || /\s/.test(next ?? '')))) {
+        current += next;
+        index += 1;
+      } else current += character;
+      continue;
+    }
     if (quote) {
       if (character === quote) quote = null;
       else current += character;
@@ -828,10 +952,27 @@ export function parseVerificationCommand(value) {
     }
     current += character;
   }
-  if (quote || escaped) throw new SingularityFlowError('Verification command has an unterminated quote or escape.', { code: 'REPAIR_VERIFICATION_INVALID' });
+  if (quote) throw new SingularityFlowError('Verification command has an unterminated quote.', { code: 'REPAIR_VERIFICATION_INVALID' });
   if (current) argv.push(current);
   if (!argv.length) throw new SingularityFlowError('Verification command is empty.', { code: 'REPAIR_VERIFICATION_INVALID' });
   return argv;
+}
+
+/** Structured CLI input avoids every platform's shell-string quoting rules. */
+export function parseVerificationArgv(value, label = 'verification argv') {
+  let parsed;
+  try { parsed = JSON.parse(String(value ?? '')); }
+  catch (error) {
+    throw new SingularityFlowError(`${label} must be a JSON array of strings: ${error.message}`, {
+      code: 'REPAIR_VERIFICATION_INVALID'
+    });
+  }
+  if (!Array.isArray(parsed) || !parsed.length || parsed.some((entry) => typeof entry !== 'string')) {
+    throw new SingularityFlowError(`${label} must be a non-empty JSON array of strings.`, {
+      code: 'REPAIR_VERIFICATION_INVALID'
+    });
+  }
+  return parsed;
 }
 
 const FORBIDDEN_VERIFICATION_PROGRAMS = new Set([
@@ -891,6 +1032,7 @@ function planStatus(ceiling, adequate) {
 function publicPlanCore({ repairId, fault, diagnosis, effective, allowedPaths, verification }) {
   const diagnosisCore = withoutIntegrity(diagnosis);
   const sandbox = verificationSandboxKind();
+  const wrapperAvailable = sandbox !== 'disposable-worktree-only';
   return {
     schemaVersion: REPAIR_PLAN_SCHEMA_VERSION,
     recordType: 'repair-plan',
@@ -912,8 +1054,11 @@ function publicPlanCore({ repairId, fault, diagnosis, effective, allowedPaths, v
     tools: {
       commands: verification.map((entry) => entry.argv),
       sandbox,
-      network: sandbox === 'disposable-worktree-only' ? 'host-not-isolated' : 'denied',
-      externalFilesystem: sandbox === 'disposable-worktree-only' ? 'host-not-isolated' : 'denied',
+      network: wrapperAvailable ? 'denied' : 'host-not-isolated',
+      // Both shipped OS wrappers permit host reads needed by runtimes and libraries. They constrain
+      // writes and network; claiming external files were unreadable would be a security defect.
+      externalFilesystem: wrapperAvailable ? 'host-read-permitted; external-writes-denied' : 'host-not-isolated',
+      commandTrust: 'explicit-plan-confirmation; maintainer-reviewed-verifiers-only',
       environmentNames: ['CI', 'HOME', 'NODE_ENV', 'PATH', 'TMPDIR'],
       capabilities: [
         'read-scoped-context', 'apply-validated-patch',
@@ -1020,8 +1165,9 @@ export async function requestRepair(root, faultId, {
     maxAttempts,
     executionEnvironment: executionEnvironment ?? fault.environment
   });
-  const paths = [...new Set((allowedPaths.length ? allowedPaths : diagnosis.affectedPaths)
-    .map((entry) => normalizePathPrefix(entry, 'allowed path')))].sort();
+  // Diagnosis paths are evidence and may include an entire baseline commit or unrelated dirty
+  // files. Only an explicitly reviewed allow-path can become mutation authority.
+  const paths = [...new Set(allowedPaths.map((entry) => normalizePathPrefix(entry, 'allowed path')))].sort();
   const checks = verificationPlan(fault, verification);
   const adequate = paths.length > 0 && checks.length > 0 && diagnosis.disposition !== 'challenge-intent';
 
@@ -1029,12 +1175,12 @@ export async function requestRepair(root, faultId, {
     let active = null;
     if (persist) {
       active = (await repairStates(root)).find((entry) => entry.signature === fault.signature
-        && entry.baseline === fault.build.commit && ACTIVE_REPAIR_STATES.has(entry.status));
+        && entry.baseline === fault.build.commit && JOINABLE_REPAIR_STATES.has(entry.status));
     }
     const repairId = active?.repairId ?? (persist ? nextId('RPR') : `RPR-PREVIEW-${fault.faultId.slice(4)}`);
     const plan = withIntegrity(publicPlanCore({ repairId, fault, diagnosis, effective, allowedPaths: paths, verification: checks }));
     const status = diagnosis.disposition === 'challenge-intent'
-      ? 'challenge-opened'
+      ? 'challenge-required'
       : planStatus(effective.ceiling, adequate);
     if (active) {
       await verifiedCurrentPlan(root, active);
@@ -1042,7 +1188,8 @@ export async function requestRepair(root, faultId, {
         return { repair: active, plan: active.plan, diagnosis, joined: true, persisted: true };
       }
       const replannable = !active.workspace && !(active.attempts?.length)
-        && ['recorded', 'diagnosis-ready', 'proposed', 'needs-human', 'awaiting-authorization'].includes(active.status);
+        && ['recorded', 'diagnosis-ready', 'proposed', 'needs-human', 'awaiting-authorization',
+          'challenge-required', 'challenge-opened'].includes(active.status);
       if (!replannable) {
         throw new SingularityFlowError(
           `Repair '${active.repairId}' already has active authority or attempts. Cancel it before changing scope, verification, or execution context.`,
@@ -1324,12 +1471,18 @@ function sandboxString(value) {
   return String(value).replaceAll('\\', '\\\\').replaceAll('"', '\\"');
 }
 
-function verificationSandboxKind() {
-  if (process.platform === 'darwin'
-    && run('/usr/bin/sandbox-exec', ['-h'], { allowFailure: true }).error == null) return 'macos-sandbox';
-  if (process.platform === 'linux') {
+export function verificationSandboxKind({ platform = process.platform, execute = run } = {}) {
+  if (platform === 'darwin') {
+    const probe = execute('/usr/bin/sandbox-exec', [
+      '-p', '(version 1) (allow default)', '--', '/usr/bin/true'
+    ], { allowFailure: true });
+    if (probe.status === 0) return 'macos-sandbox';
+  }
+  if (platform === 'linux') {
     const bwrap = ['/usr/bin/bwrap', '/bin/bwrap'].find((candidate) =>
-      run(candidate, ['--version'], { allowFailure: true }).status === 0);
+      execute(candidate, [
+        '--die-with-parent', '--unshare-net', '--ro-bind', '/', '/', '--', '/bin/true'
+      ], { allowFailure: true }).status === 0);
     if (bwrap) return `bubblewrap:${bwrap}`;
   }
   return 'disposable-worktree-only';
@@ -1677,8 +1830,9 @@ export function repairNextActions(state) {
     `singularity-flow repair status ${state.repairId}`,
     `singularity-flow repair cancel ${state.repairId} --reason <REASON>`
   ];
-  if (state.status === 'challenge-opened') return [
+  if (state.status === 'challenge-required' || state.status === 'challenge-opened') return [
     `singularity-flow fault show ${state.faultId}`,
+    'singularity-flow explain reconciliation',
     'singularity-flow explain constitution'
   ];
   if (state.status === 'proposed' || state.status === 'diagnosis-ready' || state.status === 'recorded') return [

@@ -60,6 +60,27 @@ test('fault report/list/show and fix preview are reachable through the public CL
   // The failure was observed in CI, but local review uses the fail-closed local execution ceiling.
   assert.equal(plan.repair.executionMode, 'diagnose');
   assert.equal(git(root, 'status', '--short'), '');
+
+  const structured = invoke(root, [
+    'fix', fault.faultId, '--plan-only', '--allow-path', 'README.md',
+    '--verify-argv', JSON.stringify(['C:\\Program Files\\nodejs\\node.exe', '--version']), '--json'
+  ]);
+  assert.equal(structured.status, 0, structured.stderr);
+  assert.deepEqual(JSON.parse(structured.stdout).data.plan.verification[0].argv,
+    ['C:\\Program Files\\nodejs\\node.exe', '--version']);
+});
+
+test('fault report accepts structured command argv and unsigned Windows termination codes', async () => {
+  const root = await fixture();
+  const argv = ['C:\\Program Files\\nodejs\\node.exe', 'test.js'];
+  const result = invoke(root, [
+    'fault', 'report', '--source', 'windows-ci', '--environment', 'ci', '--type', 'runtime',
+    '--command-argv', JSON.stringify(argv), '--exit-code', String(0xc0000005), '--json'
+  ]);
+  assert.equal(result.status, 0, result.stderr);
+  const fault = JSON.parse(result.stdout).data.fault;
+  assert.deepEqual(fault.failure.commandArgv, argv);
+  assert.equal(fault.failure.exitCode, 0xc0000005);
 });
 
 test('run --repair-on-fault preserves the command exit code and emits a structured fault', async () => {

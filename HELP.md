@@ -2359,17 +2359,22 @@ model-free facts; `fix --plan-only` previews the exact path, verification, tool 
 singularity-flow run --repair-on-fault -- npm test
 singularity-flow fault report --source ci --environment ci --type unit-test --build 1842 \
   --commit 81ac012 --command "npm test" --exit-code 1 --log artifacts/test.log
-singularity-flow fix FLT-... --plan-only --allow-path src/payment --verify "npm test -- payment"
+singularity-flow fix FLT-... --plan-only --allow-path src/payment \
+  --verify-argv '["npm","test","--","payment"]'
 ```
 
 A persisted guided plan requires its exact SHA-256 confirmation before SFlow creates a local
 isolated repair worktree. `repair attempt` validates the patch scope before applying it there and
 executes the complete pinned verification set as exact argv without a shell in a disposable worktree
-with a scrubbed environment. Direct remote, publication, shell, deployment, and destructive commands
-are refused; macOS sandboxing or Linux Bubblewrap additionally denies network and external writes when
-available. No repair command pushes, approves, merges, releases or deploys. CI/staging execution defaults
-to proposal only; authorized local review creates a new immutable plan generation. Production and intent
-conflicts diagnose or open a challenge. Use `/sf-fault`, `/sf-fix`, or
+with a scrubbed environment. Diagnostic paths are evidence only; explicit bounded `--allow-path`
+values are required before authorization. Direct remote, publication, shell, deployment, and destructive
+commands are refused; macOS sandboxing or Linux Bubblewrap additionally denies network and external
+writes when a real probe succeeds. Runtime and library files on the host remain readable and the plan
+reports that boundary, so only maintainer-reviewed verifiers should be authorized. No repair command
+pushes, approves, merges, releases or deploys. CI/staging execution defaults to proposal only; authorized
+local review creates a new immutable plan generation. Production faults diagnose; intent conflicts remain
+joinable as `challenge-required` until a separate governed ceremony creates a durable record. Fault evidence
+uses JSON-aware and textual secret redaction before content-addressed storage. Use `/sf-fault`, `/sf-fix`, or
 `singularity-flow explain fault-intake-and-repair` for the guided journey.
 
 ## Workflow catalog and preflight simulation
@@ -2625,12 +2630,13 @@ singularity-flow next [--task TEXT] [--fetch] [--yes] [--skip-checks]
 singularity-flow run [--task TEXT] [--yes]
 singularity-flow run --repair-on-fault [--max-attempts N] [--allow-path PATH]... -- <COMMAND> [ARGUMENTS...]
 singularity-flow fault report [--from ENVELOPE.json | --source SOURCE --environment ENV --type TYPE]
-  [--build ID] [--commit SHA] [--story WORK-ID] [--command TEXT] [--exit-code N]
+  [--build ID] [--commit SHA] [--story WORK-ID] [--command TEXT | --command-argv JSON]
+  [--exit-code N]
   [--message TEXT] [--log FILE]... [--idempotency-key KEY] [--json]
 singularity-flow fault list [--status recorded|repair-active|resolved] [--limit N] [--json]
 singularity-flow fault show <FAULT-ID> [--json]
 singularity-flow fix <FAULT-ID> [--diagnose-only | --plan-only] [--auto] [--max-attempts N]
-  [--allow-path PATH]... [--verify COMMAND]... [--json]
+  [--allow-path PATH]... [--verify COMMAND | --verify-argv JSON]... [--json]
 singularity-flow repair list [--status STATUS] [--json]
 singularity-flow repair status <REPAIR-ID> [--json]
 singularity-flow repair authorize <REPAIR-ID> --confirm PLAN-SHA256 [--open] [--json]

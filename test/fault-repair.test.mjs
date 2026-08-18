@@ -8,8 +8,9 @@ import path from 'node:path';
 
 import {
   attemptRepair, authorizeRepair, cancelRepair, diagnoseFault, effectiveRepairPolicy, faultRepairStateRoot,
-  createFaultRepairApi, listFaults, normalizeFaultRepairPolicy, readRepair, reportFault, requestRepair,
-  sanitizeFaultText, wrapCommandWithFaultRepair
+  createFaultRepairApi, listFaults, listRepairs, normalizeFaultRepairPolicy, readRepair, reportFault, requestRepair,
+  parseVerificationArgv, parseVerificationCommand, sanitizeFaultText, verificationSandboxKind,
+  wrapCommandWithFaultRepair
 } from '../src/fault-repair.mjs';
 import { homeOverviewResult } from '../src/gateway/planners/home-overview.mjs';
 import { canonicalJson } from '../src/specifications.mjs';
@@ -119,6 +120,110 @@ test('redaction covers common credential shapes before storage', () => {
   const result = sanitizeFaultText('password=hunter2 sk-abcdefghijklmnopq https://user:pass@example.test');
   assert.doesNotMatch(result.text, /hunter2|sk-abcdefghijklmnopq|user:pass/);
   assert.deepEqual(result.redactions.map((entry) => entry.rule), ['assignment', 'openai-token', 'url-credentials']);
+
+  for (const secret of [
+    '{"token":"example-secret-value"}',
+    '{"access_token":"example-secret-value"}',
+    'client_secret=example-secret-value',
+    'eyJhbGciOiJIUzI1NiJ9.eyJzdWIiOiIxMjMifQ.signature',
+    '-----BEGIN PRIVATE KEY-----\nprivate-material\n-----END PRIVATE KEY-----',
+    'postgres://user:password@example.test/database',
+    'redis://:redis-password@example.test/0',
+    'Endpoint=sb://example.test/;SharedAccessKey=service-bus-secret;',
+    'Server=db;User Id=person;Password=connection-secret;'
+  ]) {
+    const sanitized = sanitizeFaultText(secret);
+    assert.doesNotMatch(sanitized.text, /example-secret-value|signature|private-material|user:password|redis-password|service-bus-secret|connection-secret/);
+    assert.ok(sanitized.redactions.length, secret);
+  }
+
+  const escaped = sanitizeFaultText(JSON.stringify({ nested: { token: 'prefix"still-secret' } }));
+  assert.deepEqual(JSON.parse(escaped.text), { nested: { token: '[REDACTED]' } });
+  assert.doesNotMatch(escaped.text, /still-secret/);
+});
+
+test('sandbox detection proves isolation works instead of trusting an installed binary', () => {
+  const calls = [];
+  const unusable = verificationSandboxKind({
+    platform: 'linux',
+    execute: (command, args) => {
+      calls.push([command, args]);
+      return { status: args.includes('--version') ? 0 : 1 };
+    }
+  });
+  assert.equal(unusable, 'disposable-worktree-only');
+  assert.ok(calls.length >= 1);
+  assert.ok(calls.every(([, args]) => args.includes('--unshare-net') && args.includes('--ro-bind')));
+  assert.ok(calls.every(([, args]) => !args.includes('--version')));
+
+  const usable = verificationSandboxKind({
+    platform: 'linux',
+    execute: (command, args) => ({
+      status: command === '/usr/bin/bwrap' && args.includes('--unshare-net') ? 0 : 1
+    })
+  });
+  assert.equal(usable, 'bubblewrap:/usr/bin/bwrap');
+});
+
+test('structured argv preserves Windows paths and exit codes accept the platform DWORD range', async (t) => {
+  const expected = ['C:\\Program Files\\nodejs\\node.exe', '--version'];
+  assert.deepEqual(parseVerificationCommand('"C:\\Program Files\\nodejs\\node.exe" --version'), expected);
+  assert.deepEqual(parseVerificationArgv(JSON.stringify(expected)), expected);
+  const root = await repository(t);
+  const recorded = await reportFault(root, envelope({
+    correlationId: 'windows-exit',
+    failure: { ...envelope().failure, exitCode: 0xc0000005 }
+  }));
+  assert.equal(recorded.fault.failure.exitCode, 0xc0000005);
+  await assert.rejects(reportFault(root, envelope({
+    correlationId: 'invalid-windows-exit',
+    failure: { ...envelope().failure, exitCode: 0x1_0000_0000 }
+  })), (error) => error.code === 'FAULT_FIELD_INVALID');
+});
+
+test('a mutable occurrence group must pass integrity before a new immutable fault is written', async (t) => {
+  const root = await repository(t);
+  const first = await reportFault(root, envelope({ correlationId: 'group-first' }));
+  const groupFile = path.join(faultRepairStateRoot(root), 'groups', `${first.fault.signature.slice(7)}.json`);
+  const group = JSON.parse(await readFile(groupFile, 'utf8'));
+  group.count = 9000;
+  await writeFile(groupFile, `${JSON.stringify(group, null, 2)}\n`);
+  await assert.rejects(
+    reportFault(root, envelope({ correlationId: 'group-second' })),
+    (error) => error.code === 'FAULT_RECORD_INTEGRITY_INVALID'
+  );
+  assert.equal((await listFaults(root)).length, 1);
+
+  group.count = 1;
+  group.occurrences = first.fault.faultId;
+  delete group.integrity;
+  group.integrity = {
+    algorithm: 'sha256',
+    sha256: createHash('sha256').update(canonicalJson(group)).digest('hex')
+  };
+  await writeFile(groupFile, `${JSON.stringify(group, null, 2)}\n`);
+  await assert.rejects(
+    reportFault(root, envelope({ correlationId: 'group-invalid-shape' })),
+    (error) => error.code === 'FAULT_RECORD_INTEGRITY_INVALID'
+  );
+  assert.equal((await listFaults(root)).length, 1);
+});
+
+test('JSON and OAuth credentials are redacted before content-addressed evidence is persisted', async (t) => {
+  const root = await repository(t);
+  const jwt = 'eyJhbGciOiJIUzI1NiJ9.eyJzdWIiOiJwb2MifQ.signature';
+  const recorded = await reportFault(root, envelope({
+    correlationId: 'structured-secrets',
+    failure: { ...envelope().failure, message: 'client_secret=oauth-secret' },
+    evidence: [{
+      type: 'stderr', mediaType: 'application/json',
+      inline: JSON.stringify({ token: 'json-secret', access_token: 'oauth-token', jwt })
+    }]
+  }));
+  assert.equal(recorded.fault.redaction.applied, true);
+  const stored = await allStoredText(faultRepairStateRoot(root));
+  assert.doesNotMatch(stored, /oauth-secret|json-secret|oauth-token|eyJhbGci/);
+  assert.match(stored, /REDACTED/);
 });
 
 test('fault policy rejects scalar path and environment collections', () => {
@@ -184,6 +289,22 @@ test('diagnosis is model-free and production/security policy cannot authorize mu
   }
 });
 
+test('diagnostic path hints never become repair authority without an explicit allow-path', async (t) => {
+  const root = await repository(t);
+  await writeFile(path.join(root, 'unrelated-dirty.txt'), 'not part of the repair\n');
+  const reported = await reportFault(root, envelope());
+  const requested = await requestRepair(root, reported.fault.faultId, {
+    mode: 'guided', verification: [['node', '--version']]
+  });
+  assert.ok(requested.diagnosis.affectedPaths.includes('unrelated-dirty.txt'));
+  assert.deepEqual(requested.plan.allowedPaths, []);
+  assert.equal(requested.repair.status, 'needs-human');
+  assert.equal(requested.repair.stopReason, 'scope-required');
+  await assert.rejects(requestRepair(root, reported.fault.faultId, {
+    mode: 'guided', allowedPaths: ['.'], verification: [['node', '--version']]
+  }), (error) => error.code === 'REPAIR_SCOPE_INVALID');
+});
+
 test('guided repair binds exact authorization, scopes patches, isolates bytes, and verifies before resolution', async (t) => {
   const root = await repository(t);
   await writeFile(path.join(root, 'developer-notes.txt'), 'preserve me\n');
@@ -197,6 +318,11 @@ test('guided repair binds exact authorization, scopes patches, isolates bytes, a
     verification: [[process.execPath, '-e', "const fs=require('fs');process.exit(fs.readFileSync('value.txt','utf8').trim()==='right'?0:1)"]]
   });
   assert.equal(requested.repair.status, 'awaiting-authorization');
+  assert.notEqual(requested.plan.tools.externalFilesystem, 'denied');
+  assert.match(requested.plan.tools.commandTrust, /explicit-plan-confirmation/);
+  if (requested.plan.tools.sandbox !== 'disposable-worktree-only') {
+    assert.equal(requested.plan.tools.externalFilesystem, 'host-read-permitted; external-writes-denied');
+  }
   const hash = requested.plan.integrity.sha256;
 
   await assert.rejects(authorizeRepair(root, requested.repair.repairId, { confirmation: 'wrong' }),
@@ -376,7 +502,7 @@ test('bounded auto fails closed when no approved autonomous adapter is installed
   assert.equal(requested.repair.workspace, null);
 });
 
-test('intent faults open a challenge disposition and never create a repair workspace', async (t) => {
+test('intent faults require a durable challenge and repeated Fix actions join the same repair', async (t) => {
   const root = await repository(t);
   const reported = await reportFault(root, envelope({
     failure: { ...envelope().failure, type: 'requirement', message: 'approved intent contradicts observed behavior' }
@@ -384,9 +510,32 @@ test('intent faults open a challenge disposition and never create a repair works
   const requested = await requestRepair(root, reported.fault.faultId, {
     mode: 'guided', allowedPaths: ['value.txt'], verification: [['node', '--version']]
   });
-  assert.equal(requested.repair.status, 'challenge-opened');
+  assert.equal(requested.repair.status, 'challenge-required');
   assert.equal(requested.repair.workspace, null);
-  assert.equal(requested.repair.finalDisposition.status, 'challenge-opened');
+  assert.equal(requested.repair.finalDisposition, null);
+  const repeated = await requestRepair(root, reported.fault.faultId, {
+    mode: 'guided', allowedPaths: ['value.txt'], verification: [['node', '--version']]
+  });
+  assert.equal(repeated.joined, true);
+  assert.equal(repeated.repair.repairId, requested.repair.repairId);
+  assert.equal((await listRepairs(root)).length, 1);
+});
+
+test('diagnosis-only repair states remain joinable instead of multiplying on Fix', async (t) => {
+  const root = await repository(t);
+  const reported = await reportFault(root, envelope({
+    environment: 'production',
+    failure: { ...envelope().failure, type: 'production', message: 'production failure' }
+  }));
+  const options = {
+    mode: 'guided', allowedPaths: ['value.txt'], verification: [['node', '--version']]
+  };
+  const first = await requestRepair(root, reported.fault.faultId, options);
+  const second = await requestRepair(root, reported.fault.faultId, options);
+  assert.equal(first.repair.status, 'diagnosis-ready');
+  assert.equal(second.joined, true);
+  assert.equal(second.repair.repairId, first.repair.repairId);
+  assert.equal((await listRepairs(root)).length, 1);
 });
 
 test('command wrapper records failures and recursion guard prevents a child repair', async (t) => {

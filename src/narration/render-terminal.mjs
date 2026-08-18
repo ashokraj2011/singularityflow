@@ -60,7 +60,7 @@ function goalLines(result) {
   if (Array.isArray(goals)) {
     if (!goals.length) return ['', style.detail('No Goals match this view.')];
     return ['', ...goals.flatMap((item) => [
-      `${item.id === activeGoalId ? style.success('●') : '○'} ${style.heading(item.id)}  ${item.statement}`,
+      `${item.id === activeGoalId ? style.pass('●') : '○'} ${style.heading(item.id)}  ${item.statement}`,
       `  ${style.detail(`${item.status} · ${item.links.length} linked work item(s) · ${item.successCriteria.length} success criterion/criteria`)}`
     ])];
   }

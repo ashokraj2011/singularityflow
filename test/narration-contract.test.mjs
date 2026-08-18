@@ -85,6 +85,28 @@ test('NCL-004 reassurance is derived from effects, never authored beside them', 
   assert.doesNotMatch(renderCommandResult(changed), /were changed\./);
 });
 
+test('active Goals render through the supported terminal status vocabulary', () => {
+  const result = commandResult({
+    operation: { id: 'goal.list', classification: 'read' },
+    subject: { kind: 'workspace', id: 'goal-workspace' },
+    outcome: succeeded('goal.listed', { count: 1, workspace: 'Goal workspace' }),
+    effects: noEffects(),
+    restState: 'informational',
+    data: {
+      activeGoalId: 'GOL-20260819-001',
+      goals: [{
+        id: 'GOL-20260819-001',
+        statement: 'Make the demo reliable',
+        status: 'active',
+        links: [],
+        successCriteria: ['The demo completes without recovery']
+      }]
+    }
+  });
+
+  assert.match(renderCommandResult(result), /● GOL-20260819-001  Make the demo reliable/);
+});
+
 test('NCL-004 every message permitted to reassure is only used where nothing changed', () => {
   // The catalog cannot promise preservation for a message a mutating outcome would use.
   for (const id of preservingMessageIds()) {

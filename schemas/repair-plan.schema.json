@@ -1,0 +1,30 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://example.invalid/singularity-flow/repair-plan.schema.json",
+  "title": "Singularity Flow RepairPlan v1",
+  "type": "object",
+  "required": ["schemaVersion", "recordType", "repairId", "faultId", "signature", "createdAt", "goal", "baseline", "allowedPaths", "prohibitedPaths", "verification", "budgets", "executionMode", "requestedMode", "tools", "escalation", "policyHash", "diagnosisSha256", "integrity"],
+  "properties": {
+    "schemaVersion": { "const": 1 },
+    "recordType": { "const": "repair-plan" },
+    "repairId": { "type": "string" },
+    "faultId": { "type": "string" },
+    "signature": { "type": "string" },
+    "createdAt": { "type": "string", "format": "date-time" },
+    "goal": { "type": "string" },
+    "baseline": { "type": "string" },
+    "intent": { "type": ["object", "string", "null"] },
+    "allowedPaths": { "type": "array", "items": { "type": "string" }, "uniqueItems": true },
+    "prohibitedPaths": { "type": "array", "items": { "type": "string" }, "uniqueItems": true },
+    "verification": { "type": "array", "items": { "type": "object" } },
+    "budgets": { "type": "object" },
+    "executionMode": { "enum": ["record", "diagnose", "propose", "guided", "bounded-auto"] },
+    "requestedMode": { "enum": ["record", "diagnose", "propose", "guided", "bounded-auto"] },
+    "tools": { "type": "object" },
+    "escalation": { "type": "array", "items": { "type": "string" }, "uniqueItems": true },
+    "policyHash": { "type": "string" },
+    "diagnosisSha256": { "type": "string" },
+    "integrity": { "type": "object" }
+  },
+  "additionalProperties": false
+}

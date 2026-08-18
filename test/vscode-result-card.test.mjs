@@ -17,6 +17,7 @@ import { REASON_CODES } from '../src/gateway/catalog.mjs';
 import { KERNEL_MESSAGES } from '../src/gateway/kernel.mjs';
 import { RESOLUTION_MESSAGES } from '../src/gateway/resolve.mjs';
 import { workReadinessResult } from '../src/gateway/planners/work-readiness.mjs';
+import { homeOverviewResult } from '../src/gateway/planners/home-overview.mjs';
 
 const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 const view = (name) => path.join(root, 'apps', 'vscode', 'src', 'views', name);
@@ -37,6 +38,29 @@ test('every catalog code and narration ID has a sentence', () => {
   const missing = [...REASON_CODES, ...KERNEL_MESSAGES, ...RESOLUTION_MESSAGES]
     .filter((code) => !RESULT_MESSAGES[code]);
   assert.deepEqual(missing, [], `codes with no message:\n  ${missing.join('\n  ')}`);
+});
+
+test('My Work renders compact fault facts and never exposes evidence paths', () => {
+  const groups = {
+    'recovery-required': [], 'waiting-on-you': [], active: [],
+    'waiting-on-others': [], 'recently-completed': []
+  };
+  const result = homeOverviewResult({
+    workspace: { id: 'w', name: 'Demo' }, records: { groups, items: [] }, otherWorkspaces: 0,
+    faults: [{
+      faultId: 'FLT-DEMO', severity: 'high', source: 'ci', environment: 'ci',
+      occurredAt: '2026-08-18T00:00:00Z', disposition: 'recorded', repair: null,
+      failure: { type: 'unit-test', message: 'Checkout test failed' },
+      evidence: [{ uri: 'artifact://hidden/absolute/private/path' }]
+    }]
+  });
+  const card = buildResultCard(result);
+  const html = resultCardHtml(card);
+  assert.equal(card.faults[0].faultId, 'FLT-DEMO');
+  assert.match(html, /FLT-DEMO/);
+  assert.match(html, /Checkout test failed/);
+  assert.doesNotMatch(html, /artifact:\/\/|absolute\/private/);
+  assert.equal(card.actions[0].id, 'fault:fix:FLT-DEMO');
 });
 
 test('no message exists for a code nothing can emit', () => {

@@ -1,0 +1,23 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://example.invalid/singularity-flow/fault-diagnosis.schema.json",
+  "title": "Singularity Flow FaultDiagnosis v1",
+  "type": "object",
+  "required": ["schemaVersion", "recordType", "faultId", "signature", "createdAt", "baseline", "facts", "hypotheses", "affectedPaths", "missingJoins", "disposition", "provenance", "integrity"],
+  "properties": {
+    "schemaVersion": { "const": 1 },
+    "recordType": { "const": "fault-diagnosis" },
+    "faultId": { "type": "string" },
+    "signature": { "type": "string" },
+    "createdAt": { "type": "string", "format": "date-time" },
+    "baseline": { "type": "object" },
+    "facts": { "type": "array", "items": { "type": "object" } },
+    "hypotheses": { "type": "array", "items": { "type": "object" } },
+    "affectedPaths": { "type": "array", "items": { "type": "string" }, "uniqueItems": true },
+    "missingJoins": { "type": "array", "items": { "type": "string" }, "uniqueItems": true },
+    "disposition": { "type": "string" },
+    "provenance": { "type": "object" },
+    "integrity": { "type": "object" }
+  },
+  "additionalProperties": false
+}

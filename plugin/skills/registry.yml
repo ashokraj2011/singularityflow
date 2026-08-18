@@ -113,10 +113,12 @@ skills:
   sflow-epic-story-draft: { class: generative }
   sflow-epic-sync: { class: mutation }
   sflow-factory-reset: { class: mutation }
+  sflow-fault: { class: mutation }
   sflow-fresh-install: { class: mutation }
   sflow-local-reset: { class: mutation }
   sflow-reinstall: { class: mutation }
   sflow-finalize: { class: mutation }
+  sflow-fix: { class: interactive }
   sflow-gate: { class: mutation }
   sflow-harness: { class: echo }
   sflow-help: { class: conversational }

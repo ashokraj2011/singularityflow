@@ -82,6 +82,11 @@ export type ResultCardView = {
    * that configured its own.
    */
   readonly rail: readonly { readonly id: string; readonly label: string; readonly state: 'done' | 'current' | 'pending' }[];
+  /** Redacted unresolved-fault summaries. Evidence paths and raw payloads never enter the webview. */
+  readonly faults: readonly {
+    readonly faultId: string; readonly severity: string; readonly type: string;
+    readonly summary: string; readonly disposition: string; readonly repairId: string | null;
+  }[];
   /** Shared developer guidance, present only on the canonical recommendation result. */
   readonly guidance: {
     readonly context: { readonly workspace: string | null; readonly workId: string | null; readonly phase: string | null };
@@ -277,6 +282,14 @@ export function buildResultCard(result: any, { acknowledgement }: ResultCardOpti
     actions,
     /** Named, not spread: a producer that puts something else in `data` does not start rendering it. */
     rail: Array.isArray(result.data?.rail) ? result.data.rail : [],
+    faults: Array.isArray(result.data?.faults) ? Object.freeze(result.data.faults.map((fault: any) => Object.freeze({
+      faultId: String(fault.faultId ?? ''),
+      severity: String(fault.severity ?? 'unknown'),
+      type: String(fault.type ?? 'unknown'),
+      summary: String(fault.summary ?? 'Recorded fault'),
+      disposition: String(fault.disposition ?? 'recorded'),
+      repairId: fault.repair?.repairId ? String(fault.repair.repairId) : null
+    })).filter((fault: any) => fault.faultId)) : Object.freeze([]),
     guidance: result.operation?.id === 'developer.next' && result.data?.guidance
       ? Object.freeze({
         context: Object.freeze({

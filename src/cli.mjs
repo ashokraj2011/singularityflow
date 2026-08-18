@@ -82,6 +82,10 @@ import { formatContextBoundaryHandoff } from './context-policy.mjs';
 import { detachEpicSource, listEpicSources, registerEpicSource, registerEpicTextSource, verifyEpicSources } from './epic-sources.mjs';
 import { adoptEpicStory, completeEpicIntake, completeEpicPublication, EPIC_PHASES, addEpicStory, splitEpicStory, updateEpicStory, verifyEpicPlanningPackage } from './epic-lifecycle.mjs';
 import { createStoryReviewPacket, finalizeStoryDelivery } from './story-lineage.mjs';
+import {
+  attemptRepair, authorizeRepair, cancelRepair, diagnoseFault, listFaults, listRepairs,
+  readFault, readRepair, repairNextActions, reportFault, requestRepair, wrapCommandWithFaultRepair
+} from './fault-repair.mjs';
 
 import { createPullRequest, createStoryPullRequest, epicPullRequestPlan, storyPullRequestPlan, updateStoryPullRequest } from './pull-request.mjs';
 import { copyToClipboard } from './clipboard.mjs';
@@ -3940,8 +3944,204 @@ async function recoverCommand(positionals, options) {
   if (optionBoolean(options, 'json')) console.log(JSON.stringify(result, null, 2)); else process.stdout.write(recoveryText(result));
 }
 
-async function runCommand(options) {
-  const root = repoRoot(); const config = await loadConfig(root); const workflow = await loadStoryAggregate(root, config); const phase = currentPhase(workflow);
+async function configuredFaultPolicy(root, { failClosed = false } = {}) {
+  try { return (await loadDefinition(root)).faultRepair ?? {}; }
+  catch (error) {
+    if (!failClosed) return {};
+    return {
+      boundedAuto: false,
+      environmentCeilings: {
+        local: 'diagnose', ide: 'diagnose', copilot: 'diagnose', ci: 'record', integration: 'record',
+        staging: 'record', production: 'record'
+      }
+    };
+  }
+}
+
+function emitFaultRepairResult({
+  operationId, classification, messageId, slots, data, changed = false, filesChanged = false,
+  commands = [], restState = null, json = false
+}) {
+  const next = commands.map((command, index) => narrationAction({
+    id: `${operationId}.next.${index + 1}`,
+    label: command.label,
+    command: command.command,
+    rank: index === 0 ? 'NOW' : 'SOON',
+    kind: command.kind ?? 'remediation',
+    modelPolicy: 'never'
+  }));
+  return emitCommandResult(commandResult({
+    operation: { id: operationId, classification },
+    subject: null,
+    outcome: succeeded(messageId, slots),
+    effects: changed ? effects({ stateChanged: true, filesChanged }) : noEffects(),
+    next,
+    restState: next.length ? null : restState ?? 'informational',
+    data
+  }), { json });
+}
+
+async function faultCommand(positionals, options) {
+  const root = repoRoot();
+  const subcommand = positionals[1] ?? 'list';
+  if (subcommand === 'report') {
+    let envelope;
+    const sourceFile = optionString(options, 'from');
+    if (sourceFile) envelope = JSON.parse(await readFile(path.resolve(sourceFile), 'utf8'));
+    else {
+      const exitCode = optionNumber(options, 'exit-code');
+      envelope = {
+        source: optionString(options, 'source', 'manual'),
+        correlationId: optionString(options, 'correlation-id'),
+        occurredAt: optionString(options, 'occurred-at'),
+        environment: optionString(options, 'environment', 'local'),
+        severity: optionString(options, 'severity', 'medium'),
+        story: optionString(options, 'story') ?? optionString(options, 'work-id'),
+        capability: optionString(options, 'capability'),
+        build: { id: optionString(options, 'build'), commit: optionString(options, 'commit') },
+        failure: {
+          type: optionString(options, 'type', 'unknown'), command: optionString(options, 'command'),
+          exitCode, message: optionString(options, 'message')
+        },
+        evidence: optionStrings(options, 'log').map((localPath) => ({ type: 'log', localPath, mediaType: 'text/plain' })),
+        requestedAction: optionString(options, 'requested-action', 'policy-decides'),
+        idempotencyKey: optionString(options, 'idempotency-key')
+      };
+    }
+    const result = await reportFault(root, envelope, { policy: await configuredFaultPolicy(root) });
+    return emitFaultRepairResult({
+      operationId: 'fault.report', classification: 'mutation', messageId: 'fault.recorded',
+      slots: { faultId: result.fault.faultId, type: result.fault.failure.type, severity: result.fault.severity },
+      data: result, changed: result.created, json: optionBoolean(options, 'json'),
+      commands: [{ label: 'Diagnose this fault', command: `singularity-flow fix ${result.fault.faultId} --diagnose-only` }]
+    });
+  }
+  if (subcommand === 'list') {
+    const faults = await listFaults(root, { status: optionString(options, 'status'), limit: optionNumber(options, 'limit') });
+    return emitFaultRepairResult({
+      operationId: 'fault.list', classification: 'read', messageId: 'fault.listed',
+      slots: { count: faults.length }, data: { faults }, json: optionBoolean(options, 'json'),
+      commands: faults.length ? [{ label: 'Inspect the newest fault', command: `singularity-flow fault show ${faults[0].faultId}` }] : []
+    });
+  }
+  if (subcommand === 'show') {
+    const fault = await readFault(root, requirePositional(positionals, 2, 'Fault ID', 'fault show'));
+    return emitFaultRepairResult({
+      operationId: 'fault.show', classification: 'read', messageId: 'fault.returned',
+      slots: { faultId: fault.faultId, disposition: (await listFaults(root)).find((entry) => entry.faultId === fault.faultId)?.disposition ?? 'recorded' },
+      data: { fault }, json: optionBoolean(options, 'json'),
+      commands: [{ label: 'Diagnose this fault', command: `singularity-flow fix ${fault.faultId} --diagnose-only` }]
+    });
+  }
+  throw new SingularityFlowError(`Unknown fault subcommand '${subcommand}'. Use report, list, or show.`);
+}
+
+function renderRepair(state) {
+  console.log(`Repair ${state.repairId} · ${state.status}`);
+  console.log(`Fault: ${state.faultId} · Baseline: ${state.baseline}`);
+  console.log(`Policy: ${state.executionMode} · Attempts: ${state.attempts.length}/${state.plan.budgets.maxAttempts}`);
+  console.log(`Scope: ${state.plan.allowedPaths.length ? state.plan.allowedPaths.join(', ') : 'not yet bounded'}`);
+  console.log(`Verification: ${state.plan.verification.length ? state.plan.verification.map((entry) => entry.argv.join(' ')).join(' | ') : 'not yet pinned'}`);
+  if (state.workspace) console.log(`Isolated branch: ${state.workspace.branch} · ${state.workspace.path}`);
+  if (state.stopReason) console.log(`Reason: ${state.stopReason}`);
+  for (const command of repairNextActions(state)) console.log(`Next CLI step: ${command}`);
+  if (repairNextActions(state).length) console.log(`In Copilot: /sf-fix ${state.faultId}`);
+}
+
+async function fixCommand(positionals, options) {
+  const root = repoRoot();
+  const faultId = requirePositional(positionals, 1, 'Fault ID', 'fix');
+  if (optionBoolean(options, 'diagnose-only') && optionBoolean(options, 'plan-only')) {
+    throw new SingularityFlowError('Choose either --diagnose-only or --plan-only.');
+  }
+  if (optionBoolean(options, 'diagnose-only')) {
+    const diagnosis = await diagnoseFault(root, faultId);
+    return emitFaultRepairResult({
+      operationId: 'fix.diagnose', classification: 'mutation', messageId: 'repair.diagnosed',
+      slots: { faultId, disposition: diagnosis.disposition }, data: { diagnosis }, changed: true,
+      json: optionBoolean(options, 'json'),
+      commands: [{ label: 'Preview a bounded repair plan', command: `singularity-flow fix ${faultId} --plan-only --allow-path <PATH> --verify <COMMAND>` }]
+    });
+  }
+  const result = await requestRepair(root, faultId, {
+    mode: optionBoolean(options, 'auto') ? 'bounded-auto' : 'policy-decides',
+    maxAttempts: optionNumber(options, 'max-attempts'),
+    allowedPaths: optionStrings(options, 'allow-path'),
+    verification: optionStrings(options, 'verify'),
+    policy: await configuredFaultPolicy(root, { failClosed: true }),
+    persist: !optionBoolean(options, 'plan-only')
+  });
+  const preview = optionBoolean(options, 'plan-only');
+  return emitFaultRepairResult({
+    operationId: preview ? 'fix.preview' : 'fix.request', classification: preview ? 'read' : 'mutation',
+    messageId: 'repair.planned',
+    slots: { repairId: result.repair.repairId, status: result.repair.status, preview },
+    data: result, changed: !preview, json: optionBoolean(options, 'json'),
+    commands: preview
+      ? [{ label: 'Create this governed repair', command: `singularity-flow fix ${faultId}` }]
+      : repairNextActions(result.repair).map((command) => ({ label: 'Continue the governed repair', command }))
+  });
+}
+
+async function repairCommand(positionals, options) {
+  const root = repoRoot();
+  const subcommand = positionals[1] ?? 'list';
+  let result;
+  if (subcommand === 'list') result = { schemaVersion: 1, repairs: await listRepairs(root, { status: optionString(options, 'status') }) };
+  else {
+    const repairId = requirePositional(positionals, 2, 'Repair ID', `repair ${subcommand}`);
+    if (subcommand === 'status') result = await readRepair(root, repairId);
+    else if (subcommand === 'authorize') result = await authorizeRepair(root, repairId, {
+      confirmation: optionString(options, 'confirm'), open: optionBoolean(options, 'open')
+    });
+    else if (subcommand === 'attempt') result = await attemptRepair(root, repairId, { patchFile: optionString(options, 'patch') });
+    else if (subcommand === 'cancel') result = await cancelRepair(root, repairId, { reason: optionString(options, 'reason') });
+    else throw new SingularityFlowError(`Unknown repair subcommand '${subcommand}'. Use list, status, authorize, attempt, or cancel.`);
+  }
+  const state = subcommand === 'list' ? null : result.repair ?? result;
+  const read = ['list', 'status'].includes(subcommand);
+  const messageId = subcommand === 'list' ? 'repair.listed'
+    : subcommand === 'status' ? 'repair.returned'
+      : subcommand === 'authorize' ? 'repair.authorized'
+        : subcommand === 'attempt' ? 'repair.attempted' : 'repair.cancelled';
+  const commands = state ? repairNextActions(state).map((command) => ({ label: 'Continue the governed repair', command })) : [];
+  return emitFaultRepairResult({
+    operationId: `repair.${subcommand}`, classification: read ? 'read' : 'mutation', messageId,
+    slots: subcommand === 'list' ? { count: result.repairs.length }
+      : { repairId: state.repairId, status: state.status },
+    data: result, changed: !read, filesChanged: ['authorize', 'attempt'].includes(subcommand),
+    commands, restState: state?.status === 'cancelled' ? 'cancelled'
+      : state?.status === 'resolved' ? 'complete' : 'informational',
+    json: optionBoolean(options, 'json')
+  });
+}
+
+async function runCommand(positionals, options) {
+  const root = repoRoot();
+  if (optionBoolean(options, 'repair-on-fault')) {
+    const command = positionals.slice(1);
+    const result = await wrapCommandWithFaultRepair(root, command, {
+      source: optionString(options, 'source', 'cli-run'),
+      environment: optionString(options, 'environment', 'local'),
+      severity: optionString(options, 'severity', 'medium'),
+      type: optionString(options, 'type'),
+      maxAttempts: optionNumber(options, 'max-attempts'),
+      allowedPaths: optionStrings(options, 'allow-path'),
+      idempotencyKey: optionString(options, 'idempotency-key'),
+      policy: await configuredFaultPolicy(root, { failClosed: true }),
+      echo: !optionBoolean(options, 'json')
+    });
+    if (optionBoolean(options, 'json')) console.log(JSON.stringify({ schemaVersion: 1, ...result }, null, 2));
+    else if (!result.fault) console.log('Command passed; no fault was recorded.');
+    else {
+      console.log(`\nRecorded ${result.fault.faultId}; command exited ${result.exitCode}.`);
+      if (result.nested) console.log(`The fault was attached to repair ${process.env.SINGULARITY_FLOW_REPAIR_ID}; no recursive repair was created.`);
+      else if (result.repair) renderRepair(result.repair);
+    }
+    process.exitCode = result.exitCode;
+    return result;
+  }
+  const config = await loadConfig(root); const workflow = await loadStoryAggregate(root, config); const phase = currentPhase(workflow);
   if (!phase) { console.log('Workflow is complete. Running the final governance gate.'); return gateCommand({ terminal: true }); }
   if (phase.status === 'awaiting_approval') {
     console.log(`Guided run stopped: '${phase.id}' is awaiting human review and approval.`);
@@ -8421,7 +8621,10 @@ async function dispatch(command, positionals, options) {
     quickstart: () => guideCommand(['guide'], { ...options, 'first-run': true }),
     'refresh-branch': () => refreshBranchCommand(options),
     next: () => nextCommand(options),
-    run: () => runCommand(options),
+    run: () => runCommand(positionals, options),
+    fault: () => faultCommand(positionals, options),
+    fix: () => fixCommand(positionals, options),
+    repair: () => repairCommand(positionals, options),
     home: async () => (await import('./commands/home.mjs')).run(argv, { positionals, options }),
     recommend: async () => (await import('./commands/recommend.mjs')).run(positionals, { positionals, options }),
     logs: () => logsCommand(positionals, options),

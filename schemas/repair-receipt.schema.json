@@ -1,0 +1,33 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://example.invalid/singularity-flow/repair-receipt.schema.json",
+  "title": "Singularity Flow RepairReceipt v1",
+  "type": "object",
+  "required": ["schemaVersion", "recordType", "repairId", "faultId", "signature", "occurrenceGroup", "baseline", "baselines", "authoritySnapshot", "planSha256", "planGenerations", "policy", "diagnosis", "attempts", "budgetConsumption", "humanDecisions", "finalDisposition", "reason", "completedAt", "preservation", "integrity"],
+  "properties": {
+    "schemaVersion": { "const": 1 },
+    "recordType": { "const": "repair-receipt" },
+    "repairId": { "type": "string" },
+    "faultId": { "type": "string" },
+    "signature": { "type": "string" },
+    "occurrenceGroup": { "type": "string" },
+    "baseline": { "type": "string" },
+    "baselines": { "type": "object" },
+    "authoritySnapshot": { "type": "string" },
+    "planSha256": { "type": "string" },
+    "planGenerations": { "type": "array", "items": { "type": "object" } },
+    "policy": { "type": "object" },
+    "diagnosis": { "type": ["object", "null"] },
+    "attempts": { "type": "array", "items": { "type": "object" } },
+    "budgetConsumption": { "type": "object" },
+    "humanDecisions": { "type": "array", "items": { "type": "object" } },
+    "finalDisposition": { "enum": ["resolved", "needs-human", "exhausted", "cancelled", "quarantined", "challenge-opened", "follow-up-created"] },
+    "reason": { "type": "string" },
+    "completedAt": { "type": "string", "format": "date-time" },
+    "preservation": { "type": "object" },
+    "model": { "type": ["object", "null"] },
+    "adapter": { "type": ["object", "null"] },
+    "integrity": { "type": "object" }
+  },
+  "additionalProperties": false
+}

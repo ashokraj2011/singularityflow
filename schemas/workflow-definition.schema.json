@@ -121,6 +121,37 @@
       },
       "additionalProperties": false
     },
+    "faultRepair": {
+      "type": "object",
+      "properties": {
+        "enabled": { "type": "boolean", "default": true },
+        "maxAttempts": { "type": "integer", "minimum": 1, "maximum": 20, "default": 3 },
+        "maxMinutes": { "type": "integer", "minimum": 1, "maximum": 1440, "default": 20 },
+        "maxTokens": { "type": "integer", "minimum": 1, "maximum": 10000000, "default": 30000 },
+        "maximumInlineEvidenceBytes": { "type": "integer", "minimum": 1, "maximum": 65536, "default": 16384 },
+        "maximumEvidenceBytes": { "type": "integer", "minimum": 1024, "maximum": 1073741824, "default": 67108864 },
+        "leaseMinutes": { "type": "integer", "minimum": 1, "maximum": 1440, "default": 60 },
+        "boundedAuto": { "type": "boolean", "default": false },
+        "environmentCeilings": {
+          "type": "object",
+          "properties": {
+            "local": { "enum": ["record", "diagnose", "propose", "guided", "bounded-auto"] },
+            "ide": { "enum": ["record", "diagnose", "propose", "guided", "bounded-auto"] },
+            "copilot": { "enum": ["record", "diagnose", "propose", "guided", "bounded-auto"] },
+            "ci": { "enum": ["record", "diagnose", "propose", "guided", "bounded-auto"] },
+            "integration": { "enum": ["record", "diagnose", "propose", "guided", "bounded-auto"] },
+            "staging": { "enum": ["record", "diagnose", "propose", "guided", "bounded-auto"] },
+            "production": { "enum": ["record", "diagnose", "propose", "guided", "bounded-auto"] }
+          },
+          "additionalProperties": false
+        },
+        "protectedPaths": {
+          "type": "array", "uniqueItems": true,
+          "items": { "type": "string", "minLength": 1 }
+        }
+      },
+      "additionalProperties": false
+    },
     "templatesRoot": { "type": "string", "minLength": 1 },
     "planning": {
       "type": "object",

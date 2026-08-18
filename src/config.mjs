@@ -47,6 +47,7 @@ import { normalizeExternalCommand } from './external-command-policy.mjs';
 import { materializationPolicy } from './world-model-materialization.mjs';
 import { normalizeRepairBudget } from './repair-budget.mjs';
 import { normalizeSourceBoundary } from './source-boundary.mjs';
+import { normalizeFaultRepairPolicy } from './fault-repair.mjs';
 
 export const WORKFLOW_PATH = 'singularity/workflow.yml';
 export const CONTROL_ROOT = 'singularity';
@@ -383,6 +384,7 @@ export function validateDefinition(definition) {
   validateMcpAgentTools(definition);
   definition.ledger = normalizeLedgerConfig(definition.ledger ?? {});
   definition.spec = normalizeSpecPolicy(definition.spec ?? {});
+  definition.faultRepair = normalizeFaultRepairPolicy(definition.faultRepair ?? {});
   definition.approvalAuthorities = normalizeApprovalAuthorities(definition.approvalAuthorities);
   groundingMode(definition);
   if (definition.worldModel?.runner != null) throw new SingularityFlowError('worldModel.runner is not supported. Configure models.providers with a trusted executable and argument array.');
@@ -891,6 +893,9 @@ export function resolveWorkType(definition, workTypeId) {
     // configuration rather than a constant, and pinned per Story like every other policy.
     analysisLimits: analysisLimits(definition.analysisLimits),
     spec: normalizeSpecPolicy(definition.spec ?? {}),
+    // Fault policy is pinned with the Story resolution so a repair requested for that Story cannot
+    // acquire more authority merely because shared configuration changed later.
+    faultRepair: normalizeFaultRepairPolicy(definition.faultRepair ?? {}),
     harnessImports: normalizeHarnessImports(definition.harnessImports),
     documents,
     designSources: normalizeDesignSourcePolicy(workType.designSources, { phases: workType.phases }),

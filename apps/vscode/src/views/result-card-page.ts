@@ -41,6 +41,13 @@ export const RESULT_CARD_STYLE = `
 .sf-card-ceremony { border-left: 3px solid var(--vscode-charts-purple, var(--vscode-textLink-foreground)); }
 .sf-card h3 { margin: 0; font-size: 1.02em; font-weight: 600; display: flex; align-items: center; gap: 8px; }
 .sf-card-greeting { margin: 0; color: var(--vscode-descriptionForeground); }
+.sf-faults { display: grid; gap: 8px; }
+.sf-fault { display: grid; grid-template-columns: auto 1fr; gap: 4px 10px; padding: 10px 12px;
+  border: 1px solid var(--vscode-editorWarning-foreground); border-radius: 5px; }
+.sf-fault-badge { grid-row: 1 / span 2; align-self: start; color: var(--vscode-editorWarning-foreground);
+  font-size: .78em; font-weight: 700; text-transform: uppercase; letter-spacing: .04em; }
+.sf-fault-title { font-weight: 600; overflow-wrap: anywhere; }
+.sf-fault-summary { color: var(--vscode-descriptionForeground); overflow-wrap: anywhere; }
 .sf-rail { display: flex; flex-wrap: wrap; align-items: center; gap: 4px 10px; margin: 0; padding: 0; list-style: none;
   font-size: .92em; color: var(--vscode-descriptionForeground); }
 .sf-rail li { display: flex; align-items: center; gap: 5px; }
@@ -275,6 +282,17 @@ function guidanceHtml(view: ResultCardView): string {
   return `<section class="sf-guidance" aria-label="Developer guidance">${contextHtml}${recommendation}${preflight}${evidence}${inputs}</section>`;
 }
 
+function faultsHtml(view: ResultCardView): string {
+  const unresolved = view.faults.filter((fault) => fault.disposition !== 'resolved');
+  if (!unresolved.length) return '';
+  return `<section class="sf-faults" aria-label="Faults needing attention">${unresolved.map((fault) => `
+    <article class="sf-fault">
+      <span class="sf-fault-badge">${escape(fault.severity)}</span>
+      <span class="sf-fault-title">${escape(fault.faultId)} · ${escape(fault.type)}${fault.repairId ? ` · ${escape(fault.repairId)}` : ''}</span>
+      <span class="sf-fault-summary">${escape(fault.summary)}</span>
+    </article>`).join('')}</section>`;
+}
+
 export function resultCardHtml(view: ResultCardView, { now = Date.now() }: { now?: number } = {}): string {
   /**
    * A headline and a sentence, separated rather than run together.
@@ -345,7 +363,7 @@ export function resultCardHtml(view: ResultCardView, { now = Date.now() }: { now
   return `<section class="sf-card sf-card-${view.tone}">
     ${view.replyName ? `<p class="sf-card-greeting">Hello, ${escape(view.replyName)}.</p>` : ''}
     <h3>${icon(view.tone === 'refusal' ? 'statusBlocked' : 'statusCurrent')} ${escape(view.headline)}</h3>
-    ${railHtml(view)}${sinceHtml(view, now)}${guidanceHtml(view)}${why}${warnings}${gates}${preserved}${actions}${rest}${details}
+    ${railHtml(view)}${sinceHtml(view, now)}${guidanceHtml(view)}${faultsHtml(view)}${why}${warnings}${gates}${preserved}${actions}${rest}${details}
   </section>`;
 }
 

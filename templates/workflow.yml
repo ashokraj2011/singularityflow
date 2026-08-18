@@ -142,6 +142,29 @@ spec:
   testCommands: {}
   excludes: []
 
+# Faults are evidence, not authority. Local and IDE failures may enter a guided repair; CI may
+# propose only, and production may diagnose only. Bounded automation stays off until an approved
+# patch adapter and its capabilities are configured.
+faultRepair:
+  enabled: true
+  maxAttempts: 3
+  maxMinutes: 20
+  maxTokens: 30000
+  leaseMinutes: 60
+  boundedAuto: false
+  environmentCeilings:
+    local: guided
+    ide: guided
+    copilot: guided
+    ci: propose
+    integration: propose
+    staging: propose
+    production: diagnose
+  protectedPaths:
+    - .git
+    - singularity
+    - infra/production
+
 documents:
   allowedPhases: [intake, requirements, design, implementation-spec, reproduction, fix-design, fix-spec]
   maxFileBytes: 26214400

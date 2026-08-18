@@ -231,6 +231,24 @@ test('governed Copilot planning configuration has bounded, repository-safe defau
   assert.throws(() => normalizePlanning({ model: 'forced-model' }), /unknown field/);
 });
 
+test('fault repair policy is bounded, legacy-safe, and pinned into work types', async () => {
+  const root = await mkdtemp(path.join(os.tmpdir(), 'sflow-fault-policy-config-'));
+  await initializeDefinition(root);
+  const definition = structuredClone(await loadDefinition(root));
+  assert.equal(definition.faultRepair.environmentCeilings.local, 'guided');
+  assert.equal(definition.faultRepair.environmentCeilings.production, 'diagnose');
+  assert.equal(resolveWorkType(definition, 'feature').faultRepair.maxAttempts, 3);
+  definition.faultRepair.maxAttempts = 21;
+  assert.throws(() => validateDefinition(definition), /maxAttempts must be an integer from 1 through 20/);
+  definition.faultRepair.maxAttempts = 2;
+  definition.faultRepair.environmentCeilings.production = 'bounded-auto';
+  // The generic parser accepts a configured ceiling; effective policy still clamps production to diagnosis.
+  assert.doesNotThrow(() => validateDefinition(definition));
+  const unknown = structuredClone(definition);
+  unknown.faultRepair.unknown = true;
+  assert.throws(() => validateDefinition(unknown), /unknown field 'unknown'/);
+});
+
 test('world-model grounding is configurable and legacy-safe', async () => {
   const root = await mkdtemp(path.join(os.tmpdir(), 'sflow-grounding-config-')); await initializeDefinition(root);
   const definition = await loadDefinition(root);

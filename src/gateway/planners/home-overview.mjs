@@ -97,7 +97,7 @@ function homeNavigation(entry, { workId = null, workKind = null } = {}) {
   return { operationId: entry.id, arguments: {} };
 }
 
-function choice(entry, index, reasonCode, slots = {}, navigation = {}) {
+function choice(entry, index, reasonCode, slots = {}, navigation = {}, emphasis = index === 0 ? 'primary' : 'secondary') {
   const target = homeNavigation(entry, navigation);
   return plannerNavigation({
     handle: `home:${entry.id}`,
@@ -118,7 +118,7 @@ function choice(entry, index, reasonCode, slots = {}, navigation = {}) {
      * The menu below it stays secondary: six equally-weighted buttons and one emphasised one are
      * different screens, and only the second answers "what now?".
      */
-    emphasis: index === 0 ? 'primary' : 'secondary',
+    emphasis,
     /**
      * A menu item is never executable `[INT:IFC-001]`.
      *
@@ -129,6 +129,44 @@ function choice(entry, index, reasonCode, slots = {}, navigation = {}) {
     fallback: fallbackFor(entry.id, entry.label, slots),
     slots
   }, target.operationId, target.arguments);
+}
+
+function faultChoice(fault, action, rank, emphasis = 'secondary') {
+  const definitions = {
+    fix: {
+      label: `Fix ${fault.faultId}`,
+      reasonCode: 'fault.repair-guided',
+      command: `singularity-flow fix ${fault.faultId} --open`,
+      skill: `/sf-fix ${fault.faultId}`
+    },
+    diagnose: {
+      label: `Diagnose ${fault.faultId}`,
+      reasonCode: 'fault.diagnose-first',
+      command: `singularity-flow fix ${fault.faultId} --diagnose-only`,
+      skill: `/sf-fix ${fault.faultId} --diagnose-only`
+    },
+    evidence: {
+      label: `Open evidence for ${fault.faultId}`,
+      reasonCode: 'fault.open-evidence',
+      command: `singularity-flow fault show ${fault.faultId}`,
+      skill: `/sf-fault show ${fault.faultId}`
+    }
+  };
+  const definition = definitions[action];
+  return {
+    handle: `ceremony:fault:${fault.faultId}:${action}`,
+    id: `fault:${action}:${fault.faultId}`,
+    label: definition.label,
+    rank,
+    kind: 'ceremony',
+    reasonCode: definition.reasonCode,
+    confirmation: 'ceremony',
+    interaction: 'ceremony',
+    emphasis,
+    executable: false,
+    fallback: { label: definition.label, command: definition.command, skill: definition.skill },
+    slots: { fault: fault.faultId }
+  };
 }
 
 /**
@@ -173,6 +211,8 @@ export function homeOverviewResult({
   current = {},
   subject = null,
   localChanges = null,
+  faults = [],
+  faultsUnavailable = false,
   /**
    * How many *other* workspaces the registry knows about, or null when it could not be read.
    *
@@ -188,6 +228,7 @@ export function homeOverviewResult({
   const currentWork = homeState.currentWork;
   const decisions = homeState.needsYourDecision;
   const attentionWork = (groups['waiting-on-you'] ?? [])[0] ?? null;
+  const unresolvedFault = faults.find((fault) => fault.disposition !== 'resolved') ?? null;
 
   const projectWork = (work) => work ? {
     kind: work.kind, id: work.id, title: work.title, phase: work.phase,
@@ -300,6 +341,21 @@ export function homeOverviewResult({
     });
   }
 
+
+  if (unresolvedFault) {
+    why.push({
+      code: 'fault.unresolved',
+      source: 'evidence',
+      reference: unresolvedFault.faultId,
+      slots: {
+        fault: unresolvedFault.faultId,
+        severity: unresolvedFault.severity,
+        type: unresolvedFault.failure?.type ?? 'unknown',
+        summary: unresolvedFault.failure?.message ?? 'Recorded fault'
+      }
+    });
+  }
+
   /**
    * Nothing anywhere is an answer, and the only one this planner can give that is good news.
    *
@@ -313,7 +369,8 @@ export function homeOverviewResult({
     why.push({ code: 'home.nothing-waiting', source: 'lifecycle', slots: { workspace: workspace.name ?? workspace.id } });
   }
 
-  const shown = ordered.slice(0, MAX_HOME_CHOICES);
+  const standardLimit = Math.max(0, MAX_HOME_CHOICES - (unresolvedFault ? 3 : 0));
+  const shown = ordered.slice(0, standardLimit);
   return sflowResult({
     kind: 'read',
     operation: { id: 'home.overview', classification: 'read' },
@@ -351,7 +408,8 @@ export function homeOverviewResult({
      * a background job or a workspace-switch hook. Reporting "not checked" for a thing nobody
      * looked at is the same distinction this planner already draws about the worktree.
      */
-    warnings: otherWorkspaces === 0 ? [] : [{
+    warnings: [
+      ...(otherWorkspaces === 0 ? [] : [{
       code: 'home.briefing-unavailable',
       source: 'unavailable',
       slots: {
@@ -359,8 +417,15 @@ export function homeOverviewResult({
         /** How many other workspaces exist, or `unknown` when even the registry could not be read. */
         others: otherWorkspaces === null ? 'unknown' : String(otherWorkspaces)
       }
-    }],
-    next: shown.map((entry, index) => {
+    }]),
+      ...(faultsUnavailable ? [{ code: 'fault.records-unavailable', source: 'unavailable', slots: {} }] : [])
+    ],
+    next: (() => {
+      const standard = shown.map((entry, index) => {
+      const displayRank = unresolvedFault
+        ? (recovery ? (index === 0 ? 0 : index + 3) : index + 3)
+        : index;
+      const emphasis = displayRank === 0 ? 'primary' : 'secondary';
       /**
        * A promoted choice says why it was promoted.
        *
@@ -369,22 +434,22 @@ export function homeOverviewResult({
        * is told it is always available learns nothing about why today is different.
        */
       if (entry.id === 'work.return' && needsReconciliation) {
-        return choice(entry, index, 'home.local-work-unreconciled', {
+        return choice(entry, displayRank, 'home.local-work-unreconciled', {
           files: String(localChanges.files ?? 0),
           work: active?.id ?? 'none'
-        }, { workId: active?.id ?? null, workKind: active?.kind ?? null });
+        }, { workId: active?.id ?? null, workKind: active?.kind ?? null }, emphasis);
       }
       if (entry.id === 'work.continue' && leading) {
-        return choice(entry, index, recovery ? 'home.recovery-required' : 'home.continue-active-work', {
+        return choice(entry, displayRank, recovery ? 'home.recovery-required' : 'home.continue-active-work', {
           work: leading.id,
           title: leading.title,
           repository: leading.repository ?? 'current',
           phase: leading.phase ?? 'none',
           nextAction: leading.nextAction?.operation ?? 'none'
-        }, { workId: leading.id, workKind: leading.kind });
+        }, { workId: leading.id, workKind: leading.kind }, emphasis);
       }
       if (entry.id === 'work.list') {
-        return choice(entry, index, 'home.work-summary', {
+        return choice(entry, displayRank, 'home.work-summary', {
           active: String(counts.active),
           decisions: String(decisions),
           ...(currentWork ? {
@@ -392,12 +457,24 @@ export function homeOverviewResult({
             phase: currentWork.phase ?? 'none',
             group: currentWork.group ?? 'active'
           } : {})
-        });
+        }, {}, emphasis);
       }
-      return choice(entry, index, 'home.stable-choice', {}, {
+      return choice(entry, displayRank, 'home.stable-choice', {}, {
         workId: active?.id ?? null, workKind: active?.kind ?? null
+      }, emphasis);
       });
-    }),
+      if (!unresolvedFault) return standard;
+      const promoted = recovery ? 'secondary' : 'primary';
+      const faultActions = [
+        faultChoice(unresolvedFault, 'fix', recovery ? 1 : 0, promoted),
+        faultChoice(unresolvedFault, 'diagnose', recovery ? 2 : 1),
+        faultChoice(unresolvedFault, 'evidence', recovery ? 3 : 2)
+      ];
+      if (recovery && standard.length) {
+        return [standard[0], ...faultActions, ...standard.slice(1)].slice(0, MAX_HOME_CHOICES);
+      }
+      return [...faultActions, ...standard].slice(0, MAX_HOME_CHOICES);
+    })(),
     restState: null,
     data: {
       /**
@@ -431,6 +508,17 @@ export function homeOverviewResult({
        * `dirty: false` is a read that found nothing. `work.return` carries it here for the same reason.
        */
       localChanges,
+      faults: faults.slice(0, 5).map((fault) => ({
+        faultId: fault.faultId,
+        severity: fault.severity,
+        source: fault.source,
+        environment: fault.environment,
+        occurredAt: fault.occurredAt,
+        type: fault.failure?.type ?? 'unknown',
+        summary: fault.failure?.message ?? 'Recorded fault',
+        disposition: fault.disposition,
+        repair: fault.repair ?? null
+      })),
       // `[INT:CON-024]`: shown as a count here; selecting it opens the ceremony, never records one.
       needsYourDecision: decisions,
       briefingAvailable: false,
@@ -487,6 +575,17 @@ export async function homeOverview({ subject = null, root = null, context = {} }
   }
   const otherWorkspaces = await countOtherWorkspaces(context);
   const records = context.records ?? await workRecords(root, { ...context, repositoryId });
+  let faults = context.faults ?? null;
+  let faultsUnavailable = false;
+  if (!faults) {
+    try {
+      const { listFaults } = await import('../../fault-repair.mjs');
+      faults = await listFaults(root, { limit: 5 });
+    } catch {
+      faults = [];
+      faultsUnavailable = true;
+    }
+  }
   return homeOverviewResult({
     workspace: context.workspace ?? { id: root, name: context.workspaceName ?? root },
     repository: context.repository ?? {
@@ -508,6 +607,8 @@ export async function homeOverview({ subject = null, root = null, context = {} }
       repositoryScoped: !context.workId && !context.storyId && !currentBranch
     },
     subject,
+    faults,
+    faultsUnavailable,
     otherWorkspaces,
     /**
      * The same worktree read `work.continue` and `work.return` use.

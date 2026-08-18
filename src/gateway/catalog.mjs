@@ -100,6 +100,15 @@ export const HOME_CODES = Object.freeze([
   'home.selection-stale'
 ]);
 
+/** Fault intake and governed repair: compact, redacted facts shown on Home. */
+export const FAULT_CODES = Object.freeze([
+  'fault.unresolved',
+  'fault.repair-guided',
+  'fault.diagnose-first',
+  'fault.open-evidence',
+  'fault.records-unavailable'
+]);
+
 /** The canonical developer recommendation and its honest empty-state alternatives. */
 export const DEVELOPER_CODES = Object.freeze([
   'developer.recommended-next',
@@ -223,7 +232,7 @@ export const SURFACE_CODES = Object.freeze([
 /** Every code, in one frozen set, which is the thing a surface actually needs. */
 export const REASON_CODES = Object.freeze([
   ...RESOLUTION_CODES, ...KERNEL_CODES, ...HOME_CODES, ...DEVELOPER_CODES,
-  ...WORK_CODES, ...READINESS_CODES, ...RETURN_CODES, ...SURFACE_CODES
+  ...FAULT_CODES, ...WORK_CODES, ...READINESS_CODES, ...RETURN_CODES, ...SURFACE_CODES
 ]);
 
 /**
@@ -282,6 +291,8 @@ export const COMPOSED_CODES = Object.freeze({
 export const WARNING_CODES = Object.freeze([
   /** The My Flow briefing is cross-workspace; a planner that read one repository says so. */
   'home.briefing-unavailable',
+  /** The Git-local fault store was unreadable, so no-faults would be an invented answer. */
+  'fault.records-unavailable',
   /** `git status` could not be read, so "no local changes" would be a guess rather than a finding. */
   'return.local-changes-unread',
   /** No reconciliation record exists for this interval, so the comparison was not made. */

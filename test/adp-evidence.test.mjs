@@ -39,7 +39,15 @@ async function repository({ mapping = MAPPING } = {}) {
   if (mapping !== null) await writeFile(path.join(root, MODEL_TIERS_PATH), mapping);
   // A stand-in provider binary. It has to be a script rather than `node -e`, because the adapter
   // appends `-C <cwd> -p <prompt>` and node rejects `-C` as a bad option before the script runs.
-  await writeFile(path.join(root, 'fake-provider.mjs'), 'process.stdout.write("ok");\n');
+  // It also records the argv it was handed. Asserting on what the caller *meant* and never on what
+  // the provider was *asked* is how a routed invocation came to resolve a model, put it in the
+  // receipt, and then run the provider with no model at all — see `the routed model is the model
+  // the provider is asked for` below.
+  await writeFile(path.join(root, 'fake-provider.mjs'),
+    `import fs from 'node:fs';\n`
+    + `fs.writeFileSync(${JSON.stringify(JSON.stringify(path.join(root, 'provider-argv.json')))}`
+    + `.slice(1, -1), JSON.stringify(process.argv.slice(2)));\n`
+    + 'process.stdout.write("ok");\n');
   return root;
 }
 
@@ -57,6 +65,11 @@ function run(root, overrides) {
     { operation: { id: 'model.test', modelPolicy: 'required' }, modelMode: { enabled: true }, root, command: 'test' },
     () => invokeModel(request(root, overrides))
   );
+}
+
+/** What the provider process was actually asked to run. */
+async function providerArgv(root) {
+  return JSON.parse(await readFile(path.join(root, 'provider-argv.json'), 'utf8'));
 }
 
 async function auditRecords(root) {
@@ -99,6 +112,33 @@ test('an aliased task records the tier it borrowed', async () => {
   const result = await run(root, { task: 'code' });
   assert.equal(result.routing.resolvedModel, 'strong-model');
   assert.equal(result.routing.aliasOf, 'reason', 'an aliased task did not disclose whose tier it used');
+});
+
+test('the routed model is the model the provider is asked for', async () => {
+  /**
+   * `[ADP:REQ-032]`. The receipt is written from the routing decision, so it agrees with itself
+   * whatever the provider was told — which is exactly how this shipped: a task-routed invocation
+   * resolved `strong-model`, recorded `strong-model`, returned `strong-model`, and invoked the
+   * provider with no `--model` at all. The provider used its own default, and every surface built
+   * to answer "which model did this work" answered with a model nobody requested.
+   *
+   * So this asserts on the argv the provider received, which is the only place the two claims can
+   * be seen to disagree.
+   */
+  const root = await repository();
+  await run(root, { task: 'reason' });
+  const argv = await providerArgv(root);
+  assert.ok(argv.includes('--model'), 'a routed invocation asked the provider for no model at all');
+  assert.equal(argv[argv.indexOf('--model') + 1], 'strong-model',
+    'the provider was asked for a model other than the one the receipt records');
+});
+
+test('a caller-named model still reaches the provider unchanged', async () => {
+  // The path that always worked, kept honest beside the one that did not.
+  const root = await repository();
+  await run(root, { model: 'named-model' });
+  const argv = await providerArgv(root);
+  assert.equal(argv[argv.indexOf('--model') + 1], 'named-model');
 });
 
 test('a request may route by task or name a model, never both', async () => {

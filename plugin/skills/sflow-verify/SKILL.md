@@ -19,4 +19,6 @@ argument-hint: "[test scope or environment]"
 6. Cover regression, negative cases, boundaries, failure modes, security, reliability, accessibility, and performance where applicable.
 7. Run `singularity-flow prepare verification`, complete the evidence without unobserved claims, remove placeholders, and run `singularity-flow phase publish verification --authored governed-agent --channel copilot-host`.
 8. Run `singularity-flow phase show verification --json`, then reproduce every published text document in full in the visible assistant response between `--- BEGIN <path> ---` and `--- END <path> ---`, with its ID, kind, byte count, and hash. A collapsible Shell/tool block does not count. Never say “shown above.” Never replace it with a summary. For binary documents, show the absolute path, metadata, and open instruction.
-9. Do not submit or approve automatically.
+9. Do not submit or approve automatically. End the handoff with the direct Copilot action first, followed by its terminal equivalent:
+   - `Next in Copilot: /sf-submit verification`
+   - `Terminal equivalent: singularity-flow submit verification`

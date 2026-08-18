@@ -78,12 +78,16 @@ skills:
   sflow-agent: { class: interactive }
   sflow-agents: { class: echo }
   sflow-admin: { class: conversational }
+  sflow-approvals: { class: echo }
   sflow-approve: { class: review }
+  sflow-assign: { class: mutation }
   sflow-cancel: { class: mutation }
   sflow-capabilities: { class: echo }
   sflow-capability-doctor: { class: echo }
   sflow-capability-map: { class: interactive }
   sflow-continue: { class: mutation }
+  sflow-configuration: { class: mutation }
+  sflow-constitution: { class: mutation }
   sflow-design: { class: generative }
   sflow-docs: { class: echo }
   sflow-specify: { class: echo }
@@ -109,11 +113,15 @@ skills:
   sflow-epic-story-draft: { class: generative }
   sflow-epic-sync: { class: mutation }
   sflow-factory-reset: { class: mutation }
+  sflow-fresh-install: { class: mutation }
   sflow-local-reset: { class: mutation }
   sflow-reinstall: { class: mutation }
   sflow-finalize: { class: mutation }
+  sflow-gate: { class: mutation }
+  sflow-harness: { class: echo }
   sflow-help: { class: conversational }
   sflow-home: { class: guided }
+  sflow-hook: { class: mutation }
   sflow-implement: { class: generative }
   sflow-inbox: { class: echo }
   sflow-init: { class: mutation }
@@ -137,28 +145,36 @@ skills:
   sflow-jira-story: { class: echo }
   sflow-jira-update: { class: mutation }
   sflow-jira-work: { class: echo }
+  sflow-knowledge: { class: mutation }
   sflow-ledger: { class: mutation }
   sflow-logs: { class: echo }
   sflow-mcp: { class: mutation }
   sflow-next: { class: mutation }
   sflow-nextsteps: { class: conversational }
   sflow-phase: { class: generative }
+  sflow-plugin: { class: mutation }
+  sflow-pr: { class: mutation }
   sflow-progress: { class: echo }
   sflow-prompt-log: { class: mutation }
   sflow-quickstart: { class: echo }
   sflow-recommend: { class: conversational }
   sflow-refresh-branch: { class: mutation }
   sflow-regression-investigate: { class: generative }
+  sflow-recover: { class: mutation }
   sflow-reject: { class: review }
   sflow-release: { class: generative }
   sflow-report: { class: echo }
   sflow-requirements: { class: generative }
+  sflow-reset-all: { class: mutation }
   sflow-resume: { class: interactive }
   sflow-review: { class: review }
   sflow-run: { class: mutation }
+  sflow-secrets: { class: mutation }
   sflow-session: { class: interactive }
   sflow-show: { class: echo }
   sflow-show-prompt: { class: echo }
+  sflow-snapshot: { class: echo }
+  sflow-spec: { class: mutation }
   sflow-stack: { class: mutation }
   sflow-start: { class: interactive }
   sflow-status: { class: conversational }
@@ -172,6 +188,8 @@ skills:
   sflow-telemetry: { class: echo }
   sflow-upload: { class: mutation }
   sflow-verify: { class: generative }
+  sflow-visual: { class: mutation }
+  sflow-watch: { class: echo }
   sflow-workflow-rules: { class: conversational }
   sflow-workflows: { class: mutation }
   sflow-workspace: { class: interactive }

@@ -64,6 +64,7 @@ test('every command has a complete current reference page', () => {
     assert.match(page, /\nDESCRIPTION\n/);
     assert.match(page, /\nOPTIONS\n/);
     assert.match(page, /\nEXAMPLES\n/);
+    assert.match(page, /\nCOPILOT\n/);
     assert.match(page, /\nSEE ALSO\n/);
     assert.doesNotMatch(page, /No detailed page has been written/, command);
   }

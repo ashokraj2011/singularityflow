@@ -7,7 +7,8 @@ import YAML from 'yaml';
 import { validateDefinition } from '../src/config.mjs';
 import { discoverAgents, validateAgentCatalog } from '../src/agents.mjs';
 import { allCommands, documentedCommands, overviewCommands, synopsisFor } from '../src/help-pages.mjs';
-import { canonicalCommand } from '../src/command-registry.mjs';
+import { canonicalCommand, COMMAND_REGISTRY } from '../src/command-registry.mjs';
+import { COMMAND_SKILLS } from '../src/command-skills.mjs';
 import { BOOLEAN_OPTIONS } from '../src/util.mjs';
 import { validatePortfolio, validatePortfolioWorldModelViews } from '../src/initiative-config.mjs';
 import { auditSkillPolicy } from './skill-policy.mjs';
@@ -265,6 +266,29 @@ for (const entry of skillDirs) {
 const skillAudit = await auditSkillPolicy(root);
 for (const error of skillAudit.errors) fail(`skill policy: ${error}`);
 checked.push('plugin/skills/registry.yml', 'scripts/skill-policy.mjs');
+
+// CLI verbs and Copilot journeys are not always named alike (`prepare` belongs to `/sf-phase`,
+// for example), so the crosswalk is explicit and closed in both directions. Without this check a
+// newly registered command can silently ship with no conversational route, or Help can recommend a
+// skill that the installer never packages.
+{
+  const registered = new Set(COMMAND_REGISTRY.map((entry) => entry.name));
+  const mapped = new Set(Object.keys(COMMAND_SKILLS));
+  const missing = [...registered].filter((name) => !mapped.has(name));
+  const stale = [...mapped].filter((name) => !registered.has(name));
+  if (missing.length) fail(`Commands with no Copilot skill mapping: ${missing.join(', ')}`);
+  if (stale.length) fail(`Copilot skill mappings for unregistered commands: ${stale.join(', ')}`);
+  for (const [command, skills] of Object.entries(COMMAND_SKILLS)) {
+    if (!skills.length) fail(`${command}: Copilot skill mapping is empty`);
+    if (new Set(skills).size !== skills.length) fail(`${command}: Copilot skill mapping contains duplicates`);
+    for (const skill of skills) {
+      if (!/^sf-[a-z0-9]+(?:-[a-z0-9]+)*$/.test(skill)) fail(`${command}: invalid direct skill name '${skill}'`);
+      const source = path.join(skillRoot, skill.replace(/^sf-/, 'sflow-'), 'SKILL.md');
+      if (!existsSync(source)) fail(`${command}: mapped skill /${skill} is not packaged`);
+    }
+  }
+  checked.push('src/command-skills.mjs');
+}
 
 const agentRoot = path.join(root, 'plugin', 'agents');
 const agentFiles = (await readdir(agentRoot, { withFileTypes: true })).filter((entry) => entry.isFile() && entry.name.endsWith('.agent.md'));

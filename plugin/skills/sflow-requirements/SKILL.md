@@ -20,4 +20,4 @@ argument-hint: "[additional business context]"
 8. Remove every `TODO`, `TBD`, template instruction, and unsupported claim.
 9. Run `singularity-flow phase publish requirements --authored governed-agent --channel copilot-host` to register, commit, and push the generated artifact.
 10. Run `singularity-flow phase show requirements --json`, then reproduce every published text document in full in the visible assistant response between `--- BEGIN <path> ---` and `--- END <path> ---`, with its ID, kind, byte count, and hash. A collapsible Shell/tool block does not count. Never say “shown above.” Never replace it with a summary. For binary documents, show the absolute path, metadata, and open instruction.
-11. Summarize confirmed clarification decisions, unresolved decisions, token status, and publication commit. Do not submit or approve automatically.
+11. Summarize confirmed clarification decisions, unresolved decisions, token status, and publication commit. Do not submit or approve automatically. End with `Next in Copilot: /sf-submit requirements`, followed by `Terminal equivalent: singularity-flow submit requirements`.

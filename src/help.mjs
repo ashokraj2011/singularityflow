@@ -2,6 +2,7 @@ import { readFile } from 'node:fs/promises';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { SingularityFlowError } from './util.mjs';
+import { renderCommandSkillTable } from './command-skills.mjs';
 
 const helpPath = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..', 'HELP.md');
 
@@ -10,15 +11,16 @@ export function helpTopicId(title) {
 }
 
 export function parseHelpDocument(content) {
-  const title = content.match(/^#\s+(.+)$/m)?.[1]?.trim() ?? 'Singularity Flow Help';
-  const matches = [...content.matchAll(/^##\s+(.+)$/gm)];
+  const expanded = String(content).replace('<!-- command-skill-map -->', renderCommandSkillTable());
+  const title = expanded.match(/^#\s+(.+)$/m)?.[1]?.trim() ?? 'Singularity Flow Help';
+  const matches = [...expanded.matchAll(/^##\s+(.+)$/gm)];
   const topics = matches.map((match, index) => {
     const start = match.index + match[0].length;
-    const end = matches[index + 1]?.index ?? content.length;
+    const end = matches[index + 1]?.index ?? expanded.length;
     const topicTitle = match[1].trim();
-    return { id: helpTopicId(topicTitle), title: topicTitle, content: content.slice(start, end).trim() };
+    return { id: helpTopicId(topicTitle), title: topicTitle, content: expanded.slice(start, end).trim() };
   });
-  return { schemaVersion: 1, title, content, topics };
+  return { schemaVersion: 1, title, content: expanded, topics };
 }
 
 export async function loadHelpDocument(topic = null) {

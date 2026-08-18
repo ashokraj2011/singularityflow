@@ -71,7 +71,7 @@ test('rejection, pending publication, and completion produce safe action plans',
 
   const complete = workflow({ status: 'complete', currentPhase: null, phaseStatus: 'approved', generation: 1 });
   const completed = workflowNextSteps(complete);
-  assert.deepEqual(completed.map((item) => item.skill), ['/sf-next', '/sf-stack', '/sf-stack', '/sf-progress', '/sf-report']);
+  assert.deepEqual(completed.map((item) => item.skill), ['/sf-gate', '/sf-stack', '/sf-stack', '/sf-progress', '/sf-report']);
   assert.match(completed[0].command, /gate --terminal/);
   assert.equal(completed[1].command, 'singularity-flow pr NEXT-1');
   assert.equal(completed[2].command, 'singularity-flow pr NEXT-1 --create');

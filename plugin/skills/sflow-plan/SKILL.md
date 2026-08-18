@@ -17,3 +17,4 @@ disable-model-invocation: true
 6. Never present a milestone as reached unless the router says so. A command returning successfully is not completion.
 7. State the underlying operations you ran, so the reader can always see which governed operation the verb stood for.
 8. Do not approve, reject, or advance a phase.
+9. For every returned next action, show its direct Copilot route first as `Next in Copilot: /sf-...`, followed by the exact `Terminal equivalent: singularity-flow ...`. Never omit or guess either route.

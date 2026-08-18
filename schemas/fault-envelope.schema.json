@@ -1,0 +1,57 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://example.invalid/singularity-flow/fault-envelope.schema.json",
+  "title": "Singularity Flow FaultEnvelope v1",
+  "type": "object",
+  "required": ["schemaVersion", "recordType", "faultId", "source", "occurredAt", "receivedAt", "environment", "severity", "identity", "build", "failure", "evidence", "requestedAction", "signature", "occurrenceGroup", "integrity"],
+  "properties": {
+    "schemaVersion": { "const": 1 },
+    "recordType": { "const": "fault-envelope" },
+    "faultId": { "type": "string", "pattern": "^FLT-[A-Z0-9][A-Z0-9-]*$" },
+    "source": { "type": "string", "minLength": 1 },
+    "correlationId": { "type": ["string", "null"] },
+    "occurredAt": { "type": "string", "format": "date-time" },
+    "receivedAt": { "type": "string", "format": "date-time" },
+    "environment": { "enum": ["local", "ide", "copilot", "ci", "integration", "staging", "production"] },
+    "severity": { "enum": ["info", "low", "medium", "high", "critical"] },
+    "identity": {
+      "type": "object",
+      "required": ["subject", "authoritySnapshot"],
+      "properties": {
+        "subject": { "type": "string", "minLength": 1 },
+        "email": { "type": ["string", "null"] },
+        "login": { "type": ["string", "null"] },
+        "authoritySnapshot": { "type": "string", "pattern": "^sha256:[a-f0-9]{64}$" }
+      },
+      "additionalProperties": false
+    },
+    "story": { "type": ["string", "null"] },
+    "capability": { "type": ["string", "null"] },
+    "build": {
+      "type": "object",
+      "required": ["id", "commit"],
+      "properties": {
+        "id": { "type": ["string", "null"] },
+        "commit": { "type": "string", "pattern": "^[a-f0-9]{7,64}$" }
+      },
+      "additionalProperties": false
+    },
+    "failure": { "type": "object" },
+    "evidence": { "type": "array", "items": { "type": "object" } },
+    "requestedAction": { "enum": ["policy-decides", "record", "diagnose", "propose", "guided", "bounded-auto"] },
+    "parentRepairId": { "type": ["string", "null"] },
+    "redaction": { "type": "object" },
+    "signature": { "type": "string", "pattern": "^sha256:[a-f0-9]{64}$" },
+    "occurrenceGroup": { "type": "string", "pattern": "^FOG-[A-F0-9]+$" },
+    "integrity": { "$ref": "#/$defs/integrity" }
+  },
+  "additionalProperties": false,
+  "$defs": {
+    "integrity": {
+      "type": "object",
+      "required": ["algorithm", "sha256"],
+      "properties": { "algorithm": { "const": "sha256" }, "sha256": { "type": "string", "pattern": "^[a-f0-9]{64}$" } },
+      "additionalProperties": false
+    }
+  }
+}

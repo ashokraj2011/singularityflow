@@ -2348,6 +2348,28 @@ singularity-flow run --task "Implement the approved screen contract"
 
 Doctor checks Node and Git, YAML and workflow state, the phase agent, human authority configuration, assignment policy, pending publication, working-tree safety, upstream configuration, and remote reachability. Guided execution may prepare grounding/artifacts or offer submission, but always stops for authoring and approval. It never treats an agent as approval permission and never approves automatically.
 
+## Fault intake and governed repair
+
+Faults are immutable evidence, not authority. `fault report` sanitizes bounded text evidence,
+binds the exact baseline, computes a deterministic signature, and groups repeat occurrences below
+the repository Git directory without dirtying application source. `fix --diagnose-only` produces
+model-free facts; `fix --plan-only` previews the exact path, verification, tool and budget boundary.
+
+```bash
+singularity-flow run --repair-on-fault -- npm test
+singularity-flow fault report --source ci --environment ci --type unit-test --build 1842 \
+  --commit 81ac012 --command "npm test" --exit-code 1 --log artifacts/test.log
+singularity-flow fix FLT-... --plan-only --allow-path src/payment --verify "npm test -- payment"
+```
+
+A persisted guided plan requires its exact SHA-256 confirmation before SFlow creates a local
+isolated repair worktree. `repair attempt` validates the patch scope before applying it there and
+runs the complete pinned verification set as exact argv without a shell. SFlow grants no network
+capability; a verifier that needs stronger isolation must run in its host sandbox. No repair command pushes,
+approves, merges, releases or deploys. CI/staging default to proposal only; production and intent
+conflicts diagnose or open a challenge. Use `/sf-fault`, `/sf-fix`, or
+`singularity-flow explain fault-intake-and-repair` for the guided journey.
+
 ## Workflow catalog and preflight simulation
 
 ```bash
@@ -2599,6 +2621,19 @@ singularity-flow action authorize <PLAN-ID> [--action ACTION-ID] --confirm ACTIO
 singularity-flow action execute <PLAN-ID> [--action ACTION-ID] [--authorization TOKEN] [--json]
 singularity-flow next [--task TEXT] [--fetch] [--yes] [--skip-checks]
 singularity-flow run [--task TEXT] [--yes]
+singularity-flow run --repair-on-fault [--max-attempts N] [--allow-path PATH]... -- <COMMAND> [ARGUMENTS...]
+singularity-flow fault report [--from ENVELOPE.json | --source SOURCE --environment ENV --type TYPE]
+  [--build ID] [--commit SHA] [--story WORK-ID] [--command TEXT] [--exit-code N]
+  [--message TEXT] [--log FILE]... [--idempotency-key KEY] [--json]
+singularity-flow fault list [--status recorded|repair-active|resolved] [--limit N] [--json]
+singularity-flow fault show <FAULT-ID> [--json]
+singularity-flow fix <FAULT-ID> [--diagnose-only | --plan-only] [--auto] [--max-attempts N]
+  [--allow-path PATH]... [--verify COMMAND]... [--open] [--json]
+singularity-flow repair list [--status STATUS] [--json]
+singularity-flow repair status <REPAIR-ID> [--json]
+singularity-flow repair authorize <REPAIR-ID> --confirm PLAN-SHA256 [--open] [--json]
+singularity-flow repair attempt <REPAIR-ID> --patch PATCH-FILE [--json]
+singularity-flow repair cancel <REPAIR-ID> --reason TEXT [--json]
 singularity-flow cockpit
 singularity-flow doctor [WORK-ID] [--offline] [--performance] [--json]
 singularity-flow review [PHASE] [--phase PHASE] [--format md|html|json] [--out FILE]

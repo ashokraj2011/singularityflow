@@ -1479,6 +1479,49 @@ status and fingerprint timings, sparse/partial-clone state, and recommendations.
 It never changes Git configuration. Ordinary Home and doctor reads do not run
 the benchmark.
 
+## Fault intake and governed repair
+
+Anything may report that it is broken; only pinned policy decides what happens
+next. Fault intake stores sanitized, content-hashed evidence below the
+repository Git directory, so reporting a test, build, IDE, CI, staging, or
+production failure never dirties application source.
+
+```bash
+# Wrap a local command and record any non-zero result.
+singularity-flow run --repair-on-fault -- npm test
+
+# Or record an external build failure.
+singularity-flow fault report --source ci --environment ci --type unit-test \
+  --build 1842 --commit 81ac012 --command "npm test" --exit-code 1 \
+  --log artifacts/test.log --idempotency-key payment-build-1842
+
+singularity-flow fix FLT-... --diagnose-only
+singularity-flow fix FLT-... --plan-only --allow-path src/payment --verify "npm test -- payment"
+```
+
+Node integrations use the same kernel without parsing terminal output:
+
+```js
+import { createSflow } from 'singularity-flow/src/api.mjs';
+const sflow = createSflow({ root: process.cwd() });
+const fault = await sflow.fault.report(envelope);
+const repair = await sflow.repair.request({ faultId: fault.faultId, mode: 'policy-decides' });
+```
+
+Local and IDE faults default to guided repair, CI and staging to proposal only,
+and production, security, requirement, policy, and architecture faults to
+diagnosis/challenge only. `--auto` cannot raise that ceiling. A guided repair
+creates a local isolated `sflow/repair/*` branch only after the human confirms
+the exact plan hash. Candidate patches enter through `repair attempt`; the
+kernel checks every path before applying them and runs the complete pinned
+verification set as exact argv without a shell. SFlow grants no network capability; a verifier
+that needs stronger network isolation must run in its host sandbox. It never pushes, approves, merges,
+releases, deploys, or edits production.
+
+In Copilot use `/sf-fault` and `/sf-fix`. In VS Code unresolved faults appear in
+**My Work** with **Fix this** and **Diagnose**. All surfaces call the same records
+and kernel functions. See `singularity-flow explain fault-intake-and-repair`.
+
 For the smallest and lowest-token validated model, run this from the
 application repository:
 

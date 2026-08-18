@@ -168,6 +168,40 @@ export const MESSAGES = Object.freeze({
   'recommend.no-current-work': {
     headline: (s) => `${s.name ? `${slot(s.name)}, ` : ''}no governed work is currently selected.`,
     preserves: true
+  },
+  'fault.recorded': {
+    headline: (s) => `Recorded fault ${slot(s.faultId)} (${slot(s.type)}, ${slot(s.severity)}).`
+  },
+  'fault.returned': {
+    headline: (s) => `Fault ${slot(s.faultId)} is ${slot(s.disposition, 'recorded')}.`,
+    preserves: true
+  },
+  'fault.listed': {
+    headline: (s) => `Found ${slot(s.count, '0')} local fault record(s).`,
+    preserves: true
+  },
+  'repair.diagnosed': {
+    headline: (s) => `Diagnosed ${slot(s.faultId)}: ${slot(s.disposition)}.`
+  },
+  'repair.planned': {
+    headline: (s) => `${s.preview ? 'Previewed' : 'Created'} repair ${slot(s.repairId)} in ${slot(s.status)} state.`
+  },
+  'repair.listed': {
+    headline: (s) => `Found ${slot(s.count, '0')} local repair run(s).`,
+    preserves: true
+  },
+  'repair.returned': {
+    headline: (s) => `Repair ${slot(s.repairId)} is ${slot(s.status)}.`,
+    preserves: true
+  },
+  'repair.authorized': {
+    headline: (s) => `Authorized repair ${slot(s.repairId)} for its exact plan.`
+  },
+  'repair.attempted': {
+    headline: (s) => `Repair ${slot(s.repairId)} attempt finished as ${slot(s.status)}.`
+  },
+  'repair.cancelled': {
+    headline: (s) => `Cancelled repair ${slot(s.repairId)} and preserved its history.`
   }
 });
 

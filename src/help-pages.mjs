@@ -230,6 +230,82 @@ const PAGES = Object.freeze({
     ],
     seeAlso: ['nextsteps', 'progress', 'doctor']
   },
+  fault: {
+    summary: 'Record and inspect immutable failure evidence without granting repair authority.',
+    description: [
+      'Creates a schema-versioned FaultEnvelope in the repository-local Git control plane. The',
+      'report binds the observed build and commit, sanitizes evidence, computes its own deterministic',
+      'signature, groups repeated occurrences, and preserves the caller identity snapshot.',
+      '',
+      'A fault is evidence only. This command cannot edit code, approve work, merge, push, release,',
+      'deploy, or increase the action ceiling selected by repository policy.'
+    ],
+    options: [
+      ['--from FILE', 'Read a complete FaultEnvelope v1 request from JSON.'],
+      ['--source SOURCE', 'Adapter or surface that observed the failure.'],
+      ['--environment ENV', 'local, ide, copilot, ci, integration, staging, or production.'],
+      ['--type TYPE', 'Normalized compile, test, runtime, configuration, security, or other fault type.'],
+      ['--log FILE', 'Sanitize and retain a local text log by immutable content hash. Repeatable.'],
+      ['--idempotency-key KEY', 'Return the existing fault for a repeated identical report.'],
+      ['--json', 'Emit the complete record or list.']
+    ],
+    examples: [
+      ['singularity-flow fault report --source ci --environment ci --type unit-test --build 1842 --command "npm test" --exit-code 1 --log artifacts/test.log',
+        'Records the failure and evidence; it does not start a repair.'],
+      ['singularity-flow fault list --status repair-active', 'Lists faults with a current repair run.']
+    ],
+    seeAlso: ['fix', 'repair', 'run', 'regression']
+  },
+  fix: {
+    summary: 'Diagnose a fault and create or preview its policy-bounded repair plan.',
+    description: [
+      'Runs deterministic diagnosis first, joins the exact baseline to changed paths and available',
+      'governed records, computes the most restrictive effective action ceiling, and pins scope,',
+      'verification and budgets before any repair worktree can be created.',
+      '',
+      '`--auto` is a request, never extra authority. It degrades to the policy ceiling, and this',
+      'build refuses autonomous mutation unless a separately governed adapter is configured.'
+    ],
+    options: [
+      ['--diagnose-only', 'Record deterministic facts and dispositions without creating a repair.'],
+      ['--plan-only', 'Preview a hash-bound plan without storing a repair run.'],
+      ['--allow-path PATH', 'Explicit repository-relative repair scope. Repeatable.'],
+      ['--verify COMMAND', 'Pinned argv-style verification command. Shell operators are refused. Repeatable.'],
+      ['--max-attempts N', 'Reduce the configured attempt budget; it cannot raise it.'],
+      ['--auto', 'Request bounded automation; policy may only reduce this request.'],
+      ['--open', 'Open the isolated workspace after exact plan authorization.'],
+      ['--json', 'Emit diagnosis, plan and repair state.']
+    ],
+    examples: [
+      ['singularity-flow fix FLT-1842-03 --diagnose-only', 'Shows observed facts separately from hypotheses.'],
+      ['singularity-flow fix FLT-1842-03 --plan-only --allow-path src/payment --verify "npm test -- payment"',
+        'Previews a bounded guided plan and writes nothing.']
+    ],
+    seeAlso: ['fault', 'repair', 'regression', 'constitution']
+  },
+  repair: {
+    summary: 'Authorize, inspect, attempt, or cancel an isolated governed repair.',
+    description: [
+      'Authorization is bound to the exact RepairPlan hash and creates a local repair branch and',
+      'isolated worktree from the pinned baseline. A patch is checked for scope and safety before',
+      'application, then the complete pinned verification set runs without a shell or network.',
+      '',
+      'Attempts, patches, output hashes, stop reasons and human decisions are immutable. Cancellation',
+      'preserves the isolated worktree and never deletes or rewrites the developer checkout.'
+    ],
+    options: [
+      ['--confirm PLAN-SHA256', 'Authorize exactly the plan shown by fix/status.'],
+      ['--patch FILE', 'Candidate Git patch to validate, apply in isolation, and verify.'],
+      ['--reason TEXT', 'Required cancellation reason retained in the repair receipt.'],
+      ['--open', 'Open the newly authorized isolated worktree in VS Code.'],
+      ['--json', 'Emit complete structured repair state and evidence.']
+    ],
+    examples: [
+      ['singularity-flow repair authorize RPR-0042 --confirm 0123abcd...', 'Creates the isolated repair worktree only after exact authorization.'],
+      ['singularity-flow repair attempt RPR-0042 --patch candidate.patch', 'Applies a contained candidate and runs every pinned verifier.']
+    ],
+    seeAlso: ['fix', 'fault', 'status', 'review']
+  },
   approvals: {
     summary: 'Show the Story approval chain with every phase document and human decision.',
     description: [

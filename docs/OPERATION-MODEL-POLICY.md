@@ -32,7 +32,11 @@ Every public operation is classified before its implementation module is importe
 | epic | mutation | never | — | — |
 | explain | read | never | — | — |
 | factory-reset | mutation | never | — | — |
+| fault.list | read | never | — | — |
+| fault.report | mutation | never | — | — |
+| fault.show | read | never | — | — |
 | finalize | mutation | never | — | — |
+| fix | mutation | never | — | — |
 | fresh-install | mutation | never | — | — |
 | gate | mutation | never | — | — |
 | guide | read | never | — | — |
@@ -73,6 +77,11 @@ Every public operation is classified before its implementation module is importe
 | reinstall | mutation | never | — | — |
 | reject | mutation | never | — | — |
 | reopen | mutation | never | — | — |
+| repair.attempt | mutation | never | — | — |
+| repair.authorize | mutation | never | — | — |
+| repair.cancel | mutation | never | — | — |
+| repair.list | read | never | — | — |
+| repair.status | read | never | — | — |
 | report.render | read | never | — | — |
 | report.write | mutation | never | — | — |
 | reset-all | mutation | never | — | — |

@@ -100,6 +100,13 @@ export const RESULT_MESSAGES = Object.freeze({
   'home.stable-choice': M('Always available'),
   'home.selection-stale': M('The selected work changed while this answer was being prepared', 'Refresh Home and choose the current subject again.'),
 
+  // ---- Fault intake and governed repair
+  'fault.unresolved': M('{severity} fault {fault} needs attention', '{type}: {summary}'),
+  'fault.repair-guided': M('Prepare a governed repair', 'Diagnosis and the exact mutation scope are reviewed before an isolated worktree is changed.'),
+  'fault.diagnose-first': M('Diagnose without changing files', 'Produces deterministic facts and hypotheses only; no repair worktree is created.'),
+  'fault.open-evidence': M('Open the redacted fault record', 'Shows retained evidence and integrity metadata without exposing absolute paths.'),
+  'fault.records-unavailable': M('Fault records could not be read', 'Home continued without treating an unread fault store as an empty one.'),
+
   // ---- Developer recommendation
   'developer.recommended-next': M('Recommended from the current governed state',
     'Review what it will change before selecting it.'),

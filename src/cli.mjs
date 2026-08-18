@@ -8664,6 +8664,7 @@ async function dispatch(command, positionals, options) {
     fault: () => faultCommand(positionals, options),
     fix: () => fixCommand(positionals, options),
     repair: () => repairCommand(positionals, options),
+    goal: async () => (await import('./commands/goal.mjs')).run([], { positionals, options }),
     home: async () => (await import('./commands/home.mjs')).run(argv, { positionals, options }),
     recommend: async () => (await import('./commands/recommend.mjs')).run(positionals, { positionals, options }),
     logs: () => logsCommand(positionals, options),

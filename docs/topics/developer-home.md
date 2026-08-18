@@ -12,7 +12,8 @@ related:
   - starting-work
   - story-lifecycle
   - nextsteps
-version: 4
+  - goals-and-outcomes
+version: 5
 ---
 `sflow home` is the read-only front door for a developer. It resolves the active workspace and repository, reports the current Story and repository freshness, and offers no more than six deterministic next choices. `sflow home --request "<ordinary developer request>"` also returns a versioned plan for orient, continue, start, inspect, act, or recover. Home reads the local Git identity's display name and uses its first name once to personalize human replies in the shell, My Work, and Copilot. The presentation name never participates in authority, handle binding, lifecycle state, or telemetry. It never fetches, checks out a branch, mutates lifecycle state, or invokes a model. In VS Code, **My Work** is the visible home. **Talk to SFlow** remains only as a hidden compatibility command for old links and opens that same My Work surface.
 
@@ -49,4 +50,4 @@ The commands mapped to this topic are read-only. They may inspect local files an
 
 ## Related topics
 
-Continue with `sflow explain starting-work`, `sflow explain story-lifecycle`, `sflow explain nextsteps`.
+Continue with `sflow explain starting-work`, `sflow explain story-lifecycle`, `sflow explain nextsteps`, or `sflow explain goals-and-outcomes`.

@@ -1,9 +1,9 @@
 {
   "schemaVersion": 1,
   "generatedFrom": "docs/topics",
-  "sourceCommit": "f502256cf666d15df11a9344bfeed6163808a943",
-  "topicCount": 52,
-  "contentSha256": "61b40b678d382424a37eddda27ab14ae93f4e5a5ee90a4a1038dfd1e95348275",
+  "sourceCommit": "196d3ed46ed7c4d9ba67d837ed64472aa98f6da6",
+  "topicCount": 53,
+  "contentSha256": "e7d67a186174ad4e67df52d4ada99e53f2d0558d838bb27203c000053fec560f",
   "topics": [
     {
       "id": "activity-and-prompt-audit",
@@ -78,8 +78,8 @@
     {
       "id": "developer-home",
       "title": "Developer Home and returning to work",
-      "version": 4,
-      "sha256": "a58f1ba03751df28372dd5614024f773edf994351dacdcab5b0200dedd44af42",
+      "version": 5,
+      "sha256": "06a28caa7d3ceb67af93b38774b4e39948cfb4b024b99184b8f68525491ff913",
       "file": "developer-home.md"
     },
     {
@@ -130,6 +130,13 @@
       "version": 2,
       "sha256": "c701bf6655bbd75284848da710aa3f8b3bcf06486d3d474b047c32d9cef13895",
       "file": "getting-started.md"
+    },
+    {
+      "id": "goals-and-outcomes",
+      "title": "Goals, outcomes, and governed work",
+      "version": 1,
+      "sha256": "33967ac603c97e1ace5a384253f3904da64e063ed1cfc86bf1227004d7b3503e",
+      "file": "goals-and-outcomes.md"
     },
     {
       "id": "governed-execution",

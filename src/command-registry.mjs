@@ -1,11 +1,11 @@
 import { didYouMean, optionBoolean, SingularityFlowError } from './util.mjs';
 
 const READ_ONLY = new Set(['specify', 'plan', 'implement', 'verify', 'converge', 'about', 'help', 'show', 'choices', 'inbox', 'home', 'recommend', 'status', 'approvals', 'progress', 'guide', 'logs', 'doctor', 'nextsteps', 'snapshot', 'validate', 'explain']);
-const STRUCTURED = new Set(['specify', 'plan', 'implement', 'verify', 'converge', 'start', 'home', 'recommend', 'status', 'approvals', 'progress', 'report', 'impact', 'telemetry', 'doctor', 'inputs', 'reinstall', 'snapshot', 'validate', 'gate', 'clarification', 'explain', 'fault', 'fix', 'repair', 'run']);
+const STRUCTURED = new Set(['specify', 'plan', 'implement', 'verify', 'converge', 'start', 'home', 'recommend', 'status', 'approvals', 'progress', 'report', 'impact', 'telemetry', 'doctor', 'inputs', 'reinstall', 'snapshot', 'validate', 'gate', 'clarification', 'explain', 'fault', 'fix', 'repair', 'goal', 'run']);
 // `secrets` is here because `resolveOperation` returns `definition.operation` before it consults
 // any resolver, so a command with a single registered operation never reaches its own resolver.
 // Without this line `resolveSecretsOperation` is unreachable and the scan/protect split is inert.
-const MODEL_FREE_MIXED_COMMANDS = new Set(['report', 'telemetry', 'review', 'inputs', 'spec', 'visual', 'clarification', 'story', 'constitution', 'secrets', 'fault', 'fix', 'repair']);
+const MODEL_FREE_MIXED_COMMANDS = new Set(['report', 'telemetry', 'review', 'inputs', 'spec', 'visual', 'clarification', 'story', 'constitution', 'secrets', 'fault', 'fix', 'repair', 'goal']);
 
 const LAZY_MODULES = Object.freeze({
   // The five verbs share one dispatcher; each is a registered command in its own right so the
@@ -22,6 +22,7 @@ const LAZY_MODULES = Object.freeze({
   approvals: './commands/approvals.mjs',
   nextsteps: './commands/nextsteps.mjs',
   snapshot: './commands/snapshot.mjs',
+  goal: './commands/goal.mjs',
   // `explain` must answer from a global install with no repository, so it must never reach the
   // legacy dispatcher, which resolves a repository root before it does anything else.
   explain: './commands/explain.mjs'
@@ -61,7 +62,7 @@ export const COMMAND_REGISTRY = Object.freeze([
   ['specify'], ['plan'], ['implement'], ['verify'], ['converge'],
   ['about'], ['help'], ['explain', ['docs']], ['show'], ['harness'], ['init'], ['factory-reset'], ['reset-all'], ['local-reset'], ['fresh-install'], ['reinstall'], ['choices'], ['start'], ['resume'], ['agent'], ['session'],
   ['inbox'], ['finalize'], ['status'], ['approvals', ['approval-chain']], ['progress'], ['report'], ['impact'], ['telemetry'], ['prompt-log'], ['guide'], ['refresh-branch'],
-  ['next'], ['run'], ['fault'], ['fix'], ['repair'], ['home', ['cockpit']], ['recommend', ['what-next']], ['logs'], ['doctor'], ['review'], ['workflow'],
+  ['next'], ['run'], ['fault'], ['fix'], ['repair'], ['goal'], ['home', ['cockpit']], ['recommend', ['what-next']], ['logs'], ['doctor'], ['review'], ['workflow'],
   ['assign'], ['watch'], ['recover'], ['nextsteps', ['next-steps']], ['action'], ['inputs'], ['spec'],
   ['agents'], ['mcp'], ['visual'], ['documents'], ['prepare'], ['phase'], ['artifact'], ['pr'], ['stack'], ['regression'], ['submit'],
   ['clarification'],
@@ -142,6 +143,9 @@ const VISUAL_SUBCOMMANDS = Object.freeze(['status', 'compare']);
 const CLARIFICATION_SUBCOMMANDS = Object.freeze(['status', 'record']);
 const FAULT_SUBCOMMANDS = Object.freeze(['report', 'list', 'show']);
 const REPAIR_SUBCOMMANDS = Object.freeze(['list', 'status', 'authorize', 'attempt', 'cancel']);
+const GOAL_READ_SUBCOMMANDS = Object.freeze(['list', 'show', 'status', 'next']);
+const GOAL_MUTATION_SUBCOMMANDS = Object.freeze(['create', 'use', 'link', 'unlink', 'complete', 'abandon']);
+const GOAL_SUBCOMMANDS = Object.freeze([...GOAL_READ_SUBCOMMANDS, ...GOAL_MUTATION_SUBCOMMANDS]);
 const CONSTITUTION_READ_SUBCOMMANDS = Object.freeze(['check', 'show']);
 const CONSTITUTION_MUTATION_SUBCOMMANDS = Object.freeze(['generate', 'except']);
 const CONSTITUTION_SUBCOMMANDS = Object.freeze([...CONSTITUTION_READ_SUBCOMMANDS, ...CONSTITUTION_MUTATION_SUBCOMMANDS]);
@@ -164,6 +168,7 @@ export const RESOLVER_SUBCOMMANDS = Object.freeze({
   clarification: CLARIFICATION_SUBCOMMANDS,
   fault: FAULT_SUBCOMMANDS,
   repair: REPAIR_SUBCOMMANDS,
+  goal: GOAL_SUBCOMMANDS,
   constitution: CONSTITUTION_SUBCOMMANDS,
   spec: SPEC_SUBCOMMANDS,
   story: STORY_SUBCOMMANDS,
@@ -336,6 +341,13 @@ function resolveRepairOperation(definition, positionals) {
   return unknownSubcommand('repair', subcommand, REPAIR_SUBCOMMANDS);
 }
 
+function resolveGoalOperation(definition, positionals) {
+  const subcommand = positionals[1] ?? 'list';
+  if (GOAL_READ_SUBCOMMANDS.includes(subcommand)) return never(`goal.${subcommand}`, definition, 'read');
+  if (GOAL_MUTATION_SUBCOMMANDS.includes(subcommand)) return never(`goal.${subcommand}`, definition, 'mutation');
+  return unknownSubcommand('goal', subcommand, GOAL_SUBCOMMANDS);
+}
+
 function optional(id, fallbackOperationId, definition) {
   return operation(id, 'optional', {
     classification: definition.classification,
@@ -432,6 +444,7 @@ export function resolveOperation({ requestedCommand, positionals, options = {} }
   if (definition.name === 'fault') return resolveFaultOperation(definition, positionals);
   if (definition.name === 'fix') return resolveFixOperation(definition, options);
   if (definition.name === 'repair') return resolveRepairOperation(definition, positionals);
+  if (definition.name === 'goal') return resolveGoalOperation(definition, positionals);
   if (definition.name === 'story') return resolveStoryOperation(definition, positionals, options);
   if (definition.name === 'constitution') return resolveConstitutionOperation(definition, positionals);
   return unclassified(definition.name);
@@ -466,6 +479,7 @@ export function operationCatalog() {
   const faultDefinition = commandDefinition('fault');
   const fixDefinition = commandDefinition('fix');
   const repairDefinition = commandDefinition('repair');
+  const goalDefinition = commandDefinition('goal');
   const secretsDefinition = commandDefinition('secrets');
   const modelFreeMixed = [
     never('secrets.scan', secretsDefinition, 'read'),
@@ -504,6 +518,8 @@ export function operationCatalog() {
     never('repair.authorize', repairDefinition, 'mutation'),
     never('repair.attempt', repairDefinition, 'mutation'),
     never('repair.cancel', repairDefinition, 'mutation'),
+    ...GOAL_READ_SUBCOMMANDS.map((name) => never(`goal.${name}`, goalDefinition, 'read')),
+    ...GOAL_MUTATION_SUBCOMMANDS.map((name) => never(`goal.${name}`, goalDefinition, 'mutation')),
     // The same vocabularies the resolvers branch on. These were a third hand-maintained copy of the
     // identical literals, so a subcommand could be added to the resolver and silently missing from
     // the catalog that `doctor`, the tripwires and the model-policy audit all read.

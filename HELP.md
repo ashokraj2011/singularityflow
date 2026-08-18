@@ -2251,6 +2251,7 @@ Preferred direct skills use the collision-safe `sf-` prefix. The equivalent
 | `/sf-resume` | Fetch, fast-forward, and activate the current phase agent |
 | `/sf-agent` | Select or change the prompt-only governed agent for the current local work-item session |
 | `/sf-session` | Select a work/Jira ID, synchronize its remote branch, then activate the current phase agent |
+| `/sf-goal` | Create and navigate a personal workspace outcome linked to governed Stories or Initiatives |
 | `/sf-inbox` | Fetch pending approvals across committed remote work-item branches and open a selected review safely |
 | `/sf-help` | Load this manual or explain the selected work-item workflow |
 | `/sf-logs` | Read the activity log to explain what a command, hook, or world-model build did; works while a session is gated |
@@ -2617,6 +2618,16 @@ singularity-flow resume <WORK-ID|BRANCH> [--fetch]
 singularity-flow agent [WORK-ID]
 sflow-agent [WORK-ID]
 singularity-flow session status|attach|candidates|workspace [WORK-ID] [--json]
+singularity-flow goal create "<OUTCOME>" --success "<OBSERVABLE SUCCESS>" [--work-id ID --kind story|initiative --repository ID]
+singularity-flow goal list [--status active|achieved|abandoned|all] [--json]
+singularity-flow goal show [GOAL-ID] [--json]
+singularity-flow goal status [GOAL-ID] [--json]
+singularity-flow goal next [GOAL-ID] [--json]
+singularity-flow goal use <GOAL-ID> [--json]
+singularity-flow goal link [GOAL-ID] <WORK-ID> [--kind story|initiative --repository ID]
+singularity-flow goal unlink [GOAL-ID] <WORK-ID> [--kind story|initiative --repository ID]
+singularity-flow goal complete [GOAL-ID] --confirm GOAL-ID [--note TEXT]
+singularity-flow goal abandon [GOAL-ID] --confirm GOAL-ID --reason TEXT
 singularity-flow inbox [--offline] [--json]
 singularity-flow finalize [--json]
 singularity-flow quickstart [--keep] [--json]

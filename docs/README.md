@@ -44,6 +44,7 @@ is not part of the current product.
 | Native Copilot handoff | [Native Copilot](../NATIVE-COPILOT.md) |
 | Bounded reference previews and runtime conformance | [Harness Imports](HARNESS-IMPORTS.md) |
 | Connect governed agents to MCP tools such as Playwright | [Governed MCP tools](MCP-INTEGRATION.md) |
+| Prepare and rehearse the Playwright POC on a real machine | [Playwright POC runbook](PLAYWRIGHT-POC-RUNBOOK.md) |
 | Pin Figma MCP metadata into approved downstream design context | [Mobile model intake](MOBILE-MODEL-INTAKE.md) |
 | Measure aggregate Story delivery outcomes with privacy and quality gates | [Flow Impact Framework](FLOW-IMPACT-FRAMEWORK.md) |
 | Preserve creative freedom while reconciling source changes at governed boundaries | [Governed work intervals](GOVERNED-WORK-INTERVALS.md) |

@@ -1,15 +1,19 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { execFileSync } from 'node:child_process';
+import { createHash } from 'node:crypto';
 import { mkdtemp, readFile, readdir, writeFile } from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
 
 import {
   attemptRepair, authorizeRepair, cancelRepair, diagnoseFault, effectiveRepairPolicy, faultRepairStateRoot,
-  createFaultRepairApi, listFaults, readRepair, reportFault, requestRepair, sanitizeFaultText, wrapCommandWithFaultRepair
+  createFaultRepairApi, listFaults, normalizeFaultRepairPolicy, readRepair, reportFault, requestRepair,
+  sanitizeFaultText, wrapCommandWithFaultRepair
 } from '../src/fault-repair.mjs';
 import { homeOverviewResult } from '../src/gateway/planners/home-overview.mjs';
+import { canonicalJson } from '../src/specifications.mjs';
+import { initializeDefinition } from '../src/config.mjs';
 
 function git(root, ...args) {
   return execFileSync('git', args, { cwd: root, encoding: 'utf8' }).trim();
@@ -90,10 +94,36 @@ test('fault intake is immutable, idempotent, redacted, grouped, and leaves the c
     (error) => error.code === 'FAULT_SCHEMA_UNSUPPORTED');
 });
 
+test('an omitted occurredAt remains idempotent and abbreviated local commits are canonicalized', async (t) => {
+  const root = await repository(t);
+  const request = envelope({ occurredAt: undefined, idempotencyKey: 'without-time' });
+  const first = await reportFault(root, request);
+  const second = await reportFault(root, request);
+  assert.equal(second.idempotent, true);
+  assert.equal(second.fault.faultId, first.fault.faultId);
+
+  const abbreviated = await reportFault(root, envelope({
+    correlationId: 'short-sha',
+    build: { id: 'short', commit: git(root, 'rev-parse', '--short=7', 'HEAD') }
+  }));
+  assert.equal(abbreviated.fault.build.commit, git(root, 'rev-parse', 'HEAD'));
+  const repair = await requestRepair(root, abbreviated.fault.faultId, {
+    mode: 'guided', allowedPaths: ['value.txt'], verification: [['node', '--version']]
+  });
+  await assert.doesNotReject(authorizeRepair(root, repair.repair.repairId, {
+    confirmation: repair.plan.integrity.sha256
+  }));
+});
+
 test('redaction covers common credential shapes before storage', () => {
   const result = sanitizeFaultText('password=hunter2 sk-abcdefghijklmnopq https://user:pass@example.test');
   assert.doesNotMatch(result.text, /hunter2|sk-abcdefghijklmnopq|user:pass/);
   assert.deepEqual(result.redactions.map((entry) => entry.rule), ['assignment', 'openai-token', 'url-credentials']);
+});
+
+test('fault policy rejects scalar path and environment collections', () => {
+  assert.throws(() => normalizeFaultRepairPolicy({ protectedPaths: 'singularity' }), /must be an array/);
+  assert.throws(() => normalizeFaultRepairPolicy({ environmentCeilings: 'guided' }), /must be an object/);
 });
 
 test('local evidence is repository-bounded and the API returns the documented fault shape', async (t) => {
@@ -107,6 +137,34 @@ test('local evidence is repository-bounded and the API returns the documented fa
   const fault = await api.fault.report(envelope({ correlationId: 'api' }));
   assert.match(fault.faultId, /^FLT-/);
   assert.equal(fault.recordType, 'fault-envelope');
+});
+
+test('the in-process API resolves governed policy and caller policy can only narrow it', async (t) => {
+  const root = await repository(t);
+  await initializeDefinition(root);
+  const configuration = path.join(root, 'singularity', 'workflow.yml');
+  const configured = (await readFile(configuration, 'utf8')).replace('maxAttempts: 3', 'maxAttempts: 1');
+  await writeFile(configuration, configured);
+  const api = createFaultRepairApi(root, { policy: { maxAttempts: 20 } });
+  const fault = await api.fault.report(envelope({ correlationId: 'api-governed' }));
+  const result = await api.repair.request({
+    faultId: fault.faultId,
+    mode: 'guided',
+    allowedPaths: ['value.txt'],
+    verification: [['node', '--version']]
+  });
+  assert.equal(result.plan.budgets.maxAttempts, 1);
+  const ciFault = await api.fault.report(envelope({ correlationId: 'api-ci', environment: 'ci' }));
+  const ciRepair = await api.repair.request({
+    faultId: ciFault.faultId,
+    allowedPaths: ['value.txt'],
+    verification: [['node', '--version']]
+  });
+  assert.equal(ciRepair.repair.status, 'proposed');
+  await assert.rejects(
+    api.repair.request({ faultId: fault.faultId, allowedPaths: 'value.txt', verification: [] }),
+    (error) => error.code === 'REPAIR_SCOPE_INVALID'
+  );
 });
 
 test('diagnosis is model-free and production/security policy cannot authorize mutation', async (t) => {
@@ -149,6 +207,8 @@ test('guided repair binds exact authorization, scopes patches, isolates bytes, a
   assert.equal(authorized.repair.status, 'awaiting-patch');
   assert.equal(git(root, 'status', '--short'), originalStatus);
   assert.equal(await readFile(path.join(root, 'developer-notes.txt'), 'utf8'), 'preserve me\n');
+  assert.equal((await readRepair(authorized.repair.workspace.path, requested.repair.repairId)).repairId, requested.repair.repairId);
+  assert.equal((await listFaults(authorized.repair.workspace.path))[0].faultId, reported.fault.faultId);
 
   const outside = path.join(root, 'outside.patch');
   await writeFile(outside, 'diff --git a/other.txt b/other.txt\n--- a/other.txt\n+++ b/other.txt\n@@ -1 +1 @@\n-old\n+new\n');
@@ -170,6 +230,65 @@ test('guided repair binds exact authorization, scopes patches, isolates bytes, a
   const finalStatus = git(root, 'status', '--short').split('\n').sort();
   assert.deepEqual(finalStatus, ['?? candidate.patch', '?? developer-notes.txt', '?? outside.patch']);
   assert.equal(git(root, 'for-each-ref', '--format=%(refname):%(objectname)', 'refs/remotes'), remoteRefs);
+});
+
+test('authorization is anchored to the immutable plan rather than a rehashed state projection', async (t) => {
+  const root = await repository(t);
+  const reported = await reportFault(root, envelope());
+  const requested = await requestRepair(root, reported.fault.faultId, {
+    mode: 'guided', allowedPaths: ['value.txt'], verification: [['node', '--version']]
+  });
+  const stateFile = path.join(faultRepairStateRoot(root), 'repairs', requested.repair.repairId, 'state.json');
+  const state = JSON.parse(await readFile(stateFile, 'utf8'));
+  state.plan.allowedPaths.push('outside.txt');
+  delete state.plan.integrity;
+  state.plan.integrity = {
+    algorithm: 'sha256',
+    sha256: createHash('sha256').update(canonicalJson(state.plan)).digest('hex')
+  };
+  delete state.integrity;
+  state.integrity = {
+    algorithm: 'sha256',
+    sha256: createHash('sha256').update(canonicalJson(state)).digest('hex')
+  };
+  await writeFile(stateFile, `${JSON.stringify(state, null, 2)}\n`);
+  await assert.rejects(authorizeRepair(root, requested.repair.repairId, {
+    confirmation: state.plan.integrity.sha256
+  }), (error) => error.code === 'REPAIR_PLAN_CHANGED');
+});
+
+test('verification runs with a scrubbed environment in a disposable worktree', async (t) => {
+  const root = await repository(t);
+  const prior = process.env.REPAIR_TEST_SECRET;
+  process.env.REPAIR_TEST_SECRET = 'must-not-leak';
+  try {
+    const reported = await reportFault(root, envelope({ failure: { ...envelope().failure, commandArgv: null } }));
+    const requested = await requestRepair(root, reported.fault.faultId, {
+      mode: 'guided', allowedPaths: ['value.txt'],
+      verification: [[process.execPath, '-e', "const fs=require('fs');fs.writeFileSync('outside.txt','verifier');process.exit(process.env.REPAIR_TEST_SECRET?9:0)"]]
+    });
+    await authorizeRepair(root, requested.repair.repairId, { confirmation: requested.plan.integrity.sha256 });
+    const patch = path.join(root, 'isolated.patch');
+    await writeFile(patch, 'diff --git a/value.txt b/value.txt\n--- a/value.txt\n+++ b/value.txt\n@@ -1 +1 @@\n-wrong\n+right\n');
+    const result = await attemptRepair(root, requested.repair.repairId, { patchFile: patch });
+    assert.equal(result.repair.status, 'resolved', JSON.stringify(result.attempt.verification, null, 2));
+    assert.equal(result.attempt.verification[0].status, 'passed');
+    assert.equal(await readFile(path.join(result.repair.workspace.path, 'value.txt'), 'utf8'), 'right\n');
+    assert.equal(await readFile(path.join(root, 'outside.txt'), 'utf8').catch(() => null), null);
+    assert.doesNotMatch(await allStoredText(faultRepairStateRoot(root)), /must-not-leak/);
+  } finally {
+    if (prior == null) delete process.env.REPAIR_TEST_SECRET;
+    else process.env.REPAIR_TEST_SECRET = prior;
+  }
+});
+
+test('unsafe verifier programs are rejected before a plan is persisted', async (t) => {
+  const root = await repository(t);
+  const reported = await reportFault(root, envelope());
+  await assert.rejects(requestRepair(root, reported.fault.faultId, {
+    mode: 'guided', allowedPaths: ['value.txt'], verification: [['git', 'push', 'origin', 'HEAD']]
+  }), (error) => error.code === 'REPAIR_VERIFICATION_UNSAFE');
+  assert.equal((await listFaults(root))[0].repair, null);
 });
 
 test('each guided retry requires a fresh authorization and cancellation preserves its workspace', async (t) => {
@@ -202,6 +321,47 @@ test('each guided retry requires a fresh authorization and cancellation preserve
   assert.equal(cancelled.repair.status, 'cancelled');
   assert.equal(cancelled.receipt.preservation.isolatedWorktree, 'preserved');
   assert.equal(await readFile(path.join(workspace, 'value.txt'), 'utf8'), 'still-wrong\n');
+});
+
+test('new-file patches retain content-aware retry state', async (t) => {
+  const root = await repository(t);
+  const reported = await reportFault(root, envelope({ failure: { ...envelope().failure, commandArgv: null } }));
+  const requested = await requestRepair(root, reported.fault.faultId, {
+    mode: 'guided', allowedPaths: ['created.txt'],
+    verification: [[process.execPath, '-e', 'process.exit(1)']]
+  });
+  await authorizeRepair(root, requested.repair.repairId, { confirmation: requested.plan.integrity.sha256 });
+  const patch = path.join(root, 'new-file.patch');
+  await writeFile(patch, 'diff --git a/created.txt b/created.txt\nnew file mode 100644\n--- /dev/null\n+++ b/created.txt\n@@ -0,0 +1 @@\n+created\n');
+  const first = await attemptRepair(root, requested.repair.repairId, { patchFile: patch });
+  assert.equal(first.repair.status, 'retry-ready');
+  assert.deepEqual(first.attempt.changedPaths, ['created.txt']);
+  await authorizeRepair(root, requested.repair.repairId, { confirmation: requested.plan.integrity.sha256 });
+  const second = await attemptRepair(root, requested.repair.repairId, { patchFile: patch });
+  assert.equal(second.repair.status, 'needs-human');
+  assert.notEqual(second.repair.stopReason, 'unexpected-mutation');
+});
+
+test('a proposed CI repair can be reviewed and replanned in an authorized local context', async (t) => {
+  const root = await repository(t);
+  const reported = await reportFault(root, envelope({ environment: 'ci' }));
+  const proposed = await requestRepair(root, reported.fault.faultId, {
+    allowedPaths: ['value.txt'], verification: [['node', '--version']], executionEnvironment: 'ci'
+  });
+  assert.equal(proposed.repair.status, 'proposed');
+  const repeated = await requestRepair(root, reported.fault.faultId, {
+    allowedPaths: ['value.txt'], verification: [['node', '--version']], executionEnvironment: 'ci'
+  });
+  assert.equal(repeated.joined, true);
+  assert.equal(repeated.repair.planGeneration, 1);
+  const local = await requestRepair(root, reported.fault.faultId, {
+    allowedPaths: ['value.txt'], verification: [['node', '--version']], executionEnvironment: 'local'
+  });
+  assert.equal(local.replanned, true);
+  assert.equal(local.repair.repairId, proposed.repair.repairId);
+  assert.equal(local.repair.status, 'awaiting-authorization');
+  assert.equal(local.repair.planGeneration, 2);
+  assert.deepEqual(local.repair.planHistory.map((entry) => entry.generation), [1, 2]);
 });
 
 test('bounded auto fails closed when no approved autonomous adapter is installed', async (t) => {
@@ -242,6 +402,11 @@ test('command wrapper records failures and recursion guard prevents a child repa
     assert.ok(result.fault.faultId.startsWith('FLT-'));
     assert.equal(result.fault.parentRepairId, 'RPR-PARENT');
     assert.equal(result.repair, null);
+    const signalled = await wrapCommandWithFaultRepair(root, [
+      process.execPath, '-e', "process.kill(process.pid, 'SIGTERM')"
+    ], { echo: false });
+    assert.notEqual(signalled.exitCode, 0);
+    assert.match(signalled.fault.faultId, /^FLT-/);
   } finally {
     if (prior == null) delete process.env.SINGULARITY_FLOW_REPAIR_NO_RECURSION;
     else process.env.SINGULARITY_FLOW_REPAIR_NO_RECURSION = prior;
@@ -266,6 +431,7 @@ test('Home promotes a redacted fault repair without displacing interrupted publi
   assert.equal(home.next[0].emphasis, 'primary');
   assert.equal(home.next[0].confirmation, 'ceremony');
   assert.equal(home.next[0].fallback.skill, '/sf-fix FLT-ABC');
+  assert.equal(home.next[0].fallback.command, 'singularity-flow fix FLT-ABC');
   assert.equal(home.data.faults[0].summary, 'redacted summary');
   assert.equal(Object.hasOwn(home.data.faults[0], 'evidence'), false);
 

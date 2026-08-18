@@ -5,7 +5,7 @@ const STRUCTURED = new Set(['specify', 'plan', 'implement', 'verify', 'converge'
 // `secrets` is here because `resolveOperation` returns `definition.operation` before it consults
 // any resolver, so a command with a single registered operation never reaches its own resolver.
 // Without this line `resolveSecretsOperation` is unreachable and the scan/protect split is inert.
-const MODEL_FREE_MIXED_COMMANDS = new Set(['report', 'telemetry', 'review', 'inputs', 'spec', 'visual', 'clarification', 'story', 'constitution', 'secrets', 'fault', 'repair']);
+const MODEL_FREE_MIXED_COMMANDS = new Set(['report', 'telemetry', 'review', 'inputs', 'spec', 'visual', 'clarification', 'story', 'constitution', 'secrets', 'fault', 'fix', 'repair']);
 
 const LAZY_MODULES = Object.freeze({
   // The five verbs share one dispatcher; each is a registered command in its own right so the
@@ -323,6 +323,12 @@ function resolveFaultOperation(definition, positionals) {
   return unknownSubcommand('fault', subcommand, FAULT_SUBCOMMANDS);
 }
 
+function resolveFixOperation(definition, options) {
+  if (optionBoolean(options, 'diagnose-only')) return never('fix.diagnose', definition, 'mutation');
+  if (optionBoolean(options, 'plan-only')) return never('fix.preview', definition, 'read');
+  return never('fix.request', definition, 'mutation');
+}
+
 function resolveRepairOperation(definition, positionals) {
   const subcommand = positionals[1] ?? 'list';
   if (['list', 'status'].includes(subcommand)) return never(`repair.${subcommand}`, definition, 'read');
@@ -424,6 +430,7 @@ export function resolveOperation({ requestedCommand, positionals, options = {} }
   if (definition.name === 'visual') return resolveVisualOperation(definition, positionals);
   if (definition.name === 'clarification') return resolveClarificationOperation(definition, positionals);
   if (definition.name === 'fault') return resolveFaultOperation(definition, positionals);
+  if (definition.name === 'fix') return resolveFixOperation(definition, options);
   if (definition.name === 'repair') return resolveRepairOperation(definition, positionals);
   if (definition.name === 'story') return resolveStoryOperation(definition, positionals, options);
   if (definition.name === 'constitution') return resolveConstitutionOperation(definition, positionals);
@@ -457,6 +464,7 @@ export function operationCatalog() {
   const visualDefinition = commandDefinition('visual');
   const clarificationDefinition = commandDefinition('clarification');
   const faultDefinition = commandDefinition('fault');
+  const fixDefinition = commandDefinition('fix');
   const repairDefinition = commandDefinition('repair');
   const secretsDefinition = commandDefinition('secrets');
   const modelFreeMixed = [
@@ -488,6 +496,9 @@ export function operationCatalog() {
     never('fault.list', faultDefinition, 'read'),
     never('fault.show', faultDefinition, 'read'),
     never('fault.report', faultDefinition, 'mutation'),
+    never('fix.diagnose', fixDefinition, 'mutation'),
+    never('fix.preview', fixDefinition, 'read'),
+    never('fix.request', fixDefinition, 'mutation'),
     never('repair.list', repairDefinition, 'read'),
     never('repair.status', repairDefinition, 'read'),
     never('repair.authorize', repairDefinition, 'mutation'),

@@ -273,7 +273,6 @@ const PAGES = Object.freeze({
       ['--verify COMMAND', 'Pinned argv-style verification command. Shell operators are refused. Repeatable.'],
       ['--max-attempts N', 'Reduce the configured attempt budget; it cannot raise it.'],
       ['--auto', 'Request bounded automation; policy may only reduce this request.'],
-      ['--open', 'Open the isolated workspace after exact plan authorization.'],
       ['--json', 'Emit diagnosis, plan and repair state.']
     ],
     examples: [

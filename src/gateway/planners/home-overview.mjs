@@ -136,7 +136,7 @@ function faultChoice(fault, action, rank, emphasis = 'secondary') {
     fix: {
       label: `Fix ${fault.faultId}`,
       reasonCode: 'fault.repair-guided',
-      command: `singularity-flow fix ${fault.faultId} --open`,
+      command: `singularity-flow fix ${fault.faultId}`,
       skill: `/sf-fix ${fault.faultId}`
     },
     diagnose: {

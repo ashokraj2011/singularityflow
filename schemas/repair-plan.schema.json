@@ -19,11 +19,14 @@
     "verification": { "type": "array", "items": { "type": "object" } },
     "budgets": { "type": "object" },
     "executionMode": { "enum": ["record", "diagnose", "propose", "guided", "bounded-auto"] },
+    "observationEnvironment": { "enum": ["local", "ide", "copilot", "ci", "integration", "staging", "production"] },
+    "executionEnvironment": { "enum": ["local", "ide", "copilot", "ci", "integration", "staging", "production"] },
     "requestedMode": { "enum": ["record", "diagnose", "propose", "guided", "bounded-auto"] },
     "tools": { "type": "object" },
     "escalation": { "type": "array", "items": { "type": "string" }, "uniqueItems": true },
     "policyHash": { "type": "string" },
     "diagnosisSha256": { "type": "string" },
+    "diagnosisSemanticSha256": { "type": "string" },
     "integrity": { "type": "object" }
   },
   "additionalProperties": false

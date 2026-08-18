@@ -14,7 +14,7 @@ related:
   - governed-execution
   - repository-state-and-snapshots
   - constitution
-version: 1
+version: 2
 ---
 A fault is immutable evidence that something failed. It is never permission to change code, weaken intent, approve work, merge, release, deploy, or modify production. Singularity Flow turns that evidence into deterministic diagnosis and, when pinned policy permits it, an isolated and bounded repair.
 
@@ -46,14 +46,14 @@ The useful local release is intentionally guided. It records and groups faults, 
 
 Fault envelopes, occurrence groups, diagnoses, repair events, patches and receipts live under the repository Git control plane, so intake does not dirty application files. Each immutable record is content-hashed; unsupported future schemas and altered records fail closed. Evidence text is bounded and sanitized before storage. Large or binary evidence must be supplied by immutable URI and SHA-256.
 
-Policy takes the most restrictive result of environment, fault type, caller request and repository configuration. Local/IDE defaults to guided, CI/staging defaults to propose, and production/security/intent conflicts default to diagnosis or challenge only. `--auto` can reduce authority but cannot increase it; bounded autonomous mutation remains unavailable unless an approved adapter policy exists.
+Policy takes the most restrictive result of the observation environment, the current execution environment, fault type, caller request, and the Story-pinned or repository configuration. CI/staging observation defaults to propose in that environment; explicitly reviewing the same proposal from an authorized local/IDE context creates a new immutable plan generation under the local ceiling. Production/security/intent conflicts remain diagnosis or challenge only. `--auto` can reduce authority but cannot increase it; bounded autonomous mutation remains unavailable unless an approved adapter policy exists.
 
-The kernel creates a local `sflow/repair/<repair-id>` branch in an isolated worktree at the exact baseline. A dirty developer checkout is untouched. Patch paths are validated before application; `.git`, `singularity`, and configured protected paths are denied. Verification runs as exact argv without a shell, receives no network authority from SFlow, and cannot be removed by an attempt. A verifier that itself uses the network remains responsible for its own host sandbox and credentials. Repeated failures, no progress, oscillation, expired leases, baseline drift, scope expansion, unavailable verification and budget exhaustion stop or escalate the run.
+The kernel creates a local `sflow/repair/<repair-id>` branch in an isolated worktree at the exact baseline. A dirty developer checkout is untouched. Patch paths are validated before application; `.git`, `singularity`, and configured protected paths are denied. Verification runs as exact argv without a shell in a second disposable worktree, with a scrubbed environment and isolated HOME/TMP. Direct publication, remote Git, shell, deployment, and destructive programs are refused. macOS sandboxing or Linux Bubblewrap denies network and external writes when available; on hosts without either, the disposable worktree still protects governed candidate bytes, while administrators remain responsible for the configured verifier's host sandbox. Verification output records which boundary ran. Repeated failures, no progress, oscillation, expired leases, baseline drift, scope expansion, unavailable verification and budget exhaustion stop or escalate the run.
 
 ## Troubleshooting
 
 - If diagnosis has no affected path or executable verification command, supply explicit repeatable `--allow-path` and `--verify` values. SFlow remains `needs-human` rather than guessing.
-- If CI asks for guided or automatic mutation, the effective ceiling remains `propose`; move the reviewed fault to an authorized local/IDE context instead of bypassing policy.
+- If CI asks for guided or automatic mutation, its CI plan remains `propose`. Run the explicit Fix journey from an authorized local/IDE context to create a new hash-bound plan generation; the CI plan is retained in history and never edited in place.
 - If a requirement, policy, or architecture fault reports `challenge-intent`, open the governed amendment/challenge journey. Do not rewrite approved intent inside a repair.
 - If authorization reports baseline drift, create a fresh plan. The old plan hash is intentionally unusable against new bytes.
 - If a patch is outside scope, revise the patch or create a new plan with explicitly reviewed paths; do not broaden the existing plan silently.

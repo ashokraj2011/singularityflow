@@ -50,6 +50,7 @@ const entries = {
   fault: ['sf-fault', 'sf-fix'],
   fix: ['sf-fix'],
   repair: ['sf-fix'],
+  goal: ['sf-goal'],
   home: ['sf-home'],
   recommend: ['sf-recommend'],
   logs: ['sf-logs'],

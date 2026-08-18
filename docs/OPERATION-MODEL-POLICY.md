@@ -41,6 +41,16 @@ Every public operation is classified before its implementation module is importe
 | fix.request | mutation | never | — | — |
 | fresh-install | mutation | never | — | — |
 | gate | mutation | never | — | — |
+| goal.abandon | mutation | never | — | — |
+| goal.complete | mutation | never | — | — |
+| goal.create | mutation | never | — | — |
+| goal.link | mutation | never | — | — |
+| goal.list | read | never | — | — |
+| goal.next | read | never | — | — |
+| goal.show | read | never | — | — |
+| goal.status | read | never | — | — |
+| goal.unlink | mutation | never | — | — |
+| goal.use | mutation | never | — | — |
 | guide | read | never | — | — |
 | harness | mutation | never | — | — |
 | help | read | never | — | — |

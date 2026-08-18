@@ -28,6 +28,7 @@ Then, on a repository you care about:
 | Set up a repository you already have | `singularity-flow init` |
 | Set up a new capability, with its configuration branch and ledger | `singularity-flow bootstrap <REPOSITORY-URL>` |
 | Get one personalized, read-only recommendation | `singularity-flow recommend` |
+| Track a personal outcome across governed work | `singularity-flow goal create "<outcome>" --success "<observable success>"` |
 | Execute or inspect the governed next step | `singularity-flow next` / `singularity-flow nextsteps WORK-123` |
 | Orient yourself or return to a Story without changing state | `sflow home` / `sflow story return WORK-123` |
 | See what a command does, with examples | `singularity-flow <command> --help` |
@@ -112,6 +113,7 @@ Use the surface that is already open:
 | Shell | `singularity-flow home --request "What is blocking this Story?"` | Routes an ordinary-language request to a bounded read planner. |
 | Copilot | `/sf-recommend` | Relays the same recommendation, evidence, required inputs, and disclosed effect. |
 | Copilot | `/sf-home <ordinary request>` | Routes the request through Home; `/sf-home` without a request remains the explicit way back. |
+| Copilot | `/sf-goal` | Creates or navigates a personal outcome linked to existing governed work. |
 | VS Code | **My Work** | Opens the shared recommendation card for the selected governed workspace. |
 
 The conversational router recognizes six closed intents. It is deliberately not a free-form command
@@ -138,6 +140,12 @@ approval ceremony require an explicit governed selection. Ambiguous wording asks
 the displayed command is only a preview, and raw developer prose is not retained in the routing
 result. Use `singularity-flow nextsteps [WORK-ID]` when you want the full ordered `NOW`, `THEN`, and
 `ALTERNATIVE` plan instead of one recommendation.
+
+For an outcome that spans several Stories or sessions, use `/sf-goal`. A Goal requires observable
+success criteria and can link existing Stories or Initiatives across the active workspace. Its local
+durable record is shared by the CLI and Copilot, but remains personal advisory state: selecting or
+completing a Goal never starts work, advances a phase, grants approval, moves a Git ref, or claims
+that a change was proved. See `sflow explain goals-and-outcomes`.
 
 ## Requirements
 

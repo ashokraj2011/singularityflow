@@ -54,6 +54,36 @@ function nextLines(result) {
     .map((entry) => `  ${style.detail(entry.rank.padEnd(5))} ${entry.label}\n        ${style.action(entry.command)}`);
 }
 
+function goalLines(result) {
+  if (!result.operation.id.startsWith('goal.')) return [];
+  const { goal, goals, links = [], activeGoalId } = result.data ?? {};
+  if (Array.isArray(goals)) {
+    if (!goals.length) return ['', style.detail('No Goals match this view.')];
+    return ['', ...goals.flatMap((item) => [
+      `${item.id === activeGoalId ? style.success('●') : '○'} ${style.heading(item.id)}  ${item.statement}`,
+      `  ${style.detail(`${item.status} · ${item.links.length} linked work item(s) · ${item.successCriteria.length} success criterion/criteria`)}`
+    ])];
+  }
+  if (!goal) return [];
+  const lines = [
+    '',
+    style.heading(goal.statement),
+    style.detail(`Goal: ${goal.id} · ${goal.status} · personal advisory state`),
+    '',
+    style.heading('Success means:'),
+    ...goal.successCriteria.map((criterion) => `  - ${criterion}`)
+  ];
+  if (goal.links.length) {
+    lines.push('', style.heading('Governed work:'));
+    const facts = new Map(links.map((link) => [`${link.repositoryId}:${link.kind}:${link.id}`, link]));
+    for (const link of goal.links) {
+      const live = facts.get(`${link.repositoryId}:${link.kind}:${link.id}`);
+      lines.push(`  - ${link.id} · ${link.repositoryId} · ${live?.status ?? 'not inspected'}${live?.phase ? ` · ${live.phase}` : ''}`);
+    }
+  }
+  return lines;
+}
+
 const REST_STATE_LINES = Object.freeze({
   complete: 'This work is complete. There is nothing further to do.',
   cancelled: 'This work is cancelled and archived.',
@@ -68,6 +98,8 @@ export function renderCommandResult(result) {
   // A refusal is the one outcome the reader must not skim past, so it is the one that gets weight.
   const emphasise = ['refused', 'failed'].includes(result.outcome.status) ? style.failure : style.heading;
   const lines = [emphasise(headline(result))];
+
+  lines.push(...goalLines(result));
 
   const preservation = preservationLine(result);
   if (preservation) lines.push(style.detail(preservation));

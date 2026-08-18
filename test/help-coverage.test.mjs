@@ -40,7 +40,7 @@ test('every registered command has a served topic and complete command page', as
 
 test('every served topic is a surface-aware tutorial', async () => {
   const topics = await loadTopics();
-  assert.equal(topics.length, 52);
+  assert.equal(topics.length, 53);
   for (const topic of topics) {
     for (const section of requiredSections) {
       assert.match(topic.body, new RegExp(`^## ${section}$`, 'm'), `${topic.file} lacks ${section}`);

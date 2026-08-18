@@ -169,6 +169,44 @@ export const MESSAGES = Object.freeze({
     headline: (s) => `${s.name ? `${slot(s.name)}, ` : ''}no governed work is currently selected.`,
     preserves: true
   },
+  'goal.created': {
+    headline: (s) => `Created ${slot(s.goalId)} — ${slot(s.statement)}.`
+  },
+  'goal.listed': {
+    headline: (s) => `Found ${slot(s.count, '0')} Goal(s) in ${slot(s.workspace)}.`,
+    preserves: true
+  },
+  'goal.shown': {
+    headline: (s) => `${slot(s.goalId)} is ${slot(s.status)}.`,
+    preserves: true
+  },
+  'goal.next': {
+    headline: (s) => `${slot(s.goalId)} — next: ${slot(s.action)}.`,
+    preserves: true
+  },
+  'goal.selected': {
+    headline: (s) => `Selected ${slot(s.goalId)} as the active Goal.`
+  },
+  'goal.already-selected': {
+    headline: (s) => `${slot(s.goalId)} is already the active Goal.`,
+    preserves: true
+  },
+  'goal.linked': {
+    headline: (s) => `Linked ${slot(s.workId)} to ${slot(s.goalId)}.`
+  },
+  'goal.already-linked': {
+    headline: (s) => `${slot(s.workId)} is already linked to ${slot(s.goalId)}.`,
+    preserves: true
+  },
+  'goal.unlinked': {
+    headline: (s) => `Unlinked ${slot(s.workId)} from ${slot(s.goalId)}.`
+  },
+  'goal.completed': {
+    headline: (s) => `Recorded ${slot(s.goalId)} as achieved.`
+  },
+  'goal.abandoned': {
+    headline: (s) => `Abandoned ${slot(s.goalId)} and preserved its history.`
+  },
   'fault.recorded': {
     headline: (s) => `Recorded fault ${slot(s.faultId)} (${slot(s.type)}, ${slot(s.severity)}).`
   },
@@ -256,6 +294,9 @@ export const REASONS = Object.freeze({
   },
   'recommend.from-durable-state': {
     render: () => 'the recommendation was reconstructed from durable workspace, repository, lifecycle, and evidence records'
+  },
+  'goal.from-workspace-state': {
+    render: (s) => `the Goal came from the personal durable record for workspace ${slot(s.workspace)}`
   }
 });
 

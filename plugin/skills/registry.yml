@@ -120,6 +120,7 @@ skills:
   sflow-finalize: { class: mutation }
   sflow-fix: { class: interactive }
   sflow-gate: { class: mutation }
+  sflow-goal: { class: interactive }
   sflow-harness: { class: echo }
   sflow-help: { class: conversational }
   sflow-home: { class: guided }

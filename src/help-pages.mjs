@@ -79,6 +79,38 @@ export function synopsisFor(command) {
  * what it refuses and why, and a worked example. Commands absent from this map still render.
  */
 const PAGES = Object.freeze({
+  goal: {
+    summary: 'Create and manage personal outcomes linked to governed work.',
+    description: [
+      'Goals are workspace-scoped, personal advisory records. Each Goal names an outcome and at',
+      'least one observable success criterion, and may link existing Stories or Initiatives across',
+      'the selected workspace.',
+      '',
+      'A Goal never advances, approves, publishes, or replaces linked governed work. Completion is',
+      'an explicit human acknowledgement and is refused while a linked subject is unavailable or',
+      'still active. CLI and Copilot read the same workspace record, including when Copilot runs in',
+      'VS Code; chat or editor memory is never the source of truth.'
+    ],
+    options: [
+      ['--success TEXT', 'Observable success criterion. Required for create; repeatable.'],
+      ['--work-id ID', 'Link an existing governed Story or Initiative while creating the Goal.'],
+      ['--kind story|initiative', 'Kind of governed work being linked. Defaults to story.'],
+      ['--repository ID', 'Workspace repository containing the linked work. Defaults to the selected repository.'],
+      ['--status active|achieved|abandoned|all', 'Filter the Goal list.'],
+      ['--confirm GOAL-ID', 'Exact acknowledgement required by complete and abandon.'],
+      ['--reason TEXT', 'Required explanation when abandoning a Goal.'],
+      ['--note TEXT', 'Optional completion note; it is not proof or lifecycle approval.'],
+      ['--json', 'Emit the versioned command result and complete Goal record.']
+    ],
+    examples: [
+      ['singularity-flow goal create "Reduce checkout failures" --success "Retry checkout completes without hanging"',
+        'Creates and selects a personal outcome Goal.'],
+      ['singularity-flow goal link GOL-20260818-001 PAY-1187 --kind story --repository checkout',
+        'Links existing governed work without changing that Story.'],
+      ['singularity-flow goal next', 'Returns one grounded next action for the active Goal.']
+    ],
+    seeAlso: ['home', 'session', 'nextsteps', 'story', 'initiative']
+  },
   bootstrap: {
     summary: 'Put an existing repository under governance without pushing to its protected branch.',
     description: [

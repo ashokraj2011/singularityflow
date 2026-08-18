@@ -18,7 +18,7 @@ import { identity, localGitDisplayName } from '../git.mjs';
 
 function renderConversation(conversation, homeEnvelope) {
   if (!conversation) return;
-  const current = homeEnvelope.data?.activeWork;
+  const current = homeEnvelope.data?.currentWork ?? homeEnvelope.data?.activeWork;
   console.log('\nI found');
   console.log(current
     ? `${current.id}${current.title ? ` — ${current.title}` : ''}${current.phase ? ` · ${current.phase}` : ''}`
@@ -49,7 +49,7 @@ function renderConversation(conversation, homeEnvelope) {
 }
 
 function render(homeEnvelope, answerEnvelope, { context, selected, actor }, conversation = null) {
-  const active = homeEnvelope.data?.activeWork ?? null;
+  const active = homeEnvelope.data?.currentWork ?? homeEnvelope.data?.activeWork ?? null;
   console.log(`Singularity Flow home — ${context.workspaceName}`);
   console.log(`Actor: ${actor.name}${actor.email ? ` <${actor.email}>` : ''}`);
   console.log(`Repository: ${selected.id} · ${selected.branch} @ ${(selected.head ?? 'unavailable').slice(0, 12)}`);
@@ -105,8 +105,9 @@ function render(homeEnvelope, answerEnvelope, { context, selected, actor }, conv
 /** One context-preserving payload for JSON, Copilot, and editor adapters. */
 export function compositeHomeEnvelope(homeEnvelope, answerEnvelope = null, conversation = null) {
   const envelope = answerEnvelope ?? homeEnvelope;
-  const selectedSubject = homeEnvelope.data?.activeWork
-    ? { kind: homeEnvelope.data.activeWork.kind ?? 'story', id: homeEnvelope.data.activeWork.id }
+  const currentWork = homeEnvelope.data?.currentWork ?? homeEnvelope.data?.activeWork ?? null;
+  const selectedSubject = currentWork
+    ? { kind: currentWork.kind ?? 'story', id: currentWork.id }
     : null;
   const selectionStale = answerEnvelope?.why?.some((entry) => entry.code === 'work.not-in-this-repository')
     ? { code: 'HOME_SELECTION_STALE', subject: selectedSubject }
@@ -153,7 +154,14 @@ export async function run(_argv, { options }) {
       branch: selected.branch,
       storyId: context.storyId ?? null,
       workId: context.storyId ?? null,
-      workKind: context.storyId ? 'story' : null
+      workKind: context.storyId ? 'story' : null,
+      repository: {
+        id: selected.id,
+        path: root,
+        branch: selected.branch,
+        head: selected.head ?? null,
+        resolvedFrom: workspaceReference ? 'workspace-option' : 'active-workspace'
+      }
     },
     workspaceId: context.workspaceId ?? null
   });

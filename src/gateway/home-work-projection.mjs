@@ -60,7 +60,12 @@ export function deriveHomeState(records = {}, {
     currentWork = groups['recovery-required'][0] ?? groups.active[0] ?? null;
   }
 
-  const recoveryWork = groupOf(currentWork) === 'recovery-required' ? currentWork : null;
+  // Publication recovery is repository-scoped, not branch-scoped. A retained commit may belong to
+  // a Story branch that is no longer checked out, and hiding it because the host currently stands
+  // elsewhere defeats the rule that interrupted publication outranks all other work.
+  const recoveryWork = groupOf(currentWork) === 'recovery-required'
+    ? currentWork
+    : groups['recovery-required'][0] ?? null;
   const activeWork = groupOf(currentWork) === 'active' ? currentWork : null;
   const counts = Object.fromEntries(WORK_GROUP_ORDER.map((group) => [group, groups[group].length]));
   const ordered = [

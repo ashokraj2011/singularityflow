@@ -23,7 +23,7 @@ function continuation(envelope) {
   })];
 }
 
-function narration(envelope) {
+export function recommendationNarration(envelope) {
   const guidance = envelope.data?.guidance ?? {};
   const recommendation = guidance.recommendation ?? null;
   const name = envelope.data?.personalization?.replyName ?? null;
@@ -46,9 +46,14 @@ function narration(envelope) {
     next,
     restState: next.length ? null : 'informational',
     data: {
+      /** Preserve the complete grounded Home projection for conversational renderers. */
+      home: envelope.data ?? null,
       guidance,
       personalization: envelope.data?.personalization ?? null,
       workspace: envelope.data?.workspace ?? null,
+      repository: envelope.data?.repository ?? null,
+      currentWork: envelope.data?.currentWork ?? null,
+      attentionWork: envelope.data?.attentionWork ?? null,
       warnings: envelope.warnings ?? [],
       alternatives: (envelope.next ?? []).slice(1).map((entry) => ({
         id: entry.id,
@@ -72,14 +77,21 @@ export async function run(_argv, { options }) {
       workspace: { id: context.workspaceId, name: context.workspaceName },
       repositoryId: selected.id,
       branch: selected.branch,
-      storyId: context.storyId ?? null
+      storyId: context.storyId ?? null,
+      repository: {
+        id: selected.id,
+        path: root,
+        branch: selected.branch,
+        head: selected.head ?? null,
+        resolvedFrom: workspaceReference ? 'workspace-option' : 'active-workspace'
+      }
     }
   });
   const resolution = kernel.resolve({ utterance: 'what should I do next' });
   const envelope = resolution.kind === 'read' && resolution.next.length === 1
     ? await kernel.read({ resolutionId: resolution.next[0].handle })
     : resolution;
-  emitCommandResult(narration(envelope), {
+  emitCommandResult(recommendationNarration(envelope), {
     json: optionBoolean(options, 'json'),
     restStateWhenIdle: 'informational'
   });

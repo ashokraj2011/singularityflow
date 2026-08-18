@@ -11,9 +11,9 @@ description: Guide developer requests through explicit governed choices.
 Use this skill for ordinary developer questions about current work, starting or continuing work, blockers, next actions, and recovery. For safety, automatic invocation is not mutation consent.
 
 1. With a natural-language request, run `singularity-flow home --json --request "$ARGUMENTS"`. With no request, run `singularity-flow recommend --json` so the first answer contains one grounded recommendation rather than the complete menu.
-2. Read `data.home` and `data.conversation`; never use chat memory as workflow state. When `data.home.personalization.replyName` exists, open once with `Hello, <replyName>.` Do not derive a name from email, login, the request, or memory. Otherwise omit the greeting.
+2. Read `data.home` and `data.conversation`; never use chat memory as workflow state. `data.home.repository` is the resolved repository, and `data.home.currentWork` is the selected work even when grouped under `waiting-on-you` or `waiting-on-others`; do not infer either from `counts.active`. When `data.home.personalization.replyName` exists, open once with `Hello, <replyName>.` Do not derive a name from email, login, the request, or memory. Otherwise omit the greeting.
 3. Respond under exactly these headings:
-   - **I found** — workspace, repository, Work ID, phase, freshness, and relevant warning.
+   - **I found** — workspace, resolved repository, current Work ID, phase, freshness, and relevant warning. Never say the repository is unresolved when `data.home.repository` exists, and never say there is no work when `data.home.currentWork` or `data.home.attentionWork` exists.
    - **Next** — the one routed read or proposed governed action, including its `/sf-*` route.
    - **I need from you** — nothing for a read; otherwise the exact selection, argument, or human decision required.
    - **This will change** — say “Nothing” for planning and reads; for a proposed mutation, name its files, lifecycle state, Git refs, publication, or external effects before asking.

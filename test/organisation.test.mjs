@@ -25,6 +25,7 @@ import {
   inspectCapabilityProposal, listCapabilityProposals, mapCapability, readOrganisation,
   organisationCacheFile, publishOrganisationCapabilityMap, resolveWorkspacePlan
 } from '../src/organisation.mjs';
+import { listTransportIntents, retryTransportIntent } from '../src/transport-intents.mjs';
 
 /** Bare repositories with one commit each, standing in for an organisation's remotes. */
 async function remotes(...names) {
@@ -668,7 +669,11 @@ test('initialising a workspace creates the orphan state branch, and checks befor
   run('git', ['init', '-q', empty], { cwd: org.base });
   await assert.rejects(() => initializeWorkspaceState(empty), /no branch checked out/);
 
-  const first = await initializeWorkspaceState(work);
+  const transport = {
+    env: { ...process.env, SINGULARITY_FLOW_TRANSPORT_OUTBOX: path.join(org.base, 'transport-outbox') },
+    home: org.base
+  };
+  const first = await initializeWorkspaceState(work, { transport });
   assert.equal(first.governed, false, 'a delivery repository is not governed in its own right');
   assert.equal(first.existed, false);
   assert.equal(first.created, true);
@@ -702,9 +707,90 @@ test('initialising a workspace creates the orphan state branch, and checks befor
     1);
 
   // Re-running finds both and does nothing, which is what makes it safe to call on every create.
-  const second = await initializeWorkspaceState(work);
+  const second = await initializeWorkspaceState(work, { transport });
   assert.equal(second.governed, true);
   assert.equal(second.existed, true);
+});
+
+test('workspace initialization resumes the same governance publication before it advances', async () => {
+  const org = await remotes('resume-api');
+  const work = path.join(org.base, 'resume-work');
+  run('git', ['clone', '-q', org['resume-api'], work], { cwd: org.base });
+  run('git', ['config', 'user.email', 'resume@example.test'], { cwd: work });
+  run('git', ['config', 'user.name', 'Resume Tester'], { cwd: work });
+  const transport = {
+    env: { ...process.env, SINGULARITY_FLOW_TRANSPORT_OUTBOX: path.join(org.base, 'resume-outbox') },
+    home: org.base
+  };
+  let failPush = true;
+  const runCommand = (command, args, options) => {
+    if (failPush && args[0] === 'push' && !args.includes('--dry-run')) {
+      return { status: 1, stdout: '', stderr: 'connection reset by peer', signal: null };
+    }
+    return run(command, args, options);
+  };
+  const first = await initializeWorkspaceState(work, { transport: { ...transport, runCommand } });
+  assert.equal(first.governancePublished, false);
+  assert.equal(first.publicationIntent.status, 'pending');
+  const intentId = first.publicationIntent.intentId;
+  failPush = false;
+  const resumed = await initializeWorkspaceState(work, { transport: { ...transport, runCommand } });
+  assert.equal(resumed.governancePublished, true);
+  assert.equal(resumed.publicationIntent.intentId, intentId, 'resume created a duplicate governance intent');
+  assert.match(run('git', ['ls-remote', '--heads', 'origin', resumed.governanceBranch], { cwd: work }).stdout,
+    new RegExp(`refs/heads/${resumed.governanceBranch}`));
+  assert.match(run('git', ['ls-remote', '--heads', 'origin', 'sflow/config'], { cwd: work }).stdout,
+    /refs\/heads\/sflow\/config/);
+  const intents = await listTransportIntents({ ...transport, includeSucceeded: true });
+  assert.equal(intents.filter((intent) => intent.targetRef === `refs/heads/${resumed.governanceBranch}`).length, 1);
+});
+
+test('configuration initialization exposes and resumes its exact transport intent', async () => {
+  const org = await remotes('config-resume-api');
+  const work = path.join(org.base, 'config-resume-work');
+  run('git', ['clone', '-q', org['config-resume-api'], work], { cwd: org.base });
+  run('git', ['config', 'user.email', 'config-resume@example.test'], { cwd: work });
+  run('git', ['config', 'user.name', 'Config Resume Tester'], { cwd: work });
+  const transport = {
+    env: { ...process.env, SINGULARITY_FLOW_TRANSPORT_OUTBOX: path.join(org.base, 'config-resume-outbox') },
+    home: org.base
+  };
+  let failConfigurationPush = true;
+  const runCommand = (command, args, options) => {
+    const configurationTarget = args.some((entry) => String(entry).endsWith(':refs/heads/sflow/config'));
+    if (failConfigurationPush && args[0] === 'push' && !args.includes('--dry-run') && configurationTarget) {
+      return { status: 1, stdout: '', stderr: 'connection reset by peer', signal: null };
+    }
+    return run(command, args, options);
+  };
+
+  let publicationFailure;
+  try {
+    await initializeWorkspaceState(work, { transport: { ...transport, runCommand } });
+  } catch (error) {
+    publicationFailure = error;
+  }
+  assert.equal(publicationFailure?.code, 'CONFIGURATION_PUBLICATION_PENDING');
+  assert.match(publicationFailure?.details?.intentId ?? '', /^psh_/);
+  const intentId = publicationFailure.details.intentId;
+  const retained = (await listTransportIntents({ ...transport, includeSucceeded: true }))
+    .find((intent) => intent.intentId === intentId);
+  assert.equal(retained?.targetRef, 'refs/heads/sflow/config');
+  assert.equal(run('git', ['cat-file', '-e', `${retained.sourceCommit}^{commit}`], {
+    cwd: work, allowFailure: true
+  }).status, 0, 'the exact unpublished configuration commit remains reachable locally');
+
+  failConfigurationPush = false;
+  const pushed = await retryTransportIntent(intentId, {
+    ...transport, runCommand, allowNeedsUser: true
+  });
+  assert.equal(pushed.status, 'succeeded');
+  const resumed = await initializeWorkspaceState(work, { transport: { ...transport, runCommand } });
+  assert.equal(resumed.governancePublished, true);
+  assert.match(run('git', ['ls-remote', '--heads', 'origin', 'sflow/config'], { cwd: work }).stdout,
+    /refs\/heads\/sflow\/config/);
+  assert.equal((await listTransportIntents({ ...transport, includeSucceeded: true }))
+    .filter((intent) => intent.targetRef === 'refs/heads/sflow/config').length, 1);
 });
 
 /**

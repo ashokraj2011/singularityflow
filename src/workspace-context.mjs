@@ -2,7 +2,9 @@ import os from 'node:os';
 import path from 'node:path';
 import { readFile, realpath, rm } from 'node:fs/promises';
 import YAML from 'yaml';
-import { forgetWorkspace, readWorkspace, readWorkspaceRegistry, workspaceStatus } from './workspace.mjs';
+import {
+  forgetWorkspace, readWorkspace, readWorkspaceRegistry, workspaceRepositoryPath, workspaceStatus
+} from './workspace.mjs';
 import { SingularityFlowError, writeAtomic } from './util.mjs';
 import { buildRepositorySubjectIndex, resolveContext } from './repository-subject-index.mjs';
 
@@ -55,7 +57,7 @@ export async function discardUnsupportedWorkflowWorkspaces(registryFile, selecti
     if (!lead) {
       try {
         const workspace = await readWorkspace(entry.path);
-        lead = path.join(workspace.path, workspace.repositories[workspace.leadRepository].path);
+        lead = workspaceRepositoryPath(workspace, workspace.repositories[workspace.leadRepository]);
       } catch { continue; }
     }
     let text;

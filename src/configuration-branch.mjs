@@ -20,8 +20,12 @@ import {
 import { loadCapabilities } from './capabilities.mjs';
 import { identity } from './git.mjs';
 import { activeWorkspaceFile, readActiveWorkspaceContext, workspaceRegistryFile } from './workspace-context.mjs';
-import { readWorkspace, remoteDefaultBranch } from './workspace.mjs';
+import { readWorkspace, remoteDefaultBranch, workspaceRepositoryPath } from './workspace.mjs';
 import { SingularityFlowError, run } from './util.mjs';
+import { sanitizeRemote } from './git-remote-diagnostics.mjs';
+import {
+  createAndPushTransportIntent, listTransportIntents, retryTransportIntent
+} from './transport-intents.mjs';
 
 export const CONFIGURATION_BRANCH = 'sflow/config';
 export const CONFIGURATION_SOURCE_PATH = 'singularity/configuration-source.json';
@@ -218,10 +222,44 @@ async function inspectApprovedConfiguration(remote, capability = null) {
  * configuration from it into each Story branch, so nothing governed ever needs to live on the
  * application branch. That is what makes a protected `main` a non-issue rather than an obstacle.
  */
-export async function ensureConfigurationBranch(remote, { sourceBranch = null, capability = null, grounding = null } = {}) {
+export async function ensureConfigurationBranch(remote, {
+  sourceBranch = null, capability = null, grounding = null,
+  publisherRoot = null, transport = {}
+} = {}) {
   const url = String(remote ?? '').trim();
   if (!url) throw new SingularityFlowError('A configuration repository URL is required.');
   if (remoteHasConfigurationBranch(url)) return await inspectApprovedConfiguration(url, capability);
+
+  let canonicalPublisher = null;
+  if (publisherRoot) {
+    canonicalPublisher = await realpath(path.resolve(publisherRoot));
+    const configuredRemote = run('git', ['remote', 'get-url', 'origin'], {
+      cwd: canonicalPublisher, allowFailure: true
+    }).stdout.trim();
+    if (sanitizeRemote(configuredRemote) !== sanitizeRemote(url)) {
+      throw new SingularityFlowError('The configuration publisher origin does not match the reviewed configuration remote.', {
+        code: 'CONFIGURATION_PUBLISHER_REMOTE_MISMATCH'
+      });
+    }
+    // A prior attempt may have retained its exact commit in this repository. Join it rather than
+    // authoring another commit with a new timestamp and producing two recovery paths.
+    const existing = (await listTransportIntents({
+      ...transport, includeSucceeded: true
+    })).find((intent) => intent.repositoryRoot === canonicalPublisher
+      && intent.remoteUrl === sanitizeRemote(url)
+      && intent.targetRef === `refs/heads/${CONFIGURATION_BRANCH}`
+      && intent.status !== 'succeeded');
+    if (existing) {
+      const resumed = await retryTransportIntent(existing.intentId, transport);
+      if (resumed.status !== 'succeeded') {
+        throw new SingularityFlowError(
+          `Configuration publication ${resumed.intentId} is ${resumed.status}; its exact local commit remains available for 'singularity-flow push status ${resumed.intentId}'.`,
+          { code: 'CONFIGURATION_PUBLICATION_PENDING', details: { intentId: resumed.intentId, status: resumed.status } }
+        );
+      }
+      return { ...(await inspectApprovedConfiguration(url, capability)), transportIntent: resumed.intentId };
+    }
+  }
 
   const defaultBranch = remoteDefaultBranch(
     url, run('git', ['ls-remote', '--symref', url, 'HEAD'], { allowFailure: true }).stdout
@@ -264,10 +302,46 @@ export async function ensureConfigurationBranch(remote, { sourceBranch = null, c
       'commit', '-m', '[configuration] establish Singularity configuration authority'
     ], { cwd: scratch });
     const commit = run('git', ['rev-parse', 'HEAD'], { cwd: scratch }).stdout.trim();
-    const push = run('git', ['push', 'origin', `HEAD:refs/heads/${CONFIGURATION_BRANCH}`], {
-      cwd: scratch, allowFailure: true
-    });
+    let push;
+    let transportIntent = null;
+    let transportStatus = null;
+    if (canonicalPublisher) {
+      const imported = run('git', ['fetch', '--no-tags', '--', scratch, commit], {
+        cwd: canonicalPublisher, allowFailure: true
+      });
+      if (imported.status !== 0) {
+        throw new SingularityFlowError('The reviewed configuration commit could not be retained in the publisher repository.');
+      }
+      const retentionRef = `refs/singularity/transport/configuration/${commit}`;
+      run('git', ['update-ref', retentionRef, commit], { cwd: canonicalPublisher });
+      const published = await createAndPushTransportIntent({
+        repositoryRoot: canonicalPublisher,
+        remote: 'origin',
+        sourceCommit: commit,
+        targetRef: `refs/heads/${CONFIGURATION_BRANCH}`,
+        expectedRemote: null,
+        scope: { operation: 'sflow.configuration.initialize', sourceBranch: importBranch }
+      }, transport);
+      transportIntent = published.intentId;
+      transportStatus = published.status;
+      push = published.status === 'succeeded'
+        ? { status: 0, stdout: '', stderr: '' }
+        : { status: 1, stdout: '', stderr: `transport ${published.intentId} is ${published.status}` };
+    } else {
+      push = run('git', ['push', 'origin', `HEAD:refs/heads/${CONFIGURATION_BRANCH}`], {
+        cwd: scratch, allowFailure: true
+      });
+    }
     if (push.status !== 0) {
+      if (transportIntent) {
+        throw new SingularityFlowError(
+          `Configuration publication ${transportIntent} is ${transportStatus}; its exact local commit remains available for 'singularity-flow push status ${transportIntent}'.`,
+          {
+            code: 'CONFIGURATION_PUBLICATION_PENDING',
+            details: { intentId: transportIntent, status: transportStatus }
+          }
+        );
+      }
       if (!remoteHasConfigurationBranch(url)) {
         throw new SingularityFlowError(
           `Cannot create '${CONFIGURATION_BRANCH}' on '${url}': ${(push.stderr || push.stdout).trim().split('\n')[0]}`);
@@ -276,7 +350,10 @@ export async function ensureConfigurationBranch(remote, { sourceBranch = null, c
       // contains the exact capability this caller requested; branch existence alone proves nothing.
       return await inspectApprovedConfiguration(url, capability);
     }
-    return { branch: CONFIGURATION_BRANCH, commit, created: true, importedFrom: importBranch };
+    return {
+      branch: CONFIGURATION_BRANCH, commit, created: true, importedFrom: importBranch,
+      transportIntent
+    };
   } finally {
     await rm(scratch, { recursive: true, force: true });
     await rm(seed, { recursive: true, force: true });
@@ -314,7 +391,7 @@ export async function resolveConfigurationRemote(root, remoteName = 'origin') {
     const repositoryRoot = await canonical(root);
     const memberRoots = workspace
       ? await Promise.all(Object.values(workspace.repositories).map((repository) =>
-        canonical(path.join(workspace.path, repository.path))))
+        canonical(workspaceRepositoryPath(workspace, repository))))
       : [];
     if (!memberRoots.includes(repositoryRoot)) return null;
     const lead = workspace?.repositories?.[workspace.leadRepository]?.url;

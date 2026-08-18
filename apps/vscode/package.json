@@ -183,6 +183,21 @@
         "icon": "$(root-folder)"
       },
       {
+        "command": "singularityFlow.adoptWorkspace",
+        "title": "Singularity Flow: Use an Existing Clone as a Workspace",
+        "icon": "$(repo-clone)"
+      },
+      {
+        "command": "singularityFlow.resumeWorkspaceBootstrap",
+        "title": "Singularity Flow: Continue Workspace Setup",
+        "icon": "$(debug-continue)"
+      },
+      {
+        "command": "singularityFlow.workspaceDoctor",
+        "title": "Singularity Flow: Diagnose Workspace Setup",
+        "icon": "$(stethoscope)"
+      },
+      {
         "command": "singularityFlow.repairWorkspace",
         "title": "Singularity Flow: Repair Selected Workspace",
         "icon": "$(tools)"

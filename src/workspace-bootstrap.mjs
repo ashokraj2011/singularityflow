@@ -12,9 +12,10 @@ import {
 import { workspaceRegistryFile } from './workspace-context.mjs';
 import {
   atomicJson, createWorkspaceConfiguration, previewWorkspaceConfiguration, readWorkspace,
-  rememberWorkspace, workspaceStatus
+  rememberWorkspace, workspaceRepositoryPath, workspaceStatus
 } from './workspace.mjs';
 import { run, SingularityFlowError } from './util.mjs';
+import { healerReceipt } from './workspace-healers.mjs';
 
 export const WORKSPACE_BOOTSTRAP_SCHEMA_VERSION = 1;
 export const WORKSPACE_BOOTSTRAP_STATUSES = Object.freeze([
@@ -25,6 +26,11 @@ const TERMINAL = new Set(['ready', 'abandoned']);
 const ACTIVE = new Set(WORKSPACE_BOOTSTRAP_STATUSES.filter((status) => !TERMINAL.has(status)));
 const MIN_DISK_BYTES = 1024 * 1024 * 1024;
 const LEASE_STALE_MS = 5 * 60 * 1000;
+const DEFAULT_OPERATION_BUDGETS = Object.freeze({
+  preflight: Object.freeze({ used: 0, maximum: 3 }),
+  materialize: Object.freeze({ used: 0, maximum: 2 }),
+  initialize: Object.freeze({ used: 0, maximum: 1 })
+});
 
 function nowIso() { return new Date().toISOString(); }
 
@@ -189,19 +195,22 @@ export async function latestWorkspaceBootstrap(options = {}) {
   return (await listWorkspaceBootstraps({ ...options, includeTerminal: false }))[0] ?? null;
 }
 
-async function acquireLease(root, bootstrapId) {
+async function acquireLease(root, bootstrapId, { recoveredStale = false } = {}) {
   await assertStateRoot(root);
   const file = leasePath(root, bootstrapId);
   try {
     const handle = await open(file, 'wx', 0o600);
     await handle.writeFile(`${JSON.stringify({ pid: process.pid, acquiredAt: nowIso() })}\n`);
-    return async () => { await handle.close(); await rm(file, { force: true }); };
+    return {
+      recoveredStale,
+      release: async () => { await handle.close(); await rm(file, { force: true }); }
+    };
   } catch (error) {
     if (error?.code !== 'EEXIST') throw error;
     const info = await stat(file).catch(() => null);
     if (info && Date.now() - info.mtimeMs > LEASE_STALE_MS) {
       await rm(file, { force: true });
-      return acquireLease(root, bootstrapId);
+      return acquireLease(root, bootstrapId, { recoveredStale: true });
     }
     throw new SingularityFlowError(`Workspace bootstrap '${bootstrapId}' is already being changed by another process.`, {
       code: 'BOOTSTRAP_LEASE_BUSY', details: { bootstrapId }
@@ -210,8 +219,58 @@ async function acquireLease(root, bootstrapId) {
 }
 
 async function withLease(root, bootstrapId, operation) {
-  const release = await acquireLease(root, bootstrapId);
-  try { return await operation(); } finally { await release(); }
+  const lease = await acquireLease(root, bootstrapId);
+  try {
+    if (lease.recoveredStale) {
+      const file = sessionPath(root, bootstrapId);
+      const current = verifyIntegrity(JSON.parse(await readFile(file, 'utf8')), file);
+      const repairedAt = nowIso();
+      await writeSession(root, {
+        ...current,
+        status: 'waiting-user',
+        revision: Number(current.revision ?? 0) + 1,
+        healers: [...(current.healers ?? []), healerReceipt('expired-bootstrap-lease', {
+          appliedAt: repairedAt,
+          effects: ['removed-expired-machine-local-lease'],
+          postconditions: [{ id: 'bootstrap-lease-acquired', status: 'pass' }],
+          proof: { bootstrapId, expiredLeaseRemoved: true }
+        })],
+        nextAction: current.nextAction ?? {
+          command: `singularity-flow workspace bootstrap status ${bootstrapId}`,
+          skill: `/sf-workspace-bootstrap ${bootstrapId}`
+        }
+      });
+    }
+    return await operation({ recoveredStaleLease: lease.recoveredStale });
+  } finally { await lease.release(); }
+}
+
+function operationBudgets(session) {
+  const stored = session.operationBudgets ?? {};
+  return Object.fromEntries(Object.entries(DEFAULT_OPERATION_BUDGETS).map(([name, defaults]) => [name, {
+    used: Number(stored[name]?.used ?? defaults.used),
+    maximum: Number(stored[name]?.maximum ?? defaults.maximum)
+  }]));
+}
+
+function consumeBudget(session, operation) {
+  const budgets = operationBudgets(session);
+  const budget = budgets[operation];
+  if (!budget) throw new SingularityFlowError(`Unknown bootstrap attempt budget '${operation}'.`, {
+    code: 'BOOTSTRAP_BUDGET_UNKNOWN'
+  });
+  if (budget.used >= budget.maximum) {
+    throw new SingularityFlowError(
+      `Workspace bootstrap '${session.bootstrapId}' exhausted its ${operation} attempt budget (${budget.maximum}). `
+      + 'Inspect the recorded fault and prepare a new plan generation after correcting the input.',
+      {
+        code: 'BOOTSTRAP_ATTEMPT_BUDGET_EXHAUSTED',
+        details: { bootstrapId: session.bootstrapId, operation, ...budget }
+      }
+    );
+  }
+  budgets[operation] = { ...budget, used: budget.used + 1 };
+  return budgets;
 }
 
 function safeFailureMessage(error) {
@@ -221,6 +280,37 @@ function safeFailureMessage(error) {
 function uniqueFaults(current, additions) {
   const existing = new Set((current ?? []).map((fault) => fault.faultKey));
   return [...(current ?? []), ...additions.filter((fault) => !existing.has(fault.faultKey))];
+}
+
+function bootstrapFault({
+  bootstrapId, operationFamily, stage, attempt, inputHash, classification,
+  scope = 'workspace-bootstrap', repository = null, retryable = false,
+  summary, evidence = null, stepId = null, createdPaths = []
+}) {
+  const faultKey = createHash('sha256').update(canonical({
+    bootstrapId, operationFamily, stage, inputHash, classification, repository
+  })).digest('hex');
+  return {
+    schemaVersion: 1,
+    faultKey,
+    scope: { kind: scope, bootstrapId, repositoryId: repository },
+    bootstrapId,
+    stepId,
+    operationFamily,
+    stage,
+    attempt,
+    inputHash,
+    platform: { os: process.platform, architecture: process.arch, node: process.versions.node },
+    commandIdentity: null,
+    exitCode: evidence?.exitCode ?? null,
+    signal: evidence?.signal ?? null,
+    classification,
+    retryable: retryable === true,
+    summary: redactDiagnosticText(summary).slice(0, 1_000),
+    createdPaths: [...createdPaths],
+    evidence,
+    occurredAt: nowIso()
+  };
 }
 
 function beginStep(steps, { operationId, attempt, inputHash }) {
@@ -348,7 +438,9 @@ export async function prepareWorkspaceBootstrap({
     faults: [],
     createdPaths: [],
     attemptBudget: { used: 0, maximum: 3 },
+    operationBudgets: structuredClone(DEFAULT_OPERATION_BUDGETS),
     attempts: [],
+    healers: [],
     workspaceJournal: null,
     result: null,
     fault: null,
@@ -362,6 +454,57 @@ function finding({
   repository = null, evidence = null
 }) {
   return { id, scope, severity, classification, message, action, retryable, repository, evidence };
+}
+
+const WINDOWS_RESERVED_PATH = /^(?:con|prn|aux|nul|com[1-9]|lpt[1-9])(?:\..*)?$/i;
+
+/** Pure platform-path checks so native behavior is testable without pretending another OS. */
+export function portableWorkspacePathFindings(target, { platform = process.platform } = {}) {
+  const value = String(target ?? '');
+  const findings = [];
+  if (platform !== 'win32') return findings;
+  const segments = value.replace(/^[A-Za-z]:/, '').split(/[\\/]+/).filter(Boolean);
+  for (const segment of segments) {
+    if (WINDOWS_RESERVED_PATH.test(segment)) findings.push(finding({
+      id: 'machine.path.reserved-device', scope: 'workspace', classification: 'platform-path-invalid',
+      message: `The planned Windows workspace path contains reserved device name '${segment}'.`,
+      action: 'Choose a workspace ID and base directory without Windows reserved device names.'
+    }));
+    if (/[. ]$/.test(segment)) findings.push(finding({
+      id: 'machine.path.trailing-character', scope: 'workspace', classification: 'platform-path-invalid',
+      message: `The planned Windows workspace path contains a segment ending in a dot or space: '${segment}'.`,
+      action: 'Choose a workspace ID and base directory whose path segments do not end in dots or spaces.'
+    }));
+  }
+  if (value.length > 220) findings.push(finding({
+    id: 'machine.path.long', scope: 'workspace', severity: 'warning', classification: 'platform-path-risk',
+    message: `The planned Windows workspace path is ${value.length} characters long.`,
+    action: 'Prefer a shorter workspace base to avoid tool-specific path limits.'
+  }));
+  return findings;
+}
+
+function configuredGitValue(runCommand, key) {
+  const result = runCommand('git', ['config', '--global', '--get', key], { allowFailure: true, timeoutMs: 10_000 });
+  return result.status === 0 && Boolean(String(result.stdout ?? '').trim());
+}
+
+/** Report only configuration sources, never proxy URLs, certificate paths, or credentials. */
+export function enterpriseGitDiagnostics({ env = process.env, runCommand = run } = {}) {
+  const proxySources = [
+    ...['HTTPS_PROXY', 'HTTP_PROXY', 'ALL_PROXY'].filter((name) => Boolean(env[name])),
+    ...(configuredGitValue(runCommand, 'http.proxy') ? ['git:http.proxy'] : [])
+  ];
+  const caSources = [
+    ...['GIT_SSL_CAINFO', 'SSL_CERT_FILE', 'NODE_EXTRA_CA_CERTS'].filter((name) => Boolean(env[name])),
+    ...(configuredGitValue(runCommand, 'http.sslCAInfo') ? ['git:http.sslCAInfo'] : [])
+  ];
+  return {
+    proxy: { configured: proxySources.length > 0, sources: proxySources },
+    certificateAuthority: { configured: caSources.length > 0, sources: caSources },
+    credentialOwnership: 'git-or-operating-system',
+    guidance: 'Use organisation-approved Git, proxy, and certificate configuration. Singularity Flow never disables TLS or stores credentials.'
+  };
 }
 
 async function nearestExisting(target) {
@@ -498,11 +641,13 @@ async function machinePreflight(plan, { env = process.env, home = os.homedir(), 
     action: 'Correct the registry path or permissions, then resume.'
   }));
 
-  if (process.platform === 'win32' && target.length > 220) findings.push(finding({
-    id: 'machine.path.long', scope: 'workspace', severity: 'warning', classification: 'platform-path-risk',
-    message: `The planned Windows workspace path is ${target.length} characters long.`,
-    action: 'Prefer a shorter workspace base to avoid tool-specific path limits.'
-  }));
+  findings.push(...portableWorkspacePathFindings(target));
+  checks.push({
+    id: 'path-portability',
+    status: findings.some((entry) => entry.id.startsWith('machine.path.') && entry.severity === 'blocker') ? 'fail'
+      : findings.some((entry) => entry.id.startsWith('machine.path.')) ? 'warn' : 'pass',
+    observed: { platform: process.platform, characters: target.length }
+  });
   return { checks, findings };
 }
 
@@ -579,11 +724,28 @@ export async function preflightWorkspaceBootstrap(bootstrapId, {
     }
     const preflightAttempt = (session.steps ?? [])
       .filter((step) => step.operationId === 'bootstrap.preflight').length + 1;
+    let budgets;
+    try {
+      budgets = consumeBudget(session, 'preflight');
+    } catch (error) {
+      if (error?.code !== 'BOOTSTRAP_ATTEMPT_BUDGET_EXHAUSTED') throw error;
+      return writeSession(root, {
+        ...session,
+        status: 'waiting-user',
+        revision: session.revision + 1,
+        fault: { classification: 'attempt-budget-exhausted', message: error.message, occurredAt: nowIso() },
+        nextAction: {
+          command: `singularity-flow workspace bootstrap status ${bootstrapId}`,
+          skill: `/sf-workspace-bootstrap ${bootstrapId}`
+        }
+      });
+    }
     const started = beginStep(session.steps, {
       operationId: 'bootstrap.preflight', attempt: preflightAttempt, inputHash: session.planHash
     });
     session = await writeSession(root, {
       ...session, status: 'preflighting', revision: session.revision + 1, fault: null,
+      operationBudgets: budgets,
       steps: started.steps
     });
     const machine = await machinePreflight(session.plan, { env, home, runCommand });
@@ -592,19 +754,20 @@ export async function preflightWorkspaceBootstrap(bootstrapId, {
     const blockers = findings.filter((entry) => entry.severity === 'blocker');
     const checkedAt = nowIso();
     const planHash = planHashFor(remote.plan);
-    const faults = blockers.map((entry) => ({
-      faultKey: createHash('sha256').update(canonical({
-        bootstrapId, operationId: 'bootstrap.preflight', planHash,
-        finding: entry.id, repository: entry.repository
-      })).digest('hex'),
-      operationId: 'bootstrap.preflight',
+    const faults = blockers.map((entry) => bootstrapFault({
+      bootstrapId,
+      operationFamily: entry.scope === 'transport' ? 'remote.inspect' : 'machine.preflight',
+      stage: 'preflight',
+      attempt: preflightAttempt,
+      inputHash: planHash,
       classification: entry.classification,
       scope: entry.scope,
       repository: entry.repository,
       retryable: entry.retryable,
       summary: entry.message,
       evidence: entry.evidence,
-      occurredAt: checkedAt
+      stepId: started.step.stepId,
+      createdPaths: session.createdPaths
     }));
     const nextAction = blockers.length
       ? { command: `singularity-flow workspace bootstrap status ${bootstrapId}`, skill: `/sf-workspace-bootstrap ${bootstrapId}` }
@@ -665,6 +828,22 @@ export async function resumeWorkspaceBootstrap(bootstrapId, {
   const root = workspaceBootstrapRoot(env, home);
   return withLease(root, bootstrapId, async () => {
     session = await readWorkspaceBootstrap(bootstrapId, { env, home });
+    let budgets;
+    try {
+      budgets = consumeBudget(session, 'materialize');
+    } catch (error) {
+      if (error?.code !== 'BOOTSTRAP_ATTEMPT_BUDGET_EXHAUSTED') throw error;
+      return writeSession(root, {
+        ...session,
+        status: 'waiting-user',
+        revision: session.revision + 1,
+        fault: { classification: 'attempt-budget-exhausted', message: error.message, occurredAt: nowIso() },
+        nextAction: {
+          command: `singularity-flow workspace bootstrap status ${bootstrapId}`,
+          skill: `/sf-workspace-bootstrap ${bootstrapId}`
+        }
+      });
+    }
     const attempt = { number: session.attempts.length + 1, startedAt: nowIso(), completedAt: null, status: 'running' };
     const materializing = beginStep(session.steps, {
       operationId: 'bootstrap.materialize', attempt: attempt.number, inputHash: session.planHash
@@ -677,8 +856,9 @@ export async function resumeWorkspaceBootstrap(bootstrapId, {
       attemptBudget: {
         ...session.attemptBudget,
         used: Number(session.attemptBudget?.used ?? 0) + 1,
-        maximum: Number(session.attemptBudget?.maximum ?? 3)
+        maximum: Number(session.attemptBudget?.maximum ?? 2)
       },
+      operationBudgets: budgets,
       attempts: [...session.attempts, attempt],
       steps: materializing.steps,
       nextAction: null
@@ -724,30 +904,61 @@ export async function resumeWorkspaceBootstrap(bootstrapId, {
 
       let initialization = null;
       if (session.plan.initialization.enabled) {
-        const initializing = beginStep(session.steps, {
-          operationId: 'bootstrap.initialize', attempt: attempt.number, inputHash: session.planHash
-        });
-        activeStepId = initializing.step.stepId;
-        session = await writeSession(root, {
-          ...session, status: 'initializing', revision: session.revision + 1, steps: initializing.steps
-        });
-        const { initializeWorkspaceState } = await import('./organisation.mjs');
-        const lead = materialized.workspace.repositories[materialized.workspace.leadRepository];
-        try {
-          initialization = await initializeWorkspaceState(path.join(materialized.workspace.path, lead.path), {
-            branch: session.plan.initialization.stateBranch
-          });
-        } catch (error) {
-          initialization = { error: safeFailureMessage(error) };
+        let initializationBudgets;
+        const continuingInitialization = (session.steps ?? []).some((step) =>
+          step.operationId === 'bootstrap.initialize' && step.result === 'needs-user');
+        if (continuingInitialization) {
+          // Resume the same initialization after its explicit transport recovery. This is a
+          // postcondition continuation, not a second authorization or a reset of the one-attempt
+          // initialization budget.
+          initializationBudgets = operationBudgets(session);
+        } else {
+          try {
+            initializationBudgets = consumeBudget(session, 'initialize');
+          } catch (error) {
+            if (error?.code !== 'BOOTSTRAP_ATTEMPT_BUDGET_EXHAUSTED') throw error;
+            initialization = { error: error.message, budgetExhausted: true };
+          }
         }
-        session = {
-          ...session,
-          steps: finishStep(session.steps, activeStepId, {
-            observedPostcondition: { initialized: !initialization?.error },
-            result: initialization?.error ? 'needs-user' : 'succeeded',
-            errorReference: initialization?.error ? 'initialization-failed' : null
-          })
-        };
+        if (initialization?.budgetExhausted) {
+          session = { ...session, operationBudgets: operationBudgets(session) };
+        } else {
+          const initializing = beginStep(session.steps, {
+            operationId: 'bootstrap.initialize', attempt: attempt.number, inputHash: session.planHash
+          });
+          activeStepId = initializing.step.stepId;
+          session = await writeSession(root, {
+            ...session, status: 'initializing', revision: session.revision + 1,
+            operationBudgets: initializationBudgets,
+            steps: initializing.steps
+          });
+          const { initializeWorkspaceState } = await import('./organisation.mjs');
+          const lead = materialized.workspace.repositories[materialized.workspace.leadRepository];
+          try {
+            initialization = await initializeWorkspaceState(workspaceRepositoryPath(materialized.workspace, lead), {
+              branch: session.plan.initialization.stateBranch,
+              transport: { env, home, runCommand }
+            });
+          } catch (error) {
+            initialization = {
+              error: safeFailureMessage(error),
+              publicationIntent: error?.details?.intentId
+                ? { intentId: error.details.intentId, status: error.details.status ?? 'needs-user' }
+                : null
+            };
+          }
+          if (!initialization?.error && initialization?.publicationError) {
+            initialization = { ...initialization, error: initialization.publicationError };
+          }
+          session = {
+            ...session,
+            steps: finishStep(session.steps, activeStepId, {
+              observedPostcondition: { initialized: !initialization?.error },
+              result: initialization?.error ? 'needs-user' : 'succeeded',
+              errorReference: initialization?.error ? 'initialization-failed' : null
+            })
+          };
+        }
       }
 
       const finalStatus = initialization?.error || !status.healthy ? 'degraded' : 'ready';
@@ -767,7 +978,9 @@ export async function resumeWorkspaceBootstrap(bootstrapId, {
           classification: 'initialization-failed', message: initialization.error, occurredAt: completedAt
         } : null,
         nextAction: initialization?.error
-          ? { command: `singularity-flow workspace bootstrap resume ${bootstrapId} --confirm ${session.plan.workspace.confirmation}`, skill: `/sf-workspace-bootstrap ${bootstrapId}` }
+          ? (initialization.publicationIntent?.intentId
+            ? { command: `singularity-flow push status ${initialization.publicationIntent.intentId}`, skill: '/sf-push' }
+            : { command: `singularity-flow workspace bootstrap resume ${bootstrapId} --confirm ${session.plan.workspace.confirmation}`, skill: `/sf-workspace-bootstrap ${bootstrapId}` })
           : { command: `singularity-flow workspace use ${session.plan.workspace.id}`, skill: '/sf-workspace' }
       });
     } catch (error) {
@@ -779,20 +992,20 @@ export async function resumeWorkspaceBootstrap(bootstrapId, {
         session.plan.workspace.targetPath, 'logs', 'workspace-materialization.json'
       );
       const workspaceExists = Boolean(await lstat(path.join(session.plan.workspace.targetPath, 'workspace.json')).catch(() => null));
-      const faultRecord = {
-        faultKey: createHash('sha256').update(canonical({
-          bootstrapId, operationId: 'bootstrap.materialize', planHash: session.planHash,
-          attempt: attempt.number, classification: workspaceExists ? 'materialization-interrupted' : 'materialization-refused'
-        })).digest('hex'),
-        operationId: 'bootstrap.materialize',
+      const faultRecord = bootstrapFault({
+        bootstrapId,
+        operationFamily: 'git.clone',
+        stage: 'materialize',
+        attempt: attempt.number,
+        inputHash: session.planHash,
         classification: workspaceExists ? 'materialization-interrupted' : 'materialization-refused',
-        scope: 'workspace-bootstrap',
-        repository: null,
         retryable: true,
         summary: safeFailureMessage(error),
-        evidence: null,
-        occurredAt: failedAt
-      };
+        stepId: activeStepId,
+        createdPaths: workspaceExists
+          ? [...new Set([...(session.createdPaths ?? []), session.plan.workspace.targetPath])]
+          : session.createdPaths
+      });
       return writeSession(root, {
         ...session,
         status: workspaceExists ? 'degraded' : 'waiting-user',
@@ -908,6 +1121,7 @@ export async function workspaceBootstrapDoctor({
       corrupt: corruptRecords
     },
     machine,
+    enterpriseGit: enterpriseGitDiagnostics({ env, runCommand }),
     networkChecked: network,
     remotes,
     sessions: active.map(summary)

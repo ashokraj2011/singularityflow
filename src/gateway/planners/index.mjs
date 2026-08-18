@@ -21,6 +21,10 @@ import { workReturn } from './work-return.mjs';
 import { workList } from './work-list.mjs';
 import { workStartIntake } from './work-start-intake.mjs';
 import { workspaceList } from './workspace-list.mjs';
+import {
+  repositoryOpenGuide, workspaceBootstrapStatus, workspaceDoctorGuide, workspaceExploreGuide,
+  workspacePrepareGuide
+} from './workspace-reliability-surface.mjs';
 
 export function gatewayPlanners(overrides = {}) {
   return new Map(Object.entries({
@@ -36,11 +40,18 @@ export function gatewayPlanners(overrides = {}) {
     'work-list': workList,
     'work-start-intake': workStartIntake,
     'workspace-list': workspaceList,
+    'workspace-bootstrap-status': workspaceBootstrapStatus,
+    'workspace-prepare-guide': workspacePrepareGuide,
+    'repository-open-guide': repositoryOpenGuide,
+    'workspace-doctor-guide': workspaceDoctorGuide,
+    'workspace-explore-guide': workspaceExploreGuide,
     ...overrides
   }));
 }
 
 export {
   developerNext, helpExplain, homeOverview, impactQuick, reviewPacket, workContinue, workHandoff,
-  workList, workReadiness, workReturn, workStartIntake, workspaceList
+  workList, workReadiness, workReturn, workStartIntake, workspaceList,
+  repositoryOpenGuide, workspaceBootstrapStatus, workspaceDoctorGuide, workspaceExploreGuide,
+  workspacePrepareGuide
 };

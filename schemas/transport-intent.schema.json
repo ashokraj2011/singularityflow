@@ -1,0 +1,51 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://singularity-flow.dev/schemas/transport-intent.schema.json",
+  "title": "Pre-Story transport intent",
+  "type": "object",
+  "additionalProperties": true,
+  "required": [
+    "schemaVersion", "intentId", "scope", "repositoryRootFingerprint", "repositoryRoot",
+    "remote", "remoteFingerprint", "sourceCommit", "targetRef", "expectedRemote",
+    "status", "attemptBudget", "attempts", "integrity"
+  ],
+  "properties": {
+    "schemaVersion": { "const": 1 },
+    "intentId": { "type": "string", "pattern": "^psh_[a-f0-9-]{20,64}$" },
+    "scope": {
+      "type": "object",
+      "required": ["kind"],
+      "properties": { "kind": { "const": "transport" } }
+    },
+    "repositoryRootFingerprint": { "type": "string", "pattern": "^sha256:[a-f0-9]{64}$" },
+    "repositoryRoot": { "type": "string", "minLength": 1 },
+    "remote": { "type": "string", "minLength": 1 },
+    "remoteFingerprint": { "type": "string", "pattern": "^sha256:[a-f0-9]{64}$" },
+    "sourceCommit": { "type": "string", "pattern": "^[a-f0-9]{40,64}$" },
+    "targetRef": { "type": "string", "pattern": "^refs/heads/.+" },
+    "expectedRemote": { "type": ["string", "null"] },
+    "status": {
+      "enum": [
+        "pending", "pushing", "succeeded", "outcome-unknown", "remote-diverged",
+        "needs-user", "attempt-budget-exhausted"
+      ]
+    },
+    "attemptBudget": {
+      "type": "object",
+      "required": ["used", "maximum"],
+      "properties": {
+        "used": { "type": "integer", "minimum": 0 },
+        "maximum": { "const": 2 }
+      }
+    },
+    "attempts": { "type": "array" },
+    "integrity": {
+      "type": "object",
+      "required": ["algorithm", "sha256"],
+      "properties": {
+        "algorithm": { "const": "sha256" },
+        "sha256": { "type": "string", "pattern": "^[a-f0-9]{64}$" }
+      }
+    }
+  }
+}

@@ -100,6 +100,15 @@ export const HOME_CODES = Object.freeze([
   'home.selection-stale'
 ]);
 
+/** Rootless workspace recovery destinations offered by Home. */
+export const WORKSPACE_RECOVERY_CODES = Object.freeze([
+  'workspace.bootstrap-available',
+  'workspace.prepare-available',
+  'workspace.open-available',
+  'workspace.doctor-available',
+  'workspace.explore-available'
+]);
+
 /** Fault intake and governed repair: compact, redacted facts shown on Home. */
 export const FAULT_CODES = Object.freeze([
   'fault.unresolved',
@@ -232,7 +241,7 @@ export const SURFACE_CODES = Object.freeze([
 /** Every code, in one frozen set, which is the thing a surface actually needs. */
 export const REASON_CODES = Object.freeze([
   ...RESOLUTION_CODES, ...KERNEL_CODES, ...HOME_CODES, ...DEVELOPER_CODES,
-  ...FAULT_CODES, ...WORK_CODES, ...READINESS_CODES, ...RETURN_CODES, ...SURFACE_CODES
+  ...WORKSPACE_RECOVERY_CODES, ...FAULT_CODES, ...WORK_CODES, ...READINESS_CODES, ...RETURN_CODES, ...SURFACE_CODES
 ]);
 
 /**

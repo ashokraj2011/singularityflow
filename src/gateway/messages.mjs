@@ -88,7 +88,7 @@ export const RESULT_MESSAGES = Object.freeze({
   'home.active-work-leads': M('You have work in progress'),
   'home.briefing-unavailable': M('The cross-workspace briefing is unavailable', 'Only this workspace was read.'),
   'home.default-order': M('Shown in the standard order'),
-  'home.no-workspace-selected': M('No workspace is selected'),
+  'home.no-workspace-selected': M('No governed workspace or repository is selected. Choose a workspace or open a governed repository.'),
   'home.select-a-workspace-first': M('Choose a workspace'),
   'home.continue-active-work': M('Continue where you left off'),
   'home.local-work-unreconciled': M('{files} local change(s) not yet compared against the plan'),
@@ -99,6 +99,13 @@ export const RESULT_MESSAGES = Object.freeze({
   'home.work-summary': M('{active} active, {decisions} needing you'),
   'home.stable-choice': M('Always available'),
   'home.selection-stale': M('The selected work changed while this answer was being prepared', 'Refresh Home and choose the current subject again.'),
+
+  // ---- Rootless workspace recovery
+  'workspace.bootstrap-available': M('A workspace setup can be continued', 'Review its preserved state before retrying the next operation.'),
+  'workspace.prepare-available': M('Create a governed workspace', 'Choose its capabilities, location, and identity in the guided setup.'),
+  'workspace.open-available': M('Use an existing repository clone', 'Inspect it first; Git state and working-tree bytes are preserved.'),
+  'workspace.doctor-available': M('Run workspace diagnostics', 'Inspect machine, network, Git, and preserved setup evidence without changing state.'),
+  'workspace.explore-available': M('Explore saved workspaces', 'Choose only from workspaces registered on this machine.'),
 
   // ---- Fault intake and governed repair
   'fault.unresolved': M('{severity} fault {fault} needs attention', '{type}: {summary}'),

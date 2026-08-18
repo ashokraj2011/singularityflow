@@ -172,6 +172,15 @@ export const MESSAGES = Object.freeze({
   'goal.created': {
     headline: (s) => `Created ${slot(s.goalId)} — ${slot(s.statement)}.`
   },
+  'transport.reported': {
+    headline: (s) => s.intentId
+      ? `Transport ${slot(s.intentId)} is ${slot(s.status)}; commit ${slot(s.commit)} remains addressable.`
+      : `Found ${slot(s.count, '0')} pending transport intent(s).`,
+    preserves: true
+  },
+  'transport.retry-completed': {
+    headline: (s) => `Transport ${slot(s.intentId)} is ${slot(s.status)} after the authorized retry.`
+  },
   'goal.listed': {
     headline: (s) => `Found ${slot(s.count, '0')} Goal(s) in ${slot(s.workspace)}.`,
     preserves: true

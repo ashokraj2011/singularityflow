@@ -540,6 +540,13 @@ branch failures. `resume` rechecks before using the existing staged clone transa
 setups continue by bootstrap ID instead of starting over. Use `workspace doctor --network` for an
 explicit remote diagnostic. See [WORKSPACES.md](WORKSPACES.md).
 
+Already have the clone? `singularity-flow workspace adopt <DIRECTORY> --id <ID> --base <DIRECTORY>
+--dry-run --json` produces a preserving proof before it creates a workspace shell. Dirty clones need
+the exact content-aware `--confirm-dirty` hash from that preview. SFlow does not fetch, switch, stash,
+commit, reset, clean, edit remotes, or move the clone. Pre-Story pushes use durable transport intents:
+`singularity-flow push status` inspects them and `singularity-flow push retry <INTENT-ID>` re-observes
+the exact remote ref before a bounded retry; neither path force-pushes.
+
 The editor extension exposes both actions from one **Workspaces** view. A saved
 workspace is its local directory plus its mapped capability scope; the selected
 workspace shows both together beneath the workspace list. **Work here** makes it

@@ -41,7 +41,7 @@ test('the editor declares the planners it has and does not pretend to the docs o
   const source = await readFile(path.join(root, 'apps', 'vscode', 'src', 'gateway-session.ts'), 'utf8');
   const imported = [...source.matchAll(/planners\/([a-z-]+)\.mjs/g)].map(([, name]) => name).sort();
   assert.deepEqual(imported, ['developer-next', 'home-overview', 'impact-quick', 'work-continue', 'work-list',
-    'work-readiness', 'work-return', 'work-start-intake', 'workspace-list']);
+    'work-readiness', 'work-return', 'work-start-intake', 'workspace-list', 'workspace-reliability-surface']);
   // `codeOnly`: this file names help-explain in the comment explaining why it excludes it.
   assert.ok(!codeOnly(source).includes('help-explain'), 'the docs planner is not imported');
 
@@ -100,7 +100,7 @@ test('origin travels with the showing, not with the card', async () => {
   assert.match(panel, /origin: currentOrigin/);
 
   const extension = await readFile(path.join(root, 'apps', 'vscode', 'src', 'extension.ts'), 'utf8');
-  assert.match(extension, /if \(active && origin === 'gateway'\)/,
+  assert.match(extension, /if \(route && origin === 'gateway'\)/,
     'the executor path is taken only for results whose handles are live');
   assert.match(extension, /showResultCard\(buildResultCard\(envelope\), \{ origin: 'gateway' \}\)/,
     'My Work marks its own result as one the executor can re-resolve');
@@ -115,8 +115,10 @@ test('every gateway surface uses the validated active repository context', async
   assert.match(session, /export function setActiveRepositoryContext/);
   assert.match(session, /sessionWorkspaceId === workspaceId/,
     'workspace identity participates in session reuse');
-  assert.doesNotMatch(codeOnly(extension), /gatewaySession\((?!active\))/,
-    'gateway callers always supply the complete resolved context');
+  assert.match(codeOnly(extension), /gatewaySession\(route\)/,
+    'rootless Home supplies an explicit route rather than deriving one from an editor folder');
+  assert.match(codeOnly(extension), /gatewaySession\(active\)/,
+    'repository-backed surfaces supply the validated active context');
   assert.match(extension,
     /No governed workspace or repository is selected\. Choose a workspace or open a governed repository\./,
     'the empty-state message describes both supported resolution paths');

@@ -51,6 +51,7 @@ const entries = {
   fix: ['sf-fix'],
   repair: ['sf-fix'],
   goal: ['sf-goal'],
+  push: ['sf-push'],
   home: ['sf-home'],
   recommend: ['sf-recommend'],
   logs: ['sf-logs'],
@@ -107,7 +108,7 @@ const entries = {
     'sf-inspect', 'sf-story-start', 'sf-story-inbox', 'sf-story-fetch', 'sf-story-branch',
     'sf-story-checks', 'sf-work-interval', 'sf-converge', 'sf-submit', 'sf-finalize'
   ],
-  workspace: ['sf-workspace', 'sf-workspaces', 'sf-workspace-session', 'sf-workspace-impact'],
+  workspace: ['sf-workspace', 'sf-workspace-bootstrap', 'sf-workspaces', 'sf-workspace-session', 'sf-workspace-impact'],
   knowledge: ['sf-knowledge'],
   capability: ['sf-capability-map', 'sf-capabilities', 'sf-capability-doctor'],
   hook: ['sf-hook'],

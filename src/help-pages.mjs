@@ -79,6 +79,27 @@ export function synopsisFor(command) {
  * what it refuses and why, and a worked example. Commands absent from this map still render.
  */
 const PAGES = Object.freeze({
+  push: {
+    summary: 'Inspect and safely retry exact pre-Story push intents.',
+    description: [
+      'Transport intents preserve the exact local commit, configured remote, expected prior remote',
+      'state, and destination ref for pushes outside Story publication. Status is offline with',
+      'respect to mutation: it never retries or changes a remote.',
+      '',
+      'Retry first reads the remote target. It recognizes an already-completed push, refuses remote',
+      'divergence, uses an exact commit-to-ref refspec, never force-pushes, and preserves the local',
+      'commit when the outcome cannot be proved.'
+    ],
+    options: [
+      ['--all', 'Include succeeded transport intents in the status list.'],
+      ['--json', 'Emit the integrity-verified intent record.']
+    ],
+    examples: [
+      ['singularity-flow push status', 'List unresolved pre-Story publication intents.'],
+      ['singularity-flow push retry psh_…', 'Re-observe the target and retry only when it is proven safe.']
+    ],
+    seeAlso: ['workspace', 'sync', 'doctor']
+  },
   goal: {
     summary: 'Create and manage personal outcomes linked to governed work.',
     description: [
@@ -467,7 +488,13 @@ const PAGES = Object.freeze({
       'failures remain attached to the same session; credentials and raw Git stderr are not persisted.',
       '',
       '`workspace doctor` is local by default. Add `--network` only when you explicitly want it to',
-      'probe the remotes referenced by unfinished bootstrap sessions.'
+      'probe the remotes referenced by unfinished bootstrap sessions. It reports only whether',
+      'enterprise proxy and CA sources exist; it never prints their values or suggests disabling TLS.',
+      '',
+      '`workspace adopt` is the explicit path for an existing clone. Its dry-run records canonical',
+      'location, origin, branch, HEAD-related state, worktrees, submodules, SFlow configuration and',
+      'a content-aware dirty-tree hash. Adoption creates a separate workspace shell and does not',
+      'fetch, checkout, stash, commit, reset, clean, or edit the clone remote.'
     ],
     options: [
       ['--id ID', 'Portable local workspace identifier used by prepare.'],
@@ -476,6 +503,7 @@ const PAGES = Object.freeze({
       ['--initialize', 'Plan governed state-branch initialization after successful materialization.'],
       ['--network', 'Allow workspace doctor to contact pending-session remotes.'],
       ['--confirm ID', 'Exact workspace ID required before a bootstrap session may materialize.'],
+      ['--confirm-dirty SHA256', 'Content-bound acknowledgement required to retain a dirty adopted clone.'],
       ['--json', 'Emit the structured session, preflight, findings, and recovery command.']
     ],
     examples: [
@@ -483,6 +511,7 @@ const PAGES = Object.freeze({
       ['singularity-flow workspace use payments', 'Make a workspace the active one for this session.'],
       ['singularity-flow workspace prepare https://git.example/payments.git --id payments', 'Record and preflight setup without creating the destination.'],
       ['singularity-flow workspace bootstrap resume bst_… --confirm payments', 'Recheck and materialize the exact recorded plan.'],
+      ['singularity-flow workspace adopt ~/src/payments --id payments --dry-run', 'Inspect an existing clone and preview the preserving workspace shell.'],
       ['singularity-flow workspace doctor --network', 'Diagnose machine state and unfinished-session remotes without changing them.']
     ],
     seeAlso: ['capability', 'session', 'bootstrap']

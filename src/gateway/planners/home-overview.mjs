@@ -53,19 +53,32 @@ export const HOME_CHOICES = Object.freeze([
 
 export const MAX_HOME_CHOICES = 6;
 
+const ROOTLESS_CHOICES = Object.freeze({
+  bootstrap: { id: 'workspace.bootstrap.status', label: 'Continue workspace setup' },
+  open: { id: 'repository.open.guide', label: 'Use an existing repository clone' },
+  prepare: { id: 'workspace.prepare.guide', label: 'Prepare a new workspace' },
+  doctor: { id: 'workspace.doctor.guide', label: 'Run workspace diagnostics' },
+  explore: { id: 'workspace.explore.guide', label: 'Explore saved workspaces' }
+});
+
 const FALLBACKS = Object.freeze({
   'work.continue': { command: 'singularity-flow resume <WORK-ID>', skill: '/sf-resume <WORK-ID>' },
   'work.return': { command: 'singularity-flow story return <WORK-ID>', skill: '/sf-work-interval reconcile' },
   'work.list': { command: 'singularity-flow session candidates', skill: '/sf-session' },
   'work.start.intake': { command: 'singularity-flow start <WORK-ID>', skill: '/sf-start <WORK-ID>' },
   'workspace.switch': { command: 'singularity-flow workspace list', skill: '/sf-workspace' },
+  'workspace.bootstrap.status': { command: 'singularity-flow workspace bootstrap status <BOOTSTRAP-ID>', skill: '/sf-workspace-bootstrap <BOOTSTRAP-ID>' },
+  'workspace.prepare.guide': { command: 'singularity-flow workspace prepare', skill: '/sf-workspace-create' },
+  'repository.open.guide': { command: 'singularity-flow workspace adopt <DIRECTORY> --id <ID> --dry-run', skill: '/sf-workspace' },
+  'workspace.doctor.guide': { command: 'singularity-flow workspace doctor', skill: '/sf-workspace' },
+  'workspace.explore.guide': { command: 'singularity-flow workspace list', skill: '/sf-workspace' },
   'impact.quick': { command: 'singularity-flow workspace impact', skill: '/sf-workspace-impact' },
   'repository.explore': { command: 'singularity-flow status', skill: '/sf-inspect' },
   'help.explain': { command: 'singularity-flow explain', skill: '/sf-help' }
 });
 
 function fallbackFor(id, label, slots) {
-  if (id === 'workspace.switch' && slots.bootstrap) {
+  if (id === 'workspace.bootstrap.status' && slots.bootstrap) {
     return {
       label,
       command: `singularity-flow workspace bootstrap status ${slots.bootstrap}`,
@@ -81,20 +94,24 @@ function fallbackFor(id, label, slots) {
   }
   const fallback = FALLBACKS[id];
   const workId = slots.work ?? '<WORK-ID>';
+  const bootstrapId = slots.bootstrap ?? '<BOOTSTRAP-ID>';
   return {
     label,
-    command: fallback.command.replace('<WORK-ID>', workId),
-    skill: fallback.skill.replace('<WORK-ID>', workId)
+    command: fallback.command.replace('<WORK-ID>', workId).replace('<BOOTSTRAP-ID>', bootstrapId),
+    skill: fallback.skill.replace('<WORK-ID>', workId).replace('<BOOTSTRAP-ID>', bootstrapId)
   };
 }
 
-function homeNavigation(entry, { workId = null, workKind = null } = {}) {
+function homeNavigation(entry, { workId = null, workKind = null, bootstrapId = null } = {}) {
   if (['work.continue', 'work.return', 'work.readiness'].includes(entry.id)) {
     return workId
       ? { operationId: entry.id, arguments: { workId, ...(workKind ? { workKind } : {}) } }
       : { operationId: 'work.list', arguments: {} };
   }
   if (entry.id === 'workspace.switch') return { operationId: 'workspace.list', arguments: {} };
+  if (entry.id === 'workspace.bootstrap.status') {
+    return { operationId: entry.id, arguments: { bootstrapId } };
+  }
   if (entry.id === 'repository.explore') {
     return { operationId: 'repository.explore', arguments: { repositoryId: 'current' } };
   }
@@ -254,10 +271,13 @@ export function homeOverviewResult({
      * because offering "see current work" with no workspace selected promises evidence that cannot
      * exist and produces an empty screen the reader reads as "you have nothing to do".
      */
-    const lead = ordered.filter((entry) => entry.id === 'workspace.switch' || entry.id === 'help.explain')
-      .map((entry) => entry.id === 'workspace.switch' && bootstrap
-        ? { ...entry, label: 'Continue workspace setup' }
-        : entry);
+    const lead = [
+      ...(bootstrap ? [ROOTLESS_CHOICES.bootstrap] : []),
+      ROOTLESS_CHOICES.open,
+      ROOTLESS_CHOICES.prepare,
+      ROOTLESS_CHOICES.doctor,
+      ROOTLESS_CHOICES.explore
+    ];
     return sflowResult({
       kind: 'read',
       operation: { id: 'home.overview', classification: 'read' },
@@ -266,7 +286,10 @@ export function homeOverviewResult({
       why: [{ code: 'home.no-workspace-selected', source: 'deterministic' }],
       next: lead.map((entry, index) => choice(
         entry, index, 'home.select-a-workspace-first',
-        bootstrap ? { bootstrap: bootstrap.bootstrapId, status: bootstrap.status } : {}
+        entry.id === 'workspace.bootstrap.status'
+          ? { bootstrap: bootstrap.bootstrapId, status: bootstrap.status }
+          : {},
+        entry.id === 'workspace.bootstrap.status' ? { bootstrapId: bootstrap.bootstrapId } : {}
       )),
       restState: null,
       /** No workspace means no Story, so there is no rail to draw and none is claimed. */

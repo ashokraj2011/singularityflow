@@ -7,7 +7,8 @@ import test from 'node:test';
 import { probeGitRemote } from '../src/git-remote-diagnostics.mjs';
 import {
   abandonWorkspaceBootstrap, prepareWorkspaceBootstrap, readWorkspaceBootstrap,
-  resumeWorkspaceBootstrap, workspaceBootstrapRoot
+  enterpriseGitDiagnostics, portableWorkspacePathFindings, resumeWorkspaceBootstrap,
+  workspaceBootstrapRoot
 } from '../src/workspace-bootstrap.mjs';
 import { run } from '../src/util.mjs';
 
@@ -154,6 +155,32 @@ test('network-disabled preflight records an offline classification without invok
   assert.equal(calls, 0);
   assert.equal(result.failure.classification, 'offline');
   assert.equal(result.failure.evidence.blocked, true);
+});
+
+test('native Windows path rules reject reserved names and trailing characters without platform simulation', () => {
+  const invalid = portableWorkspacePathFindings('C:\\work\\CON\\demo. ', { platform: 'win32' });
+  assert.ok(invalid.some((entry) => entry.id === 'machine.path.reserved-device'));
+  assert.ok(invalid.some((entry) => entry.id === 'machine.path.trailing-character'));
+  assert.deepEqual(portableWorkspacePathFindings('/work/CON/demo. ', { platform: 'linux' }), []);
+  const long = portableWorkspacePathFindings(`C:\\${'workspace\\'.repeat(25)}repo`, { platform: 'win32' });
+  assert.ok(long.some((entry) => entry.id === 'machine.path.long' && entry.severity === 'warning'));
+});
+
+test('enterprise Git diagnostics disclose configuration sources but never their secret values', () => {
+  const secretProxy = 'https://employee:secret@example.invalid:8443';
+  const secretCaPath = '/private/company/root-ca.pem';
+  const diagnostics = enterpriseGitDiagnostics({
+    env: { HTTPS_PROXY: secretProxy, GIT_SSL_CAINFO: secretCaPath },
+    runCommand: (_command, args) => ({
+      status: args.at(-1) === 'http.proxy' ? 0 : 1,
+      stdout: args.at(-1) === 'http.proxy' ? secretProxy : secretCaPath
+    })
+  });
+  assert.equal(diagnostics.proxy.configured, true);
+  assert.equal(diagnostics.certificateAuthority.configured, true);
+  assert.deepEqual(diagnostics.proxy.sources, ['HTTPS_PROXY', 'git:http.proxy']);
+  assert.doesNotMatch(JSON.stringify(diagnostics), /employee|secret|root-ca/);
+  assert.match(diagnostics.guidance, /never disables TLS/);
 });
 
 test('session integrity detects local record tampering', async () => {

@@ -5,7 +5,8 @@ import {
 import os from 'node:os';
 import path from 'node:path';
 import {
-  atomicJson, listWorkspaceDocuments, readWorkspace, stageWorkspaceDocuments
+  atomicJson, listWorkspaceDocuments, readWorkspace, stageWorkspaceDocuments,
+  workspaceRepositoryPath
 } from './workspace.mjs';
 import { nowIso, run, SingularityFlowError } from './util.mjs';
 import { invokeModel } from './model-runner.mjs';
@@ -46,7 +47,7 @@ async function regularFile(file) {
 function repositorySnapshot(workspace, id) {
   const repository = workspace.repositories[id];
   if (!repository) throw new SingularityFlowError(`Workspace repository '${id}' is not configured.`);
-  const root = path.join(workspace.path, repository.path);
+  const root = workspaceRepositoryPath(workspace, repository);
   const git = run('git', ['rev-parse', '--show-toplevel'], { cwd: root, allowFailure: true });
   if (git.status !== 0 || path.resolve(git.stdout.trim()) !== path.resolve(root)) {
     throw new SingularityFlowError(`Workspace repository '${id}' is not a ready Git checkout: ${root}`);
@@ -272,7 +273,7 @@ export async function workspaceImpactStatus(workspacePath, id) {
       changes.push({ repository: recorded.id, reason: 'repository is no longer configured' });
       continue;
     }
-    const root = path.join(workspace.path, configured.path);
+    const root = workspaceRepositoryPath(workspace, configured);
     const current = run('git', ['rev-parse', 'HEAD'], { cwd: root, allowFailure: true }).stdout.trim();
     if (current !== recorded.commit) {
       changes.push({ repository: recorded.id, reason: 'HEAD changed', recorded: recorded.commit, current: current || null });

@@ -17,6 +17,11 @@ the current branch. Both commands are read-only. Recommend `/sf-init` when
 assets are missing. Do not reset, stash, switch branches, or edit
 configuration unless the user explicitly asks you to apply a fix.
 
+When no repository or workspace exists, run `singularity-flow workspace doctor --json` instead.
+It is machine-local and offline by default. Add `--network` only after the contributor explicitly
+chooses to contact the remotes named by unfinished bootstrap sessions. Relay proxy and certificate
+configuration source names, never their values; never request credentials or recommend disabling TLS.
+
 When the user asks about monorepo or Git slowness, pass `--performance --json`.
 Relay the measured total/scoped file counts, warm status/fingerprint times, clone
 mode, and recommendations. The benchmark is read-only: never enable FSMonitor,

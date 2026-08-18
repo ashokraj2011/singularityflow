@@ -17,6 +17,7 @@ import { emitCommandResult } from '../narration/emit.mjs';
 import {
   SingularityFlowError, optionBoolean, optionString, optionStrings
 } from '../util.mjs';
+import { workspaceRepositoryPath } from '../workspace.mjs';
 
 function terminalStatus(state) {
   return ['complete', 'completed', 'cancelled', 'archived'].includes(String(state ?? '').toLowerCase());
@@ -30,7 +31,7 @@ function repositoryFor(context, repositoryId) {
       code: 'GOAL_REPOSITORY_REQUIRED', details: { repositoryId: id }
     });
   }
-  const root = repoRoot(path.join(context.workspace.path, configured.path));
+  const root = repoRoot(workspaceRepositoryPath(context.workspace, configured));
   return { id, root };
 }
 

@@ -2628,6 +2628,8 @@ singularity-flow goal link [GOAL-ID] <WORK-ID> [--kind story|initiative --reposi
 singularity-flow goal unlink [GOAL-ID] <WORK-ID> [--kind story|initiative --repository ID]
 singularity-flow goal complete [GOAL-ID] --confirm GOAL-ID [--note TEXT]
 singularity-flow goal abandon [GOAL-ID] --confirm GOAL-ID --reason TEXT
+singularity-flow push status [INTENT-ID] [--all] [--json]
+singularity-flow push retry <INTENT-ID> [--json]
 singularity-flow inbox [--offline] [--json]
 singularity-flow finalize [--json]
 singularity-flow quickstart [--keep] [--json]

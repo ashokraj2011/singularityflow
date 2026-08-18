@@ -13,7 +13,8 @@ import { isGitRefName, SingularityFlowError, run } from './util.mjs';
 import {
   cloneStrategyArguments, normalizeCloneStrategy, partialCloneConfigured
 } from './clone-strategy.mjs';
-import { classifyGitRemoteFailure, sanitizeRemote } from './git-remote-diagnostics.mjs';
+import { classifyGitRemoteFailure, remoteFingerprint, sanitizeRemote } from './git-remote-diagnostics.mjs';
+import { worktreeFingerprint } from './worktree-fingerprint.mjs';
 
 export const WORKSPACE_FILE = 'workspace.json';
 export const WORKSPACE_SCHEMA_VERSION = 1;
@@ -139,6 +140,27 @@ function normalizeRepository(id, input) {
       throw new SingularityFlowError(`Workspace repository '${id}' capability '${capability}' must be lower-case kebab-case.`);
     }
   }
+  let adoption = null;
+  if (repository.adoption != null) {
+    const supplied = object(repository.adoption, `Workspace repository '${id}' adoption`);
+    if (supplied.mode !== 'existing-clone') {
+      throw new SingularityFlowError(`Workspace repository '${id}' has an unsupported adoption mode.`);
+    }
+    const canonicalPath = path.resolve(String(supplied.canonicalPath ?? ''));
+    if (!path.isAbsolute(String(supplied.canonicalPath ?? '')) || canonicalPath === path.parse(canonicalPath).root) {
+      throw new SingularityFlowError(`Workspace repository '${id}' adoption requires a safe absolute clone root.`);
+    }
+    const proofHash = String(supplied.proofHash ?? '');
+    if (!/^sha256:[a-f0-9]{64}$/.test(proofHash)) {
+      throw new SingularityFlowError(`Workspace repository '${id}' adoption requires a valid proof hash.`);
+    }
+    adoption = {
+      mode: 'existing-clone', canonicalPath, proofHash,
+      dirtyAcceptedHash: supplied.dirtyAcceptedHash == null ? null : String(supplied.dirtyAcceptedHash),
+      reviewedAt: Number.isFinite(Date.parse(supplied.reviewedAt))
+        ? new Date(supplied.reviewedAt).toISOString() : nowIso()
+    };
+  }
   return {
     id,
     url: repository.url.trim(),
@@ -149,8 +171,16 @@ function normalizeRepository(id, input) {
     path: relativePath,
     role: repository.role === 'lead' ? 'lead' : 'participant',
     clone: normalizeCloneStrategy(repository.clone, `Workspace repository '${id}' clone strategy`),
-    capabilities
+    capabilities,
+    adoption
   };
+}
+
+/** Resolve a repository without assuming every workspace owns its checkout bytes. */
+export function workspaceRepositoryPath(workspace, repository) {
+  return repository.adoption?.mode === 'existing-clone'
+    ? path.resolve(repository.adoption.canonicalPath)
+    : path.join(workspace.path, repository.path);
 }
 
 export function validateWorkspaceManifest(input, { workspaceRoot = null } = {}) {
@@ -287,7 +317,8 @@ function workspaceMaterializationPlan(manifest) {
       jira: repository.jira,
       path: repository.path,
       role: repository.role,
-      clone: repository.clone
+      clone: repository.clone,
+      adoption: repository.adoption
     }])),
     directories: manifest.directories
   });
@@ -332,13 +363,14 @@ export function previewWorkspace({
       updatedAt: nowIso()
     }, { workspaceRoot: root }),
     operations: Object.values(normalized).map((repository) => ({
-      action: 'clone',
+      action: repository.adoption ? 'adopt' : 'clone',
       repository: repository.id,
       url: repository.url,
-      target: path.join(root, repository.path),
+      target: repository.adoption?.canonicalPath ?? path.join(root, repository.path),
       branch: repository.defaultBranch,
       required: repository.required,
-      clone: repository.clone
+      clone: repository.clone,
+      adoption: repository.adoption
     }))
   };
 }
@@ -377,11 +409,66 @@ export async function workspaceRepositoryDefaults(repository) {
   const origin = run('git', ['remote', 'get-url', 'origin'], { cwd: root, allowFailure: true }).stdout.trim();
   if (!origin) throw new SingularityFlowError(`Repository '${root}' has no origin remote and cannot be cloned into a workspace.`);
 
+  const currentBranch = run('git', ['branch', '--show-current'], { cwd: root, allowFailure: true }).stdout.trim();
+  if (!currentBranch) throw new SingularityFlowError(`Repository '${root}' has a detached HEAD and cannot be adopted as a workspace checkout.`);
+
   const remoteHead = run('git', ['symbolic-ref', '--short', 'refs/remotes/origin/HEAD'], {
     cwd: root,
     allowFailure: true
   }).stdout.trim();
-  const defaultBranch = remoteHead.replace(/^origin\//, '') || 'main';
+  const visibleRemoteBranches = remoteBranches(root, 'origin');
+  const defaultBranch = remoteHead.replace(/^origin\//, '')
+    || (visibleRemoteBranches.length === 1 ? visibleRemoteBranches[0] : null)
+    || visibleRemoteBranches.find((branch) => branch === 'main' || branch === 'master')
+    || currentBranch;
+
+  const statusText = run('git', ['status', '--porcelain=v1', '--untracked-files=all'], {
+    cwd: root, allowFailure: true
+  }).stdout;
+  const fingerprint = worktreeFingerprint(root);
+  const worktreeStatusHash = `sha256:${fingerprint.sha256}`;
+  const submodules = run('git', ['submodule', 'status', '--recursive'], {
+    cwd: root, allowFailure: true
+  }).stdout.trim().split('\n').filter(Boolean).slice(0, 100);
+  const worktrees = run('git', ['worktree', 'list', '--porcelain'], {
+    cwd: root, allowFailure: true
+  }).stdout.split('\n').filter((line) => line.startsWith('worktree ')).map((line) => line.slice(9));
+  const tracked = run('git', ['ls-files', '-z'], { cwd: root, allowFailure: true }).stdout.split('\0').filter(Boolean);
+  const byCase = new Map();
+  const caseCollisions = [];
+  for (const file of tracked) {
+    const key = file.toLocaleLowerCase('en-US');
+    if (byCase.has(key) && byCase.get(key) !== file) caseCollisions.push([byCase.get(key), file]);
+    else byCase.set(key, file);
+  }
+  if (caseCollisions.length) {
+    throw new SingularityFlowError(`Repository '${root}' contains case-colliding tracked paths and cannot be safely adopted on this platform.`);
+  }
+  const workflowFile = path.join(root, 'singularity', 'workflow.yml');
+  const workflowInfo = await lstat(workflowFile).catch(() => null);
+  let sflowConfiguration = 'absent';
+  if (workflowInfo?.isFile() && !workflowInfo.isSymbolicLink()) {
+    try { YAML.parse(await readFile(workflowFile, 'utf8')); sflowConfiguration = 'present'; }
+    catch { sflowConfiguration = 'malformed'; }
+  }
+  const proof = {
+    canonicalRoot: root,
+    gitMetadata: gitMetadata.isFile() ? 'gitfile' : 'directory',
+    origin: sanitizeRemote(origin),
+    remoteFingerprint: `sha256:${remoteFingerprint(sanitizeRemote(origin))}`,
+    currentBranch,
+    defaultBranch,
+    defaultBranchVisible: Boolean(run('git', ['show-ref', '--verify', '--quiet', `refs/remotes/origin/${defaultBranch}`], {
+      cwd: root, allowFailure: true
+    }).status === 0),
+    dirty: fingerprint.dirty,
+    worktreeStatusHash,
+    changedPaths: fingerprint.paths.slice(0, 100),
+    submodules,
+    worktrees,
+    sflowConfiguration
+  };
+  const proofHash = `sha256:${createHash('sha256').update(JSON.stringify(stableValue(proof))).digest('hex')}`;
 
   const id = path.basename(root)
     .normalize('NFKD')
@@ -396,7 +483,8 @@ export async function workspaceRepositoryDefaults(repository) {
     defaultBranch,
     required: true,
     jira: { board: '' },
-    metadata: { name: path.basename(root), appId: '' }
+    metadata: { name: path.basename(root) },
+    adoption: { ...proof, mode: 'existing-clone', proofHash }
   };
 }
 
@@ -612,6 +700,61 @@ export function createWorkspaceConfiguration(options, settings = {}) {
   }, settings);
 }
 
+/**
+ * Create a machine-local workspace shell around an explicitly selected existing clone.
+ * The clone itself is read only: no fetch, checkout, stash, commit, reset, clean, or remote edit.
+ */
+export async function adoptWorkspaceConfiguration({
+  cloneDirectory, id, name = null, baseDirectory, dirtyConfirmation = null
+}, { confirmation, dryRun = false } = {}) {
+  const defaults = await workspaceRepositoryDefaults(cloneDirectory);
+  const workspaceId = safeId(id, 'Workspace ID');
+  const repository = {
+    url: defaults.url,
+    defaultBranch: defaults.defaultBranch,
+    required: true,
+    metadata: defaults.metadata,
+    jira: defaults.jira,
+    path: `repos/${defaults.id}`,
+    adoption: {
+      mode: 'existing-clone',
+      canonicalPath: defaults.localPath,
+      proofHash: defaults.adoption.proofHash,
+      dirtyAcceptedHash: dirtyConfirmation,
+      reviewedAt: nowIso()
+    }
+  };
+  const input = {
+    baseDirectory,
+    id: workspaceId,
+    name: name ?? workspaceId,
+    repositories: { [defaults.id]: repository },
+    leadRepository: defaults.id,
+    capabilities: []
+  };
+  const preview = previewWorkspaceConfiguration(input);
+  const plan = {
+    schemaVersion: 1,
+    mode: 'adopt-existing-clone',
+    workspace: { id: workspaceId, path: preview.root },
+    repository: defaults,
+    dirtyConfirmationRequired: defaults.adoption.dirty
+      ? defaults.adoption.worktreeStatusHash : null,
+    effects: ['create-workspace-shell', 'write-workspace-manifest', 'register-machine-local-workspace'],
+    preserved: ['existing-repository-bytes', 'branch', 'HEAD', 'worktree', 'remotes'],
+    confirmation: workspaceId
+  };
+  if (dryRun) return { plan, preview };
+  if (defaults.adoption.dirty && dirtyConfirmation !== defaults.adoption.worktreeStatusHash) {
+    throw new SingularityFlowError(
+      `Existing clone has uncommitted work. Re-run with --confirm-dirty ${defaults.adoption.worktreeStatusHash} after reviewing the listed paths.`,
+      { code: 'WORKSPACE_ADOPTION_DIRTY_CONFIRMATION_REQUIRED', details: { plan } }
+    );
+  }
+  const created = await createWorkspaceConfiguration(input, { confirmation, clone: true });
+  return { ...created, plan };
+}
+
 export async function saveWorkspaceConfiguration(options, { confirmation } = {}) {
   const saved = await createWorkspaceConfiguration(options, { confirmation, clone: false });
   try {
@@ -676,7 +819,7 @@ export async function previewWorkspaceUpdate(workspacePath, options) {
       action: current.repositories[repository.id] ? 'update' : 'clone',
       repository: repository.id,
       url: repository.url,
-      target: path.join(current.path, repository.path),
+      target: workspaceRepositoryPath(manifest, repository),
       branch: repository.defaultBranch,
       required: repository.required,
       clone: repository.clone
@@ -801,13 +944,38 @@ async function writeJournal(root, journal, logsDirectory = 'logs') {
 
 function materializationOperation(root, repository) {
   return {
-    action: 'clone',
+    action: repository.adoption ? 'adopt' : 'clone',
     repository: repository.id,
     url: repository.url,
-    target: path.join(root, repository.path),
+    target: repository.adoption?.canonicalPath ?? path.join(root, repository.path),
     branch: repository.defaultBranch,
     required: repository.required,
-    clone: repository.clone
+    clone: repository.clone,
+    adoption: repository.adoption
+  };
+}
+
+async function verifyAdoptionOperation(operation) {
+  const observed = await workspaceRepositoryDefaults(operation.target);
+  const proof = observed.adoption;
+  if (sanitizeRemote(observed.url) !== sanitizeRemote(operation.url)) {
+    return { status: 1, error: `Existing clone origin changed after review: ${operation.target}` };
+  }
+  if (proof.proofHash !== operation.adoption?.proofHash) {
+    return { status: 1, error: `Existing clone state changed after review. Inspect it again before adoption: ${operation.target}` };
+  }
+  if (proof.dirty && operation.adoption?.dirtyAcceptedHash !== proof.worktreeStatusHash) {
+    return {
+      status: 1,
+      error: `Existing clone has uncommitted work. Review it and confirm dirty-state hash ${proof.worktreeStatusHash}; nothing was fetched, switched, stashed, committed, reset, or cleaned.`
+    };
+  }
+  return {
+    status: 0, error: null,
+    clone: { mode: 'adopted-existing-clone', fallback: 'refuse', sparseCone: [] },
+    fallbackUsed: false,
+    adoption: proof,
+    cleanup: null
   };
 }
 
@@ -857,6 +1025,49 @@ async function cloneIntoWorkspace(root, operation) {
   const stagingRoot = await mkdtemp(path.join(parent, '.sflow-clone-'));
   const staging = path.join(stagingRoot, 'repository');
   await assertInside(root, staging);
+  const canonicalParent = await realpath(parent);
+  const ownership = {
+    schemaVersion: 1,
+    bootstrapId: String(operation.bootstrapId ?? `workspace-${operation.workspaceId ?? 'unbound'}`),
+    repositoryId: operation.repository,
+    canonicalPath: await realpath(stagingRoot),
+    targetPath: path.resolve(operation.target),
+    createdAt: nowIso(),
+    nonce: randomUUID()
+  };
+  const ownershipFile = path.join(stagingRoot, '.sflow-bootstrap-owner.json');
+  await writeFile(ownershipFile, `${JSON.stringify(ownership, null, 2)}\n`, { flag: 'wx', mode: 0o600 });
+
+  const verifyOwnership = async () => {
+    const info = await lstat(stagingRoot).catch(() => null);
+    if (!info?.isDirectory() || info.isSymbolicLink()) return false;
+    const canonical = await realpath(stagingRoot).catch(() => null);
+    if (canonical !== ownership.canonicalPath || path.dirname(canonical) !== canonicalParent) return false;
+    let recorded;
+    try { recorded = JSON.parse(await readFile(ownershipFile, 'utf8')); } catch { return false; }
+    return recorded.bootstrapId === ownership.bootstrapId
+      && recorded.repositoryId === ownership.repositoryId
+      && recorded.nonce === ownership.nonce
+      && recorded.canonicalPath === ownership.canonicalPath
+      && recorded.targetPath === ownership.targetPath;
+  };
+
+  const cleanupStaging = async () => {
+    if (!(await verifyOwnership())) return false;
+    const entries = await readdir(stagingRoot, { withFileTypes: true });
+    if (entries.some((entry) => !['.sflow-bootstrap-owner.json', 'repository'].includes(entry.name))) return false;
+    const repositoryEntry = entries.find((entry) => entry.name === 'repository');
+    if (repositoryEntry?.isSymbolicLink()) return false;
+    if (repositoryEntry) await rm(staging, { recursive: true, force: true });
+    await rm(ownershipFile, { force: true });
+    await rmdir(stagingRoot);
+    return true;
+  };
+
+  const cleanupFailure = async (message) => {
+    if (await cleanupStaging()) return message;
+    return `${message} The staging directory was retained for inspection because its ownership could not be proven: ${stagingRoot}`;
+  };
   const strategy = normalizeCloneStrategy(operation.clone, `Repository '${operation.repository}' clone strategy`);
   // Check out the configured default branch, but retain remote-tracking refs for governed Epic
   // and Story branches. State transfer depends on seeing branches created from other terminals.
@@ -868,28 +1079,35 @@ async function cloneIntoWorkspace(root, operation) {
   let fallbackUsed = false;
   let result = cloneOnce(selected);
   if (result.status !== 0) {
-    await rm(stagingRoot, { recursive: true, force: true });
-    return { status: result.status, error: cloneFailure(operation, result) };
+    return { status: result.status, error: await cleanupFailure(cloneFailure(operation, result)) };
   }
   const cloneOutput = `${String(result.stdout ?? '')}\n${String(result.stderr ?? '')}`;
   const filterIgnored = /(?:filter(?:ing)?[^\n]*(?:ignored|not recognized)|does not support[^\n]*filter)/i.test(cloneOutput);
   if (selected.mode !== 'full' && (filterIgnored
     || !partialCloneConfigured(staging, 'origin', (args, options) => run('git', args, options)))) {
     if (selected.fallback !== 'full') {
-      await rm(stagingRoot, { recursive: true, force: true });
       return {
         status: 1,
-        error: `Repository '${operation.repository}' did not establish a blobless partial clone. `
-          + `The server may not support filter=blob:none; clone fallback is 'refuse', so a full monorepo was not retained.`
+        error: await cleanupFailure(`Repository '${operation.repository}' did not establish a blobless partial clone. `
+          + `The server may not support filter=blob:none; clone fallback is 'refuse', so a full monorepo was not retained.`)
       };
+    }
+    if (!(await verifyOwnership())) {
+      return {
+        status: 1,
+        error: `Repository '${operation.repository}' needs a full-clone fallback, but the staging ownership marker no longer verifies. Inspect ${stagingRoot}; nothing was published.`
+      };
+    }
+    const stagedInfo = await lstat(staging).catch(() => null);
+    if (stagedInfo?.isSymbolicLink()) {
+      return { status: 1, error: `Repository '${operation.repository}' staging path became a symbolic link. Inspect ${stagingRoot}; nothing was published.` };
     }
     await rm(staging, { recursive: true, force: true });
     selected = normalizeCloneStrategy({ mode: 'full', fallback: 'full' });
     fallbackUsed = true;
     result = cloneOnce(selected);
     if (result.status !== 0) {
-      await rm(stagingRoot, { recursive: true, force: true });
-      return { status: result.status, error: cloneFailure(operation, result) };
+      return { status: result.status, error: await cleanupFailure(cloneFailure(operation, result)) };
     }
   }
   if (strategy.mode === 'blobless-sparse' && !fallbackUsed) {
@@ -898,11 +1116,10 @@ async function cloneIntoWorkspace(root, operation) {
       allowFailure: true
     });
     if (sparse.status !== 0) {
-      await rm(stagingRoot, { recursive: true, force: true });
       return {
         status: sparse.status,
-        error: `Repository '${operation.repository}' cloned partially but sparse checkout could not select `
-          + `${strategy.sparseCone.join(', ')}: ${String(sparse.stderr || sparse.stdout).trim() || 'Git refused the cone paths'}.`
+        error: await cleanupFailure(`Repository '${operation.repository}' cloned partially but sparse checkout could not select `
+          + `${strategy.sparseCone.join(', ')}: ${String(sparse.stderr || sparse.stdout).trim() || 'Git refused the cone paths'}.`)
       };
     }
   }
@@ -912,11 +1129,18 @@ async function cloneIntoWorkspace(root, operation) {
     // added anything, so no user content is overwritten.
     if (existing) await rmdir(operation.target);
     await rename(staging, operation.target);
-    await rm(stagingRoot, { recursive: true, force: true });
-    return { status: 0, error: null, clone: selected, fallbackUsed };
+    const cleaned = await cleanupStaging();
+    return {
+      status: 0, error: null, clone: selected, fallbackUsed,
+      cleanup: cleaned
+        ? { status: 'removed', path: stagingRoot, recoverable: false }
+        : { status: 'retained', path: stagingRoot, recoverable: true }
+    };
   } catch (error) {
-    await rm(stagingRoot, { recursive: true, force: true });
-    return { status: 1, error: `Clone completed but could not claim its workspace target: ${error.message}` };
+    return {
+      status: 1,
+      error: await cleanupFailure(`Clone completed but could not claim its workspace target: ${error.message}`)
+    };
   }
 }
 
@@ -1015,11 +1239,19 @@ export async function createWorkspace(options, {
       operation.status = 'running';
       operation.startedAt = nowIso();
       await writeJournal(root, journal, manifest.directories.logs);
-      const result = await cloneIntoWorkspace(root, operation);
+      const result = operation.action === 'adopt'
+        ? await verifyAdoptionOperation(operation)
+        : await cloneIntoWorkspace(root, {
+          ...operation,
+          bootstrapId,
+          workspaceId: manifest.id
+        });
       operation.status = result.status === 0 ? 'complete' : 'failed';
       operation.error = result.error;
       operation.actualClone = result.status === 0 ? result.clone : null;
       operation.fallbackUsed = result.status === 0 ? result.fallbackUsed : false;
+      operation.cleanup = result.cleanup ?? null;
+      operation.adoptionProof = result.adoption ?? null;
       operation.completedAt = nowIso();
       await writeJournal(root, journal, manifest.directories.logs);
       if (result.status !== 0 && operation.required) {
@@ -1137,20 +1369,28 @@ async function repositoryWorldModelStatus(root) {
 }
 
 async function repositoryStatus(root, repository) {
-  const absolute = path.join(root, repository.path);
-  try {
-    await assertInside(root, absolute);
-  } catch (error) {
-    return {
-      ...repository,
-      absolutePath: absolute,
-      state: 'invalid-path',
-      error: error.message,
-      dirty: null,
-      branch: null,
-      remote: null,
-      head: null
-    };
+  const absolute = repository.adoption?.canonicalPath ?? path.join(root, repository.path);
+  if (repository.adoption) {
+    const canonical = await realpath(absolute).catch(() => null);
+    const info = await lstat(absolute).catch(() => null);
+    if (!canonical || canonical !== repository.adoption.canonicalPath || info?.isSymbolicLink()) {
+      return { ...repository, absolutePath: absolute, state: 'adoption-path-invalid', dirty: null, branch: null, remote: null, head: null };
+    }
+  } else {
+    try {
+      await assertInside(root, absolute);
+    } catch (error) {
+      return {
+        ...repository,
+        absolutePath: absolute,
+        state: 'invalid-path',
+        error: error.message,
+        dirty: null,
+        branch: null,
+        remote: null,
+        head: null
+      };
+    }
   }
   const directory = await lstat(absolute).catch(() => null);
   if (!directory) return { ...repository, absolutePath: absolute, state: 'missing', dirty: null, branch: null, remote: null };
@@ -1198,7 +1438,7 @@ export async function workspaceStatus(workspacePath) {
   return {
     workspace,
     healthy: repositories.every((repository) => repository.state === 'ready'),
-    leadRepositoryPath: path.join(workspace.path, workspace.repositories[workspace.leadRepository].path),
+    leadRepositoryPath: workspaceRepositoryPath(workspace, workspace.repositories[workspace.leadRepository]),
     repositories,
     stagedDocuments: staged,
     warnings,
@@ -1347,7 +1587,8 @@ export async function rememberWorkspace(file, workspace, status = null, { preser
     anchorKey: normalized.anchor.key,
     anchorType: normalized.anchor.issueTypeName,
     siteId: normalized.anchor.siteId,
-    leadRepositoryPath: status?.leadRepositoryPath ?? path.join(normalized.path, normalized.repositories[normalized.leadRepository].path),
+    leadRepositoryPath: status?.leadRepositoryPath
+      ?? workspaceRepositoryPath(normalized, normalized.repositories[normalized.leadRepository]),
     openedAt: nowIso(),
     archivedAt: null
   });
@@ -1527,6 +1768,24 @@ export async function repairWorkspace(workspacePath) {
     const repository = status.repositories[index];
     const operation = journal.operations[index];
     if (repository.state === 'ready') continue;
+    if (repository.adoption) {
+      operation.status = 'running';
+      operation.error = null;
+      operation.startedAt = nowIso();
+      operation.completedAt = null;
+      await writeJournal(status.workspace.path, journal, status.workspace.directories.logs);
+      const adopted = await verifyAdoptionOperation(operation);
+      operation.status = adopted.status === 0 ? 'complete' : 'failed';
+      operation.error = adopted.error;
+      operation.adoptionProof = adopted.adoption ?? null;
+      operation.completedAt = nowIso();
+      await writeJournal(status.workspace.path, journal, status.workspace.directories.logs);
+      if (adopted.status !== 0) {
+        throw new SingularityFlowError(`Adopted repository '${repository.id}' requires review: ${adopted.error}`);
+      }
+      repaired.push({ repository: repository.id, status: 'adopted', proofHash: repository.adoption.proofHash });
+      continue;
+    }
     if (!['missing', 'empty'].includes(repository.state)) {
       operation.status = 'failed';
       operation.error = `Existing repository directory is ${repository.state}.`;
@@ -1539,7 +1798,11 @@ export async function repairWorkspace(workspacePath) {
     operation.startedAt = nowIso();
     operation.completedAt = null;
     await writeJournal(status.workspace.path, journal, status.workspace.directories.logs);
-    const result = await cloneIntoWorkspace(status.workspace.path, operation);
+    const result = await cloneIntoWorkspace(status.workspace.path, {
+      ...operation,
+      bootstrapId: journal.bootstrapId,
+      workspaceId: status.workspace.id
+    });
     if (result.status !== 0) {
       operation.status = 'failed';
       operation.error = result.error;
@@ -1552,6 +1815,7 @@ export async function repairWorkspace(workspacePath) {
       operation.error = null;
       operation.actualClone = result.clone;
       operation.fallbackUsed = result.fallbackUsed;
+      operation.cleanup = result.cleanup ?? null;
       operation.completedAt = nowIso();
       repaired.push({
         repository: repository.id,

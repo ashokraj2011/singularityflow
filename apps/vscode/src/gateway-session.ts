@@ -31,6 +31,10 @@ import { workReadiness } from '../../../src/gateway/planners/work-readiness.mjs'
 import { workReturn } from '../../../src/gateway/planners/work-return.mjs';
 import { workStartIntake } from '../../../src/gateway/planners/work-start-intake.mjs';
 import { workspaceList } from '../../../src/gateway/planners/workspace-list.mjs';
+import {
+  repositoryOpenGuide, workspaceBootstrapStatus, workspaceDoctorGuide, workspaceExploreGuide,
+  workspacePrepareGuide
+} from '../../../src/gateway/planners/workspace-reliability-surface.mjs';
 
 /** What this host can answer without leaving the editor process. */
 export function editorPlanners(): Map<string, unknown> {
@@ -43,12 +47,17 @@ export function editorPlanners(): Map<string, unknown> {
     ['work-return', workReturn],
     ['work-start-intake', workStartIntake],
     ['workspace-list', workspaceList],
+    ['workspace-bootstrap-status', workspaceBootstrapStatus],
+    ['workspace-prepare-guide', workspacePrepareGuide],
+    ['repository-open-guide', repositoryOpenGuide],
+    ['workspace-doctor-guide', workspaceDoctorGuide],
+    ['workspace-explore-guide', workspaceExploreGuide],
     ['impact-quick', impactQuick]
   ]);
 }
 
 export type GatewaySession = {
-  readonly root: string;
+  readonly root: string | null;
   readonly kernel: any;
   /**
    * The world as it is now, recomputed per call. `[INT:REQ-036]`
@@ -67,6 +76,7 @@ let sessionRoot: string | null = null;
 let sessionWorkspaceId: string | null = null;
 let sessionWorkspaceName: string | null = null;
 let sessionRepositoryId: string | null = null;
+let sessionBootstrapId: string | null = null;
 
 /**
  * The one validated repository context every editor surface acts on.
@@ -82,6 +92,16 @@ export type ActiveRepositoryContext = {
   readonly workspaceName: string | null;
   readonly repositoryId: string | null;
   readonly origin: string;
+};
+
+/** A rootless Home is a real gateway context, but it has no repository bytes to bind. */
+export type GatewayRepositoryContext = {
+  readonly root: string | null;
+  readonly workspaceId: string | null;
+  readonly workspaceName: string | null;
+  readonly repositoryId: string | null;
+  readonly origin: string;
+  readonly bootstrap?: any;
 };
 
 let activeContext: ActiveRepositoryContext | null = null;
@@ -118,10 +138,12 @@ export function provideAcknowledgedAt(provider: () => string | null): void {
   resetGatewaySession();
 }
 
-export function gatewaySession(context: ActiveRepositoryContext): GatewaySession {
-  const { root, workspaceId, workspaceName, repositoryId } = context;
+export function gatewaySession(context: GatewayRepositoryContext): GatewaySession {
+  const { root, workspaceId, workspaceName, repositoryId, bootstrap = null } = context;
+  const bootstrapId = bootstrap?.bootstrapId ?? null;
   if (session && sessionRoot === root && sessionWorkspaceId === workspaceId
-    && sessionWorkspaceName === workspaceName && sessionRepositoryId === repositoryId) return session;
+    && sessionWorkspaceName === workspaceName && sessionRepositoryId === repositoryId
+    && sessionBootstrapId === bootstrapId) return session;
   const host = createHostGateway({
     root,
     hostSessionId: HOST_SESSION_ID,
@@ -143,6 +165,7 @@ export function gatewaySession(context: ActiveRepositoryContext): GatewaySession
     plannerContext: () => ({
       acknowledgedAt: acknowledgedAtProvider(),
       repositoryId: repositoryId ?? root,
+      bootstrap,
       ...(workspaceId ? {
         workspace: { id: workspaceId, name: workspaceName ?? workspaceId },
         workspaceName: workspaceName ?? workspaceId
@@ -162,6 +185,7 @@ export function gatewaySession(context: ActiveRepositoryContext): GatewaySession
   sessionWorkspaceId = workspaceId;
   sessionWorkspaceName = workspaceName;
   sessionRepositoryId = repositoryId;
+  sessionBootstrapId = bootstrapId;
   return session;
 }
 
@@ -187,4 +211,5 @@ export function resetGatewaySession(): void {
   sessionWorkspaceId = null;
   sessionWorkspaceName = null;
   sessionRepositoryId = null;
+  sessionBootstrapId = null;
 }

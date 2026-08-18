@@ -13,7 +13,7 @@
  */
 declare module '*/gateway/host.mjs' {
   export function createHostGateway(options: {
-    root: string;
+    root: string | null;
     hostSessionId: string;
     workspaceId?: string | null;
     subject?: unknown;
@@ -22,9 +22,9 @@ declare module '*/gateway/host.mjs' {
     plannerContext?: Record<string, unknown> | (() => Record<string, unknown>);
     readOnly?: boolean;
     now?: () => number;
-  }): { root: string; binding: () => unknown; kernel: GatewayKernel };
+  }): { root: string | null; binding: () => unknown; kernel: GatewayKernel };
 
-  export function hostBinding(root: string, options: Record<string, unknown>): Record<string, unknown>;
+  export function hostBinding(root: string | null, options: Record<string, unknown>): Record<string, unknown>;
 }
 
 /** Only the two entry points a read-only host calls, and what they hand back. */
@@ -93,6 +93,17 @@ declare module '*/gateway/planners/work-readiness.mjs' { export const workReadin
 declare module '*/gateway/planners/work-return.mjs' { export const workReturn: unknown; }
 declare module '*/gateway/planners/work-start-intake.mjs' { export const workStartIntake: unknown; }
 declare module '*/gateway/planners/workspace-list.mjs' { export const workspaceList: unknown; }
+declare module '*/gateway/planners/workspace-reliability-surface.mjs' {
+  export const workspaceBootstrapStatus: unknown;
+  export const workspacePrepareGuide: unknown;
+  export const repositoryOpenGuide: unknown;
+  export const workspaceDoctorGuide: unknown;
+  export const workspaceExploreGuide: unknown;
+}
+
+declare module '*/workspace-bootstrap.mjs' {
+  export function latestWorkspaceBootstrap(options?: Record<string, unknown>): Promise<any | null>;
+}
 
 /**
  * The form layer's pure half.

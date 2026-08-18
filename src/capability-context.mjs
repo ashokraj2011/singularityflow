@@ -16,7 +16,7 @@ import { loadDefinition } from './config.mjs';
 import { resolveWorldModelSource } from './grounding.mjs';
 import { ledgerLog } from './ledger.mjs';
 import { activeWorkspaceFile, workspaceContextForRepository, workspaceRegistryFile } from './workspace-context.mjs';
-import { readWorkspace } from './workspace.mjs';
+import { readWorkspace, workspaceRepositoryPath } from './workspace.mjs';
 import { posix, run, SingularityFlowError, snapshot, writeJson, writeText } from './util.mjs';
 
 const CAPABILITY_CONTEXT_SCHEMA = 1;
@@ -88,7 +88,7 @@ async function sourceForRepository(root) {
   return {
     active,
     workspace,
-    mapRoot: path.join(workspace.path, lead.path),
+    mapRoot: workspaceRepositoryPath(workspace, lead),
     repositoryId: active.repositoryId
   };
 }
@@ -320,7 +320,7 @@ export async function materializeCapabilityWorldModelPack(root, capability, {
   for (const repositoryId of repositoryIds) {
     const configured = workspace?.repositories?.[repositoryId];
     const repositoryRoot = configured
-      ? path.join(workspace.path, configured.path)
+      ? workspaceRepositoryPath(workspace, configured)
       : repositoryId === source.repositoryId ? root : null;
     if (!repositoryRoot || !existsSync(repositoryRoot)) {
       warnings.push(`Capability repository '${repositoryId}' is not materialized in the active workspace.`);

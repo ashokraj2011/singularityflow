@@ -158,6 +158,7 @@ skills:
   sflow-plugin: { class: mutation }
   sflow-pr: { class: mutation }
   sflow-progress: { class: echo }
+  sflow-push: { class: mutation }
   sflow-prompt-log: { class: mutation }
   sflow-quickstart: { class: echo }
   sflow-recommend: { class: conversational }

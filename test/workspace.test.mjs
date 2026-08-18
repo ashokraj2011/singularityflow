@@ -6,10 +6,11 @@ import test from 'node:test';
 import { spawnSync } from 'node:child_process';
 import { fileURLToPath } from 'node:url';
 import {
-  archiveWorkspace, createWorkspace, createWorkspaceConfiguration, fetchWorkspace, forgetWorkspace, listWorkspaceDocuments,
+  adoptWorkspaceConfiguration, archiveWorkspace, createWorkspace, createWorkspaceConfiguration, fetchWorkspace, forgetWorkspace, listWorkspaceDocuments,
   normalizeWorkspaceAnchor, previewWorkspace, previewWorkspaceConfiguration, readWorkspace, readWorkspaceRegistry,
   rememberWorkspace, resolveWorkspaceDocument, restoreWorkspace, saveWorkspaceConfiguration, stageWorkspaceDocuments,
-  updateWorkspaceConfiguration, validateWorkspaceManifest, workspaceArchiveReadiness, workspaceStatus
+  updateWorkspaceConfiguration, validateWorkspaceManifest, workspaceArchiveReadiness, workspaceRepositoryPath,
+  workspaceStatus
 } from '../src/workspace.mjs';
 import {
   activateWorkspaceContext, buildWorkspaceContext, discardUnsupportedWorkflowWorkspaces,
@@ -304,6 +305,74 @@ test('workspace configuration is independent from Jira hierarchy and pins reposi
   assert.equal(created.workspace.name, 'Payments platform');
   assert.equal(created.workspace.leadRepository, 'experience');
   assert.equal(created.workspace.repositories.services.jira.board, 'PAY-SVC');
+});
+
+test('a clean existing clone can be adopted without changing its Git state or bytes', async () => {
+  const root = await mkdtemp(path.join(os.tmpdir(), 'sflow-workspace-adopt-clean-'));
+  const remote = await remoteRepository(root, 'platform');
+  const clone = path.join(root, 'existing-clone');
+  run('git', ['clone', remote, clone], { cwd: root });
+  const before = {
+    head: run('git', ['rev-parse', 'HEAD'], { cwd: clone }).stdout.trim(),
+    branch: run('git', ['branch', '--show-current'], { cwd: clone }).stdout.trim(),
+    status: run('git', ['status', '--porcelain=v1', '--untracked-files=all'], { cwd: clone }).stdout,
+    origin: run('git', ['remote', 'get-url', 'origin'], { cwd: clone }).stdout.trim(),
+    readme: await readFile(path.join(clone, 'README.md'), 'utf8')
+  };
+  const adopted = await adoptWorkspaceConfiguration({
+    cloneDirectory: clone,
+    id: 'adopted-platform',
+    name: 'Adopted platform',
+    baseDirectory: path.join(root, 'workspaces')
+  }, { confirmation: 'adopted-platform' });
+
+  const configured = adopted.workspace.repositories[adopted.workspace.leadRepository];
+  assert.equal(workspaceRepositoryPath(adopted.workspace, configured), await realpath(clone));
+  assert.equal(adopted.status.healthy, true);
+  assert.equal(adopted.materialization[0].actual.mode, 'adopted-existing-clone');
+  assert.deepEqual({
+    head: run('git', ['rev-parse', 'HEAD'], { cwd: clone }).stdout.trim(),
+    branch: run('git', ['branch', '--show-current'], { cwd: clone }).stdout.trim(),
+    status: run('git', ['status', '--porcelain=v1', '--untracked-files=all'], { cwd: clone }).stdout,
+    origin: run('git', ['remote', 'get-url', 'origin'], { cwd: clone }).stdout.trim(),
+    readme: await readFile(path.join(clone, 'README.md'), 'utf8')
+  }, before);
+});
+
+test('dirty-clone adoption requires a content-bound confirmation and never cleans the clone', async () => {
+  const root = await mkdtemp(path.join(os.tmpdir(), 'sflow-workspace-adopt-dirty-'));
+  const remote = await remoteRepository(root, 'platform');
+  const clone = path.join(root, 'dirty-clone');
+  run('git', ['clone', remote, clone], { cwd: root });
+  await writeFile(path.join(clone, 'README.md'), '# locally edited platform\n');
+  await writeFile(path.join(clone, 'notes.txt'), 'do not remove\n');
+
+  const dryRun = await adoptWorkspaceConfiguration({
+    cloneDirectory: clone, id: 'dirty-platform', baseDirectory: path.join(root, 'workspaces')
+  }, { dryRun: true });
+  const dirtyHash = dryRun.plan.dirtyConfirmationRequired;
+  assert.match(dirtyHash, /^sha256:[a-f0-9]{64}$/);
+  assert.equal(await stat(dryRun.plan.workspace.path).catch(() => null), null, 'dry-run created a workspace shell');
+  await assert.rejects(() => adoptWorkspaceConfiguration({
+    cloneDirectory: clone, id: 'dirty-platform', baseDirectory: path.join(root, 'workspaces')
+  }, { confirmation: 'dirty-platform' }), (error) => error.code === 'WORKSPACE_ADOPTION_DIRTY_CONFIRMATION_REQUIRED');
+
+  // The confirmation binds bytes, not merely the unchanged Git status row.
+  await writeFile(path.join(clone, 'README.md'), '# a different local edit\n');
+  await assert.rejects(() => adoptWorkspaceConfiguration({
+    cloneDirectory: clone, id: 'dirty-platform', baseDirectory: path.join(root, 'workspaces'),
+    dirtyConfirmation: dirtyHash
+  }, { confirmation: 'dirty-platform' }), (error) => error.code === 'WORKSPACE_ADOPTION_DIRTY_CONFIRMATION_REQUIRED');
+  const refreshed = await adoptWorkspaceConfiguration({
+    cloneDirectory: clone, id: 'dirty-platform', baseDirectory: path.join(root, 'workspaces')
+  }, { dryRun: true });
+  const created = await adoptWorkspaceConfiguration({
+    cloneDirectory: clone, id: 'dirty-platform', baseDirectory: path.join(root, 'workspaces'),
+    dirtyConfirmation: refreshed.plan.dirtyConfirmationRequired
+  }, { confirmation: 'dirty-platform' });
+  assert.equal(created.status.repositories[0].dirty, true);
+  assert.equal(await readFile(path.join(clone, 'README.md'), 'utf8'), '# a different local edit\n');
+  assert.equal(await readFile(path.join(clone, 'notes.txt'), 'utf8'), 'do not remove\n');
 });
 
 test('workspace Jira project routing is optional and can be added later', async () => {

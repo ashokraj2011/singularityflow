@@ -29,6 +29,11 @@ export interface MapCapabilityForm {
   parent: string;
   parents: ParentChoice[];
   repositoryUrl: string;
+  sourceRoots: string;
+  sharedRoots: string;
+  cloneMode: 'full' | 'blobless' | 'blobless-sparse';
+  sparseCone: string;
+  cloneFallback: 'refuse' | 'full';
   metadata: Array<{ key: string; value: string }>;
   jiraProject: string;
   teams: string;
@@ -41,7 +46,8 @@ export interface MapCapabilityForm {
 
 export const EMPTY_MAP_FORM: MapCapabilityForm = {
   lead: '', leads: [], capabilityId: '', name: '', kind: 'delivery',
-  parent: '', parents: [], repositoryUrl: '', metadata: [], jiraProject: '', teams: '',
+  parent: '', parents: [], repositoryUrl: '', sourceRoots: '', sharedRoots: '',
+  cloneMode: 'full', sparseCone: '', cloneFallback: 'refuse', metadata: [], jiraProject: '', teams: '',
   loaded: false, busy: false, notice: null, error: null
 };
 
@@ -72,6 +78,17 @@ export function mapProblems(form: MapCapabilityForm): string[] {
   if (form.kind === 'collection' && form.repositoryUrl.trim()) {
     problems.push('A Collection cannot name a repository. Choose Delivery or clear the clone URL.');
   }
+  const paths = [...form.sourceRoots.split(','), ...form.sharedRoots.split(','), ...form.sparseCone.split(',')]
+    .map((entry) => entry.trim()).filter(Boolean);
+  for (const entry of paths) {
+    if (entry === '.' || entry.includes('\\') || /^(?:\/|[A-Za-z]:[\\/])/.test(entry)
+      || entry.split(/[\\/]+/).includes('..') || /[*?\[\]{}]/.test(entry)) {
+      problems.push(`'${entry}' must be a repository-relative directory without '..' or glob characters.`);
+    }
+  }
+  if (form.cloneMode === 'blobless-sparse' && !form.sparseCone.split(',').some((entry) => entry.trim())) {
+    problems.push('Blobless sparse cloning requires at least one sparse checkout directory.');
+  }
   for (const [index, entry] of form.metadata.entries()) {
     if (!entry.key.trim() && !entry.value.trim()) continue;
     if (!entry.key.trim() || !entry.value.trim()) {
@@ -87,6 +104,12 @@ export function mapCommand(form: MapCapabilityForm): string[] {
   if (form.name.trim()) args.push('--name', form.name.trim());
   if (form.parent) args.push('--parent', form.parent);
   if (form.repositoryUrl.trim()) args.push('--repository', form.repositoryUrl.trim());
+  if (form.sourceRoots.trim()) args.push('--source-roots', form.sourceRoots.trim());
+  if (form.sharedRoots.trim()) args.push('--shared-roots', form.sharedRoots.trim());
+  if (form.cloneMode !== 'full') {
+    args.push('--clone-mode', form.cloneMode, '--clone-fallback', form.cloneFallback);
+    if (form.sparseCone.trim()) args.push('--sparse-cone', form.sparseCone.trim());
+  }
   for (const entry of form.metadata) {
     if (entry.key.trim() && entry.value.trim()) args.push('--metadata', `${entry.key.trim()}=${entry.value.trim()}`);
   }
@@ -156,6 +179,18 @@ export function mapCapabilityHtml(form: MapCapabilityForm): string {
     ${form.kind === 'delivery' ? `<div class="form-grid">
       <label class="field full"><span>Clone URL</span><input type="text" value="${escape(form.repositoryUrl)}" data-map="repositoryUrl"
         placeholder="https://git.example.corp/acme/payments-api.git"><small>The repository is declared in the portfolio so workspaces can clone it.</small></label>
+      <label class="field"><span>Clone strategy</span><select data-map="cloneMode">
+        <option value="full"${form.cloneMode === 'full' ? ' selected' : ''}>Full clone</option>
+        <option value="blobless"${form.cloneMode === 'blobless' ? ' selected' : ''}>Blobless partial clone</option>
+        <option value="blobless-sparse"${form.cloneMode === 'blobless-sparse' ? ' selected' : ''}>Blobless + sparse checkout</option>
+      </select><small>Large monorepos should use blobless sparse after selecting the directories below.</small></label>
+      <label class="field"><span>Unsupported-server fallback</span><select data-map="cloneFallback">
+        <option value="refuse"${form.cloneFallback === 'refuse' ? ' selected' : ''}>Refuse — never silently download everything</option>
+        <option value="full"${form.cloneFallback === 'full' ? ' selected' : ''}>Allow an explicit full clone</option>
+      </select></label>
+      <label class="field full"><span>Sparse checkout directories</span><input type="text" value="${escape(form.sparseCone)}" data-map="sparseCone" placeholder="apps/payments, libs/contracts, singularity"><small>Comma-separated cone-mode directories. Required only for blobless + sparse.</small></label>
+      <label class="field full"><span>World-model application roots</span><input type="text" value="${escape(form.sourceRoots)}" data-map="sourceRoots" placeholder="apps/payments"><small>Leave empty for the whole repository.</small></label>
+      <label class="field full"><span>World-model shared roots</span><input type="text" value="${escape(form.sharedRoots)}" data-map="sharedRoots" placeholder="libs/contracts, libs/platform"></label>
     </div>` : '<p class="muted">A Collection groups capabilities and does not ship from a repository. To map code, choose Delivery above; the Git clone URL field will appear here.</p>'}
 
     <div class="editor-card">
@@ -288,7 +323,7 @@ export const MAP_CAPABILITY_SCRIPT = `
       vscode.postMessage({ type: 'selectLead', value: event.target.value });
     } else if (field === 'repositoryUrl') {
       vscode.postMessage({ type: 'repositoryCommitted', value: event.target.value });
-    } else if (field === 'parent' || field === 'kind') {
+    } else if (field === 'parent' || field === 'kind' || field === 'cloneMode') {
       vscode.postMessage({ type: 'redraw' });
     }
     if (event.target.matches('[data-use-shipping-repository]')) {

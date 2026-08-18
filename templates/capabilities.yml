@@ -18,6 +18,10 @@ capabilities:
   product:
     kind: collection
     parent: enterprise
+    # A child may replace sourceRoots; sharedRoots accumulate down the parent chain. These are
+    # pinned into new Story/Initiative state so later map edits do not move an active boundary.
+    # sourceRoots: [apps/product]
+    # sharedRoots: [packages/contracts]
     # Optional organisation-defined attributes. Keys are free-form and values are text.
     metadata:
       serviceTier: standard

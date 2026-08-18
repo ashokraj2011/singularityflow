@@ -305,7 +305,7 @@ test('no CLI anywhere fails with both places named', () => {
   }
 });
 
-test('world-model builds and lifecycle submissions get operation-appropriate long timeouts', async () => {
+test('large remote operations and lifecycle submissions get operation-appropriate long timeouts', async () => {
   const timeouts = [];
   const client = new SingularityFlowClient({
     location: { executable: 'node', cli: '/cli.mjs', source: 'setting' },
@@ -317,14 +317,18 @@ test('world-model builds and lifecycle submissions get operation-appropriate lon
   globalThis.setTimeout = (fn, ms, ...rest) => { timeouts.push(ms); return original(fn, 1, ...rest); };
   try {
     await client.run(['wm', 'build']).catch(() => {});
+    await client.run(['capability', 'map', 'payments']).catch(() => {});
+    await client.run(['capability', 'activate', 'proposal']).catch(() => {});
     await client.run(['submit', '--phase', 'poc-validation']).catch(() => {});
     await client.run(['initiative', 'status']).catch(() => {});
   } finally {
     globalThis.setTimeout = original;
   }
   assert.equal(timeouts[0], 15 * 60_000);
-  assert.equal(timeouts[1], 30 * 60_000);
-  assert.equal(timeouts[2], 120_000);
+  assert.equal(timeouts[1], 15 * 60_000);
+  assert.equal(timeouts[2], 15 * 60_000);
+  assert.equal(timeouts[3], 30 * 60_000);
+  assert.equal(timeouts[4], 120_000);
 });
 
 test('phases are read in declared order with the state each is in', () => {
@@ -1714,7 +1718,8 @@ test('a capability map that does not validate reports the engine reason', () => 
 
 const { capabilityDetail, capabilityArgv, capabilityProposalArgv, parentChoices, flattenCapabilities } =
   await import(source('views/capability-model.ts'));
-const { bodyHtml: capabilitiesHtml, readEdits } = await import(source('views/capability-page.ts'));
+const { bodyHtml: capabilitiesHtml, readEdits, SCRIPT: CAPABILITY_SCRIPT } =
+  await import(source('views/capability-page.ts'));
 const { buildCapabilityDashboard } = await import(source('views/capability-dashboard-model.ts'));
 const { EMPTY_MAP_FORM, MAP_CAPABILITY_SCRIPT, capabilityIdentifierProblem, mapCapabilityHtml, mapCommand, mapProblems } =
   await import(source('views/map-capability-form.ts'));
@@ -1749,8 +1754,31 @@ const capabilityFixture = [{
 
 test('mapping a capability defaults Kind to Delivery', () => {
   assert.equal(EMPTY_MAP_FORM.kind, 'delivery');
+  assert.equal(EMPTY_MAP_FORM.cloneMode, 'full');
+  assert.equal(EMPTY_MAP_FORM.cloneFallback, 'refuse');
   assert.match(mapCapabilityHtml(EMPTY_MAP_FORM),
     /<option value="delivery" selected>Delivery<\/option>/);
+});
+
+test('mapping a monorepo capability carries source scope and clone policy into one reviewed proposal', () => {
+  const form = {
+    ...EMPTY_MAP_FORM,
+    lead: 'https://git.example/platform.git', loaded: true,
+    capabilityId: 'payments', repositoryUrl: 'https://git.example/platform.git',
+    sourceRoots: 'apps/payments', sharedRoots: 'packages/contracts',
+    cloneMode: 'blobless-sparse', sparseCone: 'apps/payments, packages/contracts',
+    cloneFallback: 'refuse'
+  };
+  assert.deepEqual(mapProblems(form), []);
+  const command = mapCommand(form);
+  assert.deepEqual(command.slice(command.indexOf('--source-roots'), command.indexOf('--source-roots') + 4), [
+    '--source-roots', 'apps/payments', '--shared-roots', 'packages/contracts'
+  ]);
+  assert.ok(command.includes('--clone-mode'));
+  assert.ok(command.includes('blobless-sparse'));
+  assert.ok(command.includes('--sparse-cone'));
+  assert.match(mapCapabilityHtml(form), /World-model application roots/);
+  assert.match(mapCapabilityHtml(form), /Blobless \+ sparse checkout/);
 });
 
 test('mapping a capability selects the only map repository without a separate read step', () => {
@@ -1797,6 +1825,14 @@ test('the capability designer routes every mutation through the reviewed organis
   assert.deepEqual(
     capabilityProposalArgv('remove', 'ledger', lead),
     ['capability', 'edit', 'ledger', '--lead', lead, '--mode', 'remove', '--json']);
+  assert.deepEqual(
+    capabilityProposalArgv('remove', 'payments', lead, {}, { reparentChildrenTo: 'commerce' }),
+    ['capability', 'edit', 'payments', '--lead', lead, '--mode', 'remove',
+      '--reparent-children-to', 'commerce', '--json']);
+  assert.deepEqual(
+    capabilityProposalArgv('remove', 'commerce', lead, {}, { reparentChildrenTo: null }),
+    ['capability', 'edit', 'commerce', '--lead', lead, '--mode', 'remove',
+      '--reparent-children-to', '', '--json']);
 });
 
 test('mapping a capability asks which map to use only when multiple maps exist', () => {
@@ -1903,6 +1939,10 @@ test('a capability reports what it ships, at any depth beneath it', () => {
     [{ id: 'payments-api', repository: 'api' }], 'a leaf ships itself');
   assert.deepEqual(capabilityDetail(capabilityFixture, 'commerce').ancestors, []);
   assert.deepEqual(capabilityDetail(capabilityFixture, 'payments-api').ancestors, ['commerce', 'payments']);
+  assert.deepEqual(capabilityDetail(capabilityFixture, 'payments').parent,
+    { id: 'commerce', name: 'Commerce' });
+  assert.deepEqual(capabilityDetail(capabilityFixture, 'payments').children,
+    [{ id: 'payments-api', name: 'Payments API', kind: 'delivery', repository: 'api' }]);
   assert.equal(capabilityDetail(capabilityFixture, 'gone'), null);
 });
 
@@ -1953,6 +1993,9 @@ test('an empty field is sent as a clearance, and an untouched one is not sent at
     ['capability', 'set', 'payments', '--parent', ''],
     'clearing the parent moves an existing capability to the top level');
   assert.deepEqual(capabilityArgv('remove', 'payments'), ['capability', 'remove', 'payments']);
+  assert.deepEqual(
+    capabilityArgv('remove', 'payments', {}, { reparentChildrenTo: 'commerce' }),
+    ['capability', 'remove', 'payments', '--reparent-children-to', 'commerce']);
   assert.deepEqual(capabilityArgv('add', 'ledger', { parent: 'payments', kind: 'collection' }),
     ['capability', 'add', 'ledger', '--kind', 'collection', '--parent', 'payments']);
   assert.deepEqual(capabilityArgv('set', 'payments', {
@@ -1984,6 +2027,21 @@ test('the capability screen shows declared beside effective, and names the overr
   // Policy is not editable here, and the screen says where it is edited rather than staying silent.
   assert.equal(/data-field="policy/.test(html), false);
   assert.match(html, /singularity\/capabilities\.yml/);
+});
+
+test('the capability screen navigates both relationship directions and removes through reviewed history', () => {
+  const html = capabilitiesHtml(capabilityFixture, 'payments', null);
+  assert.match(html, /Relationships/);
+  assert.match(html, /data-select="commerce"[^>]*>Commerce/);
+  assert.match(html, /data-select="payments-api"[^>]*>Payments API/);
+  assert.match(html, /The child stores one parent link/);
+  assert.match(html, /data-remove-target/);
+  assert.match(html, /Move its child to/);
+  assert.match(html, /data-review-proposals/);
+  assert.match(html, /Older approved map revisions remain auditable in Git/);
+  assert.match(html, /Remove from current map/);
+  assert.match(CAPABILITY_SCRIPT, /reparentChildrenTo/);
+  assert.match(CAPABILITY_SCRIPT, /review-proposals/);
 });
 
 test('the capability screen opens with a portfolio dashboard above the editable map', () => {
@@ -3402,6 +3460,9 @@ test('capability proposals have an exact review and activation UI', async () => 
   assert.match(dashboard, /No proposals waiting/);
   assert.match(dashboard, /ready for exact review/);
   assert.match(dashboard, /blocked by validation/);
+  assert.match(dashboard, /Show merged history/);
+  assert.match(dashboard, /'--all'/,
+    'the same UI can inspect retained merged proposal branches without making them actionable');
   assert.match(dashboard, /data-review/,
     'each proposal opens the exact review screen');
   const panel = await readFile(source('views/capability-proposal.ts'), 'utf8');
@@ -3415,6 +3476,8 @@ test('capability proposals have an exact review and activation UI', async () => 
     'the activation receipt is visible rather than discarded');
   assert.match(panel, /application default branch is not part of this operation/i);
   assert.match(panel, /normal non-force Git push/i);
+  assert.match(panel, /proposal\.merged \? 'Already merged'/,
+    'historical proposals cannot be activated again from the review UI');
   const workspacePanel = await readFile(source('views/workspace-panel.ts'), 'utf8');
   assert.match(workspacePanel, /refresh \? \['--refresh'\] : \[\]/,
     'the workspace refresh action bypasses the durable organisation cache');

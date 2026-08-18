@@ -10,6 +10,9 @@ import {
   buildRepositorySubjectIndex, buildRepositorySubjectIndexFromRefs
 } from './repository-subject-index.mjs';
 import { isGitRefName, SingularityFlowError, run } from './util.mjs';
+import {
+  cloneStrategyArguments, normalizeCloneStrategy, partialCloneConfigured
+} from './clone-strategy.mjs';
 
 export const WORKSPACE_FILE = 'workspace.json';
 export const WORKSPACE_SCHEMA_VERSION = 1;
@@ -144,6 +147,7 @@ function normalizeRepository(id, input) {
     jira: normalizeRepositoryJira(repository.jira ?? {}, `Workspace repository '${id}' Jira configuration`),
     path: relativePath,
     role: repository.role === 'lead' ? 'lead' : 'participant',
+    clone: normalizeCloneStrategy(repository.clone, `Workspace repository '${id}' clone strategy`),
     capabilities
   };
 }
@@ -281,7 +285,8 @@ function workspaceMaterializationPlan(manifest) {
       metadata: repository.metadata,
       jira: repository.jira,
       path: repository.path,
-      role: repository.role
+      role: repository.role,
+      clone: repository.clone
     }])),
     directories: manifest.directories
   });
@@ -331,7 +336,8 @@ export function previewWorkspace({
       url: repository.url,
       target: path.join(root, repository.path),
       branch: repository.defaultBranch,
-      required: repository.required
+      required: repository.required,
+      clone: repository.clone
     }))
   };
 }
@@ -645,6 +651,9 @@ function workspaceUpdateManifest(current, { name, repositories, leadRepository, 
         throw new SingularityFlowError(`Workspace editing cannot change ${field} for materialized repository '${id}'. Add a new repository entry instead.`);
       }
     }
+    if (JSON.stringify(replacement.clone) !== JSON.stringify(repository.clone)) {
+      throw new SingularityFlowError(`Workspace editing cannot change clone strategy for materialized repository '${id}'. Create a replacement workspace instead.`);
+    }
   }
   return validateWorkspaceManifest({
     ...current,
@@ -668,7 +677,8 @@ export async function previewWorkspaceUpdate(workspacePath, options) {
       url: repository.url,
       target: path.join(current.path, repository.path),
       branch: repository.defaultBranch,
-      required: repository.required
+      required: repository.required,
+      clone: repository.clone
     }))
   };
 }
@@ -735,7 +745,8 @@ export async function duplicateWorkspaceConfiguration(sourcePath, {
       required: repository.required,
       metadata: repository.metadata,
       jira: repository.jira,
-      path: repository.path
+      path: repository.path,
+      clone: repository.clone
     }]))
   });
   await assertWorkingDirectoryFree(preview.root);
@@ -794,7 +805,8 @@ function materializationOperation(root, repository) {
     url: repository.url,
     target: path.join(root, repository.path),
     branch: repository.defaultBranch,
-    required: repository.required
+    required: repository.required,
+    clone: repository.clone
   };
 }
 
@@ -856,15 +868,54 @@ async function cloneIntoWorkspace(root, operation) {
   const stagingRoot = await mkdtemp(path.join(parent, '.sflow-clone-'));
   const staging = path.join(stagingRoot, 'repository');
   await assertInside(root, staging);
+  const strategy = normalizeCloneStrategy(operation.clone, `Repository '${operation.repository}' clone strategy`);
   // Check out the configured default branch, but retain remote-tracking refs for governed Epic
   // and Story branches. State transfer depends on seeing branches created from other terminals.
-  const result = run('git', ['clone', '--branch', operation.branch, '--', operation.url, staging], {
-    cwd: root,
-    allowFailure: true
-  });
+  const cloneOnce = (selected) => run('git', [
+    'clone', '--branch', operation.branch, ...cloneStrategyArguments(selected),
+    '--', operation.url, staging
+  ], { cwd: root, allowFailure: true });
+  let selected = strategy;
+  let fallbackUsed = false;
+  let result = cloneOnce(selected);
   if (result.status !== 0) {
     await rm(stagingRoot, { recursive: true, force: true });
     return { status: result.status, error: cloneFailure(operation, result) };
+  }
+  const cloneOutput = `${String(result.stdout ?? '')}\n${String(result.stderr ?? '')}`;
+  const filterIgnored = /(?:filter(?:ing)?[^\n]*(?:ignored|not recognized)|does not support[^\n]*filter)/i.test(cloneOutput);
+  if (selected.mode !== 'full' && (filterIgnored
+    || !partialCloneConfigured(staging, 'origin', (args, options) => run('git', args, options)))) {
+    if (selected.fallback !== 'full') {
+      await rm(stagingRoot, { recursive: true, force: true });
+      return {
+        status: 1,
+        error: `Repository '${operation.repository}' did not establish a blobless partial clone. `
+          + `The server may not support filter=blob:none; clone fallback is 'refuse', so a full monorepo was not retained.`
+      };
+    }
+    await rm(staging, { recursive: true, force: true });
+    selected = normalizeCloneStrategy({ mode: 'full', fallback: 'full' });
+    fallbackUsed = true;
+    result = cloneOnce(selected);
+    if (result.status !== 0) {
+      await rm(stagingRoot, { recursive: true, force: true });
+      return { status: result.status, error: cloneFailure(operation, result) };
+    }
+  }
+  if (strategy.mode === 'blobless-sparse' && !fallbackUsed) {
+    const sparse = run('git', ['sparse-checkout', 'set', '--cone', '--', ...strategy.sparseCone], {
+      cwd: staging,
+      allowFailure: true
+    });
+    if (sparse.status !== 0) {
+      await rm(stagingRoot, { recursive: true, force: true });
+      return {
+        status: sparse.status,
+        error: `Repository '${operation.repository}' cloned partially but sparse checkout could not select `
+          + `${strategy.sparseCone.join(', ')}: ${String(sparse.stderr || sparse.stdout).trim() || 'Git refused the cone paths'}.`
+      };
+    }
   }
   try {
     // A user may pre-create the repository folder while setting up a workspace. Claim it only
@@ -873,7 +924,7 @@ async function cloneIntoWorkspace(root, operation) {
     if (existing) await rmdir(operation.target);
     await rename(staging, operation.target);
     await rm(stagingRoot, { recursive: true, force: true });
-    return { status: 0, error: null };
+    return { status: 0, error: null, clone: selected, fallbackUsed };
   } catch (error) {
     await rm(stagingRoot, { recursive: true, force: true });
     return { status: 1, error: `Clone completed but could not claim its workspace target: ${error.message}` };
@@ -975,6 +1026,8 @@ export async function createWorkspace(options, {
       const result = await cloneIntoWorkspace(root, operation);
       operation.status = result.status === 0 ? 'complete' : 'failed';
       operation.error = result.error;
+      operation.actualClone = result.status === 0 ? result.clone : null;
+      operation.fallbackUsed = result.status === 0 ? result.fallbackUsed : false;
       operation.completedAt = nowIso();
       await writeJournal(root, journal, manifest.directories.logs);
       if (result.status !== 0 && operation.required) {
@@ -985,7 +1038,20 @@ export async function createWorkspace(options, {
     await writeJournal(root, journal, manifest.directories.logs);
   }
   const finalStatus = await workspaceStatus(root);
-  return { created: true, resumed: false, workspace: finalStatus.workspace, status: finalStatus };
+  return {
+    created: true,
+    resumed: false,
+    workspace: finalStatus.workspace,
+    status: finalStatus,
+    materialization: journal.operations.map((operation) => ({
+      repository: operation.repository,
+      requested: operation.clone,
+      actual: operation.actualClone ?? null,
+      fallbackUsed: operation.fallbackUsed === true,
+      status: operation.status,
+      error: operation.error ?? null
+    }))
+  };
 }
 
 async function repositoryWorldModelStatus(root) {
@@ -1492,8 +1558,15 @@ export async function repairWorkspace(workspacePath) {
     } else {
       operation.status = 'complete';
       operation.error = null;
+      operation.actualClone = result.clone;
+      operation.fallbackUsed = result.fallbackUsed;
       operation.completedAt = nowIso();
-      repaired.push({ repository: repository.id, status: 'cloned' });
+      repaired.push({
+        repository: repository.id,
+        status: 'cloned',
+        clone: result.clone,
+        fallbackUsed: result.fallbackUsed
+      });
       await writeJournal(status.workspace.path, journal, status.workspace.directories.logs);
     }
   }

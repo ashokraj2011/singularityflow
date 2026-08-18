@@ -7,6 +7,7 @@ aliases:
   - harness
   - hooks
 commands:
+  - doctor
   - harness
   - regression
   - hook
@@ -14,7 +15,7 @@ related:
   - getting-started
   - recovery
   - repository-state-and-snapshots
-version: 1
+version: 2
 ---
 Diagnostics report facts and bounded host coverage. Regression investigation gathers reproducible evidence; hooks enforce local policy without becoming an approval authority.
 
@@ -24,7 +25,7 @@ Use this topic when the current goal matches **diagnostics and regression**. Sta
 
 ## Use it from each surface
 
-- **Shell:** `sflow harness`, `sflow regression`, `sflow hook`. Run `singularity-flow harness --help` for the exact forms supported by this build.
+- **Shell:** `sflow doctor`, `sflow harness`, `sflow regression`, `sflow hook`. Run `singularity-flow doctor --performance --json` for an explicit monorepo benchmark.
 - **Copilot:** `/sf-help` followed by the documented CLI fallback. The skill must preserve the CLI result and ask before any governed mutation.
 - **VS Code:** open Singularity Flow **Lifecycle**. The extension renders engine results; it does not independently decide lifecycle state.
 
@@ -35,6 +36,8 @@ Use this topic when the current goal matches **diagnostics and regression**. Sta
 3. Preview or prepare the operation when the command offers a dry-run, plan, packet, or exact confirmation.
 4. Run the smallest applicable command from this topic. Do not substitute an undocumented subcommand.
 5. Re-read state after completion. In Copilot, return to `/sf-home`; in VS Code, refresh the relevant view if it has not already refreshed.
+
+For a large repository, `doctor --performance` measures cold and warm `git status`, cold and warm content-aware world-model fingerprints, total/scoped tracked files, sparse checkout, partial-clone filter, object counts, FSMonitor, and untracked-cache settings. It is opt-in because benchmarking should never add latency to Home or routine diagnostics. The command is read-only and emits recommendations; it does not change local Git configuration.
 
 ## State and safety
 

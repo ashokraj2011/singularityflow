@@ -50,6 +50,7 @@ import {
   clearCompositionCache, compositionCacheEnabled, compositionCacheStatus, memoizeComposition
 } from './composition-cache.mjs';
 import { PACKAGE_ROOT } from './package-root.mjs';
+import { withWorldModelSourceScope } from './source-scope.mjs';
 
 const configRelative = 'singularity/worldmodel.json';
 const CHECKPOINT_SCHEMA_VERSION = 1;
@@ -215,11 +216,15 @@ function requireText(file) {
 
 async function load(root, { agent: selectedAgent = null, workId = null } = {}) {
   if (existsSync(path.join(root, WORKFLOW_PATH))) {
-    const definition = await loadDefinition(root);
+    const configuredDefinition = await loadDefinition(root);
     const session = await loadSession(root, { required: false });
     const activeId = workId ?? run('git', ['branch', '--show-current'], { cwd: root, allowFailure: true }).stdout.trim();
-    const activeStatePath = path.join(root, definition.workItemRoot ?? 'singularity/work-items', activeId, 'workflow.json');
+    const activeStatePath = path.join(root, configuredDefinition.workItemRoot ?? 'singularity/work-items', activeId, 'workflow.json');
     const activeState = existsSync(activeStatePath) ? JSON.parse(await readFile(activeStatePath, 'utf8')) : null;
+    const definition = withWorldModelSourceScope(
+      configuredDefinition,
+      activeState?.resolution?.worldModelSourceScope ?? activeState?.resolution?.capability?.sourceScope ?? null
+    );
     const phaseEntries = activeState?.resolution?.phases?.length
       ? activeState.resolution.phases.map((phase) => [phase.id, phase])
       : Object.entries(definition.phases);

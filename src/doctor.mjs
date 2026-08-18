@@ -15,11 +15,14 @@ import { buildRepositorySubjectIndex, resolveContext } from './repository-subjec
 import { mcpDoctor } from './mcp-readiness.mjs';
 import { modelFreedomSnapshot, modelFreedomText } from './model-freedom.mjs';
 import { operationContext } from './operation-context.mjs';
+import { repositoryPerformanceSnapshot } from './performance-doctor.mjs';
+import { withWorldModelSourceScope } from './source-scope.mjs';
 
 function check(id, status, message, fix = null) { return { id, status, message, fix }; }
 
-export async function doctorSnapshot(root, { workId = null, offline = false } = {}) {
+export async function doctorSnapshot(root, { workId = null, offline = false, performance = false } = {}) {
   const checks = [];
+  let performanceReport = null;
   const major = Number(process.versions.node.split('.')[0]);
   checks.push(check('node', major >= 20 ? 'pass' : 'fail', `Node.js ${process.versions.node}`, major >= 20 ? null : 'Install Node.js 20 or newer.'));
   checks.push(check('git', 'pass', `Git repository ${root}`));
@@ -234,6 +237,27 @@ export async function doctorSnapshot(root, { workId = null, offline = false } = 
   else if (!session) checks.push(check('session', 'warn', 'No agent is selected for this terminal.', `Run singularity-flow resume ${workflow.workItem.id}.`));
   else if (session.workId !== workflow.workItem.id) checks.push(check('session', 'warn', `Session belongs to ${session.workId}, not ${workflow.workItem.id}.`, `Run singularity-flow resume ${workflow.workItem.id}.`));
   else checks.push(check('session', 'pass', `governed agent '${session.agent}' is active for ${session.workId}.`));
+  if (performance) {
+    try {
+      const measuredDefinition = withWorldModelSourceScope(
+        definition,
+        workflow?.resolution?.worldModelSourceScope ?? null
+      );
+      performanceReport = await repositoryPerformanceSnapshot(root, measuredDefinition);
+      checks.push(check(
+        'repository-performance',
+        performanceReport.recommendations.some((entry) => entry.severity === 'high') ? 'warn' : 'pass',
+        `${performanceReport.files.scoped.toLocaleString('en-US')} of ${performanceReport.files.tracked.toLocaleString('en-US')} tracked files are in scope; `
+          + `warm status ${performanceReport.timings.status.warmMs} ms; warm world-model fingerprint ${performanceReport.timings.worldModelFingerprint.warmMs} ms.`,
+        performanceReport.recommendations.length
+          ? performanceReport.recommendations.map((entry) => entry.message).join(' ')
+          : null
+      ));
+    } catch (error) {
+      checks.push(check('repository-performance', 'warn', `Performance diagnostics could not complete: ${error.message}`,
+        'Run git status, repair the worktree if necessary, and retry singularity-flow doctor --performance.'));
+    }
+  }
   checks.push(check('working-tree', changes(root).trim() ? 'warn' : 'pass', changes(root).trim() ? 'Working tree has uncommitted changes.' : 'Working tree is clean.', changes(root).trim() ? 'Review git status before lifecycle publication.' : null));
   const remote = definition.git?.remote ?? 'origin';
   if (!hasRemote(root, remote)) checks.push(check('remote', definition.git?.publish === 'required' ? 'fail' : 'warn', `Git remote '${remote}' is not configured.`, `Add the '${remote}' remote or set git.publish: off.`));
@@ -259,10 +283,10 @@ export async function doctorSnapshot(root, { workId = null, offline = false } = 
     ));
   }
   checks.push(check('upstream', hasUpstream(root) ? 'pass' : 'warn', hasUpstream(root) ? `Branch '${currentBranch}' tracks an upstream.` : `Branch '${currentBranch}' has no upstream.`, hasUpstream(root) ? null : 'The first successful lifecycle publication will establish it.'));
-  return summarize(root, checks, workflow, session, definition, activeSubject);
+  return summarize(root, checks, workflow, session, definition, activeSubject, performanceReport);
 }
 
-function summarize(root, checks, workflow, session, definition, activeSubject = null) {
+function summarize(root, checks, workflow, session, definition, activeSubject = null, performance = null) {
   const counts = Object.fromEntries(['pass', 'warn', 'fail', 'skip'].map((status) => [status, checks.filter((item) => item.status === status).length]));
   const modelFreedom = modelFreedomSnapshot({
     definition,
@@ -272,7 +296,7 @@ function summarize(root, checks, workflow, session, definition, activeSubject = 
   const subject = workflow
     ? { kind: 'story', id: workflow.workItem.id }
     : activeSubject ? { kind: activeSubject.kind, id: activeSubject.id } : null;
-  return { schemaVersion: 1, repository: root, branch: branch(root), head: head(root), workId: subject?.id ?? null, subject, agent: session?.agent ?? null, healthy: counts.fail === 0, counts, modelFreedom, checks };
+  return { schemaVersion: 1, repository: root, branch: branch(root), head: head(root), workId: subject?.id ?? null, subject, agent: session?.agent ?? null, healthy: counts.fail === 0, counts, modelFreedom, performance, checks };
 }
 
 export function doctorText(report) {
@@ -282,6 +306,14 @@ export function doctorText(report) {
   for (const item of report.checks) {
     lines.push(`${icon[item.status]} ${item.id}: ${item.message}`);
     if (item.fix) lines.push(`  Fix: ${item.fix}`);
+  }
+  if (report.performance) {
+    lines.push('', 'Monorepo performance');
+    lines.push(`  Scope: ${report.performance.files.scoped} of ${report.performance.files.tracked} tracked files`);
+    lines.push(`  Git status: ${report.performance.timings.status.warmMs} ms warm`);
+    lines.push(`  World-model fingerprint: ${report.performance.timings.worldModelFingerprint.warmMs} ms warm`);
+    lines.push(`  Clone: ${report.performance.git.partialCloneFilter === 'blob:none' ? 'blobless' : 'full'} · checkout: ${report.performance.git.sparseCheckout ? 'sparse' : 'full'}`);
+    for (const recommendation of report.performance.recommendations) lines.push(`  ! ${recommendation.message}`);
   }
   lines.push('', `${report.counts.pass} passed · ${report.counts.warn} warnings · ${report.counts.fail} failures · ${report.counts.skip} skipped`);
   return `${lines.join('\n')}\n`;

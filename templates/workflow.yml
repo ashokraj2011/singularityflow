@@ -71,6 +71,10 @@ planning:
 
 worldModel:
   views: [business, architecture, development, testing, release, operations, security]
+  # Large monorepos should list only the application directories this repository models. Shared
+  # contracts may be listed separately. Omit both settings to model the whole application tree.
+  # sourceRoots: [apps/payments, services/checkout]
+  # sharedRoots: [packages/contracts, packages/observability]
   outputDir: singularity/world-model
   promptSource: singularity/prompts/worldmodel-builder.md
   # State-branch refresh is bounded so an offline corporate remote cannot hang prompt composition.

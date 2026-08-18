@@ -264,13 +264,20 @@ async function resetAllCommand(options) {
 }
 
 function renderLocalResetPlan(plan) {
-  console.log(`Singularity Flow local reset — ${plan.completed ? 'complete' : 'preview'}`);
-  console.log(`Registered workspace directories: ${plan.workspaces.length}`);
+  const forgetOnly = plan.mode === 'forget-only';
+  console.log(`Singularity Flow local reset — ${forgetOnly ? 'forget machine state' : 'delete workspaces'} — ${plan.completed ? 'complete' : 'preview'}`);
+  if (!forgetOnly) {
+    console.log('\nWARNING: this mode permanently deletes every validated registered workspace directory and its repository clones.');
+  }
+  console.log(`\nRegistered workspace directories (${forgetOnly ? 'preserved' : 'deleted'}): ${plan.workspaces.length}`);
   if (plan.workspaces.length) {
-    for (const workspace of plan.workspaces) console.log(`- ${workspace.name} (${workspace.id}): ${workspace.path}`);
+    for (const workspace of plan.workspaces) {
+      console.log(`- [${workspace.disposition}] ${workspace.name} (${workspace.id}): ${workspace.path}`);
+    }
   } else {
     console.log('- none');
   }
+  if (plan.registryWarning) console.log(`Registry warning: ${plan.registryWarning}`);
   if (plan.missingRegistrations.length) {
     console.log(`Stale missing registrations: ${plan.missingRegistrations.length} (forgotten with local state)`);
     for (const target of plan.missingRegistrations) console.log(`- ${target}`);
@@ -281,38 +288,74 @@ function renderLocalResetPlan(plan) {
   for (const item of plan.preserve) console.log(`- ${item}`);
   if (!plan.completed) {
     console.log(`\nConfirmation required: ${plan.confirmation}`);
-    console.log(`Run: singularity-flow local-reset --confirm ${JSON.stringify(plan.confirmation)}`);
-    console.log(`Short command: sf-local-reset --confirm ${JSON.stringify(plan.confirmation)}`);
+    const modeFlag = forgetOnly ? ' --forget-only' : '';
+    console.log(`Run: singularity-flow local-reset${modeFlag} --confirm ${JSON.stringify(plan.confirmation)}`);
+    console.log(`Short command: sf-local-reset${modeFlag} --confirm ${JSON.stringify(plan.confirmation)}`);
   } else {
-    console.log('\nLocal Singularity state is clean. The installed product remains ready to create a new workspace.');
-    console.log('Next: open VS Code or run singularity-flow workspace create ...');
+    console.log(forgetOnly
+      ? '\nLocal Singularity registrations and personalization are forgotten. Workspace and repository bytes were preserved.'
+      : '\nLocal Singularity state is clean. The installed product remains ready to create a new workspace.');
+    console.log('Next: open VS Code and choose or create a workspace.');
   }
 }
 
 async function localResetCommand(options) {
   const dryRun = optionBoolean(options, 'dry-run');
+  const forgetOnly = optionBoolean(options, 'forget-only');
+  const json = optionBoolean(options, 'json');
   if (dryRun && options.confirm != null) {
     throw new SingularityFlowError('local-reset --dry-run does not accept --confirm. Review the preview first.');
   }
   const resetOptions = {
     homeDirectory: os.homedir(),
     projectDirectory: process.cwd(),
-    environment: process.env
+    environment: process.env,
+    forgetOnly
   };
-  const result = dryRun
-    ? await localResetPlan(resetOptions)
-    : await localReset({ ...resetOptions, confirmation: optionString(options, 'confirm') });
+  let result;
+  if (dryRun) {
+    result = await localResetPlan(resetOptions);
+  } else if (options.confirm != null) {
+    result = await localReset({ ...resetOptions, confirmation: optionString(options, 'confirm') });
+  } else {
+    const preview = await localResetPlan(resetOptions);
+    if (json || !input.isTTY || !output.isTTY) {
+      const modeFlag = forgetOnly ? ' --forget-only' : '';
+      throw new SingularityFlowError(
+        `Non-interactive local-reset requires an explicit preview and confirmation. Run 'singularity-flow local-reset${modeFlag} --dry-run', then rerun with --confirm ${JSON.stringify(preview.confirmation)}.`
+      );
+    }
+    renderLocalResetPlan(preview);
+    const terminal = readline.createInterface({ input, output });
+    let answer = null;
+    try {
+      answer = await terminal.question(`\nType ${JSON.stringify(preview.confirmation)} to continue, or press Enter to cancel: `);
+    } catch {
+      answer = null;
+    } finally {
+      terminal.close();
+    }
+    if (answer !== preview.confirmation) {
+      console.log('\nLocal reset cancelled. No changes were made.');
+      result = { ...preview, cancelled: true, completed: false };
+    } else {
+      result = await localReset({ ...resetOptions, confirmation: answer });
+    }
+  }
   const narration = commandResult({
     operation: { id: 'local-reset', classification: 'mutation' },
-    outcome: dryRun
-      ? noop('local-reset.previewed', { workspaces: result.workspaces.length })
+    outcome: dryRun || result.cancelled
+      ? noop(result.cancelled ? 'local-reset.cancelled' : 'local-reset.previewed', {
+        workspaces: result.workspaces.length,
+        mode: result.mode
+      })
       : succeeded('local-reset.completed', { workspaces: result.workspaces.length }),
-    effects: effects(dryRun ? {} : { stateChanged: true, filesChanged: true }),
+    effects: effects(dryRun || result.cancelled ? {} : { stateChanged: true, filesChanged: true }),
     restState: 'informational',
     data: result
   });
-  if (!optionBoolean(options, 'json')) renderLocalResetPlan(result);
-  emitCommandResult(narration, { json: optionBoolean(options, 'json') });
+  if (!json && !result.cancelled) renderLocalResetPlan(result);
+  emitCommandResult(narration, { json });
   return result;
 }
 
@@ -3706,7 +3749,11 @@ async function logsCommand(positionals, options) {
 
 async function doctorCommand(positionals, options) {
   const root = repoRoot();
-  const report = await doctorSnapshot(root, { workId: positionals[1], offline: optionBoolean(options, 'offline') });
+  const report = await doctorSnapshot(root, {
+    workId: positionals[1],
+    offline: optionBoolean(options, 'offline'),
+    performance: optionBoolean(options, 'performance')
+  });
   if (optionBoolean(options, 'json')) console.log(JSON.stringify(report, null, 2));
   else process.stdout.write(doctorText(report));
   if (!report.healthy) process.exitCode = 2;
@@ -4850,6 +4897,8 @@ function capabilityChanges(options) {
   // The list form, for a capability shipping from more than one. Empty clears it back to none.
   put('repositories', 'repositories', list);
   put('lead-repository', 'leadRepository', (value) => value || null);
+  put('source-roots', 'sourceRoots', list);
+  put('shared-roots', 'sharedRoots', list);
   // Merged rather than replaced: `--doc runbook=...` adds or changes that one key and leaves the
   // rest, which is what editing a set of links means. Clearing one is `--doc runbook=`.
   for (const [option, field] of [
@@ -4866,6 +4915,17 @@ function capabilityChanges(options) {
   put('description', 'description');
   put('owner', 'owner');
   return changes;
+}
+
+/**
+ * The optional destination for direct children when their parent is removed.
+ *
+ * Omitted preserves the protective refusal. An explicitly empty value means top level, matching
+ * the existing `--parent ''` convention used when moving one capability.
+ */
+function capabilityRemovalDestination(options) {
+  const value = optionString(options, 'reparent-children-to');
+  return value === undefined ? undefined : (value.trim() || null);
 }
 
 /**
@@ -4890,8 +4950,8 @@ async function capabilityCommand(positionals, options) {
     const leadUrl = optionString(options, 'lead') ?? (await listLeadRepositories())[0]?.url;
     if (!leadUrl) {
       throw new SingularityFlowError(
-        'No lead repository is known. Pass --lead <URL>, or govern one first with '
-        + 'singularity-flow bootstrap.');
+        'No lead repository is known. Pass --lead <URL> for the repository that will own the '
+        + 'first capability map; no workspace or prior bootstrap is required.');
     }
     const type = optionString(options, 'type');
     if (type && !CAPABILITY_TYPES.includes(type)) {
@@ -4916,6 +4976,13 @@ async function capabilityCommand(positionals, options) {
       // infrastructure differently. `--doc confluence=<url>`, `--resource aws=<arn>`.
       documentation: optionMap(optionStrings(options, 'doc'), 'Capability documentation'),
       resources: optionMap(optionStrings(options, 'resource'), 'Capability resources'),
+      sourceRoots: (optionString(options, 'source-roots') ?? '').split(',').map((item) => item.trim()).filter(Boolean),
+      sharedRoots: (optionString(options, 'shared-roots') ?? '').split(',').map((item) => item.trim()).filter(Boolean),
+      clone: {
+        mode: optionString(options, 'clone-mode', 'full'),
+        sparseCone: (optionString(options, 'sparse-cone') ?? '').split(',').map((item) => item.trim()).filter(Boolean),
+        fallback: optionString(options, 'clone-fallback', 'refuse')
+      },
       jiraProject: optionString(options, 'jira-project'),
       teams: (optionString(options, 'teams') ?? '').split(',').map((team) => team.trim()).filter(Boolean)
     });
@@ -4957,7 +5024,11 @@ async function capabilityCommand(positionals, options) {
       throw new SingularityFlowError(`--type must be one of: ${CAPABILITY_TYPES.join(', ')}.`);
     }
     const edited = await editCapabilityInOrganisation(
-      leadUrl, id, mode === 'remove' ? {} : capabilityChanges(options), { mode });
+      leadUrl,
+      id,
+      mode === 'remove' ? {} : capabilityChanges(options),
+      { mode, reparentChildrenTo: mode === 'remove' ? capabilityRemovalDestination(options) : undefined }
+    );
     await rememberLeadRepository(leadUrl);
     if (optionBoolean(options, 'json')) return console.log(JSON.stringify({ lead: leadUrl, ...edited }, null, 2));
     const action = mode === 'add' ? 'addition of' : mode === 'remove' ? 'removal of' : 'update to';
@@ -5131,7 +5202,13 @@ async function capabilityCommand(positionals, options) {
 
   if (subcommandForWrite === 'add' || subcommandForWrite === 'set' || subcommandForWrite === 'remove') {
     const id = requirePositional(positionals, 2, 'capability ID');
-    const result = await editCapability(root, id, capabilityChanges(options), { mode: subcommandForWrite, portfolio });
+    const result = await editCapability(root, id, capabilityChanges(options), {
+      mode: subcommandForWrite,
+      portfolio,
+      reparentChildrenTo: subcommandForWrite === 'remove'
+        ? capabilityRemovalDestination(options)
+        : undefined
+    });
     const state = {
       published: false,
       reason: 'local authoring never publishes governed capability state; use capability edit --lead <URL> to propose an organisation change'
@@ -6331,6 +6408,13 @@ function renderWorkspaceStatus(status) {
   console.log(`Staged documents: ${status.counts.stagedDocuments} (not governed)`);
 }
 
+function renderWorkspaceMaterialization(result) {
+  for (const repository of result.materialization ?? result.repair ?? []) {
+    if (!repository.fallbackUsed) continue;
+    console.log(`  ${repository.repository}: the remote did not establish the requested partial clone; used the explicitly configured full-clone fallback.`);
+  }
+}
+
 /**
  * `sflow secrets scan` / `sflow secrets protect`.
  *
@@ -6712,6 +6796,7 @@ async function workspaceCommand(positionals, options) {
       if (state?.error) console.log(`  the ${optionString(options, 'state-branch', 'state')} branch was not created: ${state.error}`);
       else if (state?.created) console.log(`  created the ${state.branch} branch in ${localResult.workspace.leadRepository}`);
       else if (state) console.log(`  the ${state.branch} branch is already in ${localResult.workspace.leadRepository}`);
+      renderWorkspaceMaterialization(localResult);
       return renderWorkspaceStatus(localResult.status);
     }
     const jiraKey = optionString(options, 'jira');
@@ -6769,6 +6854,7 @@ async function workspaceCommand(positionals, options) {
     await rememberWorkspace(registry, result.workspace, result.status);
     if (optionBoolean(options, 'json')) return console.log(JSON.stringify(result, null, 2));
     console.log(`Workspace ${result.created ? 'created' : 'resumed'} at ${result.workspace.path}.`);
+    renderWorkspaceMaterialization(result);
     return renderWorkspaceStatus(result.status);
   }
   if (subcommand === 'impact') {

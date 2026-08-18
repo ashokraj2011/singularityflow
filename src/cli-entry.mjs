@@ -24,6 +24,24 @@ export const ACTIVE_WORKSPACE_ROUTING_EXCLUSIONS = new Set([
   'workspace', 'session', 'plugin'
 ]);
 
+/**
+ * Capability-map operations that address an organisation lead by URL rather than a checkout.
+ *
+ * These are the first-install path: before a capability is mapped there cannot be a workspace,
+ * because a workspace is assembled from mapped capabilities. Treating the whole `capability`
+ * command as repository-independent would break `capability tree|show|of|add|set|remove`, which do
+ * read the selected repository. The subcommand boundary preserves both behaviours.
+ */
+export const REPOSITORY_INDEPENDENT_CAPABILITY_SUBCOMMANDS = new Set([
+  'map', 'edit', 'publish', 'proposals', 'proposal', 'activate',
+  'world-model', 'organisation', 'leads'
+]);
+
+export function excludesActiveWorkspaceRouting(command, subcommand = null) {
+  return ACTIVE_WORKSPACE_ROUTING_EXCLUSIONS.has(command)
+    || (command === 'capability' && REPOSITORY_INDEPENDENT_CAPABILITY_SUBCOMMANDS.has(subcommand));
+}
+
 function rootIfAvailable(cwd = process.cwd()) {
   try { return repoRoot(cwd); } catch { return null; }
 }
@@ -39,9 +57,10 @@ function rootIfAvailable(cwd = process.cwd()) {
  */
 export async function activeWorkspaceRepositoryRoot(command, {
   env = process.env,
-  home = undefined
+  home = undefined,
+  subcommand = null
 } = {}) {
-  if (ACTIVE_WORKSPACE_ROUTING_EXCLUSIONS.has(command)) return null;
+  if (excludesActiveWorkspaceRouting(command, subcommand)) return null;
   const {
     activeWorkspaceFile,
     readActiveWorkspaceContext,
@@ -140,14 +159,16 @@ export async function main(argv) {
     }, () => console.log(renderCommandHelp(definition.name)));
   }
   if (!root) {
-    const selectedRoot = await activeWorkspaceRepositoryRoot(definition.name);
+    const subcommand = positionals[1] ?? null;
+    const routingExcluded = excludesActiveWorkspaceRouting(definition.name, subcommand);
+    const selectedRoot = await activeWorkspaceRepositoryRoot(definition.name, { subcommand });
     if (selectedRoot) {
       // All existing repository services resolve relative paths from process.cwd(). Moving this
       // short-lived CLI process is the compatibility bridge that makes the selected workspace
       // authoritative without teaching dozens of commands about machine-local workspace state.
       process.chdir(selectedRoot);
       root = selectedRoot;
-    } else if (!ACTIVE_WORKSPACE_ROUTING_EXCLUSIONS.has(definition.name)) {
+    } else if (!routingExcluded) {
       throw new SingularityFlowError(
         "Run Singularity Flow from inside a Git repository, or select one with 'singularity-flow workspace use <WORKSPACE>'.",
         { code: 'REPOSITORY_CONTEXT_REQUIRED' }

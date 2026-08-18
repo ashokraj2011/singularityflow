@@ -264,7 +264,7 @@ function isAgentToolCall(payload) {
   // Keep the exception narrow: no shell composition, arbitrary paths, or unbounded arguments.
   if (/^(?:singularity-flow|sflow) init --check(?: --json)?(?: 2>&1)?$/.test(command)) return true;
   if (/^(?:singularity-flow|sflow) init --repair(?: --work-id [A-Za-z0-9._-]+)?(?: --base [A-Za-z0-9._/-]+)?(?: --fetch)?(?: 2>&1)?$/.test(command)) return true;
-  if (/^(?:singularity-flow|sflow) doctor(?: [A-Za-z0-9._-]+)?(?: --offline)?(?: --json)?(?: 2>&1)?$/.test(command)) return true;
+  if (/^(?:singularity-flow|sflow) doctor(?: [A-Za-z0-9._-]+)?(?:(?: --offline| --performance| --json)){0,3}(?: 2>&1)?$/.test(command)) return true;
 
   if (/^(?:singularity-flow|sflow) session status(?: --json)?(?: 2>&1)?$/.test(command)) return true;
   if (/^(?:singularity-flow|sflow) session candidates(?: --json)?(?: 2>&1)?$/.test(command)) return true;

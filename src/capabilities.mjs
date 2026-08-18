@@ -1,6 +1,7 @@
 import { mkdir, readFile, writeFile } from 'node:fs/promises';
 import path from 'node:path';
 import YAML from 'yaml';
+import { normalizeSourceRoots } from './source-scope.mjs';
 import { exists, SingularityFlowError, YAML_OUTPUT } from './util.mjs';
 
 export const CAPABILITIES_PATH = 'singularity/capabilities.yml';
@@ -212,6 +213,9 @@ function validateCapabilityDelivery(id, capability, capabilities, portfolio) {
     }
   }
 
+  normalizeSourceRoots(capability.sourceRoots, `Capability '${id}'.sourceRoots`);
+  normalizeSourceRoots(capability.sharedRoots, `Capability '${id}'.sharedRoots`);
+
   for (const field of MERGED_MAPS) validateCapabilityTextMap(id, field, capability[field]);
 
   if (capability.jira != null) {
@@ -282,7 +286,9 @@ export async function loadCapabilities(root, { required = false } = {}) {
  * @param mode `add` refuses an identifier that exists, `set` refuses one that does not. A screen
  *   knows which it meant, and a typo that silently creates a sibling is the expensive mistake.
  */
-export async function editCapability(root, capabilityId, changes = {}, { mode = 'set', portfolio = null } = {}) {
+export async function editCapability(root, capabilityId, changes = {}, {
+  mode = 'set', portfolio = null, reparentChildrenTo = undefined
+} = {}) {
   const file = path.join(root, CAPABILITIES_PATH);
   const existing = (await exists(file)) ? await readFile(file, 'utf8') : null;
   const document = existing == null
@@ -297,9 +303,32 @@ export async function editCapability(root, capabilityId, changes = {}, { mode = 
   if (mode === 'remove') {
     const children = Object.entries(before.capabilities ?? {})
       .filter(([, capability]) => capability.parent === capabilityId)
-      .map(([id]) => `'${id}'`);
-    if (children.length) {
-      throw new SingularityFlowError(`Capability '${capabilityId}' still contains ${children.join(', ')}. Move or remove them first.`);
+      .map(([id]) => id);
+    if (children.length && reparentChildrenTo === undefined) {
+      throw new SingularityFlowError(
+        `Capability '${capabilityId}' still contains ${children.map((id) => `'${id}'`).join(', ')}. `
+        + 'Move or remove them first, or choose where they should move when removing the parent.');
+    }
+    if (reparentChildrenTo !== undefined) {
+      const target = reparentChildrenTo == null || reparentChildrenTo === ''
+        ? null
+        : String(reparentChildrenTo);
+      if (target != null && !before.capabilities?.[target]) {
+        throw new SingularityFlowError(`Unknown replacement parent capability '${target}'.`);
+      }
+      // A destination inside the subtree being removed would make at least one child its own
+      // ancestor. Refuse it explicitly rather than relying on the later whole-map cycle message.
+      let cursor = target;
+      while (cursor) {
+        if (cursor === capabilityId) {
+          throw new SingularityFlowError(
+            `Capability '${target}' is inside '${capabilityId}' and cannot become its children's replacement parent.`);
+        }
+        cursor = before.capabilities?.[cursor]?.parent ?? null;
+      }
+      for (const child of children) {
+        document.setIn(['capabilities', child, 'parent'], target);
+      }
     }
     document.deleteIn(['capabilities', capabilityId]);
   } else {
@@ -341,7 +370,17 @@ export async function editCapability(root, capabilityId, changes = {}, { mode = 
   // template. Without it every `[a, b]` in the file comes back as `[ a, b ]` and one edit shows up in
   // review as a diff against lines nobody touched.
   await writeFile(file, document.toString(YAML_OUTPUT), 'utf8');
-  return { path: CAPABILITIES_PATH, capabilityId, removed: mode === 'remove', capabilities: after.capabilities };
+  return {
+    path: CAPABILITIES_PATH,
+    capabilityId,
+    removed: mode === 'remove',
+    reparentedChildren: mode === 'remove'
+      ? Object.entries(before.capabilities ?? {})
+        .filter(([, capability]) => capability.parent === capabilityId)
+        .map(([id]) => id)
+      : [],
+    capabilities: after.capabilities
+  };
 }
 
 export function capabilityPath(definition, capabilityId) {
@@ -364,6 +403,34 @@ export function resolveCapabilityPolicy(definition, capabilityId) {
     path: pathIds,
     policy: pathIds.reduce((policy, id) => foldCapabilityPolicy(policy, capabilities[id].policy ?? {}), {})
   };
+}
+
+/**
+ * The repository slice a capability's world model describes.
+ *
+ * A child may replace the application roots selected by its ancestors; shared roots accumulate so
+ * platform contracts remain visible. The result is pinned into lifecycle state, so changing the map
+ * later never silently changes an active Story's grounding boundary.
+ */
+export function resolveCapabilitySourceScope(definition, capabilityId) {
+  const capabilities = validateCapabilities(definition).capabilities;
+  const pathIds = capabilityPath(definition, capabilityId);
+  let sourceRoots = [];
+  const sharedRoots = [];
+  let configured = false;
+  for (const id of pathIds) {
+    const capability = capabilities[id];
+    if (capability.sourceRoots != null) {
+      sourceRoots = normalizeSourceRoots(capability.sourceRoots, `Capability '${id}'.sourceRoots`);
+      configured = true;
+    }
+    for (const root of normalizeSourceRoots(capability.sharedRoots, `Capability '${id}'.sharedRoots`)) {
+      if (!sharedRoots.includes(root)) sharedRoots.push(root);
+    }
+  }
+  return configured || sharedRoots.length
+    ? { sourceRoots: sourceRoots.sort(), sharedRoots: sharedRoots.sort() }
+    : null;
 }
 
 export function activeCapabilityLeases(definition, capabilityId, ledgerEntries = [], { at = new Date() } = {}) {
@@ -447,6 +514,8 @@ export function capabilityTree(definition) {
       repository: capabilityRepositories(capability)[0] ?? null,
       repositories: capabilityRepositories(capability),
       leadRepository: capabilityLeadRepository(capability),
+      sourceRoots: normalizeSourceRoots(capability.sourceRoots, `Capability '${id}'.sourceRoots`),
+      sharedRoots: normalizeSourceRoots(capability.sharedRoots, `Capability '${id}'.sharedRoots`),
       metadata: capability.metadata ?? {},
       documentation: capability.documentation ?? {},
       resources: capability.resources ?? {},

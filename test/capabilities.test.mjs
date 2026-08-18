@@ -5,8 +5,31 @@ import path from 'node:path';
 import { mkdir, mkdtemp, readFile, rm, writeFile } from 'node:fs/promises';
 import {
   CAPABILITIES_PATH, editCapability,
-  activeCapabilityLeases, capabilityDeliveries, capabilityForRepository, capabilityPath, capabilityTree, flattenCapabilityTree, foldCapabilityPolicy, resolveCapabilityPolicy, resolveEffectiveCapabilityPolicy, validateCapabilities
+  activeCapabilityLeases, capabilityDeliveries, capabilityForRepository, capabilityPath, capabilityTree, flattenCapabilityTree, foldCapabilityPolicy, resolveCapabilityPolicy, resolveCapabilitySourceScope, resolveEffectiveCapabilityPolicy, validateCapabilities
 } from '../src/capabilities.mjs';
+
+test('capability source scopes replace application roots and inherit shared roots', () => {
+  const definition = {
+    version: 1,
+    capabilities: {
+      platform: {
+        kind: 'collection', parent: null,
+        sourceRoots: ['apps'], sharedRoots: ['packages/contracts']
+      },
+      payments: {
+        kind: 'delivery', parent: 'platform', repository: 'payments',
+        sourceRoots: ['apps/payments'], sharedRoots: ['packages/payments-sdk']
+      }
+    }
+  };
+  assert.deepEqual(resolveCapabilitySourceScope(definition, 'payments'), {
+    sourceRoots: ['apps/payments'],
+    sharedRoots: ['packages/contracts', 'packages/payments-sdk']
+  });
+  assert.deepEqual(resolveCapabilitySourceScope(definition, 'platform'), {
+    sourceRoots: ['apps'], sharedRoots: ['packages/contracts']
+  });
+});
 
 test('capability policy fold only permits equal or stricter child constraints', () => {
   const folded = foldCapabilityPolicy({
@@ -388,6 +411,56 @@ test('a refused capability edit leaves the file exactly as it was', async () => 
     await assert.rejects(() => editCapability(root, 'missing', {}), /Unknown capability/);
     await assert.rejects(() => editCapability(root, 'commerce', {}, { mode: 'remove' }), /still contains 'payments'/);
     assert.equal(await readFile(path.join(root, CAPABILITIES_PATH), 'utf8'), original);
+  } finally {
+    await rm(root, { recursive: true, force: true });
+  }
+});
+
+test('removing a parent can atomically relink its direct children without duplicating relationships', async () => {
+  const root = await mkdtemp(path.join(os.tmpdir(), 'sflow-capability-remove-parent-'));
+  try {
+    await mkdir(path.join(root, 'singularity'), { recursive: true });
+    const file = path.join(root, CAPABILITIES_PATH);
+    await writeFile(file, [
+      'version: 1',
+      'capabilities:',
+      '  enterprise: { kind: collection, parent: null }',
+      '  commerce: { kind: collection, parent: enterprise }',
+      '  payments: { kind: collection, parent: commerce }',
+      '  payments-api: { kind: delivery, parent: payments, repository: api }',
+      '  people: { kind: collection, parent: enterprise }',
+      ''
+    ].join('\n'), 'utf8');
+    const portfolio = { repositories: { api: {} } };
+    const before = await readFile(file, 'utf8');
+
+    await assert.rejects(
+      () => editCapability(root, 'commerce', {}, {
+        mode: 'remove', portfolio, reparentChildrenTo: 'payments-api'
+      }),
+      /inside 'commerce'/);
+    await assert.rejects(
+      () => editCapability(root, 'commerce', {}, {
+        mode: 'remove', portfolio, reparentChildrenTo: 'missing'
+      }),
+      /Unknown replacement parent/);
+    assert.equal(await readFile(file, 'utf8'), before, 'a refused destination writes nothing');
+
+    const removed = await editCapability(root, 'commerce', {}, {
+      mode: 'remove', portfolio, reparentChildrenTo: 'enterprise'
+    });
+    assert.equal(removed.capabilities.commerce, undefined);
+    assert.equal(removed.capabilities.payments.parent, 'enterprise');
+    assert.equal(removed.capabilities['payments-api'].parent, 'payments',
+      'only direct children move; their descendants retain their canonical parent link');
+    assert.deepEqual(removed.reparentedChildren, ['payments']);
+
+    const topLevel = await editCapability(root, 'enterprise', {}, {
+      mode: 'remove', portfolio, reparentChildrenTo: null
+    });
+    assert.equal(topLevel.capabilities.payments.parent, null);
+    assert.equal(topLevel.capabilities.people.parent, null);
+    assert.deepEqual(new Set(topLevel.reparentedChildren), new Set(['payments', 'people']));
   } finally {
     await rm(root, { recursive: true, force: true });
   }

@@ -10,7 +10,7 @@ import path from 'node:path';
 import os from 'node:os';
 import { createHash } from 'node:crypto';
 import {
-  copyFile, lstat, mkdir, mkdtemp, readFile, readdir, realpath, rm, writeFile
+  chmod, copyFile, lstat, mkdir, mkdtemp, readFile, readdir, realpath, rm, writeFile
 } from 'node:fs/promises';
 import { initializeDefinition } from './config.mjs';
 import {
@@ -70,6 +70,61 @@ async function copyAssets(source, destination) {
     copied.push(relative);
   }
   return copied.sort();
+}
+
+/**
+ * Extract configuration assets from a fetched ref without checking out the application tree.
+ *
+ * The first capability may be mapped into a multi-gigabyte monorepo. A normal shallow clone still
+ * downloads and checks out every blob at the branch tip, and can invoke LFS/smudge filters, even
+ * though configuration bootstrap only imports `singularity/` and `.github/agents/`. The clone that
+ * calls this helper is blobless and has no checkout. `ls-tree` identifies the bounded file set and
+ * one `cat-file --batch` asks the promisor remote only for those blobs.
+ */
+async function copyConfigurationAssetsFromRef(source, ref, destination) {
+  const listed = run('git', [
+    'ls-tree', '-r', '-z', '--format=%(objectmode) %(objectname) %(path)', ref, '--',
+    'singularity', '.github/agents'
+  ], { cwd: source });
+  const entries = listed.stdout.split('\0').filter(Boolean).map((line) => {
+    const first = line.indexOf(' ');
+    const second = line.indexOf(' ', first + 1);
+    return {
+      mode: line.slice(0, first),
+      oid: line.slice(first + 1, second),
+      file: line.slice(second + 1)
+    };
+  }).filter((entry) => /^100(?:644|755)$/.test(entry.mode) && isConfigurationAsset(entry.file));
+  if (!entries.length) return [];
+
+  const batch = run('git', ['cat-file', '--batch'], {
+    cwd: source,
+    encoding: 'buffer',
+    input: `${entries.map((entry) => entry.oid).join('\n')}\n`
+  });
+  let cursor = 0;
+  for (const entry of entries) {
+    const newline = batch.stdout.indexOf(0x0a, cursor);
+    if (newline < 0) {
+      throw new SingularityFlowError(`Could not read configuration asset '${entry.file}' from '${ref}'.`);
+    }
+    const [oid, type, rawSize] = batch.stdout.toString('utf8', cursor, newline).trim().split(' ');
+    const size = Number(rawSize);
+    if (oid !== entry.oid || type !== 'blob' || !Number.isSafeInteger(size) || size < 0) {
+      throw new SingularityFlowError(`Could not read configuration asset '${entry.file}' from '${ref}'.`);
+    }
+    const start = newline + 1;
+    const end = start + size;
+    if (end > batch.stdout.length) {
+      throw new SingularityFlowError(`Configuration asset '${entry.file}' was truncated while reading '${ref}'.`);
+    }
+    const target = path.join(destination, entry.file);
+    await mkdir(path.dirname(target), { recursive: true });
+    await writeFile(target, batch.stdout.subarray(start, end));
+    await chmod(target, entry.mode === '100755' ? 0o755 : 0o644);
+    cursor = end + 1; // `cat-file --batch` terminates every blob with one newline.
+  }
+  return entries.map((entry) => entry.file).sort();
 }
 
 async function clearConfigurationAssets(root) {
@@ -175,16 +230,16 @@ export async function ensureConfigurationBranch(remote, { sourceBranch = null, c
   const scratch = await mkdtemp(path.join(os.tmpdir(), 'sflow-config-bootstrap-'));
   const seed = await mkdtemp(path.join(os.tmpdir(), 'sflow-config-seed-'));
   try {
-    const clone = run('git', ['clone', '--quiet', '--depth', '1', '--branch', importBranch, url, scratch], {
-      allowFailure: true
-    });
+    const clone = run('git', [
+      'clone', '--quiet', '--no-local', '--no-tags', '--single-branch', '--depth', '1',
+      '--filter=blob:none', '--no-checkout', '--branch', importBranch, url, scratch
+    ], { allowFailure: true });
     if (clone.status !== 0) {
       throw new SingularityFlowError(
         `Cannot read '${url}': ${(clone.stderr || clone.stdout).trim().split('\n')[0]}`);
     }
-    await copyAssets(scratch, seed);
-    const importedCapabilityMap = await lstat(path.join(seed, 'singularity/capabilities.yml'))
-      .then((info) => info.isFile() && !info.isSymbolicLink()).catch(() => false);
+    const imported = await copyConfigurationAssetsFromRef(scratch, 'HEAD', seed);
+    const importedCapabilityMap = imported.includes('singularity/capabilities.yml');
     run('git', ['switch', '--quiet', '--orphan', CONFIGURATION_BRANCH], { cwd: scratch });
     await clearScratchWorktree(scratch);
     await copyAssets(seed, scratch);
@@ -230,7 +285,8 @@ export async function ensureConfigurationBranch(remote, { sourceBranch = null, c
 
 async function cloneConfiguration(remote, target) {
   const clone = run('git', [
-    'clone', '--quiet', '--depth', '1', '--branch', CONFIGURATION_BRANCH, remote, target
+    'clone', '--quiet', '--no-local', '--no-tags', '--single-branch', '--depth', '1',
+    '--filter=blob:none', '--branch', CONFIGURATION_BRANCH, remote, target
   ], { allowFailure: true });
   if (clone.status !== 0) {
     throw new SingularityFlowError(

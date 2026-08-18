@@ -32,7 +32,7 @@ export interface WorkspaceCreated {
 /** What the organisation read returns, of the parts this form uses. */
 interface Organisation {
   capabilities: RemoteCapability[] | null;
-  repositories?: Record<string, { url?: string; defaultBranch?: string }>;
+  repositories?: Record<string, { url?: string; defaultBranch?: string; clone?: { mode?: string; sparseCone?: string[]; fallback?: string } }>;
   stale?: boolean;
   cacheAgeMs?: number | null;
   remoteError?: string | null;

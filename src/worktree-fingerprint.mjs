@@ -16,7 +16,7 @@ function splitNull(value) {
   return value.split('\0').filter(Boolean);
 }
 
-function withoutConfiguredFilters(root, args) {
+export function withoutConfiguredFilters(root, args) {
   const configured = run('git', [
     'config', '--get-regexp', '^filter\\..*\\.(clean|process|required)$'
   ], { cwd: root, allowFailure: true });

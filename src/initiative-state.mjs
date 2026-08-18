@@ -538,6 +538,7 @@ export async function createInitiative(root, {
   await healInitiativeTemplates(root, portfolio);
   const resolution = await snapshotInitiativeResolution(root, portfolio, resolved);
   resolution.capability = capability;
+  resolution.worldModelSourceScope = structuredClone(resolved.worldModelSourceScope ?? null);
   resolution.worldModelTiming = profile === 'epic-planning' ? 'story-intake' : 'initiative';
   resolution.worldModelGrounding = capabilityWorldModelGrounding(
     resolution.worldModelTiming === 'story-intake' ? 'off' : groundingMode(definition),
@@ -561,6 +562,7 @@ export async function createInitiative(root, {
     worldModelGrounding: resolution.worldModelGrounding,
     worldModelOutputDir: resolution.worldModelOutputDir,
     worldModelStaleness: resolution.worldModelStaleness,
+    worldModelSourceScope: resolution.worldModelSourceScope,
     ledger: resolution.ledger,
     capability: resolution.capability
   })).digest('hex');

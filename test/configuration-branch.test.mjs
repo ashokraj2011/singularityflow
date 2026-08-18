@@ -102,6 +102,52 @@ test('configuration authority is bootstrapped without changing application histo
   }
 });
 
+test('first capability authority never checks out an irrelevant monorepo application tree', async () => {
+  const fixture = await repositoryFixture();
+  const environmentKeys = [
+    'GIT_CONFIG_COUNT', 'GIT_CONFIG_KEY_0', 'GIT_CONFIG_VALUE_0',
+    'GIT_CONFIG_KEY_1', 'GIT_CONFIG_VALUE_1'
+  ];
+  const previous = Object.fromEntries(environmentKeys.map((key) => [key, process.env[key]]));
+  try {
+    // A required smudge filter represents LFS/code-generation work a large application checkout
+    // may perform. It deliberately fails: configuration bootstrap has no reason to invoke it.
+    await writeFile(path.join(fixture.source, 'large-application.bin'), Buffer.alloc(2 * 1024 * 1024, 0x5a));
+    run('git', ['add', 'large-application.bin'], { cwd: fixture.source });
+    run('git', ['commit', '-qm', 'large application payload'], { cwd: fixture.source });
+    await writeFile(path.join(fixture.source, '.gitattributes'),
+      'large-application.bin filter=monorepo required\n');
+    run('git', ['add', '.gitattributes'], { cwd: fixture.source });
+    run('git', ['commit', '-qm', 'application checkout filter'], { cwd: fixture.source });
+    run('git', ['push', '-q', fixture.remote, 'main:main'], { cwd: fixture.source });
+    run('git', ['config', 'uploadpack.allowFilter', 'true'], { cwd: fixture.remote });
+
+    Object.assign(process.env, {
+      GIT_CONFIG_COUNT: '2',
+      GIT_CONFIG_KEY_0: 'filter.monorepo.smudge',
+      GIT_CONFIG_VALUE_0: 'false',
+      GIT_CONFIG_KEY_1: 'filter.monorepo.required',
+      GIT_CONFIG_VALUE_1: 'true'
+    });
+
+    const result = await ensureConfigurationBranch(fixture.remote);
+    assert.equal(result.created, true);
+    assert.equal(run('git', ['show', `${CONFIGURATION_BRANCH}:singularity/company-policy.md`], {
+      cwd: fixture.remote
+    }).stdout, '# Preserve this policy\n', 'the governed configuration bytes are still imported');
+    assert.notEqual(run('git', [
+      'cat-file', '-e', `${CONFIGURATION_BRANCH}:large-application.bin`
+    ], { cwd: fixture.remote, allowFailure: true }).status, 0,
+    'application blobs never enter the orphan configuration authority');
+  } finally {
+    for (const key of environmentKeys) {
+      if (previous[key] === undefined) delete process.env[key];
+      else process.env[key] = previous[key];
+    }
+    await rm(fixture.root, { recursive: true, force: true });
+  }
+});
+
 test('a lifecycle branch receives and verifies one exact approved configuration revision', async () => {
   const fixture = await repositoryFixture();
   try {

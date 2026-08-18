@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import { spawnSync } from 'node:child_process';
-import { access, chmod, mkdir, mkdtemp, readFile, writeFile } from 'node:fs/promises';
+import { access, chmod, mkdir, mkdtemp, readFile, symlink, writeFile } from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
 import test from 'node:test';
@@ -343,9 +343,12 @@ test('local reset deletes validated workspaces and local state but preserves the
 
   const { localReset, localResetPlan } = await import('../src/fresh-install-reset.mjs');
   const preview = await localResetPlan({ homeDirectory: home, projectDirectory: checkout, environment: {} });
+  assert.equal(preview.schemaVersion, 2);
   assert.equal(preview.operation, 'local-reset');
+  assert.equal(preview.mode, 'delete-workspaces');
   assert.equal(preview.confirmation, 'RESET LOCAL');
   assert.deepEqual(preview.workspaces.map((item) => item.path), [created.workspace.path]);
+  assert.deepEqual(preview.workspaces.map((item) => item.disposition), ['deleted']);
   assert.deepEqual(preview.installerGeneratedPaths, []);
   assert.equal(preview.removeDirectSkills, false);
   assert.match(preview.preserve.join('\n'), /installed CLI, VS Code extension, Copilot plugin/);
@@ -365,6 +368,180 @@ test('local reset deletes validated workspaces and local state but preserves the
   assert.equal(await readFile(path.join(checkout, 'product.txt'), 'utf8'), 'installed product remains\n');
   assert.equal(await readFile(path.join(unregistered, 'source.txt'), 'utf8'), 'unregistered source remains\n');
   assert.equal(await missing(path.join(machine, 'vscode-fresh-reset-pending.json')), false);
+});
+
+test('forget-only clears machine state from inside a workspace while preserving every repository byte', async () => {
+  const home = await mkdtemp(path.join(os.tmpdir(), 'sflow-local-forget-home-'));
+  const { createWorkspaceConfiguration } = await import('../src/workspace.mjs');
+  const created = await createWorkspaceConfiguration({
+    baseDirectory: path.join(home, 'workspaces'),
+    id: 'forget-demo',
+    name: 'Forget demo',
+    leadRepository: 'platform',
+    repositories: {
+      platform: {
+        url: 'https://example.invalid/platform.git', defaultBranch: 'main', required: true,
+        metadata: { appId: 'APP-FORGET', name: 'Forget platform' }
+      }
+    }
+  }, { confirmation: 'forget-demo', clone: false });
+  const repository = path.join(created.workspace.path, 'repos', 'platform');
+  await mkdir(repository, { recursive: true });
+  git(repository, 'init', '-b', 'feature/local-work');
+  git(repository, 'config', 'user.name', 'Forget Tester');
+  git(repository, 'config', 'user.email', 'forget@example.com');
+  await writeFile(path.join(repository, 'tracked.txt'), 'tracked repository bytes\n');
+  git(repository, 'add', 'tracked.txt');
+  git(repository, 'commit', '-m', 'baseline');
+  await writeFile(path.join(repository, 'tracked.txt'), 'dirty repository bytes\n');
+  await writeFile(path.join(repository, 'untracked.txt'), 'untracked repository bytes\n');
+  await mkdir(path.join(repository, '.git', 'singularity-flow'), { recursive: true });
+  await writeFile(path.join(repository, '.git', 'singularity-flow', 'pending-publication.json'), '{"pending":true}\n');
+  const beforeHead = git(repository, 'rev-parse', 'HEAD');
+  const beforeStatus = git(repository, 'status', '--porcelain=v1');
+
+  const machine = path.join(home, '.singularity-flow');
+  await mkdir(path.join(machine, 'organisation-cache'), { recursive: true });
+  await writeFile(path.join(machine, 'workspaces.json'), `${JSON.stringify({
+    schemaVersion: 1,
+    workspaces: [{ id: created.workspace.id, path: created.workspace.path, name: created.workspace.name }]
+  })}\n`);
+  await writeFile(path.join(machine, 'active-workspace.json'), '{"workspaceId":"forget-demo"}\n');
+  await writeFile(path.join(machine, 'leads.json'), '{"leads":[{"url":"https://example.invalid/lead.git"}]}\n');
+  await writeFile(path.join(machine, 'organisation-cache', 'cached.json'), '{}\n');
+  await writeFile(path.join(machine, 'installation.json'), '{}\n');
+  await writeFile(path.join(machine, 'telemetry.json'), '{}\n');
+  const sessions = path.join(home, '.copilot', 'session-state');
+  await mkdir(path.join(sessions, 'singularity-forget-demo'), { recursive: true });
+  await mkdir(path.join(sessions, 'personal-session'), { recursive: true });
+
+  const { localReset, localResetPlan } = await import('../src/fresh-install-reset.mjs');
+  const resetOptions = {
+    homeDirectory: home,
+    projectDirectory: repository,
+    environment: {},
+    forgetOnly: true
+  };
+  const preview = await localResetPlan(resetOptions);
+  assert.equal(preview.schemaVersion, 2);
+  assert.equal(preview.mode, 'forget-only');
+  assert.equal(preview.confirmation, 'FORGET LOCAL');
+  assert.deepEqual(preview.workspaces.map(({ path: workspacePath, disposition }) => ({ workspacePath, disposition })), [{
+    workspacePath: created.workspace.path,
+    disposition: 'preserved'
+  }]);
+  assert.equal(preview.capabilityState.registryFile, path.join(machine, 'leads.json'));
+  assert.equal(preview.capabilityState.cacheRoot, path.join(machine, 'organisation-cache'));
+  assert.match(preview.preserve.join('\n'), /repository-local recovery record/);
+
+  await assert.rejects(() => localReset({ ...resetOptions, confirmation: 'RESET LOCAL' }),
+    /requires exact confirmation 'FORGET LOCAL'/);
+  assert.equal(await readFile(path.join(repository, 'tracked.txt'), 'utf8'), 'dirty repository bytes\n');
+
+  await assert.rejects(() => localReset({
+    ...resetOptions,
+    confirmation: 'FORGET LOCAL',
+    fault: (stage) => {
+      if (stage.startsWith('after-move:')) throw new Error('injected forget-only failure');
+    }
+  }), /injected forget-only failure/);
+  assert.equal(await readFile(path.join(machine, 'active-workspace.json'), 'utf8'), '{"workspaceId":"forget-demo"}\n');
+
+  const result = await localReset({ ...resetOptions, confirmation: 'FORGET LOCAL' });
+  assert.equal(result.completed, true);
+  assert.equal(result.mode, 'forget-only');
+  assert.equal(await missing(created.workspace.path), false);
+  assert.equal(await readFile(path.join(repository, 'tracked.txt'), 'utf8'), 'dirty repository bytes\n');
+  assert.equal(await readFile(path.join(repository, 'untracked.txt'), 'utf8'), 'untracked repository bytes\n');
+  assert.equal(await readFile(path.join(repository, '.git', 'singularity-flow', 'pending-publication.json'), 'utf8'),
+    '{"pending":true}\n');
+  assert.equal(git(repository, 'rev-parse', 'HEAD'), beforeHead);
+  assert.equal(git(repository, 'status', '--porcelain=v1'), beforeStatus);
+  assert.equal(await missing(path.join(machine, 'workspaces.json')), true);
+  assert.equal(await missing(path.join(machine, 'leads.json')), true);
+  assert.equal(await missing(path.join(machine, 'organisation-cache')), true);
+  assert.equal(await missing(path.join(sessions, 'singularity-forget-demo')), true);
+  assert.equal(await missing(path.join(sessions, 'personal-session')), false);
+  const marker = JSON.parse(await readFile(result.vscodeResetMarker, 'utf8'));
+  assert.equal(marker.schemaVersion, 2);
+  assert.equal(marker.mode, 'forget-only');
+  assert.ok(marker.reset.includes('favorites'));
+  assert.ok(marker.reset.includes('global-extension-settings'));
+});
+
+test('forget-only removes supported custom state paths, tolerates a corrupt registry, and rejects broad or linked targets', async () => {
+  const home = await mkdtemp(path.join(os.tmpdir(), 'sflow-local-forget-custom-home-'));
+  const project = await mkdtemp(path.join(os.tmpdir(), 'sflow-local-forget-custom-project-'));
+  const custom = await mkdtemp(path.join(os.tmpdir(), 'sflow-local-forget-custom-state-'));
+  const environment = {
+    SINGULARITY_FLOW_WORKSPACE_REGISTRY: path.join(custom, 'workspaces.json'),
+    SINGULARITY_FLOW_ACTIVE_WORKSPACE: path.join(custom, 'active.json'),
+    SINGULARITY_FLOW_LEAD_REGISTRY: path.join(custom, 'leads.json'),
+    SINGULARITY_FLOW_ORGANISATION_CACHE: path.join(custom, 'capability-cache'),
+    SINGULARITY_FLOW_VSCODE_RESET_MARKER: path.join(custom, 'vscode-reset.json')
+  };
+  await writeFile(environment.SINGULARITY_FLOW_WORKSPACE_REGISTRY, '{not json\n');
+  await writeFile(environment.SINGULARITY_FLOW_ACTIVE_WORKSPACE, '{}\n');
+  await writeFile(environment.SINGULARITY_FLOW_LEAD_REGISTRY, '{}\n');
+  await mkdir(environment.SINGULARITY_FLOW_ORGANISATION_CACHE);
+  await writeFile(path.join(environment.SINGULARITY_FLOW_ORGANISATION_CACHE, 'cached.json'), '{}\n');
+
+  const { localReset, localResetPlan } = await import('../src/fresh-install-reset.mjs');
+  const options = { homeDirectory: home, projectDirectory: project, environment, forgetOnly: true };
+  const preview = await localResetPlan(options);
+  assert.match(preview.registryWarning, /Unreadable workspace registry will be forgotten/);
+  assert.equal(preview.vscodeReset.marker, environment.SINGULARITY_FLOW_VSCODE_RESET_MARKER);
+  await localReset({ ...options, confirmation: 'FORGET LOCAL' });
+  assert.equal(await missing(environment.SINGULARITY_FLOW_WORKSPACE_REGISTRY), true);
+  assert.equal(await missing(environment.SINGULARITY_FLOW_ACTIVE_WORKSPACE), true);
+  assert.equal(await missing(environment.SINGULARITY_FLOW_LEAD_REGISTRY), true);
+  assert.equal(await missing(environment.SINGULARITY_FLOW_ORGANISATION_CACHE), true);
+  assert.equal(await missing(environment.SINGULARITY_FLOW_VSCODE_RESET_MARKER), false);
+
+  await assert.rejects(() => localResetPlan({
+    homeDirectory: home,
+    projectDirectory: project,
+    environment: { SINGULARITY_FLOW_ORGANISATION_CACHE: home },
+    forgetOnly: true
+  }), /Refusing broad or protected custom capability cache/);
+
+  const linkedTarget = path.join(custom, 'linked-cache');
+  await symlink(path.join(custom, 'real-cache'), linkedTarget);
+  await assert.rejects(() => localResetPlan({
+    homeDirectory: home,
+    projectDirectory: project,
+    environment: { SINGULARITY_FLOW_ORGANISATION_CACHE: linkedTarget },
+    forgetOnly: true
+  }), /must not be a symbolic link/);
+});
+
+test('local-reset CLI keeps non-interactive preview and confirmation mode-bound', async () => {
+  const home = await mkdtemp(path.join(os.tmpdir(), 'sflow-local-forget-cli-home-'));
+  const invoke = (...args) => spawnSync(process.execPath, [cli, 'local-reset', ...args], {
+    cwd: packageRoot,
+    encoding: 'utf8',
+    env: { ...process.env, HOME: home, NODE_ENV: 'test' }
+  });
+  const previewed = invoke('--forget-only', '--dry-run', '--json');
+  assert.equal(previewed.status, 0, previewed.stderr);
+  const preview = JSON.parse(previewed.stdout);
+  assert.equal(preview.data.schemaVersion, 2);
+  assert.equal(preview.data.mode, 'forget-only');
+  assert.equal(preview.data.confirmation, 'FORGET LOCAL');
+
+  const unconfirmed = invoke('--forget-only', '--json');
+  assert.notEqual(unconfirmed.status, 0);
+  assert.match(unconfirmed.stderr, /Non-interactive local-reset requires an explicit preview/);
+
+  const crossed = invoke('--forget-only', '--confirm', 'RESET LOCAL', '--json');
+  assert.notEqual(crossed.status, 0);
+  assert.match(crossed.stderr, /requires exact confirmation 'FORGET LOCAL'/);
+
+  const completed = invoke('--forget-only', '--confirm', 'FORGET LOCAL', '--json');
+  assert.equal(completed.status, 0, completed.stderr);
+  const result = JSON.parse(completed.stdout);
+  assert.equal(result.data.completed, true);
+  assert.equal(result.data.mode, 'forget-only');
 });
 
 test('local reset from inside a managed workspace refuses before deleting anything', async () => {

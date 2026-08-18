@@ -40,8 +40,10 @@ Usage:
   singularity-flow refresh-branch [--remote origin] [--branch CURRENT] [--json]
   singularity-flow factory-reset [--dry-run] [--confirm "RESET REPOSITORY COMMIT"] [--allow-dirty] [--json]
   sflow reset-all [--yes] [--json]
-  singularity-flow local-reset [--dry-run] [--confirm "RESET LOCAL"] [--json]
-  sf-local-reset [--dry-run] [--confirm "RESET LOCAL"] [--json]
+  singularity-flow local-reset [--dry-run | --confirm "RESET LOCAL"] [--json]
+  singularity-flow local-reset --forget-only [--dry-run | --confirm "FORGET LOCAL"] [--json]
+  sf-local-reset [--dry-run | --confirm "RESET LOCAL"] [--json]
+  sf-local-reset --forget-only [--dry-run | --confirm "FORGET LOCAL"] [--json]
   singularity-flow fresh-install [--checkout DIRECTORY] [--yes] [--registry URL] [--cli-only] [--no-copilot-telemetry]
   singularity-flow reinstall --checkout DIRECTORY [--dry-run | --confirm "REINSTALL SINGULARITY FLOW FINGERPRINT"]
     [--registry URL] [--cli-only] [--no-copilot-telemetry] [--json]
@@ -108,7 +110,7 @@ Usage:
   singularity-flow action execute <PLAN-ID> [--action ACTION-ID] [--authorization TOKEN] [--json]
   singularity-flow next [--task TEXT] [--fetch] [--yes] [--skip-checks]
   singularity-flow run [--task TEXT] [--yes]
-  singularity-flow doctor [WORK-ID] [--offline] [--json]
+  singularity-flow doctor [WORK-ID] [--offline] [--performance] [--json]
   singularity-flow home [--workspace ID] [--request TEXT] [--json]
                                                            conversational Home (alias: cockpit)
   singularity-flow recommend [--workspace ID] [--json]     one grounded next-step recommendation
@@ -198,6 +200,7 @@ Usage:
   singularity-flow wm light [--branch BRANCH] [--remote REMOTE] [--phase PHASE] [--views LIST] [--task TEXT] [--local]
   singularity-flow wm build [--branch BRANCH] [--remote REMOTE] [--phase PHASE] [--task TEXT] [--focus TEXT] [--depth light|quick|standard|deep] [--parallel|--no-parallel] [--workers N]
   singularity-flow wm status [--phase PHASE] [--task TEXT] [--json]
+  singularity-flow wm ensure [--phase PHASE] [--task TEXT] [--branch BRANCH] [--remote REMOTE]
   singularity-flow wm context <PHASE> [--branch BRANCH] [--remote REMOTE] [--task TEXT] [--concat] [--evidence] [--no-agent]
   singularity-flow wm compose [--agent ID] [--phase ID] [--work-id ID] [--task TEXT] [--evidence] [--dry-run|--render-only] [--out FILE]
   singularity-flow wm show-prompt [--phase ID] [--work-id ID] [--skill ID] [--task TEXT] [--evidence]
@@ -346,10 +349,12 @@ Usage:
   singularity-flow capability add|set <CAPABILITY-ID> [--name TEXT] [--kind collection|delivery] [--parent ID]
     [--repository ID] [--metadata KEY=VALUE]... [--jira-project KEY] [--jira-board TEXT]
     [--teams A,B] [--owns A,B] [--json]
-  singularity-flow capability remove <CAPABILITY-ID> [--json]
+  singularity-flow capability remove <CAPABILITY-ID> [--reparent-children-to ID] [--json]
     (add, set, and remove author only the checkout; use map or remote edit for governed publication)
   singularity-flow capability map <CAPABILITY-ID> [--lead URL] [--repository URL]... [--name TEXT]
     [--kind collection|delivery] [--type tech|business] [--parent ID] [--lead-repository URL]
+    [--source-roots DIR,...] [--shared-roots DIR,...]
+    [--clone-mode full|blobless|blobless-sparse] [--sparse-cone DIR,...] [--clone-fallback refuse|full]
     [--metadata KEY=VALUE]... [--doc KEY=VALUE]... [--resource KEY=VALUE]...
     [--jira-project KEY] [--teams A,B] [--json]
     (--repository is repeatable and required for delivery; omit it for collection. --lead-repository
@@ -357,11 +362,15 @@ Usage:
      pushes a review branch against sflow/config and never writes an application branch.)
   singularity-flow capability edit <CAPABILITY-ID> [--lead URL] [--name TEXT] [--kind collection|delivery]
     [--mode add|set|remove]
+    [--reparent-children-to ID]
     [--type tech|business] [--parent ID] [--repositories A,B] [--lead-repository ID]
+    [--source-roots DIR,...] [--shared-roots DIR,...]
     [--metadata KEY=VALUE]... [--doc KEY=VALUE]... [--resource KEY=VALUE]...
     [--json]   (no checkout needed)
   Capability parents are optional. Omit --parent to create a top-level capability; clear it in the
   VS Code capability designer to move an existing capability back to the top level.
+  Removing a capability with children requires --reparent-children-to. Pass an empty value to move
+  those direct children to the top level; older reviewed map revisions remain available in Git.
   singularity-flow capability publish [--lead URL] [--json]
     (after a capability review branch is merged, refresh its orphan state projection)
   singularity-flow capability proposals [--lead URL] [--all] [--json]

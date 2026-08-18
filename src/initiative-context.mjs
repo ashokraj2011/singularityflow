@@ -20,6 +20,7 @@ import { initiativeCheckRequirement, initiativeOutputRequired } from './initiati
 import { readKnowledge, recallKnowledge } from './knowledge.mjs';
 import { loadSession } from './session.mjs';
 import { renderCapabilityWorldModelPack } from './capability-context.mjs';
+import { withWorldModelSourceScope } from './source-scope.mjs';
 import {
   secureRepositoryPath,
   SingularityFlowError,
@@ -353,7 +354,11 @@ export async function composeInitiativeContext(root, initiativeId, requestedPhas
   const epicSources = await epicSourceSections(root, initiative, phase);
   const knowledge = await knowledgeSections(root, definition, initiative);
   const mode = initiative.resolution.worldModelGrounding ?? groundingMode(definition);
-  const grounding = await repositoryGrounding(root, definition, phase, selectedAgent, mode,
+  const groundingDefinition = withWorldModelSourceScope(
+    definition,
+    initiative.resolution?.worldModelSourceScope ?? initiative.resolution?.capability?.sourceScope ?? null
+  );
+  const grounding = await repositoryGrounding(root, groundingDefinition, phase, selectedAgent, mode,
     Object.values(initiative.resolution?.phases ?? {}),
     initiative.resolution?.worldModelStaleness);
   const capability = await renderCapabilityWorldModelPack(root, initiative.resolution?.capability, {

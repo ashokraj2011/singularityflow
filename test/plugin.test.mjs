@@ -300,12 +300,14 @@ test('factory-reset skill requires preview and contributor-owned exact confirmat
   assert.match(content, /intentionally uncommitted/);
 });
 
-test('local-reset skill preserves the installation and requires a proven workspace preview', async () => {
+test('local-reset skill separates machine-state forgetting from proven workspace deletion', async () => {
   const content = await readFile(path.join(pluginRoot, 'skills', 'sflow-local-reset', 'SKILL.md'), 'utf8');
-  assert.match(content, /local-reset --dry-run --json/);
+  assert.match(content, /local-reset \[--forget-only\] --dry-run --json/);
   assert.match(content, /exact number of physical workspace directories/);
   assert.match(content, /Never generate or supply it yourself/);
-  assert.match(content, /installed CLI, VS Code extension, Copilot/);
+  assert.match(content, /installed product surfaces remain available/);
+  assert.match(content, /FORGET LOCAL.*only `--forget-only`.*RESET LOCAL.*only/s);
+  assert.match(content, /without deleting any[\s\S]*workspace, clone, branch, worktree, dirty file/);
   assert.match(content, /Never delete an unregistered path/);
 });
 

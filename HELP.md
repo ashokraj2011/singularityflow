@@ -182,10 +182,12 @@ There are five intentionally different reset and replacement boundaries:
   governed configuration and lifecycle state while preserving its source and Git.
 - `sf-reset-all` resets that repository plus the machine registry, but preserves
   every physical workspace and clone.
-- `singularity-flow local-reset --dry-run` previews a clean local-machine reset:
-  every validated registered workspace directory and local Singularity state is
-  removed, while the installed CLI, VS Code extension, Copilot plugin, and skills
-  remain ready to use.
+- `singularity-flow local-reset --forget-only --dry-run` previews removal of this
+  machine's Singularity registrations, caches, sessions, credentials, and
+  personalization while preserving every workspace and repository byte.
+- `singularity-flow local-reset --dry-run` previews the destructive compatibility
+  mode: every validated registered workspace directory and local Singularity state
+  is removed, while installed product surfaces remain ready to use.
 - `singularity-flow fresh-install` previews a true fresh machine install. After
   reviewing the exact paths, `singularity-flow fresh-install --yes` deletes all
   validated registered workspace roots and clones, clears Singularity local and
@@ -202,8 +204,15 @@ skills. A one-time marker makes the reinstalled extension clear its Singularity
 Flow SecretStorage credentials, onboarding profile, and global state on first
 activation.
 
-The local reset uses the same proven workspace boundary without uninstalling or
-reinstalling anything:
+Forget machine state while preserving all workspace directories and repositories:
+
+```bash
+singularity-flow local-reset --forget-only --dry-run --json
+singularity-flow local-reset --forget-only --confirm "FORGET LOCAL"
+```
+
+The destructive local reset uses the proven workspace boundary without uninstalling
+or reinstalling anything:
 
 ```bash
 singularity-flow local-reset --dry-run --json
@@ -214,6 +223,8 @@ Run it from outside every workspace listed in the preview. A stale registration
 whose directory no longer exists is forgotten with machine state; an existing
 directory without an exact matching `workspace.json` stops the reset. In Copilot,
 use `/sf-local-reset` for the same preview and contributor-entered confirmation.
+Interactive terminals combine preview and exact prompting. Non-interactive and
+`--json` callers must preview, then confirm. Confirmation phrases are mode-bound.
 
 For a clean product-only replacement, build and validate the source checkout first:
 
@@ -899,7 +910,11 @@ Useful commands:
 ```bash
 singularity-flow capability tree --json
 singularity-flow capability show <CAPABILITY-ID> --json
-singularity-flow capability map <CAPABILITY-ID> --lead <URL> --repository <URL>
+singularity-flow capability map <CAPABILITY-ID> --lead <URL> --repository <URL> \
+  --source-roots <DIR,...> --shared-roots <DIR,...> \
+  --clone-mode blobless-sparse --sparse-cone <DIR,...> --clone-fallback refuse
+singularity-flow capability edit <CAPABILITY-ID> --lead <URL> --mode set --parent <PARENT-ID>
+singularity-flow capability edit <CAPABILITY-ID> --lead <URL> --mode remove --reparent-children-to <PARENT-ID>
 singularity-flow capability proposals --lead <URL>
 singularity-flow capability proposal <REVIEW-BRANCH> --lead <URL>
 singularity-flow capability activate <REVIEW-BRANCH> --lead <URL> --confirm <FULL-COMMIT> [--acknowledge-unprotected]
@@ -937,6 +952,16 @@ Approved organisation configuration lives on the dedicated `sflow/config` branch
 create, edit, delete, and initial mapping all use this same proposal transaction and
 automatically open the review screen; no designer action writes through the currently
 checked-out Story or application branch.
+
+In VS Code, **Configuration → Capabilities** shows a selected capability's direct
+parent and children as navigable relationships. **Add child** opens **Map a
+capability** with that parent already selected. Changing **Linked under** updates the
+single canonical parent link; the reverse child list is derived from it and therefore
+cannot drift. Removing a capability with direct children requires choosing their new
+parent. The relink and removal are validated and proposed atomically. Removal affects
+the current map only—older approved map revisions remain auditable in Git and can be
+inspected from **Review proposals**.
+
 Local `capability add`, `capability set`, and `capability remove` author only the
 current checkout. They do not move `sflow/config` or the orphan state branch. Use
 `capability map` or remote `capability edit --lead <URL>` for governed changes.
@@ -2317,6 +2342,7 @@ The shell, Copilot, and VS Code share durable repository and workspace records p
 ```bash
 singularity-flow doctor
 singularity-flow doctor WORK-123 --offline
+singularity-flow doctor --performance --json
 singularity-flow run --task "Implement the approved screen contract"
 ```
 
@@ -2397,9 +2423,16 @@ from the installed npm package and clears both `.git/singularity-flow/` and
 preserves their physical directories and repository clones, application source,
 Git history, and VS Code keychain credentials.
 
-To delete all validated physical workspace directories as well as the local
-registry and sessions, while keeping the installed product ready for immediate
-reuse:
+To clear only machine registrations, caches, sessions, credentials and
+personalization while preserving physical workspaces and repositories:
+
+```bash
+singularity-flow local-reset --forget-only --dry-run
+singularity-flow local-reset --forget-only --confirm "FORGET LOCAL"
+```
+
+To delete all validated physical workspace directories as well as local state,
+while keeping the installed product ready for immediate reuse:
 
 ```bash
 singularity-flow local-reset --dry-run
@@ -2542,6 +2575,8 @@ singularity-flow reset-all [--yes]
 sf-reset-all [--yes]
 singularity-flow local-reset [--dry-run | --confirm "RESET LOCAL"] [--json]
 sf-local-reset [--dry-run | --confirm "RESET LOCAL"] [--json]
+singularity-flow local-reset --forget-only [--dry-run | --confirm "FORGET LOCAL"] [--json]
+sf-local-reset --forget-only [--dry-run | --confirm "FORGET LOCAL"] [--json]
 singularity-flow reinstall --checkout DIRECTORY [--dry-run | --confirm TEXT] [--registry URL] [--cli-only] [--no-copilot-telemetry]
 sf-reinstall --checkout DIRECTORY [--dry-run | --confirm TEXT] [--registry URL] [--cli-only] [--no-copilot-telemetry]
 singularity-flow fresh-install [--checkout DIRECTORY] [--yes] [--registry URL] [--cli-only] [--no-copilot-telemetry]
@@ -2565,7 +2600,7 @@ singularity-flow action execute <PLAN-ID> [--action ACTION-ID] [--authorization 
 singularity-flow next [--task TEXT] [--fetch] [--yes] [--skip-checks]
 singularity-flow run [--task TEXT] [--yes]
 singularity-flow cockpit
-singularity-flow doctor [WORK-ID] [--offline] [--json]
+singularity-flow doctor [WORK-ID] [--offline] [--performance] [--json]
 singularity-flow review [PHASE] [--phase PHASE] [--format md|html|json] [--out FILE]
 singularity-flow pr describe [WORK-ID] [--format markdown|json] [--clipboard] [--write] [--yes]
 singularity-flow workflow list|simulate|diff|add|upgrade

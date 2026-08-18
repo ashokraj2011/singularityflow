@@ -94,6 +94,9 @@ approvalAuthorities:
 #     url: git@git.example.corp:company/mobile.git
 #     defaultBranch: main
 #     required: true
+#     # For large repositories, fetch historical blobs on demand and materialize only these cones.
+#     # Singularity Flow automatically retains singularity/ and .github/agents/ in sparse mode.
+#     clone: { mode: blobless-sparse, filter: "blob:none", sparseCone: [apps/mobile, packages/contracts], fallback: refuse }
 #     jira: { projectKey: MOB }
 #     metadata: { appId: APP-1001, name: Mobile application, owner: Digital }
 repositories: {}

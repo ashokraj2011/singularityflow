@@ -9,7 +9,8 @@ import {
   capabilityForRepository,
   capabilityPath,
   loadCapabilities,
-  resolveEffectiveCapabilityPolicy
+  resolveEffectiveCapabilityPolicy,
+  resolveCapabilitySourceScope
 } from './capabilities.mjs';
 import { loadDefinition } from './config.mjs';
 import { resolveWorldModelSource } from './grounding.mjs';
@@ -162,6 +163,7 @@ export async function resolveLifecycleCapability(root, { capabilityId = null, re
     },
     basePolicy: effective.basePolicy,
     policy: effective.policy,
+    sourceScope: resolveCapabilitySourceScope(definition, selected),
     leases: effective.leases.map((lease) => ({
       leaseId: lease.leaseId,
       capabilityId: lease.capabilityId,
@@ -218,7 +220,8 @@ export function applyCapabilityPolicyToWorkResolution(resolution, capability) {
       ...(resolution.documents ?? {}),
       allowedMimeTypes: intersectConfigured(resolution.documents?.allowedMimeTypes ?? [], policy.allowedMimeTypes)
     },
-    worldModelStaleness: policy.worldModelStaleness ?? null
+    worldModelStaleness: policy.worldModelStaleness ?? null,
+    worldModelSourceScope: capability.sourceScope ?? null
   };
 }
 
@@ -264,6 +267,7 @@ export function applyCapabilityPolicyToInitiativeResolution(resolution, capabili
     jira,
     contextPolicy: tightenContextPolicy(resolution.contextPolicy, policy.contextBoundary),
     worldModelStaleness: policy.worldModelStaleness ?? null,
+    worldModelSourceScope: capability.sourceScope ?? null,
     phases: resolution.phases.map((phase) => {
       if (allowed && !allowed.has(phase.id)) {
         throw new SingularityFlowError(`Capability '${capability.id}' does not allow initiative phase '${phase.id}'.`);

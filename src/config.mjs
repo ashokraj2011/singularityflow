@@ -935,6 +935,7 @@ export async function snapshotResolution(root, definition, resolved) {
     inputsMode: resolved.inputsMode ?? configuredInputsMode(definition),
     worldModelGrounding: groundingMode(definition),
     worldModelMaterialization: materializationPolicy(definition),
+    worldModelSourceScope: structuredClone(resolved.worldModelSourceScope ?? null),
     approvalAuthorities: structuredClone(resolved.approvalAuthorities ?? normalizeApprovalAuthorities(definition.approvalAuthorities)),
     sequenceGates: resolved.sequenceGates ?? normalizeSequenceGates(definition.sequenceGates ?? {}),
     contextPolicy: resolved.contextPolicy ?? normalizeContextPolicy(definition.contextPolicy ?? {}, { phaseIds: Object.keys(definition.phases) }),

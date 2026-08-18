@@ -22,6 +22,7 @@ export interface FormRepository {
   id: string;
   url: string;
   defaultBranch: string;
+  clone: { mode: string; sparseCone: string[]; fallback: string };
 }
 
 /** One capability from the organisation's map. */
@@ -35,6 +36,7 @@ export interface CapabilityChoice {
   /** Where that repository is cloned from, or null when the portfolio does not declare it. */
   url: string | null;
   defaultBranch: string;
+  clone: { mode: string; sparseCone: string[]; fallback: string };
 }
 
 export interface WorkspaceForm {
@@ -86,7 +88,7 @@ export interface RemoteCapability {
 /** Flatten the organisation's map into rows the form can list, carrying each clone URL across. */
 export function capabilityChoices(
   tree: RemoteCapability[],
-  repositories: Record<string, { url?: string; defaultBranch?: string } | undefined> = {}
+  repositories: Record<string, { url?: string; defaultBranch?: string; clone?: { mode?: string; sparseCone?: string[]; fallback?: string } } | undefined> = {}
 ): CapabilityChoice[] {
   const walk = (nodes: RemoteCapability[], chain: string[]): CapabilityChoice[] =>
     nodes.flatMap((node) => {
@@ -99,7 +101,12 @@ export function capabilityChoices(
           ancestors: chain,
           repository: node.repository ?? null,
           url: declared?.url ?? null,
-          defaultBranch: declared?.defaultBranch ?? 'main'
+          defaultBranch: declared?.defaultBranch ?? 'main',
+          clone: {
+            mode: declared?.clone?.mode ?? 'full',
+            sparseCone: declared?.clone?.sparseCone ?? [],
+            fallback: declared?.clone?.fallback ?? 'refuse'
+          }
         },
         ...walk(node.children ?? [], [...chain, node.id])
       ];
@@ -141,7 +148,7 @@ export function derivedRepositories(form: WorkspaceForm): FormRepository[] {
   for (const capability of shippingCapabilities(form)) {
     const id = capability.repository ?? '';
     if (!capability.url || byId.has(id)) continue;
-    byId.set(id, { id, url: capability.url, defaultBranch: capability.defaultBranch });
+    byId.set(id, { id, url: capability.url, defaultBranch: capability.defaultBranch, clone: capability.clone });
   }
   return [...byId.values()];
 }
@@ -319,7 +326,7 @@ function leadHtml(form: WorkspaceForm): string {
 function repositoryRows(form: WorkspaceForm): string {
   const repositories = derivedRepositories(form);
   if (!repositories.length) {
-    return '<tr><td colspan="4" class="muted">Nothing to clone yet — choose a capability that ships.</td></tr>';
+    return '<tr><td colspan="5" class="muted">Nothing to clone yet — choose a capability that ships.</td></tr>';
   }
   const lead = effectiveLead(form);
   return repositories.map((repository) => `
@@ -328,6 +335,9 @@ function repositoryRows(form: WorkspaceForm): string {
       <td>${escape(repository.id)}</td>
       <td><code>${escape(repository.url)}</code></td>
       <td>${escape(repository.defaultBranch)}</td>
+      <td><strong>${escape(repository.clone.mode)}</strong>${repository.clone.sparseCone.length
+    ? `<br><small>${escape(repository.clone.sparseCone.join(', '))}</small>` : ''}${repository.clone.mode !== 'full'
+    ? `<br><small>fallback: ${escape(repository.clone.fallback)}</small>` : ''}</td>
     </tr>`).join('');
 }
 
@@ -394,7 +404,7 @@ export function workspaceFormHtml(form: WorkspaceForm): string {
     <h2>${icon('git')}Repositories</h2>
     <p class="question">What the chosen capabilities ship from. Cloned when the workspace is created.</p>
     <table>
-      <thead><tr><th></th><th>Identifier</th><th>Origin</th><th>Branch</th></tr></thead>
+      <thead><tr><th></th><th>Identifier</th><th>Origin</th><th>Branch</th><th>Clone strategy</th></tr></thead>
       <tbody>${repositoryRows(form)}</tbody>
     </table>
   </section>

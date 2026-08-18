@@ -80,7 +80,7 @@ function reviewHtml(proposal: CapabilityProposal | null, busy: boolean, error: s
     </section>
     <section class="next">
       <div class="actions">
-        <button class="primary" data-action="activate" ${busy || !proposal.valid || activated ? 'disabled' : ''}>${icon('merge')} ${busy ? 'Activating…' : 'Merge and acknowledge'}</button>
+        <button class="primary" data-action="activate" ${busy || !proposal.valid || proposal.merged || activated ? 'disabled' : ''}>${icon('merge')} ${proposal.merged ? 'Already merged' : busy ? 'Activating…' : 'Merge and acknowledge'}</button>
         <button class="secondary" data-action="refresh" ${busy ? 'disabled' : ''}>${icon('refresh')} Refresh</button>
         <button class="secondary" data-action="copy">${icon('branch')} Copy branch</button>
       </div>

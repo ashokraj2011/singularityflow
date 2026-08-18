@@ -14,7 +14,7 @@ related:
   - developer-home
   - capability-management
   - repository-state-and-snapshots
-version: 1
+version: 2
 ---
 A workspace is the machine-local collection of capability repositories used for one delivery context. Sessions bind a contributor and selected work item without replacing governed repository state.
 
@@ -36,6 +36,8 @@ Use this topic when the current goal matches **workspaces and sessions**. Start 
 4. Run the smallest applicable command from this topic. Do not substitute an undocumented subcommand.
 5. Re-read state after completion. In Copilot, return to `/sf-home`; in VS Code, refresh the relevant view if it has not already refreshed.
 
+For a large delivery repository, configure its clone strategy while mapping the capability. `blobless` keeps the full checkout but fetches historical file bytes on demand. `blobless-sparse` also materializes only the declared cone directories; Singularity Flow automatically includes `singularity/` and `.github/agents/`. The default fallback is `refuse`: a server that ignores `filter=blob:none` cannot silently turn a planned partial clone into a full monorepo download. Choose the explicit `full` fallback only when that cost is acceptable.
+
 ## State and safety
 
 These commands can mutate governed or machine-local state: `workspace`, `session`. They remain subject to identity, authority, sequence, freshness, branch, worktree, and exact-confirmation checks. Signed handles are session-bound and are never shared between the shell, Copilot, and VS Code. Durable repository and workspace records are the shared source of truth.
@@ -45,6 +47,8 @@ These commands can mutate governed or machine-local state: `workspace`, `session
 - If the selected Story or branch is wrong, stop and use `sflow home`, `sflow session`, or `sflow workspace list` before retrying.
 - If a command refuses because state moved, refresh and use the newly rendered action instead of replaying an old handle or confirmation.
 - If publication or synchronization is pending, follow the exact recovery command in the refusal and verify with `sflow doctor`.
+- If a partial clone is refused, confirm the Git server supports upload-pack filtering or deliberately change the capability's clone fallback. Existing workspace clones are not silently rewritten.
+- If application files are absent, compare the capability source roots with its sparse cone. Source scope controls modelling; sparse cone controls which bytes are materialized.
 - If a Copilot or VS Code action is unavailable, use the displayed CLI fallback; do not guess a command from the label.
 
 ## Related topics

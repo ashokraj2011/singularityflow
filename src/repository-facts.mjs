@@ -183,8 +183,11 @@ function resolveLocal(from, target, known) {
  * "Hotspot" was previously a model's opinion. How often a file has actually changed is a fact, and
  * the regression analyser already parses this shape of output for its own purposes.
  */
-export function fileChurn(root, { since = '12 months ago', limit = 4000 } = {}) {
-  const log = run('git', ['log', `--since=${since}`, `--max-count=${limit}`, '--name-only', '--format=%H'], { cwd: root, allowFailure: true });
+export function fileChurn(root, { since = '12 months ago', limit = 4000, paths = [] } = {}) {
+  const pathspec = Array.isArray(paths) && paths.length ? ['--', ...paths] : [];
+  const log = run('git', [
+    'log', `--since=${since}`, `--max-count=${limit}`, '--name-only', '--format=%H', ...pathspec
+  ], { cwd: root, allowFailure: true });
   if (log.status !== 0) return new Map();
   const counts = new Map();
   for (const row of log.stdout.split('\n')) {
@@ -324,7 +327,10 @@ export async function deriveRepositoryFacts(root, sourceState, { churn = true } 
   }
 
   const tests = files.filter((file) => TEST_FILE.test(file.path) || TEST_NAME.test(file.path)).map((file) => file.path);
-  const churnCounts = churn ? fileChurn(root) : new Map();
+  const sourcePaths = sourceState.scope?.all === false
+    ? [...new Set([...(sourceState.scope.sourceRoots ?? []), ...(sourceState.scope.sharedRoots ?? [])])]
+    : [];
+  const churnCounts = churn ? fileChurn(root, { paths: sourcePaths }) : new Map();
 
   return {
     schemaVersion: 1,

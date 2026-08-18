@@ -13,7 +13,7 @@ import type { CapabilityNode } from '../cli/snapshot.ts';
 import type { CapabilityDashboard } from './capability-dashboard-model.ts';
 
 /** Editable fields, named once. The page cannot introduce a key that is not on this list. */
-const FIELDS = ['name', 'kind', 'parent', 'repository', 'metadata', 'jira.projectKey', 'jira.board', 'teams'] as const;
+const FIELDS = ['name', 'kind', 'parent', 'repository', 'sourceRoots', 'sharedRoots', 'metadata', 'jira.projectKey', 'jira.board', 'teams'] as const;
 
 function metadataRow(key = '', value = ''): string {
   return `<div class="metadata-row" data-metadata-row data-original-key="${escape(key)}">
@@ -119,6 +119,8 @@ function detailHtml(tree: CapabilityNode[], selected: string): string {
   const detail = capabilityDetail(tree, selected);
   if (!detail) return '<p class="muted">That capability is no longer in the map.</p>';
   const overridden = detail.policy.filter((field) => field.overridden);
+  const removalChoices = parentChoices(tree, detail.id);
+  const replacementParent = detail.parent?.id ?? '';
 
   return `
   <div class="card-head">
@@ -126,6 +128,28 @@ function detailHtml(tree: CapabilityNode[], selected: string): string {
     <span class="pill ${detail.delivery ? 'ok' : ''}">${icon(detail.delivery ? 'delivery' : 'collection')}${detail.delivery ? 'delivery' : 'collection'}</span>
     <span class="grow"></span>
     <span class="muted">${escape([...detail.ancestors, detail.id].join(' / '))}</span>
+  </div>
+
+  <div class="subsection">
+    <div class="card-head">
+      <div><h2>${icon('capability')}Relationships</h2>
+        <p class="muted">The child stores one parent link. Parent and child views are derived from that same link, so they update together.</p></div>
+      <span class="grow"></span>
+      <button type="button" class="secondary" data-add="${escape(detail.id)}">Add child</button>
+    </div>
+    <table>
+      <thead><tr><th>Relationship</th><th>Capability</th><th>Kind</th><th>Repository</th></tr></thead>
+      <tbody>
+        <tr><td>Parent</td><td>${detail.parent
+    ? `<button type="button" class="link" data-select="${escape(detail.parent.id)}">${escape(detail.parent.name)}</button>`
+    : '<span class="muted">Top level</span>'}</td><td class="muted">—</td><td class="muted">—</td></tr>
+        ${detail.children.length ? detail.children.map((child) => `
+        <tr><td>Child</td><td><button type="button" class="link" data-select="${escape(child.id)}">${escape(child.name)}</button></td>
+          <td class="muted">${escape(child.kind)}</td>
+          <td>${child.repository ? `<code>${escape(child.repository)}</code>` : '<span class="muted">—</span>'}</td></tr>`).join('')
+    : '<tr><td>Children</td><td colspan="3" class="muted">No direct children.</td></tr>'}
+      </tbody>
+    </table>
   </div>
 
   <div class="form-grid">
@@ -144,6 +168,16 @@ function detailHtml(tree: CapabilityNode[], selected: string): string {
       <input type="text" value="${escape(detail.repository ?? '')}" data-field="repository"
         placeholder="Repository ID">
       <small>Required for Delivery and unavailable to Collection. A Delivery may still contain children.</small>
+    </label>
+    <label class="field span-2"><span>Application source roots</span>
+      <input type="text" value="${escape(detail.sourceRoots.join(', '))}" data-field="sourceRoots"
+        placeholder="apps/payments, services/checkout">
+      <small>Comma-separated directories used for this capability's lead-repository world model. A child's explicit roots replace inherited application roots.</small>
+    </label>
+    <label class="field span-2"><span>Shared source roots</span>
+      <input type="text" value="${escape(detail.sharedRoots.join(', '))}" data-field="sharedRoots"
+        placeholder="libs/contracts, libs/platform">
+      <small>Shared directories accumulate down the capability tree and remain in grounding.</small>
     </label>
   </div>
 
@@ -168,8 +202,25 @@ function detailHtml(tree: CapabilityNode[], selected: string): string {
   <p class="card-foot">
     <button data-save="${escape(detail.id)}">Save changes</button>
     <button class="secondary" data-add="${escape(detail.id)}">Add one inside</button>
-    <button class="link" data-remove="${escape(detail.id)}">Remove</button>
   </p>
+
+  <div class="subsection">
+    <div class="card-head">
+      <div><h2>${icon('git')}Governed history and removal</h2>
+        <p class="muted">Every save or removal is a review proposal. Older approved map revisions remain auditable in Git.</p></div>
+      <span class="grow"></span>
+      <button type="button" class="secondary" data-review-proposals>Review proposals</button>
+    </div>
+    ${detail.children.length ? `<label class="field"><span>Move ${detail.children.length === 1 ? 'its child' : `its ${detail.children.length} children`} to</span>
+      <select data-remove-target aria-label="Replacement parent for direct children">
+        <option value=""${replacementParent ? '' : ' selected'}>Top level (no parent)</option>
+        ${removalChoices.map((choice) => `<option value="${escape(choice.id)}"${choice.id === replacementParent ? ' selected' : ''}>${'&nbsp;&nbsp;'.repeat(choice.depth)}${escape(choice.name)}</option>`).join('')}
+      </select>
+      <small>Children move atomically in the same reviewed proposal. Descendants are excluded to prevent cycles.</small>
+    </label>` : '<p class="muted">This capability has no direct children to move.</p>'}
+    <p><button type="button" class="link" data-remove="${escape(detail.id)}" data-child-count="${detail.children.length}">Remove from current map</button></p>
+    <p class="remedy">Removal changes the current approved map; it does not erase repository history or previous reviewed versions.</p>
+  </div>
 
   <h2>${icon('policy')}Policy</h2>
   ${overridden.length ? `
@@ -270,7 +321,7 @@ export const SCRIPT = `
     if (event.target.dataset?.field === 'kind') synchronizeKind();
   });
   document.addEventListener('click', (event) => {
-    const target = event.target.closest('[data-select],[data-add],[data-save],[data-remove],[data-metadata-add],[data-metadata-remove]');
+    const target = event.target.closest('[data-select],[data-add],[data-save],[data-remove],[data-review-proposals],[data-metadata-add],[data-metadata-remove]');
     if (!target) return;
     event.preventDefault();
     const data = target.dataset;
@@ -283,7 +334,16 @@ export const SCRIPT = `
       else row.remove();
     } else if (data.select !== undefined) vscode.postMessage({ type: 'select', id: data.select });
     else if (data.add !== undefined) vscode.postMessage({ type: 'add', parent: data.add });
-    else if (data.remove !== undefined) vscode.postMessage({ type: 'remove', id: data.remove });
+    else if (data.remove !== undefined) {
+      const replacement = document.querySelector('[data-remove-target]');
+      vscode.postMessage({
+        type: 'remove',
+        id: data.remove,
+        childCount: Number(data.childCount || 0),
+        reparentChildrenTo: replacement ? (replacement.value || null) : undefined
+      });
+    }
+    else if (data.reviewProposals !== undefined) vscode.postMessage({ type: 'review-proposals' });
     else if (data.save !== undefined) vscode.postMessage({ type: 'save', id: data.save, edits: read() });
   });
 `;

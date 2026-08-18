@@ -270,8 +270,20 @@ physical workspace and repository clones. VS Code keychain credentials are
 also preserved; reset Jira or Teams credentials separately in VS Code. Run
 `sf-reset-all` without `--yes` to preview the exact boundary.
 
-To remove every validated Singularity-managed workspace directory and clear the
-machine's local Singularity state **without uninstalling the product**, use:
+To forget all Singularity Flow state and personalization on this machine while
+preserving every physical workspace, repository, branch, dirty file, manifest,
+and repository-local recovery record, use:
+
+```bash
+singularity-flow local-reset --forget-only --dry-run
+# Review preserved workspaces and every machine-state target, then:
+singularity-flow local-reset --forget-only --confirm "FORGET LOCAL"
+# Short equivalent:
+sf-local-reset --forget-only --confirm "FORGET LOCAL"
+```
+
+To instead remove every validated Singularity-managed workspace directory and
+clear machine-local state **without uninstalling the product**, use:
 
 ```bash
 singularity-flow local-reset --dry-run
@@ -281,13 +293,19 @@ singularity-flow local-reset --confirm "RESET LOCAL"
 sf-local-reset --confirm "RESET LOCAL"
 ```
 
-`local-reset` removes only workspace roots proven by both the machine registry
+The destructive `local-reset` mode removes only workspace roots proven by both the machine registry
 and a matching regular `workspace.json`. It also clears local sessions, caches,
 telemetry configuration, recovery state, Singularity-named Copilot sessions,
 and the VS Code extension's Singularity credentials/settings on next activation.
 It preserves the installed CLI, VS Code extension, Copilot plugin, `/sf-*`
 skills, unregistered repositories, and personal skills. Run it from outside the
 workspace directories listed by the preview.
+
+In an interactive terminal either mode displays its complete preview and prompts
+for the exact mode-bound phrase in the same invocation. Cancellation, EOF, or a
+mismatch changes nothing. Non-interactive and `--json` callers must use
+`--dry-run`, followed by `--confirm`. `FORGET LOCAL` never authorizes workspace
+deletion, and `RESET LOCAL` never authorizes `--forget-only`.
 
 To replace only the locally installed Singularity Flow product while keeping all
 repositories, workspaces, lifecycle state, credentials, and user configuration,
@@ -1437,6 +1455,30 @@ The deterministic gate checks profile/template snapshots, remote publication, ar
 
 ## World model
 
+Large monorepos do not need a repository-wide world model. In **Configuration
+Center → World model**, or in `singularity/workflow.yml`, set repository-relative
+`sourceRoots` plus any `sharedRoots`. A capability may pin a narrower scope;
+child application roots replace the parent scope while shared roots accumulate.
+New lifecycle state pins that resolution so an active Story does not drift when
+the capability map changes.
+
+For new workspaces, **Map a capability** can select a `blobless` or
+`blobless-sparse` clone. Sparse mode always retains `singularity/` and
+`.github/agents/`, and its default `refuse` fallback prevents a Git server that
+ignores filtering from silently downloading the full monorepo. Scope and clone
+policy are separate: scope decides what the model sees; sparse checkout decides
+what is materialized locally.
+
+```bash
+singularity-flow doctor --performance --offline
+singularity-flow doctor --performance --json
+```
+
+This explicit read-only benchmark reports total versus scoped files, warm Git
+status and fingerprint timings, sparse/partial-clone state, and recommendations.
+It never changes Git configuration. Ordinary Home and doctor reads do not run
+the benchmark.
+
 For the smallest and lowest-token validated model, run this from the
 application repository:
 
@@ -1781,7 +1823,8 @@ evidence workflow.
 | `sflow-about` | Describe the Singularity Flow product, version, capabilities, and `sflow-` namespace. |
 | `singularity-flow init` | Install editable YAML, templates, agent prompts, and world-model builder prompt. |
 | `singularity-flow factory-reset --dry-run` | Preview a destructive reset of repository Singularity state and local runtime data before reinstalling current npm-package defaults. |
-| `singularity-flow local-reset --dry-run` | Preview removal of every validated local workspace and machine state while preserving installed product surfaces. |
+| `singularity-flow local-reset --forget-only --dry-run` | Preview clearing this machine's Singularity registrations, caches, sessions, credentials, and personalization while preserving every workspace and repository byte. |
+| `singularity-flow local-reset --dry-run` | Preview destructive removal of every validated local workspace and machine state while preserving installed product surfaces. |
 | `singularity-flow start <ID> --from-branch BRANCH [--jira \| --story-file FILE] [--work-type ID] [--ref BRANCH]` | Require an explicit published remote base, verify the configured remote before mutation, and create/push only the canonical Story branch. Non-interactive callers must also pass `--work-type`; `--base` remains a standalone-repository compatibility alias. The Story branch defaults to the Work ID; `--ref` decouples its name. |
 | `singularity-flow choices begin\|answer\|status` | Bridge explicit Copilot start and approval choices through a short-lived one-time receipt when persistent terminal stdin is unavailable. |
 | `singularity-flow resume <ID\|BRANCH> --fetch` | Resolve the Work ID/canonical-branch binding, fast-forward it, and activate the current phase agent. |

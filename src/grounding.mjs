@@ -3,9 +3,11 @@ import { lstat, mkdir, mkdtemp, readFile, readdir, realpath, rename, rm } from '
 import { existsSync, readdirSync } from 'node:fs';
 import path from 'node:path';
 import os from 'node:os';
-import { changedFiles, head } from './git.mjs';
+import { head } from './git.mjs';
 import { resolveReference } from './harness-imports.mjs';
 import { exists, mapLimit, posix, run, SingularityFlowError, snapshot } from './util.mjs';
+import { sourcePathIncluded, worldModelSourceScope } from './source-scope.mjs';
+import { withoutConfiguredFilters } from './worktree-fingerprint.mjs';
 import {
   budgetFor, corePath, proseBytes, resolveGroundingPlan, resolveViews, selectionId, tierForCore,
   tierForView, viewPath
@@ -16,6 +18,7 @@ const GROUNDING_MODES = new Set(['off', 'warn', 'enforce']);
 // Open file descriptors while hashing a tree. Enough to keep the disk busy, few enough not to
 // exhaust the descriptor table on a large repository.
 const SNAPSHOT_CONCURRENCY = 16;
+export const WORLD_MODEL_SOURCE_FINGERPRINT_ALGORITHM = 'sflow-source-git-v2';
 
 export function groundingMode(definition, workflow = null) {
   const mode = workflow ? workflow.resolution?.worldModelGrounding ?? 'off' : definition.worldModel?.grounding ?? 'off';
@@ -55,55 +58,196 @@ function excludedSourcePath(file, definition = {}) {
     || file.startsWith('.git/') || file.startsWith('node_modules/');
 }
 
-export async function worldModelSourceSnapshot(root, definition = {}) {
-  const tracked = run('git', ['ls-files', '-z'], { cwd: root }).stdout.split('\0').filter(Boolean);
-  const files = [...new Set([...tracked, ...changedFiles(root)])]
-    .map(posix)
-    .filter((file) => !excludedSourcePath(file, definition))
-    .sort();
-  // Read and hash concurrently, then fold in sorted file order. A build runs this and its sibling
-  // three more times before any model starts, each previously a serial read of the whole tree.
-  // Folding afterwards is what keeps the digest independent of I/O scheduling.
-  const scanned = await mapLimit(files, SNAPSHOT_CONCURRENCY, async (file) => {
-    const absolute = path.join(root, file);
-    if (!existsSync(absolute)) return { file, deleted: true };
-    return { file, deleted: false, info: await snapshot(absolute) };
-  });
-  const hash = createHash('sha256');
-  const records = [];
-  for (const entry of scanned) {
-    if (entry.deleted) {
-      hash.update(entry.file).update('\0deleted\0');
-      records.push({ path: entry.file, status: 'deleted', size: 0, sha256: null });
-      continue;
-    }
-    if (!entry.info.sha256) continue;
-    hash.update(entry.file).update('\0').update(entry.info.sha256).update('\0');
-    records.push({ path: entry.file, status: 'present', size: entry.info.size, sha256: entry.info.sha256 });
+function splitNull(value) {
+  return String(value ?? '').split('\0').filter(Boolean);
+}
+
+function sourcePathspec(definition = {}) {
+  const scope = worldModelSourceScope(definition);
+  return scope.all ? [] : ['--', ...scope.paths];
+}
+
+function indexManifest(root, definition = {}) {
+  const pathspec = sourcePathspec(definition);
+  const stages = splitNull(run('git', ['ls-files', '--stage', '-z', ...pathspec], { cwd: root }).stdout);
+  const flags = new Map(splitNull(run('git', ['ls-files', '-v', '-z', ...pathspec], { cwd: root }).stdout)
+    .map((entry) => [posix(entry.slice(2)), entry[0]]));
+  const entries = [];
+  for (const entry of stages) {
+    const tab = entry.indexOf('\t');
+    if (tab < 0) continue;
+    const [mode, objectId, stage] = entry.slice(0, tab).split(' ');
+    const relative = posix(entry.slice(tab + 1));
+    const tag = flags.get(relative) ?? 'H';
+    entries.push({
+      path: relative,
+      mode,
+      objectId,
+      stage: Number(stage),
+      assumeUnchanged: /^[a-z]$/.test(tag),
+      skipWorktree: tag.toUpperCase() === 'S'
+    });
   }
-  return { sha256: `sha256:${hash.digest('hex')}`, files: records };
+  return entries.sort((left, right) => left.path.localeCompare(right.path) || left.stage - right.stage);
+}
+
+function objectSizes(root, objectIds) {
+  const unique = [...new Set(objectIds.filter(Boolean))];
+  if (!unique.length) return new Map();
+  const result = run('git', ['cat-file', '--batch-check=%(objectname) %(objecttype) %(objectsize)'], {
+    cwd: root,
+    input: `${unique.join('\n')}\n`,
+    allowFailure: true
+  });
+  const sizes = new Map();
+  if (result.status !== 0) return sizes;
+  for (const row of result.stdout.split(/\r?\n/).filter(Boolean)) {
+    const [objectId, type, size] = row.split(' ');
+    if (objectId && type !== 'missing') sizes.set(objectId, type === 'blob' ? Number(size) : 0);
+  }
+  return sizes;
+}
+
+async function visibleRecord(root, relative, indexed = null) {
+  const absolute = path.join(root, relative);
+  if (!existsSync(absolute)) {
+    if (indexed?.skipWorktree) {
+      return {
+        path: relative, status: 'present', materialization: 'sparse-absent', mode: indexed.mode,
+        objectId: `git:${indexed.objectId}`, sha256: null
+      };
+    }
+    return { path: relative, status: 'deleted', materialization: 'absent', mode: indexed?.mode ?? null, objectId: null, size: 0, sha256: null };
+  }
+  if (indexed) {
+    const stat = await lstat(absolute);
+    if (stat.isFile()) {
+      const object = run('git', ['hash-object', '--no-filters', '--', relative], {
+        cwd: root, allowFailure: true
+      });
+      const mode = (stat.mode & 0o111) ? '100755' : '100644';
+      if (object.status === 0 && object.stdout.trim() === indexed.objectId && mode === indexed.mode) {
+        return {
+          path: relative, status: 'present', materialization: 'index', mode: indexed.mode,
+          objectId: `git:${indexed.objectId}`, sha256: null
+        };
+      }
+    }
+  }
+  const info = await snapshot(absolute);
+  if (!info.sha256) return null;
+  return {
+    path: relative,
+    status: 'present',
+    materialization: indexed ? 'worktree' : 'untracked',
+    mode: indexed?.mode ?? null,
+    objectId: `sha256:${info.sha256}`,
+    size: info.size,
+    sha256: info.sha256
+  };
+}
+
+/**
+ * Describe a Git worktree without reading every tracked file.
+ *
+ * The index already content-addresses every clean or staged path. Only paths whose visible bytes
+ * differ from the index, untracked paths, and explicitly hidden index paths are read. A sparse
+ * checkout's SKIP_WORKTREE entries remain present through their index object instead of being
+ * misreported as deletions.
+ */
+async function gitSourceRecords(root, { definition = {}, excludeGovernance = true } = {}) {
+  const pathspec = sourcePathspec(definition);
+  const index = indexManifest(root, definition);
+  const stageZero = new Map(index.filter((entry) => entry.stage === 0).map((entry) => [entry.path, entry]));
+  const conflicted = new Set(index.filter((entry) => entry.stage !== 0).map((entry) => entry.path));
+  const changed = new Set([
+    ...splitNull(run('git', withoutConfiguredFilters(root, [
+      'diff', '--no-ext-diff', '--no-textconv', '--name-only', '-z', ...pathspec
+    ]), { cwd: root }).stdout),
+    ...conflicted
+  ].map(posix));
+  const untracked = splitNull(run('git', [
+    'ls-files', '--others', '--exclude-standard', '-z', ...pathspec
+  ], { cwd: root }).stdout).map(posix);
+  // Assume-unchanged and skip-worktree suppress ordinary diff discovery. Inspect only those rare
+  // paths; in a sparse checkout an absent skip-worktree path is represented by its index object.
+  for (const entry of stageZero.values()) {
+    if (entry.assumeUnchanged || entry.skipWorktree) changed.add(entry.path);
+  }
+  const include = (file) => (!excludeGovernance || !excludedSourcePath(file, definition))
+    && sourcePathIncluded(file, definition);
+  const indexed = [...stageZero.values()].filter((entry) => include(entry.path));
+  // Asking cat-file for a missing promisor object can lazily download it. Sparse-absent paths stay
+  // represented by their index identity with size 0; materializing bytes is a workspace decision,
+  // never a side effect of a world-model status/fingerprint read.
+  const sizes = objectSizes(root, indexed.filter((entry) => !entry.skipWorktree).map((entry) => entry.objectId));
+  const records = [];
+  const visible = new Set([...changed, ...untracked].filter(include));
+  for (const entry of indexed) {
+    if (visible.has(entry.path)) continue;
+    records.push({
+      path: entry.path,
+      status: 'present',
+      materialization: entry.skipWorktree ? 'index' : 'index',
+      mode: entry.mode,
+      objectId: `git:${entry.objectId}`,
+      size: sizes.get(entry.objectId) ?? 0,
+      sha256: null
+    });
+  }
+  const scanned = await mapLimit([...visible].sort(), SNAPSHOT_CONCURRENCY, async (file) => (
+    visibleRecord(root, file, stageZero.get(file) ?? null)
+  ));
+  records.push(...scanned.filter(Boolean));
+  return records.sort((left, right) => left.path.localeCompare(right.path));
+}
+
+export async function worldModelSourceSnapshot(root, definition = {}) {
+  const records = await gitSourceRecords(root, { definition, excludeGovernance: true });
+  const scope = worldModelSourceScope(definition);
+  const hash = createHash('sha256');
+  hash.update(WORLD_MODEL_SOURCE_FINGERPRINT_ALGORITHM).update('\0');
+  hash.update(JSON.stringify({ sourceRoots: scope.sourceRoots, sharedRoots: scope.sharedRoots })).update('\0');
+  for (const entry of records) {
+    hash.update(entry.path).update('\0').update(entry.status).update('\0')
+      .update(entry.mode ?? '').update('\0').update(entry.objectId ?? '').update('\0');
+  }
+  return {
+    algorithm: WORLD_MODEL_SOURCE_FINGERPRINT_ALGORITHM,
+    scope: { sourceRoots: [...scope.sourceRoots], sharedRoots: [...scope.sharedRoots], all: scope.all },
+    sha256: `sha256:${hash.digest('hex')}`,
+    files: records
+  };
 }
 
 function sourcePathsChangedSince(root, definition, ref) {
   if (!/^[0-9a-f]{40}$/i.test(ref ?? '')) return null;
-  const changedBetweenCommits = run('git', ['diff', '--name-only', '-z', ref, 'HEAD'], { cwd: root, allowFailure: true });
+  const pathspec = sourcePathspec(definition);
+  const changedBetweenCommits = run('git', withoutConfiguredFilters(root, [
+    'diff', '--no-textconv', '--name-only', '-z', ref, 'HEAD', ...pathspec
+  ]), { cwd: root, allowFailure: true });
   if (changedBetweenCommits.status !== 0) return null;
+  const worktree = run('git', withoutConfiguredFilters(root, [
+    'diff', '--no-textconv', '--name-only', '-z', 'HEAD', ...pathspec
+  ]), { cwd: root, allowFailure: true });
+  const untracked = run('git', ['ls-files', '--others', '--exclude-standard', '-z', ...pathspec], {
+    cwd: root, allowFailure: true
+  });
+  if (worktree.status !== 0 || untracked.status !== 0) return null;
   return [...new Set([
     ...changedBetweenCommits.stdout.split('\0').filter(Boolean),
-    ...changedFiles(root)
-  ])].map(posix).filter((file) => !excludedSourcePath(file, definition)).sort();
+    ...splitNull(worktree.stdout),
+    ...splitNull(untracked.stdout)
+  ])].map(posix).filter((file) => !excludedSourcePath(file, definition) && sourcePathIncluded(file, definition)).sort();
 }
 
-export async function repositoryContentSnapshot(root) {
-  const tracked = run('git', ['ls-files', '-z'], { cwd: root }).stdout.split('\0').filter(Boolean);
-  const files = [...new Set([...tracked, ...changedFiles(root)])].map(posix).sort();
-  const watched = files.filter((file) => !file.startsWith('.git/') && !file.startsWith('node_modules/'));
-  const scanned = await mapLimit(watched, SNAPSHOT_CONCURRENCY, async (file) => (
-    { file, info: await snapshot(path.join(root, file)) }
-  ));
+export async function repositoryContentSnapshot(root, definition = {}) {
+  const scanned = await gitSourceRecords(root, { definition, excludeGovernance: false });
   const records = new Map();
-  // Insertion order follows the sorted list, so two snapshots of the same tree iterate identically.
-  for (const { file, info } of scanned) records.set(file, `${info.exists}:${info.size}:${info.sha256 ?? ''}`);
+  for (const entry of scanned) {
+    if (entry.path.startsWith('.git/') || entry.path.startsWith('node_modules/')) continue;
+    records.set(entry.path, `${entry.status}:${entry.mode ?? ''}:${entry.objectId ?? ''}:${entry.size ?? 0}`);
+  }
   return records;
 }
 

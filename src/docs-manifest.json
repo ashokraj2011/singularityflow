@@ -1,9 +1,9 @@
 {
   "schemaVersion": 1,
   "generatedFrom": "docs/topics",
-  "sourceCommit": "1c532bdd0a6db4eeb96b408c934beb01f2d94a6c",
+  "sourceCommit": "5a16dbc9e7de1ab23b5b71b86b842d990ec64c5d",
   "topicCount": 52,
-  "contentSha256": "055b17b8d359bdca343f2b35978a90e20e5decc3f5d83721858aa41ef4a0ceab",
+  "contentSha256": "865aa35ddc6955c6a4228d62d6d8b0a7462d5af4e431f83bf962612c27040daf",
   "topics": [
     {
       "id": "activity-and-prompt-audit",
@@ -120,8 +120,8 @@
     {
       "id": "fault-intake-and-repair",
       "title": "Fault intake and governed repair",
-      "version": 1,
-      "sha256": "236cb560da6a18c4d8a68715285b234da5215287f9d7480e6e0822e702dce095",
+      "version": 2,
+      "sha256": "8e8a1ce38ce28b3fd9e41fed581b28909ac89a484e54d12cc8d845201c6aebff",
       "file": "fault-intake-and-repair.md"
     },
     {

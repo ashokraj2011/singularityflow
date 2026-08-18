@@ -84,7 +84,8 @@ import { adoptEpicStory, completeEpicIntake, completeEpicPublication, EPIC_PHASE
 import { createStoryReviewPacket, finalizeStoryDelivery } from './story-lineage.mjs';
 import {
   attemptRepair, authorizeRepair, cancelRepair, diagnoseFault, listFaults, listRepairs,
-  readFault, readRepair, repairNextActions, reportFault, requestRepair, wrapCommandWithFaultRepair
+  governedFaultRepairPolicy, readFault, readRepair, repairNextActions, reportFault, requestRepair,
+  wrapCommandWithFaultRepair
 } from './fault-repair.mjs';
 
 import { createPullRequest, createStoryPullRequest, epicPullRequestPlan, storyPullRequestPlan, updateStoryPullRequest } from './pull-request.mjs';
@@ -3944,18 +3945,9 @@ async function recoverCommand(positionals, options) {
   if (optionBoolean(options, 'json')) console.log(JSON.stringify(result, null, 2)); else process.stdout.write(recoveryText(result));
 }
 
-async function configuredFaultPolicy(root, { failClosed = false } = {}) {
-  try { return (await loadDefinition(root)).faultRepair ?? {}; }
-  catch (error) {
-    if (!failClosed) return {};
-    return {
-      boundedAuto: false,
-      environmentCeilings: {
-        local: 'diagnose', ide: 'diagnose', copilot: 'diagnose', ci: 'record', integration: 'record',
-        staging: 'record', production: 'record'
-      }
-    };
-  }
+async function configuredFaultPolicy(root, { failClosed = false, story = null, faultId = null } = {}) {
+  const fault = faultId ? await readFault(root, faultId) : null;
+  return governedFaultRepairPolicy(root, { story: story ?? fault?.story ?? null, failClosed });
 }
 
 function emitFaultRepairResult({
@@ -4008,7 +4000,9 @@ async function faultCommand(positionals, options) {
         idempotencyKey: optionString(options, 'idempotency-key')
       };
     }
-    const result = await reportFault(root, envelope, { policy: await configuredFaultPolicy(root) });
+    const result = await reportFault(root, envelope, {
+      policy: await configuredFaultPolicy(root, { story: envelope.story ?? null })
+    });
     return emitFaultRepairResult({
       operationId: 'fault.report', classification: 'mutation', messageId: 'fault.recorded',
       slots: { faultId: result.fault.faultId, type: result.fault.failure.type, severity: result.fault.severity },
@@ -4068,7 +4062,8 @@ async function fixCommand(positionals, options) {
     maxAttempts: optionNumber(options, 'max-attempts'),
     allowedPaths: optionStrings(options, 'allow-path'),
     verification: optionStrings(options, 'verify'),
-    policy: await configuredFaultPolicy(root, { failClosed: true }),
+    policy: await configuredFaultPolicy(root, { failClosed: true, faultId }),
+    executionEnvironment: 'local',
     persist: !optionBoolean(options, 'plan-only')
   });
   const preview = optionBoolean(options, 'plan-only');

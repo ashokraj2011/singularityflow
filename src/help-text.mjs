@@ -117,7 +117,7 @@ Usage:
   singularity-flow fault list [--status recorded|repair-active|resolved] [--limit N] [--json]
   singularity-flow fault show <FAULT-ID> [--json]
   singularity-flow fix <FAULT-ID> [--diagnose-only | --plan-only] [--auto] [--max-attempts N]
-    [--allow-path PATH]... [--verify COMMAND]... [--open] [--json]
+    [--allow-path PATH]... [--verify COMMAND]... [--json]
   singularity-flow repair list [--status STATUS] [--json]
   singularity-flow repair status <REPAIR-ID> [--json]
   singularity-flow repair authorize <REPAIR-ID> --confirm PLAN-SHA256 [--open] [--json]

@@ -29,6 +29,7 @@ function git(args, options = {}) {
  */
 const repoRootCache = new Map();
 const gitDirCache = new Map();
+const gitCommonDirCache = new Map();
 
 export function repoRoot(cwd = process.cwd()) {
   if (repoRootCache.has(cwd)) return repoRootCache.get(cwd);
@@ -127,6 +128,23 @@ export function gitDir(root) {
   invariant(value, 'Unable to resolve the repository Git directory.');
   const resolved = path.resolve(value);
   gitDirCache.set(root, resolved);
+  return resolved;
+}
+
+/**
+ * Repository-wide Git storage shared by the main checkout and every linked worktree.
+ *
+ * `--absolute-git-dir` intentionally points at a worktree-private directory. Durable control-plane
+ * records and mutation locks are repository concerns, so putting them there makes the same repair
+ * disappear when a command is run from its isolated worktree. Resolve `--git-common-dir` and make
+ * relative answers absolute against the caller's checkout.
+ */
+export function gitCommonDir(root) {
+  if (gitCommonDirCache.has(root)) return gitCommonDirCache.get(root);
+  const value = git(['rev-parse', '--git-common-dir'], { cwd: root }).stdout.trim();
+  invariant(value, 'Unable to resolve the repository common Git directory.');
+  const resolved = path.resolve(root, value);
+  gitCommonDirCache.set(root, resolved);
   return resolved;
 }
 

@@ -36,7 +36,9 @@ Every public operation is classified before its implementation module is importe
 | fault.report | mutation | never | — | — |
 | fault.show | read | never | — | — |
 | finalize | mutation | never | — | — |
-| fix | mutation | never | — | — |
+| fix.diagnose | mutation | never | — | — |
+| fix.preview | read | never | — | — |
+| fix.request | mutation | never | — | — |
 | fresh-install | mutation | never | — | — |
 | gate | mutation | never | — | — |
 | guide | read | never | — | — |

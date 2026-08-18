@@ -8,10 +8,10 @@
  * beside mutable, integrity-checked indexes and state projections.
  */
 import { createHash, randomUUID } from 'node:crypto';
-import { lstat, mkdir, readFile, readdir, realpath, stat } from 'node:fs/promises';
+import { lstat, mkdir, readFile, readdir, realpath, rm, stat } from 'node:fs/promises';
 import path from 'node:path';
 
-import { gitDir, head, identity } from './git.mjs';
+import { gitCommonDir, head, identity } from './git.mjs';
 import { canonicalJson } from './specifications.mjs';
 import { withSubjectLock } from './subject-lock.mjs';
 import {
@@ -166,6 +166,13 @@ export function normalizeFaultRepairPolicy(value = {}) {
     'maximumEvidenceBytes', 'leaseMinutes', 'boundedAuto', 'environmentCeilings', 'protectedPaths'
   ]);
   for (const key of Object.keys(value)) if (!allowed.has(key)) throw new SingularityFlowError(`faultRepair contains unknown field '${key}'.`);
+  if (value.protectedPaths != null && !Array.isArray(value.protectedPaths)) {
+    throw new SingularityFlowError('faultRepair.protectedPaths must be an array.');
+  }
+  if (value.environmentCeilings != null
+    && (!value.environmentCeilings || typeof value.environmentCeilings !== 'object' || Array.isArray(value.environmentCeilings))) {
+    throw new SingularityFlowError('faultRepair.environmentCeilings must be an object.');
+  }
   const policy = {
     ...DEFAULT_POLICY,
     ...value,
@@ -193,8 +200,86 @@ export function normalizeFaultRepairPolicy(value = {}) {
   return Object.freeze({ ...policy, protectedPaths: Object.freeze([...policy.protectedPaths]) });
 }
 
+/** Apply caller limits without allowing them to replace or broaden governed policy. */
+export function restrictFaultRepairPolicy(governed = {}, restriction = {}) {
+  const base = normalizeFaultRepairPolicy(governed);
+  if (restriction == null) return base;
+  if (!restriction || typeof restriction !== 'object' || Array.isArray(restriction)) {
+    throw new SingularityFlowError('faultRepair policy restriction must be an object.');
+  }
+  // Normalize once for type/range/unknown-field validation, but consult the raw keys below so an
+  // empty restriction really means "no additional limit" rather than silently reapplying defaults.
+  const requested = normalizeFaultRepairPolicy(restriction);
+  const ceilings = {};
+  for (const environment of ENVIRONMENTS) {
+    const baseIndex = ACTION_CEILINGS.indexOf(base.environmentCeilings[environment]);
+    const requestedIndex = Object.hasOwn(restriction.environmentCeilings ?? {}, environment)
+      ? ACTION_CEILINGS.indexOf(requested.environmentCeilings[environment])
+      : baseIndex;
+    ceilings[environment] = ACTION_CEILINGS[Math.min(baseIndex, requestedIndex)];
+  }
+  const minWhenSupplied = (field) => Object.hasOwn(restriction, field)
+    ? Math.min(base[field], requested[field])
+    : base[field];
+  return normalizeFaultRepairPolicy({
+    enabled: Object.hasOwn(restriction, 'enabled') ? base.enabled && requested.enabled : base.enabled,
+    boundedAuto: Object.hasOwn(restriction, 'boundedAuto') ? base.boundedAuto && requested.boundedAuto : base.boundedAuto,
+    maxAttempts: minWhenSupplied('maxAttempts'),
+    maxMinutes: minWhenSupplied('maxMinutes'),
+    maxTokens: minWhenSupplied('maxTokens'),
+    maximumInlineEvidenceBytes: minWhenSupplied('maximumInlineEvidenceBytes'),
+    maximumEvidenceBytes: minWhenSupplied('maximumEvidenceBytes'),
+    leaseMinutes: minWhenSupplied('leaseMinutes'),
+    environmentCeilings: ceilings,
+    protectedPaths: Object.hasOwn(restriction, 'protectedPaths')
+      ? [...new Set([...base.protectedPaths, ...requested.protectedPaths])]
+      : [...base.protectedPaths]
+  });
+}
+
+const FAIL_CLOSED_POLICY = Object.freeze({
+  boundedAuto: false,
+  environmentCeilings: Object.freeze({
+    local: 'diagnose', ide: 'diagnose', copilot: 'diagnose', ci: 'record', integration: 'record',
+    staging: 'record', production: 'record'
+  })
+});
+
+/** Resolve current or Story-pinned policy, then apply caller limits only as restrictions. */
+export async function governedFaultRepairPolicy(root, {
+  story = null, restriction = {}, failClosed = false
+} = {}) {
+  const configuration = path.join(root, 'singularity', 'workflow.yml');
+  if (!await exists(configuration)) {
+    return restrictFaultRepairPolicy(failClosed ? FAIL_CLOSED_POLICY : {}, restriction);
+  }
+  const { loadDefinition } = await import('./config.mjs');
+  const definition = await loadDefinition(root);
+  let governed = definition.faultRepair ?? {};
+  if (story) {
+    const { loadStoryAggregate } = await import('./state-stores.mjs');
+    let workflow;
+    try {
+      workflow = await loadStoryAggregate(root, definition, story);
+    } catch (error) {
+      throw new SingularityFlowError(
+        `Pinned fault-repair policy for Story '${story}' is unavailable: ${error.message}`,
+        { code: 'FAULT_POLICY_UNAVAILABLE' }
+      );
+    }
+    if (!workflow.resolution?.faultRepair) {
+      throw new SingularityFlowError(
+        `Story '${story}' has no pinned fault-repair policy.`,
+        { code: 'FAULT_POLICY_UNAVAILABLE' }
+      );
+    }
+    governed = workflow.resolution.faultRepair;
+  }
+  return restrictFaultRepairPolicy(governed, restriction);
+}
+
 function stateRoot(root) {
-  return path.join(gitDir(root), 'singularity-flow', 'fault-repair');
+  return path.join(gitCommonDir(root), 'singularity-flow', 'fault-repair');
 }
 
 export function faultRepairStateRoot(root) {
@@ -303,6 +388,9 @@ function normalizeFailure(value = {}) {
   const exitCode = value.exitCode == null ? null : Number(value.exitCode);
   if (exitCode != null && (!Number.isInteger(exitCode) || exitCode < 0 || exitCode > 255)) {
     throw new SingularityFlowError('failure.exitCode must be an integer from 0 through 255.', { code: 'FAULT_FIELD_INVALID' });
+  }
+  if (value.commandArgv != null && !Array.isArray(value.commandArgv)) {
+    throw new SingularityFlowError('failure.commandArgv must be an array.', { code: 'FAULT_FIELD_INVALID' });
   }
   const commandArgv = value.commandArgv == null ? null : value.commandArgv.map((entry) => requireText(entry, 'failure.commandArgv[]', { maximum: 4096 }));
   if (commandArgv && !commandArgv.length) throw new SingularityFlowError('failure.commandArgv must not be empty.');
@@ -427,36 +515,61 @@ async function normalizeEnvelopeInput(root, raw = {}, { policy, actor } = {}) {
   const severity = sanitized.severity ?? 'medium';
   if (!SEVERITIES.has(severity)) throw new SingularityFlowError(`Unknown fault severity '${severity}'.`, { code: 'FAULT_SEVERITY_INVALID' });
   const failure = normalizeFailure(sanitized.failure ?? {});
-  const evidence = await materializeEvidence(root, sanitized.evidence ?? [], policy, redactions);
+  if (sanitized.evidence != null && !Array.isArray(sanitized.evidence)) {
+    throw new SingularityFlowError('evidence must be an array.', { code: 'FAULT_FIELD_INVALID' });
+  }
   const currentHead = head(root);
+  if (sanitized.build != null
+    && (!sanitized.build || typeof sanitized.build !== 'object' || Array.isArray(sanitized.build))) {
+    throw new SingularityFlowError('build must be an object.', { code: 'FAULT_FIELD_INVALID' });
+  }
+  const suppliedCommit = optionalText(sanitized.build?.commit, 'build.commit', { maximum: 64, pattern: /^[a-f0-9]{7,64}$/i });
+  const resolvedCommit = suppliedCommit
+    ? run('git', ['rev-parse', '--verify', `${suppliedCommit}^{commit}`], { cwd: root, allowFailure: true }).stdout.trim() || suppliedCommit
+    : currentHead;
   const build = sanitized.build == null ? { id: null, commit: currentHead } : {
     id: optionalText(sanitized.build.id, 'build.id', { maximum: 256 }),
-    commit: optionalText(sanitized.build.commit, 'build.commit', { maximum: 64, pattern: /^[a-f0-9]{7,64}$/i }) ?? currentHead
+    commit: resolvedCommit
   };
   const requestedAction = sanitized.requestedAction ?? 'policy-decides';
   if (!['policy-decides', ...ACTION_CEILINGS].includes(requestedAction)) throw new SingularityFlowError(`Unknown requested action '${requestedAction}'.`);
   const occurredAt = validDate(sanitized.occurredAt, 'occurredAt', nowIso());
+  const correlationId = optionalText(sanitized.correlationId, 'correlationId', { maximum: 512 });
+  const story = optionalText(sanitized.story, 'story', { maximum: 96 });
+  const capability = optionalText(sanitized.capability, 'capability', { maximum: 128 });
+  const parentRepairId = sanitized.parentRepairId ? requireId(sanitized.parentRepairId, 'RPR', 'parentRepairId') : null;
+  const faultId = sanitized.faultId ? requireId(sanitized.faultId, 'FLT', 'faultId') : null;
+  const idempotencyKey = optionalText(sanitized.idempotencyKey, 'idempotencyKey', { maximum: 512 });
+  const resolvedActor = normalizedActor(root, actor);
+  // Evidence is the first step that writes content-addressed bytes. Validate every other envelope
+  // field before reaching it so a malformed request is observationally inert.
+  const evidence = await materializeEvidence(root, sanitized.evidence ?? [], policy, redactions);
   const input = {
     source,
-    correlationId: optionalText(sanitized.correlationId, 'correlationId', { maximum: 512 }),
+    correlationId,
     occurredAt,
     environment,
     severity,
-    story: optionalText(sanitized.story, 'story', { maximum: 96 }),
-    capability: optionalText(sanitized.capability, 'capability', { maximum: 128 }),
+    story,
+    capability,
     build,
     failure,
     evidence,
     requestedAction,
-    parentRepairId: sanitized.parentRepairId ? requireId(sanitized.parentRepairId, 'RPR', 'parentRepairId') : null
+    parentRepairId
   };
   return {
     input,
-    actor: normalizedActor(root, actor),
-    faultId: sanitized.faultId ? requireId(sanitized.faultId, 'FLT', 'faultId') : null,
-    idempotencyKey: optionalText(sanitized.idempotencyKey, 'idempotencyKey', { maximum: 512 }),
+    actor: resolvedActor,
+    faultId,
+    idempotencyKey,
     redactions,
-    requestSha256: recordHash(envelopeRequestCore(input, evidence))
+    // A generated receipt timestamp is not part of caller intent. Omitting occurredAt must remain
+    // idempotent across retries even though the stored envelope records when each observation arose.
+    requestSha256: recordHash(envelopeRequestCore({
+      ...input,
+      occurredAt: sanitized.occurredAt == null ? null : input.occurredAt
+    }, evidence))
   };
 }
 
@@ -575,10 +688,15 @@ function gitLines(root, args) {
 }
 
 function statusPaths(root) {
-  const result = run('git', ['status', '--porcelain=v1', '-z', '--untracked-files=all'], { cwd: root, allowFailure: true, encoding: 'buffer' });
-  if (result.status !== 0) return [];
-  const entries = result.stdout.toString('utf8').split('\0').filter(Boolean);
-  return entries.map((entry) => entry.slice(3).split(' -> ').at(-1)).filter(Boolean).map((entry) => entry.replaceAll('\\', '/'));
+  const commands = [
+    ['diff', '--name-only', '-z', '--'],
+    ['diff', '--cached', '--name-only', '-z', '--'],
+    ['ls-files', '--others', '--exclude-standard', '-z']
+  ];
+  return [...new Set(commands.flatMap((args) => {
+    const result = run('git', args, { cwd: root, allowFailure: true, encoding: 'buffer' });
+    return result.status === 0 ? nulPaths(result.stdout) : [];
+  }))].sort();
 }
 
 function diagnosisDisposition(fault) {
@@ -656,9 +774,17 @@ function requestedCeiling(mode, fault) {
   return 'bounded-auto';
 }
 
-export function effectiveRepairPolicy(fault, configuredPolicy = {}, { mode = 'policy-decides', maxAttempts = null } = {}) {
+export function effectiveRepairPolicy(fault, configuredPolicy = {}, {
+  mode = 'policy-decides', maxAttempts = null, executionEnvironment = fault.environment
+} = {}) {
   const policy = normalizeFaultRepairPolicy(configuredPolicy);
-  let ceiling = policy.environmentCeilings[fault.environment] ?? 'record';
+  if (maxAttempts != null && (!Number.isInteger(Number(maxAttempts)) || Number(maxAttempts) < 1)) {
+    throw new SingularityFlowError('maxAttempts must be a positive integer.', { code: 'REPAIR_BUDGET_INVALID' });
+  }
+  if (!ENVIRONMENTS.has(executionEnvironment)) {
+    throw new SingularityFlowError(`Unknown repair execution environment '${executionEnvironment}'.`, { code: 'FAULT_ENVIRONMENT_INVALID' });
+  }
+  let ceiling = policy.environmentCeilings[executionEnvironment] ?? 'record';
   if (fault.environment === 'production' || fault.failure.type === 'production') ceiling = 'diagnose';
   if (['security', 'requirement', 'policy', 'architecture'].includes(fault.failure.type)) ceiling = 'diagnose';
   if (!policy.boundedAuto && ceiling === 'bounded-auto') ceiling = 'guided';
@@ -666,9 +792,11 @@ export function effectiveRepairPolicy(fault, configuredPolicy = {}, { mode = 'po
   const effectiveIndex = Math.min(ACTION_CEILINGS.indexOf(ceiling), ACTION_CEILINGS.indexOf(requested));
   return Object.freeze({
     ceiling: ACTION_CEILINGS[Math.max(0, effectiveIndex)],
+    observationEnvironment: fault.environment,
+    executionEnvironment,
     requested,
     policyCeiling: ceiling,
-    maxAttempts: Math.min(policy.maxAttempts, Math.max(1, Number(maxAttempts) || policy.maxAttempts)),
+    maxAttempts: Math.min(policy.maxAttempts, maxAttempts == null ? policy.maxAttempts : Number(maxAttempts)),
     maxMinutes: policy.maxMinutes,
     maxTokens: policy.maxTokens,
     leaseMinutes: policy.leaseMinutes,
@@ -706,11 +834,47 @@ export function parseVerificationCommand(value) {
   return argv;
 }
 
+const FORBIDDEN_VERIFICATION_PROGRAMS = new Set([
+  'curl', 'wget', 'ssh', 'scp', 'sftp', 'ftp', 'nc', 'ncat', 'telnet', 'gh',
+  'docker', 'podman', 'kubectl', 'helm', 'terraform', 'ansible', 'rsync',
+  'rm', 'rmdir', 'del', 'erase', 'shred', 'shutdown', 'reboot'
+]);
+const SAFE_GIT_VERBS = new Set(['cat-file', 'diff', 'diff-tree', 'grep', 'log', 'ls-files', 'rev-parse', 'show', 'status']);
+
+function validateVerificationArgv(argv, label = 'verification command') {
+  if (!Array.isArray(argv) || !argv.length) {
+    throw new SingularityFlowError(`${label} must be a non-empty argv array.`, { code: 'REPAIR_VERIFICATION_INVALID' });
+  }
+  const normalized = argv.map((entry) => requireText(entry, `${label} argv`, { maximum: 4096 }));
+  const program = path.basename(normalized[0]).toLowerCase().replace(/\.exe$/, '');
+  if (FORBIDDEN_VERIFICATION_PROGRAMS.has(program)) {
+    throw new SingularityFlowError(`${label} may not invoke '${program}'.`, { code: 'REPAIR_VERIFICATION_UNSAFE' });
+  }
+  if (['sh', 'bash', 'zsh', 'fish', 'cmd', 'powershell', 'pwsh'].includes(program)) {
+    throw new SingularityFlowError(`${label} may not invoke a command shell.`, { code: 'REPAIR_VERIFICATION_UNSAFE' });
+  }
+  if (program === 'git' && !SAFE_GIT_VERBS.has(normalized[1] ?? '')) {
+    throw new SingularityFlowError(`${label} may not run mutating or remote Git command '${normalized[1] ?? ''}'.`, { code: 'REPAIR_VERIFICATION_UNSAFE' });
+  }
+  if (['npm', 'pnpm', 'yarn'].includes(program)
+    && normalized.slice(1).some((entry) => ['publish', 'login', 'adduser', 'logout'].includes(entry.toLowerCase()))) {
+    throw new SingularityFlowError(`${label} may not publish or alter registry credentials.`, { code: 'REPAIR_VERIFICATION_UNSAFE' });
+  }
+  return normalized;
+}
+
 function verificationPlan(fault, supplied = []) {
+  if (!Array.isArray(supplied)) {
+    throw new SingularityFlowError('verification must be an array.', { code: 'REPAIR_VERIFICATION_INVALID' });
+  }
   const commands = supplied.length
     ? supplied.map((entry) => Array.isArray(entry) ? entry.map(String) : parseVerificationCommand(entry))
     : fault.failure.commandArgv ? [fault.failure.commandArgv.map(String)] : [];
-  return commands.map((argv, index) => ({ id: `verify-${index + 1}`, argv, required: true }));
+  return commands.map((argv, index) => ({
+    id: `verify-${index + 1}`,
+    argv: validateVerificationArgv(argv, `verification[${index}]`),
+    required: true
+  }));
 }
 
 function planStatus(ceiling, adequate) {
@@ -725,6 +889,8 @@ function planStatus(ceiling, adequate) {
 }
 
 function publicPlanCore({ repairId, fault, diagnosis, effective, allowedPaths, verification }) {
+  const diagnosisCore = withoutIntegrity(diagnosis);
+  const sandbox = verificationSandboxKind();
   return {
     schemaVersion: REPAIR_PLAN_SCHEMA_VERSION,
     recordType: 'repair-plan',
@@ -740,19 +906,29 @@ function publicPlanCore({ repairId, fault, diagnosis, effective, allowedPaths, v
     verification,
     budgets: { maxAttempts: effective.maxAttempts, maxMinutes: effective.maxMinutes, maxTokens: effective.maxTokens },
     executionMode: effective.ceiling,
+    observationEnvironment: effective.observationEnvironment,
+    executionEnvironment: effective.executionEnvironment,
     requestedMode: effective.requested,
     tools: {
       commands: verification.map((entry) => entry.argv),
-      network: 'not-granted-by-sflow',
-      environmentNames: ['CI', 'NODE_ENV'],
-      capabilities: ['read-scoped-context', 'apply-validated-patch', 'run-pinned-verification']
+      sandbox,
+      network: sandbox === 'disposable-worktree-only' ? 'host-not-isolated' : 'denied',
+      externalFilesystem: sandbox === 'disposable-worktree-only' ? 'host-not-isolated' : 'denied',
+      environmentNames: ['CI', 'HOME', 'NODE_ENV', 'PATH', 'TMPDIR'],
+      capabilities: [
+        'read-scoped-context', 'apply-validated-patch',
+        'run-pinned-verification-in-disposable-worktree'
+      ]
     },
     escalation: [
       'scope-expansion', 'protected-path', 'baseline-change', 'verification-unavailable',
       'no-progress', 'patch-oscillation', 'budget-exhausted', 'intent-conflict'
     ],
     policyHash: effective.policyHash,
-    diagnosisSha256: diagnosis.integrity.sha256
+    diagnosisSha256: diagnosis.integrity.sha256,
+    // Diagnosis records retain when they were observed; plan equivalence follows the facts rather
+    // than that clock so repeating an identical request joins instead of silently minting authority.
+    diagnosisSemanticSha256: recordHash({ ...diagnosisCore, createdAt: null })
   };
 }
 
@@ -775,6 +951,51 @@ async function saveRepairState(root, state) {
   return stored;
 }
 
+function planFileName(generation, sha) {
+  return `${String(generation).padStart(3, '0')}-${sha}.json`;
+}
+
+async function persistRepairPlan(root, repairId, plan, generation = 1) {
+  const file = statePath(root, 'repairs', repairId, 'plans', planFileName(generation, plan.integrity.sha256));
+  await immutableWrite(root, file, plan, `Repair plan '${repairId}' generation ${generation}`);
+  // Retain the initial public path for compatibility, but never use it as the only authority root.
+  if (generation === 1) {
+    await immutableWrite(root, statePath(root, 'repairs', repairId, 'plan.json'), plan, `Repair plan '${repairId}'`);
+  }
+  return file;
+}
+
+async function verifiedCurrentPlan(root, state) {
+  verifyIntegrity(state.plan, `RepairPlan '${state.repairId}' state projection`);
+  const generation = state.planGeneration ?? 1;
+  const modern = statePath(
+    root, 'repairs', state.repairId, 'plans', planFileName(generation, state.plan.integrity.sha256)
+  );
+  const legacy = statePath(root, 'repairs', state.repairId, 'plan.json');
+  const file = await exists(modern) ? modern : legacy;
+  const immutable = requireSchema(await readJson(file), REPAIR_PLAN_SCHEMA_VERSION, `RepairPlan '${state.repairId}'`);
+  if (immutable.integrity.sha256 !== state.plan.integrity.sha256
+    || canonicalJson(immutable) !== canonicalJson(state.plan)) {
+    throw new SingularityFlowError(`Repair '${state.repairId}' plan differs from its immutable plan record.`, { code: 'REPAIR_PLAN_CHANGED' });
+  }
+  return immutable;
+}
+
+function planDecisionCore(plan) {
+  return {
+    baseline: plan.baseline,
+    intent: plan.intent,
+    allowedPaths: plan.allowedPaths,
+    prohibitedPaths: plan.prohibitedPaths,
+    verification: plan.verification,
+    budgets: plan.budgets,
+    executionMode: plan.executionMode,
+    requestedMode: plan.requestedMode,
+    policyHash: plan.policyHash,
+    diagnosisSemanticSha256: plan.diagnosisSemanticSha256 ?? plan.diagnosisSha256
+  };
+}
+
 export async function readRepair(root, repairId) {
   const id = requireId(repairId, 'RPR', 'repairId');
   return requireSchema(await readJson(statePath(root, 'repairs', id, 'state.json')), REPAIR_STATE_SCHEMA_VERSION, 'RepairState');
@@ -787,27 +1008,71 @@ export async function listRepairs(root, { status = null } = {}) {
 
 export async function requestRepair(root, faultId, {
   mode = 'policy-decides', maxAttempts = null, allowedPaths = [], verification = [],
-  policy: configuredPolicy = {}, persist = true
+  policy: configuredPolicy = {}, persist = true, executionEnvironment = null
 } = {}) {
   const fault = await readFault(root, faultId);
+  if (!Array.isArray(allowedPaths)) {
+    throw new SingularityFlowError('allowedPaths must be an array.', { code: 'REPAIR_SCOPE_INVALID' });
+  }
   const diagnosis = await diagnoseFault(root, fault.faultId, { persist });
-  const effective = effectiveRepairPolicy(fault, configuredPolicy, { mode, maxAttempts });
+  const effective = effectiveRepairPolicy(fault, configuredPolicy, {
+    mode,
+    maxAttempts,
+    executionEnvironment: executionEnvironment ?? fault.environment
+  });
   const paths = [...new Set((allowedPaths.length ? allowedPaths : diagnosis.affectedPaths)
     .map((entry) => normalizePathPrefix(entry, 'allowed path')))].sort();
   const checks = verificationPlan(fault, verification);
   const adequate = paths.length > 0 && checks.length > 0 && diagnosis.disposition !== 'challenge-intent';
 
   return withSubjectLock(root, { kind: 'repair-signature', id: fault.signature }, async () => {
+    let active = null;
     if (persist) {
-      const active = (await repairStates(root)).find((entry) => entry.signature === fault.signature
+      active = (await repairStates(root)).find((entry) => entry.signature === fault.signature
         && entry.baseline === fault.build.commit && ACTIVE_REPAIR_STATES.has(entry.status));
-      if (active) return { repair: active, plan: active.plan, diagnosis, joined: true, persisted: true };
     }
-    const repairId = persist ? nextId('RPR') : `RPR-PREVIEW-${fault.faultId.slice(4)}`;
+    const repairId = active?.repairId ?? (persist ? nextId('RPR') : `RPR-PREVIEW-${fault.faultId.slice(4)}`);
     const plan = withIntegrity(publicPlanCore({ repairId, fault, diagnosis, effective, allowedPaths: paths, verification: checks }));
     const status = diagnosis.disposition === 'challenge-intent'
       ? 'challenge-opened'
       : planStatus(effective.ceiling, adequate);
+    if (active) {
+      await verifiedCurrentPlan(root, active);
+      if (canonicalJson(planDecisionCore(active.plan)) === canonicalJson(planDecisionCore(plan))) {
+        return { repair: active, plan: active.plan, diagnosis, joined: true, persisted: true };
+      }
+      const replannable = !active.workspace && !(active.attempts?.length)
+        && ['recorded', 'diagnosis-ready', 'proposed', 'needs-human', 'awaiting-authorization'].includes(active.status);
+      if (!replannable) {
+        throw new SingularityFlowError(
+          `Repair '${active.repairId}' already has active authority or attempts. Cancel it before changing scope, verification, or execution context.`,
+          { code: 'REPAIR_REPLAN_REQUIRES_CANCELLATION' }
+        );
+      }
+      const priorSha256 = active.plan.integrity.sha256;
+      const generation = (active.planGeneration ?? 1) + 1;
+      await persistRepairPlan(root, active.repairId, plan, generation);
+      active.plan = plan;
+      active.planGeneration = generation;
+      active.planHistory = [
+        ...(active.planHistory ?? [{ generation: 1, sha256: priorSha256 }]),
+        { generation, sha256: plan.integrity.sha256 }
+      ];
+      active.status = status;
+      active.executionMode = effective.ceiling;
+      active.policy = effective;
+      active.stopReason = diagnosis.disposition === 'challenge-intent' ? 'intent-conflict'
+        : !paths.length ? 'scope-required'
+          : !checks.length ? 'verification-required'
+            : effective.ceiling === 'bounded-auto' ? 'adapter-authorization-required' : null;
+      active.finalDisposition = null;
+      await writeRepairEvent(root, active, 'repair-replanned', {
+        generation, priorPlanSha256: priorSha256, planSha256: plan.integrity.sha256,
+        executionEnvironment: effective.executionEnvironment, status
+      });
+      const stored = await saveRepairState(root, active);
+      return { repair: stored, plan, diagnosis, joined: false, replanned: true, persisted: true };
+    }
     const state = {
       schemaVersion: REPAIR_STATE_SCHEMA_VERSION,
       recordType: 'repair-state',
@@ -821,6 +1086,8 @@ export async function requestRepair(root, faultId, {
       executionMode: effective.ceiling,
       policy: effective,
       plan,
+      planGeneration: 1,
+      planHistory: [{ generation: 1, sha256: plan.integrity.sha256 }],
       attempts: [],
       events: 0,
       lease: null,
@@ -832,7 +1099,7 @@ export async function requestRepair(root, faultId, {
             : effective.ceiling === 'bounded-auto' ? 'adapter-authorization-required' : null
     };
     if (!persist) return { repair: withIntegrity(state), plan, diagnosis, joined: false, persisted: false };
-    await immutableWrite(root, statePath(root, 'repairs', repairId, 'plan.json'), plan, `Repair plan '${repairId}'`);
+    await persistRepairPlan(root, repairId, plan, 1);
     await writeRepairEvent(root, state, 'repair-requested', {
       status, executionMode: effective.ceiling, diagnosisSha256: diagnosis.integrity.sha256
     });
@@ -878,6 +1145,17 @@ function assertLease(root, state) {
   state.lease = { ...state.lease, expiresAt: new Date(Date.now() + state.policy.leaseMinutes * 60_000).toISOString() };
 }
 
+function commitObjectId(root, value) {
+  return run('git', ['rev-parse', '--verify', `${value}^{commit}`], { cwd: root, allowFailure: true }).stdout.trim() || null;
+}
+
+async function verifiedRepairEvents(root, repairId) {
+  return directoryRecords(
+    statePath(root, 'repairs', repairId, 'events'),
+    async (file) => verifyIntegrity(await readJson(file), 'RepairEvent')
+  );
+}
+
 export async function authorizeRepair(root, repairId, { confirmation, open = false } = {}) {
   const id = requireId(repairId, 'RPR', 'repairId');
   return withSubjectLock(root, { kind: 'repair', id }, async () => {
@@ -888,11 +1166,14 @@ export async function authorizeRepair(root, repairId, { confirmation, open = fal
     if (state.executionMode !== 'guided') {
       throw new SingularityFlowError(`Repair '${id}' is '${state.executionMode}' and cannot mutate.`, { code: 'REPAIR_POLICY_DENIED' });
     }
-    const expected = state.plan.integrity.sha256;
+    const plan = await verifiedCurrentPlan(root, state);
+    const expected = plan.integrity.sha256;
     if (confirmation !== expected && confirmation !== `sha256:${expected}`) {
       throw new SingularityFlowError(`Authorization must confirm the exact plan hash '${expected}'.`, { code: 'REPAIR_CONFIRMATION_MISMATCH' });
     }
-    if (head(root) !== state.baseline) {
+    const currentHead = commitObjectId(root, 'HEAD');
+    const baseline = commitObjectId(root, state.baseline);
+    if (!baseline || currentHead !== baseline) {
       throw new SingularityFlowError(`Repository HEAD moved from repair baseline ${state.baseline} to ${head(root)}. Create a new plan.`, { code: 'REPAIR_BASELINE_CHANGED' });
     }
     if (state.status === 'retry-ready') {
@@ -907,7 +1188,12 @@ export async function authorizeRepair(root, repairId, { confirmation, open = fal
         branch: state.workspace.branch, attempt: state.attempts.length + 1
       });
       state = await saveRepairState(root, state);
-      return { repair: state, opened: false };
+      let opened = false;
+      if (open) {
+        const launched = run('code', ['--reuse-window', state.workspace.path], { cwd: root, allowFailure: true });
+        opened = launched.status === 0;
+      }
+      return { repair: state, opened };
     }
     const worktree = repairWorktree(root, id);
     const repairBranchName = repairBranch(id);
@@ -980,11 +1266,174 @@ function boundedOutput(value, limit = 64 * 1024) {
   };
 }
 
+function nulPaths(value) {
+  return Buffer.from(value).toString('utf8').split('\0').filter(Boolean).map((entry) => entry.replaceAll('\\', '/'));
+}
+
+async function repairWorktreeSnapshot(worktree, baseline) {
+  const diff = run('git', ['diff', '--binary', '--no-ext-diff', baseline, '--'], {
+    cwd: worktree, encoding: 'buffer'
+  }).stdout;
+  const tracked = nulPaths(run('git', ['diff', '--name-only', '-z', baseline, '--'], {
+    cwd: worktree, encoding: 'buffer'
+  }).stdout);
+  const untracked = nulPaths(run('git', ['ls-files', '--others', '--exclude-standard', '-z'], {
+    cwd: worktree, encoding: 'buffer'
+  }).stdout);
+  const untrackedFiles = [];
+  for (const relative of untracked.sort()) {
+    const absolute = path.join(worktree, relative);
+    const info = await lstat(absolute);
+    if (info.isSymbolicLink() || !info.isFile()) {
+      throw new SingularityFlowError(`Repair worktree contains unsafe untracked path '${relative}'.`, { code: 'REPAIR_UNEXPECTED_MUTATION' });
+    }
+    const bytes = await readFile(absolute);
+    untrackedFiles.push({ path: relative, bytes: bytes.length, sha256: sha256(bytes) });
+  }
+  const core = {
+    diffSha256: sha256(diff),
+    untracked: untrackedFiles,
+    changedPaths: [...new Set([...tracked, ...untracked])].sort()
+  };
+  return { ...core, sha256: `sha256:${recordHash(core)}` };
+}
+
+function verificationEnvironment(scratch) {
+  const selected = {};
+  for (const name of ['PATH', 'LANG', 'LC_ALL', 'SystemRoot', 'ComSpec', 'PATHEXT']) {
+    if (process.env[name]) selected[name] = process.env[name];
+  }
+  return {
+    ...selected,
+    CI: 'true',
+    NODE_ENV: 'test',
+    HOME: scratch,
+    USERPROFILE: scratch,
+    TMPDIR: scratch,
+    TMP: scratch,
+    TEMP: scratch,
+    HTTP_PROXY: 'http://127.0.0.1:9',
+    HTTPS_PROXY: 'http://127.0.0.1:9',
+    ALL_PROXY: 'http://127.0.0.1:9',
+    NO_PROXY: '',
+    SINGULARITY_FLOW_REPAIR_NO_RECURSION: '1'
+  };
+}
+
+function sandboxString(value) {
+  return String(value).replaceAll('\\', '\\\\').replaceAll('"', '\\"');
+}
+
+function verificationSandboxKind() {
+  if (process.platform === 'darwin'
+    && run('/usr/bin/sandbox-exec', ['-h'], { allowFailure: true }).error == null) return 'macos-sandbox';
+  if (process.platform === 'linux') {
+    const bwrap = ['/usr/bin/bwrap', '/bin/bwrap'].find((candidate) =>
+      run(candidate, ['--version'], { allowFailure: true }).status === 0);
+    if (bwrap) return `bubblewrap:${bwrap}`;
+  }
+  return 'disposable-worktree-only';
+}
+
+function verificationInvocation(argv, worktree, scratch, expectedSandbox = null) {
+  const sandbox = verificationSandboxKind();
+  if (expectedSandbox && sandbox !== expectedSandbox) return null;
+  if (sandbox === 'macos-sandbox') {
+    // macOS presents /var as /private/var inside the sandbox namespace. Authorize both spellings so
+    // a temporary Git worktree remains writable without opening any other filesystem location.
+    const writable = [...new Set([worktree, scratch].flatMap((entry) =>
+      entry.startsWith('/var/') ? [entry, `/private${entry}`] : [entry]))]
+      .map((entry) => `(subpath "${sandboxString(entry)}")`).join(' ');
+    const profile = `(version 1)\n(deny default)\n(allow process*)\n(allow sysctl-read)\n(allow file-read*)\n(allow file-write* ${writable})\n(deny network*)`;
+    return { command: '/usr/bin/sandbox-exec', args: ['-p', profile, '--', ...argv], sandbox: 'macos-sandbox' };
+  }
+  if (sandbox.startsWith('bubblewrap:')) {
+    const bwrap = sandbox.slice('bubblewrap:'.length);
+    return {
+      command: bwrap,
+      args: [
+        '--die-with-parent', '--unshare-net', '--ro-bind', '/', '/',
+        '--bind', worktree, worktree, '--bind', scratch, scratch,
+        '--chdir', worktree, '--', ...argv
+      ],
+      sandbox: 'bubblewrap'
+    };
+  }
+  return { command: argv[0], args: argv.slice(1), sandbox: 'disposable-worktree-only' };
+}
+
+async function runVerificationSet(root, state, patch, attemptNumber, deadline) {
+  const parent = statePath(root, 'verification');
+  await safeDirectory(parent, stateRoot(root));
+  const worktree = path.join(parent, `${state.repairId}-${String(attemptNumber).padStart(3, '0')}`);
+  const scratch = path.join(parent, `${state.repairId}-${String(attemptNumber).padStart(3, '0')}-scratch`);
+  if (await exists(worktree)) {
+    run('git', ['worktree', 'remove', '--force', worktree], { cwd: root, allowFailure: true });
+    await rm(worktree, { recursive: true, force: true });
+  }
+  await safeDirectory(scratch, stateRoot(root));
+  const created = run('git', ['worktree', 'add', '--detach', worktree, state.baseline], { cwd: root, allowFailure: true });
+  if (created.status !== 0) {
+    await rm(worktree, { recursive: true, force: true });
+    await rm(scratch, { recursive: true, force: true });
+    return state.plan.verification.map((command) => ({
+      id: command.id, argv: command.argv, status: 'unavailable', reason: 'verification-worktree-unavailable'
+    }));
+  }
+  const verification = [];
+  try {
+    const applied = run('git', ['apply', '--whitespace=nowarn', '-'], {
+      cwd: worktree, allowFailure: true, input: patch
+    });
+    if (applied.status !== 0) {
+      return state.plan.verification.map((command) => ({
+        id: command.id, argv: command.argv, status: 'unavailable', reason: 'verification-patch-unavailable'
+      }));
+    }
+    for (const command of state.plan.verification) {
+      const remaining = deadline - Date.now();
+      if (remaining <= 0) {
+        verification.push({ id: command.id, argv: command.argv, status: 'unavailable', reason: 'time-budget-exhausted' });
+        break;
+      }
+      const invocation = verificationInvocation(
+        command.argv, worktree, scratch, state.plan.tools?.sandbox ?? null
+      );
+      if (!invocation) {
+        verification.push({
+          id: command.id, argv: command.argv, status: 'unavailable', reason: 'verification-sandbox-changed'
+        });
+        break;
+      }
+      const result = run(invocation.command, invocation.args, {
+        cwd: worktree,
+        allowFailure: true,
+        timeoutMs: remaining,
+        env: {
+          ...verificationEnvironment(scratch),
+          SINGULARITY_FLOW_REPAIR_ID: state.repairId
+        }
+      });
+      verification.push({
+        id: command.id, argv: command.argv, sandbox: invocation.sandbox,
+        status: result.status === 0 ? 'passed' : 'failed',
+        exitCode: result.status, signal: result.signal,
+        stdout: boundedOutput(result.stdout), stderr: boundedOutput(result.stderr),
+        timedOut: result.timedOut === true
+      });
+    }
+    return verification;
+  } finally {
+    run('git', ['worktree', 'remove', '--force', worktree], { cwd: root, allowFailure: true });
+    await rm(worktree, { recursive: true, force: true });
+    await rm(scratch, { recursive: true, force: true });
+  }
+}
+
 async function terminalReceipt(root, state, disposition, reason) {
   const fault = await readFault(root, state.faultId);
-  const diagnosisPointer = await readJson(statePath(root, 'diagnoses', state.faultId, 'latest.json')).catch(() => null);
-  const diagnosis = diagnosisPointer?.diagnosisSha256
-    ? await readJson(statePath(root, 'diagnoses', state.faultId, `${diagnosisPointer.diagnosisSha256}.json`)).then((record) => verifyIntegrity(record, 'FaultDiagnosis'))
+  const diagnosis = state.plan.diagnosisSha256
+    ? await readJson(statePath(root, 'diagnoses', state.faultId, `${state.plan.diagnosisSha256}.json`)).then((record) => verifyIntegrity(record, 'FaultDiagnosis'))
     : null;
   const attemptRecords = await directoryRecords(
     statePath(root, 'repairs', state.repairId, 'attempts'),
@@ -1009,7 +1458,7 @@ async function terminalReceipt(root, state, disposition, reason) {
     },
     authoritySnapshot: fault.identity.authoritySnapshot,
     planSha256: state.plan.integrity.sha256,
-    planGenerations: [{ generation: 1, sha256: state.plan.integrity.sha256 }],
+    planGenerations: state.planHistory ?? [{ generation: state.planGeneration ?? 1, sha256: state.plan.integrity.sha256 }],
     policy: state.policy,
     diagnosis: diagnosis ? {
       sha256: diagnosis.integrity.sha256,
@@ -1023,7 +1472,9 @@ async function terminalReceipt(root, state, disposition, reason) {
       sha256: attempt.integrity.sha256,
       patchSha256: attempt.patchSha256,
       diffSha256: attempt.diffSha256,
+      worktreeSha256: attempt.worktreeSha256 ?? attempt.diffSha256,
       touchedPaths: attempt.touchedPaths,
+      changedPaths: attempt.changedPaths ?? attempt.touchedPaths,
       verification: attempt.verification,
       outcome: attempt.outcome,
       model: attempt.model,
@@ -1037,7 +1488,7 @@ async function terminalReceipt(root, state, disposition, reason) {
       tokens: 0,
       maximumTokens: state.plan.budgets.maxTokens
     },
-    humanDecisions: (await directoryRecords(statePath(root, 'repairs', state.repairId, 'events'), async (file) => readJson(file)))
+    humanDecisions: (await verifiedRepairEvents(root, state.repairId))
       .filter((event) => ['repair-authorized', 'repair-cancelled'].includes(event.type))
       .map((event) => ({ type: event.type, at: event.at, actor: event.data.actor ?? null, reason: event.data.reason ?? null })),
     finalDisposition: disposition,
@@ -1069,30 +1520,36 @@ export async function attemptRepair(root, repairId, { patchFile } = {}) {
       throw new SingularityFlowError(`Repair '${id}' cannot accept a patch from '${state.status}'.`, { code: 'REPAIR_STATE_INVALID' });
     }
     assertLease(root, state);
-    if (recordHash(withoutIntegrity(state.plan)) !== state.plan.integrity.sha256) {
-      throw new SingularityFlowError(`Repair '${id}' plan changed after authorization.`, { code: 'REPAIR_PLAN_CHANGED' });
+    const plan = await verifiedCurrentPlan(root, state);
+    const authorizations = (await verifiedRepairEvents(root, id)).filter((event) => event.type === 'repair-authorized');
+    const authorization = authorizations.at(-1);
+    if (!authorization || authorization.data.planSha256 !== plan.integrity.sha256
+      || authorization.data.leaseId !== state.lease.leaseId) {
+      throw new SingularityFlowError(`Repair '${id}' has no current authorization for its immutable plan and lease.`, { code: 'REPAIR_AUTHORIZATION_INVALID' });
     }
-    validatePatchScope(touched, state.plan);
+    validatePatchScope(touched, plan);
     if (!state.workspace?.path || !await exists(state.workspace.path)) throw new SingularityFlowError(`Repair '${id}' isolated worktree is unavailable.`, { code: 'REPAIR_WORKTREE_UNAVAILABLE' });
-    if (run('git', ['rev-parse', 'HEAD'], { cwd: state.workspace.path }).stdout.trim() !== state.baseline) {
+    if (commitObjectId(state.workspace.path, 'HEAD') !== commitObjectId(root, state.baseline)) {
       throw new SingularityFlowError(`Repair '${id}' baseline changed before patch application.`, { code: 'REPAIR_BASELINE_CHANGED' });
     }
-    const existingDiff = run('git', ['diff', '--binary', state.baseline, '--'], { cwd: state.workspace.path });
-    const untracked = statusPaths(state.workspace.path).filter((candidate) =>
-      run('git', ['ls-files', '--error-unmatch', '--', candidate], { cwd: state.workspace.path, allowFailure: true }).status !== 0);
-    if (!state.attempts.length && (existingDiff.stdout || untracked.length)) {
+    const existingSnapshot = await repairWorktreeSnapshot(state.workspace.path, state.baseline);
+    if (!state.attempts.length && existingSnapshot.changedPaths.length) {
       throw new SingularityFlowError(`Repair '${id}' worktree changed outside the kernel attempt path.`, { code: 'REPAIR_UNEXPECTED_MUTATION' });
     }
     if (state.attempts.length) {
-      const expectedDiff = state.attempts.at(-1)?.diffSha256;
-      if (`sha256:${sha256(existingDiff.stdout)}` !== expectedDiff || untracked.length) {
+      const priorAttempt = state.attempts.at(-1);
+      const currentMatches = priorAttempt?.worktreeSha256
+        ? existingSnapshot.sha256 === priorAttempt.worktreeSha256
+        : existingSnapshot.untracked.length === 0
+          && `sha256:${sha256(run('git', ['diff', '--binary', state.baseline, '--'], { cwd: state.workspace.path }).stdout)}` === priorAttempt?.diffSha256;
+      if (!currentMatches) {
         throw new SingularityFlowError(`Repair '${id}' worktree changed after its previous attempt.`, { code: 'REPAIR_UNEXPECTED_MUTATION' });
       }
       // This is the isolated repair worktree, and the exact previous diff is already immutable in
       // the attempt record. Starting the next candidate from the pinned baseline prevents patches
       // from accumulating authority across attempts.
       run('git', ['reset', '--hard', state.baseline], { cwd: state.workspace.path });
-      run('git', ['clean', '-fd'], { cwd: state.workspace.path });
+      run('git', ['clean', '-fdx'], { cwd: state.workspace.path });
     }
     const check = run('git', ['apply', '--check', '--whitespace=error-all', '-'], { cwd: state.workspace.path, allowFailure: true, input: patch });
     if (check.status !== 0) throw new SingularityFlowError(`Repair patch does not apply cleanly: ${check.stderr.trim()}`, { code: 'REPAIR_PATCH_INVALID' });
@@ -1108,6 +1565,19 @@ export async function attemptRepair(root, repairId, { patchFile } = {}) {
       await saveRepairState(root, state);
       throw new SingularityFlowError('Patch application failed after validation; the repair is quarantined.', { code: 'REPAIR_QUARANTINED' });
     }
+    const candidateSnapshot = await repairWorktreeSnapshot(state.workspace.path, state.baseline);
+    validatePatchScope(candidateSnapshot.changedPaths, plan);
+    const unexplained = candidateSnapshot.changedPaths.filter((candidate) =>
+      !touched.some((authorized) => pathInside(candidate, authorized) || pathInside(authorized, candidate)));
+    if (unexplained.length) {
+      state.status = 'quarantined';
+      state.stopReason = 'patch-produced-unexplained-paths';
+      await writeRepairEvent(root, state, 'repair-quarantined', { reason: state.stopReason, paths: unexplained });
+      const receipt = await terminalReceipt(root, state, 'quarantined', state.stopReason);
+      state.finalDisposition = { status: 'quarantined', receiptSha256: receipt.integrity.sha256 };
+      await saveRepairState(root, state);
+      throw new SingularityFlowError('Patch produced changes outside its declared diff paths; the repair is quarantined.', { code: 'REPAIR_QUARANTINED' });
+    }
     state.status = 'verifying';
     await saveRepairState(root, state);
     const attemptNumber = state.attempts.length + 1;
@@ -1117,33 +1587,12 @@ export async function attemptRepair(root, repairId, { patchFile } = {}) {
       await safeDirectory(path.dirname(storedPatch), stateRoot(root));
       await writeAtomic(storedPatch, patch, { mode: 0o600 });
     }
-    const verification = [];
     // maxMinutes is a run budget, not a fresh allowance for every retry.
     const deadline = Date.parse(state.plan.createdAt) + state.plan.budgets.maxMinutes * 60_000;
-    for (const command of state.plan.verification) {
-      const remaining = deadline - Date.now();
-      if (remaining <= 0) {
-        verification.push({ id: command.id, argv: command.argv, status: 'unavailable', reason: 'time-budget-exhausted' });
-        break;
-      }
-      const result = run(command.argv[0], command.argv.slice(1), {
-        cwd: state.workspace.path,
-        allowFailure: true,
-        timeoutMs: remaining,
-        env: {
-          ...process.env,
-          SINGULARITY_FLOW_REPAIR_ID: id,
-          SINGULARITY_FLOW_REPAIR_NO_RECURSION: '1',
-          SINGULARITY_FLOW_NO_NETWORK: '1'
-        }
-      });
-      verification.push({
-        id: command.id, argv: command.argv, status: result.status === 0 ? 'passed' : 'failed',
-        exitCode: result.status, stdout: boundedOutput(result.stdout), stderr: boundedOutput(result.stderr),
-        timedOut: result.timedOut === true
-      });
-    }
-    const allPassed = verification.length === state.plan.verification.length
+    const verification = await runVerificationSet(root, state, patch, attemptNumber, deadline);
+    const afterVerification = await repairWorktreeSnapshot(state.workspace.path, state.baseline);
+    const candidateChanged = afterVerification.sha256 !== candidateSnapshot.sha256;
+    const allPassed = !candidateChanged && verification.length === state.plan.verification.length
       && verification.every((entry) => entry.status === 'passed');
     const verifierUnavailable = verification.some((entry) => entry.status === 'unavailable' || entry.timedOut === true);
     const resultSignature = recordHash(verification.map((entry) => ({ id: entry.id, status: entry.status, exitCode: entry.exitCode, stderr: entry.stderr?.sha256 })));
@@ -1151,12 +1600,15 @@ export async function attemptRepair(root, repairId, { patchFile } = {}) {
     const twoBack = state.attempts.at(-2) ?? null;
     const noProgress = Boolean(previous && previous.patchSha256 === `sha256:${patchDigest}` && previous.resultSignature === resultSignature);
     const oscillating = Boolean(twoBack && twoBack.patchSha256 === `sha256:${patchDigest}` && previous?.patchSha256 !== `sha256:${patchDigest}`);
-    const diff = run('git', ['diff', '--binary', state.baseline, '--'], { cwd: state.workspace.path });
     const attemptCore = {
       schemaVersion: 1, recordType: 'repair-attempt', repairId: id, attempt: attemptNumber,
       at: nowIso(), patchSha256: `sha256:${patchDigest}`, patchPath: path.relative(stateRoot(root), storedPatch).replaceAll(path.sep, '/'),
-      touchedPaths: touched, diffSha256: `sha256:${sha256(diff.stdout)}`,
+      touchedPaths: touched,
+      changedPaths: candidateSnapshot.changedPaths,
+      diffSha256: candidateSnapshot.sha256,
+      worktreeSha256: candidateSnapshot.sha256,
       verification, resultSignature, outcome: allPassed ? 'resolved'
+        : candidateChanged ? 'quarantined-unexpected-mutation'
         : verifierUnavailable ? 'needs-human-verification-unavailable'
         : noProgress ? 'needs-human-no-progress'
           : oscillating ? 'needs-human-oscillation'
@@ -1167,13 +1619,16 @@ export async function attemptRepair(root, repairId, { patchFile } = {}) {
     await immutableWrite(root, statePath(root, 'repairs', id, 'attempts', `${String(attemptNumber).padStart(3, '0')}-${attempt.integrity.sha256}.json`), attempt, `Repair attempt ${attemptNumber}`);
     state.attempts = [...state.attempts, {
       attempt: attemptNumber, recordSha256: attempt.integrity.sha256, patchSha256: attempt.patchSha256,
-      diffSha256: attempt.diffSha256, resultSignature, outcome: attempt.outcome
+      diffSha256: attempt.diffSha256, worktreeSha256: attempt.worktreeSha256,
+      resultSignature, outcome: attempt.outcome
     }];
     state.status = allPassed ? 'resolved'
+      : candidateChanged ? 'quarantined'
       : verifierUnavailable ? 'needs-human'
       : noProgress || oscillating ? 'needs-human'
         : attemptNumber >= state.plan.budgets.maxAttempts ? 'exhausted' : 'retry-ready';
     state.stopReason = allPassed ? 'verification-passed'
+      : candidateChanged ? 'verification-mutated-repair-worktree'
       : verifierUnavailable ? 'verification-unavailable'
       : noProgress ? 'no-progress'
         : oscillating ? 'patch-oscillation'
@@ -1263,7 +1718,9 @@ export async function wrapCommandWithFaultRepair(root, argv, {
   }, { policy });
   let repair = null;
   if (!process.env.SINGULARITY_FLOW_REPAIR_NO_RECURSION) {
-    repair = await requestRepair(root, reported.fault.faultId, { maxAttempts, allowedPaths, policy });
+    repair = await requestRepair(root, reported.fault.faultId, {
+      maxAttempts, allowedPaths, policy, executionEnvironment: 'local'
+    });
   }
   return {
     command: argv, exitCode: result.status, fault: reported.fault, repair: repair?.repair ?? null,
@@ -1272,17 +1729,33 @@ export async function wrapCommandWithFaultRepair(root, argv, {
 }
 
 /** Stable in-process API over exactly the same kernel functions the CLI calls. */
-export function createFaultRepairApi(root, { policy = {} } = {}) {
+export function createFaultRepairApi(root, {
+  policy = {}, policyResolver = governedFaultRepairPolicy, executionEnvironment = null
+} = {}) {
+  const resolvedPolicy = async ({ story = null, failClosed = false } = {}) => policyResolver(root, {
+    story, restriction: policy, failClosed
+  });
   return Object.freeze({
     fault: Object.freeze({
-      report: async (envelope) => (await reportFault(root, envelope, { policy })).fault,
-      reportResult: (envelope) => reportFault(root, envelope, { policy }),
+      report: async (envelope) => (await reportFault(root, envelope, {
+        policy: await resolvedPolicy({ story: envelope?.story ?? null })
+      })).fault,
+      reportResult: async (envelope) => reportFault(root, envelope, {
+        policy: await resolvedPolicy({ story: envelope?.story ?? null })
+      }),
       get: (faultId) => readFault(root, faultId),
       list: (options) => listFaults(root, options),
       diagnose: (faultId, options) => diagnoseFault(root, faultId, options)
     }),
     repair: Object.freeze({
-      request: (request) => requestRepair(root, request.faultId, { ...request, policy }),
+      request: async (request) => {
+        const fault = await readFault(root, request.faultId);
+        return requestRepair(root, request.faultId, {
+          ...request,
+          policy: await resolvedPolicy({ story: fault.story, failClosed: true }),
+          executionEnvironment: executionEnvironment ?? fault.environment
+        });
+      },
       get: (repairId) => readRepair(root, repairId),
       list: (options) => listRepairs(root, options),
       authorize: (repairId, options) => authorizeRepair(root, repairId, options),

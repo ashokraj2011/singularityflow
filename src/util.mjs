@@ -419,7 +419,9 @@ export function run(command, args = [], {
     ? result.stdout : empty;
   const stderr = (encoding === 'buffer' ? Buffer.isBuffer(result.stderr) : typeof result.stderr === 'string')
     ? result.stderr : empty;
-  const status = result.status ?? (result.error ? 1 : 0);
+  // Node reports `status: null` when the child dies from a signal. That is a failed command, not a
+  // successful one; treating it as zero made `run --repair-on-fault` silently discard crashes.
+  const status = result.status ?? (result.error || result.signal ? 1 : 0);
   /**
    * A command that ran out of time did not answer, which is not the same as answering no.
    *
@@ -438,7 +440,7 @@ export function run(command, args = [], {
     const detail = String(stderr).trim() || String(stdout).trim() || `exit ${status}`;
     throw new SingularityFlowError(`${command} ${args.join(' ')} failed: ${detail}`);
   }
-  return { status, stdout, stderr, error: result.error, timedOut, blocked: false };
+  return { status, stdout, stderr, error: result.error, signal: result.signal ?? null, timedOut, blocked: false };
 }
 
 /**

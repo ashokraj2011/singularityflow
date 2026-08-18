@@ -57,8 +57,8 @@ test('fault report/list/show and fix preview are reachable through the public CL
   assert.equal(previewEnvelope.effects.stateChanged, false);
   const plan = previewEnvelope.data;
   assert.equal(plan.persisted, false);
-  // CI is propose-only even when a caller is running from a local machine.
-  assert.equal(plan.repair.executionMode, 'record');
+  // The failure was observed in CI, but local review uses the fail-closed local execution ceiling.
+  assert.equal(plan.repair.executionMode, 'diagnose');
   assert.equal(git(root, 'status', '--short'), '');
 });
 

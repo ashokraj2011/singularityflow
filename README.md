@@ -1508,14 +1508,17 @@ const fault = await sflow.fault.report(envelope);
 const repair = await sflow.repair.request({ faultId: fault.faultId, mode: 'policy-decides' });
 ```
 
-Local and IDE faults default to guided repair, CI and staging to proposal only,
-and production, security, requirement, policy, and architecture faults to
-diagnosis/challenge only. `--auto` cannot raise that ceiling. A guided repair
+Local and IDE execution defaults to guided repair, while CI and staging execution defaults to proposal only.
+An authorized local review of a CI proposal creates a new immutable plan generation rather than editing the CI plan.
+Production, security, requirement, policy, and architecture faults remain diagnosis/challenge only.
+`--auto` cannot raise that ceiling. A guided repair
 creates a local isolated `sflow/repair/*` branch only after the human confirms
 the exact plan hash. Candidate patches enter through `repair attempt`; the
 kernel checks every path before applying them and runs the complete pinned
-verification set as exact argv without a shell. SFlow grants no network capability; a verifier
-that needs stronger network isolation must run in its host sandbox. It never pushes, approves, merges,
+verification set as exact argv without a shell in a disposable verification worktree with a scrubbed
+environment. Direct publication, remote Git, shell, deployment, and destructive verifier commands are
+refused. macOS sandboxing or Linux Bubblewrap also denies network and external writes when available;
+the result records the boundary used. It never pushes, approves, merges,
 releases, deploys, or edits production.
 
 In Copilot use `/sf-fault` and `/sf-fix`. In VS Code unresolved faults appear in

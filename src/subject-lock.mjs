@@ -3,7 +3,7 @@ import { mkdir, readFile, rename, rm, stat, writeFile } from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
 import { Worker } from 'node:worker_threads';
-import { gitDir } from './git.mjs';
+import { gitCommonDir } from './git.mjs';
 import { SingularityFlowError, nowIso } from './util.mjs';
 
 const PROCESS_TOKEN = randomUUID();
@@ -20,7 +20,7 @@ function heartbeatPath(directory, owner) {
 }
 
 export function subjectLockPath(root, subject) {
-  return path.join(gitDir(root), 'singularity-flow', 'locks', `${safe(subject.kind)}--${safe(subject.id)}.lock`);
+  return path.join(gitCommonDir(root), 'singularity-flow', 'locks', `${safe(subject.kind)}--${safe(subject.id)}.lock`);
 }
 
 function pidAlive(pid) {

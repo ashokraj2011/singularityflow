@@ -13,6 +13,7 @@ import { isGitRefName, SingularityFlowError, run } from './util.mjs';
 import {
   cloneStrategyArguments, normalizeCloneStrategy, partialCloneConfigured
 } from './clone-strategy.mjs';
+import { classifyGitRemoteFailure, sanitizeRemote } from './git-remote-diagnostics.mjs';
 
 export const WORKSPACE_FILE = 'workspace.json';
 export const WORKSPACE_SCHEMA_VERSION = 1;
@@ -817,40 +818,28 @@ function materializationOperation(root, repository) {
  * "Cloning into …" first and the diagnosis last, so passing stderr through verbatim made a missing
  * branch look like an unexplained clone. Remote credentials are also removed before a URL is shown.
  */
-function cloneTargetLabel(value) {
-  const remote = String(value ?? '').trim();
-  try {
-    const parsed = new URL(remote);
-    parsed.username = '';
-    parsed.password = '';
-    parsed.search = '';
-    parsed.hash = '';
-    return parsed.toString();
-  } catch {
-    return remote;
-  }
-}
-
 function cloneFailure(operation, result) {
-  const output = [result.stderr, result.stdout, result.error?.message]
-    .filter(Boolean).join('\n');
-  const lines = output.split('\n').map((line) => line.trim()).filter(Boolean);
-  const diagnosis = [...lines].reverse().find((line) => /^(fatal|error):/i.test(line))
-    ?? [...lines].reverse().find((line) => !/^Cloning into\b/i.test(line))
-    ?? `Git exited with status ${result.status}`;
-  const remote = cloneTargetLabel(operation.url);
-  if (/Remote branch .* not found in upstream origin/i.test(diagnosis)) {
+  const remote = sanitizeRemote(operation.url);
+  const classified = classifyGitRemoteFailure(result, { branch: operation.branch });
+  if (classified.classification === 'branch-not-found') {
     return `Repository '${operation.repository}' cannot clone branch '${operation.branch}' from '${remote}': `
       + `the remote does not have that branch. Configure a valid default branch or create '${operation.branch}', then repair again.`;
   }
-  if (/Authentication failed|could not read Username|Permission denied \(publickey\)|terminal prompts disabled/i.test(diagnosis)) {
+  if (classified.classification === 'authentication-required') {
     return `Repository '${operation.repository}' cannot authenticate to '${remote}'. Sign in to Git or configure its credential helper, then repair again.`;
   }
-  if (/repository .* not found|does not appear to be a git repository|No such file or directory/i.test(diagnosis)) {
+  if (classified.classification === 'authorization-denied') {
+    return `Repository '${operation.repository}' is not readable with the current Git identity at '${remote}'. Request access, then repair again.`;
+  }
+  if (classified.classification === 'remote-not-found') {
     return `Repository '${operation.repository}' cannot reach '${remote}'. Correct its clone URL or restore the remote, then repair again.`;
   }
+  if (classified.classification !== 'unknown') {
+    return `Repository '${operation.repository}' cannot clone branch '${operation.branch}' from '${remote}' `
+      + `because Git classified the failure as ${classified.classification}. ${classified.advice}`;
+  }
   return `Repository '${operation.repository}' could not clone branch '${operation.branch}' from '${remote}': `
-    + `${diagnosis.replace(/^(fatal|error):\s*/i, '')}. Correct the repository configuration or Git access, then repair again.`;
+    + `Git returned an unrecognized failure (exit ${result.status}). Run workspace doctor --network, correct Git access, then repair again.`;
 }
 
 async function cloneIntoWorkspace(root, operation) {
@@ -943,6 +932,7 @@ async function readRepairJournal(workspace, repositories) {
   );
   return {
     version: 1,
+    bootstrapId: previous?.bootstrapId ?? null,
     workspaceId: workspace.id,
     anchorKey: workspace.anchor.key,
     startedAt: previous?.workspaceId === workspace.id && Number.isFinite(Date.parse(previous.startedAt))
@@ -965,7 +955,8 @@ async function readRepairJournal(workspace, repositories) {
 
 export async function createWorkspace(options, {
   confirmation,
-  clone = true
+  clone = true,
+  bootstrapId = null
 } = {}) {
   const preview = previewWorkspace(options);
   const { root, manifest } = preview;
@@ -1001,6 +992,7 @@ export async function createWorkspace(options, {
   for (const directory of workspaceDirectories(manifest)) await mkdir(path.join(root, directory), { recursive: true });
   const journal = {
     version: 1,
+    bootstrapId,
     workspaceId: manifest.id,
     anchorKey: manifest.anchor.key,
     startedAt: nowIso(),

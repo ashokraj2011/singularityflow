@@ -77,7 +77,7 @@ export const BOOLEAN_OPTIONS = Object.freeze(new Set([
   'acknowledge-self-approval', 'acknowledge-unprotected', 'active', 'all', 'allow-dirty', 'apply', 'assigned-to-me',
   'assisted', 'auto', 'blocking', 'check', 'churn', 'cli-only', 'clipboard', 'clone', 'concat',
   'confirm-pin-retention', 'confirm-protected', 'confirm-push-policy', 'create', 'dry-run', 'evidence',
-  'diagnose-only', 'fetch', 'first-run', 'force', 'forget-only', 'from-records', 'here', 'include-prompt', 'json',
+  'diagnose-only', 'fetch', 'first-run', 'force', 'forget-only', 'from-records', 'here', 'include-prompt', 'initialize', 'json',
   'keep', 'local', 'markdown', 'network', 'offline', 'once', 'open', 'performance', 'plan-only',
   'opt-out', 'optional', 'parallel', 'polish', 'probe', 'push',
   'readiness', 'recap', 'record', 'record-audit', 'refresh', 'render-only', 'repair', 'repair-on-fault',

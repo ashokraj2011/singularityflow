@@ -353,6 +353,15 @@ Usage:
     [--base DIRECTORY] [--confirm ID] [--no-clone] [--dry-run]
   singularity-flow workspace create --local --id ID --lead REPOSITORY --repository ID=URL
     [--base DIRECTORY] [--confirm ID] [--no-clone]        (no capability map yet)
+  singularity-flow workspace prepare <REMOTE-OR-MANIFEST> --id ID [--name TEXT] [--base DIRECTORY]
+    [--branch BRANCH] [--repository-id ID] [--clone-mode full|blobless|blobless-sparse]
+    [--sparse-cone PATH]... [--clone-fallback refuse|full] [--initialize] [--state-branch NAME] [--json]
+  singularity-flow workspace prepare <LEAD-URL> --id ID --capability ID...
+    [--lead-capability ID] [--base DIRECTORY] [--initialize] [--json]
+  singularity-flow workspace bootstrap status [BOOTSTRAP-ID] [--json]
+  singularity-flow workspace bootstrap resume <BOOTSTRAP-ID> --confirm WORKSPACE-ID [--json]
+  singularity-flow workspace bootstrap abandon <BOOTSTRAP-ID> --reason TEXT [--json]
+  singularity-flow workspace doctor [--network] [--json]
   singularity-flow workspace inspect <URL|DIRECTORY> [--state-branch NAME] [--json]
   singularity-flow workspace capabilities <LEAD-URL> [--json]
   singularity-flow workspace duplicate <DIRECTORY> --id NEW-ID [--name TEXT] [--base DIRECTORY]

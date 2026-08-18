@@ -43,19 +43,23 @@ import { withReadScope } from '../read-scope.mjs';
  * repository open, and is invisible to every other field.
  */
 export function hostBinding(root, { workspaceId = null, hostSessionId, subject = null, registry, policy } = {}) {
-  const actor = identity(root, { offline: true });
-  const workingTree = worktreeFingerprint(root);
+  const identityRoot = root ?? process.cwd();
+  const actor = identity(identityRoot, { offline: true });
+  const workingTree = root ? worktreeFingerprint(root) : null;
   return Object.freeze({
     workspaceId,
     subjectKind: subject?.kind ?? null,
     subjectId: subject?.id ?? null,
-    sourceCommit: head(root) ?? null,
+    sourceCommit: root ? head(root) ?? null : null,
     // Bind even a clean tree: index visibility flags are observation state, and changing one must
     // stale a handle even when no file byte is currently dirty.
-    worktreeHash: workingTree.sha256,
-    worktreeAlgorithm: workingTree.algorithm,
-    repository: root,
-    branch: branch(root) ?? null,
+    // A rootless Home has no worktree, but handles still require the current fingerprint algorithm
+    // so a read issued before repository selection can be verified. The all-zero sentinel means
+    // "no repository bytes participated"; it is never used for a repository-backed handle.
+    worktreeHash: workingTree?.sha256 ?? '0'.repeat(64),
+    worktreeAlgorithm: workingTree?.algorithm ?? 'sflow-worktree-v2',
+    repository: root ?? null,
+    branch: root ? branch(root) ?? null : null,
     lifecycleRevision: subject?.revision?.lifecycleHash ?? null,
     policyHash: policy.contentHash,
     registryHash: registry.contentHash,
@@ -66,7 +70,7 @@ export function hostBinding(root, { workspaceId = null, hostSessionId, subject =
      * stable. `identity()` reports whichever of these it could read without asking the network; a
      * name is the one field two people plausibly share.
      */
-    actorId: actor.email ?? actor.login ?? null,
+    actorId: actor.email ?? actor.login ?? (root ? null : 'machine:git-identity-unconfigured'),
     hostSessionId
   });
 }
@@ -132,16 +136,17 @@ export function createHostGateway({
      * Git display name so a read result can address its reader, but changing that name never changes
      * authority and no handle trusts it.
      */
-    const actor = identity(root, { offline: true });
+    const identityRoot = root ?? process.cwd();
+    const actor = identity(identityRoot, { offline: true });
     const supplied = typeof plannerContext === 'function' ? plannerContext() : plannerContext;
     return {
       actor: {
-        name: localGitDisplayName(root),
+        name: localGitDisplayName(identityRoot),
         email: actor.email ?? (current.actorId?.includes('@') ? current.actorId : null),
         login: actor.login ?? (!current.actorId?.includes('@') ? current.actorId : null)
       },
-      workspace: { id: current.workspaceId ?? root, name: current.workspaceId ?? root },
-      repositoryId: root,
+      workspace: current.workspaceId || root ? { id: current.workspaceId ?? root, name: current.workspaceId ?? root } : null,
+      repositoryId: root ?? null,
       branch: current.branch,
       storyId: current.subjectId,
       workId: current.subjectId,

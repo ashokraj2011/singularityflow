@@ -65,6 +65,13 @@ const FALLBACKS = Object.freeze({
 });
 
 function fallbackFor(id, label, slots) {
+  if (id === 'workspace.switch' && slots.bootstrap) {
+    return {
+      label,
+      command: `singularity-flow workspace bootstrap status ${slots.bootstrap}`,
+      skill: `/sf-workspace-bootstrap ${slots.bootstrap}`
+    };
+  }
   if (id === 'work.list' && slots.work) {
     return {
       label: `Review ${slots.work}`,
@@ -213,6 +220,7 @@ export function homeOverviewResult({
   localChanges = null,
   faults = [],
   faultsUnavailable = false,
+  bootstrap = null,
   /**
    * How many *other* workspaces the registry knows about, or null when it could not be read.
    *
@@ -246,14 +254,20 @@ export function homeOverviewResult({
      * because offering "see current work" with no workspace selected promises evidence that cannot
      * exist and produces an empty screen the reader reads as "you have nothing to do".
      */
-    const lead = ordered.filter((entry) => entry.id === 'workspace.switch' || entry.id === 'help.explain');
+    const lead = ordered.filter((entry) => entry.id === 'workspace.switch' || entry.id === 'help.explain')
+      .map((entry) => entry.id === 'workspace.switch' && bootstrap
+        ? { ...entry, label: 'Continue workspace setup' }
+        : entry);
     return sflowResult({
       kind: 'read',
       operation: { id: 'home.overview', classification: 'read' },
       outcome: { status: 'succeeded', messageId: 'gateway.home', slots: { workspace: 'none' } },
       effects: noEffects(),
       why: [{ code: 'home.no-workspace-selected', source: 'deterministic' }],
-      next: lead.map((entry, index) => choice(entry, index, 'home.select-a-workspace-first')),
+      next: lead.map((entry, index) => choice(
+        entry, index, 'home.select-a-workspace-first',
+        bootstrap ? { bootstrap: bootstrap.bootstrapId, status: bootstrap.status } : {}
+      )),
       restState: null,
       /** No workspace means no Story, so there is no rail to draw and none is claimed. */
       /** No workspace means no repository was read, so the worktree is unread rather than clean. */
@@ -261,6 +275,15 @@ export function homeOverviewResult({
         rail: [], workspace: null, repository: null, counts: null, localChanges: null,
         currentWork: null, activeWork: null, attentionWork: null,
         personalization: personalizationFromGitIdentity(actor),
+        bootstrap: bootstrap ? {
+          bootstrapId: bootstrap.bootstrapId,
+          status: bootstrap.status,
+          workspaceId: bootstrap.plan?.workspace?.id ?? bootstrap.request?.workspaceId ?? null,
+          workspaceName: bootstrap.plan?.workspace?.name ?? bootstrap.request?.workspaceName ?? null,
+          targetPath: bootstrap.plan?.workspace?.targetPath ?? null,
+          blocking: bootstrap.preflight?.findings?.filter((finding) => finding.severity === 'blocker').length ?? 0,
+          nextAction: bootstrap.nextAction ?? null
+        } : null,
         briefingAvailable: false, choiceSet: lead.map((entry) => entry.id)
       }
     });
@@ -567,7 +590,12 @@ export async function homeOverview({ subject = null, root = null, context = {} }
    * A host can legitimately open the gateway before anything is chosen — that is the first-run
    * case — and §3.2's answer for it is a menu that leads with workspace selection.
    */
-  if (!root) return homeOverviewResult({ workspace: null, subject });
+  if (!root) return homeOverviewResult({
+    workspace: null,
+    actor: context.actor ?? null,
+    subject,
+    bootstrap: context.bootstrap ?? null
+  });
   const repositoryId = context.repositoryId ?? root;
   let currentBranch = context.branch ?? null;
   if (!currentBranch && (context.repositoryId || context.workspace)) {

@@ -509,18 +509,26 @@ listed again. One chosen capability is the **lead capability**; the repository i
 ships from is where the orphan `state` branch is created when the workspace is
 initialised.
 
-```
-singularity-flow workspace create --local --id commerce-work \
-  --organisation https://git.example.corp/acme/platform.git \
+```bash
+singularity-flow workspace prepare https://git.example.corp/acme/platform.git \
+  --id commerce-work \
   --capability commerce --lead-capability payments-api \
-  --base ~/work --confirm commerce-work
+  --base ~/work --initialize
+
+# After reviewing the returned preflight and exact target:
+singularity-flow workspace bootstrap resume <BOOTSTRAP-ID> \
+  --confirm commerce-work
 ```
 
 Choosing a capability includes everything beneath it, the way choosing a
 directory includes its contents — and the selection is recorded rather than its
 expansion, so a capability added to the map later is picked up by a workspace
 that asked for its parent. No two workspaces may occupy the same directory.
-Workspace setup does not require Jira. See [WORKSPACES.md](WORKSPACES.md).
+Workspace setup does not require Jira. `prepare` creates no workspace destination: it records an
+integrity-checked session and classifies runtime, path, disk, registry, authentication, network, and
+branch failures. `resume` rechecks before using the existing staged clone transaction, so interrupted
+setups continue by bootstrap ID instead of starting over. Use `workspace doctor --network` for an
+explicit remote diagnostic. See [WORKSPACES.md](WORKSPACES.md).
 
 The editor extension exposes both actions from one **Workspaces** view. A saved
 workspace is its local directory plus its mapped capability scope; the selected

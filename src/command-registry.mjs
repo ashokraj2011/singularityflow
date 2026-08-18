@@ -113,7 +113,7 @@ const WM_NEVER_OPERATIONS = new Set(['init', 'inject', 'compose', 'show-prompt',
  * pass of their own; calling them mutations is the wrong-but-safe direction in the meantime.
  */
 const WORKSPACE_READ_OPERATIONS = new Set([
-  'branches', 'list', 'current', 'prompt', 'archive-status', 'inspect', 'capabilities', 'status', 'documents'
+  'branches', 'list', 'current', 'prompt', 'archive-status', 'inspect', 'capabilities', 'status', 'documents', 'doctor'
 ]);
 const WM_READ_OPERATIONS = new Set([
   'show-prompt', 'prompt', 'context', 'budget', 'facts', 'check', 'availability', 'status', 'design-inventory'
@@ -123,12 +123,18 @@ const WORKSPACE_IMPACT_READ_OPERATIONS = new Set(['list', 'show']);
 export const SECRETS_SUBCOMMANDS = Object.freeze(['scan', 'protect']);
 const WORKSPACE_NEVER_OPERATIONS = new Set([
   'branches', 'prune', 'list', 'current', 'prompt', 'create', 'open', 'archive-status', 'rename', 'archive',
-  'restore', 'inspect', 'duplicate', 'capabilities', 'update', 'status', 'sync', 'repair', 'documents', 'forget', 'use'
+  'restore', 'inspect', 'duplicate', 'capabilities', 'update', 'status', 'sync', 'repair', 'documents', 'forget', 'use',
+  'prepare', 'doctor'
 ]);
 // `workspace switch` is a live alias the handler accepts. Resolved to the operation it aliases
 // rather than classified separately, so the registry and the dispatcher cannot drift apart again.
 const WORKSPACE_SUBCOMMAND_ALIASES = new Map([['switch', 'use']]);
 const WORKSPACE_IMPACT_OPERATIONS = new Set(['analyze', 'list', 'show', 'promote']);
+const WORKSPACE_BOOTSTRAP_READ_ACTIONS = new Set(['status']);
+const WORKSPACE_BOOTSTRAP_MUTATION_ACTIONS = new Set(['resume', 'abandon']);
+const WORKSPACE_BOOTSTRAP_ACTIONS = new Set([
+  ...WORKSPACE_BOOTSTRAP_READ_ACTIONS, ...WORKSPACE_BOOTSTRAP_MUTATION_ACTIONS
+]);
 
 /**
  * Each resolver's subcommand vocabulary, declared once.
@@ -168,7 +174,7 @@ export const RESOLVER_SUBCOMMANDS = Object.freeze({
   spec: SPEC_SUBCOMMANDS,
   story: STORY_SUBCOMMANDS,
   wm: Object.freeze([...WM_MODEL_OPERATIONS, ...WM_NEVER_OPERATIONS]),
-  workspace: Object.freeze(['copilot', 'impact', ...WORKSPACE_NEVER_OPERATIONS, ...WORKSPACE_SUBCOMMAND_ALIASES.keys()])
+  workspace: Object.freeze(['copilot', 'impact', 'bootstrap', ...WORKSPACE_NEVER_OPERATIONS, ...WORKSPACE_SUBCOMMAND_ALIASES.keys()])
 });
 
 function required(id) {
@@ -396,6 +402,17 @@ function resolveWorkspaceOperation(definition, positionals, options) {
     if (action === 'analyze' && !optionBoolean(options, 'dry-run')) return required('workspace.impact.analyze');
     return never(`workspace.impact.${action}`, definition, WORKSPACE_IMPACT_READ_OPERATIONS.has(action) ? 'read' : 'mutation');
   }
+  if (subcommand === 'bootstrap') {
+    const action = positionals[2] ?? 'status';
+    if (!WORKSPACE_BOOTSTRAP_ACTIONS.has(action)) {
+      return unknownSubcommand('workspace bootstrap', action, WORKSPACE_BOOTSTRAP_ACTIONS, 'action');
+    }
+    return never(
+      `workspace.bootstrap.${action}`,
+      definition,
+      WORKSPACE_BOOTSTRAP_READ_ACTIONS.has(action) ? 'read' : 'mutation'
+    );
+  }
   if (WORKSPACE_NEVER_OPERATIONS.has(subcommand)) {
     return never(`workspace.${subcommand}`, definition, WORKSPACE_READ_OPERATIONS.has(subcommand) ? 'read' : 'mutation');
   }
@@ -445,6 +462,11 @@ export function operationCatalog() {
   const workspace = [...WORKSPACE_NEVER_OPERATIONS]
     .map((name) => never(`workspace.${name}`, commandDefinition('workspace'), WORKSPACE_READ_OPERATIONS.has(name) ? 'read' : 'mutation'))
     .concat([required('workspace.copilot')])
+    .concat([...WORKSPACE_BOOTSTRAP_ACTIONS].map((name) => never(
+      `workspace.bootstrap.${name}`,
+      commandDefinition('workspace'),
+      WORKSPACE_BOOTSTRAP_READ_ACTIONS.has(name) ? 'read' : 'mutation'
+    )))
     .concat([...WORKSPACE_IMPACT_OPERATIONS].map((name) => name === 'analyze'
       ? required('workspace.impact.analyze')
       : never(`workspace.impact.${name}`, commandDefinition('workspace'), WORKSPACE_IMPACT_READ_OPERATIONS.has(name) ? 'read' : 'mutation')));

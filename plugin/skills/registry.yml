@@ -195,6 +195,7 @@ skills:
   sflow-workflow-rules: { class: conversational }
   sflow-workflows: { class: mutation }
   sflow-workspace: { class: interactive }
+  sflow-workspace-bootstrap: { class: interactive }
   sflow-workspace-impact: { class: generative }
   sflow-workspace-session: { class: interactive }
   sflow-workspaces: { class: echo }

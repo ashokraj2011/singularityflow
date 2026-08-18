@@ -212,6 +212,24 @@ export function formCommand(form: WorkspaceForm): string[] {
 }
 
 /**
+ * The recoverable setup path used by the editor.
+ *
+ * Kept beside `formCommand` because the latter is a public compatibility helper used by older
+ * hosts. New hosts persist and preflight the exact plan before asking for materialization.
+ */
+export function formPrepareCommand(form: WorkspaceForm): string[] {
+  const args = [
+    'workspace', 'prepare', form.organisation ?? '', '--json',
+    '--id', form.id.trim(), '--base', form.base ?? '', '--initialize', '--state-branch', 'state'
+  ];
+  if (form.name.trim()) args.push('--name', form.name.trim());
+  for (const id of form.selected) args.push('--capability', id);
+  const lead = effectiveLead(form);
+  if (lead) args.push('--lead-capability', lead.id);
+  return args;
+}
+
+/**
  * Which organisation the capabilities come from.
  *
  * Not a URL field: every organisation offered is one already mapped from the Capabilities screen.

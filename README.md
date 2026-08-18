@@ -19,7 +19,9 @@ describes.
 Before a POC demo or release candidate, run `npm run poc:release-gate`. It packages the actual VS
 Code extension and proves the seeded POC workflow against a throwaway real Git remote, independent
 reviewer, native Copilot handoff, and restart recovery without invoking a model. See
-[the verification checklist](./VERIFICATION.md) for the evidence boundary.
+[the verification checklist](./VERIFICATION.md) for the evidence boundary and the
+[Playwright POC runbook](./docs/PLAYWRIGHT-POC-RUNBOOK.md) for real-machine host setup, authorized
+target smoke testing, evidence capture, and day-of-demo rehearsal.
 
 Then, on a repository you care about:
 

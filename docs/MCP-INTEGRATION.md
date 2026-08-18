@@ -12,6 +12,9 @@ host so a repository can answer four questions:
 3. Which individual tools are allowed?
 4. Which results must be retained as reviewable evidence?
 
+For the packaged browser-regression demonstration, use the focused
+[Playwright POC setup and rehearsal runbook](PLAYWRIGHT-POC-RUNBOOK.md).
+
 ## The two-layer model
 
 MCP setup has two deliberately separate layers. Both must be configured before a

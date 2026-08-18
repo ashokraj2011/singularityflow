@@ -92,6 +92,8 @@ Usage:
   singularity-flow ledger log [--limit N] [--json]
   singularity-flow ledger show <HASH|EVENT-ID> [--json]
   singularity-flow ledger verify [--offline] [--json]
+  singularity-flow ledger repair [--source-remote REMOTE] [--dry-run]
+    [--restore-remote --confirm "RESTORE LEDGER PINS <PLAN-SHA256>"] [--json]
   singularity-flow ledger reconcile [WORK-ID] [--json]
   singularity-flow ledger archive [--out FILE] [--sign] [--json]
   singularity-flow ledger deployment-check [--offline] [--record] [--authority GROUP]

@@ -464,11 +464,25 @@ const PAGES = Object.freeze({
       'never be merged into one. Every governed publication appends to it.',
       '',
       'When a publication reports that its ledger mirror is pending, `ledger reconcile` is what',
-      'completes the attestation.'
+      'completes the attestation. When a clone cannot reach a recorded source pin, `ledger repair`',
+      'classifies the cause and safely repairs its local refspec and pin cache.',
+      '',
+      'A missing remote pin is never recreated silently. The restore form proves the exact source',
+      'commit, dry-runs an explicit refspec, refuses mismatches, and requires the plan-hash phrase',
+      'printed by a fresh preview.'
+    ],
+    options: [
+      ['--offline', 'Verify only the local pin cache; never imply that the remote was checked.'],
+      ['--source-remote REMOTE', 'Use a separately configured authoritative remote as a read-only source for missing pins.'],
+      ['--dry-run', 'Classify each pin and print the hash-bound restoration preview without changing refs.'],
+      ['--restore-remote', 'Publish only remotely missing refs after proof and exact confirmation; never overwrite a mismatch.'],
+      ['--confirm TEXT', 'For remote restoration, supply the complete RESTORE LEDGER PINS <PLAN-SHA256> phrase from the preview.']
     ],
     examples: [
       ['singularity-flow ledger status', 'Ledger health and any unpublished intents.'],
       ['singularity-flow ledger verify', 'Verify the chain end to end.'],
+      ['singularity-flow ledger repair --dry-run', 'Distinguish a missing ref from network, credentials, server policy, and local-cache problems.'],
+      ['singularity-flow ledger repair --source-remote authority', 'Fetch exact recorded pins from a configured authority remote into the local cache.'],
       ['singularity-flow ledger reconcile', 'Publish intents that could not be appended earlier.']
     ],
     seeAlso: ['doctor', 'validate', 'sync']

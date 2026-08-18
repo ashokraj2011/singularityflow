@@ -18,6 +18,7 @@ import {
   persistLedgerIntent,
   publishToStateBranch,
   reconcileLedger,
+  repairLedgerPins,
   sha256,
   verifyLedger
 } from '../src/ledger.mjs';
@@ -123,6 +124,152 @@ test('capability ledger is an orphan branch and verifies its content-addressed c
     archiveLedger(root, enabled, 'archives/capability-ledger.bundle'),
     /will not be replaced/
   );
+});
+
+test('a fresh clone self-heals its local custom pin cache from the exact recorded remote ref', async () => {
+  const { parent, remote, root } = await repository();
+  await initializeLedger(root, enabled);
+  const expectedCommit = git(root, ['rev-parse', 'HEAD']).stdout.trim();
+  const intent = createLedgerIntent({
+    eventType: 'phase-approved',
+    capabilityId: 'story-WORK-FRESH-PIN',
+    subject: { workId: 'WORK-FRESH-PIN', phase: 'specification', generation: 1 },
+    actor: { email: 'reviewer@example.com' }
+  });
+  await appendLedgerIntent(root, enabled, intent, expectedCommit);
+  const pinRef = (await ledgerShow(root, enabled, intent.eventId)).entry.transport.pinRef;
+
+  const fresh = path.join(parent, 'fresh-pin');
+  run('git', ['clone', remote, fresh]);
+  git(fresh, ['config', 'user.name', 'Fresh Machine']);
+  git(fresh, ['config', 'user.email', 'fresh@example.com']);
+  git(fresh, ['fetch', 'origin', 'state:refs/remotes/origin/state']);
+  assert.notEqual(run('git', ['rev-parse', '--verify', pinRef], { cwd: fresh, allowFailure: true }).status, 0);
+
+  const verified = await verifyLedger(fresh, enabled);
+  assert.equal(verified.valid, true);
+  assert.equal(verified.pinDiagnostics[0].fetchStatus, 'fetched');
+  assert.equal(git(fresh, ['rev-parse', pinRef]).stdout.trim(), expectedCommit);
+});
+
+test('joining an existing workspace ledger installs its refspec and runs safe local pin repair', async () => {
+  const { parent, remote, root } = await repository();
+  await initializeLedger(root, enabled);
+  const expectedCommit = git(root, ['rev-parse', 'HEAD']).stdout.trim();
+  const intent = createLedgerIntent({
+    eventType: 'phase-approved',
+    capabilityId: 'story-WORK-WORKSPACE-PIN',
+    subject: { workId: 'WORK-WORKSPACE-PIN', phase: 'specification', generation: 1 },
+    actor: { email: 'reviewer@example.com' }
+  });
+  await appendLedgerIntent(root, enabled, intent, expectedCommit);
+  const pinRef = (await ledgerShow(root, enabled, intent.eventId)).entry.transport.pinRef;
+
+  const fresh = path.join(parent, 'workspace-join');
+  run('git', ['clone', remote, fresh]);
+  git(fresh, ['config', 'user.name', 'Workspace Joiner']);
+  git(fresh, ['config', 'user.email', 'joiner@example.com']);
+  const joined = await initializeLedger(fresh, enabled);
+  assert.equal(joined.created, false);
+  assert.equal(joined.refspecInstalled, true);
+  assert.equal(joined.pinRepair.valid, true);
+  assert.match(git(fresh, ['config', '--get-all', 'remote.origin.fetch']).stdout, /refs\/singularity\/pins/);
+  assert.equal(git(fresh, ['rev-parse', pinRef]).stdout.trim(), expectedCommit);
+});
+
+test('a missing remote pin needs a hash-bound preview and restores only the recorded ref', async () => {
+  const { parent, remote, root } = await repository();
+  await initializeLedger(root, enabled);
+  const expectedCommit = git(root, ['rev-parse', 'HEAD']).stdout.trim();
+  const intent = createLedgerIntent({
+    eventType: 'phase-approved',
+    capabilityId: 'story-WORK-RESTORE-PIN',
+    subject: { workId: 'WORK-RESTORE-PIN', phase: 'specification', generation: 1 },
+    actor: { email: 'reviewer@example.com' }
+  });
+  await appendLedgerIntent(root, enabled, intent, expectedCommit);
+  const pinRef = (await ledgerShow(root, enabled, intent.eventId)).entry.transport.pinRef;
+  run('git', ['--git-dir', remote, 'update-ref', '-d', pinRef]);
+
+  const fresh = path.join(parent, 'restore-pin');
+  run('git', ['clone', remote, fresh]);
+  git(fresh, ['config', 'user.name', 'Repair Operator']);
+  git(fresh, ['config', 'user.email', 'repair@example.com']);
+  git(fresh, ['fetch', 'origin', 'state:refs/remotes/origin/state']);
+  const broken = await verifyLedger(fresh, enabled);
+  assert.equal(broken.valid, false);
+  assert.match(broken.errors.join('\n'), /origin does not advertise the recorded ref/);
+
+  const preview = await repairLedgerPins(fresh, enabled, { dryRun: true, restoreRemote: true });
+  assert.equal(preview.pins[0].remote.status, 'missing');
+  assert.equal(preview.pins[0].restoreCandidate, true);
+  assert.match(preview.confirmation, /^RESTORE LEDGER PINS [0-9a-f]{64}$/);
+  await assert.rejects(
+    repairLedgerPins(fresh, enabled, { restoreRemote: true, confirmation: 'RESTORE LEDGER PINS wrong' }),
+    (error) => error.code === 'LEDGER_PIN_RESTORE_CONFIRMATION_REQUIRED'
+  );
+  assert.notEqual(run('git', ['--git-dir', remote, 'show-ref', '--verify', pinRef], { allowFailure: true }).status, 0);
+
+  const restored = await repairLedgerPins(fresh, enabled, {
+    restoreRemote: true,
+    confirmation: preview.confirmation
+  });
+  assert.equal(restored.valid, true);
+  assert.deepEqual(restored.restored, [{ pinRef, commit: expectedCommit, remote: 'origin' }]);
+  assert.equal(run('git', ['--git-dir', remote, 'rev-parse', pinRef]).stdout.trim(), expectedCommit);
+});
+
+test('pin repair never overwrites a conflicting remote ref', async () => {
+  const { remote, root } = await repository();
+  await initializeLedger(root, enabled);
+  const expectedCommit = git(root, ['rev-parse', 'HEAD']).stdout.trim();
+  const intent = createLedgerIntent({
+    eventType: 'phase-approved',
+    capabilityId: 'story-WORK-CONFLICT-PIN',
+    subject: { workId: 'WORK-CONFLICT-PIN', phase: 'specification', generation: 1 },
+    actor: { email: 'reviewer@example.com' }
+  });
+  await appendLedgerIntent(root, enabled, intent, expectedCommit);
+  const pinRef = (await ledgerShow(root, enabled, intent.eventId)).entry.transport.pinRef;
+  const conflictingCommit = git(root, ['rev-parse', 'refs/remotes/origin/state']).stdout.trim();
+  assert.notEqual(conflictingCommit, expectedCommit);
+  run('git', ['--git-dir', remote, 'update-ref', pinRef, conflictingCommit]);
+
+  const preview = await repairLedgerPins(root, enabled, { dryRun: true, restoreRemote: true });
+  assert.equal(preview.pins[0].remote.status, 'mismatch');
+  assert.equal(preview.pins[0].restoreCandidate, false);
+  await assert.rejects(
+    repairLedgerPins(root, enabled, {
+      restoreRemote: true,
+      confirmation: preview.confirmation
+    }),
+    (error) => error.code === 'LEDGER_PIN_REMOTE_MISMATCH'
+  );
+  assert.equal(run('git', ['--git-dir', remote, 'rev-parse', pinRef]).stdout.trim(), conflictingCommit);
+});
+
+test('remote restoration refuses an unavailable target before changing the local pin', async () => {
+  const { parent, root } = await repository();
+  await initializeLedger(root, enabled);
+  const expectedCommit = git(root, ['rev-parse', 'HEAD']).stdout.trim();
+  const intent = createLedgerIntent({
+    eventType: 'phase-approved',
+    capabilityId: 'story-WORK-OFFLINE-PIN',
+    subject: { workId: 'WORK-OFFLINE-PIN', phase: 'specification', generation: 1 },
+    actor: { email: 'reviewer@example.com' }
+  });
+  await appendLedgerIntent(root, enabled, intent, expectedCommit);
+  const pinRef = (await ledgerShow(root, enabled, intent.eventId)).entry.transport.pinRef;
+  git(root, ['update-ref', '-d', pinRef]);
+  git(root, ['remote', 'set-url', 'origin', path.join(parent, 'unavailable.git')]);
+
+  const preview = await repairLedgerPins(root, enabled, { dryRun: true, restoreRemote: true });
+  assert.equal(preview.pins[0].remote.status, 'unavailable');
+  await assert.rejects(
+    repairLedgerPins(root, enabled, { restoreRemote: true, confirmation: preview.confirmation }),
+    (error) => error.code === 'LEDGER_PIN_REMOTE_UNAVAILABLE'
+  );
+  assert.notEqual(run('git', ['rev-parse', '--verify', pinRef], { cwd: root, allowFailure: true }).status, 0);
 });
 
 test('a failed first ledger push retains the orphan root locally for safe retry', async () => {

@@ -28,6 +28,13 @@ mechanism. Record the result in the repository's deployment documentation.
 ## Consequences
 
 A normal clone does not fetch custom refs without the installed refspec. Fresh-clone
-verification therefore depends on `ledger init` or organization-wide Git refspec
-configuration. Flow reports an unreachable pin as a verification failure rather than
-pretending that the source remains auditable.
+verification therefore depends on `ledger init`, bounded `ledger repair`, or
+organization-wide Git refspec configuration. Flow classifies an unreachable pin as
+missing, mismatched, unavailable, timed out, network-disabled, or locally uncached
+rather than collapsing every case into one failure.
+
+Local self-healing may install the refspec and fetch only the commit already recorded
+by the ledger. Remote restoration is a different trust decision: it requires an exact
+plan-hash confirmation, source/configuration proof, a dry-run, and a non-force explicit
+refspec. A remote mismatch is never overwritten. Changing transport applies only to
+new entries and cannot make a historical pin reachable.

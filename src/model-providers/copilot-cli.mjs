@@ -40,7 +40,20 @@ export async function invokeCopilotCli(request) {
     throw new SingularityFlowError('Model provider arguments must be an array of strings.', { code: 'MODEL_REQUEST_INVALID' });
   }
   const command = process.platform === 'win32' && executable === 'copilot' ? 'copilot.cmd' : executable;
-  const providerLabel = request.provider === 'copilot-cli' ? 'Copilot CLI' : `Model provider '${request.provider}'`;
+  /**
+   * The label names what actually ran, not what the provider ID suggests.
+   *
+   * It used to say "Copilot CLI" whenever `provider === 'copilot-cli'`, regardless of the
+   * executable the caller configured. So a timeout on a stand-in binary reported
+   * `Copilot CLI invocation exceeded 10000ms`, which reads as a real Copilot call that never
+   * happened — and sends whoever is holding the failure looking for network, auth and a machine
+   * that has none of them. Naming the configured executable costs one line and is the difference
+   * between a diagnosable failure and a misleading one.
+   */
+  const configuredExecutable = configured.executable != null && command !== 'copilot' && command !== 'copilot.cmd';
+  const providerLabel = request.provider === 'copilot-cli'
+    ? (configuredExecutable ? `Model provider '${command}'` : 'Copilot CLI')
+    : `Model provider '${request.provider}'`;
   const args = [...(configured.arguments ?? []), '-C', request.cwd, '-p', prompt];
   if (request.tools?.mode === 'none') args.push('--available-tools=');
   if (request.tools?.mode === 'allowlist') {

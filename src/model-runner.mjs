@@ -237,8 +237,26 @@ export async function invokeModel(request) {
   };
   // Audit is fail-closed: if this write fails, the provider is never started.
   await writeJson(file, event);
+  /**
+   * The provider is asked for the model the routing chose. `[ADP:REQ-032]` `[ADP:AC-004]`
+   *
+   * It used to be handed `normalized`, which carries a `model` only when the caller named one — so
+   * a task-routed invocation resolved `strong-model`, wrote `strong-model` into the receipt, told
+   * the caller `strong-model`, and then ran the provider with no `--model` at all. The provider
+   * used its own default, and every surface that exists to answer "which model did this work"
+   * answered with a model nobody had requested.
+   *
+   * Nothing could see it. The receipt is written from `routing`, so it agreed with itself; the
+   * fixture provider ignores its argv, so the assertions passed; and the two paths that *did*
+   * differ — routed and caller-named — were only ever compared on the fields both derive from the
+   * same source. It took reading the argv the provider actually received.
+   *
+   * The caller-named path is unchanged: `routing` is null there, and `normalized.model` already
+   * held the answer.
+   */
+  const invocation = routing ? Object.freeze({ ...normalized, model: routing.model }) : normalized;
   try {
-    const result = await provider(normalized);
+    const result = await provider(invocation);
     if (!result || typeof result !== 'object' || typeof result.output !== 'string') {
       throw new SingularityFlowError(`Model provider '${providerId}' returned an invalid result.`, { code: 'MODEL_PROVIDER_FAILED' });
     }

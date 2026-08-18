@@ -21,7 +21,7 @@ export const ACTIVE_WORKSPACE_ROUTING_EXCLUSIONS = new Set([
   'about', 'help', 'explain', 'guide', 'show', 'quickstart',
   'init', 'bootstrap',
   'factory-reset', 'reset-all', 'local-reset', 'fresh-install', 'reinstall',
-  'workspace', 'session', 'plugin', 'goal'
+  'workspace', 'session', 'plugin', 'goal', 'push'
 ]);
 
 /**

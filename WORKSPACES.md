@@ -123,6 +123,31 @@ sflow workspace prepare https://git.example.com/team/rule-engine.git \
   --branch main
 ```
 
+To use an existing clone without copying or rewriting it, preview adoption first:
+
+```bash
+sflow workspace adopt ~/src/rule-engine \
+  --id rule-demo \
+  --base "$HOME/Singularity Workspaces" \
+  --dry-run --json
+
+# If the preview reports local changes, retain them by passing the exact returned hash.
+sflow workspace adopt ~/src/rule-engine \
+  --id rule-demo \
+  --base "$HOME/Singularity Workspaces" \
+  --confirm-dirty sha256:<CONTENT-HASH> \
+  --confirm rule-demo
+```
+
+The proof binds the canonical repository root, sanitized origin, branch, default-branch visibility,
+worktrees, submodules, SFlow configuration, and content-aware dirty state. Adoption creates a local
+workspace shell but does not fetch, checkout, stash, commit, reset, clean, change remotes, or move
+the selected clone. VS Code exposes the same flow as **Use an existing clone**.
+
+For setup diagnostics, `sflow workspace doctor` is offline by default. Add `--network` to inspect
+unfinished-session remotes. Corporate proxy and certificate reporting discloses only which approved
+configuration sources are present; values and credentials are never shown, and TLS is never disabled.
+
 A Jira anchor is optional. For an existing higher-level Jira item, use
 `workspace create --jira <KEY>` with the repository arguments documented by
 `sflow help workspaces`. For work with no tracker, always use `--local --id`.

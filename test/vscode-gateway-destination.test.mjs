@@ -15,3 +15,24 @@ test('gateway destination routing is closed to unrelated or malformed results', 
   assert.equal(gatewayDestination({ operation: { id: 'review.packet' }, data: { surface: 'elsewhere' } }), null);
   assert.equal(gatewayDestination(null), null);
 });
+
+test('rootless workspace recovery results open only their dedicated host surfaces', () => {
+  assert.equal(gatewayDestination({
+    operation: { id: 'workspace.bootstrap.status' }, data: { surface: 'workspace-bootstrap' }
+  }), 'singularityFlow.resumeWorkspaceBootstrap');
+  assert.equal(gatewayDestination({
+    operation: { id: 'workspace.prepare.guide' }, data: { surface: 'workspace-prepare' }
+  }), 'singularityFlow.createWorkspace');
+  assert.equal(gatewayDestination({
+    operation: { id: 'repository.open.guide' }, data: { surface: 'repository-open' }
+  }), 'singularityFlow.adoptWorkspace');
+  assert.equal(gatewayDestination({
+    operation: { id: 'workspace.doctor.guide' }, data: { surface: 'workspace-doctor' }
+  }), 'singularityFlow.workspaceDoctor');
+  assert.equal(gatewayDestination({
+    operation: { id: 'workspace.explore.guide' }, data: { surface: 'workspace-explore' }
+  }), 'singularityFlow.openWorkspaces');
+  assert.equal(gatewayDestination({
+    operation: { id: 'workspace.prepare.guide' }, data: { surface: 'workspace-bootstrap' }
+  }), null);
+});

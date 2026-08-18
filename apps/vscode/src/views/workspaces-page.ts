@@ -304,7 +304,8 @@ export function workspacesHtml(
       <thead><tr><th></th><th>Workspace</th><th>Working directory</th><th>Lead</th><th></th></tr></thead>
       <tbody>${rows.map((entry) => rowHtml(entry, selected)).join('')}</tbody>
     </table>` : '<p class="muted">No workspaces yet.</p>'}
-    <p><button class="secondary" data-create="new">Create a workspace</button></p>
+    <p><button class="secondary" data-create="new">Create a workspace</button>
+      <button class="secondary" data-adopt="existing">Use an existing clone</button></p>
   </section>
 
   <section>${row
@@ -319,7 +320,7 @@ export function workspacesHtml(
 export const WORKSPACES_SCRIPT = `
   const vscode = window.__sfVscode;
   document.addEventListener('click', (event) => {
-    const target = event.target.closest('[data-select],[data-switch],[data-rename],[data-duplicate],[data-forget],[data-create],[data-edit],[data-edit-add],[data-edit-remove],[data-edit-save],[data-edit-cancel],[data-archive],[data-restore]');
+    const target = event.target.closest('[data-select],[data-switch],[data-rename],[data-duplicate],[data-forget],[data-create],[data-adopt],[data-edit],[data-edit-add],[data-edit-remove],[data-edit-save],[data-edit-cancel],[data-archive],[data-restore]');
     if (!target) return;
     event.preventDefault();
     const data = target.dataset;
@@ -327,6 +328,7 @@ export const WORKSPACES_SCRIPT = `
     if (data.select !== undefined) vscode.postMessage({ type: 'select', path: data.select });
     else if (data.switch !== undefined) vscode.postMessage({ type: 'switch', path: data.switch });
     else if (data.create !== undefined) vscode.postMessage({ type: 'create' });
+    else if (data.adopt !== undefined) vscode.postMessage({ type: 'adopt' });
     else if (data.forget !== undefined) vscode.postMessage({ type: 'forget', path: data.forget });
     else if (data.archive !== undefined) vscode.postMessage({ type: 'archive', path: data.archive });
     else if (data.restore !== undefined) vscode.postMessage({ type: 'restore', path: data.restore });

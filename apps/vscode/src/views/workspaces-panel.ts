@@ -22,6 +22,7 @@ import {
 export type WorkspacesMessage =
   | { type: 'switch'; row: WorkspaceRow }
   | { type: 'create' }
+  | { type: 'adopt' }
   | { type: 'forget'; row: WorkspaceRow }
   | { type: 'archive'; row: WorkspaceRow }
   | { type: 'restore'; row: WorkspaceRow }
@@ -220,6 +221,7 @@ export class WorkspacesPanel {
       this.render();
     },
     create: () => this.onMessage({ type: 'create' }).then(() => undefined),
+    adopt: () => this.onMessage({ type: 'adopt' }).then(() => undefined),
     edit: (message) => this.withRow(message, (row) => {
       this.edit = {
         open: true,

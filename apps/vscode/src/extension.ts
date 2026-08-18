@@ -58,9 +58,10 @@ import {
 } from './views/home-acknowledgement.ts';
 import {
   activeRepositoryContext, gatewaySession, provideAcknowledgedAt,
-  setActiveRepositoryContext, type ActiveRepositoryContext
+  setActiveRepositoryContext, type ActiveRepositoryContext, type GatewayRepositoryContext
 } from './gateway-session.ts';
 import { primaryAction } from '../../../src/gateway/result.mjs';
+import { latestWorkspaceBootstrap } from '../../../src/workspace-bootstrap.mjs';
 
 /** Injected by esbuild: the commit and time this bundle was built from. */
 declare const __SFLOW_BUILD__: string;
@@ -144,7 +145,11 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
    * for the same reason the card's actions are looked up in the result that produced them — what is
    * acknowledged must be what was on screen, not whatever a second read would return now.
    */
-  let lastHome: { readonly envelope: any; readonly key: string } | null = null;
+  let lastHome: {
+    readonly envelope: any;
+    readonly key: string;
+    readonly route: GatewayRepositoryContext;
+  } | null = null;
 
   /**
    * Hand the gateway the one fact only this host has. `[DHR:REQ-024]`
@@ -194,9 +199,17 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
     if (!action) return;
 
     const active = activeRepositoryContext();
-    if (active && origin === 'gateway') {
+    const route = lastHome?.route ?? active;
+    if (route && origin === 'gateway') {
       try {
-        const { executor } = gatewaySession(active);
+        // A rootless Home is stale the moment a governed repository becomes active. Its handle
+        // cannot infer that machine-wide selection change from Git bytes, so the host closes that
+        // observation gap before dispatch.
+        if (route.root === null && active) {
+          await vscode.commands.executeCommand('singularityFlow.myWork');
+          return;
+        }
+        const { executor } = gatewaySession(route);
         /**
          * The action as the envelope described it, not as this host assumed.
          *
@@ -264,13 +277,17 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
    */
   context.subscriptions.push(vscode.commands.registerCommand('singularityFlow.myWork', async () => {
     const active = activeRepositoryContext();
-    if (!active) {
-      showRefusal('No governed workspace or repository is selected. Choose a workspace or open a governed repository.',
-        { headline: 'No workspace selected' });
-      return;
-    }
     try {
-      const { kernel, binding } = gatewaySession(active);
+      const bootstrap = active ? null : await latestWorkspaceBootstrap().catch(() => null);
+      const route: GatewayRepositoryContext = active ?? {
+        root: null,
+        workspaceId: null,
+        workspaceName: null,
+        repositoryId: null,
+        origin: 'machine-local',
+        bootstrap
+      };
+      const { kernel, binding } = gatewaySession(route);
       const resolution = await kernel.resolve({ utterance: 'what should I do next' });
       const envelope = resolution.kind === 'read' && resolution.next.length === 1
         ? await kernel.read({ resolutionId: resolution.next[0].handle })
@@ -283,11 +300,12 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
        * stable key rather than sharing `unknown` with every other unresolved repository.
        */
       const key = acknowledgementKey(
-        envelope.data?.workspace?.id ?? binding().workspaceId ?? active.root,
+        envelope.data?.workspace?.id ?? binding().workspaceId
+          ?? bootstrap?.bootstrapId ?? 'rootless-home',
         binding().actorId
       );
       const acknowledgement = context.globalState.get<HomeAcknowledgement>(key) ?? null;
-      lastHome = { envelope, key };
+      lastHome = { envelope, key, route };
       showResultCard(buildResultCard(envelope, { acknowledgement }), { origin: 'gateway' });
     } catch (error) {
       showRefusal(error, { headline: 'Could not read your work' });
@@ -844,6 +862,168 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
     });
   }));
 
+  /** Wrap an existing clone in a workspace shell without mutating any Git or working-tree state. */
+  context.subscriptions.push(vscode.commands.registerCommand('singularityFlow.adoptWorkspace', async () => {
+    let location;
+    try {
+      location = resolveCli({ extensionPath: context.extensionPath });
+    } catch (error) {
+      return showRefusal(error);
+    }
+    const cloneChoice = await vscode.window.showOpenDialog({
+      title: 'Choose an existing Git clone', canSelectFiles: false, canSelectFolders: true,
+      canSelectMany: false, openLabel: 'Inspect clone'
+    });
+    if (!cloneChoice?.[0]) return;
+    const cloneDirectory = cloneChoice[0].fsPath;
+    const suggestedId = path.basename(cloneDirectory).normalize('NFKD')
+      .replace(/[^A-Za-z0-9._-]+/g, '-').replace(/^-+|-+$/g, '').toLowerCase();
+    const id = await vscode.window.showInputBox({
+      title: 'Workspace identity', prompt: 'Choose a machine-local workspace ID.',
+      value: suggestedId, ignoreFocusOut: true,
+      validateInput: (value) => /^[A-Za-z0-9][A-Za-z0-9._-]{0,127}$/.test(value.trim())
+        ? null : 'Use a portable identifier containing letters, numbers, dots, underscores, or hyphens.'
+    });
+    if (!id) return;
+    const name = await vscode.window.showInputBox({
+      title: 'Workspace name', prompt: 'Name this workspace.', value: id, ignoreFocusOut: true,
+      validateInput: (value) => value.trim() ? null : 'A workspace name is required.'
+    });
+    if (!name) return;
+    const baseChoice = await vscode.window.showOpenDialog({
+      title: 'Choose where the workspace shell will live', canSelectFiles: false, canSelectFolders: true,
+      canSelectMany: false, openLabel: 'Use this parent folder', defaultUri: vscode.Uri.file(os.homedir())
+    });
+    if (!baseChoice?.[0]) return;
+    const client = new SingularityFlowClient({
+      location, repository: process.cwd(), onOutput: (text) => output.append(text)
+    });
+    try {
+      const baseArgs = ['workspace', 'adopt', cloneDirectory, '--id', id.trim(), '--name', name.trim(),
+        '--base', baseChoice[0].fsPath];
+      const preview = await client.run<any>([...baseArgs, '--dry-run', '--json']);
+      const repository = preview.plan?.repository;
+      const dirtyHash = preview.plan?.dirtyConfirmationRequired as string | null;
+      const changed = (repository?.adoption?.changedPaths ?? []) as string[];
+      const preservation = `Existing clone: ${cloneDirectory}\nWorkspace shell: ${preview.plan?.workspace?.path}\n\n`
+        + 'Singularity Flow will not fetch, checkout, stash, commit, reset, clean, or edit remotes.';
+      if (dirtyHash) {
+        const accepted = await vscode.window.showWarningMessage(
+          'This clone has local changes. Keep and adopt them?',
+          { modal: true, detail: `${preservation}\n\nChanged paths:\n${changed.slice(0, 20).join('\n') || '(Git reports local changes)'}` },
+          'Keep local changes'
+        );
+        if (accepted !== 'Keep local changes') return;
+      }
+      const confirmation = await vscode.window.showInputBox({
+        title: `Use ${path.basename(cloneDirectory)} as workspace ${id.trim()}`,
+        prompt: `${preservation}\nType ${id.trim()} to create only the workspace shell.`,
+        placeHolder: id.trim(), ignoreFocusOut: true,
+        validateInput: (value) => value === id.trim() ? null : `Type exactly ${id.trim()}.`
+      });
+      if (confirmation !== id.trim()) return;
+      const result = await client.run<any>([
+        ...baseArgs, ...(dirtyHash ? ['--confirm-dirty', dirtyHash] : []),
+        '--confirm', confirmation, '--json'
+      ]);
+      const lead = result.status?.leadRepositoryPath ?? cloneDirectory;
+      void vscode.window.showInformationMessage(`${name.trim()} now uses the existing clone. No Git state was changed.`);
+      await selectWorkspace(result.workspace.path, lead, name.trim());
+    } catch (error) {
+      showRefusal(error, { headline: 'Could not use the existing clone' });
+    }
+  }));
+
+  /** Read-only machine and bootstrap diagnostics, available even in an empty VS Code window. */
+  context.subscriptions.push(vscode.commands.registerCommand('singularityFlow.workspaceDoctor', async () => {
+    try {
+      const location = resolveCli({ extensionPath: context.extensionPath });
+      const client = new SingularityFlowClient({
+        location, repository: process.cwd(), onOutput: (text) => output.append(text)
+      });
+      const result = await vscode.window.withProgress(
+        { location: vscode.ProgressLocation.Notification, title: 'Diagnosing workspace setup' },
+        () => client.run<any>(['workspace', 'doctor', '--json'])
+      );
+      output.appendLine(`\nWorkspace reliability: ${result.healthy ? 'healthy' : 'needs attention'}`);
+      for (const finding of result.machine?.findings ?? []) {
+        output.appendLine(`  ${finding.severity}: ${finding.message}`);
+      }
+      for (const session of result.sessions ?? []) {
+        output.appendLine(`  ${session.bootstrapId}: ${session.status} · ${session.workspaceName ?? session.workspaceId ?? ''}`);
+      }
+      output.show(true);
+      void vscode.window.showInformationMessage(result.healthy
+        ? 'Workspace setup checks passed. Details are in Singularity Flow output.'
+        : 'Workspace setup needs attention. Review the Singularity Flow output.');
+    } catch (error) {
+      showRefusal(error, { headline: 'Workspace diagnostics could not run' });
+    }
+  }));
+
+  /** Resume the latest preserved bootstrap through the same exact-confirm CLI boundary. */
+  context.subscriptions.push(vscode.commands.registerCommand('singularityFlow.resumeWorkspaceBootstrap', async () => {
+    let location;
+    try {
+      location = resolveCli({ extensionPath: context.extensionPath });
+    } catch (error) {
+      return showRefusal(error);
+    }
+    const client = new SingularityFlowClient({
+      location, repository: process.cwd(), onOutput: (text) => output.append(text)
+    });
+    try {
+      const sessions = await client.run<any[]>(['workspace', 'bootstrap', 'status', '--json']);
+      if (!sessions.length) {
+        showRefusal('No resumable workspace setup was found. Start a new workspace setup instead.', {
+          headline: 'No setup to continue'
+        });
+        return;
+      }
+      const choices = sessions.map((entry) => ({
+        label: entry.plan?.workspace?.name ?? entry.request?.workspaceName ?? entry.bootstrapId,
+        description: entry.status,
+        detail: entry.plan?.workspace?.targetPath ?? entry.nextAction?.command ?? '',
+        entry
+      }));
+      const selected = choices.length === 1 ? choices[0] : await vscode.window.showQuickPick(choices, {
+        title: 'Continue workspace setup',
+        placeHolder: 'Choose the preserved setup to recheck and resume',
+        ignoreFocusOut: true
+      });
+      if (!selected) return;
+      const expected = selected.entry.plan?.workspace?.confirmation;
+      if (!expected) {
+        showRefusal('The preserved setup has no valid confirmation identity. Run workspace doctor before retrying.', {
+          headline: 'Setup record needs repair'
+        });
+        return;
+      }
+      const confirmation = await vscode.window.showInputBox({
+        title: `Resume ${selected.label}`,
+        prompt: `Type ${expected} to recheck remote access and materialize only the reviewed workspace plan.`,
+        placeHolder: expected,
+        ignoreFocusOut: true,
+        validateInput: (value) => value === expected ? null : `Type exactly ${expected}.`
+      });
+      if (confirmation !== expected) return;
+      const result = await client.run<any>([
+        'workspace', 'bootstrap', 'resume', selected.entry.bootstrapId,
+        '--confirm', confirmation, '--json'
+      ]);
+      if (result.status === 'ready') {
+        void vscode.window.showInformationMessage(`${selected.label} is ready.`);
+        await vscode.commands.executeCommand('singularityFlow.openWorkspaces');
+      } else {
+        showRefusal(result.fault?.message ?? 'Workspace setup still needs attention. No reviewed plan was widened.', {
+          headline: `Setup is ${result.status}`
+        });
+      }
+    } catch (error) {
+      showRefusal(error, { headline: 'Could not resume workspace setup' });
+    }
+  }));
+
   /**
    * Govern a repository that has never heard of Singularity Flow.
    *
@@ -1001,6 +1181,10 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
     const onMessage = async (message: WorkspacesMessage): Promise<string | null> => {
       if (message.type === 'create') {
         await vscode.commands.executeCommand('singularityFlow.createWorkspace');
+        return null;
+      }
+      if (message.type === 'adopt') {
+        await vscode.commands.executeCommand('singularityFlow.adoptWorkspace');
         return null;
       }
       if (message.type === 'switch') {

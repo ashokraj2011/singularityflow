@@ -94,7 +94,7 @@ import { epicCheckStory, epicReviewDecision, epicReviewStory, listEpicReviewInbo
 import { completeEpicDelivery, epicDeliveryReadiness } from './epic-completion.mjs';
 
 import { currentLocalEpicReservation, reserveLocalEpicBranch } from './local-identity.mjs';
-import { archiveWorkspace, createWorkspace, createWorkspaceConfiguration, fetchWorkspace, forgetWorkspace, listWorkspaceDocuments, previewWorkspace, previewWorkspaceConfiguration, previewWorkspaceUpdate, readWorkspace, readWorkspaceRegistry, rememberWorkspace, repairWorkspace, restoreWorkspace, duplicateWorkspaceConfiguration, isCloneTarget, stageWorkspaceDocuments, updateWorkspaceConfiguration, workspaceRemoteCapabilities, workspaceRemoteDefaults, remoteDefaultBranch, workspaceRepositoryDefaults, workspaceArchiveReadiness, workspaceStatus } from './workspace.mjs';
+import { adoptWorkspaceConfiguration, archiveWorkspace, createWorkspace, createWorkspaceConfiguration, fetchWorkspace, forgetWorkspace, listWorkspaceDocuments, previewWorkspace, previewWorkspaceConfiguration, previewWorkspaceUpdate, readWorkspace, readWorkspaceRegistry, rememberWorkspace, repairWorkspace, restoreWorkspace, duplicateWorkspaceConfiguration, isCloneTarget, stageWorkspaceDocuments, updateWorkspaceConfiguration, workspaceRemoteCapabilities, workspaceRemoteDefaults, remoteDefaultBranch, workspaceRepositoryDefaults, workspaceArchiveReadiness, workspaceRepositoryPath, workspaceStatus } from './workspace.mjs';
 import { CONFIGURATION_BRANCH, materializeConfigurationSnapshot, resolveConfigurationRemote } from './configuration-branch.mjs';
 import { analyzeWorkspaceImpact, listWorkspaceImpacts, previewWorkspaceImpact, promoteWorkspaceImpact, workspaceImpactStatus } from './workspace-impact.mjs';
 import { activateWorkspaceContext, activeWorkspaceFile, clearActiveWorkspaceContext, discardUnsupportedWorkflowWorkspaces, readActiveWorkspaceContext, workspacePromptLabel, workspaceContextForRepository, workspaceRegistryFile } from './workspace-context.mjs';
@@ -7185,10 +7185,11 @@ async function workspaceCommand(positionals, options) {
       // skipping it for a repository that was not governed yet.
       let state = null;
       if (optionBoolean(options, 'clone', true) && localResult.workspace.leadRepository) {
-        const leadPath = localResult.workspace.repositories?.[localResult.workspace.leadRepository]?.path
-          ?? `repos/${localResult.workspace.leadRepository}`;
+        const lead = localResult.workspace.repositories?.[localResult.workspace.leadRepository];
         try {
-          state = await initializeWorkspaceState(path.join(localResult.workspace.path, leadPath), {
+          state = await initializeWorkspaceState(lead
+            ? workspaceRepositoryPath(localResult.workspace, lead)
+            : path.join(localResult.workspace.path, `repos/${localResult.workspace.leadRepository}`), {
             branch: optionString(options, 'state-branch', 'state')
           });
         } catch (error) {
@@ -7400,6 +7401,57 @@ async function workspaceCommand(positionals, options) {
     if (defaults.localPath) console.log(`  path:   ${defaults.localPath}`);
     console.log(`  origin: ${defaults.url}\n  branch: ${defaults.defaultBranch}`);
     if (remote) console.log(`  ${defaults.stateBranch}: ${defaults.hasStateBranch ? 'present' : 'not created yet'}`);
+    return;
+  }
+  if (subcommand === 'adopt') {
+    const cloneDirectory = requirePositional(positionals, 2, 'existing clone directory');
+    const defaults = await workspaceRepositoryDefaults(cloneDirectory);
+    const ownership = [];
+    for (const entry of await readWorkspaceRegistry(registry)) {
+      const workspace = await readWorkspace(entry.path).catch(() => null);
+      if (!workspace) continue;
+      for (const repository of Object.values(workspace.repositories)) {
+        const ownedPath = await realpath(workspaceRepositoryPath(workspace, repository))
+          .catch(() => path.resolve(workspaceRepositoryPath(workspace, repository)));
+        if (ownedPath === defaults.localPath) {
+          ownership.push({ workspaceId: workspace.id, workspacePath: workspace.path, repositoryId: repository.id });
+        }
+      }
+    }
+    if (ownership.length) {
+      throw new SingularityFlowError(
+        `Existing clone '${defaults.localPath}' is already owned by workspace '${ownership[0].workspaceId}'.`,
+        { code: 'WORKSPACE_ADOPTION_ALREADY_OWNED', details: { ownership } }
+      );
+    }
+    const id = optionString(options, 'id');
+    if (!id) throw new SingularityFlowError('workspace adopt requires --id for the new workspace.');
+    const result = await adoptWorkspaceConfiguration({
+      cloneDirectory: defaults.localPath,
+      id,
+      name: optionString(options, 'name'),
+      baseDirectory: optionString(options, 'base', process.env.SINGULARITY_FLOW_WORKSPACE_ROOT
+        || path.join(os.homedir(), 'Singularity Workspaces')),
+      dirtyConfirmation: optionString(options, 'confirm-dirty')
+    }, {
+      confirmation: optionString(options, 'confirm'),
+      dryRun: optionBoolean(options, 'dry-run')
+    });
+    if (!optionBoolean(options, 'dry-run')) {
+      await rememberWorkspace(registry, result.workspace, result.status);
+    }
+    if (optionBoolean(options, 'json')) return console.log(JSON.stringify(result, null, 2));
+    if (optionBoolean(options, 'dry-run')) {
+      console.log(`Use existing clone: ${result.plan.repository.localPath}`);
+      console.log(`Workspace shell: ${result.plan.workspace.path}`);
+      console.log(`Preserved: ${result.plan.preserved.join(', ')}`);
+      if (result.plan.dirtyConfirmationRequired) {
+        console.log(`Dirty-tree confirmation: --confirm-dirty ${result.plan.dirtyConfirmationRequired}`);
+      }
+      return console.log(`Create with --confirm ${result.plan.confirmation}`);
+    }
+    console.log(`Adopted ${defaults.localPath} into workspace ${result.workspace.name}.`);
+    console.log('The clone was not fetched, switched, stashed, committed, reset, or cleaned.');
     return;
   }
   if (subcommand === 'duplicate') {
@@ -8836,6 +8888,7 @@ async function dispatch(command, positionals, options) {
     fix: () => fixCommand(positionals, options),
     repair: () => repairCommand(positionals, options),
     goal: async () => (await import('./commands/goal.mjs')).run([], { positionals, options }),
+    push: async () => (await import('./commands/push.mjs')).run([], { positionals, options }),
     home: async () => (await import('./commands/home.mjs')).run(argv, { positionals, options }),
     recommend: async () => (await import('./commands/recommend.mjs')).run(positionals, { positionals, options }),
     logs: () => logsCommand(positionals, options),

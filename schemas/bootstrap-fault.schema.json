@@ -1,0 +1,34 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://singularity-flow.dev/schemas/bootstrap-fault.schema.json",
+  "title": "Workspace bootstrap fault envelope",
+  "type": "object",
+  "additionalProperties": true,
+  "required": [
+    "schemaVersion", "faultKey", "scope", "bootstrapId", "operationFamily", "stage",
+    "attempt", "inputHash", "platform", "classification", "retryable", "summary", "occurredAt"
+  ],
+  "properties": {
+    "schemaVersion": { "const": 1 },
+    "faultKey": { "type": "string", "pattern": "^[a-f0-9]{64}$" },
+    "scope": {
+      "type": "object",
+      "required": ["kind", "bootstrapId"],
+      "properties": {
+        "kind": { "enum": ["machine", "workspace-bootstrap", "workspace", "repository", "transport"] },
+        "bootstrapId": { "type": "string" },
+        "repositoryId": { "type": ["string", "null"] }
+      }
+    },
+    "bootstrapId": { "type": "string" },
+    "operationFamily": {
+      "enum": [
+        "machine.preflight", "workspace.reserve", "remote.inspect", "git.clone", "git.checkout",
+        "repository.verify", "sflow.initialize", "git.fetch", "git.push", "workspace.register",
+        "runtime.compatibility"
+      ]
+    },
+    "attempt": { "type": "integer", "minimum": 0 },
+    "retryable": { "type": "boolean" }
+  }
+}

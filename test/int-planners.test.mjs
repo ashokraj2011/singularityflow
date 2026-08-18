@@ -10,6 +10,7 @@ import { reviewPacket, reviewPacketResult } from '../src/gateway/planners/review
 import { workHandoff, workHandoffResult } from '../src/gateway/planners/work-handoff.mjs';
 import { WORKSPACE_LIST_EVIDENCE_GAPS, workspaceList } from '../src/gateway/planners/workspace-list.mjs';
 import { workStartIntake } from '../src/gateway/planners/work-start-intake.mjs';
+import { homeOverviewResult } from '../src/gateway/planners/home-overview.mjs';
 import { gatewayRegistry, unimplementedPlanners } from '../src/gateway/operations.mjs';
 import { gatewayPlanners } from '../src/gateway/planners/index.mjs';
 import {
@@ -60,6 +61,20 @@ const workItem = Object.freeze({
   group: 'waiting-on-you',
   whyVisible: 'approval.you-are-authorized',
   nextAction: Object.freeze({ operation: 'review.packet', reasonCode: 'approval.open-the-packet' })
+});
+
+test('rootless Home exposes the complete recovery menu with validated destinations', () => {
+  const result = homeOverviewResult({
+    workspace: null,
+    bootstrap: { bootstrapId: 'bst_demo', status: 'waiting-user', plan: { workspace: { id: 'demo' } } }
+  });
+  assert.deepEqual(result.data.choiceSet, [
+    'workspace.bootstrap.status', 'repository.open.guide', 'workspace.prepare.guide',
+    'workspace.doctor.guide', 'workspace.explore.guide'
+  ]);
+  assert.deepEqual(result.next.map((entry) => plannerNavigationTarget(entry)?.operationId), result.data.choiceSet);
+  assert.equal(result.next[0].emphasis, 'primary');
+  assert.ok(result.next.every((entry) => entry.executable === false));
 });
 
 test('start intake carries bounded conversational defaults and changes nothing', () => {

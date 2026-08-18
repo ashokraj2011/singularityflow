@@ -15,7 +15,7 @@ import { SingularityFlowError, writeAtomic } from './util.mjs';
 import {
   activeWorkspaceFile, readActiveWorkspaceContext, workspaceRegistryFile
 } from './workspace-context.mjs';
-import { readWorkspace } from './workspace.mjs';
+import { readWorkspace, workspaceRepositoryPath } from './workspace.mjs';
 
 export const GOAL_STATE_SCHEMA_VERSION = 1;
 export const GOAL_AUTHORITY = 'personal-advisory';
@@ -176,7 +176,7 @@ export async function activeGoalWorkspace({ env = process.env, home = undefined 
   }
   const workspace = await readWorkspace(selected.workspacePath);
   const lead = workspace.repositories[workspace.leadRepository];
-  const leadRepositoryPath = path.join(workspace.path, lead.path);
+  const leadRepositoryPath = workspaceRepositoryPath(workspace, lead);
   const selectedRepository = workspace.repositories[selected.repositoryId];
   if (!selectedRepository) {
     throw new SingularityFlowError(`Selected repository '${selected.repositoryId}' is not part of workspace '${workspace.name}'.`, {
@@ -187,7 +187,7 @@ export async function activeGoalWorkspace({ env = process.env, home = undefined 
     workspace,
     selected,
     leadRepositoryPath,
-    repositoryPath: path.join(workspace.path, selectedRepository.path)
+    repositoryPath: workspaceRepositoryPath(workspace, selectedRepository)
   };
 }
 

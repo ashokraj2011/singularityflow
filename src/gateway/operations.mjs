@@ -30,6 +30,8 @@ import { compileOperationRegistry } from './registry.mjs';
 export const GATEWAY_PLANNERS = Object.freeze([
   'home-overview', 'developer-next', 'work-list', 'work-continue', 'work-handoff', 'work-start-intake', 'work-start',
   'work-draft-save', 'work-readiness', 'work-return', 'workspace-list', 'workspace-switch', 'workspace-materialize',
+  'workspace-bootstrap-status', 'workspace-prepare-guide', 'repository-open-guide',
+  'workspace-doctor-guide', 'workspace-explore-guide',
   'impact-quick', 'impact-quick-assisted', 'impact-what-if', 'impact-what-if-assisted',
   'problem-investigate', 'problem-investigate-assisted', 'repository-explore', 'intent-trace',
   'compare', 'watch-list', 'watch-create', 'watch-revoke', 'review-packet', 'review-open', 'help-explain'
@@ -241,6 +243,71 @@ export const GATEWAY_DECLARATIONS = Object.freeze([
     argumentSchema: 'no-arguments-v1',
     planner: 'workspace-list',
     noModelFixture: 'workspace-list-model-free'
+  },
+
+  /** Rootless Home recovery is still resolved and sealed like every other navigation choice. */
+  {
+    ...READ,
+    id: 'workspace.bootstrap.status',
+    kernelOperation: 'workspace.bootstrap.status',
+    goals: ['workspace.switch', 'home'],
+    aliases: en('continue workspace setup', 'show workspace setup progress'),
+    subjects: ['workspace'],
+    argumentSchema: 'workspace-bootstrap-status-v1',
+    planner: 'workspace-bootstrap-status',
+    noModelFixture: 'workspace-bootstrap-status-model-free'
+  },
+
+  /** A guide destination: the host owns the form, while the gateway owns whether it was selected. */
+  {
+    ...READ,
+    id: 'workspace.prepare.guide',
+    modelPolicy: 'never',
+    goals: ['workspace.switch', 'home'],
+    aliases: en('create a workspace', 'set up my first workspace'),
+    subjects: ['workspace'],
+    argumentSchema: 'no-arguments-v1',
+    planner: 'workspace-prepare-guide',
+    noModelFixture: 'workspace-prepare-guide-model-free'
+  },
+
+  /** Existing-clone adoption is a host form with its own preservation proof. */
+  {
+    ...READ,
+    id: 'repository.open.guide',
+    modelPolicy: 'never',
+    goals: ['workspace.switch', 'home'],
+    aliases: en('open an existing repository', 'use an existing clone'),
+    subjects: ['workspace', 'repository'],
+    argumentSchema: 'no-arguments-v1',
+    planner: 'repository-open-guide',
+    noModelFixture: 'repository-open-guide-model-free'
+  },
+
+  /** Machine-wide diagnostics remain reachable before a workspace exists. */
+  {
+    ...READ,
+    id: 'workspace.doctor.guide',
+    modelPolicy: 'never',
+    goals: ['workspace.switch', 'home'],
+    aliases: en('run workspace diagnostics', 'diagnose workspace setup'),
+    subjects: ['workspace'],
+    argumentSchema: 'no-arguments-v1',
+    planner: 'workspace-doctor-guide',
+    noModelFixture: 'workspace-doctor-guide-model-free'
+  },
+
+  /** Open the registered-workspace browser without scanning arbitrary directories. */
+  {
+    ...READ,
+    id: 'workspace.explore.guide',
+    modelPolicy: 'never',
+    goals: ['workspace.switch', 'home'],
+    aliases: en('explore workspaces', 'show saved workspaces'),
+    subjects: ['workspace'],
+    argumentSchema: 'no-arguments-v1',
+    planner: 'workspace-explore-guide',
+    noModelFixture: 'workspace-explore-guide-model-free'
   },
 
   /**

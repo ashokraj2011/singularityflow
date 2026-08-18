@@ -75,11 +75,15 @@ test('an active Story leads the menu and names what continuing means', async () 
   assert.equal(result.why[0].code, 'home.active-work-leads');
 });
 
-test('with no workspace the menu does not pretend work exists', async () => {
-  // `[INT:REQ-024]`: the work choices come out entirely rather than rendering empty.
+test('with no workspace Home offers only rootless setup and recovery paths', async () => {
+  // `[INT:REQ-024]` `[WRP:REQ-150]`: work choices come out entirely and are replaced by actions
+  // that are valid before any repository or Story exists.
   const result = await homeOverview({});
   validateSflowResult(result);
-  assert.deepEqual(result.data.choiceSet, ['workspace.switch', 'help.explain']);
+  assert.deepEqual(result.data.choiceSet, [
+    'repository.open.guide', 'workspace.prepare.guide',
+    'workspace.doctor.guide', 'workspace.explore.guide'
+  ]);
   assert.equal(result.data.counts, null);
   assert.equal(result.why[0].code, 'home.no-workspace-selected');
 });

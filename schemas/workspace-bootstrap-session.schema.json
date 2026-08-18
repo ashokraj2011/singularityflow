@@ -19,6 +19,7 @@
     "faults",
     "createdPaths",
     "attemptBudget",
+    "operationBudgets",
     "attempts",
     "integrity"
   ],
@@ -71,6 +72,17 @@
       "additionalProperties": false
     },
     "attempts": { "type": "array", "items": { "type": "object" } },
+    "operationBudgets": {
+      "type": "object",
+      "required": ["preflight", "materialize", "initialize"],
+      "properties": {
+        "preflight": { "$ref": "#/$defs/attemptBudget" },
+        "materialize": { "$ref": "#/$defs/attemptBudget" },
+        "initialize": { "$ref": "#/$defs/attemptBudget" }
+      },
+      "additionalProperties": false
+    },
+    "healers": { "type": "array", "items": { "type": "object" } },
     "workspaceJournal": { "type": ["object", "null"] },
     "result": { "type": ["object", "null"] },
     "fault": { "type": ["object", "null"] },
@@ -85,5 +97,16 @@
       "additionalProperties": false
     }
   },
-  "additionalProperties": true
+  "additionalProperties": true,
+  "$defs": {
+    "attemptBudget": {
+      "type": "object",
+      "required": ["used", "maximum"],
+      "properties": {
+        "used": { "type": "integer", "minimum": 0 },
+        "maximum": { "type": "integer", "minimum": 1 }
+      },
+      "additionalProperties": false
+    }
+  }
 }

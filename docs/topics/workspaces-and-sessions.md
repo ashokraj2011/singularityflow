@@ -10,11 +10,12 @@ commands:
   - workspace
   - session
   - choices
+  - push
 related:
   - developer-home
   - capability-management
   - repository-state-and-snapshots
-version: 2
+version: 3
 ---
 A workspace is the machine-local collection of capability repositories used for one delivery context. Sessions bind a contributor and selected work item without replacing governed repository state.
 
@@ -38,6 +39,12 @@ Use this topic when the current goal matches **workspaces and sessions**. Start 
 
 For a large delivery repository, configure its clone strategy while mapping the capability. `blobless` keeps the full checkout but fetches historical file bytes on demand. `blobless-sparse` also materializes only the declared cone directories; Singularity Flow automatically includes `singularity/` and `.github/agents/`. The default fallback is `refuse`: a server that ignores `filter=blob:none` cannot silently turn a planned partial clone into a full monorepo download. Choose the explicit `full` fallback only when that cost is acceptable.
 
+Before any workspace exists, use `sflow workspace prepare <REMOTE> --id <ID> --base <DIRECTORY>` to record and preflight a resumable setup. It creates no destination. Continue only with the returned `workspace bootstrap resume` command and exact workspace-ID confirmation. An interrupted setup remains addressable by its `bst_…` ID.
+
+To use a clone already on the machine, run `sflow workspace adopt <DIRECTORY> --id <ID> --base <DIRECTORY> --dry-run --json`. Review its canonical path, origin, branch, worktrees, submodules, SFlow configuration, changed paths, and preservation list. A dirty clone requires the exact content-aware hash returned by the preview in `--confirm-dirty`; changing file bytes invalidates it. Adoption creates a separate workspace shell and never fetches, checks out, stashes, commits, resets, cleans, or edits the clone remote.
+
+`sflow workspace doctor` checks local prerequisites and unfinished setup records without contacting remotes. `--network` explicitly enables remote checks. Enterprise proxy and CA diagnostics expose configuration source names only, never URLs, paths, or credential material. If pre-Story initialization creates a local commit whose push is interrupted, inspect it with `sflow push status` and retry with `sflow push retry <INTENT-ID>`; retry first reads the destination ref and never force-pushes.
+
 ## State and safety
 
 These commands can mutate governed or machine-local state: `workspace`, `session`. They remain subject to identity, authority, sequence, freshness, branch, worktree, and exact-confirmation checks. Signed handles are session-bound and are never shared between the shell, Copilot, and VS Code. Durable repository and workspace records are the shared source of truth.
@@ -48,6 +55,8 @@ These commands can mutate governed or machine-local state: `workspace`, `session
 - If a command refuses because state moved, refresh and use the newly rendered action instead of replaying an old handle or confirmation.
 - If publication or synchronization is pending, follow the exact recovery command in the refusal and verify with `sflow doctor`.
 - If a partial clone is refused, confirm the Git server supports upload-pack filtering or deliberately change the capability's clone fallback. Existing workspace clones are not silently rewritten.
+- If setup fails, continue the same bootstrap ID rather than creating a second destination. Use `sflow workspace doctor --network` only when a network probe is intended.
+- If a push outcome is unknown, use `sflow push status`; do not run a second ad-hoc push. SFlow recognizes an already-succeeded exact commit before retrying.
 - If application files are absent, compare the capability source roots with its sparse cone. Source scope controls modelling; sparse cone controls which bytes are materialized.
 - If a Copilot or VS Code action is unavailable, use the displayed CLI fallback; do not guess a command from the label.
 

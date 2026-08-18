@@ -190,6 +190,7 @@ export const ARGUMENT_SCHEMAS = Object.freeze([
   schema('work-start-v1', { intakeId: required('identifier') }),
   schema('work-draft-save-v1', { intakeId: required('identifier'), label: required('string') }),
   schema('workspace-switch-v1', { workspaceId: required('identifier') }),
+  schema('workspace-bootstrap-status-v1', { bootstrapId: required('identifier') }),
   schema('workspace-materialize-v1', {
     workspaceId: required('identifier'),
     targetPath: required('filesystem-path')

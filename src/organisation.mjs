@@ -40,6 +40,7 @@ import {
   remoteHasConfigurationBranch
 } from './configuration-branch.mjs';
 import { normalizeCloneStrategy } from './clone-strategy.mjs';
+import { createAndPushTransportIntent } from './transport-intents.mjs';
 
 const PORTFOLIO_PATH = 'singularity/portfolio.yml';
 const CAPABILITY_PROPOSAL_PREFIX = 'sflow/config-change/capability/';
@@ -1143,7 +1144,9 @@ function flatten(nodes, ancestors = []) {
  * definition; a lead that already has the branch is left alone. Neither is an error — re-running
  * this on an established workspace should do nothing and say so.
  */
-export async function initializeWorkspaceState(leadDirectory, { branch = 'state', push = true } = {}) {
+export async function initializeWorkspaceState(leadDirectory, {
+  branch = 'state', push = true, transport = {}
+} = {}) {
   const root = path.resolve(leadDirectory);
   if (!existsSync(path.join(root, '.git'))) {
     throw new SingularityFlowError(`${root} is not a Git repository, so it cannot carry the state branch.`);
@@ -1169,6 +1172,16 @@ export async function initializeWorkspaceState(leadDirectory, { branch = 'state'
   let governanceBranch = current;
   let governancePublished = true;
   let publicationError = null;
+  let publicationIntent = null;
+  const url = run('git', ['remote', 'get-url', 'origin'], { cwd: root, allowFailure: true }).stdout.trim();
+  const repositoryId = repositoryIdFromUrl(url || path.basename(root));
+  let resumeGovernancePublication = false;
+  if (!needsGovernanceProposal && current.startsWith('sflow/govern/')) {
+    const remoteCurrent = run('git', ['ls-remote', '--heads', 'origin', `refs/heads/${current}`], {
+      cwd: root, allowFailure: true
+    });
+    resumeGovernancePublication = remoteCurrent.status !== 0 || !remoteCurrent.stdout.trim();
+  }
   if (needsGovernanceProposal) {
     const applicationBranch = defaultBranchName(root);
     if (current !== applicationBranch) {
@@ -1176,9 +1189,6 @@ export async function initializeWorkspaceState(leadDirectory, { branch = 'state'
         `Cannot initialize repository governance from '${current}'. Switch to the application branch '${applicationBranch}' first.`
       );
     }
-    const repositoryId = repositoryIdFromUrl(
-      run('git', ['remote', 'get-url', 'origin'], { cwd: root, allowFailure: true }).stdout.trim() || path.basename(root)
-    );
     governanceBranch = `sflow/govern/${repositoryId}-${head(root).slice(0, 8)}`;
     const remoteReview = run('git', ['ls-remote', '--heads', 'origin', `refs/heads/${governanceBranch}`], {
       cwd: root, allowFailure: true
@@ -1202,7 +1212,6 @@ export async function initializeWorkspaceState(leadDirectory, { branch = 'state'
       await setDefaultBaseBranch(root, applicationBranch);
     }
     const actor = identity(root);
-    const url = run('git', ['remote', 'get-url', 'origin'], { cwd: root, allowFailure: true }).stdout.trim();
     if (!governed && url) {
       await describeRepository(root, repositoryIdFromUrl(url), url, applicationBranch, actor);
     }
@@ -1213,16 +1222,27 @@ export async function initializeWorkspaceState(leadDirectory, { branch = 'state'
         '-c', `user.email=${actor.email || 'unknown@invalid'}`,
         'commit', '-m', 'Govern this repository with Singularity Flow'], { cwd: root });
     }
-    if (push) {
-      const pushed = run('git', ['push', '-u', 'origin', `HEAD:refs/heads/${governanceBranch}`], {
-        cwd: root, allowFailure: true
-      });
-      governancePublished = pushed.status === 0;
-      publicationError = governancePublished ? null : (pushed.stderr || pushed.stdout).trim().split('\n')[0];
-      if (governancePublished && url) {
-        await ensureConfigurationBranch(url, { sourceBranch: governanceBranch });
-      }
-    }
+  }
+  if (push && (needsGovernanceProposal || resumeGovernancePublication)) {
+    publicationIntent = await createAndPushTransportIntent({
+      repositoryRoot: root,
+      remote: 'origin',
+      sourceCommit: head(root),
+      targetRef: `refs/heads/${governanceBranch}`,
+      expectedRemote: null,
+      scope: { operation: 'sflow.initialize', repositoryId, governanceBranch }
+    }, transport);
+    governancePublished = publicationIntent.status === 'succeeded';
+    publicationError = governancePublished
+      ? null
+      : `Transport ${publicationIntent.intentId} is ${publicationIntent.status}`;
+  }
+  if (push && governancePublished && url && governanceBranch.startsWith('sflow/govern/')) {
+    await ensureConfigurationBranch(url, {
+      sourceBranch: governanceBranch,
+      publisherRoot: root,
+      transport
+    });
   }
 
   const existed = run('git', ['ls-remote', '--heads', 'origin', branch], { cwd: root, allowFailure: true })
@@ -1242,6 +1262,12 @@ export async function initializeWorkspaceState(leadDirectory, { branch = 'state'
     reviewRequired: needsGovernanceProposal,
     governancePublished: push ? governancePublished : false,
     publicationError,
+    publicationIntent: publicationIntent ? {
+      intentId: publicationIntent.intentId,
+      status: publicationIntent.status,
+      sourceCommit: publicationIntent.sourceCommit,
+      targetRef: publicationIntent.targetRef
+    } : null,
     pinRepair: ledger?.pinRepair ?? null
   };
 }

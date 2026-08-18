@@ -81,6 +81,8 @@ Every public operation is classified before its implementation module is importe
 | prepare | mutation | never | — | — |
 | progress | read | never | — | — |
 | prompt-log | mutation | never | — | — |
+| push.retry | mutation | never | — | — |
+| push.status | read | never | — | — |
 | quickstart | mutation | never | — | — |
 | recommend | read | never | — | — |
 | recover | mutation | never | — | — |
@@ -176,6 +178,7 @@ Every public operation is classified before its implementation module is importe
 | wm.show-prompt | read | never | — | — |
 | wm.status | read | never | — | — |
 | workflow | mutation | never | — | — |
+| workspace.adopt | mutation | never | — | — |
 | workspace.archive | mutation | never | — | — |
 | workspace.archive-status | read | never | — | — |
 | workspace.bootstrap.abandon | mutation | never | — | — |

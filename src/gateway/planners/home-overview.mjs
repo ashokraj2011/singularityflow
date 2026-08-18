@@ -19,6 +19,7 @@ import { localChangesFor } from './work-continue.mjs';
 import { deriveHomeState } from '../home-work-projection.mjs';
 import { WORK_GROUP_ORDER, workRecords } from '../work-records.mjs';
 import { personalizationFromGitIdentity } from '../../personalization.mjs';
+import { branch as gitBranch } from '../../git.mjs';
 
 /** The stable choice set. Six at most, and never one this list does not contain `[INT:REQ-022]`. */
 /**
@@ -64,6 +65,13 @@ const FALLBACKS = Object.freeze({
 });
 
 function fallbackFor(id, label, slots) {
+  if (id === 'work.list' && slots.work) {
+    return {
+      label: `Review ${slots.work}`,
+      command: 'singularity-flow status',
+      skill: '/sf-status'
+    };
+  }
   const fallback = FALLBACKS[id];
   const workId = slots.work ?? '<WORK-ID>';
   return {
@@ -158,6 +166,7 @@ function homeRank(entry, { active, recovery, needsReconciliation }) {
 
 export function homeOverviewResult({
   workspace = null,
+  repository = null,
   actor = null,
   records = null,
   state = null,
@@ -176,7 +185,16 @@ export function homeOverviewResult({
   const groups = homeState.groups;
   const counts = homeState.counts;
   const active = homeState.activeWork;
+  const currentWork = homeState.currentWork;
   const decisions = homeState.needsYourDecision;
+  const attentionWork = (groups['waiting-on-you'] ?? [])[0] ?? null;
+
+  const projectWork = (work) => work ? {
+    kind: work.kind, id: work.id, title: work.title, phase: work.phase,
+    status: work.status ?? null, group: work.group ?? null,
+    repositoryId: work.repositoryId ?? work.repository ?? null,
+    branch: work.branch ?? null, nextAction: work.nextAction ?? null
+  } : null;
 
   const ordered = [...HOME_CHOICES];
   const why = [];
@@ -199,7 +217,8 @@ export function homeOverviewResult({
       /** No workspace means no Story, so there is no rail to draw and none is claimed. */
       /** No workspace means no repository was read, so the worktree is unread rather than clean. */
       data: {
-        rail: [], workspace: null, counts: null, localChanges: null,
+        rail: [], workspace: null, repository: null, counts: null, localChanges: null,
+        currentWork: null, activeWork: null, attentionWork: null,
         personalization: personalizationFromGitIdentity(actor),
         briefingAvailable: false, choiceSet: lead.map((entry) => entry.id)
       }
@@ -365,7 +384,15 @@ export function homeOverviewResult({
         }, { workId: leading.id, workKind: leading.kind });
       }
       if (entry.id === 'work.list') {
-        return choice(entry, index, 'home.work-summary', { active: String(counts.active), decisions: String(decisions) });
+        return choice(entry, index, 'home.work-summary', {
+          active: String(counts.active),
+          decisions: String(decisions),
+          ...(currentWork ? {
+            work: currentWork.id,
+            phase: currentWork.phase ?? 'none',
+            group: currentWork.group ?? 'active'
+          } : {})
+        });
       }
       return choice(entry, index, 'home.stable-choice', {}, {
         workId: active?.id ?? null, workKind: active?.kind ?? null
@@ -379,13 +406,23 @@ export function homeOverviewResult({
        * Empty when there is no active Story. An empty rail renders as nothing, where a rail of all
        * pending phases would draw a lifecycle for work nobody has started.
        */
-      rail: active?.rail ?? [],
+      rail: currentWork?.rail ?? [],
       personalization: personalizationFromGitIdentity(actor),
       workspace: { id: workspace.id, name: workspace.name ?? workspace.id },
-      counts,
-      activeWork: active ? {
-        kind: active.kind, id: active.id, title: active.title, phase: active.phase, nextAction: active.nextAction
+      repository: repository ? {
+        id: repository.id ?? null,
+        path: repository.path ?? null,
+        branch: repository.branch ?? null,
+        head: repository.head ?? null,
+        resolvedFrom: repository.resolvedFrom ?? null
       } : null,
+      counts,
+      /** The selected Story regardless of whether it is active, awaiting a decision, or blocked. */
+      currentWork: projectWork(currentWork),
+      /** Compatibility field: only work in the mechanical `active` group belongs here. */
+      activeWork: projectWork(active),
+      /** The first decision this actor is authorized to make, even when another Story is selected. */
+      attentionWork: projectWork(attentionWork),
       /**
        * Clean and unread are different answers, and `subject.revision` cannot hold both.
        *
@@ -444,10 +481,21 @@ export async function homeOverview({ subject = null, root = null, context = {} }
    */
   if (!root) return homeOverviewResult({ workspace: null, subject });
   const repositoryId = context.repositoryId ?? root;
+  let currentBranch = context.branch ?? null;
+  if (!currentBranch && (context.repositoryId || context.workspace)) {
+    try { currentBranch = gitBranch(root); } catch { /* The binding still reports the unreadable repository. */ }
+  }
   const otherWorkspaces = await countOtherWorkspaces(context);
   const records = context.records ?? await workRecords(root, { ...context, repositoryId });
   return homeOverviewResult({
     workspace: context.workspace ?? { id: root, name: context.workspaceName ?? root },
+    repository: context.repository ?? {
+      id: repositoryId,
+      path: root,
+      branch: currentBranch,
+      head: subject?.revision?.sourceCommit ?? null,
+      resolvedFrom: context.repositoryResolvedFrom ?? null
+    },
     actor: context.actor ?? null,
     records,
     current: {
@@ -455,9 +503,9 @@ export async function homeOverview({ subject = null, root = null, context = {} }
       workKind: context.workKind ?? null,
       storyId: context.storyId ?? null,
       repositoryId,
-      branch: context.branch ?? null,
+      branch: currentBranch,
       // A direct planner invocation with no selected branch is scoped to this repository.
-      repositoryScoped: !context.workId && !context.storyId && !context.branch
+      repositoryScoped: !context.workId && !context.storyId && !currentBranch
     },
     subject,
     otherWorkspaces,

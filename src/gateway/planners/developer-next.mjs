@@ -105,7 +105,8 @@ function secondary(action) {
 export async function developerNext(input = {}) {
   const { root = null, context = {} } = input;
   const home = await homeOverview(input);
-  const workId = home.data?.activeWork?.id
+  const workId = home.data?.currentWork?.id
+    ?? home.data?.activeWork?.id
     ?? home.next.find((entry) => entry.slots?.work)?.slots?.work
     ?? null;
   let guidance = null;
@@ -153,7 +154,8 @@ export async function developerNext(input = {}) {
         stateSource: 'durable-records',
         state: guidance?.state ?? (root ? 'unavailable' : 'no_workspace'),
         workId,
-        currentPhase: guidance?.currentPhase ?? home.data?.activeWork?.phase ?? null,
+        currentPhase: guidance?.currentPhase ?? home.data?.currentWork?.phase
+          ?? home.data?.activeWork?.phase ?? null,
         recommendation: recommendation.preview ? Object.freeze({
           label: recommendation.action?.label ?? labelFor(recommendation.preview),
           command: recommendation.preview.command,

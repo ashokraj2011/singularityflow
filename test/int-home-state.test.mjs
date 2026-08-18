@@ -3,7 +3,9 @@ import assert from 'node:assert/strict';
 import { readFile } from 'node:fs/promises';
 
 import { deriveHomeState } from '../src/gateway/home-work-projection.mjs';
+import { developerNext } from '../src/gateway/planners/developer-next.mjs';
 import { homeOverviewResult } from '../src/gateway/planners/home-overview.mjs';
+import { recommendationNarration } from '../src/commands/recommend.mjs';
 
 const emptyGroups = () => ({
   'recovery-required': [], 'waiting-on-you': [], active: [],
@@ -60,6 +62,64 @@ test('visible work on another branch is not advertised as current', () => {
   assert.ok(!result.next.some((entry) => entry.id === 'home:work.continue'));
 });
 
+test('a bound Story awaiting this actor\'s decision remains current and keeps repository context', async () => {
+  const waiting = {
+    ...started,
+    id: 'WRK-19',
+    title: 'Convert to SQL Server',
+    branch: 'WRK-19',
+    branches: ['WRK-19'],
+    phase: 'release',
+    phaseLabel: 'Release',
+    status: 'awaiting_approval',
+    group: 'waiting-on-you',
+    repositoryId: 'rulecompiler',
+    nextAction: { operation: 'review.packet' }
+  };
+  const records = recordsFor(waiting);
+  const repository = {
+    id: 'rulecompiler', path: '/workspace/repos/rulecompiler', branch: 'WRK-19',
+    head: '56097b70adee193f8200369caa9553be57ca96d9', resolvedFrom: 'active-workspace'
+  };
+  const context = {
+    workspace: { id: 'local--rule-comiler', name: 'rule-comiler' },
+    repository,
+    repositoryId: repository.id,
+    storyId: 'WRK-19',
+    branch: 'WRK-19',
+    records,
+    localChanges: { dirty: false, files: 0, paths: [] }
+  };
+
+  const home = homeOverviewResult({
+    workspace: context.workspace,
+    repository,
+    records,
+    current: context,
+    localChanges: context.localChanges,
+    otherWorkspaces: 3
+  });
+  assert.equal(home.data.activeWork, null, 'approval grouping remains mechanically distinct');
+  assert.equal(home.data.currentWork?.id, 'WRK-19');
+  assert.equal(home.data.currentWork?.group, 'waiting-on-you');
+  assert.equal(home.data.attentionWork?.id, 'WRK-19');
+  assert.deepEqual(home.data.repository, repository);
+  assert.equal(home.next[0].id, 'home:work.list');
+  assert.equal(home.next[0].slots.work, 'WRK-19');
+  assert.equal(home.next[0].fallback.skill, '/sf-status');
+  assert.equal(home.next[0].fallback.command, 'singularity-flow status');
+
+  const recommended = await developerNext({ root: process.cwd(), context });
+  assert.equal(recommended.data.guidance.workId, 'WRK-19');
+  assert.equal(recommended.data.currentWork?.id, 'WRK-19');
+  assert.notEqual(recommended.next[0].fallback?.skill, '/sf-session');
+
+  const narrated = recommendationNarration(recommended);
+  assert.equal(narrated.data.home.repository.id, 'rulecompiler');
+  assert.equal(narrated.data.home.currentWork.id, 'WRK-19');
+  assert.equal(narrated.data.home.attentionWork.id, 'WRK-19');
+});
+
 test('an empty home leads to intake and every route names its Copilot skill', () => {
   const records = { items: [], groups: emptyGroups() };
   const result = homeOverviewResult({
@@ -87,6 +147,9 @@ test('the Copilot home skill explicitly routes every home goal and refreshes aft
   }
   assert.match(skill, /automatic invocation is not mutation consent/);
   assert.match(skill, /data\.home\.personalization\.replyName/);
+  assert.match(skill, /data\.home\.repository/);
+  assert.match(skill, /data\.home\.currentWork/);
+  assert.match(skill, /never say the repository is unresolved/i);
   assert.match(skill, /Do not derive a name from email, login/);
   assert.match(skill, /After a selected flow completes, run `singularity-flow home`/);
 });

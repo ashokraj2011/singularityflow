@@ -108,6 +108,15 @@ async function planningPrompt(root, definition) {
 }
 
 function renderTemplate(template, replacements) {
+  const supported = new Set(Object.keys(replacements).map((token) => `{{${token}}}`));
+  const unsupported = [...new Set(template.match(/\{\{[^{}\r\n]+\}\}/g) ?? [])]
+    .filter((token) => !supported.has(token));
+  if (unsupported.length) {
+    throw new SingularityFlowError(
+      `Planning prompt contains unsupported token(s): ${unsupported.join(', ')}. `
+      + `Supported tokens: ${[...supported].join(', ')}.`
+    );
+  }
   let rendered = template;
   for (const [token, value] of Object.entries(replacements)) rendered = rendered.replaceAll(`{{${token}}}`, value ?? '');
   return rendered.endsWith('\n') ? rendered : `${rendered}\n`;

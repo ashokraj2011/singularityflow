@@ -2257,6 +2257,18 @@ Preferred direct skills use the collision-safe `sf-` prefix. The equivalent
 
 If commands do not appear, run `singularity-flow plugin install`, close existing Copilot sessions, start a new session, and check `copilot plugins list --kind skill`.
 
+## CLI to Copilot skill mapping
+
+Use this crosswalk when you know the terminal command but want the conversational Copilot route.
+The first skill is the primary route; additional skills are specialised routes for subcommands in
+that command family. Journey-oriented mappings are intentional: for example,
+`singularity-flow prepare convergence` can use `/sf-phase` for literal generic phase authoring;
+use `/sf-converge` for the recommended full spec-driven convergence journey. The `prepare` row
+therefore lists both the generic route and the phase-specific journey skills.
+The table is generated from the checked command-skill catalog when Help is loaded.
+
+<!-- command-skill-map -->
+
 ## Installation and company registries
 
 From a clean clone, the supported local update/install workflow is:
@@ -2501,7 +2513,7 @@ singularity-flow converge [WORK-ID] [--json]
 singularity-flow verify [WORK-ID] [--json]
 ```
 
-`spec-driven-standard` Stories are driven by five verbs. Each resolves the subject, phase, generation, pending publication and approval state, then names the registered kernel operations that are legal before the next checkpoint and stops there. A checkpoint is any boundary needing model generation, consent, human review, approval, external completion, or recovery — a verb never crosses one. Every response reports the milestone it is working toward, the checkpoint it stopped at, and the underlying operations, so the short vocabulary never hides which governed operation ran. A milestone counts only when workflow state proves it. Pending publication is routed before any new work. The advanced phase commands remain available and behave identically; the verbs orchestrate them rather than replacing them. In Copilot use `/sflow-specify`, `/sflow-plan`, `/sflow-implement`, `/sflow-converge`, `/sflow-verify`.
+`spec-driven-standard` Stories are driven by five verbs. Each resolves the subject, phase, generation, pending publication and approval state, then names the registered kernel operations that are legal before the next checkpoint and stops there. A checkpoint is any boundary needing model generation, consent, human review, approval, external completion, or recovery — a verb never crosses one. Every response reports the milestone it is working toward, the checkpoint it stopped at, and the underlying operations, so the short vocabulary never hides which governed operation ran. A milestone counts only when workflow state proves it. Pending publication is routed before any new work. The advanced phase commands remain available and behave identically; the verbs orchestrate them rather than replacing them. In Copilot use `/sf-specify`, `/sf-plan`, `/sf-implement`, `/sf-converge`, `/sf-verify`.
 
 ### Documentation
 

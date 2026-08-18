@@ -650,6 +650,7 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
     {
       kind: 'group', id: 'help:reference', label: 'Reference', icon: 'references', children: [
         { kind: 'action', id: 'help:copilot-commands', label: 'Copilot /sf-* commands', description: 'skills', icon: 'sparkle', runCommand: 'singularityFlow.openHelp' },
+        { kind: 'action', id: 'help:cli-to-copilot-skill-mapping', label: 'CLI ↔ Copilot mapping', description: 'every command and skill', icon: 'arrow-swap', runCommand: 'singularityFlow.openHelp' },
         { kind: 'action', id: 'help:cli-command-reference', label: 'CLI command reference', description: 'all commands', icon: 'terminal', runCommand: 'singularityFlow.openHelp' },
         { kind: 'action', id: 'help:configuring-workflows', label: 'Configuration reference', description: 'workflow and artifacts', icon: 'settings-gear', runCommand: 'singularityFlow.openHelp' },
         { kind: 'action', id: 'help:troubleshooting', label: 'Troubleshooting', description: 'doctor and recovery', icon: 'tools', runCommand: 'singularityFlow.openHelp' }

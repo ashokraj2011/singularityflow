@@ -15,6 +15,7 @@
  */
 import { HELP } from './help-text.mjs';
 import { canonicalCommand, commandDefinition, COMMAND_REGISTRY } from './command-registry.mjs';
+import { skillsForCommand } from './command-skills.mjs';
 
 const BIN_ALIASES = new Map([
   ['about', ['sflow-about']],
@@ -536,6 +537,14 @@ export function renderCommandHelp(name) {
       : [`$ ${example}`, '']))));
   }
   if (aliases.length) out.push(...section('ALIASES', [aliases.join(', ')]));
+  const skills = skillsForCommand(command);
+  if (skills.length) {
+    out.push(...section('COPILOT', [
+      `Primary: /${skills[0]}`,
+      ...(skills.length > 1 ? [`Specialized routes: ${skills.slice(1).map((skill) => `/${skill}`).join(', ')}`] : []),
+      'Invoke the skill in Copilot; use a SYNOPSIS form in a terminal.'
+    ]));
+  }
   const related = page?.seeAlso ?? [];
   if (related.length) {
     out.push(...section('SEE ALSO', [related.map((item) => `singularity-flow ${item}`).join(', ')]));

@@ -18,7 +18,9 @@ test('CLI lifecycle commands map to installed direct Copilot skills', () => {
   assert.equal(copilotSkillForCommand('singularity-flow submit intake'), '/sf-submit');
   assert.equal(copilotSkillForCommand('singularity-flow epic create-stories'), '/sf-epic-publish');
   assert.equal(copilotSkillForCommand('singularity-flow initiative evidence add check-1'), '/sf-initiative-evidence');
-  assert.equal(copilotSkillForCommand('singularity-flow gate --terminal'), '/sf-next');
+  assert.equal(copilotSkillForCommand('singularity-flow gate --terminal'), '/sf-gate');
+  assert.equal(copilotSkillForCommand('singularity-flow configuration show'), '/sf-configuration');
+  assert.equal(copilotSkillForCommand('singularity-flow not-a-command'), '/sf-next');
 });
 
 test('rendered action guidance leads with the command, then the Copilot skill', () => {

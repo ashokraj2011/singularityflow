@@ -62,6 +62,22 @@ test('generative requirements retains interactive clarification and governed pub
   assert.match(content, /reproduce every published text document in full/);
 });
 
+test('phase handoffs always show the Copilot action and terminal equivalent', async () => {
+  const phaseSkills = [
+    'sflow-phase', 'sflow-requirements', 'sflow-design', 'sflow-implement',
+    'sflow-review', 'sflow-release', 'sflow-verify', 'sflow-next',
+    'sflow-specify', 'sflow-plan', 'sflow-converge'
+  ];
+  for (const name of phaseSkills) {
+    const content = await readFile(path.join(root, 'plugin', 'skills', name, 'SKILL.md'), 'utf8');
+    assert.match(content, /Next in Copilot: \/sf-/, `${name} must lead its handoff with a Copilot command`);
+    assert.match(content, /Terminal equivalent: singularity-flow /, `${name} must include the terminal equivalent`);
+  }
+  const verify = await readFile(path.join(root, 'plugin', 'skills', 'sflow-verify', 'SKILL.md'), 'utf8');
+  assert.match(verify, /Next in Copilot: \/sf-submit verification/);
+  assert.match(verify, /Terminal equivalent: singularity-flow submit verification/);
+});
+
 test('approval remains explicit-only and displays the full governed artifact', async () => {
   const content = await readFile(path.join(root, 'plugin', 'skills', 'sflow-approve', 'SKILL.md'), 'utf8');
   assert.match(content, /disable-model-invocation:\s*true/);

@@ -17,4 +17,4 @@ argument-hint: "[target environment or release window]"
 5. Include preconditions, deployment steps, migrations, flags, configuration, validation, metrics, alerts, success criteria, rollback triggers and steps, communication, ownership, and support escalation.
 6. Remove placeholders and run `singularity-flow phase publish release --authored governed-agent --channel copilot-host`.
 7. Run `singularity-flow phase show release --json`, then reproduce every published text document in full in the visible assistant response between `--- BEGIN <path> ---` and `--- END <path> ---`, with its ID, kind, byte count, and hash. A collapsible Shell/tool block does not count. Never say “shown above.” Never replace it with a summary. For binary documents, show the absolute path, metadata, and open instruction.
-8. Do not submit or approve automatically.
+8. Do not submit or approve automatically. End with `Next in Copilot: /sf-submit release`, followed by `Terminal equivalent: singularity-flow submit release`.

@@ -35,8 +35,14 @@ export interface CapabilityDetail {
   kind: string;
   /** Ancestors from the root down, which is the chain policy folds along. */
   ancestors: string[];
+  /** The direct parent. Children are derived from this relationship by the engine. */
+  parent: { id: string; name: string } | null;
+  /** Direct children only; descendants remain available through the tree. */
+  children: Array<{ id: string; name: string; kind: string; repository: string | null }>;
   delivery: boolean;
   repository: string | null;
+  sourceRoots: string[];
+  sharedRoots: string[];
   metadata: Record<string, string>;
   jira: { projectKey?: string; board?: string; component?: string } | null;
   teams: string[];
@@ -127,8 +133,23 @@ export function capabilityDetail(tree: CapabilityNode[], capabilityId: string): 
     name: row.name,
     kind: row.kind,
     ancestors: row.ancestors,
+    parent: row.ancestors.length
+      ? (() => {
+        const id = row.ancestors.at(-1) as string;
+        const parent = rows.find((entry) => entry.id === id);
+        return { id, name: parent?.name ?? id };
+      })()
+      : null,
+    children: (row.children ?? []).map((child) => ({
+      id: child.id,
+      name: child.name,
+      kind: child.kind,
+      repository: child.repository ?? null
+    })),
     delivery: row.kind === 'delivery',
     repository: row.repository ?? null,
+    sourceRoots: row.sourceRoots ?? [],
+    sharedRoots: row.sharedRoots ?? [],
     metadata: row.metadata ?? {},
     jira: row.jira ?? null,
     teams: row.teams ?? [],
@@ -141,6 +162,7 @@ export function capabilityDetail(tree: CapabilityNode[], capabilityId: string): 
 /** Which flag carries which field. The panel's field names, the CLI's option names. */
 const EDIT_FLAGS: Array<[string, string]> = [
   ['name', '--name'], ['kind', '--kind'], ['parent', '--parent'], ['repository', '--repository'],
+  ['sourceRoots', '--source-roots'], ['sharedRoots', '--shared-roots'],
   ['jira.projectKey', '--jira-project'], ['jira.board', '--jira-board'], ['teams', '--teams']
 ];
 
@@ -153,10 +175,16 @@ const EDIT_FLAGS: Array<[string, string]> = [
 export function capabilityArgv(
   mode: 'add' | 'set' | 'remove',
   capabilityId: string,
-  edits: Record<string, string> = {}
+  edits: Record<string, string> = {},
+  { reparentChildrenTo = undefined }: { reparentChildrenTo?: string | null } = {}
 ): string[] {
   const argv = ['capability', mode, capabilityId];
-  if (mode === 'remove') return argv;
+  if (mode === 'remove') {
+    if (reparentChildrenTo !== undefined) {
+      argv.push('--reparent-children-to', reparentChildrenTo ?? '');
+    }
+    return argv;
+  }
   for (const [field, flag] of EDIT_FLAGS) {
     if (edits[field] === undefined) continue;
     argv.push(flag, edits[field].trim());
@@ -191,9 +219,10 @@ export function capabilityProposalArgv(
   mode: 'add' | 'set' | 'remove',
   capabilityId: string,
   lead: string,
-  edits: Record<string, string> = {}
+  edits: Record<string, string> = {},
+  options: { reparentChildrenTo?: string | null } = {}
 ): string[] {
-  const local = capabilityArgv(mode, capabilityId, edits);
+  const local = capabilityArgv(mode, capabilityId, edits, options);
   return ['capability', 'edit', capabilityId, '--lead', lead, '--mode', mode, ...local.slice(3), '--json'];
 }
 

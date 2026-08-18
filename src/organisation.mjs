@@ -39,6 +39,7 @@ import {
   CONFIGURATION_BRANCH, configurationBranchHead, ensureConfigurationBranch, isConfigurationAsset,
   remoteHasConfigurationBranch
 } from './configuration-branch.mjs';
+import { normalizeCloneStrategy } from './clone-strategy.mjs';
 
 const PORTFOLIO_PATH = 'singularity/portfolio.yml';
 const CAPABILITY_PROPOSAL_PREFIX = 'sflow/config-change/capability/';
@@ -97,14 +98,18 @@ async function withCapabilityProposalCheckout(url, branch, operation) {
   const proposalBranch = capabilityProposalBranch(branch);
   const scratch = await mkdtemp(path.join(os.tmpdir(), 'sflow-capability-review-'));
   try {
-    const cloned = run('git', ['clone', '--quiet', '--branch', CONFIGURATION_BRANCH, remote, scratch], {
-      allowFailure: true
-    });
+    // `--branch` alone still negotiates every remote branch. On a monorepo that made a capability
+    // approval transfer application history it never reads. The authority branch is orphaned, so
+    // this branch plus the exact proposal ref fetched below is the complete review input.
+    const cloned = run('git', [
+      'clone', '--quiet', '--no-local', '--no-tags', '--single-branch', '--filter=blob:none',
+      '--branch', CONFIGURATION_BRANCH, remote, scratch
+    ], { allowFailure: true });
     if (cloned.status !== 0) {
       throw new SingularityFlowError(
         `Cannot read '${remote}': ${(cloned.stderr || cloned.stdout).trim().split('\n')[0]}`);
     }
-    const fetched = run('git', ['fetch', '--quiet', 'origin',
+    const fetched = run('git', ['fetch', '--quiet', '--no-tags', '--filter=blob:none', 'origin',
       `refs/heads/${proposalBranch}:refs/remotes/origin/${proposalBranch}`], {
       cwd: scratch, allowFailure: true
     });
@@ -200,8 +205,10 @@ async function withLeadCheckout(url, message, reviewBranchPrefix, mutate) {
   const baseBranch = CONFIGURATION_BRANCH;
   const scratch = await mkdtemp(path.join(os.tmpdir(), 'sflow-lead-'));
   try {
-    const cloned = run('git', ['clone', '--quiet', '--depth', '1', '--branch', baseBranch, remote, scratch],
-      { allowFailure: true });
+    const cloned = run('git', [
+      'clone', '--quiet', '--no-local', '--no-tags', '--single-branch', '--depth', '1',
+      '--filter=blob:none', '--branch', baseBranch, remote, scratch
+    ], { allowFailure: true });
     if (cloned.status !== 0) {
       throw new SingularityFlowError(
         `Cannot read '${remote}': ${(cloned.stderr || cloned.stdout).trim().split('\n')[0]}`);
@@ -381,8 +388,10 @@ export async function readOrganisation(url, { refresh = false } = {}) {
   }
   const scratch = await mkdtemp(path.join(os.tmpdir(), 'sflow-read-'));
   try {
-    const cloned = run('git', ['clone', '--quiet', '--depth', '1', '--no-checkout',
-      '--branch', branch, remote, scratch], { allowFailure: true });
+    const cloned = run('git', [
+      'clone', '--quiet', '--no-local', '--no-tags', '--single-branch', '--depth', '1',
+      '--filter=blob:none', '--no-checkout', '--branch', branch, remote, scratch
+    ], { allowFailure: true });
     if (cloned.status !== 0) {
       throw new SingularityFlowError(
         `Cannot read '${remote}': ${(cloned.stderr || cloned.stdout).trim().split('\n')[0]}`);
@@ -455,10 +464,14 @@ export async function mapCapability(leadUrl, {
   metadata = {},
   documentation = {},
   resources = {},
+  sourceRoots = [],
+  sharedRoots = [],
+  clone = { mode: 'full', sparseCone: [], fallback: 'refuse' },
   jiraProject = null,
   teams = []
 } = {}) {
   if (!capabilityId) throw new SingularityFlowError('A capability identifier is required.');
+  const cloneStrategy = normalizeCloneStrategy(clone, `Capability '${capabilityId}' clone strategy`);
 
   return withLeadCheckout(leadUrl, `Map capability ${capabilityId}`,
     `capability/map-${capabilityId}`, async (root) => {
@@ -495,7 +508,8 @@ export async function mapCapability(leadUrl, {
         const branch = remoteDefaultBranch(
           url, run('git', ['ls-remote', '--symref', url, 'HEAD'], { allowFailure: true }).stdout);
         portfolio.setIn(['repositories', id], portfolio.createNode({
-          url, defaultBranch: branch, required: true
+          url, defaultBranch: branch, required: true,
+          ...(cloneStrategy.mode !== 'full' ? { clone: cloneStrategy } : {})
         }));
       }
       await writeFile(file, portfolio.toString(YAML_OUTPUT), 'utf8');
@@ -533,6 +547,8 @@ export async function mapCapability(leadUrl, {
     if (Object.keys(metadata).length) set('metadata', metadata);
     if (Object.keys(documentation).length) set('documentation', documentation);
     if (Object.keys(resources).length) set('resources', resources);
+    if (sourceRoots.length) set('sourceRoots', sourceRoots);
+    if (sharedRoots.length) set('sharedRoots', sharedRoots);
     if (jiraProject) set('jira.projectKey', jiraProject);
     if (teams.length) set('teams', teams);
 
@@ -602,8 +618,10 @@ export async function publishOrganisationCapabilityMap(url) {
   }
   const scratch = await mkdtemp(path.join(os.tmpdir(), 'sflow-publish-map-'));
   try {
-    const cloned = run('git', ['clone', '--quiet', '--depth', '1', '--branch', baseBranch,
-      remote, scratch], { allowFailure: true });
+    const cloned = run('git', [
+      'clone', '--quiet', '--no-local', '--no-tags', '--single-branch', '--depth', '1',
+      '--filter=blob:none', '--branch', baseBranch, remote, scratch
+    ], { allowFailure: true });
     if (cloned.status !== 0) {
       throw new SingularityFlowError(
         `Cannot read '${remote}': ${(cloned.stderr || cloned.stdout).trim().split('\n')[0]}`);
@@ -836,7 +854,9 @@ export async function activateCapabilityProposal(url, branch, {
  * add a second repository is exactly why maps go stale: the cost of the edit exceeds the cost of
  * leaving it wrong.
  */
-export async function editCapabilityInOrganisation(leadUrl, capabilityId, changes = {}, { mode = 'set' } = {}) {
+export async function editCapabilityInOrganisation(leadUrl, capabilityId, changes = {}, {
+  mode = 'set', reparentChildrenTo = undefined
+} = {}) {
   if (!capabilityId) throw new SingularityFlowError('A capability identifier is required.');
   if (!['add', 'set', 'remove'].includes(mode)) {
     throw new SingularityFlowError("Capability proposal mode must be 'add', 'set', or 'remove'.");
@@ -854,9 +874,12 @@ export async function editCapabilityInOrganisation(leadUrl, capabilityId, change
       : null;
     // editCapability validates before it writes, so a refused edit leaves the map exactly as it
     // was — which matters more here than usual, because this checkout is about to be pushed.
-    const result = await editCapability(root, capabilityId, changes, { mode, portfolio });
+    const result = await editCapability(root, capabilityId, changes, {
+      mode, portfolio, reparentChildrenTo
+    });
     return {
       capabilityId, changed: result?.changed ?? true,
+      reparentedChildren: result.reparentedChildren ?? [],
       state: { published: false, reason: 'awaiting review and merge' }
     };
   });
@@ -1087,6 +1110,7 @@ export function resolveWorkspacePlan(organisation, { capabilities = [], leadCapa
         defaultBranch: declared.defaultBranch ?? 'main',
         required: true,
         path: `repos/${id}`,
+        clone: declared.clone ?? { mode: 'full' },
         capabilities: [...new Set([...(repositories[id]?.capabilities ?? []), row.id])].sort()
       };
     }

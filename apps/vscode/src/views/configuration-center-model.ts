@@ -64,6 +64,8 @@ export interface McpServerView {
 }
 export interface WorldModelSettingsView {
   views: string[];
+  sourceRoots: string[];
+  sharedRoots: string[];
   outputDir: string;
   promptSource: string;
   stateFetchTimeoutMs: number;
@@ -300,6 +302,8 @@ export function configurationCenterView(snapshot: RepositorySnapshot, profile: P
     modelRouting: snapshot.modelRouting ?? null,
     worldModel: {
       views: worldModel.views ?? ['business', 'architecture', 'development', 'testing', 'release', 'operations', 'security'],
+      sourceRoots: Array.isArray(worldModel.sourceRoots) ? worldModel.sourceRoots : [],
+      sharedRoots: Array.isArray(worldModel.sharedRoots) ? worldModel.sharedRoots : [],
       outputDir: worldModel.outputDir ?? 'singularity/world-model',
       promptSource: worldModel.promptSource ?? 'singularity/prompts/worldmodel-builder.md',
       stateFetchTimeoutMs: worldModel.stateFetchTimeoutMs ?? 10_000,
@@ -333,6 +337,16 @@ export function validateWorldModelDraft(draft: WorldModelDraft): string[] {
   if (!draft.views.length) errors.push('Declare at least one world-model view.');
   if (new Set(draft.views).size !== draft.views.length) errors.push('World-model views must not contain duplicates.');
   draft.views.forEach((view) => { if (!ID.test(view)) errors.push(`World-model view '${view}' must be lower-case kebab-case.`); });
+  for (const [label, roots] of [
+    ['Source roots', draft.sourceRoots ?? []], ['Shared roots', draft.sharedRoots ?? []]
+  ] as const) {
+    if (new Set(roots).size !== roots.length) errors.push(`${label} must not contain duplicates.`);
+    roots.forEach((root) => {
+      if (!root.trim() || root.trim() === '.' || root.includes('\\') || unsafeRelative(root.trim()) || /[*?\[\]{}]/.test(root)) {
+        errors.push(`${label} entry '${root}' must be a repository-relative directory without '..' or glob characters.`);
+      }
+    });
+  }
   if (!draft.outputDir.trim() || unsafeRelative(draft.outputDir.trim())) errors.push('Output directory must be a repository-relative path.');
   if (!draft.promptSource.trim() || (draft.promptSource.trim() !== 'builtin' && unsafeRelative(draft.promptSource.trim()))) errors.push("Prompt source must be 'builtin' or a repository-relative path.");
   if (!Number.isInteger(draft.stateFetchTimeoutMs) || draft.stateFetchTimeoutMs < 250 || draft.stateFetchTimeoutMs > 60_000) errors.push('State fetch timeout must be from 250 through 60000 milliseconds.');
@@ -430,6 +444,11 @@ export function updateWorldModelYaml(text: string, draft: WorldModelDraft): stri
   const errors = validateWorldModelDraft(draft);
   if (errors.length) throw new Error(errors.join(' '));
   parsed.setIn(['worldModel', 'views'], draft.views);
+  // Callers from before scoped world models omit these fields. Preserve the existing YAML in that
+  // case; the current form always supplies arrays, including [] when the user deliberately selects
+  // the whole repository.
+  if (Array.isArray(draft.sourceRoots)) parsed.setIn(['worldModel', 'sourceRoots'], draft.sourceRoots);
+  if (Array.isArray(draft.sharedRoots)) parsed.setIn(['worldModel', 'sharedRoots'], draft.sharedRoots);
   parsed.setIn(['worldModel', 'outputDir'], draft.outputDir.trim());
   parsed.setIn(['worldModel', 'promptSource'], draft.promptSource.trim());
   parsed.setIn(['worldModel', 'stateFetchTimeoutMs'], draft.stateFetchTimeoutMs);

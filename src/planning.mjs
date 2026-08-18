@@ -52,6 +52,7 @@ import {
   writeText
 } from './util.mjs';
 import { PACKAGE_ROOT } from './package-root.mjs';
+import { withWorldModelSourceScope } from './source-scope.mjs';
 
 const SESSION_ID = /^[a-zA-Z0-9][a-zA-Z0-9._-]{0,127}$/;
 const INITIATIVE_METADATA = /^<!-- singularity-flow:initiative-metadata[\s\S]*?-->/;
@@ -354,27 +355,31 @@ async function initiativePlanningParts(root, definition, { id, phaseId, agent, t
 }
 
 async function workItemWorldModel(root, definition, workflow, phase, agent) {
+  const scopedDefinition = withWorldModelSourceScope(
+    definition,
+    workflow.resolution?.worldModelSourceScope ?? workflow.resolution?.capability?.sourceScope ?? null
+  );
   const mode = workflow.resolution?.worldModelGrounding ?? groundingMode(definition);
   if (mode === 'off') return { text: '', files: [], warnings: [], record: { mode, available: false } };
   const plan = resolveGroundingPlan({
     phase: phase.id,
     phaseViews: phase.worldModel?.views ?? [],
-    agentViews: definition.agents[agent]?.worldModelViews ?? [],
-    agentViewMode: definition.worldModel?.agentViews ?? 'fallback',
+    agentViews: scopedDefinition.agents[agent]?.worldModelViews ?? [],
+    agentViewMode: scopedDefinition.worldModel?.agentViews ?? 'fallback',
     depth: phase.worldModel?.depth ?? 'standard',
     evidence: phase.worldModel?.evidence ?? false,
-    context: definition.worldModel?.context ?? {}
+    context: scopedDefinition.worldModel?.context ?? {}
   });
   const requiredViews = plan.views.map((entry) => entry.view);
   const config = {
-    definition,
-    outputDir: definition.worldModel?.outputDir ?? 'singularity/world-model',
-    materialization: materializationPolicy(definition),
-    stateBranch: definition.ledger?.branch ?? null,
-    remote: definition.git?.remote ?? 'origin',
+    definition: scopedDefinition,
+    outputDir: scopedDefinition.worldModel?.outputDir ?? 'singularity/world-model',
+    materialization: materializationPolicy(scopedDefinition),
+    stateBranch: scopedDefinition.ledger?.branch ?? null,
+    remote: scopedDefinition.git?.remote ?? 'origin',
     grounding: mode,
-    staleness: definition.worldModel?.staleness ?? 'warn',
-    context: definition.worldModel?.context ?? { includeDomains: 'matched', includeEvidence: phase.worldModel?.evidence ?? false },
+    staleness: scopedDefinition.worldModel?.staleness ?? 'warn',
+    context: scopedDefinition.worldModel?.context ?? { includeDomains: 'matched', includeEvidence: phase.worldModel?.evidence ?? false },
     phases: { [phase.id]: { views: requiredViews, depth: phase.worldModel?.depth ?? 'standard', evidence: phase.worldModel?.evidence ?? false } }
   };
   try {

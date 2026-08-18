@@ -173,6 +173,14 @@
             "type": "string",
             "minLength": 1
           },
+          "sourceRoots": {
+            "description": "Repository-relative source directories for this capability's lead-repository world model. The nearest explicit descendant scope wins.",
+            "$ref": "#/$defs/sourceRoots"
+          },
+          "sharedRoots": {
+            "description": "Repository-relative shared directories included with this capability and inherited additively from ancestors.",
+            "$ref": "#/$defs/sourceRoots"
+          },
           "metadata": {
             "description": "Organisation-defined key/value attributes such as application ID, cost centre, owner code, or service tier.",
             "type": "object",
@@ -242,6 +250,15 @@
       "items": {
         "type": "string",
         "minLength": 1
+      }
+    },
+    "sourceRoots": {
+      "type": "array",
+      "uniqueItems": true,
+      "items": {
+        "type": "string",
+        "minLength": 1,
+        "pattern": "^(?!/)(?!.*\\\\)(?!.*(?:^|/)\\.\\.(?:/|$))(?!.*[*?\\[\\]{}]).+$"
       }
     }
   },

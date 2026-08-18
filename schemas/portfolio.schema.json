@@ -254,6 +254,19 @@
           "required": {
             "type": "boolean"
           },
+          "clone": {
+            "type": "object",
+            "properties": {
+              "mode": { "enum": ["full", "blobless", "blobless-sparse"], "default": "full" },
+              "filter": { "enum": ["blob:none"] },
+              "sparseCone": {
+                "type": "array", "uniqueItems": true,
+                "items": { "type": "string", "minLength": 1, "pattern": "^(?!/)(?!.*\\\\)(?!.*(?:^|/)\\.\\.(?:/|$))(?!.*[*?\\[\\]{}]).+$" }
+              },
+              "fallback": { "enum": ["refuse", "full"], "default": "refuse" }
+            },
+            "additionalProperties": false
+          },
           "jira": {
             "type": "object",
             "properties": {

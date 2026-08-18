@@ -24,9 +24,11 @@ function shortName(branch: string): string {
 }
 
 function proposalsHtml(entries: ProposalEntry[], leads: number, failures: LeadFailure[],
-  busy: boolean): string {
+  busy: boolean, includeMerged: boolean): string {
   const ready = entries.filter((entry) => entry.valid && !entry.merged).length;
   const blocked = entries.filter((entry) => !entry.valid).length;
+  const merged = entries.filter((entry) => entry.merged).length;
+  const pending = entries.length - merged;
   const grouped = new Map<string, Array<{ entry: ProposalEntry; index: number }>>();
   entries.forEach((entry, index) => {
     const rows = grouped.get(entry.lead) ?? [];
@@ -41,26 +43,27 @@ function proposalsHtml(entries: ProposalEntry[], leads: number, failures: LeadFa
       aria-label="Review capability proposal ${escape(shortName(entry.branch))}">
       <span>${icon(entry.valid ? 'merge' : 'warning')}</span>
       <strong>${escape(shortName(entry.branch))}</strong>
-      <small>${escape(entry.proposalCommit.slice(0, 12))} · ${entry.changedFiles.length} changed file${entry.changedFiles.length === 1 ? '' : 's'} · ${entry.valid ? 'ready for exact review' : 'blocked by validation'}</small>
+      <small>${escape(entry.proposalCommit.slice(0, 12))} · ${entry.changedFiles.length} changed file${entry.changedFiles.length === 1 ? '' : 's'} · ${entry.merged ? 'merged history' : entry.valid ? 'ready for exact review' : 'blocked by validation'}</small>
     </button>`).join('')}</div>
   </section>`).join('');
   return `${brandLockup()}
     <header class="inbox-header">
       <p class="eyebrow">Governed configuration review</p>
       <div class="section-heading"><h1>${icon('merge', { size: 24 })} Capability proposals</h1>
+        <button class="secondary" data-action="toggle-history" ${busy ? 'disabled' : ''}>${icon('git')} ${includeMerged ? 'Hide merged history' : 'Show merged history'}</button>
         <button class="secondary" data-action="refresh" ${busy ? 'disabled' : ''}>${icon('refresh')} ${busy ? 'Refreshing…' : 'Refresh'}</button></div>
-      <p class="meta">Review proposed capability-map changes across registered lead repositories. Nothing is merged from this list.</p>
+      <p class="meta">Review proposed capability-map changes across registered lead repositories, or inspect earlier merged revisions. Nothing is merged from this list.</p>
     </header>
     <div class="summary-grid">
       <div class="summary-card"><strong>${leads}</strong><span>Lead repositories</span></div>
-      <div class="summary-card important"><strong>${entries.length}</strong><span>Pending proposals</span></div>
+      <div class="summary-card important"><strong>${pending}</strong><span>Pending proposals</span></div>
       <div class="summary-card"><strong>${ready}</strong><span>Ready for review</span></div>
-      <div class="summary-card${blocked ? ' governance-warning' : ''}"><strong>${blocked}</strong><span>Blocked</span></div>
+      <div class="summary-card${blocked ? ' governance-warning' : ''}"><strong>${includeMerged ? merged : blocked}</strong><span>${includeMerged ? 'Merged history' : 'Blocked'}</span></div>
     </div>
     <div class="notice"><p>Opening a proposal shows its exact commit, changed files, and complete diff. Activation uses a normal non-force push to <code>sflow/config</code>; the application default branch is never changed.</p></div>
     ${failures.map((failure) => `<div class="notice error"><p><strong>${escape(failure.lead)}</strong>: ${escape(failure.message)}</p></div>`).join('')}
     ${busy && !entries.length ? `<div class="empty">${icon('wait')} Reading registered lead repositories and pending proposals…</div>`
-      : groups || `<div class="empty"><h2>${icon('ok')} No proposals waiting</h2><p>No capability-map proposals require review. You can retry the capability change that brought you here.</p></div>`}`;
+      : groups || `<div class="empty"><h2>${icon('ok')} ${includeMerged ? 'No proposal history found' : 'No proposals waiting'}</h2><p>${includeMerged ? 'No retained capability proposal branches are available to inspect.' : 'No capability-map proposals require review. You can retry the capability change that brought you here.'}</p></div>`}`;
 }
 
 const SCRIPT = `
@@ -81,6 +84,7 @@ export class CapabilityProposalsPanel {
   private leadCount = 0;
   private failures: LeadFailure[] = [];
   private busy = false;
+  private includeMerged = false;
 
   private constructor(context: vscode.ExtensionContext, private readonly run: Run,
     private readonly onReview: (lead: string, branch: string) => void) {
@@ -97,6 +101,10 @@ export class CapabilityProposalsPanel {
      */
     const router = registerMessageRouter('singularityFlow.capabilityProposals', {
       refresh: () => { void this.load(); },
+      'toggle-history': () => {
+        this.includeMerged = !this.includeMerged;
+        void this.load();
+      },
       review: (message) => {
         const index = integerField(message, 'index');
         const entry = index === null ? null : this.entries[index];
@@ -129,7 +137,7 @@ export class CapabilityProposalsPanel {
   private render(): void {
     const token = nonce();
     this.panel.webview.html = page('Capability proposals',
-      proposalsHtml(this.entries, this.leadCount, this.failures, this.busy),
+      proposalsHtml(this.entries, this.leadCount, this.failures, this.busy, this.includeMerged),
       contentSecurityPolicy(this.panel.webview, token), token, SCRIPT);
   }
 
@@ -146,13 +154,16 @@ export class CapabilityProposalsPanel {
       ? (leadsResponse.result as LeadRepository[]).filter((lead) => typeof lead?.url === 'string') : [];
     this.leadCount = leads.length;
     const results = await Promise.all(leads.map(async (lead) => {
-      const response = await this.run(['capability', 'proposals', '--lead', lead.url, '--json']);
+      const response = await this.run([
+        'capability', 'proposals', '--lead', lead.url,
+        ...(this.includeMerged ? ['--all'] : []), '--json'
+      ]);
       if (response.error) return { lead: lead.url, proposals: [], error: response.error };
       const payload = response.result as { proposals?: CapabilityProposalSummary[] } | null;
       return { lead: lead.url, proposals: Array.isArray(payload?.proposals) ? payload.proposals : [], error: null };
     }));
     this.entries = results.flatMap((result) => result.proposals
-      .filter((proposal) => !proposal.merged)
+      .filter((proposal) => this.includeMerged || !proposal.merged)
       .map((proposal) => ({ ...proposal, lead: result.lead })));
     this.failures = results.filter((result) => result.error)
       .map((result) => ({ lead: result.lead, message: result.error as string }));

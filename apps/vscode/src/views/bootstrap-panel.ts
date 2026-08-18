@@ -44,18 +44,21 @@ export class BootstrapPanel {
 
   private readonly panel: vscode.WebviewPanel;
   private readonly run: Run;
-  private readonly onMapped: (result: Mapped) => Promise<void>;
+  private onMapped: (result: Mapped) => Promise<void>;
   private readonly disposables: vscode.Disposable[] = [];
   private form: MapCapabilityForm = { ...EMPTY_MAP_FORM };
+  private requestedParent = '';
   private mapLoadRevision = 0;
 
   private constructor(
     panel: vscode.WebviewPanel, leads: string[], run: Run,
-    onMapped: (result: Mapped) => Promise<void>
+    onMapped: (result: Mapped) => Promise<void>,
+    initial: { parent?: string } = {}
   ) {
     this.panel = panel;
     this.run = run;
     this.onMapped = onMapped;
+    this.requestedParent = initial.parent?.trim() ?? '';
     const uniqueLeads = [...new Set(leads.filter((lead) => lead.trim()))];
     this.form = {
       ...EMPTY_MAP_FORM,
@@ -78,9 +81,15 @@ export class BootstrapPanel {
 
   static show(
     context: vscode.ExtensionContext, leads: string[], run: Run,
-    onMapped: (result: Mapped) => Promise<void>
+    onMapped: (result: Mapped) => Promise<void>,
+    initial: { parent?: string } = {}
   ): BootstrapPanel {
     if (BootstrapPanel.current) {
+      // The retained form may have been opened from workspace creation and then reached from the
+      // capability editor (or vice versa). Completion returns to the surface that most recently
+      // asked for it, not the callback captured when the singleton was first created.
+      BootstrapPanel.current.onMapped = onMapped;
+      BootstrapPanel.current.prefill(initial);
       BootstrapPanel.current.panel.reveal(vscode.ViewColumn.Active);
       return BootstrapPanel.current;
     }
@@ -90,8 +99,16 @@ export class BootstrapPanel {
         retainContextWhenHidden: true,
         localResourceRoots: [vscode.Uri.joinPath(context.extensionUri, 'media')]
       });
-    BootstrapPanel.current = new BootstrapPanel(panel, leads, run, onMapped);
+    BootstrapPanel.current = new BootstrapPanel(panel, leads, run, onMapped, initial);
     return BootstrapPanel.current;
+  }
+
+  private prefill(initial: { parent?: string }): void {
+    if (initial.parent === undefined) return;
+    this.requestedParent = initial.parent.trim();
+    if (this.form.parents.some((parent) => parent.id === this.requestedParent)) {
+      this.update({ parent: this.requestedParent });
+    }
   }
 
   private render(): void {
@@ -126,10 +143,14 @@ export class BootstrapPanel {
     if (error) return void this.update({ busy: false, error });
     const organisation = result as Organisation;
     const parents = parentChoices(organisation.capabilities ?? []);
+    const parent = parents.some((choice) => choice.id === this.requestedParent)
+      ? this.requestedParent
+      : '';
     this.update({
       busy: false,
       loaded: true,
       parents,
+      parent,
       notice: organisation.governed
         ? null
         : `${selectedLead} has no capability map yet. Mapping the first capability will create it.`,
@@ -174,13 +195,22 @@ export class BootstrapPanel {
       const field = message.field;
       if (field === 'lead' || field === 'capabilityId' || field === 'name' || field === 'kind'
         || field === 'parent' || field === 'repositoryUrl' || field === 'jiraProject'
-        || field === 'teams') {
+        || field === 'teams' || field === 'sourceRoots' || field === 'sharedRoots'
+        || field === 'sparseCone' || field === 'cloneMode' || field === 'cloneFallback') {
         const previousRepository = this.form.repositoryUrl;
         // Changing which map is being edited invalidates the parents read from the last one.
         if (field === 'lead' && message.value !== this.form.lead) {
           this.form = { ...this.form, loaded: false, parents: [], parent: '' };
         }
-        this.form[field] = message.value;
+        if (field === 'cloneMode') {
+          if (message.value === 'full' || message.value === 'blobless' || message.value === 'blobless-sparse') {
+            this.form.cloneMode = message.value;
+          }
+        } else if (field === 'cloneFallback') {
+          if (message.value === 'refuse' || message.value === 'full') this.form.cloneFallback = message.value;
+        } else {
+          this.form[field] = message.value;
+        }
         // When no map is registered, the first repository entered is the only possible home for
         // it. Defaulting here makes the checkbox truthful without inventing another prompt.
         if (field === 'repositoryUrl' && !this.form.leads.length

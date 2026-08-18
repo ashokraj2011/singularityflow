@@ -17,7 +17,8 @@ import type { WorkspaceStore } from '../state.ts';
 
 export type CapabilitiesMessage =
   | { type: 'save'; id: string; edits: Record<string, string> }
-  | { type: 'remove'; id: string };
+  | { type: 'remove'; id: string; reparentChildrenTo?: string | null; childCount: number }
+  | { type: 'review-proposals' };
 
 export class CapabilitiesPanel {
   private static current: CapabilitiesPanel | null = null;
@@ -44,7 +45,10 @@ export class CapabilitiesPanel {
       const navigation = navigationTarget(raw);
       if (navigation) return void navigateTo(navigation);
 
-      const message = raw as { type?: unknown; id?: unknown; parent?: unknown; edits?: unknown };
+      const message = raw as {
+        type?: unknown; id?: unknown; parent?: unknown; edits?: unknown;
+        reparentChildrenTo?: unknown; childCount?: unknown
+      };
       // Selecting and cancelling are the panel's own state; only the three that touch the map leave.
       if (message?.type === 'select' && typeof message.id === 'string') {
         this.selected = message.id;
@@ -56,11 +60,27 @@ export class CapabilitiesPanel {
         // attach the capability to an existing organisation map; this editor can only refer to
         // repository IDs that already exist. Keeping a second create form here made a clone URL
         // look valid until the engine rejected it at the end of the operation.
-        return vscode.commands.executeCommand('singularityFlow.mapCapability');
+        const parent = typeof message.parent === 'string' ? message.parent : '';
+        return vscode.commands.executeCommand(
+          'singularityFlow.mapCapability',
+          { parent },
+          async (mapped: { capabilityId: string }) => {
+            await this.store.refresh();
+            this.settled(mapped.capabilityId);
+          }
+        );
       }
       if (message?.type === 'remove' && typeof message.id === 'string') {
-        return onMessage({ type: 'remove', id: message.id });
+        const target = message.reparentChildrenTo;
+        if (target !== undefined && target !== null && typeof target !== 'string') return;
+        return onMessage({
+          type: 'remove',
+          id: message.id,
+          reparentChildrenTo: target as string | null | undefined,
+          childCount: typeof message.childCount === 'number' ? message.childCount : 0
+        });
       }
+      if (message?.type === 'review-proposals') return onMessage({ type: 'review-proposals' });
       if (message?.type === 'save' && typeof message.id === 'string') {
         return onMessage({ type: 'save', id: message.id, edits: readEdits(message.edits) });
       }

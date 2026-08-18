@@ -281,9 +281,15 @@ const PAGES = Object.freeze({
       'the capability ledger, and the governed state of the current Story. Exits non-zero when it',
       'finds something blocking.'
     ],
+    options: [
+      ['--offline', 'Skip checks that contact configured remotes.'],
+      ['--performance', 'Run the explicit read-only monorepo benchmark and report actionable scope/clone recommendations.'],
+      ['--json', 'Emit the complete diagnostic and optional performance measurements as JSON.']
+    ],
     examples: [
       ['singularity-flow doctor', 'Full diagnosis of the current repository.'],
-      ['singularity-flow doctor --offline', 'Skip every check that needs the network.']
+      ['singularity-flow doctor --offline', 'Skip every check that needs the network.'],
+      ['singularity-flow doctor --performance', 'Measure warm Git status and scoped world-model fingerprint cost for a large repository.']
     ],
     seeAlso: ['validate', 'gate', 'status']
   },
@@ -355,10 +361,19 @@ const PAGES = Object.freeze({
       'proposal, records its audit event, and mirrors the result to the state branch.',
       '',
       'Local `add`, `set`, and `remove` author the checkout only. Organisation reads prefer the state',
-      'mirror and use a commit-validated cache; pass `--refresh` for an explicit remote recheck.'
+      'mirror and use a commit-validated cache; pass `--refresh` for an explicit remote recheck.',
+      '',
+      'A capability stores one parent link; the reverse child list is derived from it. Removing a',
+      'parent with children requires `--reparent-children-to`, so the move and removal validate and',
+      'publish as one proposal. An empty destination moves direct children to the top level.',
+      '',
+      'For monorepos, source/shared roots bound world-model grounding. A blobless or blobless-sparse',
+      'clone policy bounds what new workspaces download; sparse mode always retains governed files.'
     ],
     examples: [
       ['singularity-flow capability map payments --repository payments-api', 'Propose a capability.'],
+      ['singularity-flow capability map payments --repository <URL> --source-roots apps/payments --clone-mode blobless-sparse --sparse-cone apps/payments --clone-fallback refuse', 'Propose a scoped capability and safe monorepo clone policy.'],
+      ['singularity-flow capability edit legacy --lead <URL> --mode remove --reparent-children-to platform', 'Remove a capability and atomically relink its direct children.'],
       ['singularity-flow capability organisation --refresh', 'Refresh the approved organisation map.'],
       ['singularity-flow capability tree', 'The capability map as a tree.']
     ],
@@ -404,6 +419,31 @@ const PAGES = Object.freeze({
       ['sf-reinstall --checkout /opt/src/singularityflow --registry https://artifactory.example/api/npm/npm-virtual/ --confirm "REINSTALL SINGULARITY FLOW <fingerprint>"', 'Apply a previously reviewed, registry-bound preview.']
     ],
     seeAlso: ['factory-reset', 'local-reset', 'fresh-install']
+  },
+  'local-reset': {
+    summary: 'Forget this machine’s Singularity Flow state, or deliberately delete its validated workspaces.',
+    description: [
+      'With `--forget-only`, clears machine registrations, capability caches, Singularity-named',
+      'Copilot sessions, credentials, acknowledgements, onboarding and personalization while',
+      'preserving every workspace directory, repository byte, branch, worktree and recovery record.',
+      '',
+      'Without `--forget-only`, the compatibility mode deletes each workspace directory only after',
+      'its registry entry and regular workspace manifest prove the exact deletion boundary.',
+      'Interactive terminals preview and ask for an exact mode-bound phrase. Scripts and JSON callers',
+      'must preview with `--dry-run`, then provide `--confirm` in a separate invocation.'
+    ],
+    options: [
+      ['--forget-only', 'Clear machine-local Singularity state while preserving physical workspaces and repositories.'],
+      ['--dry-run', 'Print the complete mode-specific plan without changing anything.'],
+      ['--confirm TEXT', 'Apply only when TEXT exactly matches FORGET LOCAL or RESET LOCAL for the selected mode.'],
+      ['--json', 'Emit the schema-v2 plan/result; requires --dry-run or an explicit --confirm.']
+    ],
+    examples: [
+      ['singularity-flow local-reset --forget-only --dry-run --json', 'Preview a safe machine-state cleanup.'],
+      ['singularity-flow local-reset --forget-only --confirm "FORGET LOCAL"', 'Forget local state and preserve workspace bytes.'],
+      ['singularity-flow local-reset --confirm "RESET LOCAL"', 'Delete validated registered workspaces and local state.']
+    ],
+    seeAlso: ['factory-reset', 'reset-all', 'reinstall']
   },
   validate: {
     summary: 'Check the governed state of the current Story against its pinned configuration.',

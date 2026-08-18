@@ -57,6 +57,10 @@ test('repository commands can route through the explicitly selected workspace', 
   assert.equal(await activeWorkspaceRepositoryRoot('status', { env }), await realpath(repository));
   assert.equal(await activeWorkspaceRepositoryRoot('workspace', { env }), null,
     'workspace administration must not be redirected into its current selection');
+  assert.equal(await activeWorkspaceRepositoryRoot('capability', { env, subcommand: 'map' }), null,
+    'organisation capability onboarding must work before a workspace exists');
+  assert.equal(await activeWorkspaceRepositoryRoot('capability', { env, subcommand: 'tree' }), await realpath(repository),
+    'repository-local capability reads still use the explicitly selected workspace');
   assert.ok(ACTIVE_WORKSPACE_ROUTING_EXCLUSIONS.has('factory-reset'),
     'destructive repository reset must always require an explicit working directory');
 
@@ -108,6 +112,67 @@ async function remoteRepository(base, name) {
   run('git', ['clone', '--bare', source, bare], { cwd: base });
   return bare;
 }
+
+test('the first capability can be onboarded outside every repository and without a workspace', async () => {
+  const root = await mkdtemp(path.join(os.tmpdir(), 'sflow-first-capability-'));
+  const lead = await remoteRepository(root, 'platform');
+  const outside = path.join(root, 'empty-window');
+  const activeWorkspace = path.join(root, 'active-workspace.json');
+  const workspaceRegistry = path.join(root, 'workspaces.json');
+  const leadRegistry = path.join(root, 'leads.json');
+  await mkdir(outside);
+  const env = {
+    ...process.env,
+    SINGULARITY_FLOW_ACTIVE_WORKSPACE: activeWorkspace,
+    SINGULARITY_FLOW_WORKSPACE_REGISTRY: workspaceRegistry,
+    SINGULARITY_FLOW_LEAD_REGISTRY: leadRegistry
+  };
+
+  const empty = spawnSync(process.execPath, [cli, 'capability', 'leads', '--json'], {
+    cwd: outside, env, encoding: 'utf8'
+  });
+  assert.equal(empty.status, 0, empty.stderr);
+  assert.deepEqual(JSON.parse(empty.stdout), []);
+
+  const missingLead = spawnSync(process.execPath, [cli,
+    'capability', 'map', 'platform-api', '--kind', 'delivery', '--json'
+  ], { cwd: outside, env, encoding: 'utf8' });
+  assert.notEqual(missingLead.status, 0);
+  assert.match(missingLead.stderr, /no workspace or prior bootstrap is required/i,
+    'first-run guidance must not send the user into the workspace/bootstrap deadlock');
+
+  const mapped = spawnSync(process.execPath, [cli,
+    'capability', 'map', 'platform-api',
+    '--lead', lead,
+    '--kind', 'delivery',
+    '--name', 'Platform API',
+    '--repository', lead,
+    '--source-roots', 'apps/platform',
+    '--shared-roots', 'packages/contracts',
+    '--clone-mode', 'blobless-sparse',
+    '--sparse-cone', 'apps/platform,packages/contracts',
+    '--clone-fallback', 'refuse',
+    '--json'
+  ], { cwd: outside, env, encoding: 'utf8' });
+  assert.equal(mapped.status, 0, mapped.stderr);
+  const result = JSON.parse(mapped.stdout);
+  assert.equal(result.capabilityId, 'platform-api');
+  assert.equal(result.lead, lead);
+  assert.equal(result.reviewRequired, true);
+  assert.match(result.branch, /^sflow\/config-change\/capability\/map-platform-api-/);
+  const proposedCapabilities = run('git', ['show', `${result.branch}:singularity/capabilities.yml`], { cwd: lead }).stdout;
+  const proposedPortfolio = run('git', ['show', `${result.branch}:singularity/portfolio.yml`], { cwd: lead }).stdout;
+  assert.match(proposedCapabilities, /sourceRoots:\s*\n\s*- apps\/platform/);
+  assert.match(proposedCapabilities, /sharedRoots:\s*\n\s*- packages\/contracts/);
+  assert.match(proposedPortfolio, /mode: blobless-sparse/);
+  assert.match(proposedPortfolio,
+    /sparseCone: \[\.github\/agents, apps\/platform, packages\/contracts, singularity\]/);
+  assert.match(proposedPortfolio, /fallback: refuse/);
+  assert.equal(run('git', ['show', 'main:README.md'], { cwd: lead }).stdout, '# platform\n',
+    'first capability onboarding never changes the application base branch');
+  await assert.rejects(readFile(activeWorkspace), { code: 'ENOENT' });
+  await assert.rejects(readFile(workspaceRegistry), { code: 'ENOENT' });
+});
 
 /**
  * The same remote, but actually a Singularity Flow repository.

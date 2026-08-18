@@ -9,6 +9,7 @@ import { run, SingularityFlowError } from './util.mjs';
 
 export const FRESH_INSTALL_CONFIRMATION = 'RESET EVERYTHING';
 export const LOCAL_RESET_CONFIRMATION = 'RESET LOCAL';
+export const LOCAL_FORGET_CONFIRMATION = 'FORGET LOCAL';
 export const VSCODE_RESET_MARKER = 'vscode-fresh-reset-pending.json';
 const INSTALLER_GENERATED_ROOTS = ['singularity', '.singularity', '.github/agents'];
 
@@ -23,6 +24,64 @@ async function existingDirectory(target, label) {
   if (info.isSymbolicLink()) throw new SingularityFlowError(`${label} must not be a symbolic link: ${target}`);
   if (!info.isDirectory()) throw new SingularityFlowError(`${label} must be a directory: ${target}`);
   return info;
+}
+
+async function validateResetTarget(target, { label, type = 'either' }) {
+  const info = await lstat(target).catch((error) => error?.code === 'ENOENT' ? null : Promise.reject(error));
+  if (!info) return null;
+  if (info.isSymbolicLink()) throw new SingularityFlowError(`${label} must not be a symbolic link: ${target}`);
+  if (type === 'directory' && !info.isDirectory()) {
+    throw new SingularityFlowError(`${label} must be a directory: ${target}`);
+  }
+  if (type === 'file' && !info.isFile()) {
+    throw new SingularityFlowError(`${label} must be a regular file: ${target}`);
+  }
+  if (type === 'either' && !info.isDirectory() && !info.isFile()) {
+    throw new SingularityFlowError(`${label} must be a regular file or directory: ${target}`);
+  }
+  return info;
+}
+
+function assertNarrowMachineDirectory(target, { homeDirectory, projectDirectory, label }) {
+  const resolved = path.resolve(target);
+  const forbidden = [path.parse(resolved).root, path.resolve(homeDirectory), path.resolve(projectDirectory)];
+  if (forbidden.includes(resolved) || inside(resolved, path.resolve(homeDirectory))
+    || inside(resolved, path.resolve(projectDirectory))) {
+    throw new SingularityFlowError(`Refusing broad or protected ${label}: ${resolved}`);
+  }
+}
+
+function machineStatePaths(environment, home, localStateRoot) {
+  const registryFile = workspaceRegistryFile(environment, home);
+  const selectionFile = activeWorkspaceFile(environment, home);
+  const capabilityRegistryFile = path.resolve(environment.SINGULARITY_FLOW_LEAD_REGISTRY
+    || path.join(localStateRoot, 'leads.json'));
+  const capabilityCacheRoot = path.resolve(environment.SINGULARITY_FLOW_ORGANISATION_CACHE
+    || (environment.SINGULARITY_FLOW_LEAD_REGISTRY
+      ? path.join(path.dirname(environment.SINGULARITY_FLOW_LEAD_REGISTRY), 'organisation-cache')
+      : path.join(localStateRoot, 'organisation-cache')));
+  const vscodeResetMarker = path.resolve(environment.SINGULARITY_FLOW_VSCODE_RESET_MARKER
+    || path.join(localStateRoot, VSCODE_RESET_MARKER));
+  return {
+    registryFile,
+    selectionFile,
+    capabilityRegistryFile,
+    capabilityCacheRoot,
+    vscodeResetMarker
+  };
+}
+
+function deduplicateTargets(targets) {
+  const byPath = new Map();
+  for (const target of targets) {
+    const resolved = path.resolve(target.path);
+    const previous = byPath.get(resolved);
+    byPath.set(resolved, previous?.type === 'directory' ? previous : { ...target, path: resolved });
+  }
+  const ordered = [...byPath.values()].sort((left, right) => left.path.length - right.path.length
+    || left.path.localeCompare(right.path));
+  return ordered.filter((candidate, index) => !ordered.slice(0, index).some((parent) =>
+    parent.type === 'directory' && inside(parent.path, candidate.path)));
 }
 
 function assertNarrowWorkspaceRoot(target, {
@@ -46,10 +105,19 @@ function assertNarrowWorkspaceRoot(target, {
 async function managedCopilotSessions(sessionRoot) {
   const info = await existingDirectory(sessionRoot, 'Copilot session-state root');
   if (!info) return [];
-  return (await readdir(sessionRoot, { withFileTypes: true }))
-    .filter((entry) => entry.isDirectory() && entry.name.startsWith('singularity-'))
-    .map((entry) => path.join(sessionRoot, entry.name))
-    .sort();
+  const targets = [];
+  for (const entry of await readdir(sessionRoot, { withFileTypes: true })) {
+    if (!entry.name.startsWith('singularity-')) continue;
+    const target = path.join(sessionRoot, entry.name);
+    if (entry.isSymbolicLink()) {
+      throw new SingularityFlowError(`Singularity Copilot session state must not be a symbolic link: ${target}`);
+    }
+    if (!entry.isDirectory()) {
+      throw new SingularityFlowError(`Singularity Copilot session state must be a directory: ${target}`);
+    }
+    targets.push(target);
+  }
+  return targets.sort();
 }
 
 function checkoutChanges(project) {
@@ -107,9 +175,9 @@ async function installerGeneratedState(project) {
 }
 
 /**
- * Build the complete destructive boundary before changing anything. A registered directory is
- * deletable only when its own regular workspace.json validates and resolves back to that exact
- * directory. A stale missing registration is harmless; an existing ambiguous path blocks reset.
+ * Build the complete boundary before changing anything. Destructive mode proves each registered
+ * directory with its regular workspace.json. Forget-only inventories registrations without
+ * opening, validating, or changing the physical workspace paths they name.
  */
 async function machineResetPlan({
   homeDirectory = os.homedir(),
@@ -119,15 +187,22 @@ async function machineResetPlan({
   confirmation,
   includeInstallerState,
   removeDirectSkills,
+  forgetOnly = false,
   protectedDirectoryLabel,
   protectedDirectoryInstruction
 } = {}) {
   const home = path.resolve(homeDirectory);
   const project = path.resolve(projectDirectory);
-  const registryFile = workspaceRegistryFile(environment, home);
-  const selectionFile = activeWorkspaceFile(environment, home);
   const localStateRoot = machineStateRoot(home);
+  const {
+    registryFile,
+    selectionFile,
+    capabilityRegistryFile,
+    capabilityCacheRoot,
+    vscodeResetMarker
+  } = machineStatePaths(environment, home, localStateRoot);
   const registryInfo = await lstat(registryFile).catch((error) => error?.code === 'ENOENT' ? null : Promise.reject(error));
+  let registryWarning = null;
   if (registryInfo) {
     if (registryInfo.isSymbolicLink() || !registryInfo.isFile()) {
       throw new SingularityFlowError(`Workspace registry must be a regular file: ${registryFile}`);
@@ -136,7 +211,10 @@ async function machineResetPlan({
       const parsed = JSON.parse(await readFile(registryFile, 'utf8'));
       if (!Array.isArray(parsed) && !Array.isArray(parsed?.workspaces)) throw new Error('workspaces array is missing');
     } catch (error) {
-      throw new SingularityFlowError(`Refusing a full reset with an unreadable workspace registry ${registryFile}: ${error.message}`);
+      if (!forgetOnly) {
+        throw new SingularityFlowError(`Refusing a full reset with an unreadable workspace registry ${registryFile}: ${error.message}`);
+      }
+      registryWarning = `Unreadable workspace registry will be forgotten without inspecting workspace directories: ${error.message}`;
     }
   }
   const entries = await readWorkspaceRegistry(registryFile);
@@ -148,6 +226,15 @@ async function machineResetPlan({
     const info = await lstat(target).catch((error) => error?.code === 'ENOENT' ? null : Promise.reject(error));
     if (!info) {
       missingRegistrations.push(target);
+      continue;
+    }
+    if (forgetOnly) {
+      workspaces.push({
+        id: entry.id,
+        name: entry.name,
+        path: target,
+        disposition: 'preserved'
+      });
       continue;
     }
     if (info.isSymbolicLink() || !info.isDirectory()) {
@@ -171,11 +258,11 @@ async function machineResetPlan({
         `Refusing to delete workspace whose manifest does not match its registration: ${target}`
       );
     }
-    workspaces.push({ id: manifest.id, name: manifest.name, path: target });
+    workspaces.push({ id: manifest.id, name: manifest.name, path: target, disposition: 'deleted' });
   }
 
   const sorted = workspaces.sort((left, right) => left.path.localeCompare(right.path));
-  for (let index = 1; index < sorted.length; index += 1) {
+  for (let index = 1; !forgetOnly && index < sorted.length; index += 1) {
     if (inside(sorted[index - 1].path, sorted[index].path)) {
       throw new SingularityFlowError(
         `Registered workspace roots overlap and cannot be reset safely: ${sorted[index - 1].path} and ${sorted[index].path}`
@@ -187,9 +274,56 @@ async function machineResetPlan({
   const copilotSessions = await managedCopilotSessions(copilotSessionRoot);
   const directSkillsRoot = copilotSkillsDirectory({ env: environment, homeDirectory: home });
   const installerGeneratedPaths = includeInstallerState ? await installerGeneratedState(project) : [];
+  const defaultPaths = {
+    registryFile: path.join(localStateRoot, 'workspaces.json'),
+    selectionFile: path.join(localStateRoot, 'active-workspace.json'),
+    capabilityRegistryFile: path.join(localStateRoot, 'leads.json'),
+    capabilityCacheRoot: path.join(localStateRoot, 'organisation-cache'),
+    vscodeResetMarker: path.join(localStateRoot, VSCODE_RESET_MARKER)
+  };
+  const targetCandidates = [
+    { path: localStateRoot, type: 'directory', label: 'Singularity Flow machine state' },
+    ...(registryFile === defaultPaths.registryFile ? []
+      : [{ path: registryFile, type: 'file', label: 'custom workspace registry' }]),
+    ...(selectionFile === defaultPaths.selectionFile ? []
+      : [{ path: selectionFile, type: 'file', label: 'custom active-workspace selection' }]),
+    ...(capabilityRegistryFile === defaultPaths.capabilityRegistryFile ? []
+      : [{ path: capabilityRegistryFile, type: 'file', label: 'custom capability lead registry' }]),
+    ...(capabilityCacheRoot === defaultPaths.capabilityCacheRoot ? []
+      : [{ path: capabilityCacheRoot, type: 'directory', label: 'custom capability cache' }]),
+    ...(vscodeResetMarker === defaultPaths.vscodeResetMarker ? []
+      : [{ path: vscodeResetMarker, type: 'file', label: 'custom VS Code reset marker' }]),
+    ...copilotSessions.map((session) => ({
+      path: session,
+      type: 'directory',
+      label: 'Singularity-named Copilot session state'
+    }))
+  ];
+  for (const target of targetCandidates) {
+    const overlappingWorkspace = sorted.find((workspace) => inside(workspace.path, target.path)
+      || inside(target.path, workspace.path));
+    if (overlappingWorkspace) {
+      throw new SingularityFlowError(
+        `Refusing machine-state target that overlaps registered workspace ${overlappingWorkspace.path}: ${path.resolve(target.path)}`
+      );
+    }
+  }
+  for (const target of targetCandidates) {
+    await validateResetTarget(target.path, target);
+    if (target.type === 'directory' && path.resolve(target.path) !== localStateRoot) {
+      assertNarrowMachineDirectory(target.path, {
+        homeDirectory: home,
+        projectDirectory: project,
+        label: target.label
+      });
+    }
+  }
+  const machineTargets = deduplicateTargets(targetCandidates);
+  const mode = forgetOnly ? 'forget-only' : 'delete-workspaces';
   return {
-    schemaVersion: 1,
+    schemaVersion: 2,
     operation,
+    mode,
     confirmation,
     projectDirectory: project,
     registryFile,
@@ -197,16 +331,40 @@ async function machineResetPlan({
     localStateRoot,
     workspaces: sorted,
     missingRegistrations,
+    registryWarning,
     copilotSessions,
+    capabilityState: {
+      registryFile: capabilityRegistryFile,
+      cacheRoot: capabilityCacheRoot
+    },
+    vscodeReset: {
+      marker: vscodeResetMarker,
+      reset: [
+        'credentials',
+        'global-state',
+        'acknowledgements',
+        'pending-handoffs',
+        'onboarding',
+        'favorites',
+        'persona',
+        'global-extension-settings'
+      ]
+    },
+    machineTargets,
     directSkillsRoot,
     removeDirectSkills,
     installerGeneratedPaths,
     remove: [
       ...installerGeneratedPaths.map((target) => `${target} (untracked Singularity state generated inside the installer checkout)`),
-      ...sorted.map((workspace) => `${workspace.path} (workspace '${workspace.name}', including every managed repository clone and document)`),
+      ...(!forgetOnly ? sorted.map((workspace) =>
+        `${workspace.path} (workspace '${workspace.name}', including every managed repository clone and document)`) : []),
       `${localStateRoot} (workspace registry, active selection, local sessions, caches, telemetry configuration, and recovery state)`,
       ...(registryFile === path.join(localStateRoot, 'workspaces.json') ? [] : [`${registryFile} (custom workspace registry)`]),
       ...(selectionFile === path.join(localStateRoot, 'active-workspace.json') ? [] : [`${selectionFile} (custom active-workspace selection)`]),
+      ...(capabilityRegistryFile === path.join(localStateRoot, 'leads.json') ? []
+        : [`${capabilityRegistryFile} (custom capability lead registry)`]),
+      ...(capabilityCacheRoot === path.join(localStateRoot, 'organisation-cache') ? []
+        : [`${capabilityCacheRoot} (custom capability and organisation cache)`]),
       ...copilotSessions.map((session) => `${session} (Singularity-named Copilot session state)`),
       ...(removeDirectSkills ? [`${directSkillsRoot}/sf-* managed skill aliases`] : []),
       ...(includeInstallerState
@@ -217,7 +375,12 @@ async function machineResetPlan({
     preserve: [
       includeInstallerState
         ? 'this installer checkout, its tracked source, and its Git history'
-        : 'the current directory and every repository outside validated registered workspace roots',
+        : (forgetOnly
+          ? 'every registered workspace directory, repository clone, branch, worktree, manifest, dirty file, and repository-local recovery record'
+          : 'the current directory and every repository outside validated registered workspace roots'),
+      ...(forgetOnly
+        ? ['remote capability maps, sflow/config and state branches, proposals, Git history, application files, and repository-owned .vscode/settings.json']
+        : []),
       'unregistered application directories and repositories',
       'personal Copilot skills without the Singularity managed marker',
       ...(!removeDirectSkills
@@ -239,15 +402,14 @@ export async function freshInstallResetPlan(options = {}) {
   });
 }
 
-/**
- * Preview a clean local Singularity state without uninstalling the product. Only workspace roots
- * proven by their registry entry and matching workspace.json are eligible for deletion.
- */
+/** Preview either machine-state-only cleanup or validated workspace deletion. */
 export async function localResetPlan(options = {}) {
+  const forgetOnly = options.forgetOnly === true;
   return machineResetPlan({
     ...options,
     operation: 'local-reset',
-    confirmation: LOCAL_RESET_CONFIRMATION,
+    confirmation: forgetOnly ? LOCAL_FORGET_CONFIRMATION : LOCAL_RESET_CONFIRMATION,
+    forgetOnly,
     includeInstallerState: false,
     removeDirectSkills: false,
     protectedDirectoryLabel: 'current working directory',
@@ -277,31 +439,38 @@ async function restoreMoved(records) {
   return failures;
 }
 
-async function applyMachineReset(plan, { confirmation }) {
+async function applyMachineReset(plan, { confirmation, fault = null }) {
   if (confirmation !== plan.confirmation) {
     throw new SingularityFlowError(
       `${plan.operation === 'local-reset' ? 'Local reset' : 'Fresh install reset'} requires exact confirmation '${plan.confirmation}'. Run with --dry-run first.`
     );
   }
   const moved = [];
+  let markerWritten = false;
   try {
     for (const target of plan.installerGeneratedPaths) await moveToStaging(target, moved);
-    for (const workspace of plan.workspaces) await moveToStaging(workspace.path, moved);
-    await moveToStaging(plan.localStateRoot, moved);
-    if (!inside(plan.localStateRoot, plan.registryFile)) await moveToStaging(plan.registryFile, moved);
-    if (!inside(plan.localStateRoot, plan.selectionFile)) await moveToStaging(plan.selectionFile, moved);
-    for (const session of plan.copilotSessions) await moveToStaging(session, moved);
+    for (const workspace of plan.workspaces.filter((entry) => entry.disposition === 'deleted')) {
+      await moveToStaging(workspace.path, moved);
+    }
+    for (const target of plan.machineTargets) {
+      await moveToStaging(target.path, moved);
+      fault?.(`after-move:${target.label}`, plan);
+    }
     if (plan.removeDirectSkills) uninstallDirectSkills({ targetRoot: plan.directSkillsRoot });
-    await mkdir(plan.localStateRoot, { recursive: true, mode: 0o700 });
-    const vscodeResetMarker = path.join(plan.localStateRoot, VSCODE_RESET_MARKER);
+    const vscodeResetMarker = plan.vscodeReset.marker;
+    await mkdir(path.dirname(vscodeResetMarker), { recursive: true, mode: 0o700 });
     await writeFile(vscodeResetMarker, `${JSON.stringify({
-      schemaVersion: 1,
+      schemaVersion: 2,
       requestedAt: new Date().toISOString(),
-      reset: ['credentials', 'onboarding', 'extension-global-state']
+      mode: plan.mode,
+      reset: plan.vscodeReset.reset
     }, null, 2)}\n`, { mode: 0o600 });
+    markerWritten = true;
+    fault?.('after-vscode-reset-marker', plan);
     for (const record of moved) await rm(record.staging, { recursive: true, force: true });
     return { ...plan, completed: true, vscodeResetMarker };
   } catch (error) {
+    if (markerWritten) await rm(plan.vscodeReset.marker, { force: true }).catch(() => {});
     const failures = await restoreMoved(moved);
     if (failures.length) {
       throw new SingularityFlowError(
@@ -318,7 +487,7 @@ export async function freshInstallReset(options = {}) {
   return applyMachineReset(plan, options);
 }
 
-/** Delete validated workspaces and local runtime state while preserving every installed surface. */
+/** Apply the selected local mode while preserving every installed product surface. */
 export async function localReset(options = {}) {
   const plan = await localResetPlan(options);
   return applyMachineReset(plan, options);

@@ -49,6 +49,17 @@
           "defaultBranch": { "type": "string", "minLength": 1 },
           "path": { "type": "string", "pattern": "^repos/" },
           "required": { "type": "boolean" },
+          "clone": {
+            "type": "object",
+            "required": ["mode", "fallback"],
+            "properties": {
+              "mode": { "enum": ["full", "blobless", "blobless-sparse"] },
+              "filter": { "type": ["string", "null"], "enum": ["blob:none", null] },
+              "sparseCone": { "type": "array", "uniqueItems": true, "items": { "type": "string", "minLength": 1, "pattern": "^(?!/)(?!.*\\\\)(?!.*(?:^|/)\\.\\.(?:/|$))(?!.*[*?\\[\\]{}]).+$" } },
+              "fallback": { "enum": ["refuse", "full"] }
+            },
+            "additionalProperties": false
+          },
           "metadata": {
             "type": "object",
             "propertyNames": { "pattern": "^[A-Za-z][A-Za-z0-9._-]{0,127}$" },

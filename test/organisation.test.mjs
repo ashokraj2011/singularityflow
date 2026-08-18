@@ -263,6 +263,45 @@ test('an exact capability proposal can be reviewed, activated, and projected wit
   assert.match(history[0].diff, /calculator/, 'an activated proposal retains a reviewable exact diff');
 });
 
+test('capability review and activation do not negotiate unrelated monorepo history', async () => {
+  const org = await remotes('platform');
+  process.env.SINGULARITY_FLOW_LEAD_REGISTRY = registry(org.base);
+  const seed = path.join(org.base, 'platform-seed');
+  await writeFile(path.join(seed, 'unrelated-application.bin'), Buffer.alloc(1024 * 1024, 0x51));
+  run('git', ['add', 'unrelated-application.bin'], { cwd: seed });
+  run('git', ['commit', '-qm', 'large unrelated application object'], { cwd: seed });
+  // Keep the test object loose so it can make the application ref deliberately unreadable after
+  // the capability proposal has been created. Configuration-only review must remain usable.
+  run('git', ['config', 'receive.unpackLimit', '10000'], { cwd: org.platform });
+  run('git', ['config', 'uploadpack.allowFilter', 'true'], { cwd: org.platform });
+  run('git', ['push', '-q', org.platform, 'main:main'], { cwd: seed });
+
+  const proposed = await mapCapability(org.platform, {
+    capabilityId: 'calculator', name: 'Calculator', kind: 'collection'
+  });
+  const applicationBlob = run('git', ['rev-parse', 'main:unrelated-application.bin'], {
+    cwd: org.platform
+  }).stdout.trim();
+  const objectFile = path.join(org.platform, 'objects', applicationBlob.slice(0, 2), applicationBlob.slice(2));
+  assert.equal(existsSync(objectFile), true, 'the fixture application blob must be independently removable');
+  await rm(objectFile);
+
+  const ordinaryClone = path.join(org.base, 'ordinary-full-clone');
+  assert.notEqual(run('git', ['clone', '--quiet', '--no-local', org.platform, ordinaryClone], {
+    cwd: org.base, allowFailure: true
+  }).status, 0, 'an ordinary all-branch application clone is intentionally broken in this fixture');
+
+  const inspected = await inspectCapabilityProposal(org.platform, proposed.branch);
+  assert.equal(inspected.proposalCommit, proposed.commit,
+    'review reads only the orphan configuration authority and exact proposal');
+  const activated = await activateCapabilityProposal(org.platform, proposed.branch, {
+    confirm: proposed.commit,
+    acknowledgeUnprotected: true
+  });
+  assert.equal(activated.audit.recorded, true);
+  assert.equal(activated.projection.published, true);
+});
+
 test('capability activation respects configuration branch protection and retains the proposal', async () => {
   const org = await remotes('platform');
   process.env.SINGULARITY_FLOW_LEAD_REGISTRY = registry(org.base);
@@ -1221,11 +1260,22 @@ test('only reviewed capability configuration can be published to the state branc
   await publishOrganisationCapabilityMap(org.platform);
   assert.match((await readOrganisation(org.platform)).capabilities[0].children[0].name, /Catalog/);
 
-  const removed = await editCapabilityInOrganisation(org.platform, 'catalog', {}, { mode: 'remove' });
+  const nested = await editCapabilityInOrganisation(org.platform, 'catalog-search', {
+    name: 'Catalog search', kind: 'collection', parent: 'catalog'
+  }, { mode: 'add' });
+  await mergeProposal(org.platform, nested);
+  await publishOrganisationCapabilityMap(org.platform);
+
+  const removed = await editCapabilityInOrganisation(org.platform, 'catalog', {}, {
+    mode: 'remove', reparentChildrenTo: 'commerce'
+  });
   assert.equal(removed.reviewRequired, true);
+  assert.deepEqual(removed.reparentedChildren, ['catalog-search']);
   await mergeProposal(org.platform, removed);
   await publishOrganisationCapabilityMap(org.platform);
-  assert.equal((await readOrganisation(org.platform)).capabilities[0].children.length, 0);
+  const afterRemoval = await readOrganisation(org.platform);
+  assert.deepEqual(afterRemoval.capabilities[0].children.map((child) => child.id), ['catalog-search'],
+    'remote authority receives the removal and reverse relationship update as one proposal');
 
   await assert.rejects(
     () => editCapabilityInOrganisation(org.platform, 'commerce', {}, { mode: 'overwrite' }),

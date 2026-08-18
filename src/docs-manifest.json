@@ -1,9 +1,9 @@
 {
   "schemaVersion": 1,
   "generatedFrom": "docs/topics",
-  "sourceCommit": "15919795417ce776e57807a533cd828a460cd5a7",
+  "sourceCommit": "d781fd7a41a408f25c36c454e9d45039d75b422c",
   "topicCount": 51,
-  "contentSha256": "e2d883a284647155baa3b93904af54ec925edea46e7ec6cb9783a9552f361872",
+  "contentSha256": "33d297e13fccb28cc1bbf0ff6d775cf0df5894c52e1426d41bc82035a1087d01",
   "topics": [
     {
       "id": "activity-and-prompt-audit",
@@ -43,8 +43,8 @@
     {
       "id": "capability-management",
       "title": "Capability mapping and activation",
-      "version": 2,
-      "sha256": "be55a4519115244ab261021ea80d86951eb6d88dc1c38e6de0ccd72fe9bee857",
+      "version": 3,
+      "sha256": "b620999414561407fccf8872b5a1e796f3ed7857cb5bdf9ba4dba91ade845b7a",
       "file": "capability-management.md"
     },
     {
@@ -85,8 +85,8 @@
     {
       "id": "diagnostics-and-regression",
       "title": "Diagnostics, regression investigation, and hooks",
-      "version": 1,
-      "sha256": "9f11c8b20fcb1b744dd1db728e24c88810da3fb5f363cd95b84eb76404f301e1",
+      "version": 2,
+      "sha256": "86e157bbe81734e4ac7aebe01090e392ecfba971bfabdce0a7b9a376c11571e8",
       "file": "diagnostics-and-regression.md"
     },
     {
@@ -267,8 +267,8 @@
     {
       "id": "resets-and-cleanup",
       "title": "Reset, cleanup, and fresh installation",
-      "version": 1,
-      "sha256": "16dd22b99619dc897d4337b6fd055487ec47a966f5ac81e2b70392dfa1ebafb7",
+      "version": 2,
+      "sha256": "171d15f5dbc5f079fe31420ec713141fe0059967cf34ffd8e0e3079fd892720a",
       "file": "resets-and-cleanup.md"
     },
     {
@@ -351,15 +351,15 @@
     {
       "id": "workspaces-and-sessions",
       "title": "Workspaces, sessions, and current selection",
-      "version": 1,
-      "sha256": "57827b8c174f72aaa615a70c67bc565f6b67658100260034318434f98d61dd8f",
+      "version": 2,
+      "sha256": "a77f24670af28e93b350e4086afa7e8d4925ce42be690c25ddfdf2819863aa92",
       "file": "workspaces-and-sessions.md"
     },
     {
       "id": "world-model",
       "title": "World model grounding and views",
-      "version": 1,
-      "sha256": "9c75516379d4615f9c448c1db0d3222465cdf7cd70290f364c631bdfb84e1bb4",
+      "version": 2,
+      "sha256": "ba419157653eb39242ccd0fd7241f9851ea89276b8c0f0f8889682856e01071e",
       "file": "world-model.md"
     }
   ]

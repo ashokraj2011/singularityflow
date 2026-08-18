@@ -40,6 +40,9 @@ export interface CapabilityNode {
   repositories?: string[];
   /** Which of them holds the governed state; the others are governed by it. */
   leadRepository?: string | null;
+  /** Application and shared directory scopes for monorepo grounding. */
+  sourceRoots?: string[];
+  sharedRoots?: string[];
   /** Organisation-defined key/value attributes such as application ID or cost centre. */
   metadata?: Record<string, string>;
   /** Named links to whatever describes this capability — Confluence pages, briefs, runbooks. */

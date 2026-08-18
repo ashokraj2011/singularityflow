@@ -361,17 +361,17 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
   });
   if (pendingFreshReset) {
     const settings = vscode.workspace.getConfiguration('singularityFlow');
+    const globalSettingKeys = ['cliPath', 'nodePath', 'modelMode', 'userName', 'role'];
     const globalKeys = typeof context.globalState.keys === 'function'
       ? context.globalState.keys()
       : ['onboardingComplete'];
     await Promise.all([
       secureCredentials.resetAll(),
       ...globalKeys.map((key) => context.globalState.update(key, undefined)),
-      settings.update('userName', undefined, vscode.ConfigurationTarget.Global),
-      settings.update('role', undefined, vscode.ConfigurationTarget.Global)
+      ...globalSettingKeys.map((key) => settings.update(key, undefined, vscode.ConfigurationTarget.Global))
     ]);
     await rm(resetMarker, { force: true });
-    output.appendLine('Fresh-install reset: cleared Singularity Flow credentials, profile, and extension global state.');
+    output.appendLine('Local reset: cleared Singularity Flow credentials, personalization, global settings, and extension global state.');
   }
   let cliEnvironment = await resolvedCliEnvironment();
 
@@ -853,7 +853,16 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
    */
   context.subscriptions.push(vscode.commands.registerCommand(
     'singularityFlow.mapCapability',
-    async (returnToWorkspace?: (mapped: Mapped) => Promise<void>) => {
+    async (
+      requestOrReturn?: { parent?: string } | ((mapped: Mapped) => Promise<void>),
+      returnAfterMapping?: (mapped: Mapped) => Promise<void>
+    ) => {
+    const initial = typeof requestOrReturn === 'object' && requestOrReturn
+      ? { parent: requestOrReturn.parent }
+      : {};
+    const returnToWorkspace = typeof requestOrReturn === 'function'
+      ? requestOrReturn
+      : returnAfterMapping;
     let location;
     try {
       location = resolveCli({ extensionPath: context.extensionPath });
@@ -892,7 +901,7 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
         // Refresh that form only after activation, when the capability is genuinely selectable.
         if (typeof returnToWorkspace === 'function') await returnToWorkspace(mapped);
       });
-    });
+    }, initial);
   }));
 
   /** Reopen any pending capability proposal without finding its branch in a terminal. */
@@ -2451,10 +2460,22 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
   const onCapabilitiesMessage = async (message: CapabilitiesMessage): Promise<void> => {
     const { CapabilitiesPanel } = await import('./views/capabilities.ts');
     const panel = CapabilitiesPanel.show(context, store, (next) => { void onCapabilitiesMessage(next); });
+    if (message.type === 'review-proposals') {
+      await vscode.commands.executeCommand('singularityFlow.reviewCapabilityProposals');
+      return;
+    }
     if (message.type === 'remove') {
+      const destination = message.reparentChildrenTo == null
+        ? 'the top level'
+        : message.reparentChildrenTo;
       const confirmed = await vscode.window.showWarningMessage(
         `Remove ${message.id} from the capability map?`,
-        { modal: true, detail: 'The map is the lead repository\'s record of what this organisation builds. Anything this capability delivers loses its owner.' },
+        {
+          modal: true,
+          detail: message.childCount
+            ? `${message.childCount} direct ${message.childCount === 1 ? 'child' : 'children'} will move to ${destination} in the same reviewed proposal. Previous approved versions remain in Git history.`
+            : 'The current map will no longer contain this capability. Previous approved versions remain in Git history.'
+        },
         'Remove'
       );
       if (confirmed !== 'Remove') return;
@@ -2474,7 +2495,10 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
       if (!selected) return;
       const mode = message.type === 'remove' ? 'remove' : 'set';
       const argv = capabilityProposalArgv(mode, message.id, selected.url,
-        message.type === 'remove' ? {} : message.edits);
+        message.type === 'remove' ? {} : message.edits,
+        message.type === 'remove'
+          ? { reparentChildrenTo: message.reparentChildrenTo }
+          : {});
       output.appendLine(`\n$ singularity-flow ${argv.join(' ')}`);
       const proposed = await client.run<{
         branch?: string | null; reviewRequired?: boolean; capabilityId?: string
@@ -2642,6 +2666,22 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
         await store.refresh();
         void vscode.window.showInformationMessage('World model rebuilt. Governed prompts will use the new views.');
       } catch (error) { return (error as Error).message; }
+      return null;
+    }
+    else if (message.action === 'diagnose-monorepo') {
+      output.appendLine('\n$ singularity-flow doctor --performance --offline');
+      output.show(true);
+      try {
+        await vscode.window.withProgress({
+          location: vscode.ProgressLocation.Notification,
+          title: 'Benchmarking repository and world-model scope…',
+          cancellable: false
+        }, () => client.runText(['doctor', '--performance', '--offline']));
+        void vscode.window.showInformationMessage(
+          'Repository performance benchmark completed. Review measured timings and recommendations in the Singularity Flow output.');
+      } catch (error) {
+        return `${(error as Error).message}\nThe complete diagnostic output is available in the Singularity Flow output channel.`;
+      }
       return null;
     }
     else if (message.action === 'prompt-audit') await vscode.commands.executeCommand('singularityFlow.openPromptAudit');

@@ -2041,6 +2041,9 @@ test('the capability editor delegates creation to the mapping form that accepts 
     'new capabilities default to Delivery');
   assert.match(mapping.webview.html, /Clone URL/,
     'the creation path has an explicit place for a new Git repository URL');
+  await until(() => /<option value="product" selected>/.test(mapping.webview.html) || null);
+  assert.match(mapping.webview.html, /<option value="product" selected>/,
+    'Add one inside carries the selected capability into the governed mapping form');
   assert.doesNotMatch(panel.webview.html, /New capability/,
     'the editor no longer exposes the duplicate repository-ID-only creation form');
   assert.equal(await readFile(capabilitiesFile, 'utf8'), before,
@@ -3260,6 +3263,50 @@ test('the loaded build identifies itself, because the version cannot', async (t)
   const stamp = registered.output.find((line) => String(line).startsWith('Singularity Flow — build '));
   assert.ok(stamp, 'the build stamp is the first thing in the output channel');
   assert.match(stamp, /build [0-9a-f]{7}(\+local)? \d{4}-\d{2}-\d{2}T\d{2}:\d{2}Z/);
+});
+
+test('a schema-v2 local reset marker clears all extension-owned global state but not workspace settings', async (t) => {
+  if (!requireBundle(t)) return;
+  await writeFile(process.env.SINGULARITY_FLOW_VSCODE_RESET_MARKER, `${JSON.stringify({
+    schemaVersion: 2,
+    mode: 'forget-only',
+    reset: ['credentials', 'global-state', 'favorites', 'persona', 'global-extension-settings']
+  })}\n`);
+  const values = new Map([
+    ['onboardingComplete', true],
+    ['favorites', ['map-capability']],
+    ['persona', 'developer'],
+    ['acknowledgements', { story: 'WRK-1' }],
+    ['pendingHandoffs', ['WRK-1']],
+    ['secret:singularityFlow.jira.config', '{"deployment":"cloud","baseUrl":"https://jira.example.com"}'],
+    ['secret:singularityFlow.jira.token', 'jira-token'],
+    ['secret:singularityFlow.teams.webhook', 'https://teams.example.com/hook'],
+    ['secret:singularityFlow.storage.index', '["design"]'],
+    ['secret:singularityFlow.storage.design', 'provider-token']
+  ]);
+  const state = context(values);
+  state.globalState.keys = () => [...values.keys()].filter((key) => !key.startsWith('secret:'));
+  const updates = [];
+  const { api, registered } = stubVscode();
+  api.workspace.getConfiguration = () => ({
+    get: (key, fallback) => key === 'modelMode' ? 'disabled' : fallback,
+    update: async (key, value, target) => { updates.push({ key, value, target }); }
+  });
+  const extension = loadExtension(api);
+  await extension.activate(state);
+
+  for (const key of ['onboardingComplete', 'favorites', 'persona', 'acknowledgements', 'pendingHandoffs']) {
+    assert.equal(values.get(key), undefined, `${key} is cleared from extension global state`);
+  }
+  for (const key of [
+    'singularityFlow.jira.config', 'singularityFlow.jira.token', 'singularityFlow.teams.webhook',
+    'singularityFlow.storage.index', 'singularityFlow.storage.design'
+  ]) assert.equal(values.get(`secret:${key}`), undefined, `${key} is cleared from SecretStorage`);
+  assert.deepEqual(updates.map(({ key, target }) => ({ key, target })), [
+    'cliPath', 'nodePath', 'modelMode', 'userName', 'role'
+  ].map((key) => ({ key, target: api.ConfigurationTarget.Global })));
+  assert.equal(await readFile(process.env.SINGULARITY_FLOW_VSCODE_RESET_MARKER, 'utf8').catch(() => null), null);
+  assert.ok(registered.output.some((line) => String(line).includes('cleared Singularity Flow credentials, personalization')));
 });
 
 test('terminal lifecycle writes refresh every VS Code view through one watched snapshot', async (t) => {

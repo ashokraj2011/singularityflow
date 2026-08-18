@@ -98,7 +98,7 @@ import { archiveWorkspace, createWorkspace, createWorkspaceConfiguration, fetchW
 import { CONFIGURATION_BRANCH, materializeConfigurationSnapshot, resolveConfigurationRemote } from './configuration-branch.mjs';
 import { analyzeWorkspaceImpact, listWorkspaceImpacts, previewWorkspaceImpact, promoteWorkspaceImpact, workspaceImpactStatus } from './workspace-impact.mjs';
 import { activateWorkspaceContext, activeWorkspaceFile, clearActiveWorkspaceContext, discardUnsupportedWorkflowWorkspaces, readActiveWorkspaceContext, workspacePromptLabel, workspaceContextForRepository, workspaceRegistryFile } from './workspace-context.mjs';
-import { appendLedgerIntent, archiveLedger, createLedgerIntent, initializeLedger, ledgerDoctor, ledgerLog, ledgerShow, ledgerStatus, reconcileLedger, verifyLedger } from './ledger.mjs';
+import { appendLedgerIntent, archiveLedger, createLedgerIntent, initializeLedger, ledgerDoctor, ledgerLog, ledgerShow, ledgerStatus, reconcileLedger, repairLedgerPins, verifyLedger } from './ledger.mjs';
 import { validateLedgerDeployment } from './ledger-deployment.mjs';
 import { CAPABILITY_KINDS, CAPABILITY_TYPES, CAPABILITIES_PATH, capabilityDeliveries, capabilityForRepository, capabilityTree, editCapability, flattenCapabilityTree, loadCapabilities, resolveCapabilityPolicy, resolveEffectiveCapabilityPolicy, validateCapabilities } from './capabilities.mjs';
 import { bootstrapRepository } from './bootstrap.mjs';
@@ -3448,6 +3448,12 @@ async function ledgerCommand(positionals, options) {
   else if (subcommand === 'doctor') result = await ledgerDoctor(root, ledger);
   else if (subcommand === 'status') result = await ledgerStatus(root, ledger);
   else if (subcommand === 'verify') result = await verifyLedger(root, ledger, { offline: optionBoolean(options, 'offline') });
+  else if (subcommand === 'repair') result = await repairLedgerPins(root, ledger, {
+    sourceRemote: optionString(options, 'source-remote'),
+    dryRun: optionBoolean(options, 'dry-run'),
+    restoreRemote: optionBoolean(options, 'restore-remote'),
+    confirmation: optionString(options, 'confirm')
+  });
   else if (subcommand === 'reconcile') result = await reconcileLedger(root, ledger, { workId: positionals[2] ?? null });
   else if (subcommand === 'log') result = await ledgerLog(root, ledger, { limit: optionNumber(options, 'limit', 20) });
   else if (subcommand === 'show') result = await ledgerShow(root, ledger, requirePositional(positionals, 2, 'ledger hash or event ID'));
@@ -3489,12 +3495,13 @@ async function ledgerCommand(positionals, options) {
       confirmationContext
     });
   }
-  else throw new SingularityFlowError(`Unknown ledger subcommand '${subcommand}'. Use init, doctor, status, log, show, verify, reconcile, archive, or deployment-check.`);
+  else throw new SingularityFlowError(`Unknown ledger subcommand '${subcommand}'. Use init, doctor, status, log, show, verify, repair, reconcile, archive, or deployment-check.`);
   if (optionBoolean(options, 'json')) {
     console.log(JSON.stringify(result, null, 2));
     // The verdict is the same whichever way it is rendered. `doctor` and `verify` are gates, and
     // returning here used to hand a pipeline exit 0 for a ledger that had just failed verification.
     if (['doctor', 'verify'].includes(subcommand) && !result.valid) process.exitCode = 2;
+    if (subcommand === 'repair' && !result.dryRun && !result.valid) process.exitCode = 2;
     return;
   }
   if (subcommand === 'init') {
@@ -3513,6 +3520,22 @@ async function ledgerCommand(positionals, options) {
     result.warnings.forEach((message) => console.warn(`  ~ ${message}`));
     if (!result.valid) throw new SingularityFlowError('Capability ledger verification failed.', { exitCode: 2 });
     console.log(`Capability ledger verified: ${result.entries} entries, sequence ${result.sequence}, trust tier ${result.trustTier}.`);
+    return;
+  }
+  if (subcommand === 'repair') {
+    console.log(`Ledger pin repair (${result.mode}${result.dryRun ? ', preview' : ''}): ${result.pins.length} pin(s), ${result.unresolved.length} unresolved.`);
+    if (result.refspec.installed) console.log(`  installed ${result.refspec.refspec}`);
+    result.localActions.forEach((item) => console.log(`  ${item.status} ${item.pinRef}`));
+    result.restored.forEach((item) => console.log(`  restored ${item.pinRef} at ${item.commit} to ${item.remote}`));
+    result.unresolved.forEach((item) => console.warn(`  unresolved ${item.pinRef}: ${item.status}`));
+    if (result.dryRun && result.pins.some((item) => item.restoreCandidate)) {
+      const source = result.sourceRemote ? ` --source-remote ${result.sourceRemote}` : '';
+      console.log('Remote restoration is never automatic. After reviewing the exact refs and commits:');
+      console.log(`  singularity-flow ledger repair --restore-remote${source} --confirm ${JSON.stringify(result.confirmation)}`);
+    }
+    if (!result.dryRun && !result.valid) {
+      throw new SingularityFlowError('Ledger pin repair remains incomplete. Review the unresolved classifications above.', { exitCode: 2 });
+    }
     return;
   }
   if (subcommand === 'status') {
@@ -7009,6 +7032,9 @@ async function workspaceCommand(positionals, options) {
       if (state?.error) console.log(`  the ${optionString(options, 'state-branch', 'state')} branch was not created: ${state.error}`);
       else if (state?.created) console.log(`  created the ${state.branch} branch in ${localResult.workspace.leadRepository}`);
       else if (state) console.log(`  the ${state.branch} branch is already in ${localResult.workspace.leadRepository}`);
+      if (state?.pinRepair && !state.pinRepair.valid) {
+        console.warn('  source-pin recovery remains incomplete; run singularity-flow ledger repair --dry-run in the lead repository.');
+      }
       renderWorkspaceMaterialization(localResult);
       return renderWorkspaceStatus(localResult.status);
     }

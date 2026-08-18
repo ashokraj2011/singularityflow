@@ -122,6 +122,19 @@ function installPinRefspec(root, config) {
   return true;
 }
 
+function pinRefspecStatus(root, config) {
+  const refspec = '+refs/singularity/pins/*:refs/singularity/pins/*';
+  if (config.pinTransport !== 'refs') {
+    return { required: false, configured: true, refspec: null };
+  }
+  if (!hasRemote(root, config.remote)) {
+    return { required: true, configured: false, refspec };
+  }
+  const configured = git(root, ['config', '--get-all', `remote.${config.remote}.fetch`], { allowFailure: true })
+    .stdout.split(/\r?\n/).map((item) => item.trim()).filter(Boolean);
+  return { required: true, configured: configured.includes(refspec), refspec };
+}
+
 async function temporaryWorktree(root, ref, callback) {
   const parent = await mkdtemp(path.join(os.tmpdir(), 'sflow-ledger-'));
   const worktree = path.join(parent, 'worktree');
@@ -172,7 +185,17 @@ export async function initializeLedger(root, rawConfig = {}, { publish = true } 
   const refspecInstalled = installPinRefspec(root, config);
   ensureRemoteBranchFetched(root, config);
   const existing = ledgerHead(root, config);
-  if (existing) return { created: false, branch: config.branch, ref: existing, refspecInstalled };
+  if (existing) {
+    let pinRepair = null;
+    if (config.enabled) {
+      try {
+        pinRepair = await repairLedgerPins(root, config);
+      } catch (error) {
+        pinRepair = { valid: false, error: error.message, code: error.code ?? null };
+      }
+    }
+    return { created: false, branch: config.branch, ref: existing, refspecInstalled, pinRepair };
+  }
   const actor = identity(root);
   return temporaryWorktree(root, null, async (worktree) => {
     await writeCanonicalJson(path.join(worktree, HEAD_PATH), initialHead());
@@ -403,9 +426,108 @@ function publishPin(root, config, intent, publishedCommit) {
   return ref;
 }
 
-function fetchPin(root, config, ref) {
-  if (!ref || !hasRemote(root, config.remote)) return;
-  git(root, ['fetch', '--no-tags', config.remote, `+${ref}:${ref}`], { allowFailure: true });
+function validRemoteName(root, remote, { configured = true } = {}) {
+  const name = String(remote ?? '').trim();
+  if (!/^[A-Za-z0-9][A-Za-z0-9._-]*$/.test(name) || (configured && !hasRemote(root, name))) {
+    throw new SingularityFlowError(`Ledger pin repair requires a valid${configured ? ' configured' : ''} Git remote name; '${name || '(empty)'}' is not available.`, {
+      code: 'LEDGER_PIN_REMOTE_INVALID'
+    });
+  }
+  return name;
+}
+
+function validPinBinding(pinRef, expectedCommit) {
+  return typeof pinRef === 'string'
+    // A repair command must never be able to turn a ledger entry into a write to main, state, or
+    // any other namespace. These are the only two shapes `pinRef()` has ever issued.
+    && /^refs\/(?:singularity\/pins|heads\/singularity\/pins)\/[a-z0-9._-]+\/[a-z0-9._-]+$/.test(pinRef)
+    && /^[0-9a-f]{40}([0-9a-f]{24})?$/i.test(String(expectedCommit ?? ''));
+}
+
+function localPinObservation(root, pinRef, expectedCommit) {
+  if (!validPinBinding(pinRef, expectedCommit)) return { status: 'invalid', commit: null };
+  const current = git(root, ['rev-parse', '--verify', `${pinRef}^{commit}`], { allowFailure: true });
+  if (current.status !== 0) return { status: 'missing', commit: null };
+  const commit = current.stdout.trim();
+  return { status: commit === expectedCommit ? 'expected' : 'mismatch', commit };
+}
+
+function remotePinObservation(root, remote, pinRef, expectedCommit) {
+  if (!hasRemote(root, remote)) return { status: 'unconfigured', commit: null, remote };
+  const observed = git(root, ['ls-remote', '--exit-code', remote, pinRef], { allowFailure: true });
+  if (observed.status === 0 && observed.stdout.trim()) {
+    const commit = observed.stdout.trim().split(/\s+/)[0];
+    return { status: commit === expectedCommit ? 'expected' : 'mismatch', commit, remote };
+  }
+  if (observed.status === 2 || (observed.status === 0 && !observed.stdout.trim())) {
+    return { status: 'missing', commit: null, remote };
+  }
+  return {
+    status: observed.blocked ? 'network-disabled' : observed.timedOut ? 'timeout' : 'unavailable',
+    commit: null,
+    remote
+  };
+}
+
+function expectedCommitAvailable(root, expectedCommit) {
+  if (!/^[0-9a-f]{40}([0-9a-f]{24})?$/i.test(String(expectedCommit ?? ''))) return false;
+  return git(root, ['cat-file', '-e', `${expectedCommit}^{commit}`], { allowFailure: true }).status === 0;
+}
+
+function validatePinnedSource(root, entry) {
+  const expectedCommit = entry.transport?.publishedCommit;
+  if (!expectedCommitAvailable(root, expectedCommit)) {
+    return { valid: false, reason: `source commit ${expectedCommit ?? '(missing)'} is unavailable` };
+  }
+  if (entry.payload?.configSha256 && entry.payload?.configPath) {
+    const source = git(root, ['show', `${expectedCommit}:${entry.payload.configPath}`], { allowFailure: true });
+    if (source.status !== 0) {
+      return { valid: false, reason: `pinned configuration ${entry.payload.configPath} cannot be read` };
+    }
+    if (sha256(source.stdout) !== entry.payload.configSha256) {
+      return { valid: false, reason: `pinned configuration ${entry.payload.configPath} has the wrong hash` };
+    }
+  }
+  return { valid: true, reason: null };
+}
+
+/**
+ * Fetch one exact pin without allowing a hostile or stale remote ref to replace the local cache.
+ *
+ * Git's ordinary `+remote:local` refspec updates the local ref before the caller can compare it to
+ * the commit recorded by the ledger. Fetching to FETCH_HEAD first makes the comparison possible;
+ * only the exact recorded commit is installed, with a compare-and-swap when a local ref exists.
+ */
+function fetchExpectedPin(root, remote, pinRef, expectedCommit) {
+  if (!hasRemote(root, remote)) return { status: 'unconfigured', remote, pinRef };
+  if (!validPinBinding(pinRef, expectedCommit)) return { status: 'invalid', remote, pinRef };
+  const advertised = remotePinObservation(root, remote, pinRef, expectedCommit);
+  if (['mismatch', 'unavailable', 'timeout', 'network-disabled', 'unconfigured'].includes(advertised.status)) {
+    return { ...advertised, pinRef };
+  }
+  const fetched = git(root, ['fetch', '--no-tags', remote, pinRef], { allowFailure: true });
+  if (fetched.status !== 0) {
+    return {
+      status: advertised.status === 'missing'
+        ? 'missing'
+        : fetched.blocked ? 'network-disabled' : fetched.timedOut ? 'timeout' : 'unavailable',
+      remote,
+      pinRef
+    };
+  }
+  const fetchedCommit = git(root, ['rev-parse', '--verify', 'FETCH_HEAD^{commit}'], { allowFailure: true });
+  const commit = fetchedCommit.status === 0 ? fetchedCommit.stdout.trim() : null;
+  if (commit !== expectedCommit) return { status: 'mismatch', remote, pinRef, commit };
+  const validation = validatePinnedSource(root, { transport: { publishedCommit: expectedCommit } });
+  if (!validation.valid) return { status: 'invalid-source', remote, pinRef, reason: validation.reason };
+  const local = localPinObservation(root, pinRef, expectedCommit);
+  const args = local.commit
+    ? ['update-ref', pinRef, expectedCommit, local.commit]
+    : ['update-ref', pinRef, expectedCommit, '0'.repeat(expectedCommit.length)];
+  const updated = git(root, args, { allowFailure: true });
+  return updated.status === 0
+    ? { status: local.status === 'expected' ? 'expected' : 'fetched', remote, pinRef, commit: expectedCommit }
+    : { status: 'concurrent-change', remote, pinRef };
 }
 
 async function appendOnce(root, config, intent, publishedCommit) {
@@ -900,7 +1022,7 @@ async function ledgerRefSnapshot(root, config, callback, { offline = false } = {
 export async function verifyLedger(root, rawConfig, { offline = false } = {}) {
   const config = normalizeLedgerConfig(rawConfig);
   return ledgerRefSnapshot(root, config, async (snapshot) => {
-    const errors = [], warnings = [];
+    const errors = [], warnings = [], pinDiagnostics = [];
     const { head } = snapshot;
     const entries = new Map();
     for (const [file, contents] of snapshot.tree('ledger/entries')) {
@@ -943,13 +1065,55 @@ export async function verifyLedger(root, rawConfig, { offline = false } = {}) {
         errors.push(`Entry ${hash} is missing its idempotency index.`);
       }
       if (entry.transport?.pinRef) {
-        if (!offline) fetchPin(root, config, entry.transport.pinRef);
-        const pinned = git(root, ['rev-parse', `${entry.transport.pinRef}^{commit}`], { allowFailure: true });
-        if (pinned.status !== 0 && (retentionExpired.has(hash) || retentionExpired.has(entry.transport.pinRef))) {
+        const pinRef = entry.transport.pinRef;
+        const expectedCommit = entry.transport.publishedCommit;
+        const bindingValid = validPinBinding(pinRef, expectedCommit);
+        const fetched = offline
+          ? { status: 'not-checked', remote: config.remote, pinRef }
+          : fetchExpectedPin(root, config.remote, pinRef, expectedCommit);
+        const pinned = bindingValid
+          ? git(root, ['rev-parse', `${entry.transport.pinRef}^{commit}`], { allowFailure: true })
+          : { status: 1, stdout: '' };
+        const localStatus = pinned.status !== 0
+          ? 'missing'
+          : pinned.stdout.trim() === expectedCommit ? 'expected' : 'mismatch';
+        pinDiagnostics.push({
+          entryHash: hash,
+          pinRef,
+          expectedCommit,
+          remote: config.remote,
+          fetchStatus: fetched.status,
+          localStatus
+        });
+        if (!bindingValid) {
+          errors.push(`Entry ${hash} contains an invalid source-pin ref or commit binding.`);
+        } else if (pinned.status !== 0 && (retentionExpired.has(hash) || retentionExpired.has(entry.transport.pinRef))) {
           warnings.push(`Entry ${hash} source pin is retention-expired.`);
-        } else if (pinned.status !== 0) errors.push(`Entry ${hash} pin ${entry.transport.pinRef} is not reachable.`);
+        } else if (pinned.status !== 0) {
+          const reason = fetched.status === 'missing'
+            ? `${config.remote} does not advertise the recorded ref`
+            : fetched.status === 'network-disabled'
+              ? 'network access is disabled'
+              : fetched.status === 'timeout'
+                ? `${config.remote} timed out`
+                : fetched.status === 'unavailable'
+                  ? `${config.remote} is unavailable or denied access`
+                  : fetched.status === 'unconfigured'
+                    ? `${config.remote} is not configured`
+                    : offline ? 'the local cache has no copy and remote checks were skipped' : 'the ref could not be fetched';
+          errors.push(`Entry ${hash} pin ${entry.transport.pinRef} is not reachable: ${reason}. Run singularity-flow ledger repair --dry-run.`);
+        } else if (fetched.status === 'mismatch') {
+          errors.push(`Entry ${hash} remote pin ${entry.transport.pinRef} does not match source commit ${expectedCommit}. Refusing to overwrite it.`);
+        }
         else if (pinned.stdout.trim() !== entry.transport.publishedCommit) {
           errors.push(`Entry ${hash} pin does not match source commit ${entry.transport.publishedCommit}.`);
+        } else if (!offline && fetched.status === 'missing'
+          && (retentionExpired.has(hash) || retentionExpired.has(entry.transport.pinRef))) {
+          warnings.push(`Entry ${hash} source pin is retention-expired on ${config.remote}.`);
+        } else if (!offline && fetched.status === 'missing') {
+          errors.push(`Entry ${hash} remote pin ${entry.transport.pinRef} is missing from ${config.remote}. Run singularity-flow ledger repair --restore-remote --dry-run.`);
+        } else if (!offline && ['unavailable', 'timeout', 'network-disabled', 'unconfigured'].includes(fetched.status)) {
+          warnings.push(`Entry ${hash} verified from the local pin cache, but ${config.remote} did not confirm ${entry.transport.pinRef} (${fetched.status}).`);
         }
       } else if (config.pinTransport !== 'none') {
         errors.push(`Entry ${hash} has no source pin.`);
@@ -991,10 +1155,261 @@ export async function verifyLedger(root, rawConfig, { offline = false } = {}) {
       headEntryHash: head.entryHash,
       entries: entries.size,
       retentionExpired: retentionExpired.size,
+      pinDiagnostics,
       errors,
       warnings
     };
   }, { offline });
+}
+
+function installLocalPin(root, entry) {
+  const pinRef = entry.transport?.pinRef;
+  const expectedCommit = entry.transport?.publishedCommit;
+  if (!validPinBinding(pinRef, expectedCommit)) return { status: 'invalid', pinRef };
+  const validation = validatePinnedSource(root, entry);
+  if (!validation.valid) return { status: 'invalid-source', pinRef, reason: validation.reason };
+  const local = localPinObservation(root, pinRef, expectedCommit);
+  if (local.status === 'expected') return { status: 'expected', pinRef, commit: expectedCommit };
+  const args = local.commit
+    ? ['update-ref', pinRef, expectedCommit, local.commit]
+    : ['update-ref', pinRef, expectedCommit, '0'.repeat(expectedCommit.length)];
+  const updated = git(root, args, { allowFailure: true });
+  return updated.status === 0
+    ? { status: 'installed', pinRef, commit: expectedCommit }
+    : { status: 'concurrent-change', pinRef };
+}
+
+function pinRepairPlanHash({ remote, sourceRemote, restorations }) {
+  return sha256(canonicalJson({
+    schemaVersion: 1,
+    operation: 'ledger.pin-repair',
+    remote,
+    sourceRemote,
+    restorations: restorations.map(({ pinRef, expectedCommit }) => ({ pinRef, expectedCommit }))
+  }));
+}
+
+/**
+ * Repair source-pin reachability without weakening the ledger's trust boundary.
+ *
+ * Local Git configuration, object fetches and cache refs are safe to repair automatically because
+ * they are derived from the content-addressed ledger. Publishing a missing remote ref is not: that
+ * requires an exact, hash-bound confirmation and a dry-run push of only the recorded refspecs.
+ */
+export async function repairLedgerPins(root, rawConfig, {
+  sourceRemote = null,
+  dryRun = false,
+  restoreRemote = false,
+  confirmation = null
+} = {}) {
+  const config = normalizeLedgerConfig(rawConfig);
+  if (!config.enabled) {
+    throw new SingularityFlowError('The capability ledger is disabled; there are no governed source pins to repair.', {
+      code: 'LEDGER_DISABLED'
+    });
+  }
+  const remote = validRemoteName(root, config.remote, { configured: false });
+  const alternate = sourceRemote == null ? null : validRemoteName(root, sourceRemote);
+  if (alternate === remote) {
+    throw new SingularityFlowError('--source-remote must name a different configured remote.', {
+      code: 'LEDGER_PIN_SOURCE_REMOTE_INVALID'
+    });
+  }
+  if (dryRun && confirmation != null) {
+    throw new SingularityFlowError('ledger repair --dry-run does not accept --confirm. Review the preview first.', {
+      code: 'LEDGER_PIN_REPAIR_PREVIEW_ONLY'
+    });
+  }
+
+  const records = await ledgerRefSnapshot(root, config, async (snapshot) => {
+    const parsed = [...snapshot.tree('ledger/entries')]
+      .filter(([file]) => file.endsWith('.json'))
+      .map(([file, contents]) => ({ entryHash: path.posix.basename(file, '.json'), entry: JSON.parse(contents) }));
+    const expired = new Set();
+    for (const { entry } of parsed) {
+      if (entry.eventType !== 'retention-expired') continue;
+      if (entry.payload?.entryHash) expired.add(entry.payload.entryHash);
+      if (entry.payload?.pinRef) expired.add(entry.payload.pinRef);
+    }
+    return parsed.filter(({ entry }) => Boolean(entry.transport?.pinRef))
+      .map((record) => ({
+        ...record,
+        retentionExpired: expired.has(record.entryHash) || expired.has(record.entry.transport.pinRef)
+      }))
+      .sort((left, right) => left.entry.transport.pinRef.localeCompare(right.entry.transport.pinRef));
+  });
+
+  const pins = records.map(({ entryHash, entry, retentionExpired }) => {
+    const pinRef = entry.transport.pinRef;
+    const expectedCommit = entry.transport.publishedCommit;
+    const bindingValid = validPinBinding(pinRef, expectedCommit);
+    const local = localPinObservation(root, pinRef, expectedCommit);
+    const target = bindingValid
+      ? remotePinObservation(root, remote, pinRef, expectedCommit)
+      : { status: 'invalid', commit: null, remote };
+    const source = alternate && bindingValid
+      ? remotePinObservation(root, alternate, pinRef, expectedCommit)
+      : null;
+    const sourceObject = expectedCommitAvailable(root, expectedCommit);
+    const recoverable = bindingValid && (
+      sourceObject || target.status === 'expected' || source?.status === 'expected'
+    );
+    const restoreCandidate = !retentionExpired && target.status === 'missing' && recoverable;
+    return {
+      entryHash,
+      pinRef,
+      expectedCommit,
+      local,
+      remote: target,
+      sourceRemote: source,
+      sourceObject,
+      recoverable,
+      retentionExpired,
+      restoreCandidate
+    };
+  });
+  const restorations = pins.filter((pin) => pin.restoreCandidate)
+    .map(({ entryHash, pinRef, expectedCommit }) => ({ entryHash, pinRef, expectedCommit }));
+  const planHash = pinRepairPlanHash({ remote, sourceRemote: alternate, restorations });
+  const expectedConfirmation = `RESTORE LEDGER PINS ${planHash}`;
+
+  if (restoreRemote && !dryRun && confirmation !== expectedConfirmation) {
+    throw new SingularityFlowError(
+      `Remote ledger-pin restoration requires the exact confirmation '${expectedConfirmation}'. Run ledger repair --restore-remote --dry-run first.`,
+      {
+        code: 'LEDGER_PIN_RESTORE_CONFIRMATION_REQUIRED',
+        details: { planHash, expectedConfirmation, remote, restorations }
+      }
+    );
+  }
+  if (restoreRemote && !dryRun) {
+    const mismatch = pins.find((pin) => !pin.retentionExpired && pin.remote.status === 'mismatch');
+    if (mismatch) {
+      throw new SingularityFlowError(
+        `Refusing remote repair for ${mismatch.pinRef}: ${remote} already points at a different commit. No ref was changed.`,
+        { code: 'LEDGER_PIN_REMOTE_MISMATCH', details: { pinRef: mismatch.pinRef, expectedCommit: mismatch.expectedCommit } }
+      );
+    }
+    const unavailable = pins.find((pin) => !pin.retentionExpired
+      && ['unavailable', 'timeout', 'network-disabled', 'unconfigured'].includes(pin.remote.status));
+    if (unavailable) {
+      throw new SingularityFlowError(
+        `Refusing remote repair for ${unavailable.pinRef}: ${remote} reports ${unavailable.remote.status}. No ref was changed.`,
+        { code: 'LEDGER_PIN_REMOTE_UNAVAILABLE', details: { pinRef: unavailable.pinRef, status: unavailable.remote.status } }
+      );
+    }
+    const unproven = pins.find((pin) => !pin.retentionExpired && pin.remote.status === 'missing' && !pin.recoverable);
+    if (unproven) {
+      throw new SingularityFlowError(
+        `Refusing remote repair for ${unproven.pinRef}: the exact recorded source commit is unavailable. No ref was changed.`,
+        { code: 'LEDGER_PIN_SOURCE_UNPROVEN', details: { pinRef: unproven.pinRef, expectedCommit: unproven.expectedCommit } }
+      );
+    }
+  }
+
+  const result = {
+    schemaVersion: 1,
+    operation: 'ledger.pin-repair',
+    mode: restoreRemote ? 'restore-remote' : 'local',
+    dryRun: Boolean(dryRun),
+    remote,
+    sourceRemote: alternate,
+    planHash,
+    confirmation: expectedConfirmation,
+    refspec: pinRefspecStatus(root, config),
+    pins,
+    localActions: [],
+    restored: [],
+    unresolved: [],
+    verification: null,
+    valid: false
+  };
+  if (dryRun) {
+    result.unresolved = pins.filter((pin) => !pin.retentionExpired && pin.remote.status !== 'expected')
+      .map((pin) => ({ pinRef: pin.pinRef, status: pin.remote.status, recoverable: pin.recoverable }));
+    result.valid = result.unresolved.length === 0;
+    return result;
+  }
+
+  const installedRefspec = installPinRefspec(root, config);
+  result.refspec = { ...pinRefspecStatus(root, config), installed: installedRefspec };
+  for (const record of records) {
+    const { entry } = record;
+    const pinRef = entry.transport.pinRef;
+    const expectedCommit = entry.transport.publishedCommit;
+    if (record.retentionExpired && localPinObservation(root, pinRef, expectedCommit).status === 'missing') {
+      result.localActions.push({ entryHash: record.entryHash, pinRef, status: 'retention-expired' });
+      continue;
+    }
+    let action = localPinObservation(root, pinRef, expectedCommit);
+    if (action.status !== 'expected') {
+      const target = fetchExpectedPin(root, remote, pinRef, expectedCommit);
+      action = target.status === 'fetched' || target.status === 'expected'
+        ? target
+        : alternate ? fetchExpectedPin(root, alternate, pinRef, expectedCommit) : target;
+    }
+    if (!['fetched', 'expected'].includes(action.status) && expectedCommitAvailable(root, expectedCommit)) {
+      action = installLocalPin(root, entry);
+    }
+    result.localActions.push({ entryHash: record.entryHash, pinRef, status: action.status });
+  }
+
+  if (restoreRemote) {
+    const toPush = [];
+    for (const restoration of restorations) {
+      const record = records.find((candidate) => candidate.entryHash === restoration.entryHash);
+      let target = remotePinObservation(root, remote, restoration.pinRef, restoration.expectedCommit);
+      // Some hosts permit exact fetches while hiding custom refs from ls-remote. Prove that case
+      // before treating an advertised absence as permission to create the ref.
+      if (target.status === 'missing') {
+        const fetched = fetchExpectedPin(root, remote, restoration.pinRef, restoration.expectedCommit);
+        if (['fetched', 'expected'].includes(fetched.status)) target = { status: 'expected', commit: restoration.expectedCommit, remote };
+      }
+      if (target.status === 'expected') continue;
+      if (target.status !== 'missing') {
+        throw new SingularityFlowError(
+          `Refusing remote repair for ${restoration.pinRef}: ${remote} reports ${target.status}. No remote ref was changed.`,
+          { code: target.status === 'mismatch' ? 'LEDGER_PIN_REMOTE_MISMATCH' : 'LEDGER_PIN_REMOTE_UNAVAILABLE' }
+        );
+      }
+      const local = installLocalPin(root, record.entry);
+      if (!['installed', 'expected'].includes(local.status)) {
+        throw new SingularityFlowError(
+          `Refusing remote repair for ${restoration.pinRef}: the exact recorded source could not be proven (${local.reason ?? local.status}).`,
+          { code: 'LEDGER_PIN_SOURCE_UNPROVEN' }
+        );
+      }
+      toPush.push(restoration);
+    }
+    if (toPush.length) {
+      const refspecs = toPush.map((item) => `${item.expectedCommit}:${item.pinRef}`);
+      const atomic = toPush.length > 1 ? ['--atomic'] : [];
+      const preflight = git(root, ['push', '--dry-run', ...atomic, remote, ...refspecs], { allowFailure: true });
+      if (preflight.status !== 0) {
+        throw new SingularityFlowError(
+          `Ledger pin restoration preflight was refused by ${remote}; no remote ref was changed.`,
+          { code: 'LEDGER_PIN_RESTORE_PREFLIGHT_FAILED' }
+        );
+      }
+      const pushed = git(root, ['push', ...atomic, remote, ...refspecs], { allowFailure: true });
+      if (pushed.status !== 0) {
+        throw new SingularityFlowError(
+          `Ledger pin restoration failed after preflight. Re-run the preview; no force push was attempted.`,
+          { code: 'LEDGER_PIN_RESTORE_FAILED' }
+        );
+      }
+      result.restored = toPush.map((item) => ({ pinRef: item.pinRef, commit: item.expectedCommit, remote }));
+    }
+  }
+
+  result.verification = await verifyLedger(root, config);
+  result.unresolved = pins.filter((pin) => !pin.retentionExpired).map((pin) => ({
+    pinRef: pin.pinRef,
+    observation: remotePinObservation(root, remote, pin.pinRef, pin.expectedCommit)
+  })).filter((item) => item.observation.status !== 'expected')
+    .map((item) => ({ pinRef: item.pinRef, status: item.observation.status }));
+  result.valid = result.verification.valid && result.unresolved.length === 0;
+  return result;
 }
 
 export async function ledgerLog(root, rawConfig, { limit = 20, offline = false } = {}) {

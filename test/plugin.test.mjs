@@ -311,6 +311,14 @@ test('local-reset skill separates machine-state forgetting from proven workspace
   assert.match(content, /Never delete an unregistered path/);
 });
 
+test('ledger skill self-heals locally but requires exact human authority for remote restoration', async () => {
+  const content = await readFile(path.join(pluginRoot, 'skills', 'sflow-ledger', 'SKILL.md'), 'utf8');
+  assert.match(content, /ledger repair --dry-run --json/);
+  assert.match(content, /RESTORE LEDGER PINS <PLAN-SHA256>/);
+  assert.match(content, /Never restore a remote pin on the user's behalf/);
+  assert.match(content, /force-push a pin/i);
+});
+
 test('approval skill is explicitly user-invoked', async () => {
   const content = await readFile(path.join(pluginRoot, 'skills', 'sflow-approve', 'SKILL.md'), 'utf8');
   assert.match(content, /disable-model-invocation:\s*true/);

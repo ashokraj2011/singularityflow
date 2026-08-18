@@ -10,6 +10,7 @@ function check(id, status, summary, detail = null) { return { id, status, summar
 
 export async function capabilityDoctor(root, { capabilityId = null, offline = false } = {}) {
   const checks = [];
+  const recovery = [];
   let capability = null;
   try {
     capability = await resolveLifecycleCapability(root, { capabilityId, required: Boolean(capabilityId), offline });
@@ -37,7 +38,20 @@ export async function capabilityDoctor(root, { capabilityId = null, offline = fa
           const verified = state.verification;
           checks.push(verified.valid
             ? check('ledger-chain', 'pass', `Ledger chain verifies at sequence ${verified.sequence}.`)
-            : check('ledger-chain', 'fail', 'Ledger chain verification failed.', verified.errors.join('; ')));
+            : check(
+              'ledger-chain',
+              'fail',
+              'Ledger chain verification failed.',
+              `${verified.errors.join('; ')} Safe recovery preview: singularity-flow ledger repair --dry-run`
+            ));
+          if (!verified.valid && verified.pinDiagnostics?.some((item) => item.localStatus !== 'expected' || item.fetchStatus !== 'expected')) {
+            recovery.push({
+              id: 'repair-ledger-pins',
+              safety: 'local-only',
+              command: 'singularity-flow ledger repair --dry-run',
+              description: 'Classify remote access, missing refs, mismatches, and locally recoverable source pins before changing anything.'
+            });
+          }
         }
       } catch (error) {
         checks.push(check('state-branch', ledger.publication === 'required' ? 'fail' : 'warn', error.message));
@@ -87,6 +101,7 @@ export async function capabilityDoctor(root, { capabilityId = null, offline = fa
     capability,
     lifecycle,
     summary: { passed: checks.length - failures - warnings, warnings, failures },
-    checks
+    checks,
+    recovery
   };
 }

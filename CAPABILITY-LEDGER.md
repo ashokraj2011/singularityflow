@@ -53,6 +53,47 @@ application checkout. A normal merge refuses the unrelated histories, but Git's
 `--allow-unrelated-histories` override still exists. Preventing any ledger-to-main
 merge therefore requires a hosting-provider rule or server-side hook.
 
+`ledger init` also installs the custom-ref fetch configuration and safely repairs the
+local pin cache when it joins an existing ledger. It never invents a pin and never
+publishes a missing remote pin as part of initialization.
+
+## Pin diagnosis and bounded self-healing
+
+An unreachable pin can mean four different things: the clone lacks its custom-ref
+fetch rule, the remote cannot be reached with the current credentials, the Git host
+hides or rejects custom refs, or the exact retained ref is missing. Diagnose them
+without changing refs:
+
+```bash
+singularity-flow ledger repair --dry-run
+```
+
+Safe local healing installs the configured refspec and fetches only a pin whose commit
+matches the content-addressed ledger:
+
+```bash
+singularity-flow ledger repair
+git remote add authority <authoritative-ledger-remote>
+singularity-flow ledger repair --source-remote authority
+```
+
+The alternate source must already be a configured Git remote. A URL supplied ad hoc is
+not accepted. If the configured publication remote has genuinely lost a pin, preview
+the remote restoration and use the complete hash-bound phrase it prints:
+
+```bash
+singularity-flow ledger repair --restore-remote --dry-run
+singularity-flow ledger repair --restore-remote \
+  --confirm "RESTORE LEDGER PINS <FULL-PLAN-SHA256>"
+```
+
+Remote repair is explicit and fail-closed. It validates the recorded commit and pinned
+configuration, performs a dry-run push, uses exact `<commit>:<pin-ref>` refspecs, and
+never force-pushes or replaces a mismatched ref. Multiple refs use an atomic push. If
+the exact source object cannot be proven, an authority must restore it before Flow can
+continue. Switching `pinTransport` to `branches` prevents future custom-ref compatibility
+problems but does not rewrite historical entries.
+
 ## Publication and recovery
 
 Before a lifecycle commit is created, Flow writes a canonical durable intent under

@@ -1241,6 +1241,7 @@ export async function initializeWorkspaceState(leadDirectory, { branch = 'state'
     governanceBranch,
     reviewRequired: needsGovernanceProposal,
     governancePublished: push ? governancePublished : false,
-    publicationError
+    publicationError,
+    pinRepair: ledger?.pinRepair ?? null
   };
 }

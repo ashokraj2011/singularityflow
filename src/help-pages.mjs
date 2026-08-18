@@ -457,9 +457,33 @@ const PAGES = Object.freeze({
   },
   workspace: {
     summary: 'Manage the set of repositories you work across, and which one is active.',
+    description: [
+      'Use `workspace prepare` for a recoverable first-time setup. It writes an integrity-checked',
+      'machine-local bootstrap record, checks the runtime, destination, disk, registry and remote',
+      'branches without writing the workspace destination, and returns a bootstrap ID.',
+      '',
+      '`workspace bootstrap resume` reruns the preflight immediately before handing the plan to the',
+      'existing staged-clone transaction. Authentication, network, occupied-target and missing-branch',
+      'failures remain attached to the same session; credentials and raw Git stderr are not persisted.',
+      '',
+      '`workspace doctor` is local by default. Add `--network` only when you explicitly want it to',
+      'probe the remotes referenced by unfinished bootstrap sessions.'
+    ],
+    options: [
+      ['--id ID', 'Portable local workspace identifier used by prepare.'],
+      ['--base DIRECTORY', 'Parent directory; preflight checks it before destination creation.'],
+      ['--branch BRANCH', 'Explicit remote branch. When omitted for a single remote, its advertised HEAD is used.'],
+      ['--initialize', 'Plan governed state-branch initialization after successful materialization.'],
+      ['--network', 'Allow workspace doctor to contact pending-session remotes.'],
+      ['--confirm ID', 'Exact workspace ID required before a bootstrap session may materialize.'],
+      ['--json', 'Emit the structured session, preflight, findings, and recovery command.']
+    ],
     examples: [
       ['singularity-flow workspace list', 'Every registered workspace.'],
-      ['singularity-flow workspace use payments', 'Make a workspace the active one for this session.']
+      ['singularity-flow workspace use payments', 'Make a workspace the active one for this session.'],
+      ['singularity-flow workspace prepare https://git.example/payments.git --id payments', 'Record and preflight setup without creating the destination.'],
+      ['singularity-flow workspace bootstrap resume bst_… --confirm payments', 'Recheck and materialize the exact recorded plan.'],
+      ['singularity-flow workspace doctor --network', 'Diagnose machine state and unfinished-session remotes without changing them.']
     ],
     seeAlso: ['capability', 'session', 'bootstrap']
   },

@@ -178,11 +178,15 @@ Every public operation is classified before its implementation module is importe
 | workflow | mutation | never | — | — |
 | workspace.archive | mutation | never | — | — |
 | workspace.archive-status | read | never | — | — |
+| workspace.bootstrap.abandon | mutation | never | — | — |
+| workspace.bootstrap.resume | mutation | never | — | — |
+| workspace.bootstrap.status | read | never | — | — |
 | workspace.branches | read | never | — | — |
 | workspace.capabilities | read | never | — | — |
 | workspace.copilot | mutation | required | — | copilot-cli |
 | workspace.create | mutation | never | — | — |
 | workspace.current | read | never | — | — |
+| workspace.doctor | read | never | — | — |
 | workspace.documents | read | never | — | — |
 | workspace.duplicate | mutation | never | — | — |
 | workspace.forget | mutation | never | — | — |
@@ -193,6 +197,7 @@ Every public operation is classified before its implementation module is importe
 | workspace.inspect | read | never | — | — |
 | workspace.list | read | never | — | — |
 | workspace.open | mutation | never | — | — |
+| workspace.prepare | mutation | never | — | — |
 | workspace.prompt | read | never | — | — |
 | workspace.prune | mutation | never | — | — |
 | workspace.rename | mutation | never | — | — |

@@ -4,10 +4,11 @@ import {
 import { workspaceStatus } from '../workspace.mjs';
 import { SingularityFlowError } from '../util.mjs';
 
-async function workspaceContext(workspaceReference) {
+async function workspaceContext(workspaceReference, { allowMissing = false } = {}) {
   const registry = workspaceRegistryFile();
   if (workspaceReference) return buildWorkspaceContext(registry, workspaceReference);
   const active = await readActiveWorkspaceContext(activeWorkspaceFile(), registry, { refresh: true });
+  if (!active && allowMissing) return null;
   if (!active) throw new SingularityFlowError(
     "No workspace is active. Select one with 'singularity-flow workspace use <WORKSPACE>' first."
   );
@@ -15,8 +16,9 @@ async function workspaceContext(workspaceReference) {
 }
 
 /** Resolve the repository every developer-facing projection is about, once. */
-export async function developerRepository(workspaceReference = null) {
-  const context = await workspaceContext(workspaceReference);
+export async function developerRepository(workspaceReference = null, { allowMissing = false } = {}) {
+  const context = await workspaceContext(workspaceReference, { allowMissing });
+  if (!context) return null;
   const status = await workspaceStatus(context.workspacePath);
   const selected = status.repositories.find((item) => item.id === context.repositoryId)
     ?? status.repositories.find((item) => item.id === status.workspace.leadRepository)

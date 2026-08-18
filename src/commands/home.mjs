@@ -50,14 +50,16 @@ function renderConversation(conversation, homeEnvelope) {
 
 function render(homeEnvelope, answerEnvelope, { context, selected, actor }, conversation = null) {
   const active = homeEnvelope.data?.currentWork ?? homeEnvelope.data?.activeWork ?? null;
-  console.log(`Singularity Flow home — ${context.workspaceName}`);
+  console.log(`Singularity Flow home — ${context.workspaceName ?? 'local setup'}`);
   console.log(`Actor: ${actor.name}${actor.email ? ` <${actor.email}>` : ''}`);
-  console.log(`Repository: ${selected.id} · ${selected.branch} @ ${(selected.head ?? 'unavailable').slice(0, 12)}`);
+  console.log(selected
+    ? `Repository: ${selected.id} · ${selected.branch} @ ${(selected.head ?? 'unavailable').slice(0, 12)}`
+    : 'Repository: none selected');
   console.log(`Freshness: ${new Date().toISOString()} · local only`);
   if (homeEnvelope.data?.personalization?.replyName) console.log(`\nHello, ${homeEnvelope.data.personalization.replyName}.`);
   console.log(`\n${active
     ? `${active.id} is in ${active.phase ?? 'its workflow'}.`
-    : `${context.workspaceName} has ${homeEnvelope.outcome.slots.active ?? 0} active governed work item(s).`}`);
+    : `${context.workspaceName ?? 'Local setup'} has ${homeEnvelope.outcome.slots.active ?? 0} active governed work item(s).`}`);
   renderConversation(conversation, homeEnvelope);
   if (answerEnvelope) {
     console.log('\nAnswer');
@@ -129,10 +131,16 @@ export async function run(_argv, { options }) {
   const workspaceReference = optionString(options, 'workspace');
   const request = optionString(options, 'request');
   const conversation = request ? planDeveloperConversation(request) : null;
-  const selection = await homeRepository(workspaceReference);
-  const { root, context, selected } = selection;
-  const resolvedActor = identity(root, { offline: true });
-  const actor = { ...resolvedActor, name: localGitDisplayName(root) ?? resolvedActor.name };
+  const selection = await homeRepository(workspaceReference, { allowMissing: !workspaceReference });
+  const root = selection?.root ?? null;
+  const context = selection?.context ?? { workspaceId: null, workspaceName: null, storyId: null };
+  const selected = selection?.selected ?? null;
+  const identityRoot = root ?? process.cwd();
+  const resolvedActor = identity(identityRoot, { offline: true });
+  const actor = { ...resolvedActor, name: localGitDisplayName(identityRoot) ?? resolvedActor.name };
+  const bootstrap = root ? null : await import('../workspace-bootstrap.mjs')
+    .then(({ latestWorkspaceBootstrap }) => latestWorkspaceBootstrap())
+    .catch(() => null);
 
   /**
    * One session ID for this invocation, and it is not reused.
@@ -149,19 +157,20 @@ export async function run(_argv, { options }) {
     planners: gatewayPlanners(),
     plannerContext: {
       // Personalization and authority remain separate inside the host binding.
-      workspace: { id: context.workspaceId, name: context.workspaceName },
-      repositoryId: selected.id,
-      branch: selected.branch,
+      workspace: context.workspaceId ? { id: context.workspaceId, name: context.workspaceName } : null,
+      repositoryId: selected?.id ?? null,
+      branch: selected?.branch ?? null,
       storyId: context.storyId ?? null,
       workId: context.storyId ?? null,
       workKind: context.storyId ? 'story' : null,
       repository: {
-        id: selected.id,
+        id: selected?.id ?? null,
         path: root,
-        branch: selected.branch,
-        head: selected.head ?? null,
+        branch: selected?.branch ?? null,
+        head: selected?.head ?? null,
         resolvedFrom: workspaceReference ? 'workspace-option' : 'active-workspace'
-      }
+      },
+      bootstrap
     },
     workspaceId: context.workspaceId ?? null
   });

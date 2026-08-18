@@ -14,7 +14,7 @@ import { contentSecurityPolicy, navigationTarget, nonce, page } from './webview.
 import { navigateTo } from './navigate.ts';
 import { booleanField, registerMessageRouter, stringField } from './messages.ts';
 import {
-  capabilityChoices, derivedRepositories, effectiveLead, EMPTY_WORKSPACE_FORM, formCommand,
+  capabilityChoices, derivedRepositories, effectiveLead, EMPTY_WORKSPACE_FORM, formPrepareCommand,
   formProblems, shippingCapabilities, WORKSPACE_PROFILE_ROLES,
   workspaceFormHtml, WORKSPACE_FORM_SCRIPT,
   type CapabilityChoice, type RemoteCapability, type WorkspaceForm
@@ -36,6 +36,23 @@ interface Organisation {
   stale?: boolean;
   cacheAgeMs?: number | null;
   remoteError?: string | null;
+}
+
+interface BootstrapSession {
+  bootstrapId: string;
+  status: string;
+  preflight?: {
+    ready: boolean;
+    findings: Array<{ severity: string; message: string; action?: string }>;
+  } | null;
+  plan: {
+    workspace: { id: string; confirmation: string; name: string; targetPath: string; leadRepository: string };
+    repositories: Array<{ id: string; remote: string; defaultBranch: string; targetPath: string }>;
+    initialization: { enabled: boolean; stateBranch: string };
+  };
+  result?: { workspace?: { path?: string; leadRepository?: string } } | null;
+  fault?: { message?: string } | null;
+  nextAction?: { command?: string; skill?: string } | null;
 }
 
 export class WorkspacePanel {
@@ -284,39 +301,88 @@ export class WorkspacePanel {
     if (formProblems(this.form).length || this.form.busy) return;
     this.update({ busy: true, error: null });
 
-    const args = formCommand(this.form);
+    const args = formPrepareCommand(this.form);
     this.output.appendLine(`\n$ singularity-flow ${args.join(' ')}`);
     try {
-      // The workspace form is also the first-run profile screen. Keep the profile in the one
-      // machine-local store already used by onboarding and Configuration Center; it is never copied
-      // into governed repository state or treated as approval identity.
-      const settings = vscode.workspace.getConfiguration('singularityFlow');
-      await Promise.all([
-        settings.update('userName', this.form.profileName.trim(), vscode.ConfigurationTarget.Global),
-        settings.update('role', this.form.profileRole, vscode.ConfigurationTarget.Global),
-        this.context.globalState.update('onboardingComplete', true)
-      ]);
       const client = new SingularityFlowClient({
         location: this.location,
         repository: this.form.base ?? '',
         onOutput: (text) => this.output.append(text)
       });
       const cloning = derivedRepositories(this.form).length;
+      const prepared = await vscode.window.withProgress(
+        {
+          location: vscode.ProgressLocation.Notification,
+          title: `Checking workspace and ${cloning} ${cloning === 1 ? 'remote' : 'remotes'}…`
+        },
+        () => client.run<BootstrapSession>(args));
+
+      if (!prepared.preflight?.ready) {
+        const details = (prepared.preflight?.findings ?? [])
+          .filter((finding) => finding.severity === 'blocker')
+          .map((finding) => `${finding.message}${finding.action ? ` ${finding.action}` : ''}`)
+          .join(' ');
+        this.update({
+          busy: false,
+          error: `${details || 'Workspace preflight did not pass.'} Setup ${prepared.bootstrapId} was saved and can be resumed. ${prepared.nextAction?.command ?? ''}`.trim()
+        });
+        return;
+      }
+
+      const repositoryPlan = prepared.plan.repositories
+        .map((repository) => `${repository.id}: ${repository.defaultBranch} → ${repository.targetPath}`)
+        .join('\n');
+      const confirmed = await vscode.window.showInformationMessage(
+        `Create workspace ${prepared.plan.workspace.name}?`,
+        {
+          modal: true,
+          detail: `Target: ${prepared.plan.workspace.targetPath}\n\nRepositories:\n${repositoryPlan}\n\nThe destination has not been created. SFlow will recheck immediately before cloning.`
+        },
+        'Create workspace'
+      );
+      if (confirmed !== 'Create workspace') {
+        this.update({
+          busy: false,
+          error: `Setup ${prepared.bootstrapId} is saved. Resume it later with ${prepared.nextAction?.command ?? `/sf-workspace-bootstrap ${prepared.bootstrapId}`}.`
+        });
+        return;
+      }
+
+      const resumeArgs = [
+        'workspace', 'bootstrap', 'resume', prepared.bootstrapId,
+        '--confirm', prepared.plan.workspace.confirmation, '--json'
+      ];
+      this.output.appendLine(`\n$ singularity-flow ${resumeArgs.join(' ')}`);
       const result = await vscode.window.withProgress(
         {
           location: vscode.ProgressLocation.Notification,
-          title: `Cloning ${cloning} ${cloning === 1 ? 'repository' : 'repositories'}…`
+          title: `Creating workspace and cloning ${cloning} ${cloning === 1 ? 'repository' : 'repositories'}…`
         },
-        () => client.run<{ workspace?: { path?: string; leadRepository?: string } }>(args));
+        () => client.run<BootstrapSession>(resumeArgs));
 
-      const directory = result.workspace?.path;
-      if (!directory) throw new Error('The workspace was created but its directory was not reported.');
-      const lead = result.workspace?.leadRepository ?? effectiveLead(this.form)?.repository ?? '';
+      const directory = result.result?.workspace?.path;
+      if (!directory) {
+        throw new Error(
+          `${result.fault?.message ?? 'The workspace was not materialized.'} Setup ${result.bootstrapId} remains resumable. ${result.nextAction?.command ?? ''}`.trim()
+        );
+      }
+
+      // The workspace form is also the first-run profile screen. Persist personalization only after
+      // the workspace exists; a failed preflight must not mark onboarding complete.
+      const settings = vscode.workspace.getConfiguration('singularityFlow');
+      await Promise.all([
+        settings.update('userName', this.form.profileName.trim(), vscode.ConfigurationTarget.Global),
+        settings.update('role', this.form.profileRole, vscode.ConfigurationTarget.Global),
+        this.context.globalState.update('onboardingComplete', true)
+      ]);
+
+      const lead = result.result?.workspace?.leadRepository ?? effectiveLead(this.form)?.repository ?? '';
       // dispose() rather than panel.dispose(): closing the panel has to clear the singleton in
       // the same tick, or opening the screen again reveals the panel that was just closed.
       this.dispose();
       await this.onCreated({
-        directory, lead, leadDirectory: `${directory}/repos/${lead}`, stateBranch: 'state'
+        directory, lead, leadDirectory: `${directory}/repos/${lead}`,
+        stateBranch: result.plan.initialization.enabled ? result.plan.initialization.stateBranch : null
       });
     } catch (error) {
       this.update({ busy: false, error: (error as Error).message });

@@ -1086,7 +1086,8 @@ test('an empty repository offers to start an Epic rather than describing the com
 
 const {
   EMPTY_WORKSPACE_FORM, capabilityChoices, coveredCapabilities, derivedRepositories, effectiveLead,
-  formProblems, formCommand, hasCapabilityMap, shippingCapabilities, uncloneable, workspaceFormHtml
+  formProblems, formCommand, formPrepareCommand, hasCapabilityMap, shippingCapabilities, uncloneable,
+  workspaceFormHtml
 } = await import(source('views/workspace-form.ts'));
 
 /** The organisation's map, as `capability organisation --json` returns it. */
@@ -1209,6 +1210,18 @@ test('a workspace records the capabilities it is for, and the organisation they 
   // up by this workspace without editing it.
   assert.equal(command.filter((entry) => entry === '--capability').length, 2);
   assert.match(command.join(' '), /--confirm checkout-platform/);
+});
+
+test('the VS Code workspace form prepares and preflights before it materializes', () => {
+  const command = formPrepareCommand(withMap(['payments', 'storefront']));
+  assert.deepEqual(command.slice(0, 3), [
+    'workspace', 'prepare', 'https://example.com/platform.git'
+  ]);
+  assert.match(command.join(' '), /--id checkout-platform --base \/work/);
+  assert.match(command.join(' '), /--capability payments --capability storefront/);
+  assert.match(command.join(' '), /--initialize --state-branch state/);
+  assert.doesNotMatch(command.join(' '), /--confirm/,
+    'preflight must persist before the editor asks for materialization confirmation');
 });
 
 test('an organisation read but nothing chosen from cannot be created', () => {

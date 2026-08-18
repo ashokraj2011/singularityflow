@@ -101,7 +101,7 @@ import { activateWorkspaceContext, activeWorkspaceFile, clearActiveWorkspaceCont
 import { appendLedgerIntent, archiveLedger, createLedgerIntent, initializeLedger, ledgerDoctor, ledgerLog, ledgerShow, ledgerStatus, reconcileLedger, repairLedgerPins, verifyLedger } from './ledger.mjs';
 import { validateLedgerDeployment } from './ledger-deployment.mjs';
 import { CAPABILITY_KINDS, CAPABILITY_TYPES, CAPABILITIES_PATH, capabilityDeliveries, capabilityForRepository, capabilityTree, editCapability, flattenCapabilityTree, loadCapabilities, resolveCapabilityPolicy, resolveEffectiveCapabilityPolicy, validateCapabilities } from './capabilities.mjs';
-import { bootstrapRepository } from './bootstrap.mjs';
+import { bootstrapRepository, repositoryIdFromUrl } from './bootstrap.mjs';
 import { activateCapabilityProposal, capabilityReadiness, composeCapabilityWorldModel, editCapabilityInOrganisation, inspectCapabilityProposal, listCapabilityProposals, initializeWorkspaceState, listLeadRepositories, mapCapability, publishOrganisationCapabilityMap, readOrganisation, rememberLeadRepository, resolveWorkspacePlan } from './organisation.mjs';
 import { canonicalCommand, commandDefinition, SECRETS_SUBCOMMANDS, validateCommandHandlers } from './command-registry.mjs';
 // `action` is already a command name in this file, so the narration constructor is renamed rather
@@ -6776,11 +6776,182 @@ async function secretsCommand(positionals, options) {
   return scan;
 }
 
+function renderWorkspaceBootstrap(session) {
+  console.log(`\nWorkspace bootstrap ${session.bootstrapId} · ${session.status}`);
+  console.log(`Workspace: ${session.plan?.workspace?.name ?? session.request?.workspaceName ?? 'unresolved'} (${session.plan?.workspace?.id ?? 'unresolved'})`);
+  if (session.plan?.workspace?.targetPath) console.log(`Target: ${session.plan.workspace.targetPath}`);
+  if (session.preflight) {
+    console.log(`Preflight: ${session.preflight.ready ? 'ready' : 'blocked'} · ${session.preflight.checkedAt}`);
+    for (const finding of session.preflight.findings ?? []) {
+      console.log(`  ${finding.severity === 'blocker' ? 'blocked' : 'warning'}: ${finding.message}`);
+      if (finding.action) console.log(`    ${finding.action}`);
+    }
+  }
+  if (session.fault) console.log(`Recovery: ${session.fault.message}`);
+  if (session.workspaceJournal?.path) console.log(`Journal: ${session.workspaceJournal.path}`);
+  if (session.nextAction?.command) console.log(`Next CLI step: ${session.nextAction.command}`);
+  if (session.nextAction?.skill) console.log(`Copilot: ${session.nextAction.skill}`);
+}
+
+async function workspaceBootstrapInput(source, options) {
+  const baseDirectory = optionString(
+    options, 'base', process.env.SINGULARITY_FLOW_WORKSPACE_ROOT || path.join(os.homedir(), 'Singularity Workspaces')
+  );
+  const resolvedSource = path.resolve(source);
+  const sourceInfo = await lstat(resolvedSource).catch(() => null);
+  if (sourceInfo?.isFile()) {
+    const parsed = YAML.parse(await readFile(resolvedSource, 'utf8')) ?? {};
+    const manifest = parsed.workspace ?? parsed;
+    if (manifest.version === 1 && manifest.anchor && manifest.repositories) {
+      const id = optionString(options, 'id') ?? manifest.id ?? manifest.anchor?.key;
+      if (!id) throw new SingularityFlowError('The workspace manifest does not identify a workspace.');
+      return {
+        source: { kind: 'manifest', reference: resolvedSource },
+        createInput: {
+          baseDirectory: optionString(options, 'base')
+            ?? (manifest.path ? path.dirname(path.resolve(manifest.path)) : baseDirectory),
+          id,
+          name: optionString(options, 'name') ?? manifest.name ?? id,
+          leadRepository: manifest.leadRepository,
+          capabilities: manifest.capabilities ?? [],
+          repositories: manifest.repositories
+        },
+        inferDefaultRepositories: []
+      };
+    }
+    if (manifest.id && manifest.repositories && manifest.leadRepository) {
+      return {
+        source: { kind: 'manifest', reference: resolvedSource },
+        createInput: {
+          ...manifest,
+          baseDirectory: optionString(options, 'base') ?? manifest.baseDirectory ?? baseDirectory,
+          name: optionString(options, 'name') ?? manifest.name ?? manifest.id
+        },
+        inferDefaultRepositories: []
+      };
+    }
+    throw new SingularityFlowError(
+      'A workspace bootstrap manifest must be a workspace.json document or contain id, leadRepository, and repositories.'
+    );
+  }
+
+  const chosen = optionStrings(options, 'capability');
+  if (chosen.length) {
+    const organisation = await readOrganisation(source);
+    const derived = resolveWorkspacePlan(organisation, {
+      capabilities: chosen,
+      leadCapability: optionString(options, 'lead-capability')
+    });
+    await rememberLeadRepository(source);
+    const id = optionString(options, 'id');
+    if (!id) throw new SingularityFlowError('workspace prepare for capabilities requires --id.');
+    return {
+      source: { kind: 'organisation', reference: source },
+      createInput: {
+        baseDirectory,
+        id,
+        name: optionString(options, 'name') ?? id,
+        leadRepository: derived.leadRepository,
+        capabilities: derived.capabilities,
+        repositories: derived.repositories
+      },
+      inferDefaultRepositories: []
+    };
+  }
+
+  const id = optionString(options, 'id');
+  if (!id) throw new SingularityFlowError('workspace prepare requires --id for a repository URL.');
+  const repositoryId = optionString(options, 'repository-id') ?? repositoryIdFromUrl(source);
+  const explicitBranch = optionString(options, 'branch');
+  const sparseCone = optionStrings(options, 'sparse-cone');
+  const cloneMode = optionString(options, 'clone-mode', sparseCone.length ? 'blobless-sparse' : 'full');
+  const cloneFallback = optionString(options, 'clone-fallback', 'refuse');
+  return {
+    source: { kind: 'remote', reference: source },
+    createInput: {
+      baseDirectory,
+      id,
+      name: optionString(options, 'name') ?? id,
+      leadRepository: repositoryId,
+      capabilities: [],
+      repositories: {
+        [repositoryId]: {
+          url: source,
+          defaultBranch: explicitBranch ?? 'main',
+          required: true,
+          path: `repos/${repositoryId}`,
+          clone: { mode: cloneMode, sparseCone, fallback: cloneFallback }
+        }
+      }
+    },
+    inferDefaultRepositories: explicitBranch ? [] : [repositoryId]
+  };
+}
+
 async function workspaceCommand(positionals, options) {
   const subcommand = positionals[1] ?? 'list';
   const registry = workspaceRegistryFile();
   const selectionFile = activeWorkspaceFile();
   const compatibility = await discardUnsupportedWorkflowWorkspaces(registry, selectionFile);
+  if (subcommand === 'prepare') {
+    const source = requirePositional(positionals, 2, 'repository URL or workspace manifest');
+    const input = await workspaceBootstrapInput(source, options);
+    const { prepareWorkspaceBootstrap } = await import('./workspace-bootstrap.mjs');
+    const session = await prepareWorkspaceBootstrap({
+      ...input,
+      initialize: optionBoolean(options, 'initialize'),
+      stateBranch: optionString(options, 'state-branch', 'state')
+    });
+    if (optionBoolean(options, 'json')) return console.log(JSON.stringify(session, null, 2));
+    renderWorkspaceBootstrap(session);
+    return session;
+  }
+  if (subcommand === 'bootstrap') {
+    const action = positionals[2] ?? 'status';
+    const {
+      abandonWorkspaceBootstrap, listWorkspaceBootstraps, readWorkspaceBootstrap,
+      resumeWorkspaceBootstrap
+    } = await import('./workspace-bootstrap.mjs');
+    if (action === 'status') {
+      const id = positionals[3] ?? null;
+      const result = id ? await readWorkspaceBootstrap(id) : await listWorkspaceBootstraps();
+      if (optionBoolean(options, 'json')) return console.log(JSON.stringify(result, null, 2));
+      if (Array.isArray(result)) {
+        if (!result.length) return console.log('No workspace bootstrap sessions have been recorded.');
+        result.forEach(renderWorkspaceBootstrap);
+      } else renderWorkspaceBootstrap(result);
+      return result;
+    }
+    if (action === 'resume') {
+      const id = requirePositional(positionals, 3, 'bootstrap ID');
+      const result = await resumeWorkspaceBootstrap(id, { confirmation: optionString(options, 'confirm') });
+      if (optionBoolean(options, 'json')) return console.log(JSON.stringify(result, null, 2));
+      renderWorkspaceBootstrap(result);
+      return result;
+    }
+    if (action === 'abandon') {
+      const id = requirePositional(positionals, 3, 'bootstrap ID');
+      const result = await abandonWorkspaceBootstrap(id, { reason: optionString(options, 'reason') });
+      if (optionBoolean(options, 'json')) return console.log(JSON.stringify(result, null, 2));
+      renderWorkspaceBootstrap(result);
+      return result;
+    }
+    throw new SingularityFlowError("workspace bootstrap supports 'status', 'resume', and 'abandon'.");
+  }
+  if (subcommand === 'doctor') {
+    const { workspaceBootstrapDoctor } = await import('./workspace-bootstrap.mjs');
+    const result = await workspaceBootstrapDoctor({ network: optionBoolean(options, 'network') });
+    if (optionBoolean(options, 'json')) return console.log(JSON.stringify(result, null, 2));
+    console.log(`Workspace reliability: ${result.healthy ? 'healthy' : 'needs attention'}`);
+    for (const item of result.machine.findings) console.log(`  ${item.severity}: ${item.message}`);
+    for (const item of result.remotes) {
+      console.log(`  ${item.repository}: ${item.ok ? 'reachable' : item.classification}`);
+      if (item.advice) console.log(`    ${item.advice}`);
+    }
+    if (!result.networkChecked) console.log('Network remotes were not contacted. Add --network to test pending bootstrap remotes.');
+    for (const session of result.sessions) console.log(`  ${session.bootstrapId}: ${session.status} · ${session.workspaceName ?? session.workspaceId}`);
+    return result;
+  }
   /**
    * The base branches on offer for a capability, and which repositories publish each.
    *

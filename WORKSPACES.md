@@ -90,32 +90,37 @@ The preferred flow starts with the lead repository that owns
 ```bash
 sflow workspace capabilities <LEAD-REPOSITORY-URL>
 
-sflow workspace create --local \
+sflow workspace prepare <LEAD-REPOSITORY-URL> \
   --id payments-modernization \
   --name "Payments modernization" \
   --base "$HOME/Singularity Workspaces" \
-  --organisation <LEAD-REPOSITORY-URL> \
   --capability payments \
   --lead-capability payments-api \
+  --initialize
+
+# Review the returned target, branches, findings, and bootstrap ID, then:
+sflow workspace bootstrap resume <BOOTSTRAP-ID> \
   --confirm payments-modernization
 ```
 
 The CLI derives repository URLs and default branches from the governed capability
-and portfolio files, clones them below `repos/`, records a resumable journal, and
-initializes the optional state branch in the lead repository when configured.
+and portfolio files. `prepare` first writes an integrity-checked machine-local
+bootstrap session and checks runtime, path, disk, registry, and non-interactive Git
+access without creating the destination. `resume` repeats that preflight, clones
+below `repos/` through the existing staged transaction, links its journal to the
+bootstrap ID, and initializes the optional state branch only when `--initialize`
+was part of the recorded plan.
 
 For a repository with no capability map yet, explicitly supplied repositories
 remain supported:
 
 ```bash
-sflow workspace create --local \
+sflow workspace prepare https://git.example.com/team/rule-engine.git \
   --id rule-demo \
   --name "Rule demo" \
   --base "$HOME/Singularity Workspaces" \
-  --lead rule-engine \
-  --repository rule-engine=https://git.example.com/team/rule-engine.git \
-  --default-branch rule-engine=main \
-  --confirm rule-demo
+  --repository-id rule-engine \
+  --branch main
 ```
 
 A Jira anchor is optional. For an existing higher-level Jira item, use
@@ -179,6 +184,9 @@ authoritative evidence. Jira and storage secrets entered in VS Code remain in
 
 ```bash
 sflow workspace list
+sflow workspace bootstrap status
+sflow workspace doctor
+sflow workspace doctor --network
 sflow workspace current
 sflow workspace use payments-modernization
 sflow workspace status /path/to/payments-modernization
@@ -209,7 +217,7 @@ has moved or disappeared, the command stops with a repair/select-workspace messa
 The registry defaults to `~/.singularity-flow/workspaces.json`; active selection
 defaults to `~/.singularity-flow/active-workspace.json`. Corporate launchers may
 override them with `SINGULARITY_FLOW_WORKSPACE_REGISTRY`,
-`SINGULARITY_FLOW_WORKSPACE_ROOT`, and
+`SINGULARITY_FLOW_WORKSPACE_ROOT`, `SINGULARITY_FLOW_BOOTSTRAP_STATE`, and
 `SINGULARITY_FLOW_ACTIVE_WORKSPACE`.
 
 ## Documents and recovery
@@ -220,6 +228,8 @@ the normal lifecycle.
 
 Workspace operations are designed to be recoverable:
 
+- setup is recorded before destination mutation and can be resumed by bootstrap ID;
+- remote failures are classified without persisting provider stderr or credentials;
 - clones are isolated even when two workspaces use the same repository;
 - creation and repair never overwrite unrelated directories;
 - interrupted clones are journaled and can resume;

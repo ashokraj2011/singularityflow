@@ -1,0 +1,89 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://singularity-flow.dev/schemas/workspace-bootstrap-session.schema.json",
+  "title": "Workspace bootstrap session",
+  "type": "object",
+  "required": [
+    "schemaVersion",
+    "bootstrapId",
+    "status",
+    "revision",
+    "createdAt",
+    "requestedAt",
+    "updatedAt",
+    "scope",
+    "request",
+    "plan",
+    "planHash",
+    "steps",
+    "faults",
+    "createdPaths",
+    "attemptBudget",
+    "attempts",
+    "integrity"
+  ],
+  "properties": {
+    "schemaVersion": { "const": 1 },
+    "bootstrapId": { "type": "string", "pattern": "^bst_[a-f0-9-]{20,64}$" },
+    "status": {
+      "enum": [
+        "planned",
+        "preflighting",
+        "waiting-user",
+        "materializing",
+        "verifying",
+        "initializing",
+        "ready",
+        "degraded",
+        "failed",
+        "abandoned"
+      ]
+    },
+    "revision": { "type": "integer", "minimum": 0 },
+    "createdAt": { "type": "string", "format": "date-time" },
+    "requestedAt": { "type": "string", "format": "date-time" },
+    "updatedAt": { "type": "string", "format": "date-time" },
+    "scope": {
+      "type": "object",
+      "required": ["kind", "workspaceId", "repositoryId", "storyId"],
+      "properties": {
+        "kind": { "const": "workspace-bootstrap" },
+        "workspaceId": { "type": ["string", "null"] },
+        "repositoryId": { "type": ["string", "null"] },
+        "storyId": { "type": ["string", "null"] }
+      },
+      "additionalProperties": false
+    },
+    "request": { "type": "object" },
+    "plan": { "type": "object" },
+    "planHash": { "type": "string", "pattern": "^sha256:[a-f0-9]{64}$" },
+    "preflight": { "type": ["object", "null"] },
+    "steps": { "type": "array", "items": { "type": "object" } },
+    "faults": { "type": "array", "items": { "type": "object" } },
+    "createdPaths": { "type": "array", "items": { "type": "string" } },
+    "attemptBudget": {
+      "type": "object",
+      "required": ["used", "maximum"],
+      "properties": {
+        "used": { "type": "integer", "minimum": 0 },
+        "maximum": { "type": "integer", "minimum": 1 }
+      },
+      "additionalProperties": false
+    },
+    "attempts": { "type": "array", "items": { "type": "object" } },
+    "workspaceJournal": { "type": ["object", "null"] },
+    "result": { "type": ["object", "null"] },
+    "fault": { "type": ["object", "null"] },
+    "nextAction": { "type": ["object", "null"] },
+    "integrity": {
+      "type": "object",
+      "required": ["algorithm", "sha256"],
+      "properties": {
+        "algorithm": { "const": "sha256" },
+        "sha256": { "type": "string", "pattern": "^[a-f0-9]{64}$" }
+      },
+      "additionalProperties": false
+    }
+  },
+  "additionalProperties": true
+}

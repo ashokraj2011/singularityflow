@@ -36,9 +36,11 @@ import {
   corePath, resolveGroundingPlan, resolveViews, selectionId, tierForCore, viewPath
 } from './world-model-selection.mjs';
 import {
-  ensureGrounding, inspectGroundingAvailability, materializationPolicy, materializeSelections,
+  ensureGrounding, groundingEnsureCommand, inspectGroundingAvailability, isMinimalModel, materializationPolicy, materializeSelections,
   mergeWorldModelSnapshot, writeV3Manifest
 } from './world-model-materialization.mjs';
+import { assertWorldModelStaleness } from './world-model-policy.mjs';
+import { operationContext } from './operation-context.mjs';
 import { renderCapabilityWorldModelPack } from './capability-context.mjs';
 import { recordPromptAudit } from './prompt-audit.mjs';
 import { normalizeClarificationPolicy, renderClarificationProtocol } from './clarifications.mjs';
@@ -326,6 +328,35 @@ function groundingPlan(config, options, requestedPhase = null) {
   return plan;
 }
 
+/**
+ * Resolve lifecycle readiness from the immutable Story scope and exact phase plan.
+ *
+ * This is the shared replacement for `worldModelRebuildReason`, whose repository-wide worktree
+ * check could not see governed state-branch content, progressive selections, or capability scope.
+ */
+export async function inspectWorkflowGrounding(root, workflow, phaseId, {
+  agent = null,
+  task = null
+} = {}) {
+  const config = await load(root, { agent, workId: workflow?.workItem?.id ?? null });
+  const options = {
+    ...(task ? { task } : {}),
+    evidence: workflow?.phases?.[phaseId]?.worldModel?.evidence === true
+  };
+  const plan = groundingPlan(config, options, phaseId);
+  const availability = await inspectGroundingAvailability(root, config, plan);
+  const reason = availability.ready
+    ? availability.staleness?.warns ? availability.staleness.message : null
+    : availability.action?.reason ?? 'No governed world model satisfies the pinned phase plan.';
+  return {
+    config,
+    plan,
+    availability,
+    command: availability.action?.command ?? groundingEnsureCommand(plan),
+    reason
+  };
+}
+
 function render(template, root, config, options) {
   const phase = optionString(options, 'phase');
   const phaseConfig = phase ? config.phases[phase] : null;
@@ -455,11 +486,53 @@ async function publishWorldModel(root, config, workflow, sourceHash, phase = 're
         schemaVersion: currentSchemaVersion('pending-publication'), workId: workflow.workItem.id, branch: branch(root), remote,
         commit, createdAt: new Date().toISOString(), error: (result.stderr || result.stdout).trim(), kind: 'world-model'
       });
-      throw new SingularityFlowError(`World-model commit ${commit?.slice(0, 8)} was retained locally but push failed. Run singularity-flow sync after fixing remote access.`);
+      throw new SingularityFlowError(`World-model commit ${commit?.slice(0, 8)} was retained locally but push failed. Run singularity-flow sync after fixing remote access.`, {
+        code: 'world_model.application_publication_pending',
+        details: { commit, remote, recoveryCommand: 'singularity-flow sync' }
+      });
     }
-    throw new SingularityFlowError(`World-model commit ${commit?.slice(0, 8)} was retained locally but push failed. Run git push after fixing remote access.`);
+    const recoveryCommand = `git push ${remote} HEAD:refs/heads/${branch(root)}`;
+    throw new SingularityFlowError(`World-model commit ${commit?.slice(0, 8)} was retained locally but push failed. Run '${recoveryCommand}' after fixing remote access.`, {
+      code: 'world_model.application_publication_pending',
+      details: { commit, remote, recoveryCommand }
+    });
   }
   return { commit, pushed: true, changed: staged };
+}
+
+async function publicationRecoveryError(root, validatedDirectory, error, { phase, sourceHash }) {
+  if (error?.code === 'world_model.publication_recovery_required') return error;
+  let recoveryPath = null;
+  let preservationError = null;
+  try {
+    const recoveryRoot = path.join(gitDir(root), 'singularity-flow', 'world-model-recovery');
+    await mkdir(recoveryRoot, { recursive: true });
+    const label = String(phase ?? 'repository').replace(/[^a-zA-Z0-9._-]+/g, '-').slice(0, 48);
+    const source = String(sourceHash ?? '').replace(/^sha256:/, '').slice(0, 12) || 'unknown';
+    recoveryPath = path.join(recoveryRoot, `${Date.now()}-${source}-${label}`);
+    await cp(validatedDirectory, recoveryPath, { recursive: true, errorOnExist: true });
+  } catch (preserveError) {
+    recoveryPath = null;
+    preservationError = preserveError.message;
+  }
+  const recovery = recoveryPath
+    ? ` The validated snapshot was retained at ${recoveryPath}; no light replacement was attempted.`
+    : ' No light replacement was attempted.';
+  const publicationMessage = String(error.message ?? error);
+  return new SingularityFlowError(
+    `World-model generation and validation succeeded, but governed publication or installation failed: ${publicationMessage}${publicationMessage.endsWith('.') ? '' : '.'}${recovery}`,
+    {
+      code: 'world_model.publication_recovery_required',
+      details: {
+        generationPreserved: Boolean(recoveryPath),
+        recoveryPath,
+        preservationError,
+        fallbackAllowed: false,
+        recoveryCommand: error?.details?.recoveryCommand ?? null
+      },
+      cause: error
+    }
+  );
 }
 
 /**
@@ -1175,15 +1248,23 @@ async function buildLight(root, config, options) {
       requireEvidence: true
     });
     const phase = optionString(options, 'phase');
-    const governed = !local
-      ? await publishWorldModelToStateBranch(root, config, sourceState.sha256, phase ?? 'repository-light', {
-          directory: merged, plan
-        })
-      : null;
-    await installWorldModel(governed?.directory ?? merged, target);
-    const publication = await publishWorldModel(
-      root, config, config.workflow, sourceState.sha256, phase ?? 'repository-light', { local }
-    );
+    let governed;
+    let publication;
+    try {
+      governed = !local
+        ? await publishWorldModelToStateBranch(root, config, sourceState.sha256, phase ?? 'repository-light', {
+            directory: merged, plan
+          })
+        : null;
+      await installWorldModel(governed?.directory ?? merged, target);
+      publication = await publishWorldModel(
+        root, config, config.workflow, sourceState.sha256, phase ?? 'repository-light', { local }
+      );
+    } catch (error) {
+      throw await publicationRecoveryError(root, merged, error, {
+        phase: phase ?? 'repository-light', sourceHash: sourceState.sha256
+      });
+    }
     console.log(
       `Light world model built with 0 model tokens from source ${sourceState.sha256.slice(7, 19)} `
       + `and recorded in ${publication.commit?.slice(0, 10) ?? 'the working tree'}`
@@ -1486,13 +1567,21 @@ ${repositoryFactsDigest}
     await validateWorldModelDirectory(merged, {
       expectedCommit: sourceCommit, expectedTask: optionString(options, 'task'), requiredSelections: plan.selections, requireEvidence: true
     });
-    const governed = !local
-      ? await publishWorldModelToStateBranch(root, config, sourceState.sha256, phase ?? 'repository', {
-          directory: merged, plan
-        })
-      : null;
-    await installWorldModel(governed?.directory ?? merged, target);
-    const publication = await publishWorldModel(root, config, config.workflow, sourceState.sha256, phase ?? 'repository', { local });
+    let governed;
+    let publication;
+    try {
+      governed = !local
+        ? await publishWorldModelToStateBranch(root, config, sourceState.sha256, phase ?? 'repository', {
+            directory: merged, plan
+          })
+        : null;
+      await installWorldModel(governed?.directory ?? merged, target);
+      publication = await publishWorldModel(root, config, config.workflow, sourceState.sha256, phase ?? 'repository', { local });
+    } catch (error) {
+      throw await publicationRecoveryError(root, merged, error, {
+        phase: phase ?? 'repository', sourceHash: sourceState.sha256
+      });
+    }
     console.log(`World model built from source ${sourceState.sha256.slice(7, 19)} and recorded in ${publication.commit?.slice(0, 10) ?? 'the working tree'}${publication.pushed ? ' (pushed)' : local ? ' (local, not pushed)' : ''}.`);
     // The governed copy, which is the one every reader prefers. Not attempted for --local: that
     // says explicitly that nothing should leave this machine yet.
@@ -1644,8 +1733,9 @@ async function context(root, config, phase, options) {
     task: optionString(options, 'task'), evidence: optionBoolean(options, 'evidence'), includeAgentPrompt: optionBoolean(options, 'agent', true)
   });
   const state = resolved.freshness;
-  if (!state.fresh && config.staleness === 'fail') throw new SingularityFlowError(`World model is stale (${String(state.built).slice(0, 10)} != ${state.current.slice(0, 10)}). Rebuild it.`);
-  if (!state.fresh && config.staleness === 'warn') console.warn(`Warning: world model is stale (${String(state.built).slice(0, 10)} != ${state.current.slice(0, 10)}).`);
+  const staleMessage = `World model is stale (${String(state.built).slice(0, 10)} != ${state.current.slice(0, 10)}).`;
+  const staleness = assertWorldModelStaleness(config.staleness, state.fresh, staleMessage);
+  if (staleness.warns) console.warn(`Warning: ${staleMessage}`);
   const selected = [...resolved.selected];
   if (optionBoolean(options, 'agent', true) && config.agentPrompt) selected.unshift({
     relative: config.agentPrompt, absolute: path.join(root, config.agentPrompt), level: 0, reason: 'active agent prompt'
@@ -1771,7 +1861,13 @@ async function availability(root, config, options, requestedPhase = null) {
 }
 
 async function ensure(root, config, options, requestedPhase = null) {
-  const plan = groundingPlan(config, options, requestedPhase);
+  const policy = config.materialization ?? materializationPolicy(config.definition ?? config);
+  const modelEnabled = operationContext()?.modelMode?.enabled !== false;
+  // `materialization.depth`, pinned on the Story, selects the builder. Light also selects the
+  // compact plan; phase keeps the phase's exact view/tier contract. Global --no-model retains that
+  // contract but swaps only the builder to deterministic light.
+  const deterministic = policy.depth === 'light' || !modelEnabled;
+  const plan = groundingPlan(config, policy.depth === 'light' ? { ...options, depth: 'light' } : options, requestedPhase);
   const result = await materializeSelections(root, config, plan, async ({ policy, availability }) => {
       const buildOptions = {
         ...options,
@@ -1784,14 +1880,14 @@ async function ensure(root, config, options, requestedPhase = null) {
       if (plan.views.length === 1) buildOptions.view = plan.views[0].view;
       else if (plan.views.length > 1) buildOptions.views = plan.views.map((entry) => entry.view).join(',');
       if (plan.taskGuide.required) buildOptions.task = plan.taskGuide.task;
-      if (plan.depth === 'light') await buildLight(root, config, buildOptions);
+      if (deterministic) await buildLight(root, config, buildOptions);
       else await build(root, config, buildOptions);
       return buildOptions;
     },
     // The fall-forward. Same plan, same views, same publication policy — only the builder changes,
     // from a model-driven synthesis to the deterministic inventory. It is the fallback `wm.build`
     // has always declared and nothing has ever run.
-    async ({ policy, availability }) => {
+    deterministic ? null : async ({ policy, availability }) => {
       await buildLight(root, config, {
         ...options,
         phase: plan.phase ?? options.phase,
@@ -1802,9 +1898,17 @@ async function ensure(root, config, options, requestedPhase = null) {
         // buildLight refuses these: they belong to the model-driven path it is standing in for.
         parallel: undefined, workers: undefined, runner: undefined, depth: undefined
       });
-    });
+    }, { upgradeMinimal: !deterministic });
   const output = {
-    plan, mode: result.mode, availability: result.availability, degraded: result.degraded ?? null
+    plan,
+    mode: result.mode,
+    availability: result.availability,
+    degraded: result.degraded ?? (!modelEnabled && policy.depth === 'phase' && isMinimalModel(result.availability.selected?.manifest)
+      ? {
+          code: 'MODEL_DISABLED_LIGHT_FALLBACK',
+          reason: 'Model mode is disabled; deterministic light inventory satisfied the pinned phase selections without semantic analysis.'
+        }
+      : null)
   };
   if (optionBoolean(options, 'json')) console.log(JSON.stringify(output, null, 2));
   else if (result.degraded) {
@@ -1954,8 +2058,8 @@ async function compose(root, options) {
   });
   if (!required.freshness.fresh) {
     const message = `World model is stale (${String(required.freshness.built).slice(0, 18)} != ${required.freshness.current.slice(0, 18)}).`;
-    if (config.staleness === 'fail') throw new SingularityFlowError(`${message} Rebuild it.`);
-    if (config.staleness === 'warn') console.error(`Warning: ${message}`);
+    const staleness = assertWorldModelStaleness(config.staleness, false, message);
+    if (staleness.warns) console.error(`Warning: ${message}`);
   }
   const { text, injection } = await injectAgentPrompt(root, definition, agent, signals);
   const phase = workflow?.phases?.[signals.phase] ?? null;
@@ -2042,7 +2146,6 @@ async function compose(root, options) {
   if (modelChanges && config.grounding === 'enforce') throw new SingularityFlowError('The world-model directory has uncommitted changes. Rebuild it before composing a governed prompt.');
   if (modelChanges && config.grounding === 'warn') console.error('Warning: the world-model directory has uncommitted changes; its committed hashes will not verify.');
   if (config.grounding === 'enforce' && !modelCommit) throw new SingularityFlowError('The world model is not published. Run singularity-flow wm ensure --phase <phase> before composing a governed prompt.');
-  if (config.grounding === 'enforce' && !required.freshness.fresh) throw new SingularityFlowError('The world model is stale. Rebuild it before composing a governed prompt.');
   const files = [
     ...mandatory,
     ...injection.sections.map((section) => ({ ...section, category: 'rule', level: null, reason: 'matched injection rule' })),

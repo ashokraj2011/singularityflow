@@ -80,7 +80,8 @@ Every public operation is classified before its implementation module is importe
 | local-reset | mutation | never | — | — |
 | logs | read | never | — | — |
 | mcp | mutation | never | — | — |
-| next | mutation | never | — | — |
+| next.model-free | mutation | never | — | — |
+| next.orchestrate | mutation | optional | next.model-free | copilot-cli |
 | nextsteps | read | never | — | — |
 | phase | mutation | never | — | — |
 | plan | read | never | — | — |
@@ -190,7 +191,7 @@ Every public operation is classified before its implementation module is importe
 | wm.compose | mutation | never | — | — |
 | wm.context | read | never | — | — |
 | wm.design-inventory | read | never | — | — |
-| wm.ensure | mutation | required | — | copilot-cli |
+| wm.ensure | mutation | optional | wm.light | copilot-cli |
 | wm.facts | read | never | — | — |
 | wm.init | mutation | never | — | — |
 | wm.inject | mutation | never | — | — |

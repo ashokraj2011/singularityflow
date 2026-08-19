@@ -465,7 +465,7 @@ test('advisory world-model grounding warns and continues without launching a mod
 
   const nextsteps = flow(root, ['nextsteps', workId, '--json']);
   const plan = JSON.parse(nextsteps.stdout);
-  assert.equal(plan.actions.some((action) => action.command.includes('wm build') && action.timing === 'optional'), true);
+  assert.equal(plan.actions.some((action) => action.command.includes('wm ensure') && action.timing === 'optional'), true);
   const continued = flow(root, ['next', '--task', 'Advisory grounding']);
   assert.match(continued.stderr, /Grounding warning:/);
   assert.match(continued.stdout, /Next step prepared: generate 'intake'/);

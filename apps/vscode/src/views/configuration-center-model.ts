@@ -100,6 +100,7 @@ export interface ConfigurationCenterView {
     built: boolean;
     root: string;
     rebuildReason: string | null;
+    readiness: NonNullable<RepositorySnapshot['worldModel']>['readiness'];
     views: Array<{ id: string; path: string; references: number }>;
   };
   /** Validated configuration edits waiting to be published, and anything blocking that. */
@@ -260,9 +261,10 @@ export function configurationCenterView(snapshot: RepositorySnapshot, profile: P
      * holding two opinions about whether a file is safe to delete.
      */
     worldModelStatus: {
-      built: Boolean(snapshot.worldModel?.generatedAt),
+      built: Boolean(snapshot.worldModel?.generatedAt || snapshot.worldModel?.readiness?.ready),
       root: snapshot.worldModel?.root ?? 'singularity/world-model',
       rebuildReason: snapshot.worldModel?.rebuildReason ?? null,
+      readiness: snapshot.worldModel?.readiness ?? null,
       views: (snapshot.worldModel?.views ?? []).map((view) => ({
         id: view.id,
         path: `${snapshot.worldModel?.root ?? 'singularity/world-model'}/views/${view.id}.md`,

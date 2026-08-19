@@ -24,7 +24,6 @@ import { templateReferences } from './template-catalog.mjs';
 import { loadModelTiers, MODEL_TIERS_PATH, tierLadder } from './model-tiers.mjs';
 import { documentCatalog, evidenceIsActive } from './documents.mjs';
 import { CAPABILITIES_PATH, capabilityTree, loadCapabilities, validateCapabilities } from './capabilities.mjs';
-import { worldModelRebuildReason } from './grounding.mjs';
 import { progressSnapshot } from './progress.mjs';
 import { loadSession, setAgentSession } from './session.mjs';
 import {
@@ -519,6 +518,19 @@ async function fullRepositorySnapshot(root, requestedWorkId = null, requestedIni
     review = await createReviewBundle(root, definition, workflow);
     review.markdown = reviewMarkdown(review);
   }
+  const activeSession = await loadSession(root, { required: false });
+  let worldModelReadiness = null;
+  if (workflow?.currentPhase && selectedStory?.branches.includes(currentBranch)) {
+    try {
+      const { inspectWorkflowGrounding } = await import('./worldmodel.mjs');
+      worldModelReadiness = await inspectWorkflowGrounding(root, workflow, workflow.currentPhase, {
+        agent: activeSession?.agent ?? null,
+        task: workflow.workItem.title
+      });
+    } catch (error) {
+      worldModelReadiness = { reason: `The pinned phase grounding plan could not be inspected: ${error.message}` };
+    }
+  }
   const agents = await discoverAgents(root);
   const mappingStatus = await agentMappingStatus(root);
   const telemetry = await copilotTelemetryStatus(root);
@@ -631,12 +643,21 @@ async function fullRepositorySnapshot(root, requestedWorkId = null, requestedIni
       root: modelRoot,
       repositoryOwned: true,
       timing: 'story-intake',
-      generatedAt: worldModelManifest?.generated_at ?? null,
+      generatedAt: worldModelReadiness?.availability?.selected?.manifest?.generated_at
+        ?? worldModelManifest?.generated_at
+        ?? null,
       // Main and Epic branches stay quiet. Grounding is requested only after Story intake has
       // created and checked out the canonical Story branch that will own the generated model.
-      rebuildReason: selectedStory?.branches.includes(currentBranch)
-        ? await worldModelRebuildReason(root, definition)
-        : null,
+      // A stale snapshot under `warn` remains usable, but the UI must still disclose the pinned
+      // staleness decision. `reason` is null for fresh and explicitly ignored snapshots.
+      rebuildReason: worldModelReadiness?.reason ?? null,
+      readiness: worldModelReadiness?.availability ? {
+        status: worldModelReadiness.availability.status,
+        ready: worldModelReadiness.availability.ready,
+        source: worldModelReadiness.availability.source,
+        staleness: worldModelReadiness.availability.staleness,
+        command: worldModelReadiness.command
+      } : null,
       views: viewCatalog.map((id) => ({
         id,
         structuredReferences: structuredViewReferences.get(id) ?? [],
@@ -694,7 +715,7 @@ async function fullRepositorySnapshot(root, requestedWorkId = null, requestedIni
     visualAssurance: await visualAssuranceSnapshot(root, definition, workflow),
     diagnostics: await doctorSnapshot(root, { workId: selectedId, offline: true }),
     workflowSimulations: await simulateWorkflow(root),
-    session: await loadSession(root, { required: false })
+    session: activeSession
   };
 }
 

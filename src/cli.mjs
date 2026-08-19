@@ -21,10 +21,10 @@ import { addComment, assignIssue, discoverJiraConnection, getIssue, getIssueHier
 import { jiraDoctor, jiraDoctorText } from './jira-doctor.mjs';
 import { installPlugin, listPlugins, pluginPath, uninstallPlugin } from './plugin.mjs';
 import { runGovernanceGate } from './governance.mjs';
-import { worldModelCommand } from './worldmodel.mjs';
+import { inspectWorkflowGrounding, worldModelCommand } from './worldmodel.mjs';
 import { effectiveMaterializationPolicy } from './world-model-materialization.mjs';
 import { launchHostSession } from './host-session-launcher.mjs';
-import { operationContext } from './operation-context.mjs';
+import { operationContext, runOperation } from './operation-context.mjs';
 import { invokeModel, listModelInvocations, resolveModelProvider } from './model-runner.mjs';
 import { assertProducerAllowed, buildGenerationAuthorship, importManualArtifact, inspectInPlaceArtifact, normalizeAuthorshipOptions } from './manual-authorship.mjs';
 import { initializationStatus, initializeDefinition, loadDefinition, resolveWorkType, validateDefinition, WORKFLOW_PATH } from './config.mjs';
@@ -51,7 +51,7 @@ import { generateDesignInventory } from './design-inventory.mjs';
 import { evaluateVisualCoverage } from './visual-coverage.mjs';
 import { compareVisualArtifacts, listVisualComparisons } from './visual-compare.mjs';
 import { bootstrapWorkspacePortfolio, deleteConfigurationFile, deleteConfigurationTemplate, exportConfigurationBundle, repositorySnapshot, publishEditorConfiguration, readConfigurationFile, saveConfigurationFile, selectEditorAgent, validateEditorConfiguration } from './editor.mjs';
-import { verifyGroundingRecord, worldModelRebuildReason } from './grounding.mjs';
+import { verifyGroundingRecord } from './grounding.mjs';
 import { filterLogEntries, logFilePath, normalizeLogLevel, parseLogLines, repositoryLogger, resolveLogging } from './logging.mjs';
 import { collectWorkspaceLogs } from './workspace-logs.mjs';
 import { doctorSnapshot, doctorText } from './doctor.mjs';
@@ -103,7 +103,7 @@ import { validateLedgerDeployment } from './ledger-deployment.mjs';
 import { CAPABILITY_KINDS, CAPABILITY_TYPES, CAPABILITIES_PATH, capabilityDeliveries, capabilityForRepository, capabilityTree, editCapability, flattenCapabilityTree, loadCapabilities, resolveCapabilityPolicy, resolveEffectiveCapabilityPolicy, validateCapabilities } from './capabilities.mjs';
 import { bootstrapRepository, repositoryIdFromUrl } from './bootstrap.mjs';
 import { activateCapabilityProposal, capabilityReadiness, composeCapabilityWorldModel, editCapabilityInOrganisation, inspectCapabilityProposal, listCapabilityProposals, initializeWorkspaceState, listLeadRepositories, mapCapability, publishOrganisationCapabilityMap, readOrganisation, rememberLeadRepository, resolveWorkspacePlan } from './organisation.mjs';
-import { canonicalCommand, commandDefinition, SECRETS_SUBCOMMANDS, validateCommandHandlers } from './command-registry.mjs';
+import { canonicalCommand, commandDefinition, operationById, SECRETS_SUBCOMMANDS, validateCommandHandlers } from './command-registry.mjs';
 // `action` is already a command name in this file, so the narration constructor is renamed rather
 // than shadowing it.
 import { action as narrationAction, commandResult, effects, noEffects, noop, succeeded } from './narration/command-result.mjs';
@@ -1502,15 +1502,23 @@ async function resolveNextStepsSnapshot(positionals, options) {
       });
       const groundingMode = workflow.resolution?.worldModelGrounding ?? config.worldModel?.grounding ?? 'off';
       if (active?.status === 'in_progress' && phaseNeedsGeneration(workflow, active) && groundingMode !== 'off') {
-        const rebuildReason = await worldModelRebuildReason(root, config);
-        const task = '<current objective>';
-        if (rebuildReason) {
-          prerequisites.push({ timing: groundingMode === 'enforce' ? 'now' : 'optional', skill: '/sf-worldmodel', command: `singularity-flow wm ensure --phase ${active.id} --task "${task}"`, reason: rebuildReason });
-          prerequisites.push({ timing: groundingMode === 'enforce' ? 'then' : 'optional', skill: null, command: `singularity-flow wm compose --phase ${active.id} --task "${task}"`, reason: 'Compose and record the governed phase prompt using the exact same task text.' });
+        const task = workflow.workItem.title;
+        const readiness = await inspectWorkflowGrounding(root, workflow, active.id, {
+          agent: session?.agent ?? null,
+          task
+        });
+        if (!readiness.availability.ready) {
+          const blocks = groundingMode === 'enforce' || readiness.availability.staleness?.blocks;
+          prerequisites.push({ timing: blocks ? 'now' : 'optional', skill: '/sf-worldmodel', command: readiness.command, reason: readiness.reason });
+          prerequisites.push({ timing: groundingMode === 'enforce' ? 'then' : 'optional', skill: null, command: `singularity-flow wm compose --phase ${active.id} --task ${JSON.stringify(task)}`, reason: 'Compose and record the governed phase prompt using the exact same task text.' });
         } else {
+          if (readiness.availability.staleness?.warns) prerequisites.push({
+            timing: 'optional', skill: '/sf-worldmodel', command: readiness.command,
+            reason: readiness.availability.staleness.message
+          });
           const grounding = await verifyGroundingRecord(root, config, workflow, active, { agent: session?.agent ?? null });
           if (grounding.errors.length || grounding.warnings.length) prerequisites.push({
-            timing: groundingMode === 'enforce' ? 'now' : 'optional', skill: null, command: `singularity-flow wm compose --phase ${active.id} --task "${task}"`,
+            timing: groundingMode === 'enforce' ? 'now' : 'optional', skill: null, command: `singularity-flow wm compose --phase ${active.id} --task ${JSON.stringify(task)}`,
             reason: 'Create or refresh the required grounding record and exact prompt snapshot before publishing this generation.'
           });
         }
@@ -1648,13 +1656,10 @@ async function actionCommand(positionals, options) {
 async function materializeWorldModelForNext(root, config, workflow, phase, task, options) {
   const policy = effectiveMaterializationPolicy(config, workflow);
   if (policy.mode !== 'on-demand') return { materialized: false, policy, reason: `materialization mode is ${policy.mode}` };
-  if (policy.depth === 'phase' && operationContext()?.modelMode.enabled === false) {
-    return { materialized: false, policy, reason: 'model mode is disabled and phase-depth materialization may invoke a model provider' };
-  }
 
-  const deterministic = policy.depth === 'light';
+  const deterministic = policy.depth === 'light' || operationContext()?.modelMode.enabled === false;
   const description = deterministic
-    ? `the deterministic light world model for phase '${phase.id}' (zero model tokens)`
+    ? `the deterministic light world model for phase '${phase.id}' (zero model tokens${policy.depth === 'phase' ? '; --no-model fallback' : ''})`
     : `the configured phase-depth world model for phase '${phase.id}' (may invoke the configured model provider)`;
   const authorized = policy.confirmation === 'automatic'
     || optionBoolean(options, 'yes')
@@ -1662,11 +1667,25 @@ async function materializeWorldModelForNext(root, config, workflow, phase, task,
   if (!authorized) return { materialized: false, policy, declined: true, reason: 'the user declined materialization' };
 
   console.log(`${policy.confirmation === 'automatic' ? 'Automatically building' : 'Building'} ${description}...`);
-  await worldModelCommand(root, ['wm', deterministic ? 'light' : 'ensure'], {
-    phase: phase.id,
+  const ensureOperation = operationById('wm.ensure');
+  if (!ensureOperation) throw new SingularityFlowError("Registered operation 'wm.ensure' is unavailable.");
+  const ensurePhase = (phaseId) => runOperation(ensureOperation, () => worldModelCommand(root, ['wm', 'ensure'], {
+    phase: phaseId,
     task
-  });
-  return { materialized: true, policy };
+  }));
+  await ensurePhase(phase.id);
+
+  let lookahead = null;
+  if (policy.lookahead === 'next-phase') {
+    const index = (workflow.phaseOrder ?? []).indexOf(phase.id);
+    const nextPhaseId = index >= 0 ? workflow.phaseOrder?.[index + 1] ?? null : null;
+    if (nextPhaseId && workflow.phases?.[nextPhaseId]) {
+      console.log(`Preparing configured next-phase grounding for '${nextPhaseId}'...`);
+      await ensurePhase(nextPhaseId);
+      lookahead = { phase: nextPhaseId, materialized: true };
+    }
+  }
+  return { materialized: true, policy, lookahead };
 }
 
 async function nextCommand(options) {
@@ -1701,8 +1720,11 @@ async function nextCommand(options) {
   const task = optionString(options, 'task', workflow.workItem.title);
   const grounding = workflow.resolution?.worldModelGrounding ?? 'off';
   if (grounding !== 'off') {
-    const rebuildReason = await worldModelRebuildReason(root, config);
-    if (rebuildReason) {
+    const readiness = await inspectWorkflowGrounding(root, workflow, phase.id, {
+      agent: (await loadSession(root, { required: false }))?.agent ?? null,
+      task
+    });
+    if (!readiness.availability.ready) {
       const materialization = await materializeWorldModelForNext(root, config, workflow, phase, task, options);
       if (materialization.materialized) {
         try {
@@ -1713,8 +1735,8 @@ async function nextCommand(options) {
           }
           throw error;
         }
-      } else if (grounding === 'enforce') {
-        console.log(`Next step prerequisite: ${rebuildReason}`);
+      } else if (grounding === 'enforce' || readiness.availability.staleness?.blocks) {
+        console.log(`Next step prerequisite: ${readiness.reason}`);
         console.log('No model was started. Build explicitly, then continue:');
         console.log(`Copilot: /sf-worldmodel --phase ${phase.id}`);
         console.log(`Run: singularity-flow wm ensure --phase ${phase.id} --task ${JSON.stringify(task)}`);
@@ -1722,7 +1744,7 @@ async function nextCommand(options) {
         console.log('Model-free alternative: author the prepared artifact manually and publish with --authored human.');
         return;
       } else {
-        console.warn(`Grounding warning: ${rebuildReason}`);
+        console.warn(`Grounding warning: ${readiness.reason}`);
         if (materialization.reason) console.warn(`Configured policy did not build it: ${materialization.reason}.`);
         console.warn('Continuing because world-model grounding is advisory. No model will be built or composed.');
       }

@@ -43,7 +43,7 @@ if (!interpreter) {
     '',
     'It is a convenience wrapper. Run the command it wraps instead:',
     '',
-    '  singularity-flow wm build --depth quick --parallel --workers 2',
+    '  singularity-flow wm light --views development --local',
     '',
     'On Windows, installing Git for Windows also provides the shell this wrapper looks for.'
   ].join('\n'));

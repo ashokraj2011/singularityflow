@@ -2,7 +2,7 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import { createHash } from 'node:crypto';
 import { existsSync } from 'node:fs';
-import { chmod, lstat, mkdtemp, mkdir, readFile, writeFile } from 'node:fs/promises';
+import { chmod, lstat, mkdtemp, mkdir, readFile, readdir, writeFile } from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -528,6 +528,52 @@ test('wm availability is read-only when required tiers are absent', async () => 
   assert.equal(existsSync(path.join(root, 'singularity/world-model')), false);
 });
 
+test('availability applies staleness policy independently from grounding mode', async () => {
+  const root = await mkdtemp(path.join(os.tmpdir(), 'sflow-worldmodel-staleness-'));
+  run('git', ['init', '-b', 'main'], root);
+  run('git', ['config', 'user.name', 'Staleness Tester'], root);
+  run('git', ['config', 'user.email', 'staleness@example.com'], root);
+  await initializeDefinition(root);
+  const definitionPath = path.join(root, 'singularity/workflow.yml');
+  const definition = YAML.parse(await readFile(definitionPath, 'utf8'));
+  definition.git.publish = 'off';
+  definition.worldModel.grounding = 'warn';
+  definition.worldModel.staleness = 'warn';
+  definition.worldModel.materialization.publish = 'local';
+  await writeFile(definitionPath, YAML.stringify(definition));
+  await writeFile(path.join(root, 'README.md'), '# Staleness policy\n');
+  run('git', ['add', '.'], root);
+  run('git', ['commit', '-m', 'initialize staleness fixture'], root);
+  flow(['wm', 'light', '--phase', 'design'], root);
+  await writeFile(path.join(root, 'README.md'), '# Staleness policy\n\nsource moved\n');
+  run('git', ['add', 'README.md'], root);
+  run('git', ['commit', '-m', 'move source'], root);
+
+  const setStaleness = async (policy) => {
+    const current = YAML.parse(await readFile(definitionPath, 'utf8'));
+    current.worldModel.staleness = policy;
+    await writeFile(definitionPath, YAML.stringify(current));
+  };
+  const availability = () => JSON.parse(flow([
+    'wm', 'availability', '--phase', 'design', '--depth', 'light', '--json'
+  ], root).stdout);
+
+  const warned = availability();
+  assert.equal(warned.ready, true);
+  assert.equal(warned.status, 'stale');
+  assert.equal(warned.staleness.warns, true);
+
+  await setStaleness('fail');
+  const failed = availability();
+  assert.equal(failed.ready, false);
+  assert.equal(failed.staleness.blocks, true);
+
+  await setStaleness('ignore');
+  const ignored = availability();
+  assert.equal(ignored.ready, true);
+  assert.equal(ignored.staleness.ignored, true);
+});
+
 test('governed materialization publishes to the orphan state branch when ledger events are disabled', async () => {
   const root = await mkdtemp(path.join(os.tmpdir(), 'sflow-worldmodel-governed-'));
   run('git', ['init', '-b', 'main'], root);
@@ -766,6 +812,9 @@ test('governed world-model publication failure fails build and ensure before loc
   const direct = flow(['wm', 'light', '--phase', 'intake'], work, { allowFailure: true });
   assert.notEqual(direct.status, 0);
   assert.match(`${direct.stdout}\n${direct.stderr}`, /Unable to publish to the state branch/);
+  assert.match(`${direct.stdout}\n${direct.stderr}`, /validated snapshot was retained/);
+  const recoveryRoot = path.join(work, '.git/singularity-flow/world-model-recovery');
+  assert.ok((await readdir(recoveryRoot)).length >= 1, 'the validated generation survives transport failure');
   assert.equal(await readFile(manifestPath, 'utf8'), installedBeforeFailure,
     'failed governed publication does not install a private replacement locally');
   assert.equal(run('git', ['rev-parse', 'refs/heads/state'], remote).trim(), remoteBeforeFailure,
@@ -1195,6 +1244,95 @@ test('enforced workflows block generation until the governed prompt is composed'
   assert.equal(published.phases.intake.generation, 1);
   assert.equal(published.phases.intake.clarifications[0].responses, 1);
   assert.match(run('git', ['log', '-1', '--format=%s'], root), /^\[GROUND-1\]\[phase:intake\]\[generated:1\]/);
+});
+
+test('next --yes enters semantic ensure and prepares configured next-phase grounding', async () => {
+  const root = await mkdtemp(path.join(os.tmpdir(), 'sflow-worldmodel-next-phase-'));
+  run('git', ['init', '-b', 'main'], root);
+  run('git', ['config', 'user.name', 'Next Grounding Tester'], root);
+  run('git', ['config', 'user.email', 'next-grounding@example.com'], root);
+  await initializeDefinition(root);
+  const builder = path.join(root, 'mock-worldmodel-builder.mjs');
+  await writeFile(builder, mockBuilderSource);
+  await configureMockProvider(root, builder);
+  const definitionPath = path.join(root, 'singularity/workflow.yml');
+  const definition = YAML.parse(await readFile(definitionPath, 'utf8'));
+  definition.git.publish = 'off';
+  definition.worldModel.grounding = 'enforce';
+  definition.worldModel.materialization = {
+    mode: 'on-demand', publish: 'governed', lookahead: 'next-phase', depth: 'phase', confirmation: 'prompt'
+  };
+  await writeFile(definitionPath, YAML.stringify(definition));
+  await writeFile(path.join(root, 'README.md'), '# Next phase grounding\n');
+  run('git', ['add', '.'], root);
+  run('git', ['commit', '-m', 'initialize semantic next fixture'], root);
+  const remote = `${root}.git`;
+  run('git', ['init', '--bare', '-b', 'main', remote], root);
+  run('git', ['remote', 'add', 'origin', remote], root);
+  run('git', ['push', '-u', 'origin', 'main'], root);
+
+  const task = 'Prepare semantic phase grounding';
+  flow(['start', 'NEXT-PHASE-1', '--from-branch', 'main', '--title', task], root);
+  const prepared = flow(['next', '--yes', '--task', task], root);
+  assert.doesNotMatch(`${prepared.stdout}${prepared.stderr}`, /MODEL_FORBIDDEN|forbids model execution/);
+  assert.match(prepared.stdout, /Building the configured phase-depth world model for phase 'intake'/);
+  assert.match(prepared.stdout, /World model built from source/);
+  assert.match(prepared.stdout, /Preparing configured next-phase grounding for 'requirements'/);
+  assert.match(prepared.stdout, /Next step prepared: generate 'intake'/);
+
+  const intake = JSON.parse(flow(['wm', 'availability', '--phase', 'intake', '--task', task, '--json'], root).stdout);
+  const requirements = JSON.parse(flow(['wm', 'availability', '--phase', 'requirements', '--task', task, '--json'], root).stdout);
+  assert.equal(intake.ready, true);
+  assert.equal(requirements.ready, true);
+  assert.equal(intake.source, 'state-branch');
+  assert.equal(requirements.source, 'state-branch');
+});
+
+test('--no-model wm ensure honors deterministic light materialization policy', async () => {
+  const root = await mkdtemp(path.join(os.tmpdir(), 'sflow-worldmodel-no-model-ensure-'));
+  run('git', ['init', '-b', 'main'], root);
+  run('git', ['config', 'user.name', 'No Model Tester'], root);
+  run('git', ['config', 'user.email', 'no-model@example.com'], root);
+  await initializeDefinition(root);
+  const definitionPath = path.join(root, 'singularity/workflow.yml');
+  const definition = YAML.parse(await readFile(definitionPath, 'utf8'));
+  definition.git.publish = 'off';
+  definition.worldModel.materialization = {
+    mode: 'on-demand', publish: 'local', lookahead: 'none', depth: 'light', confirmation: 'automatic'
+  };
+  await writeFile(definitionPath, YAML.stringify(definition));
+  await writeFile(path.join(root, 'README.md'), '# No-model ensure\n');
+  run('git', ['add', '.'], root);
+  run('git', ['commit', '-m', 'initialize no-model ensure fixture'], root);
+
+  const ensured = flow(['--no-model', 'wm', 'ensure', '--phase', 'design'], root);
+  assert.doesNotMatch(`${ensured.stdout}${ensured.stderr}`, /requires a model|MODEL_UNAVAILABLE/);
+  assert.match(ensured.stdout, /Light world model built with 0 model tokens/);
+  const availability = JSON.parse(flow(['wm', 'availability', '--phase', 'design', '--depth', 'light', '--json'], root).stdout);
+  assert.equal(availability.ready, true);
+});
+
+test('--no-model wm ensure labels a phase-depth deterministic fallback as degraded', async () => {
+  const root = await mkdtemp(path.join(os.tmpdir(), 'sflow-worldmodel-no-model-phase-'));
+  run('git', ['init', '-b', 'main'], root);
+  run('git', ['config', 'user.name', 'No Model Phase Tester'], root);
+  run('git', ['config', 'user.email', 'no-model-phase@example.com'], root);
+  await initializeDefinition(root);
+  const definitionPath = path.join(root, 'singularity/workflow.yml');
+  const definition = YAML.parse(await readFile(definitionPath, 'utf8'));
+  definition.git.publish = 'off';
+  definition.worldModel.materialization = {
+    mode: 'on-demand', publish: 'local', lookahead: 'none', depth: 'phase', confirmation: 'prompt'
+  };
+  await writeFile(definitionPath, YAML.stringify(definition));
+  await writeFile(path.join(root, 'README.md'), '# No-model phase fallback\n');
+  run('git', ['add', '.'], root);
+  run('git', ['commit', '-m', 'initialize no-model phase fixture'], root);
+
+  const ensured = flow(['--no-model', 'wm', 'ensure', '--phase', 'design', '--json'], root);
+  const result = JSON.parse(ensured.stdout.slice(ensured.stdout.indexOf('{')));
+  assert.equal(result.degraded.code, 'MODEL_DISABLED_LIGHT_FALLBACK');
+  assert.match(result.degraded.reason, /without semantic analysis/);
 });
 
 test('wm build --local commits the world model but does not push, and a new branch inherits it', async () => {

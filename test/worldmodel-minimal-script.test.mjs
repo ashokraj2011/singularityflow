@@ -9,6 +9,7 @@ import YAML from 'yaml';
 
 const packageRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 const script = path.join(packageRoot, 'scripts/worldmodel-minimal.sh');
+const entry = path.join(packageRoot, 'bin/sflow-wm-minimal.mjs');
 
 function run(command, args, cwd, env = process.env) {
   const result = spawnSync(command, args, { cwd, env, encoding: 'utf8' });
@@ -62,6 +63,17 @@ test('minimum world-model script can use phase policy, checkpoints, a target bra
   assert.match(result.stdout, /wm build --depth quick/);
   assert.match(result.stdout, /--parallel --workers 3/);
   assert.doesNotMatch(result.stdout, /--local/);
+});
+
+test('the no-shell fallback recommends the deterministic zero-token command', () => {
+  const result = spawnSync(process.execPath, [entry], {
+    cwd: packageRoot,
+    encoding: 'utf8',
+    env: { ...process.env, PATH: '' }
+  });
+  assert.equal(result.status, 1);
+  assert.match(result.stderr, /singularity-flow wm light --views development --local/);
+  assert.doesNotMatch(result.stderr, /wm build|--parallel|--workers/);
 });
 
 test('local runbook documents the minimum command for every starter workflow phase', async () => {

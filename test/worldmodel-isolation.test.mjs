@@ -27,6 +27,7 @@ import {
 import { changedSnapshotPaths, repositoryContentSnapshot } from '../src/grounding.mjs';
 import { REDACTED, createLogger, parseLogLines, redact } from '../src/logging.mjs';
 import { ensureGrounding, isMinimalModel } from '../src/world-model-materialization.mjs';
+import { SingularityFlowError } from '../src/util.mjs';
 
 const CONFIG = { outputDir: 'singularity/world-model' };
 
@@ -317,6 +318,26 @@ test('a successful full build is never marked degraded', async () => {
   });
   assert.equal(ensured.mode, 'materialized');
   assert.equal(ensured.degraded, null);
+});
+
+test('publication recovery errors never trigger a light replacement build', async () => {
+  const root = await gitRepository('sflow-fwd-publish-');
+  const calls = [];
+  await assert.rejects(
+    () => ensureGrounding(root, { outputDir: 'singularity/world-model', definition: {} }, PLAN, {
+      authorized: true,
+      inspect: readyAfter(2),
+      materialize: async () => {
+        calls.push('full');
+        throw new SingularityFlowError('validated model could not be pushed', {
+          code: 'world_model.publication_recovery_required'
+        });
+      },
+      materializeMinimal: async () => { calls.push('light'); }
+    }),
+    (error) => error.code === 'world_model.publication_recovery_required'
+  );
+  assert.deepEqual(calls, ['full']);
 });
 
 test('with no light builder supplied the failure still surfaces, unchanged', async () => {

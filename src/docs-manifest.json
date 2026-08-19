@@ -1,9 +1,9 @@
 {
   "schemaVersion": 1,
   "generatedFrom": "docs/topics",
-  "sourceCommit": "6004dd39e7bb424d9996add8e540c19ee8aa0606",
+  "sourceCommit": "da327f41cc8f2171182268b2c86ad156346e3307",
   "topicCount": 54,
-  "contentSha256": "c6d39a832e664078b944817b4b2b067a9314c90245ae0ee00d1ba013ab3b0a5a",
+  "contentSha256": "6e54e697b6adc9ccb3121c5fb550d8b14974525a81701dc1fc9694fae4649b64",
   "topics": [
     {
       "id": "activity-and-prompt-audit",
@@ -134,8 +134,8 @@
     {
       "id": "goals-and-outcomes",
       "title": "Goals, outcomes, and governed work",
-      "version": 1,
-      "sha256": "33967ac603c97e1ace5a384253f3904da64e063ed1cfc86bf1227004d7b3503e",
+      "version": 2,
+      "sha256": "db7d2b710f99919b0c4e0c20e03706f018f4dfbf8cbffcd3c8e3f222daa01bc2",
       "file": "goals-and-outcomes.md"
     },
     {

@@ -36,6 +36,10 @@
       "p50Ms": 150,
       "p95Ms": 250
     },
+    "snapshotUi": {
+      "p50Ms": 400,
+      "p95Ms": 650
+    },
     "snapshotFull": {
       "p50Ms": 850,
       "p95Ms": 1100

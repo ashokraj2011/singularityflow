@@ -51,6 +51,12 @@ Linux/Node-22 accepted baseline.
 Do not update the baseline merely to make a regression pass. Review topology, runner load,
 dependency changes, and the lazy import graph first.
 
+`npm run release`, `npm run release:dry`, and `npm run poc:release-gate` run the enforcing form
+automatically. This repository intentionally carries no hosted workflow; the local release gate is
+the authoritative enforcement path and always checks absolute budgets. The relative 20-percent
+comparison additionally applies when the release host matches the accepted baseline runtime and
+topology.
+
 ## Diagnose a slow command
 
 Pass `--timings` to see root-dispatch, module-load, and execution stages:

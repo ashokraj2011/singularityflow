@@ -3,12 +3,15 @@ import { mkdtemp, readFile, rm, writeFile } from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
 import test from 'node:test';
+import { fileURLToPath } from 'node:url';
 import YAML from 'yaml';
 
 import { initializeDefinition, loadDefinition, resolveWorkType, validateDefinition } from '../src/config.mjs';
 import { installWorkflow } from '../src/workflow-catalog.mjs';
 
-const ROOT = path.resolve(path.dirname(new URL(import.meta.url).pathname), '..');
+// URL.pathname leaves spaces percent-encoded, so the suite failed in otherwise valid checkouts
+// such as `Downloads/package 2`. Convert the file URL through Node's platform-safe filesystem API.
+const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 const PHASES = [
   'poc-intake',
   'poc-impact-analysis',

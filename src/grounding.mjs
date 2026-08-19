@@ -110,7 +110,7 @@ function objectSizes(root, objectIds) {
   return sizes;
 }
 
-async function visibleRecord(root, relative, indexed = null) {
+async function visibleRecord(root, relative, indexed = null, { compareToIndex = true } = {}) {
   const absolute = path.join(root, relative);
   if (!existsSync(absolute)) {
     if (indexed?.skipWorktree) {
@@ -121,7 +121,7 @@ async function visibleRecord(root, relative, indexed = null) {
     }
     return { path: relative, status: 'deleted', materialization: 'absent', mode: indexed?.mode ?? null, objectId: null, size: 0, sha256: null };
   }
-  if (indexed) {
+  if (indexed && compareToIndex) {
     const stat = await lstat(absolute);
     if (stat.isFile()) {
       const object = run('git', ['hash-object', '--no-filters', '--', relative], {
@@ -168,6 +168,9 @@ async function gitSourceRecords(root, { definition = {}, excludeGovernance = tru
     ]), { cwd: root }).stdout),
     ...conflicted
   ].map(posix));
+  // Paths reported by diff are already known not to match the index. Do not launch one
+  // `git hash-object` process per dirty file merely to prove the same fact again.
+  const knownChanged = new Set(changed);
   const untracked = splitNull(run('git', [
     'ls-files', '--others', '--exclude-standard', '-z', ...pathspec
   ], { cwd: root }).stdout).map(posix);
@@ -198,7 +201,9 @@ async function gitSourceRecords(root, { definition = {}, excludeGovernance = tru
     });
   }
   const scanned = await mapLimit([...visible].sort(), SNAPSHOT_CONCURRENCY, async (file) => (
-    visibleRecord(root, file, stageZero.get(file) ?? null)
+    visibleRecord(root, file, stageZero.get(file) ?? null, {
+      compareToIndex: !knownChanged.has(file)
+    })
   ));
   records.push(...scanned.filter(Boolean));
   return records.sort((left, right) => left.path.localeCompare(right.path));
@@ -512,7 +517,10 @@ function normalizeTask(value) { return String(value ?? '').trim().toLowerCase().
  * taking a plain directory and none of them has to learn about Git. It is cached by tree hash, so
  * repeated reads of an unchanged model cost one `rev-parse`.
  */
-export async function resolveWorldModelSource(root, config, { stateBranch = null } = {}) {
+export async function resolveWorldModelSource(root, config, {
+  stateBranch = null,
+  refreshRemote = true
+} = {}) {
   const worktree = path.join(root, config.outputDir);
   const branch = stateBranch ?? config.stateBranch ?? config.ledger?.branch ?? null;
   if (!branch) return {
@@ -529,9 +537,9 @@ export async function resolveWorldModelSource(root, config, { stateBranch = null
   const remoteRef = `refs/remotes/${remote}/${branch}`;
   const localRef = `refs/heads/${branch}`;
   const remoteConfigured = run('git', ['remote', 'get-url', remote], { cwd: root, allowFailure: true }).status === 0;
-  let refresh = remoteConfigured ? 'refreshed' : 'no-remote';
+  let refresh = remoteConfigured ? (refreshRemote ? 'refreshed' : 'cached') : 'no-remote';
   let fetchSucceeded = false;
-  if (remoteConfigured) {
+  if (remoteConfigured && refreshRemote) {
     const fetched = run('git', ['fetch', '--no-tags', remote, `+refs/heads/${branch}:${remoteRef}`], {
       cwd: root, allowFailure: true, timeoutMs: stateFetchTimeoutMs
     });

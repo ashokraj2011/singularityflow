@@ -7,7 +7,7 @@
  * in runner.ts. If someone adds an enum or a parameter property, these tests fail loudly at import,
  * which is the intended alarm.
  *
- * The snapshot fixture is a real `snapshot --json`, trimmed to the regions the extension
+ * The snapshot fixture uses the compatibility snapshot shape, trimmed to the regions the extension
  * types. Its value is that it was produced by the engine: a hand-written fixture only proves the
  * accessors agree with my reading of editor.mjs, which is the thing most likely to be wrong.
  */

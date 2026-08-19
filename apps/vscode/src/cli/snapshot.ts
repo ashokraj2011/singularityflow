@@ -455,6 +455,18 @@ export interface ModelRoutingProjection {
 }
 
 export interface RepositorySnapshot {
+  /** Read-model slices currently present in this projection. */
+  included?: SnapshotSlice[];
+  /** True when the requested slice revision already matched and no payload was serialized. */
+  notModified?: boolean;
+  /** Content-aware revision for the selected slice set. */
+  revision?: {
+    branch?: string | null;
+    head?: string | null;
+    worktreeHash?: string;
+    subjectRevision?: string;
+    slices?: Partial<Record<SnapshotSlice, string>>;
+  };
   repository?: {
     root?: string;
     branch?: string;
@@ -688,6 +700,8 @@ export interface RepositorySnapshot {
   ledger?: { enabled?: boolean; config?: { branch?: string } };
   [key: string]: unknown;
 }
+
+export type SnapshotSlice = 'repository' | 'lifecycle' | 'configuration' | 'capabilities' | 'integrations' | 'diagnostics';
 
 export interface VisualEvidenceRecord {
   id: string;

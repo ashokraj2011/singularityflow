@@ -379,13 +379,11 @@ const commands = {
   nextsteps: ['nextsteps', 'DX-001', '--json'],
   snapshot: ['snapshot', '--include', 'repository'],
   /**
-   * What the VS Code extension actually runs, on activation and after every action.
-   *
-   * The sliced call above was the only snapshot shape measured, and it is the shape nothing in the
-   * product asks for: `apps/vscode/src/cli/client.ts` sends `snapshot --json` with no `--include`.
-   * So the budget was being met by a path the extension never took, while the path it did take was
-   * unmeasured and free to regress.
+   * What the VS Code extension runs on activation and after ordinary lifecycle actions. Heavy
+   * configuration, integration and diagnostic slices are loaded only when their panels open.
    */
+  snapshotUi: ['snapshot', '--include', 'repository', '--include', 'lifecycle', '--include', 'capabilities', '--json'],
+  /** Compatibility/full-domain read, retained and measured because external consumers may use it. */
   snapshotFull: ['snapshot', '--json']
 };
 

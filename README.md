@@ -1265,7 +1265,9 @@ From Copilot, use `/sf-report ENG-142`. Markdown is the default; JSON exposes th
 
 CLI responsiveness is governed separately from workflow duration. Run `npm run benchmark:dx`
 to measure the pinned reference fixture, or add `--timings` to a command to see dispatch, module
-load, and execution stages. See [Developer-experience performance](docs/DX-PERFORMANCE.md).
+load, and execution stages. Local POC and release gates run `npm run benchmark:dx:enforce`
+automatically, so an absolute-budget regression cannot be packaged unnoticed. See
+[Developer-experience performance](docs/DX-PERFORMANCE.md).
 
 Durations include nights and weekends; they are not business-hours or developer-productivity estimates. Reports are derived views, not authoritative workflow state. Standard output is read-only, while `--out` writes only the requested report file and does not commit or push it automatically.
 

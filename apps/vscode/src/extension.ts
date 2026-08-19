@@ -2325,6 +2325,7 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
     // somebody completes the intake form wastes their answers and makes a correct guard look like a
     // dead button. The target is stated here because a selected workspace may point this window at
     // a lead repository other than the folder visible in the title bar.
+    await store.ensureSlices(['configuration']);
     await store.refresh();
     const repositoryState = store.current.snapshot?.repository;
     const changedPaths = repositoryState?.changes ?? [];
@@ -3037,6 +3038,7 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
   };
 
   const openConfigurationCenter = async (tab: ConfigurationTab = 'overview'): Promise<void> => {
+    await store.ensureSlices(['configuration', 'integrations']);
     const { ConfigurationCenterPanel } = await import('./views/configuration-center.ts');
     ConfigurationCenterPanel.show(context, store, () => {
       const settings = vscode.workspace.getConfiguration('singularityFlow');
@@ -3059,6 +3061,7 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
   const registered: Record<string, (...args: never[]) => unknown> = {
     'singularityFlow.openCapabilities':
       async () => {
+        await store.ensureSlices(['configuration', 'diagnostics']);
         const { CapabilitiesPanel } = await import('./views/capabilities.ts');
         return CapabilitiesPanel.show(context, store, (message) => { void onCapabilitiesMessage(message); });
       },
@@ -3077,6 +3080,7 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
       },
     'singularityFlow.openApprovals':
       async () => {
+        await store.ensureSlices(['configuration']);
         const { ApprovalsPanel } = await import('./views/approvals.ts');
         return ApprovalsPanel.show(context, store, (message) => { void onApprovalsMessage(message); });
       },
@@ -3120,6 +3124,7 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
     },
     'singularityFlow.showImpact': () => showImpact(client, output),
     'singularityFlow.openDashboard': async () => {
+      await store.ensureSlices(['configuration', 'integrations', 'diagnostics']);
       const { DashboardPanel } = await import('./views/dashboard.ts');
       return DashboardPanel.show(context, store);
     },
@@ -3190,6 +3195,7 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
       }
     },
     'singularityFlow.openDesigner': async () => {
+      await store.ensureSlices(['configuration']);
       const { DesignerPanel } = await import('./views/designer.ts');
       return DesignerPanel.show(context, store, async (message) => {
       if (message.type === 'open') {
@@ -3218,6 +3224,7 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
       });
     },
     'singularityFlow.openInstructionDesigner': async () => {
+      await store.ensureSlices(['configuration']);
       const { InstructionDesignerPanel } = await import('./views/instruction-designer.ts');
       return InstructionDesignerPanel.show(context, store, async (message) => {
       if (message.type === 'agent-action') {
@@ -3270,6 +3277,7 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
     'singularityFlow.openConfigurationCenter': () => openConfigurationCenter('overview'),
     'singularityFlow.configureWorldModel': () => openConfigurationCenter('world-model'),
     'singularityFlow.configureAstIntelligence': async () => {
+      await store.ensureSlices(['configuration']);
       const { AstIntelligencePanel } = await import('./views/ast-intelligence.ts');
       return AstIntelligencePanel.show(context, client, store);
     },

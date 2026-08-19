@@ -108,9 +108,9 @@ async function inspectCandidate(root, config, plan, candidate, sourceState) {
 }
 
 /** Fast, read-only availability. It never invokes a model, writes a file, or publishes. */
-export async function inspectGroundingAvailability(root, config, plan) {
+export async function inspectGroundingAvailability(root, config, plan, { refreshRemote = true } = {}) {
   const sourceState = await worldModelSourceSnapshot(root, config.definition ?? config);
-  const governed = await resolveWorldModelSource(root, config);
+  const governed = await resolveWorldModelSource(root, config, { refreshRemote });
   const policy = config.materialization ?? materializationPolicy(config.definition ?? config);
   const stalenessPolicy = config.staleness ?? config.definition?.worldModel?.staleness ?? 'warn';
   const worktree = { directory: path.join(root, config.outputDir), source: 'worktree', branch: null };

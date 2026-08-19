@@ -223,6 +223,8 @@ export class FlowImpactPanel {
   private static current: FlowImpactPanel | null = null;
   private readonly disposables: vscode.Disposable[] = [];
   private readonly subscription: { dispose(): void };
+  private refreshRevision = 0;
+  private refreshPending = false;
   private tab = 'overview';
   private state: FlowImpactState = {
     studies: [], workIds: [], selectedWorkId: null, status: null, doctor: null,
@@ -236,7 +238,11 @@ export class FlowImpactPanel {
     private readonly store: WorkspaceStore,
     private readonly client: SingularityFlowClient
   ) {
-    this.subscription = store.onDidChange(() => { void this.refresh(); });
+    this.subscription = store.onDidChange((_state, change) => {
+      if (change.kind !== 'snapshot' || !change.revisionChanged) return;
+      if (this.panel.visible === false) { this.refreshPending = true; return; }
+      void this.refresh();
+    });
     panel.webview.onDidReceiveMessage((raw: unknown) => {
       // The shared footer is the one way out of a full-page view. Handled here rather than through
       // this panel's own message contract, because "go to another page" is not this panel's business.
@@ -245,6 +251,11 @@ export class FlowImpactPanel {
       void this.onMessage(raw as Message);
     }, null, this.disposables);
     panel.onDidDispose(() => this.dispose(), null, this.disposables);
+    panel.onDidChangeViewState?.(({ webviewPanel }) => {
+      if (webviewPanel.visible === false || !this.refreshPending) return;
+      this.refreshPending = false;
+      void this.refresh();
+    }, null, this.disposables);
     void this.refresh();
   }
 
@@ -267,7 +278,8 @@ export class FlowImpactPanel {
     this.panel.webview.html = page('Flow Impact', flowImpactBody(this.state, this.tab), contentSecurityPolicy(this.panel.webview, token), token, SCRIPT);
   }
 
-  private async refresh(notice: string | null = null): Promise<void> {
+  private async refresh(notice: string | null = this.state.notice): Promise<void> {
+    const revision = ++this.refreshRevision;
     const snapshot = this.store.current.snapshot;
     const workIds = (snapshot?.workItems ?? []).map((item) => ({ id: item.id, title: item.title }));
     const previousWorkId = this.state.selectedWorkId;
@@ -285,6 +297,7 @@ export class FlowImpactPanel {
         readFile(path.join(this.client.repository, 'singularity/impact.yml'), 'utf8').catch(() => null),
         selected ? this.client.run<ImpactStatus>(['impact', 'status', selected, '--json']).catch(() => null) : Promise.resolve(null)
       ]);
+      if (revision !== this.refreshRevision) return;
       const selectedStudyId = this.state.selectedStudyId && studies.some((item) => item.id === this.state.selectedStudyId)
         ? this.state.selectedStudyId : status?.measurement.plan?.studyId ?? studies[0]?.id ?? null;
       this.state = {
@@ -292,6 +305,7 @@ export class FlowImpactPanel {
         configMissing: configText == null, loading: false
       };
     } catch (error) {
+      if (revision !== this.refreshRevision) return;
       this.state = { ...this.state, loading: false, error: (error as Error).message };
     }
     this.render();
@@ -300,8 +314,8 @@ export class FlowImpactPanel {
   private async mutation(action: () => Promise<string>, success: string): Promise<void> {
     try {
       const output = await action();
+      this.state = { ...this.state, notice: output.trim() || success, error: null };
       await this.store.refresh();
-      await this.refresh(output.trim() || success);
     } catch (error) {
       this.state = { ...this.state, error: (error as Error).message, notice: null };
       this.render();

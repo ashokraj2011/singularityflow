@@ -48,12 +48,12 @@ export class ConfigurationCenterPanel {
     private readonly onMessage: (message: ConfigurationCenterMessage) => Promise<string | null>
   ) {
     this.subscription = store.onDidChange(() => this.storeChanged());
-    panel.webview.onDidReceiveMessage((raw: unknown) => {
+    panel.webview.onDidReceiveMessage(async (raw: unknown) => {
       // The shared footer is the one way out of a full-page view. Handled here rather than through
       // this panel's own message contract, because "go to another page" is not this panel's business.
       const navigation = navigationTarget(raw);
       if (navigation) return void navigateTo(navigation);
-      void this.receive(raw);
+      await this.receive(raw);
     }, null, this.disposables);
     panel.onDidDispose(() => this.dispose(), null, this.disposables);
     this.render();

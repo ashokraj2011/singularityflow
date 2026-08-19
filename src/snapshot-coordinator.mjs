@@ -31,7 +31,13 @@ async function worktreeRevision(root) {
   // when it calls a value `worktreeHash`.
   const status = run('git', ['status', '--porcelain=v2', '--branch', '-z', '--untracked-files=all'], { cwd: root });
   const parsed = parseStatus(status.stdout);
-  const fingerprint = worktreeFingerprint(root);
+  const fingerprint = worktreeFingerprint(root, {
+    fresh: true,
+    // The coordinator already paid for a complete porcelain status. Reusing it avoids a second
+    // status walk while preserving the content-aware fingerprint's index and byte checks.
+    dirty: parsed.changedFiles.length > 0,
+    visiblePaths: parsed.changedFiles
+  });
   return {
     branch: parsed.branchName,
     head: parsed.commit,

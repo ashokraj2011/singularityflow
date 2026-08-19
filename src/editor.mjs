@@ -525,7 +525,10 @@ async function fullRepositorySnapshot(root, requestedWorkId = null, requestedIni
       const { inspectWorkflowGrounding } = await import('./worldmodel.mjs');
       worldModelReadiness = await inspectWorkflowGrounding(root, workflow, workflow.currentPhase, {
         agent: activeSession?.agent ?? null,
-        task: workflow.workItem.title
+        task: workflow.workItem.title,
+        // A navigation refresh is a local read. The cached state ref is enough to disclose
+        // readiness; explicit world-model refresh/ensure operations own network reconciliation.
+        refreshRemote: false
       });
     } catch (error) {
       worldModelReadiness = { reason: `The pinned phase grounding plan could not be inspected: ${error.message}` };
@@ -606,10 +609,8 @@ async function fullRepositorySnapshot(root, requestedWorkId = null, requestedIni
     definition,
     definitionPath: WORKFLOW_PATH,
     definitionText: await readFile(path.join(root, WORKFLOW_PATH), 'utf8'),
-    // Also in `configurationSlice`, and it has to be in both. The extension calls `snapshot --json`
-    // with no `--include`, which lands here and not in the slice — the fast-path rail shipped to
-    // the slice alone and rendered nothing at all, silently, because a projection that reaches the
-    // wrong function looks identical to a projection that was never written.
+    // Also in `configurationSlice`, and it has to be in both. The extension now loads that slice on
+    // demand, while compatibility consumers may still request the full projection here.
     modelRouting: await modelRoutingProjection(root, definition),
     portfolio,
     portfolioPath: PORTFOLIO_PATH,
@@ -705,11 +706,8 @@ async function fullRepositorySnapshot(root, requestedWorkId = null, requestedIni
     /**
      * The fast path, on the full snapshot too `[SPK:REQ-150]`.
      *
-     * Added to `lifecycleSlice` first and to nothing else, which meant the one consumer that
-     * matters never saw it: VS Code calls `snapshot --json` with no `--include`, and that lands
-     * here rather than in the sliced path. The rail rendered nothing, silently and correctly,
-     * because the field it reads was absent — the exact "added to one code path, consumed from the
-     * other" failure this codebase keeps producing, and invisible until the extension was opened.
+     * Kept in the full compatibility projection as well as `lifecycleSlice`: every public snapshot
+     * shape that carries lifecycle must expose the same planned rail.
      */
     fastPath: fastPathProjection(definition, workflow),
     visualAssurance: await visualAssuranceSnapshot(root, definition, workflow),
@@ -968,6 +966,12 @@ async function configurationSlice(root) {
   });
   const agents = await discoverAgents(root);
   const mappingStatus = await agentMappingStatus(root);
+  const modelRoot = posix(definition.worldModel?.outputDir ?? 'singularity/world-model');
+  let worldModelManifest = null;
+  try { worldModelManifest = await readJson(path.join(root, modelRoot, 'manifest.json')); } catch { /* Not built yet. */ }
+  const promptViewReferences = await worldModelPromptViewReferences(root, definition);
+  const structuredViewReferences = structuredWorldModelViewReferences(definition);
+  const viewCatalog = worldModelViewCatalog(definition, promptViewReferences.keys());
   const templatesRoot = typeof definition.templatesRoot === 'string'
     ? definition.templatesRoot
     : 'singularity/templates';
@@ -1021,6 +1025,22 @@ async function configurationSlice(root) {
       definition,
       modelMode: operationContext()?.modelMode ?? { enabled: true, source: 'default' }
     }),
+    worldModel: {
+      root: modelRoot,
+      generatedAt: worldModelManifest?.generated_at ?? null,
+      rebuildReason: worldModelManifest ? null : 'The governed repository world model has not been built.',
+      readiness: null,
+      views: viewCatalog.map((id) => ({
+        id,
+        structuredReferences: structuredViewReferences.get(id) ?? [],
+        promptReferences: promptViewReferences.get(id) ?? [],
+        references: [
+          ...(structuredViewReferences.get(id) ?? []),
+          ...(promptViewReferences.get(id) ?? []).map((file) => `Markdown '${file}'`)
+        ]
+      })),
+      files: await textFiles(root, modelRoot, { extensions: ['.md', '.json', '.jsonl', '.yml', '.yaml'] })
+    },
     mcp: await mcpConfigurationStatus(root, definition)
   };
 }

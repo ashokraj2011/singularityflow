@@ -256,6 +256,8 @@ export class ImpactPanel {
   private selectedWorkspaceReport: string | null = null;
   private runningWorkspaceImpact = false;
   private workspaceActionError: string | null = null;
+  private reloadRevision = 0;
+  private reloadPending = false;
 
   private constructor(panel: vscode.WebviewPanel, store: WorkspaceStore, client: SingularityFlowClient) {
     this.panel = panel;
@@ -263,7 +265,11 @@ export class ImpactPanel {
     this.client = client;
     // Recomputed whenever the snapshot changes, so the impact and the plan it derives from never
     // describe different moments.
-    this.subscription = store.onDidChange(() => { void this.reload(); });
+    this.subscription = store.onDidChange((_state, change) => {
+      if (change.kind !== 'snapshot' || !change.revisionChanged) return;
+      if (this.panel.visible === false) { this.reloadPending = true; return; }
+      void this.reload();
+    });
     this.panel.webview.onDidReceiveMessage((raw: unknown) => {
       // The shared footer is the one way out of a full-page view. Handled here rather than through
       // this panel's own message contract, because "go to another page" is not this panel's business.
@@ -273,6 +279,11 @@ export class ImpactPanel {
       this.router.route(raw);
     }, null, this.disposables);
     this.panel.onDidDispose(() => this.dispose(), null, this.disposables);
+    this.panel.onDidChangeViewState?.(({ webviewPanel }) => {
+      if (webviewPanel.visible === false || !this.reloadPending) return;
+      this.reloadPending = false;
+      void this.reload();
+    }, null, this.disposables);
     this.render();
     void this.reload();
   }
@@ -293,17 +304,20 @@ export class ImpactPanel {
   }
 
   private async reload(): Promise<void> {
+    const revision = ++this.reloadRevision;
     const current: {
       active?: boolean; workspacePath?: string; workspaceName?: string;
     } = await this.client.run<{
       active?: boolean; workspacePath?: string; workspaceName?: string;
     }>(['workspace', 'current', '--json']).catch(() => ({ active: false }));
+    if (revision !== this.reloadRevision) return;
     this.workspace = current.active && current.workspacePath
       ? { path: current.workspacePath, name: current.workspaceName ?? null } : null;
     const workspacePath = this.workspace?.path ?? null;
     this.workspaceReports = workspacePath
       ? await this.client.run<WorkspaceImpactReport[]>(['workspace', 'impact', 'list', workspacePath, '--json']).catch(() => [])
       : [];
+    if (revision !== this.reloadRevision) return;
     const firstReport = this.workspaceReports[0];
     if (!this.selectedWorkspaceReport && firstReport) this.selectedWorkspaceReport = firstReport.id;
     if (!this.store.current.snapshot?.initiative) {
@@ -314,8 +328,10 @@ export class ImpactPanel {
     }
     try {
       this.report = await this.client.run<ImpactReport>(['epic', 'impact', '--json']);
+      if (revision !== this.reloadRevision) return;
       this.error = null;
     } catch (error) {
+      if (revision !== this.reloadRevision) return;
       // An Epic with no Story plan cannot be given an impact, which is a state rather than a fault.
       this.report = null;
       this.error = (error as Error).message;

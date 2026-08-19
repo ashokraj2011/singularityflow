@@ -151,8 +151,9 @@ function languageFor(relative) {
   return LANGUAGE_BY_EXTENSION.get(path.posix.extname(relative).toLowerCase()) ?? 'unknown';
 }
 
-function trackedFiles(root) {
-  const output = run('git', ['ls-files', '--stage', '-z'], { cwd: root, maxBuffer: GIT_LIST_MAX_BUFFER }).stdout;
+function trackedFiles(root, prefixes = []) {
+  const pathspec = prefixes.length ? ['--', ...prefixes] : [];
+  const output = run('git', ['ls-files', '--stage', '-z', ...pathspec], { cwd: root, maxBuffer: GIT_LIST_MAX_BUFFER }).stdout;
   const tracked = splitNull(output).flatMap((entry) => {
     const tab = entry.indexOf('\t');
     if (tab < 0) return [];
@@ -161,7 +162,7 @@ function trackedFiles(root) {
     return [{ path: posix(entry.slice(tab + 1)), mode, object }];
   });
   const known = new Set(tracked.map((file) => file.path));
-  const untracked = splitNull(run('git', ['ls-files', '--others', '--exclude-standard', '-z'], {
+  const untracked = splitNull(run('git', ['ls-files', '--others', '--exclude-standard', '-z', ...pathspec], {
     cwd: root, maxBuffer: GIT_LIST_MAX_BUFFER
   }).stdout)
     .map((relative) => ({ path: posix(relative), mode: 'untracked', object: null }))
@@ -169,11 +170,12 @@ function trackedFiles(root) {
   return [...tracked, ...untracked].sort((left, right) => left.path.localeCompare(right.path));
 }
 
-function changedPaths(root) {
-  const tracked = splitNull(run('git', ['diff', '--name-only', '-z', 'HEAD'], {
+function changedPaths(root, prefixes = []) {
+  const pathspec = prefixes.length ? ['--', ...prefixes] : [];
+  const tracked = splitNull(run('git', ['diff', '--name-only', '-z', 'HEAD', ...pathspec], {
     cwd: root, allowFailure: true, maxBuffer: GIT_LIST_MAX_BUFFER
   }).stdout);
-  const untracked = splitNull(run('git', ['ls-files', '--others', '--exclude-standard', '-z'], {
+  const untracked = splitNull(run('git', ['ls-files', '--others', '--exclude-standard', '-z', ...pathspec], {
     cwd: root, maxBuffer: GIT_LIST_MAX_BUFFER
   }).stdout);
   return new Set([...tracked, ...untracked].map(posix));
@@ -293,12 +295,15 @@ async function candidateFor(root, runtime, file, changed, objectSizes) {
 }
 
 async function enumerateScope(root, runtime, options = {}) {
-  const allTracked = trackedFiles(root);
   const requested = explicitPaths(options);
   const all = optionBoolean(options, 'all');
   if (requested.length && all) throw new SingularityFlowError('Use either AST --paths or --all, not both.');
   const roots = runtime.sourceScope.paths;
-  const changed = changedPaths(root);
+  // Let Git apply the cone. Listing a million-path monorepo only to discard all but one package in
+  // JavaScript makes a bounded AST request scale with the repository rather than its requested scope.
+  const prefixes = requested.length ? requested : all ? [] : roots;
+  const allTracked = trackedFiles(root, prefixes);
+  const changed = changedPaths(root, prefixes);
   let scopeKind;
   let selected;
   if (requested.length) {

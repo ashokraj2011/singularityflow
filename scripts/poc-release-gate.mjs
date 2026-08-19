@@ -19,6 +19,11 @@ delete environment.SINGULARITY_FLOW_COLOR;
 
 const stages = [
   {
+    label: 'Developer-experience latency budgets',
+    command: npm,
+    args: ['run', 'benchmark:dx:enforce']
+  },
+  {
     label: 'VS Code type contract',
     command: npm,
     args: ['run', 'vscode:typecheck']

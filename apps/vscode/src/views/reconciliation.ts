@@ -74,6 +74,8 @@ export class ReconciliationPanel {
   private readonly subscription: { dispose(): void };
   private readonly disposables: vscode.Disposable[] = [];
   private mergePlan: MergePlan | null = null;
+  private reloadRevision = 0;
+  private reloadPending = false;
 
   private constructor(panel: vscode.WebviewPanel, store: WorkspaceStore, client: SingularityFlowClient) {
     this.panel = panel;
@@ -81,12 +83,21 @@ export class ReconciliationPanel {
     this.client = client;
     // The merge plan is re-read whenever the snapshot changes, so the two never describe different
     // moments of the same repository.
-    this.subscription = store.onDidChange(() => { void this.reload(); });
+    this.subscription = store.onDidChange((_state, change) => {
+      if (change.kind !== 'snapshot' || !change.revisionChanged) return;
+      if (this.panel.visible === false) { this.reloadPending = true; return; }
+      void this.reload();
+    });
     // Nothing else on this page talks back, but the shared footer does, and a button that cannot
     // reach the extension is worse than no button.
     this.panel.webview.onDidReceiveMessage((raw: unknown) => {
       const navigation = navigationTarget(raw);
       if (navigation) void navigateTo(navigation);
+    }, null, this.disposables);
+    this.panel.onDidChangeViewState?.(({ webviewPanel }) => {
+      if (webviewPanel.visible === false || !this.reloadPending) return;
+      this.reloadPending = false;
+      void this.reload();
     }, null, this.disposables);
     this.panel.onDidDispose(() => this.dispose(), null, this.disposables);
     // Render what the snapshot already knows before waiting on the merge plan. Three of the four
@@ -116,11 +127,15 @@ export class ReconciliationPanel {
   }
 
   private async reload(): Promise<void> {
+    const revision = ++this.reloadRevision;
     try {
-      this.mergePlan = this.store.current.snapshot?.initiative
+      const mergePlan = this.store.current.snapshot?.initiative
         ? await this.client.run<MergePlan>(['epic', 'merge-plan', '--json'])
         : null;
+      if (revision !== this.reloadRevision) return;
+      this.mergePlan = mergePlan;
     } catch {
+      if (revision !== this.reloadRevision) return;
       // An Epic with no Story plan cannot produce a merge plan, and that is a normal state rather
       // than a failure. The level itself reports that there is nothing to sequence.
       this.mergePlan = null;

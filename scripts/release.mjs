@@ -66,6 +66,13 @@ async function main() {
   step('Checking governance and the version across every manifest');
   must('npm', ['run', 'check']);
 
+  // Latency is a release property, not an optional developer observation. This stays in the local
+  // release path because the repository deliberately carries no hosted automation. The benchmark
+  // validates absolute budgets everywhere and adds the relative 20-percent gate when it runs on
+  // the exact runtime/topology of the accepted baseline.
+  step('Enforcing developer-experience latency budgets');
+  must('npm', ['run', 'benchmark:dx:enforce']);
+
   if (skipTests) console.warn('  Warning: --skip-tests was passed. This release has not been tested.');
   else {
     step('Running the test suite');

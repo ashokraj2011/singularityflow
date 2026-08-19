@@ -14,7 +14,58 @@ import {
   WORLD_MODEL_TIMEOUT_MS,
   invokeCli, type OutputStream
 } from './runner.ts';
-import type { RepositorySnapshot } from './snapshot.ts';
+import type { RepositorySnapshot, SnapshotSlice } from './snapshot.ts';
+
+export const CORE_SNAPSHOT_SLICES: readonly SnapshotSlice[] = Object.freeze([
+  'repository', 'lifecycle', 'capabilities'
+]);
+
+interface SnapshotEnvelope {
+  included?: SnapshotSlice[];
+  notModified?: boolean;
+  revision?: RepositorySnapshot['revision'];
+  repository?: Record<string, unknown>;
+  lifecycle?: Partial<RepositorySnapshot>;
+  configuration?: Partial<RepositorySnapshot>;
+  capabilities?: { path?: string; capabilities?: unknown[] | null; error?: string };
+  integrations?: Partial<RepositorySnapshot>;
+  diagnostics?: RepositorySnapshot['diagnostics'];
+}
+
+function snapshotArgs(slices: readonly SnapshotSlice[], ifRevision?: string | null): string[] {
+  const args = ['snapshot'];
+  for (const slice of slices) args.push('--include', slice);
+  if (ifRevision) args.push('--if-revision', ifRevision);
+  args.push('--json');
+  return args;
+}
+
+/** Flatten public slice envelopes into the compatibility projection every existing view consumes. */
+function flattenSnapshot(envelope: SnapshotEnvelope): RepositorySnapshot {
+  const repository = { ...(envelope.repository ?? {}) };
+  const identities = repository.identities as RepositorySnapshot['identities'] | undefined;
+  delete repository.identities;
+  const capability = envelope.capabilities;
+  return {
+    workItems: [], initiatives: [], selectedWorkId: null, selectedInitiativeId: null,
+    initiative: null, workflow: null,
+    ...(envelope.lifecycle ?? {}),
+    ...(envelope.configuration ?? {}),
+    ...(envelope.integrations ?? {}),
+    ...(Object.keys(repository).length ? { repository } : {}),
+    ...(identities ? { identities } : {}),
+    ...(capability ? {
+      capabilityMapPath: capability.path,
+      capabilityMap: capability.capabilities == null && !capability.error
+        ? null
+        : { capabilities: capability.capabilities ?? [], ...(capability.error ? { error: capability.error } : {}) }
+    } : {}),
+    ...(envelope.diagnostics ? { diagnostics: envelope.diagnostics } : {}),
+    included: [...(envelope.included ?? [])],
+    ...(envelope.notModified ? { notModified: true } : {}),
+    ...(envelope.revision ? { revision: envelope.revision } : {})
+  } as RepositorySnapshot;
+}
 
 const READ_ONLY_COMMANDS = new Set([
   'about', 'help', 'show', 'choices', 'inbox', 'home', 'recommend', 'status', 'progress',
@@ -206,9 +257,11 @@ export class SingularityFlowClient {
     });
   }
 
-  /** The whole read model in one public, surface-neutral call. */
-  snapshot(signal?: AbortSignal): Promise<RepositorySnapshot> {
-    return this.invoke<RepositorySnapshot>(['snapshot', '--json'], SNAPSHOT_TIMEOUT_MS, signal);
+  /** A coherent, bounded read model. Heavy domains are added only when their surface opens. */
+  async snapshot(signal?: AbortSignal, slices: readonly SnapshotSlice[] = CORE_SNAPSHOT_SLICES,
+    ifRevision: string | null = null): Promise<RepositorySnapshot> {
+    const envelope = await this.invoke<SnapshotEnvelope>(snapshotArgs(slices, ifRevision), SNAPSHOT_TIMEOUT_MS, signal);
+    return flattenSnapshot(envelope);
   }
 
   /**
@@ -217,13 +270,9 @@ export class SingularityFlowClient {
    * accidentally make invalid configuration runnable.
    */
   async configurationSnapshot(signal?: AbortSignal): Promise<RepositorySnapshot> {
-    const envelope = await this.invoke<{ configuration?: Partial<RepositorySnapshot> }>(
+    const envelope = await this.invoke<SnapshotEnvelope>(
       ['snapshot', '--include', 'configuration', '--json'], SNAPSHOT_TIMEOUT_MS, signal);
-    return {
-      workItems: [], initiatives: [], selectedWorkId: null, selectedInitiativeId: null,
-      initiative: null, workflow: null,
-      ...(envelope.configuration ?? {})
-    };
+    return flattenSnapshot(envelope);
   }
 
   /** Computed impact, reconciled against the published map. */

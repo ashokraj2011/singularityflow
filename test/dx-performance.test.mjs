@@ -17,6 +17,7 @@ test('DX benchmark protocol is reproducible and carries the release budgets', ()
   assert.equal(manifest.protocol.network, 'disabled');
   assert.equal(manifest.protocol.modelCalls, 'disabled');
   assert.deepEqual(manifest.budgets.snapshot, { p50Ms: 150, p95Ms: 250 });
+  assert.deepEqual(manifest.budgets.snapshotUi, { p50Ms: 400, p95Ms: 650 });
   /**
    * A ceiling, not a target — and deliberately pinned so it can only be lowered on purpose.
    *
@@ -53,7 +54,7 @@ test('latency-budgets-on-fixture', { timeout: 30_000 }, () => {
   const report = JSON.parse(run.stdout);
   assert.equal(report.protocol.samples, 3);
   assert.equal(report.topology.trackedFiles, manifest.topology.trackedFiles);
-  assert.deepEqual(Object.keys(report.commands), ['about', 'status', 'nextsteps', 'snapshot', 'snapshotFull']);
+  assert.deepEqual(Object.keys(report.commands), ['about', 'status', 'nextsteps', 'snapshot', 'snapshotUi', 'snapshotFull']);
   for (const result of Object.values(report.commands)) {
     assert.equal(result.samples, 3);
     assert.ok(result.p50Ms > 0);
@@ -63,23 +64,47 @@ test('latency-budgets-on-fixture', { timeout: 30_000 }, () => {
 
 test('the benchmark measures the snapshot the extension actually asks for', async () => {
   /**
-   * The benchmarked `snapshot` was `--include repository`, a shape nothing in the product sends.
-   * The extension sends `snapshot --json`, which took a different and far slower route through
-   * `src/cli.mjs`, and no budget covered it — so the fast path met its target while the real path
-   * was free to drift. Both sides are asserted here, because a guard that watches only one of them
-   * passes happily the day the other moves.
+   * The extension's critical slices and the benchmark must move together. The compatibility full
+   * snapshot remains measured separately so slimming activation cannot hide a regression there.
    */
   const client = await readFile(path.join(root, 'apps/vscode/src/cli/client.ts'), 'utf8');
-  assert.match(client, /invoke<RepositorySnapshot>\(\['snapshot', '--json'\]/,
-    'the extension no longer sends `snapshot --json`; update the benchmarked command to match it');
+  assert.match(client, /'repository', 'lifecycle', 'capabilities'/,
+    'the extension critical slice set changed; update the benchmarked command to match it');
 
   const benchmark = await readFile(path.join(root, 'scripts/dx-benchmark.mjs'), 'utf8');
+  assert.match(benchmark, /snapshotUi: \['snapshot', '--include', 'repository', '--include', 'lifecycle', '--include', 'capabilities', '--json'\]/,
+    'the benchmark no longer measures the VS Code critical slice set');
   assert.match(benchmark, /snapshotFull: \['snapshot', '--json'\]/,
-    'the benchmark no longer measures the invocation the extension sends');
+    'the benchmark no longer measures the compatibility full snapshot');
 
   // And the fixture has to be loadable by that invocation. A `version: 2` stub satisfies the sliced
   // read, which never parses the definition, and is refused by everything else.
   assert.match(benchmark, /workTypes:/, 'the reference fixture must carry a definition the engine will load');
+});
+
+test('monorepo reads push scope into Git and do not re-prove known dirty paths one process at a time', async () => {
+  const ast = await readFile(path.join(root, 'src/ast-intelligence.mjs'), 'utf8');
+  assert.match(ast, /function trackedFiles\(root, prefixes = \[\]\)/,
+    'AST enumeration cannot receive a bounded repository cone');
+  assert.match(ast, /\['--', \.\.\.prefixes\]/,
+    'AST enumerates the whole repository before filtering requested paths');
+  assert.match(ast, /trackedFiles\(root, prefixes\)/,
+    'the selected AST cone never reaches the Git listing');
+
+  const grounding = await readFile(path.join(root, 'src/grounding.mjs'), 'utf8');
+  assert.match(grounding, /compareToIndex: !knownChanged\.has\(file\)/,
+    'world-model fingerprinting launches hash-object for every path Git already reported changed');
+});
+
+test('heavy VS Code domains are loaded by their surfaces rather than activation', async () => {
+  const client = await readFile(path.join(root, 'apps/vscode/src/cli/client.ts'), 'utf8');
+  assert.match(client, /CORE_SNAPSHOT_SLICES[^]*'repository', 'lifecycle', 'capabilities'/,
+    'the activation snapshot includes heavyweight domains');
+  const extension = await readFile(path.join(root, 'apps/vscode/src/extension.ts'), 'utf8');
+  assert.match(extension, /openConfigurationCenter[^]*ensureSlices\(\['configuration', 'integrations'\]\)/,
+    'configuration and integration data are not loaded when their surface opens');
+  assert.match(extension, /openDashboard[^]*ensureSlices\(\['configuration', 'integrations', 'diagnostics'\]\)/,
+    'the dashboard assumes heavyweight slices were eagerly loaded');
 });
 
 test('fast commands do not statically import unrelated heavyweight domains', async () => {
@@ -193,8 +218,10 @@ test('baseline report import validates runtime, protocol, topology, and outcome'
 
 test('the read model does not shell out to the network, or ask git the same question twice', async () => {
   /**
-   * `snapshot --json` is what the VS Code extension calls on every one of its 25 refresh triggers,
-   * and it took **1.8 s**: 80 subprocesses, 1376 ms of them, on a three-file repository.
+   * The full compatibility snapshot once drove every VS Code refresh and took **1.8 s**: 80
+   * subprocesses, 1376 ms of them, on a three-file repository. It remains a public read path and
+   * therefore retains the same zero-network and subprocess-shape guarantees after VS Code moved to
+   * bounded slices.
    *
    * Two findings, both invisible from the call sites:
    *

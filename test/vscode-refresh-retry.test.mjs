@@ -138,3 +138,121 @@ test('the store owns the retry policy, so no view has to know about it', async (
   }
   assert.deepEqual(offenders, [], 'a view is handling the disturbance itself');
 });
+
+test('overlapping refreshes coalesce without aborting paid work or fanning out stale results', () => {
+  const source = `
+    import { WorkspaceStore } from ${JSON.stringify(storeModule)};
+    let calls = 0;
+    let aborted = 0;
+    const client = {
+      async snapshot(signal) {
+        calls += 1;
+        const marker = calls;
+        await new Promise((resolve) => setTimeout(resolve, 80));
+        if (signal?.aborted) aborted += 1;
+        return {
+          workItems: [], initiatives: [], marker,
+          revision: { subjectRevision: String(marker) },
+          included: ['repository', 'lifecycle', 'capabilities']
+        };
+      },
+      async configurationSnapshot() { throw new Error('not expected'); }
+    };
+    const store = new WorkspaceStore(client);
+    const events = [];
+    store.onDidChange((state, change) => events.push({ kind: change.kind, marker: state.snapshot?.marker ?? null }));
+    const first = store.refresh();
+    await new Promise((resolve) => setTimeout(resolve, 10));
+    const second = store.refresh();
+    await Promise.all([first, second]);
+    process.stdout.write(JSON.stringify({ calls, aborted, events, marker: store.current.snapshot?.marker }));
+  `;
+  const result = spawnSync(process.execPath, ['--experimental-strip-types', '--input-type=module', '-e', source], {
+    encoding: 'utf8', cwd: packageRoot, timeout: 10_000
+  });
+  assert.equal(result.status, 0, result.stderr);
+  const outcome = JSON.parse(result.stdout);
+  assert.equal(outcome.calls, 2, 'the newer request did not receive one coherent follow-up');
+  assert.equal(outcome.aborted, 0, 'a refresh request aborted work that was already in progress');
+  assert.equal(outcome.marker, 2);
+  assert.deepEqual(outcome.events, [
+    { kind: 'loading', marker: null },
+    { kind: 'snapshot', marker: 2 }
+  ]);
+});
+
+test('loading a new snapshot slice cannot reuse a revision from a smaller projection', () => {
+  const source = `
+    import { WorkspaceStore } from ${JSON.stringify(storeModule)};
+    const calls = [];
+    const client = {
+      async snapshot(_signal, slices, ifRevision) {
+        calls.push({ slices, ifRevision });
+        return {
+          workItems: [], initiatives: [],
+          definitionText: slices.includes('configuration') ? 'version: 2' : undefined,
+          revision: { subjectRevision: slices.includes('configuration') ? 'expanded' : 'core' },
+          included: slices
+        };
+      },
+      async configurationSnapshot() { throw new Error('not expected'); }
+    };
+    const store = new WorkspaceStore(client);
+    await store.refresh();
+    await store.ensureSlices(['configuration']);
+    process.stdout.write(JSON.stringify({ calls, definitionText: store.current.snapshot?.definitionText }));
+  `;
+  const result = spawnSync(process.execPath, ['--experimental-strip-types', '--input-type=module', '-e', source], {
+    encoding: 'utf8', cwd: packageRoot, timeout: 10_000
+  });
+  assert.equal(result.status, 0, result.stderr);
+  const outcome = JSON.parse(result.stdout);
+  assert.equal(outcome.calls.length, 2);
+  assert.equal(outcome.calls[0].ifRevision, null);
+  assert.equal(outcome.calls[1].ifRevision, null,
+    'a core-slice revision incorrectly suppressed the newly requested configuration slice');
+  assert.ok(outcome.calls[1].slices.includes('configuration'));
+  assert.equal(outcome.definitionText, 'version: 2');
+});
+
+test('a cached heavy panel does not make the next activation reload every heavy slice', () => {
+  const source = `
+    import { WorkspaceStore } from ${JSON.stringify(storeModule)};
+    let requested = null;
+    const client = {
+      async snapshot(_signal, slices) {
+        requested = slices;
+        return { workItems: [], initiatives: [], included: slices, revision: { subjectRevision: 'live-core' } };
+      },
+      async configurationSnapshot() { throw new Error('not expected'); }
+    };
+    const cache = {
+      read() {
+        return {
+          workItems: [], initiatives: [], definitionText: 'cached heavy data',
+          included: ['repository', 'lifecycle', 'capabilities', 'configuration', 'integrations', 'diagnostics'],
+          revision: { subjectRevision: 'cached-all' }
+        };
+      },
+      write() {}
+    };
+    const store = new WorkspaceStore(client, cache);
+    store.primeFromCache();
+    await store.refresh();
+    process.stdout.write(JSON.stringify({ requested }));
+  `;
+  const result = spawnSync(process.execPath, ['--experimental-strip-types', '--input-type=module', '-e', source], {
+    encoding: 'utf8', cwd: packageRoot, timeout: 10_000
+  });
+  assert.equal(result.status, 0, result.stderr);
+  assert.deepEqual(JSON.parse(result.stdout).requested, ['repository', 'lifecycle', 'capabilities']);
+});
+
+test('panels that launch CLI reads ignore loading-only store events', async () => {
+  const names = ['impact.ts', 'flow-impact.ts', 'reconciliation.ts', 'ast-intelligence.ts'];
+  for (const name of names) {
+    const source = await readFile(path.join(packageRoot, 'apps/vscode/src/views', name), 'utf8');
+    assert.match(source, /change\.kind (?:===|!==) 'snapshot'/, `${name} reloads on loading-only events`);
+    assert.match(source, /revisionChanged/, `${name} ignores the slice revision`);
+  }
+});

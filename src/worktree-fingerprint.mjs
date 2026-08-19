@@ -17,22 +17,24 @@ function splitNull(value) {
 }
 
 export function withoutConfiguredFilters(root, args) {
-  const configured = run('git', [
-    'config', '--get-regexp', '^filter\\..*\\.(clean|process|required)$'
-  ], { cwd: root, allowFailure: true });
-  const drivers = new Set();
-  if (configured.status === 0) {
-    for (const line of configured.stdout.split(/\r?\n/).filter(Boolean)) {
-      const key = line.slice(0, line.search(/\s/));
-      const match = /^filter\.(.*)\.(?:clean|process|required)$/.exec(key);
-      if (match?.[1]) drivers.add(match[1]);
+  const overrides = scopedReadSync(`git.filter-overrides:${root}`, () => {
+    const configured = run('git', [
+      'config', '--get-regexp', '^filter\\..*\\.(clean|process|required)$'
+    ], { cwd: root, allowFailure: true });
+    const drivers = new Set();
+    if (configured.status === 0) {
+      for (const line of configured.stdout.split(/\r?\n/).filter(Boolean)) {
+        const key = line.slice(0, line.search(/\s/));
+        const match = /^filter\.(.*)\.(?:clean|process|required)$/.exec(key);
+        if (match?.[1]) drivers.add(match[1]);
+      }
     }
-  }
-  const overrides = [...drivers].sort().flatMap((driver) => [
-    '-c', `filter.${driver}.clean=`,
-    '-c', `filter.${driver}.process=`,
-    '-c', `filter.${driver}.required=false`
-  ]);
+    return [...drivers].sort().flatMap((driver) => [
+      '-c', `filter.${driver}.clean=`,
+      '-c', `filter.${driver}.process=`,
+      '-c', `filter.${driver}.required=false`
+    ]);
+  });
   return [...overrides, ...args];
 }
 
@@ -120,8 +122,8 @@ function indexedBytes(root, object) {
  * plumbing commands that do not use `-w`. Paths, modes, symlink targets, deletions, untracked files,
  * index stages and submodule state all participate in the final SHA-256.
  */
-export function worktreeFingerprint(root) {
-  return scopedReadSync(`git.worktree-fingerprint:${root}`, () => {
+export function worktreeFingerprint(root, { fresh = false, dirty = null, visiblePaths = null } = {}) {
+  const compute = () => {
     const headResult = run('git', ['rev-parse', '--verify', 'HEAD^{tree}'], {
       cwd: root,
       allowFailure: true
@@ -139,18 +141,22 @@ export function worktreeFingerprint(root) {
     // HEAD and the index listing already content-address every unchanged tracked path. Reading
     // every file again would turn one dirty README into a full-repository byte scan, so only paths
     // whose worktree state differs plus untracked paths are included in the visible-byte manifest.
-    const changed = headResult.status === 0
-      ? run('git', withoutConfiguredFilters(root, [
-        'diff', '--no-textconv', '--name-only', '-z', 'HEAD'
-      ]), { cwd: root }).stdout
-      : run('git', ['ls-files', '--cached', '-z'], { cwd: root }).stdout;
-    const untracked = run('git', ['ls-files', '--others', '--exclude-standard', '-z'], { cwd: root }).stdout;
+    const changed = visiblePaths === null
+      ? headResult.status === 0
+        ? run('git', withoutConfiguredFilters(root, [
+          'diff', '--no-textconv', '--name-only', '-z', 'HEAD'
+        ]), { cwd: root }).stdout
+        : run('git', ['ls-files', '--cached', '-z'], { cwd: root }).stdout
+      : '';
+    const untracked = visiblePaths === null
+      ? run('git', ['ls-files', '--others', '--exclude-standard', '-z'], { cwd: root }).stdout
+      : '';
     const stageZero = new Map(indexManifest.filter((entry) => entry.stage === 0)
       .map((entry) => [entry.path, entry]));
     const hidden = indexManifest.filter((entry) => entry.stage === 0
       && (entry.assumeUnchanged || entry.skipWorktree));
     const paths = [...new Set([
-      ...splitNull(changed), ...splitNull(untracked), ...hidden.map((entry) => entry.path)
+      ...(visiblePaths ?? []), ...splitNull(changed), ...splitNull(untracked), ...hidden.map((entry) => entry.path)
     ])].sort((left, right) => left < right ? -1 : left > right ? 1 : 0);
     const manifest = paths.map((relative) => fileEntry(root, relative, {
       sparseAbsent: Boolean(stageZero.get(relative)?.skipWorktree)
@@ -165,17 +171,21 @@ export function worktreeFingerprint(root) {
       return current.object !== sha256(indexedBytes(root, entry.object));
     }).map((entry) => entry.path);
     const workingTree = sha256(canonicalJson(manifest));
-    const status = run('git', withoutConfiguredFilters(root, [
+    const statusDirty = dirty ?? Boolean(run('git', withoutConfiguredFilters(root, [
       'status', '--porcelain=v1', '-z', '--untracked-files=all', '--ignore-submodules=none'
-    ]), { cwd: root }).stdout;
+    ]), { cwd: root }).stdout);
     const trees = { algorithm: WORKTREE_FINGERPRINT_ALGORITHM, headTree, indexTree, workingTree };
     return Object.freeze({
       ...trees,
       sha256: sha256(canonicalJson(trees)),
-      dirty: Boolean(status) || hiddenChanges.length > 0,
+      dirty: statusDirty || hiddenChanges.length > 0,
       paths: Object.freeze(paths),
       hiddenChanges: Object.freeze(hiddenChanges),
       diagnosticCodes: Object.freeze(hiddenChanges.length ? ['WORKTREE_HIDDEN_CHANGE'] : [])
     });
-  });
+  };
+  // Revision boundaries must always observe new bytes. Other read-model consumers may reuse one
+  // fingerprint inside a scoped operation, but caching the coordinator's before/after values under
+  // one key would make a mid-read edit invisible.
+  return fresh ? compute() : scopedReadSync(`git.worktree-fingerprint:${root}`, compute);
 }

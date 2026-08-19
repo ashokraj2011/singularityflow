@@ -7,14 +7,20 @@
  * governance state is not a cosmetic problem: a tree saying "approved" beside a panel saying
  * "awaiting approval" is worse than either being briefly stale.
  *
- * So there is exactly one in-flight refresh, everyone waits on it, and everyone is told when it
- * lands. A refresh requested while one is running supersedes it — the older answer is already known
- * to be out of date, and finishing it would only overwrite the newer one.
+ * So there is exactly one in-flight refresh and everyone waits on it. A refresh requested while one
+ * is running is coalesced into one follow-up; paid work is not aborted and an older answer is never
+ * published over the newer request.
  */
-import type { SingularityFlowClient } from './cli/client.ts';
-import type { RepositorySnapshot } from './cli/snapshot.ts';
+import { CORE_SNAPSHOT_SLICES, type SingularityFlowClient } from './cli/client.ts';
+import type { RepositorySnapshot, SnapshotSlice } from './cli/snapshot.ts';
 
-export type StateListener = (state: WorkspaceState) => void;
+export interface WorkspaceStateChange {
+  kind: 'cache' | 'loading' | 'snapshot' | 'error';
+  /** True only when model data changed, never for a loading indicator. */
+  revisionChanged: boolean;
+}
+
+export type StateListener = (state: WorkspaceState, change: WorkspaceStateChange) => void;
 
 /**
  * A failure that describes a moment rather than a fault.
@@ -69,6 +75,11 @@ export class WorkspaceStore {
   private state: WorkspaceState = { snapshot: null, error: null, loading: false, stale: false };
   private inFlight: Promise<void> | null = null;
   private controller: AbortController | null = null;
+  private refreshGeneration = 0;
+  /** A newly requested slice must not be answered by a revision-only not-modified receipt. */
+  private forceFullSnapshot = false;
+  private readonly loadedSlices = new Set<SnapshotSlice>(CORE_SNAPSHOT_SLICES);
+  private disposed = false;
 
   constructor(client: SingularityFlowClient, cache: SnapshotCache | null = null) {
     this.client = client;
@@ -90,7 +101,10 @@ export class WorkspaceStore {
     if (this.state.snapshot || !this.cache) return false;
     const cached = this.cache.read();
     if (!cached) return false;
-    this.publish({ snapshot: cached, error: null, stale: true });
+    // Cached heavy data may paint immediately, but it must not make every future activation pay to
+    // reload every panel the person happened to open in an earlier session. The live activation
+    // refresh remains core-only; a heavy surface calls ensureSlices when it is opened again.
+    this.publish({ snapshot: cached, error: null, stale: true }, { kind: 'cache', revisionChanged: true });
     return true;
   }
 
@@ -101,12 +115,24 @@ export class WorkspaceStore {
     return { dispose: () => this.listeners.delete(listener) };
   }
 
-  private publish(next: Partial<WorkspaceState>): void {
+  private publish(next: Partial<WorkspaceState>, change: WorkspaceStateChange): void {
     this.state = { ...this.state, ...next };
     for (const listener of this.listeners) {
       // One misbehaving view must not stop the others from being told.
-      try { listener(this.state); } catch { /* ignored on purpose */ }
+      try { listener(this.state, change); } catch { /* ignored on purpose */ }
     }
+  }
+
+  /** Load a heavyweight domain once its surface is actually requested. */
+  async ensureSlices(slices: readonly SnapshotSlice[]): Promise<void> {
+    let added = false;
+    for (const slice of slices) {
+      if (this.loadedSlices.has(slice)) continue;
+      this.loadedSlices.add(slice);
+      added = true;
+    }
+    if (added) this.forceFullSnapshot = true;
+    if (added || !this.state.snapshot) await this.refresh();
   }
 
   /** Sleep, unless the refresh is superseded or the window goes away first. */
@@ -118,60 +144,106 @@ export class WorkspaceStore {
     });
   }
 
-  /** Refresh, superseding any refresh already running. Never rejects: the error becomes state. */
-  async refresh(): Promise<void> {
-    this.controller?.abort();
-    const controller = new AbortController();
-    this.controller = controller;
-    this.publish({ loading: true });
+  private revisionChanged(next: RepositorySnapshot): boolean {
+    const previous = this.state.snapshot?.revision?.subjectRevision ?? null;
+    const current = next.revision?.subjectRevision ?? null;
+    return previous === null || current === null || previous !== current;
+  }
 
-    const run = (async () => {
+  /**
+   * One refresh loop for every overlapping request.
+   *
+   * A request arriving mid-read increments the generation. The older result is discarded and the
+   * loop performs exactly one follow-up against the settled repository; it is never aborted after
+   * paying most of the snapshot cost, and callers awaiting either request wait for the latest one.
+   */
+  private async refreshLoop(controller: AbortController): Promise<void> {
+    this.publish({ loading: true }, { kind: 'loading', revisionChanged: false });
+    while (!controller.signal.aborted && !this.disposed) {
+      const generation = this.refreshGeneration;
       let failure: Error | null = null;
+      let snapshot: RepositorySnapshot | null = null;
+
       // One attempt, plus a retry per backoff step. Only a transient failure consumes them; anything
       // else breaks out immediately and goes to the recovery path below.
       for (let attempt = 0; attempt <= RETRY_DELAYS_MS.length; attempt += 1) {
         try {
-          const snapshot = await this.client.snapshot(controller.signal);
-          // A superseded refresh must not publish: its answer is older than the one now in flight.
-          if (this.controller !== controller) return;
-          this.publish({ snapshot, error: null, loading: false, stale: false });
-          // Only a full, confirmed snapshot is worth restoring next session. The recovery path
-          // below deliberately does not write: it is a configuration inventory produced *because*
-          // the lifecycle failed to load, and priming a later session with it would open the
-          // sidebar on a repair view of a repository that may be perfectly healthy.
-          try { this.cache?.write(snapshot); } catch { /* A cache that cannot be written is not a failure. */ }
-          return;
+          snapshot = await this.client.snapshot(
+            controller.signal,
+            [...this.loadedSlices],
+            this.forceFullSnapshot ? null : (this.state.snapshot?.revision?.subjectRevision ?? null)
+          );
+          break;
         } catch (error) {
-          if (this.controller !== controller) return;
+          if (controller.signal.aborted || this.disposed) return;
           failure = error instanceof Error ? error : new Error(String(error));
           const delay = RETRY_DELAYS_MS[attempt];
           if (delay === undefined || !TRANSIENT_FAILURE.test(failure.message)) break;
           await WorkspaceStore.wait(delay, controller.signal);
-          if (this.controller !== controller) return;
         }
+      }
+
+      // A refresh request arrived while this generation was reading. Its result describes the old
+      // request, so do not fan it out to every panel; take one follow-up snapshot instead.
+      if (generation !== this.refreshGeneration) continue;
+
+      if (snapshot) {
+        if (snapshot.notModified && this.state.snapshot) {
+          const confirmed = {
+            ...this.state.snapshot,
+            included: snapshot.included ?? this.state.snapshot.included,
+            revision: snapshot.revision ?? this.state.snapshot.revision,
+            notModified: false
+          };
+          this.publish({ snapshot: confirmed, error: null, loading: false, stale: false }, {
+            kind: 'snapshot', revisionChanged: false
+          });
+          try { this.cache?.write(confirmed); } catch { /* A cache that cannot be written is not a failure. */ }
+          return;
+        }
+        const changed = this.revisionChanged(snapshot);
+        this.forceFullSnapshot = false;
+        this.publish({ snapshot, error: null, loading: false, stale: false }, {
+          kind: 'snapshot', revisionChanged: changed
+        });
+        try { this.cache?.write(snapshot); } catch { /* A cache that cannot be written is not a failure. */ }
+        return;
       }
 
       // A broken lifecycle definition must block Lifecycle, but it must not hide the files needed
       // to repair it. Ask the engine for its validation-independent configuration inventory.
       try {
         const recovery = await this.client.configurationSnapshot(controller.signal);
-        if (this.controller !== controller) return;
-        this.publish({ snapshot: recovery, error: failure, loading: false, stale: false });
+        if (generation !== this.refreshGeneration) continue;
+        this.publish({ snapshot: recovery, error: failure, loading: false, stale: false }, {
+          kind: 'error', revisionChanged: true
+        });
       } catch {
-        if (this.controller !== controller) return;
-        // The failure is what matters now, but a primed snapshot stays on screen behind it rather
-        // than blanking the sidebar — it is still the last thing known to be true, and it is what
-        // the reader needs in order to act on the error.
-        this.publish({ error: failure, loading: false });
+        if (generation !== this.refreshGeneration) continue;
+        this.publish({ error: failure, loading: false }, { kind: 'error', revisionChanged: false });
       }
-    })();
+      return;
+    }
+  }
 
-    this.inFlight = run;
-    await run;
-    if (this.inFlight === run) this.inFlight = null;
+  /** Refresh, coalescing any refresh already running. Never rejects: the error becomes state. */
+  async refresh(): Promise<void> {
+    if (this.disposed) return;
+    this.refreshGeneration += 1;
+    if (!this.inFlight) {
+      const controller = new AbortController();
+      this.controller = controller;
+      const active = this.refreshLoop(controller);
+      this.inFlight = active.finally(() => {
+        if (this.controller === controller) this.controller = null;
+        this.inFlight = null;
+      });
+    }
+    await this.inFlight;
   }
 
   dispose(): void {
+    this.disposed = true;
     this.controller?.abort();
     this.listeners.clear();
   }

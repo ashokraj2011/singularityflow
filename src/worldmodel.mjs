@@ -353,7 +353,8 @@ function groundingPlan(config, options, requestedPhase = null) {
  */
 export async function inspectWorkflowGrounding(root, workflow, phaseId, {
   agent = null,
-  task = null
+  task = null,
+  refreshRemote = true
 } = {}) {
   const config = await load(root, { agent, workId: workflow?.workItem?.id ?? null });
   const options = {
@@ -361,7 +362,7 @@ export async function inspectWorkflowGrounding(root, workflow, phaseId, {
     evidence: workflow?.phases?.[phaseId]?.worldModel?.evidence === true
   };
   const plan = groundingPlan(config, options, phaseId);
-  const availability = await inspectGroundingAvailability(root, config, plan);
+  const availability = await inspectGroundingAvailability(root, config, plan, { refreshRemote });
   const reason = availability.ready
     ? availability.staleness?.warns ? availability.staleness.message : null
     : availability.action?.reason ?? 'No governed world model satisfies the pinned phase plan.';

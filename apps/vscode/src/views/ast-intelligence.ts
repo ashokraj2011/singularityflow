@@ -241,17 +241,27 @@ export class AstIntelligencePanel {
   private repositoryInventory: AstWorkspaceRepositoryInventory | null = null;
   private repositoryInventoryError: string | null = null; private repositoryInventoryLoaded = false;
   private refreshRevision = 0;
+  private refreshPending = false;
   private readonly subscription: { dispose(): void };
   private readonly panel: vscode.WebviewPanel;
   private readonly client: SingularityFlowClient;
   private readonly store: WorkspaceStore;
   private constructor(panel: vscode.WebviewPanel, client: SingularityFlowClient, store: WorkspaceStore) {
     this.panel = panel; this.client = client; this.store = store;
-    this.subscription = store.onDidChange(() => { this.preview = null; this.result = null; void this.refresh(); });
+    this.subscription = store.onDidChange((_state, change) => {
+      if (change.kind !== 'snapshot' || !change.revisionChanged) return;
+      if (this.panel.visible === false) { this.refreshPending = true; return; }
+      this.preview = null; this.result = null; void this.refresh();
+    });
     panel.webview.onDidReceiveMessage((raw) => {
       const navigation = navigationTarget(raw); if (navigation) return void navigateTo(navigation); this.router.route(raw);
     });
     panel.onDidDispose(() => { this.subscription.dispose(); AstIntelligencePanel.current = null; });
+    panel.onDidChangeViewState?.(({ webviewPanel }) => {
+      if (webviewPanel.visible === false || !this.refreshPending) return;
+      this.refreshPending = false;
+      this.preview = null; this.result = null; void this.refresh();
+    });
     this.render(); void this.refresh();
   }
   static show(context: vscode.ExtensionContext, client: SingularityFlowClient, store: WorkspaceStore): AstIntelligencePanel {
@@ -368,7 +378,10 @@ export class AstIntelligencePanel {
       const expected = createHash('sha256').update(source).digest('hex');
       await this.client.runText(['configuration', 'save', snapshot.definitionPath ?? 'singularity/workflow.yml', '--expected-sha256', expected], { input: updateAstPolicyYaml(source, draft) });
       this.notice = `Repository AST policy saved locally for ${this.repositoryScope()?.repository ?? 'the selected repository'}. Review and publish the configuration when ready.`; this.error = null;
-      await this.store.refresh(); await this.refresh();
+      // Saving is complete before the independent repository refresh begins. Keep that success
+      // visible even when a hidden panel deliberately defers its heavier diagnostics reload.
+      this.render();
+      await this.store.refresh();
     } catch (error) { this.error = (error as Error).message; this.render(); }
   }
   private async runScope(message: InboundMessage): Promise<void> {

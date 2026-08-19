@@ -21,6 +21,7 @@ import path from 'node:path';
 import { spawnSync } from 'node:child_process';
 
 import { CONSISTENCY_MODES, SnapshotCoordinator } from '../src/snapshot-coordinator.mjs';
+import { withReadScope } from '../src/read-scope.mjs';
 
 async function repository() {
   const root = await mkdtemp(path.join(os.tmpdir(), 'sflow-consistency-'));
@@ -62,6 +63,16 @@ test('a governed write still refuses a tree that moved underneath it', async () 
   );
   await assert.rejects(
     () => coordinator.capture(disturbingLoader(root, 1), { included: ['lifecycle'], consistency: 'exact' }),
+    /Repository state changed/
+  );
+});
+
+test('a read cache never hides changed bytes from the coordinator boundary', async () => {
+  const root = await repository();
+  await assert.rejects(
+    () => withReadScope(() => new SnapshotCoordinator(root).capture(
+      disturbingLoader(root, 1), { included: ['lifecycle'], consistency: 'exact' }
+    )),
     /Repository state changed/
   );
 });

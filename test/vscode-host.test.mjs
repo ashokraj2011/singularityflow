@@ -1121,6 +1121,19 @@ test('AST Intelligence edits every policy layer through one guarded VS Code surf
   assert.match(panel.webview.html, /name="languages"/);
   assert.match(panel.webview.html, /name="predicates"/);
   assert.match(panel.webview.html, /default-src 'none'/);
+  assert.match(panel.webview.html, /Current repository scope/);
+  assert.match(panel.webview.html, /Open repository/);
+  assert.match(panel.webview.html, new RegExp(path.basename(root)));
+  assert.match(panel.webview.html, /Switch workspace/);
+  const scoped = (message) => {
+    const repositoryScope = panel.webview.html.match(/data-repository-scope="([a-f0-9]{64})"/)?.[1];
+    assert.ok(repositoryScope, 'the rendered repository context has a stale-screen key');
+    return { ...message, repositoryScope };
+  };
+  await panel.post({ type: 'preview-cache', kind: 'clear', repositoryScope: 'stale-repository' });
+  await until(() => panel.webview.html.includes('active repository changed after this screen was rendered') ? true : null);
+  assert.doesNotMatch(panel.webview.html, /Complete cleanup preview/,
+    'an action rendered for another repository never reaches the CLI');
 
   await panel.post({ type: 'save-machine', mode: 'off' });
   await until(() => panel.webview.html.includes('Machine AST preference set to off') ? true : null);
@@ -1128,12 +1141,12 @@ test('AST Intelligence edits every policy layer through one guarded VS Code surf
   await panel.post({ type: 'save-machine', mode: 'auto' });
   await until(() => panel.webview.html.includes('Machine AST preference set to auto') ? true : null);
 
-  await panel.post({
+  await panel.post(scoped({
     type: 'save-policy', mode: 'auto', fallback: 'text-only', generatedRoots: 'generated/types',
     maxFiles: 41, maxBytes: 4096, maxFileBytes: 1024,
     languages: 'typescript | auto | text',
     predicates: 'entrypoint | advisory | path-exists | README.md | text'
-  });
+  }));
   await until(() => panel.webview.html.includes('Repository AST policy saved locally') ? true : null);
   const workflow = YAML.parse(await readFile(path.join(root, 'singularity', 'workflow.yml'), 'utf8'));
   assert.deepEqual(workflow.ast, {
@@ -1145,15 +1158,77 @@ test('AST Intelligence edits every policy layer through one guarded VS Code surf
   assert.equal(workflow.worldModel.grounding, 'off', 'guided AST saving preserves unrelated world-model policy');
   await settle();
 
-  await panel.post({ type: 'run-scope', operation: 'context', mode: 'auto', paths: ['README.md'], all: false, maxFiles: 10 });
+  await panel.post(scoped({ type: 'run-scope', operation: 'context', mode: 'auto', paths: ['README.md'], all: false, maxFiles: 10 }));
   await until(() => panel.webview.html.includes('AST context preview completed') && panel.webview.html.includes('Latest context result') ? true : null);
   assert.match(panel.webview.html, /Latest context result/);
   assert.doesNotMatch(panel.webview.html, /# Checkout/, 'source bodies never enter the settings webview');
 
-  await panel.post({ type: 'preview-cache', kind: 'clear' });
+  await panel.post(scoped({ type: 'preview-cache', kind: 'clear' }));
   await until(() => panel.webview.html.includes('CLEAR AST CACHE') ? true : null);
-  await panel.post({ type: 'execute-cache', kind: 'clear', confirmation: 'wrong' });
+  await panel.post(scoped({ type: 'execute-cache', kind: 'clear', confirmation: 'wrong' }));
   await until(() => panel.webview.html.includes('Type CLEAR AST CACHE exactly') ? true : null);
+});
+
+test('AST Intelligence selects one repository from a multi-repository workspace for every surface', async (t) => {
+  if (!requireBundle(t)) return;
+  const apiSource = await demoRepository();
+  const webSource = await demoRepository();
+  const base = await mkdtemp(path.join(os.tmpdir(), 'sflow-ast-multi-repo-'));
+  const registryFile = path.join(base, 'registry.json');
+  const selectionFile = path.join(base, 'active.json');
+  const env = {
+    ...process.env,
+    SINGULARITY_FLOW_WORKSPACE_REGISTRY: registryFile,
+    SINGULARITY_FLOW_ACTIVE_WORKSPACE: selectionFile
+  };
+  const cli = path.join(packageRoot, 'bin', 'singularity-flow.mjs');
+  const create = spawnSync(process.execPath, [cli,
+    'workspace', 'create', '--local', '--json', '--id', 'multi-repo',
+    '--base', path.join(base, 'workspaces'), '--lead', 'api',
+    '--repository', `api=${apiSource}`, '--repository', `web=${webSource}`,
+    '--default-branch', 'api=INIT-CHECKOUT', '--default-branch', 'web=INIT-CHECKOUT',
+    '--confirm', 'multi-repo'], { encoding: 'utf8', env });
+  assert.equal(create.status, 0, create.stderr);
+  const use = spawnSync(process.execPath, [cli, 'workspace', 'use', 'multi-repo', '--json'],
+    { encoding: 'utf8', env });
+  assert.equal(use.status, 0, use.stderr);
+
+  const previousRegistry = process.env.SINGULARITY_FLOW_WORKSPACE_REGISTRY;
+  const previousSelection = process.env.SINGULARITY_FLOW_ACTIVE_WORKSPACE;
+  process.env.SINGULARITY_FLOW_WORKSPACE_REGISTRY = registryFile;
+  process.env.SINGULARITY_FLOW_ACTIVE_WORKSPACE = selectionFile;
+  t.after(() => {
+    if (previousRegistry == null) delete process.env.SINGULARITY_FLOW_WORKSPACE_REGISTRY;
+    else process.env.SINGULARITY_FLOW_WORKSPACE_REGISTRY = previousRegistry;
+    if (previousSelection == null) delete process.env.SINGULARITY_FLOW_ACTIVE_WORKSPACE;
+    else process.env.SINGULARITY_FLOW_ACTIVE_WORKSPACE = previousSelection;
+  });
+
+  const { api, registered } = stubVscode();
+  api.workspace.workspaceFolders = undefined;
+  const extension = loadExtension(api);
+  await extension.activate(context());
+  await registered.commands.get('singularityFlow.configureAstIntelligence')();
+  const panel = registered.panels.find((entry) => entry.id === 'singularityFlow.astIntelligence');
+  assert.ok(panel);
+  await until(() => panel.webview.html.includes('id="ast-repository-form"') ? true : null);
+  assert.match(panel.webview.html, /<option value="api" selected>api — lead<\/option>/);
+  assert.match(panel.webview.html, /<option value="web">web — participant<\/option>/);
+  const repositoryScope = panel.webview.html.match(/data-repository-scope="([a-f0-9]{64})"/)?.[1];
+  assert.ok(repositoryScope);
+  await panel.post({ type: 'select-repository', repository: 'web', repositoryScope });
+  await until(() => panel.title === 'AST Intelligence — web' ? true : null);
+  assert.match(panel.webview.html, /<strong>web<\/strong><span>repository<\/span>/,
+    'the settings panel follows the newly selected repository');
+  const current = spawnSync(process.execPath, [cli, 'workspace', 'current', '--json'],
+    { encoding: 'utf8', env });
+  assert.equal(current.status, 0, current.stderr);
+  assert.equal(JSON.parse(current.stdout).repositoryId, 'web',
+    'the same durable repository selection is visible to the terminal');
+  await until(() => registered.output.some((line) =>
+    /selected repository of your active workspace/.test(line) && /repos\/web/.test(line)) ? true : null);
+  assert.ok(registered.output.some((line) => /selected repository of your active workspace/.test(line)
+    && /repos\/web/.test(line)), 'other VS Code surfaces were repointed through the shared context');
 });
 
 test('the journey panel opens with a strict CSP and no remote origins', async (t) => {

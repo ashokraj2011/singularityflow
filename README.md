@@ -1515,6 +1515,9 @@ or **Singularity Flow: AST Intelligence Settings** from the Command Palette. The
 repository and machine policy, lifecycle-gate receipts, bounded previews, adapter availability,
 cache hit/miss evidence, and guarded cache cleanup;
 environment policy is displayed read-only and configuration changes remain local until published.
+Its scope banner names the active workspace repository. Multi-repository workspaces can select a
+different ready repository there; the durable selection is shared with My Work, Lifecycle,
+Configuration, Copilot, and `workspace current` rather than being private to the panel.
 
 For new workspaces, **Map a capability** can select a `blobless` or
 `blobless-sparse` clone. Sparse mode always retains `singularity/` and

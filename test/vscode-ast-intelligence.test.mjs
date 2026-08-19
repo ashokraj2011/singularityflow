@@ -8,7 +8,8 @@ import YAML from 'yaml';
 const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 const source = (name) => path.join(root, 'apps', 'vscode', 'src', 'views', name);
 const {
-  astPolicyView, parseAstLanguageRows, parseAstPredicateRows, updateAstPolicyYaml, validateAstPolicyDraft
+  astPolicyView, astRepositoryScopeView, astWorkspaceRepositoryInventory,
+  parseAstLanguageRows, parseAstPredicateRows, updateAstPolicyYaml, validateAstPolicyDraft
 } = await import(source('ast-intelligence-model.ts'));
 
 const policy = {
@@ -35,6 +36,42 @@ test('the AST settings view projects every repository policy field with bounded 
     budgets: { maxFiles: 500, maxBytes: 20 * 1024 * 1024, maxFileBytes: 2 * 1024 * 1024 },
     languages: [], predicates: []
   });
+});
+
+test('the AST settings view names and binds the shared active repository context', () => {
+  const first = astRepositoryScopeView({
+    root: '/work/ccre/repos/payment-adapter', workspaceId: 'ccre', workspaceName: 'CCRE',
+    repositoryId: 'payment-adapter', origin: 'the selected repository of your active workspace, CCRE'
+  });
+  assert.equal(first.workspace, 'CCRE');
+  assert.equal(first.repository, 'payment-adapter');
+  assert.equal(first.root, path.resolve('/work/ccre/repos/payment-adapter'));
+  assert.match(first.origin, /active workspace/);
+  assert.match(first.key, /^[a-f0-9]{64}$/);
+  assert.notEqual(first.key, astRepositoryScopeView({
+    root: '/work/ccre/repos/rules', workspaceId: 'ccre', workspaceName: 'CCRE',
+    repositoryId: 'rules', origin: 'the selected repository of your active workspace, CCRE'
+  }).key, 'a different repository invalidates a form rendered for the previous one');
+});
+
+test('the AST settings view offers every repository in the active workspace', () => {
+  assert.deepEqual(astWorkspaceRepositoryInventory({
+    active: true, workspaceId: 'ccre', workspaceName: 'CCRE', workspacePath: '/work/ccre',
+    repositoryId: 'rules'
+  }, { repositories: [
+    { id: 'web', state: 'missing' },
+    { id: 'rules', role: 'member', state: 'ready' },
+    { id: 'api', role: 'lead', state: 'ready' }
+  ] }), {
+    workspaceId: 'ccre', workspaceName: 'CCRE', workspacePath: '/work/ccre',
+    selectedRepositoryId: 'rules',
+    repositories: [
+      { id: 'api', role: 'lead', state: 'ready' },
+      { id: 'rules', role: 'member', state: 'ready' },
+      { id: 'web', role: null, state: 'missing' }
+    ]
+  });
+  assert.equal(astWorkspaceRepositoryInventory({ active: false }, { repositories: [] }), null);
 });
 
 test('guided AST edits preserve unrelated workflow configuration', () => {
@@ -94,11 +131,22 @@ test('the VS Code AST page exposes every policy source and keeps evidence and re
   assert.match(panel, /structured arguments, bounded JSON input\/output, no shell/);
   assert.match(panel, /handles are deliberately not embedded in webview HTML/);
   assert.doesNotMatch(panel, /escape\(result\.resumeHandle/);
+  assert.match(panel, /Current repository scope/);
+  assert.match(panel, /Switch workspace/);
+  assert.match(panel, /Off — disable for \$\{repository\}/);
+  assert.match(panel, /data-repository-scope/);
+  assert.match(panel, /active repository changed after this screen was rendered/i);
+  assert.match(panel, /executeCommand\('singularityFlow\.openWorkspaces'\)/);
+  assert.match(panel, /id="ast-repository-form"/);
+  assert.match(panel, /type: 'select-repository'/);
+  assert.match(panel, /switchWorkspaceRepository/);
+  assert.match(panel, /shared active repository for My Work, Lifecycle, Configuration, Copilot, and the terminal/);
 });
 
 test('AST Intelligence is contributed, navigable, favorite-capable, and exact-confirmation bound', async () => {
   const manifest = JSON.parse(await readFile(path.join(root, 'apps', 'vscode', 'package.json'), 'utf8'));
   assert.ok(manifest.contributes.commands.some((entry) => entry.command === 'singularityFlow.configureAstIntelligence'));
+  assert.ok(manifest.contributes.commands.some((entry) => entry.command === 'singularityFlow.switchWorkspaceRepository'));
   const sidebar = await readFile(source('sidebar.ts'), 'utf8');
   const center = await readFile(source('configuration-center-page.ts'), 'utf8');
   const extension = await readFile(path.join(root, 'apps', 'vscode', 'src', 'extension.ts'), 'utf8');
@@ -106,6 +154,8 @@ test('AST Intelligence is contributed, navigable, favorite-capable, and exact-co
   assert.match(sidebar, /ast-intelligence.*configureAstIntelligence/s);
   assert.match(center, /AST intelligence.*ast-intelligence/s);
   assert.match(extension, /'singularityFlow\.configureAstIntelligence': async/);
+  assert.match(extension, /'singularityFlow\.switchWorkspaceRepository'/);
+  assert.match(extension, /'workspace', 'use', target,[\s\S]*'--repository', repositoryId/);
   assert.match(panel, /CLEAR AST CACHE/);
   assert.match(panel, /PRUNE AST CACHE/);
   assert.match(panel, /configuration', 'save'.*--expected-sha256/s);

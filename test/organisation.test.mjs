@@ -1016,7 +1016,7 @@ test('choosing a workspace is what scopes the rest', async () => {
   const commands = manifest.contributes.commands.map((entry) => entry.command);
   assert.ok(commands.includes('singularityFlow.switchWorkspace'));
   const extension = await readFile(new URL('../apps/vscode/src/extension.ts', import.meta.url), 'utf8');
-  assert.match(extension, /\['workspace', 'use', target, '--json'\]/);
+  assert.match(extension, /\['workspace', 'use', target,[\s\S]*'--json'\]/);
 
   // Choosing never opens a folder or creates another window. If activation started with no active
   // workspace, the same window reloads once so Lifecycle and Configuration can bind to the selected
@@ -1029,7 +1029,7 @@ test('choosing a workspace is what scopes the rest', async () => {
     'the first selection reloads the same window only when repository services were never created');
 
   // Resolution consults the active workspace before the open folder, not after it.
-  const active = extension.indexOf('const active = await activeWorkspaceLead(context, output);');
+  const active = extension.indexOf('const active = await activeWorkspaceRepository(context, output);');
   const folder = extension.indexOf('const folder = vscode.workspace.workspaceFolders?.[0];',
     extension.indexOf('async function resolveGovernedRepository'));
   assert.ok(active > 0 && folder > active, 'the active workspace is consulted first');
@@ -1058,7 +1058,7 @@ test('choosing a workspace is what scopes the rest', async () => {
   const shape = JSON.parse(execFileSync(process.execPath, [cli, 'workspace', 'current', '--json'],
     { encoding: 'utf8', env }));
   assert.equal(shape.workspace, undefined, 'the payload is flat, not nested under `workspace`');
-  const resolver = extension.slice(extension.indexOf('async function activeWorkspaceLead'));
+  const resolver = extension.slice(extension.indexOf('async function activeWorkspaceRepository'));
   const code = resolver.slice(0, resolver.indexOf('\n}'))
     // Comments name the field that used to be read, which is the whole point of the comment.
     .split('\n').filter((line) => !line.trim().startsWith('//')).join('\n');

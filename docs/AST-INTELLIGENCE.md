@@ -44,6 +44,12 @@ The panel exposes all four policy layers without hiding their precedence:
 - the effective `SINGULARITY_FLOW_AST` environment override as read-only state; and
 - a bounded operation override for context preview or cache build.
 
+The scope banner names the active workspace, selected repository, local repository root, and how
+that context was resolved. When a workspace contains several repositories, choose one in that
+banner. The selection uses the same durable `workspace use --repository` record as the CLI,
+Copilot, My Work, Lifecycle, and Configuration; it is not a panel-local override. Repositories that
+are missing or need workspace repair cannot be selected.
+
 Repository changes are validated and saved locally through the configuration engine. They are not
 published automatically. Cache pruning and clearing require a preview followed by the exact
 confirmation phrase. Context previews show coverage, degradation, and diagnostics only; source

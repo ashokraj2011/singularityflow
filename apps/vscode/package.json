@@ -536,6 +536,11 @@
         "icon": "$(check)"
       },
       {
+        "command": "singularityFlow.switchWorkspaceRepository",
+        "title": "Singularity Flow: Switch Repository in Active Workspace",
+        "icon": "$(repo)"
+      },
+      {
         "command": "singularityFlow.openWorkspace",
         "title": "Singularity Flow: Open This Workspace's Lead Repository",
         "icon": "$(folder-opened)"

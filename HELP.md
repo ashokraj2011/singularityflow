@@ -1014,8 +1014,10 @@ In VS Code:
 7. Type the exact workspace ID to create the isolated workspace.
 
 Each selected repository is cloned separately below `repos/`. Fetch operations
-skip dirty clones and never change a branch. Switching workspace updates the
-lead repository used by the displayed Copilot CLI handoff commands.
+skip dirty clones and never change a branch. Switching workspace initially selects its lead
+repository. Use `workspace use <WORKSPACE> --repository <ID>` or the AST Intelligence repository
+selector to choose another ready member; the resulting context is shared by CLI, Copilot, and VS
+Code surfaces.
 
 If setup is interrupted, repeat creation with the same workspace ID and unchanged
 repository plan or select **Repair**. Missing clones resume and every attempt is
@@ -1860,7 +1862,9 @@ The guided surface covers repository and machine policy, lifecycle enforcement, 
 context/build previews, adapter availability and execution status, cache hits/misses, and cache
 maintenance. Environment overrides remain visible but read-only. Saving a
 repository policy is local until it is reviewed and published through the normal configuration
-flow.
+flow. The scope banner names the active workspace repository. In a multi-repository workspace,
+selecting another ready repository updates the same durable repository context used by My Work,
+Lifecycle, Configuration, Copilot, and `workspace current`.
 
 ```bash
 singularity-flow wm ast doctor

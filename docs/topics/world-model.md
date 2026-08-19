@@ -11,7 +11,7 @@ related:
   - agents-and-routing
   - model-independence
   - knowledge-and-remote-assets
-version: 4
+version: 5
 ---
 The world model provides repository-grounded views used during governed generation. In a monorepo, scope it to the capability's source and shared directories so unrelated products do not increase scan cost or invalidate evidence.
 
@@ -23,7 +23,7 @@ Use this topic when the current goal matches **world model**. Start in a governe
 
 - **Shell:** `sflow wm`. Run `singularity-flow wm --help` for the exact forms supported by this build.
 - **Copilot:** `/sf-worldmodel` for world-model and bounded AST status, context, query, and build guidance. Model-free gateway hosts may resolve bounded AST status/context/query reads; cache builds remain explicit CLI operations.
-- **VS Code:** open Singularity Flow **Configuration Center → World model** for grounding scope, or **Configuration → AST intelligence** for structural policy, lifecycle predicates, adapter availability, coverage, and guarded cache maintenance. Both save the same YAML used by the CLI.
+- **VS Code:** open Singularity Flow **Configuration Center → World model** for grounding scope, or **Configuration → AST intelligence** for structural policy, lifecycle predicates, adapter availability, coverage, and guarded cache maintenance. The AST scope banner identifies the active workspace repository and, for multi-repository workspaces, switches the shared repository used by VS Code, Copilot, and the CLI. Both settings surfaces save the same YAML used by the CLI.
 
 ## Guided workflow
 

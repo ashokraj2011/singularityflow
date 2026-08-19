@@ -1329,7 +1329,9 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
   };
   const workspaceSelected: Array<(selected: SelectedWorkspace) => void | Promise<void>> = [];
 
-  async function selectWorkspace(target: string, leadPath: string, name: string): Promise<void> {
+  async function selectWorkspace(
+    target: string, leadPath: string, name: string, repositoryId?: string
+  ): Promise<boolean> {
     try {
       const chooser = new SingularityFlowClient({
         location: resolveCli({ extensionPath: context.extensionPath }),
@@ -1337,12 +1339,12 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
         onOutput: (text) => output.append(text)
       });
       const selected = await vscode.window.withProgress(
-        { location: vscode.ProgressLocation.Notification, title: `Working in ${name}` },
+        { location: vscode.ProgressLocation.Notification, title: `Working in ${name}${repositoryId ? ` · ${repositoryId}` : ''}` },
         // Recorded machine-wide by the CLI, so the terminal and the editor agree about where you are.
         () => chooser.run<{
           workspaceId?: string; workspaceName?: string; repositoryId?: string;
           repositoryPath?: string; repositoryState?: string;
-        }>(['workspace', 'use', target, '--json'])
+        }>(['workspace', 'use', target, ...(repositoryId ? ['--repository', repositoryId] : []), '--json'])
       );
       const selection: SelectedWorkspace = {
         workspaceId: selected.workspaceId ?? target,
@@ -1365,11 +1367,13 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
         void vscode.window.showInformationMessage(
           `${name} selected. Loading its Lifecycle and Configuration in this window.`);
         await vscode.commands.executeCommand('workbench.action.reloadWindow');
-        return;
+        return true;
       }
       for (const follow of workspaceSelected) await follow(selection);
+      return true;
     } catch (error) {
       showRefusal(error, { headline: 'Could not switch workspace' });
+      return false;
     }
   }
 
@@ -1414,6 +1418,71 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
       }
       await selectWorkspace(chosen.path, chosen.lead, chosen.name);
     }));
+
+  /**
+   * Choose one repository inside the active workspace and publish that choice to every surface.
+   *
+   * The CLI already persists this dimension in the active-workspace record. Exposing it here avoids
+   * a panel-local override that would make AST settings act on one checkout while My Work, Copilot,
+   * and the terminal continued to act on another.
+   */
+  context.subscriptions.push(vscode.commands.registerCommand(
+    'singularityFlow.switchWorkspaceRepository', async (requested?: string): Promise<boolean> => {
+      try {
+        const chooser = new SingularityFlowClient({
+          location: resolveCli({ extensionPath: context.extensionPath }),
+          repository: process.cwd(), onOutput: (text) => output.append(text)
+        });
+        const current = await chooser.run<{
+          active?: boolean; workspaceId?: string; workspaceName?: string; workspacePath?: string;
+          repositoryId?: string; repositoryPath?: string;
+        }>(['workspace', 'current', '--json']);
+        if (current.active !== true || !current.workspaceId || !current.workspacePath) {
+          void vscode.window.showWarningMessage('Choose a workspace before selecting one of its repositories.');
+          return false;
+        }
+        const status = await chooser.run<WorkspaceStatus>(
+          ['workspace', 'status', current.workspacePath, '--json']);
+        const ready = status.repositories.filter((repository) =>
+          Boolean(repository.id) && (!repository.state || repository.state === 'ready'));
+        if (!ready.length) {
+          void vscode.window.showWarningMessage(
+            `${current.workspaceName ?? current.workspaceId} has no ready repositories. Repair the workspace first.`);
+          return false;
+        }
+        let repositoryId = typeof requested === 'string' ? requested.trim() : '';
+        if (!repositoryId) {
+          const picked = await vscode.window.showQuickPick(ready.map((repository) => ({
+            label: repository.id,
+            description: repository.id === current.repositoryId ? 'active repository' : (repository.role ?? ''),
+            detail: repository.absolutePath ?? repository.path,
+            repository
+          })), {
+            title: `Repository in ${current.workspaceName ?? current.workspaceId}`,
+            placeHolder: 'Choose the repository every Singularity Flow surface should use'
+          });
+          if (!picked) return false;
+          repositoryId = picked.repository.id;
+        }
+        const repository = ready.find((entry) => entry.id === repositoryId);
+        if (!repository) {
+          void vscode.window.showWarningMessage(
+            `Repository '${repositoryId}' is not a ready member of ${current.workspaceName ?? current.workspaceId}.`);
+          return false;
+        }
+        if (repositoryId === current.repositoryId) return true;
+        return selectWorkspace(
+          current.workspacePath,
+          repository.absolutePath ?? repository.path ?? current.repositoryPath ?? current.workspacePath,
+          current.workspaceName ?? current.workspaceId,
+          repositoryId
+        );
+      } catch (error) {
+        showRefusal(error, { headline: 'Could not switch workspace repository' });
+        return false;
+      }
+    }
+  ));
 
   /**
    * Open a workspace's lead repository as this window's folder.
@@ -2136,7 +2205,7 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
       workspaceId: selected.workspaceId,
       workspaceName: selected.workspaceName,
       repositoryId: selected.repositoryId,
-      origin: `the lead repository of your active workspace, ${selected.workspaceName}`
+      origin: `the selected repository of your active workspace, ${selected.workspaceName}`
     });
     readiness = {};
     await store.refresh();
@@ -2148,7 +2217,7 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
     GoalsPanel.repositoryChanged(); FaultRepairsPanel.repositoryChanged(); JournalPanel.repositoryChanged(); DiagnosticsPanel.refreshCurrent(); AstIntelligencePanel.repositoryChanged();
     void refreshReadiness();
     void refreshWorkspaceLogsTree();
-    output.appendLine(`Governed repository: ${repository} (the lead repository of your active workspace, ${selected.workspaceName})`);
+    output.appendLine(`Governed repository: ${repository} (the selected repository of your active workspace, ${selected.workspaceName})`);
   });
 
   /**
@@ -3453,7 +3522,8 @@ type Resolved =
  * the place people actually start, and answered with "open the repository that contains
  * singularity/workflow.yml", which is a demand rather than an explanation.
  *
- * So three sources, in authority order: the explicitly selected active workspace's lead; otherwise
+ * So three sources, in authority order: the explicitly selected active workspace repository;
+ * otherwise
  * the open folder when it is governed; otherwise the lead named by an opened workspace directory.
  * The first is what makes the product usable from a window with something else entirely open.
  */
@@ -3465,7 +3535,7 @@ async function resolveGovernedRepository(
   // being worked on and where — and everything else in the product is scoped by it, so it cannot be
   // a fallback for whatever folder happens to be open. The open folder answers only when no
   // workspace has been chosen.
-  const active = await activeWorkspaceLead(context, output);
+  const active = await activeWorkspaceRepository(context, output);
   if (active) return active;
 
   const folder = vscode.workspace.workspaceFolders?.[0];
@@ -3506,13 +3576,13 @@ async function resolveGovernedRepository(
 }
 
 /**
- * The lead repository of the active workspace, when there is one.
+ * The selected repository of the active workspace, when there is one.
  *
  * No selection returns null so an open folder can be considered. A selected workspace that cannot
  * be read returns its own repair state instead: silently falling back to an unrelated editor folder
  * would make different surfaces act on different repositories again.
  */
-async function activeWorkspaceLead(
+async function activeWorkspaceRepository(
   context: vscode.ExtensionContext,
   output: vscode.OutputChannel
 ): Promise<Resolved | null> {
@@ -3549,8 +3619,8 @@ async function activeWorkspaceLead(
       reason: 'Select the workspace again so its working directory and lead repository can be resolved.'
     };
   }
-  // The recorded lead if there is one, and the workspace's own lead as the fallback for a registry
-  // entry written before the field existed.
+  // The recorded repository if there is one, and the workspace's lead as the fallback for a
+  // selection record written before repository-level selection existed.
   const lead = current.repositoryPath ?? await workspaceLeadDirectory(directory);
   if (!lead) {
     return {
@@ -3575,7 +3645,7 @@ async function activeWorkspaceLead(
       workspaceId: current.workspaceId ?? null,
       workspaceName: current.workspaceName ?? current.workspaceId ?? directory,
       repositoryId: current.repositoryId ?? null,
-      origin: `the lead repository of your active workspace, ${current.workspaceName ?? directory}`
+      origin: `the selected repository of your active workspace, ${current.workspaceName ?? directory}`
     };
   } catch (error) {
     output.appendLine(`Active workspace lead is unavailable: ${(error as Error).message}`);

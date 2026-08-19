@@ -1,4 +1,6 @@
 /** Pure AST-intelligence settings projection and governed YAML editing. */
+import { createHash } from 'node:crypto';
+import path from 'node:path';
 import YAML from 'yaml';
 import type { RepositorySnapshot } from '../cli/snapshot.ts';
 
@@ -27,6 +29,82 @@ export interface AstPolicyDraft {
   budgets: { maxFiles: number; maxBytes: number; maxFileBytes: number };
   languages: AstLanguageDraft[];
   predicates: AstPredicateDraft[];
+}
+
+/** The shared editor context this repository-scoped screen is acting on. */
+export interface AstRepositoryScope {
+  root: string;
+  workspaceId: string | null;
+  workspaceName: string | null;
+  repositoryId: string | null;
+  origin: string;
+}
+
+export interface AstRepositoryScopeView {
+  workspace: string;
+  repository: string;
+  root: string;
+  origin: string;
+  key: string;
+}
+
+export interface AstWorkspaceRepositoryChoice {
+  id: string;
+  role: string | null;
+  state: string | null;
+}
+
+export interface AstWorkspaceRepositoryInventory {
+  workspaceId: string;
+  workspaceName: string;
+  workspacePath: string;
+  selectedRepositoryId: string | null;
+  repositories: AstWorkspaceRepositoryChoice[];
+}
+
+/** Project the CLI's workspace inventory into the closed repository choices the page may post. */
+export function astWorkspaceRepositoryInventory(
+  current: {
+    active?: boolean; workspaceId?: string; workspaceName?: string; workspacePath?: string;
+    repositoryId?: string;
+  },
+  status: { repositories?: Array<{ id?: string; role?: string; state?: string }> }
+): AstWorkspaceRepositoryInventory | null {
+  if (current.active !== true || !current.workspaceId || !current.workspacePath) return null;
+  const repositories = (status.repositories ?? [])
+    .filter((repository): repository is { id: string; role?: string; state?: string } =>
+      typeof repository.id === 'string' && Boolean(repository.id.trim()))
+    .map((repository) => ({
+      id: repository.id,
+      role: repository.role?.trim() || null,
+      state: repository.state?.trim() || null
+    }))
+    .sort((left, right) => left.id.localeCompare(right.id));
+  return {
+    workspaceId: current.workspaceId,
+    workspaceName: current.workspaceName?.trim() || current.workspaceId,
+    workspacePath: current.workspacePath,
+    selectedRepositoryId: current.repositoryId?.trim() || null,
+    repositories
+  };
+}
+
+/**
+ * Give the webview a human-readable identity and a non-authoritative stale-screen key.
+ *
+ * The key is deliberately not a handle or permission. It merely prevents a form rendered for one
+ * repository from being submitted after the extension has atomically switched its shared context
+ * to another repository. The CLI remains the authority for every operation.
+ */
+export function astRepositoryScopeView(scope: AstRepositoryScope): AstRepositoryScopeView {
+  const repository = scope.repositoryId?.trim() || path.basename(scope.root) || scope.root;
+  const workspace = scope.workspaceName?.trim() || scope.workspaceId?.trim() || 'Open repository';
+  const key = createHash('sha256').update(JSON.stringify({
+    root: path.resolve(scope.root),
+    workspaceId: scope.workspaceId,
+    repositoryId: scope.repositoryId
+  })).digest('hex');
+  return { workspace, repository, root: path.resolve(scope.root), origin: scope.origin, key };
 }
 
 const MODES = new Set<AstMode>(['auto', 'off']);

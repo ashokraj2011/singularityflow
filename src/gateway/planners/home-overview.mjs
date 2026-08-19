@@ -36,6 +36,7 @@ import { normalizeHomeLens } from '../home-projection-v2.mjs';
  */
 export const HOME_CHOICES = Object.freeze([
   { id: 'work.continue', label: 'Continue current work' },
+  { id: 'goal.next', label: 'Continue governed Goal' },
   { id: 'work.list', label: 'See current work' },
   /**
    * Third in the stable order, and second when promoted.
@@ -67,6 +68,7 @@ const FALLBACKS = Object.freeze({
   'work.continue': { command: 'singularity-flow resume <WORK-ID>', skill: '/sf-resume <WORK-ID>' },
   'work.return': { command: 'singularity-flow story return <WORK-ID>', skill: '/sf-work-interval reconcile' },
   'work.list': { command: 'singularity-flow session candidates', skill: '/sf-session' },
+  'goal.next': { command: 'singularity-flow goal next <GOAL-ID>', skill: '/sf-goal inspect <GOAL-ID>' },
   'work.start.intake': { command: 'singularity-flow start <WORK-ID>', skill: '/sf-start <WORK-ID>' },
   'workspace.switch': { command: 'singularity-flow workspace list', skill: '/sf-workspace' },
   'workspace.bootstrap.status': { command: 'singularity-flow workspace bootstrap status <BOOTSTRAP-ID>', skill: '/sf-workspace-bootstrap <BOOTSTRAP-ID>' },
@@ -96,11 +98,12 @@ function fallbackFor(id, label, slots) {
   }
   const fallback = FALLBACKS[id];
   const workId = slots.work ?? '<WORK-ID>';
+  const goalId = slots.goal ?? '<GOAL-ID>';
   const bootstrapId = slots.bootstrap ?? '<BOOTSTRAP-ID>';
   return {
     label,
-    command: fallback.command.replace('<WORK-ID>', workId).replace('<BOOTSTRAP-ID>', bootstrapId),
-    skill: fallback.skill.replace('<WORK-ID>', workId).replace('<BOOTSTRAP-ID>', bootstrapId)
+    command: fallback.command.replace('<WORK-ID>', workId).replace('<GOAL-ID>', goalId).replace('<BOOTSTRAP-ID>', bootstrapId),
+    skill: fallback.skill.replace('<WORK-ID>', workId).replace('<GOAL-ID>', goalId).replace('<BOOTSTRAP-ID>', bootstrapId)
   };
 }
 
@@ -111,6 +114,7 @@ function homeNavigation(entry, { workId = null, workKind = null, bootstrapId = n
       : { operationId: 'work.list', arguments: {} };
   }
   if (entry.id === 'workspace.switch') return { operationId: 'workspace.list', arguments: {} };
+  if (entry.id === 'goal.next') return { operationId: 'goal.next', arguments: { goalId: workId } };
   if (entry.id === 'workspace.bootstrap.status') {
     return { operationId: entry.id, arguments: { bootstrapId } };
   }
@@ -257,6 +261,9 @@ function homeRank(entry, { active, recovery, needsReconciliation }) {
   }
   // Rule 4: local work that has not been compared against the plan.
   if (entry.id === 'work.return') return needsReconciliation ? 1 : 4;
+  // A governed Goal is the outcome-level rail above its linked Story. Publication recovery still
+  // wins because continuing anything else first can strand a retained commit.
+  if (entry.id === 'goal.next') return recovery ? 2 : -1;
   return 2;
 }
 
@@ -276,6 +283,7 @@ export function homeOverviewResult({
   today = null,
   yesterday = null,
   journalAvailable = true,
+  governedGoal = null,
   /**
    * How many *other* workspaces the registry knows about, or null when it could not be read.
    *
@@ -376,6 +384,7 @@ export function homeOverviewResult({
    * shortcut: it becomes the primary action by declaration order and contradicts the headline.
    */
   if (!leading) ordered.splice(ordered.findIndex((entry) => entry.id === 'work.continue'), 1);
+  if (!governedGoal) ordered.splice(ordered.findIndex((entry) => entry.id === 'goal.next'), 1);
   if (!homeState.activeCount) {
     const listIndex = ordered.findIndex((entry) => entry.id === 'work.list');
     if (listIndex >= 0) ordered.splice(listIndex, 1);
@@ -383,7 +392,7 @@ export function homeOverviewResult({
     if (startIndex > 0) ordered.unshift(...ordered.splice(startIndex, 1));
   }
 
-  if (leading || needsReconciliation) {
+  if (leading || needsReconciliation || governedGoal) {
     const context = { active, recovery, needsReconciliation };
     ordered.sort((left, right) => homeRank(left, context) - homeRank(right, context)
       || HOME_CHOICES.indexOf(left) - HOME_CHOICES.indexOf(right));
@@ -394,7 +403,12 @@ export function homeOverviewResult({
         reference: recovery.id,
         slots: { work: recovery.id, phase: recovery.phase ?? 'none' }
       }
-      : {
+      : governedGoal ? {
+        code: 'home.governed-goal-active',
+        source: 'lifecycle',
+        reference: governedGoal.id,
+        slots: { goal: governedGoal.id, status: governedGoal.status }
+      } : {
         code: 'home.active-work-leads',
         source: 'lifecycle',
         reference: active.id,
@@ -406,6 +420,12 @@ export function homeOverviewResult({
         source: 'evidence',
         reference: localChanges.worktreeHash ?? null,
         slots: { files: String(localChanges.files ?? 0) }
+      });
+    }
+    if (governedGoal && recovery) {
+      why.push({
+        code: 'home.governed-goal-active', source: 'lifecycle', reference: governedGoal.id,
+        slots: { goal: governedGoal.id, status: governedGoal.status }
       });
     }
   }
@@ -449,7 +469,7 @@ export function homeOverviewResult({
    * itself — six choices and no statement reads as "we found nothing", which is what a broken read
    * also looks like. Saying it explicitly is the difference between rest and failure.
    */
-  const nothingWaiting = !leading && !decisions
+  const nothingWaiting = !leading && !governedGoal && !decisions
     && WORK_GROUP_ORDER.every((group) => !(groups[group] ?? []).length);
   if (nothingWaiting) {
     why.push({ code: 'home.nothing-waiting', source: 'lifecycle', slots: { workspace: workspace.name ?? workspace.id } });
@@ -550,6 +570,11 @@ export function homeOverviewResult({
             } : {})
           }, {}, emphasis);
         }
+        if (entry.id === 'goal.next' && governedGoal) {
+          return choice(entry, rank, 'home.governed-goal-active', {
+            goal: governedGoal.id, status: governedGoal.status
+          }, { workId: governedGoal.id, workKind: 'goal' }, emphasis);
+        }
         return choice(entry, rank, 'home.stable-choice', {}, {
           workId: active?.id ?? null, workKind: active?.kind ?? null
         }, emphasis);
@@ -586,6 +611,7 @@ export function homeOverviewResult({
       currentWork: projectWork(currentWork),
       /** Compatibility field: only work in the mechanical `active` group belongs here. */
       activeWork: projectWork(active),
+      governedGoal,
       /** The first decision this actor is authorized to make, even when another Story is selected. */
       attentionWork: projectWork(attentionWork),
       /**
@@ -695,6 +721,22 @@ export async function homeOverview({ subject = null, root = null, context = {} }
       journalAvailable = false;
     }
   }
+  let governedGoal = context.governedGoal ?? null;
+  if (context.governedGoal === undefined) {
+    try {
+      // A workspace may select any member repository for Story work, while governed Goals are
+      // owned by the lead repository. Standalone repositories use the planner root for both.
+      const goalRepository = context.leadRepositoryPath ?? root;
+      const [{ listGovernedGoals }, { loadConfig }] = await Promise.all([
+        import('../../governed-goals.mjs'), import('../../state-stores.mjs')
+      ]);
+      const config = await loadConfig(goalRepository);
+      const listed = listGovernedGoals({ leadRepositoryPath: goalRepository }, { config, refresh: false });
+      governedGoal = listed.goals.find((goal) => !['achieved', 'abandoned', 'failed'].includes(goal.status)) ?? null;
+    } catch {
+      governedGoal = null;
+    }
+  }
   return homeOverviewResult({
     workspace: context.workspace ?? { id: root, name: context.workspaceName ?? root },
     repository: context.repository ?? {
@@ -722,6 +764,7 @@ export async function homeOverview({ subject = null, root = null, context = {} }
     today,
     yesterday,
     journalAvailable,
+    governedGoal,
     otherWorkspaces,
     /**
      * The same worktree read `work.continue` and `work.return` use.

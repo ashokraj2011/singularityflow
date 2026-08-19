@@ -61,14 +61,14 @@ function goalLines(result) {
     if (!goals.length) return ['', style.detail('No Goals match this view.')];
     return ['', ...goals.flatMap((item) => [
       `${item.id === activeGoalId ? style.pass('●') : '○'} ${style.heading(item.id)}  ${item.statement}`,
-      `  ${style.detail(`${item.status} · ${item.links.length} linked work item(s) · ${item.successCriteria.length} success criterion/criteria`)}`
+      `  ${style.detail(`${item.status} · ${item.links?.length ?? item.linkedWork ?? 0} linked work item(s) · ${item.successCriteria?.length ?? 'governed'} success criterion/criteria`)}`
     ])];
   }
   if (!goal) return [];
   const lines = [
     '',
     style.heading(goal.statement),
-    style.detail(`Goal: ${goal.id} · ${goal.status} · personal advisory state`),
+    style.detail(`Goal: ${goal.id} · ${goal.status} · ${goal.authority === 'governed-execution' ? 'governed execution' : 'personal advisory state'}`),
     '',
     style.heading('Success means:'),
     ...goal.successCriteria.map((criterion) => `  - ${criterion}`)

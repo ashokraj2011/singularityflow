@@ -59,6 +59,10 @@ export const DEFAULT_GATEWAY_POLICY = Object.freeze({
   modelRouting: 'enabled',
   confirmation: Object.freeze({
     'home.overview': 'none',
+    'goal.inspect': 'none',
+    'goal.impact': 'none',
+    'goal.next': 'none',
+    'goal.trace': 'none',
     'developer.next': 'none',
     'work.list': 'none',
     'work.continue': 'none',

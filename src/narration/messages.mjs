@@ -216,6 +216,54 @@ export const MESSAGES = Object.freeze({
   'goal.abandoned': {
     headline: (s) => `Abandoned ${slot(s.goalId)} and preserved its history.`
   },
+  'goal.proposed': {
+    headline: (s) => `Prepared a read-only governed Goal proposal for ${slot(s.workspace)}.`,
+    preserves: true
+  },
+  'goal.governed': {
+    headline: (s) => `Promoted ${slot(s.personalGoalId)} into governed Goal ${slot(s.goalId)}.`
+  },
+  'goal.governed-listed': {
+    headline: (s) => `Found ${slot(s.count, '0')} governed Goal(s) in ${slot(s.workspace)}.`,
+    preserves: true
+  },
+  'goal.plan-compiled': {
+    headline: (s) => `Compiled ${slot(s.goalId)} plan generation ${slot(s.generation)} (${slot(s.planSha256)}).`
+  },
+  'goal.plan-approved': {
+    headline: (s) => `Approved ${slot(s.goalId)} plan generation ${slot(s.generation)} by exact hash ${slot(s.planSha256)}.`
+  },
+  'goal.step-evaluated': {
+    headline: (s) => `${slot(s.goalId)} evaluated approved step ${slot(s.stepId)}.`
+  },
+  'goal.verified': {
+    headline: (s) => `${slot(s.goalId)} oracle evaluation is ${slot(s.assurance)}.`
+  },
+  'goal.impact-reported': {
+    headline: (s) => `Reported the bounded impact of ${slot(s.goalId)}.`,
+    preserves: true
+  },
+  'goal.change-proposed': {
+    headline: (s) => `Prepared a read-only change impact proposal for ${slot(s.goalId)}.`,
+    preserves: true
+  },
+  'goal.trace-reported': {
+    headline: (s) => `Traced contract, plan, approval, and oracle bindings for ${slot(s.goalId)}.`,
+    preserves: true
+  },
+  'goal.paused': {
+    headline: (s) => `Paused governed Goal ${slot(s.goalId)}.`
+  },
+  'goal.resumed': {
+    headline: (s) => `Resumed governed Goal ${slot(s.goalId)}.`
+  },
+  'goal.synced': {
+    headline: (s) => `Published governed Goal ${slot(s.goalId)} at ${slot(s.commit)}.`
+  },
+  'goal.already-synced': {
+    headline: (s) => `Governed Goal ${slot(s.goalId)} is already published.`,
+    preserves: true
+  },
   'journal.today-reported': {
     headline: (s) => `Local journal for ${slot(s.date)} — ${slot(s.events, '0')} bounded event(s).`,
     preserves: true
@@ -336,6 +384,9 @@ export const REASONS = Object.freeze({
   },
   'goal.from-workspace-state': {
     render: (s) => `the Goal came from the personal durable record for workspace ${slot(s.workspace)}`
+  },
+  'goal.from-governed-repository': {
+    render: (s) => `governed Goal ${slot(s.goalId)} was reconstructed from its repository lifecycle branch`
   }
 });
 

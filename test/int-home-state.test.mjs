@@ -62,6 +62,38 @@ test('visible work on another branch is not advertised as current', () => {
   assert.ok(!result.next.some((entry) => entry.id === 'home:work.continue'));
 });
 
+test('a governed Goal is the primary outcome rail even when its linked Story is active', () => {
+  const records = recordsFor(started);
+  const governedGoal = {
+    id: 'GEX-01M0E7FB001C5GP2RB1C5GP2RB',
+    statement: 'Ship a reliable calculator', status: 'ready', assurance: 'unassessed'
+  };
+  const result = homeOverviewResult({
+    workspace: { id: 'calc-app', name: 'calc-app' }, records, governedGoal,
+    current: { repositoryId: 'calc', branch: 'WRK-890', repositoryScoped: false }
+  });
+  assert.equal(result.next[0].id, 'home:goal.next');
+  assert.equal(result.next[0].slots.goal, governedGoal.id);
+  assert.equal(result.next[0].fallback.command, `singularity-flow goal next ${governedGoal.id}`);
+  assert.equal(result.next[1].id, 'home:work.continue');
+  assert.equal(result.why[0].code, 'home.governed-goal-active');
+});
+
+test('a governed Goal renders safely when no Story is selected', () => {
+  const governedGoal = {
+    id: 'GEX-01M0E7FB001C5GP2RB1C5GP2RB',
+    statement: 'Ship a reliable calculator', status: 'awaiting-plan-approval', assurance: 'unassessed'
+  };
+  const result = homeOverviewResult({
+    workspace: { id: 'calc-app', name: 'calc-app' },
+    records: { items: [], groups: emptyGroups() }, governedGoal,
+    current: { repositoryId: 'calc', branch: 'main', repositoryScoped: false }
+  });
+  assert.equal(result.next[0].id, 'home:goal.next');
+  assert.equal(result.data.governedGoal.id, governedGoal.id);
+  assert.equal(result.why[0].code, 'home.governed-goal-active');
+});
+
 test('a bound Story awaiting this actor\'s decision remains current and keeps repository context', async () => {
   const waiting = {
     ...started,

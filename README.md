@@ -31,6 +31,7 @@ Then, on a repository you care about:
 | Set up a new capability, with its configuration branch and ledger | `singularity-flow bootstrap <REPOSITORY-URL>` |
 | Get one personalized, read-only recommendation | `singularity-flow recommend` |
 | Track a personal outcome across governed work | `singularity-flow goal create "<outcome>" --success "<observable success>"` |
+| Promote an outcome into a durable execution plan | `singularity-flow goal govern <GOL-ID>` then `singularity-flow goal plan <GEX-ID>` |
 | Review private local return memory | `sflow journal today` / `sflow journal refresh` |
 | Execute or inspect the governed next step | `singularity-flow next` / `singularity-flow nextsteps WORK-123` |
 | Orient yourself or return to a Story without changing state | `sflow home` / `sflow story return WORK-123` |

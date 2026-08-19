@@ -42,7 +42,7 @@ export const GATEWAY_CLASSIFICATIONS = Object.freeze(['read', 'mutation', 'autho
 
 /** What an operation can be *about*. A subject the registry cannot name is a subject it cannot scope. */
 export const GATEWAY_SUBJECT_KINDS = Object.freeze([
-  'workspace', 'initiative', 'epic', 'story', 'repository', 'document', 'investigation', 'session'
+  'workspace', 'initiative', 'epic', 'story', 'goal', 'repository', 'document', 'investigation', 'session'
 ]);
 
 export const KERNEL_MODEL_POLICIES = Object.freeze(['never', 'optional', 'required']);

@@ -29,6 +29,7 @@ import { compileOperationRegistry } from './registry.mjs';
  */
 export const GATEWAY_PLANNERS = Object.freeze([
   'ast-status', 'ast-context', 'ast-query',
+  'goal-inspect', 'goal-impact', 'goal-next', 'goal-trace',
   'home-overview', 'developer-next', 'work-list', 'work-continue', 'work-handoff', 'work-start-intake', 'work-start',
   'work-draft-save', 'work-readiness', 'work-return', 'workspace-list', 'workspace-switch', 'workspace-materialize',
   'workspace-bootstrap-status', 'workspace-prepare-guide', 'repository-open-guide',
@@ -81,6 +82,50 @@ const ASSISTED = {
 };
 
 export const GATEWAY_DECLARATIONS = Object.freeze([
+  {
+    ...READ,
+    id: 'goal.inspect',
+    kernelOperation: 'goal.inspect',
+    goals: ['work.list'],
+    aliases: en('inspect governed goal', 'show governed goal execution'),
+    subjects: ['goal', 'workspace'],
+    argumentSchema: 'governed-goal-v1',
+    planner: 'goal-inspect',
+    noModelFixture: 'goal-inspect-model-free'
+  },
+  {
+    ...READ,
+    id: 'goal.impact',
+    kernelOperation: 'goal.impact',
+    goals: ['impact.quick'],
+    aliases: en('show governed goal impact', 'preview goal execution scope'),
+    subjects: ['goal', 'workspace'],
+    argumentSchema: 'governed-goal-v1',
+    planner: 'goal-impact',
+    noModelFixture: 'goal-impact-model-free'
+  },
+  {
+    ...READ,
+    id: 'goal.next',
+    kernelOperation: 'goal.next',
+    goals: ['work.continue'],
+    aliases: en('show governed goal next step', 'continue governed goal'),
+    subjects: ['goal', 'workspace'],
+    argumentSchema: 'governed-goal-v1',
+    planner: 'goal-next',
+    noModelFixture: 'goal-next-model-free'
+  },
+  {
+    ...READ,
+    id: 'goal.trace',
+    kernelOperation: 'goal.trace',
+    goals: ['intent.trace'],
+    aliases: en('trace governed goal evidence', 'trace goal criterion'),
+    subjects: ['goal', 'workspace'],
+    argumentSchema: 'governed-goal-v1',
+    planner: 'goal-trace',
+    noModelFixture: 'goal-trace-model-free'
+  },
   {
     ...READ,
     id: 'wm.ast.status',

@@ -11,6 +11,13 @@ import {
   linkGoal, listGoals, readGoalState, selectGoal, unlinkGoal
 } from '../goals.mjs';
 import {
+  GOVERNED_GOAL_AUTHORITY, GOVERNED_GOAL_ID,
+  abandonGovernedGoal, approveGovernedGoalPlan, compileGovernedGoalPlan,
+  createGovernedGoal, governedGoalImpact, governedGoalTrace, listGovernedGoals,
+  loadGovernedGoal, pauseGovernedGoal, proposalForGoal, resumeGovernedGoal,
+  runGovernedGoalNext, syncGovernedGoal, verifyGovernedGoal
+} from '../governed-goals.mjs';
+import {
   action, because, commandResult, effects, noEffects, noop, succeeded
 } from '../narration/command-result.mjs';
 import { emitCommandResult } from '../narration/emit.mjs';
@@ -65,7 +72,7 @@ async function subjectIndex(root) {
   );
 }
 
-async function resolveGovernedWork(context, {
+export async function resolveGovernedWork(context, {
   reference, kind = 'story', repositoryId = null, required = true, indexCache = null
 } = {}) {
   if (!['story', 'initiative'].includes(kind)) {
@@ -122,6 +129,15 @@ async function resolveLinks(context, goal) {
   // link: a read-only Goal card must not multiply Git work by its number of rows.
   const indexCache = new Map();
   return Promise.all(goal.links.map((link) => resolveGovernedWork(context, {
+    reference: link.id, kind: link.kind, repositoryId: link.repositoryId, required: false, indexCache
+  }).catch(() => ({
+    ...link, availability: 'missing', status: 'unknown', terminal: false, phase: null, commit: null
+  }))));
+}
+
+async function resolveGovernedLinks(context, contract) {
+  const indexCache = new Map();
+  return Promise.all(contract.linkedWork.map((link) => resolveGovernedWork(context, {
     reference: link.id, kind: link.kind, repositoryId: link.repositoryId, required: false, indexCache
   }).catch(() => ({
     ...link, availability: 'missing', status: 'unknown', terminal: false, phase: null, commit: null
@@ -228,6 +244,95 @@ function result(operation, context, {
   });
 }
 
+function governedView(loaded) {
+  return {
+    id: loaded.contract.id,
+    statement: loaded.contract.outcome.statement,
+    status: loaded.state.status,
+    authority: GOVERNED_GOAL_AUTHORITY,
+    successCriteria: loaded.contract.criteria.map((criterion) => criterion.statement),
+    criteria: loaded.contract.criteria,
+    links: loaded.contract.linkedWork,
+    assurance: loaded.state.assurance,
+    planGeneration: loaded.state.planGeneration,
+    planApproved: Boolean(loaded.state.approvedPlan)
+  };
+}
+
+function governedResult(operation, context, loaded, {
+  outcome, changed = false, declaredEffects = null, data = {}, next = [], restState = null
+}) {
+  return commandResult({
+    operation: { id: operation.id, classification: operation.classification },
+    subject: { kind: 'goal', id: loaded.contract.id },
+    outcome,
+    effects: declaredEffects ?? (changed
+      ? effects({ stateChanged: true, filesChanged: true, publicationCreated: true }) : noEffects()),
+    why: [because('goal.from-governed-repository', 'evidence', {
+      ref: loaded.revision?.commit ?? loaded.publication?.commit ?? loaded.contract.contractSha256,
+      slots: { goalId: loaded.contract.id }, topic: 'goals-and-outcomes'
+    })],
+    next,
+    restState,
+    data: {
+      workspace: goalWorkspaceSummary(context),
+      authority: GOVERNED_GOAL_AUTHORITY,
+      goal: governedView(loaded),
+      contract: loaded.contract,
+      state: loaded.state,
+      plan: loaded.plan ?? null,
+      publication: loaded.publication ?? null,
+      ...data
+    }
+  });
+}
+
+function governedReference(value) {
+  const normalized = String(value ?? '').trim().toUpperCase();
+  return GOVERNED_GOAL_ID.test(normalized) ? normalized : null;
+}
+
+function governedRecommendation(loaded, links) {
+  const id = loaded.contract.id;
+  if (loaded.state.status === 'abandoned' || loaded.state.status === 'achieved') return null;
+  if (loaded.state.paused) return action({
+    id: 'resume-governed-goal', label: `Resume ${id}`,
+    command: `singularity-flow goal resume ${id}`, rank: 'NOW', kind: 'workflow'
+  });
+  if (!loaded.plan) return action({
+    id: 'compile-governed-goal-plan', label: 'Compile the deterministic Goal plan',
+    command: `singularity-flow goal plan ${id}`, rank: 'NOW', kind: 'workflow'
+  });
+  if (!loaded.state.approvedPlan) return action({
+    id: 'approve-governed-goal-plan', label: `Review and approve plan generation ${loaded.plan.generation}`,
+    command: `singularity-flow goal plan approve ${id} --generation ${loaded.plan.generation} --confirm ${loaded.plan.planSha256}`,
+    rank: 'NOW', kind: 'review'
+  });
+  if (loaded.state.status === 'verifying' || links.every((link) => link.terminal)) return action({
+    id: 'verify-governed-goal', label: 'Evaluate the Goal success oracles',
+    command: `singularity-flow goal verify ${id}`, rank: 'NOW', kind: 'workflow'
+  });
+  return action({
+    id: 'run-governed-goal-next', label: 'Navigate one approved Goal step',
+    command: `singularity-flow goal run-next ${id}`, rank: 'NOW', kind: 'workflow'
+  });
+}
+
+function delegatedAction(step, live) {
+  if (step.subject.kind === 'story') return action({
+    id: `continue-${step.subject.id}`,
+    label: `Continue ${step.subject.id}; its Story gates remain authoritative`,
+    command: `singularity-flow session workspace --repository ${step.subject.repositoryId} --story ${step.subject.id}`,
+    rank: 'NOW', kind: 'workflow'
+  });
+  return action({
+    id: `inspect-${step.subject.id}`,
+    label: `Continue Initiative ${step.subject.id}`,
+    command: `singularity-flow initiative next ${live?.id ?? step.subject.id}`,
+    rank: 'NOW', kind: 'workflow'
+  });
+}
+
 function goalReference(positionals, index = 2) {
   return positionals[index] ?? null;
 }
@@ -249,6 +354,208 @@ export async function run(_argv, { positionals, options, operation }) {
   const context = await activeGoalWorkspace();
   const subcommand = positionals[1] ?? 'list';
   const json = optionBoolean(options, 'json');
+
+  if (subcommand === 'propose') {
+    const statement = positionals.slice(2).join(' ');
+    const workId = optionString(options, 'work-id');
+    const links = workId ? [await resolveGovernedWork(context, {
+      reference: workId,
+      kind: optionString(options, 'kind', 'story'),
+      repositoryId: optionString(options, 'repository')
+    })] : [];
+    const proposal = proposalForGoal(context, {
+      statement, successCriteria: optionStrings(options, 'success'), links
+    });
+    const shell = `singularity-flow goal create ${JSON.stringify(proposal.outcome)}`
+      + proposal.successCriteria.map((criterion) => ` --success ${JSON.stringify(criterion)}`).join('');
+    return emitCommandResult(commandResult({
+      operation: { id: operation.id, classification: operation.classification },
+      subject: { kind: 'workspace', id: context.workspace.id },
+      outcome: succeeded('goal.proposed', { workspace: context.workspace.name }),
+      effects: noEffects(), why: provenance(context),
+      next: [action({ id: 'create-personal-goal', label: 'Create the personal Goal before promotion', command: shell, rank: 'NOW', kind: 'workflow' })],
+      data: { proposal, authority: GOVERNED_GOAL_AUTHORITY, workspace: goalWorkspaceSummary(context) }
+    }), { json });
+  }
+
+  if (subcommand === 'govern') {
+    const loadedPersonal = await readGoalState(context);
+    const personal = findGoal(loadedPersonal.state, goalReference(positionals), { activeOnly: true });
+    const config = await loadConfig(context.leadRepositoryPath);
+    const created = await createGovernedGoal(context, personal, {
+      id: optionString(options, 'id'), config
+    });
+    const loaded = { ...created, revision: { commit: created.publication.commit } };
+    return emitCommandResult(governedResult(operation, context, loaded, {
+      outcome: succeeded('goal.governed', { goalId: created.contract.id, personalGoalId: personal.id }),
+      changed: true,
+      next: [action({
+        id: 'compile-governed-goal-plan', label: 'Compile the deterministic Goal plan',
+        command: `singularity-flow goal plan ${created.contract.id}`, rank: 'NOW', kind: 'workflow'
+      })]
+    }), { json });
+  }
+
+  if (subcommand === 'list' && optionString(options, 'mode') === 'governed') {
+    const config = await loadConfig(context.leadRepositoryPath);
+    const listed = listGovernedGoals(context, { config });
+    return emitCommandResult(commandResult({
+      operation: { id: operation.id, classification: operation.classification },
+      subject: { kind: 'workspace', id: context.workspace.id },
+      outcome: succeeded('goal.governed-listed', { count: listed.goals.length, workspace: context.workspace.name }),
+      effects: noEffects(), why: provenance(context), next: [],
+      data: { ...listed, authority: GOVERNED_GOAL_AUTHORITY, workspace: goalWorkspaceSummary(context) }
+    }), { json });
+  }
+
+  const nestedApproval = subcommand === 'plan' && positionals[2] === 'approve';
+  const governedId = governedReference(nestedApproval ? positionals[3] : positionals[2]);
+  if (governedId) {
+    const config = await loadConfig(context.leadRepositoryPath);
+    if (['inspect', 'show', 'status', 'next', 'impact', 'change', 'trace'].includes(subcommand)) {
+      const loaded = loadGovernedGoal(context, governedId, { config });
+      const links = await resolveGovernedLinks(context, loaded.contract);
+      if (subcommand === 'impact' || subcommand === 'change') {
+        const impact = governedGoalImpact(loaded, links);
+        return emitCommandResult(governedResult(operation, context, loaded, {
+          outcome: succeeded(subcommand === 'change' ? 'goal.change-proposed' : 'goal.impact-reported', { goalId: governedId }),
+          data: { links, impact, readOnlyProposal: subcommand === 'change' },
+          next: subcommand === 'change' ? [action({
+            id: 'review-goal-contract', label: 'Review the current contract before creating a new plan generation',
+            command: `singularity-flow goal inspect ${governedId}`, rank: 'NOW', kind: 'informational'
+          })] : []
+        }), { json });
+      }
+      if (subcommand === 'trace') {
+        return emitCommandResult(governedResult(operation, context, loaded, {
+          outcome: succeeded('goal.trace-reported', { goalId: governedId }),
+          data: { trace: governedGoalTrace(loaded, { criterionId: optionString(options, 'criterion') }), links }
+        }), { json });
+      }
+      const recommendation = governedRecommendation(loaded, links);
+      return emitCommandResult(governedResult(operation, context, loaded, {
+        outcome: succeeded(subcommand === 'next' ? 'goal.next' : 'goal.shown', {
+          goalId: governedId, status: loaded.state.status, action: recommendation?.label ?? 'No further action'
+        }),
+        data: { links, recommendation }, next: recommendation ? [recommendation] : [],
+        restState: loaded.state.status === 'achieved' ? 'complete' : loaded.state.status === 'abandoned' ? 'cancelled' : null
+      }), { json });
+    }
+
+    if (subcommand === 'plan') {
+      if (!nestedApproval) {
+        const current = loadGovernedGoal(context, governedId, { config });
+        const resolved = await resolveGovernedLinks(context, current.contract);
+        const missing = resolved.filter((item) => item.availability !== 'available');
+        if (missing.length) {
+          throw new SingularityFlowError(
+            `Governed Goal '${governedId}' cannot become ready because ${missing.map((item) => `${item.repositoryId}:${item.id}`).join(', ')} could not be resolved.`,
+            { code: 'GOVERNED_GOAL_SUBJECT_UNRESOLVED', details: { missing } }
+          );
+        }
+      }
+      const changed = nestedApproval
+        ? await approveGovernedGoalPlan(context, governedId, {
+            config, generation: optionString(options, 'generation'), confirmation: optionString(options, 'confirm')
+          })
+        : await compileGovernedGoalPlan(context, governedId, { config, assisted: optionBoolean(options, 'assisted') });
+      const loaded = { ...changed, revision: { commit: changed.publication.commit } };
+      return emitCommandResult(governedResult(operation, context, loaded, {
+        outcome: succeeded(nestedApproval ? 'goal.plan-approved' : 'goal.plan-compiled', {
+          goalId: governedId, generation: changed.plan.generation, planSha256: changed.plan.planSha256
+        }),
+        changed: true,
+        next: nestedApproval ? [action({
+          id: 'run-governed-goal-next', label: 'Navigate one approved Goal step',
+          command: `singularity-flow goal run-next ${governedId}`, rank: 'NOW', kind: 'workflow'
+        })] : [action({
+          id: 'approve-governed-goal-plan', label: 'Approve the exact plan hash',
+          command: `singularity-flow goal plan approve ${governedId} --generation ${changed.plan.generation} --confirm ${changed.plan.planSha256}`,
+          rank: 'NOW', kind: 'review'
+        })]
+      }), { json });
+    }
+
+    if (subcommand === 'run-next') {
+      const current = loadGovernedGoal(context, governedId, { config });
+      const links = await resolveGovernedLinks(context, current.contract);
+      const changed = await runGovernedGoalNext(context, governedId, links, { config });
+      const loaded = { ...changed, revision: { commit: changed.publication.commit } };
+      const step = changed.value?.step;
+      const next = step && !changed.value?.alreadyDelegated ? [delegatedAction(step, changed.value.live)]
+        : changed.state.status === 'verifying' ? [action({
+            id: 'verify-governed-goal', label: 'Evaluate the Goal success oracles',
+            command: `singularity-flow goal verify ${governedId}`, rank: 'NOW', kind: 'workflow'
+          })] : [];
+      return emitCommandResult(governedResult(operation, context, loaded, {
+        outcome: succeeded('goal.step-evaluated', { goalId: governedId, stepId: step?.id ?? 'complete' }),
+        changed: true, data: { links, execution: changed.value }, next
+      }), { json });
+    }
+
+    if (subcommand === 'run-until-blocked') {
+      throw new SingularityFlowError(
+        'Bounded governed Goal execution is intentionally unavailable. Use run-next; it stops at every underlying Story or Initiative boundary.',
+        { code: 'GOVERNED_GOAL_BOUNDED_EXECUTION_UNAVAILABLE' }
+      );
+    }
+
+    if (subcommand === 'sync') {
+      const publication = await syncGovernedGoal(context, governedId, { config });
+      const current = loadGovernedGoal(context, governedId, { config });
+      const loaded = { ...current, publication };
+      return emitCommandResult(governedResult(operation, context, loaded, {
+        outcome: publication.changed
+          ? succeeded('goal.synced', { goalId: governedId, commit: publication.commit })
+          : noop('goal.already-synced', { goalId: governedId }),
+        changed: publication.changed,
+        declaredEffects: publication.changed ? effects({ publicationCreated: true }) : noEffects(),
+        next: [action({ id: 'inspect-governed-goal', label: 'Inspect the published Goal', command: `singularity-flow goal inspect ${governedId}`, rank: 'NOW', kind: 'informational' })]
+      }), { json });
+    }
+
+    if (subcommand === 'verify') {
+      const current = loadGovernedGoal(context, governedId, { config });
+      const links = await resolveGovernedLinks(context, current.contract);
+      const changed = await verifyGovernedGoal(context, governedId, links, {
+        config, criterionId: optionString(options, 'criterion')
+      });
+      const loaded = { ...changed, revision: { commit: changed.publication.commit } };
+      return emitCommandResult(governedResult(operation, context, loaded, {
+        outcome: succeeded('goal.verified', { goalId: governedId, assurance: changed.state.assurance }),
+        changed: true, data: { links, verification: changed.value },
+        restState: changed.state.status === 'achieved' ? 'complete' : null
+      }), { json });
+    }
+
+    if (subcommand === 'pause') {
+      const changed = await pauseGovernedGoal(context, governedId, { config, reason: optionString(options, 'reason') });
+      const loaded = { ...changed, revision: { commit: changed.publication.commit } };
+      return emitCommandResult(governedResult(operation, context, loaded, {
+        outcome: succeeded('goal.paused', { goalId: governedId }), changed: true,
+        next: [action({ id: 'resume-governed-goal', label: 'Resume when ready', command: `singularity-flow goal resume ${governedId}`, rank: 'LATER', kind: 'workflow' })]
+      }), { json });
+    }
+
+    if (subcommand === 'resume') {
+      const changed = await resumeGovernedGoal(context, governedId, { config });
+      const loaded = { ...changed, revision: { commit: changed.publication.commit } };
+      return emitCommandResult(governedResult(operation, context, loaded, {
+        outcome: succeeded('goal.resumed', { goalId: governedId }), changed: true,
+        next: [action({ id: 'inspect-governed-goal', label: 'Review the resumed Goal', command: `singularity-flow goal inspect ${governedId}`, rank: 'NOW', kind: 'informational' })]
+      }), { json });
+    }
+
+    if (subcommand === 'abandon') {
+      const changed = await abandonGovernedGoal(context, governedId, {
+        config, confirmation: optionString(options, 'confirm'), reason: optionString(options, 'reason')
+      });
+      const loaded = { ...changed, revision: { commit: changed.publication.commit } };
+      return emitCommandResult(governedResult(operation, context, loaded, {
+        outcome: succeeded('goal.abandoned', { goalId: governedId }), changed: true, restState: 'cancelled'
+      }), { json });
+    }
+  }
 
   if (subcommand === 'create') {
     const statement = positionals.slice(2).join(' ');
@@ -417,7 +724,7 @@ export async function run(_argv, { positionals, options, operation }) {
   }
 
   throw new SingularityFlowError(
-    `Unknown goal subcommand '${subcommand}'. Available: create, list, show, status, next, use, link, unlink, complete, abandon.`,
+    `Unknown goal subcommand '${subcommand}'. Available: create, list, show, status, next, use, link, unlink, complete, abandon, propose, govern, inspect, impact, plan, run-next, run-until-blocked, verify, change, pause, resume, sync, trace.`,
     { code: 'UNKNOWN_SUBCOMMAND' }
   );
 }

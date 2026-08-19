@@ -40,7 +40,7 @@ test('the editor declares the planners it has and does not pretend to the docs o
    */
   const source = await readFile(path.join(root, 'apps', 'vscode', 'src', 'gateway-session.ts'), 'utf8');
   const imported = [...source.matchAll(/planners\/([a-z-]+)\.mjs/g)].map(([, name]) => name).sort();
-  assert.deepEqual(imported, ['ast-intelligence', 'developer-next', 'home-overview', 'impact-quick', 'review-packet', 'work-continue', 'work-list',
+  assert.deepEqual(imported, ['ast-intelligence', 'developer-next', 'governed-goal', 'home-overview', 'impact-quick', 'review-packet', 'work-continue', 'work-list',
     'work-readiness', 'work-return', 'work-start-intake', 'workspace-list', 'workspace-reliability-surface']);
   // `codeOnly`: this file names help-explain in the comment explaining why it excludes it.
   assert.ok(!codeOnly(source).includes('help-explain'), 'the docs planner is not imported');
@@ -141,4 +141,18 @@ test('changing workspace identity retires the previous gateway session', async (
   assert.notEqual(replaced, original,
     'the same checkout under another workspace receives a new handle authority');
   assert.deepEqual(gateway.activeRepositoryContext(), second);
+});
+
+test('changing the Goal-owning lead repository retires handles even when the selected member stays put', async () => {
+  const gateway = await import(path.join(root, 'apps', 'vscode', 'src', 'gateway-session.ts'));
+  const first = {
+    root: '/tmp/sflow-member-repository', leadRepositoryPath: '/tmp/sflow-lead-a',
+    workspaceId: 'workspace-a', workspaceName: 'A', repositoryId: 'member', origin: 'test'
+  };
+  gateway.setActiveRepositoryContext(first);
+  const original = gateway.gatewaySession(first);
+  const second = { ...first, leadRepositoryPath: '/tmp/sflow-lead-b' };
+  gateway.setActiveRepositoryContext(second);
+  assert.notEqual(gateway.gatewaySession(second), original,
+    'a Goal branch must never be read through handles bound to the previous lead repository');
 });

@@ -129,6 +129,12 @@ export function homeProjectionV2(result, { registryHash = null, now = () => Date
       id: currentWork.id, kind: currentWork.kind, phase: currentWork.phase,
       status: currentWork.status, group: currentWork.group
     } : null,
+    governedGoal: data.governedGoal ? {
+      id: data.governedGoal.id,
+      status: data.governedGoal.status,
+      planGeneration: data.governedGoal.planGeneration ?? 0,
+      planApproved: data.governedGoal.planApproved === true
+    } : null,
     workflowRail: data.rail ?? [],
     registryHash,
     actionIds: actions.map((action) => action.id)
@@ -148,6 +154,7 @@ export function homeProjectionV2(result, { registryHash = null, now = () => Date
     }),
     needsUser: Object.freeze(needsUser),
     activeWork: workCard(currentWork, data.rail, primary),
+    governedGoal: data.governedGoal ? Object.freeze({ ...data.governedGoal }) : null,
     now: primary,
     why: result.why,
     today: data.today ?? null,

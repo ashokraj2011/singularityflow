@@ -1327,6 +1327,7 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
     workspaceName: string;
     repositoryId: string | null;
     repositoryPath: string;
+    workspacePath: string;
   };
   const workspaceSelected: Array<(selected: SelectedWorkspace) => void | Promise<void>> = [];
 
@@ -1344,14 +1345,15 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
         // Recorded machine-wide by the CLI, so the terminal and the editor agree about where you are.
         () => chooser.run<{
           workspaceId?: string; workspaceName?: string; repositoryId?: string;
-          repositoryPath?: string; repositoryState?: string;
+          repositoryPath?: string; repositoryState?: string; workspacePath?: string;
         }>(['workspace', 'use', target, ...(repositoryId ? ['--repository', repositoryId] : []), '--json'])
       );
       const selection: SelectedWorkspace = {
         workspaceId: selected.workspaceId ?? target,
         workspaceName: selected.workspaceName ?? name,
         repositoryId: selected.repositoryId ?? null,
-        repositoryPath: selected.repositoryPath ?? leadPath
+        repositoryPath: selected.repositoryPath ?? leadPath,
+        workspacePath: selected.workspacePath ?? target
       };
       await refreshWorkspaceTree();
       // The Workspaces page is retained when hidden and owns its own row snapshot. Refresh it from
@@ -1766,6 +1768,7 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
     workspaceId: resolved.workspaceId,
     workspaceName: resolved.workspaceName,
     repositoryId: resolved.repositoryId,
+    leadRepositoryPath: resolved.leadRepositoryPath ?? repository,
     origin
   });
   // Which repository this window is acting on, and why that one. Every screen below operates on it,
@@ -2206,6 +2209,7 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
       workspaceId: selected.workspaceId,
       workspaceName: selected.workspaceName,
       repositoryId: selected.repositoryId,
+      leadRepositoryPath: await workspaceLeadDirectory(selected.workspacePath) ?? target,
       origin: `the selected repository of your active workspace, ${selected.workspaceName}`
     });
     readiness = {};
@@ -3643,10 +3647,11 @@ async function activeWorkspaceRepository(
       reason: 'Select the workspace again so its working directory and lead repository can be resolved.'
     };
   }
-  // The recorded repository if there is one, and the workspace's lead as the fallback for a
-  // selection record written before repository-level selection existed.
-  const lead = current.repositoryPath ?? await workspaceLeadDirectory(directory);
-  if (!lead) {
+  // Story surfaces act on the selected member repository. Governed Goals remain owned by the
+  // workspace lead, so retain both paths instead of overloading "lead" with the selection.
+  const workspaceLead = await workspaceLeadDirectory(directory);
+  const selectedRepository = current.repositoryPath ?? workspaceLead;
+  if (!selectedRepository) {
     return {
       label: 'Workspace lead repository is not configured',
       reason: `${current.workspaceName ?? directory} is selected, but it has no resolvable lead repository. Edit the workspace details.`,
@@ -3656,28 +3661,29 @@ async function activeWorkspaceRepository(
   if (current.repositoryState && current.repositoryState !== 'ready') {
     return {
       label: `Workspace repository is ${current.repositoryState}`,
-      reason: `${current.workspaceName ?? directory} is selected, but its lead repository at ${lead} is ${current.repositoryState}. Repair the selected workspace to materialize it from workspace.json.`,
+      reason: `${current.workspaceName ?? directory} is selected, but its repository at ${selectedRepository} is ${current.repositoryState}. Repair the selected workspace to materialize it from workspace.json.`,
       contextValue: 'sflow.workspace.repositoryUnavailable',
-      lead
+      lead: selectedRepository
     };
   }
   try {
-    const repository = await validateRepositoryDirectory(lead);
+    const repository = await validateRepositoryDirectory(selectedRepository);
     return {
       repository,
       root: repository,
       workspaceId: current.workspaceId ?? null,
       workspaceName: current.workspaceName ?? current.workspaceId ?? directory,
       repositoryId: current.repositoryId ?? null,
+      leadRepositoryPath: workspaceLead ?? repository,
       origin: `the selected repository of your active workspace, ${current.workspaceName ?? directory}`
     };
   } catch (error) {
     output.appendLine(`Active workspace lead is unavailable: ${(error as Error).message}`);
     return {
       label: 'Workspace lead repository is not ready',
-      reason: `${current.workspaceName ?? directory} is selected, but ${lead} cannot load Singularity Flow: ${(error as Error).message}`,
+      reason: `${current.workspaceName ?? directory} is selected, but ${selectedRepository} cannot load Singularity Flow: ${(error as Error).message}`,
       contextValue: 'sflow.workspace.repositoryUnavailable',
-      lead
+      lead: selectedRepository
     };
   }
 }

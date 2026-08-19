@@ -518,6 +518,24 @@ const families = [
     paths: [/^singularity\/work-items\/[^/]+\/documents\.json$/]
   }),
   family({ id: 'goal-state', currentVersion: 1, paths: [/^\$workspace\/\.singularity-flow\/goals\.json$/] }),
+  family({
+    id: 'governed-goal-contract', currentVersion: 1,
+    paths: [/^singularity\/goals\/GEX-[0-9A-HJKMNP-TV-Z]{26}\/contract\.json$/]
+  }),
+  family({
+    id: 'governed-goal-state', currentVersion: 1,
+    paths: [/^singularity\/goals\/GEX-[0-9A-HJKMNP-TV-Z]{26}\/state\.json$/]
+  }),
+  family({
+    id: 'governed-goal-plan', currentVersion: 1, immutable: true,
+    paths: [/^singularity\/goals\/GEX-[0-9A-HJKMNP-TV-Z]{26}\/plans\/generation-\d+\.json$/]
+  }),
+  family({
+    id: 'governed-goal-record', currentVersion: 1, immutable: true,
+    paths: [
+      /^singularity\/goals\/GEX-[0-9A-HJKMNP-TV-Z]{26}\/(?:records|runs|evidence|approvals|invalidations|faults)\/.+\.json$/
+    ]
+  }),
   family({ id: 'transport-intent', currentVersion: 1, paths: [/^\$local\/transport-outbox\/intents\/[^/]+\.json$/] }),
   family({ id: 'workspace-bootstrap', currentVersion: 1, paths: [/^\$local\/workspace-bootstrap\/sessions\/[^/]+\.json$/] }),
   family({ id: 'workspace-bootstrap-index', currentVersion: 1, paths: [/^\$local\/workspace-bootstrap\/index\.json$/] }),

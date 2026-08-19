@@ -176,16 +176,15 @@ const PAGES = Object.freeze({
     seeAlso: ['workspace', 'sync', 'doctor']
   },
   goal: {
-    summary: 'Create and manage personal outcomes linked to governed work.',
+    summary: 'Manage personal outcomes and repository-owned governed Goal Executions.',
     description: [
-      'Goals are workspace-scoped, personal advisory records. Each Goal names an outcome and at',
-      'least one observable success criterion, and may link existing Stories or Initiatives across',
-      'the selected workspace.',
+      'GOL-* Goals are workspace-scoped personal advisory records. GEX-* Goal Executions are',
+      'repository-owned contracts with typed success oracles, immutable plan generations, exact-hash',
+      'approval, guided step attempts, and evidence on their own lifecycle branch.',
       '',
-      'A Goal never advances, approves, publishes, or replaces linked governed work. Completion is',
-      'an explicit human acknowledgement and is refused while a linked subject is unavailable or',
-      'still active. CLI and Copilot read the same workspace record, including when Copilot runs in',
-      'VS Code; chat or editor memory is never the source of truth.'
+      'Plan approval never approves linked work. run-next delegates one step to the existing Story or',
+      'Initiative lifecycle, which retains its own gates and authority. Personal records and Git',
+      'lifecycle branches—not chat or editor memory—are the two authoritative state planes.'
     ],
     options: [
       ['--success TEXT', 'Observable success criterion. Required for create; repeatable.'],
@@ -193,9 +192,12 @@ const PAGES = Object.freeze({
       ['--kind story|initiative', 'Kind of governed work being linked. Defaults to story.'],
       ['--repository ID', 'Workspace repository containing the linked work. Defaults to the selected repository.'],
       ['--status active|achieved|abandoned|all', 'Filter the Goal list.'],
-      ['--confirm GOAL-ID', 'Exact acknowledgement required by complete and abandon.'],
       ['--reason TEXT', 'Required explanation when abandoning a Goal.'],
       ['--note TEXT', 'Optional completion note; it is not proof or lifecycle approval.'],
+      ['--mode governed', 'List repository-owned GEX lifecycle branches.'],
+      ['--generation N', 'Select the exact governed plan generation for approval.'],
+      ['--confirm PLAN-HASH|GOAL-ID', 'Exact plan hash or Goal ID required by the selected transition.'],
+      ['--criterion CLAUSE-ID', 'Limit governed oracle evaluation or trace to one criterion.'],
       ['--json', 'Emit the versioned command result and complete Goal record.']
     ],
     examples: [
@@ -203,7 +205,9 @@ const PAGES = Object.freeze({
         'Creates and selects a personal outcome Goal.'],
       ['singularity-flow goal link GOL-20260818-001 PAY-1187 --kind story --repository checkout',
         'Links existing governed work without changing that Story.'],
-      ['singularity-flow goal next', 'Returns one grounded next action for the active Goal.']
+      ['singularity-flow goal next', 'Returns one grounded next action for the active Goal.'],
+      ['singularity-flow goal govern GOL-20260818-001', 'Creates a separate repository-owned GEX identity without changing the personal Goal.'],
+      ['singularity-flow goal plan approve GEX-… --generation 1 --confirm <PLAN-HASH>', 'Approves only the exact immutable governed plan envelope.']
     ],
     seeAlso: ['home', 'session', 'nextsteps', 'story', 'initiative']
   },

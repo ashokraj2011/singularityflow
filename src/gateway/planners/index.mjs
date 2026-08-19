@@ -12,6 +12,10 @@
 import { helpExplain } from './help-explain.mjs';
 import { astContextPlanner, astQueryPlanner, astStatusPlanner } from './ast-intelligence.mjs';
 import { developerNext } from './developer-next.mjs';
+import {
+  governedGoalImpactPlanner, governedGoalInspectPlanner, governedGoalNextPlanner,
+  governedGoalTracePlanner
+} from './governed-goal.mjs';
 import { homeOverview } from './home-overview.mjs';
 import { impactQuick } from './impact-quick.mjs';
 import { reviewPacket } from './review-packet.mjs';
@@ -34,6 +38,10 @@ export function gatewayPlanners(overrides = {}) {
     'ast-status': astStatusPlanner,
     'help-explain': helpExplain,
     'developer-next': developerNext,
+    'goal-inspect': governedGoalInspectPlanner,
+    'goal-impact': governedGoalImpactPlanner,
+    'goal-next': governedGoalNextPlanner,
+    'goal-trace': governedGoalTracePlanner,
     'home-overview': homeOverview,
     'impact-quick': impactQuick,
     'review-packet': reviewPacket,
@@ -55,7 +63,8 @@ export function gatewayPlanners(overrides = {}) {
 
 export {
   astContextPlanner, astQueryPlanner, astStatusPlanner,
-  developerNext, helpExplain, homeOverview, impactQuick, reviewPacket, workContinue, workHandoff,
+  developerNext, governedGoalImpactPlanner, governedGoalInspectPlanner, governedGoalNextPlanner,
+  governedGoalTracePlanner, helpExplain, homeOverview, impactQuick, reviewPacket, workContinue, workHandoff,
   workList, workReadiness, workReturn, workStartIntake, workspaceList,
   repositoryOpenGuide, workspaceBootstrapStatus, workspaceDoctorGuide, workspaceExploreGuide,
   workspacePrepareGuide

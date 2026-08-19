@@ -149,6 +149,9 @@ export async function run(_argv, { options }) {
   const root = selection?.root ?? null;
   const context = selection?.context ?? { workspaceId: null, workspaceName: null, storyId: null };
   const selected = selection?.selected ?? null;
+  const leadRepositoryPath = selection?.status?.repositories?.find(
+    (repository) => repository.id === selection.status.workspace.leadRepository
+  )?.absolutePath ?? root;
   const identityRoot = root ?? process.cwd();
   const resolvedActor = identity(identityRoot, { offline: true });
   const actor = { ...resolvedActor, name: localGitDisplayName(identityRoot) ?? resolvedActor.name };
@@ -184,6 +187,7 @@ export async function run(_argv, { options }) {
         head: selected?.head ?? null,
         resolvedFrom: workspaceReference ? 'workspace-option' : 'active-workspace'
       },
+      leadRepositoryPath,
       lens,
       bootstrap
     },

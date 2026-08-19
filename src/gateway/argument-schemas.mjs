@@ -180,6 +180,10 @@ export const ARGUMENT_SCHEMAS = Object.freeze([
     workId: required('identifier'),
     workKind: optional('enum', { values: ['story', 'initiative'] })
   }),
+  schema('governed-goal-v1', {
+    goalId: required('identifier'),
+    criterionId: optional('identifier')
+  }),
   schema('work-list-v1', {
     group: optional('enum', { values: WORK_GROUPS }),
     includeCompleted: optional('boolean')

@@ -159,8 +159,13 @@ const VISUAL_SUBCOMMANDS = Object.freeze(['status', 'compare']);
 const CLARIFICATION_SUBCOMMANDS = Object.freeze(['status', 'record']);
 const FAULT_SUBCOMMANDS = Object.freeze(['report', 'list', 'show']);
 const REPAIR_SUBCOMMANDS = Object.freeze(['list', 'status', 'authorize', 'attempt', 'cancel']);
-const GOAL_READ_SUBCOMMANDS = Object.freeze(['list', 'show', 'status', 'next']);
-const GOAL_MUTATION_SUBCOMMANDS = Object.freeze(['create', 'use', 'link', 'unlink', 'complete', 'abandon']);
+const GOAL_READ_SUBCOMMANDS = Object.freeze([
+  'list', 'show', 'status', 'next', 'propose', 'inspect', 'impact', 'change', 'trace'
+]);
+const GOAL_MUTATION_SUBCOMMANDS = Object.freeze([
+  'create', 'use', 'link', 'unlink', 'complete', 'abandon', 'govern', 'plan',
+  'run-next', 'run-until-blocked', 'verify', 'pause', 'resume', 'sync'
+]);
 const GOAL_SUBCOMMANDS = Object.freeze([...GOAL_READ_SUBCOMMANDS, ...GOAL_MUTATION_SUBCOMMANDS]);
 const JOURNAL_READ_SUBCOMMANDS = Object.freeze(['today', 'doctor']);
 const JOURNAL_MUTATION_SUBCOMMANDS = Object.freeze(['refresh', 'pause', 'resume', 'delete', 'export']);
@@ -375,6 +380,9 @@ function resolveRepairOperation(definition, positionals) {
 
 function resolveGoalOperation(definition, positionals) {
   const subcommand = positionals[1] ?? 'list';
+  if (subcommand === 'plan' && positionals[2] === 'approve') {
+    return never('goal.plan.approve', definition, 'mutation');
+  }
   if (GOAL_READ_SUBCOMMANDS.includes(subcommand)) return never(`goal.${subcommand}`, definition, 'read');
   if (GOAL_MUTATION_SUBCOMMANDS.includes(subcommand)) return never(`goal.${subcommand}`, definition, 'mutation');
   return unknownSubcommand('goal', subcommand, GOAL_SUBCOMMANDS);
@@ -638,6 +646,7 @@ export function operationCatalog() {
     never('repair.cancel', repairDefinition, 'mutation'),
     ...GOAL_READ_SUBCOMMANDS.map((name) => never(`goal.${name}`, goalDefinition, 'read')),
     ...GOAL_MUTATION_SUBCOMMANDS.map((name) => never(`goal.${name}`, goalDefinition, 'mutation')),
+    never('goal.plan.approve', goalDefinition, 'mutation'),
     ...JOURNAL_READ_SUBCOMMANDS.map((name) => never(`journal.${name}`, journalDefinition, 'read')),
     never('journal.settings', journalDefinition, 'read'),
     never('journal.settings.update', journalDefinition, 'mutation'),

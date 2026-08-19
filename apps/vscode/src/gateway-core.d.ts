@@ -91,6 +91,12 @@ declare module '*/gateway/planners/ast-intelligence.mjs' {
   export const astStatusPlanner: unknown;
 }
 declare module '*/gateway/planners/developer-next.mjs' { export const developerNext: unknown; }
+declare module '*/gateway/planners/governed-goal.mjs' {
+  export const governedGoalImpactPlanner: unknown;
+  export const governedGoalInspectPlanner: unknown;
+  export const governedGoalNextPlanner: unknown;
+  export const governedGoalTracePlanner: unknown;
+}
 declare module '*/gateway/planners/impact-quick.mjs' { export const impactQuick: unknown; }
 declare module '*/gateway/planners/review-packet.mjs' { export const reviewPacket: unknown; }
 declare module '*/gateway/planners/work-continue.mjs' { export const workContinue: unknown; }

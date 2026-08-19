@@ -68,6 +68,18 @@ test('goal CLI uses durable active-workspace state from outside a repository', a
   assert.equal(listed.data.activeGoalId, created.data.goal.id);
   assert.equal(listed.effects.stateChanged, false);
 
+  const governed = JSON.parse(cli([
+    'goal', 'govern', created.data.goal.id, '--json'
+  ], env, base));
+  assert.equal(governed.operation.id, 'goal.govern');
+  assert.match(governed.data.goal.id, /^GEX-/);
+  assert.equal(governed.data.authority, 'governed-execution');
+  assert.equal(governed.data.contract.source.personalGoalId, created.data.goal.id);
+  const governedList = JSON.parse(cli(['goal', 'list', '--mode', 'governed', '--json'], env, base));
+  assert.equal(governedList.data.goals.length, 1);
+  const inspected = JSON.parse(cli(['goal', 'inspect', governed.data.goal.id, '--json'], env, base));
+  assert.equal(inspected.data.contract.contractSha256, governed.data.contract.contractSha256);
+
   const completed = JSON.parse(cli([
     'goal', 'complete', created.data.goal.id, '--confirm', created.data.goal.id, '--json'
   ], env, base));

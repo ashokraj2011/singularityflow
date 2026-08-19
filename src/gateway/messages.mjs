@@ -86,6 +86,7 @@ export const RESULT_MESSAGES = Object.freeze({
 
   // ---- Home
   'home.active-work-leads': M('You have work in progress'),
+  'home.governed-goal-active': M('Governed Goal {goal} is {status}'),
   'home.briefing-unavailable': M('The cross-workspace briefing is unavailable', 'Only this workspace was read.'),
   'home.default-order': M('Shown in the standard order'),
   'home.no-workspace-selected': M('No governed workspace or repository is selected. Choose a workspace or open a governed repository.'),
@@ -223,6 +224,10 @@ export const RESULT_MESSAGES = Object.freeze({
   'ast.bounded-structural-evidence': M(
     'Bounded structural evidence',
     'This read reports structural facts from the selected repository cone without returning source bodies or changing repository state.'
+  ),
+  'goal.durable-execution': M(
+    'From the governed Goal lifecycle branch',
+    'The contract, plan, approval, and state were reconstructed from the exact GEX revision.'
   )
 });
 

@@ -79,6 +79,7 @@ export const KERNEL_CODES = Object.freeze([
 /** The home planner: what leads, why it leads, and when nothing does. */
 export const HOME_CODES = Object.freeze([
   'home.active-work-leads',
+  'home.governed-goal-active',
   'home.briefing-unavailable',
   'home.default-order',
   'home.no-workspace-selected',
@@ -237,7 +238,8 @@ export const SURFACE_CODES = Object.freeze([
   'publication.pending',
   'publication.marker-unreadable',
   'mcp.evidence-observation-required',
-  'ast.bounded-structural-evidence'
+  'ast.bounded-structural-evidence',
+  'goal.durable-execution'
 ]);
 
 /** Every code, in one frozen set, which is the thing a surface actually needs. */

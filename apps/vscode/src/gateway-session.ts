@@ -26,6 +26,10 @@ import {
   astContextPlanner, astQueryPlanner, astStatusPlanner
 } from '../../../src/gateway/planners/ast-intelligence.mjs';
 import { developerNext } from '../../../src/gateway/planners/developer-next.mjs';
+import {
+  governedGoalImpactPlanner, governedGoalInspectPlanner, governedGoalNextPlanner,
+  governedGoalTracePlanner
+} from '../../../src/gateway/planners/governed-goal.mjs';
 import { homeOverview } from '../../../src/gateway/planners/home-overview.mjs';
 import { impactQuick } from '../../../src/gateway/planners/impact-quick.mjs';
 import { reviewPacket } from '../../../src/gateway/planners/review-packet.mjs';
@@ -47,6 +51,10 @@ export function editorPlanners(): Map<string, unknown> {
     ['ast-query', astQueryPlanner],
     ['ast-status', astStatusPlanner],
     ['developer-next', developerNext],
+    ['goal-inspect', governedGoalInspectPlanner],
+    ['goal-impact', governedGoalImpactPlanner],
+    ['goal-next', governedGoalNextPlanner],
+    ['goal-trace', governedGoalTracePlanner],
     ['home-overview', homeOverview],
     ['work-list', workList],
     ['work-continue', workContinue],
@@ -84,6 +92,7 @@ let sessionRoot: string | null = null;
 let sessionWorkspaceId: string | null = null;
 let sessionWorkspaceName: string | null = null;
 let sessionRepositoryId: string | null = null;
+let sessionLeadRepositoryPath: string | null = null;
 let sessionBootstrapId: string | null = null;
 
 /**
@@ -99,6 +108,7 @@ export type ActiveRepositoryContext = {
   readonly workspaceId: string | null;
   readonly workspaceName: string | null;
   readonly repositoryId: string | null;
+  readonly leadRepositoryPath?: string | null;
   readonly origin: string;
 };
 
@@ -108,6 +118,7 @@ export type GatewayRepositoryContext = {
   readonly workspaceId: string | null;
   readonly workspaceName: string | null;
   readonly repositoryId: string | null;
+  readonly leadRepositoryPath?: string | null;
   readonly origin: string;
   readonly bootstrap?: any;
 };
@@ -153,10 +164,11 @@ export function provideHomeLens(provider: () => string): void {
 }
 
 export function gatewaySession(context: GatewayRepositoryContext): GatewaySession {
-  const { root, workspaceId, workspaceName, repositoryId, bootstrap = null } = context;
+  const { root, workspaceId, workspaceName, repositoryId, leadRepositoryPath = root, bootstrap = null } = context;
   const bootstrapId = bootstrap?.bootstrapId ?? null;
   if (session && sessionRoot === root && sessionWorkspaceId === workspaceId
     && sessionWorkspaceName === workspaceName && sessionRepositoryId === repositoryId
+    && sessionLeadRepositoryPath === leadRepositoryPath
     && sessionBootstrapId === bootstrapId) return session;
   const host = createHostGateway({
     root,
@@ -180,6 +192,7 @@ export function gatewaySession(context: GatewayRepositoryContext): GatewaySessio
       acknowledgedAt: acknowledgedAtProvider(),
       lens: homeLensProvider(),
       repositoryId: repositoryId ?? root,
+      leadRepositoryPath,
       bootstrap,
       ...(workspaceId ? {
         workspace: { id: workspaceId, name: workspaceName ?? workspaceId },
@@ -200,6 +213,7 @@ export function gatewaySession(context: GatewayRepositoryContext): GatewaySessio
   sessionWorkspaceId = workspaceId;
   sessionWorkspaceName = workspaceName;
   sessionRepositoryId = repositoryId;
+  sessionLeadRepositoryPath = leadRepositoryPath;
   sessionBootstrapId = bootstrapId;
   return session;
 }
@@ -209,7 +223,8 @@ export function setActiveRepositoryContext(next: ActiveRepositoryContext | null)
   const changed = activeContext?.root !== next?.root
     || activeContext?.workspaceId !== next?.workspaceId
     || activeContext?.workspaceName !== next?.workspaceName
-    || activeContext?.repositoryId !== next?.repositoryId;
+    || activeContext?.repositoryId !== next?.repositoryId
+    || activeContext?.leadRepositoryPath !== next?.leadRepositoryPath;
   activeContext = next ? Object.freeze({ ...next }) : null;
   if (changed) resetGatewaySession();
 }
@@ -226,5 +241,6 @@ export function resetGatewaySession(): void {
   sessionWorkspaceId = null;
   sessionWorkspaceName = null;
   sessionRepositoryId = null;
+  sessionLeadRepositoryPath = null;
   sessionBootstrapId = null;
 }

@@ -43,6 +43,7 @@ const SECTION_META: Record<SidebarSection, {
   inbox: {
     label: 'Inbox', icon: 'inbox', actions: [
       { id: 'inbox-open', label: 'Open inbox', icon: 'inbox' },
+      { id: 'fault-repairs', label: 'Faults & Repairs', icon: 'warning' },
       // Approvals were reachable only from the command palette, which is where a reader looks last.
       // The inbox is where "what is waiting on me" already lives, so the decision screen belongs
       // beside it rather than one search away.
@@ -60,7 +61,8 @@ const SECTION_META: Record<SidebarSection, {
   workspaces: {
     label: 'Workspaces', icon: 'workspace', actions: [
       { id: 'workspace-create', label: 'Create workspace', icon: 'workspaceAdd' },
-      { id: 'workspace-manage', label: 'Manage workspaces', icon: 'workspaceManage' }
+      { id: 'workspace-manage', label: 'Manage workspaces', icon: 'workspaceManage' },
+      { id: 'local-reset', label: 'Local Data & Reset', icon: 'remove' }
     ],
     empty: {
       text: 'No workspace is selected. A workspace points at the governed repository whose lifecycle you want to see.',
@@ -70,6 +72,7 @@ const SECTION_META: Record<SidebarSection, {
   lifecycle: {
     label: 'Lifecycle', icon: 'workflow', actions: [
       { id: 'work-start', label: 'Start intake', icon: 'start' },
+      { id: 'goals', label: 'Goals', icon: 'impact' },
       // A form with no entry point is unreachable, which is the same "declared, never consumed"
       // state the gateway itself was in. Lifecycle, because "what does this change touch" is a
       // question about work in flight.
@@ -128,6 +131,8 @@ const SECTION_META: Record<SidebarSection, {
   help: {
     label: 'Help', icon: 'help', actions: [
       { id: 'help-open', label: 'Open Help Center', icon: 'search' },
+      { id: 'journal', label: 'Local Journal', icon: 'book' },
+      { id: 'diagnostics', label: 'Diagnostics & Schema Health', icon: 'statusCurrent' },
       // "What did it actually do, and what was sent to the model" is a Help question, not a
       // Configuration one. The prompt audit was reachable only from Configuration, where nobody
       // asking that question would look, and the activity log was not reachable at all.
@@ -170,16 +175,21 @@ const ACTION_COMMANDS: Record<string, string> = {
   'my-work': 'singularityFlow.myWork',
   'workspace-create': 'singularityFlow.createWorkspace',
   'workspace-manage': 'singularityFlow.openWorkspaces',
+  'local-reset': 'singularityFlow.openLocalReset',
   'work-start': 'singularityFlow.startWork',
+  goals: 'singularityFlow.openGoals',
   'impact-form': 'singularityFlow.impactForm',
   refresh: 'singularityFlow.refresh',
   'inbox-open': 'singularityFlow.openInbox',
+  'fault-repairs': 'singularityFlow.openFaultRepairs',
   'capability-map': 'singularityFlow.mapCapability',
   'workflow-design': 'singularityFlow.openDesigner',
   'instruction-design': 'singularityFlow.openInstructionDesigner',
   'prompt-audit': 'singularityFlow.openPromptAudit',
   'visual-assurance': 'singularityFlow.openVisualAssurance',
   'help-open': 'singularityFlow.openHelp',
+  journal: 'singularityFlow.openJournal',
+  diagnostics: 'singularityFlow.openDiagnostics',
   'activity-log': 'singularityFlow.openActivityLog',
   'logs-open': 'singularityFlow.openWorkspaceLogs',
   'logs-refresh': 'singularityFlow.refreshWorkspaceLogs',
@@ -210,6 +220,11 @@ export const FAVORITE_MENUS: readonly FavoriteMenu[] = Object.freeze([
   { id: 'inbox-open', label: 'Inbox', description: 'work waiting on you', icon: 'inbox', command: ACTION_COMMANDS['inbox-open']! },
   { id: 'approvals-open', label: 'Approvals', description: 'governed decisions', icon: 'approval', command: ACTION_COMMANDS['approvals-open']! },
   { id: 'workspace-manage', label: 'Workspaces', description: 'choose and manage workspaces', icon: 'workspace', command: ACTION_COMMANDS['workspace-manage']! },
+  { id: 'goals', label: 'Goals', description: 'outcomes linked to governed work', icon: 'impact', command: ACTION_COMMANDS.goals! },
+  { id: 'fault-repairs', label: 'Faults & Repairs', description: 'diagnose and recover safely', icon: 'warning', command: ACTION_COMMANDS['fault-repairs']! },
+  { id: 'journal', label: 'Local Journal', description: 'private local work history', icon: 'book', command: ACTION_COMMANDS.journal! },
+  { id: 'diagnostics', label: 'Diagnostics', description: 'repository and schema health', icon: 'statusCurrent', command: ACTION_COMMANDS.diagnostics! },
+  { id: 'local-reset', label: 'Local Data & Reset', description: 'preview local cleanup', icon: 'remove', command: ACTION_COMMANDS['local-reset']! },
   { id: 'configuration-center', label: 'Configuration Center', description: 'governed product configuration', icon: 'configuration', command: ACTION_COMMANDS['configuration-center']! },
   { id: 'capability-map', label: 'Map a capability', description: 'capability ownership and repositories', icon: 'capability', command: ACTION_COMMANDS['capability-map']! },
   { id: 'visual-assurance', label: 'Visual assurance', description: 'design and comparison evidence', icon: 'visual', command: ACTION_COMMANDS['visual-assurance']! },

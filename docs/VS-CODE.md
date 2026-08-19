@@ -44,6 +44,33 @@ Favorites answers **where are the menus I use every day?**
 Favorites are stored in VS Code global state for this installation. They are personal navigation
 preferences, not governed workflow state, and are never committed or pushed.
 
+### Operational surfaces
+
+The Navigator keeps related work together instead of adding a second dashboard hierarchy:
+
+- **Goals** is under Lifecycle. Create a Goal with observable success criteria, inspect it, make it
+  active, link or unlink explicitly selected governed work, and complete or abandon it with an
+  exact Goal-ID confirmation.
+- **Faults & Repairs** is under Inbox. The Faults and Repairs tabs expose redacted fault intake,
+  diagnosis, repair-plan preview, hash-bound authorization, patch attempts, cancellation, and
+  bounded history. Verification input is accepted only as structured argument arrays; the
+  extension never executes a returned command string.
+- **Local Journal** is available from My Work and Help. It shows Today and history, controls local
+  capture and retention, previews exports, and requires date-bound confirmation for deletion. Its
+  records are machine-local context, never governance evidence.
+- **Diagnostics** is under Help. Repository, capability, workspace-reliability, and Schema Health
+  tabs render the corresponding CLI census. Future, unreadable, unregistered, or archived schema
+  records include the exact documented upgrade or archival remedy rather than being silently rewritten.
+- **Local Data & Reset** is under Workspaces. Neither reset mode is preselected. Forget-only
+  requires `FORGET LOCAL`; physical workspace deletion requires `RESET LOCAL` and is available
+  only from an empty VS Code window with no target workspace open.
+
+Every destination can be pinned in Favorites. Personas change initial ordering and suggested
+favorites only; they never hide a surface or grant mutation authority. After a mutation the
+extension re-reads the CLI result, invalidates stale sessions and handles, and refreshes affected
+views. Switching workspaces similarly invalidates any panel result produced for the previous
+workspace.
+
 ### Workspaces
 
 Workspaces answers **where am I working?**

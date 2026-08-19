@@ -37,15 +37,15 @@ test('menu personas are complete, stable, and navigation-only', () => {
 
 test('each principal persona receives relevant first-use menu suggestions', () => {
   assert.deepEqual(resolveProfilePersona('developer').menuIds,
-    ['my-work', 'work-start', 'impact-form', 'logs-open', 'capability-map']);
+    ['my-work', 'work-start', 'journal', 'diagnostics', 'logs-open', 'capability-map']);
   assert.deepEqual(resolveProfilePersona('architect').menuIds,
     ['my-work', 'impact-form', 'flow-impact', 'configuration-center', 'capability-map']);
   assert.deepEqual(resolveProfilePersona('qa').menuIds,
-    ['my-work', 'inbox-open', 'visual-assurance', 'approvals-open', 'capability-map']);
+    ['my-work', 'fault-repairs', 'inbox-open', 'visual-assurance', 'approvals-open', 'capability-map']);
   assert.deepEqual(resolveProfilePersona('admin').menuIds,
-    ['workspace-manage', 'configuration-center', 'capability-map', 'logs-open']);
+    ['workspace-manage', 'local-reset', 'configuration-center', 'capability-map', 'diagnostics']);
   assert.deepEqual(resolveProfilePersona('product-owner').menuIds,
-    ['my-work', 'work-start', 'inbox-open', 'approvals-open', 'capability-map']);
+    ['my-work', 'goals', 'work-start', 'inbox-open', 'approvals-open', 'capability-map']);
 });
 
 test('the public VS Code setting and command palette expose every menu persona', async () => {

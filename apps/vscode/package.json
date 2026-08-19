@@ -491,6 +491,31 @@
         "icon": "$(pulse)"
       },
       {
+        "command": "singularityFlow.openGoals",
+        "title": "Singularity Flow: Goals",
+        "icon": "$(target)"
+      },
+      {
+        "command": "singularityFlow.openFaultRepairs",
+        "title": "Singularity Flow: Faults & Repairs",
+        "icon": "$(tools)"
+      },
+      {
+        "command": "singularityFlow.openJournal",
+        "title": "Singularity Flow: Local Journal",
+        "icon": "$(book)"
+      },
+      {
+        "command": "singularityFlow.openDiagnostics",
+        "title": "Singularity Flow: Diagnostics & Schema Health",
+        "icon": "$(pulse)"
+      },
+      {
+        "command": "singularityFlow.openLocalReset",
+        "title": "Singularity Flow: Local Data & Reset",
+        "icon": "$(trash)"
+      },
+      {
         "command": "singularityFlow.addCapability",
         "title": "Singularity Flow: Add a Capability",
         "icon": "$(add)"

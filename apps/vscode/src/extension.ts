@@ -58,7 +58,7 @@ import {
 } from './views/home-acknowledgement.ts';
 import {
   activeRepositoryContext, gatewaySession, provideAcknowledgedAt, provideHomeLens,
-  setActiveRepositoryContext, type ActiveRepositoryContext, type GatewayRepositoryContext
+  resetGatewaySession, setActiveRepositoryContext, type ActiveRepositoryContext, type GatewayRepositoryContext
 } from './gateway-session.ts';
 import { primaryAction } from '../../../src/gateway/result.mjs';
 import { planDeveloperConversation } from '../../../src/gateway/conversation.mjs';
@@ -624,6 +624,7 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
     'singularityFlow.openCapabilities', 'singularityFlow.openImpact', 'singularityFlow.openFlowImpact', 'singularityFlow.openStories',
     'singularityFlow.openApprovals', 'singularityFlow.openInbox', 'singularityFlow.startWork',
     'singularityFlow.openDeveloperHome',
+    'singularityFlow.openGoals', 'singularityFlow.openFaultRepairs', 'singularityFlow.openJournal',
     'singularityFlow.attachEvidence', 'singularityFlow.manageEvidence',
     'singularityFlow.detachEvidence', 'singularityFlow.addSource',
     'singularityFlow.refresh', 'singularityFlow.openArtifact', 'singularityFlow.runAction',
@@ -1541,44 +1542,46 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
   // so commands/context menus are derived from the same registry revision as Lifecycle).
   await refreshWorkspaceTree();
 
-  /** Diagnostics, as the CLI reports them. */
-  context.subscriptions.push(vscode.commands.registerCommand('singularityFlow.doctor', async () => {
+  /**
+   * Repository-independent panel clients. Their working directory is updated from the shared
+   * active-workspace resolver at invocation time; local-reset deliberately stays outside every
+   * managed workspace so destructive mode cannot accidentally run from inside a target.
+   */
+  const surfaceSettings = vscode.workspace.getConfiguration('singularityFlow');
+  const surfaceLocation = resolveCli({
+    configuredCli: surfaceSettings.get<string>('cliPath'),
+    configuredNode: surfaceSettings.get<string>('nodePath'),
+    extensionPath: context.extensionPath
+  });
+  const diagnosticClient = new SingularityFlowClient({
+    location: surfaceLocation, repository: os.tmpdir(), environment: cliEnvironment,
+    onOutput: (text) => output.append(text)
+  });
+  let diagnosticHasRepository = false;
+  const openDiagnostics = async (): Promise<void> => {
     try {
-      // Diagnostics follow the same repository resolver as Lifecycle, Inbox, and Configuration.
-      // Requiring an open editor folder here made a selected workspace appear healthy everywhere
-      // except its own "Run diagnostics" recovery action.
       const target = await resolveGovernedRepository(context, output);
-      if ('reason' in target) {
-        return void vscode.window.showWarningMessage(`Singularity Flow: ${target.reason}`);
-      }
-      const diagnosticSettings = vscode.workspace.getConfiguration('singularityFlow');
-      const client = new SingularityFlowClient({
-        // Diagnostics must use the same configured runtime as Lifecycle. Otherwise a corporate
-        // CLI override can make the product work while "Run diagnostics" executes the bundled
-        // copy and reports unrelated results.
-        location: resolveCli({
-          configuredCli: diagnosticSettings.get<string>('cliPath'),
-          configuredNode: diagnosticSettings.get<string>('nodePath'),
-          extensionPath: context.extensionPath
-        }),
-        repository: target.repository,
-        environment: cliEnvironment,
-        onOutput: (text) => output.append(text)
-      });
-      const [repositoryReport, capabilityReport] = await vscode.window.withProgress(
-        { location: vscode.ProgressLocation.Notification, title: 'Running Singularity Flow diagnostics' },
-        () => Promise.all([
-          client.runText(['doctor', '--offline']),
-          client.runText(['capabilities', 'doctor', '--offline'])
-            .catch((error) => `Capability diagnostics unavailable: ${(error as Error).message}`)
-        ])
-      );
-      const report = `${repositoryReport.trim()}\n\nCAPABILITY AND STATE DIAGNOSTICS\n${capabilityReport.trim()}\n`;
-      const document = await vscode.workspace.openTextDocument({ content: report, language: 'plaintext' });
-      await vscode.window.showTextDocument(document, { preview: true });
+      diagnosticHasRepository = !('reason' in target);
+      if (diagnosticHasRepository && 'repository' in target) diagnosticClient.useRepository(target.repository);
+      else diagnosticClient.useRepository(os.tmpdir());
+      const { DiagnosticsPanel } = await import('./views/diagnostics.ts');
+      DiagnosticsPanel.show(context, diagnosticClient, () => diagnosticHasRepository);
     } catch (error) {
-      showRefusal(error);
+      showRefusal(error, { headline: 'Could not open Diagnostics' });
     }
+  };
+  context.subscriptions.push(vscode.commands.registerCommand('singularityFlow.openDiagnostics', openDiagnostics));
+  context.subscriptions.push(vscode.commands.registerCommand('singularityFlow.doctor', openDiagnostics));
+
+  const resetClient = new SingularityFlowClient({
+    location: surfaceLocation, repository: os.tmpdir(), environment: cliEnvironment,
+    onOutput: (text) => output.append(text)
+  });
+  context.subscriptions.push(vscode.commands.registerCommand('singularityFlow.openLocalReset', async () => {
+    try {
+      const { LocalResetPanel } = await import('./views/local-reset.ts');
+      LocalResetPanel.show(context, resetClient);
+    } catch (error) { showRefusal(error, { headline: 'Could not open Local Data & Reset' }); }
   }));
 
   // Offered from the uninitialized state, so a folder that is not yet a Flow repository can become
@@ -2137,6 +2140,12 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
     });
     readiness = {};
     await store.refresh();
+    diagnosticHasRepository = true;
+    diagnosticClient.useRepository(target);
+    const [{ GoalsPanel }, { FaultRepairsPanel }, { JournalPanel }, { DiagnosticsPanel }] = await Promise.all([
+      import('./views/goals.ts'), import('./views/fault-repairs.ts'), import('./views/journal.ts'), import('./views/diagnostics.ts')
+    ]);
+    GoalsPanel.repositoryChanged(); FaultRepairsPanel.repositoryChanged(); JournalPanel.repositoryChanged(); DiagnosticsPanel.refreshCurrent();
     void refreshReadiness();
     void refreshWorkspaceLogsTree();
     output.appendLine(`Governed repository: ${repository} (the lead repository of your active workspace, ${selected.workspaceName})`);
@@ -2969,6 +2978,13 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
 
   // The commands themselves were registered at activation; this is what they do once there is a
   // repository to do it against.
+  const refreshAfterSurfaceMutation = async (): Promise<void> => {
+    const refreshHome = lastHome !== null;
+    resetGatewaySession(); lastHome = null;
+    await store.refresh();
+    if (refreshHome) await vscode.commands.executeCommand('singularityFlow.myWork');
+  };
+
   const registered: Record<string, (...args: never[]) => unknown> = {
     'singularityFlow.openCapabilities':
       async () => {
@@ -3243,6 +3259,23 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
     'singularityFlow.openActivityLog': async () => {
       const { WorkspaceLogsPanel } = await import('./views/workspace-logs.ts');
       return WorkspaceLogsPanel.show(context, client, 'activity');
+    },
+    'singularityFlow.openGoals': async () => {
+      const { GoalsPanel } = await import('./views/goals.ts');
+      return GoalsPanel.show(context, client, () => [
+        ...(store.current.snapshot?.workItems ?? []).map((item) => ({ ...item, kind: 'story' as const })),
+        ...(store.current.snapshot?.initiatives ?? []).map((item) => ({ ...item, kind: 'initiative' as const }))
+      ], refreshAfterSurfaceMutation);
+    },
+    'singularityFlow.openFaultRepairs': async () => {
+      const { FaultRepairsPanel } = await import('./views/fault-repairs.ts');
+      return FaultRepairsPanel.show(context, client, async () => {
+        await refreshAfterSurfaceMutation(); void refreshWorkspaceLogsTree();
+      });
+    },
+    'singularityFlow.openJournal': async () => {
+      const { JournalPanel } = await import('./views/journal.ts');
+      return JournalPanel.show(context, client, refreshAfterSurfaceMutation);
     },
     'singularityFlow.openSpecificationTrace': async () => {
       const { SpecificationTracePanel } = await import('./views/specification-trace.ts');

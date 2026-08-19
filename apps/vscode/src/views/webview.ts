@@ -722,6 +722,7 @@ export const NAV_DESTINATIONS = Object.freeze({
   approvals: 'Approvals',
   configuration: 'Configuration',
   doctor: 'Diagnostics',
+  journal: 'Local Journal',
   help: 'Help'
 });
 
@@ -737,7 +738,8 @@ export const NAV_COMMANDS: Readonly<Record<NavDestination, string>> = Object.fre
   journey: 'singularityFlow.openJourney',
   approvals: 'singularityFlow.openApprovals',
   configuration: 'singularityFlow.openConfigurationCenter',
-  doctor: 'singularityFlow.doctor',
+  doctor: 'singularityFlow.openDiagnostics',
+  journal: 'singularityFlow.openJournal',
   help: 'singularityFlow.openHelp'
 });
 

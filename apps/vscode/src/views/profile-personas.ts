@@ -38,7 +38,7 @@ function personaMenus(...menuIds: string[]): readonly string[] {
 export const PROFILE_PERSONAS: readonly ProfilePersona[] = Object.freeze([
   {
     id: 'product-owner', label: 'Product owner', description: 'outcomes, intake, and decisions',
-    menuIds: personaMenus('my-work', 'work-start', 'inbox-open', 'approvals-open'),
+    menuIds: personaMenus('my-work', 'goals', 'work-start', 'inbox-open', 'approvals-open'),
     sectionOrder: ['favorites', 'inbox', 'lifecycle', 'workspaces', 'configuration', 'help', 'logs']
   },
   {
@@ -58,12 +58,12 @@ export const PROFILE_PERSONAS: readonly ProfilePersona[] = Object.freeze([
   },
   {
     id: 'developer', label: 'Developer', description: 'current work, change impact, and diagnostics',
-    menuIds: personaMenus('my-work', 'work-start', 'impact-form', 'logs-open'),
+    menuIds: personaMenus('my-work', 'work-start', 'journal', 'diagnostics', 'logs-open'),
     sectionOrder: ['favorites', 'lifecycle', 'inbox', 'workspaces', 'logs', 'help', 'configuration']
   },
   {
     id: 'qa', label: 'QA', description: 'verification, evidence, and decisions',
-    menuIds: personaMenus('my-work', 'inbox-open', 'visual-assurance', 'approvals-open'),
+    menuIds: personaMenus('my-work', 'fault-repairs', 'inbox-open', 'visual-assurance', 'approvals-open'),
     sectionOrder: ['favorites', 'inbox', 'lifecycle', 'logs', 'workspaces', 'help', 'configuration']
   },
   {
@@ -78,12 +78,12 @@ export const PROFILE_PERSONAS: readonly ProfilePersona[] = Object.freeze([
   },
   {
     id: 'operations', label: 'Operations', description: 'workspaces, runtime impact, and logs',
-    menuIds: personaMenus('my-work', 'workspace-manage', 'logs-open', 'impact-form'),
+    menuIds: personaMenus('my-work', 'workspace-manage', 'diagnostics', 'logs-open', 'impact-form'),
     sectionOrder: ['favorites', 'workspaces', 'logs', 'lifecycle', 'inbox', 'configuration', 'help']
   },
   {
     id: 'admin', label: 'Admin', description: 'workspace and product configuration',
-    menuIds: personaMenus('workspace-manage', 'configuration-center', 'capability-map', 'logs-open'),
+    menuIds: personaMenus('workspace-manage', 'local-reset', 'configuration-center', 'capability-map', 'diagnostics'),
     sectionOrder: ['favorites', 'workspaces', 'configuration', 'logs', 'help', 'inbox', 'lifecycle']
   },
   {

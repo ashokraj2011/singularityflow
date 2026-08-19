@@ -58,7 +58,15 @@ function fixtureBody(theme: VisualTheme): string {
   </section>
   <section><h2>${icon('artifact')}Artifact inventory</h2><table><thead><tr><th>Artifact</th><th>Status</th><th>Owner</th></tr></thead>
     <tbody><tr><td>${icon('document')}Requirements specification</td><td><span class="pill ok">${icon('success')}Approved</span></td><td>Product owner</td></tr>
-    <tr><td>${icon('document')}Implementation specification</td><td><span class="pill bad">${icon('blocked')}Blocked</span></td><td>Architect</td></tr></tbody></table></section>`;
+    <tr><td>${icon('document')}Implementation specification</td><td><span class="pill bad">${icon('blocked')}Blocked</span></td><td>Architect</td></tr></tbody></table></section>
+  <section><p class="eyebrow">Surface parity review</p><h2>${icon('impact')}Goals, recovery, and local controls</h2>
+    <nav class="tabs" aria-label="Diagnostic scopes"><button class="active">Repository</button><button>Capabilities</button><button>Workspace Reliability</button><button>Schema Health</button></nav>
+    <div class="summary-grid"><div class="summary-card important"><strong>1</strong><span>future-version record</span></div><div class="summary-card"><strong>4</strong><span>record families</span></div><div class="summary-card"><strong>128</strong><span>records scanned</span></div></div>
+    <div class="split-layout"><article class="fixture-task card"><h3>${icon('impact')}Goal · GOAL-17</h3><p>Reduce checkout recovery time.</p><ul><li>p95 recovery under two minutes</li><li>Every repair has a review receipt</li></ul><button>Open Goal</button></article>
+      <article class="fixture-task card"><h3>${icon('warning')}Fault · FLT-42</h3><p>Verification failed. Raw evidence remains outside this view.</p><p><code>[&quot;npm&quot;,&quot;test&quot;]</code></p><button>Open details &amp; recovery</button></article></div>
+    <div class="table-wrap"><table><thead><tr><th>Family</th><th>Versions found</th><th>Readable</th><th>Current</th></tr></thead><tbody><tr><td>Story state</td><td>2: 12, 3: 84</td><td>2–3</td><td>3</td></tr><tr><td>Repair plan</td><td>1: 4</td><td>1–1</td><td>1</td></tr></tbody></table></div>
+    <h3>Local Data &amp; Reset</h3><div class="split-layout"><article class="fixture-task card"><h4>Forget local registrations</h4><p>Workspace directories, repository bytes, branches, and dirty files are preserved.</p><button>Preview forget-only</button></article><article class="fixture-task card warning"><h4>Delete workspace directories</h4><p>Available only from an empty VS Code window. Nothing is preselected.</p><button class="secondary">Preview destructive reset</button></article></div>
+  </section>`;
 }
 
 /** A standalone, offline page that can be opened in any browser for deterministic visual review. */

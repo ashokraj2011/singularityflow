@@ -106,7 +106,7 @@ test('a page that names itself does not link to itself', async () => {
   assert.doesNotMatch(journey, /data-nav="journey"/);
   // And a page that is none of the five destinations offers all of them.
   const anonymous = footerNav(null);
-  for (const destination of ['journey', 'approvals', 'configuration', 'doctor', 'help']) {
+  for (const destination of ['journey', 'approvals', 'configuration', 'doctor', 'journal', 'help']) {
     assert.match(anonymous, new RegExp(`data-nav="${destination}"`));
   }
 });

@@ -66,6 +66,20 @@ export function commandClass(args: string[]): 'read' | 'mutation' | 'unknown' {
     return 'mutation';
   }
   if (args[0] === 'visual') return (args[1] ?? 'status') === 'status' ? 'read' : 'mutation';
+  if (args[0] === 'capabilities' && args[1] === 'doctor') return 'read';
+  if (args[0] === 'workspace' && ['current', 'list', 'status', 'doctor', 'branches'].includes(args[1] ?? 'list')) return 'read';
+  if (args[0] === 'goal') return ['list', 'show', 'status', 'next'].includes(args[1] ?? 'list') ? 'read' : 'mutation';
+  if (args[0] === 'fault') return (args[1] ?? 'list') === 'report' ? 'mutation' : 'read';
+  if (args[0] === 'fix') return hasOption(args, 'plan-only') ? 'read' : 'mutation';
+  if (args[0] === 'repair') return ['list', 'show', 'status', 'history'].includes(args[1] ?? 'list') ? 'read' : 'mutation';
+  if (args[0] === 'journal') {
+    const action = args[1] ?? 'today';
+    if (['today', 'doctor'].includes(action)) return 'read';
+    if (action === 'settings' && args.length <= 3) return 'read';
+    if (action === 'export' && hasOption(args, 'dry-run')) return 'read';
+    return 'mutation';
+  }
+  if (args[0] === 'local-reset') return hasOption(args, 'dry-run') ? 'read' : 'mutation';
   return READ_ONLY_COMMANDS.has(args[0]) ? 'read' : 'mutation';
 }
 
@@ -232,6 +246,11 @@ export class SingularityFlowClient {
 
   private timeoutFor(args: string[]): number {
     if (args[0] === 'submit') return VALIDATION_TIMEOUT_MS;
+    if (args[0] === 'repair' && args[1] === 'attempt') return VALIDATION_TIMEOUT_MS;
+    // Validated workspace deletion can move large monorepo checkouts into rollback staging before
+    // it commits the reset. The ordinary two-minute UI timeout must not kill that transaction in
+    // the middle; the CLI still owns rollback and the panel remains non-shelling.
+    if (args[0] === 'local-reset') return CAPABILITY_AUTHORITY_TIMEOUT_MS;
     if (args[0] === 'capability' && REMOTE_CAPABILITY_OPERATIONS.has(args[1] ?? '')) {
       return CAPABILITY_AUTHORITY_TIMEOUT_MS;
     }

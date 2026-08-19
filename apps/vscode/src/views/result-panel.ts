@@ -95,6 +95,7 @@ function render(target: vscode.WebviewPanel, view: ResultCardView, note: string 
   const contextNavigation = `<nav class="sf-result-nav" aria-label="Result navigation">
     ${history.length ? '<button type="button" data-result-nav="back">← Back</button>' : ''}
     ${isHome ? '<span aria-current="page">My Work</span>' : '<button type="button" data-result-nav="home">My Work</button>'}
+    <button type="button" data-result-nav="journal">Local Journal</button>
   </nav>`;
   const body = `<style nonce="${token}">${RESULT_CARD_STYLE}
 .sf-fidelity { margin: 12px 2px 0; color: var(--vscode-descriptionForeground); font-size: .92em; }
@@ -160,6 +161,8 @@ export function showResultCard(view: ResultCardView,
         render(panel, current, currentNote);
       },
       'result.home': () => { void vscode.commands.executeCommand('singularityFlow.myWork'); },
+      'result.journal': () => { void vscode.commands.executeCommand('singularityFlow.openJournal'); },
+      'result.faults': () => { void vscode.commands.executeCommand('singularityFlow.openFaultRepairs'); },
       'home.request': (message) => {
         const request = stringField(message, 'request')?.trim() ?? '';
         if (!current?.home || !request || request.length > 300) return;

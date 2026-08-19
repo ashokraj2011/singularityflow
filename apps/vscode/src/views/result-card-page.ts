@@ -348,7 +348,7 @@ function faultsHtml(view: ResultCardView): string {
     <article class="sf-fault">
       <span class="sf-fault-badge">${escape(fault.severity)}</span>
       <span class="sf-fault-title">${escape(fault.faultId)} · ${escape(fault.type)}${fault.repairId ? ` · ${escape(fault.repairId)}` : ''}</span>
-      <span class="sf-fault-summary">${escape(fault.summary)}</span>
+      <span class="sf-fault-summary">${escape(fault.summary)} <button class="link" type="button" data-result-nav="faults">Open details & recovery</button></span>
     </article>`).join('')}</section>`;
 }
 
@@ -532,7 +532,8 @@ document.addEventListener('submit', (event) => {
 document.addEventListener('click', (event) => {
   const navigation = event.target instanceof Element ? event.target.closest('[data-result-nav]') : null;
   if (navigation) {
-    vscode.postMessage({ type: navigation.getAttribute('data-result-nav') === 'back' ? 'result.back' : 'result.home' });
+    const destination = navigation.getAttribute('data-result-nav');
+    vscode.postMessage({ type: destination === 'back' ? 'result.back' : destination === 'journal' ? 'result.journal' : destination === 'faults' ? 'result.faults' : 'result.home' });
     return;
   }
   const button = event.target instanceof Element ? event.target.closest('[data-action-id]') : null;

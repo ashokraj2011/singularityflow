@@ -1015,7 +1015,8 @@ test('every shared screen destination is connected through a real webview messag
     journey: 'singularityFlow.openJourney',
     approvals: 'singularityFlow.openApprovals',
     configuration: 'singularityFlow.openConfigurationCenter',
-    doctor: 'singularityFlow.doctor',
+    doctor: 'singularityFlow.openDiagnostics',
+    journal: 'singularityFlow.openJournal',
     help: 'singularityFlow.openHelp'
   };
   for (const [to, command] of Object.entries(destinations)) {
@@ -2860,11 +2861,12 @@ test('the first explicit workspace selection loads Lifecycle in the same window'
   await initializeDefinition(chosen.openPath);
   await registered.commands.get('singularityFlow.doctor')();
   assert.deepEqual(registered.errors, [], `diagnostics refusal: ${registered.errors.join(' | ')}`);
-  const report = registered.openedDocuments
-    .find((document) => typeof document?.content === 'string'
-      && document.content.includes('CAPABILITY AND STATE DIAGNOSTICS'));
+  const report = await until(() => {
+    const panel = registered.panels.find((entry) => entry.id === 'singularityFlow.diagnostics');
+    return panel?.webview.html.includes('Schema Health') ? panel : null;
+  });
   assert.ok(report, `diagnostics did not open; warnings: ${registered.warnings.join(' | ')}; output: ${registered.output.join(' | ')}`);
-  assert.match(report.content, /CAPABILITY AND STATE DIAGNOSTICS/);
+  assert.match(report.webview.html, /Schema Health/);
   assert.equal(registered.warnings.some((message) => /Open a repository first/i.test(message)), false);
 });
 

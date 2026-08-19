@@ -658,7 +658,13 @@
     .workflow-rail { align-items: stretch; }
     .section-actions { flex-direction: column; }
     .help-layout { grid-template-columns: 1fr; }
-    .help-nav { position: static; max-height: 18rem; }
+    /* Stacked, the topic list sits above the article rather than beside it, so a fixed height makes
+       a nested scroll region inside a scrolling page: six of the nine topics end up behind an edge,
+       the row at that edge is sliced through the middle, and nothing indicates there is more. It
+       reads as a broken list rather than a scrollable one. Sized to its content instead, with the
+       shortcuts laid out as a grid so showing all of them costs width rather than height. */
+    .help-nav { position: static; max-height: none; overflow: visible; }
+    .help-shortcuts, .help-all-topics { grid-template-columns: repeat(auto-fill, minmax(12rem, 1fr)); }
     .help-header { position: static; }
   }
 
@@ -747,6 +753,17 @@
     <tr><td><svg class="ico" width="16" height="16" viewBox="0 0 24 24" aria-hidden="true"
     fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><path d="M6 2h8l4 4v16H6zM14 2v5h5M9 12h6M9 16h6"/></svg>Implementation specification</td><td><span class="pill bad"><svg class="ico" width="16" height="16" viewBox="0 0 24 24" aria-hidden="true"
     fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="9"/><path d="m8 8 8 8M16 8l-8 8"/></svg>Blocked</span></td><td>Architect</td></tr></tbody></table></section>
+  <section><p class="eyebrow">Surface parity review</p><h2><svg class="ico" width="16" height="16" viewBox="0 0 24 24" aria-hidden="true"
+    fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="3"/><circle cx="12" cy="12" r="8"/><path d="M12 1v3M12 20v3M1 12h3M20 12h3"/></svg>Goals, recovery, and local controls</h2>
+    <nav class="tabs" aria-label="Diagnostic scopes"><button class="active">Repository</button><button>Capabilities</button><button>Workspace Reliability</button><button>Schema Health</button></nav>
+    <div class="summary-grid"><div class="summary-card important"><strong>1</strong><span>future-version record</span></div><div class="summary-card"><strong>4</strong><span>record families</span></div><div class="summary-card"><strong>128</strong><span>records scanned</span></div></div>
+    <div class="split-layout"><article class="fixture-task card"><h3><svg class="ico" width="16" height="16" viewBox="0 0 24 24" aria-hidden="true"
+    fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="3"/><circle cx="12" cy="12" r="8"/><path d="M12 1v3M12 20v3M1 12h3M20 12h3"/></svg>Goal · GOAL-17</h3><p>Reduce checkout recovery time.</p><ul><li>p95 recovery under two minutes</li><li>Every repair has a review receipt</li></ul><button>Open Goal</button></article>
+      <article class="fixture-task card"><h3><svg class="ico" width="16" height="16" viewBox="0 0 24 24" aria-hidden="true"
+    fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><path d="m12 3 10 18H2z"/><path d="M12 9v5M12 17h.01"/></svg>Fault · FLT-42</h3><p>Verification failed. Raw evidence remains outside this view.</p><p><code>[&quot;npm&quot;,&quot;test&quot;]</code></p><button>Open details &amp; recovery</button></article></div>
+    <div class="table-wrap"><table><thead><tr><th>Family</th><th>Versions found</th><th>Readable</th><th>Current</th></tr></thead><tbody><tr><td>Story state</td><td>2: 12, 3: 84</td><td>2–3</td><td>3</td></tr><tr><td>Repair plan</td><td>1: 4</td><td>1–1</td><td>1</td></tr></tbody></table></div>
+    <h3>Local Data &amp; Reset</h3><div class="split-layout"><article class="fixture-task card"><h4>Forget local registrations</h4><p>Workspace directories, repository bytes, branches, and dirty files are preserved.</p><button>Preview forget-only</button></article><article class="fixture-task card warning"><h4>Delete workspace directories</h4><p>Available only from an empty VS Code window. Nothing is preselected.</p><button class="secondary">Preview destructive reset</button></article></div>
+  </section>
 
 
 </body></html>

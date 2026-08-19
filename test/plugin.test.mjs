@@ -324,7 +324,6 @@ test('ledger skill self-heals locally but requires exact human authority for rem
 test('approval skill is explicitly user-invoked', async () => {
   const content = await readFile(path.join(pluginRoot, 'skills', 'sflow-approve', 'SKILL.md'), 'utf8');
   assert.match(content, /disable-model-invocation:\s*true/);
-  assert.match(content, /singularity-flow approve <PHASE> --work-id <WORK-ID> --fetch/);
   assert.match(content, /singularity-flow phase show <phase>/);
   assert.match(content, /Never ask for approval based only on a filename or summary/);
   assert.match(content, /choices begin approve <WORK-ID> --fetch --json/);
@@ -332,6 +331,9 @@ test('approval skill is explicitly user-invoked', async () => {
   assert.match(content, /approve <TYPED-PHASE> --work-id <WORK-ID> --fetch --selection-receipt <TOKEN>/);
   assert.match(content, /Never add `--yes`/);
   assert.match(content, /consumes the receipt exactly once/i);
+  assert.ok(content.indexOf('choices begin approve <WORK-ID>') < content.indexOf('phase show <phase> --json'));
+  assert.ok(content.indexOf('phase show <phase> --json') < content.indexOf('Only now: Ask the reviewer'));
+  assert.match(content, /review-integrity failure/);
 });
 
 test('submit skill presents generated documents before approval', async () => {
@@ -434,6 +436,9 @@ test('submission and approval reproduce exact artifacts outside collapsible Shel
     assert.match(content, /Shell\/tool block[\s\S]*does not satisfy artifact review/i, `${name} must not rely on collapsed command output`);
     assert.match(content, /Never say .*shown above/i, `${name} must prohibit false visibility claims`);
   }
+  const approve = await readFile(path.join(pluginRoot, 'skills', 'sflow-approve', 'SKILL.md'), 'utf8');
+  assert.match(approve, /Always show the generated artifacts in Copilot before asking for a decision/);
+  assert.match(approve, /never truncate or summarize instead/);
 });
 
 test('interactive lifecycle skills ask only for durable human choices', async () => {

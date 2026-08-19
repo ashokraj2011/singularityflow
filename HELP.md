@@ -1690,7 +1690,7 @@ Approve from a terminal:
 singularity-flow approve design --work-id WORK-123 --fetch
 ```
 
-The command fetches the branch, activates its phase agent, displays reviewer identity and authority, hashes, checks, token usage, prior approvals, and any self-approval warning, then requires explicit phase confirmation. If Copilot cannot write to a persistent shell, `/sf-approve` issues a 15-minute receipt for the exact typed phase ID. The CLI independently revalidates the branch HEAD, submitted generation, artifact hashes, human authority, identity threshold, any explicitly required functional authority groups, and receipt before committing and pushing the decision.
+The command fetches the branch, activates its phase agent, displays reviewer identity and authority, hashes, checks, token usage, prior approvals, and any self-approval warning, then requires explicit phase confirmation. `/sf-approve` always resolves the requested Story and submitted phase first, loads the exact document payload, verifies its paths, generation, and hashes against the approval context, and reproduces every generated text artifact in the visible Copilot response before asking for a decision. Collapsed Shell output, filenames, or summaries never satisfy review. The skill issues a 15-minute receipt for the exact typed phase ID. The CLI independently revalidates the branch HEAD, submitted generation, artifact hashes, human authority, identity threshold, any explicitly required functional authority groups, and receipt before committing and pushing the decision.
 
 Reject to an allowed target:
 

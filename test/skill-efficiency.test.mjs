@@ -84,6 +84,12 @@ test('approval remains explicit-only and displays the full governed artifact', a
   assert.match(content, /sflow-output-contract: governed-review/);
   assert.match(content, /reproduce every returned generated current-phase text document in full/);
   assert.match(content, /exact phase name|exact phase ID/i);
+  assert.ok(content.indexOf('choices begin approve <WORK-ID>') < content.indexOf('phase show <phase> --json'),
+    'approval must resolve the requested Story and phase before reading artifacts');
+  assert.ok(content.indexOf('phase show <phase> --json') < content.indexOf('Only now: Ask the reviewer'),
+    'every artifact must be visibly rendered before confirmation is requested');
+  assert.match(content, /paths, and SHA-256 values to match `approvalContext`/);
+  assert.match(content, /If response bounds require several messages, continue until every document is visible/);
 });
 
 test('plugin startup does not inject a model prompt', async () => {

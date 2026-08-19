@@ -14,7 +14,7 @@ related:
   - waivers
   - inbox-and-review
   - sequence-gates
-version: 3
+version: 4
 ---
 Approval is an authorization event, never an agent utterance. Authority comes from `approvalAuthorities` groups in pinned configuration; the ceremony shows the exact artifact and its SHA-256, then requires typing the exact confirmation — nothing auto-fills it. The record binds identity, authority group, and artifact hash, verifiable offline. If artifact bytes change afterward, the approval goes stale automatically; the old signature remains in history attached to the bytes it actually covered. Agents cannot approve; self-approval can be forbidden by policy. Rejections require reasons — which become pinned context the next generation literally reads.
 
@@ -25,7 +25,7 @@ Use this topic when the current goal matches **approvals**. Start in a governed 
 ## Use it from each surface
 
 - **Shell:** `sflow approvals [WORK-ID]` shows the phase-by-phase document and approval chain. `sflow approve`, `sflow reject`, and `sflow inbox` perform or find review work. Run `singularity-flow approvals --help` for the exact read-only form supported by this build.
-- **Copilot:** `/sf-approve`, `/sf-reject`, `/sf-inbox`. The skill must preserve the CLI result and ask before any governed mutation.
+- **Copilot:** `/sf-approve`, `/sf-reject`, `/sf-inbox`. `/sf-approve` first resolves the requested Work ID and submitted phase, hash-checks that exact review packet, and reproduces every generated text artifact in the visible Copilot response. Only after the complete artifact display may it ask for the exact phase confirmation. The skill must preserve the CLI result and ask before any governed mutation.
 - **VS Code:** open Singularity Flow **Inbox and Approvals**. The extension renders engine results; it does not independently decide lifecycle state.
 
 ## Guided workflow

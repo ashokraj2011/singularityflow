@@ -288,3 +288,13 @@ test('every test that loads TypeScript runs with type stripping, whatever suite 
   assert.doesNotMatch(runner, /if \(kind === 'vscode'\) needsStripping = true;/,
     'the flag must not depend on which suite a file was sorted into');
 });
+
+test('the suite bounds file concurrency so child processes keep their timeout budgets', async () => {
+  const runner = await readFile(path.join(root, 'scripts', 'run-test-suite.mjs'), 'utf8');
+  assert.match(runner, /Math\.min\(4, availableParallelism\(\)\)/,
+    'the default must not launch every process-heavy test file at once');
+  assert.match(runner, /SINGULARITY_FLOW_TEST_CONCURRENCY/,
+    'CI must be able to choose a measured concurrency explicitly');
+  assert.match(runner, /\.\.\.flags, concurrencyFlag, '--test'/,
+    'the bounded value must be passed to the Node test runner');
+});

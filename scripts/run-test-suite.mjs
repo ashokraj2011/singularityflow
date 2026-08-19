@@ -1,6 +1,6 @@
 import { readdir, readFile } from 'node:fs/promises';
 import { mkdtempSync, rmSync } from 'node:fs';
-import { tmpdir } from 'node:os';
+import { availableParallelism, tmpdir } from 'node:os';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { spawnSync } from 'node:child_process';
@@ -77,6 +77,26 @@ if (!selected.length) {
 const flags = needsStripping ? ['--experimental-strip-types', '--no-warnings=ExperimentalWarning'] : [];
 
 /**
+ * Test files are processes, and many of those processes spawn several CLI, Git, model-provider, and
+ * extension-host children of their own. Letting `node --test` use every logical CPU therefore
+ * multiplies into far more runnable processes than the machine can service. The resulting failures
+ * look like product defects: a two-second workspace lookup hits its two-minute UI timeout, or a
+ * four-second retry scenario is killed by its one-minute child timeout.
+ *
+ * Four files at once keeps useful file-level parallelism without starving their children. CI may
+ * choose another positive value explicitly; a small machine never defaults above its available
+ * parallelism.
+ */
+const configuredConcurrency = process.env.SINGULARITY_FLOW_TEST_CONCURRENCY;
+const parsedConcurrency = configuredConcurrency == null
+  ? Math.min(4, availableParallelism())
+  : Number(configuredConcurrency);
+if (!Number.isInteger(parsedConcurrency) || parsedConcurrency < 1) {
+  throw new Error('SINGULARITY_FLOW_TEST_CONCURRENCY must be a positive integer.');
+}
+const concurrencyFlag = `--test-concurrency=${parsedConcurrency}`;
+
+/**
  * Run against a throwaway machine-state root, never the developer's own.
  *
  * These three pointers live in `~/.singularity-flow` and are read by any repository the CLI is
@@ -109,7 +129,7 @@ delete isolated.FORCE_COLOR;
 delete isolated.SINGULARITY_FLOW_COLOR;
 
 try {
-  const result = spawnSync(process.execPath, [...flags, '--test', ...selected], {
+  const result = spawnSync(process.execPath, [...flags, concurrencyFlag, '--test', ...selected], {
     cwd: root,
     stdio: 'inherit',
     env: isolated

@@ -13,6 +13,7 @@ import {
   budgetFor, corePath, proseBytes, resolveGroundingPlan, resolveViews, selectionId, tierForCore,
   tierForView, viewPath
 } from './world-model-selection.mjs';
+import { worldModelStalenessDecision } from './world-model-policy.mjs';
 
 const GROUNDING_MODES = new Set(['off', 'warn', 'enforce']);
 
@@ -871,6 +872,7 @@ export async function verifyGroundingRecord(root, definition, workflow, phase, {
     return { mode, ...severity, passes: [], record: null, path: relative };
   }
   const problems = [];
+  const stalenessProblems = [];
   if (record.workId !== workflow.workItem.id || record.phase !== phase.id || record.generation !== generation) problems.push(`grounding composition identity mismatch: ${relative}`);
   if (!record.agent) problems.push(`grounding composition has no agent: ${relative}`);
   else if (!definition.agents?.[record.agent]) problems.push(`grounding composition uses unknown agent '${record.agent}': ${relative}`);
@@ -878,9 +880,9 @@ export async function verifyGroundingRecord(root, definition, workflow, phase, {
   if (!/^[0-9a-f]{40}$/.test(record.worldModelCommit ?? '')) problems.push(`grounding composition has no committed world-model revision: ${relative}`);
   for (const field of ['manifestSha256', 'renderedSha256']) if (!/^[0-9a-f]{64}$/.test(record[field] ?? '')) problems.push(`grounding composition has invalid ${field}: ${relative}`);
   for (const field of ['modelSourceTreeSha256', 'composedSourceTreeSha256']) if (!/^sha256:[0-9a-f]{64}$/.test(record[field] ?? '')) problems.push(`grounding composition has invalid ${field}: ${relative}`);
-  if (record.fresh !== true) problems.push(`grounding composition was created from a stale world model: ${relative}`);
+  if (record.fresh !== true) stalenessProblems.push(`grounding composition was created from a stale world model: ${relative}`);
   if (record.modelSourceTreeSha256 && record.composedSourceTreeSha256 && record.modelSourceTreeSha256 !== record.composedSourceTreeSha256) problems.push(`grounding composition source hash does not match its world model: ${relative}`);
-  if (record.stale === true) problems.push(`grounding composition is stale: ${relative}`);
+  if (record.stale === true) stalenessProblems.push(`grounding composition is stale: ${relative}`);
   if (!Array.isArray(record.files) || !record.files.length) problems.push(`grounding composition contains no world-model files: ${relative}`);
   if (!record.promptPath) problems.push(`grounding composition has no committed prompt snapshot: ${relative}`);
   else {
@@ -1064,9 +1066,16 @@ export async function verifyGroundingRecord(root, definition, workflow, phase, {
     }
   }
   const severity = severityResult(mode, problems);
+  const staleness = worldModelStalenessDecision(
+    workflow.resolution?.worldModelStaleness ?? definition.worldModel?.staleness ?? 'warn',
+    stalenessProblems.length === 0,
+    stalenessProblems.join('; ')
+  );
+  const errors = [...severity.errors, ...(staleness.blocks ? stalenessProblems : [])];
+  const warnings = [...severity.warnings, ...(staleness.warns ? stalenessProblems : [])];
   return {
-    mode, ...severity,
-    passes: problems.length ? [] : [`grounding composition: ${phase.id} generation ${generation} (${record.files.length} files)`],
+    mode, errors, warnings, staleness,
+    passes: errors.length || warnings.length ? [] : [`grounding composition: ${phase.id} generation ${generation} (${record.files.length} files)`],
     record, path: relative
   };
 }

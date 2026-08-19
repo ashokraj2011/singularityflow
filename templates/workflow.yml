@@ -89,6 +89,9 @@ worldModel:
     mode: explicit
     publish: governed
 
+    # `next-phase` prepares the immediately following pinned phase after current-phase grounding
+    # succeeds. It uses the same confirmation and builder policy and never runs from read-only
+    # status/nextsteps commands.
     lookahead: none
     # To make `next` run the deterministic equivalent of `wm light --phase <current>`, set:
     # mode: on-demand, depth: light, confirmation: automatic. That path never invokes a model.

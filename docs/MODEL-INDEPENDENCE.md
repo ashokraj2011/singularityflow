@@ -32,8 +32,23 @@ operation fails before execution when model mode is disabled. The generated
 [operation catalog](OPERATION-MODEL-POLICY.md) is the authoritative inventory.
 
 `wm light` is deterministic and model-free. `wm build` is model-required and, in
-disabled mode, points to `wm light` as its guided fallback. No operation silently
-changes from semantic generation to deterministic inventory.
+disabled mode, points to `wm light` as its guided fallback. `wm ensure` and `next`
+are mixed orchestrators: they reuse an exact governed selection first, select the
+builder from the Story's pinned materialization policy, and use deterministic light
+generation when that policy requests `depth: light`. With `--no-model`, their
+registered fallback remains deterministic and the result identifies a light model;
+they never invoke the provider.
+
+An authorized semantic `wm ensure` may fall forward to light only when generation
+or validation fails before publication. A state-branch, installation, commit, or
+push failure is reported as publication recovery and never starts a replacement
+light build. With `lookahead: next-phase`, a successful `next` also ensures the
+next pinned phase plan after the current one.
+
+When publication fails after validation, the validated snapshot is retained under
+the repository's private `.git/singularity-flow/world-model-recovery/` area. The
+reported error keeps the original synchronization instruction; these recovery
+snapshots are never treated as governed context until normal publication succeeds.
 
 ## Publish manually authored artifacts
 

@@ -494,6 +494,22 @@ export interface RepositorySnapshot {
     root: string;
     generatedAt: string | null;
     rebuildReason: string | null;
+    readiness?: {
+      status: string;
+      ready: boolean;
+      source: string | null;
+      staleness?: {
+        policy: 'ignore' | 'warn' | 'fail';
+        fresh: boolean;
+        stale: boolean;
+        blocks: boolean;
+        warns: boolean;
+        ignored: boolean;
+        status: string;
+        message: string | null;
+      };
+      command: string;
+    } | null;
     views: Array<{ id: string; references: string[] }>;
     files?: Array<{ path: string; content?: string }>;
   };

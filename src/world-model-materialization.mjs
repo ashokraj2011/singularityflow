@@ -10,6 +10,7 @@ import {
   worldModelSourceSnapshot
 } from './grounding.mjs';
 import { selectionId } from './world-model-selection.mjs';
+import { worldModelStalenessDecision } from './world-model-policy.mjs';
 import { withSubjectLock } from './subject-lock.mjs';
 import { currentSchemaVersion } from './schema-migrations.mjs';
 import { SingularityFlowError, snapshot, writeJson } from './util.mjs';
@@ -56,7 +57,7 @@ export function isMinimalModel(manifest) {
   return /-light$/.test(String(manifest?.builder_version ?? ''));
 }
 
-function ensureCommand(plan) {
+export function groundingEnsureCommand(plan) {
   if (plan.phase) {
     const task = plan.taskGuide?.required ? ` --task ${JSON.stringify(plan.taskGuide.task)}` : '';
     return `singularity-flow wm ensure --phase ${plan.phase}${task}`;
@@ -98,7 +99,7 @@ async function inspectCandidate(root, config, plan, candidate, sourceState) {
         allowLegacyFallback
       });
       const freshness = await worldModelFreshness(root, config.definition ?? config, validated.manifest);
-      return { ...candidate, ready: freshness.fresh, fresh: freshness.fresh, integrityValid: true, selections, manifest: validated.normalizedManifest, sourceTreeSha256: freshness.built, error: freshness.fresh ? null : `source snapshot differs (${freshness.built} != ${sourceState.sha256})` };
+      return { ...candidate, complete: true, ready: freshness.fresh, fresh: freshness.fresh, integrityValid: true, selections, manifest: validated.normalizedManifest, sourceTreeSha256: freshness.built, error: freshness.fresh ? null : `source snapshot differs (${freshness.built} != ${sourceState.sha256})` };
     }
     return { ...candidate, ready: false, fresh: false, integrityValid: true, selections, manifest: normalized, sourceTreeSha256: normalized.source_tree_sha256 ?? null, error: `missing ${missing.map((entry) => entry.id).join(', ')}` };
   } catch (error) {
@@ -111,14 +112,17 @@ export async function inspectGroundingAvailability(root, config, plan) {
   const sourceState = await worldModelSourceSnapshot(root, config.definition ?? config);
   const governed = await resolveWorldModelSource(root, config);
   const policy = config.materialization ?? materializationPolicy(config.definition ?? config);
+  const stalenessPolicy = config.staleness ?? config.definition?.worldModel?.staleness ?? 'warn';
   const worktree = { directory: path.join(root, config.outputDir), source: 'worktree', branch: null };
   const candidates = [];
   if (governed.source === 'state-branch') candidates.push(await inspectCandidate(root, config, plan, governed, sourceState));
   if (!candidates.some((item) => path.resolve(item.directory) === path.resolve(worktree.directory))) {
     candidates.push(await inspectCandidate(root, config, plan, worktree, sourceState));
   }
-  const governedReady = candidates.find((item) => item.source === 'state-branch' && item.ready) ?? null;
-  const worktreeReady = candidates.find((item) => item.source === 'worktree' && item.ready) ?? null;
+  const usable = (item) => item?.complete === true
+    && !worldModelStalenessDecision(stalenessPolicy, item.fresh).blocks;
+  const governedReady = candidates.find((item) => item.source === 'state-branch' && usable(item)) ?? null;
+  const worktreeReady = candidates.find((item) => item.source === 'worktree' && usable(item)) ?? null;
   const legacyWorktreeReady = worktreeReady?.manifest?.source_schema_version !== '3.0'
     ? worktreeReady
     : null;
@@ -164,21 +168,27 @@ export async function inspectGroundingAvailability(root, config, plan) {
     const id = selectionId(selection);
     const available = selected?.selections.find((item) => item.id === id)
       ?? candidates.map((candidate) => candidate.selections.find((item) => item.id === id)).find(Boolean);
-    const stale = !selected && candidates.some((candidate) => candidate.selections.some((item) => item.id === id && item.status === 'ready') && !candidate.fresh);
+    const stale = (selected && !selected.fresh && available?.status === 'ready')
+      || (!selected && candidates.some((candidate) => candidate.selections.some((item) => item.id === id && item.status === 'ready') && !candidate.fresh));
     return {
       ...selection,
       id,
-      status: selected && available?.status === 'ready' ? 'ready' : stale ? 'stale' : available?.status ?? 'missing',
+      status: stale ? 'stale' : selected && available?.status === 'ready' ? 'ready' : available?.status ?? 'missing',
       path: available?.path ?? null
     };
   });
-  const missing = statuses.filter((entry) => entry.status !== 'ready');
-  const readySelections = statuses.filter((entry) => entry.status === 'ready');
+  const missing = statuses.filter((entry) => !['ready', 'stale'].includes(entry.status));
+  const readySelections = statuses.filter((entry) => ['ready', 'stale'].includes(entry.status));
   const stale = statuses.filter((entry) => entry.status === 'stale');
-  const ready = Boolean(selected) && missing.length === 0 && conflicts.length === 0;
+  const staleness = worldModelStalenessDecision(
+    stalenessPolicy,
+    selected ? selected.fresh : stale.length === 0,
+    'The repository world model is stale for the current source tree.'
+  );
+  const ready = Boolean(selected) && missing.length === 0 && conflicts.length === 0 && !staleness.blocks;
   return {
     schemaVersion: 1,
-    status: ready ? 'ready' : conflicts.length ? 'conflict' : stale.length ? 'stale' : 'missing',
+    status: ready ? (stale.length ? 'stale' : 'ready') : conflicts.length ? 'conflict' : stale.length ? 'stale' : 'missing',
     source: selected?.source ?? null,
     sourceAuthority: selected?.authority ?? governed.authority ?? null,
     sourceRefresh: selected?.refresh ?? governed.refresh ?? null,
@@ -199,14 +209,17 @@ export async function inspectGroundingAvailability(root, config, plan) {
     missingSelections: missing,
     missing,
     stale,
+    staleness,
     conflicts,
     generationRequired: !ready,
     action: !ready ? {
-      command: ensureCommand(plan),
+      command: groundingEnsureCommand(plan),
       reason: conflicts.length
         ? conflicts[0].message
         : missing.length
           ? `missing ${missing.map((entry) => entry.id).join(', ')}`
+          : staleness.blocks
+            ? staleness.message
           : 'no fresh published model satisfies the plan'
     } : null
   };
@@ -223,7 +236,8 @@ export async function ensureGrounding(root, config, plan, {
   materializeMinimal = null,
   // The availability probe, injectable so the fall-forward can be driven without a model provider
   // and a fully built world model. Production callers never pass it.
-  inspect = inspectGroundingAvailability
+  inspect = inspectGroundingAvailability,
+  upgradeMinimal = true
 } = {}) {
   let availability = await inspect(root, config, plan);
 
@@ -242,12 +256,12 @@ export async function ensureGrounding(root, config, plan, {
    */
   const canBuild = authorized && typeof materialize === 'function';
   const minimalOnly = availability.ready && isMinimalModel(availability.selected?.manifest);
-  if (availability.ready && !(canBuild && minimalOnly)) {
+  if (availability.ready && !(canBuild && minimalOnly && upgradeMinimal)) {
     return { mode: 'reuse', availability, located: availability.selected, degraded: minimalOnly ? { reason: 'the available world model is a light fallback' } : null };
   }
   const policy = config.materialization ?? materializationPolicy(config.definition ?? config);
   if (policy.mode === 'disabled') {
-    throw new SingularityFlowError(`Repository grounding is unavailable and materialization is disabled. Missing: ${availability.missing.map((entry) => entry.id).join(', ')}.`);
+    throw new SingularityFlowError(`Repository grounding is unavailable and materialization is disabled. ${availability.action?.reason ?? `Missing: ${availability.missing.map((entry) => entry.id).join(', ')}`}.`);
   }
   if (!authorized || typeof materialize !== 'function') {
     throw new SingularityFlowError(`Repository grounding is not ready. Run: ${availability.action.command}`, {
@@ -286,6 +300,9 @@ export async function ensureGrounding(root, config, plan, {
     try {
       await materialize({ availability, policy });
     } catch (error) {
+      // Generation and validation have already succeeded once this marker is present. Re-running a
+      // different builder would overwrite a valid governed selection and hide the transport fault.
+      if (error?.code === 'world_model.publication_recovery_required') throw error;
       if (typeof materializeMinimal !== 'function') throw error;
       degraded = { reason: error.message, code: error.code ?? null };
       console.warn(
@@ -313,8 +330,10 @@ export async function ensureGrounding(root, config, plan, {
  * Explicit mutation-facing name for hosts that have already obtained user authorization.
  * Read-only consumers must call `inspectGroundingAvailability` instead.
  */
-export async function materializeSelections(root, config, plan, materialize, materializeMinimal = null) {
-  return ensureGrounding(root, config, plan, { authorized: true, materialize, materializeMinimal });
+export async function materializeSelections(root, config, plan, materialize, materializeMinimal = null, options = {}) {
+  return ensureGrounding(root, config, plan, {
+    authorized: true, materialize, materializeMinimal, ...options
+  });
 }
 
 async function tierRecord(directory, entry) {

@@ -24,7 +24,12 @@ test('every public operation has an explicit model policy and valid fallback', (
   assert.equal(resolveOperation({ requestedCommand: 'wm', positionals: ['wm', 'availability'] }).modelPolicy, 'never');
   assert.equal(resolveOperation({ requestedCommand: 'wm', positionals: ['wm', 'status'] }).modelPolicy, 'never');
   assert.equal(resolveOperation({ requestedCommand: 'wm', positionals: ['wm', 'build'] }).modelPolicy, 'required');
-  assert.equal(resolveOperation({ requestedCommand: 'wm', positionals: ['wm', 'ensure'] }).modelPolicy, 'required');
+  const ensure = resolveOperation({ requestedCommand: 'wm', positionals: ['wm', 'ensure'] });
+  assert.equal(ensure.modelPolicy, 'optional');
+  assert.equal(ensure.fallback.operationId, 'wm.light');
+  const next = resolveOperation({ requestedCommand: 'next', positionals: ['next'] });
+  assert.equal(next.modelPolicy, 'optional');
+  assert.equal(next.fallback.operationId, 'next.model-free');
   // Still refused before a handler loads, which is the property this file cares about; the message
   // is now the reader's problem rather than the registry's invariant.
   assert.throws(() => resolveOperation({ requestedCommand: 'wm', positionals: ['wm', 'surprise'] }), /'wm' has no subcommand 'surprise'/);

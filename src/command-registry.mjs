@@ -5,7 +5,7 @@ const STRUCTURED = new Set(['specify', 'plan', 'implement', 'verify', 'converge'
 // `secrets` is here because `resolveOperation` returns `definition.operation` before it consults
 // any resolver, so a command with a single registered operation never reaches its own resolver.
 // Without this line `resolveSecretsOperation` is unreachable and the scan/protect split is inert.
-const MODEL_FREE_MIXED_COMMANDS = new Set(['report', 'telemetry', 'review', 'inputs', 'spec', 'visual', 'clarification', 'story', 'constitution', 'secrets', 'fault', 'fix', 'repair', 'goal', 'journal', 'push']);
+const MODEL_FREE_MIXED_COMMANDS = new Set(['report', 'telemetry', 'review', 'inputs', 'spec', 'visual', 'clarification', 'story', 'constitution', 'secrets', 'fault', 'fix', 'repair', 'goal', 'journal', 'push', 'next']);
 
 const LAZY_MODULES = Object.freeze({
   // The five verbs share one dispatcher; each is a registered command in its own right so the
@@ -98,7 +98,7 @@ export function commandDefinition(name) {
   return COMMAND_REGISTRY.find((entry) => entry.name === normalized);
 }
 
-const WM_MODEL_OPERATIONS = new Set(['build', 'ensure']);
+const WM_MODEL_OPERATIONS = new Set(['build']);
 const WM_NEVER_OPERATIONS = new Set(['init', 'inject', 'compose', 'show-prompt', 'cleanup', 'prompt', 'context', 'budget', 'facts', 'check', 'cache', 'light', 'availability', 'status', 'design-inventory']);
 const WM_AST_READ_ACTIONS = new Set(['doctor', 'status', 'context', 'query', 'gate']);
 const WM_AST_MUTATION_ACTIONS = new Set(['build']);
@@ -191,7 +191,7 @@ export const RESOLVER_SUBCOMMANDS = Object.freeze({
   constitution: CONSTITUTION_SUBCOMMANDS,
   spec: SPEC_SUBCOMMANDS,
   story: STORY_SUBCOMMANDS,
-  wm: Object.freeze([...WM_MODEL_OPERATIONS, ...WM_NEVER_OPERATIONS, 'ast']),
+  wm: Object.freeze([...WM_MODEL_OPERATIONS, ...WM_NEVER_OPERATIONS, 'ensure', 'ast']),
   workspace: Object.freeze(['copilot', 'impact', 'bootstrap', ...WORKSPACE_NEVER_OPERATIONS, ...WORKSPACE_SUBCOMMAND_ALIASES.keys()])
 });
 
@@ -449,9 +449,17 @@ function resolveWorldModelOperation(definition, positionals) {
     return unknownSubcommand('wm ast', action, WM_AST_ACTIONS, 'action');
   }
   const id = `wm.${subcommand}`;
+  if (subcommand === 'ensure') return optional('wm.ensure', 'wm.light', definition);
   if (WM_MODEL_OPERATIONS.has(subcommand)) return required(id);
   if (WM_NEVER_OPERATIONS.has(subcommand)) return never(id, definition, WM_READ_OPERATIONS.has(subcommand) ? 'read' : 'mutation');
   return unknownSubcommand('wm', subcommand, RESOLVER_SUBCOMMANDS.wm);
+}
+
+function resolveNextOperation(definition) {
+  // `next` is a model-free lifecycle orchestrator until pinned on-demand policy asks it to enter
+  // the separately registered `wm.ensure` operation. With --no-model its deterministic path remains
+  // available, including reuse and light generation.
+  return optional('next.orchestrate', 'next.model-free', definition);
 }
 
 function resolveWorkspaceOperation(definition, positionals, options) {
@@ -499,6 +507,7 @@ export function resolveOperation({ requestedCommand, positionals, options = {} }
   const definition = commandDefinition(requestedCommand);
   if (definition.operation) return definition.operation;
   if (definition.name === 'wm') return resolveWorldModelOperation(definition, positionals);
+  if (definition.name === 'next') return resolveNextOperation(definition);
   if (definition.name === 'workspace') return resolveWorkspaceOperation(definition, positionals, options);
   if (definition.name === 'pr') return resolvePullRequestOperation(definition, positionals, options);
   if (definition.name === 'report' || definition.name === 'review') return resolveOptionalOutputOperation(definition, options);
@@ -524,6 +533,7 @@ export function operationCatalog() {
   const wm = [...WM_NEVER_OPERATIONS]
     .map((name) => never(`wm.${name}`, commandDefinition('wm'), WM_READ_OPERATIONS.has(name) ? 'read' : 'mutation'))
     .concat([...WM_MODEL_OPERATIONS].map((name) => required(`wm.${name}`)))
+    .concat([optional('wm.ensure', 'wm.light', commandDefinition('wm'))])
     .concat([...WM_AST_READ_ACTIONS].map((name) => never(`wm.ast.${name}`, commandDefinition('wm'), 'read')))
     .concat([...WM_AST_MUTATION_ACTIONS].map((name) => never(`wm.ast.${name}`, commandDefinition('wm'), 'mutation')))
     .concat(['status', 'prune', 'clear'].map((name) => never(`wm.ast.cache.${name}`, commandDefinition('wm'), name === 'status' ? 'read' : 'mutation')))
@@ -561,7 +571,10 @@ export function operationCatalog() {
   const journalDefinition = commandDefinition('journal');
   const pushDefinition = commandDefinition('push');
   const secretsDefinition = commandDefinition('secrets');
+  const nextDefinition = commandDefinition('next');
   const modelFreeMixed = [
+    never('next.model-free', nextDefinition, 'mutation'),
+    optional('next.orchestrate', 'next.model-free', nextDefinition),
     never('secrets.scan', secretsDefinition, 'read'),
     never('secrets.protect', secretsDefinition, 'mutation'),
     never('report.render', reportDefinition, 'read'),

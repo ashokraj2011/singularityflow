@@ -11,6 +11,7 @@ import {
 } from './grounding.mjs';
 import { resolveGroundingPlan } from './world-model-selection.mjs';
 import { ensureGrounding, materializationPolicy } from './world-model-materialization.mjs';
+import { assertWorldModelStaleness } from './world-model-policy.mjs';
 import { validatePortfolioWorldModelViews } from './initiative-config.mjs';
 import {
   loadInitiative,
@@ -252,9 +253,10 @@ async function repositoryGrounding(root, definition, phase, agent, mode, profile
     const issues = [];
     if (!commit) issues.push('repository world model is not committed');
     if (changes) issues.push('repository world-model files have uncommitted changes');
-    if (!resolved.freshness.fresh) issues.push('repository world model is stale');
+    const stalenessDecision = assertWorldModelStaleness(config.staleness, resolved.freshness.fresh);
     if (issues.length && mode === 'enforce') throw new SingularityFlowError(`${issues.join('; ')}. Run singularity-flow wm ensure --phase ${phase.id} before composing the initiative prompt.`);
     if (issues.length) warnings.push(...issues);
+    if (stalenessDecision.warns) warnings.push(stalenessDecision.message);
     const files = [];
     for (const item of resolved.selected) {
       const content = await readFile(item.absolute, 'utf8');
@@ -288,6 +290,7 @@ async function repositoryGrounding(root, definition, phase, agent, mode, profile
       }
     };
   } catch (error) {
+    if (error?.code === 'WORLD_MODEL_STALE') throw error;
     if (mode === 'enforce') {
       // Preserve the materializer's single exact recovery action. Adding the old broad-build advice
       // here caused callers to regenerate unrelated tiers and invalidate already-approved phases.

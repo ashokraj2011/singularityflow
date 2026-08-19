@@ -17,6 +17,8 @@ test('aliases resolve canonically and unknown mixed subcommands fail before hand
   assert.equal(canonicalCommand('home'), 'home');
   assert.equal(canonicalCommand('cockpit'), 'home');
   assert.equal(resolveOperation({ requestedCommand: 'wm', positionals: ['wm', 'build'] }).modelPolicy, 'required');
+  assert.equal(resolveOperation({ requestedCommand: 'wm', positionals: ['wm', 'ensure'] }).modelPolicy, 'optional');
+  assert.equal(resolveOperation({ requestedCommand: 'next', positionals: ['next'] }).modelPolicy, 'optional');
   assert.throws(
     () => resolveOperation({ requestedCommand: 'workspace', positionals: ['workspace', 'not-real'] }),
     (error) => error.code === 'UNKNOWN_SUBCOMMAND'

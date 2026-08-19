@@ -72,6 +72,7 @@ test('configuration center exposes guided world-model policy, generation, and in
   assert.match(html, /Grounding policy/);
   assert.match(html, /On demand — prepare when required/);
   assert.match(html, /Light — deterministic, zero model tokens/);
+  assert.match(html, /Disabled — no automatic materialization; explicit builds remain available/);
   assert.match(html, /Prompt injection/);
   assert.match(html, /Save world-model settings/);
 });
@@ -337,6 +338,20 @@ test('a stale world model offers the rebuild the engine asked for, in its own wo
   const html = centerHtml(stale, 'world-model');
   assert.match(html, /12 files changed since the world model was built\./);
   assert.match(html, /data-action="build-world-model"/);
+});
+
+test('a governed state-branch model is shown as built without a worktree manifest', () => {
+  const governed = {
+    ...snapshot,
+    worldModel: {
+      root: 'singularity/world-model', generatedAt: null, rebuildReason: null,
+      readiness: { status: 'ready', ready: true, source: 'state-branch', command: 'singularity-flow wm ensure --phase intake' },
+      views: []
+    }
+  };
+  const view = configurationCenterView(governed);
+  assert.equal(view.worldModelStatus.built, true);
+  assert.doesNotMatch(configurationCenterHtml(view, 'world-model', null, null, null, []), /has no world model yet/);
 });
 
 test('a repository with no world model is told so, not shown an empty list', () => {

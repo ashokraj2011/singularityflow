@@ -18,6 +18,7 @@ import {
 } from './grounding.mjs';
 import { resolveGroundingPlan } from './world-model-selection.mjs';
 import { ensureGrounding, materializationPolicy } from './world-model-materialization.mjs';
+import { assertWorldModelStaleness } from './world-model-policy.mjs';
 import { injectAgentPrompt } from './inject.mjs';
 import { composeInitiativeContext } from './initiative-context.mjs';
 import { renderCapabilityWorldModelPack } from './capability-context.mjs';
@@ -379,7 +380,7 @@ async function workItemWorldModel(root, definition, workflow, phase, agent) {
     stateBranch: scopedDefinition.ledger?.branch ?? null,
     remote: scopedDefinition.git?.remote ?? 'origin',
     grounding: mode,
-    staleness: scopedDefinition.worldModel?.staleness ?? 'warn',
+    staleness: workflow.resolution?.worldModelStaleness ?? scopedDefinition.worldModel?.staleness ?? 'warn',
     context: scopedDefinition.worldModel?.context ?? { includeDomains: 'matched', includeEvidence: phase.worldModel?.evidence ?? false },
     phases: { [phase.id]: { views: requiredViews, depth: phase.worldModel?.depth ?? 'standard', evidence: phase.worldModel?.evidence ?? false } }
   };
@@ -388,7 +389,7 @@ async function workItemWorldModel(root, definition, workflow, phase, agent) {
     const resolved = await resolveWorldModelContext(root, config, phase.id, {
       plan, located: ensured.located, evidence: phase.worldModel?.evidence ?? false
     });
-    if (!resolved.freshness.fresh && mode === 'enforce') throw new SingularityFlowError('Repository world model is stale.');
+    const staleness = assertWorldModelStaleness(config.staleness, resolved.freshness.fresh);
     const files = [];
     for (const item of resolved.selected) {
       const content = await readFile(item.absolute, 'utf8');
@@ -397,7 +398,7 @@ async function workItemWorldModel(root, definition, workflow, phase, agent) {
     return {
       text: files.map((file) => `## Repository world model: ${file.path}\n\n<!-- sha256=${file.sha256} reason=${file.reason} -->\n\n${file.content.trim()}`).join('\n\n'),
       files: files.map(({ content, ...file }) => file),
-      warnings: resolved.freshness.fresh ? [] : ['Repository world model is stale.'],
+      warnings: staleness.warns ? [staleness.message] : [],
       record: {
         mode, available: true, fresh: resolved.freshness.fresh,
         commit: resolved.located?.commit ?? null,
@@ -405,6 +406,7 @@ async function workItemWorldModel(root, definition, workflow, phase, agent) {
       }
     };
   } catch (error) {
+    if (error?.code === 'WORLD_MODEL_STALE') throw error;
     if (mode === 'enforce') throw new SingularityFlowError(`Planning context requires fresh repository world-model grounding: ${error.message}`);
     return {
       text: '', files: [], warnings: [`Repository world model unavailable: ${error.message}`],

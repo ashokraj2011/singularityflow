@@ -1,6 +1,7 @@
 import { readdir, readFile } from 'node:fs/promises';
 import path from 'node:path';
 import YAML from 'yaml';
+import { currentSchemaVersion, readRecord } from './schema-migrations.mjs';
 import {
   add, branch, checkout, commit, fetchRemote, fileAtRef, hasRemote, pushBranch, refExists, remoteBranches
 } from './git.mjs';
@@ -136,7 +137,7 @@ export async function currentLocalEpicReservation(root, portfolio, {
   if (await exists(state)) return null;
   let record;
   try {
-    record = JSON.parse(await readFile(absolute, 'utf8'));
+    record = readRecord('local-identity-reservation', await readFile(absolute)).record;
   } catch {
     throw new SingularityFlowError(`Local Epic reservation ${relative} is not valid JSON.`);
   }
@@ -218,7 +219,7 @@ export async function reserveLocalEpicBranch(root, portfolio, {
     const absolute = path.join(root, relative);
     await ensureDir(path.dirname(absolute));
     await writeJson(absolute, {
-      schemaVersion: 1,
+      schemaVersion: currentSchemaVersion('local-identity-reservation'),
       id,
       kind: 'epic',
       authority: 'local',

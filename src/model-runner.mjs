@@ -6,6 +6,7 @@ import { assertModelInvocationAllowed } from './operation-context.mjs';
 import { modelProvider } from './model-provider-registry.mjs';
 import { assertModelTask } from './model-tasks.mjs';
 import { loadModelTiers, MODEL_TIERS_PATH, tierLadder } from './model-tiers.mjs';
+import { currentSchemaVersion, readRecord } from './schema-migrations.mjs';
 import { nowIso, SingularityFlowError, writeJson } from './util.mjs';
 
 function sha256(value) { return createHash('sha256').update(value).digest('hex'); }
@@ -131,7 +132,11 @@ export async function listModelInvocations(root, { subjectId = null } = {}) {
     const text = await readFile(path.join(directory, name), 'utf8').catch(() => null);
     if (text === null) continue;
     let record = null;
-    try { record = JSON.parse(text); } catch { continue; }
+    try { record = readRecord('model-invocation-audit', text).record; }
+    catch (error) {
+      if (String(error?.code ?? '').startsWith('SCHEMA_')) throw error;
+      continue;
+    }
     if (record?.status !== 'completed') continue;
     if (subjectId && record.subject?.id !== subjectId) continue;
     records.push(record);
@@ -202,7 +207,7 @@ export async function invokeModel(request) {
   await mkdir(directory, { recursive: true });
   const fingerprint = await promptFingerprint(normalized.prompt);
   const event = {
-    schemaVersion: 1,
+    schemaVersion: currentSchemaVersion('model-invocation-audit'),
     id,
     operationId: context.operation.id,
     policy: context.effectivePolicy,
@@ -272,7 +277,7 @@ export async function invokeModel(request) {
       usage: result.usage ?? { status: 'unavailable' }
     });
     return {
-      schemaVersion: 1,
+      schemaVersion: 1, // schema-transient: provider result envelope, never persisted
       invocationId: id,
       operationId: context.operation.id,
       provider: providerId,

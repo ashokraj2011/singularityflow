@@ -16,8 +16,9 @@ import {
 } from './workspace.mjs';
 import { run, SingularityFlowError } from './util.mjs';
 import { healerReceipt } from './workspace-healers.mjs';
+import { currentSchemaVersion, readRecord } from './schema-migrations.mjs';
 
-export const WORKSPACE_BOOTSTRAP_SCHEMA_VERSION = 1;
+export const WORKSPACE_BOOTSTRAP_SCHEMA_VERSION = currentSchemaVersion('workspace-bootstrap');
 export const WORKSPACE_BOOTSTRAP_STATUSES = Object.freeze([
   'planned', 'preflighting', 'waiting-user', 'materializing', 'verifying', 'initializing',
   'ready', 'degraded', 'failed', 'abandoned'
@@ -134,13 +135,13 @@ function summary(session) {
 async function writeIndex(root, session) {
   let current = [];
   try {
-    const parsed = JSON.parse(await readFile(indexPath(root), 'utf8'));
+    const parsed = readRecord('workspace-bootstrap-index', await readFile(indexPath(root))).record;
     if (Array.isArray(parsed.sessions)) current = parsed.sessions;
   } catch { /* A missing index is rebuilt from the record being written. */ }
   const sessions = [summary(session), ...current.filter((entry) => entry.bootstrapId !== session.bootstrapId)]
     .sort((left, right) => String(right.updatedAt).localeCompare(String(left.updatedAt)))
     .slice(0, 100);
-  await atomicJson(indexPath(root), { schemaVersion: 1, updatedAt: nowIso(), sessions });
+  await atomicJson(indexPath(root), { schemaVersion: currentSchemaVersion('workspace-bootstrap-index'), updatedAt: nowIso(), sessions });
 }
 
 async function writeSession(root, record) {
@@ -156,7 +157,7 @@ export async function readWorkspaceBootstrap(bootstrapId, {
   const root = workspaceBootstrapRoot(env, home);
   const file = sessionPath(root, bootstrapId);
   let record;
-  try { record = JSON.parse(await readFile(file, 'utf8')); }
+  try { record = readRecord('workspace-bootstrap', await readFile(file)).record; }
   catch (error) {
     if (error?.code === 'ENOENT') {
       throw new SingularityFlowError(`Workspace bootstrap '${bootstrapId}' was not found.`, {
@@ -179,9 +180,10 @@ export async function listWorkspaceBootstraps({
   const records = [];
   for (const file of files.filter((name) => /^bst_[a-f0-9-]{20,64}\.json$/.test(name))) {
     try {
-      const parsed = JSON.parse(await readFile(path.join(directory, file), 'utf8'));
+      const parsed = readRecord('workspace-bootstrap', await readFile(path.join(directory, file))).record;
       records.push(verifyIntegrity(parsed, path.join(directory, file)));
-    } catch {
+    } catch (error) {
+      if (String(error?.code ?? '').startsWith('SCHEMA_')) throw error;
       // A corrupt record is not omitted by doctor, which scans the directory separately. The normal
       // list remains usable so one broken receipt cannot hide every healthy recovery.
     }
@@ -1074,7 +1076,7 @@ export async function workspaceBootstrapDoctor({
   const sessions = [];
   for (const file of files.filter((name) => name.endsWith('.json'))) {
     try {
-      const parsed = JSON.parse(await readFile(path.join(recordsDirectory, file), 'utf8'));
+      const parsed = readRecord('workspace-bootstrap', await readFile(path.join(recordsDirectory, file))).record;
       sessions.push(verifyIntegrity(parsed, path.join(recordsDirectory, file)));
     } catch (error) {
       corruptRecords.push({ file: path.join(recordsDirectory, file), error: safeFailureMessage(error) });

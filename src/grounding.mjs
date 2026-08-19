@@ -8,6 +8,7 @@ import { resolveReference } from './harness-imports.mjs';
 import { exists, mapLimit, posix, run, SingularityFlowError, snapshot } from './util.mjs';
 import { sourcePathIncluded, worldModelSourceScope } from './source-scope.mjs';
 import { withoutConfiguredFilters } from './worktree-fingerprint.mjs';
+import { readRecord } from './schema-migrations.mjs';
 import {
   budgetFor, corePath, proseBytes, resolveGroundingPlan, resolveViews, selectionId, tierForCore,
   tierForView, viewPath
@@ -863,8 +864,9 @@ export async function verifyGroundingRecord(root, definition, workflow, phase, {
     return { mode, ...severity, passes: [], record: null, path: relative };
   }
   let record;
-  try { record = JSON.parse(await readFile(absolute, 'utf8')); }
+  try { record = readRecord('prompt-injection', await readFile(absolute)).record; }
   catch (error) {
+    if (String(error?.code ?? '').startsWith('SCHEMA_')) throw error;
     const severity = severityResult(mode, [`grounding composition is invalid JSON for ${phase.id} generation ${generation}: ${error.message}`]);
     return { mode, ...severity, passes: [], record: null, path: relative };
   }

@@ -16,8 +16,9 @@ import {
   activeWorkspaceFile, readActiveWorkspaceContext, workspaceRegistryFile
 } from './workspace-context.mjs';
 import { readWorkspace, workspaceRepositoryPath } from './workspace.mjs';
+import { currentSchemaVersion, readRecord } from './schema-migrations.mjs';
 
-export const GOAL_STATE_SCHEMA_VERSION = 1;
+export const GOAL_STATE_SCHEMA_VERSION = currentSchemaVersion('goal-state');
 export const GOAL_AUTHORITY = 'personal-advisory';
 export const GOAL_STATUSES = Object.freeze(['active', 'achieved', 'abandoned']);
 export const GOAL_SUBJECT_KINDS = Object.freeze(['story', 'initiative']);
@@ -110,7 +111,8 @@ function assertGoal(goal) {
 }
 
 function validateState(parsed, workspace) {
-  if (parsed?.schemaVersion !== GOAL_STATE_SCHEMA_VERSION || parsed?.authority !== GOAL_AUTHORITY
+  parsed = readRecord('goal-state', parsed).record;
+  if (parsed?.authority !== GOAL_AUTHORITY
       || !Array.isArray(parsed.goals) || !Number.isInteger(parsed.revision) || parsed.revision < 0) {
     throw new SingularityFlowError('The workspace Goal store is invalid. Repair or remove it before continuing.', {
       code: 'GOAL_STATE_INVALID'

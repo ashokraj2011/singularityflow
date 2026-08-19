@@ -30,7 +30,9 @@ import YAML from 'yaml';
 import { canonicalJson, recordSha256 } from './records.mjs';
 import { exists, posix, SingularityFlowError } from './util.mjs';
 
-export const CONSTITUTION_SCHEMA_VERSION = 1;
+import { currentSchemaVersion } from './schema-migrations.mjs';
+
+export const CONSTITUTION_SCHEMA_VERSION = currentSchemaVersion('constitution-record');
 
 /**
  * The renderer version.

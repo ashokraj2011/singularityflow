@@ -17,6 +17,7 @@ import {
 import {
   SingularityFlowError, nowIso, run, snapshot, writeJson, writeText
 } from './util.mjs';
+import { currentSchemaVersion, readRecord } from './schema-migrations.mjs';
 
 function canonical(value) {
   if (Array.isArray(value)) return value.map(canonical);
@@ -67,9 +68,9 @@ function assertIssueRecordPolicy(issue, policy, label) {
 }
 
 function assertReceiptMatches(receipt, { initiativeId, plan, operation, policy }) {
+  receipt = readRecord('jira-write-receipt', receipt).record;
   if (
-    receipt?.schemaVersion !== 1
-    || receipt.initiativeId !== initiativeId
+    receipt.initiativeId !== initiativeId
     || receipt.planSha256 !== plan.sha256
     || receipt.operationId !== operation.id
     || receipt.action !== operation.action
@@ -112,11 +113,11 @@ export function assertJiraWriteOperationPolicy(operation, policy = {}) {
     return operation;
   }
   if (operation.action === 'set-lineage-property') {
+    if (operation.value) readRecord('story-lineage', operation.value);
     if (
       operation.subject.type !== 'story'
       || !/^[A-Za-z0-9._-]{1,255}$/.test(operation.propertyKey ?? '')
       || !operation.value
-      || operation.value.schemaVersion !== 1
     ) {
       throw new SingularityFlowError(`Jira operation '${operation.id}' has invalid Story lineage property data.`);
     }
@@ -562,7 +563,7 @@ export async function createJiraWritePlan(root, initiativeId, {
         subject: { type: 'story', id: story.id, epicId: epic.id, jiraKey: story.jiraKey ?? null },
         propertyKey: 'com.singularity.flow.lineage',
         value: {
-          schemaVersion: 1,
+          schemaVersion: currentSchemaVersion('jira-lineage-property'),
           epic: {
             id: initiativeId,
             jiraKey: epic.jiraKey ?? initiative.initiative.source?.key ?? null,
@@ -647,7 +648,7 @@ export async function createJiraWritePlan(root, initiativeId, {
     .filter((operation) => operation.action.startsWith('create-'))
     .map((operation) => operation.issue.projectKey))].sort();
   const planBase = {
-    schemaVersion: 1,
+    schemaVersion: currentSchemaVersion('jira-initiative-plan'),
     initiativeId,
     projectKey: governedProjectKey,
     projectKeys,
@@ -687,7 +688,7 @@ export async function readJiraWritePlan(root, portfolio, initiativeId) {
     type: 'file'
   });
   if (!file.exists) throw new SingularityFlowError('No Jira write plan exists. Create and review one first.');
-  const plan = YAML.parse(await readFile(file.absolute, 'utf8'));
+  const plan = readRecord('jira-initiative-plan', YAML.parse(await readFile(file.absolute, 'utf8'))).record;
   const provided = plan.sha256;
   const { sha256: _ignored, ...base } = plan;
   if (hash(base) !== provided) throw new SingularityFlowError('The Jira write plan hash is invalid. Regenerate the plan.');
@@ -749,7 +750,7 @@ export async function applyJiraWritePlan(root, initiativeId, {
       type: 'file'
     });
     if (receiptPath.exists) {
-      const receipt = JSON.parse(await readFile(receiptPath.absolute, 'utf8'));
+      const receipt = readRecord('jira-write-receipt', await readFile(receiptPath.absolute)).record;
       assertReceiptMatches(receipt, { initiativeId, plan, operation, policy });
       results.push(receipt);
       if (receipt.subject.type === 'epic') epicKeys[receipt.subject.id] = receipt.jiraKey;
@@ -843,7 +844,7 @@ export async function applyJiraWritePlan(root, initiativeId, {
     }
     assertIssueRecordPolicy(result, policy, `Jira operation '${operation.id}' result`);
     const receipt = {
-      schemaVersion: 1,
+      schemaVersion: currentSchemaVersion('jira-write-receipt'),
       initiativeId,
       planSha256: plan.sha256,
       operationId: operation.id,
@@ -900,7 +901,7 @@ export async function applyJiraWritePlan(root, initiativeId, {
   });
   await writeText(breakdownPath.absolute, YAML.stringify(initiativeBreakdownDocument(breakdown)));
   const application = {
-    schemaVersion: 1,
+    schemaVersion: currentSchemaVersion('jira-initiative-application'),
     initiativeId,
     planSha256: plan.sha256,
     status: 'applied',
@@ -971,7 +972,7 @@ export async function observeJiraDrift(root, initiativeId, {
     }
   }
   const base = {
-    schemaVersion: 1,
+    schemaVersion: currentSchemaVersion('jira-drift-observation'),
     initiativeId,
     source: 'jira',
     observedAt: nowIso(),
@@ -1013,7 +1014,7 @@ export async function adoptJiraDrift(root, initiativeId, {
     mustExist: true,
     type: 'file'
   });
-  const record = JSON.parse(await readFile(target.absolute, 'utf8'));
+  const record = readRecord('jira-drift-observation', await readFile(target.absolute)).record;
   const { observationSha256: provided, ...base } = record;
   if (provided !== selected || hash(base) !== provided) throw new SingularityFlowError('Jira drift observation hash is invalid.');
   const breakdown = await loadInitiativeBreakdown(root, portfolio, initiativeId);

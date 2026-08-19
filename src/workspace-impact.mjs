@@ -10,8 +10,9 @@ import {
 } from './workspace.mjs';
 import { nowIso, run, SingularityFlowError } from './util.mjs';
 import { invokeModel } from './model-runner.mjs';
+import { currentSchemaVersion, readRecord } from './schema-migrations.mjs';
 
-export const WORKSPACE_IMPACT_SCHEMA_VERSION = 1;
+export const WORKSPACE_IMPACT_SCHEMA_VERSION = currentSchemaVersion('workspace-impact-report');
 const MAX_COPILOT_OUTPUT_BYTES = 8 * 1024 * 1024;
 
 function sha256(value) {
@@ -251,12 +252,12 @@ export async function readWorkspaceImpact(workspacePath, id) {
   const workspace = await readWorkspace(workspacePath);
   const directory = impactDirectory(workspace, id);
   let report;
-  try { report = JSON.parse(await readFile(path.join(directory, 'report.json'), 'utf8')); }
+  try { report = readRecord('workspace-impact-report', await readFile(path.join(directory, 'report.json'))).record; }
   catch (error) {
     if (error?.code === 'ENOENT') throw new SingularityFlowError(`Workspace impact analysis '${id}' does not exist.`);
     throw new SingularityFlowError(`Unable to read workspace impact analysis '${id}': ${error.message}`);
   }
-  if (report.schemaVersion !== WORKSPACE_IMPACT_SCHEMA_VERSION || report.id !== id) {
+  if (report.id !== id) {
     throw new SingularityFlowError(`Workspace impact analysis '${id}' has an unsupported record.`);
   }
   return report;

@@ -27,8 +27,9 @@ import path from 'node:path';
 
 import { canonicalJson, recordSha256 } from './records.mjs';
 import { posix, SingularityFlowError } from './util.mjs';
+import { currentSchemaVersion } from './schema-migrations.mjs';
 
-export const ARTIFACT_SIDECAR_SCHEMA_VERSION = 1;
+export const ARTIFACT_SIDECAR_SCHEMA_VERSION = currentSchemaVersion('artifact-sidecar');
 
 /**
  * Where sidecars live: kernel-owned, and deliberately not beside the artifact.

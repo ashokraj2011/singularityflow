@@ -11,6 +11,7 @@ import {
 } from './grounding.mjs';
 import { selectionId } from './world-model-selection.mjs';
 import { withSubjectLock } from './subject-lock.mjs';
+import { currentSchemaVersion } from './schema-migrations.mjs';
 import { SingularityFlowError, snapshot, writeJson } from './util.mjs';
 
 export const MATERIALIZATION_MODES = Object.freeze(['on-demand', 'explicit', 'disabled']);
@@ -362,7 +363,7 @@ export async function writeV3Manifest(directory, rawManifest, { materialization 
     : { path: 'path-index.json' };
   if (!existsSync(path.join(directory, pathIndex.path))) {
     await writeJson(path.join(directory, pathIndex.path), {
-      schemaVersion: 1,
+      schemaVersion: currentSchemaVersion('worldmodel-path-index'),
       generatedBy: 'singularity-flow',
       note: 'CLI-owned fallback index; generated artifacts remain authoritative in manifest.json.',
       entries: []

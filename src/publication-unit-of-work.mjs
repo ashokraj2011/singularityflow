@@ -15,6 +15,7 @@ import {
 } from './publication-journal.mjs';
 import { withSubjectLock } from './subject-lock.mjs';
 import { SingularityFlowError, nowIso, stateFingerprint } from './util.mjs';
+import { currentSchemaVersion } from './schema-migrations.mjs';
 
 export class GitPublicationUnitOfWork {
   constructor(root) { this.root = root; }
@@ -161,7 +162,7 @@ export class GitPublicationUnitOfWork {
           kind: subject.kind,
           id: subject.id,
           record: {
-            schemaVersion: 2,
+            schemaVersion: currentSchemaVersion('pending-publication'),
             subject,
             branch: publication.branch,
             remote: publication.remote ?? 'origin',
@@ -200,7 +201,7 @@ export class GitPublicationUnitOfWork {
           kind: subject.kind,
           id: subject.id,
           record: {
-            schemaVersion: 2,
+            schemaVersion: currentSchemaVersion('pending-publication'),
             subject,
             branch: publication.branch,
             remote: publication.remote ?? 'origin',

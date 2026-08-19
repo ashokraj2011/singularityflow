@@ -17,12 +17,16 @@ import { withSubjectLock } from './subject-lock.mjs';
 import {
   exists, nowIso, readJson, run, SingularityFlowError, snapshot, writeAtomic, writeJson
 } from './util.mjs';
+import { currentSchemaVersion, readRecord } from './schema-migrations.mjs';
 
-export const FAULT_ENVELOPE_SCHEMA_VERSION = 1;
-export const FAULT_DIAGNOSIS_SCHEMA_VERSION = 1;
-export const REPAIR_PLAN_SCHEMA_VERSION = 1;
-export const REPAIR_STATE_SCHEMA_VERSION = 1;
-export const REPAIR_RECEIPT_SCHEMA_VERSION = 1;
+export const FAULT_ENVELOPE_SCHEMA_VERSION = currentSchemaVersion('fault-envelope');
+export const FAULT_DIAGNOSIS_SCHEMA_VERSION = currentSchemaVersion('fault-diagnosis');
+export const REPAIR_PLAN_SCHEMA_VERSION = currentSchemaVersion('repair-plan');
+export const REPAIR_STATE_SCHEMA_VERSION = currentSchemaVersion('repair-state');
+export const REPAIR_RECEIPT_SCHEMA_VERSION = currentSchemaVersion('repair-receipt');
+const FAULT_OCCURRENCE_GROUP_SCHEMA_VERSION = currentSchemaVersion('fault-occurrence-group');
+const REPAIR_EVENT_SCHEMA_VERSION = currentSchemaVersion('repair-event');
+const REPAIR_ATTEMPT_SCHEMA_VERSION = currentSchemaVersion('repair-attempt');
 
 const ENVIRONMENTS = new Set(['local', 'ide', 'copilot', 'ci', 'integration', 'staging', 'production']);
 const SEVERITIES = new Set(['info', 'low', 'medium', 'high', 'critical']);
@@ -84,15 +88,8 @@ function verifyIntegrity(record, label) {
   return record;
 }
 
-function requireSchema(record, expected, label) {
-  const version = record?.schemaVersion;
-  if (version !== expected) {
-    throw new SingularityFlowError(
-      `${label} schema ${String(version ?? 'missing')} is unsupported; this build supports ${expected} only.`,
-      { code: 'FAULT_SCHEMA_UNSUPPORTED', details: { supported: { minimum: expected, maximum: expected }, received: version ?? null } }
-    );
-  }
-  return verifyIntegrity(record, label);
+function readIntegrityRecord(family, record, label) {
+  return verifyIntegrity(readRecord(family, record).record, label);
 }
 
 function compact(value) {
@@ -594,11 +591,22 @@ function envelopeRequestCore(input, evidence) {
 
 async function normalizeEnvelopeInput(root, raw = {}, { policy, actor } = {}) {
   if (!raw || typeof raw !== 'object' || Array.isArray(raw)) throw new SingularityFlowError('Fault envelope must be an object.');
-  if (raw.schemaVersion != null && raw.schemaVersion !== 1) {
-    throw new SingularityFlowError(`FaultEnvelope schema ${raw.schemaVersion} is unsupported; this build supports 1 only.`, { code: 'FAULT_SCHEMA_UNSUPPORTED' });
+  let versioned;
+  try {
+    versioned = readRecord('fault-envelope', {
+      schemaVersion: FAULT_ENVELOPE_SCHEMA_VERSION,
+      ...raw
+    }).record;
+  } catch (error) {
+    if (error?.code === 'SCHEMA_VERSION_FUTURE' || error?.code === 'SCHEMA_VERSION_ARCHIVED') {
+      throw new SingularityFlowError(error.message, {
+        code: 'FAULT_SCHEMA_UNSUPPORTED', details: error.details, cause: error
+      });
+    }
+    throw error;
   }
   const redactions = [];
-  const sanitized = sanitizeValue(raw, redactions, 'fault');
+  const sanitized = sanitizeValue(versioned, redactions, 'fault');
   const source = requireText(sanitized.source, 'source', { maximum: 128, pattern: /^[a-z0-9]+(?:[._-][a-z0-9]+)*$/i });
   const environment = sanitized.environment ?? 'local';
   if (!ENVIRONMENTS.has(environment)) throw new SingularityFlowError(`Unknown fault environment '${environment}'.`, { code: 'FAULT_ENVIRONMENT_INVALID' });
@@ -664,11 +672,11 @@ async function normalizeEnvelopeInput(root, raw = {}, { policy, actor } = {}) {
 }
 
 async function readFaultFile(file) {
-  return requireSchema(await readJson(file), FAULT_ENVELOPE_SCHEMA_VERSION, 'FaultEnvelope');
+  return readIntegrityRecord('fault-envelope', await readJson(file), 'FaultEnvelope');
 }
 
 function requireOccurrenceGroup(record, { signature, groupId, baseline }) {
-  const group = requireSchema(record, 1, 'FaultOccurrenceGroup');
+  const group = readIntegrityRecord('fault-occurrence-group', record, 'FaultOccurrenceGroup');
   const occurrences = group.occurrences;
   const structurallyValid = group.recordType === 'fault-occurrence-group'
     && group.signature === signature
@@ -749,7 +757,7 @@ export async function reportFault(root, raw, { policy: configuredPolicy = {}, ac
 
     const occurrences = [...new Set([...(existing?.occurrences ?? []), faultId])];
     const groupCore = {
-      schemaVersion: 1, recordType: 'fault-occurrence-group', groupId, signature,
+      schemaVersion: FAULT_OCCURRENCE_GROUP_SCHEMA_VERSION, recordType: 'fault-occurrence-group', groupId, signature,
       baseline: fault.build.commit, firstSeenAt: existing?.firstSeenAt ?? receivedAt,
       lastSeenAt: receivedAt, count: occurrences.length, occurrences
     };
@@ -772,7 +780,7 @@ async function repairStates(root) {
     if (!entry.isDirectory() || !/^RPR-/i.test(entry.name)) continue;
     const file = path.join(directory, entry.name, 'state.json');
     if (!await exists(file)) continue;
-    states.push(requireSchema(await readJson(file), REPAIR_STATE_SCHEMA_VERSION, 'RepairState'));
+    states.push(readIntegrityRecord('repair-state', await readJson(file), 'RepairState'));
   }
   return states;
 }
@@ -1080,7 +1088,7 @@ function publicPlanCore({ repairId, fault, diagnosis, effective, allowedPaths, v
 async function writeRepairEvent(root, state, type, data = {}) {
   const sequence = (state.events ?? 0) + 1;
   const core = {
-    schemaVersion: 1, recordType: 'repair-event', repairId: state.repairId,
+    schemaVersion: REPAIR_EVENT_SCHEMA_VERSION, recordType: 'repair-event', repairId: state.repairId,
     sequence, type, at: nowIso(), data
   };
   const event = withIntegrity(core);
@@ -1118,7 +1126,7 @@ async function verifiedCurrentPlan(root, state) {
   );
   const legacy = statePath(root, 'repairs', state.repairId, 'plan.json');
   const file = await exists(modern) ? modern : legacy;
-  const immutable = requireSchema(await readJson(file), REPAIR_PLAN_SCHEMA_VERSION, `RepairPlan '${state.repairId}'`);
+  const immutable = readIntegrityRecord('repair-plan', await readJson(file), `RepairPlan '${state.repairId}'`);
   if (immutable.integrity.sha256 !== state.plan.integrity.sha256
     || canonicalJson(immutable) !== canonicalJson(state.plan)) {
     throw new SingularityFlowError(`Repair '${state.repairId}' plan differs from its immutable plan record.`, { code: 'REPAIR_PLAN_CHANGED' });
@@ -1143,7 +1151,7 @@ function planDecisionCore(plan) {
 
 export async function readRepair(root, repairId) {
   const id = requireId(repairId, 'RPR', 'repairId');
-  return requireSchema(await readJson(statePath(root, 'repairs', id, 'state.json')), REPAIR_STATE_SCHEMA_VERSION, 'RepairState');
+  return readIntegrityRecord('repair-state', await readJson(statePath(root, 'repairs', id, 'state.json')), 'RepairState');
 }
 
 export async function listRepairs(root, { status = null } = {}) {
@@ -1299,7 +1307,7 @@ function commitObjectId(root, value) {
 async function verifiedRepairEvents(root, repairId) {
   return directoryRecords(
     statePath(root, 'repairs', repairId, 'events'),
-    async (file) => verifyIntegrity(await readJson(file), 'RepairEvent')
+    async (file) => readIntegrityRecord('repair-event', await readJson(file), 'RepairEvent')
   );
 }
 
@@ -1586,11 +1594,11 @@ async function runVerificationSet(root, state, patch, attemptNumber, deadline) {
 async function terminalReceipt(root, state, disposition, reason) {
   const fault = await readFault(root, state.faultId);
   const diagnosis = state.plan.diagnosisSha256
-    ? await readJson(statePath(root, 'diagnoses', state.faultId, `${state.plan.diagnosisSha256}.json`)).then((record) => verifyIntegrity(record, 'FaultDiagnosis'))
+    ? await readJson(statePath(root, 'diagnoses', state.faultId, `${state.plan.diagnosisSha256}.json`)).then((record) => readIntegrityRecord('fault-diagnosis', record, 'FaultDiagnosis'))
     : null;
   const attemptRecords = await directoryRecords(
     statePath(root, 'repairs', state.repairId, 'attempts'),
-    async (file) => verifyIntegrity(await readJson(file), 'RepairAttempt')
+    async (file) => readIntegrityRecord('repair-attempt', await readJson(file), 'RepairAttempt')
   );
   const completedAt = nowIso();
   const elapsedMinutes = Math.max(0, (Date.parse(completedAt) - Date.parse(state.plan.createdAt)) / 60_000);
@@ -1754,7 +1762,7 @@ export async function attemptRepair(root, repairId, { patchFile } = {}) {
     const noProgress = Boolean(previous && previous.patchSha256 === `sha256:${patchDigest}` && previous.resultSignature === resultSignature);
     const oscillating = Boolean(twoBack && twoBack.patchSha256 === `sha256:${patchDigest}` && previous?.patchSha256 !== `sha256:${patchDigest}`);
     const attemptCore = {
-      schemaVersion: 1, recordType: 'repair-attempt', repairId: id, attempt: attemptNumber,
+      schemaVersion: REPAIR_ATTEMPT_SCHEMA_VERSION, recordType: 'repair-attempt', repairId: id, attempt: attemptNumber,
       at: nowIso(), patchSha256: `sha256:${patchDigest}`, patchPath: path.relative(stateRoot(root), storedPatch).replaceAll(path.sep, '/'),
       touchedPaths: touched,
       changedPaths: candidateSnapshot.changedPaths,

@@ -3,6 +3,7 @@ import path from 'node:path';
 import { lstat, readFile, readlink, readdir } from 'node:fs/promises';
 import { existsSync } from 'node:fs';
 import YAML from 'yaml';
+import { currentSchemaVersion, readRecord } from './schema-migrations.mjs';
 import {
   SingularityFlowError, exists, nowIso, posix, run, secureRepositoryPath, snapshot, writeJson
 } from './util.mjs';
@@ -232,7 +233,7 @@ export async function buildSpecIndex(root, artifact, {
     externalClauses
   });
   const indexWithoutHash = {
-    schemaVersion: 1,
+    schemaVersion: currentSchemaVersion('specification-index'),
     workId: workId ?? null,
     phase: phase ?? null,
     generation: Number(generation ?? 0),
@@ -297,7 +298,7 @@ export function normalizeClaimMap(value, { kind, clauseIds = [], policy = {} } =
       };
     }
   }
-  const result = { schemaVersion: 1, kind, recordedAt: nowIso(), claims };
+  const result = { schemaVersion: currentSchemaVersion('specification-claim-map'), kind, recordedAt: nowIso(), claims };
   const bytes = Buffer.byteLength(canonicalJson(result));
   if (bytes > normalized.limits.maxClaimBytes) throw new SingularityFlowError(`${kind} claim map exceeds ${normalized.limits.maxClaimBytes} bytes.`);
   return result;
@@ -325,12 +326,12 @@ export async function loadSpecRecords(itemDirectory) {
   const planned = [];
   const observed = [];
   const acceptance = [];
-  for (const file of await jsonFiles(path.join(itemDirectory, 'context', 'spec-indexes'))) indexes.push(JSON.parse(await readFile(file, 'utf8')));
+  for (const file of await jsonFiles(path.join(itemDirectory, 'context', 'spec-indexes'))) indexes.push(readRecord('specification-index', await readFile(file)).record);
   for (const file of await jsonFiles(path.join(itemDirectory, 'context', 'claims'))) {
-    const value = JSON.parse(await readFile(file, 'utf8'));
+    const value = readRecord('specification-claim-map', await readFile(file)).record;
     (value.kind === 'observed' ? observed : planned).push(value);
   }
-  for (const file of await jsonFiles(path.join(itemDirectory, 'context', 'acceptance'))) acceptance.push(JSON.parse(await readFile(file, 'utf8')));
+  for (const file of await jsonFiles(path.join(itemDirectory, 'context', 'acceptance'))) acceptance.push(readRecord('specification-acceptance', await readFile(file)).record);
   return { indexes, planned, observed, acceptance };
 }
 
@@ -408,7 +409,7 @@ export function evaluateSpecCoverage({ indexes = [], planned = [], observed = []
     }
   }
   const result = {
-    schemaVersion: 1,
+    schemaVersion: 1, // schema-transient: computed coverage result, never persisted
     mode: normalized.coverage,
     totals: {
       clauses: clauses.size,
@@ -460,7 +461,7 @@ export function evaluateSpecAcceptance({ indexes = [], planned = [], observed = 
   const complete = normalized.acceptance === 'off'
     || (!missingPlannedTests.length && !missingObservedTests.length && !failedCommands.length && !missingRun && !staleRunReasons.length);
   return {
-    schemaVersion: 1,
+    schemaVersion: 1, // schema-transient: computed acceptance result, never persisted
     mode: normalized.acceptance,
     complete,
     missingPlannedTests,
@@ -498,7 +499,7 @@ export async function runSpecAcceptance(root, policy = {}, {
   const sourceTreeAfter = await specificationSourceTreeHash(root);
   const sourceChangedDuringRun = sourceTreeBefore !== sourceTreeAfter;
   const record = {
-    schemaVersion: 1,
+    schemaVersion: currentSchemaVersion('specification-acceptance'),
     workId,
     phase,
     generation,

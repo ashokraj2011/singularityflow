@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { mkdtemp, readFile, writeFile } from 'node:fs/promises';
+import { mkdir, mkdtemp, readFile, writeFile } from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
 import {
@@ -8,6 +8,7 @@ import {
   recallKnowledge, recordKnowledge, resolveKnowledge
 } from '../src/knowledge.mjs';
 import { run } from '../src/util.mjs';
+import { canonicalJson, recordSha256 } from '../src/records.mjs';
 
 async function repository() {
   const root = await mkdtemp(path.join(os.tmpdir(), 'sflow-knowledge-'));
@@ -75,6 +76,31 @@ test('entries are content addressed, so recording the same claim twice is a no-o
   // The timestamp is stored but deliberately outside the hash, so a re-harvest of an unchanged
   // artifact adds nothing rather than duplicating every finding.
   assert.ok(stored[0].record.createdAt, 'the entry still records when it was written');
+});
+
+test('v1 knowledge stays byte-identical and audit-visible without becoming reusable evidence', async () => {
+  const root = await repository();
+  const claim = {
+    schemaVersion: 1, type: 'learning', title: 'Legacy claim', detail: 'No approved provenance existed.',
+    status: null, tags: ['legacy'], provenance: { initiativeId: 'OLD-1' }, supersedes: null
+  };
+  const hash = recordSha256(claim);
+  const directory = path.join(root, 'singularity', 'knowledge', 'records');
+  const file = path.join(directory, `${hash}.json`);
+  await mkdir(directory, { recursive: true });
+  await writeFile(file, canonicalJson({
+    ...claim, recordedAt: '2025-01-02T03:04:05.000Z', actor: 'legacy@example.test'
+  }));
+  const before = await readFile(file);
+
+  const entries = await readKnowledge(root);
+  assert.equal(entries.length, 1);
+  assert.equal(entries[0].record.schemaVersion, 2);
+  assert.equal(entries[0].record.legacyUnverified, true);
+  assert.equal(filterKnowledge(entries, { query: 'Legacy claim' }).length, 1);
+  assert.equal(currentKnowledge(entries).length, 0);
+  assert.equal(recallKnowledge(entries, { repositories: [path.basename(root)] }).length, 0);
+  assert.deepEqual(await readFile(file), before);
 });
 
 test('resolving an uncertainty supersedes without rewriting', async () => {

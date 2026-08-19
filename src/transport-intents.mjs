@@ -11,8 +11,9 @@ import {
 import { workspaceRegistryFile } from './workspace-context.mjs';
 import { run, SingularityFlowError, writeAtomic } from './util.mjs';
 import { healerReceipt } from './workspace-healers.mjs';
+import { currentSchemaVersion, readRecord } from './schema-migrations.mjs';
 
-export const TRANSPORT_INTENT_SCHEMA_VERSION = 1;
+export const TRANSPORT_INTENT_SCHEMA_VERSION = currentSchemaVersion('transport-intent');
 export const TRANSPORT_INTENT_STATUSES = Object.freeze([
   'pending', 'pushing', 'succeeded', 'outcome-unknown', 'remote-diverged',
   'needs-user', 'attempt-budget-exhausted'
@@ -89,7 +90,7 @@ export async function readTransportIntent(intentId, { env = process.env, home = 
       code: 'TRANSPORT_INTENT_INVALID'
     });
   }
-  return verified(record, file);
+  return verified(readRecord('transport-intent', record).record, file);
 }
 
 export async function listTransportIntents({
@@ -102,9 +103,12 @@ export async function listTransportIntents({
   for (const name of files.filter((entry) => /^psh_[a-f0-9-]{20,64}\.json$/.test(entry))) {
     const file = path.join(directory, name);
     try {
-      const record = verified(JSON.parse(await readFile(file, 'utf8')), file);
+      const record = verified(readRecord('transport-intent', await readFile(file)).record, file);
       if (includeSucceeded || record.status !== 'succeeded') records.push(record);
-    } catch { /* Corrupt records stay on disk and cannot authorize retry. */ }
+    } catch (error) {
+      if (String(error?.code ?? '').startsWith('SCHEMA_')) throw error;
+      /* Corrupt records stay on disk and cannot authorize retry. */
+    }
   }
   return records.sort((left, right) => String(right.updatedAt).localeCompare(String(left.updatedAt)));
 }

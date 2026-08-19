@@ -406,4 +406,6 @@ The final tree hash excludes `singularity` state and hashes tracked source/test 
 
 ## Migration boundary
 
-This development release intentionally accepts only agent-only workflow schema version 2. Legacy role-bearing definitions and work-item state fail with a guarded factory-reset instruction; no automatic migration path is provided. Machine-local workspace registrations whose lead explicitly declares a non-v2 workflow are discarded on registry access, while their directories and repository clones remain untouched.
+Every versioned durable-record family declares its current version, readable range, immutable marker, and contiguous pure migration chain in `src/schema-migrations.mjs`. Durable readers use one entry point and receive a current-shape in-memory record plus the stored version and migration provenance. Writers take their version from the registry. Reads never rewrite Git history, content-addressed evidence, approvals, ledger entries, or machine-local state.
+
+Records above a family's range fail with an explicit upgrade remedy; records below it name the archival-reader or governed-republication route. `sflow doctor` inventories stored versions without invoking a model or changing bytes, and the deterministic check rejects schema-version branching outside the registry. YAML configuration format migration and former control-folder layouts remain separate, explicit upgrade concerns rather than being guessed from durable JSON state.

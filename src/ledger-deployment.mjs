@@ -1,6 +1,7 @@
 import path from 'node:path';
 import { normalizeLedgerConfig } from './ledger-config.mjs';
 import { recordSha256 } from './records.mjs';
+import { currentSchemaVersion } from './schema-migrations.mjs';
 import { nowIso, run, writeJson } from './util.mjs';
 
 function redactRemote(value) {
@@ -120,7 +121,7 @@ export async function validateLedgerDeployment(root, rawConfig = {}, {
   } : null;
 
   const result = {
-    schemaVersion: 1,
+    schemaVersion: currentSchemaVersion('ledger-deployment-report'),
     checkedAt: recordedAt,
     repositoryCommit: git(root, ['rev-parse', 'HEAD']).stdout.trim() || null,
     trustTier: config.trustTier,

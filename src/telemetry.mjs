@@ -3,9 +3,10 @@ import os from 'node:os';
 import path from 'node:path';
 import { gitDir } from './git.mjs';
 import { exists, nowIso, snapshot, writeJson } from './util.mjs';
+import { currentSchemaVersion, readRecord } from './schema-migrations.mjs';
 
-const CURSOR_SCHEMA = 1;
-const RECORD_SCHEMA = 1;
+const CURSOR_SCHEMA = currentSchemaVersion('telemetry-cursor');
+const RECORD_SCHEMA = currentSchemaVersion('phase-telemetry');
 
 async function managedTelemetrySetup() {
   const file = process.env.SINGULARITY_FLOW_COPILOT_TELEMETRY_SETUP_FILE
@@ -72,7 +73,7 @@ function cursorKey(workflow, phase, generation = phase.generation + 1) {
 async function loadCursors(root) {
   const file = cursorsPath(root);
   if (!(await exists(file))) return { schemaVersion: CURSOR_SCHEMA, cursors: {} };
-  try { return JSON.parse(await readFile(file, 'utf8')); } catch { return { schemaVersion: CURSOR_SCHEMA, cursors: {} }; }
+  return readRecord('telemetry-cursor', await readFile(file)).record;
 }
 
 export async function beginTelemetryCapture(root, workflow, phase) {
@@ -227,7 +228,11 @@ export async function verifyPhaseTelemetry(root, workflow, phase, generation) {
   if (!current.exists) return { errors: [`telemetry file missing: ${context.path}`], passes: [] };
   if (current.sha256 !== context.sha256) return { errors: [`telemetry integrity failed: ${context.path}`], passes: [] };
   let record;
-  try { record = JSON.parse(await readFile(path.join(root, context.path), 'utf8')); } catch { return { errors: [`telemetry record is invalid JSON: ${context.path}`], passes: [] }; }
+  try { record = readRecord('phase-telemetry', await readFile(path.join(root, context.path))).record; }
+  catch (error) {
+    if (String(error?.code ?? '').startsWith('SCHEMA_')) throw error;
+    return { errors: [`telemetry record is invalid JSON: ${context.path}`], passes: [] };
+  }
   if (record.workId !== workflow.workItem.id || record.phase !== phase.id || record.generation !== generation) return { errors: [`telemetry record identity mismatch: ${context.path}`], passes: [] };
   const expectedUsage = (phase.usage ?? []).filter((item) => item.generation === generation);
   if (JSON.stringify(record.usage) !== JSON.stringify(expectedUsage)) return { errors: [`telemetry usage differs from workflow state: ${context.path}`], passes: [] };

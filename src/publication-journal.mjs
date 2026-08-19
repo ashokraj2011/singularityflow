@@ -3,6 +3,7 @@ import { randomUUID } from 'node:crypto';
 import { gitDir } from './git.mjs';
 import { exists, nowIso, readJson, writeJson } from './util.mjs';
 import { unlink } from 'node:fs/promises';
+import { currentSchemaVersion, readRecord } from './schema-migrations.mjs';
 
 const PROCESS_OWNER_ID = randomUUID();
 
@@ -17,7 +18,7 @@ export function publicationJournalPath(root, kind, id) {
 export async function readPublicationJournal(root, subject) {
   const target = publicationJournalPath(root, subject.kind, subject.id);
   if (!(await exists(target))) return null;
-  return { path: target, record: await readJson(target) };
+  return { path: target, record: readRecord('publication-journal', await readJson(target)).record };
 }
 
 export async function beginPublicationJournal(root, {
@@ -28,7 +29,7 @@ export async function beginPublicationJournal(root, {
   event
 }) {
   const record = {
-    schemaVersion: 1,
+    schemaVersion: currentSchemaVersion('publication-journal'),
     kind: 'publication-transaction-journal',
     subject,
     expectedHead,

@@ -6,6 +6,9 @@ import { loadSession } from './session.mjs';
 import { SingularityFlowError, exists, nowIso, posix, snapshot, writeJson, writeText } from './util.mjs';
 import { assertPhaseSequence, enforceSequenceGate } from './sequence.mjs';
 import { sourceRuntime, storageAdapter } from './epic-sources.mjs';
+import { currentSchemaVersion, readRecord } from './schema-migrations.mjs';
+
+const DOCUMENT_MANIFEST_SCHEMA_VERSION = currentSchemaVersion('document-manifest');
 
 const TEXT_EXTENSIONS = new Set([
   '.adoc', '.c', '.cc', '.clj', '.cljs', '.cmake', '.cpp', '.cs', '.css', '.dart', '.go', '.gradle', '.graphql', '.groovy',
@@ -48,8 +51,10 @@ async function directoryFiles(source, packageName, relativeParts = [], packageSo
 
 async function loadManifest(root, config, workflow) {
   const file = manifestPath(root, config, workflow);
-  const manifest = await exists(file) ? JSON.parse(await readFile(file, 'utf8')) : { schemaVersion: 2, workId: workflow.workItem.id, documents: [], packages: [] };
-  manifest.schemaVersion = Math.max(2, manifest.schemaVersion ?? 1); manifest.packages ??= [];
+  const manifest = await exists(file)
+    ? readRecord('document-manifest', await readFile(file)).record
+    : { schemaVersion: DOCUMENT_MANIFEST_SCHEMA_VERSION, workId: workflow.workItem.id, documents: [], packages: [] };
+  manifest.packages ??= [];
   return manifest;
 }
 
@@ -148,7 +153,7 @@ export async function detachDocuments(root, config, workflow, {
   const dependencies = await storyEvidenceDependencies(root, config, workflow, targets);
   const cone = storyCone(workflow, dependencies.phases);
   const decisionBase = {
-    schemaVersion: 1,
+    schemaVersion: currentSchemaVersion('evidence-detachment-decision'),
     type: 'evidence-detachment',
     subject: { kind: 'story', id: workflow.workItem.id },
     target: { documentId: selected.id, packageId: selected.packageId ?? null, scope },
@@ -212,7 +217,7 @@ async function writePackageIndexes(root, config, workflow, manifest, packageReco
   const duplicates = [...hashes.entries()].filter(([, ids]) => ids.length > 1).map(([sha256, ids]) => ({ sha256, documents: ids }));
   const documentPackageDirectory = path.join(workDir(root, config, workflow.workItem.id), 'inputs', 'packages', packageRecord.id);
   const packageRelative = posix(path.relative(root, documentPackageDirectory)); await mkdir(documentPackageDirectory, { recursive: true });
-  const audit = { schemaVersion: 1, id: packageRecord.id, name: packageRecord.name, importedAt: packageRecord.importedAt, fileCount: records.length, totalBytes, extensions, emptyFiles: records.filter((item) => item.size === 0).map((item) => item.id), duplicates, files: records.map(({ id, label, sourceRelativePath, path: filePath, mimeType: type, size, sha256 }) => ({ id, label, sourceRelativePath, path: filePath, mimeType: type, size, sha256 })) };
+  const audit = { schemaVersion: currentSchemaVersion('document-package-manifest'), id: packageRecord.id, name: packageRecord.name, importedAt: packageRecord.importedAt, fileCount: records.length, totalBytes, extensions, emptyFiles: records.filter((item) => item.size === 0).map((item) => item.id), duplicates, files: records.map(({ id, label, sourceRelativePath, path: filePath, mimeType: type, size, sha256 }) => ({ id, label, sourceRelativePath, path: filePath, mimeType: type, size, sha256 })) };
   await writeJson(path.join(documentPackageDirectory, 'manifest.json'), audit);
   const inventory = [`# Design package ${packageRecord.id} — ${packageRecord.name}`, '', `- Files: **${records.length}**`, `- Bytes: **${totalBytes}**`, `- Empty files: **${audit.emptyFiles.length}**`, `- Duplicate groups: **${duplicates.length}**`, '', '| ID | Relative source path | Type | Bytes | SHA-256 |', '|---|---|---|---:|---|', ...records.map((item) => `| ${item.id} | ${item.sourceRelativePath} | ${item.mimeType} | ${item.size} | \`${item.sha256}\` |`), '', '## File types', '', ...Object.entries(extensions).sort().map(([extension, count]) => `- ${extension}: ${count}`), ''];
   await writeText(path.join(documentPackageDirectory, 'inventory.md'), `${inventory.join('\n')}\n`);

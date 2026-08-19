@@ -42,6 +42,7 @@ import { attachStoryBranch, createStoryBranch, promoteStoryBranch, storyBranchSt
 import { SingularityFlowError, exists, nowIso, optionBoolean, optionNumber, optionString, optionStrings, posix, readJson, requirePositional, run, snapshot, table, writeJson, writeText } from '../util.mjs';
 import { acknowledgeAmendment, createLocalCheckpoint, escalationPlan, reconcileWorkInterval } from '../work-intervals.mjs';
 import { existsSync } from 'node:fs';
+import { currentSchemaVersion, readRecord } from '../schema-migrations.mjs';
 import { mkdir, readFile } from 'node:fs/promises';
 import { stdin as input, stdout as output } from 'node:process';
 import { STORY_LINEAGE_PROPERTY, activatePhaseAgent, activeActionContext, confirm, summary } from './kernel.mjs';
@@ -74,8 +75,10 @@ export async function storyInboxCommand(options) {
   });
   const stories = (await Promise.all(result.issues.map(async (issue) => {
     try {
-      const lineage = await getIssueProperty(issue.key, STORY_LINEAGE_PROPERTY);
-      return lineage?.schemaVersion === 1 ? {
+      const stored = await getIssueProperty(issue.key, STORY_LINEAGE_PROPERTY);
+      if (!stored) return null;
+      const lineage = readRecord('story-lineage', stored).record;
+      return {
         key: issue.key,
         title: issue.title,
         status: issue.status,
@@ -84,8 +87,9 @@ export async function storyInboxCommand(options) {
         repository: lineage.deliveryRepository?.id ?? lineage.story?.repository ?? null,
         branch: lineage.deliveryRepository?.branch ?? lineage.story?.canonicalBranch ?? issue.key,
         epic: lineage.epic?.jiraKey ?? lineage.epic?.id ?? null
-      } : null;
-    } catch {
+      };
+    } catch (error) {
+      if (String(error?.code ?? '').startsWith('SCHEMA_')) throw error;
       // Jira returns 404 when an ordinary Story has no Singularity issue property.
       return null;
     }
@@ -140,10 +144,11 @@ export async function storyFetchCommand(positionals, options) {
   if (!/^[A-Z][A-Z0-9_-]*-\d+$/.test(storyKey)) throw new SingularityFlowError('story fetch requires a Jira Story key such as MOB-123.');
   const portfolio = await loadPortfolio(leadRoot);
   const issue = await getIssue(storyKey);
-  const property = await getIssueProperty(storyKey, STORY_LINEAGE_PROPERTY);
-  if (property?.schemaVersion !== 1) {
+  const storedProperty = await getIssueProperty(storyKey, STORY_LINEAGE_PROPERTY);
+  if (!storedProperty) {
     throw new SingularityFlowError(`Jira Story ${storyKey} has no Singularity Flow lineage property. Publish it from an approved Epic plan first.`);
   }
+  const property = readRecord('story-lineage', storedProperty).record;
   const repositoryId = property.deliveryRepository?.id ?? property.story?.repository;
   const repository = portfolio.repositories?.[repositoryId];
   if (!repository) {
@@ -529,7 +534,7 @@ async function convergenceSubject(root, config, workflow) {
   const itemRelative = posix(path.relative(root, itemDirectory));
   // The full record, not the summary the phase keeps: `[SPK:CON-032]` says convergence consumes the
   // exact reconciliation output, and the summary has no `findings`.
-  const reconciliation = await readJson(path.join(root, reconciliationRef.path));
+  const reconciliation = readRecord('work-reconciliation', await readJson(path.join(root, reconciliationRef.path))).record;
   reconciliation.path = reconciliationRef.path;
   const records = await loadActiveSpecRecords(itemDirectory, workflow);
   const policy = workflow.resolution?.spec ?? config.spec;
@@ -607,7 +612,11 @@ function convergenceRecordRelative(itemRelative, iteration) {
 async function readConvergence(root, itemRelative, iteration) {
   const relative = convergenceRecordRelative(itemRelative, iteration);
   if (!(await exists(path.join(root, relative)))) return null;
-  return readJson(path.join(root, relative)).catch(() => null);
+  try { return readRecord('convergence-record', await readJson(path.join(root, relative))).record; }
+  catch (error) {
+    if (String(error?.code ?? '').startsWith('SCHEMA_')) throw error;
+    return null;
+  }
 }
 
 /**
@@ -849,7 +858,7 @@ async function proposeIntentAmendment(root, config, workflow, projection, option
   const proposedSha256 = createHash('sha256').update(proposedText).digest('hex');
   const proposedAt = nowIso();
   const core = {
-    schemaVersion: 1,
+    schemaVersion: currentSchemaVersion('intent-amendment-proposal'),
     resultType: 'intent-amendment-proposal',
     id,
     workId: workflow.workItem.id,
@@ -929,7 +938,7 @@ async function proposeIntentAmendment(root, config, workflow, projection, option
 async function decideProposedIntentAmendment(root, config, workflow, proposalId, options) {
   const summary = (workflow.intentAmendments ?? []).find((entry) => entry.id === proposalId);
   if (!summary) throw new SingularityFlowError(`Unknown intent amendment '${proposalId}'.`);
-  const proposal = await readJson(path.join(root, summary.recordPath));
+  const proposal = readRecord('intent-amendment-proposal', await readJson(path.join(root, summary.recordPath))).record;
   const decision = optionString(options, 'decision');
   if (!['approve', 'reject'].includes(decision)) {
     throw new SingularityFlowError("Pass --decision approve or --decision reject.", {

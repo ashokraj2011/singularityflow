@@ -26,6 +26,7 @@ import { sanitizeRemote } from './git-remote-diagnostics.mjs';
 import {
   createAndPushTransportIntent, listTransportIntents, retryTransportIntent
 } from './transport-intents.mjs';
+import { currentSchemaVersion, readRecord } from './schema-migrations.mjs';
 
 export const CONFIGURATION_BRANCH = 'sflow/config';
 export const CONFIGURATION_SOURCE_PATH = 'singularity/configuration-source.json';
@@ -423,7 +424,7 @@ export async function materializeConfigurationSnapshot(root, {
       hashes[relative] = createHash('sha256').update(await readFile(path.join(root, relative))).digest('hex');
     }
     const record = {
-      schemaVersion: 1,
+      schemaVersion: currentSchemaVersion('configuration-source'),
       repository: sourceRemote,
       branch: CONFIGURATION_BRANCH,
       commit,
@@ -454,11 +455,11 @@ export async function readConfigurationSource(root, { verify = false } = {}) {
     throw new SingularityFlowError(`${CONFIGURATION_SOURCE_PATH} must be a regular file.`);
   }
   let record;
-  try { record = JSON.parse(await readFile(file, 'utf8')); }
+  try { record = readRecord('configuration-source', await readFile(file)).record; }
   catch (error) {
     throw new SingularityFlowError(`Cannot read ${CONFIGURATION_SOURCE_PATH}: ${error.message}`);
   }
-  if (record?.schemaVersion !== 1 || record.branch !== CONFIGURATION_BRANCH
+  if (record.branch !== CONFIGURATION_BRANCH
     || !/^[0-9a-f]{40}$/.test(record.commit ?? '') || !record.repository) {
     throw new SingularityFlowError(`${CONFIGURATION_SOURCE_PATH} is not a valid configuration provenance record.`);
   }

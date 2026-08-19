@@ -12,6 +12,7 @@ import { evaluateVisualCoverage } from './visual-coverage.mjs';
 import { listVisualComparisons } from './visual-compare.mjs';
 import { referenceRevision, registerReference } from './harness-imports.mjs';
 import { createImpactReceipt } from './impact.mjs';
+import { currentSchemaVersion, readRecord } from './schema-migrations.mjs';
 
 function hash(value) {
   return createHash('sha256').update(JSON.stringify(value)).digest('hex');
@@ -90,7 +91,7 @@ export async function attachStoryBranch(root, config, {
   // commit, and the retry then took the already-registered early return and published nothing, so
   // the registration stayed local and unattested while every other clone rejected work on it.
   workflow.lineage ??= {
-    schemaVersion: 1,
+    schemaVersion: currentSchemaVersion('story-lineage'),
     canonicalBranch: workflow.workItem.branch,
     parentStoryId: workflow.workItem.id,
     childBranches: []
@@ -212,7 +213,7 @@ export async function createStoryReviewPacket(root, config, workflow, phase) {
     comparisons: await listVisualComparisons(root, workflow)
   } : null;
   const base = {
-    schemaVersion: 1,
+    schemaVersion: currentSchemaVersion('story-submission-packet'),
     workId: workflow.workItem.id,
     epicId: workflow.lineage?.epicId ?? null,
     planId: workflow.lineage?.planId ?? null,
@@ -245,7 +246,7 @@ export async function createStoryReviewPacket(root, config, workflow, phase) {
   const packet = { ...base, packetSha256 };
   const file = path.join(workDir(root, config, workflow.workItem.id), 'submissions', phase.id, `${packetSha256}.json`);
   await writeJson(file, packet);
-  workflow.lineage ??= { schemaVersion: 1, canonicalBranch: workflow.workItem.branch, parentStoryId: workflow.workItem.id, childBranches: [] };
+  workflow.lineage ??= { schemaVersion: currentSchemaVersion('story-lineage'), canonicalBranch: workflow.workItem.branch, parentStoryId: workflow.workItem.id, childBranches: [] };
   workflow.lineage.submissions ??= [];
   workflow.lineage.submissions.push({
     packetSha256,
@@ -266,7 +267,7 @@ export async function readStoryReviewPacket(root, config, workflow, packetSha256
     ? workflow.lineage?.submissions?.find((entry) => entry.packetSha256 === packetSha256)
     : workflow.lineage?.submissions?.at(-1);
   if (!selected) throw new SingularityFlowError(`Story '${workflow.workItem.id}' has no submitted review packet.`);
-  const packet = JSON.parse(await readFile(path.join(root, selected.path), 'utf8'));
+  const packet = readRecord('story-submission-packet', await readFile(path.join(root, selected.path))).record;
   const { packetSha256: provided, ...base } = packet;
   if (provided !== selected.packetSha256 || hash(base) !== provided) throw new SingularityFlowError('Story review packet hash is invalid.');
   return packet;
@@ -349,7 +350,7 @@ export async function finalizeStoryDelivery(root, config, workflow, { persist = 
     .find((entry) => ['phase_approved', 'phase_self_approved'].includes(entry.event))?.at
     ?? workflow.workItem.createdAt;
   const base = {
-    schemaVersion: 1,
+    schemaVersion: currentSchemaVersion('story-finalization-packet'),
     status: 'finalized_for_review',
     workId: workflow.workItem.id,
     epicId: workflow.lineage?.epicId ?? seed.initiative?.id ?? null,
@@ -371,7 +372,7 @@ export async function finalizeStoryDelivery(root, config, workflow, { persist = 
   const file = path.join(workDir(root, config, workflow.workItem.id), 'finalizations', `${packetSha256}.json`);
   await writeJson(file, packet);
   workflow.lineage ??= {
-    schemaVersion: 1,
+    schemaVersion: currentSchemaVersion('story-lineage'),
     canonicalBranch: workflow.workItem.branch,
     parentStoryId: workflow.workItem.id,
     childBranches: []

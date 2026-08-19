@@ -12,6 +12,7 @@ import {
 } from './mcp-target.mjs';
 import { recordObservedMcpBrowserCapture } from './mcp-evidence.mjs';
 import { exists, nowIso, SingularityFlowError, writeJson } from './util.mjs';
+import { currentSchemaVersion, readRecord } from './schema-migrations.mjs';
 
 const SAFE_ID = /^[a-z0-9]+(?:-[a-z0-9]+)*$/;
 const REQUIRED_SMOKE_TOOLS = Object.freeze(['browser_navigate', 'browser_snapshot', 'browser_close']);
@@ -135,14 +136,14 @@ export async function warmMcpHost(root, definition, serverId, { network = false,
   const entry = (await hostEntryMap(root)).get(server.hostReference);
   if (!entry) throw new SingularityFlowError(`Host entry '${server.hostReference}' is absent.`);
   const networkResult = await probe(entry, { server });
-  const receipt = { schemaVersion: 1, serverId, hostReference: server.hostReference, checkedAt: nowIso(), network: networkResult, hostEntrySha256: recordSha256(entry), policySha256: policyHash(server) };
+  const receipt = { schemaVersion: currentSchemaVersion('mcp-host-receipt'), serverId, hostReference: server.hostReference, checkedAt: nowIso(), network: networkResult, hostEntrySha256: recordSha256(entry), policySha256: policyHash(server) };
   const file = path.join(gitDir(root), 'singularity-flow', 'mcp', 'cache', `${serverId}.json`);
   await mkdir(path.dirname(file), { recursive: true }); await writeJson(file, receipt);
   return { ...receipt, path: file };
 }
 
 async function readReceipt(root, serverId) {
-  try { return JSON.parse(await readFile(receiptPath(root, serverId), 'utf8')); }
+  try { return readRecord('mcp-host-receipt', await readFile(receiptPath(root, serverId))).record; }
   catch (error) { if (error?.code === 'ENOENT') return null; return { error: error.message }; }
 }
 
@@ -280,7 +281,7 @@ export async function smokeMcpHost(root, definition, serverId, {
   }
   const { snapshotResult, ...receiptResult } = result;
   const receipt = {
-    schemaVersion: 1,
+    schemaVersion: currentSchemaVersion('mcp-observation-receipt'),
     serverId,
     hostReference: server.hostReference,
     checkedAt: nowIso(),
@@ -320,12 +321,12 @@ export async function smokeMcpHost(root, definition, serverId, {
 }
 
 async function readSmokeReceipt(root, serverId) {
-  try { return JSON.parse(await readFile(smokeReceiptPath(root, serverId), 'utf8')); }
+  try { return readRecord('mcp-observation-receipt', await readFile(smokeReceiptPath(root, serverId))).record; }
   catch (error) { if (error?.code === 'ENOENT') return null; return { error: error.message }; }
 }
 
 function validSmokeReceipt(receipt, { serverId, configured, expectedOrigins, now = Date.now() }) {
-  if (!receipt || receipt.error || receipt.schemaVersion !== 1 || receipt.serverId !== serverId
+  if (!receipt || receipt.error || receipt.serverId !== serverId
     || receipt.hostReference !== configured.hostReference || receipt.result?.status !== 'passed'
     || !Array.isArray(receipt.result?.tools)
     || !/^[a-f0-9]{64}$/.test(receipt.requestedUrlSha256 ?? '')
@@ -396,7 +397,7 @@ export async function attestMcpHost(root, definition, serverId, { confirmation }
   if (hashes.size !== 1) throw new SingularityFlowError(`Host entry '${server.hostReference}' differs across host configuration sources.`, { code: 'MCP_HOST_ENTRY_CONFLICT' });
   const actor = identity(root);
   const receipt = {
-    schemaVersion: 1,
+    schemaVersion: currentSchemaVersion('mcp-host-receipt'),
     serverId,
     hostReference: server.hostReference,
     hostSource: rows[0].surface,

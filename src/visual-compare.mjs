@@ -3,6 +3,7 @@ import path from 'node:path';
 import { listMcpEvidence } from './mcp-evidence.mjs';
 import { decodePngRgba8, encodePngRgba8 } from './png-rgba8.mjs';
 import { recordSha256 } from './records.mjs';
+import { currentSchemaVersion, readRecord } from './schema-migrations.mjs';
 import { nowIso, posix, secureRepositoryPath, SingularityFlowError, snapshot, writeAtomic, writeJson } from './util.mjs';
 
 function itemRoot(root, workflow, itemDirectory) {
@@ -61,7 +62,7 @@ export async function compareVisualArtifacts(root, workflow, {
   const base = posix(path.join('artifacts', 'visual-verification', 'evidence', identity.profileId, id));
   const directory = itemRoot(root, workflow, itemDirectory);
   let result = {
-    schemaVersion: 1, id, kind: 'visual-comparison', ...identity, generatedAt: nowIso(),
+    schemaVersion: currentSchemaVersion('visual-comparison'), id, kind: 'visual-comparison', ...identity, generatedAt: nowIso(),
     expected: { recordId: left.record?.id ?? null, path: left.path, sha256: left.sha256, bytes: left.bytes },
     actual: { recordId: right.record?.id ?? null, path: right.path, sha256: right.sha256, bytes: right.bytes },
     status: 'pass', disposition: 'identical-hash', dimensions: null, differingPixels: 0, differingPixelRatio: 0, regions: [], overflowRegions: 0, diffImage: null
@@ -121,10 +122,17 @@ export async function listVisualComparisons(root, workflow, { itemDirectory = nu
          * undetectable way through the gate, which is the exact opposite of what this record is for.
          */
         try {
-          const value = JSON.parse(await read(absolute, 'utf8'));
+          const value = readRecord('visual-comparison', await read(absolute)).record;
           if (value.kind === 'visual-comparison') results.push({ ...value, path: relative });
         } catch (error) {
-          results.push({ kind: 'visual-comparison', unreadable: true, status: 'fail', path: relative, error: error.message });
+          results.push({
+            id: `unreadable:${relative}`,
+            kind: 'visual-comparison',
+            unreadable: true,
+            status: 'fail',
+            path: relative,
+            error: error.message
+          });
         }
       }
     }

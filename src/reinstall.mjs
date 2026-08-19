@@ -8,6 +8,7 @@ import path from 'node:path';
 import { stampBuildInfoFile } from './build-info-stamp.mjs';
 import { installDirectSkills, isManagedDirectSkill, uninstallDirectSkills } from './direct-skills.mjs';
 import { commandExists, run, SingularityFlowError } from './util.mjs';
+import { currentSchemaVersion, readRecord } from './schema-migrations.mjs';
 
 export const REINSTALL_SURFACES = Object.freeze({
   npmPackage: 'singularity-flow',
@@ -18,7 +19,7 @@ export const REINSTALL_SURFACES = Object.freeze({
 });
 
 const CONFIRMATION_PREFIX = 'REINSTALL SINGULARITY FLOW ';
-const PLAN_SCHEMA_VERSION = 1;
+const PLAN_SCHEMA_VERSION = currentSchemaVersion('reinstall-plan');
 const MANAGED_TELEMETRY_MARKER = '# Managed by the Singularity Flow installer.';
 
 function sha256(value) {
@@ -398,7 +399,8 @@ async function loadCachedPlan(fingerprint, tempRoot) {
 }
 
 async function validatePreparedPlan(plan) {
-  if (plan.schemaVersion !== PLAN_SCHEMA_VERSION || plan.operation !== 'local-product-reinstall') {
+  plan = readRecord('reinstall-plan', plan).record;
+  if (plan.operation !== 'local-product-reinstall') {
     throw new SingularityFlowError('The prepared reinstall plan is not supported. Create a new --dry-run preview.');
   }
   if (await reinstallSourceDigest(plan.checkout) !== plan.sourceSha256) {

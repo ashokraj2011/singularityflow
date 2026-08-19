@@ -2,6 +2,7 @@ import { createHash } from 'node:crypto';
 import { readFile, readdir } from 'node:fs/promises';
 import { spawnSync } from 'node:child_process';
 import path from 'node:path';
+import { currentSchemaVersion, readRecord } from './schema-migrations.mjs';
 import YAML from 'yaml';
 import { canonicalJson, recordSha256 } from './records.mjs';
 import { repoRoot } from './git.mjs';
@@ -277,7 +278,7 @@ function commitExists(root, commitSha) {
 
 export async function registerReference(root, input) {
   const core = {
-    schemaVersion: 1, kind: 'governed-reference', repository: input.repository,
+    schemaVersion: currentSchemaVersion('governed-reference'), kind: 'governed-reference', repository: input.repository,
     subject: input.subject, artifact: input.artifact, revision: input.revision, visibility: input.visibility ?? 'model'
   };
   if (!['story', 'initiative'].includes(core.subject?.kind)) throw new SingularityFlowError('Reference subject must be story or initiative.');
@@ -309,7 +310,7 @@ async function findReferenceRecord(root, parsed) {
   const candidates = (await readdir(directory.absolute, { withFileTypes: true })).filter((entry) => entry.isFile() && entry.name.startsWith(parsed.recordHash) && /^[a-f0-9]{64}\.json$/.test(entry.name));
   if (candidates.length !== 1) throw new SingularityFlowError(candidates.length ? 'Reference handle prefix is ambiguous.' : 'Reference handle was not found.', { exitCode: 2, code: 'handle.not_found' });
   const target = await secureRepositoryPath(root, path.posix.join(referenceDirectory(parsed.subject), candidates[0].name), { label: 'Governed reference record', mustExist: true, type: 'file' });
-  const record = JSON.parse(await readFile(target.absolute, 'utf8'));
+  const record = readRecord('governed-reference', await readFile(target.absolute)).record;
   const { createdAt: _createdAt, ...core } = record;
   if (recordSha256(core) !== candidates[0].name.slice(0, 64)) throw new SingularityFlowError('Reference record failed its content-hash check.', { exitCode: 4, code: 'handle.hash_mismatch' });
   return { record, recordHash: candidates[0].name.slice(0, 64) };

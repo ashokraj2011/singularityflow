@@ -21,8 +21,9 @@ import {
 import {
   exists, nowIso, run, SingularityFlowError, writeAtomic
 } from './util.mjs';
+import { currentSchemaVersion, readRecord } from './schema-migrations.mjs';
 
-export const LOCAL_WORK_JOURNAL_SCHEMA_VERSION = 1;
+export const LOCAL_WORK_JOURNAL_SCHEMA_VERSION = currentSchemaVersion('local-work-journal');
 export const JOURNAL_MODES = Object.freeze(['off', 'sflow-only', 'workspace-facts', 'enhanced']);
 export const DEFAULT_JOURNAL_SETTINGS = Object.freeze({
   schemaVersion: LOCAL_WORK_JOURNAL_SCHEMA_VERSION,
@@ -106,7 +107,7 @@ async function ensurePrivateDirectory(directory) {
 export async function readJournalSettings({ env = process.env, home = os.homedir() } = {}) {
   const root = localWorkJournalRoot(env, home);
   let stored = {};
-  try { stored = JSON.parse(await readFile(settingsFile(root), 'utf8')); }
+  try { stored = readRecord('local-work-journal', await readFile(settingsFile(root))).record; }
   catch (error) {
     if (error?.code !== 'ENOENT') {
       throw new SingularityFlowError(`Unable to read local journal settings: ${error.message}`);
@@ -346,12 +347,11 @@ export async function readJournalEvents(workspaceId, date, options = {}) {
   for (const [index, line] of text.split(/\r?\n/).entries()) {
     if (!line) continue;
     try {
-      const event = JSON.parse(line);
+      const event = readRecord('local-work-journal', line).record;
       const { integrity, ...core } = event ?? {};
       const validIntegrity = integrity?.algorithm === 'sha256'
         && integrity.sha256 === recordSha256(core);
-      if (event?.schemaVersion === LOCAL_WORK_JOURNAL_SCHEMA_VERSION
-        && event.privacy?.localOnly === true && validIntegrity) {
+      if (event.privacy?.localOnly === true && validIntegrity) {
         events.push(event);
       } else malformed.push(index + 1);
     } catch { malformed.push(index + 1); }

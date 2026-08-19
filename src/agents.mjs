@@ -7,6 +7,7 @@ import { BlockList, isIP } from 'node:net';
 import YAML from 'yaml';
 import { exists, nowIso, posix, secureRepositoryPath, snapshot, writeJson, writeText, SingularityFlowError } from './util.mjs';
 import { PACKAGE_ROOT } from './package-root.mjs';
+import { currentSchemaVersion, readRecord } from './schema-migrations.mjs';
 
 export const AGENT_LOCK_PATH = 'singularity/agents.lock.yml';
 export const AGENT_MAPPING_PATH = 'singularity/agent-mappings.yml';
@@ -554,7 +555,7 @@ export async function renderAgentSkills(root, workflow, phase, session, { record
       if (!(await exists(target))) { await mkdir(path.dirname(target), { recursive: true }); await copyFile(entry.path, target); }
       files.push({ id: entry.id, type: 'skill', url: entry.url, sha256: entry.sha256, size: entry.size, path: posix(path.relative(root, target)) });
     }
-    audit = { schemaVersion: 2, workId: workflow.workItem.id, phase: phase.id, generation, agent: session.agent, nativeCopilotAgent: session.nativeCopilotAgent ?? null, agentSourceSha256: synced.agent.sha256, files, recordedAt: nowIso() };
+    audit = { schemaVersion: currentSchemaVersion('agent-context-audit'), workId: workflow.workItem.id, phase: phase.id, generation, agent: session.agent, nativeCopilotAgent: session.nativeCopilotAgent ?? null, agentSourceSha256: synced.agent.sha256, files, recordedAt: nowIso() };
     await writeJson(path.join(itemDirectory, 'context', `agents-${phase.id}-gen${generation}.json`), audit);
   }
   return { text, skills: selected, warnings: synced.warnings, audit };
@@ -576,20 +577,20 @@ export async function prepareRemoteOutputs(root, workflow, phase, session, { ite
     const target = path.join(itemDirectory, dependency.target);
     const recordExists = await exists(recordFile);
     if (recordExists && !refresh) {
-      const record = JSON.parse(await readFile(recordFile, 'utf8')); const current = await snapshot(target);
+      const record = readRecord('remote-agent-output', await readFile(recordFile)).record; const current = await snapshot(target);
       if (!current.exists || current.sha256 !== record.renderedSha256) throw new SingularityFlowError(`Remote output '${dependency.id}' was edited locally. Use agents refresh-output ${dependency.id} --replace to replace it.`);
       outputs.push(record); continue;
     }
     if (await exists(target) && !replace) {
       if (!recordExists) throw new SingularityFlowError(`Remote output '${dependency.id}' would overwrite ${dependency.target}. Use agents refresh-output ${dependency.id} --replace.`);
-      const previous = JSON.parse(await readFile(recordFile, 'utf8')); const current = await snapshot(target);
+      const previous = readRecord('remote-agent-output', await readFile(recordFile)).record; const current = await snapshot(target);
       if (current.sha256 !== previous.renderedSha256) throw new SingularityFlowError(`Remote output '${dependency.id}' has local edits. Use agents refresh-output ${dependency.id} --replace to overwrite them.`);
     }
     const url = expandUrl(dependency.url, workflow, phase);
     try {
       const fetched = await fetchRemoteMarkdown(url, { maxBytes: dependency.maxBytes, fetchImpl });
       await writeText(target, fetched.content);
-      const record = { schemaVersion: 1, workId: workflow.workItem.id, workType: workflow.workItem.workType, phase: phase.id, generation, agent: session.agent, resource: dependency.id, target: dependency.target, url, resolvedUrl: fetched.resolvedUrl, sourceSha256: fetched.sha256, renderedSha256: fetched.sha256, bytes: fetched.size, fetchedAt: nowIso() };
+      const record = { schemaVersion: currentSchemaVersion('remote-agent-output'), workId: workflow.workItem.id, workType: workflow.workItem.workType, phase: phase.id, generation, agent: session.agent, resource: dependency.id, target: dependency.target, url, resolvedUrl: fetched.resolvedUrl, sourceSha256: fetched.sha256, renderedSha256: fetched.sha256, bytes: fetched.size, fetchedAt: nowIso() };
       await writeJson(recordFile, record); outputs.push(record);
     } catch (error) {
       if (!dependency.optional) throw error;
@@ -606,7 +607,7 @@ export async function updateRemoteOutputRenderedHashes(root, workflow, phase, { 
     const current = await snapshot(path.join(itemDirectory, output.target));
     output.renderedSha256 = current.sha256;
     const file = path.join(itemDirectory, 'context', `remote-output-${output.agent}-${output.resource}-${phase.id}-gen${generation}.json`);
-    if (await exists(file)) await writeJson(file, { ...JSON.parse(await readFile(file, 'utf8')), renderedSha256: current.sha256, finalizedAt: nowIso() });
+    if (await exists(file)) await writeJson(file, { ...readRecord('remote-agent-output', await readFile(file)).record, renderedSha256: current.sha256, finalizedAt: nowIso() });
   }
 }
 
@@ -615,7 +616,7 @@ export async function remoteOutputConflicts(phase, { itemDirectory } = {}) {
   for (const output of phase.remoteOutputs ?? []) {
     const file = path.join(itemDirectory, 'context', `remote-output-${output.agent}-${output.resource}-${phase.id}-gen${output.generation}.json`);
     if (!(await exists(file))) continue;
-    const record = JSON.parse(await readFile(file, 'utf8')); const current = await snapshot(path.join(itemDirectory, output.target));
+    const record = readRecord('remote-agent-output', await readFile(file)).record; const current = await snapshot(path.join(itemDirectory, output.target));
     if (!current.exists || current.sha256 !== record.renderedSha256) conflicts.push({ resource: output.resource, target: output.target, expected: record.renderedSha256, current: current.sha256 });
   }
   return conflicts;
@@ -627,14 +628,14 @@ export async function verifyAgentIntegrity(root, workflow, phase, { itemDirector
     const file = path.join(itemDirectory, 'context', `remote-output-${output.agent}-${output.resource}-${phase.id}-gen${phase.generation}.json`);
     if (!(await exists(file))) errors.push(`${phase.id} remote output record is missing for ${output.resource}`);
     else {
-      const record = YAML.parse(await readFile(file, 'utf8')); const current = await snapshot(path.join(itemDirectory, output.target));
+      const record = readRecord('remote-agent-output', await readFile(file)).record; const current = await snapshot(path.join(itemDirectory, output.target));
       if (!current.exists || current.sha256 !== record.renderedSha256) errors.push(`${phase.id} remote output '${output.resource}' no longer matches its finalized hash`);
       else passes.push(`remote output verified: ${phase.id} ← ${output.agent}/${output.resource}@${output.sourceSha256.slice(0, 8)}`);
     }
   }
   const auditFile = path.join(itemDirectory, 'context', `agents-${phase.id}-gen${phase.generation}.json`);
   if (await exists(auditFile)) {
-    const audit = JSON.parse(await readFile(auditFile, 'utf8'));
+    const audit = readRecord('agent-context-audit', await readFile(auditFile)).record;
     for (const entry of audit.files ?? []) {
       const current = await snapshot(path.join(root, entry.path));
       if (!current.exists || current.sha256 !== entry.sha256) errors.push(`${phase.id} remote skill snapshot failed integrity: ${entry.id}`);

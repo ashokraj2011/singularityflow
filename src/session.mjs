@@ -5,6 +5,12 @@ import path from 'node:path';
 import { exists } from './util.mjs';
 import { SingularityFlowError, nowIso, run } from './util.mjs';
 import { normalizeSessionPolicy } from './config.mjs';
+import { currentSchemaVersion, readRecord, stampCurrentRecord } from './schema-migrations.mjs';
+
+const SESSION_FAMILY = 'session-registry';
+const COPILOT_SESSION_FAMILY = 'copilot-session';
+const COPILOT_TURN_FAMILY = 'copilot-turn-intent';
+export const SESSION_SCHEMA_VERSION = currentSchemaVersion(SESSION_FAMILY);
 
 function localGitDir(root) {
   const resolved = run('git', ['rev-parse', '--absolute-git-dir'], { cwd: root, allowFailure: true });
@@ -24,10 +30,11 @@ function copilotTurnIntentPath(root, sessionId) {
   return path.join(localGitDir(root), `singularity-flow/copilot-turn-${key}.json`);
 }
 
-async function writeLocalJson(file, value) {
+async function writeLocalJson(file, family, value) {
   await mkdir(path.dirname(file), { recursive: true });
-  await writeFile(file, `${JSON.stringify(value, null, 2)}\n`);
-  return value;
+  const record = stampCurrentRecord(family, value);
+  await writeFile(file, `${JSON.stringify(record, null, 2)}\n`);
+  return record;
 }
 
 /**
@@ -100,7 +107,7 @@ export async function setAgentSession(root, definition, actor, agent, workId = n
   const selectedAt = nowIso();
   const record = {
     ...(existing ?? {}),
-    schemaVersion: 2,
+    schemaVersion: SESSION_SCHEMA_VERSION,
     agent,
     agentSource: source ?? profile.scope ?? 'repository',
     agentSha256: profile.sha256,
@@ -112,8 +119,8 @@ export async function setAgentSession(root, definition, actor, agent, workId = n
     selectedAt,
     ...binding
   };
-  await writeLocalJson(sessionPath(root), record);
-  if (copilot?.workId === workId) await writeLocalJson(copilotSessionPath(root), { ...copilot, selectionRequired: false, selectedAgent: agent, selectedAt: record.selectedAt });
+  await writeLocalJson(sessionPath(root), SESSION_FAMILY, record);
+  if (copilot?.workId === workId) await writeLocalJson(copilotSessionPath(root), COPILOT_SESSION_FAMILY, { ...copilot, selectionRequired: false, selectedAgent: agent, selectedAt: record.selectedAt });
   return record;
 }
 
@@ -121,16 +128,14 @@ export async function setNativeCopilotAgentSession(root, resolved, actor = null)
   const existing = await loadSession(root, { required: false });
   const record = {
     ...(existing ?? {}),
-    schemaVersion: 2,
+    schemaVersion: SESSION_SCHEMA_VERSION,
     nativeCopilotAgent: resolved.copilotAgent,
     nativeAgentMappingSource: resolved.source,
     ...(resolved.agent ? { agent: resolved.agent.id, agentSource: resolved.agent.scope, agentSha256: resolved.agent.sha256 } : {}),
     agentSelectedAt: nowIso()
   };
   if (actor && !record.actor) record.actor = actor;
-  await mkdir(path.dirname(sessionPath(root)), { recursive: true });
-  await writeFile(sessionPath(root), `${JSON.stringify(record, null, 2)}\n`);
-  return record;
+  return writeLocalJson(sessionPath(root), SESSION_FAMILY, record);
 }
 
 export async function loadSession(root, { required = true } = {}) {
@@ -139,7 +144,7 @@ export async function loadSession(root, { required = true } = {}) {
     if (required) throw new SingularityFlowError('No active governed-agent session. Run singularity-flow resume <WORK-ID>.');
     return null;
   }
-  return JSON.parse(await readFile(file, 'utf8'));
+  return readRecord(SESSION_FAMILY, await readFile(file)).record;
 }
 
 export async function restoreAgentSession(root, record) {
@@ -149,12 +154,12 @@ export async function restoreAgentSession(root, record) {
     catch (error) { if (error?.code !== 'ENOENT') throw error; }
     return null;
   }
-  return writeLocalJson(file, record);
+  return writeLocalJson(file, SESSION_FAMILY, record);
 }
 
 export async function loadCopilotSession(root) {
   const file = copilotSessionPath(root);
-  return await exists(file) ? JSON.parse(await readFile(file, 'utf8')) : null;
+  return await exists(file) ? readRecord(COPILOT_SESSION_FAMILY, await readFile(file)).record : null;
 }
 
 export async function restoreCopilotSession(root, record) {
@@ -164,11 +169,11 @@ export async function restoreCopilotSession(root, record) {
     catch (error) { if (error?.code !== 'ENOENT') throw error; }
     return null;
   }
-  return writeLocalJson(file, record);
+  return writeLocalJson(file, COPILOT_SESSION_FAMILY, record);
 }
 
 export async function recordCopilotSession(root, record) {
-  return writeLocalJson(copilotSessionPath(root), { schemaVersion: 1, ...record });
+  return writeLocalJson(copilotSessionPath(root), COPILOT_SESSION_FAMILY, record);
 }
 
 /**
@@ -210,8 +215,7 @@ export async function recordCopilotTurnIntent(root, payload = {}) {
       ? payload.session_id.trim()
       : null;
   const selected = sessionOnlyPrompt(payload.prompt);
-  return writeLocalJson(copilotTurnIntentPath(root, sessionId), {
-    schemaVersion: 1,
+  return writeLocalJson(copilotTurnIntentPath(root, sessionId), COPILOT_TURN_FAMILY, {
     sessionId,
     intent: selected?.intent ?? null,
     workId: selected?.workId ?? null,
@@ -223,10 +227,11 @@ export async function loadCopilotTurnIntent(root, sessionId = null) {
   const file = copilotTurnIntentPath(root, sessionId);
   if (!(await exists(file))) return null;
   try {
-    const record = JSON.parse(await readFile(file, 'utf8'));
+    const record = readRecord(COPILOT_TURN_FAMILY, await readFile(file)).record;
     if (sessionId && record.sessionId && record.sessionId !== sessionId) return null;
     return record;
-  } catch {
+  } catch (error) {
+    if (String(error?.code ?? '').startsWith('SCHEMA_')) throw error;
     return null;
   }
 }
@@ -247,7 +252,7 @@ export async function bindAgentToCopilotSession(root, definition, workId, copilo
   const session = await loadSession(root, { required: false });
   if (!validAgentSession(definition, session, workId, null, phaseId)) return null;
   const record = { ...session, copilotSessionId: copilot.sessionId, copilotSource: copilot.source, copilotBoundAt: nowIso() };
-  await writeLocalJson(sessionPath(root), record);
+  await writeLocalJson(sessionPath(root), SESSION_FAMILY, record);
   return record;
 }
 

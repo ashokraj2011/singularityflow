@@ -235,8 +235,9 @@ singularity-flow init --repair
 
 Repair copies only missing packaged files and never overwrites repository
 customizations. It therefore does **not** convert or overwrite a version-1
-`workflow.yml`. Version 2 is the only supported workflow schema; this POC has no
-migration path. In Copilot CLI, use `/sf-init [WORK-ID]`; `/sf-doctor`
+`workflow.yml`. That YAML configuration format is separate from durable JSON record migration.
+Registered durable records migrate to their current shape in memory while their stored bytes remain
+unchanged; future versions fail with an upgrade remedy. In Copilot CLI, use `/sf-init [WORK-ID]`; `/sf-doctor`
 also runs the read-only initialization inventory before its wider repository
 diagnostics.
 
@@ -1666,7 +1667,7 @@ For an opt-in, workspace-local history of the governed prompts actually composed
 `singularity-flow prompt-log view latest`. Capture is off by default and never includes Copilot's
 hidden system prompt or chat history.
 
-Non-dry-run composition writes both a JSON provenance record and the exact rendered prompt under the work item's `context/` directory. With `worldModel.grounding: enforce` (the starter setting), generation cannot publish until the committed model, source hash, required views, file hashes, manifest, agent, and prompt snapshot verify. The selected mode is pinned when the work item starts. Use `warn` for an adoption period or `off` to disable the grounding gate. This development release accepts only current state schemas; recreate old work with `factory-reset`.
+Non-dry-run composition writes both a JSON provenance record and the exact rendered prompt under the work item's `context/` directory. With `worldModel.grounding: enforce` (the starter setting), generation cannot publish until the committed model, source hash, required views, file hashes, manifest, agent, and prompt snapshot verify. The selected mode is pinned when the work item starts. Use `warn` for an adoption period or `off` to disable the grounding gate. Registered durable state is read through pure, deterministic in-memory migration chains; no read rewrites a stored record or changes its hash.
 
 ## Remote Markdown agents
 
@@ -1996,9 +1997,9 @@ dependency invalidation rewinds to the earliest affected phase while preserving
 unrelated approved work. Initiative reports combine initiative and child
 model/token/cost data without upgrading partial coverage to exact.
 
-## Clean development reset
+## Durable schema compatibility and clean reset
 
-This development release accepts only the current workflow and state schemas. It does not migrate older repositories or in-flight work. Use `singularity-flow factory-reset` to recreate current configuration and lifecycle state.
+Durable JSON families declare their current version, readable range, and ordered migration chain in one registry. Writers always emit the registry's current version. Readers migrate readable history in memory and leave Git, ledger, evidence, approval, and local-state bytes untouched. `sflow doctor --json` reports the stored version distribution and flags out-of-range records. Factory reset is for an intentional clean restart; it is not the normal schema-upgrade mechanism.
 
 ## Development and packaging
 

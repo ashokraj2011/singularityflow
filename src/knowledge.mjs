@@ -10,11 +10,13 @@ import path from 'node:path';
 import { identity } from './git.mjs';
 import { canonicalJson, recordSha256 } from './records.mjs';
 import { SingularityFlowError, nowIso, secureRepositoryPath, snapshot, writeText } from './util.mjs';
+import { currentSchemaVersion, readRecord } from './schema-migrations.mjs';
 
 export const KNOWLEDGE_ROOT = 'singularity/knowledge';
 export const KNOWLEDGE_TYPES = new Set(['insight', 'decision', 'gotcha', 'constraint', 'uncertainty']);
 const STATUS = new Set(['active', 'resolved', 'superseded']);
 const SCOPE_KEYS = ['capabilities', 'repositories', 'paths', 'environments'];
+const KNOWLEDGE_SCHEMA_VERSION = currentSchemaVersion('knowledge-record');
 
 const HARVEST_SECTIONS = new Map([
   ['learnings to carry forward', 'insight'], ['what we got wrong', 'gotcha'],
@@ -118,7 +120,7 @@ export async function recordKnowledge(root, {
   const normalizedScope = normalizeScope(scope);
   if (!approvedSourceVerified) await approvedProvenance(root, normalizedProvenance);
   const core = {
-    schemaVersion: 2, type, text: cleanText, provenance: normalizedProvenance,
+    schemaVersion: KNOWLEDGE_SCHEMA_VERSION, type, text: cleanText, provenance: normalizedProvenance,
     scope: normalizedScope, status, validFrom: validFrom ?? nowIso(),
     validUntil: validUntil ?? null, createdBy: actorKey(identity(root)), supersedes: supersedes ?? null
   };
@@ -140,15 +142,18 @@ export async function readKnowledgeWithDiagnostics(root) {
   for (const file of await readdir(directory.absolute, { withFileTypes: true })) {
     if (!file.isFile() || !/^[a-f0-9]{64}\.json$/.test(file.name)) continue;
     const target = await secureRepositoryPath(root, path.join(directory.relative, file.name), { label: 'Knowledge record', mustExist: true, type: 'file' });
-    let record;
-    try { record = JSON.parse(await readFile(target.absolute, 'utf8')); }
-    catch (error) { throw new SingularityFlowError(`Invalid knowledge record ${file.name}: ${error.message}`); }
-    if (record.schemaVersion !== 2) {
-      diagnostics.push({ code: 'knowledge.legacy_ignored', path: target.relative, message: 'Schema-v1 knowledge is not recalled or migrated.' });
-      continue;
+    let migrated;
+    try { migrated = readRecord('knowledge-record', await readFile(target.absolute)); }
+    catch (error) {
+      if (String(error?.code ?? '').startsWith('SCHEMA_')) throw error;
+      throw new SingularityFlowError(`Invalid knowledge record ${file.name}: ${error.message}`);
     }
-    const expected = recordSha256(knowledgeCore(record));
-    if (expected !== file.name.slice(0, 64) || record.id !== `K-${expected.slice(0, 12)}`) {
+    const record = migrated.record;
+    const expected = migrated.storedVersion === 1
+      ? recordSha256(record.legacy.claim)
+      : recordSha256(knowledgeCore(record));
+    const idValid = migrated.storedVersion === 1 || record.id === `K-${expected.slice(0, 12)}`;
+    if (expected !== file.name.slice(0, 64) || !idValid) {
       throw new SingularityFlowError(`Knowledge record ${file.name} failed its content-hash check.`);
     }
     entries.push({ sha256: expected, record });
@@ -165,6 +170,7 @@ export function currentKnowledge(entries, { at = new Date() } = {}) {
   const superseded = new Set(entries.map(({ record }) => record.supersedes).filter(Boolean));
   const now = at.getTime();
   return entries.filter(({ sha256, record }) => !superseded.has(sha256)
+    && record.legacyUnverified !== true
     && record.status !== 'superseded'
     && Date.parse(record.validFrom) <= now
     && (record.validUntil == null || Date.parse(record.validUntil) > now));

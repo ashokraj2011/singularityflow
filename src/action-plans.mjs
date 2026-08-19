@@ -3,8 +3,9 @@ import { branch, gitDir, head } from './git.mjs';
 import { canonicalJson, recordSha256 } from './records.mjs';
 import { SingularityFlowError, ensureDir, nowIso, readJson, run, writeAtomic } from './util.mjs';
 import { worktreeFingerprint } from './worktree-fingerprint.mjs';
+import { currentSchemaVersion, readRecord } from './schema-migrations.mjs';
 
-const PLAN_SCHEMA_VERSION = 2;
+const PLAN_SCHEMA_VERSION = currentSchemaVersion('action-plan');
 const DEFAULT_TTL_MS = 15 * 60 * 1000;
 
 function planDirectory(root) {
@@ -194,11 +195,16 @@ export async function createActionPlan(root, lifecycleSnapshot, {
 
 export async function loadActionPlan(root, planId) {
   if (!/^[a-f0-9]{12,64}$/i.test(String(planId ?? ''))) throw new SingularityFlowError('Enter a valid governed action plan ID.');
-  const plan = await readJson(path.join(planDirectory(root), `${planId}.json`));
-  if (plan.schemaVersion !== PLAN_SCHEMA_VERSION || plan.kind !== 'governed-action-plan') {
+  const stored = await readJson(path.join(planDirectory(root), `${planId}.json`));
+  const migrated = readRecord('action-plan', stored);
+  const plan = migrated.record;
+  if (plan.kind !== 'governed-action-plan') {
     throw new SingularityFlowError(`Action plan '${planId}' uses an unsupported schema.`);
   }
-  const { planHash, planId: storedId, ...core } = plan;
+  // A v1 plan's address is the hash of its immutable v1 bytes. Validate that original identity
+  // before serving the current in-memory projection; the migration must never rename stored data.
+  const hashed = migrated.storedVersion === PLAN_SCHEMA_VERSION ? plan : stored;
+  const { planHash, planId: storedId, ...core } = hashed;
   const actual = recordSha256(core);
   if (actual !== planHash || !actual.startsWith(storedId)) throw new SingularityFlowError(`Action plan '${planId}' failed its content-hash check.`);
   return plan;
@@ -235,7 +241,7 @@ export function selectPlannedAction(plan, actionId = null) {
 
 export async function readActionResult(root, plan, action) {
   const key = recordSha256({ planHash: plan.planHash, actionId: action.actionId });
-  try { return await readJson(path.join(resultDirectory(root), `${key}.json`)); }
+  try { return readRecord('action-result', await readJson(path.join(resultDirectory(root), `${key}.json`))).record; }
   catch (error) {
     if (error.message?.startsWith('Required file not found:')) return null;
     throw error;
@@ -245,7 +251,7 @@ export async function readActionResult(root, plan, action) {
 export async function recordActionResult(root, plan, action, result) {
   const key = recordSha256({ planHash: plan.planHash, actionId: action.actionId });
   const record = {
-    schemaVersion: 1,
+    schemaVersion: currentSchemaVersion('action-result'),
     kind: 'governed-action-result',
     key,
     planId: plan.planId,

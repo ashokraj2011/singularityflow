@@ -23,8 +23,9 @@ import path from 'node:path';
 
 import { canonicalJson } from './records.mjs';
 import { posix, SingularityFlowError } from './util.mjs';
+import { currentSchemaVersion } from './schema-migrations.mjs';
 
-export const ASSISTED_RECORD_SCHEMA_VERSION = 1;
+export const ASSISTED_RECORD_SCHEMA_VERSION = currentSchemaVersion('assisted-quality');
 
 /** The concerns a candidate may raise. Deliberately none of them overlap a deterministic finding. */
 export const CANDIDATE_CONCERNS = Object.freeze([

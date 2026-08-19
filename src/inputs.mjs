@@ -2,6 +2,7 @@ import { createHash } from 'node:crypto';
 import { readFile } from 'node:fs/promises';
 import path from 'node:path';
 import { exists, nowIso, posix, snapshot, writeJson } from './util.mjs';
+import { currentSchemaVersion, readRecord } from './schema-migrations.mjs';
 import { loadActiveSpecRecords, renderClauseContext, selectClauseContext } from './specifications.mjs';
 
 export const INPUTS_START = '<!-- singularity-flow:inputs:start -->';
@@ -148,7 +149,7 @@ export function extractInputsBlock(text) {
 export async function recordInputs(root, workflow, phase, result, { itemDirectory } = {}) {
   const rendered = renderInputsBlock(result);
   const record = {
-    schemaVersion: 1,
+    schemaVersion: currentSchemaVersion('phase-input-record'),
     workId: workflow.workItem.id,
     workType: workflow.workItem.workType,
     phase: phase.id,
@@ -178,7 +179,7 @@ export async function verifyInputsIntegrity(root, workflow, phase, { itemDirecto
     add(`${phase.id} generation ${phase.generation} has no phase-input record`);
     return { errors, warnings, passes };
   }
-  const record = JSON.parse(await readFile(file, 'utf8'));
+  const record = readRecord('phase-input-record', await readFile(file)).record;
   if (record.workId !== workflow.workItem.id || record.phase !== phase.id || record.generation !== phase.generation || record.mode !== mode) add(`${phase.id} phase-input record identity or mode does not match workflow state`);
   const live = await collectInputs(root, workflow, phase, { itemDirectory, itemRelative, generation: phase.generation });
   for (const message of [...live.errors, ...live.warnings]) add(message);

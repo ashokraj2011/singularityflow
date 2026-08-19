@@ -2361,7 +2361,7 @@ singularity-flow doctor --performance --json
 singularity-flow run --task "Implement the approved screen contract"
 ```
 
-Doctor checks Node and Git, YAML and workflow state, the phase agent, human authority configuration, assignment policy, pending publication, working-tree safety, upstream configuration, and remote reachability. Guided execution may prepare grounding/artifacts or offer submission, but always stops for authoring and approval. It never treats an agent as approval permission and never approves automatically.
+Doctor checks Node and Git, YAML and workflow state, durable-record schema version distributions, the phase agent, human authority configuration, assignment policy, pending publication, working-tree safety, upstream configuration, and remote reachability. A schema census is read-only: it reports stored versions and refuses out-of-range records without rewriting evidence or history. Guided execution may prepare grounding/artifacts or offer submission, but always stops for authoring and approval. It never treats an agent as approval permission and never approves automatically.
 
 ## Fault intake and governed repair
 
@@ -2424,7 +2424,9 @@ The review bundle contains the artifact in full, input provenance, checks, appro
 
 `init --repair` is additive and preserves customization. When a genuinely clean
 restart is required, use the guarded factory reset instead. Workflow schema v2 is
-the only accepted format; v1 is not migrated, and `init --repair` cannot replace it:
+the current YAML configuration format, and `init --repair` cannot replace an older configuration.
+Durable JSON records use the migration registry and do not require factory reset merely because a
+readable historical version is stored:
 
 ```bash
 singularity-flow factory-reset --dry-run --json
@@ -2545,7 +2547,7 @@ Run `singularity-flow telemetry status`. If it says the exporter is not active, 
 
 ### VS Code cannot open a repository
 
-Confirm the directory is a Git repository and contains the current `singularity/workflow.yml`. This development release does not migrate former control folders or lifecycle schemas. For a repository with no current control folder, run `singularity-flow init` on the intended work branch and commit the initialized files. For an incompatible development checkout, use the guarded `singularity-flow factory-reset` flow.
+Confirm the directory is a Git repository and contains the current `singularity/workflow.yml`. Former control-folder layouts and incompatible YAML configuration formats are not rewritten automatically. Registered durable JSON records are migrated in memory without changing their stored bytes. For a repository with no current control folder, run `singularity-flow init` on the intended work branch and commit the initialized files. For an incompatible development checkout, use the guarded `singularity-flow factory-reset` flow.
 
 ### Remote agent sync reports stale or changed content
 

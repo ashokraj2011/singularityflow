@@ -9,6 +9,9 @@ import {
 import { bindLifecycleEvent } from './lifecycle-event.mjs';
 import { exists, readJson, writeJson } from './util.mjs';
 import { subjectRef } from './subject-ref.mjs';
+import { currentSchemaVersion, readRecord, stampCurrentRecord } from './schema-migrations.mjs';
+
+const PENDING_PUBLICATION_FAMILY = 'pending-publication';
 
 function safeId(id) {
   return encodeURIComponent(String(id ?? '').trim()).replace(/%/g, '_');
@@ -59,7 +62,7 @@ function legacyCandidates(root, { kind, id, legacyPath = null, roots = {} } = {}
  */
 export async function readPendingPublication(root, { kind, id, legacyPath = null, roots = {}, migrate = true } = {}) {
   const local = localPendingPublicationPath(root, kind, id);
-  if (await exists(local)) return { path: local, record: await readJson(local), migrated: false };
+  if (await exists(local)) return { path: local, record: readRecord(PENDING_PUBLICATION_FAMILY, await readJson(local)).record, migrated: false };
   const subject = { kind, id };
   const journal = await readPublicationJournal(root, subject);
   if (journal) {
@@ -73,7 +76,7 @@ export async function readPendingPublication(root, { kind, id, legacyPath = null
       return null;
     }
     const record = {
-      schemaVersion: 2,
+      schemaVersion: currentSchemaVersion(PENDING_PUBLICATION_FAMILY),
       subject,
       branch: journal.record.branch,
       remote: journal.record.remote,
@@ -96,7 +99,7 @@ export async function readPendingPublication(root, { kind, id, legacyPath = null
   }
   for (const legacy of legacyCandidates(root, { kind, id, legacyPath, roots })) {
     if (!(await exists(legacy))) continue;
-    const record = await readJson(legacy);
+    const record = readRecord(PENDING_PUBLICATION_FAMILY, await readJson(legacy)).record;
     // `migrate: false` for read-only callers. Migration deletes a tracked file, and a snapshot that
     // mutates the working tree while capturing it fails its own did-anything-change check — so the
     // first snapshot after an upgrade hard-errored, blaming a concurrent writer that did not exist.
@@ -121,8 +124,7 @@ export async function inspectPendingPublication(root, options = {}) {
     const pending = await readPendingPublication(root, { ...options, ...subject, migrate: false });
     if (!pending) return Object.freeze({ status: 'absent', subject, path: displayMarkerPath(root, expectedPath) });
     const recordSubject = pending.record?.subject;
-    if (pending.record?.schemaVersion !== 2
-        || recordSubject?.kind !== subject.kind || recordSubject?.id !== subject.id) {
+    if (recordSubject?.kind !== subject.kind || recordSubject?.id !== subject.id) {
       const error = new Error('Pending publication marker schema or subject identity is invalid.');
       error.code = 'PUBLICATION_MARKER_UNREADABLE';
       throw error;
@@ -145,7 +147,7 @@ export async function inspectPendingPublication(root, options = {}) {
 
 export async function writePendingPublication(root, { kind, id, record } = {}) {
   const target = localPendingPublicationPath(root, kind, id);
-  await writeJson(target, record);
+  await writeJson(target, stampCurrentRecord(PENDING_PUBLICATION_FAMILY, record));
   return target;
 }
 

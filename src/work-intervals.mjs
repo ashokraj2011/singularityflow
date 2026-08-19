@@ -3,12 +3,11 @@ import path from 'node:path';
 import { lstat, readFile } from 'node:fs/promises';
 import { branch, changedFiles, gitDir, head } from './git.mjs';
 import { loadActiveSpecRecords } from './specifications.mjs';
+import { currentSchemaVersion, readRecord } from './schema-migrations.mjs';
 import {
   SingularityFlowError, nowIso, posix, readJson, run, secureRepositoryPath, writeJson
 } from './util.mjs';
 import { GOVERNED_ROOTS } from './config.mjs';
-
-const SCHEMA_VERSION = 1;
 
 function canonical(value) {
   if (Array.isArray(value)) return value.map(canonical);
@@ -103,7 +102,7 @@ export async function verifyWorkIntervalBaseline(root, config, workflow, {
     throw new SingularityFlowError(`Work-interval baseline must remain inside the Story directory: ${current.path}`);
   }
   if (!target.exists) throw new SingularityFlowError(`Work-interval baseline does not exist: ${current.path}`);
-  const record = await readJson(target.absolute);
+  const record = readRecord('work-interval-baseline', await readJson(target.absolute)).record;
   const expectedPolicy = intervalPolicy(config, workflow, phase);
   const expectedChecks = requiredChecks(workflow);
   const failures = [];
@@ -140,7 +139,9 @@ export async function ensureWorkIntervalBaseline(root, config, workflow, {
   const phase = activePhase(workflow, phaseId);
   if (!phaseUsesWorkInterval(phase)) return null;
   const generation = generationFor(phase);
-  workflow.workIntervals ??= { schemaVersion: SCHEMA_VERSION, current: null, history: [], escalations: [] };
+  workflow.workIntervals ??= {
+    schemaVersion: currentSchemaVersion('work-interval-state'), current: null, history: [], escalations: []
+  };
   const existing = workflow.workIntervals.current;
   if (existing?.phaseId === phase.id && Number(existing.generation) === generation && existing.status === 'open') {
     return existing;
@@ -153,7 +154,7 @@ export async function ensureWorkIntervalBaseline(root, config, workflow, {
   const policy = intervalPolicy(config, workflow, phase);
   const guards = policy.protectedPaths;
   const core = {
-    schemaVersion: SCHEMA_VERSION,
+    schemaVersion: currentSchemaVersion('work-interval-baseline'),
     kind: 'work-interval-baseline',
     intervalId,
     workId: workflow.workItem.id,
@@ -313,7 +314,7 @@ export async function reconcileWorkInterval(root, config, workflow, {
     ? (dirtyTargetBlocked ? 'blocked' : 'escalation-required')
     : findings.some((entry) => entry.verdict === 'unplanned') ? 'review' : 'aligned';
   const core = {
-    schemaVersion: SCHEMA_VERSION,
+    schemaVersion: currentSchemaVersion('work-reconciliation'),
     kind: 'work-reconciliation',
     workId: workflow.workItem.id,
     workType: workflow.workItem.workType,
@@ -419,7 +420,7 @@ export async function amendWorkIntervalBaseline(root, workflow, {
   }
 
   const file = path.join(root, current.path);
-  const record = await readJson(file);
+  const record = readRecord('work-interval-baseline', await readJson(file)).record;
   const event = {
     at,
     fromGeneration,
@@ -499,7 +500,7 @@ export async function acknowledgeAmendment(root, workflow, {
   if (already >= target) return { ...current, acknowledged: false, acknowledgedGeneration: already };
 
   const file = path.join(root, current.path);
-  const record = await readJson(file);
+  const record = readRecord('work-interval-baseline', await readJson(file)).record;
   const acknowledgements = [...(record.acknowledgements ?? []), { at, actor, throughGeneration: target }];
   await writeJson(file, { ...record, acknowledgements, acknowledgedGeneration: target });
   workflow.workIntervals.current = { ...current, acknowledgedGeneration: target, acknowledgements };
@@ -541,7 +542,7 @@ export async function createLocalCheckpoint(root, workflow, { name = null, note 
   const paths = pathsSince(root, current.sourceBaseCommit);
   const evidence = await fileEvidence(root, paths);
   const core = {
-    schemaVersion: SCHEMA_VERSION,
+    schemaVersion: currentSchemaVersion('work-checkpoint'),
     kind: 'work-checkpoint',
     intervalId: current.intervalId,
     durability: 'local',
@@ -577,7 +578,7 @@ export function escalationPlan(config, workflow, { target = null } = {}) {
     throw new SingularityFlowError(`No escalation workflow '${requested ?? ''}' is configured.`);
   }
   const core = {
-    schemaVersion: SCHEMA_VERSION,
+    schemaVersion: currentSchemaVersion('work-rail-escalation-plan'),
     kind: 'work-rail-escalation-plan',
     workId: workflow.workItem.id,
     fromWorkType: workflow.workItem.workType,

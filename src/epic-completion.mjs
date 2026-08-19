@@ -8,6 +8,7 @@ import {
 import {
   SingularityFlowError, nowIso, writeJson, writeText
 } from './util.mjs';
+import { currentSchemaVersion } from './schema-migrations.mjs';
 
 function canonical(value) {
   if (Array.isArray(value)) return value.map(canonical);
@@ -142,7 +143,7 @@ export async function completeEpicDelivery(root, initiativeId, {
   }
   const resolvedActor = actor ?? identity(root);
   const base = {
-    schemaVersion: 1,
+    schemaVersion: currentSchemaVersion('epic-completion-decision'),
     initiativeId,
     decision: 'complete',
     completedAt: nowIso(),

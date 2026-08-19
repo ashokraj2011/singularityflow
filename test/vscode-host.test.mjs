@@ -3309,6 +3309,23 @@ test('a schema-v2 local reset marker clears all extension-owned global state but
   assert.ok(registered.output.some((line) => String(line).includes('cleared Singularity Flow credentials, personalization')));
 });
 
+test('a future reset marker refuses safely and preserves extension-owned state', async (t) => {
+  if (!requireBundle(t)) return;
+  await writeFile(process.env.SINGULARITY_FLOW_VSCODE_RESET_MARKER, '{"schemaVersion":999,"reset":["global-state"]}\n');
+  t.after(() => rm(process.env.SINGULARITY_FLOW_VSCODE_RESET_MARKER, { force: true }));
+  const values = new Map([['onboardingComplete', true], ['favorites', ['map-capability']]]);
+  const state = context(values);
+  state.globalState.keys = () => [...values.keys()];
+  const { api, registered } = stubVscode();
+  const extension = loadExtension(api);
+  await extension.activate(state);
+
+  assert.equal(values.get('onboardingComplete'), true);
+  assert.deepEqual(values.get('favorites'), ['map-capability']);
+  assert.match(await readFile(process.env.SINGULARITY_FLOW_VSCODE_RESET_MARKER, 'utf8'), /"schemaVersion":999/);
+  assert.ok(registered.output.some((line) => String(line).includes('written by a newer sflow')));
+});
+
 test('terminal lifecycle writes refresh every VS Code view through one watched snapshot', async (t) => {
   if (!requireBundle(t)) return;
   const { root, registered } = await activated();

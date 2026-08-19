@@ -7,6 +7,7 @@ import {
 } from './state-stores.mjs';
 import { readStoryReviewPacket } from './story-lineage.mjs';
 import { runGovernanceGate } from './governance.mjs';
+import { currentSchemaVersion } from './schema-migrations.mjs';
 
 function hash(value) {
   return createHash('sha256').update(JSON.stringify(value)).digest('hex');
@@ -131,7 +132,7 @@ export async function runAndRecordStoryChecks(root, config, workflow, {
   });
   const gate = await runGovernanceGate(root, config, workflow, { terminal: false });
   const base = {
-    schemaVersion: 1,
+    schemaVersion: currentSchemaVersion('github-review-evidence'),
     workId: workflow.workItem.id,
     epicId: workflow.lineage?.epicId ?? null,
     packetSha256: packet.packetSha256,

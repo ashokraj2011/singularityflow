@@ -25,10 +25,16 @@ import { harvestInitiativeKnowledge } from './knowledge.mjs';
 // module. The definitions moved to records.mjs so knowledge.mjs can hash a record without importing
 // this one — that cycle is what stopped the approval path from harvesting knowledge. See records.mjs.
 import { canonicalJson, recordSha256 } from './records.mjs';
+import { currentSchemaVersion, readRecord } from './schema-migrations.mjs';
 
 export { canonicalJson, recordSha256 };
 
 const RECORD_CATEGORIES = new Set(['evidence', 'approvals', 'invalidations']);
+const RECORD_FAMILIES = Object.freeze({
+  evidence: 'initiative-evidence-record',
+  approvals: 'initiative-approval-record',
+  invalidations: 'initiative-invalidation-record'
+});
 
 function actorEmail(actor) { return actor?.email?.trim().toLowerCase() ?? null; }
 function actorName(actor) { return actor?.name ?? actorEmail(actor) ?? 'unknown'; }
@@ -43,6 +49,8 @@ async function recordDirectory(root, portfolio, initiativeId, category) {
 }
 
 export async function appendInitiativeRecord(root, portfolio, initiativeId, category, record) {
+  if (!RECORD_CATEGORIES.has(category)) throw new SingularityFlowError(`Unsupported initiative record category '${category}'.`);
+  record = { ...record, schemaVersion: currentSchemaVersion(RECORD_FAMILIES[category]) };
   const sha256 = recordSha256(record);
   await recordDirectory(root, portfolio, initiativeId, category);
   const target = await secureInitiativePath(root, portfolio, initiativeId, path.join(category, 'records', `${sha256}.json`), {
@@ -67,7 +75,7 @@ export async function readInitiativeRecords(root, portfolio, initiativeId, categ
     });
     const raw = await readFile(target.absolute, 'utf8');
     let record;
-    try { record = JSON.parse(raw); }
+    try { record = readRecord(RECORD_FAMILIES[category], raw).record; }
     catch (error) { throw new SingularityFlowError(`Invalid initiative ${category} record ${entry.name}: ${error.message}`); }
     const expected = entry.name.slice(0, -5);
     const actual = recordSha256(record);
@@ -79,7 +87,7 @@ export async function readInitiativeRecords(root, portfolio, initiativeId, categ
 
 export function initiativeApprovalSummary(initiativeId, records) {
   return {
-    schemaVersion: 1,
+    schemaVersion: currentSchemaVersion('initiative-approval-summary'),
     initiativeId,
     decisions: records.map(({ sha256, path: recordPath, record }) => ({
       sha256,

@@ -51,9 +51,10 @@ import {
 } from './composition-cache.mjs';
 import { PACKAGE_ROOT } from './package-root.mjs';
 import { withWorldModelSourceScope } from './source-scope.mjs';
+import { currentSchemaVersion, readRecord } from './schema-migrations.mjs';
 
 const configRelative = 'singularity/worldmodel.json';
-const CHECKPOINT_SCHEMA_VERSION = 1;
+const CHECKPOINT_SCHEMA_VERSION = currentSchemaVersion('worldmodel-checkpoint');
 const MAX_DISCOVERY_PACKET_BYTES = 24 * 1024;
 const WORLD_MODEL_TEMP_PREFIXES = [
   'singularity-flow-world-model-',
@@ -140,7 +141,7 @@ function canonicalExistingPath(value) {
 
 async function writeWorktreeOwner(temporary, root, kind) {
   await writeJson(path.join(temporary, WORLD_MODEL_OWNER_FILE), {
-    schemaVersion: 1,
+    schemaVersion: currentSchemaVersion('worldmodel-worktree-owner'),
     kind,
     pid: process.pid,
     createdAt: new Date().toISOString(),
@@ -182,7 +183,9 @@ export async function cleanupStaleWorldModelWorktrees(root, { force = false } = 
     .filter((entry) => entry.temporary);
   for (const candidate of candidates) {
     let owner = null;
-    try { owner = JSON.parse(await readFile(path.join(candidate.temporary, WORLD_MODEL_OWNER_FILE), 'utf8')); }
+    try {
+      owner = readRecord('worldmodel-worktree-owner', await readFile(path.join(candidate.temporary, WORLD_MODEL_OWNER_FILE))).record;
+    }
     catch { /* Legacy worktrees require the explicit --force recovery path. */ }
     const belongsHere = owner?.repositoryGitDirectory
       && canonicalExistingPath(owner.repositoryGitDirectory) === repositoryGitDirectory;
@@ -448,7 +451,7 @@ async function publishWorldModel(root, config, workflow, sourceHash, phase = 're
   if (result.status !== 0) {
     if (workflow?.workItem?.id) {
       await writeJson(pendingPublicationPath(root, config.definition, workflow.workItem.id), {
-        schemaVersion: 1, workId: workflow.workItem.id, branch: branch(root), remote,
+        schemaVersion: currentSchemaVersion('pending-publication'), workId: workflow.workItem.id, branch: branch(root), remote,
         commit, createdAt: new Date().toISOString(), error: (result.stderr || result.stdout).trim(), kind: 'world-model'
       });
       throw new SingularityFlowError(`World-model commit ${commit?.slice(0, 8)} was retained locally but push failed. Run singularity-flow sync after fixing remote access.`);
@@ -713,11 +716,11 @@ async function prepareDiscoveryCheckpoint(root, config, options, views, metadata
   let state = null;
   if (resume && await regularFile(stateFile)) {
     try {
-      const candidate = JSON.parse(await readFile(stateFile, 'utf8'));
-      if (candidate?.schemaVersion === CHECKPOINT_SCHEMA_VERSION
-        && candidate?.key === key
+      const candidate = readRecord('worldmodel-checkpoint', await readFile(stateFile)).record;
+      if (candidate?.key === key
         && JSON.stringify(candidate.identity) === JSON.stringify(identity)) state = candidate;
-    } catch {
+    } catch (error) {
+      if (String(error?.code ?? '').startsWith('SCHEMA_')) throw error;
       // A malformed internal checkpoint is never trusted.
     }
   }
@@ -2073,7 +2076,7 @@ async function compose(root, options) {
   // but populating .git/singularity-flow/composition-cache is still a write.
   const cacheEnabled = compositionCacheEnabled(specPolicy.compositionCache, { dryRun });
   const cached = await memoizeComposition(root, {
-    schemaVersion: 1,
+    schemaVersion: currentSchemaVersion('worldmodel-prompt-composition'),
     workId: workflow?.workItem?.id ?? workId ?? null,
     workType: workflow?.workItem?.workType ?? null,
     phase: signals.phase,

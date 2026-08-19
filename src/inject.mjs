@@ -12,6 +12,7 @@ import {
   writeJson,
   writeText
 } from './util.mjs';
+import { currentSchemaVersion } from './schema-migrations.mjs';
 
 const DEFAULT_INJECTION = { placeholder: '{{WORLD_MODEL}}', mode: 'append', maxBytes: 32768, rules: [] };
 const MODES = new Set(['replace', 'append', 'off']);
@@ -180,7 +181,7 @@ export async function recordInjection(root, workflow, phase, injection, { workDi
   const promptFile = path.join(workDir, 'context', 'prompts', `${phase.id}-gen${generation}.md`);
   if (injection.renderedText != null) await writeText(promptFile, injection.renderedText);
   const record = {
-    schemaVersion: 2,
+    schemaVersion: currentSchemaVersion('prompt-injection'),
     workId: workflow.workItem.id,
     phase: phase.id,
     generation,

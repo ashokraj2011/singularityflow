@@ -4,6 +4,7 @@ import os from 'node:os';
 import path from 'node:path';
 import { Worker } from 'node:worker_threads';
 import { gitCommonDir } from './git.mjs';
+import { currentSchemaVersion, readRecord } from './schema-migrations.mjs';
 import { SingularityFlowError, nowIso } from './util.mjs';
 
 const PROCESS_TOKEN = randomUUID();
@@ -38,7 +39,14 @@ async function readOwner(directory) {
   let text;
   try { text = await readFile(file, 'utf8'); }
   catch (error) { if (error?.code === 'ENOENT') return undefined; throw error; }
-  try { return JSON.parse(text); } catch { return null; }
+  try { return readRecord('subject-lock-owner', text).record; }
+  catch (error) {
+    // A malformed owner is the same crash-during-acquisition state that the locking protocol has
+    // always represented as null. Version-range and migration failures are different: silently
+    // treating a valid but unreadable future owner as corrupt could let this build reclaim its lock.
+    if (error?.code !== 'SCHEMA_RECORD_INVALID') throw error;
+    return null;
+  }
 }
 
 /**
@@ -151,7 +159,7 @@ export async function acquireSubjectLock(root, subject, { ttlMs = DEFAULT_TTL_MS
   const directory = subjectLockPath(root, subject);
   await mkdir(path.dirname(directory), { recursive: true });
   const owner = {
-    schemaVersion: 1,
+    schemaVersion: currentSchemaVersion('subject-lock-owner'),
     subject,
     pid: process.pid,
     host: os.hostname(),

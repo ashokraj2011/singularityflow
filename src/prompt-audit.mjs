@@ -4,8 +4,9 @@ import { appendFile, mkdir, readFile } from 'node:fs/promises';
 import { activeWorkspaceFile, workspaceContextForRepository, workspaceRegistryFile } from './workspace-context.mjs';
 import { gitDir } from './git.mjs';
 import { SingularityFlowError, writeAtomic } from './util.mjs';
+import { currentSchemaVersion, readRecord } from './schema-migrations.mjs';
 
-export const PROMPT_AUDIT_SCHEMA_VERSION = 1;
+export const PROMPT_AUDIT_SCHEMA_VERSION = currentSchemaVersion('prompt-audit-record');
 const DIRECTORY = 'prompt-audit';
 const SETTINGS = 'settings.json';
 const LOG = 'prompts.jsonl';
@@ -51,7 +52,7 @@ async function location(root) {
 
 async function settings(file) {
   try {
-    const value = JSON.parse(await readFile(file, 'utf8'));
+    const value = readRecord('prompt-audit-settings', await readFile(file)).record;
     return { enabled: value?.enabled === true, updatedAt: value?.updatedAt ?? null };
   } catch (error) {
     if (error?.code === 'ENOENT') return { enabled: false, updatedAt: null };
@@ -67,7 +68,7 @@ async function entries(file) {
     throw error;
   }
   return text.split('\n').filter((line) => line.trim()).map((line, index) => {
-    try { return JSON.parse(line); }
+    try { return readRecord('prompt-audit-record', line).record; }
     catch { throw new SingularityFlowError(`Prompt-audit log contains invalid JSON on line ${index + 1}.`); }
   });
 }

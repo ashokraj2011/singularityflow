@@ -1,6 +1,7 @@
 import { createHash } from 'node:crypto';
 import { mkdir, readFile, stat, writeFile } from 'node:fs/promises';
 import path from 'node:path';
+import { currentSchemaVersion } from './schema-migrations.mjs';
 import { posix, writeJson } from './util.mjs';
 import { deriveRepositoryFacts, renderFactsDigest, repositoryFactsBlock } from './repository-facts.mjs';
 
@@ -212,7 +213,7 @@ This model was generated locally without Copilot or another AI model and consume
 `);
 
   await writeJson(path.join(staging, 'core/model.json'), {
-    schemaVersion: 1,
+    schemaVersion: currentSchemaVersion('worldmodel-light-model'),
     mode: 'deterministic-light',
     title,
     repository: { commit: metadata.repository_commit, branch: metadata.repository_branch },
@@ -237,7 +238,7 @@ This model was generated locally without Copilot or another AI model and consume
     ...inventory.source
   ], 100);
   await writeJson(path.join(staging, 'index/path-map.json'), {
-    schemaVersion: 1,
+    schemaVersion: currentSchemaVersion('worldmodel-light-index'),
     mode: 'bounded-light-index',
     totalPaths: inventory.files.length,
     representativePaths: indexedPaths,

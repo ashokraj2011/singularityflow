@@ -63,6 +63,7 @@ import {
 import { primaryAction } from '../../../src/gateway/result.mjs';
 import { planDeveloperConversation } from '../../../src/gateway/conversation.mjs';
 import { latestWorkspaceBootstrap } from '../../../src/workspace-bootstrap.mjs';
+import { readRecord } from '../../../src/schema-migrations.mjs';
 
 /** Injected by esbuild: the commit and time this bundle was built from. */
 declare const __SFLOW_BUILD__: string;
@@ -413,7 +414,10 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
   };
   const resetMarker = path.resolve(process.env.SINGULARITY_FLOW_VSCODE_RESET_MARKER
     || path.join(os.homedir(), '.singularity-flow', 'vscode-fresh-reset-pending.json'));
-  const pendingFreshReset = await readFile(resetMarker, 'utf8').then(() => true).catch((error: NodeJS.ErrnoException) => {
+  const pendingFreshReset = await readFile(resetMarker).then((bytes) => {
+    readRecord('vscode-reset-marker', bytes);
+    return true;
+  }).catch((error: NodeJS.ErrnoException & { code?: string }) => {
     if (error.code === 'ENOENT') return false;
     output.appendLine(`Could not inspect fresh-reset marker: ${error.message}`);
     return false;

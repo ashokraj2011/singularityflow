@@ -11,6 +11,7 @@ import {
 import {
   commandExists, exists, nowIso, posix, run, SingularityFlowError, snapshot, writeAtomic, writeJson, writeText
 } from './util.mjs';
+import { currentSchemaVersion } from './schema-migrations.mjs';
 
 const SOURCE_RECORD_VERSION = 1;
 const DEFAULT_TIMEOUT_MS = 60_000;
@@ -739,7 +740,7 @@ export async function detachEpicSource(root, portfolio, initiative, {
   const cone = initiativeSourceCone(initiative, dependencies.phases);
   const actor = identity(root);
   const decision = {
-    schemaVersion: 1,
+    schemaVersion: currentSchemaVersion('evidence-detachment-decision'),
     type: 'evidence-detachment',
     subject: { kind: 'initiative', id: initiative.initiative.id },
     target: { sourceId },

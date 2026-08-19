@@ -1,5 +1,6 @@
 import { readFile } from 'node:fs/promises';
 import path from 'node:path';
+import { currentSchemaVersion } from './schema-migrations.mjs';
 import {
   loadInitiative, saveInitiativeDraft, secureInitiativePath
 } from './state-stores.mjs';
@@ -61,7 +62,7 @@ export async function registerInterfaceContract(root, {
   );
   if (!destination.exists) await writeText(destination.absolute, await readFile(source.absolute, 'utf8'));
   const record = {
-    schemaVersion: 1,
+    schemaVersion: currentSchemaVersion('initiative-contract'),
     id: contractId,
     version: String(version),
     format,

@@ -7,6 +7,7 @@ import { readWorkspace, readWorkspaceRegistry } from './workspace.mjs';
 import { activeWorkspaceFile, workspaceRegistryFile } from './workspace-context.mjs';
 import { run, SingularityFlowError } from './util.mjs';
 import { localWorkJournalRoot } from './local-work-journal.mjs';
+import { currentSchemaVersion } from './schema-migrations.mjs';
 
 export const FRESH_INSTALL_CONFIRMATION = 'RESET EVERYTHING';
 export const LOCAL_RESET_CONFIRMATION = 'RESET LOCAL';
@@ -470,7 +471,7 @@ async function applyMachineReset(plan, { confirmation, fault = null }) {
     const vscodeResetMarker = plan.vscodeReset.marker;
     await mkdir(path.dirname(vscodeResetMarker), { recursive: true, mode: 0o700 });
     await writeFile(vscodeResetMarker, `${JSON.stringify({
-      schemaVersion: 2,
+      schemaVersion: currentSchemaVersion('vscode-reset-marker'),
       requestedAt: new Date().toISOString(),
       mode: plan.mode,
       reset: plan.vscodeReset.reset

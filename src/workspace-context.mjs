@@ -7,8 +7,9 @@ import {
 } from './workspace.mjs';
 import { SingularityFlowError, writeAtomic } from './util.mjs';
 import { buildRepositorySubjectIndex, resolveContext } from './repository-subject-index.mjs';
+import { currentSchemaVersion, readRecord } from './schema-migrations.mjs';
 
-export const ACTIVE_WORKSPACE_SCHEMA_VERSION = 1;
+export const ACTIVE_WORKSPACE_SCHEMA_VERSION = currentSchemaVersion('active-workspace');
 
 export function workspaceRegistryFile(env = process.env, home = os.homedir()) {
   return path.resolve(env.SINGULARITY_FLOW_WORKSPACE_REGISTRY
@@ -177,12 +178,12 @@ export async function activateWorkspaceContext(registryFile, selectionFile, refe
 export async function readActiveWorkspaceContext(selectionFile, registryFile, { refresh = true } = {}) {
   let selected;
   try {
-    selected = JSON.parse(await readFile(selectionFile, 'utf8'));
+    selected = readRecord('active-workspace', await readFile(selectionFile)).record;
   } catch (error) {
     if (error?.code === 'ENOENT') return null;
     throw new SingularityFlowError(`Unable to read active workspace selection: ${error.message}`);
   }
-  if (selected?.schemaVersion !== ACTIVE_WORKSPACE_SCHEMA_VERSION || !selected.workspaceId) {
+  if (!selected.workspaceId) {
     throw new SingularityFlowError('The active workspace selection is invalid. Select the workspace again.');
   }
   if (!refresh) return { ...selected, prompt: workspacePromptLabel(selected) };
@@ -196,7 +197,7 @@ export async function readActiveWorkspaceContext(selectionFile, registryFile, { 
 /** Clear the local selection only when it points at the workspace being forgotten. */
 export async function clearActiveWorkspaceContext(selectionFile, workspacePath) {
   let selected;
-  try { selected = JSON.parse(await readFile(selectionFile, 'utf8')); }
+  try { selected = readRecord('active-workspace', await readFile(selectionFile)).record; }
   catch (error) {
     if (error?.code === 'ENOENT') return false;
     throw new SingularityFlowError(`Unable to read active workspace selection: ${error.message}`);

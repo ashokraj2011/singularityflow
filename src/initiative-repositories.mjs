@@ -14,6 +14,7 @@ export { initiativeMilestoneReadiness } from './initiative-milestones.mjs';
 import {
   secureRepositoryPath, SingularityFlowError, ensureDir, exists, nowIso, posix, run, snapshot, writeJson, writeText
 } from './util.mjs';
+import { currentSchemaVersion, readRecord } from './schema-migrations.mjs';
 
 function safeId(value, label) {
   if (typeof value !== 'string' || !/^[A-Za-z0-9][A-Za-z0-9._-]{0,127}$/.test(value)) throw new SingularityFlowError(`${label} must be a safe identifier.`);
@@ -768,7 +769,11 @@ export async function materializeInitiative(root, initiativeId, {
       receipt = { status: 'failed', branch: story.workId ?? story.id, error: error.message };
     }
     attempt.stories.push({ storyId: story.id, repository: story.repository, ...receipt });
-    await writeJson(journalPath.absolute, { schemaVersion: 1, initiativeId, attempts: initiative.materialization.attempts });
+    await writeJson(journalPath.absolute, {
+      schemaVersion: currentSchemaVersion('initiative-materialization-journal'),
+      initiativeId,
+      attempts: initiative.materialization.attempts
+    });
     await saveInitiativeDraft(root, portfolio, initiative);
   }
   const failures = attempt.stories.filter((story) => story.status === 'failed');
@@ -782,7 +787,11 @@ export async function materializeInitiative(root, initiativeId, {
     phase: requiredPhase,
     detail: `${attempt.stories.length - failures.length}/${attempt.stories.length} story branches ready`
   });
-  await writeJson(journalPath.absolute, { schemaVersion: 1, initiativeId, attempts: initiative.materialization.attempts });
+  await writeJson(journalPath.absolute, {
+    schemaVersion: currentSchemaVersion('initiative-materialization-journal'),
+    initiativeId,
+    attempts: initiative.materialization.attempts
+  });
   await saveInitiativeDraft(root, portfolio, initiative);
   return { dryRun: false, review, attempt, failures };
 }
@@ -807,13 +816,11 @@ function parseChildWorkflow(text, story) {
   if (!workflow || typeof workflow !== 'object' || Array.isArray(workflow)) {
     throw new SingularityFlowError(`Child workflow for '${story.id}' must be a JSON object.`);
   }
-  if (![1, 2].includes(workflow.schemaVersion)) {
-    throw new SingularityFlowError(`Child workflow for '${story.id}' has unsupported schema version '${workflow.schemaVersion}'.`);
-  }
+  workflow = readRecord('story-workflow', workflow).record;
   if (workflow.workItem?.id !== workId) {
     throw new SingularityFlowError(`Child workflow belongs to '${workflow.workItem?.id ?? 'unknown'}'; expected '${workId}'.`);
   }
-  if (workflow.schemaVersion === 2 && workflow.workItem.branch == null) {
+  if (workflow.workItem.branch == null) {
     throw new SingularityFlowError(`Child workflow '${story.id}' has no immutable branch identity.`);
   }
   const lineageBranches = [workId, ...(workflow.lineage?.childBranches ?? []).map((entry) => entry.name)];
@@ -830,7 +837,7 @@ function parseChildWorkflow(text, story) {
   if (!Array.isArray(phaseOrder) || !phaseOrder.length || new Set(phaseOrder).size !== phaseOrder.length) {
     throw new SingularityFlowError(`Child workflow '${story.id}' has no valid unique phase order.`);
   }
-  if (workflow.schemaVersion === 2) {
+  {
     const resolvedIds = workflow.resolution?.phases?.map((phase) => phase?.id);
     if (!Array.isArray(resolvedIds) || resolvedIds.some((phaseId) => typeof phaseId !== 'string')) {
       throw new SingularityFlowError(`Child workflow '${story.id}' has no immutable phase resolution.`);
@@ -922,8 +929,12 @@ export async function initiativeMergeState(root, initiativeId) {
     }
     const workflowText = run('git', ['show', `${storyHead.stdout.trim()}:singularity/work-items/${workId}/workflow.json`], { cwd: cache, allowFailure: true });
     if (workflowText.status === 0) {
-      try { if (JSON.parse(workflowText.stdout)?.status === 'complete') complete.push(story.id); }
-      catch { /* an unreadable child workflow simply leaves the story not-complete */ }
+      try {
+        if (readRecord('story-workflow', workflowText.stdout).record.status === 'complete') complete.push(story.id);
+      } catch (error) {
+        if (String(error?.code ?? '').startsWith('SCHEMA_')) throw error;
+        /* An unreadable child workflow simply leaves the story not-complete. */
+      }
     }
   }
 

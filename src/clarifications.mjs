@@ -1,6 +1,7 @@
 import path from 'node:path';
 import { markerPolicy, markerQuestionHash } from './clarification-markers.mjs';
 import { groundingRecordRelative } from './grounding.mjs';
+import { currentSchemaVersion, readRecord } from './schema-migrations.mjs';
 import {
   exists, nowIso, posix, readJson, SingularityFlowError, snapshot, writeJson
 } from './util.mjs';
@@ -94,7 +95,12 @@ function normalizeResponse(value, index) {
 export async function readClarificationRecord(root, definition, workflow, phase, generation) {
   const relative = clarificationRecordRelative(definition, workflow, phase, generation);
   if (!(await exists(path.join(root, relative)))) return null;
-  return readJson(path.join(root, relative)).catch(() => null);
+  try {
+    return readRecord('clarification-record', await readJson(path.join(root, relative))).record;
+  } catch (error) {
+    if (String(error?.code ?? '').startsWith('SCHEMA_')) throw error;
+    return null;
+  }
 }
 
 /** Every marker question hash a clarification record answers. */
@@ -123,7 +129,9 @@ export async function recordClarificationResponses(root, definition, workflow, p
   }
   const relative = clarificationRecordRelative(definition, workflow, phase, generation);
   let previous = null;
-  if (!replace && await exists(path.join(root, relative))) previous = await readJson(path.join(root, relative));
+  if (!replace && await exists(path.join(root, relative))) {
+    previous = readRecord('clarification-record', await readJson(path.join(root, relative))).record;
+  }
   if (previous && (previous.promptSha256 !== promptInfo.sha256 || previous.groundingRecordSha256 !== groundingInfo.sha256)) {
     throw new SingularityFlowError(`The existing clarification record is bound to an older prompt. Re-run with --replace after reviewing the current prompt.`);
   }
@@ -140,7 +148,7 @@ export async function recordClarificationResponses(root, definition, workflow, p
     ids.add(response.id);
   }
   const record = {
-    schemaVersion: 1,
+    schemaVersion: currentSchemaVersion('clarification-record'),
     workId: workflow.workItem.id,
     phase: phase.id,
     generation,
@@ -179,7 +187,7 @@ export async function verifyClarificationRecord(root, definition, workflow, phas
     };
   }
   let record;
-  try { record = await readJson(path.join(root, relative)); }
+  try { record = readRecord('clarification-record', await readJson(path.join(root, relative))).record; }
   catch (error) {
     return { mode: policy.mode, errors: [`clarification record is invalid for ${phase.id} generation ${generation}: ${error.message}`], warnings: [], passes: [], record: null, path: relative, sha256: null };
   }

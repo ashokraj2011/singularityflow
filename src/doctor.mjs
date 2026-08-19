@@ -17,15 +17,34 @@ import { modelFreedomSnapshot, modelFreedomText } from './model-freedom.mjs';
 import { operationContext } from './operation-context.mjs';
 import { repositoryPerformanceSnapshot } from './performance-doctor.mjs';
 import { withWorldModelSourceScope } from './source-scope.mjs';
+import { schemaCensus, schemaCensusText } from './schema-census.mjs';
 
 function check(id, status, message, fix = null) { return { id, status, message, fix }; }
 
 export async function doctorSnapshot(root, { workId = null, offline = false, performance = false } = {}) {
   const checks = [];
   let performanceReport = null;
+  let schemaReport = null;
   const major = Number(process.versions.node.split('.')[0]);
   checks.push(check('node', major >= 20 ? 'pass' : 'fail', `Node.js ${process.versions.node}`, major >= 20 ? null : 'Install Node.js 20 or newer.'));
   checks.push(check('git', 'pass', `Git repository ${root}`));
+  try {
+    schemaReport = await schemaCensus(root);
+    const blocked = schemaReport.totals.outsideRange + schemaReport.totals.unreadable;
+    const advisory = schemaReport.totals.unregistered + (schemaReport.truncated ? 1 : 0);
+    checks.push(check(
+      'schema-migrations',
+      blocked ? 'fail' : advisory ? 'warn' : 'pass',
+      `${schemaReport.totals.registeredRecords} registered durable record(s) across ${schemaReport.totals.observedFamilies} observed family/families; ${schemaReport.totals.outsideRange} outside the readable range, ${schemaReport.totals.unregistered} unregistered, ${schemaReport.totals.unreadable} unreadable.`,
+      blocked
+        ? 'Upgrade sflow for newer records; use the named archival reader or governed republication for records below a family read range.'
+        : advisory
+          ? 'Classify remaining versioned governed records in src/schema-migrations.mjs, then rerun singularity-flow doctor.'
+          : null
+    ));
+  } catch (error) {
+    checks.push(check('schema-migrations', 'fail', `Schema census failed: ${error.message}`, 'Repair the unreadable state path, then rerun singularity-flow doctor.'));
+  }
   /**
    * Which build is running, which `VERSION` alone cannot say.
    *
@@ -107,7 +126,7 @@ export async function doctorSnapshot(root, { workId = null, offline = false, per
   const workflowConfig = path.join(root, WORKFLOW_PATH);
   if (!existsSync(workflowConfig)) {
     checks.push(check('configuration', 'fail', `${WORKFLOW_PATH} is missing.`, 'Run singularity-flow init.'));
-    return summarize(root, checks, null, null, null);
+    return summarize(root, checks, null, null, null, null, null, schemaReport);
   }
   let definition;
   try {
@@ -115,7 +134,7 @@ export async function doctorSnapshot(root, { workId = null, offline = false, per
     checks.push(check('configuration', 'pass', `${WORKFLOW_PATH} is valid (${Object.keys(definition.workTypes).length} workflows, ${Object.keys(definition.agents).length} agents).`));
   } catch (error) {
     checks.push(check('configuration', 'fail', error.message, `Repair ${WORKFLOW_PATH} or restore it from version control.`));
-    return summarize(root, checks, null, null, definition);
+    return summarize(root, checks, null, null, definition, null, null, schemaReport);
   }
   const mcpReadiness = await mcpDoctor(root, definition);
   for (const server of mcpReadiness.servers) {
@@ -283,10 +302,10 @@ export async function doctorSnapshot(root, { workId = null, offline = false, per
     ));
   }
   checks.push(check('upstream', hasUpstream(root) ? 'pass' : 'warn', hasUpstream(root) ? `Branch '${currentBranch}' tracks an upstream.` : `Branch '${currentBranch}' has no upstream.`, hasUpstream(root) ? null : 'The first successful lifecycle publication will establish it.'));
-  return summarize(root, checks, workflow, session, definition, activeSubject, performanceReport);
+  return summarize(root, checks, workflow, session, definition, activeSubject, performanceReport, schemaReport);
 }
 
-function summarize(root, checks, workflow, session, definition, activeSubject = null, performance = null) {
+function summarize(root, checks, workflow, session, definition, activeSubject = null, performance = null, schemaReport = null) {
   const counts = Object.fromEntries(['pass', 'warn', 'fail', 'skip'].map((status) => [status, checks.filter((item) => item.status === status).length]));
   const modelFreedom = modelFreedomSnapshot({
     definition,
@@ -296,13 +315,14 @@ function summarize(root, checks, workflow, session, definition, activeSubject = 
   const subject = workflow
     ? { kind: 'story', id: workflow.workItem.id }
     : activeSubject ? { kind: activeSubject.kind, id: activeSubject.id } : null;
-  return { schemaVersion: 1, repository: root, branch: branch(root), head: head(root), workId: subject?.id ?? null, subject, agent: session?.agent ?? null, healthy: counts.fail === 0, counts, modelFreedom, performance, checks };
+  return { schemaVersion: 1, repository: root, branch: branch(root), head: head(root), workId: subject?.id ?? null, subject, agent: session?.agent ?? null, healthy: counts.fail === 0, counts, modelFreedom, performance, schemaCensus: schemaReport, checks };
 }
 
 export function doctorText(report) {
   const icon = { pass: '✓', warn: '!', fail: '✗', skip: '·' };
   const lines = [`Singularity Flow doctor — ${report.healthy ? 'ready' : 'attention required'}`, `Repository: ${report.repository}`, `Branch: ${report.branch}`, ''];
   lines.push(modelFreedomText(report.modelFreedom), '');
+  if (report.schemaCensus) lines.push(schemaCensusText(report.schemaCensus).trimEnd(), '');
   for (const item of report.checks) {
     lines.push(`${icon[item.status]} ${item.id}: ${item.message}`);
     if (item.fix) lines.push(`  Fix: ${item.fix}`);

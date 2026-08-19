@@ -5,6 +5,7 @@ import { gitDir, head } from './git.mjs';
 import { loadCopilotSession } from './session.mjs';
 import { SingularityFlowError, nowIso, writeAtomic } from './util.mjs';
 import { recordSha256 } from './records.mjs';
+import { currentSchemaVersion, readRecord } from './schema-migrations.mjs';
 
 const RECEIPT_TTL_MS = 15 * 60 * 1000;
 const RECEIPT_LOCK_TIMEOUT_MS = 5 * 1000;
@@ -125,9 +126,7 @@ function validateReceipt(receipt, token) {
   if (!receipt || typeof receipt !== 'object' || Array.isArray(receipt)) {
     throw new SingularityFlowError(`Selection receipt '${token}' is not an object.`);
   }
-  if (receipt.schemaVersion !== 1) {
-    throw new SingularityFlowError(`Selection receipt '${token}' uses unsupported version ${receipt.schemaVersion}; expected version 1.`);
-  }
+  receipt = readRecord('selection-receipt', receipt).record;
   if (receipt.token !== token) throw new SingularityFlowError(`Selection receipt '${token}' token does not match its filename.`);
   if (typeof receipt.action !== 'string' || !receipt.action.trim()) throw new SingularityFlowError(`Selection receipt '${token}' has no action.`);
   if (typeof receipt.workId !== 'string' || !receipt.workId.trim()) throw new SingularityFlowError(`Selection receipt '${token}' has no work ID.`);
@@ -240,7 +239,7 @@ export async function beginCustomSelectionReceipt(root, { action, workId, choice
   const repositoryHead = head(root);
   const boundContext = bindActionContext(action, workId, repositoryHead, context);
   const receipt = {
-    schemaVersion: 1,
+    schemaVersion: currentSchemaVersion('selection-receipt'),
     token: randomUUID(),
     action,
     workId,

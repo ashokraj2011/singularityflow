@@ -9,8 +9,9 @@ import { scopedRead } from './read-scope.mjs';
 import { defaultBranchName, gitDir, hasRemote, identity, refExists } from './git.mjs';
 import { normalizeLedgerConfig } from './ledger-config.mjs';
 import { LIFECYCLE_EVENT_TYPES } from './lifecycle-event.mjs';
+import { currentSchemaVersion, readRecord } from './schema-migrations.mjs';
 
-export const LEDGER_SCHEMA_VERSION = 1;
+export const LEDGER_SCHEMA_VERSION = currentSchemaVersion('ledger-entry');
 export const LEDGER_INTENT_DIRECTORY = 'context/ledger-intents';
 export const LEDGER_EVENT_TYPES = Object.freeze([
   ...LIFECYCLE_EVENT_TYPES,
@@ -296,7 +297,7 @@ export async function archiveLedger(root, rawConfig, output, { sign = false } = 
   ]));
   const manifestPath = `${target}.manifest.json`;
   const manifest = {
-    schemaVersion: 1,
+    schemaVersion: currentSchemaVersion('ledger-archive-manifest'),
     createdAt: nowIso(),
     ledgerBranch: config.branch,
     trustTier: config.trustTier,
@@ -389,13 +390,13 @@ function entryFromIntent(intent, publishedCommit, idempotencyKey) {
 
 async function loadHead(worktree) {
   if (!(await exists(path.join(worktree, HEAD_PATH)))) throw new SingularityFlowError(`Ledger branch is missing ${HEAD_PATH}.`);
-  return readJson(path.join(worktree, HEAD_PATH));
+  return readRecord('ledger-entry', await readFile(path.join(worktree, HEAD_PATH))).record;
 }
 
 async function eventAlreadyRecorded(worktree, idempotencyHash) {
   const file = path.join(worktree, idempotencyPath(idempotencyHash));
   if (!(await exists(file))) return null;
-  return readJson(file);
+  return readRecord('ledger-entry', await readFile(file)).record;
 }
 
 function pinRef(config, intent) {
@@ -742,7 +743,7 @@ function localOutbox(root) {
 }
 
 export async function recordLedgerOutbox(root, intentPath, publishedCommit, error) {
-  const intent = await readJson(path.join(root, intentPath));
+  const intent = readRecord('ledger-intent', await readFile(path.join(root, intentPath))).record;
   const file = path.join(localOutbox(root), `${intent.eventId}.json`);
   await writeJson(file, {
     schemaVersion: LEDGER_SCHEMA_VERSION,
@@ -811,8 +812,9 @@ async function remoteLedgerIntents(root, config, { offline = false } = {}) {
       if (content.status !== 0 || !content.stdout.trim()) continue;
       let intent;
       try {
-        intent = JSON.parse(content.stdout);
-      } catch {
+        intent = readRecord('ledger-intent', content.stdout).record;
+      } catch (error) {
+        if (String(error?.code ?? '').startsWith('SCHEMA_')) throw error;
         continue;
       }
       candidates.push({ intent, intentPath, publishedCommit: published.get(intentPath) ?? null, source: ref });
@@ -873,7 +875,7 @@ async function allLedgerIntents(root, config, { offline = false } = {}) {
   for (const file of await discoverLedgerIntents(root)) {
     const intentPath = path.relative(root, file).split(path.sep).join('/');
     candidates.push({
-      intent: await readJson(file),
+      intent: readRecord('ledger-intent', await readFile(file)).record,
       intentPath,
       publishedCommit: published.get(intentPath) ?? null,
       source: 'working-tree'
@@ -1011,7 +1013,7 @@ async function ledgerRefSnapshot(root, config, callback, { offline = false } = {
   };
   return callback({
     ref,
-    head: JSON.parse(head),
+    head: readRecord('ledger-entry', head).record,
     /** `path -> contents`, keyed by the path as it appears in the tree. */
     tree,
     has: (relative) => tree(path.posix.dirname(relative)).has(relative),
@@ -1027,7 +1029,7 @@ export async function verifyLedger(root, rawConfig, { offline = false } = {}) {
     const entries = new Map();
     for (const [file, contents] of snapshot.tree('ledger/entries')) {
       if (!file.endsWith('.json')) continue;
-      const entry = JSON.parse(contents);
+      const entry = readRecord('ledger-entry', contents).record;
       const actual = sha256(canonicalJson(entry));
       const expected = path.posix.basename(file, '.json');
       if (actual !== expected) errors.push(`Entry hash mismatch: ${file}`);
@@ -1049,7 +1051,7 @@ export async function verifyLedger(root, rawConfig, { offline = false } = {}) {
     if (visited.size !== entries.size) warnings.push(`${entries.size - visited.size} unreferenced ledger entr${entries.size - visited.size === 1 ? 'y' : 'ies'} exist.`);
     for (const [file, contents] of snapshot.tree('ledger/idempotency')) {
       if (!file.endsWith('.json')) continue;
-      const index = JSON.parse(contents);
+      const index = readRecord('ledger-entry', contents).record;
       if (!entries.has(index.entryHash)) errors.push(`Idempotency index ${index.eventId} references missing entry ${index.entryHash}.`);
     }
     const retentionExpired = new Set();
@@ -1224,7 +1226,7 @@ export async function repairLedgerPins(root, rawConfig, {
   const records = await ledgerRefSnapshot(root, config, async (snapshot) => {
     const parsed = [...snapshot.tree('ledger/entries')]
       .filter(([file]) => file.endsWith('.json'))
-      .map(([file, contents]) => ({ entryHash: path.posix.basename(file, '.json'), entry: JSON.parse(contents) }));
+      .map(([file, contents]) => ({ entryHash: path.posix.basename(file, '.json'), entry: readRecord('ledger-entry', contents).record }));
     const expired = new Set();
     for (const { entry } of parsed) {
       if (entry.eventType !== 'retention-expired') continue;
@@ -1419,7 +1421,7 @@ export async function ledgerLog(root, rawConfig, { limit = 20, offline = false }
     const entries = new Map();
     for (const [file, contents] of snapshot.tree('ledger/entries')) {
       if (!file.endsWith('.json')) continue;
-      entries.set(path.posix.basename(file, '.json'), JSON.parse(contents));
+      entries.set(path.posix.basename(file, '.json'), readRecord('ledger-entry', contents).record);
     }
     const output = [];
     let cursor = head.entryHash;
@@ -1437,12 +1439,12 @@ export async function ledgerShow(root, rawConfig, hashOrEventId) {
   const config = normalizeLedgerConfig(rawConfig);
   return ledgerRefSnapshot(root, config, async (snapshot) => {
     const index = snapshot.file(eventPath(hashOrEventId));
-    const hash = index === null ? hashOrEventId : JSON.parse(index).entryHash;
+    const hash = index === null ? hashOrEventId : readRecord('ledger-entry', index).record.entryHash;
     // The entry lives under a capability directory, so the name is matched rather than the path.
     const found = [...snapshot.tree('ledger/entries')]
       .find(([file]) => path.posix.basename(file) === `${hash}.json`);
     if (!found) throw new SingularityFlowError(`Ledger entry or event '${hashOrEventId}' was not found.`);
-    return { hash, entry: JSON.parse(found[1]) };
+    return { hash, entry: readRecord('ledger-entry', found[1]).record };
   });
 }
 

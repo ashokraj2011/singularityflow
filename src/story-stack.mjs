@@ -7,8 +7,9 @@ import {
 } from './initiative-repositories.mjs';
 import { readStorySeed } from './pull-request.mjs';
 import { SingularityFlowError, run } from './util.mjs';
+import { currentSchemaVersion, readRecord } from './schema-migrations.mjs';
 
-export const STORY_STACK_SCHEMA_VERSION = 1;
+export const STORY_STACK_SCHEMA_VERSION = currentSchemaVersion('story-stack');
 
 function safeId(value, label) {
   const text = String(value ?? '').trim();
@@ -112,11 +113,12 @@ export async function publishedStackForStory(root, config, workflow) {
   const remote = config.ledger?.remote ?? config.git?.remote ?? 'origin';
   const stateBranch = config.ledger?.branch ?? 'state';
   run('git', ['fetch', '--no-tags', remote, `+refs/heads/${stateBranch}:refs/remotes/${remote}/${stateBranch}`], { cwd: root, allowFailure: true });
-  const stack = readAtRef(root, `${remote}/${stateBranch}`, file) ?? readAtRef(root, stateBranch, file);
+  const stored = readAtRef(root, `${remote}/${stateBranch}`, file) ?? readAtRef(root, stateBranch, file);
+  const stack = stored ? readRecord('story-stack', stored).record : null;
   if (!stack) {
     throw new SingularityFlowError(`No synchronized merge stack exists for ${initiativeId}. Run 'singularity-flow stack sync --epic ${initiativeId}' from the lead repository before opening Story pull requests.`);
   }
-  if (stack.schemaVersion !== STORY_STACK_SCHEMA_VERSION || stack.initiativeId !== initiativeId || !Array.isArray(stack.stories)) {
+  if (stack.initiativeId !== initiativeId || !Array.isArray(stack.stories)) {
     throw new SingularityFlowError(`Published Story stack for ${initiativeId} has an unsupported shape.`);
   }
   const entry = stack.stories.find((story) => story.workId === workflow.workItem.id || story.id === workflow.workItem.id);

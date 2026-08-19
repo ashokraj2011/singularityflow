@@ -4,6 +4,7 @@ import path from 'node:path';
 import { gitDir, identity } from './git.mjs';
 import { canonicalJson, recordSha256 } from './records.mjs';
 import { SingularityFlowError, nowIso, writeAtomic } from './util.mjs';
+import { currentSchemaVersion, readRecord } from './schema-migrations.mjs';
 
 const AUTHORIZATION_TTL_MS = 15 * 60 * 1000;
 const TOKEN_PATTERN = /^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/;
@@ -18,7 +19,8 @@ function authorizationPath(root, token) {
 }
 
 function validate(record, token) {
-  if (record?.schemaVersion !== 1 || record?.kind !== 'governed-action-authorization') {
+  record = readRecord('action-authorization', record).record;
+  if (record?.kind !== 'governed-action-authorization') {
     throw new SingularityFlowError(`Action authorization '${token}' has an unsupported schema.`);
   }
   if (record.token !== token) throw new SingularityFlowError(`Action authorization '${token}' does not match its filename.`);
@@ -54,7 +56,7 @@ export async function issueActionAuthorization(root, plan, action, {
   const authorizationId = randomUUID();
   const questionId = recordSha256({ planId: plan.planId, actionId: action.actionId, channel }).slice(0, 24);
   const record = {
-    schemaVersion: 1,
+    schemaVersion: currentSchemaVersion('action-authorization'),
     kind: 'governed-action-authorization',
     token,
     authorizationId,
@@ -95,7 +97,7 @@ export async function consumeActionAuthorization(root, token, plan, action) {
       if (error instanceof SyntaxError) throw new SingularityFlowError(`Action authorization '${token}' is invalid JSON.`);
       throw error;
     }
-    validate(record, token);
+    record = validate(record, token);
     if (record.planId !== plan.planId || record.planHash !== plan.planHash || record.actionId !== action.actionId) {
       throw new SingularityFlowError(`Action authorization '${token}' is not bound to this exact plan and action.`);
     }

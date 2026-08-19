@@ -3,6 +3,7 @@ import { readdir } from 'node:fs/promises';
 import YAML from 'yaml';
 import { fileAtRef, refHead } from './git.mjs';
 import { SingularityFlowError, exists, readJson, run } from './util.mjs';
+import { readRecord } from './schema-migrations.mjs';
 
 function unique(values) {
   return [...new Set(values.map((value) => String(value ?? '').trim()).filter(Boolean))];
@@ -46,8 +47,8 @@ function initiativeEntry(state, location) {
 function parseEntry(relative, content, location) {
   let state;
   try { state = typeof content === 'string' ? JSON.parse(content) : content; } catch { return null; }
-  if (relative.endsWith('/workflow.json')) return storyEntry(state, { ...location, path: relative });
-  if (relative.endsWith('/state.json')) return initiativeEntry(state, { ...location, path: relative });
+  if (relative.endsWith('/workflow.json')) return storyEntry(readRecord('story-workflow', state).record, { ...location, path: relative });
+  if (relative.endsWith('/state.json')) return initiativeEntry(readRecord('initiative-state', state).record, { ...location, path: relative });
   return null;
 }
 
@@ -112,7 +113,7 @@ export class RepositorySubjectIndex {
   }
 }
 
-async function scanDirectory(index, root, base, suffix, parser) {
+async function scanDirectory(index, root, base, suffix, parser, family) {
   if (!(await exists(base))) return;
   // Sorted, so which of two candidates is seen first is never the filesystem's decision to make.
   const entries = (await readdir(base, { withFileTypes: true }))
@@ -123,7 +124,7 @@ async function scanDirectory(index, root, base, suffix, parser) {
     if (!(await exists(absolute))) continue;
     const relative = path.relative(root, absolute).split(path.sep).join('/');
     try {
-      index.add(parser(await readJson(absolute), {
+      index.add(parser(readRecord(family, await readJson(absolute)).record, {
         source: 'working-tree', path: relative, directory: entry.name, branch: null, ref: null, commit: null
       }));
     } catch (error) {
@@ -141,8 +142,8 @@ async function scanDirectory(index, root, base, suffix, parser) {
 
 export async function buildRepositorySubjectIndex(root, { definition = {}, portfolio = null } = {}) {
   const index = new RepositorySubjectIndex();
-  await scanDirectory(index, root, path.join(root, definition.workItemRoot ?? 'singularity/work-items'), 'workflow.json', storyEntry);
-  await scanDirectory(index, root, path.join(root, portfolio?.initiativeRoot ?? 'singularity/initiatives'), 'state.json', initiativeEntry);
+  await scanDirectory(index, root, path.join(root, definition.workItemRoot ?? 'singularity/work-items'), 'workflow.json', storyEntry, 'story-workflow');
+  await scanDirectory(index, root, path.join(root, portfolio?.initiativeRoot ?? 'singularity/initiatives'), 'state.json', initiativeEntry, 'initiative-state');
   return index;
 }
 

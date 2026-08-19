@@ -106,6 +106,14 @@ declare module '*/workspace-bootstrap.mjs' {
   export function latestWorkspaceBootstrap(options?: Record<string, unknown>): Promise<any | null>;
 }
 
+declare module '*/schema-migrations.mjs' {
+  export function readRecord(family: string, rawBytes: Uint8Array | string | Record<string, unknown>): {
+    readonly record: Record<string, unknown>;
+    readonly storedVersion: number;
+    readonly migratedThrough: ReadonlyArray<{ readonly from: number; readonly to: number }>;
+  };
+}
+
 declare module '*/gateway/conversation.mjs' {
   export function planDeveloperConversation(request: string): {
     readonly route: { readonly operationId: string; readonly automatic: boolean } | null;

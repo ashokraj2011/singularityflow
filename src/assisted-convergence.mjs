@@ -22,8 +22,9 @@ import path from 'node:path';
 import { itemId } from './convergence.mjs';
 import { canonicalJson } from './records.mjs';
 import { posix, SingularityFlowError } from './util.mjs';
+import { currentSchemaVersion } from './schema-migrations.mjs';
 
-export const ASSISTED_CONVERGENCE_SCHEMA_VERSION = 1;
+export const ASSISTED_CONVERGENCE_SCHEMA_VERSION = currentSchemaVersion('assisted-convergence');
 
 /** What a candidate may claim `[SPK:REQ-076]`. */
 export const CANDIDATE_KINDS = Object.freeze(['missing', 'partial', 'contradicts', 'unplanned']);

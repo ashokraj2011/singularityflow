@@ -15,10 +15,12 @@ import {
 } from './clone-strategy.mjs';
 import { classifyGitRemoteFailure, remoteFingerprint, sanitizeRemote } from './git-remote-diagnostics.mjs';
 import { worktreeFingerprint } from './worktree-fingerprint.mjs';
+import { currentSchemaVersion, readRecord } from './schema-migrations.mjs';
 
 export const WORKSPACE_FILE = 'workspace.json';
 export const WORKSPACE_SCHEMA_VERSION = 1;
 export const MAX_RECENT_WORKSPACES = 20;
+const WORKSPACE_REGISTRY_SCHEMA_VERSION = currentSchemaVersion('workspace-registry');
 const registryMutationTails = new Map();
 
 function nowIso() { return new Date().toISOString(); }
@@ -734,7 +736,7 @@ export async function adoptWorkspaceConfiguration({
   };
   const preview = previewWorkspaceConfiguration(input);
   const plan = {
-    schemaVersion: 1,
+    schemaVersion: 1, // schema-transient: workspace adoption preview, never persisted
     mode: 'adopt-existing-clone',
     workspace: { id: workspaceId, path: preview.root },
     repository: defaults,
@@ -1027,7 +1029,7 @@ async function cloneIntoWorkspace(root, operation) {
   await assertInside(root, staging);
   const canonicalParent = await realpath(parent);
   const ownership = {
-    schemaVersion: 1,
+    schemaVersion: currentSchemaVersion('workspace-bootstrap-owner'),
     bootstrapId: String(operation.bootstrapId ?? `workspace-${operation.workspaceId ?? 'unbound'}`),
     repositoryId: operation.repository,
     canonicalPath: await realpath(stagingRoot),
@@ -1044,7 +1046,8 @@ async function cloneIntoWorkspace(root, operation) {
     const canonical = await realpath(stagingRoot).catch(() => null);
     if (canonical !== ownership.canonicalPath || path.dirname(canonical) !== canonicalParent) return false;
     let recorded;
-    try { recorded = JSON.parse(await readFile(ownershipFile, 'utf8')); } catch { return false; }
+    try { recorded = readRecord('workspace-bootstrap-owner', await readFile(ownershipFile)).record; }
+    catch { return false; }
     return recorded.bootstrapId === ownership.bootstrapId
       && recorded.repositoryId === ownership.repositoryId
       && recorded.nonce === ownership.nonce
@@ -1556,6 +1559,7 @@ function normalizeRegistryEntry(entry) {
 export async function readWorkspaceRegistry(file) {
   let parsed;
   try { parsed = JSON.parse(await readFile(file, 'utf8')); } catch { return []; }
+  if (!Array.isArray(parsed)) parsed = readRecord('workspace-registry', parsed).record;
   const values = Array.isArray(parsed) ? parsed : parsed?.workspaces;
   if (!Array.isArray(values)) return [];
   const unique = new Map();
@@ -1601,7 +1605,7 @@ export async function rememberWorkspace(file, workspace, status = null, { preser
     // copies are real workspaces. The identifier is therefore not unique, which is why anything
     // resolving by id has to say so when the answer is ambiguous rather than pick one.
     const workspaces = [entry, ...current.filter((item) => item.path !== entry.path)].slice(0, MAX_RECENT_WORKSPACES);
-    await atomicJson(file, { schemaVersion: 1, workspaces });
+    await atomicJson(file, { schemaVersion: WORKSPACE_REGISTRY_SCHEMA_VERSION, workspaces });
     return workspaces;
   });
 }
@@ -1611,7 +1615,7 @@ export async function forgetWorkspace(file, workspacePath) {
   const target = await realpath(resolved).catch(() => resolved);
   return withRegistryMutation(file, async () => {
     const workspaces = (await readWorkspaceRegistry(file)).filter((item) => item.path !== target);
-    await atomicJson(file, { schemaVersion: 1, workspaces });
+    await atomicJson(file, { schemaVersion: WORKSPACE_REGISTRY_SCHEMA_VERSION, workspaces });
     return workspaces;
   });
 }
@@ -1740,7 +1744,7 @@ export async function archiveWorkspace(file, workspacePath, { confirmation, fetc
     if (!target) throw new SingularityFlowError(`Workspace '${workspace.name}' is not in the local workspace registry.`);
     const archivedAt = nowIso();
     target.archivedAt = archivedAt;
-    await atomicJson(file, { schemaVersion: 1, workspaces });
+    await atomicJson(file, { schemaVersion: WORKSPACE_REGISTRY_SCHEMA_VERSION, workspaces });
     return { workspace: target, archivedAt, readiness, workspaces };
   });
 }
@@ -1755,7 +1759,7 @@ export async function restoreWorkspace(file, workspacePath) {
     const restoredAt = nowIso();
     target.archivedAt = null;
     target.openedAt = nowIso();
-    await atomicJson(file, { schemaVersion: 1, workspaces });
+    await atomicJson(file, { schemaVersion: WORKSPACE_REGISTRY_SCHEMA_VERSION, workspaces });
     return { workspace: target, restoredAt, workspaces };
   });
 }

@@ -1,6 +1,7 @@
 import { createHash } from 'node:crypto';
 import { readFile } from 'node:fs/promises';
 import path from 'node:path';
+import { currentSchemaVersion, readRecord } from './schema-migrations.mjs';
 import { renderAgentSkills } from './agents.mjs';
 import { jiraSnapshotSource, verifyEpicSources } from './epic-sources.mjs';
 import { loadDefinition } from './config.mjs';
@@ -438,7 +439,7 @@ export async function composeInitiativeContext(root, initiativeId, requestedPhas
   ].filter((section) => section?.trim()).join('\n\n') + '\n';
   const renderedSha256 = createHash('sha256').update(rendered).digest('hex');
   const record = {
-    schemaVersion: 1,
+    schemaVersion: currentSchemaVersion('initiative-context'),
     initiativeId,
     profile: initiative.initiative.profile,
     phase: phaseId,
@@ -512,7 +513,7 @@ export async function verifyInitiativeContext(root, portfolio, initiative, phase
     (mode === 'enforce' ? errors : warnings).push(message);
     return { valid: !errors.length, mode, errors, warnings, path: relative, record: null };
   }
-  const record = JSON.parse(await readFile(recordTarget.absolute, 'utf8'));
+  const record = readRecord('initiative-context', await readFile(recordTarget.absolute)).record;
   const expectedPrompt = posix(path.join(
     itemDirectory.relative,
     promptRelative(initiative, phaseId, targetGeneration)

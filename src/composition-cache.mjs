@@ -2,6 +2,7 @@ import { createHash } from 'node:crypto';
 import path from 'node:path';
 import { mkdir, readFile, readdir, rm } from 'node:fs/promises';
 import { exists, nowIso, writeJson, writeText } from './util.mjs';
+import { currentSchemaVersion, readRecord } from './schema-migrations.mjs';
 
 function sha256(value) {
   return createHash('sha256').update(value).digest('hex');
@@ -41,7 +42,7 @@ export async function memoizeComposition(root, inputs, text, { enabled = true } 
     await mkdir(directory, { recursive: true });
     await writeText(bodyFile, text);
     await writeJson(metadataFile, {
-      schemaVersion: 1,
+      schemaVersion: currentSchemaVersion('composition-cache-entry'),
       key,
       createdAt: nowIso(),
       promptSha256,
@@ -58,7 +59,7 @@ async function entries(directory) {
   for (const entry of await readdir(directory, { withFileTypes: true })) {
     const absolute = path.join(directory, entry.name);
     if (entry.isDirectory()) output.push(...await entries(absolute));
-    else if (entry.name === 'metadata.json') output.push(JSON.parse(await readFile(absolute, 'utf8')));
+    else if (entry.name === 'metadata.json') output.push(readRecord('composition-cache-entry', await readFile(absolute)).record);
   }
   return output;
 }

@@ -1,6 +1,7 @@
 import { appendFile, chmod, mkdir, readdir, rename, stat, unlink } from 'node:fs/promises';
 import path from 'node:path';
 import { gitDir } from './git.mjs';
+import { currentSchemaVersion } from './schema-migrations.mjs';
 
 const DEFAULT_MAX_BYTES = 5 * 1024 * 1024;
 const DEFAULT_RETENTION_DAYS = 90;
@@ -27,7 +28,7 @@ export function commandTimer(command, input = {}) {
     finish(extra = {}) {
       const ended = process.hrtime.bigint();
       return {
-        schemaVersion: 2,
+        schemaVersion: currentSchemaVersion('dx-command-timing'),
         event: 'dx.command-timing',
         commandClass: options.commandClass ?? 'unknown',
         command,

@@ -3,6 +3,7 @@ import path from 'node:path';
 import { listMcpEvidence, verifyMcpEvidence } from './mcp-evidence.mjs';
 import { canonicalJson, recordSha256 } from './records.mjs';
 import { readDesignInventory } from './design-inventory.mjs';
+import { currentSchemaVersion, readRecord } from './schema-migrations.mjs';
 import {
   nowIso, posix, secureRepositoryPath, SingularityFlowError, snapshot, writeJson
 } from './util.mjs';
@@ -67,7 +68,7 @@ export function selectDesignSourceRecords(records, {
 
 export function createDesignSourceSet(workflow, records, { phase, generation } = {}) {
   const body = {
-    schemaVersion: 1,
+    schemaVersion: currentSchemaVersion('design-source-set'),
     kind: 'design-source-set',
     workId: workflow.workItem.id,
     workType: workflow.workItem.workType,
@@ -153,7 +154,7 @@ export async function verifyDesignSourceSet(root, workflow, binding, { itemDirec
   if (!current.exists) return { errors: [`Approved design-source set is missing: ${binding.path}`], warnings, passes };
   if (current.sha256 !== binding.sha256) errors.push(`Approved design-source set changed after approval: ${binding.path}`);
   let sourceSet;
-  try { sourceSet = JSON.parse(await readFile(target.absolute, 'utf8')); }
+  try { sourceSet = readRecord('design-source-set', await readFile(target.absolute)).record; }
   catch (error) { errors.push(`Approved design-source set is invalid JSON: ${error.message}`); return { errors, warnings, passes }; }
   const body = { ...sourceSet }; delete body.setSha256; delete body.createdAt;
   if (recordSha256(body) !== sourceSet.setSha256 || sourceSet.setSha256 !== binding.setSha256) errors.push('Approved design-source set content hash does not match its approval binding.');
@@ -181,7 +182,7 @@ export async function renderDesignSourcePromptContext(root, workflow, phase, {
   if (!binding || !verification.sourceSet) return { markdown: '', files: [], warnings: verification.errors };
   const generation = Number(phase.generation ?? 0) + 1;
   const provenance = {
-    schemaVersion: 1,
+    schemaVersion: currentSchemaVersion('design-source-provenance'),
     kind: 'design-source-provenance',
     workId: workflow.workItem.id,
     phase: phase.id,

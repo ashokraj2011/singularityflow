@@ -33,6 +33,9 @@ import {
 } from './publication-pending.mjs';
 import { lifecycleEvent, recordPublicationProjection } from './lifecycle-event.mjs';
 import { publishLifecycleChange } from './publication-unit-of-work.mjs';
+import { currentSchemaVersion, readRecord } from './schema-migrations.mjs';
+
+export const INITIATIVE_STATE_SCHEMA_VERSION = currentSchemaVersion('initiative-state');
 
 function actorKey(actor) { return actor.email?.toLowerCase() ?? actor.name; }
 
@@ -328,7 +331,8 @@ export async function secureInitiativePath(root, portfolio, id, relative = '', o
 function outputKey(phaseId, outputId) { return `${phaseId}/${outputId}`; }
 
 function validateInitiativeRuntimeState(initiative, expectedId = initiative?.initiative?.id) {
-  if (initiative?.schemaVersion !== 1 || initiative?.initiative?.id !== expectedId) {
+  initiative = readRecord('initiative-state', initiative).record;
+  if (initiative?.initiative?.id !== expectedId) {
     throw new SingularityFlowError(`Invalid initiative state for ${expectedId}.`);
   }
   if (!Array.isArray(initiative.resolution?.phases) || !Array.isArray(initiative.phaseOrder)) {
@@ -589,7 +593,7 @@ export async function createInitiative(root, {
     phase.skippedReason = `Initiative entered the lifecycle at ${entryPhase}.`;
   }
   const initiative = {
-    schemaVersion: 1,
+    schemaVersion: INITIATIVE_STATE_SCHEMA_VERSION,
     initiative: {
       id,
       title: title || id,

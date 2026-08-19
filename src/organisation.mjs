@@ -27,6 +27,7 @@ import {
   CAPABILITIES_PATH, editCapability, validateCapabilities, capabilityTree
 } from './capabilities.mjs';
 import { atomicJson, remoteDefaultBranch } from './workspace.mjs';
+import { currentSchemaVersion, readRecord } from './schema-migrations.mjs';
 import { defaultBranchName, head, identity } from './git.mjs';
 import { GOVERNED_ROOTS, WORKFLOW_PATH, initializeDefinition, loadDefinition } from './config.mjs';
 import {
@@ -133,7 +134,12 @@ export function leadRegistryFile() {
 
 /** The lead repositories this machine knows about, most recently used first. */
 export async function listLeadRepositories(file = leadRegistryFile()) {
-  const stored = await readJson(file).catch(() => null);
+  let stored;
+  try { stored = readRecord('capability-lead-registry', await readJson(file)).record; }
+  catch (error) {
+    if (error?.message?.startsWith('Required file not found:')) return [];
+    throw error;
+  }
   return Array.isArray(stored?.leads) ? stored.leads : [];
 }
 
@@ -146,14 +152,14 @@ export async function rememberLeadRepository(url, file = leadRegistryFile()) {
     ...existing.filter((lead) => lead.url !== remote)
   ].slice(0, 20);
   await mkdir(path.dirname(file), { recursive: true });
-  await atomicJson(file, { schemaVersion: 1, leads });
+  await atomicJson(file, { schemaVersion: currentSchemaVersion('capability-lead-registry'), leads });
   return leads;
 }
 
 export async function forgetLeadRepository(url, file = leadRegistryFile()) {
   const leads = (await listLeadRepositories(file)).filter((lead) => lead.url !== url);
   await mkdir(path.dirname(file), { recursive: true });
-  await atomicJson(file, { schemaVersion: 1, leads });
+  await atomicJson(file, { schemaVersion: currentSchemaVersion('capability-lead-registry'), leads });
   return leads;
 }
 
@@ -174,8 +180,10 @@ function cacheAgeMs(cached, at = Date.now()) {
 }
 
 async function readOrganisationCache(remote) {
-  const cached = await readJson(organisationCacheFile(remote)).catch(() => null);
-  if (cached?.schemaVersion !== 1 || cached.url !== remote || !cached.organisation) return null;
+  const file = organisationCacheFile(remote);
+  if (!existsSync(file)) return null;
+  const cached = readRecord('organisation-cache', await readJson(file)).record;
+  if (cached.url !== remote || !cached.organisation) return null;
   return cached;
 }
 
@@ -183,7 +191,7 @@ async function writeOrganisationCache(remote, tipSha, organisation) {
   const file = organisationCacheFile(remote);
   await mkdir(path.dirname(file), { recursive: true });
   await atomicJson(file, {
-    schemaVersion: 1,
+    schemaVersion: currentSchemaVersion('organisation-cache'),
     url: remote,
     tipSha,
     cachedAt: new Date().toISOString(),

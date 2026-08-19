@@ -42,6 +42,7 @@ import { assertSourceBoundary, normalizeSourceBoundary } from './source-boundary
 import { runQualityCommand } from './quality-command-runner.mjs';
 import { createLedgerIntent, ledgerLog, ledgerStatus, reconcileLedger } from './ledger.mjs';
 import { normalizeLedgerConfig } from './ledger-config.mjs';
+import { currentSchemaVersion, readRecord } from './schema-migrations.mjs';
 import {
   applyCapabilityPolicyToWorkResolution,
   assertCapabilitySource,
@@ -465,9 +466,9 @@ export async function createWorkflow(root, config, {
   const phases = resolution.phases.map(phaseState);
   const createdAt = nowIso();
   const workflow = {
-    schemaVersion: 2,
+    schemaVersion: currentSchemaVersion('story-workflow'),
     mcpAuthorizations: targetOrigin ? {
-      playwright: { schemaVersion: 1, origins: [targetOrigin], source: 'story-intake', pinnedAt: createdAt }
+      playwright: { schemaVersion: currentSchemaVersion('mcp-authorization'), origins: [targetOrigin], source: 'story-intake', pinnedAt: createdAt }
     } : {},
     workItem: {
       id, title: title || id, workType: selectedType, workTypeLabel: resolution.label,
@@ -490,7 +491,7 @@ export async function createWorkflow(root, config, {
       }
     },
     lineage: {
-      schemaVersion: 1,
+      schemaVersion: currentSchemaVersion('story-lineage'),
       canonicalBranch: branch(root),
       parentStoryId: id,
       epicId: source.epicId ?? source.parent?.key ?? null,
@@ -527,7 +528,7 @@ export async function createWorkflow(root, config, {
       mode: config.tokens?.mode ?? 'exact-or-unavailable', totalTokens: 0, records: 0,
       exactRecords: 0, unavailableRecords: 0, byPhase: {}, byAgent: {}, byWorkType: {}, byWorkItem: {}
     },
-    telemetry: { schemaVersion: 1, mode: 'work-item-sanitized' },
+    telemetry: { schemaVersion: currentSchemaVersion('work-item-telemetry'), mode: 'work-item-sanitized' },
     documents: { count: 0, updatedAt: null },
     collaboration: { assignments: {}, notifications: [] },
     sequenceOverrides: [],
@@ -572,9 +573,7 @@ export async function createWorkflow(root, config, {
 }
 
 function normalizeCurrentWorkflow(workflow) {
-  if (workflow.schemaVersion !== 2) {
-    throw new SingularityFlowError(`Unsupported Story workflow schema '${workflow.schemaVersion ?? 'missing'}'. Run singularity-flow factory-reset and recreate the Story.`);
-  }
+  workflow = readRecord('story-workflow', workflow).record;
   const missing = [
     ['resolution', workflow.resolution],
     ['resolution.session', workflow.resolution?.session],
@@ -1055,7 +1054,7 @@ export async function publishGeneration(root, config, workflow, { phaseId, usage
   }
   await preparePhaseInputs(root, config, workflow, phase.id);
   const effectiveAuthorship = authorship ?? {
-    schemaVersion: 1, producer: 'legacy-unspecified', channel: 'legacy', actor: structuredClone(session.actor),
+    schemaVersion: currentSchemaVersion('artifact-authorship'), producer: 'legacy-unspecified', channel: 'legacy', actor: structuredClone(session.actor),
     governedAgentContext: session.agent ? { agentId: session.agent } : null,
     kernelModel: { invoked: false, status: 'unavailable', invocationIds: [] },
     externalAiUse: { value: 'unknown', status: 'unavailable' }, source: null
@@ -1593,7 +1592,9 @@ function nextPhase(workflow, phase) { const id = workflow.phaseOrder[workflow.ph
 async function writeDecision(root, config, workflow, phase, decision) {
   const safe = decision.at.replace(/[:.]/g, '-');
   await writeJson(path.join(decisionDir(root, config, workflow.workItem.id, phase.id), `${safe}-${decision.decision}.json`), decision);
-  await writeJson(approvalPath(root, config, workflow.workItem.id, phase.id), { schemaVersion: 2, phase: phase.id, decisions: phase.approvals });
+  await writeJson(approvalPath(root, config, workflow.workItem.id, phase.id), {
+    schemaVersion: currentSchemaVersion('phase-approval'), phase: phase.id, decisions: phase.approvals
+  });
 }
 
 export async function approvePhase(root, config, workflow, {
@@ -2660,7 +2661,7 @@ export async function validateWorkflow(root, config, workflow, { strict = false,
       errors.push(`Configuration provenance: ${error.message}`);
     }
   }
-  if (workflow.schemaVersion === 2 && workflow.resolution?.workType !== workflow.workItem.workType) errors.push('Work type differs from the immutable profile snapshot.');
+  if (workflow.resolution?.workType !== workflow.workItem.workType) errors.push('Work type differs from the immutable profile snapshot.');
   const resolvedOrder = workflow.resolution?.phases?.map((phase) => phase.id);
   if (resolvedOrder?.length && JSON.stringify(resolvedOrder) !== JSON.stringify(workflow.phaseOrder)) errors.push('Phase order differs from the immutable profile snapshot.');
   if (config.workTypes?.[workflow.workItem.workType]) {

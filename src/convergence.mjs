@@ -25,7 +25,9 @@ import { analysisLimits, capWithDisclosure } from './analysis-limits.mjs';
 import { canonicalJson, recordSha256 } from './records.mjs';
 import { posix, SingularityFlowError } from './util.mjs';
 
-export const CONVERGENCE_SCHEMA_VERSION = 1;
+import { currentSchemaVersion } from './schema-migrations.mjs';
+
+export const CONVERGENCE_SCHEMA_VERSION = currentSchemaVersion('convergence-record');
 
 /**
  * The deterministic fact kinds `[SPK:REQ-074]` enumerates.

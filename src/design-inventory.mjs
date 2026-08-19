@@ -1,6 +1,7 @@
 import { readFile } from 'node:fs/promises';
 import path from 'node:path';
 import { recordSha256 } from './records.mjs';
+import { currentSchemaVersion, readRecord } from './schema-migrations.mjs';
 import { nowIso, posix, secureRepositoryPath, SingularityFlowError, snapshot, writeJson, writeText } from './util.mjs';
 
 function itemRoot(root, workflow, itemDirectory) {
@@ -53,7 +54,7 @@ export async function generateDesignInventory(root, workflow, binding, { itemDir
     sources.push({ recordId: record.recordId, fileKey: record.fileKey, fileVersion: record.fileVersion, outputSha256: record.outputSha256, format: record.format });
   }
   const digestBody = {
-    schemaVersion: 1, kind: 'design-inventory-digest', workId: workflow.workItem.id,
+    schemaVersion: currentSchemaVersion('design-inventory-digest'), kind: 'design-inventory-digest', workId: workflow.workItem.id,
     sourceSetSha256: binding.setSha256, sources: sources.sort((a, b) => a.fileKey.localeCompare(b.fileKey)),
     counts: { nodes: totals.nodes, components: totals.components, componentSets: totals.componentSets, instances: totals.instances, nodeTypes: Object.fromEntries(Object.entries(totals.nodeTypes).sort()) },
     names: [...totals.names].sort(), variantProperties: [...totals.variantProperties].sort(), variables: [...totals.variables].sort(), styles: [...totals.styles].sort()
@@ -82,7 +83,7 @@ export async function readDesignInventory(root, workflow, binding, { itemDirecto
   const target = await secureRepositoryPath(directory, relative, { label: 'Design inventory digest', mustExist: false });
   const current = await snapshot(target.absolute);
   if (!current.exists) return null;
-  const digest = JSON.parse(await readFile(target.absolute, 'utf8'));
+  const digest = readRecord('design-inventory-digest', await readFile(target.absolute)).record;
   const body = { ...digest }; delete body.digestSha256; delete body.generatedAt;
   if (recordSha256(body) !== digest.digestSha256 || digest.sourceSetSha256 !== binding.setSha256) throw new SingularityFlowError('Design inventory digest integrity is invalid.', { code: 'DESIGN_INVENTORY_INVALID' });
   return { digest, path: relative, sha256: current.sha256, bytes: current.size };

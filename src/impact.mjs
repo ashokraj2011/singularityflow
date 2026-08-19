@@ -8,6 +8,7 @@ import { nowIso, readJson, secureRepositoryPath, SingularityFlowError, snapshot,
 import {
   DEFAULT_IMPACT_METRIC_AUTHORITIES, deterministicStudyGroup, eligibleImpactStudies, IMPACT_BANDS, IMPACT_METRICS
 } from './impact-config.mjs';
+import { currentSchemaVersion, readRecord } from './schema-migrations.mjs';
 
 export const IMPACT_EVIDENCE_STATUSES = Object.freeze(['exact', 'partial', 'self-reported', 'unavailable']);
 export const IMPACT_EXPOSURE_LEVELS = Object.freeze(['available', 'invoked', 'artifact-assisted', 'code-assisted', 'agent-executed', 'unknown']);
@@ -69,7 +70,7 @@ export async function initializeStoryImpact(root, config, workflow, source) {
     capabilityId: workflow.resolution?.capability?.id ?? null
   });
   workflow.measurement = {
-    schemaVersion: 1,
+    schemaVersion: currentSchemaVersion('impact-measurement-state'),
     status: studies.length ? 'classification-required' : 'not-enrolled',
     plan: null,
     exposures: [],
@@ -83,7 +84,7 @@ export async function initializeStoryImpact(root, config, workflow, source) {
   const suggested = suggestedClassification(source);
   const createdAt = workflow.workItem.createdAt;
   const core = {
-    schemaVersion: 1,
+    schemaVersion: currentSchemaVersion('impact-plan'),
     workId: workflow.workItem.id,
     study: { id: study.id, configurationSha256: impact.sha256, configurationPath: impact.path },
     method: study.method,
@@ -116,7 +117,7 @@ async function readPlan(root, workflow) {
   if (!workflow.measurement?.plan?.path) return null;
   const target = await secureRepositoryPath(root, workflow.measurement.plan.path, { label: 'Impact plan', type: 'file' });
   if (!target.exists) throw new SingularityFlowError(`Impact plan is missing: ${workflow.measurement.plan.path}.`);
-  const plan = await readJson(target.absolute);
+  const plan = readRecord('impact-plan', await readJson(target.absolute)).record;
   const { integrity, ...core } = plan;
   if (integrity?.sha256 !== impactSha256(core)) throw new SingularityFlowError(`Impact plan hash mismatch for ${workflow.workItem.id}.`);
   return plan;
@@ -162,7 +163,7 @@ export async function invalidateImpactReceipt(root, config, workflow, {
   const receipt = workflow.measurement?.receipt;
   if (!receipt || receipt.status === 'invalidated') return null;
   const core = {
-    schemaVersion: 1,
+    schemaVersion: currentSchemaVersion('impact-invalidation'),
     workId: workflow.workItem.id,
     receiptSha256: receipt.sha256,
     cause,
@@ -198,7 +199,7 @@ export async function recordImpactExposure(root, config, workflow, { phaseId, le
     throw new SingularityFlowError(`${level} exposure requires host-observed, provider-verified, or attested assurance.`);
   }
   const core = {
-    schemaVersion: 1,
+    schemaVersion: currentSchemaVersion('impact-exposure'),
     workId: workflow.workItem.id,
     phaseId,
     level,
@@ -211,7 +212,7 @@ export async function recordImpactExposure(root, config, workflow, { phaseId, le
   const record = { ...core, integrity: { sha256: impactSha256(core) } };
   const file = path.join(measurementRoot(root, config, workflow), 'exposure', `${record.integrity.sha256}.json`);
   await writeJson(file, record);
-  workflow.measurement ??= { schemaVersion: 1, exposures: [], evidence: [], invalidations: [] };
+  workflow.measurement ??= { schemaVersion: currentSchemaVersion('impact-measurement-state'), exposures: [], evidence: [], invalidations: [] };
   workflow.measurement.exposures ??= [];
   workflow.measurement.exposures.push({ path: relative(root, file), sha256: record.integrity.sha256, phaseId, level, assurance });
   return { record, path: relative(root, file) };
@@ -219,9 +220,9 @@ export async function recordImpactExposure(root, config, workflow, { phaseId, le
 
 export function validateImpactEvidence(value, { expectedWorkId = null } = {}) {
   if (!value || typeof value !== 'object' || Array.isArray(value)) throw new SingularityFlowError('Impact evidence must be an object.');
+  value = readRecord('impact-evidence', value).record;
   const permitted = ['schemaVersion', 'evidenceId', 'kind', 'provider', 'subject', 'observation', 'source', 'actor', 'capturedAt', 'integrity'];
   for (const key of Object.keys(value)) if (!permitted.includes(key)) throw new SingularityFlowError(`Impact evidence contains forbidden field '${key}'. Providers may submit observations only.`);
-  if (value.schemaVersion !== 1) throw new SingularityFlowError('Impact evidence schemaVersion must be 1.');
   const strictObject = (candidate, fields, label) => {
     if (!candidate || typeof candidate !== 'object' || Array.isArray(candidate)) throw new SingularityFlowError(`Impact evidence ${label} must be an object.`);
     for (const key of Object.keys(candidate)) if (!fields.includes(key)) throw new SingularityFlowError(`Impact evidence ${label} contains forbidden field '${key}'.`);
@@ -321,7 +322,7 @@ export async function importImpactEvidence(root, config, workflow, file) {
   assertEvidenceAuthority(workflow, record);
   const target = path.join(measurementRoot(root, config, workflow), 'evidence', `${record.evidenceId}.json`);
   await writeJson(target, record);
-  workflow.measurement ??= { schemaVersion: 1, exposures: [], evidence: [], invalidations: [] };
+  workflow.measurement ??= { schemaVersion: currentSchemaVersion('impact-measurement-state'), exposures: [], evidence: [], invalidations: [] };
   workflow.measurement.evidence ??= [];
   workflow.measurement.evidence = [
     ...workflow.measurement.evidence.filter((item) => item.evidenceId !== record.evidenceId),
@@ -347,7 +348,7 @@ export async function collectImpactEvidence(root, config, workflow, {
   for (const key of Object.keys(observation)) if (!permitted.includes(key)) throw new SingularityFlowError(`Provider observation contains forbidden field '${key}'.`);
   const actor = identity(root);
   const core = {
-    schemaVersion: 1,
+    schemaVersion: currentSchemaVersion('impact-evidence'),
     kind: kind?.trim() || `${providerId.trim()}-observation`,
     provider: { id: providerId.trim(), version: providerVersion.trim(), assurance: 'attested' },
     actor: { name: actor.name, email: actor.email },
@@ -365,7 +366,7 @@ export async function collectImpactEvidence(root, config, workflow, {
   assertEvidenceAuthority(workflow, record);
   const target = path.join(measurementRoot(root, config, workflow), 'evidence', `${record.evidenceId}.json`);
   await writeJson(target, record);
-  workflow.measurement ??= { schemaVersion: 1, exposures: [], evidence: [], invalidations: [] };
+  workflow.measurement ??= { schemaVersion: currentSchemaVersion('impact-measurement-state'), exposures: [], evidence: [], invalidations: [] };
   workflow.measurement.evidence ??= [];
   workflow.measurement.evidence = [
     ...workflow.measurement.evidence.filter((item) => item.evidenceId !== record.evidenceId),
@@ -505,7 +506,7 @@ export async function createImpactReceipt(root, config, workflow, finalization) 
   const { observations, selected } = selectAuthoritativeImpactEvidence(workflow, [...native, ...imported]);
   const exposures = exposureSummary(workflow);
   const core = {
-    schemaVersion: 1,
+    schemaVersion: currentSchemaVersion('impact-receipt'),
     status: 'finalized',
     subject: {
       workId: workflow.workItem.id,
@@ -556,7 +557,7 @@ export async function verifyImpactReceipt(root, workflow) {
   try {
     const target = await secureRepositoryPath(root, ref.path, { label: 'Impact Receipt', type: 'file' });
     if (!target.exists) throw new SingularityFlowError(`Impact Receipt is missing: ${ref.path}.`);
-    receipt = await readJson(target.absolute);
+    receipt = readRecord('impact-receipt', await readJson(target.absolute)).record;
   }
   catch (error) { return { valid: false, errors: [`Impact Receipt cannot be read: ${error.message}`], receipt: null }; }
   const { integrity, ...core } = receipt;
@@ -574,7 +575,7 @@ export async function verifyImpactReceipt(root, workflow) {
     if (!current.exists || current.sha256 == null) errors.push(`Evidence '${evidence.evidenceId}' is missing.`);
     else {
       try {
-        const record = await readJson(target.absolute);
+        const record = readRecord('impact-evidence', await readJson(target.absolute)).record;
         const { integrity: recordIntegrity, ...recordCore } = record;
         const hash = impactSha256(recordCore);
         if (recordIntegrity?.sha256 !== hash || evidence.sha256 !== hash || registered.sha256 !== hash) errors.push(`Evidence '${evidence.evidenceId}' hash mismatch.`);

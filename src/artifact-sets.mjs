@@ -23,12 +23,13 @@ import { createHash } from 'node:crypto';
 
 import { recordSha256 } from './records.mjs';
 import { exists, posix, SingularityFlowError } from './util.mjs';
+import { currentSchemaVersion, readRecord } from './schema-migrations.mjs';
 
 /** How much a member's absence or change is allowed to mean. */
 export const MEMBER_AUTHORITIES = Object.freeze(['governed', 'advisory']);
 
 /** The catalogue shape `catalogArtifactSet` writes and `artifactSetDiff` reads. `[SPK:REQ-124]` */
-export const ARTIFACT_SET_SCHEMA_VERSION = 1;
+export const ARTIFACT_SET_SCHEMA_VERSION = currentSchemaVersion('artifact-set');
 
 /**
  * Normalize one declared set.
@@ -197,17 +198,20 @@ export function artifactSetDiff(previous, current, { declared = [] } = {}) {
    * `[SPK:CON-053]` says an existing Story keeps working. A version *ahead* of this build is the
    * case worth refusing: the members would be compared field by field against a shape this code
    * does not know, and the answer would be a confident wrong diff rather than an error.
-   */
-  const version = previous.schemaVersion ?? 1;
-  if (version > ARTIFACT_SET_SCHEMA_VERSION) {
-    throw new SingularityFlowError(
-      `Artifact set '${previous.setId ?? current.setId}' was catalogued by a newer release (schema ${version}; `
-      + `this build reads ${ARTIFACT_SET_SCHEMA_VERSION}). Upgrade Singularity Flow rather than comparing the `
-      + 'bundle against a shape this version does not know.',
-      { code: 'ARTIFACT_SET_SCHEMA_AHEAD' }
-    );
+  */
+  const stored = { schemaVersion: 1, ...previous };
+  let readablePrevious;
+  try { readablePrevious = readRecord('artifact-set', stored).record; }
+  catch (error) {
+    if (error?.code === 'SCHEMA_VERSION_FUTURE') {
+      throw new SingularityFlowError(
+        `Artifact set was catalogued by a newer release. ${error.message}`,
+        { code: error.code, details: error.details, cause: error }
+      );
+    }
+    throw error;
   }
-  const before = new Map(previous.members.map((member) => [member.path, member]));
+  const before = new Map(readablePrevious.members.map((member) => [member.path, member]));
   const intended = new Set(declared.map((entry) => posix(entry)));
   const changed = [];
   const preserved = [];

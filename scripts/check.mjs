@@ -110,6 +110,7 @@ if (codeowners.status !== 0) fail(codeowners.stderr.trim() || 'Generated CODEOWN
 checked.push('.github/CODEOWNERS', 'scripts/generate-codeowners.mjs');
 for (const [script, label] of [
   ['scripts/audit-model-boundary.mjs', 'Model-boundary audit'],
+  ['scripts/schema-migration-lint.mjs', 'Schema migration boundary'],
   // A stamp that drifts from the mapping is one agent quietly pinned to a model nobody
   // approved — the exact thing the indirection exists to prevent. `[ADP:CON-008]`
   ['scripts/stamp-agent-models.mjs', 'Agent model stamps'],

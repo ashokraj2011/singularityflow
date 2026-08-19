@@ -2,6 +2,7 @@ import { createHash, randomUUID } from 'node:crypto';
 import { readFile } from 'node:fs/promises';
 import path from 'node:path';
 import YAML from 'yaml';
+import { currentSchemaVersion, readRecord } from './schema-migrations.mjs';
 import { artifactBlockMarkers, PHASE_SCOPE } from './planning-scope.mjs';
 import { renderAgentSkills } from './agents.mjs';
 import {
@@ -591,7 +592,7 @@ export async function createPlanningContext(root, {
   await writeText(contextPath, rendered);
   const contextInfo = await snapshot(contextPath);
   const manifest = {
-    schemaVersion: 1,
+    schemaVersion: currentSchemaVersion('planning-session'),
     sessionId,
     createdAt: nowIso(),
     repository: { root, branch: branch(root), head: head(root) },
@@ -638,7 +639,7 @@ async function loadPlanningPack(root, sessionId, { requireCurrentHead = true } =
   const manifestPath = path.join(directory, 'manifest.json');
   const contextPath = path.join(directory, 'context.md');
   if (!(await exists(manifestPath)) || !(await exists(contextPath))) throw new SingularityFlowError(`Planning session '${sessionId}' has no complete local context pack.`);
-  const manifest = JSON.parse(await readFile(manifestPath, 'utf8'));
+  const manifest = readRecord('planning-session', await readFile(manifestPath)).record;
   const current = await snapshot(contextPath);
   if (manifest.sessionId !== sessionId || manifest.repository.root !== root) throw new SingularityFlowError('Planning context identity does not match this repository.');
   if (current.sha256 !== manifest.context.sha256) throw new SingularityFlowError('Planning context changed after Copilot received it.');

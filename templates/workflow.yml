@@ -119,7 +119,9 @@ worldModel:
     #   include: [views/security.md]
 
 # Optional structural intelligence. The kernel always retains a bounded text-assurance fallback;
-# syntax and semantic assurance require an explicitly installed out-of-process adapter.
+# syntax and semantic assurance require an explicitly installed out-of-process adapter. Text
+# symbols are advisory discovery only; every required symbol-exists predicate needs syntax or
+# semantic assurance.
 ast:
   mode: auto
   fallback: host-and-text

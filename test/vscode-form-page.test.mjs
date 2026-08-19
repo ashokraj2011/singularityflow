@@ -46,6 +46,13 @@ test('an ordinary field keeps its value, so the rule is about ceremony and not a
   assert.match(formHtml(view), /value="Existing title"/);
 });
 
+test('an opaque cursor uses a line control without browser or draft persistence', () => {
+  const view = formModel('ast-context-v2', { defaults: { cursor: `astp_eA.${'a'.repeat(64)}` } });
+  const html = formHtml(view);
+  assert.match(html, /name="cursor"/);
+  assert.match(html, /name="cursor"[^>]*autocomplete="off"[^>]*data-no-draft/);
+});
+
 test('the two path controls say which one may leave the repository', () => {
   /**
    * `[UXH:REQ-070]` and `[UXH:REQ-065]`. The difference is invisible in a text box, and only one of

@@ -85,6 +85,16 @@ const TYPES = Object.freeze({
     return value;
   },
 
+  /** Opaque, integrity-bound continuation state emitted by a read operation. */
+  'opaque-cursor'(schemaId, field, value) {
+    if (typeof value !== 'string') reject(schemaId, field, 'must be a string', value);
+    assertPlain(schemaId, field, value);
+    if (!/^astp_[A-Za-z0-9_-]+\.[a-f0-9]{64}$/.test(value) || value.length > 16_500) {
+      reject(schemaId, field, 'is not a valid AST read cursor', value);
+    }
+    return value;
+  },
+
   /**
    * A Git ref, commit, or tag — which is to say, something that will reach `git` as argv.
    *
@@ -217,6 +227,24 @@ export const ARGUMENT_SCHEMAS = Object.freeze([
     path: optional('relative-path'),
     all: optional('boolean'),
     maxFiles: optional('integer', { min: 1, max: 10000 })
+  }),
+  schema('ast-context-v2', {
+    path: optional('relative-path'),
+    all: optional('boolean'),
+    maxFiles: optional('integer', { min: 1, max: 10000 }),
+    maxFacts: optional('integer', { min: 1, max: 10000 }),
+    maxOutputBytes: optional('integer', { min: 16384, max: 4 * 1024 * 1024 }),
+    cursor: optional('opaque-cursor')
+  }),
+  schema('ast-query-v2', {
+    predicate: optional('enum', { values: ['symbol', 'import', 'language', 'path'] }),
+    value: optional('string', { maxLength: 500 }),
+    path: optional('relative-path'),
+    all: optional('boolean'),
+    maxFiles: optional('integer', { min: 1, max: 10000 }),
+    maxFacts: optional('integer', { min: 1, max: 10000 }),
+    maxOutputBytes: optional('integer', { min: 16384, max: 4 * 1024 * 1024 }),
+    cursor: optional('opaque-cursor')
   }),
   schema('intent-trace-v1', {
     repositoryId: required('identifier'),

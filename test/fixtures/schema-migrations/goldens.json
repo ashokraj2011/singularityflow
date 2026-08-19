@@ -109,13 +109,14 @@
   "story-stack": [{ "schemaVersion": 1 }],
   "workspace-impact-report": [{ "schemaVersion": 1 }],
   "worldmodel-checkpoint": [{ "schemaVersion": 1 }],
+  "worldmodel-recovery": [{ "schemaVersion": 1 }],
   "ledger-intent": [{ "schemaVersion": 1 }],
   "ledger-entry": [{ "schemaVersion": 1 }],
   "ledger-archive-manifest": [{ "schemaVersion": 1 }],
   "ast-preference": [{ "schemaVersion": 1 }],
   "ast-resume-job": [{ "schemaVersion": 1 }, { "schemaVersion": 2 }],
-  "ast-result": [{ "schemaVersion": 1 }, { "schemaVersion": 2 }],
+  "ast-result": [{ "schemaVersion": 1 }, { "schemaVersion": 2 }, { "schemaVersion": 3 }],
   "ast-cache-blob": [{ "schemaVersion": 1 }],
   "ast-cone-manifest": [{ "schemaVersion": 1 }],
-  "ast-gate-receipt": [{ "schemaVersion": 1 }]
+  "ast-gate-receipt": [{ "schemaVersion": 1 }, { "schemaVersion": 2 }]
 }

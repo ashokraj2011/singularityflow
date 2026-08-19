@@ -103,6 +103,9 @@ export function validateAstPolicyDraft(draft: AstPolicyDraft): string[] {
     if (!row.target.trim()) errors.push(`Predicate '${row.id}' needs a path or symbol.`);
     if (row.type === 'path-exists' && unsafeRelative(row.target.trim())) errors.push(`Predicate '${row.id}' path must be repository-relative.`);
     if (!ASSURANCE.has(row.minimumAssurance)) errors.push(`Predicate '${row.id}' assurance is invalid.`);
+    if (row.mode === 'required' && row.type === 'symbol-exists' && row.minimumAssurance === 'text') {
+      errors.push(`Required symbol predicate '${row.id}' must use syntax or semantic assurance; lexical text matches are advisory only.`);
+    }
   }
   if (draft.mode === 'off' && draft.predicates.some((row) => row.mode === 'required')) {
     errors.push('Repository mode cannot be off while a required structural predicate exists.');

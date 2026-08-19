@@ -38,6 +38,7 @@ const DOM_VALUE = Object.freeze({
   text: 'some prose the user wrote',
   identifier: 'WRK-1187',
   ref: 'main',
+  'opaque-cursor': `astp_eA.${'a'.repeat(64)}`,
   'relative-path': 'src/index.mjs',
   'filesystem-path': '/tmp/workspace'
 });

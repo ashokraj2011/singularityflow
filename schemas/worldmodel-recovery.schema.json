@@ -1,0 +1,43 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://example.invalid/singularity-flow/worldmodel-recovery.schema.json",
+  "title": "Singularity Flow retained world-model publication",
+  "type": "object",
+  "required": ["schemaVersion", "id", "createdAt", "phase", "sourceHash", "snapshot", "failure", "status"],
+  "properties": {
+    "schemaVersion": { "const": 1 },
+    "id": { "type": "string", "pattern": "^[A-Za-z0-9][A-Za-z0-9._-]{0,159}$" },
+    "createdAt": { "type": "string" },
+    "phase": { "type": "string" },
+    "sourceHash": { "type": "string", "pattern": "^(?:sha256:)?[a-f0-9]{64}$" },
+    "snapshot": {
+      "type": "object",
+      "required": ["directoryName", "manifestSha256"],
+      "properties": {
+        "directoryName": { "type": "string", "pattern": "^[A-Za-z0-9][A-Za-z0-9._-]{0,159}$" },
+        "manifestSha256": { "type": "string", "pattern": "^[a-f0-9]{64}$" }
+      },
+      "additionalProperties": false
+    },
+    "failure": {
+      "type": "object",
+      "required": ["code"],
+      "properties": { "code": { "type": "string" } },
+      "additionalProperties": false
+    },
+    "status": { "enum": ["pending", "published"] },
+    "lastAttemptAt": { "type": "string" },
+    "publishedAt": { "type": "string" },
+    "publication": {
+      "type": "object",
+      "properties": {
+        "applicationCommit": { "type": ["string", "null"] },
+        "applicationPushed": { "type": "boolean" },
+        "stateBranch": { "type": ["string", "null"] },
+        "stateCommit": { "type": ["string", "null"] }
+      },
+      "additionalProperties": false
+    }
+  },
+  "additionalProperties": false
+}

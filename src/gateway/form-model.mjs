@@ -38,6 +38,9 @@ const CONTROLS = Object.freeze({
   enum: 'choice',
   identifier: 'line',
   ref: 'line',
+  // Continuation state is pasted or supplied by a prior result, never interpreted by the form.
+  // It deliberately uses a plain line control while remaining excluded from draft persistence.
+  'opaque-cursor': 'line',
   /**
    * Two path types, two different pickers `[UXH:REQ-070]`.
    *
@@ -122,7 +125,7 @@ export function formModel(schemaId, { defaults = {} } = {}) {
        * and persistence defeats it on every open after a refresh.
        */
       value: ceremony ? null : (defaults[name] ?? null),
-      persist: !ceremony && !isSensitive(name),
+      persist: !ceremony && !isSensitive(name) && spec.type !== 'opaque-cursor',
       /** A field whose type has no designed input is reported, not rendered as a plain box. */
       renderable: Boolean(control)
     });

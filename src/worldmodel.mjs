@@ -64,6 +64,23 @@ const WORLD_MODEL_TEMP_PREFIXES = [
   'singularity-flow-world-model-branch-'
 ];
 const WORLD_MODEL_OWNER_FILE = 'singularity-flow-owner.json';
+const WORLD_MODEL_RECOVERY_SCHEMA_VERSION = currentSchemaVersion('worldmodel-recovery');
+const WORLD_MODEL_RECOVERY_ID = /^[A-Za-z0-9][A-Za-z0-9._-]{0,159}$/;
+
+function worldModelRecoveryRoot(root) {
+  return path.join(gitDir(root), 'singularity-flow', 'world-model-recovery');
+}
+
+function worldModelRecoveryRecordPath(root, id) {
+  return path.join(worldModelRecoveryRoot(root), `${id}.json`);
+}
+
+function assertWorldModelRecoveryId(id) {
+  if (!WORLD_MODEL_RECOVERY_ID.test(String(id ?? ''))) {
+    throw new SingularityFlowError('World-model recovery ID is invalid.', { code: 'WORLD_MODEL_RECOVERY_ID_INVALID' });
+  }
+  return String(id);
+}
 
 async function renderApprovedReferenceContext(root, definition, workflow, activePhase) {
   const policy = workflow?.resolution?.harnessImports ?? definition.harnessImports;
@@ -465,14 +482,16 @@ async function compatibleWorldModelDirectory(root, config, sourceTreeSha256) {
   }
 }
 
-async function publishWorldModel(root, config, workflow, sourceHash, phase = 'repository', { local = false } = {}) {
+async function publishWorldModel(root, config, workflow, sourceHash, phase = 'repository', { local = false, quiet = false } = {}) {
   const publishing = !local && (config.definition?.git?.publish ?? 'required') !== 'off';
   if (publishing) assertNotDefaultBranch(root, config, 'World-model publication');
   add(root, [config.outputDir]);
   const staged = run('git', ['diff', '--cached', '--quiet', '--', config.outputDir], { cwd: root, allowFailure: true }).status !== 0;
   let commit = worldModelCommit(root, config.outputDir);
   if (staged) {
-    run('git', ['commit', '--only', '-m', `[world-model][source:${sourceHash.replace(/^sha256:/, '').slice(0, 12)}] ${phase}`, '--', config.outputDir], { cwd: root, stdio: 'inherit' });
+    run('git', ['commit', '--only', '-m', `[world-model][source:${sourceHash.replace(/^sha256:/, '').slice(0, 12)}] ${phase}`, '--', config.outputDir], {
+      cwd: root, ...(quiet ? {} : { stdio: 'inherit' })
+    });
     commit = head(root);
   }
   // --local (or git.publish: off): commit to the current branch but do not push. The commit rides
@@ -505,7 +524,7 @@ async function publicationRecoveryError(root, validatedDirectory, error, { phase
   let recoveryPath = null;
   let preservationError = null;
   try {
-    const recoveryRoot = path.join(gitDir(root), 'singularity-flow', 'world-model-recovery');
+    const recoveryRoot = worldModelRecoveryRoot(root);
     await mkdir(recoveryRoot, { recursive: true });
     const label = String(phase ?? 'repository').replace(/[^a-zA-Z0-9._-]+/g, '-').slice(0, 48);
     const source = String(sourceHash ?? '').replace(/^sha256:/, '').slice(0, 12) || 'unknown';
@@ -514,6 +533,27 @@ async function publicationRecoveryError(root, validatedDirectory, error, { phase
   } catch (preserveError) {
     recoveryPath = null;
     preservationError = preserveError.message;
+  }
+  if (recoveryPath) {
+    try {
+      const id = path.basename(recoveryPath);
+      const manifestSha256 = createHash('sha256')
+        .update(await readFile(path.join(recoveryPath, 'manifest.json'))).digest('hex');
+      await writeJson(worldModelRecoveryRecordPath(root, id), {
+        schemaVersion: WORLD_MODEL_RECOVERY_SCHEMA_VERSION,
+        id,
+        createdAt: new Date().toISOString(),
+        phase: String(phase ?? 'repository'),
+        sourceHash: String(sourceHash),
+        snapshot: { directoryName: id, manifestSha256 },
+        failure: { code: String(error?.code ?? 'WORLD_MODEL_PUBLICATION_FAILED') },
+        status: 'pending'
+      });
+    } catch (recordError) {
+      // The validated directory remains the recovery authority even when the optional local index
+      // could not be written. `wm recovery list` discovers legacy/unindexed directories too.
+      preservationError = `snapshot retained, but recovery metadata could not be written: ${recordError.message}`;
+    }
   }
   const recovery = recoveryPath
     ? ` The validated snapshot was retained at ${recoveryPath}; no light replacement was attempted.`
@@ -533,6 +573,203 @@ async function publicationRecoveryError(root, validatedDirectory, error, { phase
       cause: error
     }
   );
+}
+
+async function recoveryDirectory(root, id) {
+  const safeId = assertWorldModelRecoveryId(id);
+  const target = path.join(worldModelRecoveryRoot(root), safeId);
+  const info = await lstat(target).catch((error) => error?.code === 'ENOENT' ? null : Promise.reject(error));
+  if (!info) throw new SingularityFlowError(`World-model recovery '${safeId}' does not exist.`, { code: 'WORLD_MODEL_RECOVERY_UNKNOWN' });
+  if (!info.isDirectory() || info.isSymbolicLink()) {
+    throw new SingularityFlowError(`World-model recovery '${safeId}' is not a regular directory.`, { code: 'WORLD_MODEL_RECOVERY_INVALID' });
+  }
+  return target;
+}
+
+async function recoveryMetadata(root, id) {
+  try { return readRecord('worldmodel-recovery', await readFile(worldModelRecoveryRecordPath(root, id))).record; }
+  catch (error) {
+    if (error?.code === 'ENOENT') return null;
+    throw error;
+  }
+}
+
+async function inspectWorldModelRecovery(root, id) {
+  const safeId = assertWorldModelRecoveryId(id);
+  const directory = await recoveryDirectory(root, safeId);
+  await validateWorldModelDirectory(directory, {
+    integrity: 'full', sourceLabel: `retained world-model recovery ${safeId}`
+  });
+  const manifestBytes = await readFile(path.join(directory, 'manifest.json'));
+  const manifestSha256 = createHash('sha256').update(manifestBytes).digest('hex');
+  const manifest = JSON.parse(manifestBytes);
+  const metadata = await recoveryMetadata(root, safeId);
+  if (metadata && (metadata.id !== safeId || metadata.snapshot.directoryName !== safeId
+    || metadata.snapshot.manifestSha256 !== manifestSha256)) {
+    throw new SingularityFlowError(`World-model recovery '${safeId}' metadata does not match its validated snapshot.`, {
+      code: 'WORLD_MODEL_RECOVERY_INVALID'
+    });
+  }
+  const sourceHash = metadata?.sourceHash ?? manifest.source_tree_sha256;
+  if (!/^(?:sha256:)?[a-f0-9]{64}$/.test(String(sourceHash ?? ''))) {
+    throw new SingularityFlowError(`World-model recovery '${safeId}' does not identify its source tree.`, {
+      code: 'WORLD_MODEL_RECOVERY_INVALID'
+    });
+  }
+  return {
+    schemaVersion: 1, // schema-transient: bounded CLI projection of a validated local record
+    id: safeId,
+    status: metadata?.status ?? 'pending',
+    createdAt: metadata?.createdAt ?? null,
+    phase: metadata?.phase ?? manifest.generated_for_phase ?? 'repository',
+    sourceHash,
+    manifestSha256,
+    model: {
+      repositoryCommit: manifest.repository_commit ?? null,
+      generatedAt: manifest.generated_at ?? null,
+      builderVersion: manifest.builder_version ?? null,
+      depth: manifest.materialization?.depth ?? manifest.analysis_depth ?? null
+    },
+    publication: metadata?.publication ?? null
+  };
+}
+
+async function listWorldModelRecoveries(root) {
+  const recoveryRoot = worldModelRecoveryRoot(root);
+  const entries = await readdir(recoveryRoot, { withFileTypes: true })
+    .catch((error) => error?.code === 'ENOENT' ? [] : Promise.reject(error));
+  const directories = entries.filter((entry) => entry.isDirectory() && !entry.isSymbolicLink())
+    .map((entry) => entry.name).filter((name) => WORLD_MODEL_RECOVERY_ID.test(name)).sort().reverse();
+  const recoveries = [];
+  for (const id of directories.slice(0, 100)) {
+    try { recoveries.push(await inspectWorldModelRecovery(root, id)); }
+    catch (error) {
+      recoveries.push({
+        schemaVersion: 1, id, status: 'invalid', createdAt: null, phase: null,
+        sourceHash: null, manifestSha256: null, model: null, publication: null,
+        error: { code: error.code ?? 'WORLD_MODEL_RECOVERY_INVALID' }
+      });
+    }
+  }
+  return {
+    schemaVersion: 1, // schema-transient: local recovery inventory
+    recoveries,
+    truncated: directories.length > recoveries.length,
+    total: directories.length
+  };
+}
+
+async function publishWorldModelRecovery(root, id, options) {
+  const safeId = assertWorldModelRecoveryId(id);
+  if (optionString(options, 'confirm') !== safeId) {
+    throw new SingularityFlowError(
+      `Publishing retained world model '${safeId}' requires --confirm ${safeId}.`,
+      { code: 'WORLD_MODEL_RECOVERY_CONFIRMATION_REQUIRED' }
+    );
+  }
+  const inspected = await inspectWorldModelRecovery(root, safeId);
+  const config = await load(root);
+  const currentSource = await worldModelSourceSnapshot(root, config.definition ?? config);
+  if (currentSource.sha256 !== inspected.sourceHash) {
+    throw new SingularityFlowError(
+      `World-model recovery '${safeId}' was validated for ${inspected.sourceHash}, but the current source tree is ${currentSource.sha256}. Restore the recorded source revision before publishing it.`,
+      { code: 'WORLD_MODEL_RECOVERY_STALE' }
+    );
+  }
+  const publishing = (config.definition?.git?.publish ?? 'required') !== 'off';
+  if (publishing) assertNotDefaultBranch(root, config, 'World-model recovery publication');
+  const directory = await recoveryDirectory(root, safeId);
+  const attemptedAt = new Date().toISOString();
+  let metadata = await recoveryMetadata(root, safeId);
+  if (!metadata) metadata = {
+    schemaVersion: WORLD_MODEL_RECOVERY_SCHEMA_VERSION,
+    id: safeId,
+    createdAt: attemptedAt,
+    phase: inspected.phase,
+    sourceHash: inspected.sourceHash,
+    snapshot: { directoryName: safeId, manifestSha256: inspected.manifestSha256 },
+    failure: { code: 'LEGACY_UNINDEXED_RECOVERY' },
+    status: 'pending'
+  };
+  try {
+    const governed = await publishWorldModelToStateBranch(
+      root, config, inspected.sourceHash, inspected.phase,
+      { directory, plan: null }
+    );
+    await installWorldModel(governed?.directory ?? directory, path.join(root, config.outputDir));
+    const publication = await publishWorldModel(
+      root, config, config.workflow, inspected.sourceHash, inspected.phase,
+      { local: false, quiet: optionBoolean(options, 'json') }
+    );
+    const result = {
+      schemaVersion: 1, // schema-transient: recovery publication result
+      recovery: safeId,
+      providerInvoked: false,
+      state: {
+        branch: governed?.branch ?? null,
+        commit: governed?.commit ?? null,
+        published: governed?.published === true
+      },
+      application: {
+        commit: publication.commit ?? null,
+        pushed: publication.pushed === true,
+        changed: publication.changed === true
+      }
+    };
+    await writeJson(worldModelRecoveryRecordPath(root, safeId), {
+      ...metadata,
+      status: 'published',
+      lastAttemptAt: attemptedAt,
+      publishedAt: new Date().toISOString(),
+      publication: {
+        applicationCommit: result.application.commit,
+        applicationPushed: result.application.pushed,
+        stateBranch: result.state.branch,
+        stateCommit: result.state.commit
+      }
+    });
+    return result;
+  } catch (error) {
+    await writeJson(worldModelRecoveryRecordPath(root, safeId), {
+      ...metadata, status: 'pending', lastAttemptAt: attemptedAt
+    }).catch(() => {});
+    throw new SingularityFlowError(
+      `World-model recovery '${safeId}' remains retained because publication failed: ${error.message}`,
+      {
+        code: error.code ?? 'WORLD_MODEL_RECOVERY_PUBLICATION_FAILED',
+        details: {
+          recoveryId: safeId,
+          recoveryCommand: error?.details?.recoveryCommand
+            ?? `singularity-flow wm recovery publish ${safeId} --confirm ${safeId}`
+        },
+        cause: error
+      }
+    );
+  }
+}
+
+async function worldModelRecoveryCommand(root, positionals, options) {
+  const action = positionals[0] ?? 'list';
+  let result;
+  if (action === 'list') result = await listWorldModelRecoveries(root);
+  else if (action === 'inspect') result = await inspectWorldModelRecovery(root, positionals[1]);
+  else if (action === 'publish') result = await publishWorldModelRecovery(root, positionals[1], options);
+  else throw new SingularityFlowError('Usage: singularity-flow wm recovery list|inspect <ID>|publish <ID> --confirm <ID>');
+  if (optionBoolean(options, 'json')) console.log(JSON.stringify(result, null, 2));
+  else if (action === 'list') {
+    if (!result.recoveries.length) console.log('No retained world-model publications.');
+    else for (const recovery of result.recoveries) {
+      console.log(`${recovery.id} · ${recovery.status} · ${recovery.phase ?? 'unknown phase'} · ${recovery.sourceHash?.slice(0, 19) ?? 'source unavailable'}`);
+    }
+  } else if (action === 'inspect') {
+    console.log(`World-model recovery ${result.id}: ${result.status}`);
+    console.log(`Phase: ${result.phase} · source ${result.sourceHash}`);
+    console.log(`Manifest: ${result.manifestSha256}`);
+  } else {
+    console.log(`Published retained world model ${result.recovery} without invoking a model provider.`);
+    console.log(`State: ${result.state.commit?.slice(0, 12) ?? 'not required'} · application: ${result.application.commit?.slice(0, 12) ?? 'unchanged'}`);
+  }
+  return result;
 }
 
 /**
@@ -2332,6 +2569,7 @@ async function showPrompt(root, options) {
 export async function worldModelCommand(root, positionals, options) {
   const command = positionals[1];
   if (command === 'ast') return astCommand(root, positionals.slice(2), options);
+  if (command === 'recovery') return worldModelRecoveryCommand(root, positionals.slice(2), options);
   if (command === 'cache') {
     const action = positionals[2] ?? 'status';
     if (action === 'status') {
@@ -2369,7 +2607,7 @@ export async function worldModelCommand(root, positionals, options) {
     return result;
   }
   if (!['prompt', 'build', 'light', 'context', 'check', 'budget', 'availability', 'status', 'ensure'].includes(command)) {
-    throw new SingularityFlowError('Usage: singularity-flow wm init|prompt|build|light|ensure|availability|status|context <phase>|budget|facts|compose|show-prompt|inject|check|cleanup|cache status|clear');
+    throw new SingularityFlowError('Usage: singularity-flow wm init|prompt|build|light|ensure|availability|status|context <phase>|budget|facts|compose|show-prompt|inject|check|cleanup|recovery list|inspect|publish|cache status|clear');
   }
   if (command === 'build' || command === 'light') await cleanupStaleWorldModelWorktrees(root);
   return withTargetBranch(root, options, async (targetRoot) => {

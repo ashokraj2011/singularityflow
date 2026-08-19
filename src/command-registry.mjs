@@ -103,6 +103,7 @@ const WM_NEVER_OPERATIONS = new Set(['init', 'inject', 'compose', 'show-prompt',
 const WM_AST_READ_ACTIONS = new Set(['doctor', 'status', 'context', 'query', 'gate']);
 const WM_AST_MUTATION_ACTIONS = new Set(['build']);
 const WM_AST_ACTIONS = Object.freeze([...WM_AST_READ_ACTIONS, ...WM_AST_MUTATION_ACTIONS, 'cache', 'preference']);
+const WM_RECOVERY_ACTIONS = Object.freeze(['list', 'inspect', 'publish']);
 
 /**
  * The subcommands that only read, on commands whose *name* is not read-only.
@@ -191,7 +192,7 @@ export const RESOLVER_SUBCOMMANDS = Object.freeze({
   constitution: CONSTITUTION_SUBCOMMANDS,
   spec: SPEC_SUBCOMMANDS,
   story: STORY_SUBCOMMANDS,
-  wm: Object.freeze([...WM_MODEL_OPERATIONS, ...WM_NEVER_OPERATIONS, 'ensure', 'ast']),
+  wm: Object.freeze([...WM_MODEL_OPERATIONS, ...WM_NEVER_OPERATIONS, 'ensure', 'ast', 'recovery']),
   workspace: Object.freeze(['copilot', 'impact', 'bootstrap', ...WORKSPACE_NEVER_OPERATIONS, ...WORKSPACE_SUBCOMMAND_ALIASES.keys()])
 });
 
@@ -448,6 +449,11 @@ function resolveWorldModelOperation(definition, positionals) {
     }
     return unknownSubcommand('wm ast', action, WM_AST_ACTIONS, 'action');
   }
+  if (subcommand === 'recovery') {
+    const action = positionals[2] ?? 'list';
+    if (!WM_RECOVERY_ACTIONS.includes(action)) return unknownSubcommand('wm recovery', action, WM_RECOVERY_ACTIONS, 'action');
+    return never(`wm.recovery.${action}`, definition, action === 'publish' ? 'mutation' : 'read');
+  }
   const id = `wm.${subcommand}`;
   if (subcommand === 'ensure') return optional('wm.ensure', 'wm.light', definition);
   if (WM_MODEL_OPERATIONS.has(subcommand)) return required(id);
@@ -538,6 +544,9 @@ export function operationCatalog() {
     .concat([...WM_AST_MUTATION_ACTIONS].map((name) => never(`wm.ast.${name}`, commandDefinition('wm'), 'mutation')))
     .concat(['status', 'prune', 'clear'].map((name) => never(`wm.ast.cache.${name}`, commandDefinition('wm'), name === 'status' ? 'read' : 'mutation')))
     .concat(['show', 'set'].map((name) => never(`wm.ast.preference.${name}`, commandDefinition('wm'), name === 'show' ? 'read' : 'mutation')));
+  wm.push(...WM_RECOVERY_ACTIONS.map((name) => never(
+    `wm.recovery.${name}`, commandDefinition('wm'), name === 'publish' ? 'mutation' : 'read'
+  )));
   const workspace = [...WORKSPACE_NEVER_OPERATIONS]
     .map((name) => never(`workspace.${name}`, commandDefinition('workspace'), WORKSPACE_READ_OPERATIONS.has(name) ? 'read' : 'mutation'))
     .concat([required('workspace.copilot')])

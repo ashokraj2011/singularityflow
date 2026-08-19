@@ -83,8 +83,10 @@ assurance cannot be established. `generatedRoots` are tagged in facts rather tha
 ```bash
 singularity-flow wm ast doctor
 singularity-flow wm ast status --json
-singularity-flow wm ast context --paths src --max-files 200 --json
-singularity-flow wm ast query --predicate symbol --value Payment --paths src --json
+singularity-flow wm ast context --paths src --max-files 200 --max-facts 50 --max-output-bytes 32768 --json
+singularity-flow wm ast context --cursor OPAQUE-CURSOR --json
+singularity-flow wm ast query --predicate symbol --value Payment --paths src --max-facts 50 --max-output-bytes 32768 --json
+singularity-flow wm ast query --cursor OPAQUE-CURSOR --json
 singularity-flow wm ast build --paths src --json
 singularity-flow wm ast build --resume HANDLE --json
 singularity-flow wm ast gate --paths src --json
@@ -106,9 +108,14 @@ fails closed if configuration, repository revision, selection, or any selected-c
 An edit outside the selected cone does not invalidate the job or miss unchanged blob cache entries.
 
 `context`, `query`, and `gate` reuse compatible blob records but never fill the cache. Only `build`
-writes derived blobs and manifests. Query coverage reports facts examined, matched, and returned
-separately. Cache pruning removes stale manifests/jobs, legacy v1 records, and blobs no live
-manifest references; it does not use a repository-wide dirty-tree hash.
+writes derived blobs and manifests. Context and query additionally bound model-facing output by
+fact count and serialized JSON bytes. A first page includes coverage plus an opaque 24-hour
+`nextCursor`; `--cursor` continues the same operation without accepting a replacement scope,
+query, or budget. The cursor is stateless and integrity-bound to the repository, policy, revision,
+selected-cone hash, input budgets, output limits, and next offset. Any relevant byte change makes
+it stale. Query coverage reports facts examined, matched, and returned separately. Cache pruning
+removes stale manifests/jobs, legacy v1 records, and blobs no live manifest references; it does not
+use a repository-wide dirty-tree hash.
 
 ## Lifecycle enforcement
 
@@ -122,19 +129,28 @@ When `ast.predicates` is empty, lifecycle behavior is unchanged. When predicates
    generation commit rather than trusting a later working-tree copy.
 
 The receipt binds the work item, phase, generation, configuration policy hash, repository revision,
-cone hash, evaluated paths, assurance, predicate outcomes, and diagnostics. Advisory predicates are
-reported but do not authorize a failed required predicate.
+cone hash, evaluated paths, broker engine version, every evidence extractor's ID/version/assurance,
+predicate outcomes, and diagnostics. Revalidation refuses an extractor or broker-version change
+even when the outcome text happens to be the same. A required `symbol-exists` predicate always
+requires at least syntax assurance; the lexical built-in can expose a matching name only as
+advisory evidence. Advisory predicates are reported but do not authorize a failed required
+predicate.
 
 ## Copilot and gateway reads
 
 `/sf-worldmodel` exposes the same bounded CLI operations. Gateway hosts can resolve model-free
 `wm.ast.status`, `wm.ast.context`, and `wm.ast.query` reads; they return the validated result envelope
-with no source bodies and cannot build cache entries or advance lifecycle state. Whole-repository
-scope remains explicit.
+with no source bodies and cannot build cache entries or advance lifecycle state. The embedded VS
+Code gateway exposes the same planners. The workflow and developer agents direct symbol/import
+questions through these bounded reads and follow a continuation only while the question remains
+unanswered. Whole-repository scope remains explicit.
 
 ## Safety and troubleshooting
 
 - Results contain paths, hashes, declaration locations, and dependency targets—not source bodies.
+- JavaScript and TypeScript receive built-in lexical symbols. Kotlin, Swift, Java, Python, and the
+  other recognized languages receive file facts unless an explicit syntax/semantic adapter is
+  configured; recognition is not claimed as parsing.
 - Adapter processes receive a bounded request naming only selected paths and content hashes through
   JSON stdin; their commands are structured argv, never shell strings, and their output is
   size/time bounded. Adapter-authored prose and stderr are not retained in results because they can

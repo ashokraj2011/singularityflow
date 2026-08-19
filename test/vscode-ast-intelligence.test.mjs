@@ -76,6 +76,10 @@ test('the AST form rejects unsafe roots, duplicate language rows, and disabling 
     ...policy,
     predicates: [{ id: 'Legacy_Predicate:1', mode: 'advisory', type: 'symbol-exists', target: 'Payment', minimumAssurance: 'text' }]
   }), []);
+  assert.match(validateAstPolicyDraft({
+    ...policy,
+    predicates: [{ id: 'must-symbol', mode: 'required', type: 'symbol-exists', target: 'Payment', minimumAssurance: 'text' }]
+  }).join(' '), /syntax or semantic/);
 });
 
 test('the VS Code AST page exposes every policy source and keeps evidence and resume handles out of HTML', async () => {

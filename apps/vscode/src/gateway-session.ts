@@ -22,6 +22,9 @@
  */
 import { createActionExecutor } from '../../../src/gateway/executor.mjs';
 import { createHostGateway } from '../../../src/gateway/host.mjs';
+import {
+  astContextPlanner, astQueryPlanner, astStatusPlanner
+} from '../../../src/gateway/planners/ast-intelligence.mjs';
 import { developerNext } from '../../../src/gateway/planners/developer-next.mjs';
 import { homeOverview } from '../../../src/gateway/planners/home-overview.mjs';
 import { impactQuick } from '../../../src/gateway/planners/impact-quick.mjs';
@@ -40,6 +43,9 @@ import {
 /** What this host can answer without leaving the editor process. */
 export function editorPlanners(): Map<string, unknown> {
   return new Map<string, unknown>([
+    ['ast-context', astContextPlanner],
+    ['ast-query', astQueryPlanner],
+    ['ast-status', astStatusPlanner],
     ['developer-next', developerNext],
     ['home-overview', homeOverview],
     ['work-list', workList],

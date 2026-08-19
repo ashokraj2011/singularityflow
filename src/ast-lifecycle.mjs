@@ -55,6 +55,11 @@ export async function evaluateAstLifecycleGate(root, config, workflow, phase, { 
     },
     assurance: result.assurance,
     status: result.status,
+    engine: {
+      id: result.provenance.engine,
+      version: result.provenance.engineVersion
+    },
+    extractors: structuredClone(result.provenance.extractors ?? []),
     predicates: structuredClone(result.facts),
     diagnostics: structuredClone(result.diagnostics),
     allowed: result.provenance?.gate?.allowed === true,
@@ -90,7 +95,9 @@ export async function persistAstLifecycleReceipt(root, config, workflow, phase, 
     policySha256: evaluation.receipt.policySha256,
     coneSha256: evaluation.receipt.coneSha256,
     status: evaluation.receipt.status,
-    assurance: evaluation.receipt.assurance
+    assurance: evaluation.receipt.assurance,
+    engine: structuredClone(evaluation.receipt.engine),
+    extractors: structuredClone(evaluation.receipt.extractors)
   };
 }
 
@@ -112,9 +119,13 @@ async function receiptFor(root, config, workflow, phase, generation, sourceCommi
       }
       bytes = shown.stdout;
     } else bytes = await readFile(path.join(root, expectedPath));
-    const record = readRecord('ast-gate-receipt', bytes).record;
-    const actual = recordSha256(withoutIntegrity(record));
-    if (actual !== record.integritySha256 || actual !== summary.sha256) {
+    const stored = JSON.parse(Buffer.isBuffer(bytes) ? bytes.toString('utf8') : String(bytes));
+    const record = readRecord('ast-gate-receipt', stored).record;
+    // Integrity binds the bytes that were actually published. Migration adds a current read shape
+    // in memory; hashing that enriched projection would falsely call every authentic v1 receipt
+    // corrupt merely because v2 added extractor provenance.
+    const actual = recordSha256(withoutIntegrity(stored));
+    if (actual !== stored.integritySha256 || actual !== summary.sha256) {
       return { summary, record, error: 'AST lifecycle receipt integrity does not match the workflow summary' };
     }
     return { summary, record, error: null };
@@ -152,6 +163,12 @@ export async function verifyAstLifecycleReceipt(root, config, workflow, phase, {
   const errors = [...current.errors];
   if (current.receipt?.policySha256 !== record.policySha256) errors.push('AST policy changed after publication');
   if (current.receipt?.coneSha256 !== record.coneSha256) errors.push('AST scope or relevant file bytes changed after publication');
+  if (recordSha256(current.receipt?.engine ?? null) !== recordSha256(record.engine ?? null)) {
+    errors.push('AST broker engine changed after publication');
+  }
+  if (recordSha256(current.receipt?.extractors ?? []) !== recordSha256(record.extractors ?? [])) {
+    errors.push('AST extractor identity, version, or assurance changed after publication');
+  }
   if (recordSha256(current.receipt?.predicates ?? []) !== recordSha256(record.predicates ?? [])) {
     errors.push('AST predicate outcomes changed after publication');
   }

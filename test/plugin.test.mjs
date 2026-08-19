@@ -262,6 +262,8 @@ test('bundled workflow agent self-activates and ships inert dependency tables', 
   assert.match(content, /never `--yes`/);
   assert.match(content, /Never infer or preselect/);
   assert.match(content, /Out of sequence[\s\S]*stop immediately/);
+  assert.match(content, /model-free `wm\.ast\.query`/);
+  assert.match(content, /lexical `text` symbol is advisory discovery evidence, not proof/);
   assert.match(content, /## Remote skills[\s\S]*## Remote artifact templates[\s\S]*## Remote generated artifacts/);
   assert.doesNotMatch(content, /\|\s*[^-|\s][^|]*\|\s*https:\/\//);
 });
@@ -397,6 +399,9 @@ test('guided run and world-model skills preserve consent and crash-recovery boun
   assert.match(worldModel, /singularity-flow wm cleanup --json/);
   assert.match(worldModel, /stale, process-owned temporary worktrees/i);
   assert.match(worldModel, /--force/);
+  assert.match(worldModel, /wm recovery publish <ID> --confirm <ID>/);
+  assert.match(worldModel, /--max-facts 50 --max-output-bytes 32768/);
+  assert.match(worldModel, /Required symbol gates need syntax/);
 });
 
 test('generation skills display published documents instead of reducing them to summaries', async () => {

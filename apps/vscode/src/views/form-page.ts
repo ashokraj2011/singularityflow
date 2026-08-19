@@ -121,7 +121,7 @@ function control(schemaId: string, field: FormField, problem: string | null): st
         ${note}</div>`;
     default:
       return `<div class="sf-field">${label}
-        <input type="text" ${common} value="${escape(value)}">${note}</div>`;
+        <input type="text" ${common} value="${escape(value)}"${field.persist ? '' : ' autocomplete="off" data-no-draft'}>${note}</div>`;
   }
 }
 

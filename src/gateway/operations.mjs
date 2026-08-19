@@ -28,6 +28,7 @@ import { compileOperationRegistry } from './registry.mjs';
  * present in this build.
  */
 export const GATEWAY_PLANNERS = Object.freeze([
+  'ast-status', 'ast-context', 'ast-query',
   'home-overview', 'developer-next', 'work-list', 'work-continue', 'work-handoff', 'work-start-intake', 'work-start',
   'work-draft-save', 'work-readiness', 'work-return', 'workspace-list', 'workspace-switch', 'workspace-materialize',
   'workspace-bootstrap-status', 'workspace-prepare-guide', 'repository-open-guide',
@@ -80,6 +81,39 @@ const ASSISTED = {
 };
 
 export const GATEWAY_DECLARATIONS = Object.freeze([
+  {
+    ...READ,
+    id: 'wm.ast.status',
+    kernelOperation: 'wm.ast.status',
+    goals: ['repository.explore'],
+    aliases: en('show structural intelligence status', 'is AST intelligence available'),
+    subjects: ['repository', 'workspace'],
+    argumentSchema: 'no-arguments-v1',
+    planner: 'ast-status',
+    noModelFixture: 'wm-ast-status-model-free'
+  },
+  {
+    ...READ,
+    id: 'wm.ast.context',
+    kernelOperation: 'wm.ast.context',
+    goals: ['repository.explore'],
+    aliases: en('show bounded structural context', 'inspect repository symbols'),
+    subjects: ['repository', 'story'],
+    argumentSchema: 'ast-context-v1',
+    planner: 'ast-context',
+    noModelFixture: 'wm-ast-context-model-free'
+  },
+  {
+    ...READ,
+    id: 'wm.ast.query',
+    kernelOperation: 'wm.ast.query',
+    goals: ['repository.explore'],
+    aliases: en('query repository symbols', 'find a structural fact'),
+    subjects: ['repository', 'story'],
+    argumentSchema: 'ast-query-v1',
+    planner: 'ast-query',
+    noModelFixture: 'wm-ast-query-model-free'
+  },
   // §3.2 The startup menu: the one screen a returning developer sees before deciding anything.
   {
     ...READ,

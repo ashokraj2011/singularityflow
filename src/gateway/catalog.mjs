@@ -236,7 +236,8 @@ export const SURFACE_CODES = Object.freeze([
   'recovery.resume-publication',
   'publication.pending',
   'publication.marker-unreadable',
-  'mcp.evidence-observation-required'
+  'mcp.evidence-observation-required',
+  'ast.bounded-structural-evidence'
 ]);
 
 /** Every code, in one frozen set, which is the thing a surface actually needs. */

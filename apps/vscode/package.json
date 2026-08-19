@@ -288,6 +288,11 @@
         "icon": "$(globe)"
       },
       {
+        "command": "singularityFlow.configureAstIntelligence",
+        "title": "Singularity Flow: AST Intelligence Settings",
+        "icon": "$(symbol-structure)"
+      },
+      {
         "command": "singularityFlow.configurePeople",
         "title": "Singularity Flow: People & Approval Authorities",
         "icon": "$(organization)"

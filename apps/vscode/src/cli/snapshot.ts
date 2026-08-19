@@ -537,6 +537,17 @@ export interface RepositorySnapshot {
       worldModel?: { views?: string[] };
     }>;
     planning?: { promptSource?: string };
+    ast?: {
+      mode?: 'auto' | 'off';
+      fallback?: 'host-and-text' | 'text-only';
+      generatedRoots?: string[];
+      budgets?: { maxFiles?: number; maxBytes?: number; maxFileBytes?: number };
+      languages?: Record<string, { mode?: 'auto' | 'off'; minimumAssurance?: 'text' | 'syntax' | 'semantic' }>;
+      predicates?: Array<{
+        id?: string; mode?: 'required' | 'advisory'; type?: 'path-exists' | 'symbol-exists';
+        path?: string; symbol?: string; minimumAssurance?: 'text' | 'syntax' | 'semantic';
+      }>;
+    };
     worldModel?: {
       views?: string[];
       outputDir?: string;

@@ -80,6 +80,10 @@ import { evaluateExternalCommandForModelMode, externalCommandText } from './exte
 import { assertProducerAllowed } from './manual-authorship.mjs';
 import { consumeRepairAttempt, repairBudgetPhaseForRejection } from './repair-budget.mjs';
 import { normalizeMcpTargetOrigin } from './mcp-target.mjs';
+import {
+  assertAstLifecycleGate, evaluateAstLifecycleGate, persistAstLifecycleReceipt,
+  requireAstLifecycleReceipt
+} from './ast-lifecycle.mjs';
 
 export const CONFIG_PATH = WORKFLOW_PATH;
 export const loadConfig = loadDefinition;
@@ -1140,6 +1144,14 @@ export async function publishGeneration(root, config, workflow, { phaseId, usage
   }
   citations.errors.forEach((error) => console.warn(`Warning: ${error}`));
 
+  // Structural predicates are lifecycle policy, not an optional diagnostic command. Evaluate them
+  // at the last read-only boundary so a partial, disabled, stale, or failed required result cannot
+  // leave a half-published generation behind.
+  const astGate = await evaluateAstLifecycleGate(root, config, workflow, phase, {
+    generation: phase.generation + 1
+  });
+  assertAstLifecycleGate(astGate, `publication of phase '${phase.id}'`);
+
   const capture = !modelAssisted
     ? { source: 'not-invoked', usage: [], spans: 0, rawBytes: 0, pending: false, warnings: [] }
     : rawUsage
@@ -1165,6 +1177,13 @@ export async function publishGeneration(root, config, workflow, { phaseId, usage
   phase.authorship ??= [];
   const publishedAt = nowIso();
   phase.authorship.push({ ...structuredClone(effectiveAuthorship), generation: phase.generation, publishedAt });
+  const astReceipt = await persistAstLifecycleReceipt(root, config, workflow, phase, astGate);
+  if (astReceipt) {
+    phase.astGates = [
+      ...(phase.astGates ?? []).filter((record) => record.generation !== phase.generation),
+      astReceipt
+    ].sort((left, right) => left.generation - right.generation);
+  }
 
   /**
    * Canonical provenance for this generation's artifacts `[SPK:REQ-043]`.
@@ -1459,6 +1478,10 @@ export async function submitPhase(root, config, workflow, { phaseId, runChecks =
   if (gate.errors.length) {
     throw new SingularityFlowError(`Phase ${phase.id} cannot be submitted for approval:\n- ${gate.errors.join('\n- ')}`);
   }
+
+  // Re-evaluate the exact scope accepted at publication before assigning generation/publication
+  // commit fields or running commands. A receipt is evidence only while its policy and bytes match.
+  await requireAstLifecycleReceipt(root, config, workflow, phase, { generation: phase.generation });
 
   phase.generationCommit = generationCommit(root, workflow, phase);
   if (!phase.generationCommit) await enforceSequenceGate(root, workflow, 'generationCommit', 'submit for approval', {

@@ -5,14 +5,13 @@ import os from 'node:os';
 import path from 'node:path';
 
 import { normalizeAstPolicy, assuranceSatisfies } from './ast-policy.mjs';
-import { discoverAstAdapters } from './ast-adapter-contract.mjs';
+import { astAdapterRequest, discoverAstAdapters, executeAstAdapter } from './ast-adapter-contract.mjs';
 import { loadDefinition, WORKFLOW_PATH } from './config.mjs';
 import { gitCommonDir } from './git.mjs';
 import { canonicalJson, recordSha256 } from './records.mjs';
 import { currentSchemaVersion, readRecord } from './schema-migrations.mjs';
 import { extractImports, extractSymbols } from './repository-facts.mjs';
 import { normalizeSourceRoots, withWorldModelSourceScope, worldModelSourceScope } from './source-scope.mjs';
-import { worktreeFingerprint } from './worktree-fingerprint.mjs';
 import {
   optionBoolean, optionNumber, optionString, optionStrings, posix, run, SingularityFlowError,
   writeJson
@@ -21,10 +20,13 @@ import {
 export const AST_RESULT_SCHEMA_VERSION = currentSchemaVersion('ast-result');
 const AST_PREFERENCE_SCHEMA_VERSION = currentSchemaVersion('ast-preference');
 const AST_RESUME_JOB_SCHEMA_VERSION = currentSchemaVersion('ast-resume-job');
-const STORE_DIR = 'singularity-flow/ast/v1';
+const STORE_DIR = 'singularity-flow/ast/v2';
+const LEGACY_STORE_DIR = 'singularity-flow/ast/v1';
+const BUILTIN_EXTRACTOR = Object.freeze({ id: 'builtin-text', version: 1, assurance: 'text' });
 const ASSURANCE = new Set(['text', 'syntax', 'semantic']);
 const STATUSES = new Set(['complete', 'partial', 'disabled', 'unsupported', 'stale', 'failed']);
 const OPERATIONS = new Set(['context', 'query', 'gate', 'build', 'transform']);
+const GIT_LIST_MAX_BUFFER = 128 * 1024 * 1024;
 
 const LANGUAGE_BY_EXTENSION = new Map([
   ['.js', 'javascript'], ['.jsx', 'javascript'], ['.mjs', 'javascript'], ['.cjs', 'javascript'],
@@ -85,6 +87,10 @@ function storeRoot(root) {
   return path.join(gitCommonDir(root), STORE_DIR);
 }
 
+function legacyStoreRoot(root) {
+  return path.join(gitCommonDir(root), LEGACY_STORE_DIR);
+}
+
 async function loadRuntime(root) {
   let definition = {};
   let state = null;
@@ -119,7 +125,7 @@ function languageFor(relative) {
 }
 
 function trackedFiles(root) {
-  const output = run('git', ['ls-files', '--stage', '-z'], { cwd: root }).stdout;
+  const output = run('git', ['ls-files', '--stage', '-z'], { cwd: root, maxBuffer: GIT_LIST_MAX_BUFFER }).stdout;
   const tracked = splitNull(output).flatMap((entry) => {
     const tab = entry.indexOf('\t');
     if (tab < 0) return [];
@@ -128,16 +134,62 @@ function trackedFiles(root) {
     return [{ path: posix(entry.slice(tab + 1)), mode, object }];
   });
   const known = new Set(tracked.map((file) => file.path));
-  const untracked = splitNull(run('git', ['ls-files', '--others', '--exclude-standard', '-z'], { cwd: root }).stdout)
+  const untracked = splitNull(run('git', ['ls-files', '--others', '--exclude-standard', '-z'], {
+    cwd: root, maxBuffer: GIT_LIST_MAX_BUFFER
+  }).stdout)
     .map((relative) => ({ path: posix(relative), mode: 'untracked', object: null }))
     .filter((file) => !known.has(file.path));
   return [...tracked, ...untracked].sort((left, right) => left.path.localeCompare(right.path));
 }
 
 function changedPaths(root) {
-  const tracked = splitNull(run('git', ['diff', '--name-only', '-z', 'HEAD'], { cwd: root, allowFailure: true }).stdout);
-  const untracked = splitNull(run('git', ['ls-files', '--others', '--exclude-standard', '-z'], { cwd: root }).stdout);
+  const tracked = splitNull(run('git', ['diff', '--name-only', '-z', 'HEAD'], {
+    cwd: root, allowFailure: true, maxBuffer: GIT_LIST_MAX_BUFFER
+  }).stdout);
+  const untracked = splitNull(run('git', ['ls-files', '--others', '--exclude-standard', '-z'], {
+    cwd: root, maxBuffer: GIT_LIST_MAX_BUFFER
+  }).stdout);
   return new Set([...tracked, ...untracked].map(posix));
+}
+
+function gitObjectSizes(root, files) {
+  const objects = [...new Set(files.map((file) => file.object).filter(Boolean))];
+  if (!objects.length) return new Map();
+  const result = run('git', ['cat-file', '--batch-check=%(objectname) %(objecttype) %(objectsize)'], {
+    cwd: root, input: `${objects.join('\n')}\n`, allowFailure: true,
+    maxBuffer: Math.max(1024 * 1024, objects.length * 96)
+  });
+  const sizes = new Map();
+  if (result.status !== 0) return sizes;
+  for (const line of result.stdout.split(/\r?\n/).filter(Boolean)) {
+    const [object, type, rawSize] = line.split(' ');
+    const size = Number(rawSize);
+    if (type === 'blob' && Number.isSafeInteger(size) && size >= 0) sizes.set(object, size);
+  }
+  return sizes;
+}
+
+function gitBlobBatch(root, files) {
+  const unique = [...new Map(files.filter((file) => file.object).map((file) => [file.object, file])).values()];
+  if (!unique.length) return new Map();
+  const result = run('git', ['cat-file', '--batch'], {
+    cwd: root, encoding: 'buffer', input: `${unique.map((file) => file.object).join('\n')}\n`,
+    maxBuffer: Math.max(1024 * 1024, unique.reduce((sum, file) => sum + file.size + 128, 1024))
+  });
+  const blobs = new Map();
+  let cursor = 0;
+  for (const file of unique) {
+    const newline = result.stdout.indexOf(0x0a, cursor);
+    if (newline < 0) throw new SingularityFlowError(`AST Git blob '${file.object}' returned no batch header.`, { code: 'AST_GIT_BLOB_INVALID' });
+    const [object, type, rawSize] = result.stdout.toString('utf8', cursor, newline).trim().split(' ');
+    const size = Number(rawSize); const start = newline + 1; const end = start + size;
+    if (object !== file.object || type !== 'blob' || !Number.isSafeInteger(size) || size < 0 || end > result.stdout.length) {
+      throw new SingularityFlowError(`AST Git blob '${file.object}' returned invalid batch bytes.`, { code: 'AST_GIT_BLOB_INVALID' });
+    }
+    blobs.set(file.object, result.stdout.subarray(start, end));
+    cursor = end + 1;
+  }
+  return blobs;
 }
 
 function explicitPaths(options) {
@@ -149,7 +201,71 @@ function inPrefix(relative, prefix) {
   return relative === prefix || relative.startsWith(`${prefix}/`);
 }
 
-async function census(root, runtime, options = {}) {
+function astBudgets(runtime, options = {}) {
+  const budgets = {
+    maxFiles: optionNumber(options, 'max-files', runtime.policy.budgets.maxFiles),
+    maxBytes: optionNumber(options, 'max-bytes', runtime.policy.budgets.maxBytes),
+    maxFileBytes: optionNumber(options, 'max-file-bytes', runtime.policy.budgets.maxFileBytes)
+  };
+  for (const [name, value] of Object.entries(budgets)) {
+    if (!Number.isInteger(value) || value < 1) throw new SingularityFlowError(`AST ${name} must be a positive integer.`);
+  }
+  return budgets;
+}
+
+function generatedFile(runtime, relative) {
+  return runtime.policy.generatedRoots.some((prefix) => inPrefix(relative, prefix));
+}
+
+async function candidateFor(root, runtime, file, changed, objectSizes) {
+  const language = languageFor(file.path);
+  const generated = generatedFile(runtime, file.path);
+  const languagePolicy = runtime.policy.languages[language] ?? { mode: 'auto', minimumAssurance: 'text' };
+  if (file.mode === '160000' || file.mode === '120000') {
+    return {
+      ...file, language, size: 0, contentKey: null, generated,
+      requiredAssurance: languagePolicy.minimumAssurance,
+      skipReason: file.mode === '160000' ? 'gitlink' : 'symlink'
+    };
+  }
+  if (languagePolicy.mode === 'off') {
+    const info = await lstat(path.join(root, file.path)).catch(() => null);
+    return {
+      ...file, language, size: info?.size ?? 0, contentKey: null, generated,
+      requiredAssurance: languagePolicy.minimumAssurance, skipReason: 'language-disabled'
+    };
+  }
+  if (file.object && !changed.has(file.path)) {
+    const size = objectSizes.get(file.object);
+    if (!Number.isSafeInteger(size)) {
+      return {
+        ...file, language, size: 0, contentKey: null, generated,
+        requiredAssurance: languagePolicy.minimumAssurance, skipReason: 'git-object-unavailable'
+      };
+    }
+    return {
+      ...file, language, size, contentKey: `git:${file.object}`,
+      generated, materialized: existsSync(path.join(root, file.path)),
+      requiredAssurance: languagePolicy.minimumAssurance, skipReason: null
+    };
+  }
+  const absolute = path.join(root, file.path);
+  const info = await lstat(absolute).catch(() => null);
+  if (!info || !info.isFile()) {
+    return {
+      ...file, language, size: 0, contentKey: null, generated,
+      requiredAssurance: languagePolicy.minimumAssurance,
+      skipReason: info?.isSymbolicLink() ? 'symlink' : 'not-readable-file'
+    };
+  }
+  const contentKey = `sha256:${sha256(await readFile(absolute))}`;
+  return {
+    ...file, language, size: info.size, contentKey, generated, materialized: true,
+    requiredAssurance: languagePolicy.minimumAssurance, skipReason: null
+  };
+}
+
+async function enumerateScope(root, runtime, options = {}) {
   const allTracked = trackedFiles(root);
   const requested = explicitPaths(options);
   const all = optionBoolean(options, 'all');
@@ -172,37 +288,21 @@ async function census(root, runtime, options = {}) {
     scopeKind = 'changed';
     selected = allTracked.filter((file) => changed.has(file.path));
   }
-  if (options.__afterPath) selected = selected.filter((file) => file.path > options.__afterPath);
-
-  const budgets = {
-    maxFiles: optionNumber(options, 'max-files', runtime.policy.budgets.maxFiles),
-    maxBytes: optionNumber(options, 'max-bytes', runtime.policy.budgets.maxBytes),
-    maxFileBytes: optionNumber(options, 'max-file-bytes', runtime.policy.budgets.maxFileBytes)
-  };
-  for (const [name, value] of Object.entries(budgets)) {
-    if (!Number.isInteger(value) || value < 1) throw new SingularityFlowError(`AST ${name} must be a positive integer.`);
-  }
-  const files = []; const skipped = []; let bytes = 0;
-  for (const file of selected) {
-    const absolute = path.join(root, file.path);
-    const info = await lstat(absolute).catch(() => null);
-    if (!info || !info.isFile()) { skipped.push({ path: file.path, reason: info?.isSymbolicLink() ? 'symlink' : 'not-readable-file' }); continue; }
-    const language = languageFor(file.path);
-    const languagePolicy = runtime.policy.languages[language] ?? { mode: 'auto', minimumAssurance: 'text' };
-    if (languagePolicy.mode === 'off') { skipped.push({ path: file.path, reason: 'language-disabled', language }); continue; }
-    if (!assuranceSatisfies('text', languagePolicy.minimumAssurance)) {
-      skipped.push({ path: file.path, reason: 'assurance-unavailable', language, required: languagePolicy.minimumAssurance });
-      continue;
-    }
-    if (info.size > budgets.maxFileBytes) { skipped.push({ path: file.path, reason: 'file-budget', bytes: info.size }); continue; }
-    if (files.length >= budgets.maxFiles || bytes + info.size > budgets.maxBytes) { skipped.push({ path: file.path, reason: 'operation-budget', bytes: info.size }); continue; }
-    files.push({ ...file, size: info.size, language });
-    bytes += info.size;
-  }
+  const candidates = [];
+  const objectSizes = gitObjectSizes(root, selected.filter((file) => file.object && !changed.has(file.path)));
+  for (const file of selected) candidates.push(await candidateFor(root, runtime, file, changed, objectSizes));
+  const coneSha256 = sha256(canonicalJson(candidates.map((file) => ({
+    path: file.path, contentKey: file.contentKey, mode: file.mode, language: file.language,
+    size: file.size, generated: file.generated, skipReason: file.skipReason
+  }))));
   return {
-    scope: { kind: scopeKind, paths: requested.length ? requested : roots, definitionSha256: runtime.definitionSha256 },
-    files, skipped, selectedCount: selected.length, bytes,
-    complete: skipped.every((item) => item.reason !== 'operation-budget'), budgets
+    scope: {
+      kind: scopeKind, paths: requested.length ? requested : roots,
+      definitionSha256: runtime.definitionSha256, coneSha256
+    },
+    candidates,
+    coneSha256,
+    repositoryRevision: repositoryRevision(root)
   };
 }
 
@@ -210,9 +310,370 @@ function resumeJobPath(root, id) {
   return path.join(storeRoot(root), 'jobs', `${id}.json`);
 }
 
-async function createResumeJob(root, envelope, options, selected) {
-  const cursor = selected.files.at(-1)?.path;
-  if (!cursor || !selected.skipped.some((item) => item.reason === 'operation-budget')) return null;
+function blobKey(file, extractor = BUILTIN_EXTRACTOR) {
+  return sha256(canonicalJson({
+    contentKey: file.contentKey, language: file.language,
+    extractor
+  }));
+}
+
+function blobPath(root, key) {
+  return path.join(storeRoot(root), 'blobs', `${key}.json`);
+}
+
+function skeletonIntegrity(record) {
+  const { integritySha256: _integrity, ...content } = record;
+  return recordSha256(content);
+}
+
+function sealSkeleton(record) {
+  return { ...record, integritySha256: skeletonIntegrity(record) };
+}
+
+function validateSkeleton(value, file, key, extractor = BUILTIN_EXTRACTOR) {
+  const record = readRecord('ast-cache-blob', value).record;
+  if (record.key !== key || record.contentKey !== file.contentKey || record.language !== file.language
+    || record.extractor?.id !== extractor.id || record.extractor?.version !== extractor.version
+    || record.extractor?.assurance !== extractor.assurance || !Array.isArray(record.facts)
+    || !/^[a-f0-9]{64}$/.test(record.sha256 ?? '')
+    || record.integritySha256 !== skeletonIntegrity(record)) {
+    throw new SingularityFlowError(`AST cache skeleton '${key}' does not match its content address.`, { code: 'AST_CACHE_INVALID' });
+  }
+  for (const fact of record.facts) {
+    const validKind = fact?.kind === 'symbol'
+      ? typeof fact.name === 'string' && fact.name.length > 0 && Number.isInteger(fact.line) && fact.line > 0
+      : fact?.kind === 'import'
+        ? typeof fact.target === 'string' && fact.target.length > 0
+        : fact?.kind === 'relationship'
+          ? typeof fact.type === 'string' && fact.type.length > 0 && typeof fact.target === 'string' && fact.target.length > 0
+          : false;
+    if (!validKind || fact.assurance !== extractor.assurance
+      || ['sourceBody', 'text', 'body', 'content'].some((field) => Object.hasOwn(fact, field))) {
+      throw new SingularityFlowError(`AST cache skeleton '${key}' contains an invalid structural fact.`, { code: 'AST_CACHE_INVALID' });
+    }
+  }
+  return record;
+}
+
+async function deriveSkeleton(root, file, key, preparedBytes = null) {
+  const bytes = preparedBytes ?? (file.contentKey?.startsWith('git:')
+    ? gitBlobBatch(root, [file]).get(file.object)
+    : await readFile(path.join(root, file.path)));
+  const digest = sha256(bytes);
+  if (file.contentKey?.startsWith('sha256:') && file.contentKey !== `sha256:${digest}`) {
+    throw new SingularityFlowError(`AST input '${file.path}' changed while it was being indexed. Retry the operation.`, { code: 'AST_INPUT_CHANGED' });
+  }
+  const facts = [];
+  if (TEXT_SYMBOL_LANGUAGES.has(file.language)) {
+    const text = bytes.toString('utf8');
+    for (const symbol of extractSymbols(text, file.path)) {
+      facts.push({
+        kind: 'symbol', name: symbol.name, declarationKind: symbol.kind,
+        line: Number(symbol.at.slice(symbol.at.lastIndexOf(':') + 1)), assurance: 'text'
+      });
+    }
+    for (const target of extractImports(text)) facts.push({ kind: 'import', target, assurance: 'text' });
+  }
+  return sealSkeleton({
+    schemaVersion: currentSchemaVersion('ast-cache-blob'), key, contentKey: file.contentKey,
+    sha256: digest, language: file.language, extractor: BUILTIN_EXTRACTOR, facts
+  });
+}
+
+async function skeletonFor(root, file, {
+  persist = false, memory = new Map(), metrics = null, preparedBytes = null
+} = {}) {
+  const key = blobKey(file);
+  if (memory.has(key)) {
+    if (metrics) metrics.hits += 1;
+    return memory.get(key);
+  }
+  let skeleton;
+  try {
+    skeleton = validateSkeleton(await readFile(blobPath(root, key)), file, key);
+    if (metrics) metrics.hits += 1;
+  } catch (error) {
+    if (error?.code !== 'ENOENT' && error?.code !== 'AST_CACHE_INVALID') throw error;
+    if (metrics) metrics.misses += 1;
+    skeleton = await deriveSkeleton(root, file, key, preparedBytes);
+    if (persist) await writeJson(blobPath(root, key), skeleton);
+  }
+  memory.set(key, skeleton);
+  return skeleton;
+}
+
+async function cachedSkeleton(root, file, key) {
+  try {
+    return validateSkeleton(await readFile(blobPath(root, key)), file, key);
+  } catch (error) {
+    if (error?.code === 'ENOENT' || error?.code === 'AST_CACHE_INVALID') return null;
+    throw error;
+  }
+}
+
+function entryFor(file, skeleton) {
+  return {
+    path: file.path, contentKey: file.contentKey, cacheKey: skeleton.key, sha256: skeleton.sha256,
+    language: file.language, size: file.size, generated: file.generated, materialized: file.materialized !== false,
+    requiredAssurance: file.requiredAssurance ?? 'text', extractor: structuredClone(skeleton.extractor),
+    assurance: skeleton.extractor.assurance, adapters: []
+  };
+}
+
+function materializeFacts(entry, skeleton, { includeFile = true } = {}) {
+  const generated = entry.generated === true;
+  return [
+    ...(includeFile ? [{
+      kind: 'file', path: entry.path, language: entry.language, bytes: entry.size,
+      sha256: skeleton.sha256, generated, assurance: entry.assurance
+    }] : []),
+    ...skeleton.facts.map((fact) => fact.kind === 'symbol'
+      ? {
+          kind: 'symbol', name: fact.name, declarationKind: fact.declarationKind,
+          at: `${entry.path}:${fact.line}`, assurance: fact.assurance, generated
+        }
+      : fact.kind === 'import'
+        ? { kind: 'import', from: entry.path, target: fact.target, assurance: fact.assurance, generated }
+        : {
+            kind: 'relationship', from: entry.path, type: fact.type, target: fact.target,
+            ...(fact.sourceId ? { sourceId: fact.sourceId } : {}), assurance: fact.assurance, generated
+          })
+  ];
+}
+
+async function factsForEntries(root, entries, memory = new Map()) {
+  const facts = [];
+  for (const entry of entries) {
+    let skeleton = memory.get(entry.cacheKey);
+    if (!skeleton) skeleton = await skeletonFor(root, entry, { persist: false, memory });
+    facts.push(...materializeFacts(entry, skeleton));
+    for (const adapter of entry.adapters ?? []) {
+      let adapterSkeleton = memory.get(adapter.cacheKey);
+      if (!adapterSkeleton) {
+        adapterSkeleton = validateSkeleton(
+          await readFile(blobPath(root, adapter.cacheKey)), entry, adapter.cacheKey, adapter.extractor
+        );
+      }
+      facts.push(...materializeFacts(entry, adapterSkeleton, { includeFile: false }));
+    }
+  }
+  return facts;
+}
+
+function skippedKey(item) {
+  return `${item.path}\0${item.reason}`;
+}
+
+async function processCandidates(root, runtime, candidates, {
+  startIndex = 0, entries: previousEntries = [], skipped: previousSkipped = [], options = {}, persist = false
+} = {}) {
+  const budgets = astBudgets(runtime, options);
+  const entries = structuredClone(previousEntries);
+  const skipped = structuredClone(previousSkipped);
+  const seenSkipped = new Set(skipped.map(skippedKey));
+  const memory = new Map();
+  const cache = { hits: 0, misses: 0 };
+  let index = startIndex; let pageFiles = 0; let pageBytes = 0; let minimumRequiredBytes = null;
+  const page = [];
+  while (index < candidates.length) {
+    const file = candidates[index];
+    const permanentReason = file.skipReason ?? (file.size > budgets.maxFileBytes ? 'file-budget' : null);
+    if (permanentReason) {
+      const item = {
+        path: file.path, reason: permanentReason, language: file.language,
+        ...(file.size ? { bytes: file.size } : {}),
+        ...(file.requiredAssurance ? { required: file.requiredAssurance } : {})
+      };
+      if (!seenSkipped.has(skippedKey(item))) { skipped.push(item); seenSkipped.add(skippedKey(item)); }
+      index += 1;
+      continue;
+    }
+    if (pageFiles >= budgets.maxFiles || pageBytes + file.size > budgets.maxBytes) {
+      if (pageFiles === 0 && file.size > budgets.maxBytes) minimumRequiredBytes = file.size;
+      break;
+    }
+    page.push(file);
+    pageFiles += 1;
+    pageBytes += file.size;
+    index += 1;
+  }
+  // Read the CAS before asking Git for source bytes. A warm context/query should perform one
+  // batched object-size census and zero blob reads; the first build batches only true misses.
+  const misses = new Map();
+  for (const file of page) {
+    const key = blobKey(file);
+    if (memory.has(key)) {
+      cache.hits += 1;
+      continue;
+    }
+    const cached = await cachedSkeleton(root, file, key);
+    if (cached) {
+      memory.set(key, cached);
+      cache.hits += 1;
+    } else if (!misses.has(key)) misses.set(key, file);
+    else cache.hits += 1;
+  }
+  const gitBlobs = gitBlobBatch(root, [...misses.values()].filter((file) => file.contentKey?.startsWith('git:')));
+  for (const [key, file] of misses) {
+    const skeleton = await deriveSkeleton(
+      root, file, key,
+      file.contentKey?.startsWith('git:') ? gitBlobs.get(file.object) : null
+    );
+    if (persist) await writeJson(blobPath(root, key), skeleton);
+    memory.set(key, skeleton);
+    cache.misses += 1;
+  }
+  for (const file of page) {
+    const skeleton = memory.get(blobKey(file));
+    entries.push(entryFor(file, skeleton));
+  }
+  return { entries, skipped, nextIndex: index, memory, budgets, pageFiles, pageBytes, minimumRequiredBytes, cache };
+}
+
+function assuranceRank(value) {
+  return ['text', 'syntax', 'semantic'].indexOf(value);
+}
+
+function adapterExtractor(adapter) {
+  return { id: adapter.id, version: adapter.extractorVersion, assurance: adapter.assurance };
+}
+
+async function applyConfiguredAdapters(root, runtime, selection, processed, { persist = false } = {}) {
+  const diagnostics = [];
+  const degradation = [];
+  const provenance = [];
+  if (runtime.policy.fallback === 'text-only' || !processed.entries.length) {
+    return { diagnostics, degradation, provenance };
+  }
+  const discovery = await discoverAstAdapters();
+  diagnostics.push(...discovery.diagnostics);
+  const groups = new Map();
+  for (const entry of processed.entries) {
+    // External adapters are trusted host commands that consume repository paths. A clean sparse
+    // file can still produce built-in facts from its Git blob, but it is never implied to exist on
+    // disk for an adapter.
+    if (entry.materialized === false) continue;
+    const compatible = discovery.adapters
+      .filter((adapter) => adapter.languages.includes(entry.language) && (adapter.capabilities.length === 0 || adapter.capabilities.includes('skeleton')))
+      .sort((left, right) => assuranceRank(right.assurance) - assuranceRank(left.assurance) || left.id.localeCompare(right.id));
+    const adapter = compatible[0];
+    if (!adapter) continue;
+    const extractor = adapterExtractor(adapter);
+    const key = blobKey(entry, extractor);
+    const existingIndex = (entry.adapters ?? []).findIndex((existing) => existing.extractor?.id === extractor.id
+      && existing.extractor?.version === extractor.version
+      && existing.extractor?.assurance === extractor.assurance);
+    try {
+      const cached = validateSkeleton(await readFile(blobPath(root, key)), entry, key, extractor);
+      processed.memory.set(key, cached);
+      if (existingIndex < 0) entry.adapters.push({ cacheKey: key, extractor });
+      entry.assurance = assuranceRank(extractor.assurance) > assuranceRank(entry.assurance) ? extractor.assurance : entry.assurance;
+      processed.cache.hits += 1;
+      provenance.push({ id: adapter.id, version: adapter.extractorVersion, assurance: adapter.assurance, status: 'cache-hit' });
+      continue;
+    } catch (error) {
+      if (error?.code !== 'ENOENT' && error?.code !== 'AST_CACHE_INVALID') throw error;
+      if (existingIndex >= 0) entry.adapters.splice(existingIndex, 1);
+    }
+    const group = groups.get(adapter.id) ?? { adapter, entries: [] };
+    group.entries.push(entry);
+    groups.set(adapter.id, group);
+  }
+  for (const { adapter, entries } of groups.values()) {
+    const request = astAdapterRequest({
+      operation: 'skeleton',
+      scope: selection.scope,
+      files: entries.map((entry) => ({ path: entry.path, sha256: entry.sha256, language: entry.language })),
+      budget: processed.budgets
+    });
+    try {
+      const response = await executeAstAdapter(adapter, request, { root });
+      const byPath = new Map(response.files.map((file) => [file.path, file]));
+      const extractor = adapterExtractor(adapter);
+      for (const entry of entries) {
+        const file = byPath.get(entry.path);
+        if (!file) {
+          degradation.push({ path: entry.path, reason: 'adapter-omitted-file', adapter: adapter.id, required: entry.requiredAssurance });
+          continue;
+        }
+        const key = blobKey(entry, extractor);
+        const skeleton = sealSkeleton({
+          schemaVersion: currentSchemaVersion('ast-cache-blob'), key, contentKey: entry.contentKey,
+          sha256: entry.sha256, language: entry.language, extractor, facts: file.facts
+        });
+        processed.memory.set(key, skeleton);
+        if (persist) await writeJson(blobPath(root, key), skeleton);
+        entry.adapters.push({ cacheKey: key, extractor });
+        entry.assurance = assuranceRank(extractor.assurance) > assuranceRank(entry.assurance) ? extractor.assurance : entry.assurance;
+        processed.cache.misses += 1;
+      }
+      diagnostics.push(...response.diagnostics);
+      provenance.push({ id: adapter.id, version: adapter.extractorVersion, assurance: adapter.assurance, status: 'executed' });
+    } catch (error) {
+      diagnostics.push({ code: error.code ?? 'AST_ADAPTER_FAILED', message: error.message, adapter: adapter.id });
+      degradation.push(...entries.map((entry) => ({
+        path: entry.path, reason: 'adapter-failed', adapter: adapter.id, required: entry.requiredAssurance
+      })));
+      provenance.push({ id: adapter.id, version: adapter.extractorVersion, assurance: adapter.assurance, status: 'failed' });
+    }
+  }
+  return {
+    diagnostics,
+    degradation,
+    provenance: [...new Map(provenance.map((item) => [`${item.id}\0${item.status}`, item])).values()]
+  };
+}
+
+function coverageFor(selection, processed, facts, deferred = []) {
+  const byLanguage = {};
+  for (const entry of processed.entries) byLanguage[entry.language] = (byLanguage[entry.language] ?? 0) + 1;
+  return {
+    selected: selection.candidates.length,
+    processed: processed.entries.length,
+    skipped: processed.skipped.length + deferred.length,
+    bytes: processed.entries.reduce((sum, entry) => sum + entry.size, 0),
+    facts: facts.length, factsExamined: facts.length, factsMatched: facts.length, factsReturned: facts.length,
+    byLanguage
+  };
+}
+
+function assuranceDegradation(entries) {
+  return entries
+    .filter((entry) => !assuranceSatisfies(entry.assurance, entry.requiredAssurance))
+    .map((entry) => ({
+      path: entry.path, reason: 'assurance-unavailable', language: entry.language,
+      actual: entry.assurance, required: entry.requiredAssurance
+    }));
+}
+
+function resultAssurance(entries) {
+  if (!entries.length) return 'text';
+  return entries.reduce(
+    (weakest, entry) => assuranceRank(entry.assurance) < assuranceRank(weakest) ? entry.assurance : weakest,
+    'semantic'
+  );
+}
+
+async function writeManifest(root, runtime, selection, processed, coverage, status) {
+  const record = {
+    schemaVersion: currentSchemaVersion('ast-cone-manifest'),
+    id: '', definitionSha256: runtime.definitionSha256,
+    repositoryRevision: selection.repositoryRevision, coneSha256: selection.coneSha256,
+    scope: selection.scope, status, entries: processed.entries, skipped: processed.skipped,
+    coverage, createdAt: new Date().toISOString()
+  };
+  record.id = sha256(canonicalJson({
+    definitionSha256: record.definitionSha256, repositoryRevision: record.repositoryRevision,
+    coneSha256: record.coneSha256, entries: record.entries, skipped: record.skipped, status
+  }));
+  record.integritySha256 = skeletonIntegrity(record);
+  const target = path.join(storeRoot(root), 'manifests', `${record.id}.json`);
+  await writeJson(target, record);
+  return { record, target };
+}
+
+async function createResumeJob(root, runtime, selection, processed, options) {
+  if (processed.nextIndex >= selection.candidates.length) return null;
   const id = randomUUID();
   const secret = randomBytes(24).toString('base64url');
   await writeJson(resumeJobPath(root, id), {
@@ -222,12 +683,17 @@ async function createResumeJob(root, envelope, options, selected) {
     createdAt: new Date().toISOString(),
     expiresAt: new Date(Date.now() + 24 * 60 * 60 * 1000).toISOString(),
     binding: {
-      definitionSha256: envelope.scope.definitionSha256,
-      repositoryRevision: envelope.scope.repositoryRevision,
-      worktreeFingerprint: envelope.scope.worktreeFingerprint
+      definitionSha256: runtime.definitionSha256,
+      repositoryRevision: selection.repositoryRevision,
+      coneSha256: selection.coneSha256
     },
     selector: { all: optionBoolean(options, 'all'), paths: explicitPaths(options) },
-    cursor
+    scope: selection.scope,
+    candidates: selection.candidates,
+    nextIndex: processed.nextIndex,
+    entries: processed.entries,
+    skipped: processed.skipped,
+    minimumRequiredBytes: processed.minimumRequiredBytes
   });
   return `ast_${id}_${secret}`;
 }
@@ -245,25 +711,35 @@ async function readResumeJob(root, handle) {
   if (job.secretSha256 !== sha256(secret) || Date.parse(job.expiresAt) <= Date.now()) {
     throw new SingularityFlowError('AST resume handle is invalid or expired.', { code: 'AST_RESUME_INVALID' });
   }
-  const runtime = await loadRuntime(root);
-  const fingerprint = worktreeFingerprint(root).sha256;
-  if (job.binding.definitionSha256 !== runtime.definitionSha256
-    || job.binding.repositoryRevision !== repositoryRevision(root)
-    || job.binding.worktreeFingerprint !== fingerprint) {
-    throw new SingularityFlowError('AST resume handle is stale because configuration, revision, or worktree bytes changed.', { code: 'AST_RESUME_STALE' });
+  if (job.legacyV1 === true) {
+    throw new SingularityFlowError(
+      'This AST resume handle predates accumulated cone manifests. Start a new bounded build; no source or lifecycle state was changed.',
+      { code: 'AST_RESUME_STALE' }
+    );
   }
-  return { job, file: resumeJobPath(root, id) };
+  const runtime = await loadRuntime(root);
+  if (job.binding.definitionSha256 !== runtime.definitionSha256
+    || job.binding.repositoryRevision !== repositoryRevision(root)) {
+    throw new SingularityFlowError('AST resume handle is stale because configuration or repository revision changed.', { code: 'AST_RESUME_STALE' });
+  }
+  const selection = await enumerateScope(root, runtime, { all: job.selector.all, paths: job.selector.paths });
+  if (selection.coneSha256 !== job.binding.coneSha256) {
+    throw new SingularityFlowError('AST resume handle is stale because relevant scope or file bytes changed.', { code: 'AST_RESUME_STALE' });
+  }
+  return { job, file: resumeJobPath(root, id), runtime, selection };
 }
 
-function baseEnvelope(root, runtime, operation, scope, mode) {
-  const fingerprint = worktreeFingerprint(root);
+function baseEnvelope(runtime, operation, scope, mode, { revision = null, fingerprint = null } = {}) {
   return {
     schemaVersion: AST_RESULT_SCHEMA_VERSION,
     operation,
-    scope: { ...scope, repositoryRevision: repositoryRevision(root), worktreeFingerprint: fingerprint.sha256 },
+    scope: { ...scope, repositoryRevision: revision, worktreeFingerprint: fingerprint },
     assurance: 'text',
     status: mode.mode === 'off' ? 'disabled' : 'complete',
-    coverage: { selected: 0, processed: 0, skipped: 0, bytes: 0, byLanguage: {} },
+    coverage: {
+      selected: 0, processed: 0, skipped: 0, bytes: 0,
+      facts: 0, factsExamined: 0, factsMatched: 0, factsReturned: 0, byLanguage: {}
+    },
     facts: [], diagnostics: [], degradation: [], resumeHandle: null,
     provenance: {
       engine: 'singularity-flow-ast-broker', engineVersion: 1,
@@ -278,86 +754,137 @@ export function validateAstResultEnvelope(value) {
   if (!ASSURANCE.has(record.assurance) || !STATUSES.has(record.status)) throw new SingularityFlowError('Invalid AST result envelope assurance or status.');
   if (!record.scope?.definitionSha256 || !Object.hasOwn(record.scope, 'worktreeFingerprint')) throw new SingularityFlowError('AST result envelope is missing its scope binding.');
   if (!Array.isArray(record.facts) || !Array.isArray(record.diagnostics) || !Array.isArray(record.degradation)) throw new SingularityFlowError('AST result envelope collections are invalid.');
-  return structuredClone(record);
-}
-
-async function deriveTextFacts(root, files) {
-  const facts = [];
-  for (const file of files) {
-    const bytes = await readFile(path.join(root, file.path));
-    const digest = sha256(bytes);
-    const item = { kind: 'file', path: file.path, language: file.language, bytes: file.size, sha256: digest };
-    facts.push(item);
-    if (!TEXT_SYMBOL_LANGUAGES.has(file.language)) continue;
-    const text = bytes.toString('utf8');
-    for (const symbol of extractSymbols(text, file.path)) {
-      facts.push({ kind: 'symbol', name: symbol.name, declarationKind: symbol.kind, at: symbol.at, assurance: 'text' });
-    }
-    for (const target of extractImports(text)) facts.push({ kind: 'import', from: file.path, target, assurance: 'text' });
+  for (const key of ['selected', 'processed', 'skipped', 'bytes', 'facts', 'factsExamined', 'factsMatched', 'factsReturned']) {
+    if (!Number.isInteger(record.coverage?.[key]) || record.coverage[key] < 0) throw new SingularityFlowError(`AST result coverage.${key} must be a non-negative integer.`);
   }
-  return facts;
-}
-
-function coverage(censusResult, facts) {
-  const byLanguage = {};
-  for (const file of censusResult.files) byLanguage[file.language] = (byLanguage[file.language] ?? 0) + 1;
-  return {
-    selected: censusResult.selectedCount,
-    processed: censusResult.files.length,
-    skipped: censusResult.skipped.length,
-    bytes: censusResult.bytes,
-    facts: facts.length,
-    byLanguage
-  };
-}
-
-async function writeSnapshot(root, runtime, envelope) {
-  const target = path.join(storeRoot(root), 'snapshots', `${sha256(canonicalJson({ scope: envelope.scope, facts: envelope.facts }))}.json`);
-  await writeJson(target, envelope);
-  return target;
+  if (record.coverage.processed > record.coverage.selected
+    || record.coverage.facts !== record.facts.length
+    || record.coverage.factsReturned !== record.facts.length) {
+    throw new SingularityFlowError('AST result coverage contradicts the returned facts or selected file count.');
+  }
+  if (!record.coverage.byLanguage || typeof record.coverage.byLanguage !== 'object' || Array.isArray(record.coverage.byLanguage)) {
+    throw new SingularityFlowError('AST result coverage.byLanguage must be an object.');
+  }
+  const forbidden = JSON.stringify(record.facts).match(/"(?:sourceBody|body|content|text)"\s*:/);
+  if (forbidden) throw new SingularityFlowError('AST result facts must not contain source bodies.');
+  for (const diagnostic of record.diagnostics) {
+    if (!diagnostic || typeof diagnostic !== 'object' || typeof diagnostic.code !== 'string') throw new SingularityFlowError('AST result diagnostics require a code.');
+  }
+  for (const item of record.degradation) {
+    if (!item || typeof item !== 'object' || typeof item.reason !== 'string') throw new SingularityFlowError('AST result degradation entries require a reason.');
+  }
+  if (!record.provenance || typeof record.provenance !== 'object' || Array.isArray(record.provenance)
+    || record.provenance.engine !== 'singularity-flow-ast-broker') {
+    throw new SingularityFlowError('AST result provenance is invalid.');
+  }
+  return structuredClone(record);
 }
 
 async function buildOrContext(root, options, operation) {
   const runtime = await loadRuntime(root);
   const mode = await effectiveAstMode(runtime.policy, optionString(options, 'mode', 'auto'));
-  const selected = await census(root, runtime, options);
-  const envelope = baseEnvelope(root, runtime, operation, selected.scope, mode);
-  envelope.coverage.selected = selected.selectedCount;
   if (mode.mode === 'off') {
-    envelope.diagnostics.push({ code: 'AST_DISABLED', message: 'Structural intelligence is disabled by the most restrictive effective preference.' });
-    return validateAstResultEnvelope(envelope);
+    const requested = explicitPaths(options);
+    const all = optionBoolean(options, 'all');
+    if (requested.length && all) throw new SingularityFlowError('Use either AST --paths or --all, not both.');
+    const scope = {
+      kind: requested.length ? 'paths' : all ? 'all' : runtime.sourceScope.paths.length ? 'cone' : 'changed',
+      paths: requested.length ? requested : runtime.sourceScope.paths,
+      definitionSha256: runtime.definitionSha256
+    };
+    const disabled = baseEnvelope(runtime, operation, scope, mode);
+    disabled.diagnostics.push({ code: 'AST_DISABLED', message: 'Structural intelligence is disabled by the most restrictive effective preference.' });
+    return validateAstResultEnvelope(disabled);
   }
-  envelope.facts = await deriveTextFacts(root, selected.files);
-  envelope.coverage = coverage(selected, envelope.facts);
-  envelope.degradation = selected.skipped.slice(0, 100);
-  if (selected.skipped.length > envelope.degradation.length) {
+  const selection = await enumerateScope(root, runtime, options);
+  const processed = await processCandidates(root, runtime, selection.candidates, {
+    options, persist: operation === 'build'
+  });
+  const adapters = await applyConfiguredAdapters(root, runtime, selection, processed, {
+    persist: operation === 'build'
+  });
+  const envelope = baseEnvelope(runtime, operation, selection.scope, mode, {
+    revision: selection.repositoryRevision, fingerprint: selection.coneSha256
+  });
+  envelope.facts = await factsForEntries(root, processed.entries, processed.memory);
+  envelope.assurance = resultAssurance(processed.entries);
+  const deferred = selection.candidates.slice(processed.nextIndex).map((file) => ({
+    path: file.path, reason: 'operation-budget', bytes: file.size
+  }));
+  const assurance = assuranceDegradation(processed.entries);
+  const degradation = [...processed.skipped, ...deferred, ...adapters.degradation, ...assurance];
+  envelope.diagnostics.push(...adapters.diagnostics);
+  envelope.provenance.adapters = adapters.provenance;
+  envelope.coverage = coverageFor(selection, processed, envelope.facts, deferred);
+  envelope.degradation = degradation.slice(0, 100);
+  if (degradation.length > envelope.degradation.length) {
     envelope.diagnostics.push({
       code: 'AST_DEGRADATION_TRUNCATED',
-      message: `${selected.skipped.length - envelope.degradation.length} additional skipped paths were omitted from this bounded result.`
+      message: `${degradation.length - envelope.degradation.length} additional degraded paths were omitted from this bounded result.`
     });
   }
-  if (!selected.complete || selected.skipped.length) envelope.status = 'partial';
+  if (processed.minimumRequiredBytes) envelope.diagnostics.push({
+    code: 'AST_BUDGET_NO_PROGRESS',
+    message: `The next file requires an operation byte budget of at least ${processed.minimumRequiredBytes}.`
+  });
+  if (degradation.length) envelope.status = 'partial';
+  envelope.provenance.cache = {
+    hits: processed.cache.hits, misses: processed.cache.misses,
+    entries: processed.entries.length, format: 'blob-cas-v2'
+  };
   if (operation === 'build') {
-    envelope.resumeHandle = await createResumeJob(root, envelope, options, selected);
-    const target = await writeSnapshot(root, runtime, envelope);
-    envelope.provenance.snapshot = path.relative(gitCommonDir(root), target).replaceAll(path.sep, '/');
+    envelope.resumeHandle = await createResumeJob(root, runtime, selection, processed, options);
+    const manifest = await writeManifest(root, runtime, selection, processed, envelope.coverage, envelope.status);
+    envelope.provenance.manifest = path.relative(gitCommonDir(root), manifest.target).replaceAll(path.sep, '/');
   }
   return validateAstResultEnvelope(envelope);
 }
 
 async function resumeBuild(root, handle, options) {
-  const { job, file } = await readResumeJob(root, handle);
-  const resumedOptions = {
-    ...options,
-    all: job.selector.all,
-    paths: job.selector.paths,
-    __afterPath: job.cursor
-  };
+  const { job, file, runtime, selection } = await readResumeJob(root, handle);
+  const resumedOptions = { ...options };
   delete resumedOptions.resume;
-  const result = await buildOrContext(root, resumedOptions, 'build');
-  await rm(file, { force: true });
+  const mode = await effectiveAstMode(runtime.policy, optionString(resumedOptions, 'mode', 'auto'));
+  if (mode.mode === 'off') throw new SingularityFlowError('AST was disabled after this build began; the resume handle was not consumed.', { code: 'AST_DISABLED' });
+  const processed = await processCandidates(root, runtime, job.candidates, {
+    startIndex: job.nextIndex, entries: job.entries, skipped: job.skipped,
+    options: resumedOptions, persist: true
+  });
+  const adapters = await applyConfiguredAdapters(root, runtime, selection, processed, { persist: true });
+  const facts = await factsForEntries(root, processed.entries, processed.memory);
+  const deferred = job.candidates.slice(processed.nextIndex).map((candidate) => ({
+    path: candidate.path, reason: 'operation-budget', bytes: candidate.size
+  }));
+  const degradation = [
+    ...processed.skipped, ...deferred, ...adapters.degradation,
+    ...assuranceDegradation(processed.entries)
+  ];
+  const result = baseEnvelope(runtime, 'build', selection.scope, mode, {
+    revision: selection.repositoryRevision, fingerprint: selection.coneSha256
+  });
+  result.facts = facts;
+  result.assurance = resultAssurance(processed.entries);
+  result.diagnostics.push(...adapters.diagnostics);
+  result.provenance.adapters = adapters.provenance;
+  result.coverage = coverageFor(selection, processed, facts, deferred);
+  result.degradation = degradation.slice(0, 100);
+  if (degradation.length) result.status = 'partial';
+  if (processed.minimumRequiredBytes) result.diagnostics.push({
+    code: 'AST_BUDGET_NO_PROGRESS',
+    message: `The next file requires an operation byte budget of at least ${processed.minimumRequiredBytes}.`
+  });
+  result.resumeHandle = await createResumeJob(root, runtime, selection, processed, {
+    all: job.selector.all, paths: job.selector.paths
+  });
+  const manifest = await writeManifest(root, runtime, selection, processed, result.coverage, result.status);
+  result.provenance.manifest = path.relative(gitCommonDir(root), manifest.target).replaceAll(path.sep, '/');
+  result.provenance.cache = {
+    hits: processed.cache.hits, misses: processed.cache.misses,
+    entries: processed.entries.length, format: 'blob-cas-v2'
+  };
   result.provenance.resumedFrom = job.id;
-  return result;
+  await rm(file, { force: true });
+  return validateAstResultEnvelope(result);
 }
 
 function matchQuery(fact, predicate, value) {
@@ -368,38 +895,59 @@ function matchQuery(fact, predicate, value) {
   return false;
 }
 
-async function query(root, options) {
+export async function astContext(root, options = {}) {
+  return buildOrContext(root, options, 'context');
+}
+
+export async function astQuery(root, options = {}) {
   const predicate = optionString(options, 'predicate');
   const value = optionString(options, 'value', '');
   if (!['symbol', 'import', 'language', 'path'].includes(predicate) || !value) throw new SingularityFlowError('wm ast query requires --predicate symbol|import|language|path and --value VALUE.');
   const envelope = await buildOrContext(root, options, 'query');
-  if (envelope.status !== 'disabled') envelope.facts = envelope.facts.filter((fact) => matchQuery(fact, predicate, value));
+  if (envelope.status !== 'disabled') {
+    const examined = envelope.facts.length;
+    envelope.facts = envelope.facts.filter((fact) => matchQuery(fact, predicate, value));
+    envelope.coverage.factsExamined = examined;
+    envelope.coverage.factsMatched = envelope.facts.length;
+    envelope.coverage.factsReturned = envelope.facts.length;
+    envelope.coverage.facts = envelope.facts.length;
+  }
   envelope.provenance.query = { predicate, value };
   return envelope;
 }
 
-async function gate(root, options) {
+export async function evaluateAstGate(root, options = {}) {
   const runtime = await loadRuntime(root);
   const envelope = await buildOrContext(root, options, 'gate');
   const results = [];
   for (const predicate of runtime.policy.predicates) {
     const requiredAssurance = predicate.minimumAssurance ?? 'text';
     let outcome = 'unknown';
-    if (assuranceSatisfies(envelope.assurance, requiredAssurance)) {
-      if (predicate.type === 'path-exists') outcome = envelope.facts.some((fact) => fact.kind === 'file' && fact.path === predicate.path) ? 'pass' : 'fail';
-      else if (predicate.type === 'symbol-exists') outcome = envelope.facts.some((fact) => fact.kind === 'symbol' && fact.name === predicate.symbol) ? 'pass' : 'fail';
-    }
+    const matching = predicate.type === 'path-exists'
+      ? envelope.facts.filter((fact) => fact.kind === 'file' && fact.path === predicate.path)
+      : envelope.facts.filter((fact) => fact.kind === 'symbol' && fact.name === predicate.symbol);
+    if (matching.some((fact) => assuranceSatisfies(fact.assurance ?? 'text', requiredAssurance))) outcome = 'pass';
+    else if (!matching.length && assuranceSatisfies(envelope.assurance, requiredAssurance)) outcome = 'fail';
     results.push({ id: predicate.id, mode: predicate.mode, requiredAssurance, outcome });
   }
+  const examined = envelope.facts.length;
+  const evaluatedPaths = envelope.facts.filter((fact) => fact.kind === 'file').map((fact) => fact.path);
   envelope.facts = results;
+  envelope.coverage.factsExamined = examined;
+  envelope.coverage.factsMatched = results.filter((item) => item.outcome === 'pass').length;
+  envelope.coverage.factsReturned = results.length;
+  envelope.coverage.facts = results.length;
   const blocking = results.filter((item) => item.mode === 'required' && item.outcome !== 'pass');
   if (blocking.length || envelope.status === 'partial') envelope.status = 'partial';
-  envelope.provenance.gate = { allowed: blocking.length === 0 && envelope.status !== 'disabled', blocking: blocking.map((item) => item.id) };
+  envelope.provenance.gate = {
+    allowed: envelope.status === 'complete' && blocking.length === 0,
+    blocking: blocking.map((item) => item.id),
+    evaluatedPaths
+  };
   return envelope;
 }
 
 export async function astCacheStatus(root) {
-  const directory = storeRoot(root);
   let files = 0; let bytes = 0;
   async function walk(current) {
     for (const entry of await readdir(current, { withFileTypes: true }).catch((error) => error?.code === 'ENOENT' ? [] : Promise.reject(error))) {
@@ -409,8 +957,11 @@ export async function astCacheStatus(root) {
       else if (entry.isFile()) { files += 1; bytes += (await stat(target)).size; }
     }
   }
-  await walk(directory);
-  return { schemaVersion: 1, root: directory, files, bytes, exists: files > 0 }; // schema-transient: live cache inventory, never persisted
+  for (const directory of [storeRoot(root), legacyStoreRoot(root)]) await walk(directory);
+  return {
+    schemaVersion: 2, root: storeRoot(root), legacyRoot: legacyStoreRoot(root),
+    files, bytes, exists: files > 0
+  }; // schema-transient: live cache inventory, never persisted
 }
 
 async function clearCache(root, options) {
@@ -419,12 +970,13 @@ async function clearCache(root, options) {
   const confirmation = optionString(options, 'confirm');
   if (!dryRun && confirmation !== 'CLEAR AST CACHE') throw new SingularityFlowError("AST cache clear requires --confirm 'CLEAR AST CACHE'. Use --dry-run to preview.");
   if (!dryRun) {
-    const target = storeRoot(root);
-    const info = await lstat(target).catch(() => null);
-    if (info?.isSymbolicLink()) throw new SingularityFlowError('AST cache root must not be a symbolic link.');
-    await rm(target, { recursive: true, force: true });
+    for (const target of [storeRoot(root), legacyStoreRoot(root)]) {
+      const info = await lstat(target).catch(() => null);
+      if (info?.isSymbolicLink()) throw new SingularityFlowError('AST cache root must not be a symbolic link.');
+      await rm(target, { recursive: true, force: true });
+    }
   }
-  return { schemaVersion: 1, action: 'clear', dryRun, removed: dryRun ? 0 : before.files, bytes: before.bytes, root: before.root }; // schema-transient: command result, never persisted
+  return { schemaVersion: 2, action: 'clear', dryRun, removed: dryRun ? 0 : before.files, bytes: before.bytes, root: before.root }; // schema-transient: command result, never persisted
 }
 
 async function pruneCache(root, options) {
@@ -432,10 +984,11 @@ async function pruneCache(root, options) {
   if (!dryRun && optionString(options, 'confirm') !== 'PRUNE AST CACHE') {
     throw new SingularityFlowError("AST cache prune requires --confirm 'PRUNE AST CACHE'. Use --dry-run to preview.");
   }
+  const runtime = await loadRuntime(root);
   const revision = repositoryRevision(root);
-  const fingerprint = worktreeFingerprint(root).sha256;
   const targets = [];
-  for (const [directory, family] of [['snapshots', 'ast-result'], ['jobs', 'ast-resume-job']]) {
+  const reachable = new Set();
+  async function records(directory, family, keep) {
     const parent = path.join(storeRoot(root), directory);
     for (const entry of await readdir(parent, { withFileTypes: true }).catch((error) => error?.code === 'ENOENT' ? [] : Promise.reject(error))) {
       const target = path.join(parent, entry.name);
@@ -443,19 +996,52 @@ async function pruneCache(root, options) {
       if (!entry.isFile() || !entry.name.endsWith('.json')) continue;
       try {
         const record = readRecord(family, await readFile(target)).record;
-        const binding = family === 'ast-result' ? record.scope : record.binding;
-        const expired = family === 'ast-resume-job' && Date.parse(record.expiresAt) <= Date.now();
-        if (expired || binding?.repositoryRevision !== revision || binding?.worktreeFingerprint !== fingerprint) targets.push(target);
+        if (!(await keep(record))) targets.push(target);
+        else for (const item of record.entries ?? []) {
+          if (item.cacheKey) reachable.add(item.cacheKey);
+          for (const adapter of item.adapters ?? []) if (adapter.cacheKey) reachable.add(adapter.cacheKey);
+        }
       } catch {
         targets.push(target);
       }
     }
   }
+  await records('jobs', 'ast-resume-job', (record) => Date.parse(record.expiresAt) > Date.now()
+    && record.binding?.definitionSha256 === runtime.definitionSha256
+    && record.binding?.repositoryRevision === revision);
+  await records('manifests', 'ast-cone-manifest', async (record) => {
+    if (record.integritySha256 !== skeletonIntegrity(record)) return false;
+    if (record.definitionSha256 !== runtime.definitionSha256 || record.repositoryRevision !== revision) return false;
+    const selector = record.scope?.kind === 'all' ? { all: true }
+      : record.scope?.kind === 'paths' ? { paths: record.scope.paths ?? [] } : {};
+    const current = await enumerateScope(root, runtime, selector);
+    return current.coneSha256 === record.coneSha256;
+  });
+  const blobs = path.join(storeRoot(root), 'blobs');
+  for (const entry of await readdir(blobs, { withFileTypes: true }).catch((error) => error?.code === 'ENOENT' ? [] : Promise.reject(error))) {
+    const target = path.join(blobs, entry.name);
+    if (entry.isSymbolicLink()) throw new SingularityFlowError(`AST cache contains a symbolic link and will not be traversed: ${target}`);
+    if (entry.isFile() && entry.name.endsWith('.json') && !reachable.has(entry.name.slice(0, -5))) targets.push(target);
+  }
+  async function legacy(current) {
+    for (const entry of await readdir(current, { withFileTypes: true }).catch((error) => error?.code === 'ENOENT' ? [] : Promise.reject(error))) {
+      const target = path.join(current, entry.name);
+      if (entry.isSymbolicLink()) throw new SingularityFlowError(`AST cache contains a symbolic link and will not be traversed: ${target}`);
+      if (entry.isDirectory()) await legacy(target);
+      else if (entry.isFile()) targets.push(target);
+    }
+  }
+  await legacy(legacyStoreRoot(root));
   if (!dryRun) for (const target of targets) await rm(target, { force: true });
   return {
-    schemaVersion: 1, // schema-transient: command result, never persisted
+    schemaVersion: 2, // schema-transient: command result, never persisted
     action: 'prune', dryRun, candidates: targets.length, removed: dryRun ? 0 : targets.length,
-    targets: targets.map((target) => path.relative(storeRoot(root), target).replaceAll(path.sep, '/'))
+    targets: targets.map((target) => {
+      const relative = path.relative(storeRoot(root), target);
+      return relative.startsWith('..')
+        ? `legacy/${path.relative(legacyStoreRoot(root), target).replaceAll(path.sep, '/')}`
+        : relative.replaceAll(path.sep, '/');
+    })
   };
 }
 
@@ -464,15 +1050,34 @@ export async function astDoctor(root) {
   const effective = await effectiveAstMode(runtime.policy);
   const cache = await astCacheStatus(root);
   const adapterDiscovery = await discoverAstAdapters();
+  const assuranceAvailable = new Set(['text']);
+  for (const adapter of adapterDiscovery.adapters) {
+    assuranceAvailable.add(adapter.assurance);
+  }
+  const activePhase = runtime.state?.currentPhase
+    ? runtime.state.phases?.[runtime.state.currentPhase] ?? null
+    : null;
+  const latestGate = activePhase?.astGates?.findLast?.((entry) => entry.generation === activePhase.generation)
+    ?? [...(activePhase?.astGates ?? [])].sort((left, right) => right.generation - left.generation)[0]
+    ?? null;
   return {
-    schemaVersion: 1, // schema-transient: live diagnostic result, never persisted
+    schemaVersion: 2, // schema-transient: live diagnostic result, never persisted
     healthy: adapterDiscovery.diagnostics.length === 0,
     configured: runtime.policy,
     effective,
     scope: runtime.sourceScope,
     cache,
-    adapters: adapterDiscovery.adapters.map(({ argv: _argv, ...adapter }) => ({ ...adapter, status: 'discovered-not-active' })),
-    assuranceAvailable: ['text'],
+    adapters: adapterDiscovery.adapters.map(({ argv: _argv, ...adapter }) => ({ ...adapter, status: 'available-on-demand' })),
+    assuranceAvailable: [...assuranceAvailable].sort((left, right) => ['text', 'syntax', 'semantic'].indexOf(left) - ['text', 'syntax', 'semantic'].indexOf(right)),
+    lifecycle: {
+      enforced: runtime.policy.predicates.length > 0,
+      predicateCount: runtime.policy.predicates.length,
+      requiredPredicateCount: runtime.policy.predicates.filter((entry) => entry.mode === 'required').length,
+      workId: runtime.state?.workItem?.id ?? null,
+      phase: activePhase?.id ?? null,
+      generation: activePhase?.generation ?? null,
+      latestGate
+    },
     diagnostics: [
       ...(effective.mode === 'off' ? [{ code: 'AST_DISABLED', severity: 'info' }] : []),
       ...adapterDiscovery.diagnostics
@@ -498,9 +1103,9 @@ export async function astCommand(root, positionals, options) {
     const handle = rawResume === true ? positionals[1] : (rawResume ? String(rawResume) : null);
     result = handle ? await resumeBuild(root, handle, options) : await buildOrContext(root, options, 'build');
   }
-  else if (action === 'context') result = await buildOrContext(root, options, 'context');
-  else if (action === 'query') result = await query(root, options);
-  else if (action === 'gate') result = await gate(root, options);
+  else if (action === 'context') result = await astContext(root, options);
+  else if (action === 'query') result = await astQuery(root, options);
+  else if (action === 'gate') result = await evaluateAstGate(root, options);
   else if (action === 'cache') {
     const cacheAction = positionals[1] ?? 'status';
     if (cacheAction === 'status') result = await astCacheStatus(root);

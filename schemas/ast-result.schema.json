@@ -5,7 +5,7 @@
   "type": "object",
   "required": ["schemaVersion", "operation", "scope", "assurance", "status", "coverage", "facts", "diagnostics", "degradation", "resumeHandle", "provenance"],
   "properties": {
-    "schemaVersion": { "const": 1 },
+    "schemaVersion": { "const": 2 },
     "operation": { "enum": ["context", "query", "gate", "build", "transform"] },
     "scope": {
       "type": "object",
@@ -15,18 +15,96 @@
         "paths": { "type": "array", "items": { "type": "string" } },
         "definitionSha256": { "type": "string", "pattern": "^[a-f0-9]{64}$" },
         "repositoryRevision": { "type": ["string", "null"] },
-        "worktreeFingerprint": { "type": "string", "pattern": "^[a-f0-9]{64}$" }
+        "worktreeFingerprint": { "type": ["string", "null"], "pattern": "^[a-f0-9]{64}$" },
+        "coneSha256": { "type": "string", "pattern": "^[a-f0-9]{64}$" }
       },
       "additionalProperties": false
     },
     "assurance": { "enum": ["text", "syntax", "semantic"] },
     "status": { "enum": ["complete", "partial", "disabled", "unsupported", "stale", "failed"] },
-    "coverage": { "type": "object" },
-    "facts": { "type": "array", "items": { "type": "object" } },
-    "diagnostics": { "type": "array", "items": { "type": "object" } },
-    "degradation": { "type": "array", "items": { "type": "object" } },
+    "coverage": {
+      "type": "object",
+      "required": ["selected", "processed", "skipped", "bytes", "facts", "factsExamined", "factsMatched", "factsReturned", "byLanguage"],
+      "properties": {
+        "selected": { "type": "integer", "minimum": 0 },
+        "processed": { "type": "integer", "minimum": 0 },
+        "skipped": { "type": "integer", "minimum": 0 },
+        "bytes": { "type": "integer", "minimum": 0 },
+        "facts": { "type": "integer", "minimum": 0 },
+        "factsExamined": { "type": "integer", "minimum": 0 },
+        "factsMatched": { "type": "integer", "minimum": 0 },
+        "factsReturned": { "type": "integer", "minimum": 0 },
+        "byLanguage": { "type": "object", "additionalProperties": { "type": "integer", "minimum": 0 } }
+      },
+      "additionalProperties": false
+    },
+    "facts": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "oneOf": [
+          {
+            "required": ["kind", "path", "language", "bytes", "sha256", "generated", "assurance"],
+            "properties": { "kind": { "const": "file" }, "path": { "type": "string" }, "language": { "type": "string" }, "bytes": { "type": "integer", "minimum": 0 }, "sha256": { "type": "string", "pattern": "^[a-f0-9]{64}$" }, "generated": { "type": "boolean" }, "assurance": { "enum": ["text", "syntax", "semantic"] } },
+            "additionalProperties": false
+          },
+          {
+            "required": ["kind", "name", "at", "assurance", "generated"],
+            "properties": { "kind": { "const": "symbol" }, "name": { "type": "string" }, "declarationKind": { "type": "string" }, "at": { "type": "string" }, "assurance": { "enum": ["text", "syntax", "semantic"] }, "generated": { "type": "boolean" } },
+            "additionalProperties": false
+          },
+          {
+            "required": ["kind", "from", "target", "assurance", "generated"],
+            "properties": { "kind": { "const": "import" }, "from": { "type": "string" }, "target": { "type": "string" }, "assurance": { "enum": ["text", "syntax", "semantic"] }, "generated": { "type": "boolean" } },
+            "additionalProperties": false
+          },
+          {
+            "required": ["kind", "from", "type", "target", "assurance", "generated"],
+            "properties": { "kind": { "const": "relationship" }, "from": { "type": "string" }, "type": { "type": "string" }, "target": { "type": "string" }, "sourceId": { "type": "string" }, "assurance": { "enum": ["text", "syntax", "semantic"] }, "generated": { "type": "boolean" } },
+            "additionalProperties": false
+          },
+          {
+            "required": ["id", "mode", "requiredAssurance", "outcome"],
+            "properties": { "id": { "type": "string" }, "mode": { "enum": ["required", "advisory"] }, "requiredAssurance": { "enum": ["text", "syntax", "semantic"] }, "outcome": { "enum": ["pass", "fail", "unknown"] } },
+            "additionalProperties": false
+          }
+        ]
+      }
+    },
+    "diagnostics": {
+      "type": "array",
+      "items": {
+        "type": "object", "required": ["code"],
+        "properties": { "code": { "type": "string" }, "message": { "type": "string" }, "adapter": { "type": "string" }, "source": { "type": "string" } },
+        "additionalProperties": false
+      }
+    },
+    "degradation": {
+      "type": "array",
+      "items": {
+        "type": "object", "required": ["reason"],
+        "properties": { "path": { "type": "string" }, "reason": { "type": "string" }, "language": { "type": "string" }, "bytes": { "type": "integer", "minimum": 0 }, "required": { "enum": ["text", "syntax", "semantic"] }, "actual": { "enum": ["text", "syntax", "semantic"] }, "adapter": { "type": "string" } },
+        "additionalProperties": false
+      }
+    },
     "resumeHandle": { "type": ["string", "null"] },
-    "provenance": { "type": "object" }
+    "provenance": {
+      "type": "object",
+      "required": ["engine", "engineVersion", "adapters", "effectiveMode", "modeSources"],
+      "properties": {
+        "engine": { "const": "singularity-flow-ast-broker" },
+        "engineVersion": { "type": "integer", "minimum": 1 },
+        "adapters": { "type": "array", "items": { "type": "object", "required": ["id", "version", "assurance", "status"], "properties": { "id": { "type": "string" }, "version": { "type": "string" }, "assurance": { "enum": ["syntax", "semantic"] }, "status": { "enum": ["cache-hit", "executed", "failed"] } }, "additionalProperties": false } },
+        "effectiveMode": { "enum": ["auto", "off"] },
+        "modeSources": { "type": "object", "required": ["repository", "local", "environment", "operation"], "properties": { "repository": { "enum": ["auto", "off"] }, "local": { "enum": ["auto", "off"] }, "environment": { "enum": ["auto", "off"] }, "operation": { "enum": ["auto", "off"] } }, "additionalProperties": false },
+        "cache": { "type": "object", "required": ["hits", "misses", "entries", "format"], "properties": { "hits": { "type": "integer", "minimum": 0 }, "misses": { "type": "integer", "minimum": 0 }, "entries": { "type": "integer", "minimum": 0 }, "format": { "const": "blob-cas-v2" } }, "additionalProperties": false },
+        "manifest": { "type": "string" },
+        "resumedFrom": { "type": "string" },
+        "query": { "type": "object", "required": ["predicate", "value"], "properties": { "predicate": { "enum": ["symbol", "import", "language", "path"] }, "value": { "type": "string" } }, "additionalProperties": false },
+        "gate": { "type": "object", "required": ["allowed", "blocking", "evaluatedPaths"], "properties": { "allowed": { "type": "boolean" }, "blocking": { "type": "array", "items": { "type": "string" } }, "evaluatedPaths": { "type": "array", "items": { "type": "string" } } }, "additionalProperties": false }
+      },
+      "additionalProperties": false
+    }
   },
   "additionalProperties": false
 }

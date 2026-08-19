@@ -152,16 +152,21 @@ test('every derived fact resolves in the repository it describes', async () => {
   // The claim the generated world model made constantly and never had to justify. Run against this
   // repository, which is large and real, rather than the fixture.
   const facts = await deriveRepositoryFacts(packageRoot, await worldModelSourceSnapshot(packageRoot, {}), { churn: false });
-  const tracked = new Set(
-    spawnSync('git', ['ls-files'], { cwd: packageRoot, encoding: 'utf8' }).stdout.split('\n').filter(Boolean)
+  // The source snapshot deliberately includes visible untracked work so an in-progress new module
+  // can ground a local build. Resolve against the same tracked-or-untracked universe instead of
+  // calling a real, readable new file nonexistent until its first commit.
+  const visible = new Set(
+    spawnSync('git', ['ls-files', '--cached', '--others', '--exclude-standard'], {
+      cwd: packageRoot, encoding: 'utf8'
+    }).stdout.split('\n').filter(Boolean)
   );
 
   for (const entry of facts.entryPoints) {
-    assert.ok(tracked.has(entry.path), `entry point does not exist: ${entry.path}`);
+    assert.ok(visible.has(entry.path), `entry point does not exist: ${entry.path}`);
   }
   for (const symbol of facts.symbols.slice(0, 200)) {
     const [file, lineNumber] = symbol.at.split(':');
-    assert.ok(tracked.has(file), `symbol cites a file that does not exist: ${symbol.at}`);
+    assert.ok(visible.has(file), `symbol cites a file that does not exist: ${symbol.at}`);
     const text = await readFile(path.join(packageRoot, file), 'utf8');
     const source = text.split('\n')[Number(lineNumber) - 1];
     assert.ok(source !== undefined, `symbol cites a line past the end of the file: ${symbol.at}`);

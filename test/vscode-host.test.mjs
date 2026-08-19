@@ -46,6 +46,7 @@ process.env.SINGULARITY_FLOW_ACTIVE_WORKSPACE = path.join(machineState, 'active-
 process.env.SINGULARITY_FLOW_WORKSPACE_REGISTRY ??= path.join(machineState, 'registry.json');
 process.env.SINGULARITY_FLOW_LEAD_REGISTRY ??= path.join(machineState, 'leads.json');
 process.env.SINGULARITY_FLOW_VSCODE_RESET_MARKER = path.join(machineState, 'vscode-fresh-reset-pending.json');
+process.env.SINGULARITY_FLOW_AST_PREFERENCE_FILE = path.join(machineState, 'ast-preference.json');
 
 const packageRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 const bundle = path.join(packageRoot, 'apps', 'vscode', 'dist', 'extension.cjs');
@@ -1105,6 +1106,55 @@ async function activated() {
   await extension.activate(context());
   return { root, api, registered, extension };
 }
+
+test('AST Intelligence edits every policy layer through one guarded VS Code surface', async (t) => {
+  if (!requireBundle(t)) return;
+  const { root, registered } = await activated();
+  await registered.commands.get('singularityFlow.configureAstIntelligence')();
+  const panel = registered.panels.find((entry) => entry.id === 'singularityFlow.astIntelligence');
+  assert.ok(panel, 'the AST settings panel opened');
+  await until(() => panel.webview.html.includes('Effective mode') ? true : null);
+  assert.match(panel.webview.html, /Repository policy/);
+  assert.match(panel.webview.html, /Machine preference/);
+  assert.match(panel.webview.html, /VS Code environment/);
+  assert.match(panel.webview.html, /name="generatedRoots"/);
+  assert.match(panel.webview.html, /name="languages"/);
+  assert.match(panel.webview.html, /name="predicates"/);
+  assert.match(panel.webview.html, /default-src 'none'/);
+
+  await panel.post({ type: 'save-machine', mode: 'off' });
+  await until(() => panel.webview.html.includes('Machine AST preference set to off') ? true : null);
+  assert.equal(YAML.parse(await readFile(process.env.SINGULARITY_FLOW_AST_PREFERENCE_FILE, 'utf8')).mode, 'off');
+  await panel.post({ type: 'save-machine', mode: 'auto' });
+  await until(() => panel.webview.html.includes('Machine AST preference set to auto') ? true : null);
+
+  await panel.post({
+    type: 'save-policy', mode: 'auto', fallback: 'text-only', generatedRoots: 'generated/types',
+    maxFiles: 41, maxBytes: 4096, maxFileBytes: 1024,
+    languages: 'typescript | auto | text',
+    predicates: 'entrypoint | advisory | path-exists | README.md | text'
+  });
+  await until(() => panel.webview.html.includes('Repository AST policy saved locally') ? true : null);
+  const workflow = YAML.parse(await readFile(path.join(root, 'singularity', 'workflow.yml'), 'utf8'));
+  assert.deepEqual(workflow.ast, {
+    mode: 'auto', fallback: 'text-only', generatedRoots: ['generated/types'],
+    budgets: { maxFiles: 41, maxBytes: 4096, maxFileBytes: 1024 },
+    languages: { typescript: { mode: 'auto', minimumAssurance: 'text' } },
+    predicates: [{ id: 'entrypoint', mode: 'advisory', type: 'path-exists', path: 'README.md', minimumAssurance: 'text' }]
+  });
+  assert.equal(workflow.worldModel.grounding, 'off', 'guided AST saving preserves unrelated world-model policy');
+  await settle();
+
+  await panel.post({ type: 'run-scope', operation: 'context', mode: 'auto', paths: ['README.md'], all: false, maxFiles: 10 });
+  await until(() => panel.webview.html.includes('AST context preview completed') && panel.webview.html.includes('Latest context result') ? true : null);
+  assert.match(panel.webview.html, /Latest context result/);
+  assert.doesNotMatch(panel.webview.html, /# Checkout/, 'source bodies never enter the settings webview');
+
+  await panel.post({ type: 'preview-cache', kind: 'clear' });
+  await until(() => panel.webview.html.includes('CLEAR AST CACHE') ? true : null);
+  await panel.post({ type: 'execute-cache', kind: 'clear', confirmation: 'wrong' });
+  await until(() => panel.webview.html.includes('Type CLEAR AST CACHE exactly') ? true : null);
+});
 
 test('the journey panel opens with a strict CSP and no remote origins', async (t) => {
   if (!requireBundle(t)) return;

@@ -1,0 +1,22 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://example.invalid/singularity-flow/ast-cone-manifest.schema.json",
+  "title": "Singularity Flow AST cone manifest",
+  "type": "object",
+  "required": ["schemaVersion", "id", "definitionSha256", "repositoryRevision", "coneSha256", "scope", "status", "entries", "skipped", "coverage", "createdAt", "integritySha256"],
+  "properties": {
+    "schemaVersion": { "const": 1 },
+    "id": { "type": "string", "pattern": "^[a-f0-9]{64}$" },
+    "definitionSha256": { "type": "string", "pattern": "^[a-f0-9]{64}$" },
+    "repositoryRevision": { "type": ["string", "null"] },
+    "coneSha256": { "type": "string", "pattern": "^[a-f0-9]{64}$" },
+    "scope": { "type": "object", "required": ["kind", "paths", "definitionSha256", "coneSha256"], "properties": { "kind": { "enum": ["changed", "cone", "paths", "all"] }, "paths": { "type": "array", "items": { "type": "string" } }, "definitionSha256": { "type": "string", "pattern": "^[a-f0-9]{64}$" }, "coneSha256": { "type": "string", "pattern": "^[a-f0-9]{64}$" } }, "additionalProperties": false },
+    "status": { "enum": ["complete", "partial"] },
+    "entries": { "type": "array", "items": { "type": "object", "required": ["path", "contentKey", "cacheKey", "sha256", "language", "size", "generated", "materialized", "requiredAssurance", "extractor", "assurance", "adapters"], "properties": { "path": { "type": "string" }, "contentKey": { "type": "string" }, "cacheKey": { "type": "string", "pattern": "^[a-f0-9]{64}$" }, "sha256": { "type": "string", "pattern": "^[a-f0-9]{64}$" }, "language": { "type": "string" }, "size": { "type": "integer", "minimum": 0 }, "generated": { "type": "boolean" }, "materialized": { "type": "boolean" }, "requiredAssurance": { "enum": ["text", "syntax", "semantic"] }, "extractor": { "type": "object" }, "assurance": { "enum": ["text", "syntax", "semantic"] }, "adapters": { "type": "array", "items": { "type": "object" } } }, "additionalProperties": false } },
+    "skipped": { "type": "array", "items": { "type": "object", "required": ["path", "reason", "language"], "properties": { "path": { "type": "string" }, "reason": { "type": "string" }, "language": { "type": "string" }, "bytes": { "type": "integer", "minimum": 0 }, "required": { "enum": ["text", "syntax", "semantic"] } }, "additionalProperties": false } },
+    "coverage": { "type": "object", "required": ["selected", "processed", "skipped", "bytes", "facts", "factsExamined", "factsMatched", "factsReturned", "byLanguage"], "properties": { "selected": { "type": "integer", "minimum": 0 }, "processed": { "type": "integer", "minimum": 0 }, "skipped": { "type": "integer", "minimum": 0 }, "bytes": { "type": "integer", "minimum": 0 }, "facts": { "type": "integer", "minimum": 0 }, "factsExamined": { "type": "integer", "minimum": 0 }, "factsMatched": { "type": "integer", "minimum": 0 }, "factsReturned": { "type": "integer", "minimum": 0 }, "byLanguage": { "type": "object", "additionalProperties": { "type": "integer", "minimum": 0 } } }, "additionalProperties": false },
+    "createdAt": { "type": "string" },
+    "integritySha256": { "type": "string", "pattern": "^[a-f0-9]{64}$" }
+  },
+  "additionalProperties": false
+}

@@ -363,6 +363,8 @@ export function run(command, args = [], {
   shell = false,
   stdio = 'pipe',
   timeoutMs = defaultTimeoutFor(command),
+  /** Override Node's small spawnSync output ceiling for deliberately bounded batch readers. */
+  maxBuffer = undefined,
   /**
    * Text to write to the child's stdin.
    *
@@ -398,6 +400,7 @@ export function run(command, args = [], {
   const probe = process.env.SINGULARITY_FLOW_SUBPROCESS_PROBE ? performance.now() : 0;
   const result = spawnSync(command, args, {
     cwd, env, encoding, shell, stdio, timeout: timeoutMs,
+    ...(maxBuffer === undefined ? {} : { maxBuffer }),
     /**
      * Always bytes.
      *

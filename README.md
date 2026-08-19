@@ -1500,10 +1500,17 @@ New lifecycle state pins that resolution so an active Story does not drift when
 the capability map changes.
 
 For bounded structural references, `singularity-flow wm ast context --paths src --json` uses the
-same pinned scope and a content-aware worktree binding. Its built-in result is explicitly
-`text` assurance; optional compiler adapters are not kernel dependencies. With no configured roots,
+same pinned scope and a selected-cone content binding. Its built-in result is explicitly
+`text` assurance; explicitly configured compiler adapters execute through a bounded structured-argv
+contract and are not kernel dependencies. Blob skeletons are reused by content hash, so an
+unrelated monorepo edit does not invalidate the selected cone. With no configured roots,
 the default is changed tracked files—not a monorepo-wide scan—and `--all` must be explicit. See
 [AST Intelligence](docs/AST-INTELLIGENCE.md) for policy, cache, preference, and adapter details.
+In VS Code, use **Singularity Flow → Configuration → AST intelligence**, the Configuration Center,
+or **Singularity Flow: AST Intelligence Settings** from the Command Palette. The panel exposes
+repository and machine policy, lifecycle-gate receipts, bounded previews, adapter availability,
+cache hit/miss evidence, and guarded cache cleanup;
+environment policy is displayed read-only and configuration changes remain local until published.
 
 For new workspaces, **Map a capability** can select a `blobless` or
 `blobless-sparse` clone. Sparse mode always retains `singularity/` and

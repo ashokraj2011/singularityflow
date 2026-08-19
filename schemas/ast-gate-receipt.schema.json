@@ -1,0 +1,25 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://example.invalid/singularity-flow/ast-gate-receipt.schema.json",
+  "title": "Singularity Flow AST lifecycle gate receipt",
+  "type": "object",
+  "required": ["schemaVersion", "workId", "phase", "generation", "policySha256", "repositoryRevision", "coneSha256", "scope", "assurance", "status", "predicates", "diagnostics", "allowed", "evaluatedAt", "integritySha256"],
+  "properties": {
+    "schemaVersion": { "const": 1 },
+    "workId": { "type": "string", "minLength": 1 },
+    "phase": { "type": "string", "minLength": 1 },
+    "generation": { "type": "integer", "minimum": 1 },
+    "policySha256": { "type": "string", "pattern": "^[a-f0-9]{64}$" },
+    "repositoryRevision": { "type": ["string", "null"] },
+    "coneSha256": { "type": "string", "pattern": "^[a-f0-9]{64}$" },
+    "scope": { "type": "object", "required": ["kind", "paths", "evaluatedPaths"], "properties": { "kind": { "enum": ["changed", "cone", "paths", "all"] }, "paths": { "type": "array", "items": { "type": "string" } }, "evaluatedPaths": { "type": "array", "items": { "type": "string" } } }, "additionalProperties": false },
+    "assurance": { "enum": ["text", "syntax", "semantic"] },
+    "status": { "enum": ["complete", "partial", "disabled", "unsupported", "stale", "failed"] },
+    "predicates": { "type": "array", "items": { "type": "object", "required": ["id", "mode", "requiredAssurance", "outcome"], "properties": { "id": { "type": "string" }, "mode": { "enum": ["required", "advisory"] }, "requiredAssurance": { "enum": ["text", "syntax", "semantic"] }, "outcome": { "enum": ["pass", "fail", "unknown"] } }, "additionalProperties": false } },
+    "diagnostics": { "type": "array", "items": { "type": "object", "required": ["code"], "properties": { "code": { "type": "string" }, "message": { "type": "string" }, "adapter": { "type": "string" }, "source": { "type": "string" } }, "additionalProperties": false } },
+    "allowed": { "const": true },
+    "evaluatedAt": { "type": "string" },
+    "integritySha256": { "type": "string", "pattern": "^[a-f0-9]{64}$" }
+  },
+  "additionalProperties": false
+}

@@ -219,6 +219,10 @@ export const RESULT_MESSAGES = Object.freeze({
   'mcp.evidence-observation-required': M(
     'This snapshot is retained for audit only',
     'It was supplied by an agent rather than captured by the MCP host, so it does not satisfy host-observed evidence gates.'
+  ),
+  'ast.bounded-structural-evidence': M(
+    'Bounded structural evidence',
+    'This read reports structural facts from the selected repository cone without returning source bodies or changing repository state.'
   )
 });
 

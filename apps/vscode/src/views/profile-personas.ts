@@ -53,7 +53,7 @@ export const PROFILE_PERSONAS: readonly ProfilePersona[] = Object.freeze([
   },
   {
     id: 'architect', label: 'Architect', description: 'system impact and governed design',
-    menuIds: personaMenus('my-work', 'impact-form', 'flow-impact', 'configuration-center'),
+    menuIds: personaMenus('my-work', 'impact-form', 'flow-impact', 'configuration-center', 'ast-intelligence'),
     sectionOrder: ['favorites', 'configuration', 'lifecycle', 'inbox', 'workspaces', 'help', 'logs']
   },
   {
@@ -83,7 +83,7 @@ export const PROFILE_PERSONAS: readonly ProfilePersona[] = Object.freeze([
   },
   {
     id: 'admin', label: 'Admin', description: 'workspace and product configuration',
-    menuIds: personaMenus('workspace-manage', 'local-reset', 'configuration-center', 'capability-map', 'diagnostics'),
+    menuIds: personaMenus('workspace-manage', 'local-reset', 'configuration-center', 'ast-intelligence', 'capability-map', 'diagnostics'),
     sectionOrder: ['favorites', 'workspaces', 'configuration', 'logs', 'help', 'inbox', 'lifecycle']
   },
   {

@@ -108,6 +108,7 @@ const SECTION_META: Record<SidebarSection, {
   configuration: {
     label: 'Configuration', icon: 'configuration', actions: [
       { id: 'configuration-center', label: 'Open Configuration Center', icon: 'configuration' },
+      { id: 'ast-intelligence', label: 'AST intelligence', icon: 'worldModel' },
       // A review queue rather than a tab: proposals arrive from other people and wait for a
       // decision, so they are found by looking rather than by remembering a command name.
       /**
@@ -194,6 +195,7 @@ const ACTION_COMMANDS: Record<string, string> = {
   'logs-open': 'singularityFlow.openWorkspaceLogs',
   'logs-refresh': 'singularityFlow.refreshWorkspaceLogs',
   'configuration-center': 'singularityFlow.openConfigurationCenter',
+  'ast-intelligence': 'singularityFlow.configureAstIntelligence',
   'approvals-open': 'singularityFlow.openApprovals',
   'capability-proposals': 'singularityFlow.reviewCapabilityProposals',
   'flow-impact': 'singularityFlow.openFlowImpact'
@@ -226,6 +228,7 @@ export const FAVORITE_MENUS: readonly FavoriteMenu[] = Object.freeze([
   { id: 'diagnostics', label: 'Diagnostics', description: 'repository and schema health', icon: 'statusCurrent', command: ACTION_COMMANDS.diagnostics! },
   { id: 'local-reset', label: 'Local Data & Reset', description: 'preview local cleanup', icon: 'remove', command: ACTION_COMMANDS['local-reset']! },
   { id: 'configuration-center', label: 'Configuration Center', description: 'governed product configuration', icon: 'configuration', command: ACTION_COMMANDS['configuration-center']! },
+  { id: 'ast-intelligence', label: 'AST intelligence', description: 'structural policy, assurance and cache', icon: 'worldModel', command: ACTION_COMMANDS['ast-intelligence']! },
   { id: 'capability-map', label: 'Map a capability', description: 'capability ownership and repositories', icon: 'capability', command: ACTION_COMMANDS['capability-map']! },
   { id: 'visual-assurance', label: 'Visual assurance', description: 'design and comparison evidence', icon: 'visual', command: ACTION_COMMANDS['visual-assurance']! },
   { id: 'impact-form', label: 'Impact of a change', description: 'quick change analysis', icon: 'compare', command: ACTION_COMMANDS['impact-form']! },

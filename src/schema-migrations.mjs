@@ -42,6 +42,39 @@ function identity(next) {
   return (record) => ({ ...record, schemaVersion: next });
 }
 
+function astResultV1ToV2(source) {
+  const facts = (source.facts ?? []).map((fact) => ({
+    ...fact,
+    ...(fact.kind === 'file' || fact.kind === 'symbol' || fact.kind === 'import' || fact.kind === 'relationship'
+      ? { assurance: fact.assurance ?? 'text', generated: fact.generated === true }
+      : {})
+  }));
+  const count = facts.length;
+  return {
+    ...source,
+    schemaVersion: 2,
+    coverage: {
+      selected: source.coverage?.selected ?? 0,
+      processed: source.coverage?.processed ?? 0,
+      skipped: source.coverage?.skipped ?? 0,
+      bytes: source.coverage?.bytes ?? 0,
+      facts: count,
+      factsExamined: source.coverage?.factsExamined ?? source.coverage?.facts ?? count,
+      factsMatched: source.coverage?.factsMatched ?? source.coverage?.facts ?? count,
+      factsReturned: source.coverage?.factsReturned ?? count,
+      byLanguage: clone(source.coverage?.byLanguage ?? {})
+    },
+    facts
+  };
+}
+
+function astResumeJobV1ToV2(source) {
+  // v1 retained only a cursor and repository-wide fingerprint, so it cannot safely be upgraded to
+  // v2's exact candidate set and accumulated pages. Preserve enough identity to produce an
+  // intentional stale-handle remedy rather than misreading it as a v2 job.
+  return { ...source, schemaVersion: 2, legacyV1: true };
+}
+
 function legacyStoryPhase(phase, id, index) {
   const requiredArtifact = clone(phase?.requiredArtifact ?? phase?.artifact ?? null);
   return {
@@ -457,8 +490,21 @@ const families = [
   family({ id: 'workspace-registry', currentVersion: 1, paths: [/^\$local\/workspaces\.json$/] }),
   family({ id: 'active-workspace', currentVersion: 1, paths: [/^\$local\/active-workspace\.json$/] }),
   family({ id: 'ast-preference', currentVersion: 1, paths: [/^\$local\/ast-preference\.json$/] }),
-  family({ id: 'ast-resume-job', currentVersion: 1, paths: [/^\$git\/ast\/v1\/jobs\/[^/]+\.json$/] }),
-  family({ id: 'ast-result', currentVersion: 1, paths: [/^\$git\/ast\/v1\/snapshots\/[^/]+\.json$/] }),
+  family({
+    id: 'ast-resume-job', currentVersion: 2,
+    steps: [migration(1, 2, astResumeJobV1ToV2)],
+    paths: [/^\$git\/ast\/v[12]\/jobs\/[^/]+\.json$/]
+  }),
+  family({
+    id: 'ast-result', currentVersion: 2,
+    steps: [migration(1, 2, astResultV1ToV2)],
+    // v2 cone manifests are a distinct durable family. Keeping this path on legacy snapshots
+    // prevents the first-match path registry from interpreting a v2 manifest as an AST result.
+    paths: [/^\$git\/ast\/v1\/snapshots\/[^/]+\.json$/]
+  }),
+  family({ id: 'ast-cache-blob', currentVersion: 1, paths: [/^\$git\/ast\/v2\/blobs\/[a-f0-9]{64}\.json$/] }),
+  family({ id: 'ast-cone-manifest', currentVersion: 1, paths: [/^\$git\/ast\/v2\/manifests\/[a-f0-9]{64}\.json$/] }),
+  family({ id: 'ast-gate-receipt', currentVersion: 1, paths: [/^singularity\/work-items\/[^/]+\/context\/ast\/[^/]+\.json$/], immutable: true }),
   family({ id: 'organisation-cache', currentVersion: 1, paths: [/^\$local\/organisation-cache\/[^/]+\.json$/] }),
   family({ id: 'capability-lead-registry', currentVersion: 1, paths: [/^\$local\/leads\.json$/] }),
   family({ id: 'reinstall-plan', currentVersion: 1, paths: [/^\$temp\/singularity-flow-reinstall-plans\/.+\/reinstall-plan\.json$/] }),

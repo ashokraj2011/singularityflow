@@ -206,6 +206,18 @@ export const ARGUMENT_SCHEMAS = Object.freeze([
     path: optional('relative-path'),
     question: optional('text')
   }),
+  schema('ast-context-v1', {
+    path: optional('relative-path'),
+    all: optional('boolean'),
+    maxFiles: optional('integer', { min: 1, max: 10000 })
+  }),
+  schema('ast-query-v1', {
+    predicate: required('enum', { values: ['symbol', 'import', 'language', 'path'] }),
+    value: required('string', { maxLength: 500 }),
+    path: optional('relative-path'),
+    all: optional('boolean'),
+    maxFiles: optional('integer', { min: 1, max: 10000 })
+  }),
   schema('intent-trace-v1', {
     repositoryId: required('identifier'),
     path: required('relative-path'),

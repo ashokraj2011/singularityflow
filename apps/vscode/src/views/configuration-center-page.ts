@@ -19,7 +19,8 @@ const CONFIGURATION_NAVIGATION: Array<{ label: string; items: ConfigurationNavig
     { label: 'Overview', glyph: 'configuration', tab: 'overview' },
     { label: 'Capabilities', glyph: 'capability', action: 'capabilities' },
     { label: 'Workflows & artifacts', glyph: 'workflow', action: 'workflow' },
-    { label: 'World model', glyph: 'worldModel', tab: 'world-model' }
+    { label: 'World model', glyph: 'worldModel', tab: 'world-model' },
+    { label: 'AST intelligence', glyph: 'worldModel', action: 'ast-intelligence' }
   ] },
   { label: 'AI & automation', items: [
     { label: 'Agents & delivery', glyph: 'agent', action: 'open-instruction-designer' },

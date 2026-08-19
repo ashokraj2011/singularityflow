@@ -1,0 +1,37 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://example.invalid/singularity-flow/ast-cache-blob.schema.json",
+  "title": "Singularity Flow AST content-addressed skeleton",
+  "type": "object",
+  "required": ["schemaVersion", "key", "contentKey", "sha256", "language", "extractor", "facts", "integritySha256"],
+  "properties": {
+    "schemaVersion": { "const": 1 },
+    "key": { "type": "string", "pattern": "^[a-f0-9]{64}$" },
+    "contentKey": { "type": "string", "minLength": 1 },
+    "sha256": { "type": "string", "pattern": "^[a-f0-9]{64}$" },
+    "language": { "type": "string", "minLength": 1 },
+    "extractor": {
+      "type": "object",
+      "required": ["id", "version", "assurance"],
+      "properties": {
+        "id": { "type": "string", "minLength": 1 },
+        "version": { "type": ["integer", "string"] },
+        "assurance": { "enum": ["text", "syntax", "semantic"] }
+      },
+      "additionalProperties": false
+    },
+    "facts": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "oneOf": [
+          { "required": ["kind", "name", "declarationKind", "line", "assurance"], "properties": { "kind": { "const": "symbol" }, "name": { "type": "string" }, "declarationKind": { "type": "string" }, "line": { "type": "integer", "minimum": 1 }, "assurance": { "enum": ["text", "syntax", "semantic"] } }, "additionalProperties": false },
+          { "required": ["kind", "target", "assurance"], "properties": { "kind": { "const": "import" }, "target": { "type": "string" }, "assurance": { "enum": ["text", "syntax", "semantic"] } }, "additionalProperties": false },
+          { "required": ["kind", "type", "target", "assurance"], "properties": { "kind": { "const": "relationship" }, "type": { "type": "string" }, "target": { "type": "string" }, "sourceId": { "type": "string" }, "assurance": { "enum": ["text", "syntax", "semantic"] } }, "additionalProperties": false }
+        ]
+      }
+    },
+    "integritySha256": { "type": "string", "pattern": "^[a-f0-9]{64}$" }
+  },
+  "additionalProperties": false
+}

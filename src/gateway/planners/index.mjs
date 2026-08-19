@@ -10,6 +10,7 @@
  * result-shaped.
  */
 import { helpExplain } from './help-explain.mjs';
+import { astContextPlanner, astQueryPlanner, astStatusPlanner } from './ast-intelligence.mjs';
 import { developerNext } from './developer-next.mjs';
 import { homeOverview } from './home-overview.mjs';
 import { impactQuick } from './impact-quick.mjs';
@@ -28,6 +29,9 @@ import {
 
 export function gatewayPlanners(overrides = {}) {
   return new Map(Object.entries({
+    'ast-context': astContextPlanner,
+    'ast-query': astQueryPlanner,
+    'ast-status': astStatusPlanner,
     'help-explain': helpExplain,
     'developer-next': developerNext,
     'home-overview': homeOverview,
@@ -50,6 +54,7 @@ export function gatewayPlanners(overrides = {}) {
 }
 
 export {
+  astContextPlanner, astQueryPlanner, astStatusPlanner,
   developerNext, helpExplain, homeOverview, impactQuick, reviewPacket, workContinue, workHandoff,
   workList, workReadiness, workReturn, workStartIntake, workspaceList,
   repositoryOpenGuide, workspaceBootstrapStatus, workspaceDoctorGuide, workspaceExploreGuide,

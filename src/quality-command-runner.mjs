@@ -38,7 +38,8 @@ export function runQualityCommand(command, args = [], {
   env = process.env,
   shell = false,
   timeoutMs,
-  captureBytes = DEFAULT_CAPTURE_BYTES
+  captureBytes = DEFAULT_CAPTURE_BYTES,
+  input = null
 } = {}) {
   return new Promise((resolve) => {
     const stdout = boundedCapture(captureBytes);
@@ -49,13 +50,14 @@ export function runQualityCommand(command, args = [], {
     let hardKillTimer = null;
     let child;
     try {
-      child = spawn(command, args, { cwd, env, shell, stdio: ['ignore', 'pipe', 'pipe'] });
+      child = spawn(command, args, { cwd, env, shell, stdio: [input == null ? 'ignore' : 'pipe', 'pipe', 'pipe'] });
     } catch (caught) {
       resolve({ status: 1, signal: null, error: caught, timedOut: false, stdout: '', stderr: '', stdoutBytes: 0, stderrBytes: 0, stdoutTruncated: false, stderrTruncated: false });
       return;
     }
     child.stdout?.on('data', (chunk) => stdout.add(chunk));
     child.stderr?.on('data', (chunk) => stderr.add(chunk));
+    if (input != null) child.stdin?.end(Buffer.isBuffer(input) ? input : Buffer.from(String(input), 'utf8'));
     child.on('error', (caught) => { error = caught; });
     const timer = timeoutMs == null ? null : setTimeout(() => {
       timedOut = true;

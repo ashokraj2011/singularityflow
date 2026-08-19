@@ -22,6 +22,7 @@ import {
   loadActiveSpecRecords,
   specificationSourceTreeHash
 } from './specifications.mjs';
+import { verifyAstLifecycleReceipt } from './ast-lifecycle.mjs';
 
 function trackedFiles(root) { return run('git', ['ls-files', '-z'], { cwd: root }).stdout.split('\0').filter(Boolean); }
 function ids(text, pattern) { return [...new Set([...text.matchAll(pattern)].map((match) => match[0]))]; }
@@ -108,6 +109,14 @@ export async function runGovernanceGate(root, config, workflow, { terminal = fal
         else passes.push(`grounding audit committed: ${phaseId} generation ${generation}`);
         if (grounding.record?.promptPath && run('git', ['cat-file', '-e', `${found[0]}:${grounding.record.promptPath}`], { cwd: root, allowFailure: true }).status !== 0) errors.push(`grounding prompt snapshot was not committed with ${phaseId} generation ${generation}`);
       }
+      // Historical receipts are checked as immutable evidence at their generation commit. A later
+      // phase may legitimately change a previously evaluated source file; only the active
+      // publish-to-submit boundary re-evaluates live bytes.
+      const ast = await verifyAstLifecycleReceipt(root, config, workflow, phase, {
+        generation, revalidate: false, sourceCommit: found?.[0] ?? null
+      });
+      errors.push(...ast.errors); warnings.push(...ast.warnings);
+      if (found) passes.push(...ast.passes);
       const authorship = (phase.authorship ?? []).find((record) => record.generation === generation);
       if (authorship?.producer === 'governed-agent') {
         const clarification = await verifyClarificationRecord(root, config, workflow, phase, { generation, groundingRecord: grounding.record });

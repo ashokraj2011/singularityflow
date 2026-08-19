@@ -639,7 +639,7 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
     'singularityFlow.openWorkspaceLogs', 'singularityFlow.refreshWorkspaceLogs', 'singularityFlow.openSpecificationTrace',
     'singularityFlow.inspectCompositionCache', 'singularityFlow.checkLedgerDeployment', 'singularityFlow.openCopilot',
     'singularityFlow.openVisualAssurance',
-    'singularityFlow.openConfigurationCenter', 'singularityFlow.configureWorldModel', 'singularityFlow.configurePeople', 'singularityFlow.configureMcp',
+    'singularityFlow.openConfigurationCenter', 'singularityFlow.configureWorldModel', 'singularityFlow.configureAstIntelligence', 'singularityFlow.configurePeople', 'singularityFlow.configureMcp',
     'singularityFlow.configureTemplates', 'singularityFlow.configureModels',
     'singularityFlow.reopenCompleted', 'singularityFlow.cancelWork',
     'singularityFlow.expandReference', 'singularityFlow.openHarnessReport'
@@ -2142,10 +2142,10 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
     await store.refresh();
     diagnosticHasRepository = true;
     diagnosticClient.useRepository(target);
-    const [{ GoalsPanel }, { FaultRepairsPanel }, { JournalPanel }, { DiagnosticsPanel }] = await Promise.all([
-      import('./views/goals.ts'), import('./views/fault-repairs.ts'), import('./views/journal.ts'), import('./views/diagnostics.ts')
+    const [{ GoalsPanel }, { FaultRepairsPanel }, { JournalPanel }, { DiagnosticsPanel }, { AstIntelligencePanel }] = await Promise.all([
+      import('./views/goals.ts'), import('./views/fault-repairs.ts'), import('./views/journal.ts'), import('./views/diagnostics.ts'), import('./views/ast-intelligence.ts')
     ]);
-    GoalsPanel.repositoryChanged(); FaultRepairsPanel.repositoryChanged(); JournalPanel.repositoryChanged(); DiagnosticsPanel.refreshCurrent();
+    GoalsPanel.repositoryChanged(); FaultRepairsPanel.repositoryChanged(); JournalPanel.repositoryChanged(); DiagnosticsPanel.refreshCurrent(); AstIntelligencePanel.repositoryChanged();
     void refreshReadiness();
     void refreshWorkspaceLogsTree();
     output.appendLine(`Governed repository: ${repository} (the lead repository of your active workspace, ${selected.workspaceName})`);
@@ -2879,6 +2879,7 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
     else if (message.action === 'workflow') await vscode.commands.executeCommand('singularityFlow.openDesigner');
     else if (message.action === 'instructions') await vscode.commands.executeCommand('singularityFlow.openInstructionDesigner');
     else if (message.action === 'world-model') { await openConfigurationCenter('world-model'); return null; }
+    else if (message.action === 'ast-intelligence') await vscode.commands.executeCommand('singularityFlow.configureAstIntelligence');
     else if (message.action === 'people') { await openConfigurationCenter('people'); return null; }
     else if (message.action === 'mcp') { await openConfigurationCenter('mcp'); return null; }
     else if (message.action === 'models') { await openConfigurationCenter('models'); return null; }
@@ -3198,6 +3199,10 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
     },
     'singularityFlow.openConfigurationCenter': () => openConfigurationCenter('overview'),
     'singularityFlow.configureWorldModel': () => openConfigurationCenter('world-model'),
+    'singularityFlow.configureAstIntelligence': async () => {
+      const { AstIntelligencePanel } = await import('./views/ast-intelligence.ts');
+      return AstIntelligencePanel.show(context, client, store);
+    },
     'singularityFlow.publishConfiguration': async () => {
       const repository = store.current.snapshot?.repository;
       const files = repository?.configurationChanges ?? [];

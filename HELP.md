@@ -1854,6 +1854,14 @@ reserved for validated optional adapters. The active Story's pinned capability r
 default cone; when no roots are configured, the default is changed tracked paths, never the whole
 repository. Use `--all` only deliberately.
 
+In VS Code, open **Singularity Flow → Configuration → AST intelligence**, choose **AST
+intelligence** in the Configuration Center, or run **Singularity Flow: AST Intelligence Settings**.
+The guided surface covers repository and machine policy, lifecycle enforcement, bounded
+context/build previews, adapter availability and execution status, cache hits/misses, and cache
+maintenance. Environment overrides remain visible but read-only. Saving a
+repository policy is local until it is reviewed and published through the normal configuration
+flow.
+
 ```bash
 singularity-flow wm ast doctor
 singularity-flow wm ast context --paths src --json
@@ -1864,8 +1872,10 @@ singularity-flow wm ast preference set off
 ```
 
 The effective mode is the most restrictive repository, machine, environment, and operation value.
-`off` returns a valid disabled envelope and writes no AST cache. Derived snapshots live under the
-Git common directory and never contain source bodies. See [AST Intelligence](docs/AST-INTELLIGENCE.md).
+`off` returns a valid disabled envelope before repository enumeration and writes no AST cache.
+Derived per-blob records and cone manifests live under the Git common directory and never contain
+source bodies. Configured required predicates run before publication and their governed receipts
+are revalidated before submission. See [AST Intelligence](docs/AST-INTELLIGENCE.md).
 
 For a deterministic zero-token baseline, run this inside the application
 repository:

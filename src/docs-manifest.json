@@ -1,9 +1,9 @@
 {
   "schemaVersion": 1,
   "generatedFrom": "docs/topics",
-  "sourceCommit": "427ce90404409f5fa8adacedf2decba952bc05ef",
-  "topicCount": 53,
-  "contentSha256": "8a9b02c2585122c7d48c61e91aa39959d3cb7f476d2d03b97d303ff0a78236c2",
+  "sourceCommit": "3f2c0b6e30ac4f1e281c6b37a4e7385e1a76e5fd",
+  "topicCount": 54,
+  "contentSha256": "9f77c4f248739e2d5c639e7704baf39e8753279f82f8220a59cb438d255b8612",
   "topics": [
     {
       "id": "activity-and-prompt-audit",
@@ -78,8 +78,8 @@
     {
       "id": "developer-home",
       "title": "Developer Home and returning to work",
-      "version": 5,
-      "sha256": "06a28caa7d3ceb67af93b38774b4e39948cfb4b024b99184b8f68525491ff913",
+      "version": 6,
+      "sha256": "01720d1cda1ba4b6763b9a6c12d5d14c533793539e50ca6782a8b57a5b36701b",
       "file": "developer-home.md"
     },
     {
@@ -193,6 +193,13 @@
       "version": 1,
       "sha256": "cf115f0c05d60592682651e939dcb8471562fad49aed7e69f1dbe514d2af5709",
       "file": "knowledge-and-remote-assets.md"
+    },
+    {
+      "id": "local-work-journal",
+      "title": "Private local work journal",
+      "version": 1,
+      "sha256": "bb7ef578146697c46678d995d61b713cb36664685009ef9fb7b66245f0bdc95f",
+      "file": "local-work-journal.md"
     },
     {
       "id": "manual-authorship",

@@ -55,7 +55,7 @@ test('AST policy is closed, bounded, and cannot disable a required predicate', (
   assert.throws(() => normalizeAstPolicy({ surprise: true }), /unknown field/);
 });
 
-test('v1 AST results migrate with truthful v2 accounting and legacy resume jobs fail intentionally', () => {
+test('v1 AST results migrate with truthful current accounting and legacy resume jobs fail intentionally', () => {
   const result = validateAstResultEnvelope({
     schemaVersion: 1, operation: 'context',
     scope: { kind: 'paths', paths: ['one.ts'], definitionSha256: 'a'.repeat(64), repositoryRevision: 'b'.repeat(40), worktreeFingerprint: 'c'.repeat(64) },
@@ -65,13 +65,25 @@ test('v1 AST results migrate with truthful v2 accounting and legacy resume jobs 
     diagnostics: [], degradation: [], resumeHandle: null,
     provenance: { engine: 'singularity-flow-ast-broker', engineVersion: 1, adapters: [], effectiveMode: 'auto', modeSources: {} }
   });
-  assert.equal(result.schemaVersion, 2);
+  assert.equal(result.schemaVersion, 3);
   assert.equal(result.coverage.factsExamined, 1);
   assert.equal(result.facts[0].generated, false);
   assert.equal(result.facts[0].assurance, 'text');
+  assert.equal(result.facts[0].extractor.id, 'legacy-unknown');
+  assert.equal(result.nextCursor, null);
+  assert.equal(result.page.returned, 1);
   assert.equal(readRecord('ast-resume-job', { schemaVersion: 1, cursor: 'one.ts' }).record.legacyV1, true);
   assert.equal(familyForStoredPath('$git/ast/v1/snapshots/legacy.json')?.id, 'ast-result');
   assert.equal(familyForStoredPath(`$git/ast/v2/manifests/${'a'.repeat(64)}.json`)?.id, 'ast-cone-manifest');
+
+  const legacyGate = readRecord('ast-result', {
+    schemaVersion: 2, operation: 'gate', facts: [{
+      id: 'legacy-required', mode: 'required', requiredAssurance: 'text', outcome: 'pass'
+    }], coverage: { facts: 1 }, provenance: {}
+  }).record;
+  assert.equal(legacyGate.schemaVersion, 3);
+  assert.deepEqual(legacyGate.facts[0].extractors, []);
+  assert.equal(legacyGate.page.available, 1);
 });
 
 test('the most restrictive preference wins and show has no write side effect', async () => withPreferenceFile(async () => {
@@ -189,7 +201,7 @@ test('gateway and Copilot hosts receive bounded AST reads without gaining cache 
   assert.equal((await astCacheStatus(root)).exists, false);
 }));
 
-test('a partial gate never reports allowed even when its required predicate passed', async () => withPreferenceFile(async () => {
+test('a lexical symbol match never satisfies a required symbol gate', async () => withPreferenceFile(async () => {
   const root = await repository();
   await initializeDefinition(root);
   const workflowPath = path.join(root, 'singularity', 'workflow.yml');
@@ -200,8 +212,59 @@ test('a partial gate never reports allowed even when its required predicate pass
   ));
   const result = await astCommand(root, ['gate'], { paths: 'one.ts,two.ts', 'max-files': '1' });
   assert.equal(result.status, 'partial');
-  assert.equal(result.facts.find((item) => item.id === 'one-exists')?.outcome, 'pass');
+  assert.equal(result.facts.find((item) => item.id === 'one-exists')?.outcome, 'unknown');
+  assert.equal(result.facts.find((item) => item.id === 'one-exists')?.requiredAssurance, 'syntax');
+  assert.deepEqual(result.facts.find((item) => item.id === 'one-exists')?.extractors, [
+    { id: 'builtin-text', version: 1, assurance: 'text' }
+  ]);
   assert.equal(result.provenance.gate.allowed, false);
+}));
+
+test('commented-out declarations remain advisory and cannot pass a required lifecycle predicate', async () => withPreferenceFile(async () => {
+  const root = await repository();
+  await writeFile(path.join(root, 'ghost.ts'), '/*\nexport function Ghost() {}\n*/\n');
+  git(root, ['add', 'ghost.ts']);
+  git(root, ['commit', '-qm', 'comment fixture']);
+  await initializeDefinition(root);
+  const workflowPath = path.join(root, 'singularity', 'workflow.yml');
+  const template = await readFile(workflowPath, 'utf8');
+  await writeFile(workflowPath, template.replace(
+    '  fallback: host-and-text\n',
+    '  fallback: host-and-text\n  predicates:\n    - id: ghost-exists\n      mode: required\n      type: symbol-exists\n      symbol: Ghost\n      minimumAssurance: text\n'
+  ));
+  const result = await astCommand(root, ['gate'], { paths: 'ghost.ts' });
+  const predicate = result.facts.find((item) => item.id === 'ghost-exists');
+  assert.equal(predicate.outcome, 'unknown');
+  assert.equal(predicate.requiredAssurance, 'syntax');
+  assert.equal(result.provenance.gate.allowed, false);
+}));
+
+test('context output is fact- and byte-bounded and continues through a cone-bound opaque cursor', async () => withPreferenceFile(async () => {
+  const root = await repository();
+  await writeFile(path.join(root, 'many.ts'), Array.from({ length: 80 }, (_, index) => `export const symbol${index} = ${index};`).join('\n'));
+  git(root, ['add', 'many.ts']);
+  git(root, ['commit', '-qm', 'many symbols']);
+  const first = await astCommand(root, ['context'], {
+    paths: 'many.ts', 'max-facts': '7', 'max-output-bytes': '16384'
+  });
+  assert.equal(first.facts.length, 7);
+  assert.equal(first.page.offset, 0);
+  assert.equal(first.page.available, 81);
+  assert.equal(first.page.hasMore, true);
+  assert.match(first.nextCursor, /^astp_/);
+  assert.ok(Buffer.byteLength(JSON.stringify(first, null, 2)) <= 16_384);
+  assert.equal((await astCacheStatus(root)).exists, false, 'stateless read paging does not populate the AST cache');
+
+  const second = await astCommand(root, ['context'], { cursor: first.nextCursor });
+  assert.equal(second.page.offset, 7);
+  assert.equal(second.facts.length, 7);
+  assert.notDeepEqual(second.facts, first.facts);
+
+  await writeFile(path.join(root, 'many.ts'), `${await readFile(path.join(root, 'many.ts'), 'utf8')}\nexport const changed = true;\n`);
+  await assert.rejects(
+    () => astCommand(root, ['context'], { cursor: first.nextCursor }),
+    (error) => error.code === 'AST_READ_CURSOR_STALE'
+  );
 }));
 
 test('build writes only to the git-common cache and cache clear is confirmation-bound', async () => withPreferenceFile(async () => {

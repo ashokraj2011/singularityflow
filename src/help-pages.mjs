@@ -486,7 +486,9 @@ const PAGES = Object.freeze({
       ['singularity-flow wm build --depth quick', 'Build the world model at quick depth.'],
       ['singularity-flow wm compose --phase intake', 'Compose the grounding for a phase.'],
       ['singularity-flow wm light --local', 'Deterministic lightweight model, no provider needed.'],
-      ['singularity-flow wm ast context --paths src --json', 'Read a bounded, text-assurance structural context without invoking a model.'],
+      ['singularity-flow wm ast context --paths src --max-facts 50 --max-output-bytes 32768 --json', 'Read a bounded, page-continuable structural context without invoking a model.'],
+      ['singularity-flow wm recovery list', 'List validated snapshots retained after publication failure.'],
+      ['singularity-flow wm recovery publish 1720000000000-abcd-intake --confirm 1720000000000-abcd-intake', 'Republish retained validated bytes without another provider call.'],
       ['singularity-flow wm ast doctor', 'Show effective AST policy, scope, cache, and optional adapter health.']
     ],
     seeAlso: ['phase', 'doctor', 'capability']

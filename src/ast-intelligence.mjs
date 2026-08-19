@@ -23,6 +23,12 @@ const AST_RESUME_JOB_SCHEMA_VERSION = currentSchemaVersion('ast-resume-job');
 const STORE_DIR = 'singularity-flow/ast/v2';
 const LEGACY_STORE_DIR = 'singularity-flow/ast/v1';
 const BUILTIN_EXTRACTOR = Object.freeze({ id: 'builtin-text', version: 1, assurance: 'text' });
+const AST_ENGINE = Object.freeze({ id: 'singularity-flow-ast-broker', version: 2 });
+const AST_READ_CURSOR_VERSION = 1;
+const DEFAULT_MAX_FACTS = 200;
+const DEFAULT_MAX_OUTPUT_BYTES = 128 * 1024;
+const MIN_OUTPUT_BYTES = 16 * 1024;
+const MAX_OUTPUT_BYTES = 4 * 1024 * 1024;
 const ASSURANCE = new Set(['text', 'syntax', 'semantic']);
 const STATUSES = new Set(['complete', 'partial', 'disabled', 'unsupported', 'stale', 'failed']);
 const OPERATIONS = new Set(['context', 'query', 'gate', 'build', 'transform']);
@@ -39,6 +45,27 @@ const TEXT_SYMBOL_LANGUAGES = new Set(['javascript', 'typescript']);
 
 function sha256(value) {
   return createHash('sha256').update(value).digest('hex');
+}
+
+function extractorKey(value) {
+  return `${value?.id ?? ''}\0${value?.version ?? ''}\0${value?.assurance ?? ''}`;
+}
+
+function uniqueExtractors(values) {
+  return [...new Map(values.filter(Boolean).map((value) => [extractorKey(value), structuredClone(value)])).values()]
+    .sort((left, right) => extractorKey(left).localeCompare(extractorKey(right)));
+}
+
+function outputLimits(options = {}) {
+  const maxFacts = optionNumber(options, 'max-facts', DEFAULT_MAX_FACTS);
+  const maxOutputBytes = optionNumber(options, 'max-output-bytes', DEFAULT_MAX_OUTPUT_BYTES);
+  if (!Number.isInteger(maxFacts) || maxFacts < 1 || maxFacts > 10_000) {
+    throw new SingularityFlowError('AST maxFacts must be an integer from 1 through 10000.');
+  }
+  if (!Number.isInteger(maxOutputBytes) || maxOutputBytes < MIN_OUTPUT_BYTES || maxOutputBytes > MAX_OUTPUT_BYTES) {
+    throw new SingularityFlowError(`AST maxOutputBytes must be an integer from ${MIN_OUTPUT_BYTES} through ${MAX_OUTPUT_BYTES}.`);
+  }
+  return { maxFacts, maxOutputBytes };
 }
 
 function splitNull(value) {
@@ -422,21 +449,22 @@ function entryFor(file, skeleton) {
 
 function materializeFacts(entry, skeleton, { includeFile = true } = {}) {
   const generated = entry.generated === true;
+  const extractor = structuredClone(skeleton.extractor);
   return [
     ...(includeFile ? [{
       kind: 'file', path: entry.path, language: entry.language, bytes: entry.size,
-      sha256: skeleton.sha256, generated, assurance: entry.assurance
+      sha256: skeleton.sha256, generated, assurance: skeleton.extractor.assurance, extractor
     }] : []),
     ...skeleton.facts.map((fact) => fact.kind === 'symbol'
       ? {
           kind: 'symbol', name: fact.name, declarationKind: fact.declarationKind,
-          at: `${entry.path}:${fact.line}`, assurance: fact.assurance, generated
+          at: `${entry.path}:${fact.line}`, assurance: fact.assurance, generated, extractor
         }
       : fact.kind === 'import'
-        ? { kind: 'import', from: entry.path, target: fact.target, assurance: fact.assurance, generated }
+        ? { kind: 'import', from: entry.path, target: fact.target, assurance: fact.assurance, generated, extractor }
         : {
             kind: 'relationship', from: entry.path, type: fact.type, target: fact.target,
-            ...(fact.sourceId ? { sourceId: fact.sourceId } : {}), assurance: fact.assurance, generated
+            ...(fact.sourceId ? { sourceId: fact.sourceId } : {}), assurance: fact.assurance, generated, extractor
           })
   ];
 }
@@ -740,12 +768,49 @@ function baseEnvelope(runtime, operation, scope, mode, { revision = null, finger
       selected: 0, processed: 0, skipped: 0, bytes: 0,
       facts: 0, factsExamined: 0, factsMatched: 0, factsReturned: 0, byLanguage: {}
     },
-    facts: [], diagnostics: [], degradation: [], resumeHandle: null,
+    facts: [], diagnostics: [], degradation: [], resumeHandle: null, nextCursor: null,
+    page: {
+      offset: 0, returned: 0, available: 0, hasMore: false,
+      maxFacts: DEFAULT_MAX_FACTS, maxOutputBytes: DEFAULT_MAX_OUTPUT_BYTES, outputBytes: 0
+    },
     provenance: {
-      engine: 'singularity-flow-ast-broker', engineVersion: 1,
-      adapters: [], effectiveMode: mode.mode, modeSources: mode.sources
+      engine: AST_ENGINE.id, engineVersion: AST_ENGINE.version,
+      adapters: [], extractors: [], effectiveMode: mode.mode, modeSources: mode.sources
     }
   };
+}
+
+function refreshEnvelopeAccounting(envelope, {
+  available = envelope.facts.length,
+  examined = envelope.coverage.factsExamined,
+  matched = envelope.coverage.factsMatched,
+  limits = null
+} = {}) {
+  envelope.coverage.facts = envelope.facts.length;
+  envelope.coverage.factsReturned = envelope.facts.length;
+  envelope.coverage.factsExamined = examined;
+  envelope.coverage.factsMatched = matched;
+  envelope.provenance.extractors = uniqueExtractors(envelope.facts.flatMap((fact) => [
+    fact.extractor, ...(fact.extractors ?? [])
+  ]));
+  const effectiveLimits = limits ?? {
+    maxFacts: Math.max(1, envelope.facts.length),
+    maxOutputBytes: Math.max(MIN_OUTPUT_BYTES, Buffer.byteLength(JSON.stringify(envelope), 'utf8'))
+  };
+  envelope.page = {
+    offset: 0,
+    returned: envelope.facts.length,
+    available,
+    hasMore: false,
+    maxFacts: effectiveLimits.maxFacts,
+    maxOutputBytes: effectiveLimits.maxOutputBytes,
+    outputBytes: 0
+  };
+  envelope.nextCursor = null;
+  for (let attempt = 0; attempt < 3; attempt += 1) {
+    envelope.page.outputBytes = Buffer.byteLength(JSON.stringify(envelope), 'utf8');
+  }
+  return envelope;
 }
 
 export function validateAstResultEnvelope(value) {
@@ -765,6 +830,12 @@ export function validateAstResultEnvelope(value) {
   if (!record.coverage.byLanguage || typeof record.coverage.byLanguage !== 'object' || Array.isArray(record.coverage.byLanguage)) {
     throw new SingularityFlowError('AST result coverage.byLanguage must be an object.');
   }
+  if (!record.page || !Number.isInteger(record.page.offset) || !Number.isInteger(record.page.returned)
+    || !Number.isInteger(record.page.available) || record.page.returned !== record.facts.length
+    || record.page.offset + record.page.returned > record.page.available
+    || record.page.hasMore !== Boolean(record.nextCursor)) {
+    throw new SingularityFlowError('AST result page metadata contradicts the returned facts or cursor.');
+  }
   const forbidden = JSON.stringify(record.facts).match(/"(?:sourceBody|body|content|text)"\s*:/);
   if (forbidden) throw new SingularityFlowError('AST result facts must not contain source bodies.');
   for (const diagnostic of record.diagnostics) {
@@ -774,7 +845,7 @@ export function validateAstResultEnvelope(value) {
     if (!item || typeof item !== 'object' || typeof item.reason !== 'string') throw new SingularityFlowError('AST result degradation entries require a reason.');
   }
   if (!record.provenance || typeof record.provenance !== 'object' || Array.isArray(record.provenance)
-    || record.provenance.engine !== 'singularity-flow-ast-broker') {
+    || record.provenance.engine !== AST_ENGINE.id || !Array.isArray(record.provenance.extractors)) {
     throw new SingularityFlowError('AST result provenance is invalid.');
   }
   return structuredClone(record);
@@ -794,7 +865,7 @@ async function buildOrContext(root, options, operation) {
     };
     const disabled = baseEnvelope(runtime, operation, scope, mode);
     disabled.diagnostics.push({ code: 'AST_DISABLED', message: 'Structural intelligence is disabled by the most restrictive effective preference.' });
-    return validateAstResultEnvelope(disabled);
+    return validateAstResultEnvelope(refreshEnvelopeAccounting(disabled));
   }
   const selection = await enumerateScope(root, runtime, options);
   const processed = await processCandidates(root, runtime, selection.candidates, {
@@ -837,7 +908,7 @@ async function buildOrContext(root, options, operation) {
     const manifest = await writeManifest(root, runtime, selection, processed, envelope.coverage, envelope.status);
     envelope.provenance.manifest = path.relative(gitCommonDir(root), manifest.target).replaceAll(path.sep, '/');
   }
-  return validateAstResultEnvelope(envelope);
+  return validateAstResultEnvelope(refreshEnvelopeAccounting(envelope));
 }
 
 async function resumeBuild(root, handle, options) {
@@ -884,7 +955,7 @@ async function resumeBuild(root, handle, options) {
   };
   result.provenance.resumedFrom = job.id;
   await rm(file, { force: true });
-  return validateAstResultEnvelope(result);
+  return validateAstResultEnvelope(refreshEnvelopeAccounting(result));
 }
 
 function matchQuery(fact, predicate, value) {
@@ -895,15 +966,58 @@ function matchQuery(fact, predicate, value) {
   return false;
 }
 
-export async function astContext(root, options = {}) {
-  return buildOrContext(root, options, 'context');
+function sealReadCursor(payload) {
+  const encoded = Buffer.from(canonicalJson(payload), 'utf8').toString('base64url');
+  const integrity = sha256(`singularity-flow-ast-read-cursor-v${AST_READ_CURSOR_VERSION}\0${encoded}`);
+  return `astp_${encoded}.${integrity}`;
 }
 
-export async function astQuery(root, options = {}) {
-  const predicate = optionString(options, 'predicate');
-  const value = optionString(options, 'value', '');
-  if (!['symbol', 'import', 'language', 'path'].includes(predicate) || !value) throw new SingularityFlowError('wm ast query requires --predicate symbol|import|language|path and --value VALUE.');
-  const envelope = await buildOrContext(root, options, 'query');
+function readCursorPayload(root, handle, expectedOperation) {
+  const match = /^astp_([A-Za-z0-9_-]+)\.([a-f0-9]{64})$/.exec(String(handle ?? ''));
+  if (!match || match[1].length > 16_384) {
+    throw new SingularityFlowError('AST read cursor is malformed.', { code: 'AST_READ_CURSOR_INVALID' });
+  }
+  const [, encoded, integrity] = match;
+  if (sha256(`singularity-flow-ast-read-cursor-v${AST_READ_CURSOR_VERSION}\0${encoded}`) !== integrity) {
+    throw new SingularityFlowError('AST read cursor integrity is invalid.', { code: 'AST_READ_CURSOR_INVALID' });
+  }
+  let payload;
+  try { payload = JSON.parse(Buffer.from(encoded, 'base64url').toString('utf8')); }
+  catch { throw new SingularityFlowError('AST read cursor payload is invalid.', { code: 'AST_READ_CURSOR_INVALID' }); }
+  const valid = payload?.version === AST_READ_CURSOR_VERSION
+    && payload.operation === expectedOperation
+    && payload.repositoryKey === sha256(path.resolve(root))
+    && typeof payload.expiresAt === 'string' && Date.parse(payload.expiresAt) > Date.now()
+    && payload.binding && typeof payload.binding.definitionSha256 === 'string'
+    && typeof payload.binding.coneSha256 === 'string'
+    && payload.selector && typeof payload.selector.all === 'boolean' && Array.isArray(payload.selector.paths)
+    && payload.inputBudgets && Object.values(payload.inputBudgets).every((value) => Number.isInteger(value) && value > 0)
+    && payload.outputLimits && Number.isInteger(payload.outputLimits.maxFacts)
+    && Number.isInteger(payload.outputLimits.maxOutputBytes)
+    && Number.isInteger(payload.nextOffset) && payload.nextOffset >= 0;
+  if (!valid) throw new SingularityFlowError('AST read cursor is invalid or expired.', { code: 'AST_READ_CURSOR_INVALID' });
+  outputLimits({
+    'max-facts': payload.outputLimits.maxFacts,
+    'max-output-bytes': payload.outputLimits.maxOutputBytes
+  });
+  return payload;
+}
+
+function selectorForCursor(options) {
+  return { all: optionBoolean(options, 'all'), paths: explicitPaths(options) };
+}
+
+function cursorOptions(payload) {
+  return {
+    ...(payload.selector.all ? { all: true } : {}),
+    ...(payload.selector.paths.length ? { paths: payload.selector.paths } : {}),
+    'max-files': payload.inputBudgets.maxFiles,
+    'max-bytes': payload.inputBudgets.maxBytes,
+    'max-file-bytes': payload.inputBudgets.maxFileBytes
+  };
+}
+
+function filterQueryEnvelope(envelope, predicate, value) {
   if (envelope.status !== 'disabled') {
     const examined = envelope.facts.length;
     envelope.facts = envelope.facts.filter((fact) => matchQuery(fact, predicate, value));
@@ -913,7 +1027,137 @@ export async function astQuery(root, options = {}) {
     envelope.coverage.facts = envelope.facts.length;
   }
   envelope.provenance.query = { predicate, value };
-  return envelope;
+  return refreshEnvelopeAccounting(envelope, {
+    available: envelope.facts.length,
+    examined: envelope.coverage.factsExamined,
+    matched: envelope.coverage.factsMatched
+  });
+}
+
+async function boundedReadPage(root, envelope, {
+  operation, options, query = null, offset = 0, limits: suppliedLimits = null,
+  inputBudgets: suppliedInputBudgets = null, selector: suppliedSelector = null
+} = {}) {
+  const runtime = await loadRuntime(root);
+  const limits = suppliedLimits ?? outputLimits(options);
+  const inputBudgets = suppliedInputBudgets ?? astBudgets(runtime, options);
+  const selector = suppliedSelector ?? selectorForCursor(options);
+  const available = envelope.facts.length;
+  if (offset > available) {
+    throw new SingularityFlowError('AST read cursor points beyond the current result.', { code: 'AST_READ_CURSOR_STALE' });
+  }
+  const allFacts = envelope.facts;
+  const baseDiagnostics = envelope.diagnostics.filter((item) => item.code !== 'AST_RESULT_PAGED');
+  let pageFacts = allFacts.slice(offset, offset + limits.maxFacts);
+  while (true) {
+    const nextOffset = offset + pageFacts.length;
+    const hasMore = nextOffset < available;
+    const payload = hasMore ? {
+      version: AST_READ_CURSOR_VERSION,
+      repositoryKey: sha256(path.resolve(root)),
+      operation,
+      expiresAt: new Date(Date.now() + 24 * 60 * 60 * 1000).toISOString(),
+      binding: {
+        definitionSha256: envelope.scope.definitionSha256,
+        repositoryRevision: envelope.scope.repositoryRevision,
+        coneSha256: envelope.scope.coneSha256 ?? envelope.scope.worktreeFingerprint
+      },
+      selector,
+      inputBudgets,
+      outputLimits: limits,
+      nextOffset,
+      ...(query ? { query } : {})
+    } : null;
+    envelope.facts = pageFacts;
+    envelope.nextCursor = payload ? sealReadCursor(payload) : null;
+    envelope.diagnostics = hasMore ? [...baseDiagnostics, {
+      code: 'AST_RESULT_PAGED',
+      message: `${available - nextOffset} additional structural fact(s) are available through the cone-bound next cursor.`
+    }] : baseDiagnostics;
+    envelope.coverage.facts = pageFacts.length;
+    envelope.coverage.factsReturned = pageFacts.length;
+    envelope.page = {
+      offset,
+      returned: pageFacts.length,
+      available,
+      hasMore,
+      maxFacts: limits.maxFacts,
+      maxOutputBytes: limits.maxOutputBytes,
+      outputBytes: 0
+    };
+    for (let attempt = 0; attempt < 3; attempt += 1) {
+      envelope.page.outputBytes = Buffer.byteLength(JSON.stringify(envelope, null, 2), 'utf8');
+    }
+    if (envelope.page.outputBytes <= limits.maxOutputBytes) break;
+    if (!pageFacts.length) {
+      throw new SingularityFlowError(
+        `AST result metadata exceeds the ${limits.maxOutputBytes}-byte output budget. Increase --max-output-bytes.`,
+        { code: 'AST_OUTPUT_BUDGET_TOO_SMALL' }
+      );
+    }
+    pageFacts = pageFacts.slice(0, -1);
+  }
+  return validateAstResultEnvelope(envelope);
+}
+
+function assertCursorBinding(envelope, payload) {
+  const current = {
+    definitionSha256: envelope.scope.definitionSha256,
+    repositoryRevision: envelope.scope.repositoryRevision,
+    coneSha256: envelope.scope.coneSha256 ?? envelope.scope.worktreeFingerprint
+  };
+  if (current.definitionSha256 !== payload.binding.definitionSha256
+    || current.repositoryRevision !== payload.binding.repositoryRevision
+    || current.coneSha256 !== payload.binding.coneSha256) {
+    throw new SingularityFlowError(
+      'AST read cursor is stale because policy, revision, scope, or relevant file bytes changed.',
+      { code: 'AST_READ_CURSOR_STALE' }
+    );
+  }
+}
+
+export async function astContext(root, options = {}) {
+  const handle = optionString(options, 'cursor');
+  if (handle) {
+    const payload = readCursorPayload(root, handle, 'context');
+    const envelope = await buildOrContext(root, cursorOptions(payload), 'context');
+    if (envelope.status === 'disabled') throw new SingularityFlowError('AST is disabled; the read cursor was not consumed.', { code: 'AST_DISABLED' });
+    assertCursorBinding(envelope, payload);
+    return boundedReadPage(root, envelope, {
+      operation: 'context', options: cursorOptions(payload), offset: payload.nextOffset,
+      limits: payload.outputLimits, inputBudgets: payload.inputBudgets, selector: payload.selector
+    });
+  }
+  const envelope = await buildOrContext(root, options, 'context');
+  return boundedReadPage(root, envelope, { operation: 'context', options });
+}
+
+export async function astQuery(root, options = {}) {
+  const handle = optionString(options, 'cursor');
+  if (handle) {
+    const payload = readCursorPayload(root, handle, 'query');
+    if (!payload.query || !['symbol', 'import', 'language', 'path'].includes(payload.query.predicate)
+      || typeof payload.query.value !== 'string' || !payload.query.value) {
+      throw new SingularityFlowError('AST query cursor does not contain a valid bound query.', { code: 'AST_READ_CURSOR_INVALID' });
+    }
+    const envelope = filterQueryEnvelope(
+      await buildOrContext(root, cursorOptions(payload), 'query'),
+      payload.query.predicate,
+      payload.query.value
+    );
+    if (envelope.status === 'disabled') throw new SingularityFlowError('AST is disabled; the query cursor was not consumed.', { code: 'AST_DISABLED' });
+    assertCursorBinding(envelope, payload);
+    return boundedReadPage(root, envelope, {
+      operation: 'query', options: cursorOptions(payload), query: payload.query,
+      offset: payload.nextOffset, limits: payload.outputLimits,
+      inputBudgets: payload.inputBudgets, selector: payload.selector
+    });
+  }
+  const predicate = optionString(options, 'predicate');
+  const value = optionString(options, 'value', '');
+  if (!['symbol', 'import', 'language', 'path'].includes(predicate) || !value) throw new SingularityFlowError('wm ast query requires --predicate symbol|import|language|path and --value VALUE.');
+  const envelope = filterQueryEnvelope(await buildOrContext(root, options, 'query'), predicate, value);
+  return boundedReadPage(root, envelope, { operation: 'query', options, query: { predicate, value } });
 }
 
 export async function evaluateAstGate(root, options = {}) {
@@ -921,14 +1165,27 @@ export async function evaluateAstGate(root, options = {}) {
   const envelope = await buildOrContext(root, options, 'gate');
   const results = [];
   for (const predicate of runtime.policy.predicates) {
-    const requiredAssurance = predicate.minimumAssurance ?? 'text';
+    const configuredAssurance = predicate.minimumAssurance ?? 'text';
+    // A lexical symbol match is discovery help, never proof that a declaration exists. The built-in
+    // extractor intentionally does not parse comments or conditional syntax, so required symbol
+    // predicates must be established by at least a syntax adapter even when an older policy says
+    // `text`. Advisory predicates retain the useful, explicitly low-assurance lexical result.
+    const requiredAssurance = predicate.mode === 'required' && predicate.type === 'symbol-exists'
+      && !assuranceSatisfies(configuredAssurance, 'syntax') ? 'syntax' : configuredAssurance;
     let outcome = 'unknown';
     const matching = predicate.type === 'path-exists'
       ? envelope.facts.filter((fact) => fact.kind === 'file' && fact.path === predicate.path)
       : envelope.facts.filter((fact) => fact.kind === 'symbol' && fact.name === predicate.symbol);
     if (matching.some((fact) => assuranceSatisfies(fact.assurance ?? 'text', requiredAssurance))) outcome = 'pass';
     else if (!matching.length && assuranceSatisfies(envelope.assurance, requiredAssurance)) outcome = 'fail';
-    results.push({ id: predicate.id, mode: predicate.mode, requiredAssurance, outcome });
+    const extractors = uniqueExtractors((matching.length ? matching : envelope.facts).flatMap((fact) => [
+      fact.extractor, ...(fact.extractors ?? [])
+    ]));
+    results.push({ id: predicate.id, mode: predicate.mode, requiredAssurance, outcome, extractors });
+    if (requiredAssurance !== configuredAssurance) envelope.diagnostics.push({
+      code: 'AST_REQUIRED_SYMBOL_SYNTAX_ASSURANCE',
+      message: `Required symbol predicate '${predicate.id}' was raised from text to syntax assurance; lexical matches remain advisory.`
+    });
   }
   const examined = envelope.facts.length;
   const evaluatedPaths = envelope.facts.filter((fact) => fact.kind === 'file').map((fact) => fact.path);
@@ -944,7 +1201,11 @@ export async function evaluateAstGate(root, options = {}) {
     blocking: blocking.map((item) => item.id),
     evaluatedPaths
   };
-  return envelope;
+  return validateAstResultEnvelope(refreshEnvelopeAccounting(envelope, {
+    available: results.length,
+    examined,
+    matched: results.filter((item) => item.outcome === 'pass').length
+  }));
 }
 
 export async function astCacheStatus(root) {
@@ -1090,6 +1351,9 @@ function printResult(result, json) {
   else if (result.operation) {
     console.log(`AST ${result.operation}: ${result.status} · ${result.assurance} assurance · ${result.coverage.processed}/${result.coverage.selected} files`);
     for (const diagnostic of result.diagnostics) console.log(`- ${diagnostic.code}: ${diagnostic.message ?? ''}`);
+    if (result.nextCursor) {
+      console.log(`Next page: singularity-flow wm ast ${result.operation} --cursor ${result.nextCursor}`);
+    }
   } else console.log(JSON.stringify(result, null, 2));
 }
 

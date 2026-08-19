@@ -197,6 +197,9 @@ Every public operation is classified before its implementation module is importe
 | wm.inject | mutation | never | — | — |
 | wm.light | mutation | never | — | — |
 | wm.prompt | read | never | — | — |
+| wm.recovery.inspect | read | never | — | — |
+| wm.recovery.list | read | never | — | — |
+| wm.recovery.publish | mutation | never | — | — |
 | wm.show-prompt | read | never | — | — |
 | wm.status | read | never | — | — |
 | workflow | mutation | never | — | — |

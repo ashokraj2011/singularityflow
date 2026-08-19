@@ -99,7 +99,7 @@ export const GATEWAY_DECLARATIONS = Object.freeze([
     goals: ['repository.explore'],
     aliases: en('show bounded structural context', 'inspect repository symbols'),
     subjects: ['repository', 'story'],
-    argumentSchema: 'ast-context-v1',
+    argumentSchema: 'ast-context-v2',
     planner: 'ast-context',
     noModelFixture: 'wm-ast-context-model-free'
   },
@@ -110,7 +110,7 @@ export const GATEWAY_DECLARATIONS = Object.freeze([
     goals: ['repository.explore'],
     aliases: en('query repository symbols', 'find a structural fact'),
     subjects: ['repository', 'story'],
-    argumentSchema: 'ast-query-v1',
+    argumentSchema: 'ast-query-v2',
     planner: 'ast-query',
     noModelFixture: 'wm-ast-query-model-free'
   },

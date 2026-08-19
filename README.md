@@ -1499,12 +1499,16 @@ child application roots replace the parent scope while shared roots accumulate.
 New lifecycle state pins that resolution so an active Story does not drift when
 the capability map changes.
 
-For bounded structural references, `singularity-flow wm ast context --paths src --json` uses the
+For bounded structural references, `singularity-flow wm ast context --paths src --max-facts 50 --max-output-bytes 32768 --json` uses the
 same pinned scope and a selected-cone content binding. Its built-in result is explicitly
 `text` assurance; explicitly configured compiler adapters execute through a bounded structured-argv
 contract and are not kernel dependencies. Blob skeletons are reused by content hash, so an
 unrelated monorepo edit does not invalidate the selected cone. With no configured roots,
-the default is changed tracked files—not a monorepo-wide scan—and `--all` must be explicit. See
+the default is changed tracked files—not a monorepo-wide scan—and `--all` must be explicit. Facts
+are returned in byte- and count-bounded pages; continue only with the opaque `nextCursor`, which
+fails stale if policy, revision, scope, or relevant bytes change. Required symbol gates require
+syntax assurance; lexical text matches remain advisory. Receipts bind broker and extractor
+versions as well as outcomes. See
 [AST Intelligence](docs/AST-INTELLIGENCE.md) for policy, cache, preference, and adapter details.
 In VS Code, use **Singularity Flow → Configuration → AST intelligence**, the Configuration Center,
 or **Singularity Flow: AST Intelligence Settings** from the Command Palette. The panel exposes
@@ -1991,6 +1995,7 @@ evidence workflow.
 | `singularity-flow wm light [--phase PHASE] [--branch BRANCH] [--local]` | Build a compact deterministic repository inventory with zero model tokens, then validate and commit it like any other world model. |
 | `singularity-flow wm build [--depth light\|quick\|standard\|deep] [--branch BRANCH] [--local] [--parallel\|--no-parallel] [--workers N] [--resume\|--no-resume]` | Build the repository world model on the current or selected branch; light is deterministic and zero-token, while semantic depths support parallel discovery and exact-match checkpoint resume. |
 | `singularity-flow wm cleanup [--force]` | Prune stale owned worktrees left by interrupted world-model builds; `--force` also removes unowned legacy temporary worktrees after operator review. |
+| `singularity-flow wm recovery list\|inspect <ID>\|publish <ID> --confirm <ID>` | Inspect or republish a validated snapshot retained after publication failure; publishing revalidates exact bytes and never invokes the provider. |
 | `singularity-flow wm ast doctor\|status\|context\|query\|build\|gate` | Inspect or build bounded, hash-bound structural references with explicit assurance and coverage. No model is invoked. |
 | `sflow-wm-minimal [--phase PHASE] [--branch BRANCH] [--publish]` | Build the smallest deterministic zero-token validated model; defaults to one development view and a local commit. |
 | `singularity-flow documents browse --provider <ID> [--path FOLDER]` | List items in a configured OneDrive/SharePoint, Artifactory, S3, or HTTPS provider. |

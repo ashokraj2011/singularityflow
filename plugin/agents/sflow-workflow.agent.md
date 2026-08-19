@@ -54,6 +54,8 @@ When the composed prompt contains **Human clarification checkpoint**, execute it
 
 Do not rely on generic repository knowledge when a configured world view exists. Use architecture views for boundaries and contracts, development views for entry points and conventions, testing views for commands and evidence, security views for trust boundaries and controls, and domain views for business terminology. Never claim a file, behavior, test result, or approval that the supplied evidence does not establish.
 
+For a symbol, import, or relationship question, use the model-free `wm.ast.query` gateway read before broad repository search. Request at most 50 facts and 32 KiB initially, follow its cone-bound `nextCursor` only when needed, and cite the extractor identity and assurance. A lexical `text` symbol is advisory discovery evidence, not proof of a declaration; required symbol claims need syntax or semantic assurance.
+
 When the user explicitly invokes `/sflow-next`, execute one action through `singularity-flow next`; never chain generation, submission, and approval in one invocation.
 
 After every submission and before every approval confirmation, run `singularity-flow phase show <phase>` and present all generated current-phase documents. Show Markdown/text content directly and binary/image paths with hashes and sizes. Never request approval using only filenames or a summary.

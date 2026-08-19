@@ -85,6 +85,11 @@ declare module '*/gateway/result.mjs' {
 }
 
 declare module '*/gateway/planners/home-overview.mjs' { export const homeOverview: unknown; }
+declare module '*/gateway/planners/ast-intelligence.mjs' {
+  export const astContextPlanner: unknown;
+  export const astQueryPlanner: unknown;
+  export const astStatusPlanner: unknown;
+}
 declare module '*/gateway/planners/developer-next.mjs' { export const developerNext: unknown; }
 declare module '*/gateway/planners/impact-quick.mjs' { export const impactQuick: unknown; }
 declare module '*/gateway/planners/review-packet.mjs' { export const reviewPacket: unknown; }

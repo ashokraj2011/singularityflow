@@ -7,7 +7,10 @@ function optionsFor(args = {}) {
   return {
     ...(args.path ? { paths: [args.path] } : {}),
     ...(args.all === true ? { all: true } : {}),
-    ...(args.maxFiles ? { 'max-files': args.maxFiles } : {})
+    ...(args.maxFiles ? { 'max-files': args.maxFiles } : {}),
+    ...(args.maxFacts ? { 'max-facts': args.maxFacts } : {}),
+    ...(args.maxOutputBytes ? { 'max-output-bytes': args.maxOutputBytes } : {}),
+    ...(args.cursor ? { cursor: args.cursor } : {})
   };
 }
 
@@ -50,7 +53,8 @@ export async function astContextPlanner({ root = null, subject = null, arguments
 
 export async function astQueryPlanner({ root = null, subject = null, arguments: args = {} } = {}) {
   const data = await astQuery(repositoryRoot(root, 'wm.ast.query'), {
-    ...optionsFor(args), predicate: args.predicate, value: args.value
+    ...optionsFor(args), ...(args.predicate ? { predicate: args.predicate } : {}),
+    ...(args.value ? { value: args.value } : {})
   });
   return result('wm.ast.query', subject, data, {
     status: data.status, matched: String(data.coverage?.factsMatched ?? 0)

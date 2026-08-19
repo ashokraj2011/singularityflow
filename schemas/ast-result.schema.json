@@ -3,9 +3,9 @@
   "$id": "https://example.invalid/singularity-flow/ast-result.schema.json",
   "title": "Singularity Flow AST result envelope",
   "type": "object",
-  "required": ["schemaVersion", "operation", "scope", "assurance", "status", "coverage", "facts", "diagnostics", "degradation", "resumeHandle", "provenance"],
+  "required": ["schemaVersion", "operation", "scope", "assurance", "status", "coverage", "facts", "diagnostics", "degradation", "resumeHandle", "nextCursor", "page", "provenance"],
   "properties": {
-    "schemaVersion": { "const": 2 },
+    "schemaVersion": { "const": 3 },
     "operation": { "enum": ["context", "query", "gate", "build", "transform"] },
     "scope": {
       "type": "object",
@@ -44,28 +44,28 @@
         "type": "object",
         "oneOf": [
           {
-            "required": ["kind", "path", "language", "bytes", "sha256", "generated", "assurance"],
-            "properties": { "kind": { "const": "file" }, "path": { "type": "string" }, "language": { "type": "string" }, "bytes": { "type": "integer", "minimum": 0 }, "sha256": { "type": "string", "pattern": "^[a-f0-9]{64}$" }, "generated": { "type": "boolean" }, "assurance": { "enum": ["text", "syntax", "semantic"] } },
+            "properties": { "kind": { "const": "file" }, "path": { "type": "string" }, "language": { "type": "string" }, "bytes": { "type": "integer", "minimum": 0 }, "sha256": { "type": "string", "pattern": "^[a-f0-9]{64}$" }, "generated": { "type": "boolean" }, "assurance": { "enum": ["text", "syntax", "semantic"] }, "extractor": { "$ref": "#/$defs/extractor" } },
+            "required": ["kind", "path", "language", "bytes", "sha256", "generated", "assurance", "extractor"],
             "additionalProperties": false
           },
           {
-            "required": ["kind", "name", "at", "assurance", "generated"],
-            "properties": { "kind": { "const": "symbol" }, "name": { "type": "string" }, "declarationKind": { "type": "string" }, "at": { "type": "string" }, "assurance": { "enum": ["text", "syntax", "semantic"] }, "generated": { "type": "boolean" } },
+            "required": ["kind", "name", "at", "assurance", "generated", "extractor"],
+            "properties": { "kind": { "const": "symbol" }, "name": { "type": "string" }, "declarationKind": { "type": "string" }, "at": { "type": "string" }, "assurance": { "enum": ["text", "syntax", "semantic"] }, "generated": { "type": "boolean" }, "extractor": { "$ref": "#/$defs/extractor" } },
             "additionalProperties": false
           },
           {
-            "required": ["kind", "from", "target", "assurance", "generated"],
-            "properties": { "kind": { "const": "import" }, "from": { "type": "string" }, "target": { "type": "string" }, "assurance": { "enum": ["text", "syntax", "semantic"] }, "generated": { "type": "boolean" } },
+            "required": ["kind", "from", "target", "assurance", "generated", "extractor"],
+            "properties": { "kind": { "const": "import" }, "from": { "type": "string" }, "target": { "type": "string" }, "assurance": { "enum": ["text", "syntax", "semantic"] }, "generated": { "type": "boolean" }, "extractor": { "$ref": "#/$defs/extractor" } },
             "additionalProperties": false
           },
           {
-            "required": ["kind", "from", "type", "target", "assurance", "generated"],
-            "properties": { "kind": { "const": "relationship" }, "from": { "type": "string" }, "type": { "type": "string" }, "target": { "type": "string" }, "sourceId": { "type": "string" }, "assurance": { "enum": ["text", "syntax", "semantic"] }, "generated": { "type": "boolean" } },
+            "required": ["kind", "from", "type", "target", "assurance", "generated", "extractor"],
+            "properties": { "kind": { "const": "relationship" }, "from": { "type": "string" }, "type": { "type": "string" }, "target": { "type": "string" }, "sourceId": { "type": "string" }, "assurance": { "enum": ["text", "syntax", "semantic"] }, "generated": { "type": "boolean" }, "extractor": { "$ref": "#/$defs/extractor" } },
             "additionalProperties": false
           },
           {
-            "required": ["id", "mode", "requiredAssurance", "outcome"],
-            "properties": { "id": { "type": "string" }, "mode": { "enum": ["required", "advisory"] }, "requiredAssurance": { "enum": ["text", "syntax", "semantic"] }, "outcome": { "enum": ["pass", "fail", "unknown"] } },
+            "required": ["id", "mode", "requiredAssurance", "outcome", "extractors"],
+            "properties": { "id": { "type": "string" }, "mode": { "enum": ["required", "advisory"] }, "requiredAssurance": { "enum": ["text", "syntax", "semantic"] }, "outcome": { "enum": ["pass", "fail", "unknown"] }, "extractors": { "type": "array", "items": { "$ref": "#/$defs/extractor" } } },
             "additionalProperties": false
           }
         ]
@@ -88,13 +88,29 @@
       }
     },
     "resumeHandle": { "type": ["string", "null"] },
+    "nextCursor": { "type": ["string", "null"] },
+    "page": {
+      "type": "object",
+      "required": ["offset", "returned", "available", "hasMore", "maxFacts", "maxOutputBytes", "outputBytes"],
+      "properties": {
+        "offset": { "type": "integer", "minimum": 0 },
+        "returned": { "type": "integer", "minimum": 0 },
+        "available": { "type": "integer", "minimum": 0 },
+        "hasMore": { "type": "boolean" },
+        "maxFacts": { "type": "integer", "minimum": 1 },
+        "maxOutputBytes": { "type": "integer", "minimum": 16384 },
+        "outputBytes": { "type": "integer", "minimum": 0 }
+      },
+      "additionalProperties": false
+    },
     "provenance": {
       "type": "object",
-      "required": ["engine", "engineVersion", "adapters", "effectiveMode", "modeSources"],
+      "required": ["engine", "engineVersion", "adapters", "extractors", "effectiveMode", "modeSources"],
       "properties": {
         "engine": { "const": "singularity-flow-ast-broker" },
         "engineVersion": { "type": "integer", "minimum": 1 },
         "adapters": { "type": "array", "items": { "type": "object", "required": ["id", "version", "assurance", "status"], "properties": { "id": { "type": "string" }, "version": { "type": "string" }, "assurance": { "enum": ["syntax", "semantic"] }, "status": { "enum": ["cache-hit", "executed", "failed"] } }, "additionalProperties": false } },
+        "extractors": { "type": "array", "items": { "$ref": "#/$defs/extractor" } },
         "effectiveMode": { "enum": ["auto", "off"] },
         "modeSources": { "type": "object", "required": ["repository", "local", "environment", "operation"], "properties": { "repository": { "enum": ["auto", "off"] }, "local": { "enum": ["auto", "off"] }, "environment": { "enum": ["auto", "off"] }, "operation": { "enum": ["auto", "off"] } }, "additionalProperties": false },
         "cache": { "type": "object", "required": ["hits", "misses", "entries", "format"], "properties": { "hits": { "type": "integer", "minimum": 0 }, "misses": { "type": "integer", "minimum": 0 }, "entries": { "type": "integer", "minimum": 0 }, "format": { "const": "blob-cas-v2" } }, "additionalProperties": false },
@@ -102,6 +118,18 @@
         "resumedFrom": { "type": "string" },
         "query": { "type": "object", "required": ["predicate", "value"], "properties": { "predicate": { "enum": ["symbol", "import", "language", "path"] }, "value": { "type": "string" } }, "additionalProperties": false },
         "gate": { "type": "object", "required": ["allowed", "blocking", "evaluatedPaths"], "properties": { "allowed": { "type": "boolean" }, "blocking": { "type": "array", "items": { "type": "string" } }, "evaluatedPaths": { "type": "array", "items": { "type": "string" } } }, "additionalProperties": false }
+      },
+      "additionalProperties": false
+    }
+  },
+  "$defs": {
+    "extractor": {
+      "type": "object",
+      "required": ["id", "version", "assurance"],
+      "properties": {
+        "id": { "type": "string", "minLength": 1 },
+        "version": { "type": ["string", "integer"] },
+        "assurance": { "enum": ["text", "syntax", "semantic"] }
       },
       "additionalProperties": false
     }

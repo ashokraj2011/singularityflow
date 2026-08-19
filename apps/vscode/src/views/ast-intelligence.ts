@@ -36,6 +36,8 @@ interface AstRunResult {
   diagnostics?: Array<{ code?: string; message?: string }>;
   degradation?: Array<{ path?: string; reason?: string }>;
   resumeHandle?: string | null;
+  nextCursor?: string | null;
+  page?: { offset?: number; returned?: number; hasMore?: boolean };
 }
 interface AstCachePreview { action?: 'prune' | 'clear'; dryRun?: boolean; candidates?: number; removed?: number; bytes?: number; targets?: string[] }
 
@@ -134,7 +136,7 @@ function policyForm(policy: AstPolicyDraft): string {
         <label><span>Maximum bytes per file</span><input name="maxFileBytes" type="number" min="1" step="1024" value="${policy.budgets.maxFileBytes}"></label>
       </div></div>
       <div class="editor-card"><h3>Language policy</h3><label class="stack"><span>One language per line</span><textarea name="languages" rows="5" placeholder="typescript | auto | text\nkotlin | off | syntax">${escape(languageRows(policy))}</textarea><small><code>language | auto/off | text/syntax/semantic</code>. Syntax and semantic assurance require an installed adapter whose bounded response passes the runtime contract.</small></label></div>
-      <div class="editor-card"><h3>Structural predicates</h3><label class="stack"><span>One predicate per line</span><textarea name="predicates" rows="5" placeholder="payment-entry | advisory | symbol-exists | Payment | text">${escape(predicateRows(policy))}</textarea><small><code>id | required/advisory | path-exists/symbol-exists | target | text/syntax/semantic</code>. Required unknown, failed, disabled, or partial results never pass.</small></label></div>
+      <div class="editor-card"><h3>Structural predicates</h3><label class="stack"><span>One predicate per line</span><textarea name="predicates" rows="5" placeholder="payment-entry | advisory | symbol-exists | Payment | text">${escape(predicateRows(policy))}</textarea><small><code>id | required/advisory | path-exists/symbol-exists | target | text/syntax/semantic</code>. Required symbols need syntax or semantic assurance; lexical text matches remain advisory. Required unknown, failed, disabled, or partial results never pass.</small></label></div>
       <p class="card-foot"><button type="submit">Save repository AST policy</button><button class="secondary" type="button" data-message="open-workflow">Open advanced YAML</button></p>
     </form></section>`;
 }
@@ -154,6 +156,7 @@ function runResult(result: AstRunResult | null): string {
     ${list<NonNullable<AstRunResult['diagnostics']>[number]>(result.diagnostics).length ? `<ul>${list<NonNullable<AstRunResult['diagnostics']>[number]>(result.diagnostics).map((entry) => `<li><code>${escape(entry.code ?? 'AST_DIAGNOSTIC')}</code> — ${escape(entry.message ?? '')}</li>`).join('')}</ul>` : ''}
     ${list<NonNullable<AstRunResult['degradation']>[number]>(result.degradation).length ? `<details><summary>${list<NonNullable<AstRunResult['degradation']>[number]>(result.degradation).length} degraded or skipped path(s)</summary><ul>${list<NonNullable<AstRunResult['degradation']>[number]>(result.degradation).map((entry) => `<li><code>${escape(entry.path ?? 'path')}</code> — ${escape(entry.reason ?? 'not processed')}</li>`).join('')}</ul></details>` : ''}
     ${result.resumeHandle ? '<p class="notice warning">The configured budget stopped this build. Resume from the CLI using the opaque handle printed in the Singularity Flow output channel; handles are deliberately not embedded in webview HTML.</p>' : ''}
+    ${result.nextCursor ? `<p class="notice warning">This bounded page returned ${escape(result.page?.returned ?? coverage.factsReturned ?? 0)} fact(s). More are available. The opaque cursor remains in extension memory and is never embedded in this page.</p><p class="card-foot"><button class="secondary" data-message="continue-context">Continue to next page</button></p>` : ''}
     <p class="muted">Facts and source bodies are not rendered in this settings page. This summary shows only coverage and diagnostics.</p></section>`;
 }
 
@@ -228,6 +231,7 @@ export class AstIntelligencePanel {
     'save-machine': (message) => { const mode = enumField(message, 'mode', ['auto', 'off'] as const); if (mode) void this.saveMachine(mode); },
     'save-policy': (message) => { void this.savePolicy(message); },
     'run-scope': (message) => { void this.runScope(message); },
+    'continue-context': () => { void this.continueContext(); },
     'preview-cache': (message) => { const kind = enumField(message, 'kind', ['prune', 'clear'] as const); if (kind) void this.previewCache(kind); },
     'execute-cache': (message) => { const kind = enumField(message, 'kind', ['prune', 'clear'] as const); const confirmation = stringField(message, 'confirmation'); if (kind && confirmation) void this.executeCache(kind, confirmation); },
     'open-configuration': () => { void vscode.commands.executeCommand('singularityFlow.openConfigurationCenter'); },
@@ -288,6 +292,16 @@ export class AstIntelligencePanel {
     for (const path of paths) args.push('--paths', path);
     try { this.result = commandData<AstRunResult>(await this.client.run(args)); this.notice = operation === 'build' ? 'Derived AST cache built.' : 'AST context preview completed.'; this.error = null; await this.refresh(); }
     catch (error) { this.error = (error as Error).message; this.render(); }
+  }
+  private async continueContext(): Promise<void> {
+    const cursor = this.result?.nextCursor;
+    if (!cursor || this.result?.operation !== 'context') {
+      this.error = 'This AST result has no current continuation page.'; this.render(); return;
+    }
+    try {
+      this.result = commandData<AstRunResult>(await this.client.run(['wm', 'ast', 'context', '--cursor', cursor, '--json']));
+      this.notice = 'Next bounded AST context page loaded.'; this.error = null; await this.refresh();
+    } catch (error) { this.error = (error as Error).message; this.render(); }
   }
   private async previewCache(kind: 'prune' | 'clear'): Promise<void> {
     try { this.preview = commandData<AstCachePreview>(await this.client.run(['wm', 'ast', 'cache', kind, '--dry-run', '--json'])); this.error = null; this.render(); }

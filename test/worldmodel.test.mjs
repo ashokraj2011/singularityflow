@@ -2,7 +2,7 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import { createHash } from 'node:crypto';
 import { existsSync } from 'node:fs';
-import { chmod, lstat, mkdtemp, mkdir, readFile, readdir, writeFile } from 'node:fs/promises';
+import { chmod, lstat, mkdtemp, mkdir, readFile, readdir, unlink, writeFile } from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -825,6 +825,28 @@ test('governed world-model publication failure fails build and ensure before loc
   assert.match(`${ensured.stdout}\n${ensured.stderr}`, /Unable to publish to the state branch/);
   assert.equal(await readFile(manifestPath, 'utf8'), installedBeforeFailure,
     'ensure follows the same fail-before-install contract');
+
+  const listed = JSON.parse(flow(['wm', 'recovery', 'list', '--json'], work).stdout);
+  assert.ok(listed.recoveries.length >= 2, 'each failed validated publication remains discoverable');
+  const retained = listed.recoveries.find((entry) => entry.status === 'pending');
+  assert.ok(retained?.id);
+  const inspected = JSON.parse(flow(['wm', 'recovery', 'inspect', retained.id, '--json'], work).stdout);
+  assert.equal(inspected.sourceHash, retained.sourceHash);
+  assert.match(inspected.manifestSha256, /^[a-f0-9]{64}$/);
+  const unconfirmed = flow(['wm', 'recovery', 'publish', retained.id, '--confirm', 'wrong'], work, { allowFailure: true });
+  assert.notEqual(unconfirmed.status, 0);
+  assert.match(`${unconfirmed.stdout}\n${unconfirmed.stderr}`, new RegExp(`--confirm ${retained.id}`));
+
+  await unlink(hook);
+  const recovered = JSON.parse(flow([
+    'wm', 'recovery', 'publish', retained.id, '--confirm', retained.id, '--json'
+  ], work).stdout);
+  assert.equal(recovered.providerInvoked, false);
+  assert.ok(recovered.state.commit);
+  assert.notEqual(await readFile(manifestPath, 'utf8'), installedBeforeFailure,
+    'the exact retained generation is installed only after governed publication succeeds');
+  const afterRecovery = JSON.parse(flow(['wm', 'recovery', 'inspect', retained.id, '--json'], work).stdout);
+  assert.equal(afterRecovery.status, 'published');
 });
 
 test('wm build discovers requested views concurrently and synthesizes one validated model', async () => {

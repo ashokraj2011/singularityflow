@@ -49,6 +49,10 @@ When publication fails after validation, the validated snapshot is retained unde
 the repository's private `.git/singularity-flow/world-model-recovery/` area. The
 reported error keeps the original synchronization instruction; these recovery
 snapshots are never treated as governed context until normal publication succeeds.
+List them with `singularity-flow wm recovery list`, inspect the exact retained manifest with
+`wm recovery inspect <ID>`, and republish the validated bytes—without another provider call—with
+`wm recovery publish <ID> --confirm <ID>`. Publication revalidates the complete snapshot and
+requires the current source tree to match its recorded source hash.
 
 ## Publish manually authored artifacts
 

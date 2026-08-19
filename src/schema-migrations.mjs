@@ -68,6 +68,64 @@ function astResultV1ToV2(source) {
   };
 }
 
+function astResultV2ToV3(source) {
+  const facts = (source.facts ?? []).map((fact) => {
+    if (fact.id != null) {
+      return { ...clone(fact), extractors: clone(fact.extractors ?? []) };
+    }
+    if (fact.kind == null) return clone(fact);
+    const assurance = fact.assurance ?? 'text';
+    return {
+      ...clone(fact),
+      extractor: clone(fact.extractor ?? {
+        id: 'legacy-unknown', version: '0', assurance
+      })
+    };
+  });
+  const extractors = [...new Map(facts
+    .map((fact) => fact.extractor)
+    .filter(Boolean)
+    .map((extractor) => [stableJson(extractor), extractor])).values()];
+  const migrated = {
+    ...source,
+    schemaVersion: 3,
+    facts,
+    nextCursor: source.nextCursor ?? null,
+    page: clone(source.page ?? {
+      offset: 0,
+      returned: facts.length,
+      // v2 had no continuation cursor. Only the returned facts remain readable after migration;
+      // a larger pre-filter count here would advertise a continuation that cannot exist.
+      available: facts.length,
+      hasMore: false,
+      maxFacts: Math.max(1, facts.length),
+      maxOutputBytes: Math.max(16 * 1024, Buffer.byteLength(JSON.stringify(source))),
+      outputBytes: 0
+    }),
+    provenance: {
+      ...clone(source.provenance ?? {}),
+      extractors: clone(source.provenance?.extractors ?? extractors)
+    }
+  };
+  if (!source.page) {
+    migrated.page.outputBytes = Buffer.byteLength(JSON.stringify(migrated));
+    migrated.page.maxOutputBytes = Math.max(migrated.page.maxOutputBytes, migrated.page.outputBytes);
+  }
+  return migrated;
+}
+
+function astGateReceiptV1ToV2(source) {
+  return {
+    ...source,
+    schemaVersion: 2,
+    engine: clone(source.engine ?? { id: 'legacy-unknown', version: 0 }),
+    extractors: clone(source.extractors ?? []),
+    predicates: (source.predicates ?? []).map((predicate) => ({
+      ...clone(predicate), extractors: clone(predicate.extractors ?? [])
+    }))
+  };
+}
+
 function astResumeJobV1ToV2(source) {
   // v1 retained only a cursor and repository-wide fingerprint, so it cannot safely be upgraded to
   // v2's exact candidate set and accumulated pages. Preserve enough identity to produce an
@@ -496,21 +554,26 @@ const families = [
     paths: [/^\$git\/ast\/v[12]\/jobs\/[^/]+\.json$/]
   }),
   family({
-    id: 'ast-result', currentVersion: 2,
-    steps: [migration(1, 2, astResultV1ToV2)],
+    id: 'ast-result', currentVersion: 3,
+    steps: [migration(1, 2, astResultV1ToV2), migration(2, 3, astResultV2ToV3)],
     // v2 cone manifests are a distinct durable family. Keeping this path on legacy snapshots
     // prevents the first-match path registry from interpreting a v2 manifest as an AST result.
     paths: [/^\$git\/ast\/v1\/snapshots\/[^/]+\.json$/]
   }),
   family({ id: 'ast-cache-blob', currentVersion: 1, paths: [/^\$git\/ast\/v2\/blobs\/[a-f0-9]{64}\.json$/] }),
   family({ id: 'ast-cone-manifest', currentVersion: 1, paths: [/^\$git\/ast\/v2\/manifests\/[a-f0-9]{64}\.json$/] }),
-  family({ id: 'ast-gate-receipt', currentVersion: 1, paths: [/^singularity\/work-items\/[^/]+\/context\/ast\/[^/]+\.json$/], immutable: true }),
+  family({
+    id: 'ast-gate-receipt', currentVersion: 2,
+    steps: [migration(1, 2, astGateReceiptV1ToV2)],
+    paths: [/^singularity\/work-items\/[^/]+\/context\/ast\/[^/]+\.json$/], immutable: true
+  }),
   family({ id: 'organisation-cache', currentVersion: 1, paths: [/^\$local\/organisation-cache\/[^/]+\.json$/] }),
   family({ id: 'capability-lead-registry', currentVersion: 1, paths: [/^\$local\/leads\.json$/] }),
   family({ id: 'reinstall-plan', currentVersion: 1, paths: [/^\$temp\/singularity-flow-reinstall-plans\/.+\/reinstall-plan\.json$/] }),
   family({ id: 'story-stack', currentVersion: 1, paths: [/^\$state\/orchestration\/stacks\/[^/]+\.json$/], immutable: true }),
   family({ id: 'workspace-impact-report', currentVersion: 1, paths: [/^\$workspace\/.+\/impact\/[^/]+\/report\.json$/] }),
   family({ id: 'worldmodel-checkpoint', currentVersion: 1, paths: [/^singularity\/world-model\/.+\/\.checkpoints\/.+\/state\.json$/] }),
+  family({ id: 'worldmodel-recovery', currentVersion: 1, paths: [/^\$git\/world-model-recovery\/[^/]+\.json$/] }),
   family({
     id: 'ledger-intent', currentVersion: 1,
     paths: [/^singularity\/(?:work-items|initiatives)\/[^/]+\/context\/ledger-intents\/[^/]+\.json$/],

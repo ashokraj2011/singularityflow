@@ -83,6 +83,17 @@ test('a draft cannot restore a confirmation, whatever the draft says', () => {
   assert.equal(restored.notAField, undefined, 'a field the schema no longer declares is dropped');
 });
 
+test('an opaque continuation cursor is renderable but never persisted in a draft', () => {
+  const cursor = `astp_eA.${'a'.repeat(64)}`;
+  const model = formModel('ast-context-v2', { defaults: { cursor } });
+  const field = model.fields.find((item) => item.name === 'cursor');
+  assert.equal(field.control, 'line');
+  assert.equal(field.value, cursor);
+  assert.equal(field.persist, false);
+  assert.equal(draftRecord('ast-context-v2', { cursor }).values.cursor, undefined);
+  assert.equal(restoreDraft('ast-context-v2', { cursor }).cursor, undefined);
+});
+
 test('a confirmation is filtered on the way in, not only on the way out', () => {
   /**
    * Once it reaches storage the rule has already been broken: workspace state is a file someone can

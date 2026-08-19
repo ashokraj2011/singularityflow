@@ -482,6 +482,8 @@ const families = [
   }),
   family({ id: 'publication-journal', currentVersion: 1, paths: [/^\$git\/publication-journal\/[^/]+\.json$/] }),
   family({ id: 'telemetry-cursor', currentVersion: 1, paths: [/^\$git\/telemetry-cursors\.json$/] }),
+  family({ id: 'telemetry-preference', currentVersion: 1 }),
+  family({ id: 'telemetry-launch', currentVersion: 1, paths: [/^\$git\/telemetry\/launches\/tel_[^/]+\.json$/] }),
   family({
     id: 'phase-telemetry', currentVersion: 1,
     paths: [/^singularity\/work-items\/[^/]+\/telemetry\/[^/]+-gen\d+\.json$/], immutable: true

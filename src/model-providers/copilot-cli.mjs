@@ -1,5 +1,6 @@
 import { spawn } from 'node:child_process';
 import { readFile } from 'node:fs/promises';
+import { isPreparedTelemetryLaunch, recordTelemetryLaunch } from '../telemetry-provision.mjs';
 import { SingularityFlowError } from '../util.mjs';
 
 const DEFAULT_OUTPUT_LIMIT = 8 * 1024 * 1024;
@@ -15,17 +16,23 @@ const SAFE_ENVIRONMENT_SET = new Set(SAFE_ENVIRONMENT);
 const TEST_ENVIRONMENT = ['SFLOW_PARALLEL_TEST_LOG', 'SFLOW_MOCK_SKIP_PACKET_VIEW', 'SFLOW_MOCK_FAIL_SYNTHESIS',
   'SFLOW_MOCK_MANIFEST_RETRY_MARKER', 'SFLOW_MOCK_DIRECTORY_VIEW_RETRY_MARKER', 'SFLOW_MOCK_SHORT_SHA'];
 
-function providerEnvironment(overrides = {}) {
+function providerEnvironment(overrides = {}, telemetry = null) {
   const forbidden = Object.keys(overrides).filter((key) => !SAFE_ENVIRONMENT_SET.has(key));
   if (forbidden.length) {
     throw new SingularityFlowError(`Model provider environment contains unsupported keys: ${forbidden.join(', ')}.`, {
       code: 'MODEL_REQUEST_INVALID'
     });
   }
+  if (telemetry != null && !isPreparedTelemetryLaunch(telemetry)) {
+    throw new SingularityFlowError('Model provider telemetry must come from trusted provisioning.', {
+      code: 'MODEL_REQUEST_INVALID'
+    });
+  }
   const inherited = process.env.NODE_ENV === 'test' ? [...SAFE_ENVIRONMENT, ...TEST_ENVIRONMENT] : SAFE_ENVIRONMENT;
   return Object.fromEntries([
     ...inherited.filter((key) => process.env[key] != null).map((key) => [key, process.env[key]]),
-    ...Object.entries(overrides)
+    ...Object.entries(overrides),
+    ...Object.entries(telemetry?.providerEnv ?? {})
   ]);
 }
 
@@ -64,10 +71,13 @@ export async function invokeCopilotCli(request) {
   if (request.model ?? configured.model) args.push('--model', request.model ?? configured.model);
   const timeoutMs = request.limits.timeoutMs;
   const outputLimit = request.limits.outputBytes;
+  // Telemetry is observational. A missing/unwritable local receipt must never prevent the
+  // governed model operation from running.
+  if (request.telemetry) await recordTelemetryLaunch(request.telemetry, { state: 'started' }).catch(() => {});
   return new Promise((resolve, reject) => {
     const child = spawn(command, args, {
       cwd: request.cwd,
-      env: providerEnvironment(request.env),
+      env: providerEnvironment(request.env, request.telemetry),
       shell: false,
       stdio: ['ignore', 'pipe', 'pipe']
     });
@@ -107,18 +117,24 @@ export async function invokeCopilotCli(request) {
     request.signal?.addEventListener('abort', onAbort, { once: true });
     child.stdout?.on('data', (chunk) => { stdout = append(stdout, chunk); });
     child.stderr?.on('data', (chunk) => { stderr = append(stderr, chunk); });
-    child.once('error', (error) => {
+    child.once('error', async (error) => {
       if (finished) return;
       finished = true;
       cleanup();
       if (terminationTimer) clearTimeout(terminationTimer);
+      if (request.telemetry) await recordTelemetryLaunch(request.telemetry, {
+        state: 'finished', errorCode: error.code ?? 'MODEL_PROVIDER_UNAVAILABLE'
+      }).catch(() => {});
       reject(new SingularityFlowError(`Unable to start ${providerLabel}: ${error.message}`, { code: 'MODEL_PROVIDER_UNAVAILABLE', cause: error }));
     });
-    child.once('close', (status, signal) => {
+    child.once('close', async (status, signal) => {
       if (finished) return;
       finished = true;
       cleanup();
       if (terminationTimer) clearTimeout(terminationTimer);
+      if (request.telemetry) await recordTelemetryLaunch(request.telemetry, {
+        state: 'finished', exitCode: status, signal
+      }).catch(() => {});
       if (failure) return reject(failure);
       if (status !== 0) {
         return reject(new SingularityFlowError(`${providerLabel} exited with status ${status}${signal ? ` (${signal})` : ''}.`, {

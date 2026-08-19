@@ -110,6 +110,7 @@ const entries = {
     'sf-story-checks', 'sf-work-interval', 'sf-converge', 'sf-submit', 'sf-finalize'
   ],
   workspace: ['sf-workspace', 'sf-workspace-bootstrap', 'sf-workspaces', 'sf-workspace-session', 'sf-workspace-impact'],
+  copilot: ['sf-workspace-session'],
   knowledge: ['sf-knowledge'],
   capability: ['sf-capability-map', 'sf-capabilities', 'sf-capability-doctor'],
   hook: ['sf-hook'],

@@ -67,6 +67,8 @@
   "pending-publication": [{ "schemaVersion": 2 }],
   "publication-journal": [{ "schemaVersion": 1 }],
   "telemetry-cursor": [{ "schemaVersion": 1, "cursors": {} }],
+  "telemetry-preference": [{ "schemaVersion": 1, "enabled": true, "acceptedDisclosureDigests": [] }],
+  "telemetry-launch": [{ "schemaVersion": 1, "launchId": "tel_fixture", "rawStream": "singularity-flow/telemetry/raw/github-copilot/tel_fixture.jsonl" }],
   "phase-telemetry": [{ "schemaVersion": 1 }],
   "knowledge-record": [{ "schemaVersion": 1, "type": "learning", "title": "Legacy learning", "detail": null, "status": null, "tags": [], "provenance": null, "supersedes": null, "recordedAt": "2025-01-02T03:04:05.000Z", "actor": "legacy@example.test" }, { "schemaVersion": 2 }],
   "initiative-state": [{ "schemaVersion": 1 }],

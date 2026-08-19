@@ -1,19 +1,20 @@
 ---
 id: telemetry-and-cost
 title: Telemetry, tokens, and cost
-version: 3
+version: 4
 aliases:
   - tokens
   - cost
   - cache
 commands:
   - telemetry
+  - copilot
 related:
   - impact-framework
   - model-independence
   - reference-previews
 ---
-Token accounting is exact where the host supplies it and labeled `unavailable` where it doesn't — never estimated. The session's fixed cost is the conversational skill index: eight model-invocable skills whose descriptions are capped at 15 estimated tokens each, about 112 estimated tokens in total. Everything else loads on invocation and scales with governed work, not with sessions. `sflow telemetry status` shows recorded usage; `sflow telemetry reconcile` compares it against a phase. Per-contributor reporting is not a command — the CLI has no `me` view, and the machine-local activity log read through `sflow logs` is the closest thing to one.
+Token accounting is exact where the provider supplies it and labeled `unavailable` where it does not—never converted to zero. `sflow copilot` and `sflow workspace copilot` provision a separate metadata-only file stream for each SFlow-owned Copilot CLI process after one machine-local disclosure. Manual Copilot and native IDE chat remain usable but are not attributed to that launch. `sflow telemetry status` shows captured, partial, unavailable, conflict, and disabled coverage; `sflow telemetry reconcile` compares completed provider events against a phase.
 
 ## Purpose and prerequisites
 
@@ -21,28 +22,29 @@ Use this topic when the current goal matches **telemetry and cost**. Start in a 
 
 ## Use it from each surface
 
-- **Shell:** `sflow telemetry`. Run `singularity-flow telemetry --help` for the exact forms supported by this build.
+- **Shell:** launch with `sflow copilot`; inspect or control capture with `sflow telemetry`. Run `singularity-flow telemetry --help` for exact forms.
 - **Copilot:** `/sf-telemetry`. The skill must preserve the CLI result and ask before any governed mutation.
-- **VS Code:** open Singularity Flow **Flow Impact, Analytics, and Activity**. The extension renders engine results; it does not independently decide lifecycle state.
+- **VS Code:** **Continue with Copilot CLI** opens the metered SFlow launcher in an integrated terminal. **Open Native Copilot Chat** remains available with an honest “usage unavailable” qualification.
 
 ## Guided workflow
 
-1. Read the current state with `sflow home`, `sflow status`, or the relevant list/status form.
-2. Review the repository, workspace, Work ID, phase, actor, and any warnings before selecting an action.
-3. Preview or prepare the operation when the command offers a dry-run, plan, packet, or exact confirmation.
-4. Run the smallest applicable command from this topic. Do not substitute an undocumented subcommand.
-5. Re-read state after completion. In Copilot, return to `/sf-home`; in VS Code, refresh the relevant view if it has not already refreshed.
+1. Run `sflow telemetry probe` to see the documented capability for CLI, VS Code terminal, native VS Code, IntelliJ terminal, and native IntelliJ.
+2. Run `sflow telemetry enable`, read the disclosure, and type `ENABLE LOCAL USAGE` if you want local capture. Declining never blocks work.
+3. Start the agent with `sflow copilot` or the VS Code **Continue with Copilot CLI** action. Each process gets an opaque launch ID and separate raw stream under the Git common directory.
+4. Run `sflow telemetry status`. A configured launch is only `captured` after at least one valid event is observed.
+5. At a lifecycle boundary, run `sflow telemetry reconcile [PHASE]` when automatic reconciliation reports a pending generation.
 
 ## State and safety
 
-These commands can mutate governed or machine-local state: `telemetry`. They remain subject to identity, authority, sequence, freshness, branch, worktree, and exact-confirmation checks. Signed handles are session-bound and are never shared between the shell, Copilot, and VS Code. Durable repository and workspace records are the shared source of truth.
+`telemetry enable` and `telemetry disable` change only a machine-local preference. Reconciliation may commit a sanitized phase summary, but raw streams and launch records stay under the Git common directory and never enter Git. Provisioning preserves existing endpoints and headers, forces content capture off for SFlow-owned streams, and never affects lifecycle authorization, approvals, submission, or release.
 
 ## Troubleshooting
 
-- If the selected Story or branch is wrong, stop and use `sflow home`, `sflow session`, or `sflow workspace list` before retrying.
-- If a command refuses because state moved, refresh and use the newly rendered action instead of replaying an old handle or confirmation.
-- If publication or synchronization is pending, follow the exact recovery command in the refusal and verify with `sflow doctor`.
-- If a Copilot or VS Code action is unavailable, use the displayed CLI fallback; do not guess a command from the label.
+- `disclosure-required`: run `sflow telemetry enable`, or continue unmetered.
+- `conflict`: an existing OTEL endpoint, exporter, or authentication configuration was preserved. Review `sflow telemetry probe`; secret values are never rendered.
+- `blocked-by-content-policy`: existing policy forces content capture, so SFlow refuses to ingest the stream while allowing work to continue.
+- `partial`: finish the Copilot turn and reconcile again. An interrupted launch remains partial rather than inventing zero usage.
+- Native IDE chat is `unavailable` until a documented, consented adapter provides a trustworthy local join. Use **Continue with Copilot CLI** when exact local attribution matters.
 
 ## Related topics
 

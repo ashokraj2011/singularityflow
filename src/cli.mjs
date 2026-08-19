@@ -15,6 +15,14 @@ import { add, assertClean, branch, changes, checkout, commit, fastForwardTo, fet
 import { buildRepositorySubjectIndex, buildRepositorySubjectIndexFromRefs, resolveContext } from './repository-subject-index.mjs';
 import { approvePhase, assertNoPendingPublication, cancelWorkflow, commitAndPublish, CONFIG_PATH, createWorkflow, currentPhase, loadConfig, preparePhase, preparePhaseInputs, promoteDesignSource, publishGeneration, reconcilePhaseTelemetry, registerArtifact, rejectPhase, reopenWorkflow, resolveWorkItem, saveStoryDraft, transactStory, scanArtifacts, storyPublicationPending, submitPhase, syncPublication, validateId, validateWorkflow, workflowBranchAllowed, workflowPublicationBranch, workflowPath, workDir } from './state-stores.mjs';
 import { copilotTelemetryStatus } from './telemetry.mjs';
+import {
+  explainTelemetryStatus,
+  prepareTelemetryLaunch,
+  probeTelemetry,
+  setTelemetryCapture,
+  TELEMETRY_DISCLOSURE,
+  TELEMETRY_DISCLOSURE_CONFIRMATION
+} from './telemetry-provision.mjs';
 import { listPromptAudits, promptAuditStatus, readPromptAudit, setPromptAudit } from './prompt-audit.mjs';
 import { assertPhaseSequence, withConfirmationPort } from './sequence.mjs';
 import { addComment, assignIssue, discoverJiraConnection, getIssue, getIssueHierarchy, getMyPermissions, issueToMarkdown, listBoards, listBoardStories, listEpicStories, listEpics, listFields, listIssueTransitions, listMyIssues, listProjects, moveIssueToSprint, setIssuePriority, transitionIssue } from './jira.mjs';
@@ -3119,15 +3127,71 @@ async function telemetryCommand(positionals, options) {
     const pending = workflow
       ? workflow.phaseOrder.flatMap((phaseId) => (workflow.phases[phaseId].telemetry ?? []).filter((item) => item.status === 'pending').map((item) => ({ phase: phaseId, generation: item.generation, path: item.path })))
       : [];
-    const result = { ...status, pending };
+    const launches = await explainTelemetryStatus({
+      root,
+      story: optionString(options, 'story', workflow?.workItem?.id ?? null)
+    });
+    const result = {
+      schemaVersion: 2,
+      capture: launches,
+      // Preserve the path-free v1 readiness fields for scripts while the qualified launch
+      // partition becomes the authoritative v2 view.
+      exists: status.exists,
+      ready: status.ready,
+      completedChatSpans: status.completedChatSpans,
+      legacyExporter: {
+        enabled: status.enabled,
+        fileConfigured: status.fileConfigured,
+        externalEndpoint: status.externalEndpoint,
+        explicitlyEnabled: status.explicitlyEnabled,
+        exists: status.exists,
+        bytes: status.bytes,
+        completedChatSpans: status.completedChatSpans,
+        ready: status.ready,
+        setup: { installed: status.setup.installed, current: status.setup.current },
+        warnings: status.warnings
+      },
+      pending
+    };
     if (optionBoolean(options, 'json')) return console.log(JSON.stringify(result, null, 2));
-    console.log(`Copilot telemetry — ${status.ready ? 'ready' : status.enabled ? 'waiting for completed spans' : 'not active in this process'}`);
-    console.log(`File: ${status.path}`);
-    console.log(`Exists: ${status.exists ? 'yes' : 'no'} | Bytes: ${status.bytes} | Completed chat spans: ${status.completedChatSpans}`);
+    console.log(`Copilot usage — ${launches.status}`);
+    console.log(`SFlow-owned launches: ${launches.launches.length} | Captured: ${launches.counts.captured} | Partial: ${launches.counts.partial}`);
+    console.log(`Local capture: ${launches.preference.enabled ? 'enabled' : 'disabled'} | Disclosure: ${launches.preference.disclosureAccepted ? 'accepted' : 'required'}`);
     console.log(`Pending generations: ${pending.length ? pending.map((item) => `${item.phase}@${item.generation}`).join(', ') : 'none'}`);
-    status.warnings.forEach((warning) => console.warn(`Warning: ${warning}`));
-    if (!status.fileConfigured && !status.ready) console.log('Fix: exit Copilot, open a new terminal in the repository, verify `type copilot`, then start a new Copilot session.');
-    else if (!status.completedChatSpans) console.log('Next: finish the current Copilot response, then run this command from the next turn.');
+    if (!launches.launches.length && status.ready) console.log(`Legacy repository stream: ${status.completedChatSpans} completed chat span(s).`);
+    if (launches.status === 'unavailable') console.log('Usage unavailable for this session. Your work can continue.');
+    if (!launches.preference.enabled) console.log('Enable future SFlow-owned launches with: singularity-flow telemetry enable');
+    else if (!launches.preference.disclosureAccepted) console.log('Review and accept the local collection disclosure with: singularity-flow telemetry enable');
+    return;
+  }
+  if (subcommand === 'probe') {
+    const probes = await Promise.all([
+      ['copilot-cli', 'cli'], ['copilot-cli', 'vscode-terminal'], ['copilot-cli', 'intellij-terminal'],
+      ['copilot-native', 'vscode-native'], ['copilot-native', 'intellij-native']
+    ].map(([runtime, host]) => probeTelemetry({ root, provider: 'github-copilot', runtime, host })));
+    const result = { schemaVersion: 1, probes };
+    if (optionBoolean(options, 'json')) return console.log(JSON.stringify(result, null, 2));
+    for (const probe of probes) console.log(`${probe.host}: ${probe.mode} · ${probe.available ? 'available' : 'usage unavailable'}`);
+    return;
+  }
+  if (subcommand === 'disable') {
+    const preference = await setTelemetryCapture(false);
+    if (optionBoolean(options, 'json')) return console.log(JSON.stringify({ schemaVersion: 1, status: 'disabled', preference }, null, 2));
+    console.log('Local usage capture is disabled for future SFlow-owned launches. Governed work is unchanged.');
+    return;
+  }
+  if (subcommand === 'enable') {
+    if (!optionBoolean(options, 'json')) console.log(TELEMETRY_DISCLOSURE);
+    const explicit = optionString(options, 'confirm');
+    const accepted = explicit != null
+      ? explicit === TELEMETRY_DISCLOSURE_CONFIRMATION
+      : await confirmExact('Enable metadata-only local usage capture?', TELEMETRY_DISCLOSURE_CONFIRMATION);
+    if (!accepted) throw new SingularityFlowError(`Telemetry enable requires exact confirmation '${TELEMETRY_DISCLOSURE_CONFIRMATION}'.`, { code: 'TELEMETRY_DISCLOSURE_REQUIRED' });
+    const preference = await setTelemetryCapture(true, { acceptDisclosure: true });
+    if (optionBoolean(options, 'json')) return console.log(JSON.stringify({
+      schemaVersion: 1, status: 'enabled', disclosure: TELEMETRY_DISCLOSURE, preference
+    }, null, 2));
+    console.log('Local metadata-only usage capture is enabled for future SFlow-owned launches.');
     return;
   }
   if (subcommand !== 'reconcile') throw new SingularityFlowError(`Unknown telemetry subcommand: ${subcommand}`);
@@ -3798,6 +3862,9 @@ async function logsCommand(positionals, options) {
 }
 
 async function doctorCommand(positionals, options) {
+  if (optionString(options, 'fix') === 'telemetry') {
+    return telemetryCommand(['telemetry', 'enable'], options);
+  }
   const root = repoRoot();
   const report = await doctorSnapshot(root, {
     workId: positionals[1],
@@ -7151,10 +7218,54 @@ async function workspaceCommand(positionals, options) {
       repository: context.repositoryId,
       story: context.storyId
     };
-    if (optionBoolean(options, 'dry-run')) return console.log(JSON.stringify(launch, null, 2));
+    let preparedTelemetry = await prepareTelemetryLaunch({
+      root: context.repositoryPath,
+      story: context.storyId,
+      provider: 'github-copilot',
+      runtime: 'copilot-cli',
+      host: optionString(options, 'host', 'cli'),
+      surface: optionString(options, 'surface', 'cli.workspace-copilot'),
+      baseEnv: process.env
+    });
+    if (optionBoolean(options, 'dry-run')) {
+      const prepared = await launchHostSession({
+        cwd: context.repositoryPath, args, story: context.storyId,
+        host: optionString(options, 'host', 'cli'),
+        surface: optionString(options, 'surface', 'cli.workspace-copilot'),
+        preparedTelemetry, dryRun: true
+      });
+      return console.log(JSON.stringify({ ...launch, telemetry: prepared.telemetry }, null, 2));
+    }
+    if (preparedTelemetry.captureStatus === 'disclosure-required') {
+      console.log(`\n${TELEMETRY_DISCLOSURE}`);
+      let accepted = false;
+      if (input.isTTY && output.isTTY) {
+        accepted = await confirmExact('Enable metadata-only local usage capture for SFlow-owned sessions?', TELEMETRY_DISCLOSURE_CONFIRMATION);
+      }
+      if (accepted) {
+        await setTelemetryCapture(true, { acceptDisclosure: true });
+        preparedTelemetry = await prepareTelemetryLaunch({
+          root: context.repositoryPath,
+          story: context.storyId,
+          provider: 'github-copilot',
+          runtime: 'copilot-cli',
+          host: optionString(options, 'host', 'cli'),
+          surface: optionString(options, 'surface', 'cli.workspace-copilot'),
+          baseEnv: process.env
+        });
+      } else console.log('Usage unavailable for this session. Your work can continue.');
+    }
+    for (const notice of preparedTelemetry.notices) {
+      if (notice !== TELEMETRY_DISCLOSURE) console.log(`Telemetry: ${notice}`);
+    }
     console.log(`\n${launch.prompt}`);
     console.log(`Starting GitHub Copilot in ${context.repositoryPath}`);
-    launchHostSession({ cwd: context.repositoryPath, args });
+    await launchHostSession({
+      cwd: context.repositoryPath, args, story: context.storyId,
+      host: optionString(options, 'host', 'cli'),
+      surface: optionString(options, 'surface', 'cli.workspace-copilot'),
+      preparedTelemetry
+    });
     return;
   }
   if (subcommand === 'create') {
@@ -8967,6 +9078,7 @@ async function dispatch(command, positionals, options) {
     story: async () => (await import('./commands/story.mjs')).storyCommand(positionals, options),
     secrets: () => secretsCommand(positionals, options),
     workspace: () => workspaceCommand(positionals, options),
+    copilot: () => workspaceCommand(['workspace', 'copilot', ...positionals.slice(1)], options),
     hook: () => hookCommand(positionals),
     bootstrap: () => bootstrapCommand(positionals, options)
   });

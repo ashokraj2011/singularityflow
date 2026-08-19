@@ -4,6 +4,8 @@ import os from 'node:os';
 import path from 'node:path';
 import test from 'node:test';
 import { invokeCopilotCli } from '../src/model-providers/copilot-cli.mjs';
+import { prepareTelemetryLaunch, setTelemetryCapture } from '../src/telemetry-provision.mjs';
+import { run } from '../src/util.mjs';
 
 function request(root, script, overrides = {}) {
   return {
@@ -36,6 +38,37 @@ test('the Copilot provider enforces none, allowlist, and all tool policies in ar
     tools: { mode: 'all', names: [] }
   }))).output);
   assert.ok(all.includes('--allow-all-tools'));
+});
+
+test('the Copilot provider accepts only trusted metadata-only telemetry injection', async () => {
+  const root = await mkdtemp(path.join(os.tmpdir(), 'sflow-provider-telemetry-'));
+  run('git', ['init', '-q'], { cwd: root });
+  const preference = path.join(root, 'telemetry-preferences.json');
+  const baseEnv = { PATH: process.env.PATH, SINGULARITY_FLOW_TELEMETRY_PREFERENCES: preference };
+  await setTelemetryCapture(true, { acceptDisclosure: true, env: baseEnv });
+  const telemetry = await prepareTelemetryLaunch({ root, story: 'PAY-1', baseEnv });
+  const script = 'process.stdout.write(JSON.stringify({enabled:process.env.COPILOT_OTEL_ENABLED, exporter:process.env.COPILOT_OTEL_EXPORTER_TYPE, content:process.env.OTEL_INSTRUMENTATION_GENAI_CAPTURE_MESSAGE_CONTENT, file:Boolean(process.env.COPILOT_OTEL_FILE_EXPORTER_PATH)}))';
+  const result = await invokeCopilotCli(request(root, script, { telemetry }));
+  assert.deepEqual(JSON.parse(result.output), { enabled: 'true', exporter: 'file', content: 'false', file: true });
+
+  const existing = await prepareTelemetryLaunch({
+    root,
+    baseEnv: {
+      ...baseEnv,
+      OTEL_EXPORTER_OTLP_ENDPOINT: 'https://collector.example.test/v1/traces',
+      OTEL_EXPORTER_OTLP_HEADERS: 'Authorization=private-value'
+    }
+  });
+  assert.equal(existing.captureStatus, 'conflict');
+  const preserved = await invokeCopilotCli(request(root,
+    'process.stdout.write(JSON.stringify({endpoint:process.env.OTEL_EXPORTER_OTLP_ENDPOINT === "https://collector.example.test/v1/traces",header:Boolean(process.env.OTEL_EXPORTER_OTLP_HEADERS),sflowFile:Boolean(process.env.COPILOT_OTEL_FILE_EXPORTER_PATH)}))',
+    { telemetry: existing }));
+  assert.deepEqual(JSON.parse(preserved.output), { endpoint: true, header: true, sflowFile: false });
+  assert.doesNotMatch(JSON.stringify(existing.launch), /private-value|collector\.example/);
+
+  await assert.rejects(() => invokeCopilotCli(request(root, script, {
+    env: { COPILOT_OTEL_ENABLED: 'true' }
+  })), (error) => error.code === 'MODEL_REQUEST_INVALID');
 });
 
 test('the Copilot provider reports unavailable executable, timeout, output limit, and cancellation', async (t) => {

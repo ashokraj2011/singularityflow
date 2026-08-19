@@ -1,6 +1,9 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { parseCopilotTelemetry } from '../src/telemetry.mjs';
+import { mkdtemp, mkdir } from 'node:fs/promises';
+import os from 'node:os';
+import path from 'node:path';
+import { parseCopilotTelemetry, recordPhaseTelemetry } from '../src/telemetry.mjs';
 
 test('Copilot telemetry parser accepts direct and OTLP attribute encodings', () => {
   const direct = {
@@ -37,6 +40,7 @@ test('Copilot telemetry parser accepts direct and OTLP attribute encodings', () 
 
   const parsed = parseCopilotTelemetry(`${JSON.stringify(direct)}\n${JSON.stringify(otlp)}\n`);
   assert.equal(parsed.warnings.length, 0);
+  assert.deepEqual(parsed.privacyDiagnostics, ['dropped disallowed telemetry attributes at line 1']);
   assert.equal(parsed.spans.length, 2);
   assert.deepEqual(parsed.spans[0], {
     provider: 'github', model: 'model-alpha-1', inputTokens: 1200, outputTokens: 300,
@@ -49,9 +53,38 @@ test('Copilot telemetry parser accepts direct and OTLP attribute encodings', () 
   assert.doesNotMatch(JSON.stringify(parsed), /must-not-be-copied/);
 });
 
-test('Copilot telemetry parser ignores tool spans and reports malformed lines', () => {
+test('Copilot telemetry parser ignores tool spans and quarantines malformed interior records', () => {
   const tool = { name: 'execute_tool shell', attributes: { 'gen_ai.operation.name': 'execute_tool', 'gen_ai.request.model': 'ignored' } };
   const parsed = parseCopilotTelemetry(`${JSON.stringify(tool)}\nnot-json\n`);
   assert.equal(parsed.spans.length, 0);
-  assert.deepEqual(parsed.warnings, ['ignored malformed telemetry line 2']);
+  assert.deepEqual(parsed.warnings, ['quarantined malformed telemetry record at line 2']);
+});
+
+test('Copilot telemetry parser retries a truncated final record without retaining content', () => {
+  const parsed = parseCopilotTelemetry('{"attributes":{"gen_ai.input.messages":"secret prompt"}}\n{"incomplete":');
+  assert.deepEqual(parsed.spans, []);
+  assert.deepEqual(parsed.privacyDiagnostics, ['dropped disallowed telemetry attributes at line 1']);
+  assert.deepEqual(parsed.warnings, ['ignored incomplete telemetry tail; it will be retried at the next boundary']);
+  assert.doesNotMatch(JSON.stringify(parsed), /secret prompt/);
+});
+
+test('mixed captured and unavailable launches cannot produce an exact phase receipt', async () => {
+  const root = await mkdtemp(path.join(os.tmpdir(), 'sflow-tel-mixed-'));
+  const itemDirectory = path.join(root, 'singularity', 'work-items', 'WRK-1');
+  await mkdir(itemDirectory, { recursive: true });
+  const result = await recordPhaseTelemetry(
+    root,
+    { workItem: { id: 'WRK-1', workType: 'story' } },
+    { id: 'implementation', generation: 1 },
+    [{ status: 'exact', model: 'model-alpha', providerCost: null }],
+    {
+      source: 'copilot-otel', pending: false, spans: 1,
+      launches: [
+        { launchId: 'one', captureStatus: 'captured' },
+        { launchId: 'two', captureStatus: 'conflict' }
+      ]
+    },
+    { itemDirectory, itemRelative: 'singularity/work-items/WRK-1' }
+  );
+  assert.equal(result.status, 'partial');
 });

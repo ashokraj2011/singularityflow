@@ -170,7 +170,7 @@ const settle = () => new Promise((resolve) => setTimeout(resolve, 400));
 
 /** Enough of the VS Code API for activation to complete and for the tree to be read. */
 function stubVscode() {
-  const registered = { commands: new Map(), trees: new Map(), webviewViews: new Map(), statusBars: [], errors: [], warnings: [], output: [], inputBoxes: [], panels: [], quickPicks: [], openDialogs: [], openedDocuments: [], answers: [], infos: [], diagnostics: new Map(), saveListeners: [], watchers: [], executedCommands: [], pickedFile: null, pickedFolder: null, pickedFavorites: undefined };
+  const registered = { commands: new Map(), trees: new Map(), webviewViews: new Map(), statusBars: [], terminals: [], errors: [], warnings: [], output: [], inputBoxes: [], panels: [], quickPicks: [], openDialogs: [], openedDocuments: [], answers: [], infos: [], diagnostics: new Map(), saveListeners: [], watchers: [], executedCommands: [], pickedFile: null, pickedFolder: null, pickedFavorites: undefined };
 
   class EventEmitter {
     constructor() { this.listeners = new Set(); }
@@ -226,6 +226,16 @@ function stubVscode() {
         const item = { text: '', tooltip: '', command: '', show() { this.shown = true; }, hide() {}, dispose() {} };
         registered.statusBars.push(item);
         return item;
+      },
+      createTerminal: (options) => {
+        const terminal = {
+          options, shown: false, sent: [],
+          show() { this.shown = true; },
+          sendText(text, addNewLine) { this.sent.push({ text, addNewLine }); },
+          dispose() {}
+        };
+        registered.terminals.push(terminal);
+        return terminal;
       },
       showErrorMessage: async (message) => { registered.errors.push(message); },
     showInformationMessage: async (message) => {
@@ -451,6 +461,14 @@ test('the built extension activates against a real repository and populates the 
   for (const id of ['singularityFlow.refresh', 'singularityFlow.openArtifact', 'singularityFlow.showImpact']) {
     assert.ok(registered.commands.has(id), `${id} is registered`);
   }
+  assert.ok(registered.commands.has('singularityFlow.openMeteredCopilot'));
+  await registered.commands.get('singularityFlow.openMeteredCopilot')();
+  assert.equal(registered.terminals.length, 1);
+  assert.equal(await realpath(registered.terminals[0].options.cwd), await realpath(root));
+  assert.deepEqual(registered.terminals[0].sent, [{
+    text: 'singularity-flow copilot --host vscode-terminal --surface vscode.continue-with-copilot',
+    addNewLine: true
+  }]);
 
   // The tree is populated from a real `snapshot --json` subprocess, not a fixture.
   const provider = view;

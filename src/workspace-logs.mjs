@@ -1,8 +1,9 @@
 import path from 'node:path';
 import { readFile, stat } from 'node:fs/promises';
-import { gitDir } from './git.mjs';
+import { gitCommonDir, gitDir } from './git.mjs';
 import { logFilePath, parseLogLines } from './logging.mjs';
 import { parseCopilotTelemetry } from './telemetry.mjs';
+import { listTelemetryLaunches } from './telemetry-provision.mjs';
 import { readWorkspace } from './workspace.mjs';
 import {
   activeWorkspaceFile, readActiveWorkspaceContext, workspaceRegistryFile
@@ -162,7 +163,7 @@ function activityEntries(text, file, repositoryId, warnings, startSequence) {
   return { entries: output, sequence };
 }
 
-function telemetryEntries(text, file, repositoryId, warnings, startSequence) {
+function telemetryEntries(text, file, repositoryId, warnings, startSequence, launch = null) {
   const parsed = parseCopilotTelemetry(text);
   warnings.push(...parsed.warnings.map((warning) => `${file}: ${warning}`));
   const output = [];
@@ -170,9 +171,10 @@ function telemetryEntries(text, file, repositoryId, warnings, startSequence) {
   for (const [index, span] of parsed.spans.entries()) {
     sequence += 1;
     output.push(entry({
-      id: `telemetry:${repositoryId}:${index + 1}`,
+      id: `telemetry:${repositoryId}:${launch?.launchId ?? 'legacy'}:${index + 1}`,
       timestamp: span.completedAt ?? span.startedAt,
       source: 'telemetry', severity: 'info', repositoryId,
+      workId: launch?.storyId ?? null, phase: launch?.phase ?? null,
       event: 'copilot.turn', summary: `${span.provider} · ${span.model}`,
       durationMs: span.startedAt && span.completedAt
         ? Math.max(0, Date.parse(span.completedAt) - Date.parse(span.startedAt)) : null,
@@ -181,7 +183,11 @@ function telemetryEntries(text, file, repositoryId, warnings, startSequence) {
         completedAt: span.completedAt, inputTokens: span.inputTokens,
         outputTokens: span.outputTokens, cachedInputTokens: span.cachedInputTokens,
         cacheWriteInputTokens: span.cacheWriteInputTokens,
-        providerCost: span.providerCost, costAvailable: span.providerCost != null
+        providerCost: span.providerCost, costAvailable: span.providerCost != null,
+        ...(launch ? {
+          launchId: launch.launchId, host: launch.host, surface: launch.surface,
+          runtime: launch.runtime, provisioningMode: launch.provisioningMode
+        } : {})
       }, sourcePath: file
     }, sequence));
   }
@@ -254,8 +260,28 @@ export async function collectWorkspaceLogs({
         } catch (error) { warnings.push(`Unable to read activity log for '${item.id}': ${error.message}`); }
       }
       if (source === 'all' || source === 'telemetry') {
+        const common = gitCommonDir(item.path);
+        const launches = await listTelemetryLaunches(item.path);
+        for (const launch of launches) {
+          const rawRoot = path.join(common, 'singularity-flow', 'telemetry', 'raw');
+          const file = path.resolve(common, launch.rawStream);
+          if (file !== rawRoot && !file.startsWith(`${rawRoot}${path.sep}`)) {
+            warnings.push(`Telemetry launch '${launch.launchId}' has an invalid raw-stream binding.`);
+            continue;
+          }
+          sources.push({ source: 'telemetry', repositoryId: item.id, launchId: launch.launchId, path: file });
+          try {
+            const content = await textIfFile(file);
+            if (content != null) {
+              const parsed = telemetryEntries(content, file, item.id, warnings, sequence, launch);
+              entries.push(...parsed.entries); sequence = parsed.sequence;
+            }
+          } catch (error) { warnings.push(`Unable to read Copilot telemetry launch '${launch.launchId}' for '${item.id}': ${error.message}`); }
+        }
+        // Continue to read the former shared stream so upgrades do not hide local history. New
+        // launch-owned sessions never write it.
         const file = path.join(directory, 'singularity-flow', 'copilot-otel.jsonl');
-        sources.push({ source: 'telemetry', repositoryId: item.id, path: file });
+        sources.push({ source: 'telemetry', repositoryId: item.id, legacy: true, path: file });
         try {
           const content = await textIfFile(file);
           if (content != null) {

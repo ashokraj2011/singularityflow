@@ -972,7 +972,7 @@ SINGULARITY_FLOW_MARKETPLACE_SOURCE="company/singularity-flow" \
   ./install.sh --registry "https://artifacts.company.com/artifactory/api/npm/npm-virtual/"
 ```
 
-The installer also enables GitHub Copilot CLI's metadata-only OpenTelemetry file exporter for future model, token, timing, and cost collection. Its shell wrapper explicitly selects the file exporter, selects the active repository dynamically, and keeps raw traces at `<git-dir>/singularity-flow/copilot-otel.jsonl`; prompt and response content capture remains disabled. Phase publication commits only a sanitized summary to `singularity/work-items/<WORK-ID>/telemetry/<phase>-gen<N>.json`, so model/token/cost state follows the work-item branch to another laptop without committing raw traces or conversation identifiers. Existing Copilot OTel environment configuration is preserved. Use `./install.sh --no-copilot-telemetry` or `SINGULARITY_FLOW_COPILOT_TELEMETRY=off ./install.sh` when an organization manages telemetry separately.
+The installer provides a named `sflow_copilot` compatibility helper, but never shadows the user's `copilot` executable. Start an instrumented session with `sflow copilot`, `sflow workspace copilot`, or VS Code **Continue with Copilot CLI**. After one machine-local disclosure, the Node launcher creates a unique metadata-only OpenTelemetry file for that process under `<git-common-dir>/singularity-flow/telemetry/raw/`; prompt, response, source, and tool content capture is forced off. Existing endpoints and authentication headers are preserved, and unsafe composition reports `conflict` while work continues. Manual Copilot and native IDE chat remain unmetered by SFlow. Phase publication commits only a sanitized summary to `singularity/work-items/<WORK-ID>/telemetry/<phase>-gen<N>.json`.
 
 The single self-contained `install.sh` performs:
 
@@ -1391,7 +1391,9 @@ For a batch, pass `--response-file responses.json`. A model-assisted publication
 
 ## Token usage
 
-With installer-managed Copilot telemetry, `prepare` opens a generation capture window. Copilot exports a chat span only after the response finishes, so `phase publish` may initially mark the current generation `pending`. The next `submit` or `/sf-next` invocation automatically reconciles the completed span in its own commit and push before submission. The sanitized record is committed under the work item:
+See [Self-provisioning usage telemetry](docs/SELF-PROVISIONING-USAGE-TELEMETRY.md) for the capability matrix, consent boundary, local storage layout, and native-host limitations.
+
+With SFlow-provisioned Copilot telemetry, every owned process has an opaque launch ID and separate raw stream. Copilot exports a chat span only after the response finishes, so `phase publish` may initially mark the current generation `pending`. The next `submit` or `/sf-next` invocation automatically reconciles the completed span in its own commit and push before submission. The sanitized record is committed under the work item:
 
 ```text
 singularity/work-items/<WORK-ID>/telemetry/<phase>-gen<N>.json
@@ -1422,11 +1424,15 @@ Missing usage or pricing remains visibly `unavailable`; a mixture of priced and 
 Diagnose the local exporter or explicitly retry a delayed generation with:
 
 ```bash
+singularity-flow telemetry probe
+singularity-flow telemetry enable
+singularity-flow copilot
 singularity-flow telemetry status
 singularity-flow telemetry reconcile implementation
+singularity-flow telemetry disable
 ```
 
-`telemetry status` shows whether this Copilot process inherited the file exporter, the repository trace path and byte count, completed chat spans, and pending generations. Reconciliation never commits raw traces—only the sanitized phase record.
+`telemetry status` reports qualified launch coverage as `captured`, `partial`, `unavailable`, `conflict`, or `disabled`. A configured exporter is not called captured until a valid event is observed. Reconciliation never commits raw traces or host paths—only the allow-listed phase record. Telemetry does not participate in lifecycle gates or authorization.
 
 ## Approval and governed change requests
 

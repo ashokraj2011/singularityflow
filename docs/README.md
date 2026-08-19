@@ -31,6 +31,7 @@ is not part of the current product.
 | Run without a model or publish human-authored artifacts | [Model independence](MODEL-INDEPENDENCE.md) |
 | Audit model policy for every operation | [Operation model-policy catalog](OPERATION-MODEL-POLICY.md) |
 | Use bounded optional structural intelligence | [AST Intelligence](AST-INTELLIGENCE.md) |
+| Capture privacy-safe provider usage for SFlow-owned launches | [Self-provisioning usage telemetry](SELF-PROVISIONING-USAGE-TELEMETRY.md) |
 
 ## Architecture and governance
 

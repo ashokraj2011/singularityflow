@@ -673,7 +673,8 @@ test('workspace Copilot launcher dry-run uses the selected repository and sessio
   const env = {
     ...process.env,
     SINGULARITY_FLOW_WORKSPACE_REGISTRY: registry,
-    SINGULARITY_FLOW_ACTIVE_WORKSPACE: selection
+    SINGULARITY_FLOW_ACTIVE_WORKSPACE: selection,
+    SINGULARITY_FLOW_TELEMETRY_PREFERENCES: path.join(root, 'telemetry-preferences.json')
   };
 
   let result = spawnSync(process.execPath, [cli, 'workspace', 'use', 'PAY-100', '--story', 'MOB-321', '--json'], {
@@ -692,6 +693,16 @@ test('workspace Copilot launcher dry-run uses the selected repository and sessio
   assert.ok(launch.args.includes('--name'));
   assert.deepEqual(launch.args.slice(-2), ['--mode', 'plan']);
   assert.equal(launch.prompt, `${created.workspace.name} / MOB-321 >`);
+  assert.equal(launch.telemetry.captureStatus, 'disclosure-required');
+
+  result = spawnSync(process.execPath, [cli, 'copilot', '--mode', 'plan', '--dry-run'], {
+    cwd: root, env, encoding: 'utf8'
+  });
+  assert.equal(result.status, 0, result.stderr);
+  const alias = JSON.parse(result.stdout);
+  assert.equal(alias.cwd, created.status.leadRepositoryPath);
+  assert.deepEqual(alias.args.slice(-2), ['--mode', 'plan']);
+  assert.equal(alias.telemetry.provisioningMode, 'launch-injection');
 });
 
 test('a session can attach to a saved workspace from outside every repository', async () => {

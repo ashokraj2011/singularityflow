@@ -224,7 +224,12 @@
       },
       {
         "command": "singularityFlow.openCopilot",
-        "title": "Singularity Flow: Continue Active Story in Copilot",
+        "title": "Singularity Flow: Open Native Copilot Chat (Usage Unavailable)",
+        "icon": "$(comment-discussion)"
+      },
+      {
+        "command": "singularityFlow.openMeteredCopilot",
+        "title": "Singularity Flow: Continue Active Story in Metered Copilot CLI",
         "icon": "$(sparkle)"
       },
       {

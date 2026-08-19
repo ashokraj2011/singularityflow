@@ -376,7 +376,7 @@ export async function prepareLocalReinstall({
         `Copilot plugin identities: ${REINSTALL_SURFACES.copilotPlugins.join(', ')}`,
         'managed direct /sf-* skills carrying the Singularity Flow ownership marker',
         `VS Code extension ${REINSTALL_SURFACES.vscodeExtension}${installed.codeAvailable ? '' : ' (code CLI unavailable; skipped)'}`,
-        'installer-managed Copilot telemetry wrapper'
+        'installer-managed sflow_copilot compatibility helper (never the user\'s copilot command)'
       ])
     ],
     preserve: [
@@ -445,17 +445,10 @@ async function installedPluginRoot(execute, environment, expectedVersion) {
 
 function renderTelemetryWrapper() {
   return `${MANAGED_TELEMETRY_MARKER}\n` +
-    '# Records model, token, timing, and cost metadata. Prompt/response content remains disabled.\n' +
-    'copilot() {\n' +
-    '  local sflow_git_dir sflow_telemetry_file\n' +
-    '  sflow_git_dir="$(command git rev-parse --absolute-git-dir 2>/dev/null || true)"\n' +
-    '  if [ -n "$sflow_git_dir" ] && [ -z "${COPILOT_OTEL_FILE_EXPORTER_PATH:-}" ] && [ -z "${OTEL_EXPORTER_OTLP_ENDPOINT:-}" ] && [ -z "${COPILOT_OTEL_ENABLED:-}" ]; then\n' +
-    '    sflow_telemetry_file="$sflow_git_dir/singularity-flow/copilot-otel.jsonl"\n' +
-    '    command mkdir -p "$sflow_git_dir/singularity-flow"\n' +
-    '    command touch "$sflow_telemetry_file"\n' +
-    '    command chmod 600 "$sflow_telemetry_file"\n' +
-    '    COPILOT_OTEL_ENABLED=true COPILOT_OTEL_EXPORTER_TYPE=file COPILOT_OTEL_FILE_EXPORTER_PATH="$sflow_telemetry_file" command copilot "$@"\n' +
-    '  else\n    command copilot "$@"\n  fi\n}\n';
+    '# Never shadows the user\'s copilot executable. SFlow provisions only processes it launches.\n' +
+    'sflow_copilot() {\n' +
+    '  command singularity-flow copilot "$@"\n' +
+    '}\n';
 }
 
 async function replaceTelemetryWrapper({ homeDirectory, enabled }) {

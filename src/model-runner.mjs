@@ -8,6 +8,7 @@ import { assertModelTask } from './model-tasks.mjs';
 import { loadModelTiers, MODEL_TIERS_PATH, tierLadder } from './model-tiers.mjs';
 import { currentSchemaVersion, readRecord } from './schema-migrations.mjs';
 import { nowIso, SingularityFlowError, writeJson } from './util.mjs';
+import { prepareTelemetryLaunch } from './telemetry-provision.mjs';
 
 function sha256(value) { return createHash('sha256').update(value).digest('hex'); }
 
@@ -259,7 +260,23 @@ export async function invokeModel(request) {
    * The caller-named path is unchanged: `routing` is null there, and `normalized.model` already
    * held the answer.
    */
-  const invocation = routing ? Object.freeze({ ...normalized, model: routing.model }) : normalized;
+  const telemetryHost = normalized.channel.includes('vscode')
+    ? 'vscode-terminal'
+    : normalized.channel.includes('intellij') ? 'intellij-terminal' : 'cli';
+  const telemetry = adapterId === 'copilot-cli'
+    ? await prepareTelemetryLaunch({
+      root: resolvedAuditRoot,
+      story: normalized.subject?.id ?? normalized.subject?.workId ?? null,
+      phase: normalized.subject?.phase ?? null,
+      provider: 'github-copilot', runtime: 'copilot-cli', host: telemetryHost,
+      surface: normalized.channel, baseEnv: process.env
+    })
+    : null;
+  const invocation = Object.freeze({
+    ...normalized,
+    ...(routing ? { model: routing.model } : {}),
+    ...(telemetry ? { telemetry } : {})
+  });
   try {
     const result = await provider(invocation);
     if (!result || typeof result !== 'object' || typeof result.output !== 'string') {

@@ -637,7 +637,8 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
     'singularityFlow.publishConfiguration',
     'singularityFlow.openInstructionDesigner', 'singularityFlow.openPromptAudit', 'singularityFlow.openActivityLog',
     'singularityFlow.openWorkspaceLogs', 'singularityFlow.refreshWorkspaceLogs', 'singularityFlow.openSpecificationTrace',
-    'singularityFlow.inspectCompositionCache', 'singularityFlow.checkLedgerDeployment', 'singularityFlow.openCopilot',
+    'singularityFlow.inspectCompositionCache', 'singularityFlow.checkLedgerDeployment',
+    'singularityFlow.openCopilot', 'singularityFlow.openMeteredCopilot',
     'singularityFlow.openVisualAssurance',
     'singularityFlow.openConfigurationCenter', 'singularityFlow.configureWorldModel', 'singularityFlow.configureAstIntelligence', 'singularityFlow.configurePeople', 'singularityFlow.configureMcp',
     'singularityFlow.configureTemplates', 'singularityFlow.configureModels',
@@ -3370,6 +3371,13 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
     },
     'singularityFlow.openCopilot': async () => {
       try {
+        const nativeUsageNotice = 'singularityFlow.nativeCopilotUsageUnavailableNotice';
+        if (!context.globalState.get<boolean>(nativeUsageNotice, false)) {
+          void vscode.window.showInformationMessage(
+            'Usage unavailable for native Copilot Chat in this build. Your work can continue. Use “Continue with Copilot CLI” for consented local usage capture.'
+          );
+          await context.globalState.update(nativeUsageNotice, true);
+        }
         const target = path.resolve(client.repository);
         const workId = store.current.snapshot?.workflow?.workItem.id ?? null;
         const targetIsOpen = vscode.workspace.workspaceFolders?.some(
@@ -3393,6 +3401,14 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
       } catch (error) {
         showRefusal(error, { headline: 'Could not prepare governed Copilot context' });
       }
+    },
+    'singularityFlow.openMeteredCopilot': async () => {
+      const terminal = vscode.window.createTerminal({
+        name: 'Singularity Flow · Copilot CLI',
+        cwd: client.repository
+      });
+      terminal.show(true);
+      terminal.sendText('singularity-flow copilot --host vscode-terminal --surface vscode.continue-with-copilot', true);
     },
     // Creating and editing deliberately use different screens. Creation may introduce a new Git
     // repository, so it always uses the mapping form that accepts a clone URL and registers the

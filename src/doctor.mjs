@@ -10,7 +10,7 @@ import { storyPublicationPending, validateWorkflow, workflowPath, loadStoryAggre
 import { findLegacyPendingPublications } from './publication-pending.mjs';
 import { inspectStatePlanes } from './state-planes.mjs';
 import { commandExists, platformShell, run } from './util.mjs';
-import { copilotTelemetryStatus } from './telemetry.mjs';
+import { explainTelemetryStatus, probeTelemetry } from './telemetry-provision.mjs';
 import { buildRepositorySubjectIndex, resolveContext } from './repository-subject-index.mjs';
 import { mcpDoctor } from './mcp-readiness.mjs';
 import { modelFreedomSnapshot, modelFreedomText } from './model-freedom.mjs';
@@ -152,20 +152,21 @@ export async function doctorSnapshot(root, { workId = null, offline = false, per
           : `Trust and start '${server.hostReference}' in the host, then run singularity-flow mcp attest ${server.id} --confirm ${server.id}.`
     ));
   }
-  const telemetry = await copilotTelemetryStatus(root);
+  const telemetryLaunches = await explainTelemetryStatus({ root });
+  const telemetryCapability = await probeTelemetry({
+    root, provider: 'github-copilot', runtime: 'copilot-cli', host: 'cli'
+  });
   checks.push(check(
     'copilot-telemetry',
-    telemetry.ready ? 'pass' : 'warn',
-    telemetry.ready
-      ? `Copilot telemetry has ${telemetry.completedChatSpans} completed chat span(s) in the repository exporter.`
-      : telemetry.fileConfigured
-        ? `Copilot telemetry is configured, but no completed chat span is available yet (${telemetry.bytes} bytes).`
-        : 'This process was not started with the repository-scoped Copilot telemetry exporter.',
-    telemetry.ready
+    telemetryLaunches.status === 'captured' ? 'pass' : 'warn',
+    telemetryLaunches.status === 'captured'
+      ? `Local usage was captured for ${telemetryLaunches.counts.captured} SFlow-owned launch(es).`
+      : `${telemetryCapability.mode} is ${telemetryCapability.available ? 'available' : 'unavailable'}; local usage status is ${telemetryLaunches.status}.`,
+    telemetryLaunches.status === 'captured'
       ? null
-      : telemetry.fileConfigured
-        ? 'Finish the current Copilot response, then run singularity-flow telemetry status from the next turn.'
-        : 'Fully exit Copilot, open a new terminal in this repository, verify `type copilot`, and start a new session.'
+      : telemetryLaunches.preference.enabled && telemetryLaunches.preference.disclosureAccepted
+        ? 'Start the agent with singularity-flow copilot, finish one turn, then run singularity-flow telemetry status.'
+        : 'Review local metadata-only capture with singularity-flow telemetry enable. Work remains unblocked if you decline.'
   ));
   const currentBranch = branch(root);
   const requested = workId ?? currentBranch;

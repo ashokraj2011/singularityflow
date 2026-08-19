@@ -93,7 +93,12 @@ Usage:
   singularity-flow impact compare <STUDY> [--filter DIMENSION=VALUE]... [--json]
   singularity-flow impact doctor [WORK-ID] [--json]
   singularity-flow telemetry status [--json]
+  singularity-flow telemetry probe [--json]
+  singularity-flow telemetry enable [--confirm "ENABLE LOCAL USAGE"] [--json]
+  singularity-flow telemetry disable [--json]
   singularity-flow telemetry reconcile [PHASE] [--json]
+  singularity-flow copilot [--mode interactive|plan] [--repository ID] [--story ID]
+    [--host cli|vscode-terminal|intellij-terminal] [--dry-run]
   singularity-flow prompt-log on|off|status
   singularity-flow prompt-log list [--agent ID] [--phase ID] [--work-id ID] [--limit N] [--include-prompt] [--json]
   singularity-flow prompt-log view [RECORD-ID|latest] [--json]
@@ -138,6 +143,7 @@ Usage:
   singularity-flow repair attempt <REPAIR-ID> --patch PATCH-FILE [--json]
   singularity-flow repair cancel <REPAIR-ID> --reason TEXT [--json]
   singularity-flow doctor [WORK-ID] [--offline] [--performance] [--json]
+  singularity-flow doctor --fix telemetry [--confirm "ENABLE LOCAL USAGE"] [--json]
   singularity-flow home [--workspace ID] [--lens developer|qa|architect|product-owner|admin]
     [--request TEXT] [--json]
                                                            conversational Home (alias: cockpit)

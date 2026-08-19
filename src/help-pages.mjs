@@ -79,6 +79,53 @@ export function synopsisFor(command) {
  * what it refuses and why, and a worked example. Commands absent from this map still render.
  */
 const PAGES = Object.freeze({
+  telemetry: {
+    summary: 'Inspect and control privacy-safe local usage capture for SFlow-owned agent launches.',
+    description: [
+      'Telemetry is provisioned per launch only when Singularity Flow owns the Copilot CLI process.',
+      'Each launch receives a separate file under the Git common directory. Prompts, responses,',
+      'source, tool arguments, tool results, and paths touched by the agent are excluded.',
+      '',
+      'The first metered launch requires a machine-local disclosure. Existing OTLP endpoints and',
+      'authentication settings are preserved; conflicts make usage unavailable without blocking',
+      'the Story. Native IDE chat remains usable but is not attributed to a launch in this build.'
+    ],
+    options: [
+      ['--story ID', 'Limit status to launches attributed to this Story.'],
+      ['--confirm "ENABLE LOCAL USAGE"', 'Accept the current metadata-only disclosure non-interactively.'],
+      ['--json', 'Emit capability, preference, launch coverage, and reconciliation details.']
+    ],
+    examples: [
+      ['singularity-flow telemetry status', 'Show captured, partial, unavailable, conflict, and disabled launch coverage.'],
+      ['singularity-flow telemetry probe --json', 'Inspect supported CLI, VS Code, and JetBrains host modes.'],
+      ['singularity-flow telemetry enable', 'Review and accept the local collection disclosure.'],
+      ['singularity-flow telemetry disable', 'Disable capture for future SFlow-owned launches without affecting work.']
+    ],
+    seeAlso: ['copilot', 'workspace', 'doctor', 'report']
+  },
+  copilot: {
+    summary: 'Launch Copilot CLI in the active workspace repository with governed context and consented local usage capture.',
+    description: [
+      'This is the short form of `singularity-flow workspace copilot`. It resolves the active',
+      'workspace repository, starts the normal Copilot CLI without changing its interaction model,',
+      'and provisions a unique metadata-only telemetry stream when the user has accepted disclosure.',
+      '',
+      'It never changes lifecycle state. Existing telemetry configuration is preserved; a conflict',
+      'or unsupported host launches normally and reports usage as unavailable.'
+    ],
+    options: [
+      ['--mode interactive|plan', 'Start the normal interactive CLI or Copilot Plan mode.'],
+      ['--repository ID', 'Select a repository from the active multi-repository workspace.'],
+      ['--story ID', 'Attach the launch to an explicitly selected Story.'],
+      ['--host HOST', 'Declare the SFlow-owned terminal host for capability reporting.'],
+      ['--dry-run', 'Show command, working directory, and telemetry qualification without launching.']
+    ],
+    examples: [
+      ['singularity-flow copilot', 'Continue in the selected workspace repository.'],
+      ['singularity-flow copilot --mode plan --dry-run', 'Preview a governed Plan-mode launch.']
+    ],
+    seeAlso: ['workspace', 'session', 'telemetry', 'home']
+  },
   journal: {
     summary: 'Review private machine-local work memory without creating governance evidence.',
     description: [
@@ -448,7 +495,8 @@ const PAGES = Object.freeze({
     examples: [
       ['singularity-flow doctor', 'Full diagnosis of the current repository.'],
       ['singularity-flow doctor --offline', 'Skip every check that needs the network.'],
-      ['singularity-flow doctor --performance', 'Measure warm Git status and scoped world-model fingerprint cost for a large repository.']
+      ['singularity-flow doctor --performance', 'Measure warm Git status and scoped world-model fingerprint cost for a large repository.'],
+      ['singularity-flow doctor --fix telemetry', 'Review and repair only the machine-local SFlow usage-capture preference.']
     ],
     seeAlso: ['validate', 'gate', 'status']
   },

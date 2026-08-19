@@ -2,7 +2,10 @@
 
 Singularity Flow uses the authenticated Copilot surface already available in VS Code or the
 terminal. The product does not host a second model session or treat chat history as workflow
-state.
+state. Native chat is a governed-context handoff, but it is not metered by Singularity Flow.
+For qualified metadata-only usage capture, start the launch-owned CLI surface with
+`singularity-flow copilot` or VS Code **Continue with Copilot CLI**. Manual `copilot` and
+**Open Native Copilot Chat** intentionally remain unmetered.
 
 Run `sflow explain copilot-and-surfaces` for the current boundary between CLI, Copilot, and VS Code. `/sf-home` reads current choices, asks for one explicit selection, follows that guided flow, and refreshes home afterward.
 

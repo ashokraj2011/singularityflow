@@ -763,7 +763,7 @@ The combined timeline reads four machine-local sources when present:
 | --- | --- | --- |
 | Activity | each repository's real Git directory under `singularity-flow/logs/activity.log` | command, hook, and runtime events |
 | Prompts | `<workspace>/.singularity-flow/prompt-audit/prompts.jsonl` | redacted prompt metadata; full captured text is revealed only after selecting the prompt in VS Code |
-| Copilot | each repository's real Git directory under `singularity-flow/copilot-otel.jsonl` | safe provider, model, token, cache, duration, and cost-availability summaries |
+| Copilot | each repository's Git common directory under `singularity-flow/telemetry/raw/` | qualified, content-free provider, model, token, cache, duration, and cost-availability summaries from SFlow-owned launches |
 | Workspace | `<workspace>/logs/workspace-materialization.json` | clone, materialization, and repair operations |
 
 Entries are ordered by parsed timestamp, newest first. Invalid timestamps sort
@@ -1813,7 +1813,7 @@ tokens:
 
 No model prices are bundled because prices change over time. Exact total tokens without an input/output breakdown cannot be priced safely and remain unavailable for cost calculation.
 
-Use `singularity-flow telemetry status` to see whether the current Copilot process inherited the repository file exporter, the raw-file path and size, completed chat spans, and pending generations. Use `singularity-flow telemetry reconcile [PHASE]` to retry a delayed generation explicitly. Reconciliation commits and pushes only the sanitized record, never the raw trace.
+Use `singularity-flow telemetry probe` to inspect documented host capabilities, then `singularity-flow telemetry enable` to review and accept metadata-only local capture. Launch through `singularity-flow copilot` or `singularity-flow workspace copilot`. `telemetry status` reports captured, partial, unavailable, conflict, and disabled SFlow-owned launches without exposing raw host paths. Use `telemetry reconcile [PHASE]` to retry a delayed generation explicitly. Reconciliation commits and pushes only the sanitized record, never raw traces, prompts, source, or tool content.
 
 ## Git state transfer and recovery
 
@@ -2354,7 +2354,7 @@ From a clean clone, the supported local update/install workflow is:
 
 `npm run install:local` invokes the same script.
 
-It performs a fast-forward-only pull, asks for the npm registry, installs locked dependencies, builds the VS Code extension, runs tests and checks, creates the tarball, replaces the global CLI, removes old plugin identities, installs the current marketplace plugin, and enables the metadata-only Copilot OpenTelemetry file exporter in the active shell profile. Raw telemetry stays at `<git-dir>/singularity-flow/copilot-otel.jsonl`; prompt and response content capture remains disabled. Publication commits sanitized phase summaries under `singularity/work-items/<WORK-ID>/telemetry/` for Git state transfer.
+It performs a fast-forward-only pull, asks for the npm registry, installs locked dependencies, builds the VS Code extension, runs tests and checks, creates the tarball, replaces the global CLI, removes old plugin identities, and installs the current marketplace plugin. It also installs a named `sflow_copilot` convenience helper; it never shadows the user's `copilot` command or modifies persistent OpenTelemetry settings. Start an SFlow-owned, metadata-only process with `singularity-flow copilot`. After explicit machine-local disclosure, each launch writes a separate raw stream below the repository's Git common directory. Prompt, response, source, and tool content capture is forced off. Publication commits only sanitized phase summaries under `singularity/work-items/<WORK-ID>/telemetry/` for Git state transfer.
 
 For a company Artifactory or registry:
 
@@ -2373,7 +2373,7 @@ any repository/workspace mutation—use:
 
 Or set `SINGULARITY_FLOW_NPM_REGISTRY`. Authentication remains in `.npmrc`; do not embed credentials or tokens in the URL. The installer rejects dirty checkouts and never resets, rebases, or force-pushes.
 
-If Copilot telemetry is managed centrally, opt out of the local file exporter:
+To skip installing the optional `sflow_copilot` convenience helper:
 
 ```bash
 ./install.sh --no-copilot-telemetry
@@ -2381,7 +2381,7 @@ If Copilot telemetry is managed centrally, opt out of the local file exporter:
 SINGULARITY_FLOW_COPILOT_TELEMETRY=off ./install.sh
 ```
 
-The generated shell entry does not override an existing `COPILOT_OTEL_FILE_EXPORTER_PATH`, `OTEL_EXPORTER_OTLP_ENDPOINT`, or explicit `COPILOT_OTEL_ENABLED` setting. Fully exit any currently running Copilot CLI process, open a new terminal in the repository, verify `type copilot`, and start a new session. An existing process cannot inherit newly installed environment variables.
+The helper delegates to `singularity-flow copilot`; it does not persist exporter variables. At launch time, existing exporter endpoints, headers, or unsafe content-capture settings are treated as a conflict, and Copilot continues without SFlow usage capture. Manual `copilot` and native IDE chat stay unmetered by SFlow. Inspect or change the local preference with `singularity-flow telemetry status|enable|disable`.
 
 ## Low-friction cockpit, diagnostics, and guided execution
 
@@ -2592,7 +2592,7 @@ Use `singularity-flow jira fields --query <name>` against the Jira site and conf
 
 ### Report token or cost values are unavailable
 
-Run `singularity-flow telemetry status`. If it says the exporter is not active, fully exit Copilot, open a new terminal in the repository, verify `type copilot`, and start a new Copilot session. If a generation is pending, finish the current Copilot response and let the next `submit` or `/sf-next` reconcile it, or run `singularity-flow telemetry reconcile <PHASE>` explicitly. Older turns created before telemetry was enabled cannot be reconstructed. If token data exists but cost does not, the provider did not expose exact cost or the exact model name has no configured price. Singularity Flow does not estimate these values.
+Run `singularity-flow telemetry status`. If disclosure is required, run `singularity-flow telemetry enable`; if capture is enabled, start the agent through `singularity-flow copilot`. `conflict` means existing OTEL configuration was preserved, and `blocked-by-content-policy` means SFlow refused to ingest a stream whose policy enables content capture. Both are non-blocking. If a generation is pending, finish the current Copilot response and let the next `submit` or `/sf-next` reconcile it, or run `singularity-flow telemetry reconcile <PHASE>`. Native IDE chat and older uninstrumented turns cannot be reconstructed. Missing provider cost remains unavailable rather than estimated.
 
 ### VS Code cannot open a repository
 
@@ -2770,7 +2770,11 @@ tool.
 
 singularity-flow prompt-log on|off|status|list|view [ID|latest] [--agent AGENT] [--phase PHASE]
 singularity-flow telemetry status [--json]
+singularity-flow telemetry probe [--json]
+singularity-flow telemetry enable [--confirm "ENABLE LOCAL USAGE"] [--json]
+singularity-flow telemetry disable [--json]
 singularity-flow telemetry reconcile [PHASE] [--json]
+singularity-flow copilot [--mode interactive|plan] [--repository ID] [--story ID] [--host cli|vscode-terminal|intellij-terminal] [--dry-run]
 singularity-flow documents list [WORK-ID] [--active|--all] [--json]
 singularity-flow documents view <DOCUMENT-ID|PATH> [--work-id ID] [--all]
 singularity-flow documents upload <FILE-OR-DIRECTORY...> [--url URL]

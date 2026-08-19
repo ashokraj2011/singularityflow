@@ -4,7 +4,8 @@ import { execFileSync } from 'node:child_process';
 import { mkdtemp, mkdir, readFile, realpath, writeFile } from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
-import { gitDir } from '../src/git.mjs';
+import { gitCommonDir, gitDir } from '../src/git.mjs';
+import { prepareTelemetryLaunch, recordTelemetryLaunch, setTelemetryCapture } from '../src/telemetry-provision.mjs';
 import { collectWorkspaceLogs, compareWorkspaceLogEntries } from '../src/workspace-logs.mjs';
 
 function git(root, args) {
@@ -137,6 +138,39 @@ test('workspace log filters are applied before pagination', async () => {
   assert.equal(report.entries[0].event, 'one');
   await assert.rejects(() => collectWorkspaceLogs({ env, since: 'yesterday-ish' }), /ISO timestamp/);
   await assert.rejects(() => collectWorkspaceLogs({ env, source: 'raw-spans' }), /Log source must be/);
+});
+
+test('workspace logs include launch-owned telemetry with its governed attribution', async () => {
+  const { root, first, env } = await fixture();
+  const machineEnv = {
+    PATH: process.env.PATH,
+    SINGULARITY_FLOW_TELEMETRY_PREFERENCES: path.join(root, 'telemetry-preferences.json')
+  };
+  await setTelemetryCapture(true, { acceptDisclosure: true, env: machineEnv });
+  const prepared = await prepareTelemetryLaunch({
+    root: first, story: 'WRK-77', phase: 'implementation', host: 'vscode-terminal',
+    surface: 'vscode.continue-with-copilot', baseEnv: machineEnv,
+    startedAt: '2026-08-11T12:00:00.000Z'
+  });
+  await recordTelemetryLaunch(prepared, { state: 'started' });
+  await writeFile(prepared.rawAbsolute, `${JSON.stringify({
+    name: 'chat enterprise-model',
+    startTime: '2026-08-11T12:00:01.000Z', endTime: '2026-08-11T12:00:02.000Z',
+    attributes: {
+      'gen_ai.operation.name': 'chat', 'gen_ai.provider.name': 'github',
+      'gen_ai.response.model': 'enterprise-model', 'gen_ai.usage.input_tokens': 12,
+      'gen_ai.usage.output_tokens': 4
+    }
+  })}\n`);
+  await recordTelemetryLaunch(prepared, { state: 'finished', exitCode: 0 });
+
+  const report = await collectWorkspaceLogs({ env, source: 'telemetry' });
+  assert.equal(report.entries.length, 1);
+  assert.equal(report.entries[0].workId, 'WRK-77');
+  assert.equal(report.entries[0].phase, 'implementation');
+  assert.equal(report.entries[0].details.launchId, prepared.launch.launchId);
+  assert.equal(report.entries[0].details.surface, 'vscode.continue-with-copilot');
+  assert.ok(prepared.rawAbsolute.startsWith(path.join(gitCommonDir(first), 'singularity-flow', 'telemetry', 'raw')));
 });
 
 test('workspace logs resolve a linked Git worktree rather than assuming dot-git is a directory', async () => {

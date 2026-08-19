@@ -28,10 +28,9 @@ test('local installer performs a safe ordered pull, pack, global install, and pl
   assert.match(script, /npm uninstall --global singularity-flow/);
   assert.match(script, /npm install --global "\$PROJECT_DIR\/\$TARBALL" --registry="\$REGISTRY"/);
   assert.match(script, /singularity-flow plugin install/);
-  assert.match(script, /COPILOT_OTEL_FILE_EXPORTER_PATH/);
-  assert.match(script, /COPILOT_OTEL_ENABLED=true/);
-  assert.match(script, /COPILOT_OTEL_EXPORTER_TYPE=file/);
-  assert.match(script, /singularity-flow\/copilot-otel\.jsonl/);
+  assert.match(script, /sflow_copilot\(\)/);
+  assert.match(script, /singularity-flow copilot/);
+  assert.doesNotMatch(script, /^\s*'copilot\(\) \{'/m, 'the installer must never shadow manual Copilot');
   assert.match(script, /--no-copilot-telemetry/);
   assert.match(script, /--factory-reset/);
   assert.match(script, /--clean-reinstall/);
@@ -43,7 +42,7 @@ test('local installer performs a safe ordered pull, pack, global install, and pl
   assert.match(script, /code --uninstall-extension singularityflow\.singularity-flow-vscode/);
   assert.match(script, /npm run vscode:package/);
   assert.match(script, /code --install-extension "\$VSIX_PATH" --force/);
-  assert.match(script, /Prompt\/response content remains disabled/);
+  assert.match(script, /Prompt and response content capture remains disabled/);
   assert.ok(script.indexOf('git pull --ff-only') < script.indexOf('npm ci --registry="$REGISTRY"'));
   assert.ok(script.indexOf('npm ci --registry="$REGISTRY"') < script.indexOf('npm pack --json'));
   assert.ok(script.indexOf('scripts/stamp-build-info.mjs') < script.indexOf('npm pack --json'));
@@ -135,18 +134,14 @@ if [[ "$*" == "run vscode:package" ]]; then mkdir -p "$PWD/apps/vscode"; touch "
   });
   assert.equal(result.status, 0, `${result.stdout}\n${result.stderr}`);
   assert.match(result.stdout, new RegExp(`Installed Singularity Flow ${version.replaceAll('.', '\\.')}`));
-  assert.match(result.stdout, /Copilot OpenTelemetry: enabled/);
+  assert.match(result.stdout, /SFlow Copilot launcher helper: enabled/);
   assert.match(result.stdout, /Prompt and response content capture remains disabled/);
-  assert.match(result.stdout, /fully exit any currently running Copilot CLI process/);
+  assert.match(result.stdout, /Use sflow copilot for consented, story-scoped local usage capture/);
   const telemetryEnv = await readFile(path.join(fixture, '.singularity-flow', 'copilot-otel.sh'), 'utf8');
   const shellProfile = await readFile(path.join(fixture, '.zshrc'), 'utf8');
-  assert.match(telemetryEnv, /COPILOT_OTEL_FILE_EXPORTER_PATH/);
-  assert.match(telemetryEnv, /COPILOT_OTEL_ENABLED=true/);
-  assert.match(telemetryEnv, /COPILOT_OTEL_EXPORTER_TYPE=file/);
-  assert.match(telemetryEnv, /git rev-parse --absolute-git-dir/);
-  assert.match(telemetryEnv, /sflow_git_dir\/singularity-flow\/copilot-otel\.jsonl/);
-  assert.match(telemetryEnv, /copilot\(\)/);
-  assert.doesNotMatch(telemetryEnv, /CAPTURE_MESSAGE_CONTENT=true/);
+  assert.match(telemetryEnv, /sflow_copilot\(\)/);
+  assert.match(telemetryEnv, /singularity-flow copilot/);
+  assert.doesNotMatch(telemetryEnv, /COPILOT_OTEL_|OTEL_EXPORTER_|^copilot\(\)/m);
   assert.match(shellProfile, /\.singularity-flow\/copilot-otel\.sh/);
   const commands = await readFile(log, 'utf8');
   for (const expected of [

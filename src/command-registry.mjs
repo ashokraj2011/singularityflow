@@ -5,7 +5,7 @@ const STRUCTURED = new Set(['specify', 'plan', 'implement', 'verify', 'converge'
 // `secrets` is here because `resolveOperation` returns `definition.operation` before it consults
 // any resolver, so a command with a single registered operation never reaches its own resolver.
 // Without this line `resolveSecretsOperation` is unreachable and the scan/protect split is inert.
-const MODEL_FREE_MIXED_COMMANDS = new Set(['report', 'telemetry', 'review', 'inputs', 'spec', 'visual', 'clarification', 'story', 'constitution', 'secrets', 'fault', 'fix', 'repair', 'goal', 'journal', 'push', 'next']);
+const MODEL_FREE_MIXED_COMMANDS = new Set(['report', 'telemetry', 'doctor', 'review', 'inputs', 'spec', 'visual', 'clarification', 'story', 'constitution', 'secrets', 'fault', 'fix', 'repair', 'goal', 'journal', 'push', 'next']);
 
 const LAZY_MODULES = Object.freeze({
   // The five verbs share one dispatcher; each is a registered command in its own right so the
@@ -54,7 +54,9 @@ function command([name, aliases = []]) {
     classification,
     modelPolicy: mixed ? 'mixed' : 'never',
     output,
-    operation: mixed
+    operation: name === 'copilot'
+      ? required('copilot.launch')
+      : mixed
       ? null
       : operation(name, 'never', { classification, output, noModelFixture: `${name}-model-free` })
   });
@@ -70,7 +72,7 @@ export const COMMAND_REGISTRY = Object.freeze([
   ['clarification'],
   ['approve'], ['reject'], ['reopen'], ['cancel'], ['sync'], ['ledger'], ['capabilities'], ['state'],
   ['validate'], ['gate'], ['wm'], ['jira'], ['plugin'], ['snapshot'], ['configuration'], ['constitution'], ['initiative'], ['epic'],
-  ['story'], ['workspace'], ['knowledge'], ['capability'], ['hook'], ['bootstrap'], ['secrets'],
+  ['story'], ['workspace'], ['copilot'], ['knowledge'], ['capability'], ['hook'], ['bootstrap'], ['secrets'],
   // The first-run walkthrough already existed as `guide --first-run` and was the best teaching asset
   // in the product, buried behind a flag on a verb that also means something else. This is the front
   // door; the flag still works.
@@ -150,7 +152,9 @@ const WORKSPACE_BOOTSTRAP_ACTIONS = new Set([
  * reported against. Hand-listing the vocabulary a second time inside the error would be two places
  * that must agree with nothing checking they do — which is how the wrong answer gets confident.
  */
-const TELEMETRY_SUBCOMMANDS = Object.freeze(['status', 'reconcile']);
+const TELEMETRY_READ_SUBCOMMANDS = Object.freeze(['status', 'probe']);
+const TELEMETRY_MUTATION_SUBCOMMANDS = Object.freeze(['reconcile', 'enable', 'disable']);
+const TELEMETRY_SUBCOMMANDS = Object.freeze([...TELEMETRY_READ_SUBCOMMANDS, ...TELEMETRY_MUTATION_SUBCOMMANDS]);
 const VISUAL_SUBCOMMANDS = Object.freeze(['status', 'compare']);
 const CLARIFICATION_SUBCOMMANDS = Object.freeze(['status', 'record']);
 const FAULT_SUBCOMMANDS = Object.freeze(['report', 'list', 'show']);
@@ -228,9 +232,17 @@ function resolveSecretsOperation(definition, positionals) {
 
 function resolveTelemetryOperation(definition, positionals) {
   const subcommand = positionals[1] ?? 'status';
-  if (subcommand === 'status') return never('telemetry.status', definition, 'read');
-  if (subcommand === 'reconcile') return never('telemetry.reconcile', definition, 'mutation');
+  if (TELEMETRY_READ_SUBCOMMANDS.includes(subcommand)) return never(`telemetry.${subcommand}`, definition, 'read');
+  if (TELEMETRY_MUTATION_SUBCOMMANDS.includes(subcommand)) return never(`telemetry.${subcommand}`, definition, 'mutation');
   return unknownSubcommand('telemetry', subcommand, TELEMETRY_SUBCOMMANDS);
+}
+
+function resolveDoctorOperation(definition, options) {
+  const fix = options.fix;
+  const value = Array.isArray(fix) ? fix.at(-1) : fix;
+  if (value == null || value === false) return never('doctor.inspect', definition, 'read');
+  if (value === 'telemetry') return never('doctor.fix.telemetry', definition, 'mutation');
+  throw new SingularityFlowError(`doctor --fix supports only 'telemetry', not '${value}'.`);
 }
 
 function resolveOptionalOutputOperation(definition, options) {
@@ -519,6 +531,7 @@ export function resolveOperation({ requestedCommand, positionals, options = {} }
   if (definition.name === 'report' || definition.name === 'review') return resolveOptionalOutputOperation(definition, options);
   if (definition.name === 'secrets') return resolveSecretsOperation(definition, positionals);
   if (definition.name === 'telemetry') return resolveTelemetryOperation(definition, positionals);
+  if (definition.name === 'doctor') return resolveDoctorOperation(definition, options);
   if (definition.name === 'inputs') return resolveInputsOperation(definition, options);
   if (definition.name === 'spec') return resolveSpecOperation(definition, positionals, options);
   if (definition.name === 'visual') return resolveVisualOperation(definition, positionals);
@@ -565,6 +578,7 @@ export function operationCatalog() {
     optional('pr.describe.polish', 'pr.describe', prDefinition)
   ];
   const telemetryDefinition = commandDefinition('telemetry');
+  const doctorDefinition = commandDefinition('doctor');
   const reportDefinition = commandDefinition('report');
   const reviewDefinition = commandDefinition('review');
   const inputsDefinition = commandDefinition('inputs');
@@ -588,8 +602,10 @@ export function operationCatalog() {
     never('secrets.protect', secretsDefinition, 'mutation'),
     never('report.render', reportDefinition, 'read'),
     never('report.write', reportDefinition, 'mutation'),
-    never('telemetry.status', telemetryDefinition, 'read'),
-    never('telemetry.reconcile', telemetryDefinition, 'mutation'),
+    ...TELEMETRY_READ_SUBCOMMANDS.map((name) => never(`telemetry.${name}`, telemetryDefinition, 'read')),
+    ...TELEMETRY_MUTATION_SUBCOMMANDS.map((name) => never(`telemetry.${name}`, telemetryDefinition, 'mutation')),
+    never('doctor.inspect', doctorDefinition, 'read'),
+    never('doctor.fix.telemetry', doctorDefinition, 'mutation'),
     never('review.render', reviewDefinition, 'read'),
     never('review.write', reviewDefinition, 'mutation'),
     never('inputs.dry-run', inputsDefinition, 'read'),

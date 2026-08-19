@@ -200,20 +200,9 @@ install_copilot_telemetry() {
   temp_file="$(mktemp "$config_dir/copilot-otel.sh.XXXXXX")"
   printf '%s\n' \
     '# Managed by the Singularity Flow installer.' \
-    '# Records model, token, timing, and cost metadata. Prompt/response content remains disabled.' \
-    '# Raw traces stay inside each repository Git directory and are never committed.' \
-    'copilot() {' \
-    '  local sflow_git_dir sflow_telemetry_file' \
-    '  sflow_git_dir="$(command git rev-parse --absolute-git-dir 2>/dev/null || true)"' \
-    '  if [ -n "$sflow_git_dir" ] && [ -z "${COPILOT_OTEL_FILE_EXPORTER_PATH:-}" ] && [ -z "${OTEL_EXPORTER_OTLP_ENDPOINT:-}" ] && [ -z "${COPILOT_OTEL_ENABLED:-}" ]; then' \
-    '    sflow_telemetry_file="$sflow_git_dir/singularity-flow/copilot-otel.jsonl"' \
-    '    command mkdir -p "$sflow_git_dir/singularity-flow"' \
-    '    command touch "$sflow_telemetry_file"' \
-    '    command chmod 600 "$sflow_telemetry_file"' \
-    '    COPILOT_OTEL_ENABLED=true COPILOT_OTEL_EXPORTER_TYPE=file COPILOT_OTEL_FILE_EXPORTER_PATH="$sflow_telemetry_file" command copilot "$@"' \
-    '  else' \
-    '    command copilot "$@"' \
-    '  fi' \
+    "# Never shadows the user's copilot executable. SFlow provisions only processes it launches." \
+    'sflow_copilot() {' \
+    '  command singularity-flow copilot "$@"' \
     '}' > "$temp_file"
   chmod 600 "$temp_file"
   mv "$temp_file" "$env_file"
@@ -228,7 +217,7 @@ install_copilot_telemetry() {
     *)
       printf 'Copilot OpenTelemetry environment installed at %s\n' "$env_file"
       printf 'Add this to your shell startup file: %s\n' "$source_line"
-      printf '%s\n' 'Raw telemetry output: <repository-git-dir>/singularity-flow/copilot-otel.jsonl'
+      printf '%s\n' 'Use sflow copilot for consented, story-scoped local usage capture.'
       return
       ;;
   esac
@@ -240,10 +229,9 @@ install_copilot_telemetry() {
   fi
   # Make telemetry active for the remainder of this installer too.
   . "$env_file"
-  printf 'Copilot OpenTelemetry: enabled in %s\n' "$profile"
-  printf '%s\n' 'Raw telemetry output: <repository-git-dir>/singularity-flow/copilot-otel.jsonl'
+  printf 'SFlow Copilot launcher helper: enabled in %s\n' "$profile"
+  printf '%s\n' 'Use sflow copilot for consented, story-scoped local usage capture.'
   printf '%s\n' 'Prompt and response content capture remains disabled.'
-  printf '%s\n' 'Important: fully exit any currently running Copilot CLI process; telemetry environment cannot be added to an existing process.'
 }
 
 cd "$PROJECT_DIR"

@@ -713,8 +713,11 @@ function storyPhaseActions(workflow: StoryWorkflow, phase: StoryPhase): TreeNode
   }
   if (phase.status !== 'in_progress' && phase.status !== 'rejected') return [];
   return [{
-    kind: 'action', id: `story:${phase.id}:copilot`, label: 'Continue this Story in Copilot',
-    description: 'open its repository + governed phase', icon: 'sparkle', runCommand: 'singularityFlow.openCopilot'
+    kind: 'action', id: `story:${phase.id}:copilot`, label: 'Continue with Copilot CLI',
+    description: 'governed context · local usage captured after consent', icon: 'sparkle', runCommand: 'singularityFlow.openMeteredCopilot'
+  }, {
+    kind: 'action', id: `story:${phase.id}:native-copilot`, label: 'Open Native Copilot Chat',
+    description: 'usage unavailable · work can continue', icon: 'comment-discussion', runCommand: 'singularityFlow.openCopilot'
   }, {
     kind: 'action', id: `story:${phase.id}:prepare`, label: `Prepare ${phase.label}`,
     description: 'create phase workspace', icon: 'tools', command: ['prepare', phase.id],

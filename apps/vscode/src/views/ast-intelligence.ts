@@ -381,7 +381,16 @@ export class AstIntelligencePanel {
     const args = ['wm', 'ast', operation, '--mode', mode, '--max-files', String(maxFiles), '--json'];
     if (message.all === true) args.push('--all');
     for (const path of paths) args.push('--paths', path);
-    try { this.result = commandData<AstRunResult>(await this.client.run(args)); this.notice = operation === 'build' ? 'Derived AST cache built.' : 'AST context preview completed.'; this.error = null; await this.refresh(); }
+    try {
+      this.result = commandData<AstRunResult>(await this.client.run(args));
+      this.notice = operation === 'build' ? 'Derived AST cache built.' : 'AST context preview completed.';
+      this.error = null;
+      // The requested AST operation is complete at this point. Render that durable result before
+      // refreshing independent doctor and workspace-inventory reads: either refresh may be slow on
+      // a busy extension host, and must not make a completed preview appear to have hung.
+      this.render();
+      await this.refresh();
+    }
     catch (error) { this.error = (error as Error).message; this.render(); }
   }
   private async continueContext(message: InboundMessage): Promise<void> {
@@ -392,7 +401,11 @@ export class AstIntelligencePanel {
     }
     try {
       this.result = commandData<AstRunResult>(await this.client.run(['wm', 'ast', 'context', '--cursor', cursor, '--json']));
-      this.notice = 'Next bounded AST context page loaded.'; this.error = null; await this.refresh();
+      this.notice = 'Next bounded AST context page loaded.'; this.error = null;
+      // Continuation pages are useful as soon as their bounded command finishes. Do not hold the
+      // new page behind unrelated diagnostics refreshes.
+      this.render();
+      await this.refresh();
     } catch (error) { this.error = (error as Error).message; this.render(); }
   }
   private async previewCache(kind: 'prune' | 'clear', message: InboundMessage): Promise<void> {

@@ -51,6 +51,7 @@ const entries = {
   fix: ['sf-fix'],
   repair: ['sf-fix'],
   goal: ['sf-goal'],
+  journal: ['sf-journal'],
   push: ['sf-push'],
   home: ['sf-home'],
   recommend: ['sf-recommend'],

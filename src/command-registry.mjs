@@ -1,11 +1,11 @@
 import { didYouMean, optionBoolean, SingularityFlowError } from './util.mjs';
 
 const READ_ONLY = new Set(['specify', 'plan', 'implement', 'verify', 'converge', 'about', 'help', 'show', 'choices', 'inbox', 'home', 'recommend', 'status', 'approvals', 'progress', 'guide', 'logs', 'doctor', 'nextsteps', 'snapshot', 'validate', 'explain']);
-const STRUCTURED = new Set(['specify', 'plan', 'implement', 'verify', 'converge', 'start', 'home', 'recommend', 'status', 'approvals', 'progress', 'report', 'impact', 'telemetry', 'doctor', 'inputs', 'reinstall', 'snapshot', 'validate', 'gate', 'clarification', 'explain', 'fault', 'fix', 'repair', 'goal', 'run']);
+const STRUCTURED = new Set(['specify', 'plan', 'implement', 'verify', 'converge', 'start', 'home', 'recommend', 'status', 'approvals', 'progress', 'report', 'impact', 'telemetry', 'doctor', 'inputs', 'reinstall', 'snapshot', 'validate', 'gate', 'clarification', 'explain', 'fault', 'fix', 'repair', 'goal', 'journal', 'run']);
 // `secrets` is here because `resolveOperation` returns `definition.operation` before it consults
 // any resolver, so a command with a single registered operation never reaches its own resolver.
 // Without this line `resolveSecretsOperation` is unreachable and the scan/protect split is inert.
-const MODEL_FREE_MIXED_COMMANDS = new Set(['report', 'telemetry', 'review', 'inputs', 'spec', 'visual', 'clarification', 'story', 'constitution', 'secrets', 'fault', 'fix', 'repair', 'goal', 'push']);
+const MODEL_FREE_MIXED_COMMANDS = new Set(['report', 'telemetry', 'review', 'inputs', 'spec', 'visual', 'clarification', 'story', 'constitution', 'secrets', 'fault', 'fix', 'repair', 'goal', 'journal', 'push']);
 
 const LAZY_MODULES = Object.freeze({
   // The five verbs share one dispatcher; each is a registered command in its own right so the
@@ -23,6 +23,7 @@ const LAZY_MODULES = Object.freeze({
   nextsteps: './commands/nextsteps.mjs',
   snapshot: './commands/snapshot.mjs',
   goal: './commands/goal.mjs',
+  journal: './commands/journal.mjs',
   push: './commands/push.mjs',
   // `explain` must answer from a global install with no repository, so it must never reach the
   // legacy dispatcher, which resolves a repository root before it does anything else.
@@ -63,7 +64,7 @@ export const COMMAND_REGISTRY = Object.freeze([
   ['specify'], ['plan'], ['implement'], ['verify'], ['converge'],
   ['about'], ['help'], ['explain', ['docs']], ['show'], ['harness'], ['init'], ['factory-reset'], ['reset-all'], ['local-reset'], ['fresh-install'], ['reinstall'], ['choices'], ['start'], ['resume'], ['agent'], ['session'],
   ['inbox'], ['finalize'], ['status'], ['approvals', ['approval-chain']], ['progress'], ['report'], ['impact'], ['telemetry'], ['prompt-log'], ['guide'], ['refresh-branch'],
-  ['next'], ['run'], ['fault'], ['fix'], ['repair'], ['goal'], ['push'], ['home', ['cockpit']], ['recommend', ['what-next']], ['logs'], ['doctor'], ['review'], ['workflow'],
+  ['next'], ['run'], ['fault'], ['fix'], ['repair'], ['goal'], ['journal'], ['push'], ['home', ['cockpit']], ['recommend', ['what-next']], ['logs'], ['doctor'], ['review'], ['workflow'],
   ['assign'], ['watch'], ['recover'], ['nextsteps', ['next-steps']], ['action'], ['inputs'], ['spec'],
   ['agents'], ['mcp'], ['visual'], ['documents'], ['prepare'], ['phase'], ['artifact'], ['pr'], ['stack'], ['regression'], ['submit'],
   ['clarification'],
@@ -153,6 +154,9 @@ const REPAIR_SUBCOMMANDS = Object.freeze(['list', 'status', 'authorize', 'attemp
 const GOAL_READ_SUBCOMMANDS = Object.freeze(['list', 'show', 'status', 'next']);
 const GOAL_MUTATION_SUBCOMMANDS = Object.freeze(['create', 'use', 'link', 'unlink', 'complete', 'abandon']);
 const GOAL_SUBCOMMANDS = Object.freeze([...GOAL_READ_SUBCOMMANDS, ...GOAL_MUTATION_SUBCOMMANDS]);
+const JOURNAL_READ_SUBCOMMANDS = Object.freeze(['today', 'doctor']);
+const JOURNAL_MUTATION_SUBCOMMANDS = Object.freeze(['refresh', 'pause', 'resume', 'delete', 'export']);
+const JOURNAL_SUBCOMMANDS = Object.freeze(['settings', ...JOURNAL_READ_SUBCOMMANDS, ...JOURNAL_MUTATION_SUBCOMMANDS]);
 const PUSH_READ_SUBCOMMANDS = Object.freeze(['status']);
 const PUSH_MUTATION_SUBCOMMANDS = Object.freeze(['retry']);
 const PUSH_SUBCOMMANDS = Object.freeze([...PUSH_READ_SUBCOMMANDS, ...PUSH_MUTATION_SUBCOMMANDS]);
@@ -179,6 +183,7 @@ export const RESOLVER_SUBCOMMANDS = Object.freeze({
   fault: FAULT_SUBCOMMANDS,
   repair: REPAIR_SUBCOMMANDS,
   goal: GOAL_SUBCOMMANDS,
+  journal: JOURNAL_SUBCOMMANDS,
   push: PUSH_SUBCOMMANDS,
   constitution: CONSTITUTION_SUBCOMMANDS,
   spec: SPEC_SUBCOMMANDS,
@@ -359,6 +364,20 @@ function resolveGoalOperation(definition, positionals) {
   return unknownSubcommand('goal', subcommand, GOAL_SUBCOMMANDS);
 }
 
+function resolveJournalOperation(definition, positionals, options) {
+  const subcommand = positionals[1] ?? 'today';
+  if (JOURNAL_READ_SUBCOMMANDS.includes(subcommand)) return never(`journal.${subcommand}`, definition, 'read');
+  if (subcommand === 'settings') {
+    const writes = options.mode != null || options['retention-days'] != null || options['time-zone'] != null;
+    return never(writes ? 'journal.settings.update' : 'journal.settings', definition, writes ? 'mutation' : 'read');
+  }
+  if (subcommand === 'export' && optionBoolean(options, 'dry-run')) {
+    return never('journal.export.preview', definition, 'read');
+  }
+  if (JOURNAL_MUTATION_SUBCOMMANDS.includes(subcommand)) return never(`journal.${subcommand}`, definition, 'mutation');
+  return unknownSubcommand('journal', subcommand, JOURNAL_SUBCOMMANDS);
+}
+
 function resolvePushOperation(definition, positionals) {
   const subcommand = positionals[1] ?? 'status';
   if (PUSH_READ_SUBCOMMANDS.includes(subcommand)) return never(`push.${subcommand}`, definition, 'read');
@@ -474,6 +493,7 @@ export function resolveOperation({ requestedCommand, positionals, options = {} }
   if (definition.name === 'fix') return resolveFixOperation(definition, options);
   if (definition.name === 'repair') return resolveRepairOperation(definition, positionals);
   if (definition.name === 'goal') return resolveGoalOperation(definition, positionals);
+  if (definition.name === 'journal') return resolveJournalOperation(definition, positionals, options);
   if (definition.name === 'push') return resolvePushOperation(definition, positionals);
   if (definition.name === 'story') return resolveStoryOperation(definition, positionals, options);
   if (definition.name === 'constitution') return resolveConstitutionOperation(definition, positionals);
@@ -515,6 +535,7 @@ export function operationCatalog() {
   const fixDefinition = commandDefinition('fix');
   const repairDefinition = commandDefinition('repair');
   const goalDefinition = commandDefinition('goal');
+  const journalDefinition = commandDefinition('journal');
   const pushDefinition = commandDefinition('push');
   const secretsDefinition = commandDefinition('secrets');
   const modelFreeMixed = [
@@ -556,6 +577,11 @@ export function operationCatalog() {
     never('repair.cancel', repairDefinition, 'mutation'),
     ...GOAL_READ_SUBCOMMANDS.map((name) => never(`goal.${name}`, goalDefinition, 'read')),
     ...GOAL_MUTATION_SUBCOMMANDS.map((name) => never(`goal.${name}`, goalDefinition, 'mutation')),
+    ...JOURNAL_READ_SUBCOMMANDS.map((name) => never(`journal.${name}`, journalDefinition, 'read')),
+    never('journal.settings', journalDefinition, 'read'),
+    never('journal.settings.update', journalDefinition, 'mutation'),
+    ...JOURNAL_MUTATION_SUBCOMMANDS.map((name) => never(`journal.${name}`, journalDefinition, 'mutation')),
+    never('journal.export.preview', journalDefinition, 'read'),
     ...PUSH_READ_SUBCOMMANDS.map((name) => never(`push.${name}`, pushDefinition, 'read')),
     ...PUSH_MUTATION_SUBCOMMANDS.map((name) => never(`push.${name}`, pushDefinition, 'mutation')),
     // The same vocabularies the resolvers branch on. These were a third hand-maintained copy of the

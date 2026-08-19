@@ -163,7 +163,8 @@ export function createHostGateway({
     root,
     plannerContext: context,
     handles: createHandleAuthority({ now }),
-    readOnly
+    readOnly,
+    now
   });
   const scopedKernel = Object.freeze({
     ...kernel,

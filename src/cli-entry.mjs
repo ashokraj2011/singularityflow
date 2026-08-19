@@ -21,7 +21,7 @@ export const ACTIVE_WORKSPACE_ROUTING_EXCLUSIONS = new Set([
   'about', 'help', 'explain', 'guide', 'show', 'quickstart',
   'init', 'bootstrap',
   'factory-reset', 'reset-all', 'local-reset', 'fresh-install', 'reinstall',
-  'workspace', 'session', 'plugin', 'goal', 'push'
+  'workspace', 'session', 'plugin', 'goal', 'journal', 'push'
 ]);
 
 /**
@@ -199,6 +199,7 @@ export async function main(argv) {
   try {
     const module = await import(definition.modulePath);
     timer.stage('module-load');
+    const startedAt = new Date().toISOString();
     const result = await withOperationContext({
       operation,
       modelMode,
@@ -207,9 +208,31 @@ export async function main(argv) {
       argvHash: `sha256:${argvSha256}`,
       fallbackFrom: operation.id === requestedOperation.id ? null : requestedOperation.id,
       command: definition.name,
-      startedAt: new Date().toISOString()
+      startedAt
     }, () => module.run(effectiveArgv, { positionals: [definition.name, ...positionals.slice(1)], options, definition, operation, requestedOperation, modelMode }));
     timer.stage('execute');
+    /**
+     * Private return memory is downstream of authority, never inside its transaction.
+     *
+     * The handler has returned, so its governed mutation is already authoritative. Capture is a
+     * best-effort machine-local observation: a full disk, corrupt preference file, or unavailable
+     * workspace registration cannot turn a successful publish into a failed command, and retrying
+     * journal capture can never replay the governed operation.
+     */
+    if (operation.classification === 'mutation') {
+      await import('./local-work-journal.mjs').then(({ captureCommandOutcome }) => captureCommandOutcome({
+        root,
+        operationId: operation.id,
+        positionals: [definition.name, ...positionals.slice(1)],
+        options,
+        result,
+        startedAt
+      })).catch((error) => {
+        if (process.env.SINGULARITY_FLOW_DEBUG_JOURNAL === '1') {
+          console.warn(`Local journal capture was skipped: ${error.message}`);
+        }
+      });
+    }
     const event = timer.finish({ outcome: 'success' });
     if (!LOCAL_STATE_RESET_COMMANDS.has(definition.name)) await recordCommandTiming(root, event);
     if (options.timings === true) writeCommandTimings(event);

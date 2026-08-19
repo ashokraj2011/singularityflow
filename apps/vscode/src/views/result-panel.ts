@@ -37,6 +37,11 @@ export type ActionRequest = {
   readonly origin: ResultOrigin;
 };
 
+export type HomeRequest = {
+  readonly request: string;
+  readonly view: ResultCardView;
+};
+
 let panel: vscode.WebviewPanel | null = null;
 let current: ResultCardView | null = null;
 let currentOrigin: ResultOrigin = 'cli';
@@ -53,9 +58,14 @@ let history: ResultHistoryEntry[] = [];
  * not change either way — the button already carries a stable id and nothing else.
  */
 let dispatch: ((request: ActionRequest) => void | Promise<void>) | null = null;
+let dispatchHomeRequest: ((request: HomeRequest) => void | Promise<void>) | null = null;
 
 export function onResultAction(handler: (request: ActionRequest) => void | Promise<void>): void {
   dispatch = handler;
+}
+
+export function onHomeRequest(handler: (request: HomeRequest) => void | Promise<void>): void {
+  dispatchHomeRequest = handler;
 }
 
 function render(target: vscode.WebviewPanel, view: ResultCardView, note: string | null): void {
@@ -88,7 +98,7 @@ function render(target: vscode.WebviewPanel, view: ResultCardView, note: string 
   </nav>`;
   const body = `<style nonce="${token}">${RESULT_CARD_STYLE}
 .sf-fidelity { margin: 12px 2px 0; color: var(--vscode-descriptionForeground); font-size: .92em; }
-.sf-result-main { padding: 24px; max-width: 760px; }
+.sf-result-main { padding: 24px; max-width: ${isHome ? '1180px' : '760px'}; margin: 0 auto; }
 .sf-result-nav { display:flex; align-items:center; gap:8px; margin:0 0 16px; padding:0 0 12px;
   border-bottom:1px solid var(--vscode-panel-border); }
 .sf-result-nav button { min-height:32px; padding:4px 10px; border:1px solid var(--vscode-panel-border);
@@ -124,7 +134,7 @@ export function showResultCard(view: ResultCardView,
     panel = vscode.window.createWebviewPanel(
       'singularityFlow.result',
       'Singularity Flow result',
-      { viewColumn: vscode.ViewColumn.Beside, preserveFocus: true },
+      { viewColumn: view.home ? vscode.ViewColumn.One : vscode.ViewColumn.Beside, preserveFocus: true },
       { enableScripts: true, retainContextWhenHidden: true }
     );
     panel.onDidDispose(() => { panel = null; current = null; currentNote = null; history = []; });
@@ -150,6 +160,11 @@ export function showResultCard(view: ResultCardView,
         render(panel, current, currentNote);
       },
       'result.home': () => { void vscode.commands.executeCommand('singularityFlow.myWork'); },
+      'home.request': (message) => {
+        const request = stringField(message, 'request')?.trim() ?? '';
+        if (!current?.home || !request || request.length > 300) return;
+        void dispatchHomeRequest?.({ request, view: current });
+      },
       'sflow.action': (message) => {
         const actionId = stringField(message, 'actionId');
         if (!actionId || !current) return;
@@ -186,7 +201,7 @@ export function showResultCard(view: ResultCardView,
       router.route(raw);
     });
   } else {
-    panel.reveal(vscode.ViewColumn.Beside, true);
+    panel.reveal(view.home ? vscode.ViewColumn.One : vscode.ViewColumn.Beside, true);
   }
   render(panel, view, note);
 }
@@ -217,4 +232,5 @@ export function resetResultPanel(): void {
   currentNote = null;
   history = [];
   dispatch = null;
+  dispatchHomeRequest = null;
 }

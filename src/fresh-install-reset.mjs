@@ -6,6 +6,7 @@ import { machineStateRoot } from './factory-reset.mjs';
 import { readWorkspace, readWorkspaceRegistry } from './workspace.mjs';
 import { activeWorkspaceFile, workspaceRegistryFile } from './workspace-context.mjs';
 import { run, SingularityFlowError } from './util.mjs';
+import { localWorkJournalRoot } from './local-work-journal.mjs';
 
 export const FRESH_INSTALL_CONFIRMATION = 'RESET EVERYTHING';
 export const LOCAL_RESET_CONFIRMATION = 'RESET LOCAL';
@@ -62,12 +63,14 @@ function machineStatePaths(environment, home, localStateRoot) {
       : path.join(localStateRoot, 'organisation-cache')));
   const vscodeResetMarker = path.resolve(environment.SINGULARITY_FLOW_VSCODE_RESET_MARKER
     || path.join(localStateRoot, VSCODE_RESET_MARKER));
+  const journalRoot = localWorkJournalRoot(environment, home);
   return {
     registryFile,
     selectionFile,
     capabilityRegistryFile,
     capabilityCacheRoot,
-    vscodeResetMarker
+    vscodeResetMarker,
+    journalRoot
   };
 }
 
@@ -199,7 +202,8 @@ async function machineResetPlan({
     selectionFile,
     capabilityRegistryFile,
     capabilityCacheRoot,
-    vscodeResetMarker
+    vscodeResetMarker,
+    journalRoot
   } = machineStatePaths(environment, home, localStateRoot);
   const registryInfo = await lstat(registryFile).catch((error) => error?.code === 'ENOENT' ? null : Promise.reject(error));
   let registryWarning = null;
@@ -279,7 +283,8 @@ async function machineResetPlan({
     selectionFile: path.join(localStateRoot, 'active-workspace.json'),
     capabilityRegistryFile: path.join(localStateRoot, 'leads.json'),
     capabilityCacheRoot: path.join(localStateRoot, 'organisation-cache'),
-    vscodeResetMarker: path.join(localStateRoot, VSCODE_RESET_MARKER)
+    vscodeResetMarker: path.join(localStateRoot, VSCODE_RESET_MARKER),
+    journalRoot: path.join(localStateRoot, 'local-work-journal')
   };
   const targetCandidates = [
     { path: localStateRoot, type: 'directory', label: 'Singularity Flow machine state' },
@@ -293,6 +298,8 @@ async function machineResetPlan({
       : [{ path: capabilityCacheRoot, type: 'directory', label: 'custom capability cache' }]),
     ...(vscodeResetMarker === defaultPaths.vscodeResetMarker ? []
       : [{ path: vscodeResetMarker, type: 'file', label: 'custom VS Code reset marker' }]),
+    ...(journalRoot === defaultPaths.journalRoot ? []
+      : [{ path: journalRoot, type: 'directory', label: 'custom local work journal' }]),
     ...copilotSessions.map((session) => ({
       path: session,
       type: 'directory',
@@ -337,6 +344,7 @@ async function machineResetPlan({
       registryFile: capabilityRegistryFile,
       cacheRoot: capabilityCacheRoot
     },
+    journalState: { root: journalRoot, remoteSync: 'never' },
     vscodeReset: {
       marker: vscodeResetMarker,
       reset: [
@@ -365,6 +373,8 @@ async function machineResetPlan({
         : [`${capabilityRegistryFile} (custom capability lead registry)`]),
       ...(capabilityCacheRoot === path.join(localStateRoot, 'organisation-cache') ? []
         : [`${capabilityCacheRoot} (custom capability and organisation cache)`]),
+      ...(journalRoot === path.join(localStateRoot, 'local-work-journal') ? []
+        : [`${journalRoot} (custom private local work journal)`]),
       ...copilotSessions.map((session) => `${session} (Singularity-named Copilot session state)`),
       ...(removeDirectSkills ? [`${directSkillsRoot}/sf-* managed skill aliases`] : []),
       ...(includeInstallerState

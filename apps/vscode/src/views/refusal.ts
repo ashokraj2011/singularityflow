@@ -143,6 +143,7 @@ function fromMessage(text: string, details: Record<string, string>, headline?: s
     rail: [],
     faults: [],
     guidance: null,
+    home: null,
     /**
      * Not a home, so there is nothing to have last checked.
      *

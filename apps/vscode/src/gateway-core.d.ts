@@ -87,6 +87,7 @@ declare module '*/gateway/result.mjs' {
 declare module '*/gateway/planners/home-overview.mjs' { export const homeOverview: unknown; }
 declare module '*/gateway/planners/developer-next.mjs' { export const developerNext: unknown; }
 declare module '*/gateway/planners/impact-quick.mjs' { export const impactQuick: unknown; }
+declare module '*/gateway/planners/review-packet.mjs' { export const reviewPacket: unknown; }
 declare module '*/gateway/planners/work-continue.mjs' { export const workContinue: unknown; }
 declare module '*/gateway/planners/work-list.mjs' { export const workList: unknown; }
 declare module '*/gateway/planners/work-readiness.mjs' { export const workReadiness: unknown; }
@@ -103,6 +104,12 @@ declare module '*/gateway/planners/workspace-reliability-surface.mjs' {
 
 declare module '*/workspace-bootstrap.mjs' {
   export function latestWorkspaceBootstrap(options?: Record<string, unknown>): Promise<any | null>;
+}
+
+declare module '*/gateway/conversation.mjs' {
+  export function planDeveloperConversation(request: string): {
+    readonly route: { readonly operationId: string; readonly automatic: boolean } | null;
+  };
 }
 
 /**

@@ -25,6 +25,7 @@ import { createHostGateway } from '../../../src/gateway/host.mjs';
 import { developerNext } from '../../../src/gateway/planners/developer-next.mjs';
 import { homeOverview } from '../../../src/gateway/planners/home-overview.mjs';
 import { impactQuick } from '../../../src/gateway/planners/impact-quick.mjs';
+import { reviewPacket } from '../../../src/gateway/planners/review-packet.mjs';
 import { workContinue } from '../../../src/gateway/planners/work-continue.mjs';
 import { workList } from '../../../src/gateway/planners/work-list.mjs';
 import { workReadiness } from '../../../src/gateway/planners/work-readiness.mjs';
@@ -52,7 +53,8 @@ export function editorPlanners(): Map<string, unknown> {
     ['repository-open-guide', repositoryOpenGuide],
     ['workspace-doctor-guide', workspaceDoctorGuide],
     ['workspace-explore-guide', workspaceExploreGuide],
-    ['impact-quick', impactQuick]
+    ['impact-quick', impactQuick],
+    ['review-packet', reviewPacket]
   ]);
 }
 
@@ -130,12 +132,18 @@ const HOST_SESSION_ID = `vscode_${Date.now().toString(36)}_${Math.random().toStr
  * Null until one is stored, which is the honest answer before a reader has ever checked.
  */
 let acknowledgedAtProvider: () => string | null = () => null;
+let homeLensProvider: () => string = () => 'developer';
 
 export function provideAcknowledgedAt(provider: () => string | null): void {
   acknowledgedAtProvider = provider;
   // The session captured the previous provider in its context thunk; drop it so the next call
   // rebuilds against this one rather than answering with the value from before activation.
   resetGatewaySession();
+}
+
+/** Presentation lens only; governed authority continues to come from pinned workflow records. */
+export function provideHomeLens(provider: () => string): void {
+  homeLensProvider = provider;
 }
 
 export function gatewaySession(context: GatewayRepositoryContext): GatewaySession {
@@ -164,6 +172,7 @@ export function gatewaySession(context: GatewayRepositoryContext): GatewaySessio
      */
     plannerContext: () => ({
       acknowledgedAt: acknowledgedAtProvider(),
+      lens: homeLensProvider(),
       repositoryId: repositoryId ?? root,
       bootstrap,
       ...(workspaceId ? {

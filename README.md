@@ -31,6 +31,7 @@ Then, on a repository you care about:
 | Set up a new capability, with its configuration branch and ledger | `singularity-flow bootstrap <REPOSITORY-URL>` |
 | Get one personalized, read-only recommendation | `singularity-flow recommend` |
 | Track a personal outcome across governed work | `singularity-flow goal create "<outcome>" --success "<observable success>"` |
+| Review private local return memory | `sflow journal today` / `sflow journal refresh` |
 | Execute or inspect the governed next step | `singularity-flow next` / `singularity-flow nextsteps WORK-123` |
 | Orient yourself or return to a Story without changing state | `sflow home` / `sflow story return WORK-123` |
 | See what a command does, with examples | `singularity-flow <command> --help` |
@@ -116,7 +117,17 @@ Use the surface that is already open:
 | Copilot | `/sf-recommend` | Relays the same recommendation, evidence, required inputs, and disclosed effect. |
 | Copilot | `/sf-home <ordinary request>` | Routes the request through Home; `/sf-home` without a request remains the explicit way back. |
 | Copilot | `/sf-goal` | Creates or navigates a personal outcome linked to existing governed work. |
-| VS Code | **My Work** | Opens the shared recommendation card for the selected governed workspace. |
+| VS Code | **My Work** | Opens the shared full-width Home projection with Needs You, active work, private Today/Yesterday return context, and local risk. |
+
+My Work can join a private, machine-local journal at read time. `sflow journal refresh` records one
+bounded offline Git observation; `sflow journal today` shows at most three progress and three
+attention summaries. Journal bytes remain outside Git, are never pushed, and are never governance
+evidence or a productivity score. Use `/sf-journal` in Copilot or
+`sflow explain local-work-journal` for privacy, retention, export, and deletion controls.
+Successful governed lifecycle commands append only a bounded semantic outcome after the authoritative
+operation completes; journal failure cannot fail or replay that operation. On a later local day,
+Home and `/sf-home` can show **Yesterday — where you stopped** from the same machine-local facts,
+without depending on the previous Copilot model or conversation.
 
 The conversational router recognizes six closed intents. It is deliberately not a free-form command
 parser:

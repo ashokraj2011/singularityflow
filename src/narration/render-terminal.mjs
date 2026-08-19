@@ -84,6 +84,39 @@ function goalLines(result) {
   return lines;
 }
 
+function journalLines(result) {
+  if (!result.operation.id.startsWith('journal.')) return [];
+  const data = result.data ?? {};
+  if (result.operation.id === 'journal.today') {
+    const lines = ['', style.detail(data.privacy?.label ?? 'Stored locally · Never pushed')];
+    if (!data.summaries?.length && !data.attention?.length) {
+      lines.push('No local engineering outcomes were recorded for this day. This is not an activity or productivity judgment.');
+    } else {
+      for (const item of data.summaries ?? []) lines.push(`${style.pass('✓')} ${item.workId ? `${item.workId} · ` : ''}${item.text}`);
+      for (const item of data.attention ?? []) lines.push(`${style.pending('!')} ${item.workId ? `${item.workId} · ` : ''}${item.text}`);
+    }
+    if (data.malformedLines?.length) lines.push(style.detail(`Warning: ${data.malformedLines.length} malformed local event line(s) were ignored.`));
+    return lines;
+  }
+  if (result.operation.id === 'journal.doctor') {
+    return ['', ...(data.findings ?? []).map((finding) => `  - [${finding.state}] ${finding.id}: ${finding.detail}`)];
+  }
+  if (result.operation.id.startsWith('journal.settings') || ['journal.pause', 'journal.resume'].includes(result.operation.id)) {
+    return ['',
+      `  Mode: ${data.mode}`,
+      `  Paused: ${data.paused ? 'yes' : 'no'}`,
+      `  Retention: ${data.retentionDays} days`,
+      `  Time zone: ${data.timeZone}`,
+      style.detail('Prompt content, source bytes, command output, file saves, and remote sync are disabled.')
+    ];
+  }
+  if (result.operation.id === 'journal.export.preview' && data.preview) return ['', data.preview.trimEnd()];
+  if (result.operation.id === 'journal.export' && data.file) {
+    return ['', style.detail(`Wrote ${data.file} outside registered worktrees. Nothing was uploaded or staged.`)];
+  }
+  return [];
+}
+
 const REST_STATE_LINES = Object.freeze({
   complete: 'This work is complete. There is nothing further to do.',
   cancelled: 'This work is cancelled and archived.',
@@ -100,6 +133,7 @@ export function renderCommandResult(result) {
   const lines = [emphasise(headline(result))];
 
   lines.push(...goalLines(result));
+  lines.push(...journalLines(result));
 
   const preservation = preservationLine(result);
   if (preservation) lines.push(style.detail(preservation));

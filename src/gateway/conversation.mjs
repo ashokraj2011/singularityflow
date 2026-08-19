@@ -44,7 +44,10 @@ const ROUTES = Object.freeze([
   route({
     id: 'inspect-return', intent: 'inspect', label: 'Show what changed while you were away',
     operationId: 'work.return', skill: '/sf-work-interval', automatic: true, confirmation: 'none',
-    patterns: [/\b(what changed|catch me up|since i was away|while i was away|where i left off)\b/]
+    patterns: [
+      /\b(what changed|catch me up|since i was away|while i was away|where i left off|where did i stop)\b/,
+      /\b(yesterday|return briefing|start of (?:my )?day)\b/
+    ]
   }),
   route({
     id: 'inspect-readiness', intent: 'inspect', label: 'Show blockers and readiness',

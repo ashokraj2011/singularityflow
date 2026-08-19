@@ -96,6 +96,7 @@ export const RESULT_MESSAGES = Object.freeze({
     'Finish it before starting anything else — this is the one state where doing something else first can lose work.'),
   'home.needs-your-decision': M('{count} decision(s) are waiting on you'),
   'home.nothing-waiting': M('Nothing is waiting on you in {workspace}'),
+  'home.prompt-placeholder': M('What is on your mind today?'),
   'home.work-summary': M('{active} active, {decisions} needing you'),
   'home.stable-choice': M('Always available'),
   'home.selection-stale': M('The selected work changed while this answer was being prepared', 'Refresh Home and choose the current subject again.'),

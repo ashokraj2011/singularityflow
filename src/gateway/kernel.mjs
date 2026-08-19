@@ -21,6 +21,7 @@ import {
   validateSflowResult
 } from './result.mjs';
 import { resolveIntent } from './resolve.mjs';
+import { homeProjectionV2 } from './home-projection-v2.mjs';
 import { SingularityFlowError } from '../util.mjs';
 
 /**
@@ -110,7 +111,8 @@ export function createGatewayKernel({
   /** Host-owned identity/workspace selection, recomputed for long-lived surfaces when supplied as a function. */
   plannerContext = {},
   handles = createHandleAuthority(),
-  readOnly = true
+  readOnly = true,
+  now = () => Date.now()
 } = {}) {
   const policy = resolveGatewayPolicy(policyLayers, { registry });
 
@@ -173,7 +175,15 @@ export function createGatewayKernel({
       const { [PLANNER_NAVIGATION_TARGET]: _target, ...visible } = action;
       return { ...visible, handle: reference.id };
     });
-    return sflowResult({ ...result, next });
+    const sealed = sflowResult({ ...result, next });
+    if (sealed.operation.id !== 'home.overview') return sealed;
+    return sflowResult({
+      ...sealed,
+      data: {
+        ...sealed.data,
+        homeProjection: homeProjectionV2(sealed, { registryHash: registry.contentHash, now })
+      }
+    });
   }
 
   /**

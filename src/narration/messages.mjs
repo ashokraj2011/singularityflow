@@ -216,6 +216,36 @@ export const MESSAGES = Object.freeze({
   'goal.abandoned': {
     headline: (s) => `Abandoned ${slot(s.goalId)} and preserved its history.`
   },
+  'journal.today-reported': {
+    headline: (s) => `Local journal for ${slot(s.date)} — ${slot(s.events, '0')} bounded event(s).`,
+    preserves: true
+  },
+  'journal.settings-reported': {
+    headline: (s) => `Local journal capture is ${slot(s.paused) === 'true' ? 'paused' : slot(s.mode)} with ${slot(s.retentionDays)}-day retention.`,
+    preserves: true
+  },
+  'journal.doctor-reported': {
+    headline: (s) => `Local journal doctor — ${slot(s.status)}.`,
+    preserves: true
+  },
+  'journal.refreshed': {
+    headline: (s) => s.stored === true
+      ? 'Recorded a fresh local repository observation.'
+      : 'The current local repository observation was already recorded.'
+  },
+  'journal.settings-updated': {
+    headline: (s) => `Updated local journal capture to ${slot(s.paused) === 'true' ? 'paused' : slot(s.mode)}.`
+  },
+  'journal.deleted': {
+    headline: (s) => `Deleted ${slot(s.scope)} from the machine-local journal.`
+  },
+  'journal.export-previewed': {
+    headline: (s) => `Previewed the ${slot(s.format)} local journal export for ${slot(s.date)}.`,
+    preserves: true
+  },
+  'journal.exported': {
+    headline: (s) => `Exported the reviewed ${slot(s.format)} local journal summary for ${slot(s.date)}.`
+  },
   'fault.recorded': {
     headline: (s) => `Recorded fault ${slot(s.faultId)} (${slot(s.type)}, ${slot(s.severity)}).`
   },

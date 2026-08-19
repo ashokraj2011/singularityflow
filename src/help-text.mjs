@@ -138,8 +138,19 @@ Usage:
   singularity-flow repair attempt <REPAIR-ID> --patch PATCH-FILE [--json]
   singularity-flow repair cancel <REPAIR-ID> --reason TEXT [--json]
   singularity-flow doctor [WORK-ID] [--offline] [--performance] [--json]
-  singularity-flow home [--workspace ID] [--request TEXT] [--json]
+  singularity-flow home [--workspace ID] [--lens developer|qa|architect|product-owner|admin]
+    [--request TEXT] [--json]
                                                            conversational Home (alias: cockpit)
+  singularity-flow journal today [--workspace ID] [--date YYYY-MM-DD] [--json]
+  singularity-flow journal refresh [--workspace ID] [--json]
+  singularity-flow journal settings [--mode off|sflow-only|workspace-facts|enhanced]
+    [--retention-days N] [--time-zone ZONE] [--json]
+  singularity-flow journal pause [--json]
+  singularity-flow journal resume [--json]
+  singularity-flow journal delete (--date YYYY-MM-DD --confirm YYYY-MM-DD
+    | --all --confirm "DELETE LOCAL JOURNAL") [--json]
+  singularity-flow journal export --date YYYY-MM-DD --format markdown|json --output PATH [--dry-run]
+  singularity-flow journal doctor [--json]
   singularity-flow recommend [--workspace ID] [--json]     one grounded next-step recommendation
   singularity-flow approvals [WORK-ID] [--json]            phase documents, authority and decisions (alias: approval-chain)
   singularity-flow logs [--tail N] [--level LEVEL] [--event PATTERN] [--since WHEN] [--json]

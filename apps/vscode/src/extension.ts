@@ -51,16 +51,17 @@ import {
 } from './evidence.ts';
 import type { EvidenceSourceKind } from './views/evidence-manager.ts';
 import { onFormSubmit, showForm, useDraftStore } from './views/form-panel.ts';
-import { onResultAction, showRefusal, showResultCard } from './views/result-panel.ts';
+import { onHomeRequest, onResultAction, showRefusal, showResultCard } from './views/result-panel.ts';
 import { buildResultCard, gateSummary } from './views/result-card-model.ts';
 import {
   ACKNOWLEDGE_ACTION_ID, acknowledgementKey, homeAcknowledgementFor, type HomeAcknowledgement
 } from './views/home-acknowledgement.ts';
 import {
-  activeRepositoryContext, gatewaySession, provideAcknowledgedAt,
+  activeRepositoryContext, gatewaySession, provideAcknowledgedAt, provideHomeLens,
   setActiveRepositoryContext, type ActiveRepositoryContext, type GatewayRepositoryContext
 } from './gateway-session.ts';
 import { primaryAction } from '../../../src/gateway/result.mjs';
+import { planDeveloperConversation } from '../../../src/gateway/conversation.mjs';
 import { latestWorkspaceBootstrap } from '../../../src/workspace-bootstrap.mjs';
 
 /** Injected by esbuild: the commit and time this bundle was built from. */
@@ -150,6 +151,9 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
     readonly key: string;
     readonly route: GatewayRepositoryContext;
   } | null = null;
+  // Home and its conversational answer share one generation. A slower read from a previous
+  // workspace/request must never replace a newer projection in the full-width panel.
+  let homeRequestGeneration = 0;
 
   /**
    * Hand the gateway the one fact only this host has. `[DHR:REQ-024]`
@@ -166,6 +170,40 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
   provideAcknowledgedAt(() => {
     if (!lastHome) return null;
     return context.globalState.get<HomeAcknowledgement>(lastHome.key)?.at ?? null;
+  });
+  provideHomeLens(() => {
+    const role = vscode.workspace.getConfiguration('singularityFlow').get<string>('role', 'developer');
+    return ['developer', 'qa', 'architect', 'product-owner', 'admin'].includes(role) ? role : 'developer';
+  });
+
+  onHomeRequest(async ({ request }) => {
+    if (!lastHome) return;
+    const generation = ++homeRequestGeneration;
+    const requestedHome = lastHome;
+    try {
+      const { kernel } = gatewaySession(requestedHome.route);
+      const conversation = planDeveloperConversation(request);
+      const currentWork = requestedHome.envelope.data?.currentWork ?? requestedHome.envelope.data?.activeWork ?? null;
+      const workOperations = new Set(['work.continue', 'work.return', 'work.readiness', 'review.packet']);
+      const argumentsForRequest = conversation.route && currentWork
+        && workOperations.has(conversation.route.operationId)
+        ? { workId: currentWork.id, ...(currentWork.kind ? { workKind: currentWork.kind } : {}) }
+        : {};
+      const resolution = kernel.resolve({ utterance: request, arguments: argumentsForRequest });
+      const envelope = resolution.kind === 'read' && resolution.next.length === 1
+        ? await kernel.read({ resolutionId: resolution.next[0].handle })
+        : resolution;
+      if (generation !== homeRequestGeneration || lastHome !== requestedHome) return;
+      const destination = gatewayDestination(envelope);
+      if (destination) {
+        await vscode.commands.executeCommand(destination);
+        return;
+      }
+      showResultCard(buildResultCard(envelope), { origin: 'gateway', historyMode: 'push' });
+    } catch (error) {
+      if (generation !== homeRequestGeneration || lastHome !== requestedHome) return;
+      showRefusal(error, { headline: 'Could not answer from My Work' });
+    }
   });
 
   onResultAction(async ({ actionId, view, origin }) => {
@@ -276,6 +314,7 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
    * something the gateway established.
    */
   context.subscriptions.push(vscode.commands.registerCommand('singularityFlow.myWork', async () => {
+    const generation = ++homeRequestGeneration;
     const active = activeRepositoryContext();
     try {
       const bootstrap = active ? null : await latestWorkspaceBootstrap().catch(() => null);
@@ -292,6 +331,7 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
       const envelope = resolution.kind === 'read' && resolution.next.length === 1
         ? await kernel.read({ resolutionId: resolution.next[0].handle })
         : resolution;
+      if (generation !== homeRequestGeneration || activeRepositoryContext() !== active) return;
       /**
        * Keyed on what this home is about, not on the folder that is open.
        *
@@ -308,6 +348,7 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
       lastHome = { envelope, key, route };
       showResultCard(buildResultCard(envelope, { acknowledgement }), { origin: 'gateway' });
     } catch (error) {
+      if (generation !== homeRequestGeneration || activeRepositoryContext() !== active) return;
       showRefusal(error, { headline: 'Could not read your work' });
     }
   }));

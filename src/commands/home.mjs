@@ -88,6 +88,19 @@ function render(homeEnvelope, answerEnvelope, { context, selected, actor }, conv
     console.log(`\nNext: ${leads.label}${route ? `  (${route})` : ''}`);
   }
 
+  const daily = homeEnvelope.data?.homeProjection ?? null;
+  if (daily?.today) {
+    console.log('\nToday (stored locally · never pushed)');
+    const entries = [...(daily.today.summaries ?? []), ...(daily.today.attention ?? [])].slice(0, 4);
+    if (entries.length) entries.forEach((entry) => console.log(`- ${entry.workId ? `${entry.workId} · ` : ''}${entry.text}`));
+    else console.log('- No bounded engineering outcomes were recorded today.');
+  }
+  if (daily?.yesterday) {
+    console.log('\nYesterday — where you stopped (stored locally · never pushed)');
+    [...(daily.yesterday.summaries ?? []), ...(daily.yesterday.attention ?? [])]
+      .slice(0, 4).forEach((entry) => console.log(`- ${entry.workId ? `${entry.workId} · ` : ''}${entry.text}`));
+  }
+
   /** The menu and every detail line come from the one gateway envelope `[UXH:AC-002]`. */
   const menu = homeEnvelope.next.filter((action) => answerEnvelope || action.id !== leads?.id);
   console.log('\nWhat is on your mind today?');
@@ -129,6 +142,7 @@ export function compositeHomeEnvelope(homeEnvelope, answerEnvelope = null, conve
 
 export async function run(_argv, { options }) {
   const workspaceReference = optionString(options, 'workspace');
+  const lens = optionString(options, 'lens', 'developer');
   const request = optionString(options, 'request');
   const conversation = request ? planDeveloperConversation(request) : null;
   const selection = await homeRepository(workspaceReference, { allowMissing: !workspaceReference });
@@ -170,6 +184,7 @@ export async function run(_argv, { options }) {
         head: selected?.head ?? null,
         resolvedFrom: workspaceReference ? 'workspace-option' : 'active-workspace'
       },
+      lens,
       bootstrap
     },
     workspaceId: context.workspaceId ?? null

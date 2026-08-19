@@ -478,6 +478,7 @@ test('forget-only removes supported custom state paths, tolerates a corrupt regi
     SINGULARITY_FLOW_ACTIVE_WORKSPACE: path.join(custom, 'active.json'),
     SINGULARITY_FLOW_LEAD_REGISTRY: path.join(custom, 'leads.json'),
     SINGULARITY_FLOW_ORGANISATION_CACHE: path.join(custom, 'capability-cache'),
+    SINGULARITY_FLOW_LOCAL_JOURNAL: path.join(custom, 'local-journal'),
     SINGULARITY_FLOW_VSCODE_RESET_MARKER: path.join(custom, 'vscode-reset.json')
   };
   await writeFile(environment.SINGULARITY_FLOW_WORKSPACE_REGISTRY, '{not json\n');
@@ -485,6 +486,8 @@ test('forget-only removes supported custom state paths, tolerates a corrupt regi
   await writeFile(environment.SINGULARITY_FLOW_LEAD_REGISTRY, '{}\n');
   await mkdir(environment.SINGULARITY_FLOW_ORGANISATION_CACHE);
   await writeFile(path.join(environment.SINGULARITY_FLOW_ORGANISATION_CACHE, 'cached.json'), '{}\n');
+  await mkdir(environment.SINGULARITY_FLOW_LOCAL_JOURNAL);
+  await writeFile(path.join(environment.SINGULARITY_FLOW_LOCAL_JOURNAL, 'preferences.json'), '{}\n');
 
   const { localReset, localResetPlan } = await import('../src/fresh-install-reset.mjs');
   const options = { homeDirectory: home, projectDirectory: project, environment, forgetOnly: true };
@@ -496,6 +499,7 @@ test('forget-only removes supported custom state paths, tolerates a corrupt regi
   assert.equal(await missing(environment.SINGULARITY_FLOW_ACTIVE_WORKSPACE), true);
   assert.equal(await missing(environment.SINGULARITY_FLOW_LEAD_REGISTRY), true);
   assert.equal(await missing(environment.SINGULARITY_FLOW_ORGANISATION_CACHE), true);
+  assert.equal(await missing(environment.SINGULARITY_FLOW_LOCAL_JOURNAL), true);
   assert.equal(await missing(environment.SINGULARITY_FLOW_VSCODE_RESET_MARKER), false);
 
   await assert.rejects(() => localResetPlan({

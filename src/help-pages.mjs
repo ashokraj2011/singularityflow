@@ -79,6 +79,34 @@ export function synopsisFor(command) {
  * what it refuses and why, and a worked example. Commands absent from this map still render.
  */
 const PAGES = Object.freeze({
+  journal: {
+    summary: 'Review private machine-local work memory without creating governance evidence.',
+    description: [
+      'The local work journal records a bounded set of outcome facts beside the machine workspace',
+      'registry. It never stores prompts, source bytes, command output, credentials, or raw activity,',
+      'and it never uploads or stages journal data.',
+      '',
+      'Today and doctor are read-only. Refresh observes only local Git refs and worktree facts; it',
+      'does not fetch. Journal records are advisory return memory, never lifecycle evidence, approval',
+      'authority, work-duration measurement, or a productivity score.'
+    ],
+    options: [
+      ['--workspace ID', 'Use this registered workspace instead of the active selection.'],
+      ['--date YYYY-MM-DD', 'Select a local calendar day for reading, deleting, or exporting.'],
+      ['--mode MODE', 'Capture off, Singularity Flow outcomes only, workspace facts, or enhanced facts.'],
+      ['--retention-days N', 'Keep 1 through 365 days of local records.'],
+      ['--time-zone ZONE', 'Use an IANA time zone for day boundaries.'],
+      ['--confirm VALUE', 'Exact date or DELETE LOCAL JOURNAL acknowledgement required for deletion.'],
+      ['--dry-run', 'Render an export without writing it.'],
+      ['--json', 'Emit the bounded versioned result.']
+    ],
+    examples: [
+      ['singularity-flow journal today', 'Show at most three progress and attention summaries for today.'],
+      ['singularity-flow journal refresh --json', 'Record one offline, content-bounded repository observation.'],
+      ['singularity-flow journal delete --date 2026-08-19 --confirm 2026-08-19', 'Delete one local day after exact confirmation.']
+    ],
+    seeAlso: ['home', 'status', 'logs', 'local-reset']
+  },
   push: {
     summary: 'Inspect and safely retry exact pre-Story push intents.',
     description: [

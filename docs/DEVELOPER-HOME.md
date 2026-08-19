@@ -5,6 +5,7 @@ available in VS Code as **My Work** and from a terminal as:
 
 ```bash
 sflow home
+sflow home --lens qa
 sflow home --json
 sflow story return WORK-123
 sflow story return WORK-123 --json
@@ -20,6 +21,11 @@ branch and HEAD, local Git actor, active Story, and the time the local snapshot 
 captured. The briefing then offers at most six currently reachable choices, ordered
 with recovery and active work before less urgent actions. Every choice includes a
 plain CLI fallback.
+
+The kernel also returns `HomeProjectionV2`, the bounded projection rendered by the
+shell, Copilot, VS Code Home, and the status bar. Its nested actions are sealed by the
+same handle authority as the enclosing result. A developer, QA, architect, product
+owner, or admin lens changes presentation only and can never add authority.
 
 Human replies use the local Git identity's display name once as a greeting. The JSON
 contract exposes this separately as `personalization.displayName` and
@@ -51,6 +57,33 @@ Work acknowledgement card can still show its separately bounded snapshot delta.
 The VS Code return view groups generated artifacts by phase. Selecting an artifact
 opens the existing governed artifact viewer.
 
+## Private local Today and Yesterday journal
+
+My Work may join a private machine-local daily summary at read time. The journal is
+stored beside the workspace registry, outside every Git worktree, and is labeled
+**Stored locally · Never pushed**. It contains only allowlisted outcome and repository
+facts; it never stores prompts, source bytes, commands, output, credentials, duration,
+effort, attendance, or productivity judgments.
+
+After a successful governed lifecycle command, SFlow records a bounded semantic outcome
+outside the authoritative transaction. Capture failure cannot fail or replay the governed
+operation. On the next local calendar day, Home may show **Yesterday — where you stopped**
+from those same private facts. A different Copilot model, a new terminal, or a restarted VS
+Code host reads the same local return context rather than reconstructing it from chat memory.
+
+```bash
+sflow journal today
+sflow journal refresh       # local Git observation; never fetches
+sflow journal settings
+sflow journal pause
+sflow journal doctor
+```
+
+Journal failure degrades Today without breaking governed Home. Current lifecycle and
+Git truth always override historical journal facts. See
+[Private local work journal](./topics/local-work-journal.md) for retention, export,
+and exact deletion confirmations.
+
 ## Safety and freshness
 
 Opening either view is local and read-only. It does not fetch, switch branches,
@@ -68,7 +101,8 @@ omit raw absolute paths and hidden work that is not visible to the active identi
 
 ## Copilot use
 
-Use `/sf-home` to read the same deterministic home envelope in Copilot. The skill
+Use `/sf-home` to read the same deterministic home envelope in Copilot. “Catch me up”,
+“where did I stop?”, and “yesterday” route to the read-only Return path. The skill
 shows every current choice, asks for one explicit selection, follows only the mapped
 `/sf-*` guided flow, and runs home again afterward so started or switched work is
 immediately visible. The initial read remains model-independent and non-mutating.

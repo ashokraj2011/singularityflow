@@ -95,6 +95,7 @@ export const HOME_CODES = Object.freeze([
   'home.recovery-required',
   'home.needs-your-decision',
   'home.nothing-waiting',
+  'home.prompt-placeholder',
   'home.work-summary',
   'home.stable-choice',
   'home.selection-stale'

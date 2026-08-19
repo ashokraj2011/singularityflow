@@ -11,6 +11,7 @@
  * next action `[INT:REQ-023]`. When no workspace is selected, workspace selection leads and the
  * menu does not pretend current work or repository evidence is available `[INT:REQ-024]`.
  */
+import { createHash } from 'node:crypto';
 import { readWorkspaceRegistry } from '../../workspace.mjs';
 import { workspaceRegistryFile } from '../../workspace-context.mjs';
 import { subjectWith } from '../handles.mjs';
@@ -20,6 +21,7 @@ import { deriveHomeState } from '../home-work-projection.mjs';
 import { WORK_GROUP_ORDER, workRecords } from '../work-records.mjs';
 import { personalizationFromGitIdentity } from '../../personalization.mjs';
 import { branch as gitBranch } from '../../git.mjs';
+import { normalizeHomeLens } from '../home-projection-v2.mjs';
 
 /** The stable choice set. Six at most, and never one this list does not contain `[INT:REQ-022]`. */
 /**
@@ -193,6 +195,38 @@ function faultChoice(fault, action, rank, emphasis = 'secondary') {
   };
 }
 
+function reviewChoice(work, rank, emphasis = 'secondary') {
+  const workKind = work.kind ?? 'story';
+  return plannerNavigation({
+    handle: `home:review:${workKind}:${work.id}`,
+    id: `home:review:${workKind}:${work.id}`,
+    label: `Review ${work.id}`,
+    rank,
+    kind: 'read',
+    reasonCode: 'home.needs-your-decision',
+    confirmation: 'none',
+    interaction: 'navigation',
+    emphasis,
+    executable: false,
+    fallback: {
+      label: `Review ${work.id}`,
+      command: `singularity-flow approvals ${work.id}`,
+      skill: `/sf-approve ${work.id}`
+    },
+    slots: { work: work.id, phase: work.phase ?? 'none' }
+  }, 'review.packet', { workId: work.id, workKind });
+}
+
+function actorProjection(actor) {
+  const stable = actor?.email ?? actor?.login ?? null;
+  return Object.freeze({
+    id: stable
+      ? `actor:${createHash('sha256').update(String(stable).toLowerCase()).digest('hex').slice(0, 24)}`
+      : 'actor:unavailable',
+    display: personalizationFromGitIdentity(actor).displayName
+  });
+}
+
 /**
  * The order the primary is chosen in. `[DHR:REQ-070]`
  *
@@ -238,6 +272,10 @@ export function homeOverviewResult({
   faults = [],
   faultsUnavailable = false,
   bootstrap = null,
+  lens = 'developer',
+  today = null,
+  yesterday = null,
+  journalAvailable = true,
   /**
    * How many *other* workspaces the registry knows about, or null when it could not be read.
    *
@@ -297,6 +335,8 @@ export function homeOverviewResult({
       data: {
         rail: [], workspace: null, repository: null, counts: null, localChanges: null,
         currentWork: null, activeWork: null, attentionWork: null,
+        actor: actorProjection(actor), lens: normalizeHomeLens(lens), today: null, yesterday: null,
+        journalAvailable: false, recent: [],
         personalization: personalizationFromGitIdentity(actor),
         bootstrap: bootstrap ? {
           bootstrapId: bootstrap.bootstrapId,
@@ -467,59 +507,53 @@ export function homeOverviewResult({
       ...(faultsUnavailable ? [{ code: 'fault.records-unavailable', source: 'unavailable', slots: {} }] : [])
     ],
     next: (() => {
-      const standard = shown.map((entry, index) => {
-      const displayRank = unresolvedFault
-        ? (recovery ? (index === 0 ? 0 : index + 3) : index + 3)
-        : index;
-      const emphasis = displayRank === 0 ? 'primary' : 'secondary';
-      /**
-       * A promoted choice says why it was promoted.
-       *
-       * `home.stable-choice` reads "Always available", which is true of this entry and useless on
-       * the one occasion it has been moved to the top. A reader who sees an item jump position and
-       * is told it is always available learns nothing about why today is different.
-       */
-      if (entry.id === 'work.return' && needsReconciliation) {
-        return choice(entry, displayRank, 'home.local-work-unreconciled', {
-          files: String(localChanges.files ?? 0),
-          work: active?.id ?? 'none'
-        }, { workId: active?.id ?? null, workKind: active?.kind ?? null }, emphasis);
+      const decisionBlocksCurrent = Boolean(attentionWork && !recovery && !active
+        && currentWork?.id === attentionWork.id && currentWork?.group === 'waiting-on-you');
+      let components = shown.map((entry) => ({ type: 'standard', entry }));
+      if (attentionWork) {
+        const index = decisionBlocksCurrent ? 0 : (leading ? 1 : 0);
+        components.splice(index, 0, { type: 'review', work: attentionWork });
       }
-      if (entry.id === 'work.continue' && leading) {
-        return choice(entry, displayRank, recovery ? 'home.recovery-required' : 'home.continue-active-work', {
-          work: leading.id,
-          title: leading.title,
-          repository: leading.repository ?? 'current',
-          phase: leading.phase ?? 'none',
-          nextAction: leading.nextAction?.operation ?? 'none'
-        }, { workId: leading.id, workKind: leading.kind }, emphasis);
+      if (unresolvedFault) {
+        const faults = ['fix', 'diagnose', 'evidence'].map((action) => ({ type: 'fault', action }));
+        const index = recovery ? 1 : (decisionBlocksCurrent ? 1 : 0);
+        components.splice(index, 0, ...faults);
       }
-      if (entry.id === 'work.list') {
-        return choice(entry, displayRank, 'home.work-summary', {
-          active: String(counts.active),
-          decisions: String(decisions),
-          ...(currentWork ? {
-            work: currentWork.id,
-            phase: currentWork.phase ?? 'none',
-            group: currentWork.group ?? 'active'
-          } : {})
-        }, {}, emphasis);
-      }
-      return choice(entry, displayRank, 'home.stable-choice', {}, {
-        workId: active?.id ?? null, workKind: active?.kind ?? null
-      }, emphasis);
+      return components.slice(0, MAX_HOME_CHOICES).map((component, rank) => {
+        const emphasis = rank === 0 ? 'primary' : 'secondary';
+        if (component.type === 'review') return reviewChoice(component.work, rank, emphasis);
+        if (component.type === 'fault') return faultChoice(unresolvedFault, component.action, rank, emphasis);
+        const entry = component.entry;
+        /** A promoted choice carries the deterministic reason it moved. */
+        if (entry.id === 'work.return' && needsReconciliation) {
+          return choice(entry, rank, 'home.local-work-unreconciled', {
+            files: String(localChanges.files ?? 0), work: active?.id ?? 'none'
+          }, { workId: active?.id ?? null, workKind: active?.kind ?? null }, emphasis);
+        }
+        if (entry.id === 'work.continue' && leading) {
+          return choice(entry, rank, recovery ? 'home.recovery-required' : 'home.continue-active-work', {
+            work: leading.id,
+            title: leading.title,
+            repository: leading.repository ?? 'current',
+            phase: leading.phase ?? 'none',
+            nextAction: leading.nextAction?.operation ?? 'none'
+          }, { workId: leading.id, workKind: leading.kind }, emphasis);
+        }
+        if (entry.id === 'work.list') {
+          return choice(entry, rank, 'home.work-summary', {
+            active: String(counts.active),
+            decisions: String(decisions),
+            ...(currentWork ? {
+              work: currentWork.id,
+              phase: currentWork.phase ?? 'none',
+              group: currentWork.group ?? 'active'
+            } : {})
+          }, {}, emphasis);
+        }
+        return choice(entry, rank, 'home.stable-choice', {}, {
+          workId: active?.id ?? null, workKind: active?.kind ?? null
+        }, emphasis);
       });
-      if (!unresolvedFault) return standard;
-      const promoted = recovery ? 'secondary' : 'primary';
-      const faultActions = [
-        faultChoice(unresolvedFault, 'fix', recovery ? 1 : 0, promoted),
-        faultChoice(unresolvedFault, 'diagnose', recovery ? 2 : 1),
-        faultChoice(unresolvedFault, 'evidence', recovery ? 3 : 2)
-      ];
-      if (recovery && standard.length) {
-        return [standard[0], ...faultActions, ...standard.slice(1)].slice(0, MAX_HOME_CHOICES);
-      }
-      return [...faultActions, ...standard].slice(0, MAX_HOME_CHOICES);
     })(),
     restState: null,
     data: {
@@ -530,6 +564,14 @@ export function homeOverviewResult({
        * pending phases would draw a lifecycle for work nobody has started.
        */
       rail: currentWork?.rail ?? [],
+      actor: actorProjection(actor),
+      lens: normalizeHomeLens(lens),
+      today,
+      yesterday,
+      journalAvailable,
+      recent: homeState.ordered
+        .filter((work) => work.id !== currentWork?.id || work.repositoryId !== currentWork?.repositoryId)
+        .slice(0, 5).map(projectWork),
       personalization: personalizationFromGitIdentity(actor),
       workspace: { id: workspace.id, name: workspace.name ?? workspace.id },
       repository: repository ? {
@@ -617,7 +659,8 @@ export async function homeOverview({ subject = null, root = null, context = {} }
     workspace: null,
     actor: context.actor ?? null,
     subject,
-    bootstrap: context.bootstrap ?? null
+    bootstrap: context.bootstrap ?? null,
+    lens: context.lens ?? 'developer'
   });
   const repositoryId = context.repositoryId ?? root;
   let currentBranch = context.branch ?? null;
@@ -635,6 +678,21 @@ export async function homeOverview({ subject = null, root = null, context = {} }
     } catch {
       faults = [];
       faultsUnavailable = true;
+    }
+  }
+  let today = context.today ?? null;
+  let yesterday = context.yesterday ?? null;
+  let journalAvailable = context.journalAvailable !== false;
+  if ((context.today === undefined || context.yesterday === undefined) && context.workspace?.id) {
+    try {
+      const { dailyReturnContext } = await import('../../local-work-journal.mjs');
+      const daily = await dailyReturnContext(context.workspace.id, { env: context.env ?? process.env });
+      if (context.today === undefined) today = daily.today;
+      if (context.yesterday === undefined) yesterday = daily.yesterday;
+    } catch {
+      if (context.today === undefined) today = null;
+      if (context.yesterday === undefined) yesterday = null;
+      journalAvailable = false;
     }
   }
   return homeOverviewResult({
@@ -660,6 +718,10 @@ export async function homeOverview({ subject = null, root = null, context = {} }
     subject,
     faults,
     faultsUnavailable,
+    lens: context.lens ?? 'developer',
+    today,
+    yesterday,
+    journalAvailable,
     otherWorkspaces,
     /**
      * The same worktree read `work.continue` and `work.return` use.

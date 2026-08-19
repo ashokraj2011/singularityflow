@@ -104,10 +104,10 @@ test('a bound Story awaiting this actor\'s decision remains current and keeps re
   assert.equal(home.data.currentWork?.group, 'waiting-on-you');
   assert.equal(home.data.attentionWork?.id, 'WRK-19');
   assert.deepEqual(home.data.repository, repository);
-  assert.equal(home.next[0].id, 'home:work.list');
+  assert.equal(home.next[0].id, 'home:review:story:WRK-19');
   assert.equal(home.next[0].slots.work, 'WRK-19');
-  assert.equal(home.next[0].fallback.skill, '/sf-status');
-  assert.equal(home.next[0].fallback.command, 'singularity-flow status');
+  assert.equal(home.next[0].fallback.skill, '/sf-approve WRK-19');
+  assert.equal(home.next[0].fallback.command, 'singularity-flow approvals WRK-19');
 
   const recommended = await developerNext({ root: process.cwd(), context });
   assert.equal(recommended.data.guidance.workId, 'WRK-19');

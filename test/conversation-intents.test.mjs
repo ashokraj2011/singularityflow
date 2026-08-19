@@ -13,6 +13,7 @@ const examples = [
   ['Please continue my current Story', 'continue', 'work.continue', false],
   ['Start a new bug fix', 'start', 'work.start.intake', false],
   ['What is blocking this Story?', 'inspect', 'work.readiness', true],
+  ['Where did I stop yesterday?', 'inspect', 'work.return', true],
   ['Generate the active phase', 'act', 'work.continue', false],
   ['The publication push is stuck', 'recover', 'work.continue', true]
 ];

@@ -57,6 +57,40 @@ export type CardAction = {
   readonly command: string | null;
 };
 
+export type HomeAttentionView = {
+  readonly id: string;
+  readonly kind: string;
+  readonly title: string;
+  readonly workId: string | null;
+  readonly phase: string | null;
+  readonly reasonCode: string;
+  readonly detail: string | null;
+  readonly action: CardAction | null;
+};
+
+export type HomeProjectionView = {
+  readonly asOf: string;
+  readonly projectionRevision: string;
+  readonly actor: { readonly display: string | null };
+  readonly context: {
+    readonly workspaceLabel: string | null; readonly repositoryId: string | null;
+    readonly branch: string | null; readonly head: string | null;
+  };
+  readonly lens: string;
+  readonly needsUser: readonly HomeAttentionView[];
+  readonly activeWork: {
+    readonly id: string; readonly title: string | null; readonly phase: string | null;
+    readonly status: string | null; readonly repositoryId: string | null; readonly branch: string | null;
+  } | null;
+  readonly now: CardAction | null;
+  readonly promptActions: readonly CardAction[];
+  readonly today: any | null;
+  readonly yesterday: any | null;
+  readonly worthChecking: readonly HomeAttentionView[];
+  readonly recent: readonly any[];
+  readonly health: { readonly status: string; readonly journal: string; readonly warnings: readonly string[] };
+};
+
 export type ResultCardView = {
   readonly tone: 'refusal' | 'clarification' | 'ceremony' | 'read';
   readonly headline: string;
@@ -102,6 +136,8 @@ export type ResultCardView = {
     } | null;
     readonly requiredInputs: readonly string[];
   } | null;
+  /** Home-specific hierarchy, sourced only from the kernel-sealed HomeProjectionV2. */
+  readonly home: HomeProjectionView | null;
   /**
    * The return briefing, on the card rather than on a home of its own. `[DHR:REQ-024]` `[UXH:REQ-020]`
    *
@@ -259,6 +295,16 @@ export function buildResultCard(result: any, { acknowledgement }: ResultCardOpti
   const why = (result.why ?? [])
     .filter((entry: any) => !shown.has(entry.slots?.gate))
     .map((entry: any) => message(entry.code, entry.slots));
+  const projection = result.data?.homeProjection?.resultType === 'my-work-home'
+    && result.data.homeProjection.schemaVersion === 2 ? result.data.homeProjection : null;
+  const projectedAction = (entry: any): CardAction | null => entry?.id
+    ? actions.find((action: CardAction) => action.id === entry.id) ?? null : null;
+  const projectedAttention = (entry: any): HomeAttentionView => Object.freeze({
+    id: String(entry.id ?? ''), kind: String(entry.kind ?? 'attention'), title: String(entry.title ?? 'Needs attention'),
+    workId: entry.workId ? String(entry.workId) : null, phase: entry.phase ? String(entry.phase) : null,
+    reasonCode: String(entry.reasonCode ?? 'home.default-order'),
+    detail: entry.detail ? String(entry.detail) : null, action: projectedAction(entry.action)
+  });
 
   return Object.freeze({
     tone,
@@ -308,6 +354,38 @@ export function buildResultCard(result: any, { acknowledgement }: ResultCardOpti
         evidence: result.data.guidance.evidence ?? null,
         requiredInputs: Object.freeze([...(result.data.guidance.requiredInputs ?? [])])
       }) : null,
+    home: projection ? Object.freeze({
+      asOf: String(projection.asOf),
+      projectionRevision: String(projection.subjectRevision),
+      actor: Object.freeze({ display: projection.actor?.display ? String(projection.actor.display) : null }),
+      context: Object.freeze({
+        workspaceLabel: projection.context?.workspaceLabel ? String(projection.context.workspaceLabel) : null,
+        repositoryId: projection.context?.repositoryId ? String(projection.context.repositoryId) : null,
+        branch: projection.context?.branch ? String(projection.context.branch) : null,
+        head: projection.context?.head ? String(projection.context.head) : null
+      }),
+      lens: String(projection.lens?.id ?? 'developer'),
+      needsUser: Object.freeze((projection.needsUser ?? []).map(projectedAttention)),
+      activeWork: projection.activeWork ? Object.freeze({
+        id: String(projection.activeWork.id), title: projection.activeWork.title ? String(projection.activeWork.title) : null,
+        phase: projection.activeWork.phase ? String(projection.activeWork.phase) : null,
+        status: projection.activeWork.status ? String(projection.activeWork.status) : null,
+        repositoryId: projection.activeWork.repositoryId ? String(projection.activeWork.repositoryId) : null,
+        branch: projection.activeWork.branch ? String(projection.activeWork.branch) : null
+      }) : null,
+      now: projectedAction(projection.now),
+      promptActions: Object.freeze((projection.prompt?.goals ?? []).map(projectedAction)
+        .filter((action: CardAction | null): action is CardAction => action !== null)),
+      today: projection.today ?? null,
+      yesterday: projection.yesterday ?? null,
+      worthChecking: Object.freeze((projection.worthChecking ?? []).map(projectedAttention)),
+      recent: Object.freeze([...(projection.recent ?? [])]),
+      health: Object.freeze({
+        status: String(projection.health?.status ?? 'degraded'),
+        journal: String(projection.health?.journal ?? 'unavailable'),
+        warnings: Object.freeze([...(projection.health?.warnings ?? [])].map(String))
+      })
+    }) : null,
     /**
      * The delta belongs to `home.overview` and to nothing else.
      *

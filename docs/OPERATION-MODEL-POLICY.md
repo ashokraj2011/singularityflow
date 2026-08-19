@@ -65,6 +65,16 @@ Every public operation is classified before its implementation module is importe
 | inputs.dry-run | read | never | — | — |
 | inputs.prepare | mutation | never | — | — |
 | jira | mutation | never | — | — |
+| journal.delete | mutation | never | — | — |
+| journal.doctor | read | never | — | — |
+| journal.export | mutation | never | — | — |
+| journal.export.preview | read | never | — | — |
+| journal.pause | mutation | never | — | — |
+| journal.refresh | mutation | never | — | — |
+| journal.resume | mutation | never | — | — |
+| journal.settings | read | never | — | — |
+| journal.settings.update | mutation | never | — | — |
+| journal.today | read | never | — | — |
 | knowledge | mutation | never | — | — |
 | ledger | mutation | never | — | — |
 | local-reset | mutation | never | — | — |

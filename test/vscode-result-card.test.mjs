@@ -349,4 +349,8 @@ test('an action carries how it is dispatched, so the host does not have to guess
   assert.match(source, /executor\.execute\(action\)/);
   assert.match(source, /outcome\.outcome === 'ceremony'[\s\S]{0,700}createTerminal/,
     'a ceremony returned by the executor must open its governed host surface rather than disappear');
+  assert.match(source, /homeRequestGeneration/,
+    'Home and conversational answers need a shared generation guard');
+  assert.match(source, /generation !== homeRequestGeneration \|\| activeRepositoryContext\(\) !== active/,
+    'a late Home read from a previous workspace cannot replace the newer projection');
 });

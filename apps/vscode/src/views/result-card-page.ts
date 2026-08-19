@@ -10,7 +10,8 @@
  * is still intact, what is safe next — and the last two are the ones a red error box drops.
  */
 import { escape, icon } from './webview.ts';
-import type { CardAction, ChecklistRow, ResultCardView } from './result-card-model.ts';
+import { message } from './result-messages.ts';
+import type { CardAction, ChecklistRow, HomeAttentionView, ResultCardView } from './result-card-model.ts';
 
 /**
  * Styles for the card only, scoped under `.sf-card`.
@@ -114,6 +115,64 @@ export const RESULT_CARD_STYLE = `
 .sf-since button { font: inherit; padding: 4px 11px; border-radius: 3px; cursor: pointer; flex: none;
   border: 1px solid var(--vscode-panel-border); background: transparent; color: var(--vscode-foreground); }
 .sf-since button:hover { background: var(--vscode-list-hoverBackground); }
+.sf-home { display:grid; gap:18px; }
+.sf-home-header { display:flex; flex-wrap:wrap; align-items:flex-start; justify-content:space-between; gap:16px;
+  padding-bottom:16px; border-bottom:1px solid var(--vscode-panel-border); }
+.sf-home-title { display:grid; gap:4px; }
+.sf-home-title h2 { margin:0; font-size:1.7rem; }
+.sf-home-title p { margin:0; color:var(--vscode-descriptionForeground); }
+.sf-home-context { display:flex; flex-wrap:wrap; gap:7px; justify-content:flex-end; }
+.sf-chip { display:inline-flex; align-items:center; min-height:26px; padding:2px 9px; border-radius:999px;
+  border:1px solid var(--vscode-panel-border); color:var(--vscode-descriptionForeground); font-size:.86em; }
+.sf-chip-local { border-color:var(--vscode-testing-iconPassed, var(--vscode-charts-green));
+  color:var(--vscode-testing-iconPassed, var(--vscode-charts-green)); }
+.sf-home-prompt { padding:16px; border:1px solid var(--vscode-focusBorder); border-radius:8px;
+  background:var(--vscode-editorWidget-background); display:grid; gap:12px; }
+.sf-home-prompt label { font-weight:600; }
+.sf-home-prompt-row { display:flex; gap:8px; }
+.sf-home-prompt input { flex:1 1 auto; min-width:0; padding:8px 10px; color:var(--vscode-input-foreground);
+  background:var(--vscode-input-background); border:1px solid var(--vscode-input-border, var(--vscode-panel-border)); border-radius:4px; }
+.sf-home-prompt button, .sf-home-card button { font:inherit; padding:6px 12px; border-radius:4px; cursor:pointer;
+  border:1px solid var(--vscode-panel-border); color:var(--vscode-foreground); background:transparent; }
+.sf-home-prompt button:hover, .sf-home-card button:hover { background:var(--vscode-list-hoverBackground); }
+.sf-home button:focus-visible, .sf-home input:focus-visible, .sf-home summary:focus-visible {
+  outline:2px solid var(--vscode-focusBorder); outline-offset:2px; }
+.sf-home-card button.primary { border-color:transparent; color:var(--vscode-button-foreground);
+  background:var(--vscode-button-background); font-weight:600; }
+.sf-home-goals { display:flex; flex-wrap:wrap; gap:8px; }
+.sf-home-goals button { font:inherit; padding:5px 10px; border-radius:4px; cursor:pointer;
+  color:var(--vscode-foreground); background:transparent; border:1px solid var(--vscode-panel-border); }
+.sf-home-grid { display:grid; grid-template-columns:minmax(0, 2fr) minmax(260px, 1fr); gap:18px; align-items:start; }
+.sf-home-column { display:grid; gap:18px; }
+.sf-home-card { display:grid; gap:12px; padding:16px; border:1px solid var(--vscode-panel-border); border-radius:8px;
+  background:var(--vscode-editorWidget-background); }
+.sf-home-card h3 { margin:0; font-size:1.04rem; }
+.sf-home-card p { margin:0; }
+.sf-home-muted { color:var(--vscode-descriptionForeground); }
+.sf-home-needs { border-left:3px solid var(--vscode-editorWarning-foreground); }
+.sf-home-work-head { display:flex; flex-wrap:wrap; gap:8px 12px; justify-content:space-between; }
+.sf-home-work-title { font-weight:650; }
+.sf-home-list { margin:0; padding:0; list-style:none; display:grid; gap:10px; }
+.sf-home-list li { display:grid; gap:3px; padding-bottom:10px; border-bottom:1px solid var(--vscode-panel-border); }
+.sf-home-list li:last-child { border-bottom:0; padding-bottom:0; }
+.sf-home-item-head { display:flex; align-items:flex-start; justify-content:space-between; gap:10px; }
+.sf-home-privacy { display:flex; align-items:center; gap:6px; color:var(--vscode-testing-iconPassed, var(--vscode-charts-green)); font-size:.88em; }
+.sf-home-health { display:flex; align-items:center; gap:8px; }
+.sf-home-details { color:var(--vscode-descriptionForeground); }
+.sf-home, .sf-home * { overflow-wrap:anywhere; }
+@media (max-width: 780px) {
+  .sf-home-grid { grid-template-columns:1fr; }
+  .sf-home-context { justify-content:flex-start; }
+  .sf-home-prompt-row { flex-direction:column; }
+}
+@media (prefers-reduced-motion: reduce) {
+  .sf-home *, .sf-home *::before, .sf-home *::after { scroll-behavior:auto!important; transition:none!important; animation:none!important; }
+}
+@media (forced-colors: active) {
+  .sf-home-card, .sf-home-prompt, .sf-chip { border-color:CanvasText; }
+  .sf-home-needs { border-left-color:Highlight; }
+  .sf-home-card button.primary { color:HighlightText; background:Highlight; }
+}
 `;
 
 function button(action: CardAction, className: string): string {
@@ -293,7 +352,85 @@ function faultsHtml(view: ResultCardView): string {
     </article>`).join('')}</section>`;
 }
 
+function homeAttention(items: readonly HomeAttentionView[], primaryId: string | null): string {
+  return `<ul class="sf-home-list">${items.map((item) => {
+    const reason = message(item.reasonCode).label;
+    const action = item.action ? button(item.action, item.action.id === primaryId ? 'primary' : '') : '';
+    return `<li><span class="sf-home-item-head"><b>${escape(item.title)}</b>${action}</span>
+      <span class="sf-home-muted">${escape([item.workId, item.phase].filter(Boolean).join(' · ') || reason)}</span>
+      <span class="sf-home-muted">${escape(reason)}</span></li>`;
+  }).join('')}</ul>`;
+}
+
+function homeHtml(view: ResultCardView, now: number): string {
+  const home = view.home!;
+  const primaryId = home.now?.id ?? null;
+  const needs = home.needsUser.length ? `<section class="sf-home-card sf-home-needs">
+    <h3>Needs You</h3>${homeAttention(home.needsUser, primaryId)}</section>` : '';
+  const nowShownInNeeds = home.needsUser.some((item) => item.action?.id === primaryId);
+  const work = home.activeWork ? `<section class="sf-home-card">
+    <div class="sf-home-work-head"><span><span class="sf-home-work-title">${escape(home.activeWork.id)}${
+      home.activeWork.title ? ` · ${escape(home.activeWork.title)}` : ''}</span><br>
+      <span class="sf-home-muted">${escape([home.activeWork.repositoryId, home.activeWork.branch, home.activeWork.phase]
+        .filter(Boolean).join(' · '))}</span></span>
+      ${home.now && !nowShownInNeeds ? button(home.now, 'primary') : ''}</div>
+    ${railHtml(view)}${sinceHtml(view, now)}
+  </section>` : `<section class="sf-home-card"><h3>No active work here</h3>
+    <p class="sf-home-muted">Choose a quick start below. Governed work remains in durable workspace and repository records.</p>
+    ${home.now && !nowShownInNeeds ? button(home.now, 'primary') : ''}</section>`;
+  const today = home.today ? `<section class="sf-home-card"><span class="sf-home-item-head"><h3>Today</h3>
+    <span class="sf-home-privacy">${icon('statusPinned', { size: 14 })} Stored locally · Never pushed</span></span>
+    ${(home.today.summaries ?? []).length ? `<ul class="sf-home-list">${home.today.summaries.map((item: any) =>
+      `<li><b>${escape(item.workId ? `${item.workId} · ${item.text}` : item.text)}</b></li>`).join('')}</ul>`
+    : '<p class="sf-home-muted">No local engineering outcomes were recorded today. This is not an activity or productivity judgment.</p>'}
+    ${(home.today.attention ?? []).length ? `<ul class="sf-home-list">${home.today.attention.map((item: any) =>
+      `<li><span>${icon('warning', { size: 14 })} ${escape(item.text)}</span></li>`).join('')}</ul>` : ''}
+  </section>` : '';
+  const yesterday = home.yesterday ? `<section class="sf-home-card"><span class="sf-home-item-head"><h3>Yesterday — where you stopped</h3>
+    <span class="sf-home-privacy">${icon('statusPinned', { size: 14 })} Stored locally · Never pushed</span></span>
+    ${(home.yesterday.summaries ?? []).length ? `<ul class="sf-home-list">${home.yesterday.summaries.map((item: any) =>
+      `<li><b>${escape(item.workId ? `${item.workId} · ${item.text}` : item.text)}</b></li>`).join('')}</ul>`
+    : '<p class="sf-home-muted">No bounded outcome summary was recorded for the previous day.</p>'}
+    ${(home.yesterday.attention ?? []).length ? `<ul class="sf-home-list">${home.yesterday.attention.map((item: any) =>
+      `<li><span>${icon('warning', { size: 14 })} ${escape(item.text)}</span></li>`).join('')}</ul>` : ''}
+  </section>` : '';
+  const worth = `<section class="sf-home-card"><h3>Worth Checking</h3>${home.worthChecking.length
+    ? homeAttention(home.worthChecking, primaryId)
+    : '<p class="sf-home-muted">Nothing local needs attention from the evidence read for this Home.</p>'}</section>`;
+  const recent = `<section class="sf-home-card"><h3>Recent Work</h3>${home.recent.length
+    ? `<ul class="sf-home-list">${home.recent.map((item: any) => `<li><b>${escape(item.id)}</b>
+      <span class="sf-home-muted">${escape([item.title, item.phase, item.group].filter(Boolean).join(' · '))}</span></li>`).join('')}</ul>`
+    : '<p class="sf-home-muted">No other visible governed work was found.</p>'}</section>`;
+  const quick = home.promptActions.filter((action) => action.id !== primaryId).slice(0, 4);
+  const details = `<details class="sf-home-details"><summary>Binding and sources</summary><pre>${escape(
+    `revision: ${home.projectionRevision}\nas of: ${home.asOf}\nhealth: ${home.health.status}\njournal: ${home.health.journal}`)}</pre></details>`;
+  return `<section class="sf-home" aria-labelledby="sf-home-title">
+    <header class="sf-home-header"><span class="sf-home-title">
+      <h2 id="sf-home-title">${home.actor.display ? `Hello, ${escape(home.actor.display)}. ` : ''}My Work</h2>
+      <p>One grounded place to orient, continue, decide, and return.</p></span>
+      <span class="sf-home-context">
+        ${home.context.workspaceLabel ? `<span class="sf-chip">${escape(home.context.workspaceLabel)}</span>` : ''}
+        ${home.context.repositoryId ? `<span class="sf-chip">${escape(home.context.repositoryId)}</span>` : ''}
+        ${home.context.branch ? `<span class="sf-chip">${escape(home.context.branch)}</span>` : ''}
+        <span class="sf-chip">${escape(home.lens)}</span><span class="sf-chip sf-chip-local">Local first</span>
+      </span></header>
+    <form class="sf-home-prompt" data-home-request><label for="sf-home-request">What is on your mind today?</label>
+      <span class="sf-home-prompt-row"><input id="sf-home-request" name="request" maxlength="300"
+        placeholder="Continue my work, show what changed, or help me investigate…" autocomplete="off">
+        <button type="submit">Ask SFlow</button></span>
+      ${quick.length ? `<span class="sf-home-goals">${quick.map((action) => button(action, '')).join('')}</span>` : ''}
+    </form>
+    <div class="sf-home-grid"><main class="sf-home-column" aria-label="Current work">${needs}${work}${today}${yesterday}${recent}</main>
+      <aside class="sf-home-column" aria-label="Checks and health">${worth}<section class="sf-home-card"><h3>Health</h3>
+        <p class="sf-home-health">${icon(home.health.status === 'healthy' ? 'statusSuccess' : 'statusWarning')}
+          ${escape(home.health.status === 'healthy' ? 'Current sources are healthy' : 'Some sources are unavailable')}</p>
+        <p class="sf-home-muted">Journal: ${escape(home.health.journal)}</p></section></aside></div>
+    ${details}
+  </section>`;
+}
+
 export function resultCardHtml(view: ResultCardView, { now = Date.now() }: { now?: number } = {}): string {
+  if (view.home) return homeHtml(view, now);
   /**
    * A headline and a sentence, separated rather than run together.
    *
@@ -384,6 +521,14 @@ export const RESULT_CARD_SCRIPT = `
  * nothing**. Rendering was verified by eye and looked right; pressing was not.
  */
 const vscode = window.__sfVscode;
+document.addEventListener('submit', (event) => {
+  const form = event.target instanceof Element ? event.target.closest('[data-home-request]') : null;
+  if (!form) return;
+  event.preventDefault();
+  const input = form.querySelector('input[name="request"]');
+  const request = input instanceof HTMLInputElement ? input.value.trim() : '';
+  if (request) vscode.postMessage({ type: 'home.request', request });
+});
 document.addEventListener('click', (event) => {
   const navigation = event.target instanceof Element ? event.target.closest('[data-result-nav]') : null;
   if (navigation) {

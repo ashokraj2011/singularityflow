@@ -1845,6 +1845,28 @@ selection, and other advanced YAML remain intact.
 
 > **Security boundary:** semantic world-model runners are trusted local commands, not sandboxed code. The detached worktree protects the governed checkout and constrains accepted output; it does not remove the runner's access to the current user's filesystem, environment, network, or processes. Only configure trusted runners. Use `singularity-flow wm light` where policy requires deterministic execution without a model runner.
 
+### Optional AST intelligence
+
+`singularity-flow wm ast` provides bounded structural references alongside the world model. The
+foundation release reports its built-in JavaScript/TypeScript symbol and import extraction as
+`text` assurance; it does not call that lexical scan a parser. Syntax and semantic assurance are
+reserved for validated optional adapters. The active Story's pinned capability roots define the
+default cone; when no roots are configured, the default is changed tracked paths, never the whole
+repository. Use `--all` only deliberately.
+
+```bash
+singularity-flow wm ast doctor
+singularity-flow wm ast context --paths src --json
+singularity-flow wm ast query --predicate symbol --value Payment --paths src --json
+singularity-flow wm ast build --paths src --json
+singularity-flow wm ast cache clear --dry-run
+singularity-flow wm ast preference set off
+```
+
+The effective mode is the most restrictive repository, machine, environment, and operation value.
+`off` returns a valid disabled envelope and writes no AST cache. Derived snapshots live under the
+Git common directory and never contain source bodies. See [AST Intelligence](docs/AST-INTELLIGENCE.md).
+
 For a deterministic zero-token baseline, run this inside the application
 repository:
 

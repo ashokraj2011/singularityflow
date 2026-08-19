@@ -30,6 +30,7 @@ is not part of the current product.
 | Look up commands and configuration keys | [Help reference](../HELP.md) |
 | Run without a model or publish human-authored artifacts | [Model independence](MODEL-INDEPENDENCE.md) |
 | Audit model policy for every operation | [Operation model-policy catalog](OPERATION-MODEL-POLICY.md) |
+| Use bounded optional structural intelligence | [AST Intelligence](AST-INTELLIGENCE.md) |
 
 ## Architecture and governance
 

@@ -62,4 +62,11 @@ test('new CLI reads are classified as reads and mutations remain mutations', () 
   assert.equal(commandClass(['repair', 'authorize']), 'mutation');
   assert.equal(commandClass(['journal', 'export', '--dry-run']), 'read');
   assert.equal(commandClass(['local-reset', '--forget-only', '--dry-run']), 'read');
+  assert.equal(commandClass(['wm', 'ast', 'doctor']), 'read');
+  assert.equal(commandClass(['wm', 'ast', 'context', '--paths', 'src']), 'read');
+  assert.equal(commandClass(['wm', 'ast', 'build', '--paths', 'src']), 'mutation');
+  assert.equal(commandClass(['wm', 'ast', 'cache', 'status']), 'read');
+  assert.equal(commandClass(['wm', 'ast', 'cache', 'clear']), 'mutation');
+  assert.equal(commandClass(['wm', 'ast', 'preference', 'show']), 'read');
+  assert.equal(commandClass(['wm', 'ast', 'preference', 'set', 'off']), 'mutation');
 });

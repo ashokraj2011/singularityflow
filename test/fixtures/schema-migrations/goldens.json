@@ -111,5 +111,8 @@
   "worldmodel-checkpoint": [{ "schemaVersion": 1 }],
   "ledger-intent": [{ "schemaVersion": 1 }],
   "ledger-entry": [{ "schemaVersion": 1 }],
-  "ledger-archive-manifest": [{ "schemaVersion": 1 }]
+  "ledger-archive-manifest": [{ "schemaVersion": 1 }],
+  "ast-preference": [{ "schemaVersion": 1 }],
+  "ast-resume-job": [{ "schemaVersion": 1 }],
+  "ast-result": [{ "schemaVersion": 1 }]
 }

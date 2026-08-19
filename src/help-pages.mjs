@@ -485,7 +485,9 @@ const PAGES = Object.freeze({
     examples: [
       ['singularity-flow wm build --depth quick', 'Build the world model at quick depth.'],
       ['singularity-flow wm compose --phase intake', 'Compose the grounding for a phase.'],
-      ['singularity-flow wm light --local', 'Deterministic lightweight model, no provider needed.']
+      ['singularity-flow wm light --local', 'Deterministic lightweight model, no provider needed.'],
+      ['singularity-flow wm ast context --paths src --json', 'Read a bounded, text-assurance structural context without invoking a model.'],
+      ['singularity-flow wm ast doctor', 'Show effective AST policy, scope, cache, and optional adapter health.']
     ],
     seeAlso: ['phase', 'doctor', 'capability']
   },

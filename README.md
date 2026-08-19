@@ -1499,6 +1499,12 @@ child application roots replace the parent scope while shared roots accumulate.
 New lifecycle state pins that resolution so an active Story does not drift when
 the capability map changes.
 
+For bounded structural references, `singularity-flow wm ast context --paths src --json` uses the
+same pinned scope and a content-aware worktree binding. Its built-in result is explicitly
+`text` assurance; optional compiler adapters are not kernel dependencies. With no configured roots,
+the default is changed tracked files—not a monorepo-wide scan—and `--all` must be explicit. See
+[AST Intelligence](docs/AST-INTELLIGENCE.md) for policy, cache, preference, and adapter details.
+
 For new workspaces, **Map a capability** can select a `blobless` or
 `blobless-sparse` clone. Sparse mode always retains `singularity/` and
 `.github/agents/`, and its default `refuse` fallback prevents a Git server that
@@ -1978,6 +1984,7 @@ evidence workflow.
 | `singularity-flow wm light [--phase PHASE] [--branch BRANCH] [--local]` | Build a compact deterministic repository inventory with zero model tokens, then validate and commit it like any other world model. |
 | `singularity-flow wm build [--depth light\|quick\|standard\|deep] [--branch BRANCH] [--local] [--parallel\|--no-parallel] [--workers N] [--resume\|--no-resume]` | Build the repository world model on the current or selected branch; light is deterministic and zero-token, while semantic depths support parallel discovery and exact-match checkpoint resume. |
 | `singularity-flow wm cleanup [--force]` | Prune stale owned worktrees left by interrupted world-model builds; `--force` also removes unowned legacy temporary worktrees after operator review. |
+| `singularity-flow wm ast doctor\|status\|context\|query\|build\|gate` | Inspect or build bounded, hash-bound structural references with explicit assurance and coverage. No model is invoked. |
 | `sflow-wm-minimal [--phase PHASE] [--branch BRANCH] [--publish]` | Build the smallest deterministic zero-token validated model; defaults to one development view and a local commit. |
 | `singularity-flow documents browse --provider <ID> [--path FOLDER]` | List items in a configured OneDrive/SharePoint, Artifactory, S3, or HTTPS provider. |
 | `singularity-flow documents fetch --provider <ID> --ref <ITEM>` | Materialize provider bytes into the work item's inputs, then commit and publish them. |

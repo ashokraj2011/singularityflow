@@ -298,6 +298,57 @@
       "description": "Governed references to MCP servers configured by the Copilot or VS Code host. Credentials and transport details never belong here.",
       "additionalProperties": { "$ref": "#/$defs/mcpServer" }
     },
+    "ast": {
+      "type": "object",
+      "description": "Optional bounded structural intelligence. Compiler adapters are external to the kernel.",
+      "properties": {
+        "mode": { "enum": ["auto", "off"], "default": "auto" },
+        "fallback": { "enum": ["host-and-text", "text-only"], "default": "host-and-text" },
+        "generatedRoots": {
+          "type": "array",
+          "uniqueItems": true,
+          "items": { "$ref": "#/$defs/sourceRoot" }
+        },
+        "budgets": {
+          "type": "object",
+          "properties": {
+            "maxFiles": { "type": "integer", "minimum": 1, "default": 500 },
+            "maxBytes": { "type": "integer", "minimum": 1, "default": 20971520 },
+            "maxFileBytes": { "type": "integer", "minimum": 1, "default": 2097152 }
+          },
+          "additionalProperties": false
+        },
+        "languages": {
+          "type": "object",
+          "propertyNames": { "pattern": "^[a-z][a-z0-9-]*$" },
+          "additionalProperties": {
+            "type": "object",
+            "properties": {
+              "mode": { "enum": ["auto", "off"], "default": "auto" },
+              "minimumAssurance": { "enum": ["text", "syntax", "semantic"], "default": "text" }
+            },
+            "additionalProperties": false
+          }
+        },
+        "predicates": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "required": ["id", "type"],
+            "properties": {
+              "id": { "type": "string", "minLength": 1 },
+              "mode": { "enum": ["required", "advisory"], "default": "advisory" },
+              "type": { "enum": ["path-exists", "symbol-exists"] },
+              "path": { "type": "string" },
+              "symbol": { "type": "string" },
+              "minimumAssurance": { "enum": ["text", "syntax", "semantic"], "default": "text" }
+            },
+            "additionalProperties": false
+          }
+        }
+      },
+      "additionalProperties": false
+    },
     "worldModel": {
       "type": "object",
       "properties": {

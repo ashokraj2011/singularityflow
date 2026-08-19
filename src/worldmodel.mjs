@@ -52,6 +52,7 @@ import {
 import { PACKAGE_ROOT } from './package-root.mjs';
 import { withWorldModelSourceScope } from './source-scope.mjs';
 import { currentSchemaVersion, readRecord } from './schema-migrations.mjs';
+import { astCommand } from './ast-intelligence.mjs';
 
 const configRelative = 'singularity/worldmodel.json';
 const CHECKPOINT_SCHEMA_VERSION = currentSchemaVersion('worldmodel-checkpoint');
@@ -2227,6 +2228,7 @@ async function showPrompt(root, options) {
 
 export async function worldModelCommand(root, positionals, options) {
   const command = positionals[1];
+  if (command === 'ast') return astCommand(root, positionals.slice(2), options);
   if (command === 'cache') {
     const action = positionals[2] ?? 'status';
     if (action === 'status') {

@@ -80,6 +80,13 @@ export function commandClass(args: string[]): 'read' | 'mutation' | 'unknown' {
     return 'mutation';
   }
   if (args[0] === 'local-reset') return hasOption(args, 'dry-run') ? 'read' : 'mutation';
+  if (args[0] === 'wm' && args[1] === 'ast') {
+    const action = args[2] ?? 'status';
+    if (['doctor', 'status', 'context', 'query', 'gate'].includes(action)) return 'read';
+    if (action === 'cache') return (args[3] ?? 'status') === 'status' ? 'read' : 'mutation';
+    if (action === 'preference') return (args[3] ?? 'show') === 'show' ? 'read' : 'mutation';
+    return 'mutation';
+  }
   return READ_ONLY_COMMANDS.has(args[0]) ? 'read' : 'mutation';
 }
 

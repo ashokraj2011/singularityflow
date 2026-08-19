@@ -88,6 +88,7 @@ worldModel:
     # (or `singularity-flow wm ensure`) to authorize provider work explicitly.
     mode: explicit
     publish: governed
+
     lookahead: none
     # To make `next` run the deterministic equivalent of `wm light --phase <current>`, set:
     # mode: on-demand, depth: light, confirmation: automatic. That path never invokes a model.
@@ -113,6 +114,16 @@ worldModel:
     #   include: [domains/api.md]
     # - when: { labels: security }
     #   include: [views/security.md]
+
+# Optional structural intelligence. The kernel always retains a bounded text-assurance fallback;
+# syntax and semantic assurance require an explicitly installed out-of-process adapter.
+ast:
+  mode: auto
+  fallback: host-and-text
+  budgets:
+    maxFiles: 500
+    maxBytes: 20971520
+    maxFileBytes: 2097152
 
 # Trusted kernel-owned model providers. Arguments are passed directly without a
 # shell; credentials remain in the provider/host environment and are never stored here.

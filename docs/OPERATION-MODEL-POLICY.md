@@ -170,6 +170,17 @@ Every public operation is classified before its implementation module is importe
 | visual.compare | mutation | never | — | — |
 | visual.status | read | never | — | — |
 | watch | mutation | never | — | — |
+| wm.ast.build | mutation | never | — | — |
+| wm.ast.cache.clear | mutation | never | — | — |
+| wm.ast.cache.prune | mutation | never | — | — |
+| wm.ast.cache.status | read | never | — | — |
+| wm.ast.context | read | never | — | — |
+| wm.ast.doctor | read | never | — | — |
+| wm.ast.gate | read | never | — | — |
+| wm.ast.preference.set | mutation | never | — | — |
+| wm.ast.preference.show | read | never | — | — |
+| wm.ast.query | read | never | — | — |
+| wm.ast.status | read | never | — | — |
 | wm.availability | read | never | — | — |
 | wm.budget | read | never | — | — |
 | wm.build | mutation | required | wm.light | copilot-cli |

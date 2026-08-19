@@ -48,6 +48,7 @@ import { materializationPolicy } from './world-model-materialization.mjs';
 import { normalizeRepairBudget } from './repair-budget.mjs';
 import { normalizeSourceBoundary } from './source-boundary.mjs';
 import { normalizeFaultRepairPolicy } from './fault-repair.mjs';
+import { normalizeAstPolicy } from './ast-policy.mjs';
 
 export const WORKFLOW_PATH = 'singularity/workflow.yml';
 export const CONTROL_ROOT = 'singularity';
@@ -385,6 +386,7 @@ export function validateDefinition(definition) {
   definition.ledger = normalizeLedgerConfig(definition.ledger ?? {});
   definition.spec = normalizeSpecPolicy(definition.spec ?? {});
   definition.faultRepair = normalizeFaultRepairPolicy(definition.faultRepair ?? {});
+  definition.ast = normalizeAstPolicy(definition.ast ?? {});
   definition.approvalAuthorities = normalizeApprovalAuthorities(definition.approvalAuthorities);
   groundingMode(definition);
   if (definition.worldModel?.runner != null) throw new SingularityFlowError('worldModel.runner is not supported. Configure models.providers with a trusted executable and argument array.');

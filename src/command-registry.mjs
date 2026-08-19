@@ -100,6 +100,9 @@ export function commandDefinition(name) {
 
 const WM_MODEL_OPERATIONS = new Set(['build', 'ensure']);
 const WM_NEVER_OPERATIONS = new Set(['init', 'inject', 'compose', 'show-prompt', 'cleanup', 'prompt', 'context', 'budget', 'facts', 'check', 'cache', 'light', 'availability', 'status', 'design-inventory']);
+const WM_AST_READ_ACTIONS = new Set(['doctor', 'status', 'context', 'query', 'gate']);
+const WM_AST_MUTATION_ACTIONS = new Set(['build']);
+const WM_AST_ACTIONS = Object.freeze([...WM_AST_READ_ACTIONS, ...WM_AST_MUTATION_ACTIONS, 'cache', 'preference']);
 
 /**
  * The subcommands that only read, on commands whose *name* is not read-only.
@@ -188,7 +191,7 @@ export const RESOLVER_SUBCOMMANDS = Object.freeze({
   constitution: CONSTITUTION_SUBCOMMANDS,
   spec: SPEC_SUBCOMMANDS,
   story: STORY_SUBCOMMANDS,
-  wm: Object.freeze([...WM_MODEL_OPERATIONS, ...WM_NEVER_OPERATIONS]),
+  wm: Object.freeze([...WM_MODEL_OPERATIONS, ...WM_NEVER_OPERATIONS, 'ast']),
   workspace: Object.freeze(['copilot', 'impact', 'bootstrap', ...WORKSPACE_NEVER_OPERATIONS, ...WORKSPACE_SUBCOMMAND_ALIASES.keys()])
 });
 
@@ -429,6 +432,22 @@ function unclassified(id) {
 
 function resolveWorldModelOperation(definition, positionals) {
   const subcommand = positionals[1] ?? 'check';
+  if (subcommand === 'ast') {
+    const action = positionals[2] ?? 'status';
+    if (WM_AST_READ_ACTIONS.has(action)) return never(`wm.ast.${action}`, definition, 'read');
+    if (WM_AST_MUTATION_ACTIONS.has(action)) return never(`wm.ast.${action}`, definition, 'mutation');
+    if (action === 'cache') {
+      const cacheAction = positionals[3] ?? 'status';
+      if (!['status', 'prune', 'clear'].includes(cacheAction)) return unknownSubcommand('wm ast cache', cacheAction, ['status', 'prune', 'clear'], 'action');
+      return never(`wm.ast.cache.${cacheAction}`, definition, cacheAction === 'status' ? 'read' : 'mutation');
+    }
+    if (action === 'preference') {
+      const preferenceAction = positionals[3] ?? 'show';
+      if (!['show', 'set'].includes(preferenceAction)) return unknownSubcommand('wm ast preference', preferenceAction, ['show', 'set'], 'action');
+      return never(`wm.ast.preference.${preferenceAction}`, definition, preferenceAction === 'show' ? 'read' : 'mutation');
+    }
+    return unknownSubcommand('wm ast', action, WM_AST_ACTIONS, 'action');
+  }
   const id = `wm.${subcommand}`;
   if (WM_MODEL_OPERATIONS.has(subcommand)) return required(id);
   if (WM_NEVER_OPERATIONS.has(subcommand)) return never(id, definition, WM_READ_OPERATIONS.has(subcommand) ? 'read' : 'mutation');
@@ -504,7 +523,11 @@ export function operationCatalog() {
   const direct = COMMAND_REGISTRY.flatMap((entry) => entry.operation ? [entry.operation] : []);
   const wm = [...WM_NEVER_OPERATIONS]
     .map((name) => never(`wm.${name}`, commandDefinition('wm'), WM_READ_OPERATIONS.has(name) ? 'read' : 'mutation'))
-    .concat([...WM_MODEL_OPERATIONS].map((name) => required(`wm.${name}`)));
+    .concat([...WM_MODEL_OPERATIONS].map((name) => required(`wm.${name}`)))
+    .concat([...WM_AST_READ_ACTIONS].map((name) => never(`wm.ast.${name}`, commandDefinition('wm'), 'read')))
+    .concat([...WM_AST_MUTATION_ACTIONS].map((name) => never(`wm.ast.${name}`, commandDefinition('wm'), 'mutation')))
+    .concat(['status', 'prune', 'clear'].map((name) => never(`wm.ast.cache.${name}`, commandDefinition('wm'), name === 'status' ? 'read' : 'mutation')))
+    .concat(['show', 'set'].map((name) => never(`wm.ast.preference.${name}`, commandDefinition('wm'), name === 'show' ? 'read' : 'mutation')));
   const workspace = [...WORKSPACE_NEVER_OPERATIONS]
     .map((name) => never(`workspace.${name}`, commandDefinition('workspace'), WORKSPACE_READ_OPERATIONS.has(name) ? 'read' : 'mutation'))
     .concat([required('workspace.copilot')])

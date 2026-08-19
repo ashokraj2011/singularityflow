@@ -1,0 +1,32 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://example.invalid/singularity-flow/ast-result.schema.json",
+  "title": "Singularity Flow AST result envelope",
+  "type": "object",
+  "required": ["schemaVersion", "operation", "scope", "assurance", "status", "coverage", "facts", "diagnostics", "degradation", "resumeHandle", "provenance"],
+  "properties": {
+    "schemaVersion": { "const": 1 },
+    "operation": { "enum": ["context", "query", "gate", "build", "transform"] },
+    "scope": {
+      "type": "object",
+      "required": ["kind", "definitionSha256", "repositoryRevision", "worktreeFingerprint"],
+      "properties": {
+        "kind": { "enum": ["changed", "cone", "paths", "all"] },
+        "paths": { "type": "array", "items": { "type": "string" } },
+        "definitionSha256": { "type": "string", "pattern": "^[a-f0-9]{64}$" },
+        "repositoryRevision": { "type": ["string", "null"] },
+        "worktreeFingerprint": { "type": "string", "pattern": "^[a-f0-9]{64}$" }
+      },
+      "additionalProperties": false
+    },
+    "assurance": { "enum": ["text", "syntax", "semantic"] },
+    "status": { "enum": ["complete", "partial", "disabled", "unsupported", "stale", "failed"] },
+    "coverage": { "type": "object" },
+    "facts": { "type": "array", "items": { "type": "object" } },
+    "diagnostics": { "type": "array", "items": { "type": "object" } },
+    "degradation": { "type": "array", "items": { "type": "object" } },
+    "resumeHandle": { "type": ["string", "null"] },
+    "provenance": { "type": "object" }
+  },
+  "additionalProperties": false
+}

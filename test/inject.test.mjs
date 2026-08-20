@@ -136,6 +136,18 @@ test('injectAgentPrompt appends without a placeholder and respects off mode', as
   assert.equal(off.text.includes('Hexagonal'), false);
 });
 
+test('an explicit generic context arm removes the placeholder without reading model files', async () => {
+  const root = await fixtureRoot();
+  const config = definition([{ when: {}, include: ['architecture/*'] }], 'append');
+  const disabled = await injectAgentPrompt(root, config, 'architect', {}, {
+    disableWorldModelInjection: true
+  });
+  assert.doesNotMatch(disabled.text, /Hexagonal|WORLD_MODEL/);
+  assert.equal(disabled.injection.mode, 'off');
+  assert.equal(disabled.injection.matchedRules, 0);
+  assert.deepEqual(disabled.injection.sections, []);
+});
+
 test('non-matching signals leave the agent prompt untouched', async () => {
   const root = await fixtureRoot();
   const { text, injection } = await injectAgentPrompt(root, definition([{ when: { agent: 'developer' }, include: ['architecture/*'] }]), 'architect', {});

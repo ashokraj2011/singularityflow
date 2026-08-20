@@ -1023,7 +1023,7 @@ application branch. See
 
 `singularity/workflow.yml` is the definition for new work items. It contains:
 
-- `workTypes`: profile-specific phase sequences, template overrides, and optional `phaseOverrides` for checks, world-model, comparison, artifact, input, and approval policy.
+- `workTypes`: profile-specific phase sequences, template overrides, optional `phaseOverrides`, and a pinned `intelligence` contract for world-model, AST, and agent-brief use.
 - `inputsMode`: backward-compatible `off`, audit-oriented `record`, or blocking `enforce` phase dataflow.
 - `phases`: default templates, approved upstream inputs, artifact paths, write scope, world-model views, clarification checkpoints, quality commands, and approval rules.
 - `agents`: prompt-only governed agents, suggested phases, and additional world-model views.
@@ -1042,7 +1042,17 @@ The bundled profiles are:
 | Bugfix | intake → reproduction → fix-design → fix-spec → implementation → verification → conformance |
 | Chore | intake → implementation → verification → conformance |
 | Figma export to mobile app | design-intake → design-inventory → component-mapping → mobile-spec → implementation → visual-verification → conformance |
+| Benchmark A — governed intelligence | intake → design → implementation → testing → conformance |
+| Benchmark B — generic context | intake → design → implementation → testing → conformance |
 | POC workflow | POC intent → impact analysis → UI exploration → Playwright generation → bounded validation/repair → publication review |
+
+The two benchmark profiles are paired controls. They use the same five phases, artifact templates,
+default agents, write scopes, approvals, and rejection routes. Benchmark A requires a published
+world model, injects one bounded AST page, and passes approval-bound agent briefs between phases.
+Benchmark B disables repository and capability world-model context, AST context and AST lifecycle
+gates, and passes the full approved artifacts instead. The selected profile and intelligence policy
+are immutable for the Story. Select the two profiles across comparable Stories; do not treat a
+hand-selected pair as randomized evidence. Use Flow Impact receipts when measuring the result.
 
 Agent mappings connect native Copilot agents to governed Agent Markdown. Each phase activates its configured default agent automatically; `/sf-agent` is an explicit, audited override. An agent changes instruction context only and can never grant approval permission. Phase approvals reference `approvalAuthorities`; every decision records the human identity, matched authority group, identity-assurance level, and active agent separately.
 
@@ -1056,7 +1066,7 @@ singularity-flow start ENG-142 --title "Add invoice export" --from-branch main -
 singularity-flow resume ENG-142 --fetch
 ```
 
-Every new Story first requires an explicit branch published by every required repository; no branch is preselected, even when only one is available. With no source flags, `start` then asks whether intake comes from a Jira story or a manual description and documents. Manual mode asks for the title, audience, problem, outcome, acceptance criteria, and supporting file paths or HTTPS URLs. After source intake is complete, `start` asks for a workflow template (`feature`, `bugfix`, `chore`, `figma-mobile`, `poc-workflow`, or another configured work type). The POC workflow requires a hash-bound Playwright host attestation and live browser smoke receipt, governed accessibility/runtime/visual evidence, real TypeScript and Playwright execution, at most two kernel-enforced human-authorized repair generations, and separate quality and engineering decisions at publication. The kernel restricts its generation and repair phases to recognized test-automation paths, so an instruction cannot authorize product-source edits. It never runs an autonomous healing loop or writes the selected base branch. Its phases use separate least-privilege analyst, explorer, test-developer, and validator agents. The first phase activates its default agent; resume activates the current phase's default. The active agent is stored locally in `.git/singularity-flow/session.json`; opening a session does not create a repository commit. It is prompt context, not a real identity or approval credential.
+Every new Story first requires an explicit branch published by every required repository; no branch is preselected, even when only one is available. With no source flags, `start` then asks whether intake comes from a Jira story or a manual description and documents. Manual mode asks for the title, audience, problem, outcome, acceptance criteria, and supporting file paths or HTTPS URLs. After source intake is complete, `start` asks for a workflow template (`feature`, `bugfix`, `chore`, `figma-mobile`, `benchmarking-a`, `benchmarking-b`, `poc-workflow`, or another configured work type). The POC workflow requires a hash-bound Playwright host attestation and live browser smoke receipt, governed accessibility/runtime/visual evidence, real TypeScript and Playwright execution, at most two kernel-enforced human-authorized repair generations, and separate quality and engineering decisions at publication. The kernel restricts its generation and repair phases to recognized test-automation paths, so an instruction cannot authorize product-source edits. It never runs an autonomous healing loop or writes the selected base branch. Its phases use separate least-privilege analyst, explorer, test-developer, and validator agents. The first phase activates its default agent; resume activates the current phase's default. The active agent is stored locally in `.git/singularity-flow/session.json`; opening a session does not create a repository commit. It is prompt context, not a real identity or approval credential.
 
 The receipt flow is local and auditable: `singularity-flow choices begin start <WORK-ID> --json` returns the live remote-base, YAML-derived intake, and workflow options; Copilot presents them through `ask_user`; and each exact answer is recorded with `singularity-flow choices answer`. Approval receipts bind to the submitted phase, generation, artifact hashes, and exact phase confirmation. The phase agent is recorded as audit context; approval authority is recalculated from the reviewer’s identity and the pinned authority registry.
 

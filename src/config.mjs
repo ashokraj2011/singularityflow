@@ -49,6 +49,9 @@ import { normalizeRepairBudget } from './repair-budget.mjs';
 import { normalizeSourceBoundary } from './source-boundary.mjs';
 import { normalizeFaultRepairPolicy } from './fault-repair.mjs';
 import { normalizeAstPolicy } from './ast-policy.mjs';
+import {
+  normalizeWorkTypeIntelligence, worldModelModeForIntelligence
+} from './intelligence-policy.mjs';
 
 export const WORKFLOW_PATH = 'singularity/workflow.yml';
 export const CONTROL_ROOT = 'singularity';
@@ -497,6 +500,7 @@ export function validateDefinition(definition) {
     constitutionPolicy(workType.constitution);
     workType.designSources = normalizeDesignSourcePolicy(workType.designSources, { phases: workType.phases });
     workType.verification = normalizeVerificationPolicy(workType.verification, { phases: workType.phases });
+    workType.intelligence = normalizeWorkTypeIntelligence(workType.intelligence, `Work type '${id}' intelligence`);
   }
   if (definition.noModel != null) {
     if (!definition.noModel || typeof definition.noModel !== 'object' || Array.isArray(definition.noModel)) throw new SingularityFlowError('noModel must be an object.');
@@ -576,6 +580,29 @@ export function validateDefinition(definition) {
           );
         }
       }
+    }
+    const projectedInputs = resolved.phases.slice(1).map((phase) => ({
+      phase: phase.id,
+      summaries: phase.inputs.filter((input) => input.projection === 'approved-summary').length
+    }));
+    if (resolved.intelligence.agentBriefs === 'required') {
+      const missing = projectedInputs.filter((entry) => entry.summaries === 0).map((entry) => entry.phase);
+      if (missing.length) {
+        throw new SingularityFlowError(
+          `Work type '${workTypeId}' requires approved agent briefs, but phase(s) ${missing.join(', ')} have no approved-summary input.`
+        );
+      }
+    }
+    if (resolved.intelligence.agentBriefs === 'off') {
+      const projected = projectedInputs.filter((entry) => entry.summaries > 0).map((entry) => entry.phase);
+      if (projected.length) {
+        throw new SingularityFlowError(
+          `Work type '${workTypeId}' disables agent briefs, but phase(s) ${projected.join(', ')} use approved-summary inputs.`
+        );
+      }
+    }
+    if (resolved.intelligence.ast === 'required-context' && definition.ast.mode === 'off') {
+      throw new SingularityFlowError(`Work type '${workTypeId}' requires AST context, but ast.mode is off.`);
     }
   }
   if (definition.worldModel?.views) {
@@ -919,6 +946,7 @@ export function resolveWorkType(definition, workTypeId) {
   documents.allowedPhases = (documents.allowedPhases ?? []).filter((phaseId) => workType.phases.includes(phaseId));
   const sequenceGates = normalizeSequenceGates(definition.sequenceGates ?? {}, workType.sequenceGates ?? {});
   const contextPolicy = normalizeContextPolicy(definition.contextPolicy ?? {}, { phaseIds: Object.keys(definition.phases) });
+  const intelligence = normalizeWorkTypeIntelligence(workType.intelligence, `Work type '${workTypeId}' intelligence`);
   return {
     id: workTypeId,
     label: workType.label,
@@ -926,6 +954,8 @@ export function resolveWorkType(definition, workTypeId) {
     approvalAuthorities: structuredClone(definition.approvalAuthorities),
     sequenceGates,
     contextPolicy,
+    intelligence,
+    worldModelGrounding: worldModelModeForIntelligence(groundingMode(definition), intelligence),
     ledger: normalizeLedgerConfig(definition.ledger ?? {}),
     // Pinned into the Story's resolution like every other policy `[SPK:REQ-110]`, so a later edit to
     // the shared set cannot change what an in-flight Story owes.
@@ -982,7 +1012,7 @@ export async function snapshotResolution(root, definition, resolved) {
   return {
     configSha256: definitionSnapshot.sha256,
     inputsMode: resolved.inputsMode ?? configuredInputsMode(definition),
-    worldModelGrounding: groundingMode(definition),
+    worldModelGrounding: resolved.worldModelGrounding ?? groundingMode(definition),
     worldModelMaterialization: materializationPolicy(definition),
     worldModelSourceScope: structuredClone(resolved.worldModelSourceScope ?? null),
     approvalAuthorities: structuredClone(resolved.approvalAuthorities ?? normalizeApprovalAuthorities(definition.approvalAuthorities)),
@@ -1001,6 +1031,7 @@ export async function snapshotResolution(root, definition, resolved) {
     analysisLimits: structuredClone(resolved.analysisLimits ?? analysisLimits(definition.analysisLimits)),
     artifactSets: structuredClone(resolved.artifactSets ?? normalizeArtifactSets(definition.artifactSets)),
     harnessImports: structuredClone(resolved.harnessImports ?? normalizeHarnessImports(definition.harnessImports)),
+    intelligence: structuredClone(resolved.intelligence ?? normalizeWorkTypeIntelligence()),
     impact: impact ? structuredClone(impact) : null,
     agents,
     mcpServers: structuredClone(definition.mcpServers ?? {}),

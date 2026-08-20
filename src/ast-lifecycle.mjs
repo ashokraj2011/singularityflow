@@ -6,8 +6,10 @@ import { evaluateAstGate } from './ast-intelligence.mjs';
 import { recordSha256 } from './records.mjs';
 import { currentSchemaVersion, readRecord } from './schema-migrations.mjs';
 import { run, SingularityFlowError, writeJson } from './util.mjs';
+import { astDisabledForWorkflow } from './intelligence-policy.mjs';
 
-function configuredPredicates(config) {
+function configuredPredicates(config, workflow = null) {
+  if (astDisabledForWorkflow(workflow)) return [];
   return Array.isArray(config.ast?.predicates) ? config.ast.predicates : [];
 }
 
@@ -33,7 +35,7 @@ function gateErrors(result) {
 
 /** Evaluate configured AST policy without writing lifecycle or repository state. */
 export async function evaluateAstLifecycleGate(root, config, workflow, phase, { generation = phase.generation + 1, options = {} } = {}) {
-  const predicates = configuredPredicates(config);
+  const predicates = configuredPredicates(config, workflow);
   if (!predicates.length) return { applies: false, errors: [], warnings: [], result: null, receipt: null };
   const result = await evaluateAstGate(root, options);
   const errors = gateErrors(result);
@@ -138,7 +140,7 @@ async function receiptFor(root, config, workflow, phase, generation, sourceCommi
 export async function verifyAstLifecycleReceipt(root, config, workflow, phase, {
   generation = phase.generation, revalidate = true, sourceCommit = null
 } = {}) {
-  if (!configuredPredicates(config).length) return { applies: false, errors: [], warnings: [], passes: [] };
+  if (!configuredPredicates(config, workflow).length) return { applies: false, errors: [], warnings: [], passes: [] };
   const loaded = await receiptFor(root, config, workflow, phase, generation, sourceCommit);
   if (loaded.error) return { applies: true, errors: [loaded.error], warnings: [], passes: [] };
   const { record } = loaded;

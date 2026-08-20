@@ -56,6 +56,8 @@ import {
 } from './util.mjs';
 import { PACKAGE_ROOT } from './package-root.mjs';
 import { withWorldModelSourceScope } from './source-scope.mjs';
+import { worldModelDisabledForWorkflow } from './intelligence-policy.mjs';
+import { requiredStructuralPromptContext } from './structural-prompt-context.mjs';
 
 const SESSION_ID = /^[a-zA-Z0-9][a-zA-Z0-9._-]{0,127}$/;
 const INITIATIVE_METADATA = /^<!-- singularity-flow:initiative-metadata[\s\S]*?-->/;
@@ -226,12 +228,18 @@ function initiativePhaseContract(initiative, phase) {
 }
 
 function workItemPhaseContract(workflow, phase) {
+  const intelligence = workflow.resolution?.intelligence ?? {
+    worldModel: 'inherit', ast: 'inherit', agentBriefs: 'inherit'
+  };
   return [
     `- Work type: ${workflow.workItem.workTypeLabel} (${workflow.workItem.workType})`,
     `- Current phase: ${workflow.currentPhase}`,
     `- Required artifact: ${phase.requiredArtifact.path}`,
     `- Write scope: ${phase.writeScope}`,
     `- Governed agent: ${phase.defaultAgent ?? phase.generatedAgent ?? 'unavailable'}`,
+    `- Intelligence: world-model=${intelligence.worldModel}, AST=${intelligence.ast}, agent-briefs=${intelligence.agentBriefs}`,
+    ...(intelligence.worldModel === 'off' && intelligence.ast === 'off' && intelligence.agentBriefs === 'off'
+      ? ['- Context arm: generic; do not request, assume, or reconstruct disabled intelligence.'] : []),
     `- Required approvals: ${phase.approvalPolicy.minimum} distinct human identities from ${phase.approvalPolicy.authorities.join(', ') || 'no authority group'}`,
     `- Quality commands: ${phase.qualityCommands.length ? phase.qualityCommands.join(' · ') : 'none configured'}`,
     `- Phase inputs: ${phase.inputs.length ? phase.inputs.map((input) => {
@@ -443,12 +451,16 @@ async function workItemPlanningParts(root, definition, { id, phaseId, agent, tar
     workType: workflow.workItem.workType,
     labels: []
   }, {
-    promptOverride: promptStudy
+    promptOverride: promptStudy,
+    disableWorldModelInjection: worldModelDisabledForWorkflow(workflow)
   });
   const world = await workItemWorldModel(root, definition, workflow, phase, agent);
-  const capability = await renderCapabilityWorldModelPack(root, workflow.resolution?.capability, {
-    views: phase.worldModel?.views ?? []
-  });
+  const capability = worldModelDisabledForWorkflow(workflow)
+    ? { text: '', files: [], warnings: [] }
+    : await renderCapabilityWorldModelPack(root, workflow.resolution?.capability, {
+      views: phase.worldModel?.views ?? []
+    });
+  const structural = await requiredStructuralPromptContext(root, workflow);
   const inputs = await collectInputs(root, workflow, phase, { itemDirectory, itemRelative });
   if (inputs.errors.length) throw new SingularityFlowError(`Planning inputs are not ready:\n- ${inputs.errors.join('\n- ')}`);
   const inputBlock = renderInputsBlock(inputs).text;
@@ -467,6 +479,7 @@ async function workItemPlanningParts(root, definition, { id, phaseId, agent, tar
     `## Selected governed agent\n\n${agentResult.text.trim()}`,
     world.text,
     capability.text,
+    structural.text,
     remote.text,
     story ? `## Work-item source\n\n<!-- path=${posix(path.relative(root, storyPath))} -->\n\n${story.trim()}` : '',
     supportingDocuments.text,
@@ -490,13 +503,14 @@ async function workItemPlanningParts(root, definition, { id, phaseId, agent, tar
       }] : []),
       ...world.files.map((file) => ({ kind: 'world-model', ...file })),
       ...capability.files.map((file) => ({ kind: 'capability-world-model', ...file })),
+      ...(structural.record ? [{ kind: 'ast-context', ...structural.record }] : []),
       ...inputs.records.filter((entry) => entry.status === 'captured').map((entry) => ({ kind: 'approved-input', path: posix(path.join(itemRelative, entry.path)), sha256: entry.sha256, bytes: entry.bytes })),
       ...remote.skills.map((skill) => ({ kind: 'remote-skill', path: `agent:${session?.agent}/${skill.id}`, sha256: skill.sha256, bytes: skill.size })),
       ...supportingDocuments.sources,
       ...(storyInfo ? [{ kind: 'work-item-source', path: posix(path.relative(root, storyPath)), sha256: storyInfo.sha256, bytes: storyInfo.size }] : []),
       ...(currentInfo ? [{ kind: 'current-draft', path: posix(path.relative(root, target)), sha256: currentInfo.sha256, bytes: currentInfo.size }] : [])
     ],
-    warnings: [...world.warnings, ...capability.warnings, ...remote.warnings, ...inputs.warnings],
+    warnings: [...world.warnings, ...capability.warnings, ...structural.warnings, ...remote.warnings, ...inputs.warnings],
     generation: phase.generation + 1,
     profile: workflow.workItem.workType,
     repositoryPath: itemRelative

@@ -1365,9 +1365,19 @@ Starter work types are:
 | Bugfix | intake → reproduction → fix-design → fix-spec → implementation → verification → conformance |
 | Chore | intake → implementation → verification → conformance |
 | Figma export to mobile app | design-intake → design-inventory → component-mapping → mobile-spec → implementation → visual-verification → conformance |
+| Benchmark A — governed intelligence | intake → design → implementation → testing → conformance |
+| Benchmark B — generic context | intake → design → implementation → testing → conformance |
 | POC workflow | POC intent → impact analysis → UI exploration → Playwright generation → bounded validation/repair → publication review |
 
 Feature work produces stable `AC-n` acceptance criteria and `SPEC-nnn` implementation items. Bugfix work uses a smaller fix specification but retains the same traceability model. Verification links tests and source evidence. Conformance compares approved requirements and specifications with exact code/test evidence.
+
+`benchmarking-a` and `benchmarking-b` are deliberately paired. Both run the same templates, agents,
+artifacts, approvals, and rejection routes. A pins `worldModel: required`, `ast: required-context`,
+and `agentBriefs: required`; B pins all three off and uses full approved phase inputs. A refuses
+prompt composition until governed world-model grounding exists. Its AST page is bounded and records
+the cone, engine, extractor, assurance, fact count, and whether a continuation exists. B never
+silently acquires world-model context from a capability policy. Choose the profile during normal
+Story intake. Existing Stories retain their selected arm.
 
 `poc-workflow` is the packaged UI-regression demonstration flow. It requires an explicitly selected
 remote base branch and an isolated Story branch, captures an authorized target environment and test

@@ -395,6 +395,65 @@ workTypes:
     phaseOverrides:
       verify: { inputs: [implement] }
 
+  benchmarking-a:
+    label: Benchmark A — governed intelligence
+    description: Requires governed world-model, bounded AST, and approval-bound agent-brief context.
+    # Experimental arm: identical lifecycle, templates, agents, artifacts, and approvals to
+    # Benchmark B. Only the pinned intelligence profile and input projection differ.
+    phases: [intake, design, implementation, testing, conformance]
+    intelligence: { worldModel: required, ast: required-context, agentBriefs: required }
+    templateOverrides:
+      intake: benchmark/intake.md
+      design: benchmark/design.md
+      implementation: benchmark/implementation.md
+      testing: benchmark/testing.md
+      conformance: benchmark/conformance.md
+    phaseOverrides:
+      design:
+        inputs:
+          - { phase: intake, projection: approved-summary, preserve: [Success criteria, Scope and constraints], maximumSummaryBytes: 16384, expansion: hash-bound-reference, fallback: block }
+        approval: { authorities: [architecture-reviewers], minimum: 1, rejectTo: [intake, design] }
+      implementation:
+        inputs:
+          - { phase: design, projection: approved-summary, preserve: [Design and interfaces, Risks and rollback], maximumSummaryBytes: 16384, expansion: hash-bound-reference, fallback: block }
+      testing:
+        inputs:
+          - { phase: intake, projection: approved-summary, preserve: [Success criteria], maximumSummaryBytes: 12288, expansion: hash-bound-reference, fallback: block }
+          - { phase: implementation, projection: approved-summary, preserve: [Changed components, Validation and operational notes], maximumSummaryBytes: 16384, expansion: hash-bound-reference, fallback: block }
+      conformance:
+        inputs:
+          - { phase: intake, projection: approved-summary, preserve: [Success criteria], maximumSummaryBytes: 12288, expansion: hash-bound-reference, fallback: block }
+          - { phase: design, projection: approved-summary, preserve: [Design and interfaces], maximumSummaryBytes: 12288, expansion: hash-bound-reference, fallback: block }
+          - { phase: implementation, projection: approved-summary, preserve: [Changed components], maximumSummaryBytes: 12288, expansion: hash-bound-reference, fallback: block }
+          - { phase: testing, projection: approved-summary, preserve: [Test evidence and results], maximumSummaryBytes: 16384, expansion: hash-bound-reference, fallback: block }
+        approval: { authorities: [quality-reviewers, architecture-reviewers], minimum: 1, rejectTo: [design, implementation, testing, conformance] }
+
+  benchmarking-b:
+    label: Benchmark B — generic context
+    description: Uses full approved artifacts without world-model, AST, or agent-brief enrichment.
+    # Control arm: full approved upstream artifacts, with no world-model, AST, or agent-brief
+    # enrichment. The lifecycle contract remains byte-for-byte comparable with Benchmark A.
+    phases: [intake, design, implementation, testing, conformance]
+    intelligence: { worldModel: off, ast: off, agentBriefs: off }
+    templateOverrides:
+      intake: benchmark/intake.md
+      design: benchmark/design.md
+      implementation: benchmark/implementation.md
+      testing: benchmark/testing.md
+      conformance: benchmark/conformance.md
+    phaseOverrides:
+      intake: { worldModel: { views: [] } }
+      design:
+        inputs: [intake]
+        worldModel: { views: [] }
+        approval: { authorities: [architecture-reviewers], minimum: 1, rejectTo: [intake, design] }
+      implementation: { inputs: [design], worldModel: { views: [] } }
+      testing: { inputs: [intake, implementation], worldModel: { views: [] } }
+      conformance:
+        inputs: [intake, design, implementation, testing]
+        worldModel: { views: [] }
+        approval: { authorities: [quality-reviewers, architecture-reviewers], minimum: 1, rejectTo: [design, implementation, testing, conformance] }
+
   poc-workflow:
     label: POC workflow
     # A governed UI-regression proof of concept: understand the requested target, calculate the
@@ -608,6 +667,15 @@ phases:
     clarification: { mode: when-needed, maxQuestions: 3, topics: [test gaps, environment, evidence, deviations] }
     writeScope: source-and-artifact
     approval: { authorities: [quality-reviewers], minimum: 1, rejectTo: [implementation, verification] }
+    qualityCommands: []
+  testing:
+    label: Testing
+    defaultTemplate: benchmark/testing.md
+    artifact: { path: artifacts/testing/test-evidence.md, kind: test-evidence, minimumBytes: 300 }
+    worldModel: { views: [testing, development, security], depth: standard, evidence: true }
+    clarification: { mode: when-needed, maxQuestions: 3, topics: [test gaps, environment, evidence, deviations] }
+    writeScope: source-and-artifact
+    approval: { authorities: [quality-reviewers], minimum: 1, rejectTo: [implementation, testing] }
     qualityCommands: []
   visual-verification:
     label: Mobile visual verification

@@ -251,6 +251,7 @@
         "properties": {
           "label": { "type": "string", "minLength": 1 },
           "phases": { "type": "array", "minItems": 1, "items": { "type": "string" }, "uniqueItems": true },
+          "intelligence": { "$ref": "#/$defs/workTypeIntelligence" },
           "templateOverrides": { "type": "object", "additionalProperties": { "type": "string" } },
           "phaseOverrides": {
             "type": "object",
@@ -580,6 +581,16 @@
           "type": "object",
           "additionalProperties": { "enum": ["keep", "compact", "new"] }
         }
+      },
+      "additionalProperties": false
+    },
+    "workTypeIntelligence": {
+      "type": "object",
+      "description": "Story-pinned context strategy. Existing work types inherit repository behavior; explicit benchmark arms may require or disable individual intelligence layers.",
+      "properties": {
+        "worldModel": { "enum": ["inherit", "required", "off"], "default": "inherit" },
+        "ast": { "enum": ["inherit", "required-context", "off"], "default": "inherit" },
+        "agentBriefs": { "enum": ["inherit", "required", "off"], "default": "inherit" }
       },
       "additionalProperties": false
     },

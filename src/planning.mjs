@@ -233,7 +233,12 @@ function workItemPhaseContract(workflow, phase) {
     `- Governed agent: ${phase.defaultAgent ?? phase.generatedAgent ?? 'unavailable'}`,
     `- Required approvals: ${phase.approvalPolicy.minimum} distinct human identities from ${phase.approvalPolicy.authorities.join(', ') || 'no authority group'}`,
     `- Quality commands: ${phase.qualityCommands.length ? phase.qualityCommands.join(' · ') : 'none configured'}`,
-    `- Phase inputs: ${phase.inputs.length ? phase.inputs.map((input) => `${input.phase}${input.optional ? ' (optional)' : ''}`).join(', ') : 'none'}`
+    `- Phase inputs: ${phase.inputs.length ? phase.inputs.map((input) => {
+      const projection = input.projection === 'approved-summary'
+        ? ' (approval-bound brief with exact-source expansion)'
+        : input.optional ? ' (optional)' : '';
+      return `${input.phase}${projection}${input.optional && input.projection === 'approved-summary' ? ' (optional)' : ''}`;
+    }).join(', ') : 'none'}`
   ].join('\n');
 }
 

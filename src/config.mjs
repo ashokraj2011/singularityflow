@@ -140,7 +140,10 @@ export function normalizePhaseInputs(value, label = 'Phase inputs') {
     const source = typeof entry === 'string' ? { phase: entry } : entry;
     const entryLabel = `${label}[${index}]`;
     if (!source || typeof source !== 'object' || Array.isArray(source)) throw new SingularityFlowError(`${entryLabel} must be a phase ID or object.`);
-    for (const key of Object.keys(source)) if (!['phase', 'optional', 'maxBytes', 'selector'].includes(key)) throw new SingularityFlowError(`${entryLabel} has unsupported field '${key}'.`);
+    for (const key of Object.keys(source)) if (![
+      'phase', 'optional', 'maxBytes', 'selector', 'projection', 'preserve',
+      'maximumSummaryBytes', 'expansion', 'fallback'
+    ].includes(key)) throw new SingularityFlowError(`${entryLabel} has unsupported field '${key}'.`);
     assertId(source.phase, `${entryLabel}.phase`);
     if (source.optional != null && typeof source.optional !== 'boolean') throw new SingularityFlowError(`${entryLabel}.optional must be boolean.`);
     if (source.maxBytes != null && (!Number.isInteger(source.maxBytes) || source.maxBytes < 1)) throw new SingularityFlowError(`${entryLabel}.maxBytes must be a positive integer.`);
@@ -161,12 +164,45 @@ export function normalizePhaseInputs(value, label = 'Phase inputs') {
         fallback: source.selector.fallback ?? 'whole'
       };
     }
+    const projection = source.projection ?? 'full';
+    if (!['full', 'approved-summary'].includes(projection)) throw new SingularityFlowError(`${entryLabel}.projection must be full or approved-summary.`);
+    if (projection === 'full' && ['preserve', 'maximumSummaryBytes', 'expansion', 'fallback'].some((key) => source[key] != null)) {
+      throw new SingularityFlowError(`${entryLabel} summary controls require projection: approved-summary.`);
+    }
+    if (projection === 'approved-summary' && selector) throw new SingularityFlowError(`${entryLabel} cannot combine projection: approved-summary with a clause selector.`);
+    if (projection === 'approved-summary' && source.maxBytes != null) throw new SingularityFlowError(`${entryLabel} uses maximumSummaryBytes instead of maxBytes for an approved summary.`);
+    const preserve = source.preserve ?? [];
+    if (!Array.isArray(preserve) || preserve.some((heading) => typeof heading !== 'string' || !heading.trim())) {
+      throw new SingularityFlowError(`${entryLabel}.preserve must be an array of non-empty Markdown heading names.`);
+    }
+    const preserveByHeading = new Map();
+    for (const heading of preserve) {
+      const display = heading.normalize('NFKC').trim();
+      const key = display.toLocaleLowerCase('en-US');
+      if (!preserveByHeading.has(key)) preserveByHeading.set(key, display);
+    }
+    const normalizedPreserve = [...preserveByHeading.values()];
+    const maximumSummaryBytes = projection === 'approved-summary' ? source.maximumSummaryBytes ?? 8192 : null;
+    if (maximumSummaryBytes != null && (!Number.isInteger(maximumSummaryBytes) || maximumSummaryBytes < 1024 || maximumSummaryBytes > 65536)) {
+      throw new SingularityFlowError(`${entryLabel}.maximumSummaryBytes must be an integer from 1024 through 65536.`);
+    }
+    const expansion = projection === 'approved-summary' ? source.expansion ?? 'hash-bound-reference' : null;
+    if (expansion != null && expansion !== 'hash-bound-reference') throw new SingularityFlowError(`${entryLabel}.expansion must be hash-bound-reference.`);
+    const fallback = projection === 'approved-summary' ? source.fallback ?? 'whole' : null;
+    if (fallback != null && !['whole', 'block'].includes(fallback)) throw new SingularityFlowError(`${entryLabel}.fallback must be whole or block.`);
     if (seen.has(source.phase)) throw new SingularityFlowError(`${label} references '${source.phase}' more than once.`);
     seen.add(source.phase);
     return {
       phase: source.phase,
       optional: source.optional ?? false,
       maxBytes: source.maxBytes ?? null,
+      ...(projection === 'approved-summary' ? {
+        projection,
+        preserve: normalizedPreserve,
+        maximumSummaryBytes,
+        expansion,
+        fallback
+      } : {}),
       ...(selector ? { selector } : {})
     };
   });
@@ -533,6 +569,12 @@ export function validateDefinition(definition) {
         const producer = resolved.phases.find((phase) => phase.id === input.phase);
         if (!producer) throw new SingularityFlowError(`Work type '${workTypeId}' phase '${consumer.id}' input references inactive phase '${input.phase}'.`);
         if (producer.order >= consumer.order) throw new SingularityFlowError(`Work type '${workTypeId}' phase '${consumer.id}' input '${input.phase}' must precede the consumer.`);
+        if (input.projection === 'approved-summary' && input.expansion === 'hash-bound-reference'
+          && definition.harnessImports.mode === 'off') {
+          throw new SingularityFlowError(
+            `Work type '${workTypeId}' phase '${consumer.id}' approved-summary input '${input.phase}' requires harnessImports.mode record or enforce for hash-bound expansion.`
+          );
+        }
       }
     }
   }

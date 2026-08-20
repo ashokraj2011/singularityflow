@@ -14,7 +14,10 @@ Sequence gates may be hard or soft. On `Out of sequence`, stop immediately and r
 
 1. Run `singularity-flow status --json` and use only the active phase.
 2. Preview resolution with `singularity-flow inputs <phase> --dry-run`.
-3. Explain every missing, unapproved, truncated, or hash-mismatched producer artifact before continuing.
+3. Explain every missing, unapproved, truncated, hash-mismatched, missing-brief, stale-brief, or
+   missing-expansion condition before continuing. When the record reports `approved-summary`, name
+   the brief hash and source-bound expansion handle. Expand an exact source section only when the
+   task requires its wording; never replace the governed brief by an agent-authored summary.
 4. Run `singularity-flow inputs <phase>` to write the next-generation audit record and render the managed input block.
 5. Read the returned artifact and preserve the marker-delimited managed block.
 6. Do not submit, approve, or reject automatically.

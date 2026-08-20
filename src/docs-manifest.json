@@ -1,9 +1,9 @@
 {
   "schemaVersion": 1,
   "generatedFrom": "docs/topics",
-  "sourceCommit": "a8f82968257e8c3c8db01317c4413ae61f8eacb7",
+  "sourceCommit": "cf1227870384e5ba04db1a00cf14831de7102d00",
   "topicCount": 54,
-  "contentSha256": "fe9d5c636dfe8ba84cc643e54d238651c34be24c971edc42b922e4665172410f",
+  "contentSha256": "b9459dac36ce5bde09d9b3d57ce0f2183bc6dbdc30e04ae69c505f26923e6b1b",
   "topics": [
     {
       "id": "activity-and-prompt-audit",
@@ -29,8 +29,8 @@
     {
       "id": "artifacts-and-generation",
       "title": "Artifacts, templates, and publication",
-      "version": 2,
-      "sha256": "414c4a135446413e82a3d95621d734082698e1cdef7b48d2f7da3c7aaa69058f",
+      "version": 3,
+      "sha256": "ac5969b4513b191ddd919755cbb4fb48e0f74044d713cfd63a89003b72f9768f",
       "file": "artifacts-and-generation.md"
     },
     {

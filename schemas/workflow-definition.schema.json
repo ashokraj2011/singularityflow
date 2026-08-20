@@ -595,8 +595,17 @@
             "properties": {
               "phase": { "type": "string", "pattern": "^[a-z0-9]+(?:-[a-z0-9]+)*$" },
               "optional": { "type": "boolean" },
-              "maxBytes": { "type": "integer", "minimum": 1 }
-              ,"selector": {
+              "maxBytes": { "type": "integer", "minimum": 1 },
+              "projection": { "enum": ["full", "approved-summary"] },
+              "preserve": {
+                "type": "array",
+                "uniqueItems": true,
+                "items": { "type": "string", "minLength": 1 }
+              },
+              "maximumSummaryBytes": { "type": "integer", "minimum": 1024, "maximum": 65536 },
+              "expansion": { "const": "hash-bound-reference" },
+              "fallback": { "enum": ["whole", "block"] },
+              "selector": {
                 "type": "object",
                 "required": ["kind"],
                 "properties": {
@@ -609,6 +618,16 @@
                 "additionalProperties": false
               }
             },
+            "allOf": [
+              {
+                "if": { "properties": { "projection": { "const": "approved-summary" } }, "required": ["projection"] },
+                "then": { "not": { "anyOf": [{ "required": ["maxBytes"] }, { "required": ["selector"] }] } }
+              },
+              {
+                "if": { "not": { "properties": { "projection": { "const": "approved-summary" } }, "required": ["projection"] } },
+                "then": { "not": { "anyOf": [{ "required": ["preserve"] }, { "required": ["maximumSummaryBytes"] }, { "required": ["expansion"] }, { "required": ["fallback"] }] } }
+              }
+            ],
             "additionalProperties": false
           }
         ]

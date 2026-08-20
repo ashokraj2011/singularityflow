@@ -13,6 +13,7 @@ import {
 } from './config.mjs';
 import { loadSession } from './session.mjs';
 import { buildArtifactSidecar, serializeArtifactSidecar, sidecarRelativePath } from './artifact-sidecar.mjs';
+import { createAgentBriefs, verifyAgentBriefsForReview } from './agent-briefs.mjs';
 import {
   applyInputsBlock, collectInputs, recordInputs, renderInputsBlock, resolvedPhaseInputs, workflowInputsMode
 } from './inputs.mjs';
@@ -1264,7 +1265,19 @@ export async function publishGeneration(root, config, workflow, { phaseId, usage
   }];
   await updateArtifactMetadata(root, config, workflow, phase);
   await scanArtifacts(root, config, workflow, phase.id);
-
+  // Generate the downstream projection from the exact generation bytes that this publication
+  // commits. Submission later binds these hashes into its immutable review packet; subsequent
+  // approval metadata must not redefine what the reviewer and downstream consumer received.
+  const agentBriefs = await createAgentBriefs(root, workflow, phase, {
+    itemDirectory: workDir(root, config, workflow.workItem.id),
+    itemRelative: workDirRelative(config, workflow.workItem.id)
+  });
+  if (agentBriefs.length) {
+    phase.agentBriefs = [
+      ...(phase.agentBriefs ?? []).filter((entry) => entry.generation !== phase.generation),
+      ...agentBriefs
+    ].sort((left, right) => left.generation - right.generation || left.consumerPhase.localeCompare(right.consumerPhase));
+  }
   /**
    * The typed artifact set `[SPK:REQ-110]` `[SPK:REQ-111]`.
    *
@@ -1634,6 +1647,14 @@ export async function approvePhase(root, config, workflow, {
     throw new SingularityFlowError(
       `Phase '${phase.id}' cannot be approved because ${failedChecks.length} quality command(s) failed. Reject it to an allowed repair phase.`,
       { code: 'PHASE_VALIDATION_FAILED' }
+    );
+  }
+  const briefReview = await verifyAgentBriefsForReview(root, workflow, phase, {
+    itemRelative: workDirRelative(config, workflow.workItem.id)
+  });
+  if (!briefReview.valid) {
+    throw new SingularityFlowError(
+      `Phase ${phase.id} downstream agent-brief review failed:\n- ${briefReview.errors.join('\n- ')}`
     );
   }
   const session = await loadSession(root);

@@ -1,5 +1,13 @@
 # {{work.id}} — Implementation Summary
 
+## Agent brief
+
+<!--
+Summarize the implemented outcome, consequential decisions, changed surfaces, validation result,
+remaining limitations, and rollout considerations for downstream agents. Keep it evidence-based;
+the detailed changed-components and test sections are preserved separately.
+-->
+
 ## Implemented outcome
 
 TODO: Summarize the implemented behavior.

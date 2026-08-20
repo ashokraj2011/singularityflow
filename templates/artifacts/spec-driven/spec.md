@@ -18,6 +18,15 @@ marker is unresolved, and a marker is only resolved when a later generation remo
 the answer `[SPK:REQ-067]` — deleting the text alone is an integrity failure, not an answer.
 -->
 
+## Agent brief
+
+<!--
+Summarize the approved intent for downstream agents in a compact, standalone form. Include the
+problem, intended outcome, principal actors, most important scenarios, hard constraints, and major
+exclusions. Do not introduce claims that are absent from the sections below. Exact requirements and
+boundary conditions are preserved separately by the governed projection.
+-->
+
 ## Actors
 
 Who uses this, and what authority does each hold?

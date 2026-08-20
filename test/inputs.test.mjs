@@ -6,6 +6,7 @@ import path from 'node:path';
 import {
   applyInputsBlock, collectInputs, extractInputsBlock, recordInputs, renderInputsBlock, verifyInputsIntegrity
 } from '../src/inputs.mjs';
+import { createAgentBriefs, verifyAgentBriefsForReview } from '../src/agent-briefs.mjs';
 import { snapshot } from '../src/util.mjs';
 
 async function fixture(mode = 'record', declaration = { phase: 'requirements', optional: false, maxBytes: null, path: 'artifacts/requirements/requirements.md' }) {
@@ -29,6 +30,28 @@ async function fixture(mode = 'record', declaration = { phase: 'requirements', o
     phases: { requirements: producer, design: phase }
   };
   return { root, itemRelative, itemDirectory, producerPath, workflow, phase };
+}
+
+async function publishBrief(value, source, handle = 'sfref_test_approved_source') {
+  await writeFile(value.producerPath, source);
+  const info = await snapshot(value.producerPath);
+  value.workflow.phases.requirements.artifacts[0] = {
+    ...value.workflow.phases.requirements.artifacts[0], ...info
+  };
+  const briefs = await createAgentBriefs(value.root, value.workflow, value.workflow.phases.requirements, value);
+  value.workflow.phases.requirements.agentBriefs = briefs;
+  value.workflow.lineage = { submissions: [{
+    phase: 'requirements', generation: 1, projection: {
+      artifacts: [{
+        path: value.workflow.phases.requirements.artifacts[0].path,
+        sha256: info.sha256,
+        size: info.size,
+        reference: { handle }
+      }],
+      agentBriefs: briefs
+    }
+  }] };
+  return briefs;
 }
 
 test('record mode captures complete approved content and records a managed block', async () => {
@@ -105,4 +128,83 @@ test('integrity verification is mode-aware and detects artifact block changes', 
   value.workflow.resolution.inputsMode = 'enforce';
   verified = await verifyInputsIntegrity(value.root, value.workflow, value.phase, value);
   assert.ok(verified.errors.length > 0);
+});
+
+test('approved summaries inject bounded reviewed briefs and preserve exact critical sections', async () => {
+  const declaration = {
+    phase: 'requirements', optional: false, maxBytes: null, projection: 'approved-summary',
+    preserve: ['Requirements'], maximumSummaryBytes: 4096,
+    expansion: 'hash-bound-reference', fallback: 'block'
+  };
+  const value = await fixture('enforce', declaration);
+  const [brief] = await publishBrief(value, [
+    '# Requirements artifact', '',
+    '## Agent brief', '', 'Build a bounded, approval-aware context handoff.', '',
+    '## Requirements', '', '- REQ-001 — Preserve the exact critical requirement.', '',
+    '## Detailed appendix', '', 'This long-form detail must not enter the ordinary agent prompt.'
+  ].join('\n'));
+  assert.equal(brief.status, 'ready');
+
+  const result = await collectInputs(value.root, value.workflow, value.phase, value);
+  assert.deepEqual(result.errors, []);
+  assert.equal(result.records[0].status, 'captured');
+  assert.equal(result.records[0].projection.kind, 'approved-summary');
+  assert.match(result.records[0].content, /bounded, approval-aware context handoff/);
+  assert.match(result.records[0].content, /REQ-001/);
+  assert.doesNotMatch(result.records[0].content, /long-form detail/);
+  assert.equal(result.records[0].projection.expansionHandle, 'sfref_test_approved_source');
+  const rendered = renderInputsBlock(result).text;
+  assert.match(rendered, /Exact source expansion/);
+  assert.match(rendered, /singularity-flow show sfref_test_approved_source/);
+});
+
+test('brief tampering fails closed and whole-artifact fallback remains explicit', async () => {
+  const declaration = {
+    phase: 'requirements', optional: false, maxBytes: null, projection: 'approved-summary',
+    preserve: [], maximumSummaryBytes: 4096,
+    expansion: 'hash-bound-reference', fallback: 'whole'
+  };
+  const value = await fixture('enforce', declaration);
+  const [brief] = await publishBrief(value, '# Requirements\n\nExact full artifact without a summary section.\n');
+  assert.equal(brief.status, 'fallback-whole');
+  let result = await collectInputs(value.root, value.workflow, value.phase, value);
+  assert.deepEqual(result.errors, []);
+  assert.equal(result.records[0].projection.kind, 'fallback-whole');
+  assert.match(result.records[0].content, /Exact full artifact/);
+
+  await writeFile(value.producerPath, '# Requirements\n\n## Agent brief\n\nCompact approved text.\n');
+  const info = await snapshot(value.producerPath);
+  value.workflow.phases.requirements.artifacts[0] = { ...value.workflow.phases.requirements.artifacts[0], ...info };
+  const next = await createAgentBriefs(value.root, value.workflow, value.workflow.phases.requirements, value);
+  value.workflow.phases.requirements.agentBriefs = next;
+  value.workflow.lineage.submissions[0].projection.artifacts[0] = {
+    ...value.workflow.lineage.submissions[0].projection.artifacts[0], sha256: info.sha256, size: info.size
+  };
+  value.workflow.lineage.submissions[0].projection.agentBriefs = next;
+  await writeFile(path.join(value.root, next[0].renderedPath), '# altered brief\n');
+  result = await collectInputs(value.root, value.workflow, value.phase, value);
+  assert.equal(result.records[0].status, 'brief_invalid');
+  assert.match(result.errors[0], /brief bytes changed/);
+  const review = await verifyAgentBriefsForReview(
+    value.root, value.workflow, value.workflow.phases.requirements, value
+  );
+  assert.equal(review.valid, false);
+  assert.match(review.errors[0], /brief bytes changed/);
+});
+
+test('a block fallback refuses publication when no authored summary exists', async () => {
+  const declaration = {
+    phase: 'requirements', optional: false, maxBytes: null, projection: 'approved-summary',
+    preserve: [], maximumSummaryBytes: 4096,
+    expansion: 'hash-bound-reference', fallback: 'block'
+  };
+  const value = await fixture('enforce', declaration);
+  await assert.rejects(
+    () => publishBrief(value, [
+      '# Requirements', '', 'No summary heading is authored.', '',
+      '```markdown', '## Agent brief', 'This code example is not an authored section.', '```', '',
+      '<!--', '## Summary', 'This template instruction is not authored evidence.', '-->'
+    ].join('\n')),
+    /requires an Agent brief/
+  );
 });

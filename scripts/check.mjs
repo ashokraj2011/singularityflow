@@ -313,6 +313,7 @@ for (const schemaFile of [
   'schemas/config.schema.json',
   'schemas/workflow.schema.json',
   'schemas/workflow-definition.schema.json',
+  'schemas/agent-brief-record.schema.json',
   'schemas/fault-envelope.schema.json',
   'schemas/fault-diagnosis.schema.json',
   'schemas/repair-plan.schema.json',

@@ -4,6 +4,7 @@ import path from 'node:path';
 import { exists, nowIso, posix, snapshot, writeJson } from './util.mjs';
 import { currentSchemaVersion, readRecord } from './schema-migrations.mjs';
 import { loadActiveSpecRecords, renderClauseContext, selectClauseContext } from './specifications.mjs';
+import { readAgentBrief } from './agent-briefs.mjs';
 
 export const INPUTS_START = '<!-- singularity-flow:inputs:start -->';
 export const INPUTS_END = '<!-- singularity-flow:inputs:end -->';
@@ -35,7 +36,17 @@ function inputMessage(consumer, entry) {
   if (entry.status === 'missing') return `${consumer.id} requires approved input from ${entry.phase}; ${entry.path} is missing`;
   if (entry.status === 'unapproved') return `${consumer.id} requires approved input from ${entry.phase}; ${entry.phase} is ${entry.producerStatus}`;
   if (entry.status === 'hash_mismatch') return `${consumer.id} input from ${entry.phase} no longer matches its approved hash`;
+  if (entry.status === 'brief_missing') return `${consumer.id} requires an approved agent brief from ${entry.phase}; its generation-bound brief is missing`;
+  if (entry.status === 'brief_invalid') return `${consumer.id} requires an approved agent brief from ${entry.phase}; ${entry.briefError ?? 'its binding is invalid'}`;
+  if (entry.status === 'expansion_missing') return `${consumer.id} requires a hash-bound expansion handle for the approved ${entry.phase} artifact`;
   return null;
+}
+
+function expansionHandle(workflow, producer, repositoryPath) {
+  const submission = [...(workflow.lineage?.submissions ?? [])].reverse().find((entry) =>
+    entry.phase === producer.id && entry.generation === producer.generation
+  );
+  return submission?.projection?.artifacts?.find((artifact) => artifact.path === repositoryPath)?.reference?.handle ?? null;
 }
 
 export function workflowInputsMode(workflow) {
@@ -80,7 +91,17 @@ export async function collectInputs(root, workflow, phase, { itemDirectory, item
       bytes: current.size,
       injectedBytes: 0,
       truncated: false,
-      content: null
+      content: null,
+      projection: declaration.projection === 'approved-summary' ? {
+        kind: 'approved-summary',
+        preserve: [...(declaration.preserve ?? [])],
+        maximumSummaryBytes: declaration.maximumSummaryBytes ?? 8192,
+        expansion: declaration.expansion ?? 'hash-bound-reference',
+        fallback: declaration.fallback ?? 'whole',
+        briefPath: null,
+        briefSha256: null,
+        expansionHandle: null
+      } : { kind: 'full' }
     };
     if (status === 'captured') {
       const raw = await readFile(path.join(itemDirectory, relativeArtifact));
@@ -89,7 +110,29 @@ export async function collectInputs(root, workflow, phase, { itemDirectory, item
       // it in the consumer's block so extraction and integrity hashing remain
       // unambiguous at every depth of the phase chain.
       let selectedBytes = raw.length;
-      if (declaration.selector?.kind === 'clauses') {
+      if (declaration.projection === 'approved-summary') {
+        const brief = await readAgentBrief(root, workflow, producer, phase, declaration, { itemRelative });
+        record.projection.briefPath = brief.record?.rendered?.path ?? null;
+        record.projection.briefSha256 = brief.record?.rendered?.sha256 ?? null;
+        record.projection.expansionHandle = expansionHandle(workflow, producer, repositoryPath);
+        if (brief.status === 'fallback-whole') {
+          record.projection.kind = 'fallback-whole';
+          record.content = embeddedInputContent(raw, null);
+        } else if (brief.status !== 'ready') {
+          status = brief.status;
+          record.status = status;
+          record.briefError = brief.error;
+        } else if ((declaration.expansion ?? 'hash-bound-reference') === 'hash-bound-reference' && !record.projection.expansionHandle) {
+          status = 'expansion_missing';
+          record.status = status;
+        } else {
+          record.content = embeddedInputContent(Buffer.from(brief.content), null);
+        }
+        if (record.content != null) {
+          record.injectedBytes = Buffer.byteLength(record.content, 'utf8');
+          record.truncated = false;
+        }
+      } else if (declaration.selector?.kind === 'clauses') {
         const specRecords = await loadActiveSpecRecords(itemDirectory, workflow);
         let ids = declaration.selector.ids ?? [];
         if (!ids.length && declaration.selector.claims) {
@@ -109,8 +152,10 @@ export async function collectInputs(root, workflow, phase, { itemDirectory, item
           selectedSha256: selected ? sha256(selected) : null
         };
       } else record.content = embeddedInputContent(raw, declaration.maxBytes ?? null);
-      record.injectedBytes = Buffer.byteLength(record.content, 'utf8');
-      record.truncated = declaration.maxBytes != null && record.injectedBytes < selectedBytes;
+      if (record.content != null && declaration.projection !== 'approved-summary') {
+        record.injectedBytes = Buffer.byteLength(record.content, 'utf8');
+        record.truncated = declaration.maxBytes != null && record.injectedBytes < selectedBytes;
+      }
     }
     const level = severity(mode, record.optional, status);
     const message = inputMessage(phase, record);
@@ -125,10 +170,14 @@ export function renderInputsBlock(result) {
   if (result.mode === 'off' || !result.records.length) return { text: '', sha256: null };
   const sections = result.records.map((entry) => {
     const header = `## Approved phase input: ${entry.phase}`;
-    const metadata = `<!-- source=${entry.path ?? 'missing'} sha256=${entry.sha256 ?? 'unavailable'} status=${entry.status} -->`;
+    const projection = entry.projection?.kind ?? 'full';
+    const metadata = `<!-- source=${entry.path ?? 'missing'} sha256=${entry.sha256 ?? 'unavailable'} status=${entry.status} projection=${projection}${entry.projection?.briefSha256 ? ` brief-sha256=${entry.projection.briefSha256}` : ''}${entry.projection?.expansionHandle ? ` expansion=${entry.projection.expansionHandle}` : ''} -->`;
     if (entry.status !== 'captured') return `${header}\n\n${metadata}\n\n> ${inputMessage({ id: 'This phase' }, entry) ?? `Input is ${entry.status}.`}`;
     const suffix = entry.truncated ? '\n\n> Input truncated at its configured byte limit.' : '';
-    return `${header}\n\n${metadata}\n\n${entry.content.trimEnd()}${suffix}`;
+    const expansion = entry.projection?.expansionHandle
+      ? `\n\n> Exact source expansion: \`${entry.projection.expansionHandle}\`. Use \`singularity-flow show ${entry.projection.expansionHandle} --section "<heading>"\` only when exact wording is needed.`
+      : '';
+    return `${header}\n\n${metadata}\n\n${entry.content.trimEnd()}${expansion}${suffix}`;
   });
   const text = `${INPUTS_START}\n\n# Approved phase inputs\n\n${sections.join('\n\n')}\n\n${INPUTS_END}`;
   return { text, sha256: sha256(text) };
@@ -187,7 +236,8 @@ export async function verifyInputsIntegrity(root, workflow, phase, { itemDirecto
   for (const entry of live.records) {
     const prior = recordedByPhase.get(entry.phase);
     if (!prior) add(`${phase.id} phase-input record omits ${entry.phase}`);
-    else if (prior.status !== entry.status || prior.sha256 !== entry.sha256 || prior.approvedSha256 !== entry.approvedSha256) add(`${phase.id} phase-input record is stale for ${entry.phase}`);
+    else if (prior.status !== entry.status || prior.sha256 !== entry.sha256 || prior.approvedSha256 !== entry.approvedSha256
+      || JSON.stringify(prior.projection ?? null) !== JSON.stringify(entry.projection ?? null)) add(`${phase.id} phase-input record is stale for ${entry.phase}`);
   }
   const artifact = path.join(itemDirectory, phase.requiredArtifact.path);
   const artifactText = await readFile(artifact, 'utf8').catch(() => '');

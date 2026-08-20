@@ -2654,6 +2654,23 @@ async function phaseReview(root, config, workflow, phase) {
       });
     }
   }
+  for (const brief of (phase.agentBriefs ?? []).filter((entry) => entry.generation === phase.generation && entry.renderedPath)) {
+    const absolute = path.join(root, brief.renderedPath);
+    const info = await snapshot(absolute);
+    documents.push({
+      id: `agent-brief-${phase.id}-${brief.consumerPhase}`,
+      label: `Agent brief for ${brief.consumerPhase}`,
+      kind: 'agent-brief',
+      path: brief.renderedPath,
+      mimeType: 'text/markdown',
+      size: info.size,
+      sha256: info.sha256,
+      generation: phase.generation,
+      binary: false,
+      absolutePath: pathForDisplay(root, brief.renderedPath),
+      content: await readFile(absolute, 'utf8')
+    });
+  }
   return {
     schemaVersion: 1,
     workId: workflow.workItem.id,

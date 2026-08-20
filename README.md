@@ -1364,6 +1364,31 @@ phases:
 
 Use `singularity-flow inputs design --dry-run` to inspect provenance without writing, or `/sf-inputs` in Copilot. Normal preparation writes a managed artifact block and `context/inputs-design-gen<n>.json`; publication recollects inputs and the gate verifies approved hashes and rendered-block freshness.
 
+The shipped `spec-driven-standard` profile reduces repeated model context with an approval-bound
+projection instead of truncating upstream documents arbitrarily:
+
+```yaml
+phaseOverrides:
+  implementation:
+    inputs:
+      - phase: specification
+        projection: approved-summary
+        preserve: [Requirements, Non-functional requirements, Boundary conditions]
+        maximumSummaryBytes: 32768
+        expansion: hash-bound-reference
+        fallback: whole
+```
+
+The producer authors an `Agent brief` (or `Executive summary`, `Summary`, `TL;DR`, or `Overview`)
+section. On phase publication, the kernel deterministically copies that section and the configured
+critical sections into `context/briefs/`; submission then binds both source and brief hashes into the
+review packet and shows the brief alongside the complete generated artifact. Only after approval can a downstream phase
+receive the brief. Its managed input block includes the source artifact's `sfref:v1:` handle so an
+agent can expand a named section with `singularity-flow show <HANDLE> --section "<heading>"` when
+exact wording is needed. A missing or changed brief fails closed; `fallback: whole` preserves legacy
+behavior when no authored summary exists. Work items created before this configuration change keep
+their pinned full-input declarations.
+
 ## Human clarification checkpoints
 
 Copilot clarification is configured per phase and is pinned with the work item. It is part of the exact prompt produced by `wm compose`, after the active phase contract and before agent/world-model evidence:

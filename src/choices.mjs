@@ -41,6 +41,14 @@ function approvalContext(workflow) {
     generation: phase.generation,
     submittedAt: phase.submittedAt ?? null,
     artifacts: (phase.artifacts ?? []).map((artifact) => ({ path: artifact.path, sha256: artifact.sha256 ?? null })),
+    agentBriefs: (packet?.projection?.agentBriefs ?? []).map((brief) => ({
+      consumerPhase: brief.consumerPhase,
+      status: brief.status,
+      path: brief.path,
+      renderedPath: brief.renderedPath,
+      renderedSha256: brief.renderedSha256,
+      integritySha256: brief.integritySha256
+    })),
     reviewPacketSha256: packet?.packetSha256 ?? null,
     submittedSourceCommit: packet?.projection?.sourceCommit ?? null
   };

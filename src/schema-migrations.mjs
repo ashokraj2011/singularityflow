@@ -407,6 +407,7 @@ const families = [
   family({ id: 'assisted-convergence', currentVersion: 1, paths: [/^singularity\/work-items\/[^/]+\/context\/convergence\/candidates-[^/]+\.json$/], immutable: true }),
   family({ id: 'clarification-record', currentVersion: 1, paths: [/^singularity\/work-items\/[^/]+\/context\/clarifications-[^/]+-gen\d+\.json$/] }),
   family({ id: 'phase-input-record', currentVersion: 1, paths: [/^singularity\/work-items\/[^/]+\/context\/inputs-[^/]+-gen\d+\.json$/] }),
+  family({ id: 'agent-brief-record', currentVersion: 1, paths: [/^singularity\/work-items\/[^/]+\/context\/briefs\/[^/]+-gen\d+-for-[^/]+\.json$/], immutable: true }),
   family({ id: 'design-source-set', currentVersion: 1, paths: [/^singularity\/work-items\/[^/]+\/context\/design-sources\/[^/]+-gen\d+\.json$/], immutable: true }),
   family({ id: 'design-source-provenance', currentVersion: 1, paths: [/^singularity\/work-items\/[^/]+\/context\/design-sources-[^/]+-gen\d+\.json$/], immutable: true }),
   family({ id: 'work-interval-baseline', currentVersion: 1, paths: [/^singularity\/work-items\/[^/]+\/context\/work-intervals\/[^/]+-gen\d+-baseline\.json$/] }),

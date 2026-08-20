@@ -3,6 +3,14 @@
 Derived from the approved specification. Cite the clause each decision serves, so convergence can
 join intent to implementation at requirement altitude rather than by path `[SPK:REQ-071]`.
 
+## Agent brief
+
+<!--
+Summarize the selected approach, affected surfaces, sequencing, proof strategy, and principal risks
+for downstream agents. Keep exact commands and source paths when they are operationally important.
+The complete approved plan remains available through its hash-bound expansion reference.
+-->
+
 ## Approach
 
 How this will be built, and why this way rather than the obvious alternative.

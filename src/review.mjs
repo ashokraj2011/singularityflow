@@ -81,6 +81,13 @@ export async function createReviewBundle(root, config, workflow, requestedPhase 
   const documents = (await documentCatalog(root, config, workflow)).filter((item) => item.type !== 'system').map(({
     id, type, label, kind, phase: sourcePhase, path: file, url, mimeType, size, sha256, status, generation
   }) => ({ id, type, label, kind, phase: sourcePhase, path: file, url, mimeType, size, sha256, status, generation }));
+  const agentBriefs = [];
+  for (const brief of (phase.agentBriefs ?? []).filter((entry) => entry.generation === phase.generation)) {
+    agentBriefs.push({
+      ...structuredClone(brief),
+      content: brief.renderedPath ? await readFile(path.join(root, brief.renderedPath), 'utf8').catch(() => null) : null
+    });
+  }
   /**
    * What the reviewer is actually being asked to judge. `[SPK:REQ-059]`
    *
@@ -134,7 +141,7 @@ export async function createReviewBundle(root, config, workflow, requestedPhase 
       id: phase.id, label: phase.label, status: phase.status, generation: phase.generation, approvalMinimum: phase.approvalPolicy.minimum ?? 1,
       authorship: [...(phase.authorship ?? [])].reverse().find((record) => record.generation === phase.generation) ?? { producer: 'legacy-unspecified', channel: 'legacy' }
     },
-    artifact, inputs, documents, approvals, narrative, selfApprovalWarning: approvals.some((item) => item.selfApproval), checks: phase.checks ?? [], usage: phase.usage ?? [], changeSummary: diff.status === 0 ? diff.stdout.trim() : 'Unavailable'
+    artifact, inputs, agentBriefs, documents, approvals, narrative, selfApprovalWarning: approvals.some((item) => item.selfApproval), checks: phase.checks ?? [], usage: phase.usage ?? [], changeSummary: diff.status === 0 ? diff.stdout.trim() : 'Unavailable'
   };
 }
 
@@ -259,6 +266,16 @@ export function reviewMarkdown(bundle) {
   lines.push('## Authorship', '', `- Producer: **${bundle.phase.authorship?.producer ?? 'legacy-unspecified'}**`, `- Channel: **${bundle.phase.authorship?.channel ?? 'legacy'}**`, `- Kernel model invoked: **${bundle.phase.authorship?.kernelModel?.invoked === true ? 'yes' : bundle.phase.authorship?.kernelModel?.invoked === false ? 'no' : 'unknown'}**`, '');
   lines.push('## Required artifact', '', bundle.artifact ? `- [${bundle.artifact.path}](../../../../${bundle.artifact.path}) — \`${bundle.artifact.sha256}\`` : '_Not generated._', '');
   if (bundle.artifact) lines.push('### Artifact content', '', bundle.artifact.content, '');
+  lines.push('## Downstream agent briefs', '');
+  if (!bundle.agentBriefs?.length) lines.push('_No approved-summary projections are configured for this phase._', '');
+  else for (const brief of bundle.agentBriefs) {
+    lines.push(`### Consumer: \`${brief.consumerPhase}\``, '',
+      `- Status: **${brief.status}**`,
+      `- Source SHA-256: \`${brief.sourceSha256}\``,
+      `- Integrity SHA-256: \`${brief.integritySha256}\``, '');
+    if (brief.content) lines.push(brief.content, '');
+    else lines.push('_This consumer is configured to fall back to the complete approved artifact._', '');
+  }
   lines.push('## Approved input provenance', '', ...(bundle.inputs.length ? bundle.inputs.map((item) => `- ${item.phase}: ${item.status}${item.sha256 ? ` @ \`${item.sha256.slice(0, 12)}\`` : ''}${item.optional ? ' (optional)' : ''}`) : ['_No phase inputs._']), '');
   lines.push('## Checks and approvals', '', ...(bundle.checks.length ? bundle.checks.map((item) => `- ${item.status ?? 'recorded'} — ${item.command ?? item.name ?? JSON.stringify(item)}`) : ['- No quality-command results recorded.']), ...(bundle.approvals.length ? bundle.approvals.map((item) => `- ${item.decision} by ${item.actor} via ${item.authorityGroup ?? 'unrecorded authority'} (${item.identityAssurance ?? 'unknown assurance'}); governed agent ${item.agent ?? 'unavailable'}${item.selfApproval ? ' ⚠ self-approval' : ''}`) : ['- No decisions recorded.']), '');
   lines.push(...constitutionRendering(bundle), ...artifactSetSection(bundle), ...specificationQualitySection(bundle));

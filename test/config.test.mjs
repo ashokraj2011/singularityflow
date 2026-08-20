@@ -313,6 +313,22 @@ test('phase inputs normalize shorthand and reject invalid declarations', async (
   ]);
   assert.throws(() => normalizePhaseInputs(['requirements', 'requirements']), /more than once/);
   assert.throws(() => normalizePhaseInputs([{ phase: 'requirements', maxBytes: 0 }]), /positive integer/);
+  assert.deepEqual(normalizePhaseInputs([{
+    phase: 'requirements', projection: 'approved-summary', preserve: ['Requirements', 'requirements', 'Risks'],
+    maximumSummaryBytes: 4096, expansion: 'hash-bound-reference', fallback: 'block'
+  }]), [{
+    phase: 'requirements', optional: false, maxBytes: null, projection: 'approved-summary',
+    preserve: ['Requirements', 'Risks'], maximumSummaryBytes: 4096,
+    expansion: 'hash-bound-reference', fallback: 'block'
+  }]);
+  assert.throws(
+    () => normalizePhaseInputs([{ phase: 'requirements', projection: 'approved-summary', maxBytes: 1000 }]),
+    /uses maximumSummaryBytes/
+  );
+  assert.throws(
+    () => normalizePhaseInputs([{ phase: 'requirements', preserve: ['Requirements'] }]),
+    /require projection: approved-summary/
+  );
   const root = await mkdtemp(path.join(os.tmpdir(), 'sflow-input-order-')); await initializeDefinition(root);
   const definition = await loadDefinition(root);
   definition.workTypes.feature.phaseOverrides.design.inputs = ['verification'];
@@ -321,6 +337,21 @@ test('phase inputs normalize shorthand and reject invalid declarations', async (
   assert.throws(() => validateDefinition(definition), /inactive phase/);
   definition.inputsMode = 'sometimes';
   assert.throws(() => validateDefinition(definition), /inputsMode must be off, record, or enforce/);
+});
+
+test('spec-driven phases use approval-bound summaries while legacy work types retain full inputs', async () => {
+  const root = await mkdtemp(path.join(os.tmpdir(), 'sflow-agent-brief-config-'));
+  await initializeDefinition(root);
+  const definition = await loadDefinition(root);
+  const specDriven = resolveWorkType(definition, 'spec-driven-standard');
+  const implementation = specDriven.phases.find((phase) => phase.id === 'implementation');
+  assert.deepEqual(implementation.inputs.map((input) => [input.phase, input.projection]), [
+    ['specification', 'approved-summary'], ['planning', 'approved-summary']
+  ]);
+  assert.equal(implementation.inputs[0].expansion, 'hash-bound-reference');
+  assert.deepEqual(implementation.inputs[1].preserve, ['Test strategy', 'Risks and rollback']);
+  const feature = resolveWorkType(definition, 'feature');
+  assert.equal(feature.phases.find((phase) => phase.id === 'design').inputs[0].projection, undefined);
 });
 
 test('work-type phase overrides merge world model, quality, comparison, and approval policy', async () => {

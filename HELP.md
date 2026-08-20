@@ -1440,6 +1440,31 @@ phases:
 
 String entries are required and unbounded. An omitted `maxBytes` injects the complete artifact. A work type may replace a phase declaration through `phaseOverrides.<phase>.inputs`.
 
+For large upstream documents, use an approval-bound agent brief rather than a byte prefix:
+
+```yaml
+phaseOverrides:
+  implementation:
+    inputs:
+      - phase: specification
+        projection: approved-summary
+        preserve: [Requirements, Non-functional requirements, Boundary conditions]
+        maximumSummaryBytes: 32768
+        expansion: hash-bound-reference
+        fallback: whole       # whole | block
+```
+
+The producer artifact supplies an authored `Agent brief`, `Executive summary`, `Summary`, `TL;DR`,
+or `Overview` section. At phase publication, the kernel creates a deterministic projection and
+preserves the named critical sections verbatim. Submission binds source hash, policy hash, brief
+hash, generation, and consumer phase into the same review packet as the complete artifact. `/sf-submit` and `/sf-approve`
+therefore show both; the brief never replaces full human review. After approval, the consumer prompt
+receives the bounded brief and a hash-bound `sfref:v1:` source handle. Expand exact wording only when
+needed with `singularity-flow show <HANDLE> --section "<heading>"` or `/sf-show <HANDLE>`. Missing,
+tampered, stale, or unreviewed briefs block under `inputsMode: enforce`. `fallback: whole` injects the
+complete approved artifact when no summary section was authored; `fallback: block` refuses
+submission instead. Existing pinned work items retain their original input contracts.
+
 Inspect or render the prospective generation:
 
 ```bash

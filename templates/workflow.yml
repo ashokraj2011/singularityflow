@@ -445,13 +445,30 @@ workTypes:
       planning: spec-driven/plan.md
       convergence: spec-driven/convergence.md
     # Conservative defaults [SPK:REQ-033]: required clarification, approved upstream inputs,
-    # required publication, and human advancement out of convergence.
+    # required publication, and human advancement out of convergence. Large upstream artifacts
+    # are projected into approval-bound agent briefs. Exact wording remains available through the
+    # source artifact's hash-bound sfref handle; older pinned work items retain their full inputs.
     phaseOverrides:
-      planning: { inputs: [specification] }
-      implementation: { inputs: [specification, planning] }
-      convergence: { inputs: [specification, planning, implementation] }
-      verification: { inputs: [specification, planning, implementation] }
-      release: { inputs: [verification] }
+      planning:
+        inputs:
+          - { phase: specification, projection: approved-summary, preserve: [Requirements, Non-functional requirements, Boundary conditions], maximumSummaryBytes: 32768, expansion: hash-bound-reference, fallback: whole }
+      implementation:
+        inputs:
+          - { phase: specification, projection: approved-summary, preserve: [Requirements, Non-functional requirements, Boundary conditions], maximumSummaryBytes: 32768, expansion: hash-bound-reference, fallback: whole }
+          - { phase: planning, projection: approved-summary, preserve: [Test strategy, Risks and rollback], maximumSummaryBytes: 24576, expansion: hash-bound-reference, fallback: whole }
+      convergence:
+        inputs:
+          - { phase: specification, projection: approved-summary, preserve: [Requirements, Non-functional requirements, Boundary conditions], maximumSummaryBytes: 32768, expansion: hash-bound-reference, fallback: whole }
+          - { phase: planning, projection: approved-summary, preserve: [Test strategy, Risks and rollback], maximumSummaryBytes: 24576, expansion: hash-bound-reference, fallback: whole }
+          - { phase: implementation, projection: approved-summary, preserve: [Changed components and decisions, Tests and operational notes], maximumSummaryBytes: 24576, expansion: hash-bound-reference, fallback: whole }
+      verification:
+        inputs:
+          - { phase: specification, projection: approved-summary, preserve: [Requirements, Non-functional requirements, Boundary conditions], maximumSummaryBytes: 32768, expansion: hash-bound-reference, fallback: whole }
+          - { phase: planning, projection: approved-summary, preserve: [Test strategy, Risks and rollback], maximumSummaryBytes: 24576, expansion: hash-bound-reference, fallback: whole }
+          - { phase: implementation, projection: approved-summary, preserve: [Changed components and decisions, Tests and operational notes], maximumSummaryBytes: 24576, expansion: hash-bound-reference, fallback: whole }
+      release:
+        inputs:
+          - { phase: verification, projection: approved-summary, preserve: [Acceptance and specification results, Negative, regression, security, and non-functional checks], maximumSummaryBytes: 24576, expansion: hash-bound-reference, fallback: whole }
 phases:
   intake:
     label: Intake

@@ -11,16 +11,71 @@ const packageRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '
 const bin = path.join(packageRoot, 'bin/singularity-flow.mjs');
 
 function command(executable, args, cwd, { allowFailure = false, selection = true } = {}) {
+  const selected = typeof selection === 'object'
+    ? selection
+    : { workType: 'feature', agent: 'developer' };
   const env = {
     ...process.env,
     NODE_ENV: 'test',
     SINGULARITY_FLOW_TEST_IDENTITY: 'Story Developer',
-    ...(selection ? { SINGULARITY_FLOW_TEST_SELECTION: JSON.stringify({ workType: 'feature', agent: 'developer' }) } : {})
+    ...(selection ? { SINGULARITY_FLOW_TEST_SELECTION: JSON.stringify(selected) } : {})
   };
   const result = spawnSync(executable, args, { cwd, encoding: 'utf8', env });
   if (!allowFailure && result.status !== 0) throw new Error(`${executable} ${args.join(' ')}\n${result.stdout}\n${result.stderr}`);
   return result;
 }
+
+test('spec-driven submission binds downstream briefs to the reviewed generation source', async () => {
+  const { root } = await repository();
+  const configPath = path.join(root, 'singularity/workflow.yml');
+  const config = YAML.parse(await readFile(configPath, 'utf8'));
+  config.phases.specification.clarification = { mode: 'off', markers: { mode: 'off' } };
+  config.phases.specification.specificationQuality = { mode: 'off' };
+  await writeFile(configPath, YAML.stringify(config));
+  git(root, ['add', configPath]);
+  git(root, ['commit', '-m', 'Use deterministic brief fixture policy']);
+  git(root, ['push']);
+
+  flow(root, ['start', 'BRIEF-1', '--from-branch', 'main', '--title', 'Bound downstream context'], {
+    selection: { workType: 'spec-driven-standard', agent: 'product-owner' }
+  });
+  const artifactPath = path.join(root, 'singularity/work-items/BRIEF-1/artifacts/specification/spec.md');
+  await writeFile(artifactPath, [
+    '# Specification — BRIEF-1', '',
+    '## Agent brief', '',
+    'Deliver approval-bound, bounded context to downstream agents while preserving exact evidence.', '',
+    '## Actors', '', 'Developers author evidence and reviewers approve its downstream projection.', '',
+    '## User scenarios', '',
+    '### S1 — Consume approved context', '',
+    '**Given** a reviewed specification **When** implementation prepares **Then** it receives the reviewed brief.', '',
+    '## Failure and empty states', '', 'Missing or altered briefs block enforced preparation.', '',
+    '## Permissions', '', 'Only configured human authorities approve the source and brief packet.', '',
+    '## Boundary conditions', '', 'The rendered projection is bounded to 32768 UTF-8 bytes.', '',
+    '## Requirements', '', '- REQ-001 — Bind every brief to source, policy, generation, and consumer.', '',
+    '## Non-functional requirements', '', 'Preparation verifies integrity without a model call.', '',
+    '## Constitution articles', '', 'No constitution article is active in this fixture.', '',
+    '## Assumptions', '', 'Harness Imports remains enabled for exact expansion.', '',
+    '## Out of scope', '', 'This fixture does not approve or execute the downstream phase.'
+  ].join('\n'));
+
+  const published = flow(root, ['phase', 'publish', 'specification']);
+  assert.match(published.stdout, /Agent brief for planning/);
+  let workflow = JSON.parse(await readFile(path.join(root, 'singularity/work-items/BRIEF-1/workflow.json'), 'utf8'));
+  assert.equal(workflow.phases.specification.agentBriefs.length, 4);
+  assert.ok(workflow.phases.specification.agentBriefs.every((brief) => brief.status === 'ready'));
+
+  flow(root, ['submit', 'specification']);
+  workflow = JSON.parse(await readFile(path.join(root, 'singularity/work-items/BRIEF-1/workflow.json'), 'utf8'));
+  const submission = workflow.lineage.submissions.at(-1);
+  const packet = JSON.parse(await readFile(path.join(root, submission.path), 'utf8'));
+  assert.equal(packet.agentBriefs.length, 4);
+  const source = packet.artifacts.find((artifact) => artifact.path.endsWith('/artifacts/specification/spec.md'));
+  for (const brief of packet.agentBriefs) {
+    const record = JSON.parse(await readFile(path.join(root, brief.path), 'utf8'));
+    assert.equal(record.source.sha256, source.sha256);
+    assert.equal(record.integritySha256, brief.integritySha256);
+  }
+});
 
 function git(root, args, options = {}) {
   return command('git', args, root, { ...options, selection: false });

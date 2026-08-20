@@ -1,0 +1,84 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://example.invalid/singularity-flow/agent-brief-record.schema.json",
+  "title": "Approval-bound downstream agent brief",
+  "type": "object",
+  "required": [
+    "schemaVersion", "workId", "producer", "consumer", "source", "policy",
+    "policySha256", "status", "summary", "preserved", "rendered", "generatedAt",
+    "integritySha256"
+  ],
+  "properties": {
+    "schemaVersion": { "const": 1 },
+    "workId": { "type": "string", "minLength": 1 },
+    "producer": {
+      "type": "object",
+      "required": ["phase", "generation"],
+      "properties": {
+        "phase": { "type": "string", "minLength": 1 },
+        "generation": { "type": "integer", "minimum": 1 }
+      },
+      "additionalProperties": false
+    },
+    "consumer": {
+      "type": "object",
+      "required": ["phase"],
+      "properties": { "phase": { "type": "string", "minLength": 1 } },
+      "additionalProperties": false
+    },
+    "source": {
+      "type": "object",
+      "required": ["path", "sha256", "bytes"],
+      "properties": {
+        "path": { "type": "string", "minLength": 1 },
+        "sha256": { "type": "string", "pattern": "^[a-f0-9]{64}$" },
+        "bytes": { "type": "integer", "minimum": 0 }
+      },
+      "additionalProperties": false
+    },
+    "policy": {
+      "type": "object",
+      "required": ["projection", "preserve", "maximumSummaryBytes", "expansion", "fallback"],
+      "properties": {
+        "projection": { "const": "approved-summary" },
+        "preserve": { "type": "array", "uniqueItems": true, "items": { "type": "string", "minLength": 1 } },
+        "maximumSummaryBytes": { "type": "integer", "minimum": 1024, "maximum": 65536 },
+        "expansion": { "const": "hash-bound-reference" },
+        "fallback": { "enum": ["whole", "block"] }
+      },
+      "additionalProperties": false
+    },
+    "policySha256": { "type": "string", "pattern": "^[a-f0-9]{64}$" },
+    "status": { "enum": ["ready", "fallback-whole"] },
+    "summary": {
+      "oneOf": [
+        { "type": "null" },
+        {
+          "type": "object",
+          "required": ["heading"],
+          "properties": { "heading": { "type": "string", "minLength": 1 } },
+          "additionalProperties": false
+        }
+      ]
+    },
+    "preserved": { "type": "array", "uniqueItems": true, "items": { "type": "string", "minLength": 1 } },
+    "rendered": {
+      "oneOf": [
+        { "type": "null" },
+        {
+          "type": "object",
+          "required": ["path", "sha256", "bytes"],
+          "properties": {
+            "path": { "type": "string", "minLength": 1 },
+            "sha256": { "type": "string", "pattern": "^[a-f0-9]{64}$" },
+            "bytes": { "type": "integer", "minimum": 1 }
+          },
+          "additionalProperties": false
+        }
+      ]
+    },
+    "generatedAt": { "type": "string", "format": "date-time" },
+    "integritySha256": { "type": "string", "pattern": "^[a-f0-9]{64}$" }
+  },
+  "additionalProperties": false
+}

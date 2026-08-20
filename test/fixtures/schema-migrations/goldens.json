@@ -13,6 +13,7 @@
   "assisted-convergence": [{ "schemaVersion": 1 }],
   "clarification-record": [{ "schemaVersion": 1 }],
   "phase-input-record": [{ "schemaVersion": 1 }],
+  "agent-brief-record": [{ "schemaVersion": 1 }],
   "design-source-set": [{ "schemaVersion": 1 }],
   "design-source-provenance": [{ "schemaVersion": 1 }],
   "work-interval-baseline": [{ "schemaVersion": 1 }],

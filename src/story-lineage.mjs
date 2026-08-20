@@ -230,6 +230,15 @@ export async function createStoryReviewPacket(root, config, workflow, phase) {
     authorship: [...(phase.authorship ?? [])].reverse().find((record) => record.generation === phase.generation) ?? { producer: 'legacy-unspecified', channel: 'legacy' },
     artifacts,
     references,
+    agentBriefs: (phase.agentBriefs ?? []).filter((brief) => brief.generation === phase.generation).map((brief) => ({
+      consumerPhase: brief.consumerPhase,
+      status: brief.status,
+      path: brief.path,
+      renderedPath: brief.renderedPath,
+      sourceSha256: brief.sourceSha256,
+      renderedSha256: brief.renderedSha256,
+      integritySha256: brief.integritySha256
+    })),
     checks: phase.checks ?? [],
     usage: phase.usage ?? [],
     approvals: phase.approvals?.filter((entry) => !entry.invalidatedAt) ?? [],

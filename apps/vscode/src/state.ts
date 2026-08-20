@@ -163,6 +163,8 @@ export class WorkspaceStore {
       const generation = this.refreshGeneration;
       let failure: Error | null = null;
       let snapshot: RepositorySnapshot | null = null;
+      const retryStartedAt = Date.now();
+      let scheduledBackoffMs = 0;
 
       // One attempt, plus a retry per backoff step. Only a transient failure consumes them; anything
       // else breaks out immediately and goes to the recovery path below.
@@ -179,7 +181,13 @@ export class WorkspaceStore {
           failure = error instanceof Error ? error : new Error(String(error));
           const delay = RETRY_DELAYS_MS[attempt];
           if (delay === undefined || !TRANSIENT_FAILURE.test(failure.message)) break;
-          await WorkspaceStore.wait(delay, controller.signal);
+          // Anchor every delay to one retry-loop deadline. If a snapshot call or the host event
+          // loop already consumed part of the budget, do not add the full delay again. The OS may
+          // deschedule this process for longer than the budget, but this loop never compounds that
+          // pause with another 3.9 seconds of waits after it resumes.
+          scheduledBackoffMs += delay;
+          const remaining = Math.max(0, retryStartedAt + scheduledBackoffMs - Date.now());
+          await WorkspaceStore.wait(remaining, controller.signal);
         }
       }
 

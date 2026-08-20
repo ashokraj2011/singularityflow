@@ -29,7 +29,7 @@ const DISTURBED = 'Repository state changed while the snapshot was being assembl
  * `failures` is the list of messages `snapshot()` rejects with, in order, before it starts
  * succeeding. `recovers` decides whether the configuration fallback answers.
  */
-function drive({ failures, recovers = true }) {
+function drive({ failures, recovers = true, attemptWorkMs = 0 }) {
   const source = `
     import { WorkspaceStore } from ${JSON.stringify(storeModule)};
     const failures = ${JSON.stringify(failures)};
@@ -37,6 +37,8 @@ function drive({ failures, recovers = true }) {
     let configurationCalls = 0;
     const client = {
       async snapshot() {
+        const workUntil = Date.now() + ${JSON.stringify(attemptWorkMs)};
+        while (Date.now() < workUntil) { /* deterministic snapshot work */ }
         const message = failures[attempts];
         attempts += 1;
         if (message) throw new Error(message);
@@ -49,6 +51,12 @@ function drive({ failures, recovers = true }) {
       }
     };
     const store = new WorkspaceStore(client);
+    const retryWaits = [];
+    const nativeSetTimeout = globalThis.setTimeout;
+    globalThis.setTimeout = (callback, delay, ...args) => {
+      retryWaits.push(delay);
+      return nativeSetTimeout(callback, delay, ...args);
+    };
     const published = [];
     store.onDidChange((state) => published.push({
       marker: state.snapshot?.marker ?? null,
@@ -61,6 +69,7 @@ function drive({ failures, recovers = true }) {
       attempts,
       configurationCalls,
       elapsed: Date.now() - startedAt,
+      retryWaits,
       final: store.current.snapshot?.marker ?? null,
       error: store.current.error?.message ?? null,
       loading: store.current.loading,
@@ -119,12 +128,22 @@ test('when nothing answers, the failure is still the one worth showing', () => {
   assert.equal(outcome.loading, false);
 });
 
-test('the backoff is real time, and the whole budget stays under five seconds', () => {
-  const outcome = drive({ failures: Array.from({ length: 12 }, () => DISTURBED) });
+test('the backoff uses real timers and its configured wait budget stays under five seconds', () => {
+  const outcome = drive({
+    failures: Array.from({ length: 12 }, () => DISTURBED),
+    attemptWorkMs: 100
+  });
   // 400 + 1000 + 2500. Long enough for a write burst to finish, short enough that a person who
-  // clicked refresh does not conclude the extension has hung.
+  // clicked refresh does not conclude the extension has hung. A saturated test host may deschedule
+  // the child for much longer than that; verify the delays the product requested rather than
+  // blaming Singularity Flow for time during which its process did not run.
   assert.ok(outcome.elapsed >= 3_900, `backoff did not happen: ${outcome.elapsed}ms`);
-  assert.ok(outcome.elapsed < 5_000, `backoff overran: ${outcome.elapsed}ms`);
+  assert.equal(outcome.retryWaits.length, 3);
+  for (const [index, delay] of outcome.retryWaits.entries()) {
+    assert.ok(delay >= 0 && delay <= [400, 1_000, 2_500][index], `invalid retry delay ${index}: ${delay}ms`);
+  }
+  const requestedWaitMs = outcome.retryWaits.reduce((total, delay) => total + delay, 0);
+  assert.ok(requestedWaitMs <= 3_650, `snapshot work was compounded into the backoff: ${requestedWaitMs}ms`);
 });
 
 test('the store owns the retry policy, so no view has to know about it', async () => {

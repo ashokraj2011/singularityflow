@@ -488,6 +488,8 @@ test('a checked-out Story gets a phase rail with named prepare publish and submi
   const tree = buildTree(storySnapshot({ generation: 1 }));
   assert.deepEqual(tree.map((node) => node.id), ['active-story:STORY-42', 'workspace:impact']);
   assert.equal(find(tree, 'story:continue-safely').runCommand, 'singularityFlow.continueSafely');
+  assert.equal(find(tree, 'story:progress-rail').runCommand, 'singularityFlow.openJourney');
+  assert.match(find(tree, 'story:progress-rail').description, /phases · approvals · files/);
   assert.equal(find(tree, 'story:analytics').runCommand, 'singularityFlow.openDashboard');
   assert.match(find(tree, 'story:analytics').description, /time · tokens · cost/);
   assert.equal(find(tree, 'story:flow-impact').runCommand, 'singularityFlow.openFlowImpact');
@@ -633,6 +635,7 @@ test('the tree is built from the real snapshot: lifecycle, phases, artifacts, St
 test('the next governed action is surfaced first, with the engine own wording', () => {
   const tree = buildTree(snapshot);
   assert.equal(find(tree, 'initiative:continue-safely').runCommand, 'singularityFlow.continueSafely');
+  assert.equal(find(tree, 'initiative:progress-rail').runCommand, 'singularityFlow.openJourney');
   const action = find(tree, 'next-action');
   assert.equal(action.kind, 'action');
   assert.equal(action.label, snapshot.initiative.nextActions[0].reason);
@@ -789,6 +792,82 @@ test('the journey reports where the Epic stands and what it is waiting on', () =
   assert.equal(journey.artifacts.length, 3, 'the current phase contributes its artifacts');
   assert.equal(journey.repositories.length, 2);
   assert.match(journey.nextAction.command, /initiative phase define/);
+});
+
+test('the journey rail selects any Story phase and exposes its artifacts and approvers', () => {
+  const story = {
+    initiative: null, initiatives: [], workItems: [{ id: 'WRK-42' }],
+    workflow: {
+      workItem: { id: 'WRK-42', title: 'Readable lifecycle rail', branch: 'WRK-42', workType: 'feature' },
+      currentPhase: 'implementation', phaseOrder: ['specification', 'implementation', 'verification'],
+      status: 'in_progress', phases: {
+        specification: {
+          id: 'specification', label: 'Specification', status: 'approved', generation: 1,
+          requiredArtifact: { path: 'artifacts/specification/spec.md' }, artifacts: [],
+          approvals: [{ decision: 'approved', at: '2026-08-20T08:00:00.000Z',
+            authorityGroup: 'product', actor: { name: 'Ashok Raj', email: 'ashok@example.test' } }]
+        },
+        implementation: {
+          id: 'implementation', label: 'Implementation', status: 'in_progress', generation: 1,
+          requiredArtifact: { path: 'artifacts/implementation/implementation-summary.md' },
+          artifacts: [], approvals: []
+        },
+        verification: {
+          id: 'verification', label: 'Verification', status: 'not_started', generation: 0,
+          requiredArtifact: { path: 'artifacts/verification/verification.md' }, artifacts: [], approvals: []
+        }
+      }
+    },
+    documents: [{ id: 'PHASE-SPECIFICATION', phase: 'specification', label: 'Specification',
+      path: 'singularity/work-items/WRK-42/artifacts/specification/spec.md', status: 'approved',
+      sha256: 'a'.repeat(64) }]
+  };
+
+  const current = buildJourney(story);
+  assert.equal(current.kind, 'story');
+  assert.equal(current.currentStage.id, 'implementation');
+  assert.equal(current.selectedStage.id, 'implementation', 'the active phase is selected by default');
+
+  const selected = buildJourney(story, 'specification');
+  assert.equal(selected.selectedStage.id, 'specification');
+  assert.equal(selected.artifacts.length, 1);
+  assert.equal(selected.artifacts[0].path,
+    'singularity/work-items/WRK-42/artifacts/specification/spec.md');
+  assert.deepEqual(selected.artifacts[0].approvals.map((approval) => approval.actor), ['Ashok Raj'],
+    'Story phase approval applies to every artifact in its submitted generation');
+  assert.deepEqual(selected.approvals.map((approval) => approval.actor), ['Ashok Raj']);
+  assert.equal(selected.stages[0].approved, true);
+  assert.equal(selected.stages[1].current, true,
+    'inspecting a completed phase never changes which phase is active');
+});
+
+test('Epic artifact rows attribute only the approval bound to that artifact', () => {
+  const approved = structuredClone(snapshot);
+  const phase = approved.initiative.state.phases.define;
+  phase.outputs['business-case'].sha256 = 'b'.repeat(64);
+  phase.outputs['business-case'].status = 'approved';
+  phase.outputs['scope-and-outcomes'].sha256 = 'c'.repeat(64);
+  phase.outputs['scope-and-outcomes'].status = 'approved';
+  approved.initiative.report = { approvals: { byPhase: { define: [
+    { phase: 'define', subjectType: 'output', subjectId: 'business-case', decision: 'approved',
+      actorEmail: 'product@example.test', at: '2026-08-20T08:00:00.000Z' },
+    { phase: 'define', subjectType: 'output', subjectId: 'scope-and-outcomes', decision: 'approved',
+      actorEmail: 'architecture@example.test', at: '2026-08-20T08:05:00.000Z' }
+  ] } } };
+
+  const journey = buildJourney(approved, 'define');
+  const businessCase = journey.artifacts.find((artifact) => artifact.subjectId === 'business-case');
+  const scope = journey.artifacts.find((artifact) => artifact.subjectId === 'scope-and-outcomes');
+  assert.deepEqual(businessCase.approvals.map((approval) => approval.actor), ['product@example.test']);
+  assert.deepEqual(scope.approvals.map((approval) => approval.actor), ['architecture@example.test']);
+});
+
+test('the shared phase rail styles completed work green and the active phase as a reduced-motion-safe pulse', async () => {
+  const css = await readFile(path.join(packageRoot, 'apps', 'vscode', 'src', 'views', 'webview.ts'), 'utf8');
+  assert.match(css, /\.phase-node\.done \.phase-marker[^}]*background: var\(--sf-accent\)/);
+  assert.match(css, /\.phase-node\.current \.phase-marker[^}]*background: var\(--sf-wait\)[^}]*animation: sf-phase-pulse/);
+  assert.match(css, /prefers-reduced-motion: reduce/);
+  assert.match(css, /\.phase-node\.clickable \.phase-select:focus-visible/);
 });
 
 test('the journey reads each pack chain position from the gate rather than re-deriving it', () => {

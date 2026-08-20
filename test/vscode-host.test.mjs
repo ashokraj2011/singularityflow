@@ -1269,6 +1269,14 @@ test('the journey panel opens with a strict CSP and no remote origins', async (t
   // It rendered the real Epic, not a placeholder.
   assert.match(html, /INIT-CHECKOUT/);
   assert.match(html, /Discover &amp; Define/, 'engine labels are HTML-escaped on the way in');
+  assert.match(html, /Approved by/, 'phase details include artifact approval attribution');
+  const phases = [...html.matchAll(/data-phase="([^"]+)"/g)].map((match) => match[1]);
+  assert.ok(phases.length > 1, 'the full lifecycle is rendered as selectable phase controls');
+  const selected = phases.at(-1);
+  await panel.post({ type: 'phase', id: selected });
+  assert.match(panel.webview.html,
+    new RegExp(`data-phase="${selected}"[\\s\\S]*?aria-pressed="true"`),
+    'clicking a rail phase updates its detail selection without changing lifecycle state');
 });
 
 test('approving from the editor still demands the exact confirmation a terminal would', async (t) => {

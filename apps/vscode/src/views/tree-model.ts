@@ -851,6 +851,10 @@ function storyWorkflowNode(
       description: 'review exact next action', icon: 'play-circle',
       runCommand: 'singularityFlow.continueSafely', contextValue: 'sflow.action.plan'
     }, {
+      kind: 'action', id: 'story:progress-rail', label: 'Open progress & artifacts',
+      description: 'phases · approvals · files', icon: 'list-ordered',
+      runCommand: 'singularityFlow.openJourney', contextValue: 'sflow.story.progress'
+    }, {
       kind: 'action', id: 'story:attach-evidence', label: 'Attach evidence & designs',
       description: 'files · Figma exports · HTTPS links', icon: 'visual',
       runCommand: 'singularityFlow.attachEvidence', contextValue: 'sflow.story.evidence'
@@ -988,7 +992,6 @@ function initiativeNode(initiative: InitiativeSnapshot): TreeNode {
     description: 'review exact next action', icon: 'play-circle',
     runCommand: 'singularityFlow.continueSafely', contextValue: 'sflow.action.plan'
   });
-
   const next = initiative.nextActions?.[0];
   if (next) {
     children.push({
@@ -1002,6 +1005,12 @@ function initiativeNode(initiative: InitiativeSnapshot): TreeNode {
       contextValue: 'sflow.action'
     });
   }
+
+  children.push({
+    kind: 'action', id: 'initiative:progress-rail', label: 'Open progress & artifacts',
+    description: 'phases · approvals · files', icon: 'list-ordered',
+    runCommand: 'singularityFlow.openJourney', contextValue: 'sflow.initiative.progress'
+  });
 
   const gate = initiative.phaseGate;
   if (gate && !gate.ready && gate.errors.length) {

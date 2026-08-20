@@ -135,10 +135,32 @@ export const STYLE = `
   .phase-node:last-child::after { display: none; }
   .phase-marker { position: relative; z-index: 1; display: inline-grid; place-items: center; grid-row: 1 / span 2; width: 1.55rem; height: 1.55rem; border: var(--sf-border); border-radius: 50%; background: var(--vscode-editor-background); color: var(--sf-dim); }
   .phase-node.done .phase-marker { color: var(--sf-on-accent); background: var(--sf-accent); border-color: var(--sf-accent); }
-  .phase-node.current .phase-marker { color: var(--sf-accent); border: 2px solid var(--sf-accent); background: var(--sf-accent-quiet); }
+  .phase-node.done::after { height: 2px; background: var(--sf-accent); }
+  .phase-node.current .phase-marker { color: var(--vscode-editor-background); border: 2px solid var(--sf-wait); background: var(--sf-wait); animation: sf-phase-pulse 1.8s ease-out infinite; }
   .phase-node.attention .phase-marker { color: var(--sf-bad); border-color: var(--sf-bad); }
   .phase-name { position: relative; z-index: 1; align-self: end; width: fit-content; padding-right: .35rem; background: var(--vscode-editor-background); font-weight: 600; white-space: nowrap; }
   .phase-state { color: var(--sf-dim); font-size: .72rem; white-space: nowrap; }
+  @keyframes sf-phase-pulse { 0%, 100% { box-shadow: 0 0 0 0 var(--sf-wait); } 55% { box-shadow: 0 0 0 .42rem transparent; } }
+  @media (prefers-reduced-motion: reduce) { .phase-node.current .phase-marker { animation: none; } }
+  .phase-node.clickable { display: block; padding: 0 .5rem 0 0; }
+  .phase-node.clickable .phase-select { display: grid; grid-template-columns: 1.55rem minmax(6.5rem, 1fr); grid-template-rows: auto auto; align-items: center; width: 100%; min-height: 3.2rem; gap: .05rem .45rem; padding: .45rem 0; color: var(--vscode-foreground); background: transparent; border: 0; border-radius: var(--sf-radius); text-align: left; cursor: pointer; }
+  .phase-node.clickable .phase-select:hover { background: var(--vscode-list-hoverBackground); }
+  .phase-node.clickable.selected .phase-select { background: var(--vscode-list-activeSelectionBackground); color: var(--vscode-list-activeSelectionForeground); outline: 1px solid var(--vscode-focusBorder); outline-offset: -1px; }
+  .phase-node.clickable.selected .phase-name { color: inherit; background: transparent; }
+  .phase-node.clickable .phase-select:focus-visible { outline: 2px solid var(--vscode-focusBorder); outline-offset: -2px; }
+  .phase-detail { padding: 1rem 1.1rem; border: var(--sf-border); border-radius: var(--sf-radius); background: var(--sf-surface); box-shadow: var(--sf-shadow); }
+  .phase-detail-heading { display: flex; align-items: center; justify-content: space-between; gap: 1rem; }
+  .phase-detail-heading h2, .phase-detail-heading p { margin: .1rem 0; }
+  .journey-artifacts { min-width: 52rem; }
+  .journey-artifacts td:first-child { min-width: 15rem; }
+  .journey-artifacts td small { display: block; max-width: 30rem; margin-top: .25rem; color: var(--sf-dim); overflow-wrap: anywhere; }
+  button.artifact-link { padding: 0; color: var(--vscode-textLink-foreground); background: transparent; border: 0; font: inherit; font-weight: 650; text-align: left; cursor: pointer; }
+  button.artifact-link:hover { color: var(--vscode-textLink-activeForeground); text-decoration: underline; }
+  .approval-summary { display: flex; flex-wrap: wrap; gap: .6rem; padding: 0; list-style: none; }
+  .approval-summary li { display: flex; align-items: flex-start; gap: .45rem; min-width: 13rem; padding: .65rem .75rem; border: var(--sf-border); border-radius: var(--sf-radius); background: var(--vscode-editor-background); }
+  .approval-summary li > span { display: grid; gap: .15rem; }
+  .approval-summary small { color: var(--sf-dim); }
+  .approval-empty { margin-bottom: .2rem; }
   .analytics-columns { display: grid; grid-template-columns: repeat(auto-fit, minmax(25rem, 1fr)); gap: 1rem; align-items: start; }
   .table-wrap { width: 100%; overflow-x: auto; }
   .analytics-table { min-width: 42rem; }

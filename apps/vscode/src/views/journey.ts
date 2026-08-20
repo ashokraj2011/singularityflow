@@ -79,26 +79,53 @@ function railHtml(journey: Journey): string {
   return journey.stages.map((stage, index) => {
     const state = stage.current ? 'current' : (RAIL_STATE[stage.status] ?? '');
     const marker = state === 'done' ? icon('ok', { size: 14 }) : String(index + 1);
+    const selected = journey.selectedStage?.id === stage.id;
     return `
-    <li class="phase-node ${state}">
-      <span class="phase-marker">${marker}</span>
-      <span class="phase-name">${escape(stage.label)}</span>
-      <span class="phase-state">${escape(String(stage.status).replaceAll('_', ' '))} ·
-        ${stage.authored}/${stage.declared} artifacts</span>
+    <li class="phase-node clickable ${state}${selected ? ' selected' : ''}">
+      <button class="phase-select" type="button" data-phase="${escape(stage.id)}"
+        aria-pressed="${selected}" aria-label="${escape(stage.label)}: ${escape(String(stage.status).replaceAll('_', ' '))}; ${stage.authored} of ${stage.declared} artifacts">
+        <span class="phase-marker">${marker}</span>
+        <span class="phase-name">${escape(stage.label)}</span>
+        <span class="phase-state">${escape(String(stage.status).replaceAll('_', ' '))} ·
+          ${stage.authored}/${stage.declared} artifacts</span>
+      </button>
     </li>`;
   }).join('');
 }
 
 function artifactsHtml(journey: Journey): string {
   if (!journey.artifacts.length) return '<p class="muted">This phase declares no artifacts.</p>';
-  return `<table>
-    <thead><tr><th>Artifact</th><th>Status</th><th></th></tr></thead>
+  return `<div class="table-wrap"><table class="journey-artifacts">
+    <thead><tr><th>Artifact</th><th>Status</th><th>Approved by</th><th>Approved at</th><th></th></tr></thead>
     <tbody>${journey.artifacts.map((artifact) => `
       <tr>
-        <td><a href="#" data-open="${escape(artifact.id)}">${escape(artifact.label)}</a>${artifact.required ? '' : ' <span class="muted">optional</span>'}</td>
+        <td><button class="artifact-link" type="button" data-open="${escape(artifact.id)}">${escape(artifact.label)}</button>${artifact.required ? '' : ' <span class="muted">optional</span>'}
+          <small>${escape(artifact.path)}</small></td>
         <td><span class="pill ${artifact.status === 'approved' ? 'ok' : artifact.sha256 ? 'wait' : 'idle'}">${escape(artifact.status.replace(/_/g, ' '))}</span></td>
+        <td>${artifact.approvals.length
+          ? artifact.approvals.map((approval) => escape(approval.actor)).join('<br>')
+          : '<span class="muted">Not approved yet</span>'}</td>
+        <td>${artifact.approvals.length
+          ? artifact.approvals.map((approval) => escape(approvalTime(approval.at))).join('<br>')
+          : '<span class="muted">—</span>'}</td>
         <td>${artifact.approvable ? `<button data-approve="${escape(artifact.id)}">Approve</button>` : ''}</td>
-      </tr>`).join('')}</tbody></table>`;
+      </tr>`).join('')}</tbody></table></div>`;
+}
+
+function approvalTime(value: string | null): string {
+  if (!value) return 'Time unavailable';
+  const parsed = new Date(value);
+  return Number.isNaN(parsed.getTime()) ? value : parsed.toLocaleString();
+}
+
+function approvalSummaryHtml(journey: Journey): string {
+  if (!journey.approvals.length) {
+    return '<p class="muted approval-empty">No active approval is recorded for this phase.</p>';
+  }
+  return `<ul class="approval-summary">${journey.approvals.map((approval) => `
+    <li>${icon('ok', { size: 14 })}<span><strong>${escape(approval.actor)}</strong>
+      ${approval.authority ? `<small>${escape(approval.authority)}</small>` : ''}
+      <small>${escape(approvalTime(approval.at))}</small></span></li>`).join('')}</ul>`;
 }
 
 function packsHtml(journey: Journey): string {
@@ -135,9 +162,16 @@ function bodyHtml(journey: Journey): string {
           <li>${escape(story.id)} — ${escape(story.title)}${story.blocking ? '' : ' <span class="muted">non-blocking</span>'}</li>`).join('')}</ul></div>`).join('')
     : '<p class="muted">No Story plan yet.</p>';
 
+  const initiativeOnly = journey.kind === 'initiative' ? `
+    ${blockers}
+    <section><h2>${icon('document')}Artifact packs</h2>${packsHtml(journey)}</section>
+    <section><h2>${icon('document')}Pinned sources</h2>${sources}</section>
+    <section><h2>${icon('story')}Stories</h2>${stories}</section>` : '';
+
   return `
     <header>
-      <h1>${icon('initiative', { size: 20 })}${escape(journey.title)}</h1>
+      <p class="eyebrow">${journey.kind === 'story' ? 'Story progress' : 'Epic progress'}</p>
+      <h1>${icon(journey.kind === 'story' ? 'story' : 'initiative', { size: 20 })}${escape(journey.title)}</h1>
       <p class="meta">${escape(journey.id)} · ${escape(journey.profile)} ·
         branch ${escape(journey.branch ?? 'unknown')} ·
         ${escape(String(journey.status).replaceAll('_', ' '))}</p>
@@ -154,28 +188,33 @@ function bodyHtml(journey: Journey): string {
       <p class="command-hint"><code>${escape(journey.nextAction.command)}</code></p>
     </section>` : ''}
 
-    <section><h2>${icon('epic')}Lifecycle</h2><ol class="phase-rail">${railHtml(journey)}</ol></section>
-
-    <section>
-      <h2>${escape(journey.currentStage?.label ?? 'Current phase')}</h2>
-      ${artifactsHtml(journey)}
+    <section class="journey-rail"><h2>${icon('epic')}Lifecycle</h2>
+      <p class="muted">Select a phase to inspect its governed artifacts and approvals.</p>
+      <ol class="phase-rail">${railHtml(journey)}</ol>
     </section>
 
-    ${blockers}
+    <section class="phase-detail" aria-live="polite">
+      <div class="phase-detail-heading">
+        <div><p class="eyebrow">Selected phase</p><h2>${escape(journey.selectedStage?.label ?? 'Phase details')}</h2></div>
+        ${journey.selectedStage?.current ? '<span class="pill wait">Active now</span>' : ''}
+      </div>
+      ${artifactsHtml(journey)}
+      <h3>${icon('approval', { size: 14 })}Phase approvals</h3>
+      ${approvalSummaryHtml(journey)}
+    </section>
 
-    <section><h2>${icon('document')}Artifact packs</h2>${packsHtml(journey)}</section>
-    <section><h2>${icon('document')}Pinned sources</h2>${sources}</section>
-    <section><h2>${icon('story')}Stories</h2>${stories}</section>`;
+    ${initiativeOnly}`;
 }
 
 /** The page can only name an action and an id. What either means is decided by the extension. */
 const SCRIPT = `
   const vscode = window.__sfVscode;
   document.addEventListener('click', (event) => {
-    const target = event.target.closest('[data-open],[data-approve],[data-run],[data-pin]');
+    const target = event.target.closest('[data-phase],[data-open],[data-approve],[data-run],[data-pin]');
     if (!target) return;
     event.preventDefault();
-    if (target.dataset.open) vscode.postMessage({ type: 'open', id: target.dataset.open });
+    if (target.dataset.phase) vscode.postMessage({ type: 'phase', id: target.dataset.phase });
+    else if (target.dataset.open) vscode.postMessage({ type: 'open', id: target.dataset.open });
     else if (target.dataset.approve) vscode.postMessage({ type: 'approve', id: target.dataset.approve });
     else if (target.dataset.run) vscode.postMessage({ type: 'run' });
     else if (target.dataset.pin) vscode.postMessage({ type: 'pin' });
@@ -188,6 +227,12 @@ export type JourneyMessage =
   | { type: 'run' }
   | { type: 'pin' };
 
+function journeySubjectKey(store: WorkspaceStore): string | null {
+  const journey = buildJourney(store.current.snapshot);
+  if (!journey.id) return null;
+  return `${store.current.snapshot?.repository?.root ?? ''}\0${journey.kind}\0${journey.id}`;
+}
+
 export class JourneyPanel {
   private static current: JourneyPanel | null = null;
 
@@ -195,6 +240,8 @@ export class JourneyPanel {
   private readonly store: WorkspaceStore;
   private readonly subscription: { dispose(): void };
   private readonly disposables: vscode.Disposable[] = [];
+  private selectedStageId: string | null = null;
+  private subjectKey: string | null;
 
   private constructor(
     panel: vscode.WebviewPanel,
@@ -203,10 +250,16 @@ export class JourneyPanel {
   ) {
     this.panel = panel;
     this.store = store;
-    this.subscription = store.onDidChange(() => this.render());
+    this.subjectKey = journeySubjectKey(store);
+    this.subscription = store.onDidChange(() => {
+      const nextSubject = journeySubjectKey(this.store);
+      if (nextSubject !== this.subjectKey) this.selectedStageId = null;
+      this.subjectKey = nextSubject;
+      this.render();
+    });
 
     /**
-     * The four messages this panel speaks, enumerated. `[UXH:REQ-134]` `[UXH:AC-014]`
+     * The five messages this panel speaks, enumerated. `[UXH:REQ-134]` `[UXH:AC-014]`
      *
      * Was an if-chain with no final else, so a type outside it was dropped in silence —
      * indistinguishable from one that was handled, which is why the bug it hides is a control that
@@ -217,6 +270,13 @@ export class JourneyPanel {
      * the open type set, not the field checks, which were already careful.
      */
     const router = registerMessageRouter('singularityFlow.journey', {
+      phase: (message) => {
+        const stageId = stringField(message, 'id');
+        const journey = buildJourney(this.store.current.snapshot, stageId);
+        if (!stageId || !journey.stages.some((stage) => stage.id === stageId)) return;
+        this.selectedStageId = stageId;
+        this.render();
+      },
       run: () => onMessage({ type: 'run' }),
       pin: () => onMessage({ type: 'pin' }),
       open: (message) => {
@@ -250,7 +310,7 @@ export class JourneyPanel {
       JourneyPanel.current.panel.reveal(vscode.ViewColumn.Active);
       return JourneyPanel.current;
     }
-    const panel = vscode.window.createWebviewPanel('singularityFlow.journey', 'Epic journey', vscode.ViewColumn.Active, {
+    const panel = vscode.window.createWebviewPanel('singularityFlow.journey', 'Work journey', vscode.ViewColumn.Active, {
       enableScripts: true,
       retainContextWhenHidden: true,
       // Nothing outside the extension's own media directory is loadable, and nothing is loaded today.
@@ -264,7 +324,7 @@ export class JourneyPanel {
     const token = nonce();
     this.panel.webview.html = page(
       'Journey',
-      bodyHtml(buildJourney(this.store.current.snapshot)),
+      bodyHtml(buildJourney(this.store.current.snapshot, this.selectedStageId)),
       contentSecurityPolicy(this.panel.webview, token),
       token,
       SCRIPT,

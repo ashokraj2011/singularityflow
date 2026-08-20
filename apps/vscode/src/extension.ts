@@ -19,6 +19,7 @@ import { approveWithReceipt, resolvePlaceholders, runGovernedAction, runPlannedA
 import { commandArgv } from './commands.ts';
 import { LifecycleTreeProvider } from './views/lifecycle.ts';
 import type { JourneyMessage } from './views/journey.ts';
+import { buildJourney } from './views/journey-model.ts';
 import type { ApprovalsMessage } from './views/approvals.ts';
 import type { InboxMessage } from './views/inbox.ts';
 import { buildInboxTree } from './views/inbox-model.ts';
@@ -2273,24 +2274,29 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
   };
 
   /** Resolve a webview's artifact id against the snapshot; ids from a page are never paths. */
-  const nodeForOutput = (outputId: string): TreeNode | null => {
-    const initiative = store.current.snapshot?.initiative;
-    const phaseId = initiative?.state.currentPhase;
-    if (!initiative || !phaseId) return null;
-    const output = initiative.state.phases[phaseId]?.outputs?.[outputId];
-    if (!output) return null;
+  const nodeForOutput = (artifactId: string): TreeNode | null => {
+    const snapshot = store.current.snapshot;
+    const journey = buildJourney(snapshot);
+    const stage = journey.stages.find((candidate) =>
+      candidate.artifacts.some((artifact) => artifact.id === artifactId));
+    const artifact = stage?.artifacts.find((candidate) => candidate.id === artifactId);
+    if (!stage || !artifact) return null;
+    const initiative = snapshot?.initiative;
+    const output = artifact.subjectId
+      ? initiative?.state.phases[artifact.phaseId]?.outputs?.[artifact.subjectId]
+      : null;
     return {
       kind: 'artifact',
-      id: `artifact:${phaseId}/${output.id}`,
-      label: output.label ?? output.id,
-      path: output.path,
-      readOnly: output.status === 'approved',
-      ...(output.sha256 && output.status !== 'approved' ? {
+      id: artifact.id,
+      label: artifact.label,
+      path: artifact.path,
+      readOnly: stage.approved || artifact.status === 'approved',
+      ...(output?.sha256 && output.status !== 'approved' ? {
         approve: {
           kind: 'initiative',
-          initiativeId: initiative.state.initiative.id,
+          initiativeId: initiative?.state.initiative.id ?? '',
           subject: output.id,
-          expected: `${phaseId}:${output.id}`,
+          expected: `${artifact.phaseId}:${output.id}`,
           summary: `Approve ${output.label ?? output.id}`
         }
       } : {})

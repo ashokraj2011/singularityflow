@@ -1,9 +1,9 @@
 {
   "schemaVersion": 1,
   "generatedFrom": "docs/topics",
-  "sourceCommit": "a252cb8c7bd9f5b99e7f98acb700fc75214c23b2",
+  "sourceCommit": "adaa7f3569e3037c0288c505de2c5e09cf2dca74",
   "topicCount": 54,
-  "contentSha256": "7a32c52a1d43609cb952ab085d11c909b6456c2baa465f28ff4ac66d6eee392e",
+  "contentSha256": "d84a47b8b08d65e434b66cf450821392244cc709ac4a2c48ba2e0b6e782bd598",
   "topics": [
     {
       "id": "activity-and-prompt-audit",
@@ -141,8 +141,8 @@
     {
       "id": "governed-execution",
       "title": "Governed execution and safe next actions",
-      "version": 1,
-      "sha256": "e250b84f2bcb1183ddde4941c6196a1fd2a57bac1ce8156394fc87d4ca121a9e",
+      "version": 2,
+      "sha256": "a45ee94668356fad250a56517c340ea94cee2ff65bf29d805a55cbef8de0d96b",
       "file": "governed-execution.md"
     },
     {
@@ -225,8 +225,8 @@
     {
       "id": "nextsteps",
       "title": "Guidance — nextsteps and the narration contract",
-      "version": 3,
-      "sha256": "a042e04411a0b4b66041b50f7b84eb8a0f36f863314800333fc0a00af91b33b7",
+      "version": 4,
+      "sha256": "5c75dbc2fdec54143df64008b3cfdac1765ae24ecc493b3bf7ce63d02247ff17",
       "file": "nextsteps.md"
     },
     {

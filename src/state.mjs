@@ -2129,6 +2129,42 @@ export async function decideIntentAmendment(root, config, workflow, proposal, {
   specification.approvals.push(amendmentApproval);
   await updateArtifactMetadata(root, config, workflow, specification);
   await registerApprovedSnapshot(root, config, workflow, specification);
+
+  // An approved intent amendment creates a new specification generation without travelling
+  // through the ordinary publish -> submit path. It must nevertheless mint the same downstream
+  // projections as a normally published generation; otherwise the first replayed phase sees an
+  // approved producer with no generation-bound brief and cannot prepare its inputs.
+  //
+  // Bind the deterministic records to the authority decision itself. The proposed artifact bytes
+  // were what the authority reviewed, while `agentBriefSource` names the kernel-managed bytes after
+  // their metadata block was refreshed. Keeping both bindings avoids inventing a synthetic submit
+  // ceremony and lets downstream verification distinguish this exceptional, reviewed transition
+  // from an unreviewed missing submission packet.
+  const agentBriefs = await createAgentBriefs(root, workflow, specification, {
+    itemDirectory: workDir(root, config, workflow.workItem.id),
+    itemRelative: workDirRelative(config, workflow.workItem.id)
+  });
+  if (agentBriefs.length) {
+    specification.agentBriefs = [
+      ...(specification.agentBriefs ?? []).filter((entry) => entry.generation !== specification.generation),
+      ...agentBriefs
+    ].sort((left, right) => left.generation - right.generation || left.consumerPhase.localeCompare(right.consumerPhase));
+    const approvedSource = artifactFor(specification, specificationPath);
+    amendmentApproval.agentBriefSource = approvedSource ? {
+      path: approvedSource.path,
+      sha256: approvedSource.sha256,
+      size: approvedSource.size
+    } : null;
+    amendmentApproval.agentBriefs = agentBriefs.map((brief) => ({
+      consumerPhase: brief.consumerPhase,
+      status: brief.status,
+      path: brief.path,
+      renderedPath: brief.renderedPath,
+      sourceSha256: brief.sourceSha256,
+      renderedSha256: brief.renderedSha256,
+      integritySha256: brief.integritySha256
+    }));
+  }
   await writeDecision(root, config, workflow, specification, amendmentApproval);
 
   const specificationIndex = workflow.phaseOrder.indexOf(specification.id);

@@ -293,6 +293,19 @@ test('a Story runs specification through release from a fresh clone', async (t) 
   assert.equal(decided.transition.applied, true);
   const amended = await workflowOf(root);
   assert.equal(amended.phases.specification.generation, 2);
+  const amendedBriefs = amended.phases.specification.agentBriefs
+    .filter((entry) => entry.generation === 2);
+  assert.equal(amendedBriefs.length, 4, 'the amended approved generation did not recreate downstream briefs');
+  assert.ok(amendedBriefs.every((entry) => entry.status === 'fallback-whole'),
+    'a summary-free amended specification did not retain the configured whole-artifact fallback');
+  const amendmentApproval = amended.phases.specification.approvals
+    .find((entry) => entry.intentAmendmentId === 'AMD-001' && !entry.invalidatedAt);
+  assert.equal(amendmentApproval.agentBriefs.length, 4,
+    'the amendment authority decision did not bind its deterministic projections');
+  assert.ok(amendmentApproval.agentBriefs.every((entry) =>
+    amendedBriefs.some((brief) => brief.integritySha256 === entry.integritySha256)));
+  assert.ok(amendmentApproval.agentBriefSource?.sha256,
+    'the amendment authority decision did not bind the managed source used by its projections');
   assert.equal(amended.currentPhase, 'planning');
   assert.equal(amended.intentAmendments[0].status, 'approved');
   assert.ok(amended.intentAmendments[0].preservedEvidence.some((entry) => entry.endsWith('/operator-notes.md')),

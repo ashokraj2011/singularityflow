@@ -158,10 +158,10 @@ test('approved summaries inject bounded reviewed briefs and preserve exact criti
   assert.match(rendered, /singularity-flow show sfref_test_approved_source/);
 });
 
-test('brief tampering fails closed and whole-artifact fallback remains explicit', async () => {
+test('brief tampering fails closed and whole-artifact fallback does not require summary-only preserved sections', async () => {
   const declaration = {
     phase: 'requirements', optional: false, maxBytes: null, projection: 'approved-summary',
-    preserve: [], maximumSummaryBytes: 4096,
+    preserve: ['Requirements', 'Non-functional requirements'], maximumSummaryBytes: 4096,
     expansion: 'hash-bound-reference', fallback: 'whole'
   };
   const value = await fixture('enforce', declaration);
@@ -172,7 +172,11 @@ test('brief tampering fails closed and whole-artifact fallback remains explicit'
   assert.equal(result.records[0].projection.kind, 'fallback-whole');
   assert.match(result.records[0].content, /Exact full artifact/);
 
-  await writeFile(value.producerPath, '# Requirements\n\n## Agent brief\n\nCompact approved text.\n');
+  await writeFile(value.producerPath, [
+    '# Requirements', '',
+    '## Agent brief', '', 'Compact approved text.', '',
+    '## Non-functional requirements', '', 'Brief integrity is verified before use.', ''
+  ].join('\n'));
   const info = await snapshot(value.producerPath);
   value.workflow.phases.requirements.artifacts[0] = { ...value.workflow.phases.requirements.artifacts[0], ...info };
   const next = await createAgentBriefs(value.root, value.workflow, value.workflow.phases.requirements, value);

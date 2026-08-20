@@ -148,16 +148,6 @@ export async function createAgentBriefs(root, workflow, producerPhase, { itemDir
     const summary = SUMMARY_HEADINGS.map((heading) => sectionFor(markdown, heading, parsedHeadings))
       .find((section) => section && authoredText(section.body));
     const preserved = [];
-    for (const heading of policy.preserve) {
-      const section = sectionFor(markdown, heading, parsedHeadings);
-      if (!section || !authoredText(section.body)) {
-        throw new SingularityFlowError(
-          `Phase ${producerPhase.id} cannot create the approved agent brief for ${consumer.id}: preserved section '${heading}' is missing or empty.`
-        );
-      }
-      if (summary && normalizeHeading(section.heading) === normalizeHeading(summary.heading)) continue;
-      preserved.push(section);
-    }
     let status = 'ready';
     let rendered = null;
     if (!summary) {
@@ -168,6 +158,20 @@ export async function createAgentBriefs(root, workflow, producerPhase, { itemDir
       }
       status = 'fallback-whole';
     } else {
+      // Preserved sections are part of the bounded projection. When no summary exists and policy
+      // selects the whole approved artifact, validating those sections first defeats that explicit
+      // fallback and blocks otherwise publishable legacy/manual artifacts. The whole artifact is
+      // already the lossless projection in that branch, so there is nothing separate to preserve.
+      for (const heading of policy.preserve) {
+        const section = sectionFor(markdown, heading, parsedHeadings);
+        if (!section || !authoredText(section.body)) {
+          throw new SingularityFlowError(
+            `Phase ${producerPhase.id} cannot create the approved agent brief for ${consumer.id}: preserved section '${heading}' is missing or empty.`
+          );
+        }
+        if (normalizeHeading(section.heading) === normalizeHeading(summary.heading)) continue;
+        preserved.push(section);
+      }
       rendered = renderedBrief({ workflow, producerPhase, consumer, source, summary, preserved });
       const bytes = Buffer.byteLength(rendered);
       if (bytes > policy.maximumSummaryBytes) {
@@ -234,8 +238,23 @@ export async function readAgentBrief(root, workflow, producerPhase, consumerPhas
   const reviewedSubmission = [...(workflow.lineage?.submissions ?? [])].reverse().find((entry) =>
     entry.phase === producerPhase.id && entry.generation === producerPhase.generation
   );
-  const reviewedSource = reviewedSubmission?.projection?.artifacts?.find((artifact) => artifact.path === expectedSource);
+  // An approved intent amendment advances the specification generation through its own authority
+  // ceremony, not the ordinary submit ceremony. Its decision therefore carries the equivalent
+  // source and projection bindings. Do not accept a phase-local brief by itself: either a review
+  // packet or an active amendment approval must name the exact record.
+  const amendmentApproval = [...(producerPhase.approvals ?? [])].reverse().find((approval) =>
+    !approval.invalidatedAt
+      && approval.decision === 'approved'
+      && approval.generation === producerPhase.generation
+      && approval.intentAmendmentId
+  );
+  const reviewedSource = reviewedSubmission?.projection?.artifacts?.find((artifact) => artifact.path === expectedSource)
+    ?? (amendmentApproval?.agentBriefSource?.path === expectedSource
+      ? amendmentApproval.agentBriefSource
+      : null);
   const reviewedBrief = reviewedSubmission?.projection?.agentBriefs?.find((brief) =>
+    brief.consumerPhase === consumerPhase.id && brief.integritySha256 === stored.integritySha256
+  ) ?? amendmentApproval?.agentBriefs?.find((brief) =>
     brief.consumerPhase === consumerPhase.id && brief.integritySha256 === stored.integritySha256
   );
   const identityValid = record.workId === workflow.workItem.id

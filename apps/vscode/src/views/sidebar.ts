@@ -60,13 +60,14 @@ const SECTION_META: Record<SidebarSection, {
   },
   workspaces: {
     label: 'Workspaces', icon: 'workspace', actions: [
+      { id: 'setup-wizard', label: 'Guided start', icon: 'start' },
       { id: 'workspace-create', label: 'Create workspace', icon: 'workspaceAdd' },
       { id: 'workspace-manage', label: 'Manage workspaces', icon: 'workspaceManage' },
       { id: 'local-reset', label: 'Local Data & Reset', icon: 'remove' }
     ],
     empty: {
       text: 'No workspace is selected. A workspace points at the governed repository whose lifecycle you want to see.',
-      action: 'workspace-manage', actionLabel: 'Choose a workspace'
+      action: 'setup-wizard', actionLabel: 'Map capability and create workspace'
     }
   },
   lifecycle: {
@@ -175,6 +176,7 @@ const ACTION_COMMANDS: Record<string, string> = {
   'persona-manage': 'singularityFlow.choosePersona',
   'my-work': 'singularityFlow.myWork',
   'workspace-create': 'singularityFlow.createWorkspace',
+  'setup-wizard': 'singularityFlow.startWizard',
   'workspace-manage': 'singularityFlow.openWorkspaces',
   'local-reset': 'singularityFlow.openLocalReset',
   'work-start': 'singularityFlow.startWork',
@@ -222,6 +224,7 @@ export const FAVORITE_MENUS: readonly FavoriteMenu[] = Object.freeze([
   { id: 'inbox-open', label: 'Inbox', description: 'work waiting on you', icon: 'inbox', command: ACTION_COMMANDS['inbox-open']! },
   { id: 'approvals-open', label: 'Approvals', description: 'governed decisions', icon: 'approval', command: ACTION_COMMANDS['approvals-open']! },
   { id: 'workspace-manage', label: 'Workspaces', description: 'choose and manage workspaces', icon: 'workspace', command: ACTION_COMMANDS['workspace-manage']! },
+  { id: 'setup-wizard', label: 'Guided start', description: 'capability → workspace → first work item', icon: 'start', command: ACTION_COMMANDS['setup-wizard']! },
   { id: 'goals', label: 'Goals', description: 'outcomes linked to governed work', icon: 'impact', command: ACTION_COMMANDS.goals! },
   { id: 'fault-repairs', label: 'Faults & Repairs', description: 'diagnose and recover safely', icon: 'warning', command: ACTION_COMMANDS['fault-repairs']! },
   { id: 'journal', label: 'Local Journal', description: 'private local work history', icon: 'book', command: ACTION_COMMANDS.journal! },

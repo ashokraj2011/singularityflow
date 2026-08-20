@@ -16,6 +16,7 @@
  */
 import { escape, icon } from './webview.ts';
 import { PROFILE_PERSONAS, PROFILE_PERSONA_IDS } from './profile-personas.ts';
+import { startWizardProgress, type StartWizardProgress } from './start-wizard.ts';
 
 /** A repository the selection implies. Derived, never entered. */
 export interface FormRepository {
@@ -359,11 +360,12 @@ function repositoryRows(form: WorkspaceForm): string {
     </tr>`).join('');
 }
 
-export function workspaceFormHtml(form: WorkspaceForm): string {
+export function workspaceFormHtml(form: WorkspaceForm, journey: StartWizardProgress | null = null): string {
   const problems = formProblems(form);
   const repositories = derivedRepositories(form);
   const lead = effectiveLead(form);
   return `
+  ${startWizardProgress(journey)}
   <header>
     <h1>${icon('workspace', { size: 20 })}New workspace</h1>
     <p class="meta">The capabilities a team works on together, and the directory they work in. The

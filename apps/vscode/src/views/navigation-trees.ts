@@ -28,12 +28,12 @@ export function buildWorkspaceTree(entries: WorkspaceEntry[]): TreeNode[] {
     return [{
       kind: 'action',
       id: 'workspaces:empty',
-      label: 'Create your first workspace',
-      description: 'local scope + repositories',
-      tooltip: 'Choose a working directory, then select the capabilities and repositories used there.',
-      icon: 'workspace',
+      label: 'Guided start',
+      description: 'capability → workspace → first work item',
+      tooltip: 'Map what the organisation builds, create its local workspace, then start governed work.',
+      icon: 'start',
       contextValue: 'sflow.workspaces.empty',
-      runCommand: 'singularityFlow.createWorkspace'
+      runCommand: 'singularityFlow.startWizard'
     }];
   }
 

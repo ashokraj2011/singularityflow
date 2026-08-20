@@ -13,6 +13,7 @@
  */
 import { CAPABILITY_KINDS } from './capability-model.ts';
 import { escape, icon } from './webview.ts';
+import { startWizardProgress, type StartWizardProgress } from './start-wizard.ts';
 
 /** A capability already in the map, offered as a parent. */
 export interface ParentChoice { id: string; name: string; depth: number; ships: boolean }
@@ -118,7 +119,7 @@ export function mapCommand(form: MapCapabilityForm): string[] {
   return args;
 }
 
-export function mapCapabilityHtml(form: MapCapabilityForm): string {
+export function mapCapabilityHtml(form: MapCapabilityForm, journey: StartWizardProgress | null = null): string {
   const problems = mapProblems(form);
   const identifierProblem = capabilityIdentifierProblem(form);
   const staticProblems = problems.filter((problem) => problem !== identifierProblem);
@@ -133,6 +134,7 @@ export function mapCapabilityHtml(form: MapCapabilityForm): string {
       ? `<p class="ok-text">${icon('ok')}${form.parents.length} ${form.parents.length === 1 ? 'capability' : 'capabilities'} available as parents.</p>`
       : '<p class="muted">Choose a repository below. Its current map is loaded automatically.</p>';
   return `
+  ${startWizardProgress(journey)}
   <header>
     <h1>${icon('capability', { size: 20 })}Map a capability</h1>
     <p class="meta">What this organisation builds, and which repository each part ships from.

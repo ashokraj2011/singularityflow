@@ -14,6 +14,7 @@
  * nobody reads.
  */
 import { escape, icon } from './webview.ts';
+import { startWizardProgress, type StartWizardProgress } from './start-wizard.ts';
 
 /** What is being started. The order is the order they nest in. */
 export type Shape = 'initiative' | 'epic' | 'story';
@@ -502,10 +503,11 @@ function inFlightHtml(form: IntakeForm): string {
   </section>` : ''}`;
 }
 
-export function intakeHtml(form: IntakeForm): string {
+export function intakeHtml(form: IntakeForm, journey: StartWizardProgress | null = null): string {
   const problems = intakeProblems(form);
   const noun = form.shape === 'initiative' ? 'Initiative' : form.shape === 'epic' ? 'Epic' : 'Story';
   return `
+  ${startWizardProgress(journey)}
   <header>
     <h1>${icon('epic', { size: 20 })}Start work</h1>
     <p class="meta">Work arrives in three shapes and with or without a tracker. Both are answered

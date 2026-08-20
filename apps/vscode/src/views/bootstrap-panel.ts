@@ -12,6 +12,7 @@ import {
   EMPTY_MAP_FORM, mapCapabilityHtml, mapCommand, mapProblems,
   MAP_CAPABILITY_SCRIPT, type MapCapabilityForm, type ParentChoice
 } from './map-capability-form.ts';
+import type { StartWizardProgress } from './start-wizard.ts';
 
 /** The map as `capability organisation --json` reports it. */
 export interface Organisation {
@@ -27,6 +28,11 @@ export interface Mapped {
   baseBranch: string;
   commit: string | null;
   reviewRequired: boolean;
+}
+
+export interface MapCapabilityLaunch {
+  parent?: string;
+  journey?: StartWizardProgress | null;
 }
 
 type Run = (argv: string[]) => Promise<{ result: unknown; error: string | null }>;
@@ -48,17 +54,19 @@ export class BootstrapPanel {
   private readonly disposables: vscode.Disposable[] = [];
   private form: MapCapabilityForm = { ...EMPTY_MAP_FORM };
   private requestedParent = '';
+  private journey: StartWizardProgress | null = null;
   private mapLoadRevision = 0;
 
   private constructor(
     panel: vscode.WebviewPanel, leads: string[], run: Run,
     onMapped: (result: Mapped) => Promise<void>,
-    initial: { parent?: string } = {}
+    initial: MapCapabilityLaunch = {}
   ) {
     this.panel = panel;
     this.run = run;
     this.onMapped = onMapped;
     this.requestedParent = initial.parent?.trim() ?? '';
+    this.journey = initial.journey ?? null;
     const uniqueLeads = [...new Set(leads.filter((lead) => lead.trim()))];
     this.form = {
       ...EMPTY_MAP_FORM,
@@ -82,7 +90,7 @@ export class BootstrapPanel {
   static show(
     context: vscode.ExtensionContext, leads: string[], run: Run,
     onMapped: (result: Mapped) => Promise<void>,
-    initial: { parent?: string } = {}
+    initial: MapCapabilityLaunch = {}
   ): BootstrapPanel {
     if (BootstrapPanel.current) {
       // The retained form may have been opened from workspace creation and then reached from the
@@ -94,7 +102,7 @@ export class BootstrapPanel {
       return BootstrapPanel.current;
     }
     const panel = vscode.window.createWebviewPanel(
-      'singularityFlow.mapCapability', 'Map a capability', vscode.ViewColumn.Active, {
+      'singularityFlow.mapCapability', initial.journey ? 'Guided start' : 'Map a capability', vscode.ViewColumn.Active, {
         enableScripts: true,
         retainContextWhenHidden: true,
         localResourceRoots: [vscode.Uri.joinPath(context.extensionUri, 'media')]
@@ -103,19 +111,23 @@ export class BootstrapPanel {
     return BootstrapPanel.current;
   }
 
-  private prefill(initial: { parent?: string }): void {
-    if (initial.parent === undefined) return;
-    this.requestedParent = initial.parent.trim();
-    if (this.form.parents.some((parent) => parent.id === this.requestedParent)) {
-      this.update({ parent: this.requestedParent });
+  private prefill(initial: MapCapabilityLaunch): void {
+    if (initial.journey !== undefined) this.journey = initial.journey;
+    if (initial.parent !== undefined) {
+      this.requestedParent = initial.parent.trim();
+      if (this.form.parents.some((parent) => parent.id === this.requestedParent)) {
+        this.form.parent = this.requestedParent;
+      }
     }
+    this.panel.title = this.journey ? 'Guided start' : 'Map a capability';
+    this.render();
   }
 
   private render(): void {
     const token = nonce();
     this.panel.webview.html = page(
-      'Map a capability',
-      mapCapabilityHtml(this.form),
+      this.journey ? 'Guided start' : 'Map a capability',
+      mapCapabilityHtml(this.form, this.journey),
       contentSecurityPolicy(this.panel.webview, token),
       token,
       MAP_CAPABILITY_SCRIPT

@@ -78,7 +78,7 @@
       {
         "id": "singularityFlow.gettingStarted",
         "title": "Get started with Singularity Flow",
-        "description": "Configure your profile, secure integrations, and first governed workspace.",
+        "description": "Map a capability, create its workspace, and start the first governed work item.",
         "steps": [
           {
             "id": "profile",
@@ -104,12 +104,13 @@
           },
           {
             "id": "workspace",
-            "title": "Choose or create a workspace",
-            "description": "Workspaces bind a local directory to capabilities and repositories.",
+            "title": "Run the guided start",
+            "description": "Move through capability mapping, workspace creation, and first work intake without losing context.",
             "media": {
               "markdown": "media/walkthrough/workspace.md"
             },
             "completionEvents": [
+              "onCommand:singularityFlow.startWizard",
               "onCommand:singularityFlow.switchWorkspace",
               "onCommand:singularityFlow.createWorkspace"
             ]
@@ -160,6 +161,11 @@
       {
         "command": "singularityFlow.openWalkthrough",
         "title": "Singularity Flow: Get Started (Walkthrough)",
+        "icon": "$(rocket)"
+      },
+      {
+        "command": "singularityFlow.startWizard",
+        "title": "Singularity Flow: Guided Start — Capability, Workspace, Work",
         "icon": "$(rocket)"
       },
       {

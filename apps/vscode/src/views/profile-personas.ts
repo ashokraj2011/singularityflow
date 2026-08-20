@@ -27,12 +27,13 @@ export interface ProfilePersona {
 const BASE_SECTIONS = ['favorites', 'inbox', 'workspaces', 'lifecycle', 'configuration', 'help', 'logs'] as const;
 
 /**
- * Capability mapping is the entry point for describing what the organisation builds. Keep it in
- * every persona's first-use Favorites while still allowing a person to unpin it explicitly.
- * Centralising the invariant here means a newly added persona cannot accidentally omit it.
+ * Guided Start is the first-use front door, and capability mapping remains directly reachable for
+ * later portfolio changes. Keep both in every persona's suggested Favorites while still allowing a
+ * person to unpin either explicitly. Centralising the invariant here means a newly added persona
+ * cannot accidentally omit onboarding or capability management.
  */
 function personaMenus(...menuIds: string[]): readonly string[] {
-  return Object.freeze([...new Set([...menuIds, 'capability-map'])]);
+  return Object.freeze([...new Set(['setup-wizard', ...menuIds, 'capability-map'])]);
 }
 
 export const PROFILE_PERSONAS: readonly ProfilePersona[] = Object.freeze([

@@ -196,6 +196,12 @@ singularity-flow bootstrap <REPOSITORY-URL> --capability platform --name "Platfo
 # The command prints the exact pull-request command for the governance proposal.
 ```
 
+In VS Code, run **Singularity Flow: Guided Start — Capability, Workspace, Work**.
+The three-step journey maps the capability, carries it into workspace creation,
+selects the new workspace, and opens first-work intake. It uses the same governed
+preflights and confirmations as the individual screens and resumes after the one
+window reload needed to activate a first workspace.
+
 Use `--direct` only as an explicit opt-out in a repository whose application
 branch intentionally accepts direct configuration pushes.
 
@@ -579,7 +585,7 @@ available for inspection and restore.
 The VS Code sidebar deliberately separates work from setup. **Favorites** stays at the top and lets
 each developer pin the menus they use most through **Choose favorites**; those selections are stored
 only in personal VS Code state and never enter governed repository configuration. First-time users
-start with My Work, Start intake, and Inbox pinned. Favorites and Lifecycle open by default while the
+start with Guided Start first, followed by persona-relevant work and setup menus. Favorites and Lifecycle open by default while the
 supporting sections remain collapsed; the sidebar remembers later choices. **Lifecycle** is the
 intake and delivery view: start Initiative, Epic, or Story intake, choose the
 workflow for that work, inspect the selected workflow's phases and artifacts,
@@ -2070,6 +2076,9 @@ npm pack --dry-run
 
 The supported visual surface is the VS Code extension:
 
+- **Guided Start** is the first-use front door: Map capability → Create workspace
+  → Start work. Existing capability maps and an already-selected workspace are
+  detected and skipped, so the same command remains useful after onboarding.
 - **Workspaces** selects local project context and shows the directory, lead
   repository, repository health, Jira routing, metadata, and capability scope.
   Selecting a row stays in the current VS Code window; opening a repository is a

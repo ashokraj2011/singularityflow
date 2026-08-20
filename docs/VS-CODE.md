@@ -26,12 +26,31 @@ once and the Navigator preserves that preference.
 Clickable rows have distinct hover, pressed, keyboard-focus, and last-opened states so the result
 of a navigation choice remains visible after the click.
 
+### Guided start
+
+Run **Singularity Flow: Guided Start — Capability, Workspace, Work** from the
+Command Palette, the Workspaces section, Favorites, or the getting-started
+walkthrough. One visible progress rail joins the three existing governed forms:
+
+1. **Map capability** records what the organisation builds and which repository ships it.
+2. **Create workspace** carries that capability forward, derives its repositories, and runs the
+   normal remote preflight and exact creation confirmation.
+3. **Start work** opens the normal Initiative, Epic, or Story intake against the selected workspace.
+
+The wizard does not create a second copy of capability, workspace, or lifecycle state. The CLI's
+durable records remain authoritative. VS Code stores only a short-lived continuation marker so the
+final step can reopen after the one window reload required when the first workspace is selected.
+Closing a panel creates no partial lifecycle state; running Guided Start again inspects the durable
+state and resumes at the first incomplete step. An existing capability map skips mapping, and an
+active ready workspace goes directly to work intake.
+
 ### Favorites
 
 Favorites answers **where are the menus I use every day?**
 
-- A new installation starts with persona-relevant Favorites. Until a persona is chosen, the General
-  suggestions are My Work, Start intake, and Inbox. This is only a first-use suggestion; removing
+- A new installation starts with persona-relevant Favorites. Guided Start is first for every persona;
+  until a persona is chosen, the remaining General suggestions include My Work, Start intake, Inbox,
+  and direct capability mapping. This is only a first-use suggestion; removing
   every favorite is remembered as an intentional empty list.
 - Open **Choose favorites** from the section header or its empty state.
 - Select any combination of My Work, intake, Inbox, Approvals, Workspaces, Configuration Center,

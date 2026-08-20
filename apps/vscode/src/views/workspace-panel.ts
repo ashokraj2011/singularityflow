@@ -20,13 +20,22 @@ import {
   type CapabilityChoice, type RemoteCapability, type WorkspaceForm
 } from './workspace-form.ts';
 import { SingularityFlowClient, type CliLocation } from '../cli/client.ts';
+import type { StartWizardProgress } from './start-wizard.ts';
 
 export interface WorkspaceCreated {
   directory: string;
+  id: string;
+  name: string;
   lead: string;
   leadDirectory: string;
   /** The orphan branch the workspace records its governance on. */
   stateBranch: string | null;
+}
+
+export interface WorkspaceLaunch {
+  journey?: StartWizardProgress | null;
+  organisation?: string | null;
+  capabilityId?: string | null;
 }
 
 /** What the organisation read returns, of the parts this form uses. */
@@ -66,6 +75,9 @@ export class WorkspacePanel {
   private readonly onOpenCapabilities: () => Promise<void>;
   private readonly disposables: vscode.Disposable[] = [];
   private form: WorkspaceForm = { ...EMPTY_WORKSPACE_FORM };
+  private journey: StartWizardProgress | null;
+  private preferredOrganisation: string | null;
+  private preferredCapabilityId: string | null;
 
   private constructor(
     panel: vscode.WebviewPanel,
@@ -73,7 +85,8 @@ export class WorkspacePanel {
     location: CliLocation,
     output: vscode.OutputChannel,
     onCreated: (created: WorkspaceCreated) => Promise<void>,
-    onOpenCapabilities: () => Promise<void>
+    onOpenCapabilities: () => Promise<void>,
+    initial: WorkspaceLaunch = {}
   ) {
     this.panel = panel;
     this.location = location;
@@ -81,9 +94,15 @@ export class WorkspacePanel {
     this.context = context;
     this.onCreated = onCreated;
     this.onOpenCapabilities = onOpenCapabilities;
+    this.journey = initial.journey ?? null;
+    this.preferredOrganisation = initial.organisation?.trim() || null;
+    this.preferredCapabilityId = initial.capabilityId?.trim() || null;
     const settings = vscode.workspace.getConfiguration('singularityFlow');
+    const suggestedId = this.preferredCapabilityId ?? '';
     this.form = {
       ...EMPTY_WORKSPACE_FORM,
+      id: suggestedId,
+      name: suggestedId ? workspaceNameFromId(suggestedId) : '',
       profileName: settings.get<string>('userName') ?? '',
       profileRole: settings.get<string>('role') ?? ''
     };
@@ -103,31 +122,38 @@ export class WorkspacePanel {
     location: CliLocation,
     output: vscode.OutputChannel,
     onCreated: (created: WorkspaceCreated) => Promise<void>,
-    onOpenCapabilities: () => Promise<void> = async () => {}
+    onOpenCapabilities: () => Promise<void> = async () => {},
+    initial: WorkspaceLaunch = {}
   ): WorkspacePanel {
     if (WorkspacePanel.current) {
-      WorkspacePanel.current.panel.reveal(vscode.ViewColumn.Active);
-      // A capability may have been mapped while this retained panel was hidden. Re-read rather than
-      // revealing the stale "no capabilities" snapshot that originally opened the form.
-      void WorkspacePanel.current.refreshCapabilityMap();
-      return WorkspacePanel.current;
+      // Entering the guided journey establishes a new target and callback chain. Do not reveal a
+      // retained ordinary draft whose capability selection belongs to an earlier visit.
+      if (initial.journey || initial.organisation || initial.capabilityId) {
+        WorkspacePanel.current.dispose();
+      } else {
+        WorkspacePanel.current.panel.reveal(vscode.ViewColumn.Active);
+        // A capability may have been mapped while this retained panel was hidden. Re-read rather than
+        // revealing the stale "no capabilities" snapshot that originally opened the form.
+        void WorkspacePanel.current.refreshCapabilityMap();
+        return WorkspacePanel.current;
+      }
     }
     const panel = vscode.window.createWebviewPanel(
-      'singularityFlow.workspace', 'New workspace', vscode.ViewColumn.Active, {
+      'singularityFlow.workspace', initial.journey ? 'Guided start' : 'New workspace', vscode.ViewColumn.Active, {
         enableScripts: true,
         retainContextWhenHidden: true,
         localResourceRoots: [vscode.Uri.joinPath(context.extensionUri, 'media')]
       });
     WorkspacePanel.current = new WorkspacePanel(
-      panel, context, location, output, onCreated, onOpenCapabilities);
+      panel, context, location, output, onCreated, onOpenCapabilities, initial);
     return WorkspacePanel.current;
   }
 
   private render(): void {
     const token = nonce();
     this.panel.webview.html = page(
-      'New workspace',
-      workspaceFormHtml(this.form),
+      this.journey ? 'Guided start' : 'New workspace',
+      workspaceFormHtml(this.form, this.journey),
       contentSecurityPolicy(this.panel.webview, token),
       token,
       WORKSPACE_FORM_SCRIPT
@@ -164,7 +190,9 @@ export class WorkspacePanel {
     const current = this.form.organisation && organisations.includes(this.form.organisation)
       ? this.form.organisation
       : null;
-    const selected = current ?? only;
+    const preferred = this.preferredOrganisation && organisations.includes(this.preferredOrganisation)
+      ? this.preferredOrganisation : null;
+    const selected = current ?? preferred ?? only;
     this.update({
       organisations,
       organisation: selected,
@@ -178,7 +206,14 @@ export class WorkspacePanel {
   }
 
   /** Return from capability setup without losing the workspace directory or identity already typed. */
-  async refreshCapabilityMap(): Promise<void> {
+  async refreshCapabilityMap(preferred: { organisation?: string | null; capabilityId?: string | null } = {}): Promise<void> {
+    if (preferred.organisation?.trim()) this.preferredOrganisation = preferred.organisation.trim();
+    if (preferred.capabilityId?.trim()) {
+      this.preferredCapabilityId = preferred.capabilityId.trim();
+      this.journey = this.journey ? { ...this.journey, capabilityId: this.preferredCapabilityId } : null;
+      if (!this.form.id) this.form.id = this.preferredCapabilityId;
+      if (!this.form.name) this.form.name = workspaceNameFromId(this.preferredCapabilityId);
+    }
     this.panel.reveal(vscode.ViewColumn.Active);
     await this.loadOrganisations(true);
   }
@@ -211,9 +246,12 @@ export class WorkspacePanel {
     } catch (error) {
       capabilitiesReason = (error as Error).message;
     }
+    const preferred = capabilities?.find((capability) => capability.id === this.preferredCapabilityId) ?? null;
     this.update({
       capabilities, capabilitiesReason, capabilitiesNotice,
-      selected: [], leadCapability: null, reading: false
+      selected: preferred ? [preferred.id] : [],
+      leadCapability: preferred?.repository ? preferred.id : null,
+      reading: false
     });
   }
 
@@ -381,7 +419,8 @@ export class WorkspacePanel {
       // the same tick, or opening the screen again reveals the panel that was just closed.
       this.dispose();
       await this.onCreated({
-        directory, lead, leadDirectory: `${directory}/repos/${lead}`,
+        directory, id: result.plan.workspace.id, name: result.plan.workspace.name,
+        lead, leadDirectory: `${directory}/repos/${lead}`,
         stateBranch: result.plan.initialization.enabled ? result.plan.initialization.stateBranch : null
       });
     } catch (error) {
@@ -394,4 +433,10 @@ export class WorkspacePanel {
     this.panel.dispose();
     for (const disposable of this.disposables) disposable.dispose();
   }
+}
+
+function workspaceNameFromId(identifier: string): string {
+  return identifier.split('-').filter(Boolean)
+    .map((word) => `${word[0]!.toLocaleUpperCase()}${word.slice(1)}`)
+    .join(' ');
 }

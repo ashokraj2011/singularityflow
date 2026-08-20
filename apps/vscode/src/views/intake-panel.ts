@@ -15,6 +15,7 @@ import {
   type BaseBranchChoice, type InFlight, type IntakeForm, type ProfileChoice, type Shape, type Tracker
 } from './intake-form.ts';
 import { SingularityFlowClient } from '../cli/client.ts';
+import type { StartWizardProgress } from './start-wizard.ts';
 
 /** What was started, so the caller can take the reader straight to it. */
 export interface Started {
@@ -28,6 +29,7 @@ export interface IntakeTarget {
   repository: string;
   branch: string | null;
   defaults?: IntakeDefaults;
+  journey?: StartWizardProgress | null;
 }
 
 export interface IntakeDefaults {
@@ -44,6 +46,7 @@ export class IntakePanel {
   private readonly output: vscode.OutputChannel;
   private readonly onStarted: (started: Started) => Promise<void>;
   private readonly defaults: IntakeDefaults;
+  private readonly journey: StartWizardProgress | null;
   private readonly disposables: vscode.Disposable[] = [];
   private form: IntakeForm;
   private preflightVersion = 0;
@@ -60,6 +63,7 @@ export class IntakePanel {
     this.output = output;
     this.onStarted = onStarted;
     this.defaults = target.defaults ?? {};
+    this.journey = target.journey ?? null;
     this.form = {
       ...EMPTY_INTAKE_FORM,
       targetWorkspace: target.workspace,
@@ -90,7 +94,8 @@ export class IntakePanel {
   ): IntakePanel {
     if (IntakePanel.current) {
       if (IntakePanel.current.form.targetRepository === target.repository
-          && IntakePanel.current.form.targetBranch === target.branch) {
+          && IntakePanel.current.form.targetBranch === target.branch
+          && Boolean(IntakePanel.current.journey) === Boolean(target.journey)) {
         IntakePanel.current.panel.reveal(vscode.ViewColumn.Active);
         return IntakePanel.current;
       }
@@ -99,7 +104,7 @@ export class IntakePanel {
       IntakePanel.current.dispose();
     }
     const panel = vscode.window.createWebviewPanel(
-      'singularityFlow.intake', 'Start work', vscode.ViewColumn.Active, {
+      'singularityFlow.intake', target.journey ? 'Guided start' : 'Start work', vscode.ViewColumn.Active, {
         enableScripts: true,
         retainContextWhenHidden: true,
         localResourceRoots: [vscode.Uri.joinPath(context.extensionUri, 'media')]
@@ -111,7 +116,7 @@ export class IntakePanel {
   private render(): void {
     const token = nonce();
     this.panel.webview.html = page(
-      'Start work', intakeHtml(this.form),
+      this.journey ? 'Guided start' : 'Start work', intakeHtml(this.form, this.journey),
       contentSecurityPolicy(this.panel.webview, token), token, INTAKE_SCRIPT
     );
   }

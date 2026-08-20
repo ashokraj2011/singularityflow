@@ -638,6 +638,13 @@ test('a window with nothing open and no active workspace says which of the two t
     'singularityFlow.reviewCapabilityProposals',
     'pending organisation changes remain reviewable without an active workspace');
 
+  await registered.commands.get('singularityFlow.startWizard')();
+  const guidedStart = registered.panels.find((entry) => entry.id === 'singularityFlow.mapCapability');
+  assert.ok(guidedStart, 'Guided Start opens capability mapping when no setup exists');
+  assert.equal(guidedStart.title, 'Guided start');
+  assert.match(guidedStart.webview.html, /Capability → workspace → first work item/);
+  assert.match(guidedStart.webview.html, /Step 1 of 3/);
+
   await registered.commands.get('singularityFlow.myWork')();
   const refusal = registered.panels.find((entry) => entry.id === 'singularityFlow.result');
   const refusalText = refusal.webview.html.replace(/<style[\s\S]*?<\/style>/g, '')
@@ -2007,7 +2014,7 @@ test('creating a workspace is possible before any repository is open', async (t)
   const extension = loadExtension(api);
   await extension.activate(context());
 
-  for (const id of ['singularityFlow.createWorkspace', 'singularityFlow.init', 'singularityFlow.reinitialize', 'singularityFlow.doctor']) {
+  for (const id of ['singularityFlow.startWizard', 'singularityFlow.createWorkspace', 'singularityFlow.init', 'singularityFlow.reinitialize', 'singularityFlow.doctor']) {
     assert.ok(registered.commands.has(id), `${id} is reachable with no repository open`);
   }
 });
@@ -2299,6 +2306,32 @@ async function organisation() {
 
   return { base, lead: lead.dir, api: api.dir, web: web.dir, registry };
 }
+
+test('guided start skips completed capability setup and opens workspace creation as step two', async (t) => {
+  if (!requireBundle(t)) return;
+  const org = await organisation();
+  const previousSelection = process.env.SINGULARITY_FLOW_ACTIVE_WORKSPACE;
+  process.env.SINGULARITY_FLOW_ACTIVE_WORKSPACE = path.join(org.base, 'no-active-workspace.json');
+  t.after(() => {
+    if (previousSelection == null) delete process.env.SINGULARITY_FLOW_ACTIVE_WORKSPACE;
+    else process.env.SINGULARITY_FLOW_ACTIVE_WORKSPACE = previousSelection;
+  });
+
+  const { api, registered } = stubVscode();
+  api.workspace.workspaceFolders = undefined;
+  const extension = loadExtension(api);
+  await extension.activate(context());
+  await registered.commands.get('singularityFlow.startWizard')();
+
+  const panel = registered.panels.find((entry) => entry.id === 'singularityFlow.workspace');
+  assert.ok(panel, 'the mapped organisation advances the journey to workspace creation');
+  const html = await until(() => panel.webview.html.includes('Payments API') ? panel.webview.html : null);
+  assert.equal(panel.title, 'Guided start');
+  assert.match(html, /Step 2 of 3/);
+  assert.match(html, /Map capability/);
+  assert.match(html, /Create workspace/);
+  assert.match(html, /Start work/);
+});
 
 test('a workspace is chosen as capabilities, and its repositories follow', async (t) => {
   if (!requireBundle(t)) return;

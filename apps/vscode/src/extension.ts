@@ -70,6 +70,7 @@ import { readRecord } from '../../../src/schema-migrations.mjs';
 declare const __SFLOW_BUILD__: string;
 
 const COPILOT_HANDOFF_KEY = 'singularityFlow.pendingCopilotHandoff';
+const START_WIZARD_KEY = 'singularityFlow.pendingStartWizard.v1';
 
 interface PendingCopilotHandoff {
   /** Workspace handoffs must never infer a Story from the repository's checked-out branch. */
@@ -78,6 +79,18 @@ interface PendingCopilotHandoff {
   workId: string | null;
   workspaceName?: string | null;
   requestedAt: string;
+}
+
+interface PendingStartWizard {
+  schemaVersion: 1;
+  step: 'capability' | 'workspace' | 'work';
+  capabilityId?: string | null;
+  organisation?: string | null;
+  workspaceId?: string | null;
+  workspaceName?: string | null;
+  workspacePath?: string | null;
+  resumeOnActivation?: boolean;
+  startedAt: string;
 }
 
 interface GovernedReferencePreview {
@@ -428,7 +441,7 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
     const globalSettingKeys = ['cliPath', 'nodePath', 'modelMode', 'userName', 'role'];
     const globalKeys = typeof context.globalState.keys === 'function'
       ? context.globalState.keys()
-      : ['onboardingComplete'];
+      : ['onboardingComplete', START_WIZARD_KEY];
     await Promise.all([
       secureCredentials.resetAll(),
       ...globalKeys.map((key) => context.globalState.update(key, undefined)),
@@ -879,13 +892,119 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
     sidebar.bind('configuration', configuration);
   };
 
+  const startWizardState = (
+    step: PendingStartWizard['step'],
+    details: Partial<Omit<PendingStartWizard, 'schemaVersion' | 'step' | 'startedAt'>> = {}
+  ): PendingStartWizard => ({
+    schemaVersion: 1,
+    step,
+    startedAt: new Date().toISOString(),
+    ...details
+  });
+
+  /**
+   * One front door for a first governed work item.
+   *
+   * Existing organisations and active workspaces are respected rather than duplicated: a person
+   * who already completed a step advances to the next one. The only persisted value is an ephemeral
+   * continuation marker for the window reload required after the first workspace selection; all
+   * capability, workspace, repository and lifecycle authority remains in the CLI's durable records.
+   */
+  context.subscriptions.push(vscode.commands.registerCommand('singularityFlow.startWizard', async () => {
+    let location;
+    try {
+      location = resolveCli({ extensionPath: context.extensionPath });
+    } catch (error) {
+      return showRefusal(error, { headline: 'Guided start is unavailable' });
+    }
+    const registry = new SingularityFlowClient({
+      location, repository: process.cwd(), environment: cliEnvironment,
+      onOutput: (text) => output.append(text)
+    });
+    const prior = context.globalState.get<PendingStartWizard | null>(START_WIZARD_KEY, null);
+    type CurrentWorkspace = {
+      active?: boolean; workspaceId?: string; workspaceName?: string; workspacePath?: string; repositoryPath?: string;
+      repositoryState?: string;
+    };
+    let current: CurrentWorkspace;
+    try {
+      current = await registry.run<CurrentWorkspace>(['workspace', 'current', '--json']);
+    } catch (error) {
+      return showRefusal(error, { headline: 'Could not read the active workspace' });
+    }
+    if (current.active && current.workspacePath && current.repositoryPath
+        && (!current.repositoryState || current.repositoryState === 'ready')) {
+      const pending = startWizardState('work', {
+        capabilityId: prior?.capabilityId ?? null,
+        organisation: prior?.organisation ?? null,
+        workspaceId: current.workspaceId ?? null,
+        workspaceName: current.workspaceName ?? null,
+        workspacePath: current.workspacePath,
+        resumeOnActivation: false
+      });
+      await context.globalState.update(START_WIZARD_KEY, pending);
+      return vscode.commands.executeCommand('singularityFlow.startWork', {
+        guidedStart: true,
+        workspaceName: pending.workspaceName
+      });
+    }
+    if (current.active) {
+      return showRefusal(
+        'The active workspace does not resolve to a ready repository. Repair or reselect it before starting governed work.',
+        { headline: 'Active workspace needs attention' }
+      );
+    }
+
+    let leads: Array<{ url?: string }>;
+    try {
+      leads = await registry.run<Array<{ url?: string }>>(['capability', 'leads', '--json']);
+    } catch (error) {
+      return showRefusal(error, { headline: 'Could not read mapped capabilities' });
+    }
+    if (leads.some((lead) => lead.url) && prior?.step !== 'capability') {
+      const pending = startWizardState('workspace', {
+        capabilityId: prior?.step === 'workspace' ? prior.capabilityId ?? null : null,
+        organisation: prior?.step === 'workspace' ? prior.organisation ?? null : null
+      });
+      await context.globalState.update(START_WIZARD_KEY, pending);
+      return vscode.commands.executeCommand('singularityFlow.createWorkspace', {
+        guidedStart: true,
+        capabilityId: pending.capabilityId,
+        organisation: pending.organisation
+      });
+    }
+
+    const pending = startWizardState('capability');
+    await context.globalState.update(START_WIZARD_KEY, pending);
+    return vscode.commands.executeCommand(
+      'singularityFlow.mapCapability',
+      { journey: { step: 'capability' } },
+      async (mapped: Mapped) => {
+        const next = startWizardState('workspace', {
+          capabilityId: mapped.capabilityId,
+          organisation: mapped.lead
+        });
+        await context.globalState.update(START_WIZARD_KEY, next);
+        await vscode.commands.executeCommand('singularityFlow.createWorkspace', {
+          guidedStart: true,
+          capabilityId: mapped.capabilityId,
+          organisation: mapped.lead
+        });
+      }
+    );
+  }));
+
   /**
    * Create a workspace, then offer its append-only state branch and open the lead repository.
    *
    * Registered before any early return: this is the command for when there is no repository to
    * serve yet, which is precisely when activation stops early.
    */
-  context.subscriptions.push(vscode.commands.registerCommand('singularityFlow.createWorkspace', async () => {
+  context.subscriptions.push(vscode.commands.registerCommand('singularityFlow.createWorkspace', async (request?: {
+    guidedStart?: boolean;
+    capabilityId?: string | null;
+    organisation?: string | null;
+  }) => {
     let location;
     try {
       location = resolveCli({ extensionPath: context.extensionPath });
@@ -894,19 +1013,65 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
     }
 
     const { WorkspacePanel } = await import('./views/workspace-panel.ts');
+    const guidedStart = request?.guidedStart === true;
+    const journey = guidedStart ? {
+      step: 'workspace' as const,
+      capabilityId: request?.capabilityId ?? null
+    } : null;
     const workspacePanel = WorkspacePanel.show(context, location, output, async (created) => {
       // The state branch is not created here. `workspace create` does it, in the repository the lead
       // capability ships from — one owner, so the editor and the CLI cannot disagree about where the
       // branch goes, and the editor's copy cannot silently skip a repository the CLI would govern.
-      void vscode.window.showInformationMessage(`Workspace created. Now working in ${created.lead}.`);
-      await selectWorkspace(created.directory, created.leadDirectory, created.lead);
+      void vscode.window.showInformationMessage(`Workspace created. Now working in ${created.name}.`);
+      const requiresReload = workspaceSelected.length === 0;
+      if (guidedStart) {
+        await context.globalState.update(START_WIZARD_KEY, startWizardState('work', {
+          capabilityId: request?.capabilityId ?? null,
+          organisation: request?.organisation ?? null,
+          workspaceId: created.id,
+          workspaceName: created.name,
+          workspacePath: created.directory,
+          resumeOnActivation: requiresReload
+        }));
+      }
+      const selected = await selectWorkspace(created.directory, created.leadDirectory, created.name);
+      if (!selected && guidedStart) {
+        await context.globalState.update(START_WIZARD_KEY, startWizardState('workspace', {
+          capabilityId: request?.capabilityId ?? null,
+          organisation: request?.organisation ?? null
+        }));
+      } else if (selected && guidedStart && !requiresReload) {
+        await vscode.commands.executeCommand('singularityFlow.startWork', {
+          guidedStart: true,
+          workspaceName: created.name
+        });
+      }
     }, async () => {
       // Keep the workspace draft open. Capability setup creates a review proposal; the proposal
       // review panel activates it on the protected configuration branch and then reloads this draft.
       await vscode.commands.executeCommand(
         'singularityFlow.mapCapability',
-        async () => workspacePanel.refreshCapabilityMap()
+        { journey: guidedStart ? {
+          step: 'capability' as const,
+          capabilityId: request?.capabilityId ?? null
+        } : null },
+        async (mapped: Mapped) => {
+          if (guidedStart) {
+            await context.globalState.update(START_WIZARD_KEY, startWizardState('workspace', {
+              capabilityId: mapped.capabilityId,
+              organisation: mapped.lead
+            }));
+          }
+          await workspacePanel.refreshCapabilityMap({
+            capabilityId: mapped.capabilityId,
+            organisation: mapped.lead
+          });
+        }
       );
+    }, {
+      journey,
+      capabilityId: request?.capabilityId ?? null,
+      organisation: request?.organisation ?? null
     });
   }));
 
@@ -1082,11 +1247,14 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
   context.subscriptions.push(vscode.commands.registerCommand(
     'singularityFlow.mapCapability',
     async (
-      requestOrReturn?: { parent?: string } | ((mapped: Mapped) => Promise<void>),
+      requestOrReturn?: {
+        parent?: string;
+        journey?: { step: 'capability' | 'workspace' | 'work'; capabilityId?: string | null; workspaceName?: string | null } | null;
+      } | ((mapped: Mapped) => Promise<void>),
       returnAfterMapping?: (mapped: Mapped) => Promise<void>
     ) => {
     const initial = typeof requestOrReturn === 'object' && requestOrReturn
-      ? { parent: requestOrReturn.parent }
+      ? { parent: requestOrReturn.parent, journey: requestOrReturn.journey }
       : {};
     const returnToWorkspace = typeof requestOrReturn === 'function'
       ? requestOrReturn
@@ -2330,6 +2498,8 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
     shape?: 'initiative' | 'epic' | 'story' | null;
     workType?: string | null;
     summary?: string | null;
+    guidedStart?: boolean;
+    workspaceName?: string | null;
   } = {}): Promise<void> => {
     // Refresh before asking anything. `start` refuses a dirty tree, and discovering that only after
     // somebody completes the intake form wastes their answers and makes a correct guard look like a
@@ -2377,6 +2547,7 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
     // door was documentation rather than a screen.
     const { IntakePanel } = await import('./views/intake-panel.ts');
     IntakePanel.show(context, client, output, async (started) => {
+      if (defaults.guidedStart) await context.globalState.update(START_WIZARD_KEY, undefined);
       await store.refresh();
       const subject = started.shape === 'story' ? 'Story'
         : started.shape === 'epic' ? 'Epic' : 'Initiative';
@@ -2391,7 +2562,12 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
       workspace: workspaceLabel,
       repository: repositoryState?.root ?? repository,
       branch: repositoryState?.branch ?? null,
-      defaults
+      defaults,
+      journey: defaults.guidedStart ? {
+        step: 'work',
+        capabilityId: context.globalState.get<PendingStartWizard | null>(START_WIZARD_KEY, null)?.capabilityId ?? null,
+        workspaceName: defaults.workspaceName ?? workspaceLabel
+      } : null
     });
   };
 
@@ -3452,6 +3628,26 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
   // sidebar is empty for the whole of that second, on every single open.
   store.primeFromCache();
   await store.refresh();
+  const pendingStartWizard = context.globalState.get<PendingStartWizard | null>(START_WIZARD_KEY, null);
+  if (pendingStartWizard?.step === 'work' && pendingStartWizard.resumeOnActivation) {
+    // Clear only the auto-resume bit before opening the form. A second reload must not repeatedly
+    // take over the editor, while the remaining marker lets the explicit Guided start command
+    // resume this final step if the person closes the form.
+    await context.globalState.update(START_WIZARD_KEY, {
+      ...pendingStartWizard,
+      resumeOnActivation: false
+    });
+    if (pendingStartWizard.workspaceId && pendingStartWizard.workspaceId !== resolved.workspaceId) {
+      void vscode.window.showWarningMessage(
+        `Guided Start paused because the active workspace changed from ${pendingStartWizard.workspaceName ?? pendingStartWizard.workspaceId}. Run Guided Start again to continue in the current workspace.`
+      );
+    } else {
+      await vscode.commands.executeCommand('singularityFlow.startWork', {
+        guidedStart: true,
+        workspaceName: pendingStartWizard.workspaceName ?? workspaceLabel
+      });
+    }
+  }
   const pendingHandoff = context.globalState.get<PendingCopilotHandoff | null>(COPILOT_HANDOFF_KEY, null);
   const openFolders = vscode.workspace.workspaceFolders ?? [];
   if (pendingHandoff && openFolders.some(

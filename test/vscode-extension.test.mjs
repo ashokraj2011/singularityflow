@@ -1168,6 +1168,7 @@ const {
   formProblems, formCommand, formPrepareCommand, hasCapabilityMap, shippingCapabilities, uncloneable,
   workspaceFormHtml
 } = await import(source('views/workspace-form.ts'));
+const { startWizardProgress } = await import(source('views/start-wizard.ts'));
 
 /** The organisation's map, as `capability organisation --json` returns it. */
 const REMOTE_TREE = [{
@@ -1207,6 +1208,20 @@ test('an empty workspace form reports every outstanding requirement at once', ()
   assert.match(problems.join(' '), /display name/);
   assert.match(problems.join(' '), /menu persona/);
   assert.match(problems.join(' '), /organisation/);
+});
+
+test('guided start keeps one accessible three-step rail across the governed forms', () => {
+  const capability = startWizardProgress({ step: 'capability' });
+  assert.match(capability, /Step 1 of 3/);
+  assert.match(capability, /class="start-wizard-step current" aria-current="step"/);
+  assert.match(capability, /Map capability/);
+
+  const workspace = workspaceFormHtml(withMap(['payments']), {
+    step: 'workspace', capabilityId: 'payments'
+  });
+  assert.match(workspace, /Step 2 of 3/);
+  assert.match(workspace, /Capability: payments/);
+  assert.equal((workspace.match(/class="start-wizard-step done"/g) ?? []).length, 1);
 });
 
 test('workspace creation asks for the person once and keeps menu personas separate from identity', () => {
@@ -1852,6 +1867,12 @@ test('mapping a capability defaults Kind to Delivery', () => {
     /<option value="delivery" selected>Delivery<\/option>/);
 });
 
+test('guided capability mapping is visibly the first step', () => {
+  const html = mapCapabilityHtml(EMPTY_MAP_FORM, { step: 'capability' });
+  assert.match(html, /Capability → workspace → first work item/);
+  assert.match(html, /Step 1 of 3/);
+});
+
 test('mapping a monorepo capability carries source scope and clone policy into one reviewed proposal', () => {
   const form = {
     ...EMPTY_MAP_FORM,
@@ -2454,6 +2475,15 @@ const INTAKE_CHOICES = {
 };
 const intake = (over = {}) => ({ ...EMPTY_INTAKE_FORM, ...INTAKE_CHOICES, ...over });
 
+test('guided work intake retains the capability and workspace context', () => {
+  const html = intakeHtml(intake(), {
+    step: 'work', capabilityId: 'payments', workspaceName: 'Payments delivery'
+  });
+  assert.match(html, /Step 3 of 3/);
+  assert.match(html, /Capability: payments · Workspace: Payments delivery/);
+  assert.equal((html.match(/class="start-wizard-step done"/g) ?? []).length, 2);
+});
+
 test('the three shapes are offered with what each one leads to', () => {
   // The difference between an Initiative, an Epic and a Story is what happens afterwards, which a
   // row of three radio labels cannot express — and choosing wrong is expensive.
@@ -2980,9 +3010,9 @@ test('the selected workspace warns when its lead repository is unavailable', () 
 test('an empty registry offers the one thing to do about it', () => {
   const [empty] = buildWorkspaceTree([]);
   assert.equal(empty.contextValue, 'sflow.workspaces.empty');
-  assert.equal(empty.label, 'Create your first workspace');
-  assert.equal(empty.runCommand, 'singularityFlow.createWorkspace');
-  assert.equal(empty.icon, 'workspace');
+  assert.equal(empty.label, 'Guided start');
+  assert.equal(empty.runCommand, 'singularityFlow.startWizard');
+  assert.equal(empty.icon, 'start');
 });
 
 /** What a capability shows about itself, and what it contains — the same split the commands make. */

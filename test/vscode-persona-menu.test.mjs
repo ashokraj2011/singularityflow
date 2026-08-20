@@ -23,6 +23,8 @@ test('menu personas are complete, stable, and navigation-only', () => {
     assert.ok(persona.label);
     assert.ok(persona.description);
     assert.ok(persona.menuIds.length >= 3);
+    assert.equal(persona.menuIds[0], 'setup-wizard',
+      `${persona.id} starts first-use Favorites with Guided start`);
     assert.ok(persona.menuIds.includes('capability-map'),
       `${persona.id} keeps Map a capability in first-use Favorites`);
     assert.deepEqual([...new Set(persona.sectionOrder)].sort(), [...SECTIONS].sort(),
@@ -37,15 +39,15 @@ test('menu personas are complete, stable, and navigation-only', () => {
 
 test('each principal persona receives relevant first-use menu suggestions', () => {
   assert.deepEqual(resolveProfilePersona('developer').menuIds,
-    ['my-work', 'work-start', 'journal', 'diagnostics', 'logs-open', 'capability-map']);
+    ['setup-wizard', 'my-work', 'work-start', 'journal', 'diagnostics', 'logs-open', 'capability-map']);
   assert.deepEqual(resolveProfilePersona('architect').menuIds,
-    ['my-work', 'impact-form', 'flow-impact', 'configuration-center', 'ast-intelligence', 'capability-map']);
+    ['setup-wizard', 'my-work', 'impact-form', 'flow-impact', 'configuration-center', 'ast-intelligence', 'capability-map']);
   assert.deepEqual(resolveProfilePersona('qa').menuIds,
-    ['my-work', 'fault-repairs', 'inbox-open', 'visual-assurance', 'approvals-open', 'capability-map']);
+    ['setup-wizard', 'my-work', 'fault-repairs', 'inbox-open', 'visual-assurance', 'approvals-open', 'capability-map']);
   assert.deepEqual(resolveProfilePersona('admin').menuIds,
-    ['workspace-manage', 'local-reset', 'configuration-center', 'ast-intelligence', 'capability-map', 'diagnostics']);
+    ['setup-wizard', 'workspace-manage', 'local-reset', 'configuration-center', 'ast-intelligence', 'capability-map', 'diagnostics']);
   assert.deepEqual(resolveProfilePersona('product-owner').menuIds,
-    ['my-work', 'goals', 'work-start', 'inbox-open', 'approvals-open', 'capability-map']);
+    ['setup-wizard', 'my-work', 'goals', 'work-start', 'inbox-open', 'approvals-open', 'capability-map']);
 });
 
 test('the public VS Code setting and command palette expose every menu persona', async () => {
@@ -54,4 +56,7 @@ test('the public VS Code setting and command palette expose every menu persona',
   assert.deepEqual(configured, ['', ...PROFILE_PERSONA_IDS]);
   assert.ok(manifest.contributes.commands.some((entry) =>
     entry.command === 'singularityFlow.choosePersona' && entry.title.includes('Choose Menu Persona')));
+  assert.ok(manifest.contributes.commands.some((entry) =>
+    entry.command === 'singularityFlow.startWizard' && entry.title.includes('Capability, Workspace, Work')),
+  'the complete first-use journey is available from the Command Palette');
 });

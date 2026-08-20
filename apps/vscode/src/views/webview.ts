@@ -480,6 +480,24 @@ export const STYLE = `
   .rail-node { display: grid; grid-template-columns: auto 1fr; align-items: center; gap: .45rem; white-space: nowrap; padding: .45rem .75rem; border: var(--sf-border); border-radius: 999px; background: var(--vscode-editor-background); }
   .rail-node b, .step-number { display: inline-grid; place-items: center; width: 1.55rem; height: 1.55rem; border-radius: 50%; color: var(--sf-on-accent); background: var(--sf-accent); font-size: .75rem; flex: 0 0 auto; }
   .rail-arrow { color: var(--sf-dim); }
+  .start-wizard { margin: 0 0 1.5rem; padding: 1rem 1.1rem; border: var(--sf-border); border-left: 3px solid var(--sf-accent); border-radius: var(--sf-radius); background: var(--sf-surface); box-shadow: var(--sf-shadow); }
+  .start-wizard-heading { display: flex; align-items: center; justify-content: space-between; gap: 1rem; }
+  .start-wizard-heading > div { display: grid; gap: .2rem; }
+  .start-wizard-heading .eyebrow { color: var(--sf-accent); font-size: .68rem; font-weight: 700; letter-spacing: .12em; text-transform: uppercase; }
+  .start-wizard-rail { display: grid; grid-template-columns: repeat(3, minmax(9rem, 1fr)); gap: 0; margin: 1rem 0 .75rem; padding: 0; list-style: none; }
+  .start-wizard-step { position: relative; display: grid; grid-template-columns: 1.8rem minmax(0, 1fr); gap: .55rem; align-items: center; min-width: 0; padding-right: .75rem; }
+  .start-wizard-step::after { content: ""; position: absolute; top: .9rem; left: 1.8rem; right: 0; height: 1px; background: var(--sf-border-color); }
+  .start-wizard-step:last-child::after { display: none; }
+  .start-wizard-marker { position: relative; z-index: 1; display: grid; place-items: center; width: 1.65rem; height: 1.65rem; border: var(--sf-border); border-radius: 50%; color: var(--sf-dim); background: var(--vscode-editor-background); font-size: .72rem; font-weight: 700; }
+  .start-wizard-step > span:last-child { display: grid; gap: .12rem; min-width: 0; }
+  .start-wizard-step strong, .start-wizard-step small { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .start-wizard-step small { color: var(--sf-dim); font-size: .7rem; }
+  .start-wizard-step.done .start-wizard-marker { color: var(--sf-on-accent); border-color: var(--sf-accent); background: var(--sf-accent); }
+  .start-wizard-step.done::after { height: 2px; background: var(--sf-accent); }
+  .start-wizard-step.current .start-wizard-marker { color: var(--sf-on-accent); border-color: var(--sf-wait); background: var(--sf-wait); animation: sf-phase-pulse 1.8s ease-out infinite; }
+  .start-wizard-step.current strong { color: var(--vscode-foreground); }
+  .start-wizard-step.upcoming { opacity: .72; }
+  .start-wizard-context { margin: .25rem 0; color: var(--sf-accent); font-size: .78rem; font-weight: 600; }
   /* The exact command behind a button, for anyone who wants to run or script it. Supporting
      detail — the button says what it does. */
   .command-hint { margin: .4rem 0 0; color: var(--sf-dim); font-size: .78rem; }
@@ -715,6 +733,9 @@ export const STYLE = `
     .mapping-arrow { display: none; }
     .document-preview { position: static; }
     .workflow-rail { align-items: stretch; }
+    .start-wizard-rail { grid-template-columns: 1fr; gap: .65rem; }
+    .start-wizard-step::after { top: 1.65rem; bottom: -.65rem; left: .82rem; right: auto; width: 1px; height: auto; }
+    .start-wizard-step.done::after { width: 2px; height: auto; }
     .section-actions { flex-direction: column; }
     .help-layout { grid-template-columns: 1fr; }
     /* Stacked, the topic list sits above the article rather than beside it, so a fixed height makes

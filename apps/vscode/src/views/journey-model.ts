@@ -186,7 +186,7 @@ function storyJourneyOf(
 ): Journey {
   const stages: JourneyStage[] = workflow.phaseOrder
     .map((phaseId) => workflow.phases[phaseId])
-    .filter((phase) => Boolean(phase))
+    .filter((phase): phase is NonNullable<typeof phase> => Boolean(phase))
     .map((phase) => {
       const artifacts = storyArtifacts(snapshot, workflow, phase.id);
       return {

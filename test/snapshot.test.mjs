@@ -22,6 +22,10 @@ import {
 
 const packageRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 const bin = path.join(packageRoot, 'bin', 'singularity-flow.mjs');
+// The production VS Code runner streams snapshots with a 40 MiB safety ceiling. Keep these
+// synchronous parity probes on the same explicit boundary instead of Node's implicit 1 MiB
+// spawnSync buffer, which terminates an otherwise successful full snapshot with ENOBUFS.
+const FULL_SNAPSHOT_MAX_BUFFER = 40 * 1024 * 1024;
 
 function run(command, args, cwd) {
   const env = {
@@ -636,14 +640,18 @@ test('the lazy snapshot path returns exactly what the legacy path returned', asy
   const root = await repository();
 
   const viaCommand = spawnSync(process.execPath, [bin, 'snapshot', '--json'], {
-    cwd: root, encoding: 'utf8', env: { ...process.env, NODE_ENV: 'test', SINGULARITY_FLOW_TEST_IDENTITY: 'Editor Tester' }
+    cwd: root, encoding: 'utf8', maxBuffer: FULL_SNAPSHOT_MAX_BUFFER,
+    env: { ...process.env, NODE_ENV: 'test', SINGULARITY_FLOW_TEST_IDENTITY: 'Editor Tester' }
   });
   assert.equal(viaCommand.status, 0, viaCommand.stderr);
 
   const viaLegacy = spawnSync(process.execPath, ['--input-type=module', '-e',
     `const m = await import(${JSON.stringify(path.join(packageRoot, 'src/commands/legacy.mjs'))});`
     + " await m.run(['snapshot','--json'], { positionals: ['snapshot'], options: { json: true } });"
-  ], { cwd: root, encoding: 'utf8', env: { ...process.env, NODE_ENV: 'test', SINGULARITY_FLOW_TEST_IDENTITY: 'Editor Tester' } });
+  ], {
+    cwd: root, encoding: 'utf8', maxBuffer: FULL_SNAPSHOT_MAX_BUFFER,
+    env: { ...process.env, NODE_ENV: 'test', SINGULARITY_FLOW_TEST_IDENTITY: 'Editor Tester' }
+  });
   assert.equal(viaLegacy.status, 0, viaLegacy.stderr);
 
   /**
@@ -685,7 +693,10 @@ test('the snapshot the extension sends never loads the legacy command module', a
   const standalone = spawnSync(process.execPath, ['--input-type=module', '-e',
     `const m = await import(${JSON.stringify(path.join(packageRoot, 'src/commands/snapshot.mjs'))});`
     + " await m.run(['snapshot','--json'], { positionals: ['snapshot'], options: { json: true } });"
-  ], { cwd: root, encoding: 'utf8', env: { ...process.env, NODE_ENV: 'test', SINGULARITY_FLOW_TEST_IDENTITY: 'Editor Tester' } });
+  ], {
+    cwd: root, encoding: 'utf8', maxBuffer: FULL_SNAPSHOT_MAX_BUFFER,
+    env: { ...process.env, NODE_ENV: 'test', SINGULARITY_FLOW_TEST_IDENTITY: 'Editor Tester' }
+  });
   assert.equal(standalone.status, 0, standalone.stderr);
   // The full snapshot is flat, not sliced — `lifecycle` and `configuration` are names the
   // `--include` path uses. Assert the fields this shape actually carries.

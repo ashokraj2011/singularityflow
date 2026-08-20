@@ -330,6 +330,22 @@ sflow-wm-minimal --phase poc-validation
 sflow-wm-minimal --phase poc-publication-review
 ```
 
+#### Benchmark A and Benchmark B
+
+Both benchmark workflows use the same phase IDs so their outcomes remain comparable:
+
+```bash
+sflow-wm-minimal --phase intake
+sflow-wm-minimal --phase design
+sflow-wm-minimal --phase implementation
+sflow-wm-minimal --phase testing
+sflow-wm-minimal --phase conformance
+```
+
+Benchmark A requires the published world model, so add `--publish` to the command for its current
+phase. Benchmark B deliberately disables world-model, AST, and agent-brief context; the commands
+above document the available phase IDs but are not required for that generic-context arm.
+
 You normally run only the current phase's command when Singularity Flow reports
 that grounding is missing or stale; running every command in advance is not
 required. To operate on a branch without checking it out first, add

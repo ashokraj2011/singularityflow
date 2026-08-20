@@ -12,9 +12,9 @@ argument-hint: "[generation focus]"
 
 On `Out of sequence`, stop and relay the error. On `Soft sequence warning`, show it and leave `continue` to the human. Never edit state to bypass a gate.
 
-1. Run `singularity-flow status --json`; use only the active phase and current governed-agent session.
+1. Run `singularity-flow status --json`; use only the active phase and current governed-agent session. Read the exact `workItem.title` as `STORY_TITLE`; it is the stable lifecycle grounding identity.
 2. Run `singularity-flow documents list` and view every relevant uploaded input by its stable ID.
-3. Run `singularity-flow wm compose --phase <phase> --task "<work objective>"`, adding `--evidence` when configured, and use the complete prompt. If missing/stale, build with the same phase/task and compose again. Composition records agent, views, routed files, evidence, clarification, hashes, and prompt snapshot.
+3. Run `singularity-flow wm compose --phase <phase> --task "$STORY_TITLE"`, adding `--evidence` when configured, and use the complete prompt. If missing/stale, show and run the exact returned ensure command only with explicit contributor authorization, then rerun the identical compose command. Never substitute a conversational paraphrase for `STORY_TITLE`; composition records agent, views, routed files, evidence, clarification, hashes, and prompt snapshot.
 4. Execute any **Human clarification checkpoint** before preparation. Use `ask_user` and wait. `required` always pauses; `when-needed` continues only after finding no material ambiguity. If questions cannot be asked, display them and stop before preparation. Record answers with `singularity-flow clarification record <phase> --response-file <file>`; stop if recording fails.
 5. Run `singularity-flow prepare <phase>` and read its configured template and approved inputs.
 6. Complete only the active phase's configured artifacts. Preserve managed metadata, incorporate confirmed clarification decisions, and keep explicitly deferred decisions visible. Before publishing, re-read every configured artifact and stop if any authored section still contains `TODO`, `TBD`, an unresolved `{{...}}` token, or template instruction text. Never call publication on the untouched prepared template.

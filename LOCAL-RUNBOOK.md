@@ -534,7 +534,7 @@ Orientation at any point:
 
 ```bash
 singularity-flow nextsteps WORK-123 [--json]    # read-only ordered plan
-singularity-flow next [--task TEXT]             # executes exactly one action
+singularity-flow next [--task TEXT]             # one action; grounding always uses the Story title
 singularity-flow guide WORK-123
 ```
 

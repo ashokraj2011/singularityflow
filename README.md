@@ -1253,11 +1253,11 @@ To execute one next action instead of only displaying the plan, use either form:
 ```
 
 ```bash
-sflow-next --task "Current objective"
-# equivalent: singularity-flow next --task "Current objective"
+sflow-next
+# equivalent: singularity-flow next
 ```
 
-The command performs exactly one lifecycle action. It recovers a pending push, prepares and grounds the active generation, submits an already-published generation, opens the normal interactive approval flow, or runs the terminal gate after completion. Copilot completes and publishes a prepared artifact; it does not silently chain that publication into submission. Approval verifies the real reviewer identity and authority group, activates the phase agent, then requires exact phase confirmation; every approval gets its own commit and push.
+The command performs exactly one lifecycle action. It recovers a pending push, prepares and grounds the active generation, submits an already-published generation, opens the normal interactive approval flow, or runs the terminal gate after completion. Lifecycle grounding uses the durable Story title, so a new Copilot session can paraphrase the objective without regenerating the phase world model. The legacy `--task` flag is accepted for compatibility but cannot change this governed identity; use explicit `wm ensure/compose --task` commands only when intentionally managing an ad-hoc task guide. Copilot completes and publishes a prepared artifact; it does not silently chain that publication into submission. Approval verifies the real reviewer identity and authority group, activates the phase agent, then requires exact phase confirmation; every approval gets its own commit and push.
 
 ## Progress
 
@@ -2003,7 +2003,7 @@ evidence workflow.
 | `singularity-flow action plan [STORY-OR-INITIATIVE]` | Create a short-lived action plan bound to subject kind, branch, HEAD, index, working-tree, and lifecycle hashes. |
 | `singularity-flow action authorize <PLAN-ID> --action <ACTION-ID> --confirm <ACTION-ID>` | Record one short-lived, machine-local authorization after reviewing that exact action. |
 | `singularity-flow action execute <PLAN-ID> --action <ACTION-ID> --authorization <TOKEN>` | Revalidate and run one reviewed action directly through the engine. The token is consumed once; read-only actions omit it. |
-| `sflow-next [--task TEXT] [--yes]` | Execute exactly one next valid action; alias for `singularity-flow next`. If a semantic world model is missing, interactive use asks before starting its model agent and non-interactive use requires explicit `--yes`. |
+| `sflow-next [--task TEXT] [--yes]` | Execute exactly one next valid action; alias for `singularity-flow next`. Lifecycle grounding is keyed by the durable Story title; `--task` is retained for compatibility and cannot trigger a second model from conversational paraphrasing. If a semantic world model is missing, interactive use asks before starting its model agent and non-interactive use requires explicit `--yes`. |
 | `singularity-flow inputs [PHASE] [--dry-run]` | Inspect or render approved phase-input dataflow. |
 | `singularity-flow agents list\|mappings\|lock\|sync\|status\|refresh-output` | Resolve Copilot-agent mappings and trust, materialize, inspect, or refresh remote Markdown agents. |
 | `singularity-flow mcp list\|status\|doctor` | Join governed MCP assignments to host server names and report static readiness without exposing host secrets or making network calls. |

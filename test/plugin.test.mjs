@@ -378,7 +378,9 @@ test('nextsteps skill delegates to the read-only deterministic action planner', 
 
 test('next skill executes one action and preserves explicit approval controls', async () => {
   const content = await readFile(path.join(pluginRoot, 'skills', 'sflow-next', 'SKILL.md'), 'utf8');
-  assert.match(content, /singularity-flow next --task/);
+  assert.match(content, /singularity-flow next`/);
+  assert.doesNotMatch(content, /next --task "<current objective>"/);
+  assert.match(content, /durable Story title/);
   assert.match(content, /singularity-flow nextsteps --json/);
   assert.match(content, /explicit consent/);
   assert.match(content, /singularity-flow wm ensure/);
@@ -393,7 +395,9 @@ test('guided run and world-model skills preserve consent and crash-recovery boun
   const run = await readFile(path.join(pluginRoot, 'skills', 'sflow-run', 'SKILL.md'), 'utf8');
   assert.match(run, /singularity-flow nextsteps --json/);
   assert.match(run, /explicit consent/);
-  assert.match(run, /singularity-flow run --task/);
+  assert.match(run, /singularity-flow run`/);
+  assert.doesNotMatch(run, /run --task "\$ARGUMENTS"/);
+  assert.match(run, /durable Story title/);
   assert.match(run, /pass `--yes` only after that answer/);
   assert.match(run, /If the next action is submission, ask whether to submit/);
 
@@ -415,6 +419,15 @@ test('generation skills display published documents instead of reducing them to 
     assert.match(content, /visible assistant response/i, `${name} must render outside tool output`);
     assert.match(content, /Shell\/tool block.*does not (?:count|satisfy)/i, `${name} must reject collapsed Shell output as review`);
     assert.match(content, /shown above/i, `${name} must explicitly prohibit the misleading shown-above response`);
+  }
+});
+
+test('governed phase skills reuse the durable Story title as world-model task identity', async () => {
+  for (const name of ['sflow-phase', 'sflow-requirements', 'sflow-design', 'sflow-implement', 'sflow-verify', 'sflow-review', 'sflow-release']) {
+    const content = await readFile(path.join(pluginRoot, 'skills', name, 'SKILL.md'), 'utf8');
+    assert.match(content, /workItem\.title.*STORY_TITLE/i, `${name} must read the governed Story title`);
+    assert.match(content, /wm compose[^\n]*--task "\$STORY_TITLE"/i, `${name} must compose with the stable Story title`);
+    assert.doesNotMatch(content, /--task "<(?:work objective|work-item summary|design objective|implementation objective|verification scope|review scope|release target)>"/i, `${name} must not invent a conversational materialization key`);
   }
 });
 

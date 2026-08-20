@@ -2,7 +2,6 @@
 name: sflow-next
 description: Execute the single next valid Singularity Flow action, including grounded phase generation, submission, interactive approval, publication recovery, or final governance.
 disable-model-invocation: true
-argument-hint: "[task focus]"
 
 ---
 # Execute the next workflow action
@@ -12,7 +11,7 @@ argument-hint: "[task focus]"
 
 Execute one lifecycle action, report its durable Git result, and stop. Never loop through approvals. The phase contract selects the agent; human identity grants approval authority.
 
-1. Run `singularity-flow nextsteps --json`. If it names `singularity-flow wm ensure`, explain that generation may start a repository-reading, file-writing Copilot agent and ask for explicit consent. Do not start it while waiting. On consent, run the exact command, then `singularity-flow next --task "<current objective>"`; on decline, stop. Otherwise run `singularity-flow next --task "<current objective>"`.
+1. Run `singularity-flow nextsteps --json`. If it names `singularity-flow wm ensure`, explain that generation may start a repository-reading, file-writing Copilot agent and ask for explicit consent. Do not start it while waiting. On consent, run the exact command, then `singularity-flow next`; on decline, stop. Otherwise run `singularity-flow next`. Never turn conversational paraphrases into `--task` values: lifecycle grounding uses the durable Story title so a new chat reuses the governed phase model.
 2. Let CLI synchronization, submission, terminal gate, or approval finish. Before approval, run `singularity-flow phase show <phase> --json`. Validate reviewer identity and authority, report the automatic phase agent, and require the exact phase name. Every recorded approval must produce its own commit and push.
 3. If `Next step prepared`, use its composed grounding and approved inputs. At **Human clarification checkpoint**, use `ask_user` and wait; `required` always pauses. Record answers with `singularity-flow clarification record <phase> --response-file <file>`. Without questions or a valid record, stop before authoring or publication. Then follow `/sf-phase`.
 4. Validate and run `singularity-flow phase publish <phase> --authored governed-agent --channel copilot-host`. Confirm sanitized `telemetry/<phase>-gen<N>.json`; use `--usage-json` only for exact external usage. A current-response record may be pending until the next submit reconciles it.

@@ -1751,7 +1751,19 @@ async function nextCommand(options) {
     return submitCommand(['submit', phase.id], options);
   }
 
-  const task = optionString(options, 'task', workflow.workItem.title);
+  // Lifecycle grounding must have a durable identity. Copilot commonly paraphrases the current
+  // objective when a contributor returns in a new chat; using that prose as the task-guide key
+  // made an otherwise ready phase look incomplete and could launch another expensive model build.
+  //
+  // The Story title is already immutable phase context shared by nextsteps, VS Code and fresh
+  // sessions, so `next` always uses it. Keep accepting --task for command-line compatibility, but
+  // do not let it change governed materialization identity. Direct `wm ensure/compose --task`
+  // remains the explicit interface for intentionally creating an ad-hoc task guide.
+  const requestedTask = optionString(options, 'task');
+  const task = workflow.workItem.title;
+  if (requestedTask && requestedTask.trim() !== task.trim()) {
+    console.warn(`Ignoring --task for lifecycle grounding; using the governed Story title ${JSON.stringify(task)} so the phase world model is reusable across sessions.`);
+  }
   const grounding = workflow.resolution?.worldModelGrounding ?? 'off';
   if (grounding !== 'off') {
     const readiness = await inspectWorkflowGrounding(root, workflow, phase.id, {

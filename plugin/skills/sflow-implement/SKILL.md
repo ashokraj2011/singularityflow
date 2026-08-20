@@ -11,8 +11,8 @@ argument-hint: "[implementation focus]"
 **Output contract:** Use the complete governed prompt and approved inputs, ask unresolved questions, then publish and show configured artifacts.
 
 1. Run `singularity-flow implement --json` first. It resolves the subject, phase, generation, pending publication and approval state, and returns the milestone, the checkpoint, and the underlying kernel operations. If the checkpoint is `recovery` or `approval`, stop there and relay it — those are human boundaries. Otherwise continue with the authoring below, which publishes through the same kernel operation the phase command uses.
-1. Run `singularity-flow status --json`; stop if the current phase is not `implementation`.
-2. Run `singularity-flow wm compose --phase implementation --task "<implementation objective>"` and use the complete returned prompt. If the exact grounding plan is missing or stale, show and run the returned `singularity-flow wm ensure --phase implementation --task "<implementation objective>"` only with explicit contributor authorization, then rerun the identical compose command. Use development and testing grounding to select entry points, conventions, and commands.
+1. Run `singularity-flow status --json`; stop if the current phase is not `implementation`, and read the exact `workItem.title` as `STORY_TITLE`.
+2. Run `singularity-flow wm compose --phase implementation --task "$STORY_TITLE"` and use the complete returned prompt. If the exact grounding plan is missing or stale, show and run the exact returned ensure command only with explicit contributor authorization, then rerun the identical compose command. Never substitute a conversational implementation objective for `STORY_TITLE`. Use development and testing grounding to select entry points, conventions, and commands.
 3. Read approved requirements, design artifacts, and the source locations selected by the grounding package.
 4. Inspect further files only as the implementation requires.
 5. Implement only approved scope; add or update tests and documentation. Tag tests with the corresponding `@ac:AC-n` identifiers.

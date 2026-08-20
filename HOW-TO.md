@@ -280,11 +280,13 @@ To execute the single next valid action instead of only viewing it:
 ```
 
 ```bash
-sflow-next --task "Current objective"
+sflow-next
 ```
 
 Run it again only when you deliberately want the following lifecycle action.
 It does not silently combine generation, submission, and approval.
+The phase world model is keyed by the governed Story title, not by prose from the current chat,
+so returning in a new Copilot session does not regenerate otherwise-ready grounding.
 
 ## 5. Generate and publish a phase
 

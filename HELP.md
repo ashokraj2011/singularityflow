@@ -1775,12 +1775,15 @@ singularity-flow phase show requirements --json
 singularity-flow documents view PHASE-REQUIREMENTS
 ```
 
-Use `/sf-next` or `sflow-next --task "<objective>"` to execute exactly one
+Use `/sf-next` or `sflow-next` to execute exactly one
 next valid action. Depending on state, it synchronizes a retained commit,
 prepares and grounds the current generation, submits a published generation,
 opens the interactive approval flow, or runs the final terminal gate. Generation
 and submission remain separate invocations. Approval never bypasses agent
 selection or confirmation, and its decision commit must be pushed before success.
+Lifecycle grounding uses the durable Story title rather than a conversational
+objective. The legacy `--task` option remains accepted for compatibility, but it
+cannot change this identity or cause an otherwise-ready phase model to regenerate.
 
 ## Progress and status
 

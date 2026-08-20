@@ -421,10 +421,23 @@ test('next can automatically build the configured deterministic light world mode
   const workId = 'NEXT-LIGHT-AUTO-1';
   flow(root, ['start', workId, '--from-branch', 'main', '--work-type', 'feature', '--agent', 'product-owner', '--title', 'Automatic light grounding', '--description', 'Build deterministic grounding before intake without a separate command.']);
 
-  const result = flow(root, ['next', '--task', 'Automatic light grounding']);
+  const result = flow(root, ['next']);
   assert.match(result.stdout, /Automatically building the deterministic light world model/);
   assert.match(result.stdout, /Light world model built with 0 model tokens/);
   assert.match(result.stdout, /Next step prepared: generate 'intake'/);
+  const stateBeforeReturn = execute('git', ['rev-parse', 'refs/heads/state'], root).stdout.trim();
+
+  // A new Copilot chat may describe the same work differently. `next` must not turn that
+  // conversational wording into a new task-guide identity and rebuild a model that is already
+  // ready for this Story and phase.
+  const returned = flow(root, ['next', '--task', 'Prepare intake and advance this work to its next valid step']);
+  assert.match(returned.stderr, /using the governed Story title "Automatic light grounding"/);
+  assert.doesNotMatch(returned.stdout, /Automatically building/);
+  assert.equal(execute('git', ['rev-parse', 'refs/heads/state'], root).stdout.trim(), stateBeforeReturn);
+  const availability = JSON.parse(flow(root, [
+    'wm', 'availability', '--phase', 'intake', '--task', 'Automatic light grounding', '--json'
+  ]).stdout);
+  assert.equal(availability.ready, true);
   const workflow = JSON.parse(await readFile(path.join(root, 'singularity/work-items', workId, 'workflow.json'), 'utf8'));
   assert.deepEqual(workflow.resolution.worldModelMaterialization, definition.worldModel.materialization);
   assert.equal(workflow.phases.intake.generation, 0);

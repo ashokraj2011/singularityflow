@@ -84,7 +84,7 @@ import { readDesignInventory } from './design-inventory.mjs';
 import { evaluateVisualCoverage } from './visual-coverage.mjs';
 import { listVisualComparisons } from './visual-compare.mjs';
 import { verifyMcpEvidence } from './mcp-evidence.mjs';
-import { IMPACT_CONFIG_PATH, normalizeImpactDefinition } from './impact-config.mjs';
+import { IMPACT_CONFIG_PATH, loadImpactDefinition, normalizeImpactDefinition } from './impact-config.mjs';
 import { modelFreedomSnapshot } from './model-freedom.mjs';
 import { operationContext } from './operation-context.mjs';
 import { PACKAGE_ROOT } from './package-root.mjs';
@@ -1300,6 +1300,9 @@ async function validateConfigurationCandidate(root, relative, content, definitio
     await writeText(candidatePath, content);
 
     const updatedDefinition = await loadDefinition(validationRoot);
+    if (existsSync(path.join(validationRoot, IMPACT_CONFIG_PATH))) {
+      await loadImpactDefinition(validationRoot, { required: true });
+    }
     const updatedPortfolio = await loadPortfolio(validationRoot, { required: false });
     if (updatedPortfolio) validatePortfolioWorldModelViews(updatedPortfolio, updatedDefinition);
     await discoverAgents(validationRoot);
@@ -1385,6 +1388,7 @@ export async function deleteConfigurationFile(root, requestedPath) {
     || relative.startsWith('.github/agents/');
   if (!deletable) throw new SingularityFlowError('Editor deletion is restricted to artifact templates, unreferenced governed-agent prompts, repository skills, and repository agents.');
   const references = [];
+  const impact = await loadImpactDefinition(root) ?? { studies: [] };
   if (relative.startsWith(`${templatesRoot}/`)) {
     const template = relative.slice(templatesRoot.length + 1);
     /**
@@ -1411,6 +1415,14 @@ export async function deleteConfigurationFile(root, requestedPath) {
       const mapping = await loadAgentMappings(root, { agents });
       for (const [copilotAgent, mappedAgent] of Object.entries(mapping.mappings)) {
         if (mappedAgent === deletedAgent.id) references.push(`Copilot agent mapping ${copilotAgent}`);
+      }
+    }
+  }
+  for (const study of impact.studies.filter((candidate) =>
+    candidate.kind === 'prompt-set-randomized' && candidate.status !== 'closed')) {
+    for (const variant of study.variants) {
+      for (const [phaseId, prompt] of Object.entries(variant.prompts)) {
+        if (prompt.path === relative) references.push(`Flow Impact study ${study.studyRunId}/${variant.id}/${phaseId}`);
       }
     }
   }

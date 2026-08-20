@@ -271,6 +271,13 @@ export async function startStory(root, {
       pushed: publication.pushed === true,
       commit: publication.sha
     },
+    measurement: workflow.measurement?.plan ? {
+      status: workflow.measurement.status,
+      studyId: workflow.measurement.plan.studyId,
+      studyRunId: workflow.measurement.plan.studyRunId ?? null,
+      cohort: workflow.measurement.plan.groupId,
+      promptVariant: workflow.measurement.plan.variantId ?? null
+    } : { status: workflow.measurement?.status ?? 'not-enrolled' },
     ...(storyBase.scope === 'capability' ? {
       capabilityBase: {
         ...storyBase.plan.record,

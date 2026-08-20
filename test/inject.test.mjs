@@ -110,6 +110,22 @@ test('injectAgentPrompt replaces the placeholder', async () => {
   assert.ok(!text.includes('{{WORLD_MODEL}}'));
 });
 
+test('injectAgentPrompt replaces only the governed prompt body for a prompt-study variant', async () => {
+  const root = await fixtureRoot();
+  const config = definition([{ when: { agent: 'architect' }, include: ['architecture/*'] }], 'replace');
+  const promptOverride = {
+    text: '# Experimental architect\n\nUse evidence.\n\n{{WORLD_MODEL}}\n',
+    studyRunId: 'architect-prompts@2',
+    variant: { id: 'evidence-first', label: 'Evidence first' },
+    sha256: 'b'.repeat(64)
+  };
+  const { text, injection } = await injectAgentPrompt(root, config, 'architect', {}, { promptOverride });
+  assert.match(text, /Experimental architect/);
+  assert.match(text, /Hexagonal/);
+  assert.doesNotMatch(text, /Design carefully/);
+  assert.deepEqual(injection.promptOverride, promptOverride);
+});
+
 test('injectAgentPrompt appends without a placeholder and respects off mode', async () => {
   const root = await fixtureRoot({ placeholder: false });
   const config = definition([{ when: {}, include: ['architecture/*'] }], 'append');
@@ -148,4 +164,35 @@ test('recordInjection writes an auditable generation context record', async () =
   assert.equal(written.files.length, 1);
   assert.match(written.files[0].sha256, /^[0-9a-f]{64}$/);
   assert.equal(written.modelCommit, 'a'.repeat(40));
+});
+
+test('recordInjection preserves prompt-study, agent, and remote-skill provenance', async () => {
+  const root = await fixtureRoot();
+  const rendered = await renderInjection(root, definition([{ when: {}, include: ['architecture/*'] }]), { agent: 'architect' });
+  const workflow = { workItem: { id: 'ENG-10' } };
+  const phase = { id: 'design', generation: 0 };
+  const workDir = path.join(root, 'singularity/work-items/ENG-10');
+  const promptStudy = {
+    studyRunId: 'architect-prompts@2',
+    variant: { id: 'evidence-first', label: 'Evidence first' },
+    governedAgent: { id: 'architect', sha256: 'a'.repeat(64) },
+    phase: 'design'
+  };
+  const promptDefinition = {
+    path: 'singularity/work-items/ENG-10/measurement/prompt.md',
+    sourcePath: 'singularity/prompts/architect-evidence.md',
+    sha256: 'b'.repeat(64),
+    bytes: 42
+  };
+  const remoteSkills = [{ id: 'security-guide', sha256: 'c'.repeat(64) }];
+  const { record } = await recordInjection(root, workflow, phase, {
+    ...rendered,
+    agent: 'architect',
+    promptStudy,
+    promptDefinition,
+    remoteSkills
+  }, { workDir });
+  assert.deepEqual(record.promptStudy, promptStudy);
+  assert.deepEqual(record.promptDefinition, promptDefinition);
+  assert.deepEqual(record.remoteSkills, remoteSkills);
 });

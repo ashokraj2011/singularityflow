@@ -16,4 +16,5 @@ argument-hint: "[status|study|enroll|exposure|evidence|finalize|verify|compare|e
 4. Import only a user-selected JSON or YAML evidence envelope. For a raw provider observation, use `evidence collect <PROVIDER> <FILE> --commit <FULL-SHA> --run-id <ID>` so the engine creates the strict envelope. Do not rewrite provider observations or replace `unavailable` with estimates.
 5. `finalize` is valid only for a completed Story and creates a hash-bound Impact Receipt through the normal publication transaction.
 6. For `compare`, preserve the engine's method, evidence grade, privacy-floor refusal, uncertainty interval, guardrail result, and exact inference label. Matched observational and before/after results are not causal.
-7. Mutating operations commit and push through Singularity Flow. Report the commit or pending-publication state and the next valid action.
+7. For a prompt-set study, use `impact study prompt-hash <singularity/prompts/FILE.md>` for each reviewed prompt. Never calculate or substitute a hash yourself. Explain that Story assignment is deterministic, the assigned variant is disclosed, and an agent override would contaminate and therefore block the comparison.
+8. Mutating operations commit and push through Singularity Flow. Report the commit or pending-publication state and the next valid action.

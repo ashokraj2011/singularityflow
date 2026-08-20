@@ -1,9 +1,9 @@
 {
   "schemaVersion": 1,
   "generatedFrom": "docs/topics",
-  "sourceCommit": "cf1227870384e5ba04db1a00cf14831de7102d00",
+  "sourceCommit": "a6996536abec081543ebf689107b453cb282479c",
   "topicCount": 54,
-  "contentSha256": "b9459dac36ce5bde09d9b3d57ce0f2183bc6dbdc30e04ae69c505f26923e6b1b",
+  "contentSha256": "fb76a0e30e652aafb6f861007c75b7c86bfad2d591d97ae56146b183fb908e01",
   "topics": [
     {
       "id": "activity-and-prompt-audit",
@@ -155,8 +155,8 @@
     {
       "id": "impact-framework",
       "title": "Impact receipts and studies",
-      "version": 2,
-      "sha256": "0613a484d932cb5703c74b94e42e8480dcfd1f7b8f0b6543272f00ce07f2c384",
+      "version": 3,
+      "sha256": "42a1c7a2374394a4e5b529cb651b1d687585b30a504dd8de333b2571ad2a9837",
       "file": "impact-framework.md"
     },
     {

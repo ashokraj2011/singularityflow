@@ -157,14 +157,14 @@ export async function renderInjection(root, definition, signals = {}) {
   return { ...resolution, modelCommit, sections, text };
 }
 
-export async function injectAgentPrompt(root, definition, agentId, signals = {}) {
+export async function injectAgentPrompt(root, definition, agentId, signals = {}, { promptOverride = null } = {}) {
   const agent = definition.agents?.[agentId];
   if (!agent) throw new SingularityFlowError(`Unknown governed agent '${agentId}'.`);
-  const base = agent.prompt;
+  const base = promptOverride?.text ?? agent.prompt;
   const rendered = await renderInjection(root, definition, { ...signals, agent: agentId });
   if (rendered.mode === 'off' || !rendered.sections.length) return {
     text: base.replaceAll(rendered.placeholder, ''),
-    injection: { ...rendered, applied: false }
+    injection: { ...rendered, applied: false, promptOverride }
   };
   const hasPlaceholder = base.includes(rendered.placeholder);
   const applied = hasPlaceholder || rendered.mode === 'append';
@@ -173,7 +173,7 @@ export async function injectAgentPrompt(root, definition, agentId, signals = {})
     : rendered.mode === 'append'
       ? `${base.trimEnd()}\n\n${rendered.text}\n`
       : base;
-  return { text, injection: { ...rendered, applied } };
+  return { text, injection: { ...rendered, applied, promptOverride } };
 }
 
 export async function recordInjection(root, workflow, phase, injection, { workDir }) {
@@ -203,6 +203,9 @@ export async function recordInjection(root, workflow, phase, injection, { workDi
     manifestSha256: injection.manifestSha256 ?? null,
     fresh: injection.fresh ?? null,
     renderedSha256: injection.renderedSha256 ?? null,
+    promptStudy: injection.promptStudy ?? null,
+    promptDefinition: injection.promptDefinition ?? null,
+    remoteSkills: structuredClone(injection.remoteSkills ?? []),
     promptPath: injection.renderedText != null ? posix(path.relative(root, promptFile)) : null,
     files: injection.sections.map((section) => ({
       path: section.path, sha256: section.sha256, bytes: section.bytes,

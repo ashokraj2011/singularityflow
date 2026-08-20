@@ -1,5 +1,5 @@
 import { createHash } from 'node:crypto';
-import { mkdir, readFile, readdir } from 'node:fs/promises';
+import { copyFile, mkdir, readFile, readdir } from 'node:fs/promises';
 import path from 'node:path';
 import YAML from 'yaml';
 import { deriveReport } from './report.mjs';
@@ -67,7 +67,8 @@ export async function initializeStoryImpact(root, config, workflow, source) {
   const impact = workflow.resolution?.impact;
   const studies = eligibleImpactStudies(impact, {
     workType: workflow.workItem.workType,
-    capabilityId: workflow.resolution?.capability?.id ?? null
+    capabilityId: workflow.resolution?.capability?.id ?? null,
+    createdAt: workflow.workItem.createdAt
   });
   workflow.measurement = {
     schemaVersion: currentSchemaVersion('impact-measurement-state'),
@@ -79,16 +80,87 @@ export async function initializeStoryImpact(root, config, workflow, source) {
     invalidations: []
   };
   if (!studies.length) return null;
+  if (studies.length > 1) {
+    throw new SingularityFlowError(
+      `Story '${workflow.workItem.id}' matches multiple active Flow Impact studies (${studies.map((study) => study.studyRunId ?? study.id).join(', ')}). Make their work-type and capability scopes disjoint before starting work.`,
+      { code: 'IMPACT_STUDY_SCOPE_OVERLAP' }
+    );
+  }
   const study = studies[0];
   const group = deterministicStudyGroup(study, workflow.workItem.id);
   const suggested = suggestedClassification(source);
   const createdAt = workflow.workItem.createdAt;
+  let experiment = null;
+  if (study.kind === 'prompt-set-randomized') {
+    const variant = study.variants.find((candidate) => candidate.id === group.id);
+    if (!variant) throw new SingularityFlowError(`Prompt study '${study.studyRunId}' has no variant '${group.id}'.`);
+    const governedAgents = Object.fromEntries(study.targetPhases.map((phaseId) => {
+      const agentId = workflow.phases?.[phaseId]?.defaultAgent ?? null;
+      const agentSha256 = agentId ? workflow.resolution?.agents?.[agentId]?.sha256 ?? null : null;
+      if (!agentId || !agentSha256) {
+        throw new SingularityFlowError(`Prompt study '${study.studyRunId}' cannot pin the governed agent for phase '${phaseId}'.`);
+      }
+      return [phaseId, { id: agentId, sha256: agentSha256 }];
+    }));
+    const promptSources = {};
+    for (const phaseId of study.targetPhases) {
+      const prompt = variant.prompts[phaseId];
+      const sourceFile = await secureRepositoryPath(root, prompt.path, {
+        label: `Prompt study '${study.studyRunId}' variant '${variant.id}' phase '${phaseId}'`,
+        mustExist: true,
+        type: 'file'
+      });
+      const current = await snapshot(sourceFile.absolute);
+      if (current.sha256 !== prompt.sha256) {
+        throw new SingularityFlowError(
+          `Prompt study '${study.studyRunId}' is stale: ${prompt.path} is ${current.sha256}, expected ${prompt.sha256}. Nothing was assigned.`,
+          { code: 'IMPACT_VARIANT_DRIFT' }
+        );
+      }
+      promptSources[phaseId] = { prompt, sourceFile, current };
+    }
+    const prompts = {};
+    for (const [phaseId, source] of Object.entries(promptSources)) {
+      const { prompt, sourceFile, current } = source;
+      const destination = path.join(measurementRoot(root, config, workflow), 'prompt-sets', study.studyRunId, variant.id, `${phaseId}-${prompt.sha256}.md`);
+      await mkdir(path.dirname(destination), { recursive: true });
+      await copyFile(sourceFile.absolute, destination);
+      prompts[phaseId] = {
+        sourcePath: prompt.path,
+        path: relative(root, destination),
+        sha256: prompt.sha256,
+        bytes: current.size
+      };
+    }
+    experiment = {
+      kind: study.kind,
+      studyRunId: study.studyRunId,
+      generation: study.generation,
+      hypothesis: study.hypothesis,
+      targetPhases: [...study.targetPhases],
+      assignment: {
+        algorithm: study.assignment.algorithm,
+        seedSha256: impactSha256(study.assignment.seed),
+        unit: 'story'
+      },
+      variant: { id: variant.id, label: variant.label },
+      governedAgents,
+      controlConfigurationSha256: workflow.resolution?.configSha256 ?? null,
+      prompts
+    };
+  }
   const core = {
     schemaVersion: currentSchemaVersion('impact-plan'),
     workId: workflow.workItem.id,
-    study: { id: study.id, configurationSha256: impact.sha256, configurationPath: impact.path },
+    study: {
+      id: study.id,
+      configurationSha256: impact.sha256,
+      configurationPath: impact.path,
+      definitionSha256: study.definitionSha256 ?? null
+    },
     method: study.method,
     group: { id: group.id, plannedAssistanceMode: group.assistanceMode },
+    experiment,
     classification: { suggested, confirmed: null, confirmedAt: null, confirmedBy: null },
     matching: {
       capability: workflow.resolution?.capability?.id ?? 'unmapped',
@@ -101,9 +173,108 @@ export async function initializeStoryImpact(root, config, workflow, source) {
   const plan = { ...core, integrity: { sha256: impactSha256(core) } };
   const file = path.join(measurementRoot(root, config, workflow), 'plan.json');
   await writeJson(file, plan);
-  workflow.measurement.plan = { path: relative(root, file), sha256: plan.integrity.sha256, studyId: study.id, groupId: group.id };
+  workflow.measurement.plan = {
+    path: relative(root, file),
+    sha256: plan.integrity.sha256,
+    studyId: study.id,
+    groupId: group.id,
+    ...(experiment ? { studyRunId: experiment.studyRunId, variantId: experiment.variant.id, kind: experiment.kind } : {})
+  };
   workflow.measurement.classification = structuredClone(plan.classification);
   return { plan, path: relative(root, file) };
+}
+
+/**
+ * Return the immutable prompt selected for this Story and phase.
+ *
+ * Prompt studies replace only the governed agent's prompt body. Agent identity, tools, remote
+ * skills, model routing, grounding, templates, gates and ceremony continue down their normal paths.
+ */
+export async function resolveImpactPromptOverride(root, workflow, phaseId, { agentId = null, agentSha256 = null } = {}) {
+  if (!workflow?.measurement?.plan || !phaseId) return null;
+  const plan = await readPlan(root, workflow);
+  const experiment = plan?.experiment;
+  if (experiment?.kind !== 'prompt-set-randomized' || !experiment.targetPhases.includes(phaseId)) return null;
+  const prompt = experiment.prompts?.[phaseId];
+  if (!prompt) throw new SingularityFlowError(`Prompt study '${experiment.studyRunId}' has no pinned prompt for phase '${phaseId}'.`);
+  const governedAgent = experiment.governedAgents?.[phaseId];
+  if (!governedAgent || (agentId != null && governedAgent.id !== agentId)
+    || (agentSha256 != null && governedAgent.sha256 !== agentSha256)) {
+    throw new SingularityFlowError(
+      `Prompt study '${experiment.studyRunId}' requires governed agent '${governedAgent?.id ?? 'unavailable'}'@${governedAgent?.sha256 ?? 'unavailable'} for phase '${phaseId}'. Agent overrides would contaminate the comparison.`,
+      { code: 'IMPACT_EXPERIMENT_AGENT_MISMATCH' }
+    );
+  }
+  const target = await secureRepositoryPath(root, prompt.path, {
+    label: `Pinned prompt study input '${experiment.studyRunId}/${phaseId}'`,
+    mustExist: true,
+    type: 'file'
+  });
+  const current = await snapshot(target.absolute);
+  if (current.sha256 !== prompt.sha256 || current.size !== prompt.bytes) {
+    throw new SingularityFlowError(
+      `Pinned prompt study input changed for '${experiment.studyRunId}/${phaseId}'. Expected ${prompt.sha256}; found ${current.sha256}.`,
+      { code: 'IMPACT_PINNED_PROMPT_CHANGED' }
+    );
+  }
+  return {
+    text: await readFile(target.absolute, 'utf8'),
+    studyRunId: experiment.studyRunId,
+    variant: structuredClone(experiment.variant),
+    governedAgent: structuredClone(governedAgent),
+    phaseId,
+    path: prompt.path,
+    sourcePath: prompt.sourcePath,
+    sha256: prompt.sha256,
+    bytes: prompt.bytes
+  };
+}
+
+/**
+ * Verify the immutable Story-local measurement plan without consulting mutable shared study files.
+ * Later study generations must not change an existing Story's assigned prompt.
+ */
+export async function verifyImpactPlanBinding(root, workflow) {
+  const plan = await readPlan(root, workflow);
+  if (!plan) return { valid: true, plan: null, errors: [] };
+  const errors = [];
+  if (plan.workId !== workflow.workItem?.id) errors.push('Impact plan work ID does not match the Story.');
+  if (workflow.measurement?.plan?.studyId !== plan.study?.id
+    || workflow.measurement?.plan?.groupId !== plan.group?.id) {
+    errors.push('Impact plan summary does not match its immutable plan.');
+  }
+  const experiment = plan.experiment;
+  if (experiment?.kind === 'prompt-set-randomized') {
+    if (experiment.controlConfigurationSha256 !== workflow.resolution?.configSha256) {
+      errors.push('Prompt-study control configuration does not match the Story configuration.');
+    }
+    if (workflow.measurement?.plan?.studyRunId !== experiment.studyRunId
+      || workflow.measurement?.plan?.variantId !== experiment.variant?.id) {
+      errors.push('Prompt-study assignment summary does not match its immutable plan.');
+    }
+    for (const [phaseId, prompt] of Object.entries(experiment.prompts ?? {})) {
+      const expectedAgent = workflow.phases?.[phaseId]?.defaultAgent;
+      const pinnedAgent = experiment.governedAgents?.[phaseId];
+      if (!pinnedAgent || pinnedAgent.id !== expectedAgent
+        || pinnedAgent.sha256 !== workflow.resolution?.agents?.[expectedAgent]?.sha256) {
+        errors.push(`Prompt-study governed agent does not match the Story for ${phaseId}.`);
+      }
+      try {
+        const target = await secureRepositoryPath(root, prompt.path, {
+          label: `Pinned prompt study input '${experiment.studyRunId}/${phaseId}'`,
+          mustExist: true,
+          type: 'file'
+        });
+        const current = await snapshot(target.absolute);
+        if (current.sha256 !== prompt.sha256 || current.size !== prompt.bytes) {
+          errors.push(`Pinned prompt changed for ${phaseId}: expected ${prompt.sha256}, found ${current.sha256}.`);
+        }
+      } catch (error) {
+        errors.push(error.message);
+      }
+    }
+  }
+  return { valid: errors.length === 0, plan, errors };
 }
 
 export function impactImplementationGate(workflow, phaseId) {
@@ -482,6 +653,73 @@ function receiptCompleteness(selected) {
   };
 }
 
+async function promptExperimentReceipt(root, workflow, plan) {
+  const experiment = plan?.experiment;
+  if (experiment?.kind !== 'prompt-set-randomized') return null;
+  const generations = [];
+  const workDirectory = posix(path.dirname(path.dirname(workflow.measurement.plan.path)));
+  for (const phaseId of experiment.targetPhases) {
+    const phase = workflow.phases?.[phaseId];
+    for (let generation = 1; generation <= Number(phase?.generation ?? 0); generation += 1) {
+      const relativePath = posix(path.join(
+        workDirectory,
+        'context',
+        `${phaseId}-gen${generation}.json`
+      ));
+      const target = await secureRepositoryPath(root, relativePath, {
+        label: `Prompt composition ${phaseId} generation ${generation}`,
+        type: 'file'
+      });
+      if (!target.exists) {
+        generations.push({ phaseId, generation, status: 'unavailable', promptDefinitionSha256: null, composedPromptSha256: null });
+        continue;
+      }
+      let record;
+      try { record = readRecord('prompt-injection', await readJson(target.absolute)).record; }
+      catch {
+        generations.push({ phaseId, generation, status: 'unavailable', promptDefinitionSha256: null, composedPromptSha256: null });
+        continue;
+      }
+      const expected = experiment.prompts[phaseId];
+      const matched = record.promptStudy?.studyRunId === experiment.studyRunId
+        && record.promptStudy?.variant?.id === experiment.variant.id
+        && record.agent === experiment.governedAgents?.[phaseId]?.id
+        && record.promptStudy?.governedAgent?.sha256 === experiment.governedAgents?.[phaseId]?.sha256
+        && record.promptDefinition?.sha256 === expected.sha256;
+      generations.push({
+        phaseId,
+        generation,
+        status: matched ? 'exact' : 'deviation',
+        promptDefinitionSha256: record.promptDefinition?.sha256 ?? null,
+        composedPromptSha256: record.renderedSha256 ?? null,
+        agent: record.agent ?? null,
+        agentSha256: record.promptStudy?.governedAgent?.sha256 ?? null,
+        remoteSkills: structuredClone(record.remoteSkills ?? [])
+      });
+    }
+  }
+  const expectedGenerations = generations.length;
+  const exactGenerations = generations.filter((entry) => entry.status === 'exact').length;
+  return {
+    kind: experiment.kind,
+    studyRunId: experiment.studyRunId,
+    variant: structuredClone(experiment.variant),
+    targetPhases: [...experiment.targetPhases],
+    promptDefinitions: Object.fromEntries(Object.entries(experiment.prompts).map(([phaseId, prompt]) => [phaseId, {
+      sha256: prompt.sha256,
+      bytes: prompt.bytes
+    }])),
+    generations,
+    adherence: {
+      expectedGenerations,
+      exactGenerations,
+      unavailableGenerations: generations.filter((entry) => entry.status === 'unavailable').length,
+      deviations: generations.filter((entry) => entry.status === 'deviation').length,
+      status: expectedGenerations === 0 ? 'unavailable' : exactGenerations === expectedGenerations ? 'exact' : 'partial'
+    }
+  };
+}
+
 export async function createImpactReceipt(root, config, workflow, finalization) {
   if (!workflow.measurement?.plan || workflow.measurement.status === 'opted-out') return null;
   const plan = await readPlan(root, workflow);
@@ -505,6 +743,7 @@ export async function createImpactReceipt(root, config, workflow, finalization) 
   // constructing the receipt. This keeps an identical retry byte-for-byte stable.
   const { observations, selected } = selectAuthoritativeImpactEvidence(workflow, [...native, ...imported]);
   const exposures = exposureSummary(workflow);
+  const experiment = await promptExperimentReceipt(root, workflow, plan);
   const core = {
     schemaVersion: currentSchemaVersion('impact-receipt'),
     status: 'finalized',
@@ -518,7 +757,14 @@ export async function createImpactReceipt(root, config, workflow, finalization) 
       complexity: plan.classification.confirmed.complexity,
       risk: plan.classification.confirmed.risk
     },
-    study: { id: study.id, method: study.method, configurationSha256: plan.study.configurationSha256, groupId: plan.group.id },
+    study: {
+      id: study.id,
+      method: study.method,
+      configurationSha256: plan.study.configurationSha256,
+      ...(plan.study.definitionSha256 ? { definitionSha256: plan.study.definitionSha256 } : {}),
+      groupId: plan.group.id
+    },
+    experiment,
     assistance: { planned: plan.group.plannedAssistanceMode, actual: actualAssistance(exposures), exposure: exposures },
     metrics: Object.fromEntries([...selected].map(([metric, evidence]) => [metric, {
       ...evidence.observation, assurance: evidence.provider.assurance
@@ -599,8 +845,15 @@ export async function verifyImpactReceipt(root, workflow) {
     for (const [key, value] of Object.entries(expectedSubject)) {
       if (receipt.subject?.[key] !== value) errors.push(`Receipt subject ${key} does not match the governed measurement plan.`);
     }
-    if (receipt.study?.id !== plan.study.id || receipt.study?.configurationSha256 !== plan.study.configurationSha256 || receipt.study?.groupId !== plan.group.id) {
+    if (receipt.study?.id !== plan.study.id
+      || receipt.study?.configurationSha256 !== plan.study.configurationSha256
+      || (plan.study.definitionSha256 != null && receipt.study?.definitionSha256 !== plan.study.definitionSha256)
+      || receipt.study?.groupId !== plan.group.id) {
       errors.push('Receipt study or cohort does not match the governed measurement plan.');
+    }
+    const expectedExperiment = await promptExperimentReceipt(root, workflow, plan);
+    if (canonicalJson(receipt.experiment ?? null) !== canonicalJson(expectedExperiment)) {
+      errors.push('Receipt prompt-study provenance does not match the pinned prompts and generation compositions.');
     }
   }
   let selected = new Map();
@@ -738,7 +991,12 @@ function cohortKey(receipt, dimensions) {
 
 export function compareImpactReceipts(receipts, study, { filters = {} } = {}) {
   for (const key of Object.keys(filters)) if (!study.privacy.allowedDimensions.includes(key)) throw new SingularityFlowError(`Privacy policy does not allow filtering by '${key}'.`);
-  let selected = receipts.filter((receipt) => receipt.study?.id === study.id && receipt.status === 'finalized');
+  let selected = receipts.filter((receipt) => receipt.study?.id === study.id
+    && receipt.status === 'finalized'
+    && (study.kind !== 'prompt-set-randomized' || (
+      receipt.experiment?.studyRunId === study.studyRunId
+      && receipt.study?.definitionSha256 === study.definitionSha256
+    )));
   selected = selected.filter((receipt) => Object.entries(filters).every(([key, value]) => cohortKey(receipt, [key]) === `${key}=${value}`));
   const groups = new Map(study.groups.map((group) => [group.id, []]));
   for (const receipt of selected) groups.get(receipt.study.groupId)?.push(receipt);
@@ -778,15 +1036,31 @@ export function compareImpactReceipts(receipts, study, { filters = {} } = {}) {
   const qualityPassed = guardrails.length > 0 && guardrails.every((item) => item.passed);
   const rolloutVerification = study.method === 'phased-rollout' ? verifyRolloutDesign(selected, study, floor) : null;
   const causal = study.method === 'phased-rollout' && rolloutVerification.valid;
+  const randomized = study.method === 'randomized' && study.kind === 'prompt-set-randomized';
   const label = !guardrails.length ? 'observed acceleration; quality validation incomplete'
     : !qualityPassed ? 'observed acceleration; quality guardrails failed'
-      : causal ? 'validated causal gain' : 'quality-gated matched-cohort association';
+      : causal ? 'validated causal gain'
+        : randomized ? 'quality-gated randomized prompt-set comparison'
+          : 'quality-gated matched-cohort association';
+  const promptAdherence = randomized ? {
+    receipts: selected.length,
+    exact: selected.filter((receipt) => receipt.experiment?.adherence?.status === 'exact').length,
+    partial: selected.filter((receipt) => receipt.experiment?.adherence?.status === 'partial').length,
+    unavailable: selected.filter((receipt) => !['exact', 'partial'].includes(receipt.experiment?.adherence?.status)).length
+  } : null;
   return {
     schemaVersion: 1,
     study: study.id,
+    studyRunId: study.studyRunId ?? study.id,
+    studyDefinitionSha256: study.definitionSha256 ?? null,
+    experimentKind: study.kind ?? 'delivery-comparison',
+    hypothesis: study.hypothesis ?? null,
     method: study.method,
-    evidenceGrade: causal ? 'A' : ['matched-observational', 'phased-rollout'].includes(study.method) ? 'B' : 'C',
-    inference: causal ? 'causal-estimate' : study.method === 'phased-rollout' ? 'observed-phased-rollout-association' : study.method === 'matched-observational' ? 'quality-gated-observed-association' : 'observed-change',
+    evidenceGrade: causal ? 'A' : ['matched-observational', 'phased-rollout', 'randomized'].includes(study.method) ? 'B' : 'C',
+    inference: causal ? 'causal-estimate'
+      : randomized ? 'randomized-intention-to-treat-comparison'
+        : study.method === 'phased-rollout' ? 'observed-phased-rollout-association'
+          : study.method === 'matched-observational' ? 'quality-gated-observed-association' : 'observed-change',
     label,
     primaryMetric: study.primaryMetric,
     cohorts: {
@@ -804,6 +1078,7 @@ export function compareImpactReceipts(receipts, study, { filters = {} } = {}) {
       confidenceInterval: bootstrapStratifiedGain(matched, study.primaryMetric.direction, study.matching.weighting, study.reporting.bootstrapSamples, study.reporting.confidenceLevel, study.matching.seed)
     },
     guardrails,
+    promptAdherence,
     rollout: rolloutVerification,
     qualityGatePassed: qualityPassed,
     completeness: { eligibleReceipts: selected.length, matchedStrata: matched.length, usableBaseline: baseValues.length, usableTreatment: treatmentValues.length }

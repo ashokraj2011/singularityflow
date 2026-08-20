@@ -805,7 +805,7 @@ test('the journey rail selects any Story phase and exposes its artifacts and app
           id: 'specification', label: 'Specification', status: 'approved', generation: 1,
           requiredArtifact: { path: 'artifacts/specification/spec.md' }, artifacts: [],
           approvals: [{ decision: 'approved', at: '2026-08-20T08:00:00.000Z',
-            authorityGroup: 'product', actor: { name: 'Ashok Raj', email: 'ashok@example.test' } }]
+            authorityGroup: 'product', actor: { name: 'Alex Reviewer', email: 'alex@example.test' } }]
         },
         implementation: {
           id: 'implementation', label: 'Implementation', status: 'in_progress', generation: 1,
@@ -833,9 +833,9 @@ test('the journey rail selects any Story phase and exposes its artifacts and app
   assert.equal(selected.artifacts.length, 1);
   assert.equal(selected.artifacts[0].path,
     'singularity/work-items/WRK-42/artifacts/specification/spec.md');
-  assert.deepEqual(selected.artifacts[0].approvals.map((approval) => approval.actor), ['Ashok Raj'],
+  assert.deepEqual(selected.artifacts[0].approvals.map((approval) => approval.actor), ['Alex Reviewer'],
     'Story phase approval applies to every artifact in its submitted generation');
-  assert.deepEqual(selected.approvals.map((approval) => approval.actor), ['Ashok Raj']);
+  assert.deepEqual(selected.approvals.map((approval) => approval.actor), ['Alex Reviewer']);
   assert.equal(selected.stages[0].approved, true);
   assert.equal(selected.stages[1].current, true,
     'inspecting a completed phase never changes which phase is active');

@@ -306,6 +306,9 @@ export function storyStatusMarkdown(workflow) {
       ? [`- Capability: **${workflow.resolution.capability.name}** (\`${workflow.resolution.capability.id}\`)`,
         `- Capability map: \`${workflow.resolution.capability.map.sha256}\``]
       : []),
+    ...(workflow.measurement?.plan?.kind === 'prompt-set-randomized'
+      ? [`- Prompt study: **${workflow.measurement.plan.variantId}** · \`${workflow.measurement.plan.studyRunId}\``]
+      : []),
     `- Overall status: **${workflow.status}**`,
     `- Current phase: **${workflow.currentPhase ?? (workflow.status === 'cancelled' ? 'cancelled and archived' : 'complete')}**`,
     ...(workflow.cancellation ? [

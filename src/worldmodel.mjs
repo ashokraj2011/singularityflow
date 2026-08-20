@@ -55,6 +55,7 @@ import { PACKAGE_ROOT } from './package-root.mjs';
 import { withWorldModelSourceScope } from './source-scope.mjs';
 import { currentSchemaVersion, readRecord } from './schema-migrations.mjs';
 import { astCommand } from './ast-intelligence.mjs';
+import { resolveImpactPromptOverride } from './impact.mjs';
 
 const configRelative = 'singularity/worldmodel.json';
 const CHECKPOINT_SCHEMA_VERSION = currentSchemaVersion('worldmodel-checkpoint');
@@ -2299,7 +2300,15 @@ async function compose(root, options) {
     const staleness = assertWorldModelStaleness(config.staleness, false, message);
     if (staleness.warns) console.error(`Warning: ${message}`);
   }
-  const { text, injection } = await injectAgentPrompt(root, definition, agent, signals);
+  const promptStudy = workflow
+    ? await resolveImpactPromptOverride(root, workflow, signals.phase, {
+        agentId: agent,
+        agentSha256: definition.agents?.[agent]?.sha256 ?? null
+      })
+    : null;
+  const { text, injection } = await injectAgentPrompt(root, definition, agent, signals, {
+    promptOverride: promptStudy
+  });
   const phase = workflow?.phases?.[signals.phase] ?? null;
   if (workflow && !phase) throw new SingularityFlowError(`Unknown workflow phase '${signals.phase}'.`);
   const remote = phase ? await renderAgentSkills(root, workflow, phase, session ? { ...session, agent } : null, {
@@ -2424,6 +2433,12 @@ async function compose(root, options) {
     phase: signals.phase,
     generation: phase ? Number(phase.generation ?? 0) + 1 : null,
     agent,
+    promptStudy: promptStudy ? {
+      studyRunId: promptStudy.studyRunId,
+      variant: promptStudy.variant.id,
+      phase: promptStudy.phaseId,
+      sha256: promptStudy.sha256
+    } : null,
     task: optionString(options, 'task') ?? null,
     modelCommit,
     manifestSha256: manifestInfo.sha256,
@@ -2443,7 +2458,7 @@ async function compose(root, options) {
   if (cacheEnabled) console.error(`Composition cache: ${cached.hit ? 'hit' : 'miss'} ${cached.key.slice(0, 12)}.`);
 
   if (dryRun) {
-    console.log(`phase: ${signals.phase}  governed agent: ${agent}  clarification: ${clarificationPolicy.mode}  change requests: ${openChangeRequests.length}  required files: ${mandatory.length}  capability files: ${capability.files.length}  rules matched: ${injection.matchedRules}  rule files: ${injection.sections.length}  agent skills: ${remote.skills.length}  fresh: ${required.freshness.fresh ? 'yes' : 'no'}`);
+    console.log(`phase: ${signals.phase}  governed agent: ${agent}  prompt: ${promptStudy ? `${promptStudy.variant.id} · ${promptStudy.studyRunId}` : 'agent default'}  clarification: ${clarificationPolicy.mode}  change requests: ${openChangeRequests.length}  required files: ${mandatory.length}  capability files: ${capability.files.length}  rules matched: ${injection.matchedRules}  rule files: ${injection.sections.length}  agent skills: ${remote.skills.length}  fresh: ${required.freshness.fresh ? 'yes' : 'no'}`);
     files.forEach((section) => console.log(`  ${section.category}:${section.path} (${section.injectedBytes}/${section.bytes} bytes)${section.truncated ? ' (truncated)' : ''}`));
     remote.skills.forEach((skill) => console.log(`  agent:${session?.agent ?? 'unknown'}/${skill.id} (${skill.size} bytes) @${skill.sha256.slice(0, 12)}`));
     return;
@@ -2453,6 +2468,19 @@ async function compose(root, options) {
     const renderedSha256 = createHash('sha256').update(composedText).digest('hex');
     const { file } = await recordInjection(root, workflow, phase, {
       ...injection, agent, sections: files, modelCommit,
+      promptStudy: promptStudy ? {
+        studyRunId: promptStudy.studyRunId,
+        variant: structuredClone(promptStudy.variant),
+        governedAgent: structuredClone(promptStudy.governedAgent),
+        phase: promptStudy.phaseId
+      } : null,
+      promptDefinition: promptStudy ? {
+        path: promptStudy.path,
+        sourcePath: promptStudy.sourcePath,
+        sha256: promptStudy.sha256,
+        bytes: promptStudy.bytes
+      } : null,
+      remoteSkills: remote.skills.map((skill) => ({ id: skill.id, sha256: skill.sha256 })),
       manifestSha256: manifestInfo.sha256,
       modelSourceTreeSha256: required.manifest.source_tree_sha256 ?? null,
       composedSourceTreeSha256: required.freshness.current,

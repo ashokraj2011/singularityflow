@@ -31,6 +31,7 @@ import {
   saveInitiativeDraft,
   secureInitiativePath
 } from './state-stores.mjs';
+import { resolveImpactPromptOverride } from './impact.mjs';
 import { collectInputs, renderInputsBlock } from './inputs.mjs';
 import { loadSession } from './session.mjs';
 import {
@@ -432,11 +433,17 @@ async function workItemPlanningParts(root, definition, { id, phaseId, agent, tar
   const itemDirectory = workDir(root, definition, id);
   const itemRelative = workDirRelative(definition, id);
   const target = path.join(itemDirectory, phase.requiredArtifact.path);
+  const promptStudy = await resolveImpactPromptOverride(root, workflow, phase.id, {
+    agentId: agent,
+    agentSha256: definition.agents?.[agent]?.sha256 ?? null
+  });
   const agentResult = await injectAgentPrompt(root, definition, agent, {
     agent,
     phase: phase.id,
     workType: workflow.workItem.workType,
     labels: []
+  }, {
+    promptOverride: promptStudy
   });
   const world = await workItemWorldModel(root, definition, workflow, phase, agent);
   const capability = await renderCapabilityWorldModelPack(root, workflow.resolution?.capability, {
@@ -477,6 +484,10 @@ async function workItemPlanningParts(root, definition, { id, phaseId, agent, tar
     sources: [
       { kind: 'workflow-resolution', path: posix(path.relative(root, statePath)), sha256: stateInfo.sha256, bytes: stateInfo.size, configSha256: workflow.resolution.configSha256 },
       { kind: 'agent', path: agentProfile.source, sha256: agentProfile.sha256, bytes: Buffer.byteLength(agentProfile.prompt, 'utf8') },
+      ...(promptStudy ? [{
+        kind: 'prompt-study-variant', path: promptStudy.path, sha256: promptStudy.sha256,
+        bytes: promptStudy.bytes, studyRunId: promptStudy.studyRunId, variant: promptStudy.variant.id
+      }] : []),
       ...world.files.map((file) => ({ kind: 'world-model', ...file })),
       ...capability.files.map((file) => ({ kind: 'capability-world-model', ...file })),
       ...inputs.records.filter((entry) => entry.status === 'captured').map((entry) => ({ kind: 'approved-input', path: posix(path.join(itemRelative, entry.path)), sha256: entry.sha256, bytes: entry.bytes })),

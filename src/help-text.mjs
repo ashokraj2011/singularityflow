@@ -97,6 +97,7 @@ Usage:
   singularity-flow report [WORK-ID] [--format md|html|json] [--out FILE] [--timings]
   singularity-flow report [WORK-ID] --recap [--length brief|standard|full] [--locale TAG] [--timezone ZONE]
   singularity-flow impact study list|show [STUDY] [--json]
+  singularity-flow impact study prompt-hash <singularity/prompts/PROMPT.md> [--json]
   singularity-flow impact enroll [WORK-ID] --complexity BAND --risk BAND --confirm
   singularity-flow impact enroll [WORK-ID] --opt-out --reason TEXT --confirm
   singularity-flow impact status [WORK-ID] [--json]

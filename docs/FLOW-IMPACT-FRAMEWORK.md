@@ -80,6 +80,87 @@ Supported methods are:
   observed rollout receipts prove every predeclared wave, treatment exposure,
   adherence, crossover decision, concurrent control, and pre-trend check, and
   the quality guardrails pass. Otherwise it reports an observed association.
+- `randomized`: deterministically assigns a Story to one of two reviewed prompt
+  sets. Reports use intention-to-treat cohorts, disclose prompt adherence, and do
+  not silently promote an open-label comparison to a causal claim.
+
+## Compare two prompt sets
+
+Impact schema 2 adds `prompt-set-randomized` studies without changing existing
+schema-1 delivery studies. Put both Markdown prompt sets under
+`singularity/prompts/`, calculate their reviewed hashes, and then add the study
+to `singularity/impact.yml`:
+
+```bash
+singularity-flow impact study prompt-hash singularity/prompts/specification-a.md
+singularity-flow impact study prompt-hash singularity/prompts/specification-b.md
+```
+
+```yaml
+version: 2
+automaticEnrollment: true
+studies:
+  - id: specification-prompts
+    label: Specification prompt comparison
+    kind: prompt-set-randomized
+    generation: 1
+    status: active
+    hypothesis: Prompt B improves first-pass approval without increasing rework.
+    method: randomized
+    eligibility:
+      workTypes: [feature]
+      capabilities: []
+    targetPhases: [specification]
+    window:
+      start: 2026-08-20T00:00:00.000Z
+      end: 2026-09-20T00:00:00.000Z
+    assignment:
+      algorithm: sha256-mod-n-v1
+      seed: specification-prompts-2026-q3
+    variants:
+      - id: prompt-a
+        label: Prompt A
+        prompts:
+          specification:
+            path: singularity/prompts/specification-a.md
+            sha256: <OUTPUT FROM prompt-hash>
+      - id: prompt-b
+        label: Prompt B
+        prompts:
+          specification:
+            path: singularity/prompts/specification-b.md
+            sha256: <OUTPUT FROM prompt-hash>
+    matching:
+      dimensions: [capability, repository-class, work-type, complexity, risk, time-period]
+      timePeriod: quarter
+      weighting: minimum-cohort-count
+    primaryMetric: { id: flow-time-excluding-approval-wait-ms, direction: lower }
+    guardrails:
+      - { id: rework-cycles, maximumRegressionPercent: 10 }
+      - { id: first-pass-approval-rate, maximumRegressionPercent: 10 }
+    reporting: { bootstrapSamples: 1000, confidenceLevel: 0.95 }
+    privacy: { individualReporting: false, minimumCohortSize: 8 }
+```
+
+The two variants may differ only in the prompt Markdown. Story birth chooses a
+variant with the declared hash algorithm, copies its prompt bytes into the
+Story, and records `studyRunId`, variant and prompt hash in the birth state.
+Governed prompt composition replaces the selected agent's prompt body while
+leaving the agent, model routing, tools, skills, grounding, templates, gates and
+approval ceremony unchanged. An agent override, shared-prompt drift, or change
+to the copied prompt fails closed.
+
+Each generation records both the selected prompt-definition hash and the final
+composed-prompt hash. A final Impact Receipt reports exact, partial, deviated or
+unavailable prompt adherence without storing prompt text in the comparison.
+Increment `generation` whenever prompts, assignment, scope, metrics, guardrails,
+or reporting policy change under the same study ID. Receipts are bound to both
+`id@generation` and a normalized definition hash, so reusing a generation cannot
+silently mix different prompt sets. Moving an unchanged run from `active` to
+`closed` preserves that definition hash and its final report.
+After closing a run, its Story-local copies and receipts remain reproducible, so
+the shared prompt Markdown may be archived or removed after the reviewed config
+no longer has an active or draft run referencing it.
 
 ## Metric authority and assurance
 
@@ -121,6 +202,7 @@ event, avoiding the impossible requirement that a file hash its own commit.
 ```bash
 singularity-flow impact study list
 singularity-flow impact study show governed-ai-delivery
+singularity-flow impact study prompt-hash singularity/prompts/specification-a.md
 singularity-flow impact status WORK-123
 singularity-flow impact enroll WORK-123 --complexity medium --risk small --confirm
 singularity-flow impact enroll WORK-123 --opt-out --reason "Pilot exclusion" --confirm

@@ -13,7 +13,7 @@ import { verifyDesignSourceLifecycle } from './design-sources.mjs';
 import { evaluateVisualCoverage } from './visual-coverage.mjs';
 import { listVisualComparisons } from './visual-compare.mjs';
 import { loadImpactDefinition } from './impact-config.mjs';
-import { verifyImpactReceipt } from './impact.mjs';
+import { verifyImpactPlanBinding, verifyImpactReceipt } from './impact.mjs';
 import {
   changedRepositoryPaths,
   configuredAcceptanceCommandSetSha256,
@@ -49,13 +49,23 @@ export async function runGovernanceGate(root, config, workflow, { terminal = fal
       if (source.sha256 !== workflow.resolution.sourceSha256) errors.push('source.json differs from the immutable source snapshot');
     }
     if (workflow.resolution.impact?.sha256) {
-      try {
-        const currentImpact = await loadImpactDefinition(root, { required: true });
-        if (currentImpact.sha256 !== workflow.resolution.impact.sha256) {
-          errors.push('impact.yml differs from the immutable work-item impact-study snapshot');
-        } else passes.push(`impact study configuration pinned: ${currentImpact.sha256.slice(0, 12)}`);
-      } catch (error) {
-        errors.push(`impact study configuration is unavailable: ${error.message}`);
+      if (workflow.measurement?.plan?.kind === 'prompt-set-randomized') {
+        try {
+          const binding = await verifyImpactPlanBinding(root, workflow);
+          errors.push(...binding.errors.map((error) => `prompt study: ${error}`));
+          if (binding.valid) passes.push(`prompt study assignment pinned: ${workflow.measurement.plan.studyRunId}/${workflow.measurement.plan.variantId}`);
+        } catch (error) {
+          errors.push(`prompt study assignment is unavailable: ${error.message}`);
+        }
+      } else {
+        try {
+          const currentImpact = await loadImpactDefinition(root, { required: true });
+          if (currentImpact.sha256 !== workflow.resolution.impact.sha256) {
+            errors.push('impact.yml differs from the immutable work-item impact-study snapshot');
+          } else passes.push(`impact study configuration pinned: ${currentImpact.sha256.slice(0, 12)}`);
+        } catch (error) {
+          errors.push(`impact study configuration is unavailable: ${error.message}`);
+        }
       }
     }
   }

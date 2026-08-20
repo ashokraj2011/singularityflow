@@ -16,6 +16,7 @@ import { navigateTo } from './navigate.ts';
 interface ImpactGroup { id: string; label: string; assistanceMode: string }
 export interface ImpactStudy {
   id: string; label: string; enabled: boolean; method: string;
+  kind?: string; status?: string; studyRunId?: string; hypothesis?: string;
   groups: ImpactGroup[];
   primaryMetric: { id: string; direction: string; unit: string };
   guardrails: Array<{ id: string; maximumRegressionPercent: number }>;
@@ -24,7 +25,7 @@ export interface ImpactStudy {
 
 interface ImpactMeasurement {
   status: string;
-  plan?: { studyId?: string; groupId?: string; path?: string; sha256?: string } | null;
+  plan?: { studyId?: string; groupId?: string; studyRunId?: string; variantId?: string; kind?: string; path?: string; sha256?: string } | null;
   classification?: {
     suggested?: { complexity?: string; risk?: string } | null;
     confirmed?: { complexity?: string; risk?: string } | null;
@@ -39,6 +40,8 @@ interface ImpactFinding { severity: string; code: string; message: string }
 interface ImpactDoctor { valid: boolean; findings: ImpactFinding[]; bandDrift?: unknown[] }
 export interface ImpactComparison {
   study: string; method: string; evidenceGrade: string; inference: string; label: string;
+  studyRunId?: string; experimentKind?: string; hypothesis?: string | null;
+  studyDefinitionSha256?: string | null;
   primaryMetric: { id: string; direction: string; unit: string };
   cohorts: { baseline: string; treatment: string; matchedBaseline: number; matchedTreatment: number; privacyFloor: number };
   result: {
@@ -48,6 +51,7 @@ export interface ImpactComparison {
   guardrails: Array<{ metric: string; passed: boolean; regressionPercent: number | null; maximumRegressionPercent: number }>;
   qualityGatePassed: boolean;
   completeness: { eligibleReceipts: number; matchedStrata: number; usableBaseline: number; usableTreatment: number };
+  promptAdherence?: { receipts: number; exact: number; partial: number; unavailable: number } | null;
 }
 
 export interface FlowImpactState {
@@ -65,7 +69,7 @@ export interface FlowImpactState {
   error: string | null;
 }
 
-const DEFAULT_IMPACT = `version: 1
+const DEFAULT_IMPACT = `version: 2
 automaticEnrollment: true
 
 studies:
@@ -118,8 +122,9 @@ function numeric(value: number | null | undefined): string {
 function studyCards(studies: ImpactStudy[], selected: string | null): string {
   if (!studies.length) return '<div class="empty"><p>No Flow Impact studies are configured yet. Start in the Configuration tab.</p></div>';
   return `<div class="decision-cards">${studies.map((study) => `<button class="artifact-card ${study.id === selected ? 'selected' : ''}" data-study="${escape(study.id)}">
-    <span class="artifact-title">${icon('impact')}${escape(study.label)}</span><span class="pill ${study.enabled ? 'ok' : ''}">${study.enabled ? 'enabled' : 'disabled'}</span>
-    <span class="artifact-meta">${escape(titleCase(study.method))} · ${escape(study.primaryMetric.id)} · privacy floor ${study.privacy.minimumCohortSize} per cohort</span>
+    <span class="artifact-title">${icon('impact')}${escape(study.label)}</span><span class="pill ${study.enabled ? 'ok' : ''}">${escape(study.status ?? (study.enabled ? 'enabled' : 'disabled'))}</span>
+    <span class="artifact-meta">${escape(titleCase(study.kind ?? study.method))} · ${escape(study.studyRunId ?? study.id)} · ${escape(study.primaryMetric.id)} · privacy floor ${study.privacy.minimumCohortSize} per cohort</span>
+    ${study.hypothesis ? `<span class="artifact-meta">Hypothesis: ${escape(study.hypothesis)}</span>` : ''}
   </button>`).join('')}</div>`;
 }
 
@@ -139,8 +144,8 @@ function storyHtml(state: FlowImpactState): string {
       <label>Story <select id="impact-story">${options}</select></label></div>
     ${status ? `<div class="summary-grid">
       <div class="summary-card important"><strong>${escape(titleCase(measurement?.status ?? 'not-enrolled'))}</strong><span>Measurement state</span></div>
-      <div class="summary-card"><strong>${escape(measurement?.plan?.studyId ?? 'None')}</strong><span>Study</span></div>
-      <div class="summary-card"><strong>${escape(measurement?.plan?.groupId ?? 'Not assigned')}</strong><span>Cohort</span></div>
+      <div class="summary-card"><strong>${escape(measurement?.plan?.studyRunId ?? measurement?.plan?.studyId ?? 'None')}</strong><span>Study</span></div>
+      <div class="summary-card"><strong>${escape(measurement?.plan?.variantId ?? measurement?.plan?.groupId ?? 'Not assigned')}</strong><span>${measurement?.plan?.variantId ? 'Prompt variant' : 'Cohort'}</span></div>
       <div class="summary-card"><strong>${evidence.length}</strong><span>Evidence records</span></div>
     </div>
     <div class="card"><div class="card-head"><h3>Classification</h3><span class="pill ${confirmed ? 'ok' : 'wait'}">${confirmed ? 'confirmed' : 'human confirmation required'}</span></div>
@@ -169,7 +174,10 @@ function comparisonHtml(result: ImpactComparison | null): string {
     <div class="summary-card"><strong>${result.completeness.matchedStrata}</strong><span>Matched strata</span></div>
   </div>
   <div class="card"><h3>${escape(result.primaryMetric.id)}</h3><p>Baseline median <strong>${numeric(result.result.baselineMedian)}</strong> · Treatment median <strong>${numeric(result.result.treatmentMedian)}</strong></p>
-    <p>Bootstrap confidence interval <strong>${numeric(result.result.confidenceInterval.lower)}% to ${numeric(result.result.confidenceInterval.upper)}%</strong></p></div>
+    <p>Bootstrap confidence interval <strong>${numeric(result.result.confidenceInterval.lower)}% to ${numeric(result.result.confidenceInterval.upper)}%</strong></p>
+    ${result.hypothesis ? `<p><strong>Predeclared hypothesis:</strong> ${escape(result.hypothesis)}</p>` : ''}
+    ${result.studyDefinitionSha256 ? `<p class="muted">Study definition <code>${escape(result.studyDefinitionSha256.slice(0, 12))}</code></p>` : ''}
+    ${result.promptAdherence ? `<p>Prompt adherence: <strong>${result.promptAdherence.exact} exact</strong> · ${result.promptAdherence.partial} partial · ${result.promptAdherence.unavailable} unavailable.</p>` : ''}</div>
   <table><thead><tr><th>Guardrail</th><th>Regression</th><th>Maximum</th><th>Result</th></tr></thead><tbody>${result.guardrails.map((item) => `<tr><td>${escape(item.metric)}</td><td>${item.regressionPercent == null ? 'Unavailable' : `${numeric(item.regressionPercent)}%`}</td><td>${numeric(item.maximumRegressionPercent)}%</td><td><span class="pill ${item.passed ? 'ok' : 'bad'}">${item.passed ? 'pass' : 'fail'}</span></td></tr>`).join('')}</tbody></table>`;
 }
 
@@ -187,8 +195,9 @@ export function flowImpactBody(state: FlowImpactState, tab = 'overview'): string
     ${tab === 'reports' ? `<section class="plain"><div class="section-heading"><div class="grow"><h2>${icon('impact')}Cohort comparison</h2><p class="muted">Statistics, matching, confidence intervals, guardrails, and privacy-floor refusal come from the Flow engine.</p></div><button class="secondary" data-action="export">Export receipts</button></div>
       <div class="card-foot"><label>Study <select id="report-study">${state.studies.map((study) => `<option value="${escape(study.id)}" ${study.id === state.selectedStudyId ? 'selected' : ''}>${escape(study.label)}${study.enabled ? '' : ' (disabled)'}</option>`).join('')}</select></label><button data-action="compare" ${!selectedStudy ? 'disabled' : ''}>Run comparison</button></div>
       ${comparisonHtml(state.comparison)}</section>` : ''}
-    ${tab === 'configuration' ? `<section class="plain"><div class="section-heading"><div class="grow"><h2>${icon('configuration')}Study configuration</h2><p class="muted"><code>singularity/impact.yml</code> is validated by the CLI before it is saved. Enabling a study affects future enrollment; active Stories retain their pinned study hash.</p></div><button class="secondary" data-action="open-config">Open as file</button></div>
+    ${tab === 'configuration' ? `<section class="plain"><div class="section-heading"><div class="grow"><h2>${icon('configuration')}Study configuration</h2><p class="muted"><code>singularity/impact.yml</code> is validated by the CLI before it is saved. Prompt-set studies compare two reviewed Markdown prompts while keeping the governed agent and lifecycle ceremony fixed. Enabling a study affects future enrollment; active Stories retain their pinned study hash.</p></div><button class="secondary" data-action="open-config">Open as file</button></div>
       ${state.configMissing ? '<p class="warning-text">No impact.yml exists. The starter below is disabled by default and safe to review before saving.</p>' : ''}
+      <p class="card-foot"><button class="secondary" data-action="prompt-hash">Calculate reviewed prompt hash…</button><span class="muted">Choose Markdown from <code>singularity/prompts/</code>; the result is safe to paste into a variant.</span></p>
       <textarea id="impact-config" class="prompt-content" rows="30" spellcheck="false">${escape(state.configText)}</textarea><p class="card-foot"><button data-action="save-config">Validate and save configuration</button><span class="muted">Saving changes the working tree; commit it through your normal governed configuration review.</span></p></section>` : ''}`;
 }
 
@@ -339,6 +348,27 @@ export class FlowImpactPanel {
       }
       const document = await vscode.workspace.openTextDocument(vscode.Uri.file(path.join(this.client.repository, 'singularity/impact.yml')));
       await vscode.window.showTextDocument(document, { preview: false }); return;
+    }
+    if (message.action === 'prompt-hash') {
+      const selected = await vscode.window.showOpenDialog({
+        canSelectMany: false,
+        canSelectFiles: true,
+        canSelectFolders: false,
+        defaultUri: vscode.Uri.file(path.join(this.client.repository, 'singularity/prompts')),
+        filters: { Markdown: ['md'] },
+        openLabel: 'Calculate prompt hash'
+      });
+      const selectedFile = selected?.[0];
+      if (!selectedFile) return;
+      const relative = path.relative(this.client.repository, selectedFile.fsPath).split(path.sep).join('/');
+      if (!relative.startsWith('singularity/prompts/') || relative.includes('../')) {
+        this.state = { ...this.state, error: 'Prompt study files must be Markdown under singularity/prompts/.', notice: null };
+        this.render(); return;
+      }
+      await this.mutation(
+        () => this.client.runText(['impact', 'study', 'prompt-hash', relative]),
+        'Prompt hash calculated.'
+      ); return;
     }
     if (message.action === 'save-config') {
       await this.mutation(

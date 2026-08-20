@@ -2788,6 +2788,7 @@ singularity-flow progress [WORK-ID] [--json]
 singularity-flow report [WORK-ID] [--format md|html|json] [--out FILE] [--timings]
 singularity-flow impact status [WORK-ID] [--json]
 singularity-flow impact study list|show [STUDY-ID] [--json]
+singularity-flow impact study prompt-hash <singularity/prompts/PROMPT.md> [--json]
 singularity-flow impact enroll [WORK-ID] (--complexity BAND --risk BAND | --opt-out --reason TEXT) --confirm
 singularity-flow impact exposure status|attest [WORK-ID] [--phase PHASE --level LEVEL --assurance ASSURANCE --reason TEXT]
 singularity-flow impact evidence import <FILE> [WORK-ID]
@@ -2798,8 +2799,9 @@ singularity-flow impact export [--study STUDY-ID] --out FILE [--json]
 
 VS Code: run **Singularity Flow: Flow Impact Studies & Reports**, or open
 **Configuration → Flow Impact studies**. The dedicated screen covers study YAML,
-Story classification and exposure, evidence, receipt verification, privacy-safe
-cohort comparisons, confidence intervals, guardrails, and JSONL export. Lifecycle
+Story classification and exposure, deterministic prompt-set assignment, reviewed
+prompt hashing, evidence, receipt verification, privacy-safe cohort comparisons,
+confidence intervals, guardrails, and JSONL export. Lifecycle
 links to the same screen from active, completed, and archived Stories. This is
 delivery measurement; **Impact Analysis** is the separate repository change-impact
 tool.

@@ -10,7 +10,7 @@ import { addPhase, defineWorkflow, editPhase, editWorkflow, listWorkflows, upser
 import { lstat, mkdir, readFile, realpath } from 'node:fs/promises';
 import { fileURLToPath } from 'node:url';
 import YAML from 'yaml';
-import { SingularityFlowError, exists, nowIso, optionBoolean, optionNumber, optionString, optionStrings, parseArgs, posix, readJson, requirePositional, run, snapshot, table, writeJson, writeText } from './util.mjs';
+import { SingularityFlowError, exists, nowIso, optionBoolean, optionNumber, optionString, optionStrings, parseArgs, posix, readJson, requirePositional, run, secureRepositoryPath, snapshot, table, writeJson, writeText } from './util.mjs';
 import { add, assertClean, branch, changes, checkout, commit, fastForwardTo, fetchOrigin, fetchRemote, fileAtRef, gitDir, hasUpstream, head, identity, localBranches, preflightPushBranch, pullFastForward, refExists, refHead, remoteBranches, repoRoot } from './git.mjs';
 import { buildRepositorySubjectIndex, buildRepositorySubjectIndexFromRefs, resolveContext } from './repository-subject-index.mjs';
 import { approvePhase, assertNoPendingPublication, cancelWorkflow, commitAndPublish, CONFIG_PATH, createWorkflow, currentPhase, loadConfig, preparePhase, preparePhaseInputs, promoteDesignSource, publishGeneration, reconcilePhaseTelemetry, registerArtifact, rejectPhase, reopenWorkflow, resolveWorkItem, saveStoryDraft, transactStory, scanArtifacts, storyPublicationPending, submitPhase, syncPublication, validateId, validateWorkflow, workflowBranchAllowed, workflowPublicationBranch, workflowPath, workDir } from './state-stores.mjs';
@@ -957,6 +957,13 @@ export async function startCommand(positionals, options) {
         pushed: publication.pushed === true,
         commit: publication.sha
       },
+      measurement: workflow.measurement?.plan ? {
+        status: workflow.measurement.status,
+        studyId: workflow.measurement.plan.studyId,
+        studyRunId: workflow.measurement.plan.studyRunId ?? null,
+        cohort: workflow.measurement.plan.groupId,
+        promptVariant: workflow.measurement.plan.variantId ?? null
+      } : { status: workflow.measurement?.status ?? 'not-enrolled' },
       ...(storyBase.scope === 'capability' ? {
         capabilityBase: {
           ...storyBase.plan.record,
@@ -981,6 +988,9 @@ export async function startCommand(positionals, options) {
   });
   if (!optionBoolean(options, 'json')) {
     summary(workflow);
+    if (workflow.measurement?.plan?.variantId) {
+      console.log(`Prompt study assignment: ${workflow.measurement.plan.variantId} · ${workflow.measurement.plan.studyRunId}.`);
+    }
     if (supportingDocuments.length) console.log(`Supporting documents: ${supportingDocuments.length} uploaded and published.`);
   }
   emitCommandResult(startResult, { json: optionBoolean(options, 'json'), postState: workflow });
@@ -1257,7 +1267,7 @@ function printImpactPlan(workflow) {
   const measurement = workflow.measurement ?? {};
   console.log(`Impact measurement: ${measurement.status ?? 'not-enrolled'}`);
   if (!measurement.plan) return;
-  console.log(`Study: ${measurement.plan.studyId} · cohort ${measurement.plan.groupId}`);
+  console.log(`Study: ${measurement.plan.studyRunId ?? measurement.plan.studyId} · ${measurement.plan.variantId ? `prompt variant ${measurement.plan.variantId}` : `cohort ${measurement.plan.groupId}`}`);
   const suggested = measurement.classification?.suggested;
   const confirmed = measurement.classification?.confirmed;
   if (suggested) console.log(`Suggested classification: ${suggested.complexity}/${suggested.risk}`);
@@ -1275,7 +1285,7 @@ async function impactCommand(positionals, options) {
     if (operation === 'list') {
       if (optionBoolean(options, 'json')) return console.log(JSON.stringify(impact.studies, null, 2));
       if (!impact.studies.length) return console.log('No impact studies are configured.');
-      for (const study of impact.studies) console.log(`${study.id}\t${study.enabled ? 'enabled' : 'disabled'}\t${study.method}\t${study.label}`);
+      for (const study of impact.studies) console.log(`${study.studyRunId ?? study.id}\t${study.status ?? (study.enabled ? 'enabled' : 'disabled')}\t${study.method}\t${study.label}`);
       return;
     }
     if (operation === 'show') {
@@ -1284,6 +1294,21 @@ async function impactCommand(positionals, options) {
       if (!study) throw new SingularityFlowError(`Unknown impact study '${id}'.`);
       if (optionBoolean(options, 'json')) return console.log(JSON.stringify(study, null, 2));
       return process.stdout.write(YAML.stringify(study));
+    }
+    if (operation === 'prompt-hash') {
+      const requested = requirePositional(positionals, 3, 'prompt path');
+      const promptPath = posix(requested);
+      if (!promptPath.startsWith('singularity/prompts/') || !promptPath.endsWith('.md')) {
+        throw new SingularityFlowError('Prompt study files must be Markdown under singularity/prompts/.');
+      }
+      const target = await secureRepositoryPath(root, promptPath, {
+        label: 'Prompt study file', mustExist: true, type: 'file'
+      });
+      const info = await snapshot(target.absolute);
+      const result = { path: promptPath, sha256: info.sha256, bytes: info.size };
+      if (optionBoolean(options, 'json')) return console.log(JSON.stringify(result, null, 2));
+      console.log(`${result.path}\t${result.sha256}\t${result.bytes} bytes`);
+      return;
     }
     throw new SingularityFlowError(`Unknown impact study action '${operation}'.`);
   }
@@ -1297,10 +1322,11 @@ async function impactCommand(positionals, options) {
       filters: impactFilters(optionStrings(options, 'filter'))
     });
     if (optionBoolean(options, 'json')) return console.log(JSON.stringify(result, null, 2));
-    console.log(`${result.label}\nStudy: ${result.study} · method ${result.method} · evidence grade ${result.evidenceGrade}`);
+    console.log(`${result.label}\nStudy: ${result.studyRunId ?? result.study}${result.studyDefinitionSha256 ? ` · definition ${result.studyDefinitionSha256.slice(0, 12)}` : ''} · method ${result.method} · evidence grade ${result.evidenceGrade}`);
     console.log(`Matched cohorts: baseline ${result.cohorts.matchedBaseline}, treatment ${result.cohorts.matchedTreatment}; privacy floor ${result.cohorts.privacyFloor}`);
     console.log(`Primary ${result.primaryMetric.id}: ${result.result.gainPercent.toFixed(2)}% · CI ${result.result.confidenceInterval.lower.toFixed(2)}%..${result.result.confidenceInterval.upper.toFixed(2)}%`);
     for (const guardrail of result.guardrails) console.log(`Guardrail ${guardrail.metric}: ${guardrail.passed ? 'pass' : 'fail'} (${guardrail.regressionPercent == null ? 'unavailable' : `${guardrail.regressionPercent.toFixed(2)}%`})`);
+    if (result.promptAdherence) console.log(`Prompt adherence: exact ${result.promptAdherence.exact}, partial ${result.promptAdherence.partial}, unavailable ${result.promptAdherence.unavailable}.`);
     return;
   }
 

@@ -4,6 +4,7 @@ import { normalizeSourceRoots } from './source-scope.mjs';
 export const AST_MODES = Object.freeze(['auto', 'off']);
 export const AST_FALLBACKS = Object.freeze(['host-and-text', 'text-only']);
 export const AST_ASSURANCE = Object.freeze(['text', 'syntax', 'semantic']);
+export const AST_EVIDENCE_MODES = Object.freeze(['replayable', 'identified', 'off']);
 
 function positiveInteger(value, fallback, label) {
   const actual = value ?? fallback;
@@ -19,7 +20,7 @@ function positiveInteger(value, fallback, label) {
  */
 export function normalizeAstPolicy(value = {}) {
   if (!value || typeof value !== 'object' || Array.isArray(value)) throw new SingularityFlowError('ast must be an object.');
-  const allowed = new Set(['mode', 'fallback', 'languages', 'generatedRoots', 'budgets', 'predicates']);
+  const allowed = new Set(['mode', 'fallback', 'languages', 'generatedRoots', 'budgets', 'predicates', 'evidence']);
   for (const key of Object.keys(value)) if (!allowed.has(key)) throw new SingularityFlowError(`ast contains unknown field '${key}'.`);
   const mode = value.mode ?? 'auto';
   const fallback = value.fallback ?? 'host-and-text';
@@ -62,6 +63,25 @@ export function normalizeAstPolicy(value = {}) {
   if (mode === 'off' && predicates.some((predicate) => predicate.mode === 'required')) {
     throw new SingularityFlowError('ast.mode off cannot be combined with a required structural predicate.');
   }
+  const evidenceSource = value.evidence ?? {};
+  if (!evidenceSource || typeof evidenceSource !== 'object' || Array.isArray(evidenceSource)) {
+    throw new SingularityFlowError('ast.evidence must be an object.');
+  }
+  for (const key of Object.keys(evidenceSource)) {
+    if (!['mode', 'store'].includes(key)) throw new SingularityFlowError(`ast.evidence contains unknown field '${key}'.`);
+  }
+  const hasRequiredPredicate = predicates.some((predicate) => predicate.mode === 'required');
+  const evidenceMode = evidenceSource.mode ?? (hasRequiredPredicate ? 'replayable' : 'identified');
+  const evidenceStore = evidenceSource.store ?? 'local-directory';
+  if (!AST_EVIDENCE_MODES.includes(evidenceMode)) {
+    throw new SingularityFlowError(`ast.evidence.mode must be ${AST_EVIDENCE_MODES.join(', ')}.`);
+  }
+  if (!/^[a-z][a-z0-9-]*$/.test(evidenceStore)) {
+    throw new SingularityFlowError('ast.evidence.store must be a lower-case logical store id.');
+  }
+  if (hasRequiredPredicate && evidenceMode !== 'replayable') {
+    throw new SingularityFlowError('A required AST predicate requires ast.evidence.mode replayable.');
+  }
   return Object.freeze({
     mode,
     fallback,
@@ -76,7 +96,8 @@ export function normalizeAstPolicy(value = {}) {
       ...predicate,
       mode: predicate.mode ?? 'advisory',
       minimumAssurance: predicate.minimumAssurance ?? 'text'
-    })))
+    }))),
+    evidence: Object.freeze({ mode: evidenceMode, store: evidenceStore })
   });
 }
 

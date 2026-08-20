@@ -250,6 +250,9 @@ export const ARGUMENT_SCHEMAS = Object.freeze([
     maxOutputBytes: optional('integer', { min: 16384, max: 4 * 1024 * 1024 }),
     cursor: optional('opaque-cursor')
   }),
+  schema('ast-evidence-replay-v1', {
+    receipt: required('relative-path')
+  }),
   schema('intent-trace-v1', {
     repositoryId: required('identifier'),
     path: required('relative-path'),

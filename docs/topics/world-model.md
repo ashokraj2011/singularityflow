@@ -11,7 +11,7 @@ related:
   - agents-and-routing
   - model-independence
   - knowledge-and-remote-assets
-version: 5
+version: 6
 ---
 The world model provides repository-grounded views used during governed generation. In a monorepo, scope it to the capability's source and shared directories so unrelated products do not increase scan cost or invalidate evidence.
 
@@ -22,7 +22,7 @@ Use this topic when the current goal matches **world model**. Start in a governe
 ## Use it from each surface
 
 - **Shell:** `sflow wm`. Run `singularity-flow wm --help` for the exact forms supported by this build.
-- **Copilot:** `/sf-worldmodel` for world-model and bounded AST status, context, query, and build guidance. Model-free gateway hosts may resolve bounded AST status/context/query reads; cache builds remain explicit CLI operations.
+- **Copilot:** `/sf-worldmodel` for world-model and bounded AST status, context, query, build, and evidence-replay guidance. Model-free gateway hosts may resolve bounded AST status/context/query/replay reads; cache builds remain explicit CLI operations.
 - **VS Code:** open Singularity Flow **Configuration Center → World model** for grounding scope, or **Configuration → AST intelligence** for structural policy, lifecycle predicates, adapter availability, coverage, and guarded cache maintenance. The AST scope banner identifies the active workspace repository and, for multi-repository workspaces, switches the shared repository used by VS Code, Copilot, and the CLI. Both settings surfaces save the same YAML used by the CLI.
 
 ## Guided workflow
@@ -32,7 +32,7 @@ Use this topic when the current goal matches **world model**. Start in a governe
 3. Run `sflow doctor --performance --offline`. Review scoped/total file counts and warm fingerprint time before building.
 4. Run `sflow wm status`, then explicitly materialize with `sflow wm light`, `sflow wm build`, or `sflow wm ensure` as policy requires.
 5. Re-read `sflow wm check`. New Stories and Initiatives pin the resolved capability scope, so later capability-map edits do not silently change their evidence boundary.
-6. If structural predicates are configured, run `sflow wm ast gate --json` for diagnostics before publishing. Publication enforces required predicates and writes a generation-bound receipt; submission revalidates its selected paths, broker version, and extractor identities.
+6. If structural predicates are configured, run `sflow wm ast gate --json` for diagnostics before publishing. Publication enforces required predicates and writes a generation-bound receipt referencing exact-input, retained-toolchain evidence; submission revalidates it. Audit later with `sflow wm ast evidence replay --receipt <RECEIPT> --json`.
 7. If validation succeeds but publication fails, run `sflow wm recovery list`, inspect the retained ID, then use `sflow wm recovery publish <ID> --confirm <ID>`. It republishes the retained bytes without another model call.
 
 ## State and safety

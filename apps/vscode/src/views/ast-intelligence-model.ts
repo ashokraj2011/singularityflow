@@ -7,6 +7,7 @@ import type { RepositorySnapshot } from '../cli/snapshot.ts';
 export type AstMode = 'auto' | 'off';
 export type AstFallback = 'host-and-text' | 'text-only';
 export type AstAssurance = 'text' | 'syntax' | 'semantic';
+export type AstEvidenceMode = 'replayable' | 'identified' | 'off';
 
 export interface AstLanguageDraft {
   language: string;
@@ -25,6 +26,7 @@ export interface AstPredicateDraft {
 export interface AstPolicyDraft {
   mode: AstMode;
   fallback: AstFallback;
+  evidence: { mode: AstEvidenceMode; store: string };
   generatedRoots: string[];
   budgets: { maxFiles: number; maxBytes: number; maxFileBytes: number };
   languages: AstLanguageDraft[];
@@ -124,9 +126,17 @@ export function astPolicyView(snapshot: Pick<RepositorySnapshot, 'definition'>):
   const languages = (raw.languages && typeof raw.languages === 'object' && !Array.isArray(raw.languages)
     ? raw.languages : {}) as Record<string, Record<string, unknown>>;
   const predicates = Array.isArray(raw.predicates) ? raw.predicates as Array<Record<string, unknown>> : [];
+  const evidence = (raw.evidence && typeof raw.evidence === 'object' && !Array.isArray(raw.evidence)
+    ? raw.evidence : {}) as Record<string, unknown>;
+  const requiredEvidence = predicates.some((entry) => entry.mode === 'required');
   return {
     mode: raw.mode === 'off' ? 'off' : 'auto',
     fallback: raw.fallback === 'text-only' ? 'text-only' : 'host-and-text',
+    evidence: {
+      mode: evidence.mode === 'replayable' || evidence.mode === 'off' || evidence.mode === 'identified'
+        ? evidence.mode : requiredEvidence ? 'replayable' : 'identified',
+      store: typeof evidence.store === 'string' && evidence.store ? evidence.store : 'local-directory'
+    },
     generatedRoots: Array.isArray(raw.generatedRoots) ? raw.generatedRoots.filter((entry): entry is string => typeof entry === 'string') : [],
     budgets: {
       maxFiles: Number.isInteger(budgets.maxFiles) ? Number(budgets.maxFiles) : 500,
@@ -154,6 +164,8 @@ export function validateAstPolicyDraft(draft: AstPolicyDraft): string[] {
   const errors: string[] = [];
   if (!MODES.has(draft.mode)) errors.push('Repository AST mode must be auto or off.');
   if (!FALLBACKS.has(draft.fallback)) errors.push('Fallback must be host-and-text or text-only.');
+  if (!['replayable', 'identified', 'off'].includes(draft.evidence.mode)) errors.push('Evidence mode must be replayable, identified, or off.');
+  if (!ID.test(draft.evidence.store)) errors.push('Evidence store must be a lower-case kebab-case logical identifier.');
   for (const [name, value] of Object.entries(draft.budgets)) {
     if (!Number.isInteger(value) || value < 1) errors.push(`${name} must be a positive whole number.`);
   }
@@ -188,6 +200,9 @@ export function validateAstPolicyDraft(draft: AstPolicyDraft): string[] {
   if (draft.mode === 'off' && draft.predicates.some((row) => row.mode === 'required')) {
     errors.push('Repository mode cannot be off while a required structural predicate exists.');
   }
+  if (draft.predicates.some((row) => row.mode === 'required') && draft.evidence.mode !== 'replayable') {
+    errors.push('Required structural predicates require replayable evidence.');
+  }
   return errors;
 }
 
@@ -204,6 +219,8 @@ export function updateAstPolicyYaml(text: string, draft: AstPolicyDraft): string
   const parsed = document(text);
   parsed.setIn(['ast', 'mode'], draft.mode);
   parsed.setIn(['ast', 'fallback'], draft.fallback);
+  parsed.setIn(['ast', 'evidence', 'mode'], draft.evidence.mode);
+  parsed.setIn(['ast', 'evidence', 'store'], draft.evidence.store);
   parsed.setIn(['ast', 'generatedRoots'], draft.generatedRoots.map((entry) => entry.trim()));
   parsed.setIn(['ast', 'budgets', 'maxFiles'], draft.budgets.maxFiles);
   parsed.setIn(['ast', 'budgets', 'maxBytes'], draft.budgets.maxBytes);

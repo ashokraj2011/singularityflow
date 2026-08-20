@@ -196,6 +196,7 @@ Every public operation is classified before its implementation module is importe
 | wm.ast.cache.status | read | never | — | — |
 | wm.ast.context | read | never | — | — |
 | wm.ast.doctor | read | never | — | — |
+| wm.ast.evidence.replay | read | never | — | — |
 | wm.ast.gate | read | never | — | — |
 | wm.ast.preference.set | mutation | never | — | — |
 | wm.ast.preference.show | read | never | — | — |

@@ -28,7 +28,7 @@ import { compileOperationRegistry } from './registry.mjs';
  * present in this build.
  */
 export const GATEWAY_PLANNERS = Object.freeze([
-  'ast-status', 'ast-context', 'ast-query',
+  'ast-status', 'ast-context', 'ast-query', 'ast-evidence-replay',
   'goal-inspect', 'goal-impact', 'goal-next', 'goal-trace',
   'home-overview', 'developer-next', 'work-list', 'work-continue', 'work-handoff', 'work-start-intake', 'work-start',
   'work-draft-save', 'work-readiness', 'work-return', 'workspace-list', 'workspace-switch', 'workspace-materialize',
@@ -158,6 +158,17 @@ export const GATEWAY_DECLARATIONS = Object.freeze([
     argumentSchema: 'ast-query-v2',
     planner: 'ast-query',
     noModelFixture: 'wm-ast-query-model-free'
+  },
+  {
+    ...READ,
+    id: 'wm.ast.evidence.replay',
+    kernelOperation: 'wm.ast.evidence.replay',
+    goals: ['repository.explore'],
+    aliases: en('replay AST evidence', 'verify structural derivation'),
+    subjects: ['repository', 'story'],
+    argumentSchema: 'ast-evidence-replay-v1',
+    planner: 'ast-evidence-replay',
+    noModelFixture: 'wm-ast-evidence-replay-model-free'
   },
   // §3.2 The startup menu: the one screen a returning developer sees before deciding anything.
   {

@@ -16,6 +16,9 @@ a daemon, and never makes a lifecycle gate weaker when it is disabled.
 - machine-local `auto`/`off` preference combined with repository and environment policy by choosing
   the most restrictive value;
 - a versioned, structured-argv contract for bounded out-of-process syntax/semantic adapters;
+- immutable derivation manifests that bind exact committed Git objects, policy/profile/options,
+  engine and adapter artifacts, runtime, grammars, dependencies, and canonical output digests;
+- a read-after-write-verified directory evidence store plus cache-independent, model-free replay;
 - resumable builds that retain accumulated pages and return a usable handle even when the first
   file exceeds the current operation budget; and
 - deterministic structural predicates enforced before phase publication and revalidated from a
@@ -61,6 +64,9 @@ bodies, facts, adapter process details, and resume handles are not copied into t
 ast:
   mode: auto                 # auto | off
   fallback: host-and-text    # host-and-text | text-only
+  evidence:
+    mode: replayable         # replayable | identified | off
+    store: local-directory   # logical store ID, never a credential or host path
   budgets:
     maxFiles: 500
     maxBytes: 20971520
@@ -96,6 +102,7 @@ singularity-flow wm ast query --cursor OPAQUE-CURSOR --json
 singularity-flow wm ast build --paths src --json
 singularity-flow wm ast build --resume HANDLE --json
 singularity-flow wm ast gate --paths src --json
+singularity-flow wm ast evidence replay --receipt singularity/work-items/WRK-1/context/ast/intake-gen1.json --json
 singularity-flow wm ast cache status
 singularity-flow wm ast cache prune --dry-run
 singularity-flow wm ast cache prune --confirm "PRUNE AST CACHE"
@@ -123,21 +130,45 @@ it stale. Query coverage reports facts examined, matched, and returned separatel
 removes stale manifests/jobs, legacy v1 records, and blobs no live manifest references; it does not
 use a repository-wide dirty-tree hash.
 
+Every structural result declares an evidence class. Ordinary CLI and UI reads are `preview` and may
+inspect dirty worktree bytes, but they can never authorize a lifecycle transition. Governed prompt
+context is `recorded-context`; lifecycle authorization is `gate`. Those durable classes enumerate
+every selected committed Git blob and refuse dirty, untracked, symlink, gitlink, missing-object, or
+otherwise degraded in-cone inputs. Dirty paths outside the selected cone do not block. The remedy is
+to commit the relevant bytes, narrow the evidence cone, or run a non-evidence preview.
+
+Derivations are committed below
+`singularity/work-items/<WORK-ID>/context/ast/derivations/`. Toolchain bundles are retained by SHA-256
+in the configured directory evidence store; the default physical store is beneath the Git common
+directory and `SINGULARITY_FLOW_AST_EVIDENCE_STORE` selects a shared directory without exposing that
+path in governed evidence. Clearing `<git-common-dir>/singularity-flow/ast/` removes only disposable
+skeletons and does not affect replay. Replay resolves source bytes from the recorded commit and exact
+Git objects, verifies the retained toolchain by digest, never reads or fills the skeleton cache, and
+returns `identical`, `different`, or an honest `unavailable` reason. It never substitutes a currently
+installed artifact with a different digest.
+
+The bundled lexical extractor is fully retainable and replayable. Protocol-v2 external adapters are
+digest-verified for live use, but replayable publication fails closed until an adapter supplies a
+governed retention bundle; the runtime never labels an unretained external toolchain replayable.
+
 ## Lifecycle enforcement
 
 When `ast.predicates` is empty, lifecycle behavior is unchanged. When predicates are configured:
 
 1. publication evaluates the bounded selected cone before any generation mutation;
 2. any required failure, unknown, disabled result, adapter shortfall, or partial coverage blocks;
-3. a passing evaluation is stored as a content-integrity receipt for that phase generation;
+3. a passing evaluation retains its exact toolchain, stores an immutable derivation manifest, and
+   stores a receipt that references that manifest for the phase generation;
 4. submission re-reads the receipt and re-evaluates the exact accepted paths; and
 5. governance and terminal gates verify the receipt's exact integrity-protected bytes from the
    generation commit rather than trusting a later working-tree copy.
 
-The receipt binds the work item, phase, generation, configuration policy hash, repository revision,
-cone hash, evaluated paths, broker engine version, every evidence extractor's ID/version/assurance,
-predicate outcomes, and diagnostics. Revalidation refuses an extractor or broker-version change
-even when the outcome text happens to be the same. A required `symbol-exists` predicate always
+The v3 receipt binds the work item, phase, generation, derivation digest and integrity, predicate
+fact-set digests, outcomes, assurance, and diagnostics. The derivation binds exact input objects,
+configuration, engine/adapter/runtime/grammar/dependency artifact digests, and outputs. Revalidation
+refuses any toolchain, policy, input-object, or outcome change even when display versions happen to
+be the same. Migrated v1/v2 receipts remain authentic historical verdicts but are explicitly
+`legacy-unreplayable`; migration never invents missing hashes. A required `symbol-exists` predicate always
 requires at least syntax assurance; the lexical built-in can expose a matching name only as
 advisory evidence. Advisory predicates are reported but do not authorize a failed required
 predicate.
@@ -145,7 +176,7 @@ predicate.
 ## Copilot and gateway reads
 
 `/sf-worldmodel` exposes the same bounded CLI operations. Gateway hosts can resolve model-free
-`wm.ast.status`, `wm.ast.context`, and `wm.ast.query` reads; they return the validated result envelope
+`wm.ast.status`, `wm.ast.context`, `wm.ast.query`, and `wm.ast.evidence.replay` reads; they return the validated result envelope
 with no source bodies and cannot build cache entries or advance lifecycle state. The embedded VS
 Code gateway exposes the same planners. The workflow and developer agents direct symbol/import
 questions through these bounded reads and follow a continuation only while the question remains
@@ -157,6 +188,9 @@ unanswered. Whole-repository scope remains explicit.
 - JavaScript and TypeScript receive built-in lexical symbols. Kotlin, Swift, Java, Python, and the
   other recognized languages receive file facts unless an explicit syntax/semantic adapter is
   configured; recognition is not claimed as parsing.
+- Adapter protocol v2 manifests bind the executable/package, manifest, runtime, grammars, and
+  dependency artifacts by SHA-256. The broker verifies the executable digest before launch and the
+  adapter must echo the request derivation identity and implementation digests.
 - Adapter processes receive a bounded request naming only selected paths and content hashes through
   JSON stdin; their commands are structured argv, never shell strings, and their output is
   size/time bounded. Adapter-authored prose and stderr are not retained in results because they can

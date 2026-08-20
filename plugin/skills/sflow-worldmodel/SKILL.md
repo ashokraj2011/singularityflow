@@ -12,31 +12,19 @@ disable-model-invocation: true
 
 Use the requested operation:
 
-- Initialize configuration: `singularity-flow wm init`.
-- Zero-token inventory: `singularity-flow wm light [--phase PHASE] [--local]`.
-- Semantic build: `singularity-flow wm build [--phase PHASE] [--task TEXT] [--depth light|quick|standard|deep] [--workers N]`.
-- Read readiness: `singularity-flow wm availability [--phase PHASE] [--task TEXT] --json`.
-- Materialize missing tiers: `singularity-flow wm ensure [--phase PHASE] [--task TEXT] --json`.
-- Recover stale build worktrees: `singularity-flow wm cleanup --json`; use `--force` only when no build runs.
-- Recover a validated publication failure: list and inspect with `wm recovery`, then run `wm recovery publish <ID> --confirm <ID>`. It republishes the retained bytes without a model.
-- Verify freshness: `singularity-flow wm check [--branch BRANCH] [--remote REMOTE]`.
-- Inspect context: `singularity-flow wm context <PHASE> [--task TEXT] [--evidence]`.
-- Compose: `singularity-flow wm compose [--agent ID] [--phase ID] [--work-id ID] [--task TEXT] [--evidence] [--dry-run|--render-only]`.
-- Inspect optional structural intelligence: `singularity-flow wm ast doctor|status --json`.
-- Read bounded structure: `wm ast context --paths <ROOT> --max-facts 50 --max-output-bytes 32768 --json` or `wm ast query --predicate symbol|import|language|path --value <VALUE>`. Continue only with its opaque `--cursor`.
-- Build local structure: `singularity-flow wm ast build --paths <ROOT> --json`; resume only with its returned handle.
-- Preview cache pruning with `singularity-flow wm ast cache prune --dry-run`; apply its exact confirmation.
+- Configure/inventory: `wm init`; `wm light [--phase PHASE] [--local]`.
+- Build/readiness: `singularity-flow wm build [--phase PHASE] [--task TEXT] [--depth light|quick|standard|deep] [--workers N]`; `wm availability ... --json`; `wm ensure ... --json`.
+- Inspect/compose: `wm check [--branch BRANCH] [--remote REMOTE]`; `wm context <PHASE> [--task TEXT] [--evidence]`; `wm compose [--agent ID] [--phase ID] [--work-id ID] [--task TEXT] [--evidence] [--dry-run|--render-only]`.
+- Recovery: `singularity-flow wm cleanup --json` removes stale, process-owned temporary worktrees (`--force` only on request); or list/inspect `wm recovery`, then `wm recovery publish <ID> --confirm <ID>` without another model call.
+- AST status: `wm ast doctor|status --json`.
+- Bounded reads: `wm ast context --paths <ROOT> --max-facts 50 --max-output-bytes 32768 --json`; `wm ast query --predicate symbol|import|language|path --value <VALUE>`. Continue only with its opaque cursor.
+- AST cache: `wm ast build --paths <ROOT> --json`; resume only with its handle. Preview pruning with `wm ast cache prune --dry-run` before exact confirmation.
+- Evidence audit: `wm ast evidence replay --receipt <RECEIPT-PATH> --json`.
 
-`--branch` uses an isolated worktree. Fetch is fast-forward-only. Builds follow `git.publish`; `--local` keeps the commit local. Never run `wm ensure` for a read or remove a live build's worktree.
-Cleanup targets only stale, process-owned temporary worktrees.
+Prefix commands with `singularity-flow`. `--branch` uses an isolated worktree; fetch is fast-forward-only. Builds follow `git.publish`; `--local` stays local. Never use `wm ensure` for a read, remove a live build worktree, or run competing builds. `wm light` is inventory, not semantic analysis. Report generated time, source hash, commit, views, and stale reason.
 
-Report generated time, source hash, commit, views, and stale reason. Never call a failed `wm check` current.
+Built-in AST facts are lexical `text`; higher assurance requires a digest-verified protocol-v2 adapter. Required symbol gates need syntax. Default scope is the Story cone or changed paths; use `--all` only on request. Results contain no source bodies. Preview may read dirty bytes but cannot satisfy governance. Recorded context and gates require exact committed in-cone objects and must not downgrade.
 
-`wm light` is zero-token inventory, not semantic architecture, behavior, security, or impact.
+In read-only Copilot, resolve AST reads/replay with `sflow_resolve`, then use only its `sflow_read` handle. Gateway reads are model-free and never populate cache. Publication retains a content-addressed toolchain and exact-input derivation; submission revalidates it. Manual gate does not bypass policy. Replay returns `identical`, `different`, or `unavailable` without substitution.
 
-Built-in AST facts are lexical `text`, never parsed syntax. `syntax` or `semantic` requires an executed, validated adapter. Required symbol gates need syntax. AST defaults to the Story cone, or changed paths without one. Use `--all` only on request. Results contain no source bodies.
-
-In a read-only Copilot host, resolve structural status, context, or symbol queries with `sflow_resolve`, then use only its `sflow_read` handle. Gateway reads are model-free and cannot populate the cache. Required predicates run at publication and their engine/extractor receipt is revalidated at submission; manual `wm ast gate` never bypasses policy.
-
-Never run competing builds on one branch. Composition is additive; agent views cannot remove required
-views. Agents are not approval identities. Cite evidence and separate facts from assumptions.
+Composition is additive; agents cannot remove required views and are not approval identities. Cite evidence and separate facts from assumptions.

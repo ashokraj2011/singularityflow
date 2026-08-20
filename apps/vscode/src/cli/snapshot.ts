@@ -568,6 +568,7 @@ export interface RepositorySnapshot {
     ast?: {
       mode?: 'auto' | 'off';
       fallback?: 'host-and-text' | 'text-only';
+      evidence?: { mode?: 'replayable' | 'identified' | 'off'; store?: string };
       generatedRoots?: string[];
       budgets?: { maxFiles?: number; maxBytes?: number; maxFileBytes?: number };
       languages?: Record<string, { mode?: 'auto' | 'off'; minimumAssurance?: 'text' | 'syntax' | 'semantic' }>;

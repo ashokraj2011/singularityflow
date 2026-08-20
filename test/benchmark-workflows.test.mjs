@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import { spawnSync } from 'node:child_process';
-import { mkdtemp, writeFile } from 'node:fs/promises';
+import { mkdtemp, readFile, writeFile } from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
 import test from 'node:test';
@@ -13,6 +13,7 @@ import { createWorkflow, loadConfig } from '../src/state.mjs';
 import { worldModelCommand } from '../src/worldmodel.mjs';
 import { applyCapabilityPolicyToWorkResolution } from '../src/capability-context.mjs';
 import { requiredStructuralPromptContext } from '../src/structural-prompt-context.mjs';
+import { replayAstEvidence } from '../src/ast-replay.mjs';
 
 const PHASES = ['intake', 'design', 'implementation', 'testing', 'conformance'];
 
@@ -155,6 +156,12 @@ test('Benchmark A injects a bounded, provenance-bearing AST evidence page', asyn
     assert.match(result.text, /benchmarkSubject/);
     assert.match(result.record.coneSha256, /^[0-9a-f]{64}$/);
     assert.match(result.record.factsSha256, /^[0-9a-f]{64}$/);
+    assert.equal(result.record.derivation.replayability, 'replayable');
+    const derivation = JSON.parse(await readFile(path.join(root, result.record.derivation.path), 'utf8'));
+    assert.equal(derivation.subject.evidenceClass, 'recorded-context');
+    assert.equal(derivation.outputs.page.factsSha256, result.record.factsSha256);
+    const replay = await replayAstEvidence(root, { receipt: result.record.derivation.path });
+    assert.equal(replay.result, 'identical');
     assert.equal(result.record.engine, 'singularity-flow-ast-broker');
     assert.ok(result.record.factsReturned > 0);
   } finally {

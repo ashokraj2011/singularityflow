@@ -61,7 +61,7 @@
   "mcp-authorization": [{ "schemaVersion": 1 }],
   "work-item-telemetry": [{ "schemaVersion": 1 }],
   "artifact-authorship": [{ "schemaVersion": 1 }],
-  "prompt-injection": [{ "schemaVersion": 1, "requiredViews": ["overview"] }, { "schemaVersion": 2, "requiredSelections": [] }],
+  "prompt-injection": [{ "schemaVersion": 1, "requiredViews": ["overview"] }, { "schemaVersion": 2, "requiredSelections": [] }, { "schemaVersion": 3, "requiredSelections": [], "structuralContext": null }],
   "agent-context-audit": [{ "schemaVersion": 1, "agent": "developer", "persona": "legacy-copilot", "files": [] }, { "schemaVersion": 2, "agent": "developer", "nativeCopilotAgent": "developer", "files": [] }],
   "remote-agent-output": [{ "schemaVersion": 1 }],
   "mcp-evidence": [{ "schemaVersion": 1, "generation": 1 }, { "schemaVersion": 2 }, { "schemaVersion": 3 }],
@@ -122,8 +122,9 @@
   "ledger-archive-manifest": [{ "schemaVersion": 1 }],
   "ast-preference": [{ "schemaVersion": 1 }],
   "ast-resume-job": [{ "schemaVersion": 1 }, { "schemaVersion": 2 }],
-  "ast-result": [{ "schemaVersion": 1 }, { "schemaVersion": 2 }, { "schemaVersion": 3 }],
+  "ast-result": [{ "schemaVersion": 1 }, { "schemaVersion": 2 }, { "schemaVersion": 3 }, { "schemaVersion": 4, "evidenceClass": "preview", "provenance": { "evidence": null } }],
   "ast-cache-blob": [{ "schemaVersion": 1 }],
   "ast-cone-manifest": [{ "schemaVersion": 1 }],
-  "ast-gate-receipt": [{ "schemaVersion": 1 }, { "schemaVersion": 2 }]
+  "ast-derivation-manifest": [{ "schemaVersion": 1 }],
+  "ast-gate-receipt": [{ "schemaVersion": 1 }, { "schemaVersion": 2 }, { "schemaVersion": 3, "derivation": { "replayability": "legacy-unreplayable", "reason": "artifact and exact-input derivation were not recorded" } }]
 }

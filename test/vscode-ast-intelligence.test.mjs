@@ -13,7 +13,7 @@ const {
 } = await import(source('ast-intelligence-model.ts'));
 
 const policy = {
-  mode: 'auto', fallback: 'host-and-text', generatedRoots: ['generated/types'],
+  mode: 'auto', fallback: 'host-and-text', evidence: { mode: 'identified', store: 'local-directory' }, generatedRoots: ['generated/types'],
   budgets: { maxFiles: 300, maxBytes: 10_000_000, maxFileBytes: 1_000_000 },
   languages: [{ language: 'typescript', mode: 'auto', minimumAssurance: 'text' }],
   predicates: [{ id: 'payment-entry', mode: 'advisory', type: 'symbol-exists', target: 'Payment', minimumAssurance: 'text' }]
@@ -21,18 +21,18 @@ const policy = {
 
 test('the AST settings view projects every repository policy field with bounded defaults', () => {
   assert.deepEqual(astPolicyView({ definition: { ast: {
-    mode: 'off', fallback: 'text-only', generatedRoots: ['generated'],
+    mode: 'off', fallback: 'text-only', evidence: { mode: 'replayable', store: 'local-directory' }, generatedRoots: ['generated'],
     budgets: { maxFiles: 12, maxBytes: 1000, maxFileBytes: 100 },
     languages: { kotlin: { mode: 'off', minimumAssurance: 'syntax' } },
     predicates: [{ id: 'api', mode: 'required', type: 'path-exists', path: 'src/api', minimumAssurance: 'text' }]
   } } }), {
-    mode: 'off', fallback: 'text-only', generatedRoots: ['generated'],
+    mode: 'off', fallback: 'text-only', evidence: { mode: 'replayable', store: 'local-directory' }, generatedRoots: ['generated'],
     budgets: { maxFiles: 12, maxBytes: 1000, maxFileBytes: 100 },
     languages: [{ language: 'kotlin', mode: 'off', minimumAssurance: 'syntax' }],
     predicates: [{ id: 'api', mode: 'required', type: 'path-exists', target: 'src/api', minimumAssurance: 'text' }]
   });
   assert.deepEqual(astPolicyView({}), {
-    mode: 'auto', fallback: 'host-and-text', generatedRoots: [],
+    mode: 'auto', fallback: 'host-and-text', evidence: { mode: 'identified', store: 'local-directory' }, generatedRoots: [],
     budgets: { maxFiles: 500, maxBytes: 20 * 1024 * 1024, maxFileBytes: 2 * 1024 * 1024 },
     languages: [], predicates: []
   });
@@ -82,7 +82,7 @@ test('guided AST edits preserve unrelated workflow configuration', () => {
   assert.equal(parsed.worldModel.grounding, 'warn');
   assert.match(updated, /# keep this comment/);
   assert.deepEqual(parsed.ast, {
-    mode: 'auto', fallback: 'host-and-text', generatedRoots: ['generated/types'],
+    mode: 'auto', fallback: 'host-and-text', evidence: { mode: 'identified', store: 'local-directory' }, generatedRoots: ['generated/types'],
     budgets: { maxFiles: 300, maxBytes: 10_000_000, maxFileBytes: 1_000_000 },
     languages: { typescript: { mode: 'auto', minimumAssurance: 'text' } },
     predicates: [{ id: 'payment-entry', mode: 'advisory', type: 'symbol-exists', symbol: 'Payment', minimumAssurance: 'text' }]
@@ -122,7 +122,7 @@ test('the AST form rejects unsafe roots, duplicate language rows, and disabling 
 test('the VS Code AST page exposes every policy source and keeps evidence and resume handles out of HTML', async () => {
   const panel = await readFile(source('ast-intelligence.ts'), 'utf8');
   for (const label of ['Repository policy', 'Machine preference', 'VS Code environment', 'Operation default']) assert.match(panel, new RegExp(label));
-  for (const field of ['generatedRoots', 'maxFiles', 'maxBytes', 'maxFileBytes', 'languages', 'predicates']) assert.ok(panel.includes(`name="${field}"`), field);
+  for (const field of ['evidenceMode', 'evidenceStore', 'generatedRoots', 'maxFiles', 'maxBytes', 'maxFileBytes', 'languages', 'predicates']) assert.ok(panel.includes(`name="${field}"`), field);
   assert.match(panel, /CLEAR AST CACHE/);
   assert.match(panel, /escape\(adapter\.id/);
   assert.match(panel, /Facts and source bodies are not rendered/);

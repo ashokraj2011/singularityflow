@@ -6,11 +6,12 @@ import path from 'node:path';
 
 import { normalizeAstPolicy, assuranceSatisfies } from './ast-policy.mjs';
 import { astAdapterRequest, discoverAstAdapters, executeAstAdapter } from './ast-adapter-contract.mjs';
+import { BUILTIN_AST_EXTRACTOR, extractBuiltinAstFacts } from './ast-builtin-extractor.mjs';
+import { replayAstEvidence } from './ast-replay.mjs';
 import { loadDefinition, WORKFLOW_PATH } from './config.mjs';
 import { gitCommonDir } from './git.mjs';
 import { canonicalJson, recordSha256 } from './records.mjs';
 import { currentSchemaVersion, readRecord } from './schema-migrations.mjs';
-import { extractImports, extractSymbols } from './repository-facts.mjs';
 import { normalizeSourceRoots, withWorldModelSourceScope, worldModelSourceScope } from './source-scope.mjs';
 import {
   optionBoolean, optionNumber, optionString, optionStrings, posix, run, SingularityFlowError,
@@ -22,8 +23,8 @@ const AST_PREFERENCE_SCHEMA_VERSION = currentSchemaVersion('ast-preference');
 const AST_RESUME_JOB_SCHEMA_VERSION = currentSchemaVersion('ast-resume-job');
 const STORE_DIR = 'singularity-flow/ast/v2';
 const LEGACY_STORE_DIR = 'singularity-flow/ast/v1';
-const BUILTIN_EXTRACTOR = Object.freeze({ id: 'builtin-text', version: 1, assurance: 'text' });
-const AST_ENGINE = Object.freeze({ id: 'singularity-flow-ast-broker', version: 2 });
+const BUILTIN_EXTRACTOR = BUILTIN_AST_EXTRACTOR;
+const AST_ENGINE = Object.freeze({ id: 'singularity-flow-ast-broker', version: 3 });
 const AST_READ_CURSOR_VERSION = 1;
 const DEFAULT_MAX_FACTS = 200;
 const DEFAULT_MAX_OUTPUT_BYTES = 128 * 1024;
@@ -41,14 +42,14 @@ const LANGUAGE_BY_EXTENSION = new Map([
   ['.go', 'go'], ['.rs', 'rust'], ['.cs', 'csharp'], ['.rb', 'ruby'], ['.php', 'php'],
   ['.vue', 'vue'], ['.svelte', 'svelte'], ['.xml', 'xml'], ['.json', 'json'], ['.yaml', 'yaml'], ['.yml', 'yaml']
 ]);
-const TEXT_SYMBOL_LANGUAGES = new Set(['javascript', 'typescript']);
+const EVIDENCE_CLASSES = new Set(['preview', 'recorded-context', 'gate']);
 
 function sha256(value) {
   return createHash('sha256').update(value).digest('hex');
 }
 
 function extractorKey(value) {
-  return `${value?.id ?? ''}\0${value?.version ?? ''}\0${value?.assurance ?? ''}`;
+  return value ? recordSha256(value) : '';
 }
 
 function uniqueExtractors(values) {
@@ -143,6 +144,19 @@ async function loadRuntime(root) {
 function repositoryRevision(root) {
   const result = run('git', ['rev-parse', '--verify', 'HEAD'], { cwd: root, allowFailure: true });
   return result.status === 0 ? result.stdout.trim() : null;
+}
+
+function gitObjectFormat(root) {
+  const result = run('git', ['rev-parse', '--show-object-format'], { cwd: root, allowFailure: true });
+  return result.status === 0 ? result.stdout.trim() : 'sha1';
+}
+
+function evidenceClass(options = {}) {
+  const value = optionString(options, 'evidence-class', 'preview');
+  if (!EVIDENCE_CLASSES.has(value)) {
+    throw new SingularityFlowError('AST evidence class must be preview, recorded-context, or gate.');
+  }
+  return value;
 }
 
 function languageFor(relative) {
@@ -395,17 +409,7 @@ async function deriveSkeleton(root, file, key, preparedBytes = null) {
   if (file.contentKey?.startsWith('sha256:') && file.contentKey !== `sha256:${digest}`) {
     throw new SingularityFlowError(`AST input '${file.path}' changed while it was being indexed. Retry the operation.`, { code: 'AST_INPUT_CHANGED' });
   }
-  const facts = [];
-  if (TEXT_SYMBOL_LANGUAGES.has(file.language)) {
-    const text = bytes.toString('utf8');
-    for (const symbol of extractSymbols(text, file.path)) {
-      facts.push({
-        kind: 'symbol', name: symbol.name, declarationKind: symbol.kind,
-        line: Number(symbol.at.slice(symbol.at.lastIndexOf(':') + 1)), assurance: 'text'
-      });
-    }
-    for (const target of extractImports(text)) facts.push({ kind: 'import', target, assurance: 'text' });
-  }
+  const facts = extractBuiltinAstFacts(bytes, file.language, file.path);
   return sealSkeleton({
     schemaVersion: currentSchemaVersion('ast-cache-blob'), key, contentKey: file.contentKey,
     sha256: digest, language: file.language, extractor: BUILTIN_EXTRACTOR, facts
@@ -446,6 +450,7 @@ async function cachedSkeleton(root, file, key) {
 function entryFor(file, skeleton) {
   return {
     path: file.path, contentKey: file.contentKey, cacheKey: skeleton.key, sha256: skeleton.sha256,
+    gitObjectId: file.object ?? null, gitMode: file.mode ?? null,
     language: file.language, size: file.size, generated: file.generated, materialized: file.materialized !== false,
     requiredAssurance: file.requiredAssurance ?? 'text', extractor: structuredClone(skeleton.extractor),
     assurance: skeleton.extractor.assurance, adapters: []
@@ -568,7 +573,17 @@ function assuranceRank(value) {
 }
 
 function adapterExtractor(adapter) {
-  return { id: adapter.id, version: adapter.extractorVersion, assurance: adapter.assurance };
+  return {
+    id: adapter.id,
+    version: adapter.extractorVersion,
+    assurance: adapter.assurance,
+    protocolVersion: adapter.protocolVersion,
+    manifestSha256: adapter.implementation.manifestSha256,
+    artifactSha256: adapter.implementation.artifactSha256,
+    runtime: structuredClone(adapter.implementation.runtime),
+    grammars: structuredClone(adapter.implementation.grammars),
+    dependencies: structuredClone(adapter.implementation.dependencies)
+  };
 }
 
 async function applyConfiguredAdapters(root, runtime, selection, processed, { persist = false } = {}) {
@@ -617,7 +632,8 @@ async function applyConfiguredAdapters(root, runtime, selection, processed, { pe
       operation: 'skeleton',
       scope: selection.scope,
       files: entries.map((entry) => ({ path: entry.path, sha256: entry.sha256, language: entry.language })),
-      budget: processed.budgets
+      budget: processed.budgets,
+      implementation: adapter.implementation
     });
     try {
       const response = await executeAstAdapter(adapter, request, { root });
@@ -766,6 +782,7 @@ function baseEnvelope(runtime, operation, scope, mode, { revision = null, finger
   return {
     schemaVersion: AST_RESULT_SCHEMA_VERSION,
     operation,
+    evidenceClass: 'preview',
     scope: { ...scope, repositoryRevision: revision, worktreeFingerprint: fingerprint },
     assurance: 'text',
     status: mode.mode === 'off' ? 'disabled' : 'complete',
@@ -783,6 +800,109 @@ function baseEnvelope(runtime, operation, scope, mode, { revision = null, finger
       adapters: [], extractors: [], effectiveMode: mode.mode, modeSources: mode.sources
     }
   };
+}
+
+function durableInputProblems(selection) {
+  return selection.candidates
+    .filter((file) => file.skipReason || !file.object || file.contentKey !== `git:${file.object}`)
+    .map((file) => ({
+      path: file.path,
+      reason: file.skipReason ?? (!file.object ? 'untracked' : 'worktree-differs-from-commit')
+    }));
+}
+
+function normalizedOperationOptions(runtime, selection, options, operation) {
+  return {
+    operation,
+    selector: {
+      kind: selection.scope.kind,
+      paths: [...(selection.scope.paths ?? [])].sort()
+    },
+    inputBudgets: astBudgets(runtime, options),
+    outputLimits: outputLimits(options),
+    mode: optionString(options, 'mode', 'auto'),
+    predicates: structuredClone(runtime.policy.predicates)
+  };
+}
+
+function attachEvidenceCapture(root, runtime, selection, processed, envelope, options, structuralFacts) {
+  const requestedClass = evidenceClass(options);
+  envelope.evidenceClass = requestedClass;
+  const problems = durableInputProblems(selection);
+  if (requestedClass === 'preview') {
+    if (problems.length) envelope.diagnostics.push({
+      code: 'AST_PREVIEW_NOT_DURABLE',
+      message: `Structural preview is not durable evidence: ${problems.length} selected path(s) are not exact committed Git blobs.`
+    });
+    return envelope;
+  }
+  if (runtime.policy.evidence.mode === 'off') {
+    throw new SingularityFlowError(
+      `AST ${requestedClass} evidence is disabled by ast.evidence.mode=off. Enable identified/replayable evidence or run a non-evidence preview.`,
+      { code: 'AST_EVIDENCE_DISABLED' }
+    );
+  }
+  if (problems.length) {
+    const listed = problems.slice(0, 50).map((item) => `- ${item.path} (${item.reason})`).join('\n');
+    throw new SingularityFlowError(
+      `AST ${requestedClass} requires exact committed inputs:\n${listed}\n`
+      + 'Commit the relevant bytes, narrow the evidence cone, or run a non-evidence preview.',
+      { code: 'AST_EVIDENCE_INPUT_NOT_COMMITTED', details: { paths: problems } }
+    );
+  }
+  const sourceCommit = selection.repositoryRevision;
+  if (!sourceCommit) {
+    throw new SingularityFlowError('AST durable evidence requires a committed Git HEAD.', {
+      code: 'AST_EVIDENCE_SOURCE_COMMIT_MISSING'
+    });
+  }
+  const files = processed.entries.map((entry) => ({
+    path: entry.path,
+    gitObjectId: entry.gitObjectId,
+    gitMode: entry.gitMode,
+    contentSha256: entry.sha256,
+    language: entry.language,
+    bytes: entry.size,
+    generated: entry.generated === true
+  })).sort((left, right) => left.path.localeCompare(right.path));
+  const operationOptions = normalizedOperationOptions(runtime, selection, options, envelope.operation);
+  envelope.provenance.evidence = {
+    evidenceClass: requestedClass,
+    configuration: {
+      astPolicySha256: recordSha256(runtime.policy),
+      sourceScopeSha256: recordSha256(runtime.sourceScope),
+      intelligenceProfileSha256: recordSha256(runtime.definition?.worldModel?.intelligence ?? null),
+      predicateSetSha256: recordSha256(runtime.policy.predicates),
+      operationOptionsSha256: recordSha256(operationOptions)
+    },
+    replayRecipe: operationOptions,
+    inputs: {
+      sourceCommit,
+      gitObjectFormat: gitObjectFormat(root),
+      files
+    },
+    outputs: {
+      canonicalizationVersion: 1,
+      factsSha256: recordSha256(structuralFacts),
+      predicateResultsSha256: null,
+      page: null
+    }
+  };
+  return envelope;
+}
+
+function captureReturnedPage(envelope) {
+  const evidence = envelope.provenance?.evidence;
+  if (!evidence) return envelope;
+  evidence.outputs.page = {
+    factsSha256: recordSha256(envelope.facts),
+    returned: envelope.page.returned,
+    available: envelope.page.available,
+    offset: envelope.page.offset,
+    continuationBinding: envelope.nextCursor ? sha256(envelope.nextCursor) : null,
+    canonicalizationVersion: 1
+  };
+  return envelope;
 }
 
 function refreshEnvelopeAccounting(envelope, {
@@ -821,6 +941,7 @@ function refreshEnvelopeAccounting(envelope, {
 export function validateAstResultEnvelope(value) {
   const record = readRecord('ast-result', value).record;
   if (!OPERATIONS.has(record.operation)) throw new SingularityFlowError('Invalid AST result envelope operation.');
+  if (!EVIDENCE_CLASSES.has(record.evidenceClass)) throw new SingularityFlowError('Invalid AST result evidence class.');
   if (!ASSURANCE.has(record.assurance) || !STATUSES.has(record.status)) throw new SingularityFlowError('Invalid AST result envelope assurance or status.');
   if (!record.scope?.definitionSha256 || !Object.hasOwn(record.scope, 'worktreeFingerprint')) throw new SingularityFlowError('AST result envelope is missing its scope binding.');
   if (!Array.isArray(record.facts) || !Array.isArray(record.diagnostics) || !Array.isArray(record.degradation)) throw new SingularityFlowError('AST result envelope collections are invalid.');
@@ -860,6 +981,12 @@ async function buildOrContext(root, options, operation) {
   const runtime = await loadRuntime(root);
   const mode = await effectiveAstMode(runtime.policy, optionString(options, 'mode', 'auto'));
   if (mode.mode === 'off') {
+    const requestedClass = evidenceClass(options);
+    if (requestedClass !== 'preview') {
+      throw new SingularityFlowError(`AST ${requestedClass} evidence cannot run while AST is disabled.`, {
+        code: 'AST_EVIDENCE_DISABLED'
+      });
+    }
     const requested = explicitPaths(options);
     const all = optionBoolean(options, 'all');
     if (requested.length && all) throw new SingularityFlowError('Use either AST --paths or --all, not both.');
@@ -869,6 +996,7 @@ async function buildOrContext(root, options, operation) {
       definitionSha256: runtime.definitionSha256
     };
     const disabled = baseEnvelope(runtime, operation, scope, mode);
+    disabled.evidenceClass = requestedClass;
     disabled.diagnostics.push({ code: 'AST_DISABLED', message: 'Structural intelligence is disabled by the most restrictive effective preference.' });
     return validateAstResultEnvelope(refreshEnvelopeAccounting(disabled));
   }
@@ -883,6 +1011,7 @@ async function buildOrContext(root, options, operation) {
     revision: selection.repositoryRevision, fingerprint: selection.coneSha256
   });
   envelope.facts = await factsForEntries(root, processed.entries, processed.memory);
+  const structuralFacts = structuredClone(envelope.facts);
   envelope.assurance = resultAssurance(processed.entries);
   const deferred = selection.candidates.slice(processed.nextIndex).map((file) => ({
     path: file.path, reason: 'operation-budget', bytes: file.size
@@ -913,6 +1042,7 @@ async function buildOrContext(root, options, operation) {
     const manifest = await writeManifest(root, runtime, selection, processed, envelope.coverage, envelope.status);
     envelope.provenance.manifest = path.relative(gitCommonDir(root), manifest.target).replaceAll(path.sep, '/');
   }
+  attachEvidenceCapture(root, runtime, selection, processed, envelope, options, structuralFacts);
   return validateAstResultEnvelope(refreshEnvelopeAccounting(envelope));
 }
 
@@ -960,6 +1090,7 @@ async function resumeBuild(root, handle, options) {
   };
   result.provenance.resumedFrom = job.id;
   await rm(file, { force: true });
+  attachEvidenceCapture(root, runtime, selection, processed, result, resumedOptions, facts);
   return validateAstResultEnvelope(refreshEnvelopeAccounting(result));
 }
 
@@ -1090,6 +1221,7 @@ async function boundedReadPage(root, envelope, {
       maxOutputBytes: limits.maxOutputBytes,
       outputBytes: 0
     };
+    captureReturnedPage(envelope);
     for (let attempt = 0; attempt < 3; attempt += 1) {
       envelope.page.outputBytes = Buffer.byteLength(JSON.stringify(envelope, null, 2), 'utf8');
     }
@@ -1167,7 +1299,8 @@ export async function astQuery(root, options = {}) {
 
 export async function evaluateAstGate(root, options = {}) {
   const runtime = await loadRuntime(root);
-  const envelope = await buildOrContext(root, options, 'gate');
+  const gateOptions = { ...options, 'evidence-class': optionString(options, 'evidence-class', 'gate') };
+  const envelope = await buildOrContext(root, gateOptions, 'gate');
   const results = [];
   for (const predicate of runtime.policy.predicates) {
     const configuredAssurance = predicate.minimumAssurance ?? 'text';
@@ -1206,6 +1339,9 @@ export async function evaluateAstGate(root, options = {}) {
     blocking: blocking.map((item) => item.id),
     evaluatedPaths
   };
+  if (envelope.provenance.evidence) {
+    envelope.provenance.evidence.outputs.predicateResultsSha256 = recordSha256(results);
+  }
   return validateAstResultEnvelope(refreshEnvelopeAccounting(envelope, {
     available: results.length,
     examined,
@@ -1375,6 +1511,11 @@ export async function astCommand(root, positionals, options) {
   else if (action === 'context') result = await astContext(root, options);
   else if (action === 'query') result = await astQuery(root, options);
   else if (action === 'gate') result = await evaluateAstGate(root, options);
+  else if (action === 'evidence') {
+    const evidenceAction = positionals[1] ?? 'replay';
+    if (evidenceAction !== 'replay') throw new SingularityFlowError('Usage: singularity-flow wm ast evidence replay --receipt <PATH>');
+    result = await replayAstEvidence(root, options);
+  }
   else if (action === 'cache') {
     const cacheAction = positionals[1] ?? 'status';
     if (cacheAction === 'status') result = await astCacheStatus(root);
@@ -1386,7 +1527,7 @@ export async function astCommand(root, positionals, options) {
     if (preferenceAction === 'show') result = await readAstPreference();
     else if (preferenceAction === 'set') result = await setAstPreference(positionals[2] ?? optionString(options, 'mode'));
     else throw new SingularityFlowError('Usage: singularity-flow wm ast preference show|set auto|off');
-  } else throw new SingularityFlowError('Usage: singularity-flow wm ast doctor|status|build|context|query|gate|cache|preference');
+  } else throw new SingularityFlowError('Usage: singularity-flow wm ast doctor|status|build|context|query|gate|evidence replay|cache|preference');
   printResult(result, optionBoolean(options, 'json'));
   return result;
 }

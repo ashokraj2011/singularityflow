@@ -1,5 +1,6 @@
 import assert from 'node:assert/strict';
 import { execFileSync } from 'node:child_process';
+import { createHash } from 'node:crypto';
 import { mkdtemp, readFile, readdir, unlink, writeFile } from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
@@ -7,7 +8,8 @@ import test from 'node:test';
 import YAML from 'yaml';
 
 import {
-  astAdapterRequest, executeAstAdapter, validateAstAdapterManifest, validateAstAdapterResponse
+  astAdapterManifestSha256, astAdapterRequest, executeAstAdapter, validateAstAdapterManifest,
+  validateAstAdapterResponse
 } from '../src/ast-adapter-contract.mjs';
 import { initializeDefinition } from '../src/config.mjs';
 import {
@@ -23,6 +25,34 @@ import { validateSflowResult } from '../src/gateway/result.mjs';
 
 function git(root, args) {
   return execFileSync('git', args, { cwd: root, encoding: 'utf8' }).trim();
+}
+
+function digest(bytes) {
+  return createHash('sha256').update(bytes).digest('hex');
+}
+
+function adapterManifestValue(overrides = {}) {
+  const implementation = {
+    artifactSha256: 'a'.repeat(64),
+    manifestSha256: '',
+    runtime: { id: 'node', version: process.versions.node, platform: `${process.platform}-${process.arch}` },
+    grammars: [],
+    dependencies: { lockSha256: null, bundleSha256: null },
+    ...(overrides.implementation ?? {})
+  };
+  const value = {
+    protocolVersion: 2,
+    id: 'syntax-fixture',
+    languages: ['typescript'],
+    assurance: 'syntax',
+    argv: ['node', '/opt/adapter.mjs'],
+    extractorVersion: '1.0.0',
+    capabilities: ['skeleton'],
+    ...overrides,
+    implementation
+  };
+  value.implementation.manifestSha256 = astAdapterManifestSha256(value);
+  return value;
 }
 
 async function repository() {
@@ -65,7 +95,7 @@ test('v1 AST results migrate with truthful current accounting and legacy resume 
     diagnostics: [], degradation: [], resumeHandle: null,
     provenance: { engine: 'singularity-flow-ast-broker', engineVersion: 1, adapters: [], effectiveMode: 'auto', modeSources: {} }
   });
-  assert.equal(result.schemaVersion, 3);
+  assert.equal(result.schemaVersion, 4);
   assert.equal(result.coverage.factsExamined, 1);
   assert.equal(result.facts[0].generated, false);
   assert.equal(result.facts[0].assurance, 'text');
@@ -81,7 +111,7 @@ test('v1 AST results migrate with truthful current accounting and legacy resume 
       id: 'legacy-required', mode: 'required', requiredAssurance: 'text', outcome: 'pass'
     }], coverage: { facts: 1 }, provenance: {}
   }).record;
-  assert.equal(legacyGate.schemaVersion, 3);
+  assert.equal(legacyGate.schemaVersion, 4);
   assert.deepEqual(legacyGate.facts[0].extractors, []);
   assert.equal(legacyGate.page.available, 1);
 });
@@ -140,6 +170,33 @@ test('text facts contain references and hashes but never source bodies', async (
   assert.ok(result.facts.some((fact) => fact.kind === 'symbol' && fact.name === 'one'));
   assert.ok(result.facts.some((fact) => fact.kind === 'import' && fact.target === './one.js'));
   assert.doesNotMatch(JSON.stringify(result), /return 1/);
+}));
+
+test('durable evidence rejects dirty in-cone bytes but ignores dirty paths outside the cone', async () => withPreferenceFile(async () => {
+  const root = await repository();
+  await initializeDefinition(root);
+  git(root, ['add', '.']);
+  git(root, ['commit', '-qm', 'configure AST evidence']);
+
+  await writeFile(path.join(root, 'two.ts'), 'export const outside = true;\n');
+  const outside = await astCommand(root, ['context'], {
+    paths: 'one.ts', 'evidence-class': 'recorded-context'
+  });
+  assert.equal(outside.evidenceClass, 'recorded-context');
+  assert.deepEqual(outside.provenance.evidence.inputs.files.map((entry) => entry.path), ['one.ts']);
+
+  await writeFile(path.join(root, 'one.ts'), 'export const dirty = true;\n');
+  await assert.rejects(
+    () => astCommand(root, ['context'], { paths: 'one.ts', 'evidence-class': 'recorded-context' }),
+    (error) => error?.code === 'AST_EVIDENCE_INPUT_NOT_COMMITTED'
+      && /one\.ts/.test(error.message)
+      && /Commit the relevant bytes/.test(error.message)
+  );
+  await writeFile(path.join(root, 'new.ts'), 'export const untracked = true;\n');
+  await assert.rejects(
+    () => astCommand(root, ['context'], { paths: 'new.ts', 'evidence-class': 'recorded-context' }),
+    (error) => error?.code === 'AST_EVIDENCE_INPUT_NOT_COMMITTED' && /untracked/.test(error.message)
+  );
 }));
 
 test('a clean sparse file is indexed from its immutable Git blob without materializing it', async () => withPreferenceFile(async () => {
@@ -215,7 +272,7 @@ test('a lexical symbol match never satisfies a required symbol gate', async () =
   assert.equal(result.facts.find((item) => item.id === 'one-exists')?.outcome, 'unknown');
   assert.equal(result.facts.find((item) => item.id === 'one-exists')?.requiredAssurance, 'syntax');
   assert.deepEqual(result.facts.find((item) => item.id === 'one-exists')?.extractors, [
-    { id: 'builtin-text', version: 1, assurance: 'text' }
+    { id: 'builtin-text', version: 1, assurance: 'text', protocolVersion: 2 }
   ]);
   assert.equal(result.provenance.gate.allowed, false);
 }));
@@ -395,17 +452,16 @@ test('cache prune previews and removes only stale derived records after exact co
 }));
 
 test('adapter manifests are versioned structured argv contracts', () => {
-  const adapter = validateAstAdapterManifest({
-    protocolVersion: 1,
+  const adapter = validateAstAdapterManifest(adapterManifestValue({
     id: 'typescript-reference',
     languages: ['typescript', 'javascript'],
     assurance: 'syntax',
     argv: ['node', '/opt/adapter.mjs'],
     extractorVersion: '1.0.0',
     capabilities: ['skeleton', 'query']
-  });
+  }));
   assert.deepEqual(adapter.argv, ['node', '/opt/adapter.mjs']);
-  assert.throws(() => validateAstAdapterManifest({ ...adapter, protocolVersion: 2 }), /protocolVersion/);
+  assert.throws(() => validateAstAdapterManifest({ ...adapter, protocolVersion: 1 }), /protocolVersion/);
   assert.throws(() => validateAstAdapterManifest({ ...adapter, capabilities: 'skeleton' }), /capabilities/);
   assert.throws(() => validateAstAdapterManifest({ ...adapter, capabilities: ['execute-anything'] }), /capabilities/);
 });
@@ -418,20 +474,23 @@ test('an explicit adapter executes through bounded structured JSON without a she
     for await (const chunk of process.stdin) input += chunk;
     const request = JSON.parse(input);
     process.stdout.write(JSON.stringify({
-      protocolVersion: 1, adapterId: 'syntax-fixture', extractorVersion: '1.0.0', assurance: 'syntax',
+      protocolVersion: 2, adapterId: 'syntax-fixture', extractorVersion: '1.0.0', assurance: 'syntax',
+      derivationIdentity: request.derivationIdentity,
+      artifactSha256: request.implementation.artifactSha256,
+      manifestSha256: request.implementation.manifestSha256,
       files: request.files.map((file) => ({ path: file.path, sha256: file.sha256, facts: [
         { kind: 'symbol', name: 'ParsedSymbol', declarationKind: 'class', line: 1, assurance: 'syntax' }
       ] }))
     }));
   `);
-  const manifest = validateAstAdapterManifest({
-    protocolVersion: 1, id: 'syntax-fixture', languages: ['typescript'], assurance: 'syntax',
-    argv: [process.execPath, executable], extractorVersion: '1.0.0', capabilities: ['skeleton']
-  });
+  const manifest = validateAstAdapterManifest(adapterManifestValue({
+    argv: [process.execPath, executable],
+    implementation: { artifactSha256: digest(await readFile(executable)) }
+  }));
   const request = astAdapterRequest({
     operation: 'skeleton', scope: { kind: 'paths' },
     files: [{ path: 'one.ts', sha256: 'a'.repeat(64), language: 'typescript' }],
-    budget: { maxFiles: 1, maxBytes: 1000 }
+    budget: { maxFiles: 1, maxBytes: 1000 }, implementation: manifest.implementation
   });
   const response = await executeAstAdapter(manifest, request, { root });
   assert.equal(response.files[0].facts[0].name, 'ParsedSymbol');
@@ -448,6 +507,14 @@ test('an explicit adapter executes through bounded structured JSON without a she
     code: 'PARSE_WARNING', message: "AST adapter 'syntax-fixture' reported diagnostic PARSE_WARNING."
   }]);
   assert.doesNotMatch(JSON.stringify(diagnostic), /secret|Users\/private/);
+  assert.throws(() => validateAstAdapterResponse({
+    ...response, derivationIdentity: 'f'.repeat(64)
+  }, manifest, request), /identity or assurance/);
+  await writeFile(executable, '// changed without changing extractorVersion\n');
+  await assert.rejects(
+    () => executeAstAdapter(manifest, request, { root }),
+    (error) => error?.code === 'AST_ADAPTER_ARTIFACT_MISMATCH'
+  );
 });
 
 test('host-and-text executes and caches an approved adapter while text-only never launches it', async () => withPreferenceFile(async () => {
@@ -467,16 +534,19 @@ test('host-and-text executes and caches an approved adapter while text-only neve
     let input = ''; for await (const chunk of process.stdin) input += chunk;
     const request = JSON.parse(input);
     process.stdout.write(JSON.stringify({
-      protocolVersion: 1, adapterId: 'syntax-fixture', extractorVersion: '1.0.0', assurance: 'syntax',
+      protocolVersion: 2, adapterId: 'syntax-fixture', extractorVersion: '1.0.0', assurance: 'syntax',
+      derivationIdentity: request.derivationIdentity,
+      artifactSha256: request.implementation.artifactSha256,
+      manifestSha256: request.implementation.manifestSha256,
       files: request.files.map((file) => ({ path: file.path, sha256: file.sha256,
         facts: [{ kind: 'symbol', name: 'CompilerParsed', declarationKind: 'class', line: 1 }] }))
     }));
   `);
   const manifestPath = path.join(root, 'adapter.json');
-  await writeFile(manifestPath, JSON.stringify({
-    protocolVersion: 1, id: 'syntax-fixture', languages: ['typescript'], assurance: 'syntax',
-    argv: [process.execPath, adapter], extractorVersion: '1.0.0', capabilities: ['skeleton']
-  }));
+  await writeFile(manifestPath, JSON.stringify(adapterManifestValue({
+    argv: [process.execPath, adapter],
+    implementation: { artifactSha256: digest(await readFile(adapter)) }
+  })));
   const before = process.env.SINGULARITY_FLOW_AST_ADAPTER_MANIFESTS;
   process.env.SINGULARITY_FLOW_AST_ADAPTER_MANIFESTS = manifestPath;
   try {

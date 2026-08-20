@@ -114,6 +114,18 @@ function astResultV2ToV3(source) {
   return migrated;
 }
 
+function astResultV3ToV4(source) {
+  return {
+    ...source,
+    schemaVersion: 4,
+    evidenceClass: source.evidenceClass ?? 'preview',
+    provenance: {
+      ...clone(source.provenance ?? {}),
+      evidence: clone(source.provenance?.evidence ?? null)
+    }
+  };
+}
+
 function astGateReceiptV1ToV2(source) {
   return {
     ...source,
@@ -122,6 +134,22 @@ function astGateReceiptV1ToV2(source) {
     extractors: clone(source.extractors ?? []),
     predicates: (source.predicates ?? []).map((predicate) => ({
       ...clone(predicate), extractors: clone(predicate.extractors ?? [])
+    }))
+  };
+}
+
+function astGateReceiptV2ToV3(source) {
+  return {
+    ...source,
+    schemaVersion: 3,
+    derivation: clone(source.derivation ?? {
+      replayability: 'legacy-unreplayable',
+      reason: 'artifact and exact-input derivation were not recorded'
+    }),
+    predicates: (source.predicates ?? []).map((predicate) => ({
+      ...clone(predicate),
+      factSetSha256: predicate.factSetSha256 ?? null,
+      derivationSha256: predicate.derivationSha256 ?? null
     }))
   };
 }
@@ -329,6 +357,17 @@ function promptInjectionV1ToV2(source) {
   return { ...source, schemaVersion: 2, requiredSelections: clone(source.requiredSelections ?? null) };
 }
 
+function promptInjectionV2ToV3(source) {
+  const structuralContext = source.structuralContext == null ? null : {
+    ...clone(source.structuralContext),
+    derivation: clone(source.structuralContext.derivation ?? {
+      replayability: 'legacy-unreplayable',
+      reason: 'artifact and exact-input derivation were not recorded'
+    })
+  };
+  return { ...source, schemaVersion: 3, structuralContext };
+}
+
 function agentContextAuditV1ToV2(source) {
   return {
     ...source,
@@ -459,8 +498,8 @@ const families = [
   family({ id: 'work-item-telemetry', currentVersion: 1 }),
   family({ id: 'artifact-authorship', currentVersion: 1 }),
   family({
-    id: 'prompt-injection', currentVersion: 2,
-    steps: [migration(1, 2, promptInjectionV1ToV2)],
+    id: 'prompt-injection', currentVersion: 3,
+    steps: [migration(1, 2, promptInjectionV1ToV2), migration(2, 3, promptInjectionV2ToV3)],
     paths: [/^singularity\/work-items\/[^/]+\/context\/(?!(?:agents-|remote-output-))[^/]+-gen\d+\.json$/]
   }),
   family({
@@ -575,8 +614,11 @@ const families = [
     paths: [/^\$git\/ast\/v[12]\/jobs\/[^/]+\.json$/]
   }),
   family({
-    id: 'ast-result', currentVersion: 3,
-    steps: [migration(1, 2, astResultV1ToV2), migration(2, 3, astResultV2ToV3)],
+    id: 'ast-result', currentVersion: 4,
+    steps: [
+      migration(1, 2, astResultV1ToV2), migration(2, 3, astResultV2ToV3),
+      migration(3, 4, astResultV3ToV4)
+    ],
     // v2 cone manifests are a distinct durable family. Keeping this path on legacy snapshots
     // prevents the first-match path registry from interpreting a v2 manifest as an AST result.
     paths: [/^\$git\/ast\/v1\/snapshots\/[^/]+\.json$/]
@@ -584,8 +626,13 @@ const families = [
   family({ id: 'ast-cache-blob', currentVersion: 1, paths: [/^\$git\/ast\/v2\/blobs\/[a-f0-9]{64}\.json$/] }),
   family({ id: 'ast-cone-manifest', currentVersion: 1, paths: [/^\$git\/ast\/v2\/manifests\/[a-f0-9]{64}\.json$/] }),
   family({
-    id: 'ast-gate-receipt', currentVersion: 2,
-    steps: [migration(1, 2, astGateReceiptV1ToV2)],
+    id: 'ast-derivation-manifest', currentVersion: 1,
+    paths: [/^singularity\/work-items\/[^/]+\/context\/ast\/derivations\/[a-f0-9]{64}\.json$/],
+    immutable: true
+  }),
+  family({
+    id: 'ast-gate-receipt', currentVersion: 3,
+    steps: [migration(1, 2, astGateReceiptV1ToV2), migration(2, 3, astGateReceiptV2ToV3)],
     paths: [/^singularity\/work-items\/[^/]+\/context\/ast\/[^/]+\.json$/], immutable: true
   }),
   family({ id: 'organisation-cache', currentVersion: 1, paths: [/^\$local\/organisation-cache\/[^/]+\.json$/] }),

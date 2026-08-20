@@ -8,7 +8,7 @@ import { commandData, list } from './surface-adapters.ts';
 import {
   astPolicyView, astRepositoryScopeView, parseAstLanguageRows, parseAstPredicateRows,
   astWorkspaceRepositoryInventory, updateAstPolicyYaml, validateAstPolicyDraft,
-  type AstAssurance, type AstFallback, type AstMode, type AstPolicyDraft,
+  type AstAssurance, type AstEvidenceMode, type AstFallback, type AstMode, type AstPolicyDraft,
   type AstRepositoryScopeView, type AstWorkspaceRepositoryInventory
 } from './ast-intelligence-model.ts';
 import { contentSecurityPolicy, escape, icon, navigationTarget, nonce, page } from './webview.ts';
@@ -59,6 +59,7 @@ const SCRIPT = `
     if (form.id === 'ast-repository-form') send({ type: 'select-repository', repository: data.get('repository') });
     if (form.id === 'ast-policy-form') send({
       type: 'save-policy', mode: data.get('mode'), fallback: data.get('fallback'),
+      evidenceMode: data.get('evidenceMode'), evidenceStore: data.get('evidenceStore'),
       generatedRoots: String(data.get('generatedRoots') || ''),
       maxFiles: Number(data.get('maxFiles')), maxBytes: Number(data.get('maxBytes')),
       maxFileBytes: Number(data.get('maxFileBytes')),
@@ -161,6 +162,8 @@ function policyForm(policy: AstPolicyDraft, scope: AstRepositoryScopeView | null
       <div class="editor-card"><h3>Behavior</h3><div class="form-grid">
         <label><span>Repository mode for ${escape(repository)}</span><select name="mode">${option('auto', policy.mode, 'Auto — available when requested')}${option('off', policy.mode, `Off — disable for ${repository}`)}</select><small>Off is refused while any required predicate exists.</small></label>
         <label><span>Fallback</span><select name="fallback">${option('host-and-text', policy.fallback, 'Host and bounded text facts')}${option('text-only', policy.fallback, 'Bounded text facts only')}</select></label>
+        <label><span>Durable evidence</span><select name="evidenceMode">${option('replayable', policy.evidence.mode, 'Replayable — retain exact toolchain')}${option('identified', policy.evidence.mode, 'Identified — record digests only')}${option('off', policy.evidence.mode, 'Off — previews only')}</select><small>Required lifecycle predicates always require replayable evidence.</small></label>
+        <label><span>Evidence store</span><input name="evidenceStore" value="${escape(policy.evidence.store)}"><small>Logical store ID only; credentials and host paths are never committed.</small></label>
         <label class="span-2"><span>Generated roots</span><input name="generatedRoots" value="${escape(policy.generatedRoots.join(', '))}" placeholder="generated/client, build/types"><small>Comma-separated repository-relative directories. Symlinks, traversal, and globs are refused.</small></label>
       </div></div>
       <div class="editor-card"><h3>Safety budgets</h3><div class="form-grid">
@@ -359,6 +362,10 @@ export class AstIntelligencePanel {
     return {
       mode: optionalString(message, 'mode') as AstMode,
       fallback: optionalString(message, 'fallback') as AstFallback,
+      evidence: {
+        mode: optionalString(message, 'evidenceMode') as AstEvidenceMode,
+        store: optionalString(message, 'evidenceStore')
+      },
       generatedRoots: optionalString(message, 'generatedRoots').split(',').map((entry) => entry.trim()).filter(Boolean),
       budgets: {
         maxFiles: positiveInteger(message, 'maxFiles'), maxBytes: positiveInteger(message, 'maxBytes'),

@@ -125,6 +125,11 @@ worldModel:
 ast:
   mode: auto
   fallback: host-and-text
+  # Recorded prompt context keeps immutable identities; required lifecycle predicates must use
+  # replayable. The logical store ID never contains credentials or machine-specific paths.
+  evidence:
+    mode: replayable
+    store: local-directory
   budgets:
     maxFiles: 500
     maxBytes: 20971520

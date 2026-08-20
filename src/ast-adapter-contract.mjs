@@ -1,12 +1,65 @@
+import { createHash } from 'node:crypto';
 import { readFile } from 'node:fs/promises';
+import { existsSync } from 'node:fs';
 import path from 'node:path';
 
+import { recordSha256 } from './records.mjs';
 import { SingularityFlowError } from './util.mjs';
 import { runQualityCommand } from './quality-command-runner.mjs';
 
-export const AST_ADAPTER_PROTOCOL_VERSION = 1;
+export const AST_ADAPTER_PROTOCOL_VERSION = 2;
 const ASSURANCE = new Set(['syntax', 'semantic']);
 const CAPABILITIES = new Set(['skeleton', 'query', 'gate']);
+const DIGEST = /^[a-f0-9]{64}$/;
+
+function hashBytes(bytes) {
+  return createHash('sha256').update(bytes).digest('hex');
+}
+
+export function astAdapterManifestSha256(value) {
+  const copy = structuredClone(value);
+  if (copy.implementation) delete copy.implementation.manifestSha256;
+  return recordSha256(copy);
+}
+
+function validateImplementation(value, manifest, source) {
+  if (!value || typeof value !== 'object' || Array.isArray(value)) throw new SingularityFlowError(`${source} implementation metadata is required.`);
+  if (!DIGEST.test(value.artifactSha256 ?? '') || !DIGEST.test(value.manifestSha256 ?? '')) {
+    throw new SingularityFlowError(`${source} implementation artifactSha256 and manifestSha256 must be SHA-256 digests.`);
+  }
+  if (value.manifestSha256 !== astAdapterManifestSha256(manifest)) {
+    throw new SingularityFlowError(`${source} implementation manifestSha256 does not bind the manifest bytes.`);
+  }
+  const runtime = value.runtime;
+  if (!runtime || typeof runtime.id !== 'string' || !runtime.id || typeof runtime.version !== 'string'
+      || !runtime.version || typeof runtime.platform !== 'string' || !runtime.platform) {
+    throw new SingularityFlowError(`${source} implementation runtime requires id, version, and platform.`);
+  }
+  const grammars = value.grammars ?? [];
+  if (!Array.isArray(grammars) || grammars.some((grammar) => !grammar?.language || !grammar?.id
+      || !grammar?.version || !DIGEST.test(grammar?.artifactSha256 ?? ''))) {
+    throw new SingularityFlowError(`${source} implementation grammars require language, id, version, and artifactSha256.`);
+  }
+  const dependencies = value.dependencies ?? {};
+  for (const field of ['lockSha256', 'bundleSha256']) {
+    if (dependencies[field] != null && !DIGEST.test(dependencies[field])) {
+      throw new SingularityFlowError(`${source} implementation dependencies.${field} must be null or a SHA-256 digest.`);
+    }
+  }
+  return {
+    artifactSha256: value.artifactSha256,
+    manifestSha256: value.manifestSha256,
+    runtime: { id: runtime.id, version: runtime.version, platform: runtime.platform },
+    grammars: grammars.map((grammar) => ({
+      language: grammar.language, id: grammar.id, version: grammar.version,
+      artifactSha256: grammar.artifactSha256
+    })).sort((left, right) => `${left.language}\0${left.id}`.localeCompare(`${right.language}\0${right.id}`)),
+    dependencies: {
+      lockSha256: dependencies.lockSha256 ?? null,
+      bundleSha256: dependencies.bundleSha256 ?? null
+    }
+  };
+}
 
 /**
  * Validate an adapter advertisement without importing adapter code into the kernel process.
@@ -28,6 +81,7 @@ export function validateAstAdapterManifest(value, source = 'AST adapter manifest
     || value.capabilities.some((item) => typeof item !== 'string' || !CAPABILITIES.has(item)))) {
     throw new SingularityFlowError(`${source} capabilities may contain only ${[...CAPABILITIES].join(', ')}.`);
   }
+  const implementation = validateImplementation(value.implementation, value, source);
   return Object.freeze({
     protocolVersion: AST_ADAPTER_PROTOCOL_VERSION,
     id: value.id,
@@ -35,7 +89,8 @@ export function validateAstAdapterManifest(value, source = 'AST adapter manifest
     assurance: value.assurance,
     argv: Object.freeze([...value.argv]),
     extractorVersion: value.extractorVersion,
-    capabilities: Object.freeze([...(value.capabilities ?? [])].sort())
+    capabilities: Object.freeze([...(value.capabilities ?? [])].sort()),
+    implementation: Object.freeze(implementation)
   });
 }
 
@@ -61,14 +116,20 @@ export async function discoverAstAdapters(environment = process.env) {
   return { adapters, diagnostics };
 }
 
-export function astAdapterRequest({ operation, scope, files, budget }) {
-  return Object.freeze({
+export function astAdapterRequest({ operation, scope, files, budget, implementation = null }) {
+  const request = {
     protocolVersion: AST_ADAPTER_PROTOCOL_VERSION,
     operation,
     scope,
     files: Object.freeze(files.map((file) => Object.freeze({ path: file.path, sha256: file.sha256, language: file.language }))),
-    budget: Object.freeze({ ...budget })
-  });
+    budget: Object.freeze({ ...budget }),
+    implementation: implementation ? Object.freeze({
+      artifactSha256: implementation.artifactSha256,
+      manifestSha256: implementation.manifestSha256
+    }) : null
+  };
+  request.derivationIdentity = recordSha256(request);
+  return Object.freeze(request);
 }
 
 function safeFact(value, source) {
@@ -103,7 +164,10 @@ function safeFact(value, source) {
 export function validateAstAdapterResponse(value, manifest, request) {
   if (!value || typeof value !== 'object' || Array.isArray(value)) throw new SingularityFlowError(`AST adapter '${manifest.id}' returned no JSON object.`);
   if (value.protocolVersion !== AST_ADAPTER_PROTOCOL_VERSION || value.adapterId !== manifest.id
-    || value.extractorVersion !== manifest.extractorVersion || value.assurance !== manifest.assurance) {
+    || value.extractorVersion !== manifest.extractorVersion || value.assurance !== manifest.assurance
+    || value.derivationIdentity !== request.derivationIdentity
+    || value.artifactSha256 !== manifest.implementation.artifactSha256
+    || value.manifestSha256 !== manifest.implementation.manifestSha256) {
     throw new SingularityFlowError(`AST adapter '${manifest.id}' response identity or assurance does not match its manifest.`);
   }
   if (!Array.isArray(value.files)) throw new SingularityFlowError(`AST adapter '${manifest.id}' response files must be an array.`);
@@ -129,6 +193,9 @@ export function validateAstAdapterResponse(value, manifest, request) {
     adapterId: manifest.id,
     extractorVersion: manifest.extractorVersion,
     assurance: manifest.assurance,
+    derivationIdentity: request.derivationIdentity,
+    artifactSha256: manifest.implementation.artifactSha256,
+    manifestSha256: manifest.implementation.manifestSha256,
     files,
     // Adapter prose is untrusted output and could contain source bytes, credentials, or host
     // paths. Preserve a bounded machine code while authoring the human sentence in the broker.
@@ -151,6 +218,14 @@ function adapterEnvironment(environment) {
 export async function executeAstAdapter(manifest, request, {
   root, timeoutMs = 30_000, maxOutputBytes = 2 * 1024 * 1024, environment = process.env
 } = {}) {
+  const executableArtifact = [...manifest.argv].reverse().find((entry) => existsSync(path.resolve(root, entry)));
+  if (!executableArtifact) {
+    throw new SingularityFlowError(`AST adapter '${manifest.id}' implementation artifact cannot be resolved for digest verification.`, { code: 'AST_ADAPTER_ARTIFACT_MISSING' });
+  }
+  const artifactBytes = await readFile(path.resolve(root, executableArtifact));
+  if (hashBytes(artifactBytes) !== manifest.implementation.artifactSha256) {
+    throw new SingularityFlowError(`AST adapter '${manifest.id}' implementation artifact digest does not match its manifest.`, { code: 'AST_ADAPTER_ARTIFACT_MISMATCH' });
+  }
   const [command, ...args] = manifest.argv;
   const result = await runQualityCommand(command, args, {
     cwd: root,

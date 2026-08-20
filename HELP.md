@@ -1909,6 +1909,7 @@ singularity-flow wm ast doctor
 singularity-flow wm ast context --paths src --max-facts 50 --max-output-bytes 32768 --json
 singularity-flow wm ast query --predicate symbol --value Payment --paths src --max-facts 50 --max-output-bytes 32768 --json
 singularity-flow wm ast build --paths src --json
+singularity-flow wm ast evidence replay --receipt singularity/work-items/WRK-1/context/ast/intake-gen1.json --json
 singularity-flow wm ast cache clear --dry-run
 singularity-flow wm ast preference set off
 ```
@@ -1916,11 +1917,15 @@ singularity-flow wm ast preference set off
 The effective mode is the most restrictive repository, machine, environment, and operation value.
 `off` returns a valid disabled envelope before repository enumeration and writes no AST cache.
 Derived per-blob records and cone manifests live under the Git common directory and never contain
-source bodies. Configured required predicates run before publication and their governed receipts
-are revalidated before submission. Required symbol predicates need syntax assurance; lexical
+source bodies. They are disposable: durable gate and recorded-prompt evidence instead commits an
+immutable derivation bound to exact Git objects and content-addressed toolchain artifacts. Dirty or
+untracked in-cone bytes block durable capture; out-of-cone edits do not. `wm ast evidence replay`
+recomputes from the recorded commit with the ordinary cache disabled and reports `identical`,
+`different`, or `unavailable`. Configured required predicates run before publication and their
+governed receipts are revalidated before submission. Required symbol predicates need syntax assurance; lexical
 matches are advisory. Results are page-bounded by fact count and serialized bytes, and an opaque
 `nextCursor` continues only while its policy/revision/cone/file binding remains current. Receipts
-persist and compare the broker plus every extractor ID, version, and assurance. See
+reference v1 derivation manifests; migrated legacy receipts remain honest but unreplayable. See
 [AST Intelligence](docs/AST-INTELLIGENCE.md).
 
 If world-model generation validates but publication fails, reuse the retained bytes instead of

@@ -305,6 +305,15 @@
       "properties": {
         "mode": { "enum": ["auto", "off"], "default": "auto" },
         "fallback": { "enum": ["host-and-text", "text-only"], "default": "host-and-text" },
+        "evidence": {
+          "type": "object",
+          "description": "Durability and logical content-addressed store for recorded structural context and gates.",
+          "properties": {
+            "mode": { "enum": ["replayable", "identified", "off"], "default": "identified" },
+            "store": { "type": "string", "pattern": "^[a-z][a-z0-9-]*$", "default": "local-directory" }
+          },
+          "additionalProperties": false
+        },
         "generatedRoots": {
           "type": "array",
           "uniqueItems": true,

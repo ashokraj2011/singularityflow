@@ -10,7 +10,9 @@
  * result-shaped.
  */
 import { helpExplain } from './help-explain.mjs';
-import { astContextPlanner, astQueryPlanner, astStatusPlanner } from './ast-intelligence.mjs';
+import {
+  astContextPlanner, astEvidenceReplayPlanner, astQueryPlanner, astStatusPlanner
+} from './ast-intelligence.mjs';
 import { developerNext } from './developer-next.mjs';
 import {
   governedGoalImpactPlanner, governedGoalInspectPlanner, governedGoalNextPlanner,
@@ -34,6 +36,7 @@ import {
 export function gatewayPlanners(overrides = {}) {
   return new Map(Object.entries({
     'ast-context': astContextPlanner,
+    'ast-evidence-replay': astEvidenceReplayPlanner,
     'ast-query': astQueryPlanner,
     'ast-status': astStatusPlanner,
     'help-explain': helpExplain,
@@ -62,7 +65,7 @@ export function gatewayPlanners(overrides = {}) {
 }
 
 export {
-  astContextPlanner, astQueryPlanner, astStatusPlanner,
+  astContextPlanner, astEvidenceReplayPlanner, astQueryPlanner, astStatusPlanner,
   developerNext, governedGoalImpactPlanner, governedGoalInspectPlanner, governedGoalNextPlanner,
   governedGoalTracePlanner, helpExplain, homeOverview, impactQuick, reviewPacket, workContinue, workHandoff,
   workList, workReadiness, workReturn, workStartIntake, workspaceList,

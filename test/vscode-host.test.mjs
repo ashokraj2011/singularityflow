@@ -1167,7 +1167,8 @@ test('AST Intelligence edits every policy layer through one guarded VS Code surf
   await until(() => panel.webview.html.includes('Machine AST preference set to auto') ? true : null);
 
   await panel.post(scoped({
-    type: 'save-policy', mode: 'auto', fallback: 'text-only', generatedRoots: 'generated/types',
+    type: 'save-policy', mode: 'auto', fallback: 'text-only',
+    evidenceMode: 'identified', evidenceStore: 'local-directory', generatedRoots: 'generated/types',
     maxFiles: 41, maxBytes: 4096, maxFileBytes: 1024,
     languages: 'typescript | auto | text',
     predicates: 'entrypoint | advisory | path-exists | README.md | text'
@@ -1175,7 +1176,7 @@ test('AST Intelligence edits every policy layer through one guarded VS Code surf
   await until(() => panel.webview.html.includes('Repository AST policy saved locally') ? true : null);
   const workflow = YAML.parse(await readFile(path.join(root, 'singularity', 'workflow.yml'), 'utf8'));
   assert.deepEqual(workflow.ast, {
-    mode: 'auto', fallback: 'text-only', generatedRoots: ['generated/types'],
+    mode: 'auto', fallback: 'text-only', evidence: { mode: 'identified', store: 'local-directory' }, generatedRoots: ['generated/types'],
     budgets: { maxFiles: 41, maxBytes: 4096, maxFileBytes: 1024 },
     languages: { typescript: { mode: 'auto', minimumAssurance: 'text' } },
     predicates: [{ id: 'entrypoint', mode: 'advisory', type: 'path-exists', path: 'README.md', minimumAssurance: 'text' }]

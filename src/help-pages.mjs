@@ -539,6 +539,7 @@ const PAGES = Object.freeze({
       ['singularity-flow wm compose --phase intake', 'Compose the grounding for a phase.'],
       ['singularity-flow wm light --local', 'Deterministic lightweight model, no provider needed.'],
       ['singularity-flow wm ast context --paths src --max-facts 50 --max-output-bytes 32768 --json', 'Read a bounded, page-continuable structural context without invoking a model.'],
+      ['singularity-flow wm ast evidence replay --receipt singularity/work-items/WRK-1/context/ast/intake-gen1.json --json', 'Replay durable structural evidence from exact Git objects and retained toolchain bytes, without using the cache or a model.'],
       ['singularity-flow wm recovery list', 'List validated snapshots retained after publication failure.'],
       ['singularity-flow wm recovery publish 1720000000000-abcd-intake --confirm 1720000000000-abcd-intake', 'Republish retained validated bytes without another provider call.'],
       ['singularity-flow wm ast doctor', 'Show effective AST policy, scope, cache, and optional adapter health.']

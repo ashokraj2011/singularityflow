@@ -3,6 +3,9 @@ import { readFile } from 'node:fs/promises';
 import path from 'node:path';
 
 import { evaluateAstGate } from './ast-intelligence.mjs';
+import {
+  astDerivationProvenanceLine, createAstDerivation, persistAstDerivation, validateAstDerivationManifest
+} from './ast-evidence.mjs';
 import { recordSha256 } from './records.mjs';
 import { currentSchemaVersion, readRecord } from './schema-migrations.mjs';
 import { run, SingularityFlowError, writeJson } from './util.mjs';
@@ -37,12 +40,16 @@ function gateErrors(result) {
 export async function evaluateAstLifecycleGate(root, config, workflow, phase, { generation = phase.generation + 1, options = {} } = {}) {
   const predicates = configuredPredicates(config, workflow);
   if (!predicates.length) return { applies: false, errors: [], warnings: [], result: null, receipt: null };
-  const result = await evaluateAstGate(root, options);
+  const result = await evaluateAstGate(root, { ...options, 'evidence-class': 'gate' });
   const errors = gateErrors(result);
   const warnings = result.facts
     .filter((item) => item.mode === 'advisory' && item.outcome !== 'pass')
     .map((item) => `advisory structural predicate '${item.id}' is ${item.outcome}`);
-  const receipt = {
+  const derivation = errors.length ? null : await createAstDerivation(root, config, workflow, phase, result, {
+    generation, evidenceClass: 'gate', operation: 'gate'
+  });
+  const factSetSha256 = result.provenance?.evidence?.outputs?.factsSha256 ?? null;
+  const receipt = derivation ? {
     schemaVersion: currentSchemaVersion('ast-gate-receipt'),
     workId: workflow.workItem.id,
     phase: phase.id,
@@ -57,18 +64,17 @@ export async function evaluateAstLifecycleGate(root, config, workflow, phase, { 
     },
     assurance: result.assurance,
     status: result.status,
-    engine: {
-      id: result.provenance.engine,
-      version: result.provenance.engineVersion
-    },
-    extractors: structuredClone(result.provenance.extractors ?? []),
-    predicates: structuredClone(result.facts),
+    derivation: structuredClone(derivation.reference),
+    predicates: result.facts.map((predicate) => ({
+      ...structuredClone(predicate), factSetSha256,
+      derivationSha256: derivation.reference.sha256
+    })),
     diagnostics: structuredClone(result.diagnostics),
     allowed: result.provenance?.gate?.allowed === true,
     evaluatedAt: new Date().toISOString()
-  };
-  receipt.integritySha256 = recordSha256(receipt);
-  return { applies: true, errors, warnings, result, receipt };
+  } : null;
+  if (receipt) receipt.integritySha256 = recordSha256(receipt);
+  return { applies: true, errors, warnings, result, receipt, derivation };
 }
 
 export function assertAstLifecycleGate(evaluation, action) {
@@ -89,6 +95,7 @@ export async function persistAstLifecycleReceipt(root, config, workflow, phase, 
     throw new SingularityFlowError('AST lifecycle receipt generation does not match the published phase.', { code: 'AST_RECEIPT_GENERATION_MISMATCH' });
   }
   const relative = receiptRelative(config, workflow, phase.id, phase.generation);
+  await persistAstDerivation(root, evaluation.derivation);
   await writeJson(path.join(root, relative), evaluation.receipt);
   return {
     generation: phase.generation,
@@ -98,8 +105,8 @@ export async function persistAstLifecycleReceipt(root, config, workflow, phase, 
     coneSha256: evaluation.receipt.coneSha256,
     status: evaluation.receipt.status,
     assurance: evaluation.receipt.assurance,
-    engine: structuredClone(evaluation.receipt.engine),
-    extractors: structuredClone(evaluation.receipt.extractors)
+    derivation: structuredClone(evaluation.receipt.derivation),
+    provenanceLine: astDerivationProvenanceLine(evaluation.derivation.manifest)
   };
 }
 
@@ -130,7 +137,27 @@ async function receiptFor(root, config, workflow, phase, generation, sourceCommi
     if (actual !== stored.integritySha256 || actual !== summary.sha256) {
       return { summary, record, error: 'AST lifecycle receipt integrity does not match the workflow summary' };
     }
-    return { summary, record, error: null };
+    let derivationManifest = null;
+    if (record.derivation?.replayability !== 'legacy-unreplayable') {
+      const derivationPath = record.derivation?.path;
+      if (!derivationPath || record.derivation.sha256 == null) {
+        return { summary, record, error: 'AST lifecycle receipt has an incomplete derivation reference' };
+      }
+      let manifestBytes;
+      if (sourceCommit) {
+        const shown = run('git', ['show', `${sourceCommit}:${derivationPath}`], {
+          cwd: root, allowFailure: true, maxBuffer: 4 * 1024 * 1024
+        });
+        if (shown.status !== 0) return { summary, record, error: `AST derivation was not committed at ${sourceCommit}` };
+        manifestBytes = shown.stdout;
+      } else manifestBytes = await readFile(path.join(root, derivationPath));
+      derivationManifest = validateAstDerivationManifest(JSON.parse(Buffer.isBuffer(manifestBytes) ? manifestBytes.toString('utf8') : String(manifestBytes)));
+      if (derivationManifest.derivationSha256 !== record.derivation.sha256
+          || derivationManifest.integritySha256 !== record.derivation.manifestIntegritySha256) {
+        return { summary, record, error: 'AST derivation integrity does not match the gate receipt' };
+      }
+    }
+    return { summary, record, derivationManifest, error: null };
   } catch (error) {
     return { summary, record: null, error: `AST lifecycle receipt cannot be read: ${error.message}` };
   }
@@ -159,19 +186,47 @@ export async function verifyAstLifecycleReceipt(root, config, workflow, phase, {
       passes: [`AST lifecycle receipt integrity verified${sourceCommit ? ' at its generation commit' : ''}: ${phase.id} generation ${generation}`], record
     };
   }
+  if (record.derivation?.replayability === 'legacy-unreplayable') {
+    return {
+      applies: true,
+      errors: ['AST lifecycle receipt is authentic legacy evidence but cannot be replayed because exact inputs and toolchain artifacts were not recorded'],
+      warnings: [], passes: [], record
+    };
+  }
   const options = record.scope.kind === 'all' ? { all: true }
-    : record.scope.evaluatedPaths?.length ? { paths: record.scope.evaluatedPaths } : {};
-  const current = await evaluateAstLifecycleGate(root, config, workflow, phase, { generation, options });
+    : record.scope.kind === 'paths' && record.scope.paths?.length ? { paths: record.scope.paths } : {};
+  let current;
+  try {
+    current = await evaluateAstLifecycleGate(root, config, workflow, phase, { generation, options });
+  } catch (error) {
+    return {
+      applies: true,
+      errors: [`AST lifecycle evidence could not be re-evaluated: ${error.message}`],
+      warnings: [], passes: [], record
+    };
+  }
   const errors = [...current.errors];
   if (current.receipt?.policySha256 !== record.policySha256) errors.push('AST policy changed after publication');
   if (current.receipt?.coneSha256 !== record.coneSha256) errors.push('AST scope or relevant file bytes changed after publication');
-  if (recordSha256(current.receipt?.engine ?? null) !== recordSha256(record.engine ?? null)) {
-    errors.push('AST broker engine changed after publication');
+  const originalManifest = loaded.derivationManifest;
+  const currentManifest = current.derivation?.manifest;
+  if (recordSha256(currentManifest?.engine ?? null) !== recordSha256(originalManifest?.engine ?? null)
+      || recordSha256(currentManifest?.adapters ?? []) !== recordSha256(originalManifest?.adapters ?? [])
+      || recordSha256(currentManifest?.grammars ?? []) !== recordSha256(originalManifest?.grammars ?? [])
+      || recordSha256(currentManifest?.runtime ?? null) !== recordSha256(originalManifest?.runtime ?? null)
+      || recordSha256(currentManifest?.dependencies ?? null) !== recordSha256(originalManifest?.dependencies ?? null)) {
+    errors.push('AST retained toolchain identity changed after publication');
   }
-  if (recordSha256(current.receipt?.extractors ?? []) !== recordSha256(record.extractors ?? [])) {
-    errors.push('AST extractor identity, version, or assurance changed after publication');
+  if (recordSha256(currentManifest?.configuration ?? null) !== recordSha256(originalManifest?.configuration ?? null)
+      || recordSha256(currentManifest?.replayRecipe ?? null) !== recordSha256(originalManifest?.replayRecipe ?? null)) {
+    errors.push('AST policy, profile, predicates, or operation options changed after publication');
   }
-  if (recordSha256(current.receipt?.predicates ?? []) !== recordSha256(record.predicates ?? [])) {
+  if (recordSha256(currentManifest?.inputs?.files ?? []) !== recordSha256(originalManifest?.inputs?.files ?? [])
+      || currentManifest?.inputs?.coneSha256 !== originalManifest?.inputs?.coneSha256) {
+    errors.push('AST exact input objects changed after publication');
+  }
+  const comparablePredicates = (items = []) => items.map(({ derivationSha256: _derivation, ...item }) => item);
+  if (recordSha256(comparablePredicates(current.receipt?.predicates)) !== recordSha256(comparablePredicates(record.predicates))) {
     errors.push('AST predicate outcomes changed after publication');
   }
   return {

@@ -12,7 +12,9 @@ import { withOperationContext } from '../src/operation-context.mjs';
 import { setAgentSession } from '../src/session.mjs';
 import { createWorkflow, loadConfig, publishGeneration, submitPhase } from '../src/state.mjs';
 import { verifyAstLifecycleReceipt } from '../src/ast-lifecycle.mjs';
+import { replayAstEvidence } from '../src/ast-replay.mjs';
 import { recordSha256 } from '../src/records.mjs';
+import { astEvidenceReplayPlanner } from '../src/gateway/planners/ast-intelligence.mjs';
 
 const ACTOR = { name: 'AST Lifecycle', email: 'ast-lifecycle@example.invalid', login: null };
 
@@ -119,10 +121,30 @@ test('publication records an AST receipt and submission verifies its exact relev
     const summary = phase.astGates[0];
     const receipt = JSON.parse(await readFile(path.join(root, summary.path), 'utf8'));
     assert.equal(receipt.allowed, true);
-    assert.deepEqual(receipt.engine, { id: 'singularity-flow-ast-broker', version: 2 });
-    assert.deepEqual(receipt.extractors, [{ id: 'builtin-text', version: 1, assurance: 'text' }]);
+    assert.equal(receipt.schemaVersion, 3);
+    assert.equal(receipt.derivation.replayability, 'replayable');
+    const derivation = JSON.parse(await readFile(path.join(root, receipt.derivation.path), 'utf8'));
+    assert.equal(derivation.engine.version, 3);
+    assert.equal(derivation.adapter.id, 'builtin-text');
+    assert.match(summary.provenanceLine, /^AST evidence replayable/);
+    assert.doesNotMatch(JSON.stringify(derivation), /sourceBody|bytesBase64|sflow-ast-lifecycle-/);
     assert.equal(receipt.predicates[0].outcome, 'pass');
-    assert.deepEqual(receipt.predicates[0].extractors, receipt.extractors);
+    assert.equal(receipt.predicates[0].derivationSha256, receipt.derivation.sha256);
+
+    await rm(path.join(root, '.git', 'singularity-flow', 'ast'), { recursive: true, force: true });
+    const replay = await replayAstEvidence(root, { receipt: summary.path });
+    assert.equal(replay.result, 'identical');
+    const gatewayReplay = await astEvidenceReplayPlanner({
+      root, subject: { kind: 'work-item', id: 'AST-1' }, arguments: { receipt: summary.path }
+    });
+    assert.equal(gatewayReplay.data.ast.result, 'identical');
+    await rm(path.join(
+      root, '.git', 'singularity-flow', 'ast-evidence-store', 'bundles',
+      `${derivation.retention.bundleSha256}.json`
+    ));
+    const unavailable = await replayAstEvidence(root, { receipt: summary.path });
+    assert.equal(unavailable.result, 'unavailable');
+    assert.equal(unavailable.reasons[0].code, 'toolchain-bundle-missing');
 
     git(root, 'add', 'singularity');
     git(root, 'commit', '-m', '[AST-1][phase:intake][generated:1] publish AST receipt');
@@ -150,35 +172,31 @@ test('submission refuses when a relevant file changes after the AST receipt was 
     assert.deepEqual(historical.errors, [], 'the committed historical receipt remains valid evidence');
     await assert.rejects(
       () => submitPhase(root, config, workflow, { phaseId: phase.id, runChecks: false }),
-      (error) => error?.code === 'AST_LIFECYCLE_RECEIPT_INVALID' && /relevant file bytes changed/.test(error.message)
+      (error) => error?.code === 'AST_LIFECYCLE_RECEIPT_INVALID' && /exact committed inputs/.test(error.message)
     );
     assert.equal(phase.status, 'in_progress');
     assert.equal(phase.generationCommit, undefined);
   });
 });
 
-test('submission refuses a validly rehashed receipt from a different broker or extractor version', async () => {
+test('submission refuses a validly rehashed receipt with a different derivation reference', async () => {
   const { root, config, workflow, phase, authorship } = await fixture();
   await inContext(root, async () => {
     await publishGeneration(root, config, workflow, { phaseId: phase.id, authorship });
     const summary = phase.astGates[0];
     const receipt = JSON.parse(await readFile(path.join(root, summary.path), 'utf8'));
-    receipt.engine.version += 1;
-    receipt.extractors[0].version += 1;
-    receipt.predicates[0].extractors[0].version += 1;
+    receipt.derivation.sha256 = 'f'.repeat(64);
     const { integritySha256: _oldIntegrity, ...payload } = receipt;
     receipt.integritySha256 = recordSha256(payload);
     summary.sha256 = receipt.integritySha256;
     await writeFile(path.join(root, summary.path), `${JSON.stringify(receipt, null, 2)}\n`);
 
     const verification = await verifyAstLifecycleReceipt(root, config, workflow, phase);
-    assert.match(verification.errors.join('\n'), /broker engine changed/);
-    assert.match(verification.errors.join('\n'), /extractor identity, version, or assurance changed/);
+    assert.match(verification.errors.join('\n'), /derivation integrity/);
     await assert.rejects(
       () => submitPhase(root, config, workflow, { phaseId: phase.id, runChecks: false }),
       (error) => error?.code === 'AST_LIFECYCLE_RECEIPT_INVALID'
-        && /broker engine changed/.test(error.message)
-        && /extractor identity, version, or assurance changed/.test(error.message)
+        && /derivation integrity/.test(error.message)
     );
     assert.equal(phase.status, 'in_progress');
   });

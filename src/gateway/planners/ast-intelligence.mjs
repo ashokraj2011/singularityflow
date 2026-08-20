@@ -1,5 +1,6 @@
 /** Model-free, bounded AST reads for gateway and Copilot hosts. */
 import { astContext, astDoctor, astQuery } from '../../ast-intelligence.mjs';
+import { replayAstEvidence } from '../../ast-replay.mjs';
 import { SingularityFlowError } from '../../util.mjs';
 import { noEffects, sflowResult } from '../result.mjs';
 
@@ -58,5 +59,14 @@ export async function astQueryPlanner({ root = null, subject = null, arguments: 
   });
   return result('wm.ast.query', subject, data, {
     status: data.status, matched: String(data.coverage?.factsMatched ?? 0)
+  });
+}
+
+export async function astEvidenceReplayPlanner({ root = null, subject = null, arguments: args = {} } = {}) {
+  const data = await replayAstEvidence(repositoryRoot(root, 'wm.ast.evidence.replay'), {
+    receipt: args.receipt
+  });
+  return result('wm.ast.evidence.replay', subject, data, {
+    result: data.result, derivation: data.derivationSha256?.slice(0, 12) ?? 'unavailable'
   });
 }

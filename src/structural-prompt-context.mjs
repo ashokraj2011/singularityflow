@@ -1,15 +1,14 @@
-import { createHash } from 'node:crypto';
-
 import { astContext } from './ast-intelligence.mjs';
+import { createAstDerivation, persistAstDerivation } from './ast-evidence.mjs';
+import { loadDefinition } from './config.mjs';
 import { astContextRequired } from './intelligence-policy.mjs';
 import { SingularityFlowError } from './util.mjs';
 
 const MAX_FACTS = 50;
-const MAX_OUTPUT_BYTES = 32 * 1024;
-
-function sha256(value) {
-  return createHash('sha256').update(value).digest('hex');
-}
+// The model still receives at most 50 facts. The larger broker envelope budget carries the exact
+// committed input manifest used to create durable evidence; those hashes are not copied into the
+// prompt body.
+const MAX_OUTPUT_BYTES = 256 * 1024;
 
 /**
  * Compose one deliberately small structural page for the benchmark intelligence arm. The opaque
@@ -23,7 +22,8 @@ export async function requiredStructuralPromptContext(root, workflow) {
   const result = await astContext(root, {
     all: true,
     'max-facts': MAX_FACTS,
-    'max-output-bytes': MAX_OUTPUT_BYTES
+    'max-output-bytes': MAX_OUTPUT_BYTES,
+    'evidence-class': 'recorded-context'
   });
   if (result.status === 'disabled') {
     throw new SingularityFlowError(
@@ -33,6 +33,18 @@ export async function requiredStructuralPromptContext(root, workflow) {
   }
   const facts = JSON.stringify(result.facts ?? [], null, 2);
   const scope = result.scope ?? {};
+  const config = await loadDefinition(root);
+  const phase = workflow.phases?.[workflow.currentPhase] ?? {
+    id: workflow.currentPhase ?? workflow.resolution?.phases?.[0]?.id ?? 'intake',
+    generation: 0
+  };
+  const derivation = await createAstDerivation(root, config, workflow, phase, result, {
+    generation: phase.generation,
+    evidenceClass: 'recorded-context',
+    operation: 'context'
+  });
+  await persistAstDerivation(root, derivation);
+  const page = result.provenance?.evidence?.outputs?.page;
   const record = {
     status: result.status,
     assurance: result.assurance,
@@ -42,10 +54,14 @@ export async function requiredStructuralPromptContext(root, workflow) {
     definitionSha256: scope.definitionSha256 ?? null,
     repositoryRevision: scope.repositoryRevision ?? null,
     coneSha256: scope.coneSha256 ?? scope.worktreeFingerprint ?? null,
-    factsSha256: sha256(facts),
+    derivation: structuredClone(derivation.reference),
+    factsSha256: page?.factsSha256 ?? null,
     factsReturned: result.facts?.length ?? 0,
     factsAvailable: result.page?.available ?? result.facts?.length ?? 0,
-    continuationAvailable: Boolean(result.nextCursor)
+    continuationAvailable: Boolean(result.nextCursor),
+    canonicalizationVersion: page?.canonicalizationVersion ?? 1,
+    pageOffset: page?.offset ?? 0,
+    continuationBinding: page?.continuationBinding ?? null
   };
   const text = [
     '# Bounded repository structural context',

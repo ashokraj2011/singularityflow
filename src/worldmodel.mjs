@@ -42,6 +42,8 @@ import {
 import { assertWorldModelStaleness } from './world-model-policy.mjs';
 import { operationContext } from './operation-context.mjs';
 import { renderCapabilityWorldModelPack } from './capability-context.mjs';
+import { worldModelDisabledForWorkflow } from './intelligence-policy.mjs';
+import { requiredStructuralPromptContext } from './structural-prompt-context.mjs';
 import { recordPromptAudit } from './prompt-audit.mjs';
 import { normalizeClarificationPolicy, renderClarificationProtocol } from './clarifications.mjs';
 import { generateLightWorldModel } from './worldmodel-light.mjs';
@@ -2224,6 +2226,10 @@ async function workflowPromptContext(root, definition, workflow, phase, workItem
     `- Generation to author: ${Number(phase.generation ?? 0) + 1}`,
     `- Required artifact: \`${phase.requiredArtifact?.path ?? 'not configured'}\``,
     `- Write scope: \`${phase.writeScope ?? 'artifact-only'}\``,
+    `- Intelligence: world-model=\`${workflow.resolution?.intelligence?.worldModel ?? 'inherit'}\`, AST=\`${workflow.resolution?.intelligence?.ast ?? 'inherit'}\`, agent-briefs=\`${workflow.resolution?.intelligence?.agentBriefs ?? 'inherit'}\``,
+    ...(worldModelDisabledForWorkflow(workflow)
+      ? ['- Context arm: `generic`; do not request, assume, or reconstruct world-model, AST, or agent-brief context.']
+      : []),
     `- Approval authority groups: ${(phase.approvalPolicy?.authorities ?? []).map((id) => `\`${id}\``).join(', ') || 'none'}`,
     `- Minimum distinct approvals: ${phase.approvalPolicy?.minimum ?? 0}`,
     template
@@ -2289,13 +2295,21 @@ async function compose(root, options) {
   };
   if (!signals.phase) throw new SingularityFlowError('Provide --phase or run from an active work-item branch.');
   const plan = groundingPlan(config, options, signals.phase);
-  const availability = await ensureGrounding(root, config, plan, { authorized: false });
-  const required = await resolveWorldModelContext(root, config, signals.phase, {
-    plan,
-    located: availability.located,
-    task: optionString(options, 'task'), evidence: optionBoolean(options, 'evidence')
-  });
-  if (!required.freshness.fresh) {
+  const worldModelEnabled = config.grounding !== 'off';
+  const required = worldModelEnabled
+    ? await (async () => {
+      const availability = await ensureGrounding(root, config, plan, { authorized: false });
+      return resolveWorldModelContext(root, config, signals.phase, {
+        plan,
+        located: availability.located,
+        task: optionString(options, 'task'), evidence: optionBoolean(options, 'evidence')
+      });
+    })()
+    : {
+      selected: [], located: null, directory: null, manifest: {},
+      freshness: { fresh: true, built: null, current: null }
+    };
+  if (worldModelEnabled && !required.freshness.fresh) {
     const message = `World model is stale (${String(required.freshness.built).slice(0, 18)} != ${required.freshness.current.slice(0, 18)}).`;
     const staleness = assertWorldModelStaleness(config.staleness, false, message);
     if (staleness.warns) console.error(`Warning: ${message}`);
@@ -2307,7 +2321,8 @@ async function compose(root, options) {
       })
     : null;
   const { text, injection } = await injectAgentPrompt(root, definition, agent, signals, {
-    promptOverride: promptStudy
+    promptOverride: promptStudy,
+    disableWorldModelInjection: worldModelDisabledForWorkflow(workflow)
   });
   const phase = workflow?.phases?.[signals.phase] ?? null;
   if (workflow && !phase) throw new SingularityFlowError(`Unknown workflow phase '${signals.phase}'.`);
@@ -2339,11 +2354,14 @@ async function compose(root, options) {
       record: !dryRun && !renderOnly
     })
     : { markdown: '', files: [], warnings: [] };
-  const capability = workflow
+  const capability = workflow && !worldModelDisabledForWorkflow(workflow)
     ? await renderCapabilityWorldModelPack(root, workflow.resolution?.capability, {
       views: phase?.worldModel?.views ?? []
     })
     : { text: '', files: [], warnings: [] };
+  const structural = workflow
+    ? await requiredStructuralPromptContext(root, workflow)
+    : { text: '', record: null, warnings: [] };
   const openChangeRequests = (workflow?.changeRequests ?? []).filter((request) =>
     request.status === 'open' && request.targetPhase === signals.phase
   );
@@ -2367,6 +2385,7 @@ async function compose(root, options) {
     : '';
   governed.warnings.forEach((warning) => console.error(`Warning: ${warning}`));
   capability.warnings.forEach((warning) => console.error(`Capability warning: ${warning}`));
+  structural.warnings.forEach((warning) => console.error(`AST warning: ${warning}`));
   designSources.warnings.forEach((warning) => console.error(`Design-source warning: ${warning}`));
   approvedReferences.warnings.forEach((warning) => console.error(`Reference warning: ${warning}`));
   const pieces = [
@@ -2377,6 +2396,7 @@ async function compose(root, options) {
     designSources.markdown,
     requiredText,
     capability.text,
+    structural.text,
     remote.text,
     governed.evidence,
     approvedReferences.text,
@@ -2385,9 +2405,13 @@ async function compose(root, options) {
   ].filter((part) => part?.trim());
   const candidateText = `${pieces.join('\n\n')}\n`;
   remote.warnings.forEach((warning) => console.error(`Warning: ${warning}`));
-  const manifestInfo = await snapshot(path.join(required.directory, 'manifest.json'));
-  const modelCommit = required.located?.commit ?? worldModelCommit(root, config.outputDir);
-  const modelChanges = required.located?.source === 'worktree'
+  const manifestInfo = worldModelEnabled
+    ? await snapshot(path.join(required.directory, 'manifest.json'))
+    : { sha256: null };
+  const modelCommit = worldModelEnabled
+    ? required.located?.commit ?? worldModelCommit(root, config.outputDir)
+    : null;
+  const modelChanges = worldModelEnabled && required.located?.source === 'worktree'
     ? run('git', ['status', '--porcelain=v1', '--untracked-files=all', '--', config.outputDir], { cwd: root }).stdout.trim()
     : '';
   if (modelChanges && config.grounding === 'enforce') throw new SingularityFlowError('The world-model directory has uncommitted changes. Rebuild it before composing a governed prompt.');
@@ -2442,7 +2466,8 @@ async function compose(root, options) {
     task: optionString(options, 'task') ?? null,
     modelCommit,
     manifestSha256: manifestInfo.sha256,
-    requiredSelections: plan.selections,
+    requiredSelections: worldModelEnabled ? plan.selections : [],
+    structuralContext: structural.record,
     clarification: clarificationPolicy,
     files: files.map((file) => ({ path: file.path, sha256: file.sha256, injectedBytes: file.injectedBytes })),
     remoteSkills: remote.skills.map((skill) => ({ id: skill.id, sha256: skill.sha256 })),
@@ -2458,7 +2483,7 @@ async function compose(root, options) {
   if (cacheEnabled) console.error(`Composition cache: ${cached.hit ? 'hit' : 'miss'} ${cached.key.slice(0, 12)}.`);
 
   if (dryRun) {
-    console.log(`phase: ${signals.phase}  governed agent: ${agent}  prompt: ${promptStudy ? `${promptStudy.variant.id} · ${promptStudy.studyRunId}` : 'agent default'}  clarification: ${clarificationPolicy.mode}  change requests: ${openChangeRequests.length}  required files: ${mandatory.length}  capability files: ${capability.files.length}  rules matched: ${injection.matchedRules}  rule files: ${injection.sections.length}  agent skills: ${remote.skills.length}  fresh: ${required.freshness.fresh ? 'yes' : 'no'}`);
+    console.log(`phase: ${signals.phase}  governed agent: ${agent}  prompt: ${promptStudy ? `${promptStudy.variant.id} · ${promptStudy.studyRunId}` : 'agent default'}  clarification: ${clarificationPolicy.mode}  change requests: ${openChangeRequests.length}  required files: ${mandatory.length}  capability files: ${capability.files.length}  AST facts: ${structural.record?.factsReturned ?? 0}  rules matched: ${injection.matchedRules}  rule files: ${injection.sections.length}  agent skills: ${remote.skills.length}  fresh: ${required.freshness.fresh ? 'yes' : 'no'}`);
     files.forEach((section) => console.log(`  ${section.category}:${section.path} (${section.injectedBytes}/${section.bytes} bytes)${section.truncated ? ' (truncated)' : ''}`));
     remote.skills.forEach((skill) => console.log(`  agent:${session?.agent ?? 'unknown'}/${skill.id} (${skill.size} bytes) @${skill.sha256.slice(0, 12)}`));
     return;
@@ -2468,6 +2493,7 @@ async function compose(root, options) {
     const renderedSha256 = createHash('sha256').update(composedText).digest('hex');
     const { file } = await recordInjection(root, workflow, phase, {
       ...injection, agent, sections: files, modelCommit,
+      structuralContext: structural.record,
       promptStudy: promptStudy ? {
         studyRunId: promptStudy.studyRunId,
         variant: structuredClone(promptStudy.variant),
@@ -2487,8 +2513,8 @@ async function compose(root, options) {
       fresh: required.freshness.fresh,
       renderedSha256,
       renderedText: composedText,
-      requiredViews: config.phases[signals.phase]?.views ?? [],
-      requiredSelections: plan.selections,
+      requiredViews: worldModelEnabled ? config.phases[signals.phase]?.views ?? [] : [],
+      requiredSelections: worldModelEnabled ? plan.selections : [],
       task: optionString(options, 'task') ?? null,
       supportingEvidence: governed.evidenceEntries,
       references: approvedReferences.previews.map((preview) => ({

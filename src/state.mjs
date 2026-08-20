@@ -51,6 +51,7 @@ import {
   materializeCapabilityWorldModelPack,
   resolveLifecycleCapability
 } from './capability-context.mjs';
+import { worldModelDisabledForWorkflow } from './intelligence-policy.mjs';
 import { buildRepositorySubjectIndex, resolveContext } from './repository-subject-index.mjs';
 import {
   clearPendingPublication,
@@ -430,7 +431,11 @@ export async function createWorkflow(root, config, {
   );
   const snapshotState = await snapshotResolution(root, config, resolution);
   snapshotState.configurationSource = await readConfigurationSource(root, { verify: true });
-  snapshotState.worldModelGrounding = capabilityWorldModelGrounding(snapshotState.worldModelGrounding, capability);
+  // Benchmark B is an explicit generic control. A stricter capability policy must not silently
+  // re-introduce world-model context into that arm; every other work type retains normal merging.
+  snapshotState.worldModelGrounding = resolution.intelligence?.worldModel === 'off'
+    ? 'off'
+    : capabilityWorldModelGrounding(snapshotState.worldModelGrounding, capability);
   snapshotState.worldModelStaleness = resolution.worldModelStaleness ?? config.worldModel?.staleness ?? 'warn';
   snapshotState.storage = structuredClone(resolution.storage ?? null);
   snapshotState.capability = capability;
@@ -549,7 +554,7 @@ export async function createWorkflow(root, config, {
       capability.policy.maxDocumentBytes
     );
   }
-  if (capability) {
+  if (capability && !worldModelDisabledForWorkflow(workflow)) {
     await mkdir(workDir(root, config, id), { recursive: true });
     const context = await materializeCapabilityWorldModelPack(root, capability, {
       itemDirectory: workDir(root, config, id),

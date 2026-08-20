@@ -157,10 +157,22 @@ export async function renderInjection(root, definition, signals = {}) {
   return { ...resolution, modelCommit, sections, text };
 }
 
-export async function injectAgentPrompt(root, definition, agentId, signals = {}, { promptOverride = null } = {}) {
+export async function injectAgentPrompt(root, definition, agentId, signals = {}, {
+  promptOverride = null, disableWorldModelInjection = false
+} = {}) {
   const agent = definition.agents?.[agentId];
   if (!agent) throw new SingularityFlowError(`Unknown governed agent '${agentId}'.`);
   const base = promptOverride?.text ?? agent.prompt;
+  if (disableWorldModelInjection) {
+    const { placeholder } = injectionConfig(definition);
+    return {
+      text: base.replaceAll(placeholder, ''),
+      injection: {
+        mode: 'off', placeholder, applied: false, matchedRules: 0, sections: [], modelCommit: null,
+        depth: 'standard', evidence: false, requiredViews: [], requiredSelections: [], promptOverride
+      }
+    };
+  }
   const rendered = await renderInjection(root, definition, { ...signals, agent: agentId });
   if (rendered.mode === 'off' || !rendered.sections.length) return {
     text: base.replaceAll(rendered.placeholder, ''),
@@ -205,6 +217,7 @@ export async function recordInjection(root, workflow, phase, injection, { workDi
     renderedSha256: injection.renderedSha256 ?? null,
     promptStudy: injection.promptStudy ?? null,
     promptDefinition: injection.promptDefinition ?? null,
+    structuralContext: structuredClone(injection.structuralContext ?? null),
     remoteSkills: structuredClone(injection.remoteSkills ?? []),
     promptPath: injection.renderedText != null ? posix(path.relative(root, promptFile)) : null,
     files: injection.sections.map((section) => ({

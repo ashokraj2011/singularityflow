@@ -178,6 +178,7 @@ export async function resolveLifecycleCapability(root, { capabilityId = null, re
 export function applyCapabilityPolicyToWorkResolution(resolution, capability) {
   if (!capability) return resolution;
   const policy = capability.policy ?? {};
+  const worldModelOff = resolution.intelligence?.worldModel === 'off';
   for (const authority of policy.requiredAuthorityGroups ?? []) {
     if (!resolution.approvalAuthorities?.[authority]) {
       throw new SingularityFlowError(`Capability '${capability.id}' requires unknown approval authority '${authority}'.`);
@@ -195,7 +196,12 @@ export function applyCapabilityPolicyToWorkResolution(resolution, capability) {
       ...phase,
       worldModel: {
         ...(phase.worldModel ?? {}),
-        views: unique([...(phase.worldModel?.views ?? []), ...(policy.requiredWorldModelViews ?? [])])
+        // An explicit generic benchmark arm is an experimental isolation boundary. Capability
+        // policy still tightens approvals, checks, scopes, and gates, but cannot contaminate it by
+        // adding repository intelligence that the selected work type pins off.
+        views: worldModelOff
+          ? []
+          : unique([...(phase.worldModel?.views ?? []), ...(policy.requiredWorldModelViews ?? [])])
       },
       qualityCommands: unique([...(phase.qualityCommands ?? []), ...(policy.qualityCommands ?? [])]),
       approval: {
@@ -221,7 +227,7 @@ export function applyCapabilityPolicyToWorkResolution(resolution, capability) {
       allowedMimeTypes: intersectConfigured(resolution.documents?.allowedMimeTypes ?? [], policy.allowedMimeTypes)
     },
     worldModelStaleness: policy.worldModelStaleness ?? null,
-    worldModelSourceScope: capability.sourceScope ?? null
+    worldModelSourceScope: worldModelOff ? null : capability.sourceScope ?? null
   };
 }
 

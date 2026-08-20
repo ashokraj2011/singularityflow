@@ -100,6 +100,16 @@ test('a required AST predicate refuses publication before generation mutation', 
   });
 });
 
+test('an explicit generic intelligence profile skips repository AST lifecycle gates', async () => {
+  const { root, config, workflow, phase, authorship } = await fixture({ predicatePath: 'missing.ts' });
+  workflow.resolution.intelligence = { worldModel: 'off', ast: 'off', agentBriefs: 'off' };
+  await inContext(root, async () => {
+    await publishGeneration(root, config, workflow, { phaseId: phase.id, authorship });
+    assert.equal(phase.generation, 1);
+    assert.equal(phase.astGates, undefined);
+  });
+});
+
 test('publication records an AST receipt and submission verifies its exact relevant bytes', async () => {
   const { root, config, workflow, phase, authorship } = await fixture();
   await inContext(root, async () => {

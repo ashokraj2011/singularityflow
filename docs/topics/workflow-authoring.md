@@ -12,7 +12,7 @@ related:
   - configuration
   - agents-and-routing
   - artifacts-and-generation
-version: 3
+version: 4
 ---
 Author work types, ordered phases, gates, artifacts, inputs, and approval policy through governed configuration. Existing work remains pinned to the resolution it started with.
 
@@ -64,6 +64,25 @@ sflow mcp attest playwright --confirm playwright
 sflow mcp smoke playwright --url https://staging.example.test/health
 sflow status POC-101
 ```
+
+## Paired benchmark workflows
+
+The starter configuration also exposes `Benchmark A — governed intelligence` (`benchmarking-a`)
+and `Benchmark B — generic context` (`benchmarking-b`). Both run:
+
+`intake → design → implementation → testing → conformance`
+
+They share the same templates, default agents, artifact contracts, write scopes, approval groups,
+thresholds, and rejection routes. A requires governed world-model grounding, automatically injects
+one bounded AST evidence page, and consumes approval-bound agent briefs. B disables world-model and
+AST context, skips AST lifecycle predicates, and consumes full approved artifacts. The resolved
+`intelligence` policy is pinned into `workflow.json`, so a later configuration change cannot switch
+an active Story between arms.
+
+Use the normal Start wizard in CLI, Copilot, or VS Code and explicitly choose one profile. Run
+comparable Stories through both arms and use Flow Impact receipts for outcome analysis. Selecting
+arms manually is a benchmark comparison, not randomized causal evidence; use the randomized prompt-
+set study when the only variable is prompt wording.
 
 ## State and safety
 

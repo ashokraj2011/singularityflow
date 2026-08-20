@@ -162,6 +162,19 @@ After closing a run, its Story-local copies and receipts remain reproducible, so
 the shared prompt Markdown may be archived or removed after the reviewed config
 no longer has an active or draft run referencing it.
 
+## Benchmark full context strategies
+
+The seeded `benchmarking-a` and `benchmarking-b` Story work types compare a broader treatment than
+prompt wording. Both use `intake → design → implementation → testing → conformance` with identical
+templates, agents and approvals. A requires the world model, bounded AST context and approval-bound
+agent briefs. B disables those three features and uses full approved artifacts. Their intelligence
+profile is pinned at Story birth.
+
+Use these profiles for an operational benchmark when the whole context strategy is the independent
+variable. Because a contributor chooses the work type, the result is observational unless assignment
+is governed separately. Do not combine it with `prompt-set-randomized` under one study: that would
+change more than one variable and invalidate the prompt-only interpretation.
+
 ## Metric authority and assurance
 
 Every metric has one pinned authority: `kernel-only`, `external-provider`,

@@ -60,8 +60,10 @@ change count, requirement claims, checks, approvals, context provenance, review-
 publication state, and next human action. `exact`, `partial`, and `unavailable` labels are preserved.
 
 The receipt is a deterministic projection over the existing review packet and Story records. It is
-not another evidence store and does not alter evidence hashes. Given the same clone, configuration,
-workflow, and packet, it reproduces the same receipt hash.
+not another evidence store and does not alter evidence hashes. Its immutable core covers durable
+packet and lifecycle identity and therefore reproduces the same core hash in another clone. Live
+observations, including publication visibility and local changes, are reported and hashed
+separately so clone-local state cannot silently change the durable receipt identity.
 
 ## Return on another machine
 

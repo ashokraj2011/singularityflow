@@ -164,11 +164,25 @@ function commitArgs(config, message) {
   return ['commit', ...(config.signing === 'commit' ? ['-S'] : []), '-m', message];
 }
 
-function pushLedger(worktree, config, expectedRemoteSha = null) {
-  const lease = expectedRemoteSha
-    ? `--force-with-lease=refs/heads/${config.branch}:${expectedRemoteSha}`
+function pushLedger(worktree, config, expectedRemoteSha = undefined) {
+  const lease = expectedRemoteSha !== undefined
+    ? `--force-with-lease=refs/heads/${config.branch}:${expectedRemoteSha ?? ''}`
     : '--force-with-lease';
   return git(worktree, ['push', lease, config.remote, `HEAD:refs/heads/${config.branch}`], { allowFailure: true });
+}
+
+function observeRemoteBranch(worktree, config) {
+  const observed = git(worktree, [
+    'ls-remote', '--heads', config.remote, `refs/heads/${config.branch}`
+  ], { allowFailure: true });
+  if (observed.status !== 0) return { status: 'unavailable', detail: (observed.stderr || observed.stdout).trim() };
+  const line = observed.stdout.split(/\r?\n/).map((item) => item.trim()).find(Boolean);
+  return { status: 'observed', commit: line ? line.split(/\s+/)[0] : null };
+}
+
+export function isStateBranchConcurrencyFailure(detail) {
+  return /stale info|fetch first|non-fast-forward|cannot lock ref.*expected|force-with-lease|incorrect old value/i
+    .test(String(detail ?? ''));
 }
 
 function initialHead() {
@@ -645,7 +659,10 @@ export async function appendLedgerIntent(root, rawConfig, intent, publishedCommi
  * authoritative mirrors of `files`. Files previously tracked beneath those roots but absent from
  * `files` are removed. No path outside an explicitly named replacement root is ever pruned.
  */
-export async function publishToStateBranch(root, rawConfig, files, message, { replaceRoots = [] } = {}) {
+export async function publishToStateBranch(root, rawConfig, files, message, {
+  replaceRoots = [], expectedRemoteSha: suppliedExpectedRemoteSha = undefined,
+  baseRef: suppliedBaseRef = null, refreshRemote = true
+} = {}) {
   const config = normalizeLedgerConfig(rawConfig);
   const safePath = (value) => {
     const original = String(value ?? '').trim();
@@ -669,18 +686,27 @@ export async function publishToStateBranch(root, rawConfig, files, message, { re
     return { branch: config.branch, commit: null, changed: false, published: [], removed: [] };
   }
 
-  ensureRemoteBranchFetched(root, config);
+  if (refreshRemote) ensureRemoteBranchFetched(root, config);
   let ref = ledgerHead(root, config);
   if (!ref) {
     await initializeLedger(root, config);
     ensureRemoteBranchFetched(root, config);
     ref = ledgerHead(root, config);
   }
-  const expectedRemoteSha = refExists(root, remoteRef(config))
-    ? git(root, ['rev-parse', remoteRef(config)]).stdout.trim()
-    : null;
+  const expectedRemoteSha = suppliedExpectedRemoteSha !== undefined
+    ? suppliedExpectedRemoteSha
+    : refExists(root, remoteRef(config))
+      ? git(root, ['rev-parse', remoteRef(config)]).stdout.trim()
+      : null;
+  const publicationBase = suppliedBaseRef ?? ref;
+  if (suppliedBaseRef && git(root, ['cat-file', '-e', `${suppliedBaseRef}^{commit}`], { allowFailure: true }).status !== 0) {
+    throw new SingularityFlowError('The bound state-branch publication base is unavailable locally.', {
+      code: 'state_branch.publication_base_unavailable',
+      details: { branch: config.branch, expectedRemoteSha }
+    });
+  }
 
-  return temporaryWorktree(root, ref, async (worktree) => {
+  return temporaryWorktree(root, publicationBase, async (worktree) => {
     const desired = new Set(entries.map(([file]) => file));
     const removed = new Set();
     for (const replacementRoot of replacementRoots) {
@@ -701,7 +727,30 @@ export async function publishToStateBranch(root, rawConfig, files, message, { re
     // Publishing the same bytes twice is a no-op rather than an empty commit: this runs on every
     // capability edit, and most edits change one file out of several.
     if (!git(worktree, ['diff', '--cached', '--name-only']).stdout.trim()) {
-      return { branch: config.branch, commit: null, changed: false, published: [], removed: [] };
+      if (hasRemote(root, config.remote) && suppliedExpectedRemoteSha !== undefined) {
+        const observed = observeRemoteBranch(worktree, config);
+        if (observed.status !== 'observed') {
+          throw new SingularityFlowError(
+            `Unable to verify the ${config.branch} branch before completing a no-op publication: ${observed.detail}`,
+            { code: 'state_branch.publication_observation_unavailable', details: { branch: config.branch, expectedRemoteSha } }
+          );
+        }
+        if (observed.commit !== expectedRemoteSha) {
+          const error = new SingularityFlowError(
+            `Concurrent publication changed the ${config.branch} branch before the candidate was confirmed current.`,
+            { code: 'state_branch.concurrent_publication', details: { branch: config.branch, expectedRemoteSha, observedRemoteSha: observed.commit } }
+          );
+          error.concurrent = true;
+          throw error;
+        }
+      }
+      return {
+        branch: config.branch,
+        commit: suppliedExpectedRemoteSha !== undefined ? publicationBase : null,
+        changed: false,
+        published: [],
+        removed: []
+      };
     }
     const actor = identity(root);
     git(worktree, ['-c', `user.name=${actor.name || 'Singularity Flow'}`,
@@ -717,7 +766,7 @@ export async function publishToStateBranch(root, rawConfig, files, message, { re
           { code: 'state_branch.concurrent_publication', details: { branch: config.branch, expectedRemoteSha } });
         // Callers that can deterministically rebase an immutable payload may retry. Lifecycle
         // decisions do not use this path and remain fail-fast.
-        error.concurrent = /stale info|fetch first|non-fast-forward|cannot lock ref.*expected|force-with-lease/i.test(detail);
+        error.concurrent = isStateBranchConcurrencyFailure(detail);
         throw error;
       }
       // The local branch follows what was just published. Readers name the branch plainly —

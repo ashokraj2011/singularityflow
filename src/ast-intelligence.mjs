@@ -123,25 +123,82 @@ function legacyStoreRoot(root) {
   return path.join(gitCommonDir(root), LEGACY_STORE_DIR);
 }
 
-async function loadRuntime(root) {
+function normalizeWorkBinding(value) {
+  if (value == null) return null;
+  const binding = structuredClone(value);
+  if (!binding || typeof binding !== 'object' || Array.isArray(binding)
+    || typeof binding.workId !== 'string' || !binding.workId.trim()
+    || /[\\/]/.test(binding.workId) || ['.', '..'].includes(binding.workId)
+    || !(binding.phaseId === null || (typeof binding.phaseId === 'string' && binding.phaseId))
+    || !Number.isInteger(binding.generation) || binding.generation < 0
+    || !binding.sourceScope || typeof binding.sourceScope !== 'object' || Array.isArray(binding.sourceScope)
+    || typeof binding.configurationSha256 !== 'string' || !/^[a-f0-9]{64}$/.test(binding.configurationSha256)
+    || typeof binding.lifecycleRevision !== 'string' || !/^[a-f0-9]{64}$/.test(binding.lifecycleRevision)) {
+    throw new SingularityFlowError('AST work binding is malformed.', { code: 'AST_WORK_BINDING_INVALID' });
+  }
+  binding.workId = binding.workId.trim();
+  return binding;
+}
+
+function assertWorkBinding(expected, actual) {
+  if (!expected) return;
+  if (!actual || recordSha256(expected) !== recordSha256(actual)) {
+    throw new SingularityFlowError(
+      'AST runtime no longer matches the requested governed work item, phase, scope, configuration, or lifecycle revision.',
+      { code: 'AST_WORK_BINDING_MISMATCH', details: { workId: expected.workId, phaseId: expected.phaseId } }
+    );
+  }
+}
+
+async function loadRuntime(root, requestedWorkBinding = null) {
+  const expectedBinding = normalizeWorkBinding(requestedWorkBinding);
   let definition = {};
   let state = null;
   if (existsSync(path.join(root, WORKFLOW_PATH))) {
     definition = await loadDefinition(root);
     const branch = run('git', ['branch', '--show-current'], { cwd: root, allowFailure: true }).stdout.trim();
-    const statePath = path.join(root, definition.workItemRoot ?? 'singularity/work-items', branch, 'workflow.json');
-    if (branch && existsSync(statePath)) state = JSON.parse(await readFile(statePath, 'utf8'));
+    const workId = expectedBinding?.workId ?? branch;
+    const statePath = workId
+      ? path.join(root, definition.workItemRoot ?? 'singularity/work-items', workId, 'workflow.json')
+      : null;
+    if (statePath && existsSync(statePath)) {
+      state = readRecord('story-workflow', await readFile(statePath)).record;
+    }
+    if (expectedBinding && !state) {
+      throw new SingularityFlowError(
+        `AST cannot load the governed workflow for '${expectedBinding.workId}'.`,
+        { code: 'AST_WORK_BINDING_UNAVAILABLE' }
+      );
+    }
     definition = withWorldModelSourceScope(
       definition,
       state?.resolution?.worldModelSourceScope ?? state?.resolution?.capability?.sourceScope ?? null
     );
   }
+  const sourceScope = worldModelSourceScope(definition);
+  const definitionSha256 = recordSha256({
+    ast: definition.ast ?? {},
+    worldModel: {
+      sourceRoots: definition.worldModel?.sourceRoots ?? [],
+      sharedRoots: definition.worldModel?.sharedRoots ?? []
+    }
+  });
+  const actualBinding = expectedBinding && state ? {
+    workId: state.workItem?.id ?? expectedBinding.workId,
+    phaseId: state.currentPhase ?? null,
+    generation: state.phases?.[state.currentPhase]?.generation ?? 0,
+    sourceScope,
+    configurationSha256: definitionSha256,
+    lifecycleRevision: recordSha256(state)
+  } : null;
+  assertWorkBinding(expectedBinding, actualBinding);
   return {
     definition,
     state,
     policy: normalizeAstPolicy(definition.ast ?? {}),
-    sourceScope: worldModelSourceScope(definition),
-    definitionSha256: recordSha256({ ast: definition.ast ?? {}, worldModel: { sourceRoots: definition.worldModel?.sourceRoots ?? [], sharedRoots: definition.worldModel?.sharedRoots ?? [] } })
+    sourceScope,
+    definitionSha256,
+    workBinding: actualBinding
   };
 }
 
@@ -908,7 +965,12 @@ function baseEnvelope(runtime, operation, scope, mode, { revision = null, finger
     schemaVersion: AST_RESULT_SCHEMA_VERSION,
     operation,
     evidenceClass: 'preview',
-    scope: { ...scope, repositoryRevision: revision, worktreeFingerprint: fingerprint },
+    scope: {
+      ...scope,
+      repositoryRevision: revision,
+      worktreeFingerprint: fingerprint,
+      ...(runtime.workBinding ? { workBinding: structuredClone(runtime.workBinding) } : {})
+    },
     assurance: 'text',
     status: mode.mode === 'off' ? 'disabled' : 'complete',
     coverage: {
@@ -1120,8 +1182,8 @@ export function validateAstResultEnvelope(value) {
   return structuredClone(record);
 }
 
-async function buildOrContext(root, options, operation) {
-  const runtime = await loadRuntime(root);
+async function buildOrContext(root, options, operation, workBinding = null) {
+  const runtime = await loadRuntime(root, workBinding);
   const mode = await effectiveAstMode(runtime.policy, optionString(options, 'mode', 'auto'));
   if (mode.mode === 'off') {
     const requestedClass = evidenceClass(options);
@@ -1325,9 +1387,10 @@ function filterQueryEnvelope(envelope, predicate, value) {
 
 async function boundedReadPage(root, envelope, {
   operation, options, query = null, offset = 0, limits: suppliedLimits = null,
-  inputBudgets: suppliedInputBudgets = null, selector: suppliedSelector = null
+  inputBudgets: suppliedInputBudgets = null, selector: suppliedSelector = null,
+  workBinding = null
 } = {}) {
-  const runtime = await loadRuntime(root);
+  const runtime = await loadRuntime(root, workBinding);
   const limits = suppliedLimits ?? outputLimits(options);
   const inputBudgets = suppliedInputBudgets ?? astBudgets(runtime, options);
   const selector = suppliedSelector ?? selectorForCursor(options);
@@ -1349,7 +1412,8 @@ async function boundedReadPage(root, envelope, {
       binding: {
         definitionSha256: envelope.scope.definitionSha256,
         repositoryRevision: envelope.scope.repositoryRevision,
-        coneSha256: envelope.scope.coneSha256 ?? envelope.scope.worktreeFingerprint
+        coneSha256: envelope.scope.coneSha256 ?? envelope.scope.worktreeFingerprint,
+        ...(envelope.scope.workBinding ? { workBinding: structuredClone(envelope.scope.workBinding) } : {})
       },
       selector,
       inputBudgets,
@@ -1398,7 +1462,8 @@ function assertCursorBinding(envelope, payload) {
   };
   if (current.definitionSha256 !== payload.binding.definitionSha256
     || current.repositoryRevision !== payload.binding.repositoryRevision
-    || current.coneSha256 !== payload.binding.coneSha256) {
+    || current.coneSha256 !== payload.binding.coneSha256
+    || recordSha256(envelope.scope.workBinding ?? null) !== recordSha256(payload.binding.workBinding ?? null)) {
     throw new SingularityFlowError(
       'AST read cursor is stale because policy, revision, scope, or relevant file bytes changed.',
       { code: 'AST_READ_CURSOR_STALE' }
@@ -1406,20 +1471,25 @@ function assertCursorBinding(envelope, payload) {
   }
 }
 
-export async function astContext(root, options = {}) {
+export async function astContext(root, options = {}, workBinding = null) {
   const handle = optionString(options, 'cursor');
   if (handle) {
     const payload = readCursorPayload(root, handle, 'context');
-    const envelope = await buildOrContext(root, cursorOptions(payload), 'context');
+    const boundWork = payload.binding.workBinding ?? null;
+    if (workBinding && recordSha256(workBinding) !== recordSha256(boundWork)) {
+      throw new SingularityFlowError('AST read cursor belongs to different governed work.', { code: 'AST_READ_CURSOR_STALE' });
+    }
+    const envelope = await buildOrContext(root, cursorOptions(payload), 'context', boundWork);
     if (envelope.status === 'disabled') throw new SingularityFlowError('AST is disabled; the read cursor was not consumed.', { code: 'AST_DISABLED' });
     assertCursorBinding(envelope, payload);
     return boundedReadPage(root, envelope, {
       operation: 'context', options: cursorOptions(payload), offset: payload.nextOffset,
-      limits: payload.outputLimits, inputBudgets: payload.inputBudgets, selector: payload.selector
+      limits: payload.outputLimits, inputBudgets: payload.inputBudgets, selector: payload.selector,
+      workBinding: boundWork
     });
   }
-  const envelope = await buildOrContext(root, options, 'context');
-  return boundedReadPage(root, envelope, { operation: 'context', options });
+  const envelope = await buildOrContext(root, options, 'context', workBinding);
+  return boundedReadPage(root, envelope, { operation: 'context', options, workBinding });
 }
 
 export async function astQuery(root, options = {}) {

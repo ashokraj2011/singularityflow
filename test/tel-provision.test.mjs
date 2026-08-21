@@ -5,6 +5,8 @@ import path from 'node:path';
 import test from 'node:test';
 
 import { gitCommonDir } from '../src/git.mjs';
+import { launchHostSession } from '../src/host-session-launcher.mjs';
+import { withOperationContext } from '../src/operation-context.mjs';
 import {
   explainTelemetryStatus,
   listTelemetryLaunches,
@@ -58,6 +60,32 @@ test('launch provisioning is per-process, content-off, and bound to the Git comm
   assert.equal(launches[0].process.exitCode, 0);
   assert.equal(launches[0].configurationDigest.length, 64);
   assert.ok(!JSON.stringify(launches[0]).includes(root), 'launch records carry hashes and relative paths, not checkout paths');
+});
+
+test('a failed durable launch record keeps Copilot available but reports capture unavailable', async () => {
+  const root = await repository('sflow-telemetry-recording-failure-');
+  const env = await acceptedEnvironment(root);
+  const prepared = await prepareTelemetryLaunch({ root, baseEnv: env });
+  assert.equal(prepared.captureStatus, 'configured');
+  let spawnedEnvironment = null;
+  const launch = await withOperationContext({
+    operation: { id: 'test.host-session', command: 'test', modelPolicy: 'optional' },
+    modelMode: { enabled: true }, root, argvSha256: 'test', argvHash: 'test', command: 'test'
+  }, () => launchHostSession({
+      cwd: root,
+      preparedTelemetry: prepared,
+      execution: {
+        recordTelemetryLaunch: async () => { throw new Error('injected write failure'); },
+        spawnSync: (_command, _args, options) => {
+          spawnedEnvironment = options.env;
+          return { status: 0, signal: null, error: null };
+        }
+      }
+    }));
+  assert.equal(launch.telemetry.captureStatus, 'unavailable-recording-failure');
+  assert.match(launch.telemetry.notices.join('\n'), /durable launch attribution record/);
+  assert.equal(spawnedEnvironment.COPILOT_OTEL_ENABLED, undefined,
+    'an unattributed SFlow telemetry stream is not launched');
 });
 
 test('existing exporter configuration and forced content capture are preserved and never disclosed', async () => {

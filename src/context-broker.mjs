@@ -10,6 +10,8 @@ import { readFile } from 'node:fs/promises';
 import { astContext } from './ast-intelligence.mjs';
 import { head } from './git.mjs';
 import { resolveWorldModelContext } from './grounding.mjs';
+import { recordSha256 } from './records.mjs';
+import { withWorldModelSourceScope, worldModelSourceScope } from './source-scope.mjs';
 import { loadConfig, loadStoryAggregate } from './state-stores.mjs';
 import { secureRepositoryPath } from './util.mjs';
 import { inspectWorkflowGrounding } from './worldmodel.mjs';
@@ -207,11 +209,35 @@ export async function composeContextBrief(root, {
     if (payload.selections?.some((entry) => entry.truncated || entry.omission === 'budget')) omissions.push('world-model-bounded');
   } else if (slice === 'ast') {
     try {
+      const scopedDefinition = withWorldModelSourceScope(
+        config,
+        workflow.resolution?.worldModelSourceScope ?? workflow.resolution?.capability?.sourceScope ?? null
+      );
+      const sourceScope = worldModelSourceScope(scopedDefinition);
+      const workBinding = {
+        workId: workflow.workItem.id,
+        phaseId: phaseId ?? null,
+        generation: workflow.phases?.[phaseId]?.generation ?? 0,
+        sourceScope,
+        configurationSha256: recordSha256({
+          ast: scopedDefinition.ast ?? {},
+          worldModel: {
+            sourceRoots: scopedDefinition.worldModel?.sourceRoots ?? [],
+            sharedRoots: scopedDefinition.worldModel?.sharedRoots ?? []
+          }
+        }),
+        lifecycleRevision: recordSha256(workflow)
+      };
       payload = await astContext(root, {
         'max-files': 50,
         'max-facts': 200,
         'max-output-bytes': budget
-      });
+      }, workBinding);
+      if (recordSha256(payload.scope?.workBinding ?? null) !== recordSha256(workBinding)) {
+        throw Object.assign(new Error('AST returned a different governed work binding.'), {
+          code: 'AST_WORK_BINDING_MISMATCH'
+        });
+      }
       includedBytes = Buffer.byteLength(JSON.stringify(payload));
       if (payload.status === 'partial' || payload.nextCursor) omissions.push('ast-bounded');
     } catch (error) {

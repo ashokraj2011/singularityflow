@@ -708,7 +708,63 @@ test('progressive governed generation preserves earlier views across independent
     'clone C required zero provider invocations');
 });
 
-test('concurrent governed publishers preserve both view fragments without a second provider invocation', async () => {
+test('a governed publisher merges a winner that landed before its first publication fetch', async () => {
+  const base = await mkdtemp(path.join(os.tmpdir(), 'sflow-worldmodel-before-fetch-'));
+  const remote = path.join(base, 'application.git');
+  const seed = path.join(base, 'seed');
+  run('git', ['init', '-q', '-b', 'main', '--bare', remote], base);
+  run('git', ['init', '-q', '-b', 'main', seed], base);
+  run('git', ['config', 'user.name', 'Seed User'], seed);
+  run('git', ['config', 'user.email', 'seed@example.com'], seed);
+  await initializeDefinition(seed);
+  const builder = path.join(seed, 'mock-worldmodel-builder.mjs');
+  await writeFile(builder, mockBuilderSource);
+  await configureMockProvider(seed, builder);
+  const definitionPath = path.join(seed, 'singularity/workflow.yml');
+  const definition = YAML.parse(await readFile(definitionPath, 'utf8'));
+  definition.git.publish = 'off';
+  definition.ledger.enabled = false;
+  definition.worldModel.materialization.publish = 'governed';
+  await writeFile(definitionPath, YAML.stringify(definition));
+  await writeFile(path.join(seed, 'README.md'), '# Winner before fetch\n');
+  run('git', ['add', '.'], seed);
+  run('git', ['commit', '-qm', 'initialize'], seed);
+  run('git', ['remote', 'add', 'origin', remote], seed);
+  run('git', ['push', '-q', '-u', 'origin', 'main'], seed);
+  flow(['wm', 'light', '--phase', 'intake'], seed);
+
+  const clone = (name) => {
+    const directory = path.join(base, name);
+    run('git', ['clone', '-q', remote, directory], base);
+    run('git', ['config', 'user.name', `${name} User`], directory);
+    run('git', ['config', 'user.email', `${name}@example.com`], directory);
+    return directory;
+  };
+  // Both contributors clone before either focused view is published. Architecture wins before the
+  // security publisher performs its first state-branch fetch.
+  const cloneA = clone('clone-a');
+  const cloneB = clone('clone-b');
+  const providerLog = path.join(base, 'provider.jsonl');
+  const environment = { ...process.env, SFLOW_PARALLEL_TEST_LOG: providerLog };
+  const architecture = result(process.execPath, [
+    bin, 'wm', 'build', '--view', 'architecture', '--tier', 'full'
+  ], cloneA, environment);
+  assert.equal(architecture.status, 0, `${architecture.stdout}\n${architecture.stderr}`);
+  const security = result(process.execPath, [
+    bin, 'wm', 'build', '--view', 'security', '--tier', 'full'
+  ], cloneB, environment);
+  assert.equal(security.status, 0, `${security.stdout}\n${security.stderr}`);
+
+  const observer = clone('observer');
+  const manifest = JSON.parse(run('git', ['show', 'origin/state:singularity/world-model/manifest.json'], observer));
+  assert.equal(manifest.views.architecture.tiers.full.status, 'ready');
+  assert.equal(manifest.views.security.tiers.full.status, 'ready');
+  const events = (await readFile(providerLog, 'utf8')).trim().split(/\r?\n/).map(JSON.parse);
+  assert.equal(events.filter((event) => event.event === 'synthesis').length, 2,
+    'premerging a fetched winner never reinvokes either provider');
+});
+
+test('a lease loser refetches and preserves both view fragments without a second provider invocation', async () => {
   const base = await mkdtemp(path.join(os.tmpdir(), 'sflow-worldmodel-cas-'));
   const remote = path.join(base, 'application.git');
   const seed = path.join(base, 'seed');
@@ -747,15 +803,42 @@ test('concurrent governed publishers preserve both view fragments without a seco
   const cloneB = clone('clone-b');
   const providerLog = path.join(base, 'provider.jsonl');
   const barrier = path.join(base, 'synthesis-barrier');
+  const loserReady = path.join(base, 'loser-ready');
+  const releaseLoser = path.join(base, 'release-loser');
+  const hookSource = ({ ready = null, waitFor }) => `#!/usr/bin/env node
+const fs = require('node:fs');
+const input = fs.readFileSync(0, 'utf8');
+if (!input.includes('refs/heads/state')) process.exit(0);
+${ready ? `fs.writeFileSync(${JSON.stringify(ready)}, 'ready\\n');` : ''}
+const deadline = Date.now() + 15000;
+while (!fs.existsSync(${JSON.stringify(waitFor)})) {
+  if (Date.now() >= deadline) { console.error('state publication hook timed out'); process.exit(1); }
+  Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0, 25);
+}
+`;
+  await writeFile(path.join(cloneA, '.git/hooks/pre-push'), hookSource({ waitFor: loserReady }));
+  await chmod(path.join(cloneA, '.git/hooks/pre-push'), 0o755);
+  await writeFile(path.join(cloneB, '.git/hooks/pre-push'), hookSource({ ready: loserReady, waitFor: releaseLoser }));
+  await chmod(path.join(cloneB, '.git/hooks/pre-push'), 0o755);
   const environment = {
     ...process.env,
     SFLOW_PARALLEL_TEST_LOG: providerLog,
     SFLOW_MOCK_SYNTHESIS_BARRIER_DIR: barrier
   };
-  const [architecture, security] = await Promise.all([
-    resultAsync(process.execPath, [bin, 'wm', 'build', '--view', 'architecture', '--tier', 'full'], cloneA, environment),
-    resultAsync(process.execPath, [bin, 'wm', 'build', '--view', 'security', '--tier', 'full'], cloneB, environment)
-  ]);
+  const architecturePromise = resultAsync(
+    process.execPath, [bin, 'wm', 'build', '--view', 'architecture', '--tier', 'full'], cloneA, environment
+  );
+  const securityPromise = resultAsync(
+    process.execPath, [bin, 'wm', 'build', '--view', 'security', '--tier', 'full'], cloneB, environment
+  );
+  const readyDeadline = Date.now() + 15_000;
+  while (!existsSync(loserReady)) {
+    if (Date.now() >= readyDeadline) throw new Error('lease-loser publication did not reach its pre-push hook');
+    await new Promise((resolve) => setTimeout(resolve, 25));
+  }
+  const architecture = await architecturePromise;
+  await writeFile(releaseLoser, 'release\n');
+  const security = await securityPromise;
   assert.equal(architecture.status, 0, `${architecture.stdout}\n${architecture.stderr}`);
   assert.equal(security.status, 0, `${security.stdout}\n${security.stderr}`);
 

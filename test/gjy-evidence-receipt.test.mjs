@@ -55,6 +55,17 @@ test('submission evidence is concise, honest, and reproducible from durable inpu
   assert.equal(first.context.status, 'exact');
   assert.equal(first.publication.state, 'unverified', 'publication policy alone is not publication evidence');
   assert.equal(first.publication.status, 'unavailable');
+  assert.equal(first.receiptSha256, first.receiptCoreSha256);
+  assert.equal(first.observations.sha256, first.observationSha256);
+  git(root, ['update-ref', 'refs/remotes/origin/WRK-1', sourceCommit]);
+  const publishedObservation = await composeEvidenceReceipt(
+    root, { git: { publish: 'required' } }, structuredClone(workflow), structuredClone(packet)
+  );
+  assert.equal(publishedObservation.publication.state, 'published');
+  assert.equal(publishedObservation.receiptCoreSha256, first.receiptCoreSha256,
+    'the immutable receipt identity does not depend on a clone-local remote-tracking ref');
+  assert.notEqual(publishedObservation.observationSha256, first.observationSha256,
+    'live publication reachability remains independently auditable');
   assert.match(renderEvidenceReceipt(first), /Evidence receipt: WRK-1/);
   const pullRequest = storyPullRequestBody({
     ...workflow,

@@ -10,6 +10,7 @@ import { gatewayOperation } from '../src/gateway/operations.mjs';
 import { contextBrief } from '../src/gateway/planners/context-brief.mjs';
 import { setAgentSession } from '../src/session.mjs';
 import { createWorkflow, loadConfig } from '../src/state.mjs';
+import { loadStoryAggregate, saveStoryDraft } from '../src/state-stores.mjs';
 import { run } from '../src/util.mjs';
 
 async function fixture(t) {
@@ -72,4 +73,44 @@ test('each deeper slice is exposed as typed navigation for the kernel to seal', 
   ]);
   assert.ok(result.next.every((entry) => entry.executable === false));
   assert.equal(result.effects.gitRefsChanged, false);
+});
+
+test('AST context is bound to the requested Story rather than the checked-out branch', async (t) => {
+  const root = await fixture(t);
+  await writeFile(path.join(root, 'story-a.ts'), 'export const StoryA = true;\n');
+  await writeFile(path.join(root, 'story-b.ts'), 'export const StoryB = true;\n');
+  run('git', ['add', 'story-a.ts', 'story-b.ts'], { cwd: root });
+  run('git', ['commit', '-m', 'add scoped sources'], { cwd: root });
+  const config = await loadConfig(root);
+  const storyA = await loadStoryAggregate(root, config, 'GJY-CONTEXT-1');
+  storyA.resolution.worldModelSourceScope = { sourceRoots: ['story-a.ts'], sharedRoots: [] };
+  await saveStoryDraft(root, config, storyA);
+  const storyB = structuredClone(storyA);
+  storyB.workItem.id = 'GJY-CONTEXT-2';
+  storyB.workItem.branch = 'GJY-CONTEXT-2';
+  storyB.resolution.worldModelSourceScope = { sourceRoots: ['story-b.ts'], sharedRoots: [] };
+  await saveStoryDraft(root, config, storyB);
+
+  const result = await composeContextBrief(root, {
+    workId: 'GJY-CONTEXT-2', slice: 'ast', maxOutputBytes: 32 * 1024
+  });
+  assert.equal(result.payload.scope.workBinding.workId, 'GJY-CONTEXT-2');
+  assert.equal(result.payload.scope.workBinding.phaseId, storyB.currentPhase);
+  const paths = new Set(result.payload.facts.map((fact) => fact.path).filter(Boolean));
+  assert.equal(paths.has('story-b.ts'), true);
+  assert.equal(paths.has('story-a.ts'), false,
+    'the checked-out Story A scope cannot leak into a request for Story B');
+});
+
+test('AST context loads a v1 Story workflow through the migration registry', async (t) => {
+  const root = await fixture(t);
+  const config = await loadConfig(root);
+  const workflow = await loadStoryAggregate(root, config, 'GJY-CONTEXT-1');
+  const file = path.join(root, config.workItemRoot, 'GJY-CONTEXT-1', 'workflow.json');
+  await writeFile(file, `${JSON.stringify({ ...workflow, schemaVersion: 1 }, null, 2)}\n`);
+  const result = await composeContextBrief(root, {
+    workId: 'GJY-CONTEXT-1', slice: 'ast', maxOutputBytes: 32 * 1024
+  });
+  assert.equal(result.payload.scope.workBinding.workId, 'GJY-CONTEXT-1');
+  assert.notEqual(result.payload.status, 'unavailable');
 });

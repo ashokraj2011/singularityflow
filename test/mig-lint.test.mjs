@@ -41,6 +41,17 @@ test('registry-owned version branching is accepted', () => {
   ])), []);
 });
 
+test('registered workflow records cannot bypass migration reads through an indirect path', () => {
+  const violations = schemaMigrationLint(new Map([
+    ['src/unsafe-workflow-reader.mjs', [
+      "const statePath = path.join(root, 'singularity/work-items', id, 'workflow.json');",
+      "const state = JSON.parse(await readFile(statePath, 'utf8'));"
+    ].join('\n')]
+  ]));
+  assert.equal(violations.length, 1);
+  assert.match(violations[0].message, /loaded through readRecord/);
+});
+
 test('the migration module cannot acquire model, clock, or I/O dependencies', () => {
   const violations = schemaMigrationLint(new Map([
     ['src/schema-migrations.mjs', "import { invokeModel } from './model-runner.mjs';\n"]

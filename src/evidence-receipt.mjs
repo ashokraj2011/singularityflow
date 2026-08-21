@@ -4,7 +4,7 @@ import { changedRepositoryPaths, loadActiveSpecRecords } from './specifications.
 import { workDir } from './state-stores.mjs';
 import { run } from './util.mjs';
 
-export const EVIDENCE_RECEIPT_RESULT_VERSION = 1; // schema-transient: deterministic projection, never persisted
+export const EVIDENCE_RECEIPT_RESULT_VERSION = 2; // schema-transient: deterministic projection, never persisted
 
 function canonical(value) {
   if (Array.isArray(value)) return value.map(canonical);
@@ -87,8 +87,9 @@ function publicationProjection(root, config, packet) {
  * Compose the compact developer receipt exclusively from durable Story records.
  *
  * This is a projection, not a new evidence store. Re-running it in a fresh clone with the same
- * packet produces the same `receiptSha256`; timestamps, local paths and transient push output are
- * deliberately absent.
+ * packet produces the same `receiptCoreSha256`; timestamps, local paths and transient push output
+ * are deliberately absent. Clone-local reachability and availability are separately hashed
+ * observations and never redefine the receipt's immutable identity.
  */
 export async function composeEvidenceReceipt(root, config, workflow, packet) {
   const phase = workflow.phases?.[packet.phase] ?? null;
@@ -113,18 +114,15 @@ export async function composeEvidenceReceipt(root, config, workflow, packet) {
     }
   }
 
-  const body = {
+  const core = {
     schemaVersion: EVIDENCE_RECEIPT_RESULT_VERSION,
     kind: 'submission-evidence-receipt',
     work: { id: workflow.workItem.id, phase: packet.phase, generation: packet.generation },
     source: { status: 'exact', commit: packet.sourceCommit, treeSha256: packet.sourceTreeSha256 },
-    changes: changedPaths,
-    requirements,
     checks: checkProjection(phase, packet),
     approvals: approvalProjection(phase, packet),
     context: contextProjection(packet),
     reviewPacket: { status: 'exact', sha256: packet.packetSha256 },
-    publication: publicationProjection(root, config, packet),
     nextHumanAction: packet.status === 'awaiting_review'
       ? 'Review and decide this phase.'
       : 'Continue to the next governed phase.',
@@ -134,7 +132,23 @@ export async function composeEvidenceReceipt(root, config, workflow, packet) {
       status: `singularity-flow status --work-id ${workflow.workItem.id}`
     }
   };
-  return Object.freeze({ ...body, receiptSha256: digest(body) });
+  const observations = {
+    changes: changedPaths,
+    requirements,
+    publication: publicationProjection(root, config, packet)
+  };
+  const receiptCoreSha256 = digest(core);
+  const observationSha256 = digest(observations);
+  return Object.freeze({
+    ...core,
+    ...observations,
+    observations: Object.freeze({ ...observations, sha256: observationSha256 }),
+    receiptCoreSha256,
+    observationSha256,
+    // Compatibility name: this has always represented the receipt's durable identity. In v2 it
+    // explicitly aliases the immutable core rather than clone-local observations.
+    receiptSha256: receiptCoreSha256
+  });
 }
 
 export function renderEvidenceReceipt(receipt) {
@@ -147,7 +161,8 @@ export function renderEvidenceReceipt(receipt) {
     `Approvals: ${receipt.approvals.current}/${receipt.approvals.required} (${receipt.approvals.status})`,
     `Context: ${receipt.context.status} · Review packet: ${receipt.reviewPacket.sha256.slice(0, 12)}`,
     `Publication: ${receipt.publication.state} · Next: ${receipt.nextHumanAction}`,
-    `Receipt hash: ${receipt.receiptSha256}`
+    `Receipt core hash: ${receipt.receiptCoreSha256 ?? receipt.receiptSha256}`,
+    `Observation hash: ${receipt.observationSha256 ?? 'unavailable'}`
   ].join('\n');
 }
 
@@ -167,7 +182,8 @@ export function renderEvidenceReceiptMarkdown(receipt) {
     `- Publication: **${receipt.publication.state}** on \`${receipt.publication.branch}\``,
     `- Next: ${receipt.nextHumanAction}`,
     '',
-    `Receipt SHA-256: \`${receipt.receiptSha256}\``,
+    `Receipt core SHA-256: \`${receipt.receiptCoreSha256 ?? receipt.receiptSha256}\``,
+    `Observation SHA-256: \`${receipt.observationSha256 ?? 'unavailable'}\``,
     '',
     `Review packet: ${receipt.links.reviewPacket ?? 'unavailable'}`,
     `Trace: \`${receipt.links.trace}\``

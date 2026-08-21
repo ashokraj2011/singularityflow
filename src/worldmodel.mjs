@@ -246,7 +246,9 @@ async function load(root, { agent: selectedAgent = null, workId = null } = {}) {
     const session = await loadSession(root, { required: false });
     const activeId = workId ?? run('git', ['branch', '--show-current'], { cwd: root, allowFailure: true }).stdout.trim();
     const activeStatePath = path.join(root, configuredDefinition.workItemRoot ?? 'singularity/work-items', activeId, 'workflow.json');
-    const activeState = existsSync(activeStatePath) ? JSON.parse(await readFile(activeStatePath, 'utf8')) : null;
+    const activeState = existsSync(activeStatePath)
+      ? readRecord('story-workflow', await readFile(activeStatePath)).record
+      : null;
     const definition = withWorldModelSourceScope(
       configuredDefinition,
       activeState?.resolution?.worldModelSourceScope ?? activeState?.resolution?.capability?.sourceScope ?? null
@@ -634,8 +636,25 @@ async function inspectWorldModelRecovery(root, id) {
       builderVersion: manifest.builder_version ?? null,
       depth: manifest.materialization?.depth ?? manifest.analysis_depth ?? null
     },
+    requestedSelections: Array.isArray(manifest.requested_selections)
+      ? [...new Set(manifest.requested_selections.filter((item) => typeof item === 'string' && item))].sort()
+      : [],
     publication: metadata?.publication ?? null
   };
+}
+
+function recoveryGroundingPlan(config, inspected) {
+  const phase = config.phases?.[inspected.phase] ? inspected.phase : null;
+  const fallback = groundingPlan(config, {}, phase);
+  if (!inspected.requestedSelections?.length) return fallback;
+  const selections = inspected.requestedSelections.flatMap((id) => {
+    const [subject, tier, ...rest] = id.split('/');
+    if (rest.length || !['brief', 'full'].includes(tier)) return [];
+    return subject === 'core'
+      ? [{ kind: 'core', tier, required: true }]
+      : [{ kind: 'view', view: subject, tier, required: true, origin: 'recovery' }];
+  });
+  return selections.length ? { ...fallback, selections } : fallback;
 }
 
 async function listWorldModelRecoveries(root) {
@@ -696,9 +715,10 @@ async function publishWorldModelRecovery(root, id, options) {
     status: 'pending'
   };
   try {
+    const recoveryPlan = recoveryGroundingPlan(config, inspected);
     const governed = await publishWorldModelToStateBranch(
       root, config, inspected.sourceHash, inspected.phase,
-      { directory, plan: null }
+      { directory, plan: recoveryPlan }
     );
     await installWorldModel(governed?.directory ?? directory, path.join(root, config.outputDir));
     const publication = await publishWorldModel(
@@ -850,6 +870,45 @@ async function publishWorldModelToStateBranch(root, config, sourceHash, phase, {
   const retryRoots = [];
   try {
     for (let attempt = 1; attempt <= 3; attempt += 1) {
+      let expectedRemoteSha;
+      let publicationBase = null;
+      if (hasRemote(root, stateConfig.remote)) {
+        // Fetch before composing every candidate, not only after a rejected lease. A winner that
+        // landed before this publisher's first fetch is just as important as one that lands during
+        // the push: both must contribute their same-source retained fragments to the union.
+        const winner = await resolveWorldModelSource(root, {
+          ...config,
+          remote: stateConfig.remote,
+          stateBranch: stateConfig.branch
+        }, { stateBranch: stateConfig.branch, refreshRemote: true });
+        const trackedRef = `refs/remotes/${stateConfig.remote}/${stateConfig.branch}`;
+        const tracked = run('git', ['rev-parse', '--verify', trackedRef], { cwd: root, allowFailure: true });
+        expectedRemoteSha = tracked.status === 0 ? tracked.stdout.trim() : null;
+        publicationBase = expectedRemoteSha;
+        if (winner.source === 'state-branch') {
+          if (!plan) {
+            throw new SingularityFlowError('Concurrent-safe world-model publication requires the immutable grounding plan.');
+          }
+          const retryRoot = await mkdtemp(path.join(os.tmpdir(), 'singularity-flow-world-model-premerge-'));
+          retryRoots.push(retryRoot);
+          const merged = path.join(retryRoot, 'merged');
+          await mergeWorldModelSnapshot({
+            existingDirectory: winner.directory,
+            fragmentDirectory: candidateDirectory,
+            targetDirectory: merged,
+            plan,
+            sourceTreeSha256: sourceHash,
+            materialization: null
+          });
+          await validateWorldModelDirectory(merged, {
+            requiredSelections: plan.selections,
+            requireEvidence: true,
+            integrity: 'full',
+            sourceLabel: 'premerged governed world model'
+          });
+          candidateDirectory = merged;
+        }
+      }
       const files = await collectFiles(candidateDirectory);
       try {
         const result = await publishToStateBranch(
@@ -857,7 +916,14 @@ async function publishWorldModelToStateBranch(root, config, sourceHash, phase, {
           stateConfig,
           files,
           `[world-model][source:${source}] ${phase}`,
-          { replaceRoots: [config.outputDir] }
+          {
+            replaceRoots: [config.outputDir],
+            ...(expectedRemoteSha !== undefined ? {
+              expectedRemoteSha,
+              baseRef: publicationBase,
+              refreshRemote: false
+            } : {})
+          }
         );
         verifyPublishedFiles(result.commit, files, candidateDirectory);
         if (candidateDirectory !== directory) {
@@ -873,28 +939,8 @@ async function publishWorldModelToStateBranch(root, config, sourceHash, phase, {
         };
       } catch (error) {
         if (!error.concurrent || attempt === 3 || !plan) throw error;
-        // Fetch the winning snapshot, merge only the retained same-source fragments, validate the
-        // union, and retry the CAS publication. The expensive provider output is never regenerated.
-        const winner = await resolveWorldModelSource(root, config, { stateBranch: stateConfig.branch });
-        if (winner.source !== 'state-branch') throw error;
-        const retryRoot = await mkdtemp(path.join(os.tmpdir(), 'singularity-flow-world-model-remerge-'));
-        retryRoots.push(retryRoot);
-        const merged = path.join(retryRoot, 'merged');
-        await mergeWorldModelSnapshot({
-          existingDirectory: winner.directory,
-          fragmentDirectory: candidateDirectory,
-          targetDirectory: merged,
-          plan,
-          sourceTreeSha256: sourceHash,
-          materialization: null
-        });
-        await validateWorldModelDirectory(merged, {
-          requiredSelections: plan.selections,
-          requireEvidence: true,
-          integrity: 'full',
-          sourceLabel: 'concurrently merged governed world model'
-        });
-        candidateDirectory = merged;
+        // The next attempt refetches, remerges the immutable provider output, and binds a new
+        // lease. No provider or synthesis worker is invoked again.
       }
     }
   } finally {

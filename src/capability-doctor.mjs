@@ -4,6 +4,7 @@ import { existsSync } from 'node:fs';
 import { loadDefinition } from './config.mjs';
 import { ledgerStatus } from './ledger.mjs';
 import { renderCapabilityWorldModelPack, resolveLifecycleCapability } from './capability-context.mjs';
+import { readRecord } from './schema-migrations.mjs';
 import { run, snapshot } from './util.mjs';
 
 function check(id, status, summary, detail = null) { return { id, status, summary, detail }; }
@@ -85,7 +86,7 @@ export async function capabilityDoctor(root, { capabilityId = null, offline = fa
   const initiative = path.join(root, 'singularity/initiatives', current, 'state.json');
   const stateFile = story && existsSync(story) ? story : existsSync(initiative) ? initiative : null;
   if (stateFile) {
-    const state = JSON.parse(await readFile(stateFile, 'utf8'));
+    const state = readRecord(stateFile === story ? 'story-workflow' : 'initiative-state', await readFile(stateFile)).record;
     lifecycle = state.workItem
       ? { type: 'story', id: state.workItem.id, capability: state.resolution?.capability ?? null }
       : { type: 'initiative', id: state.initiative?.id, capability: state.resolution?.capability ?? null };

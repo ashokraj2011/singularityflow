@@ -11,6 +11,7 @@ import {
   canonicalJson,
   createLedgerIntent,
   initializeLedger,
+  isStateBranchConcurrencyFailure,
   ledgerDoctor,
   ledgerLog,
   ledgerShow,
@@ -26,6 +27,13 @@ import {
 function git(root, args) {
   return run('git', args, { cwd: root });
 }
+
+test('Git incorrect-old-value lease rejections are classified as concurrent publication', () => {
+  assert.equal(isStateBranchConcurrencyFailure(
+    "! [remote rejected] HEAD -> state (incorrect old value provided)"
+  ), true);
+  assert.equal(isStateBranchConcurrencyFailure('authentication failed'), false);
+});
 
 async function repository() {
   const parent = await mkdtemp(path.join(os.tmpdir(), 'sflow-ledger-test-'));

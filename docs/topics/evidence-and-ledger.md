@@ -1,7 +1,7 @@
 ---
 id: evidence-and-ledger
 title: Evidence, the ledger, and traceability
-version: 4
+version: 5
 aliases:
   - ledger
   - worldline
@@ -37,8 +37,11 @@ Use this topic when the current goal matches **evidence and ledger**. Start in a
 
 After a phase is submitted, `sflow receipt show --work-id <ID>` replays a compact receipt from
 the durable review packet. `--markdown` is suitable for a handoff or pull-request description;
-`--json` includes the deterministic receipt hash. Replaying the same packet in a fresh clone must
-produce the same receipt rather than relying on local session memory.
+`--json` separates the deterministic receipt-core hash from a separately hashed observation block.
+The core covers durable packet, work, source, checks, approvals, context, and next-action identity;
+observations report clone-local facts such as publication visibility and local changes. Replaying
+the same packet in a fresh clone must produce the same core hash without pretending that those
+local observations are identical.
 
 For a source-pin failure, begin with `sflow ledger repair --dry-run`. The preview
 distinguishes local refspec/cache damage, a remote or credential outage, a Git host

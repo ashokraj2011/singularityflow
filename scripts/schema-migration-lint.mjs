@@ -36,6 +36,10 @@ const DURABLE_WRITE_CALLS = new Set([
   'appendFile', 'atomicJson', 'writeAtomic', 'writeFile', 'writeJson', 'writeText'
 ]);
 
+const REGISTERED_DIRECT_READ_MARKERS = Object.freeze([
+  /(?:^|\/)workflow\.json$/
+]);
+
 function callName(node) {
   if (!ts.isCallExpression(node)) return null;
   if (ts.isIdentifier(node.expression)) return node.expression.text;
@@ -90,6 +94,53 @@ function indirectWriterLiterals(file, source) {
   return [...findings.values()];
 }
 
+function directDurableReads(file, source) {
+  const sourceFile = ts.createSourceFile(file, String(source), ts.ScriptTarget.Latest, true, ts.ScriptKind.JS);
+  const declarations = new Map();
+  const collect = (node) => {
+    if (ts.isVariableDeclaration(node) && ts.isIdentifier(node.name) && node.initializer) {
+      if (!declarations.has(node.name.text)) declarations.set(node.name.text, []);
+      declarations.get(node.name.text).push(node.initializer);
+    }
+    ts.forEachChild(node, collect);
+  };
+  collect(sourceFile);
+  const containsRegisteredPath = (node, before, seen = new Set()) => {
+    if (ts.isStringLiteralLike(node)) {
+      return REGISTERED_DIRECT_READ_MARKERS.some((pattern) => pattern.test(node.text.replaceAll('\\', '/')));
+    }
+    if (ts.isIdentifier(node) && declarations.has(node.text)) {
+      const initializer = declarations.get(node.text)
+        .filter((candidate) => candidate.getStart(sourceFile) < before)
+        .at(-1);
+      const key = initializer ? `${node.text}:${initializer.getStart(sourceFile)}` : null;
+      if (initializer && !seen.has(key)) {
+        return containsRegisteredPath(initializer, before, new Set(seen).add(key));
+      }
+    }
+    let found = false;
+    ts.forEachChild(node, (child) => { if (!found) found = containsRegisteredPath(child, before, seen); });
+    return found;
+  };
+  const findings = [];
+  const visit = (node) => {
+    const jsonParse = ts.isCallExpression(node)
+      && ts.isPropertyAccessExpression(node.expression)
+      && node.expression.expression.getText(sourceFile) === 'JSON'
+      && node.expression.name.text === 'parse';
+    if (jsonParse) {
+      const parsed = ts.isAwaitExpression(node.arguments[0]) ? node.arguments[0].expression : node.arguments[0];
+      if (ts.isCallExpression(parsed) && callName(parsed) === 'readFile'
+        && parsed.arguments[0] && containsRegisteredPath(parsed.arguments[0], node.getStart(sourceFile))) {
+        findings.push({ line: sourceFile.getLineAndCharacterOfPosition(node.getStart(sourceFile)).line + 1 });
+      }
+    }
+    ts.forEachChild(node, visit);
+  };
+  visit(sourceFile);
+  return findings;
+}
+
 function normalizedName(value) {
   return String(value).replaceAll('\\', '/').replace(/^\.\//, '');
 }
@@ -116,6 +167,10 @@ export function schemaMigrationLint(sources) {
       for (const finding of indirectWriterLiterals(file, source)) violations.push({
         file, line: finding.line,
         message: 'durable writer schemaVersion literals must use currentSchemaVersion(family) from the migration registry; mark a proven transport-only shape schema-transient'
+      });
+      for (const finding of directDurableReads(file, source)) violations.push({
+        file, line: finding.line,
+        message: 'registered durable records must be loaded through readRecord(family) or their aggregate store'
       });
     }
     for (let index = 0; index < lines.length; index += 1) {

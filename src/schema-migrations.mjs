@@ -485,6 +485,10 @@ const families = [
   family({ id: 'specification-claim-map', currentVersion: 1, paths: [/^singularity\/work-items\/[^/]+\/context\/claims\/[^/]+\.json$/], immutable: true }),
   family({ id: 'specification-acceptance', currentVersion: 1, paths: [/^singularity\/work-items\/[^/]+\/context\/acceptance\/[^/]+\.json$/], immutable: true }),
   family({ id: 'story-submission-packet', currentVersion: 1, paths: [/^singularity\/work-items\/[^/]+\/submissions\/[^/]+\/[^/]+\.json$/], immutable: true }),
+  family({
+    id: 'return-locator', currentVersion: 1,
+    paths: [/^singularity\/work-items\/[^/]+\/context\/return-locator\.json$/], immutable: true
+  }),
   family({ id: 'story-finalization-packet', currentVersion: 1, paths: [/^singularity\/work-items\/[^/]+\/finalizations\/[^/]+\.json$/], immutable: true }),
   family({ id: 'subject-lock-owner', currentVersion: 1, paths: [/^\$git\/locks\/[^/]+\/owner\.json$/] }),
   family({ id: 'visual-comparison', currentVersion: 1, unversionedAs: 1, paths: [/^singularity\/work-items\/[^/]+\/artifacts\/visual-verification\/evidence\/.+\.json$/], immutable: true }),

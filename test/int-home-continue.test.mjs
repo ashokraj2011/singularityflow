@@ -7,7 +7,7 @@ import path from 'node:path';
 import { HOME_CHOICES, MAX_HOME_CHOICES, homeOverview, homeOverviewResult } from '../src/gateway/planners/home-overview.mjs';
 import { gatewayRegistry } from '../src/gateway/operations.mjs';
 import { workContinue } from '../src/gateway/planners/work-continue.mjs';
-import { workReadiness } from '../src/gateway/planners/work-readiness.mjs';
+import { workReadiness, workReadinessResult } from '../src/gateway/planners/work-readiness.mjs';
 import { checklistSummary, plannerNavigationTarget, primaryAction, validateSflowResult } from '../src/gateway/result.mjs';
 import { localPendingPublicationPath } from '../src/publication-pending.mjs';
 import { run } from '../src/util.mjs';
@@ -178,7 +178,8 @@ test('readiness never recommends approval, and never counts a human decision as 
   const outstanding = result.data.blockers.find((entry) => entry.blocker === 'approvals-outstanding');
   assert.equal(outstanding.action, null, 'waiting for a reviewer is not a task the reader can complete');
   assert.equal(result.next.length, 0);
-  assert.equal(result.restState, 'informational');
+  assert.equal(result.restState, 'blocked',
+    'unavailable deterministic evidence remains a blocker even when the lifecycle blocker is a human decision');
 });
 
 test('readiness says which of its inputs it did not read', async () => {
@@ -187,6 +188,23 @@ test('readiness says which of its inputs it did not read', async () => {
   const partial = result.warnings.find((entry) => entry.code === 'readiness.partial-inputs');
   assert.ok(partial, 'an answer that omits four of nine inputs reads as "you are ready"');
   assert.match(partial.slots.missing, /tests/);
+});
+
+test('readiness never turns unknown deterministic evidence into a pass', () => {
+  const item = {
+    id: 'WRK-1', kind: 'story', phase: 'verification', generation: 2, blockers: []
+  };
+  const evidenceRows = [
+    { id: 'tests', code: 'readiness.tests', state: 'unmet', source: 'evidence', evidence: null, action: 'fix:tests', slots: { missing: '1' } },
+    { id: 'stale-approvals', code: 'readiness.stale-approvals', state: 'met', source: 'evidence', evidence: 'approvals:design', action: null, slots: {} },
+    { id: 'clarifications', code: 'readiness.clarifications', state: 'met', source: 'evidence', evidence: null, action: null, slots: { mode: 'when-needed' } },
+    { id: 'unclaimed-changes', code: 'readiness.unclaimed-changes', state: 'unknown', source: 'unavailable', evidence: null, action: null, slots: { reason: 'record-unreadable' } }
+  ];
+  const result = workReadinessResult(item, { evidenceRows });
+  assert.equal(result.data.ready, false);
+  assert.equal(result.checklist.find((entry) => entry.id === 'tests').state, 'unmet');
+  assert.equal(result.checklist.find((entry) => entry.id === 'unclaimed-changes').state, 'unknown');
+  assert.ok(result.warnings.some((entry) => entry.code === 'readiness.partial-inputs'));
 });
 
 test('these planners refuse without a root rather than reading the working directory', async () => {
@@ -219,10 +237,10 @@ test('a readiness refusal renders as gates, not as a red error', async () => {
   assert.equal(missing.action, 'fix:required-artifact-missing');
   assert.ok(result.next.some((action) => action.id === missing.action));
 
-  // The four inputs this planner cannot evaluate are rows, not omissions: an unevaluated gate and a
+  // Repository authorities this fixture cannot evaluate are rows, not omissions: an unevaluated gate and a
   // passing gate look identical on a screen that only lists problems.
   const unknown = result.checklist.filter((row) => row.state === 'unknown');
-  assert.equal(unknown.length, 4);
+  assert.equal(unknown.length, 9);
   assert.ok(unknown.every((row) => row.source === 'unavailable' && row.evidence === null));
 });
 

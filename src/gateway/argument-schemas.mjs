@@ -193,8 +193,16 @@ export const ARGUMENT_SCHEMAS = Object.freeze([
     workKind: optional('enum', { values: ['story', 'initiative'] }),
     includeLocalChanges: optional('boolean')
   }),
+  schema('context-brief-v1', {
+    workId: required('identifier'),
+    slice: optional('enum', { values: ['brief', 'world-model', 'ast', 'evidence'] }),
+    maxOutputBytes: optional('integer', { min: 4096, max: 128 * 1024 })
+  }),
   schema('work-start-intake-v1', {
-    source: optional('enum', { values: ['jira', 'initiative', 'story', 'bug-report', 'idea', 'repository-observation', 'finding'] }),
+    source: optional('enum', { values: [
+      'jira', 'github-issue', 'manual', 'initiative', 'story', 'bug-report', 'idea',
+      'repository-observation', 'finding'
+    ] }),
     shape: optional('enum', { values: ['initiative', 'epic', 'story'] }),
     workspaceId: optional('identifier'),
     repositoryId: optional('identifier'),
@@ -216,7 +224,7 @@ export const ARGUMENT_SCHEMAS = Object.freeze([
   }),
   schema('impact-what-if-v1', { proposal: required('text'), scope: optional('identifier') }),
   schema('repository-explore-v1', {
-    repositoryId: required('identifier'),
+    repositoryId: optional('identifier'),
     path: optional('relative-path'),
     question: optional('text')
   }),

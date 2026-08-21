@@ -115,6 +115,12 @@ export const RESULT_CARD_STYLE = `
 .sf-since button { font: inherit; padding: 4px 11px; border-radius: 3px; cursor: pointer; flex: none;
   border: 1px solid var(--vscode-panel-border); background: transparent; color: var(--vscode-foreground); }
 .sf-since button:hover { background: var(--vscode-list-hoverBackground); }
+.sf-receipt { display:grid; gap:7px; padding:10px 12px; border:1px solid var(--vscode-panel-border);
+  border-radius:4px; background:var(--vscode-sideBar-background); }
+.sf-receipt-head { display:flex; flex-wrap:wrap; align-items:center; justify-content:space-between; gap:8px; }
+.sf-receipt-grid { display:grid; grid-template-columns:repeat(auto-fit,minmax(140px,1fr)); gap:8px; }
+.sf-receipt-grid span { display:grid; gap:2px; color:var(--vscode-descriptionForeground); font-size:.84em; }
+.sf-receipt-grid strong { color:var(--vscode-foreground); font-weight:500; overflow-wrap:anywhere; }
 .sf-home { display:grid; gap:18px; }
 .sf-home-header { display:flex; flex-wrap:wrap; align-items:flex-start; justify-content:space-between; gap:16px;
   padding-bottom:16px; border-bottom:1px solid var(--vscode-panel-border); }
@@ -241,6 +247,21 @@ function railHtml(view: ResultCardView): string {
     class="sf-rail-${phase.state}"
     aria-label="${escape(`${phase.label}: ${phase.state}`)}"
   ><span class="sf-rail-mark" aria-hidden="true">${MARKS[phase.state] ?? '·'}</span>${escape(phase.label)}</li>`).join('')}</ul>`;
+}
+
+function receiptHtml(view: ResultCardView): string {
+  const receipt = view.receipt;
+  if (!receipt) return '';
+  const values = [
+    ['Changes', receipt.changes], ['Checks', receipt.checks], ['Approvals', receipt.approvals],
+    ['Publication', receipt.publication]
+  ];
+  return `<section class="sf-receipt" aria-label="Latest evidence receipt">
+    <span class="sf-receipt-head"><b>${icon('approval', { size: 14 })} Latest evidence receipt</b>
+      <code>${escape(receipt.sha256.slice(0, 12))}</code></span>
+    <span>${escape(receipt.workId)} · ${escape(receipt.phase)} · generation ${receipt.generation}</span>
+    <span class="sf-receipt-grid">${values.map(([label, value]) => `<span>${escape(label)}<strong>${escape(value)}</strong></span>`).join('')}</span>
+  </section>`;
 }
 
 /**
@@ -374,7 +395,7 @@ function homeHtml(view: ResultCardView, now: number): string {
       <span class="sf-home-muted">${escape([home.activeWork.repositoryId, home.activeWork.branch, home.activeWork.phase]
         .filter(Boolean).join(' · '))}</span></span>
       ${home.now && !nowShownInNeeds ? button(home.now, 'primary') : ''}</div>
-    ${railHtml(view)}${sinceHtml(view, now)}
+    ${railHtml(view)}${receiptHtml(view)}${sinceHtml(view, now)}
   </section>` : `<section class="sf-home-card"><h3>No active work here</h3>
     <p class="sf-home-muted">Choose a quick start below. Governed work remains in durable workspace and repository records.</p>
     ${home.now && !nowShownInNeeds ? button(home.now, 'primary') : ''}</section>`;
@@ -500,7 +521,7 @@ export function resultCardHtml(view: ResultCardView, { now = Date.now() }: { now
   return `<section class="sf-card sf-card-${view.tone}">
     ${view.replyName ? `<p class="sf-card-greeting">Hello, ${escape(view.replyName)}.</p>` : ''}
     <h3>${icon(view.tone === 'refusal' ? 'statusBlocked' : 'statusCurrent')} ${escape(view.headline)}</h3>
-    ${railHtml(view)}${sinceHtml(view, now)}${guidanceHtml(view)}${faultsHtml(view)}${why}${warnings}${gates}${preserved}${actions}${rest}${details}
+    ${railHtml(view)}${receiptHtml(view)}${sinceHtml(view, now)}${guidanceHtml(view)}${faultsHtml(view)}${why}${warnings}${gates}${preserved}${actions}${rest}${details}
   </section>`;
 }
 

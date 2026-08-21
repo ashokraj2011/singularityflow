@@ -40,6 +40,8 @@ Then, on a repository you care about:
 The full documentation map is in [docs/README.md](./docs/README.md).
 The read-only return experience is documented in
 [Developer Home and Story Return](./docs/DEVELOPER-HOME.md).
+The shared Home routing, readiness evidence, compact submission receipt, and cross-clone return
+locator are documented in the [golden developer journey](./docs/GOLDEN-JOURNEY.md).
 In VS Code, **My Work** is the visible home; **Talk to SFlow** is retained only as
 a hidden compatibility alias. In Copilot, developers can ask ordinary questions such as “What am I
 working on?”, “What is blocking this Story?”, or “Start a new bug fix.” `/sf-home` is the explicit

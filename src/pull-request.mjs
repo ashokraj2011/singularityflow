@@ -24,7 +24,7 @@ function bulleted(values, empty) {
 // A pull-request body assembled entirely from committed, governed state: the epic and story
 // identity, the acceptance criteria, and every approved artifact with the exact hash it was
 // approved at. Nothing here is invented.
-export function storyPullRequestBody(workflow, seed = null, { mergeSequence = null } = {}) {
+export function storyPullRequestBody(workflow, seed = null, { mergeSequence = null, evidenceReceipt = null } = {}) {
   const story = seed?.story ?? {};
   const initiative = seed?.initiative ?? {};
   const lines = [];
@@ -75,6 +75,19 @@ export function storyPullRequestBody(workflow, seed = null, { mergeSequence = nu
   warnings.push(...selfApprovals);
   if (workflow.publication?.status === 'pending') warnings.push('Publication is pending synchronization with the remote.');
   if (warnings.length) lines.push('### Governance warnings', '', bulleted(warnings, ''), '');
+
+  if (evidenceReceipt) {
+    const value = (entry) => entry == null ? 'unavailable' : String(entry);
+    lines.push('### Submission evidence receipt', '');
+    lines.push(`- Phase: \`${evidenceReceipt.work.phase}\` generation ${evidenceReceipt.work.generation}`);
+    lines.push(`- Source: \`${evidenceReceipt.source.commit}\``);
+    lines.push(`- Changed paths: **${value(evidenceReceipt.changes.count)}** (${evidenceReceipt.changes.status})`);
+    lines.push(`- Requirements: **${value(evidenceReceipt.requirements.claimed)}/${value(evidenceReceipt.requirements.clauses)}** (${evidenceReceipt.requirements.status})`);
+    lines.push(`- Checks: **${evidenceReceipt.checks.passed} passed**, **${evidenceReceipt.checks.failed} failed**, **${evidenceReceipt.checks.unavailable} unavailable**`);
+    lines.push(`- Approvals: **${evidenceReceipt.approvals.current}/${evidenceReceipt.approvals.required}**`);
+    lines.push(`- Review packet: \`${evidenceReceipt.reviewPacket.sha256}\``);
+    lines.push(`- Receipt: \`${evidenceReceipt.receiptSha256}\``, '');
+  }
 
   lines.push('### Worldline', '', `- Story: \`${workflow.workItem.id}\` at \`${workflow.source?.commit ?? workflow.workItem.sourceCommit ?? 'unavailable'}\``);
   lines.push(`- Workflow state: \`${workflow.workItem.branch ?? workflow.workItem.id}:singularity/work-items/${workflow.workItem.id}/workflow.json\``, '');
@@ -157,13 +170,29 @@ export async function storyPullRequestPlan(root, config, workflow, { mergeSequen
     throw new SingularityFlowError(`Repository policy for ${workflow.workItem.id} is 'direct'; it does not use pull requests.`);
   }
   if (base === head) throw new SingularityFlowError(`Pull request base and head are both '${base}'.`);
+  let evidenceReceipt = null;
+  if (workflow.lineage?.submissions?.length) {
+    try {
+      const [{ readStoryReviewPacket }, { composeEvidenceReceipt }] = await Promise.all([
+        import('./story-lineage.mjs'), import('./evidence-receipt.mjs')
+      ]);
+      evidenceReceipt = await composeEvidenceReceipt(
+        root, config, workflow, await readStoryReviewPacket(root, config, workflow)
+      );
+    } catch {
+      // A malformed or unavailable packet remains a blocker elsewhere. PR preview must not invent
+      // evidence or hide the lifecycle state it can still render.
+      evidenceReceipt = null;
+    }
+  }
   return {
     workId: workflow.workItem.id,
     base,
     head,
     policy,
     title: `${workflow.workItem.id}: ${workflow.workItem.title}`,
-    body: storyPullRequestBody(workflow, seed, { mergeSequence }),
+    body: storyPullRequestBody(workflow, seed, { mergeSequence, evidenceReceipt }),
+    evidenceReceipt,
     requiredChecks: seed?.story?.requiredChecks ?? [],
     blockedBy: (() => {
       const blockers = storyLifecycleBlockers(workflow);

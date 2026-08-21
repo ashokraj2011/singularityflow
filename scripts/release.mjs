@@ -26,6 +26,7 @@ import { existsSync } from 'node:fs';
 import { mkdir, readFile, readdir, rm, writeFile, copyFile } from 'node:fs/promises';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
+import { releaseChannelManifest } from '../src/release-channel.mjs';
 
 const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 const extension = path.join(root, 'apps', 'vscode');
@@ -84,6 +85,7 @@ async function main() {
   }
 
   const manifest = JSON.parse(await readFile(path.join(root, 'package.json'), 'utf8'));
+  const extensionManifest = JSON.parse(await readFile(path.join(extension, 'package.json'), 'utf8'));
   const { version } = manifest;
   const commit = spawnSync('git', ['rev-parse', 'HEAD'], { cwd: root, encoding: 'utf8' }).stdout.trim();
 
@@ -95,7 +97,7 @@ async function main() {
   // Through the staging script, never `vsce` directly: `vsce package` on its own produces a .vsix
   // with no engine inside it, which installs cleanly and then fails to do anything.
   must('node', [path.join(root, 'scripts', 'vscode-dev.mjs'), '--package']);
-  const vsix = path.join(extension, `${JSON.parse(await readFile(path.join(extension, 'package.json'), 'utf8')).name}-${version}.vsix`);
+  const vsix = path.join(extension, `${extensionManifest.name}-${version}.vsix`);
   if (!existsSync(vsix)) throw new Error(`The extension package was not produced at ${vsix}.`);
 
   if (dryRun) {
@@ -116,11 +118,27 @@ async function main() {
 
   const names = (await readdir(dist)).sort();
   const sums = [];
-  for (const name of names) sums.push(`${await sha256(path.join(dist, name))}  ${name}`);
+  const artifacts = [];
+  for (const name of names) {
+    const digest = await sha256(path.join(dist, name));
+    sums.push(`${digest}  ${name}`);
+    artifacts.push({
+      name,
+      kind: name.endsWith('.vsix') ? 'vscode-extension' : 'cli-and-copilot-plugin',
+      sha256: digest
+    });
+  }
   await writeFile(path.join(dist, 'SHA256SUMS'), `${sums.join('\n')}\n`);
   await writeFile(path.join(dist, 'RELEASE.json'), `${JSON.stringify({
     version, commit, node: process.version, builtOn: process.platform, artefacts: names
   }, null, 2)}\n`);
+  await writeFile(path.join(dist, 'RELEASE-CHANNEL.json'), `${JSON.stringify(releaseChannelManifest({
+    version,
+    commit,
+    minNode: manifest.engines.node,
+    minVSCode: extensionManifest.engines.vscode,
+    artifacts
+  }), null, 2)}\n`);
 
   console.log([
     '',

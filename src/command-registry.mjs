@@ -1,11 +1,11 @@
 import { didYouMean, optionBoolean, SingularityFlowError } from './util.mjs';
 
-const READ_ONLY = new Set(['specify', 'plan', 'implement', 'verify', 'converge', 'about', 'help', 'show', 'choices', 'inbox', 'home', 'recommend', 'status', 'approvals', 'progress', 'guide', 'logs', 'doctor', 'nextsteps', 'snapshot', 'validate', 'explain']);
-const STRUCTURED = new Set(['specify', 'plan', 'implement', 'verify', 'converge', 'start', 'home', 'recommend', 'status', 'approvals', 'progress', 'report', 'impact', 'telemetry', 'doctor', 'inputs', 'reinstall', 'snapshot', 'validate', 'gate', 'clarification', 'explain', 'fault', 'fix', 'repair', 'goal', 'journal', 'run']);
+const READ_ONLY = new Set(['specify', 'plan', 'implement', 'verify', 'converge', 'about', 'help', 'show', 'choices', 'inbox', 'home', 'recommend', 'status', 'approvals', 'progress', 'receipt', 'guide', 'logs', 'doctor', 'nextsteps', 'snapshot', 'validate', 'explain']);
+const STRUCTURED = new Set(['specify', 'plan', 'implement', 'verify', 'converge', 'start', 'resume', 'return', 'home', 'recommend', 'status', 'approvals', 'progress', 'report', 'receipt', 'impact', 'telemetry', 'doctor', 'inputs', 'reinstall', 'snapshot', 'validate', 'gate', 'clarification', 'explain', 'fault', 'fix', 'repair', 'goal', 'journal', 'run']);
 // `secrets` is here because `resolveOperation` returns `definition.operation` before it consults
 // any resolver, so a command with a single registered operation never reaches its own resolver.
 // Without this line `resolveSecretsOperation` is unreachable and the scan/protect split is inert.
-const MODEL_FREE_MIXED_COMMANDS = new Set(['report', 'telemetry', 'doctor', 'review', 'inputs', 'spec', 'visual', 'clarification', 'story', 'constitution', 'secrets', 'fault', 'fix', 'repair', 'goal', 'journal', 'push', 'next']);
+const MODEL_FREE_MIXED_COMMANDS = new Set(['report', 'telemetry', 'doctor', 'review', 'inputs', 'spec', 'visual', 'clarification', 'story', 'constitution', 'secrets', 'fault', 'fix', 'repair', 'goal', 'journal', 'push', 'next', 'return']);
 
 const LAZY_MODULES = Object.freeze({
   // The five verbs share one dispatcher; each is a registered command in its own right so the
@@ -64,8 +64,8 @@ function command([name, aliases = []]) {
 
 export const COMMAND_REGISTRY = Object.freeze([
   ['specify'], ['plan'], ['implement'], ['verify'], ['converge'],
-  ['about'], ['help'], ['explain', ['docs']], ['show'], ['harness'], ['init'], ['factory-reset'], ['reset-all'], ['local-reset'], ['fresh-install'], ['reinstall'], ['choices'], ['start'], ['resume'], ['agent'], ['session'],
-  ['inbox'], ['finalize'], ['status'], ['approvals', ['approval-chain']], ['progress'], ['report'], ['impact'], ['telemetry'], ['prompt-log'], ['guide'], ['refresh-branch'],
+  ['about'], ['help'], ['explain', ['docs']], ['show'], ['harness'], ['init'], ['factory-reset'], ['reset-all'], ['local-reset'], ['fresh-install'], ['reinstall'], ['choices'], ['start'], ['resume'], ['return'], ['agent'], ['session'],
+  ['inbox'], ['finalize'], ['status'], ['approvals', ['approval-chain']], ['progress'], ['report'], ['receipt'], ['impact'], ['telemetry'], ['prompt-log'], ['guide'], ['refresh-branch'],
   ['next'], ['run'], ['fault'], ['fix'], ['repair'], ['goal'], ['journal'], ['push'], ['home', ['cockpit']], ['recommend', ['what-next']], ['logs'], ['doctor'], ['review'], ['workflow'],
   ['assign'], ['watch'], ['recover'], ['nextsteps', ['next-steps']], ['action'], ['inputs'], ['spec'],
   ['agents'], ['mcp'], ['visual'], ['documents'], ['prepare'], ['phase'], ['artifact'], ['pr'], ['stack'], ['regression'], ['submit'],
@@ -409,6 +409,12 @@ function resolvePushOperation(definition, positionals) {
   return unknownSubcommand('push', subcommand, PUSH_SUBCOMMANDS);
 }
 
+function resolveReturnOperation(definition, options) {
+  return optionBoolean(options, 'apply')
+    ? never('return.apply', definition, 'mutation')
+    : never('return.plan', definition, 'read');
+}
+
 function optional(id, fallbackOperationId, definition) {
   return operation(id, 'optional', {
     classification: definition.classification,
@@ -555,6 +561,7 @@ export function resolveOperation({ requestedCommand, positionals, options = {} }
   if (definition.name === 'goal') return resolveGoalOperation(definition, positionals);
   if (definition.name === 'journal') return resolveJournalOperation(definition, positionals, options);
   if (definition.name === 'push') return resolvePushOperation(definition, positionals);
+  if (definition.name === 'return') return resolveReturnOperation(definition, options);
   if (definition.name === 'story') return resolveStoryOperation(definition, positionals, options);
   if (definition.name === 'constitution') return resolveConstitutionOperation(definition, positionals);
   return unclassified(definition.name);
@@ -609,7 +616,10 @@ export function operationCatalog() {
   const pushDefinition = commandDefinition('push');
   const secretsDefinition = commandDefinition('secrets');
   const nextDefinition = commandDefinition('next');
+  const returnDefinition = commandDefinition('return');
   const modelFreeMixed = [
+    never('return.plan', returnDefinition, 'read'),
+    never('return.apply', returnDefinition, 'mutation'),
     never('next.model-free', nextDefinition, 'mutation'),
     optional('next.orchestrate', 'next.model-free', nextDefinition),
     never('secrets.scan', secretsDefinition, 'read'),

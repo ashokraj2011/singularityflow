@@ -34,6 +34,7 @@ export interface IntakeTarget {
 
 export interface IntakeDefaults {
   shape?: Shape | null;
+  source?: 'jira' | 'github-issue' | 'manual' | null;
   workType?: string | null;
   summary?: string | null;
 }
@@ -70,6 +71,10 @@ export class IntakePanel {
       targetRepository: target.repository,
       targetBranch: target.branch,
       ...(this.defaults.shape ? { shape: this.defaults.shape } : {}),
+      ...(this.defaults.source ? {
+        tracker: this.defaults.source === 'github-issue' ? 'github'
+          : this.defaults.source === 'jira' ? 'jira' : 'none'
+      } : {}),
       ...(this.defaults.summary ? { title: this.defaults.summary } : {}),
       ...(this.defaults.workType ? { workType: this.defaults.workType } : {})
     };
@@ -158,9 +163,13 @@ export class IntakePanel {
       basePreflightReason: null,
       jiraConfigured: tracker.configured,
       jiraReason: tracker.reason,
+      githubConfigured: true,
+      githubReason: null,
       // A tracker that is configured is almost always the one being used, so it leads — but "no
       // tracker" stays a real answer rather than a fallback.
-      tracker: tracker.configured ? 'jira' : 'none',
+      tracker: this.defaults.source === 'github-issue' ? 'github'
+        : this.defaults.source === 'manual' ? 'none'
+          : tracker.configured ? 'jira' : 'none',
       inFlight
     });
   }
@@ -197,9 +206,7 @@ export class IntakePanel {
     try {
       const listed = await this.client.run<{
         choices?: BaseBranchChoice[]; remote?: string; unreachable?: { repository: string }[];
-      }>(
-        ['workspace', 'branches', '--json']
-      );
+      }>(['workspace', 'branches', '--json']);
       const unreachable = listed.unreachable ?? [];
       return {
         choices: (listed.choices ?? []).filter((choice) => choice.everywhere),
@@ -314,7 +321,8 @@ export class IntakePanel {
       }
     },
     tracker: (message) => {
-      const tracker = stringField(message, 'value') === 'jira' ? 'jira' : 'none';
+      const value = stringField(message, 'value');
+      const tracker = value === 'jira' ? 'jira' : value === 'github' ? 'github' : 'none';
       this.preflightVersion += 1;
       this.update({
         tracker: tracker as Tracker, error: null,

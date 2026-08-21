@@ -91,6 +91,7 @@ declare module '*/gateway/planners/ast-intelligence.mjs' {
   export const astStatusPlanner: unknown;
 }
 declare module '*/gateway/planners/developer-next.mjs' { export const developerNext: unknown; }
+declare module '*/gateway/planners/context-brief.mjs' { export const contextBrief: unknown; }
 declare module '*/gateway/planners/governed-goal.mjs' {
   export const governedGoalImpactPlanner: unknown;
   export const governedGoalInspectPlanner: unknown;
@@ -98,6 +99,11 @@ declare module '*/gateway/planners/governed-goal.mjs' {
   export const governedGoalTracePlanner: unknown;
 }
 declare module '*/gateway/planners/impact-quick.mjs' { export const impactQuick: unknown; }
+declare module '*/gateway/planners/problem-investigate.mjs' {
+  export const problemInvestigate: unknown;
+  export const problemInvestigateAssisted: unknown;
+}
+declare module '*/gateway/planners/repository-explore.mjs' { export const repositoryExplore: unknown; }
 declare module '*/gateway/planners/review-packet.mjs' { export const reviewPacket: unknown; }
 declare module '*/gateway/planners/work-continue.mjs' { export const workContinue: unknown; }
 declare module '*/gateway/planners/work-list.mjs' { export const workList: unknown; }

@@ -111,6 +111,7 @@ Every public operation is classified before its implementation module is importe
 | push.retry | mutation | never | — | — |
 | push.status | read | never | — | — |
 | quickstart | mutation | never | — | — |
+| receipt | read | never | — | — |
 | recommend | read | never | — | — |
 | recover | mutation | never | — | — |
 | refresh-branch | mutation | never | — | — |
@@ -127,6 +128,8 @@ Every public operation is classified before its implementation module is importe
 | report.write | mutation | never | — | — |
 | reset-all | mutation | never | — | — |
 | resume | mutation | never | — | — |
+| return.apply | mutation | never | — | — |
+| return.plan | read | never | — | — |
 | review.render | read | never | — | — |
 | review.write | mutation | never | — | — |
 | run | mutation | never | — | — |

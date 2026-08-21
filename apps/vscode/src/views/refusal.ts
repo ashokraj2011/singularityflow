@@ -141,6 +141,7 @@ function fromMessage(text: string, details: Record<string, string>, headline?: s
     actions: [],
     // An unstructured failure knows nothing about phases, and claims nothing.
     rail: [],
+    receipt: null,
     faults: [],
     guidance: null,
     home: null,

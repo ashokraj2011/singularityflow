@@ -37,6 +37,7 @@ is not part of the current product.
 
 | Subject | Read |
 |---|---|
+| Golden developer journey and current implementation boundary | [Golden developer journey](GOLDEN-JOURNEY.md) |
 | System components and data flow | [Architecture](../ARCHITECTURE.md) |
 | Runtime internals and prompt composition | [Under the hood](UNDER-THE-HOOD.md) |
 | Which state plane owns each fact | [State authority](STATE-AUTHORITY.md) |

@@ -203,6 +203,6 @@ test('the editor can list the branches, because it cannot answer a prompt', asyn
   const form = await source('apps/vscode/src/views/intake-form.ts');
   assert.match(form, /form\.baseBranch \? \['--from-branch', form\.baseBranch\] : \[\]/,
     'the intake form collects a base branch and does not pass it');
-  // Both start shapes carry it: a tracked Story and an untracked one start through different args.
-  assert.equal((form.match(/\.\.\.capabilityBase/g) ?? []).length, 2);
+  // Every Story source carries it: tracked/Jira, GitHub Issue, and manual intake use distinct args.
+  assert.equal((form.match(/\.\.\.capabilityBase/g) ?? []).length, 3);
 });

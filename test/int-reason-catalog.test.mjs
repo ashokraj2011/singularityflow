@@ -130,7 +130,7 @@ test('an unrecognised blocker degrades to a named code instead of taking out the
    */
   const gateRow = readiness.checklist.find((entry) => entry.id === 'a-blocker-from-the-future');
   assert.equal(gateRow.state, 'unmet');
-  assert.equal(checklistSummary(readiness).outstanding, 5, 'the unknown gates plus the new blocker');
+  assert.equal(checklistSummary(readiness).outstanding, 10, 'the repository-authority gates plus the new blocker');
 });
 
 test('a known blocker still gets its own code', () => {
@@ -207,9 +207,10 @@ test('a kernel refusal for an unknown handle names which failure it was', async 
 });
 
 test('the readiness gate vocabulary is fully catalogued', () => {
-  // Both halves: evaluated gates and the four the planner declares it cannot evaluate.
+  // Both halves: lifecycle gates and every repository authority in the verification aggregate.
   for (const gate of ['publication-pending', 'approvals-outstanding', 'required-artifact-missing',
-    'tests', 'stale-approvals', 'clarifications', 'unclaimed-changes']) {
+    'published-artifacts', 'tests', 'stale-approvals', 'clarifications', 'unclaimed-changes',
+    'reconciliation', 'ast', 'visual', 'external-build']) {
     assert.ok(READINESS_CODES.includes(`readiness.${gate}`), `readiness.${gate} is not catalogued`);
     assert.ok(WORK_CODES.includes(`work.blocked.${gate}`) || !['publication-pending', 'approvals-outstanding',
       'required-artifact-missing'].includes(gate), `work.blocked.${gate} is not catalogued`);

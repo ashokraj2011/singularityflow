@@ -1,6 +1,7 @@
 ---
 id: evidence-and-ledger
 title: Evidence, the ledger, and traceability
+version: 4
 aliases:
   - ledger
   - worldline
@@ -8,11 +9,11 @@ aliases:
   - audit
 commands:
   - ledger
+  - receipt
   - spec
 related:
   - approvals
   - impact-framework
-version: 3
 ---
 Everything consequential is hash-linked: artifacts, inputs, approvals, checks, receipts. The append-only capability ledger mirrors lifecycle events as a tamper-evident chain; `sflow ledger verify` validates it from a bare clone, offline. `sflow spec index/coverage/trace` gives requirements stable clause identities and walks requirement → claim → commit → test evidence → approval. Mechanical coverage never claims semantic correctness — judgment and evidence are both retained and never confused. For auditors, fieldwork starts with `git clone`.
 
@@ -22,7 +23,7 @@ Use this topic when the current goal matches **evidence and ledger**. Start in a
 
 ## Use it from each surface
 
-- **Shell:** `sflow ledger`, `sflow spec`. Run `singularity-flow ledger --help` for the exact forms supported by this build.
+- **Shell:** `sflow ledger`, `sflow receipt show`, `sflow spec`. Run `singularity-flow ledger --help` for the exact forms supported by this build.
 - **Copilot:** `/sf-ledger`. The skill must preserve the CLI result and ask before any governed mutation.
 - **VS Code:** open Singularity Flow **Lifecycle**. The extension renders engine results; it does not independently decide lifecycle state.
 
@@ -33,6 +34,11 @@ Use this topic when the current goal matches **evidence and ledger**. Start in a
 3. Preview or prepare the operation when the command offers a dry-run, plan, packet, or exact confirmation.
 4. Run the smallest applicable command from this topic. Do not substitute an undocumented subcommand.
 5. Re-read state after completion. In Copilot, return to `/sf-home`; in VS Code, refresh the relevant view if it has not already refreshed.
+
+After a phase is submitted, `sflow receipt show --work-id <ID>` replays a compact receipt from
+the durable review packet. `--markdown` is suitable for a handoff or pull-request description;
+`--json` includes the deterministic receipt hash. Replaying the same packet in a fresh clone must
+produce the same receipt rather than relying on local session memory.
 
 For a source-pin failure, begin with `sflow ledger repair --dry-run`. The preview
 distinguishes local refspec/cache damage, a remote or credential outage, a Git host

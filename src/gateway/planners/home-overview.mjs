@@ -284,6 +284,7 @@ export function homeOverviewResult({
   yesterday = null,
   journalAvailable = true,
   governedGoal = null,
+  latestReceipt = null,
   /**
    * How many *other* workspaces the registry knows about, or null when it could not be read.
    *
@@ -344,7 +345,7 @@ export function homeOverviewResult({
         rail: [], workspace: null, repository: null, counts: null, localChanges: null,
         currentWork: null, activeWork: null, attentionWork: null,
         actor: actorProjection(actor), lens: normalizeHomeLens(lens), today: null, yesterday: null,
-        journalAvailable: false, recent: [],
+        journalAvailable: false, recent: [], latestReceipt: null,
         personalization: personalizationFromGitIdentity(actor),
         bootstrap: bootstrap ? {
           bootstrapId: bootstrap.bootstrapId,
@@ -612,6 +613,7 @@ export function homeOverviewResult({
       /** Compatibility field: only work in the mechanical `active` group belongs here. */
       activeWork: projectWork(active),
       governedGoal,
+      latestReceipt,
       /** The first decision this actor is authorized to make, even when another Story is selected. */
       attentionWork: projectWork(attentionWork),
       /**
@@ -737,6 +739,31 @@ export async function homeOverview({ subject = null, root = null, context = {} }
       governedGoal = null;
     }
   }
+  const current = {
+    workId: context.workId ?? context.storyId ?? null,
+    workKind: context.workKind ?? null,
+    storyId: context.storyId ?? null,
+    repositoryId,
+    branch: currentBranch,
+    repositoryScoped: !context.workId && !context.storyId && !currentBranch
+  };
+  const homeState = deriveHomeState(records, current);
+  let latestReceipt = context.latestReceipt ?? null;
+  if (context.latestReceipt === undefined && homeState.currentWork?.kind === 'story') {
+    try {
+      const [{ loadConfig }, { loadWorkflow }, { readStoryReviewPacket }, { composeEvidenceReceipt }] = await Promise.all([
+        import('../../state-stores.mjs'), import('../../state.mjs'),
+        import('../../story-lineage.mjs'), import('../../evidence-receipt.mjs')
+      ]);
+      const config = await loadConfig(root);
+      const workflow = await loadWorkflow(root, config, homeState.currentWork.id);
+      const packet = await readStoryReviewPacket(root, config, workflow);
+      latestReceipt = await composeEvidenceReceipt(root, config, workflow, packet);
+    } catch {
+      // No submission is a normal Home state. A receipt appears only after durable evidence exists.
+      latestReceipt = null;
+    }
+  }
   return homeOverviewResult({
     workspace: context.workspace ?? { id: root, name: context.workspaceName ?? root },
     repository: context.repository ?? {
@@ -748,15 +775,8 @@ export async function homeOverview({ subject = null, root = null, context = {} }
     },
     actor: context.actor ?? null,
     records,
-    current: {
-      workId: context.workId ?? context.storyId ?? null,
-      workKind: context.workKind ?? null,
-      storyId: context.storyId ?? null,
-      repositoryId,
-      branch: currentBranch,
-      // A direct planner invocation with no selected branch is scoped to this repository.
-      repositoryScoped: !context.workId && !context.storyId && !currentBranch
-    },
+    current,
+    state: homeState,
     subject,
     faults,
     faultsUnavailable,
@@ -765,6 +785,7 @@ export async function homeOverview({ subject = null, root = null, context = {} }
     yesterday,
     journalAvailable,
     governedGoal,
+    latestReceipt,
     otherWorkspaces,
     /**
      * The same worktree read `work.continue` and `work.return` use.

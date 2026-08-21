@@ -224,6 +224,11 @@
         "icon": "$(add)"
       },
       {
+        "command": "singularityFlow.returnToWork",
+        "title": "Singularity Flow: Return to Work on This Machine",
+        "icon": "$(repo-pull)"
+      },
+      {
         "command": "singularityFlow.continueSafely",
         "title": "Singularity Flow: Continue Safely",
         "icon": "$(play-circle)"

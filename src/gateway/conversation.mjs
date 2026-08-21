@@ -13,6 +13,17 @@ export const DEVELOPER_INTENTS = Object.freeze([
   'orient', 'continue', 'start', 'inspect', 'act', 'recover'
 ]);
 
+/** The five stable product goals shown on Home. Legacy intent detail remains for compatibility. */
+export const GOLDEN_JOURNEY_INTENTS = Object.freeze([
+  'continue', 'start', 'investigate', 'impact', 'orient'
+]);
+
+/** Every operation the five goals can advertise, including repository orientation under Home. */
+export const GOLDEN_JOURNEY_OPERATION_IDS = Object.freeze([
+  'developer.next', 'work.continue', 'work.start.intake', 'problem.investigate',
+  'impact.quick', 'repository.explore'
+]);
+
 const EFFECTS_NONE = Object.freeze({
   contextChanged: false,
   stateChanged: false,
@@ -32,6 +43,31 @@ const route = ({ id, intent, label, operationId, skill, automatic, confirmation,
  * match; ordering is not permission to silently choose between "generate and submit".
  */
 const ROUTES = Object.freeze([
+  route({
+    id: 'investigate-problem', intent: 'investigate', label: 'Investigate a bug',
+    operationId: 'problem.investigate', skill: '/sf-regression-investigate', automatic: true,
+    confirmation: 'none',
+    patterns: [
+      /\b(investigate|diagnose|triage)\b.{0,40}\b(bug|failure|problem|regression|error|issue)\b/,
+      /\b(what caused|find the cause|why is|why does)\b.{0,48}\b(fail|failing|failed|broken|error)\b/
+    ]
+  }),
+  route({
+    id: 'assess-impact', intent: 'impact', label: 'Assess the impact of a change',
+    operationId: 'impact.quick', skill: '/sf-impact', automatic: true, confirmation: 'none',
+    patterns: [
+      /\b(assess|check|show|analyse|analyze|what is|what's)\b.{0,32}\bimpact\b/,
+      /\bimpact\b.{0,32}\b(change|changes|worktree|branch)\b/
+    ]
+  }),
+  route({
+    id: 'explore-repository', intent: 'orient', label: 'Explore this repository',
+    operationId: 'repository.explore', skill: '/sf-worldmodel', automatic: true, confirmation: 'none',
+    patterns: [
+      /\b(explore|orient me in|show me around)\b.{0,32}\b(repository|repo|codebase|code)\b/,
+      /\bhow does\b.{0,48}\b(code|repository|repo|codebase)\b.{0,24}\bwork\b/
+    ]
+  }),
   route({
     id: 'recover-publication', intent: 'recover', label: 'Diagnose and recover interrupted work',
     operationId: 'work.continue', skill: '/sf-doctor', automatic: true, confirmation: 'none',
@@ -86,6 +122,9 @@ const ROUTES = Object.freeze([
     id: 'start', intent: 'start', label: 'Start new governed work',
     operationId: 'work.start.intake', skill: '/sf-start', automatic: false, confirmation: 'host-confirm',
     patterns: [
+      /\b(start|begin|create|open)\b.{0,20}\bfrom\b.{0,12}\bjira\b/,
+      /\b(start|begin|create|open)\b.{0,20}\bfrom\b.{0,12}\bgithub(?:\s+issue)?\b/,
+      /\b(describe)\b.{0,20}\b(new )?(work|story|bug|feature|task|chore)\b/,
       /\b(start|begin|create|open)\b.{0,32}\b(new )?(work|story|bug|bug fix|feature|epic|initiative|task|chore)\b/,
       /\b(new)\b.{0,20}\b(work|story|bug|feature|epic|initiative|task|chore)\b/
     ]
@@ -99,7 +138,7 @@ const ROUTES = Object.freeze([
     id: 'orient', intent: 'orient', label: 'Show current developer context',
     operationId: 'developer.next', skill: '/sf-home', automatic: true, confirmation: 'none',
     patterns: [
-      /\b(where am i|what am i working on|what i am working on|what is active|what's active|current work|current status)\b/,
+      /\b(where am i|what am i working on|what i am working on|what is active|what's active|current status)\b/,
       /\b(what should i do|what do i do|what now|what next|show me my day)\b/
     ]
   })
@@ -122,6 +161,8 @@ function inferredWork(normalized, entry) {
   return Object.freeze({
     shape,
     category,
+    source: /\bgithub(?:\s+issue)?\b/.test(normalized) ? 'github-issue'
+      : /\bjira\b/.test(normalized) ? 'jira' : 'manual',
     /** These are product decisions, not facts extracted from prose. */
     requiredInputs: Object.freeze([
       'work description',

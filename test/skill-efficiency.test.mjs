@@ -32,7 +32,8 @@ test('only low-risk read-only skills may trigger automatically', async () => {
   // uses. It is also the only entry whose contract forbids answering from the model's own memory.
   assert.deepEqual(policy.automaticInvocationAllowlist, [
     'sflow-docs', 'sflow-doctor', 'sflow-help', 'sflow-home', 'sflow-logs',
-    'sflow-nextsteps', 'sflow-progress', 'sflow-quickstart', 'sflow-recommend', 'sflow-status'
+    'sflow-nextsteps', 'sflow-progress', 'sflow-quickstart', 'sflow-receipt', 'sflow-recommend',
+    'sflow-status'
   ]);
   // Listing approvals is read-only; opening one is not. sflow-inbox asks the reviewer a question and
   // attaches a session, so it stays user-invoked however tempting it is as a natural-language target.

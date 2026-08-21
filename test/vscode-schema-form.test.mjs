@@ -46,7 +46,8 @@ test('a field takes its control and its requiredness from the schema, not from a
 
   assert.equal(byName.source.control, 'select');
   assert.deepEqual([...byName.source.options], [
-    'jira', 'initiative', 'story', 'bug-report', 'idea', 'repository-observation', 'finding'
+    'jira', 'github-issue', 'manual', 'initiative', 'story', 'bug-report', 'idea',
+    'repository-observation', 'finding'
   ], 'the enum values are the schema’s own, in its order');
   assert.equal(byName.summary.control, 'multiline', 'a `text` field is where someone writes a paragraph');
   assert.equal(byName.workspaceId.control, 'text');

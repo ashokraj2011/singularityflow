@@ -405,8 +405,12 @@ export function resolveIntent(request = {}, {
           context.arguments = {
             ...context.arguments,
             shape: conversation.route.work.shape,
+            source: conversation.route.work.source,
             ...(conversation.route.work.category ? { workType: conversation.route.work.category } : {})
           };
+        }
+        if (conversation.route.operationId === 'problem.investigate') {
+          context.arguments = { ...context.arguments, symptom: utterance };
         }
         why.push(reason('resolution.matched.conversation', {
           reference: conversation.route.id,

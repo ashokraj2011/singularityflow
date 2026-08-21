@@ -49,6 +49,7 @@
   "specification-claim-map": [{ "schemaVersion": 1 }],
   "specification-acceptance": [{ "schemaVersion": 1 }],
   "story-submission-packet": [{ "schemaVersion": 1 }],
+  "return-locator": [{ "schemaVersion": 1 }],
   "story-finalization-packet": [{ "schemaVersion": 1 }],
   "subject-lock-owner": [{ "schemaVersion": 1 }],
   "visual-comparison": [{ "schemaVersion": 1 }],

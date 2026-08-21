@@ -203,15 +203,29 @@ export const READINESS_CODES = Object.freeze([
   'readiness.publication-marker-unreadable',
   'readiness.approvals-outstanding',
   'readiness.required-artifact-missing',
+  'readiness.published-artifacts',
   'readiness.tests',
   'readiness.stale-approvals',
   'readiness.clarifications',
   'readiness.unclaimed-changes',
+  'readiness.reconciliation',
+  'readiness.ast',
+  'readiness.visual',
+  'readiness.external-build',
   'readiness.unrecognised-gate',
   'readiness.resume-publication',
   'readiness.repair-publication-marker',
   'readiness.awaiting-a-human-decision',
   'readiness.produce-the-artifact',
+  'readiness.publish-artifacts',
+  'readiness.run-missing-checks',
+  'readiness.revalidate-approvals',
+  'readiness.resolve-clarifications',
+  'readiness.claim-changes',
+  'readiness.reconcile-changes',
+  'readiness.inspect-ast',
+  'readiness.capture-visuals',
+  'readiness.record-external-build',
   'readiness.no-known-step'
 ]);
 
@@ -242,10 +256,26 @@ export const SURFACE_CODES = Object.freeze([
   'goal.durable-execution'
 ]);
 
+/** Golden-journey repository orientation and bug triage. */
+export const GOLDEN_JOURNEY_CODES = Object.freeze([
+  'context.bounded-brief',
+  'context.expand-slice',
+  'context.coverage-limited',
+  'repository.explore.bounded-facts',
+  'repository.explore.empty-scope',
+  'repository.explore.wrong-repository',
+  'repository.explore.nothing-was-carried-out',
+  'investigation.deterministic-triage',
+  'investigation.assistance-not-invoked',
+  'investigation.wrong-repository',
+  'investigation.nothing-was-carried-out'
+]);
+
 /** Every code, in one frozen set, which is the thing a surface actually needs. */
 export const REASON_CODES = Object.freeze([
   ...RESOLUTION_CODES, ...KERNEL_CODES, ...HOME_CODES, ...DEVELOPER_CODES,
-  ...WORKSPACE_RECOVERY_CODES, ...FAULT_CODES, ...WORK_CODES, ...READINESS_CODES, ...RETURN_CODES, ...SURFACE_CODES
+  ...WORKSPACE_RECOVERY_CODES, ...FAULT_CODES, ...WORK_CODES, ...READINESS_CODES, ...RETURN_CODES,
+  ...SURFACE_CODES, ...GOLDEN_JOURNEY_CODES
 ]);
 
 /**
@@ -318,6 +348,12 @@ export const WARNING_CODES = Object.freeze([
   'readiness.partial-inputs',
   /** Impact was assessed without a piece of evidence it would ordinarily use. */
   'impact.evidence-gap',
+  /** A requested repository path selected no source files. */
+  'repository.explore.empty-scope',
+  /** Assisted triage was requested but this host returned the deterministic fallback. */
+  'investigation.assistance-not-invoked',
+  /** A bounded context page omitted a named source because it was unavailable or over budget. */
+  'context.coverage-limited',
   /** Tests were located by path convention rather than by a declared mapping. */
   'impact.tests-by-path-convention',
   /** The documentation this explanation drew on carries no release stamp. */

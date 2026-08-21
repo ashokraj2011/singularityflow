@@ -20,7 +20,7 @@ import { startWizardProgress, type StartWizardProgress } from './start-wizard.ts
 export type Shape = 'initiative' | 'epic' | 'story';
 
 /** Where the work is tracked. `none` is a first-class answer, not a degraded one. */
-export type Tracker = 'jira' | 'none';
+export type Tracker = 'jira' | 'github' | 'none';
 
 export interface ProfileChoice {
   id: string;
@@ -70,6 +70,9 @@ export interface IntakeForm {
   jiraConfigured: boolean;
   /** Why Jira is unavailable, when it is. */
   jiraReason: string | null;
+  /** GitHub Issue intake uses the authenticated `gh` host and is validated before mutation. */
+  githubConfigured: boolean;
+  githubReason: string | null;
   /**
    * The base branch every repository in the capability will be cut from.
    *
@@ -107,7 +110,8 @@ export const EMPTY_INTAKE_FORM: IntakeForm = {
   baseBranch: null, baseBranchChoices: [], baseRemote: null, baseBranchReason: null,
   basePreflightPassed: false, basePreflightChecking: false, basePreflightReason: null,
   workflowReason: null,
-  jiraConfigured: false, jiraReason: null, inFlight: [], busy: false, error: null
+  jiraConfigured: false, jiraReason: null,
+  githubConfigured: true, githubReason: null, inFlight: [], busy: false, error: null
 };
 
 /** What each shape is, and — the part that matters — what it leads to. */
@@ -167,6 +171,14 @@ export function intakeProblems(form: IntakeForm): string[] {
       problems.push(form.jiraReason ?? 'No Jira is configured, so there is no key to fetch.');
     }
     if (!identifier) problems.push(`Give the ${form.shape}'s Jira key.`);
+  } else if (form.tracker === 'github') {
+    if (form.shape !== 'story') problems.push('GitHub Issue intake currently starts a Story.');
+    if (!form.githubConfigured) problems.push(form.githubReason ?? 'GitHub CLI authentication is unavailable.');
+    if (!form.key.trim()) problems.push("Give the GitHub Issue URL or 'owner/repository#number'.");
+    if (!identifier) problems.push('Give the Story a governed identifier.');
+    else if (!/^[A-Za-z0-9][A-Za-z0-9._-]*$/.test(identifier)) {
+      problems.push('The identifier may contain letters, numbers, dots, underscores and hyphens.');
+    }
   } else {
     if (!mintsIdentifier(form)) {
       if (!identifier) problems.push(`Give the ${form.shape} an identifier.`);
@@ -261,6 +273,10 @@ export function intakeCommand(form: IntakeForm): string[] {
   const capabilityBase = form.baseBranch ? ['--from-branch', form.baseBranch] : [];
   const target = form.workType === 'poc-workflow' ? ['--target-url', form.targetUrl.trim()] : [];
   if (tracked) return ['story', 'start', identifier, '--json', '--fetch', '--work-type', form.workType!, ...target, ...capabilityBase];
+  if (form.tracker === 'github') {
+    return ['start', identifier, '--json', '--fetch', '--github', form.key.trim(),
+      '--work-type', form.workType!, ...target, ...capabilityBase];
+  }
   const args = ['start', identifier, '--json', '--fetch',
     '--title', form.title.trim(), '--description', form.description.trim(),
     '--work-type', form.workType!, ...target, ...capabilityBase];
@@ -305,6 +321,13 @@ function trackerHtml(form: IntakeForm): string {
     ? 'Fetched by key: the title, description and acceptance criteria come from the issue.'
     : escape(form.jiraReason ?? 'Not configured on this machine.')}</span>
       </label>
+      <label class="choice${form.tracker === 'github' ? ' chosen' : ''}">
+        <input type="radio" name="tracker" value="github" data-tracker="github"${form.tracker === 'github' ? ' checked' : ''}>
+        <span class="choice-label">${icon('repository')}GitHub Issue</span>
+        <span class="choice-detail">${form.githubConfigured
+    ? 'Fetched through the authenticated gh CLI. Repeating the same Issue attaches existing work.'
+    : escape(form.githubReason ?? 'GitHub CLI authentication is unavailable.')}</span>
+      </label>
     </div>`;
 }
 
@@ -319,6 +342,15 @@ function fieldsHtml(form: IntakeForm): string {
         placeholder="${form.shape === 'story' ? 'ENG-142' : 'PAY-17'}" size="16"></label>
     </p>
     <p class="muted">Everything else is read from the issue, so it stays the tracker's to change.</p>`;
+  }
+
+  if (form.tracker === 'github') {
+    return `
+    <p><label>Governed Story ID <input type="text" value="${escape(form.id)}" data-field="id"
+      placeholder="GH-checkout-142" size="24"></label></p>
+    <p><label>GitHub Issue <input type="text" value="${escape(form.key)}" data-field="key"
+      placeholder="owner/repository#142" size="56"></label></p>
+    <p class="muted">Title, description, labels and acceptance checkboxes are read before any branch is created.</p>`;
   }
 
   return `

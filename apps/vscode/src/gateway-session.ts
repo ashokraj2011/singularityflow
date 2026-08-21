@@ -26,12 +26,17 @@ import {
   astContextPlanner, astQueryPlanner, astStatusPlanner
 } from '../../../src/gateway/planners/ast-intelligence.mjs';
 import { developerNext } from '../../../src/gateway/planners/developer-next.mjs';
+import { contextBrief } from '../../../src/gateway/planners/context-brief.mjs';
 import {
   governedGoalImpactPlanner, governedGoalInspectPlanner, governedGoalNextPlanner,
   governedGoalTracePlanner
 } from '../../../src/gateway/planners/governed-goal.mjs';
 import { homeOverview } from '../../../src/gateway/planners/home-overview.mjs';
 import { impactQuick } from '../../../src/gateway/planners/impact-quick.mjs';
+import {
+  problemInvestigate, problemInvestigateAssisted
+} from '../../../src/gateway/planners/problem-investigate.mjs';
+import { repositoryExplore } from '../../../src/gateway/planners/repository-explore.mjs';
 import { reviewPacket } from '../../../src/gateway/planners/review-packet.mjs';
 import { workContinue } from '../../../src/gateway/planners/work-continue.mjs';
 import { workList } from '../../../src/gateway/planners/work-list.mjs';
@@ -51,6 +56,7 @@ export function editorPlanners(): Map<string, unknown> {
     ['ast-query', astQueryPlanner],
     ['ast-status', astStatusPlanner],
     ['developer-next', developerNext],
+    ['context-brief', contextBrief],
     ['goal-inspect', governedGoalInspectPlanner],
     ['goal-impact', governedGoalImpactPlanner],
     ['goal-next', governedGoalNextPlanner],
@@ -68,6 +74,9 @@ export function editorPlanners(): Map<string, unknown> {
     ['workspace-doctor-guide', workspaceDoctorGuide],
     ['workspace-explore-guide', workspaceExploreGuide],
     ['impact-quick', impactQuick],
+    ['problem-investigate', problemInvestigate],
+    ['problem-investigate-assisted', problemInvestigateAssisted],
+    ['repository-explore', repositoryExplore],
     ['review-packet', reviewPacket]
   ]);
 }

@@ -19,8 +19,9 @@ npm run release            # or: npm run release:dry
 
 `scripts/release.mjs` refuses a dirty tree, runs `npm run check` (which asserts one version across
 every manifest) and the full test suite, packs the CLI tarball, builds the VSIX through the staging
-script, and leaves `dist/` holding both artifacts, a `SHA256SUMS` file, and a `RELEASE.json`
-recording the version and commit they were built from.
+script, and leaves `dist/` holding both artifacts, a `SHA256SUMS` file, a `RELEASE.json`, and a
+`RELEASE-CHANNEL.json`. The release-channel record binds the version and source commit to the
+minimum Node/VS Code versions and the SHA-256 of each installable artifact.
 
 It deliberately stops there. Uploading to the approved internal registry is the one step that
 differs per organization, so it is left to whoever knows the destination.
@@ -39,6 +40,10 @@ npm install --global <registry-or-path>/singularity-flow-<version>.tgz
 singularity-flow plugin install
 code --install-extension <path>/singularity-flow-vscode-<version>.vsix --force
 ```
+
+The first VS Code activation performs six bounded, offline checks (bundle, Node, Git, CLI, local
+state writability, and repository classification). A healthy install opens My Work. A failed check
+is retained as machine-local diagnostics and renders a result card rather than an activation stack.
 
 Nothing in the artifact installation above needs a POSIX shell. Windows users who have a source
 checkout and Git for Windows can instead use the guarded Git Bash wrapper:
@@ -75,6 +80,17 @@ npm run vscode:typecheck
 npm run vscode:build
 npm run pack:dry
 ```
+
+After packaging, prove the exact VSIX in an isolated VS Code profile without a public registry or
+public Git host:
+
+```bash
+npm run smoke:golden -- --vsix /absolute/path/to/singularity-flow-vscode-0.9.0.vsix
+```
+
+The smoke validates the staged CLI and public Home/Start/Return commands, installs the VSIX into a
+temporary profile, checks the installed version, and drives the built extension through its fresh
+repository Home fixture. The temporary profile is deleted afterward.
 
 ## Build the VSIX
 
@@ -129,6 +145,10 @@ wrapper. It performs no Git operation and preserves all repositories, worktrees,
 workspace clones, governed files and state, credentials, settings, and personal
 skills. Receipts are machine-local under `~/.singularity-flow/installations/`.
 `./install.sh --clean-reinstall` delegates to this same planner.
+
+Rollback uses the same commands with the immediately previous approved `.tgz` and `.vsix`. Installing
+older product bytes never rewrites repository state, workspace manifests, credentials, the local
+journal, or active work. Do not run repository reset or `local-reset` as an upgrade/rollback step.
 
 ## Credentials
 

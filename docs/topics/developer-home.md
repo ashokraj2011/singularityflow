@@ -1,6 +1,7 @@
 ---
 id: developer-home
 title: Developer Home and returning to work
+version: 7
 aliases:
   - home
   - return-to-work
@@ -8,13 +9,13 @@ aliases:
 commands:
   - home
   - choices
+  - return
 related:
   - starting-work
   - story-lifecycle
   - nextsteps
   - goals-and-outcomes
   - local-work-journal
-version: 6
 ---
 `sflow home` is the read-only front door for a developer. It resolves the active workspace and repository, reports the current Story and repository freshness, and offers no more than six deterministic next choices. `sflow home --request "<ordinary developer request>"` also returns a versioned plan for orient, continue, start, inspect, act, or recover. `--lens` changes presentation ordering only; it never grants authority. Home reads the local Git identity's display name and uses it to personalize human replies in the shell, My Work, and Copilot. The presentation name never participates in authority, handle binding, lifecycle state, or telemetry. It never fetches, checks out a branch, mutates lifecycle state, or invokes a model. In VS Code, **My Work** is the visible home and may join the private machine-local Today and **Yesterday — where you stopped** journal projections at read time. **Talk to SFlow** remains only as a hidden compatibility command for old links and opens that same My Work surface.
 
@@ -35,6 +36,11 @@ Use this topic when the current goal matches **developer home**. Start in a gove
 3. Preview or prepare the operation when the command offers a dry-run, plan, packet, or exact confirmation. Start, Continue, Generate, Submit, and Next require an explicit selection; ceremonies require their exact `/sf-*` invocation.
 4. Run the smallest applicable command from this topic. Do not substitute an undocumented subcommand.
 5. Re-read state after completion. In Copilot, return to `/sf-home`; in VS Code, refresh the relevant view if it has not already refreshed.
+
+On another machine or clone, use `sflow return <WORK-ID>` (Copilot: `/sf-return`).
+It fetches the configured remote, verifies the Story's integrity-bound return locator before changing
+the checkout, and shows the exact source commit and destination branch. Applying requires
+`--apply --confirm <WORK-ID>` and a clean worktree; Flow never stashes, resets, or discards local work.
 
 ## State and safety
 

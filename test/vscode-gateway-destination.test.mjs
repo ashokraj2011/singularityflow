@@ -1,7 +1,19 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 
-const { gatewayDestination } = await import('../apps/vscode/src/gateway-destination.ts');
+const { gatewayDestination, gatewayDestinationRequest } = await import('../apps/vscode/src/gateway-destination.ts');
+
+test('typed and clicked start results use the same host destination and defaults', () => {
+  const result = {
+    operation: { id: 'work.start.intake' },
+    data: { surface: 'start-intake', defaults: { source: 'jira', workType: 'bug-fix' } }
+  };
+  assert.deepEqual(gatewayDestinationRequest(result), {
+    command: 'singularityFlow.startWork',
+    args: [{ source: 'jira', workType: 'bug-fix' }]
+  });
+  assert.equal(gatewayDestination(result), 'singularityFlow.startWork');
+});
 
 test('a review packet opens the existing governed Approvals surface', () => {
   assert.equal(gatewayDestination({

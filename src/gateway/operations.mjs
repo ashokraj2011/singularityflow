@@ -30,7 +30,7 @@ import { compileOperationRegistry } from './registry.mjs';
 export const GATEWAY_PLANNERS = Object.freeze([
   'ast-status', 'ast-context', 'ast-query', 'ast-evidence-replay',
   'goal-inspect', 'goal-impact', 'goal-next', 'goal-trace',
-  'home-overview', 'developer-next', 'work-list', 'work-continue', 'work-handoff', 'work-start-intake', 'work-start',
+  'home-overview', 'developer-next', 'work-list', 'work-continue', 'work-handoff', 'context-brief', 'work-start-intake', 'work-start',
   'work-draft-save', 'work-readiness', 'work-return', 'workspace-list', 'workspace-switch', 'workspace-materialize',
   'workspace-bootstrap-status', 'workspace-prepare-guide', 'repository-open-guide',
   'workspace-doctor-guide', 'workspace-explore-guide',
@@ -47,7 +47,7 @@ export const GATEWAY_PLANNERS = Object.freeze([
  * passes, nobody notices for weeks. A count that a test asserts against turns that from an invisible
  * smell into a number someone has to look at and lower.
  */
-export const MAX_UNIMPLEMENTED_GATEWAY_PLANNERS = 16;
+export const MAX_UNIMPLEMENTED_GATEWAY_PLANNERS = 13;
 
 /**
  * Which declared planners this build does not have.
@@ -239,6 +239,19 @@ export const GATEWAY_DECLARATIONS = Object.freeze([
     argumentSchema: 'work-handoff-v1',
     planner: 'work-handoff',
     noModelFixture: 'work-handoff-model-free'
+  },
+
+  /** A small phase briefing with independently expandable, session-sealed context slices. */
+  {
+    ...READ,
+    id: 'context.brief',
+    modelPolicy: 'never',
+    goals: ['work.continue', 'repository.explore'],
+    aliases: en('give me the current context', 'brief this copilot session', 'what context applies here'),
+    subjects: ['story'],
+    argumentSchema: 'context-brief-v1',
+    planner: 'context-brief',
+    noModelFixture: 'context-brief-model-free'
   },
 
   // §8.3 Intake reads and proposes; it creates nothing until the operation below `[INT:CON-065]`.

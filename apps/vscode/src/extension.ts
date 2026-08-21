@@ -8,9 +8,11 @@
 import * as vscode from 'vscode';
 import path from 'node:path';
 import os from 'node:os';
-import { readFile, rm } from 'node:fs/promises';
-import { gatewayDestination } from './gateway-destination.ts';
-import { resolveCli, SingularityFlowClient } from './cli/client.ts';
+import { constants as fsConstants } from 'node:fs';
+import { spawnSync } from 'node:child_process';
+import { access, lstat, readFile, rm } from 'node:fs/promises';
+import { gatewayDestinationRequest } from './gateway-destination.ts';
+import { resolveCli, SingularityFlowClient, type CliLocation } from './cli/client.ts';
 import { validateRepositoryDirectory } from './cli/runner.ts';
 import { WorkspaceStore } from './state.ts';
 import type { RepositorySnapshot } from './cli/snapshot.ts';
@@ -128,6 +130,54 @@ interface FactoryResetPlan {
   uncommittedResetPaths: string[];
 }
 
+interface StoryReturnPlan {
+  schemaVersion: number;
+  kind: 'story-return-plan';
+  workId: string;
+  configuredRemote: string;
+  destinationBranch: string;
+  sourceRef: string;
+  sourceCommit: string;
+  currentBranch: string;
+  worktree: { clean: boolean; changedPaths: number };
+  localBranch: { disposition: string; blocksApply: boolean };
+  repositories: Array<{
+    id: string; required: boolean; remote: string; portability: string; disposition: string;
+  }>;
+  missingRequiredRepositories: string[];
+  freshness: string;
+  confirmation: string;
+}
+
+type FirstRunCheck = { id: string; status: 'healthy' | 'blocked'; detail: string };
+
+async function firstRunChecks(extensionPath: string, location: { executable: string; cli: string },
+  repository: string | null): Promise<FirstRunCheck[]> {
+  const nodeMajor = Number.parseInt(process.versions.node.split('.')[0] ?? '0', 10);
+  const git = spawnSync('git', ['--version'], { encoding: 'utf8', timeout: 5_000, windowsHide: true });
+  const cli = spawnSync(location.executable, [location.cli, 'about'], {
+    cwd: repository ?? os.tmpdir(), encoding: 'utf8', timeout: 10_000, windowsHide: true
+  });
+  const bundle = await lstat(path.join(extensionPath, 'dist', 'extension.cjs')).catch(() => null);
+  const machineDirectory = path.resolve(process.env.SINGULARITY_FLOW_HOME
+    || path.join(os.homedir(), '.singularity-flow'));
+  const writableTarget = await lstat(machineDirectory).then(() => machineDirectory)
+    .catch(() => path.dirname(machineDirectory));
+  const writable = await access(writableTarget, fsConstants.W_OK).then(() => true).catch(() => false);
+  const repositoryKind = repository
+    ? await lstat(path.join(repository, 'singularity', 'workflow.yml')).then((entry) => entry.isFile()
+      ? 'governed repository' : 'ordinary Git repository').catch(() => 'ordinary Git repository')
+    : 'no repository open';
+  return [
+    { id: 'extension', status: bundle?.isFile() ? 'healthy' : 'blocked', detail: 'packaged extension bundle' },
+    { id: 'runtime', status: nodeMajor >= 20 ? 'healthy' : 'blocked', detail: `Node ${process.versions.node} (minimum 20)` },
+    { id: 'git', status: git.status === 0 ? 'healthy' : 'blocked', detail: git.status === 0 ? git.stdout.trim() : 'Git is unavailable' },
+    { id: 'cli', status: cli.status === 0 ? 'healthy' : 'blocked', detail: cli.status === 0 ? 'bundled CLI executes' : 'bundled CLI did not execute' },
+    { id: 'machine-state', status: writable ? 'healthy' : 'blocked', detail: 'machine-local SFlow state location is writable' },
+    { id: 'repository', status: 'healthy', detail: repositoryKind }
+  ];
+}
+
 export async function activate(context: vscode.ExtensionContext): Promise<void> {
   // Module state can survive a deactivate/reactivate cycle in the same extension host. Until this
   // activation validates a workspace or folder, no command may inherit the previous routing choice.
@@ -209,9 +259,9 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
         ? await kernel.read({ resolutionId: resolution.next[0].handle })
         : resolution;
       if (generation !== homeRequestGeneration || lastHome !== requestedHome) return;
-      const destination = gatewayDestination(envelope);
+      const destination = gatewayDestinationRequest(envelope);
       if (destination) {
-        await vscode.commands.executeCommand(destination);
+        await vscode.commands.executeCommand(destination.command, ...destination.args);
         return;
       }
       showResultCard(buildResultCard(envelope), { origin: 'gateway', historyMode: 'push' });
@@ -272,14 +322,9 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
          * to do with each; it only needed to be told which one this is.
          */
         const outcome = await executor.execute(action);
-        if (outcome.result?.operation?.id === 'work.start.intake'
-          && outcome.result?.data?.surface === 'start-intake') {
-          await vscode.commands.executeCommand('singularityFlow.startWork', outcome.result.data.defaults ?? {});
-          return;
-        }
-        const destination = gatewayDestination(outcome.result);
+        const destination = gatewayDestinationRequest(outcome.result);
         if (destination) {
-          await vscode.commands.executeCommand(destination);
+          await vscode.commands.executeCommand(destination.command, ...destination.args);
           return;
         }
         if (outcome.result) showResultCard(buildResultCard(outcome.result), {
@@ -1789,11 +1834,46 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
    * managed workspace so destructive mode cannot accidentally run from inside a target.
    */
   const surfaceSettings = vscode.workspace.getConfiguration('singularityFlow');
-  const surfaceLocation = resolveCli({
-    configuredCli: surfaceSettings.get<string>('cliPath'),
-    configuredNode: surfaceSettings.get<string>('nodePath'),
-    extensionPath: context.extensionPath
-  });
+  let surfaceLocation: CliLocation;
+  try {
+    surfaceLocation = resolveCli({
+      configuredCli: surfaceSettings.get<string>('cliPath'),
+      configuredNode: surfaceSettings.get<string>('nodePath'),
+      extensionPath: context.extensionPath
+    });
+  } catch (error) {
+    showRefusal(
+      `${(error as Error).message} Open Singularity Flow: Diagnostics after correcting the CLI path.`,
+      { headline: 'First-run health check could not find the CLI' }
+    );
+    return unavailable('Singularity Flow CLI unavailable', (error as Error).message);
+  }
+
+  // This is intentionally bounded and local: six probes, no repository scan and no network. It is
+  // run once per health-contract version in a real extension host, then retained only as a small
+  // machine-local status record. Governed Git data and credentials are never copied into it.
+  const firstRunHealthKey = 'singularityFlow.firstRunHealth.v1';
+  const existingFirstRunHealth = context.globalState.get<{ status?: string } | null>(firstRunHealthKey, null);
+  let firstRunBlocked = existingFirstRunHealth?.status === 'blocked';
+  if (vscode.env?.appHost && (!existingFirstRunHealth || firstRunBlocked)) {
+    const folder = vscode.workspace.workspaceFolders?.[0]?.uri.fsPath ?? null;
+    const checks = await firstRunChecks(context.extensionPath, surfaceLocation, folder);
+    const blocked = checks.filter((entry) => entry.status === 'blocked');
+    firstRunBlocked = blocked.length > 0;
+    await context.globalState.update(firstRunHealthKey, {
+      schemaVersion: 1,
+      checkedAt: new Date().toISOString(),
+      status: blocked.length ? 'blocked' : 'healthy',
+      checks
+    });
+    for (const check of checks) output.appendLine(`First-run check ${check.id}: ${check.status} — ${check.detail}`);
+    if (blocked.length) {
+      showRefusal(
+        `${blocked.map((entry) => entry.detail).join('; ')}. Run Singularity Flow: Diagnostics for the single repair path.`,
+        { headline: 'First-run health check needs attention' }
+      );
+    }
+  }
   const diagnosticClient = new SingularityFlowClient({
     location: surfaceLocation, repository: os.tmpdir(), environment: cliEnvironment,
     onOutput: (text) => output.append(text)
@@ -1823,6 +1903,93 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
       const { LocalResetPanel } = await import('./views/local-reset.ts');
       LocalResetPanel.show(context, resetClient);
     } catch (error) { showRefusal(error, { headline: 'Could not open Local Data & Reset' }); }
+  }));
+
+  // Return is registered before repository-dependent activation can stop. A fresh machine may have
+  // only an ordinary clone open; the command must be able to inspect the published locator, show a
+  // complete no-mutation plan, and then attach after an exact confirmation.
+  context.subscriptions.push(vscode.commands.registerCommand('singularityFlow.returnToWork', async () => {
+    try {
+      const target = await resolveGovernedRepository(context, output);
+      if ('reason' in target) {
+        return showRefusal(
+          'Open the repository clone that contains the published Story, or choose its governed workspace, then try Return again.',
+          { headline: 'No repository available for Return' }
+        );
+      }
+      const workId = (await vscode.window.showInputBox({
+        title: 'Return to governed work',
+        prompt: 'Enter the published Work ID. This preview does not change your branch.',
+        placeHolder: 'WRK-123',
+        ignoreFocusOut: true,
+        validateInput: (value) => value.trim() ? null : 'Enter a Work ID.'
+      }))?.trim();
+      if (!workId) return;
+      const returnClient = new SingularityFlowClient({
+        location: surfaceLocation,
+        repository: target.repository,
+        environment: cliEnvironment,
+        onOutput: (text) => output.append(text)
+      });
+      const plan = await vscode.window.withProgress(
+        { location: vscode.ProgressLocation.Notification, title: `Inspecting published work ${workId}…` },
+        () => returnClient.run<StoryReturnPlan>(['return', workId, '--json'])
+      );
+      const additionalRepositories = plan.repositories
+        .filter((entry) => entry.disposition !== 'existing-clone')
+        .map((entry) => `${entry.id}: ${entry.disposition}${entry.required ? ' (required)' : ''}`);
+      const blockers = [
+        ...(!plan.worktree.clean ? [`${plan.worktree.changedPaths} uncommitted path(s)`] : []),
+        ...(plan.localBranch.blocksApply ? [`local Story branch is ${plan.localBranch.disposition}`] : []),
+        ...(plan.missingRequiredRepositories.length
+          ? [`required repositories must be prepared first: ${plan.missingRequiredRepositories.join(', ')}`] : [])
+      ];
+      const detail = [
+        `Source: ${plan.sourceRef} @ ${plan.sourceCommit.slice(0, 12)}`,
+        `New/current local branch: ${plan.destinationBranch}`,
+        `Configured remote: ${plan.configuredRemote}`,
+        `Freshness: ${plan.freshness}`,
+        `Local branch: ${plan.localBranch.disposition}`,
+        ...(additionalRepositories.length ? ['', 'Other repositories:', ...additionalRepositories] : []),
+        ...(blockers.length ? ['', 'Automatic attach is blocked:', ...blockers] : []),
+        '',
+        'Return never resets, stashes, cleans, or force-checks out local work.'
+      ].join('\n');
+      if (blockers.length) {
+        await vscode.window.showWarningMessage(
+          `Return to ${plan.workId} cannot be applied safely.`, { modal: true, detail }, 'Open Source Control'
+        ).then(async (choice) => {
+          if (choice === 'Open Source Control') await vscode.commands.executeCommand('workbench.view.scm');
+        });
+        return;
+      }
+      const approved = await vscode.window.showInformationMessage(
+        `Return to ${plan.workId}?`, { modal: true, detail }, 'Continue to confirmation'
+      );
+      if (approved !== 'Continue to confirmation') return;
+      const confirmation = await vscode.window.showInputBox({
+        title: `Confirm Return to ${plan.workId}`,
+        prompt: `Type exactly: ${plan.confirmation}`,
+        placeHolder: plan.confirmation,
+        ignoreFocusOut: true,
+        validateInput: (value) => value === plan.confirmation ? null : 'The confirmation must match the Work ID exactly.'
+      });
+      if (confirmation !== plan.confirmation) return;
+      await vscode.window.withProgress(
+        { location: vscode.ProgressLocation.Notification, title: `Returning to ${plan.workId}…` },
+        () => returnClient.run(['return', plan.workId, '--apply', '--confirm', confirmation, '--json'])
+      );
+      resetGatewaySession();
+      const next = await vscode.window.showInformationMessage(
+        `${plan.workId} is attached on ${plan.destinationBranch}. Reload to show its durable next action.`,
+        'Reload and open My Work'
+      );
+      if (next === 'Reload and open My Work') {
+        await vscode.commands.executeCommand('workbench.action.reloadWindow');
+      }
+    } catch (error) {
+      showRefusal(error, { headline: 'Could not return to governed work' });
+    }
   }));
 
   // Offered from the uninitialized state, so a folder that is not yet a Flow repository can become
@@ -2496,6 +2663,7 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
    */
   const startWork = async (defaults: {
     shape?: 'initiative' | 'epic' | 'story' | null;
+    source?: 'jira' | 'github-issue' | 'manual' | null;
     workType?: string | null;
     summary?: string | null;
     guidedStart?: boolean;
@@ -3667,6 +3835,14 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
     } catch (error) {
       showRefusal(error, { headline: 'Could not resume governed Copilot handoff' });
     }
+  }
+  const firstHomeKey = 'singularityFlow.firstHealthyHome.v1';
+  if (vscode.env?.appHost && !firstRunBlocked && !pendingStartWizard && !pendingHandoff
+      && !context.globalState.get(firstHomeKey)) {
+    // Home, not the walkthrough or a configuration form, is the successful first screen. The
+    // walkthrough remains available from its one-time offer and the Help section.
+    await context.globalState.update(firstHomeKey, true);
+    await vscode.commands.executeCommand('singularityFlow.myWork');
   }
 }
 

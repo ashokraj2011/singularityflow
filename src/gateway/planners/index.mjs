@@ -14,12 +14,15 @@ import {
   astContextPlanner, astEvidenceReplayPlanner, astQueryPlanner, astStatusPlanner
 } from './ast-intelligence.mjs';
 import { developerNext } from './developer-next.mjs';
+import { contextBrief } from './context-brief.mjs';
 import {
   governedGoalImpactPlanner, governedGoalInspectPlanner, governedGoalNextPlanner,
   governedGoalTracePlanner
 } from './governed-goal.mjs';
 import { homeOverview } from './home-overview.mjs';
 import { impactQuick } from './impact-quick.mjs';
+import { problemInvestigate, problemInvestigateAssisted } from './problem-investigate.mjs';
+import { repositoryExplore } from './repository-explore.mjs';
 import { reviewPacket } from './review-packet.mjs';
 import { workContinue } from './work-continue.mjs';
 import { workHandoff } from './work-handoff.mjs';
@@ -41,12 +44,16 @@ export function gatewayPlanners(overrides = {}) {
     'ast-status': astStatusPlanner,
     'help-explain': helpExplain,
     'developer-next': developerNext,
+    'context-brief': contextBrief,
     'goal-inspect': governedGoalInspectPlanner,
     'goal-impact': governedGoalImpactPlanner,
     'goal-next': governedGoalNextPlanner,
     'goal-trace': governedGoalTracePlanner,
     'home-overview': homeOverview,
     'impact-quick': impactQuick,
+    'problem-investigate': problemInvestigate,
+    'problem-investigate-assisted': problemInvestigateAssisted,
+    'repository-explore': repositoryExplore,
     'review-packet': reviewPacket,
     'work-continue': workContinue,
     'work-handoff': workHandoff,
@@ -66,8 +73,9 @@ export function gatewayPlanners(overrides = {}) {
 
 export {
   astContextPlanner, astEvidenceReplayPlanner, astQueryPlanner, astStatusPlanner,
-  developerNext, governedGoalImpactPlanner, governedGoalInspectPlanner, governedGoalNextPlanner,
-  governedGoalTracePlanner, helpExplain, homeOverview, impactQuick, reviewPacket, workContinue, workHandoff,
+  contextBrief, developerNext, governedGoalImpactPlanner, governedGoalInspectPlanner, governedGoalNextPlanner,
+  governedGoalTracePlanner, helpExplain, homeOverview, impactQuick, problemInvestigate,
+  problemInvestigateAssisted, repositoryExplore, reviewPacket, workContinue, workHandoff,
   workList, workReadiness, workReturn, workStartIntake, workspaceList,
   repositoryOpenGuide, workspaceBootstrapStatus, workspaceDoctorGuide, workspaceExploreGuide,
   workspacePrepareGuide

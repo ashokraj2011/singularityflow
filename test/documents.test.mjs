@@ -90,8 +90,9 @@ test('progress and document commands upload, list, and view files, images, and F
   assert.match(submission.stdout, /Generated documents ready for review/);
   assert.doesNotMatch(submission.stdout, /Complete intake evidence/, 'submit summarises; it does not dump');
   assert.match(submission.stdout, /Submitted intake for approval with 1 generated document/);
-  // A submit used to run to several hundred lines. The result has to be findable in it.
-  assert.ok(submission.stdout.split('\n').length < 30, `submit printed ${submission.stdout.split('\n').length} lines`);
+  // A submit used to run to several hundred lines. The compact evidence receipt adds review facts,
+  // but the result still has to remain findable without dumping artifact bodies.
+  assert.ok(submission.stdout.split('\n').length < 40, `submit printed ${submission.stdout.split('\n').length} lines`);
   const submissionFull = flow(root, ['submit', '--show-artifact'], { allowFailure: true });
   const approval = flow(root, ['approve', '--yes']);
   assert.match(approval.stdout, /Generated documents ready for review/);

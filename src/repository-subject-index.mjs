@@ -22,6 +22,8 @@ function storyEntry(state, location) {
     id,
     state.lineage?.planId,
     state.lineage?.jiraIssueId,
+    state.lineage?.sourceStableId,
+    state.workItem?.source?.stableId,
     state.lineage?.initialJiraKey,
     state.lineage?.currentJiraKey,
     ...(state.lineage?.aliases ?? []).map((entry) => typeof entry === 'string' ? entry : entry?.value ?? entry?.key)

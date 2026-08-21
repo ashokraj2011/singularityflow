@@ -12,6 +12,7 @@ test('the five parity commands are public VS Code interfaces', async () => {
   for (const command of ['openGoals', 'openFaultRepairs', 'openJournal', 'openDiagnostics', 'openLocalReset']) {
     assert.ok(commands.has(`singularityFlow.${command}`), command);
   }
+  assert.ok(commands.has('singularityFlow.returnToWork'), 'returnToWork');
 });
 
 test('Goal creation requires observable success and carries an explicit work selection', () => {
@@ -62,6 +63,8 @@ test('new CLI reads are classified as reads and mutations remain mutations', () 
   assert.equal(commandClass(['repair', 'authorize']), 'mutation');
   assert.equal(commandClass(['journal', 'export', '--dry-run']), 'read');
   assert.equal(commandClass(['local-reset', '--forget-only', '--dry-run']), 'read');
+  assert.equal(commandClass(['return', 'WRK-7', '--json']), 'read');
+  assert.equal(commandClass(['return', 'WRK-7', '--apply', '--confirm', 'WRK-7', '--json']), 'mutation');
   assert.equal(commandClass(['wm', 'ast', 'doctor']), 'read');
   assert.equal(commandClass(['wm', 'ast', 'context', '--paths', 'src']), 'read');
   assert.equal(commandClass(['wm', 'ast', 'build', '--paths', 'src']), 'mutation');

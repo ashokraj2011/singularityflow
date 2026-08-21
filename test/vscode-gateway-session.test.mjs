@@ -40,7 +40,7 @@ test('the editor declares the planners it has and does not pretend to the docs o
    */
   const source = await readFile(path.join(root, 'apps', 'vscode', 'src', 'gateway-session.ts'), 'utf8');
   const imported = [...source.matchAll(/planners\/([a-z-]+)\.mjs/g)].map(([, name]) => name).sort();
-  assert.deepEqual(imported, ['ast-intelligence', 'developer-next', 'governed-goal', 'home-overview', 'impact-quick', 'review-packet', 'work-continue', 'work-list',
+  assert.deepEqual(imported, ['ast-intelligence', 'context-brief', 'developer-next', 'governed-goal', 'home-overview', 'impact-quick', 'problem-investigate', 'repository-explore', 'review-packet', 'work-continue', 'work-list',
     'work-readiness', 'work-return', 'work-start-intake', 'workspace-list', 'workspace-reliability-surface']);
   // `codeOnly`: this file names help-explain in the comment explaining why it excludes it.
   assert.ok(!codeOnly(source).includes('help-explain'), 'the docs planner is not imported');

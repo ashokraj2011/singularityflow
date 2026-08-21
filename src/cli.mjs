@@ -89,7 +89,13 @@ import { createPlanningContext, promotePlanningArtifact, promotePlanningArtifact
 import { formatContextBoundaryHandoff } from './context-policy.mjs';
 import { detachEpicSource, listEpicSources, registerEpicSource, registerEpicTextSource, verifyEpicSources } from './epic-sources.mjs';
 import { adoptEpicStory, completeEpicIntake, completeEpicPublication, EPIC_PHASES, addEpicStory, splitEpicStory, updateEpicStory, verifyEpicPlanningPackage } from './epic-lifecycle.mjs';
-import { createStoryReviewPacket, finalizeStoryDelivery } from './story-lineage.mjs';
+import { createStoryReviewPacket, finalizeStoryDelivery, readStoryReviewPacket } from './story-lineage.mjs';
+import {
+  composeEvidenceReceipt, renderEvidenceReceipt, renderEvidenceReceiptMarkdown
+} from './evidence-receipt.mjs';
+import { readReturnLocatorAtRef, writeReturnLocator } from './return-locator.mjs';
+import { getGitHubIssue, normalizeWorkSource, workflowSourceIdentity } from './work-source.mjs';
+import { composeContextBrief } from './context-broker.mjs';
 import {
   attemptRepair, authorizeRepair, cancelRepair, diagnoseFault, listFaults, listRepairs,
   governedFaultRepairPolicy, parseVerificationArgv, readFault, readRepair, repairNextActions, reportFault, requestRepair,
@@ -541,15 +547,28 @@ export async function startCommand(positionals, options) {
     receipt = await resolveSelectionReceipt(root, config, receiptToken, { action: 'start', workId: id });
   }
   const jira = optionBoolean(options, 'jira');
+  const githubReference = optionString(options, 'github');
   const storyFile = optionString(options, 'story-file');
-  if (jira && storyFile) throw new SingularityFlowError('Choose either --jira or --story-file, not both.');
+  if ([jira, Boolean(githubReference), Boolean(storyFile)].filter(Boolean).length > 1) {
+    throw new SingularityFlowError('Choose exactly one of --jira, --github, or --story-file.');
+  }
   const title = optionString(options, 'title');
   const description = optionString(options, 'description');
   const acceptanceCriteria = optionString(options, 'acceptance-criteria');
   const explicitFiles = optionStrings(options, 'document');
   const explicitUrls = optionStrings(options, 'document-url');
   const hasManualInput = Boolean(storyFile || title || description || acceptanceCriteria || explicitFiles.length || explicitUrls.length);
-  const declaredSource = jira ? 'jira' : hasManualInput ? 'manual' : null;
+  const declaredSource = githubReference ? 'github-issue' : jira ? 'jira' : hasManualInput ? 'manual' : null;
+  let externalSourcePromise = null;
+  const externalSource = () => {
+    if (!externalSourcePromise) {
+      externalSourcePromise = githubReference
+        ? getGitHubIssue(githubReference)
+        : jira ? getIssue(id).then((source) => normalizeWorkSource(source, { rawRef: id, fetchedAt: nowIso() }))
+          : Promise.resolve(null);
+    }
+    return externalSourcePromise;
+  };
   const explicitBase = optionString(options, 'base');
   const canonicalBranch = optionString(options, 'ref', id);
   const remote = config?.git?.remote ?? 'origin';
@@ -572,7 +591,18 @@ export async function startCommand(positionals, options) {
   // Starting is idempotent for durable Stories. A local workflow does not need a new base choice;
   // it is resumed from its own recorded branch and resolution. This check intentionally precedes
   // every remote/base prompt so an offline contributor can resume work already present locally.
-  if (refExists(root, localStoryRef) && await durableStoryAtRef(localStoryRef, canonicalBranch)) {
+  const localStory = refExists(root, localStoryRef)
+    ? await durableStoryAtRef(localStoryRef, canonicalBranch)
+    : null;
+  if (localStory) {
+    const requested = await externalSource();
+    const existingIdentity = workflowSourceIdentity(localStory.state);
+    if (requested?.stableId && existingIdentity && requested.stableId !== existingIdentity) {
+      throw new SingularityFlowError(
+        `Story '${id}' already belongs to source '${existingIdentity}', not '${requested.stableId}'. Nothing was changed.`,
+        { code: 'STORY_SOURCE_CONFLICT' }
+      );
+    }
     return resumeCommand(['resume', id], { ...options, fetch: false });
   }
 
@@ -588,8 +618,38 @@ export async function startCommand(positionals, options) {
     : { status: 1, stdout: '' };
   if (remoteStoryProbe.status === 0 && remoteStoryProbe.stdout.trim()) {
     fetchRemote(root, remote);
-    if (await durableStoryAtRef(remoteStoryRef, canonicalBranch)) {
+    const remoteStory = await durableStoryAtRef(remoteStoryRef, canonicalBranch);
+    if (remoteStory) {
+      const requested = await externalSource();
+      const existingIdentity = workflowSourceIdentity(remoteStory.state);
+      if (requested?.stableId && existingIdentity && requested.stableId !== existingIdentity) {
+        throw new SingularityFlowError(
+          `Published Story '${id}' belongs to source '${existingIdentity}', not '${requested.stableId}'. Nothing was changed.`,
+          { code: 'STORY_SOURCE_CONFLICT' }
+        );
+      }
       return resumeCommand(['resume', id], { ...options, fetch: true });
+    }
+  }
+
+  // A stable external identity wins over a proposed new Work ID. Fetch and search the governed
+  // refs before choosing a base or checking out a branch, then attach to the existing Story.
+  const requestedExternalSource = await externalSource();
+  if (requestedExternalSource?.stableId) {
+    fetchRemote(root, remote);
+    const refs = [
+      ...localBranches(root).map((branchName) => ({ branch: branchName, ref: branchName })),
+      ...remoteBranches(root, remote).map((branchName) => ({ branch: branchName, ref: `${remote}/${branchName}` }))
+    ];
+    const sourceIndex = await buildRepositorySubjectIndexFromRefs(root, { definition: config ?? {}, refs });
+    const existing = resolveContext(sourceIndex, {
+      reference: requestedExternalSource.stableId, kind: 'story', required: false
+    });
+    if (existing) {
+      if (!optionBoolean(options, 'json')) {
+        console.log(`Source ${requestedExternalSource.stableId} is already governed as ${existing.id}; attaching instead of creating ${id}.`);
+      }
+      return resumeCommand(['resume', existing.id], { ...options, fetch: true });
     }
   }
 
@@ -804,7 +864,16 @@ export async function startCommand(positionals, options) {
           ? await loadManualStory(id, { storyFile, title, description, acceptanceCriteria })
           : await promptManualStory(id))
     : null;
-  let source = sourceMode === 'jira' ? await getIssue(id) : manual.source;
+  const normalizedManualSource = manual ? normalizeWorkSource(manual.source) : null;
+  let source = requestedExternalSource
+    ?? (sourceMode === 'jira'
+      ? normalizeWorkSource(await getIssue(id), { rawRef: id, fetchedAt: nowIso() })
+      : {
+          ...normalizedManualSource,
+          // Manual source.json predates WorkSourceV1 and stores criteria as Markdown. Preserve that
+          // public artifact shape while the normalized hash and provider contract remain list-based.
+          acceptanceCriteria: manual.source.acceptanceCriteria
+        });
   const supportingDocuments = [
     ...(manual?.documents ?? []),
     ...explicitFiles.map((candidate) => ({ type: 'file', path: candidate, label: null, kind: null })),
@@ -862,6 +931,7 @@ export async function startCommand(positionals, options) {
     resolved: resolvedWorkType,
     capabilityId: optionString(options, 'capability')
   });
+  const returnLocator = await writeReturnLocator(root, config, workflow);
   let publication;
   try {
     publication = await commitAndPublish(
@@ -873,7 +943,7 @@ export async function startCommand(positionals, options) {
         configurationCommit: configurationSnapshot.commit
       } : {} },
       `[${id}][init] start ${workType} workflow`,
-      configurationSnapshot?.paths ?? []
+      [...(configurationSnapshot?.paths ?? []), returnLocator.path]
     );
   } catch (error) {
     await retainCapabilityPublicationRecovery(root, id, {
@@ -956,6 +1026,13 @@ export async function startCommand(positionals, options) {
         ref: `refs/heads/${workflow.workItem.branch}`,
         pushed: publication.pushed === true,
         commit: publication.sha
+      },
+      returnLocator: {
+        path: returnLocator.path,
+        integritySha256: returnLocator.locator.integritySha256,
+        portability: returnLocator.locator.repositories.every((repository) => repository.portability === 'portable')
+          ? 'portable'
+          : 'partial'
       },
       measurement: workflow.measurement?.plan ? {
         status: workflow.measurement.status,
@@ -1114,6 +1191,147 @@ async function resumeCommand(positionals, options) {
     // Resume may check out a different branch and records the local governed-agent selection.
     effects: effects({ filesChanged: true })
   }), { postState: workflow });
+}
+
+async function returnCommand(positionals, options) {
+  const reference = requirePositional(positionals, 1, 'work ID');
+  const root = repoRoot();
+  const discovery = await sessionDiscoveryConfiguration(root, sessionRepositoryAuthority(root));
+  const initialConfig = discovery.definition;
+  const remote = discovery.remote;
+  const offline = optionBoolean(options, 'offline');
+  if (!offline) fetchRemote(root, remote);
+  const refs = remoteBranches(root, remote).map((branchName) => ({
+    branch: branchName, ref: `${remote}/${branchName}`
+  }));
+  const index = await buildRepositorySubjectIndexFromRefs(root, { definition: initialConfig, refs });
+  const subject = resolveContext(index, { reference, kind: 'story' });
+  const targetBranch = subject.canonicalBranch;
+  const remoteRef = `${remote}/${targetBranch}`;
+  const sourceCommit = refHead(root, remoteRef);
+  if (!sourceCommit) {
+    throw new SingularityFlowError(`Published Story ref '${remoteRef}' is unavailable. Nothing was changed.`, {
+      code: 'RETURN_REMOTE_REF_UNAVAILABLE'
+    });
+  }
+  const located = readReturnLocatorAtRef(root, initialConfig, subject.id, remoteRef);
+  if (located.locator.workBranchRef !== `refs/heads/${targetBranch}`
+      && located.locator.lifecycleRef !== `refs/heads/${targetBranch}`) {
+    throw new SingularityFlowError(
+      `Return locator for '${subject.id}' does not bind published branch '${targetBranch}'. Nothing was changed.`,
+      { code: 'RETURN_LOCATOR_BRANCH_MISMATCH' }
+    );
+  }
+  const changed = changes(root).split(/\r?\n/).map((entry) => entry.trim()).filter(Boolean);
+  const localRef = `refs/heads/${targetBranch}`;
+  const localCommit = refHead(root, localRef);
+  const localCanFastForward = Boolean(localCommit && localCommit !== sourceCommit)
+    && run('git', ['merge-base', '--is-ancestor', localCommit, sourceCommit], {
+      cwd: root, allowFailure: true
+    }).status === 0;
+  const localContainsRemote = Boolean(localCommit && localCommit !== sourceCommit)
+    && run('git', ['merge-base', '--is-ancestor', sourceCommit, localCommit], {
+      cwd: root, allowFailure: true
+    }).status === 0;
+  const localConflict = Boolean(localCommit && localCommit !== sourceCommit && !localCanFastForward);
+  const repositories = located.locator.repositories.map((repository, index) => Object.freeze({
+    id: repository.id,
+    required: repository.required !== false,
+    remote: repository.remote,
+    remoteUrl: repository.url,
+    portability: repository.portability,
+    disposition: repository.id === (located.locator.originRepositoryId ?? located.locator.repositories[0]?.id)
+      ? 'existing-clone' : 'clone-or-locate-required'
+  }));
+  const missingRequiredRepositories = repositories
+    .filter((repository) => repository.required && repository.disposition !== 'existing-clone')
+    .map((repository) => repository.id);
+  const plan = Object.freeze({
+    schemaVersion: 1,
+    kind: 'story-return-plan',
+    workId: subject.id,
+    configuredRemote: remote,
+    destinationBranch: targetBranch,
+    sourceRef: remoteRef,
+    sourceCommit,
+    currentBranch: branch(root),
+    currentCommit: head(root),
+    worktree: { clean: changed.length === 0, changedPaths: changed.length },
+    localBranch: {
+      exists: Boolean(localCommit), commit: localCommit,
+      disposition: !localCommit ? 'create-from-remote'
+        : localCommit === sourceCommit ? 'already-current'
+          : localCanFastForward ? 'fast-forward'
+            : localContainsRemote ? 'local-ahead' : 'diverged',
+      blocksApply: localConflict
+    },
+    repositories,
+    missingRequiredRepositories,
+    locator: { path: located.path, integritySha256: located.locator.integritySha256 },
+    freshness: offline ? 'cached-remote-tracking-ref' : 'fetched',
+    confirmation: subject.id
+  });
+  if (!optionBoolean(options, 'apply')) {
+    if (optionBoolean(options, 'json')) return console.log(JSON.stringify(plan, null, 2));
+    console.log(`Return plan: ${subject.id}`);
+    console.log(`Source: ${remoteRef} @ ${plan.sourceCommit?.slice(0, 12) ?? 'unavailable'}`);
+    console.log(`Destination: local ${targetBranch}`);
+    console.log(`Worktree: ${plan.worktree.clean ? 'clean' : `${plan.worktree.changedPaths} changed path(s) — must be committed or stashed by you`}`);
+    console.log(`Local branch: ${plan.localBranch.disposition}${plan.localBranch.blocksApply ? ' — automatic attach is blocked; reconcile it yourself' : ''}`);
+    for (const repository of repositories.filter((entry) => entry.disposition !== 'existing-clone')) {
+      console.log(`Required repository: ${repository.id} — ${repository.disposition}`);
+    }
+    console.log(`Apply with: singularity-flow return ${subject.id} --apply --confirm ${subject.id}`);
+    return;
+  }
+  if (optionString(options, 'confirm') !== subject.id) {
+    throw new SingularityFlowError(
+      `Returning to '${subject.id}' requires exact confirmation. Preview with singularity-flow return ${subject.id}, then pass --apply --confirm ${subject.id}. Nothing was changed.`,
+      { code: 'RETURN_CONFIRMATION_REQUIRED' }
+    );
+  }
+  if (plan.localBranch.blocksApply) {
+    throw new SingularityFlowError(
+      `Local Story branch '${targetBranch}' is ${plan.localBranch.disposition} from '${remoteRef}'. Automatic Return preserved both histories and changed nothing. Reconcile or rename the local branch, then preview Return again.`,
+      { code: 'RETURN_LOCAL_BRANCH_CONFLICT' }
+    );
+  }
+  if (plan.missingRequiredRepositories.length) {
+    throw new SingularityFlowError(
+      `Return requires additional repository clone(s): ${plan.missingRequiredRepositories.join(', ')}. Automatic attach changed nothing. Prepare or adopt those repositories in a workspace, then preview Return from its lead repository.`,
+      { code: 'RETURN_REQUIRED_REPOSITORIES_MISSING' }
+    );
+  }
+  assertClean(root);
+  checkout(root, targetBranch, {
+    base: initialConfig.defaultBaseBranch, existingOnly: true, remote, fetch: false
+  });
+  fastForwardTo(root, remoteRef);
+  const config = await loadConfig(root);
+  validateId(config, subject.id);
+  const workflow = await loadStoryAggregate(root, config, subject.id);
+  const session = await activatePhaseAgent(
+    root, config, workflow.workItem.id, currentPhase(workflow), optionString(options, 'agent') ?? null
+  );
+  const json = optionBoolean(options, 'json');
+  if (!json) {
+    summary(workflow);
+    console.log(`Returned from ${plan.freshness} evidence at ${plan.sourceCommit.slice(0, 12)}.`);
+    console.log(`Active governed agent: ${session.agent}`);
+  }
+  const active = currentPhase(workflow);
+  if (active && !json) {
+    const command = active.id === 'implementation' ? 'implement' : active.id === 'verification' ? 'verify' : active.id;
+    console.log(`Next: singularity-flow prepare ${active.id}`);
+    console.log(`In Copilot: /sf-${command}`);
+  }
+  emitCommandResult(commandResult({
+    operation: { id: 'return', classification: 'mutation' },
+    subject: { kind: 'story', id: workflow.workItem.id },
+    outcome: succeeded('resume.succeeded', { workId: workflow.workItem.id, branch: branch(root) }),
+    effects: effects({ filesChanged: true }),
+    data: { returnPlan: plan }
+  }), { json, postState: workflow });
 }
 
 async function agentCommand(positionals, options = {}) {
@@ -3148,6 +3366,7 @@ export async function submitCommand(positionals, options) {
     }
   );
   if (!reviewPacket) throw new SingularityFlowError('Submission review packet was not created.');
+  const evidenceReceipt = await composeEvidenceReceipt(root, config, workflow, reviewPacket.packet);
   const approvalMode = phase.approvalPolicy?.mode ?? 'required';
   const completedWithoutReview = phase.status === 'approved' && approvalMode === 'none';
   const completedByPolicy = phase.status === 'approved' && approvalMode === 'policy';
@@ -3157,6 +3376,7 @@ export async function submitCommand(positionals, options) {
   console.log(`Commit: ${publication.sha.slice(0, 8)} — ${phase.status === 'approved' ? 'complete phase' : 'request approval'} (${workflow.workItem.id})`);
   console.log(`Push: ${publication.pushed ? `${config.git?.remote ?? 'origin'}/${workflowPublicationBranch(root, workflow)}` : 'disabled by git.publish: off'}`);
   console.log(`Review packet: ${reviewPacket.path} (${reviewPacket.packet.packetSha256.slice(0, 12)})`);
+  console.log(`\n${renderEvidenceReceipt(evidenceReceipt)}`);
   printPhaseReview(await phaseReview(root, config, workflow, phase), { showArtifact: optionBoolean(options, 'show-artifact') });
   // The trailer is narrated. It used to name a Copilot skill and a CLI equivalent chosen by hand
   // here; NEXT now comes from the deterministic planner against the state the submission left.
@@ -3168,7 +3388,12 @@ export async function submitCommand(positionals, options) {
       phase: phase.id, documents: phase.artifacts.length
     }),
     effects: effects({ stateChanged: true, filesChanged: true, publicationCreated: true }),
-    data: { commit: publication.sha, pushed: publication.pushed, reviewPacket: reviewPacket.packet.packetSha256 }
+    data: {
+      commit: publication.sha,
+      pushed: publication.pushed,
+      reviewPacket: reviewPacket.packet.packetSha256,
+      evidenceReceipt
+    }
   }), { postState: workflow, restStateWhenIdle: advanced ? null : 'complete' });
 }
 
@@ -3947,6 +4172,20 @@ async function reviewCommand(positionals, options) {
     return console.log(summariseRendered(rendered, `review bundle for ${workflow.workItem.id}`));
   }
   process.stdout.write(rendered);
+}
+
+async function receiptCommand(positionals, options) {
+  const subcommand = positionals[1] ?? 'show';
+  if (subcommand !== 'show') throw new SingularityFlowError("receipt supports only 'show'.");
+  const root = repoRoot();
+  const config = await loadConfig(root);
+  const workId = positionals[2] ?? optionString(options, 'work-id');
+  const workflow = await loadStoryAggregate(root, config, workId);
+  const packet = await readStoryReviewPacket(root, config, workflow, optionString(options, 'packet'));
+  const receipt = await composeEvidenceReceipt(root, config, workflow, packet);
+  if (optionBoolean(options, 'json')) return console.log(JSON.stringify(receipt, null, 2));
+  if (optionBoolean(options, 'markdown')) return console.log(renderEvidenceReceiptMarkdown(receipt));
+  console.log(renderEvidenceReceipt(receipt));
 }
 
 async function workflowCommand(positionals, options) {
@@ -4729,6 +4968,20 @@ async function sessionCommand(positionals, options) {
   }
   const discovery = await sessionDiscoveryConfiguration(root, resolved.authority);
   const config = discovery.definition;
+  if (subcommand === 'context') {
+    const context = await composeContextBrief(root, {
+      workId: optionString(options, 'work-id'),
+      slice: optionString(options, 'slice', 'brief'),
+      maxOutputBytes: optionNumber(options, 'max-output-bytes')
+    });
+    if (optionBoolean(options, 'json')) return console.log(JSON.stringify(context, null, 2));
+    console.log(`${context.work.id} · ${context.phase?.id ?? 'complete'} · ${context.slice} context`);
+    console.log(`Revision: ${(context.sourceRevision.commit ?? 'unavailable').slice(0, 12)}`);
+    console.log(`Included: ${context.accounting.includedContentBytes}/${context.accounting.maximumOutputBytes} bytes · ~${context.accounting.estimatedInputTokens} tokens`);
+    if (context.omissions.length) console.log(`Omitted: ${context.omissions.join(', ')}`);
+    console.log(JSON.stringify(context.payload, null, 2));
+    return;
+  }
   if (subcommand === 'candidates') {
     const remote = discovery.remote;
     fetchRemote(root, remote);
@@ -4796,7 +5049,15 @@ async function sessionCommand(positionals, options) {
     const attachedConfig = await loadConfig(root);
     const workflow = await loadStoryAggregate(root, attachedConfig, id);
     const session = await activateWorkItemSession(root, attachedConfig, workflow);
-    const result = { workId: id, branch: workflow.workItem.branch, remote, commit: remoteSha, phase: workflow.currentPhase, status: workflow.status, materialization, agent: session.selectedAgent };
+    const result = {
+      workId: id, branch: workflow.workItem.branch, remote, commit: remoteSha,
+      phase: workflow.currentPhase, status: workflow.status, materialization, agent: session.selectedAgent,
+      context: {
+        operation: 'context.brief',
+        arguments: { workId: id, slice: 'brief', maxOutputBytes: 32768 },
+        command: `singularity-flow session context --work-id ${id} --slice brief --max-output-bytes 32768 --json`
+      }
+    };
     if (optionBoolean(options, 'json')) return console.log(JSON.stringify({ ...result, repositoryPath: root, resolvedFrom: resolved.resolvedFrom }, null, 2));
     // This checked out a branch. When the repository came from the selection rather than from where
     // the caller is standing, saying which one is the difference between an attach and a surprise.
@@ -4805,6 +5066,7 @@ async function sessionCommand(positionals, options) {
     console.log(`Current phase: ${workflow.currentPhase ?? 'complete'} · status: ${workflow.status}`);
     if (session.selectedAgent) console.log(`Phase agent: ${session.selectedAgent} (activated automatically).`);
     else console.log(`The Story is ${workflow.status}; no phase agent is required for read-only inspection.`);
+    console.log(`Bounded Copilot context: ${result.context.command}`);
     return;
   }
   if (subcommand !== 'status') throw new SingularityFlowError(`Unknown session subcommand: ${subcommand}`);
@@ -9054,6 +9316,7 @@ async function dispatch(command, positionals, options) {
     choices: () => choicesCommand(positionals, options),
     start: () => startCommand(positionals, options),
     resume: () => resumeCommand(positionals, options),
+    return: () => returnCommand(positionals, options),
     agent: () => agentCommand(positionals, options),
     session: () => sessionCommand(positionals, options),
     inbox: () => inboxCommand(options),
@@ -9083,6 +9346,7 @@ async function dispatch(command, positionals, options) {
     logs: () => logsCommand(positionals, options),
     doctor: () => doctorCommand(positionals, options),
     review: () => reviewCommand(positionals, options),
+    receipt: () => receiptCommand(positionals, options),
     workflow: () => workflowCommand(positionals, options),
     assign: () => assignCommand(positionals),
     watch: () => watchCommand(positionals, options),

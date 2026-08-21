@@ -79,6 +79,28 @@ export function synopsisFor(command) {
  * what it refuses and why, and a worked example. Commands absent from this map still render.
  */
 const PAGES = Object.freeze({
+  receipt: {
+    summary: 'Replay a compact, deterministic evidence receipt for the latest submitted phase.',
+    description: [
+      'The receipt is composed from the durable review packet and governed Story records. It does',
+      'not create a second evidence store and does not trust machine-local state. The same packet',
+      'therefore produces the same receipt hash in a fresh clone.',
+      '',
+      'Use the default text for a quick review, Markdown for a pull-request or handoff summary, and',
+      'JSON when another tool needs the exact availability and integrity fields.'
+    ],
+    options: [
+      ['--work-id ID', 'Select a Story when the current branch is not its governed branch.'],
+      ['--packet SHA256', 'Replay a specific retained review packet instead of the latest one.'],
+      ['--markdown', 'Render the receipt as bounded Markdown.'],
+      ['--json', 'Emit the complete deterministic receipt and its receiptSha256.']
+    ],
+    examples: [
+      ['singularity-flow receipt show --work-id WRK-19', 'Show the latest changes, checks, approvals, context, and publication evidence.'],
+      ['singularity-flow receipt show --work-id WRK-19 --markdown', 'Produce a review-ready Markdown summary.']
+    ],
+    seeAlso: ['status', 'approvals', 'report', 'ledger']
+  },
   telemetry: {
     summary: 'Inspect and control privacy-safe local usage capture for SFlow-owned agent launches.',
     description: [
@@ -731,6 +753,29 @@ const PAGES = Object.freeze({
     summary: 'Return to a Story already in flight.',
     examples: [['singularity-flow resume PAY-1 --fetch', 'Check out PAY-1, refreshing from the remote.']],
     seeAlso: ['start', 'status', 'inbox']
+  },
+  return: {
+    summary: 'Return to a published Story on this machine from a verified durable locator.',
+    description: [
+      'Fetches the configured remote, resolves the Story from published governed state, and verifies',
+      'its integrity-bound return locator before changing the checkout. It never scans arbitrary',
+      'directories, stashes local work, resets a branch, or invents a repository from local memory.',
+      '',
+      'Preview first. Applying requires the exact Work ID and a clean worktree, creates or advances',
+      'only the local Story branch by fast-forward, and then reconstructs the governed session.'
+    ],
+    options: [
+      ['--apply', 'Apply the verified plan; without this flag the command is read-only.'],
+      ['--confirm WORK-ID', 'With --apply, authorize only when the confirmation exactly matches the verified Story ID.'],
+      ['--offline', 'Use the existing remote-tracking ref and report it as cached rather than fresh.'],
+      ['--json', 'Emit the versioned read-only return plan.'],
+      ['--agent ID', 'Select an allowed phase agent while reconstructing the local session.']
+    ],
+    examples: [
+      ['singularity-flow return PAY-1', 'Verify the published Story and show the non-mutating return plan.'],
+      ['singularity-flow return PAY-1 --apply --confirm PAY-1', 'Fast-forward the local PAY-1 branch and attach its governed session.']
+    ],
+    seeAlso: ['resume', 'session', 'home', 'sync']
   },
   story: {
     summary: 'Story-level operations: branches, intervals, convergence, intent amendments, checks, and finalisation.',

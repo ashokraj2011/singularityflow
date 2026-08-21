@@ -14,6 +14,7 @@ import { SingularityFlowError } from '../../util.mjs';
 import { catalogued } from '../catalog.mjs';
 import { noEffects, plannerNavigation, preservedAll, sflowResult } from '../result.mjs';
 import { resolveWorkRecord, workRecords } from '../work-records.mjs';
+import { evaluateReadinessEvidence } from '../readiness-evidence.mjs';
 
 /**
  * The smallest legal step for each blocker `[INT:IFC-081]`.
@@ -39,13 +40,43 @@ const REMEDIATION = Object.freeze({
 const GATES = Object.freeze(['publication-pending', 'publication-marker-unreadable', 'approvals-outstanding', 'required-artifact-missing']);
 
 /**
- * The four inputs `[INT:IFC-081]` names that a phase record cannot answer.
+ * Repository authorities that a phase record alone cannot answer.
  *
  * They appear as `unknown` rows rather than being left out. A gate nobody evaluated and a gate that
  * passed look identical on a screen that only lists problems, and the reader who acts on that
  * screen is the one submitting against an untested change.
  */
-const UNEVALUATED_GATES = Object.freeze(['tests', 'stale-approvals', 'clarifications', 'unclaimed-changes']);
+const UNEVALUATED_GATES = Object.freeze([
+  'published-artifacts', 'tests', 'stale-approvals', 'clarifications',
+  'unclaimed-changes', 'reconciliation', 'ast', 'visual', 'external-build'
+]);
+
+const EVIDENCE_REMEDIATION = Object.freeze({
+  'published-artifacts': {
+    reasonCode: 'readiness.publish-artifacts', label: 'Publish required artifacts',
+    command: (workId) => `singularity-flow next --work-id ${workId}`
+  },
+  tests: { reasonCode: 'readiness.run-missing-checks', label: 'Run missing checks' },
+  'stale-approvals': { reasonCode: 'readiness.revalidate-approvals', label: 'Revalidate approvals' },
+  clarifications: { reasonCode: 'readiness.resolve-clarifications', label: 'Resolve clarifications' },
+  'unclaimed-changes': { reasonCode: 'readiness.claim-changes', label: 'Record change claims' },
+  reconciliation: {
+    reasonCode: 'readiness.reconcile-changes', label: 'Reconcile changed paths',
+    command: (workId) => `singularity-flow story interval reconcile --parent ${workId}`
+  },
+  ast: {
+    reasonCode: 'readiness.inspect-ast', label: 'Inspect structural gate',
+    command: () => 'singularity-flow wm ast gate --json'
+  },
+  visual: {
+    reasonCode: 'readiness.capture-visuals', label: 'Capture required visual evidence',
+    command: () => 'singularity-flow visual status'
+  },
+  'external-build': {
+    reasonCode: 'readiness.record-external-build', label: 'Record external build status',
+    command: (workId) => `singularity-flow story checks --parent ${workId}`
+  }
+});
 
 /**
  * A gate's catalog code, or the named fallback when the lifecycle grows a gate this build predates.
@@ -57,12 +88,24 @@ const UNEVALUATED_GATES = Object.freeze(['tests', 'stale-approvals', 'clarificat
  */
 const gateCode = (gate) => catalogued(`readiness.${gate}`, 'readiness.unrecognised-gate');
 
-export function workReadinessResult(item, { subject = null } = {}) {
+export function workReadinessResult(item, { subject = null, evidenceRows = null } = {}) {
   const blockers = item.blockers.map((blocker) => ({
     blocker,
     ...(REMEDIATION[blocker] ?? { action: null, reasonCode: 'readiness.no-known-step' })
   }));
-  const ready = blockers.length === 0;
+  // Pure result fixtures may omit the repository authorities. Production never does: the planner
+  // above always supplies `evidenceRows`. Keeping that distinction explicit lets render-only tests
+  // describe the partial legacy projection without treating four synthetic `unknown` rows as an
+  // authoritative refusal.
+  const evidenceAuthoritative = evidenceRows !== null;
+  const evaluated = evidenceRows ?? UNEVALUATED_GATES.map((gate) => ({
+    id: gate, code: gateCode(gate), state: 'unknown', source: 'unavailable', evidence: null,
+    action: null, slots: { reason: 'not-evaluated' }
+  }));
+  const evidenceBlocking = evidenceAuthoritative
+    ? evaluated.filter((entry) => entry.state !== 'met')
+    : [];
+  const ready = blockers.length === 0 && evidenceBlocking.length === 0;
 
   /**
    * A blocker that only a person can clear is not a step, and is not counted as one.
@@ -72,6 +115,8 @@ export function workReadinessResult(item, { subject = null } = {}) {
    * complete would be an invitation to go and complete it.
    */
   const actionable = blockers.filter((entry) => entry.action);
+  const evidenceActionable = evaluated.filter((entry) => entry.state === 'unmet' && entry.action);
+  const blockingCount = blockers.length + evidenceBlocking.length;
 
   return sflowResult({
     kind: 'read',
@@ -80,7 +125,7 @@ export function workReadinessResult(item, { subject = null } = {}) {
     outcome: {
       status: 'succeeded',
       messageId: ready ? 'gateway.read' : 'gateway.not-ready',
-      slots: { work: item.id, ready: String(ready), blockers: blockers.length }
+      slots: { work: item.id, ready: String(ready), blockers: blockingCount }
     },
     effects: noEffects(),
     why: [
@@ -88,27 +133,33 @@ export function workReadinessResult(item, { subject = null } = {}) {
         code: ready ? 'readiness.no-blockers-found' : 'readiness.blocked',
         source: 'lifecycle',
         reference: item.id,
-        slots: { phase: item.phase ?? 'none', count: String(blockers.length) }
+        slots: { phase: item.phase ?? 'none', count: String(blockingCount) }
       },
       ...blockers.map((entry) => ({
         code: gateCode(entry.blocker),
         source: 'lifecycle',
         slots: { gate: entry.blocker, remediation: entry.reasonCode }
+      })),
+      ...evidenceBlocking.map((entry) => ({
+        code: gateCode(entry.id),
+        source: entry.source,
+        reference: entry.evidence,
+        slots: { state: entry.state, ...(entry.slots ?? {}) }
       }))
     ],
     /**
-     * What this answer does not cover, said out loud.
+     * Any authority that could not be read is said out loud.
      *
-     * Test gaps, stale approvals, unresolved clarifications and unclaimed changes are all part of
-     * `[INT:IFC-081]` and none of them is derivable from the phase record this reads. A readiness
-     * answer that quietly omits four of its nine inputs reads as "you are ready".
+     * Test gaps, stale approvals, unresolved clarifications and unclaimed changes are evaluated by
+     * their own durable readers. A missing or corrupt reader remains `unknown`; quietly omitting it
+     * would make a partial answer read as "you are ready".
      */
-    warnings: [{
-      code: 'readiness.partial-inputs',
-      source: 'unavailable',
-      slots: { missing: 'tests, stale-approvals, clarifications, unclaimed-changes' }
-    }],
-    next: actionable.map((entry, index) => plannerNavigation({
+    warnings: evaluated.some((entry) => entry.state === 'unknown') ? [{
+      code: 'readiness.partial-inputs', source: 'unavailable',
+      slots: { missing: evaluated.filter((entry) => entry.state === 'unknown').map((entry) => entry.id).join(', ') }
+    }] : [],
+    next: [
+      ...actionable.map((entry, index) => plannerNavigation({
       handle: `readiness:${item.id}:${entry.blocker}`,
       id: `fix:${entry.blocker}`,
       /**
@@ -133,7 +184,27 @@ export function workReadinessResult(item, { subject = null } = {}) {
       emphasis: 'secondary',
       executable: false,
       fallback: { label: entry.action, command: `sflow status --work-id ${item.id}` }
-    }, entry.action, { workId: item.id, workKind: item.kind })),
+      }, entry.action, { workId: item.id, workKind: item.kind })),
+      ...evidenceActionable.map((entry, offset) => {
+        const remediation = EVIDENCE_REMEDIATION[entry.id];
+        return plannerNavigation({
+          handle: `readiness:${item.id}:${entry.id}`,
+          id: entry.action,
+          label: remediation.label,
+          rank: actionable.length + offset,
+          kind: 'read',
+          reasonCode: remediation.reasonCode,
+          confirmation: 'none',
+          interaction: 'navigation',
+          emphasis: 'secondary',
+          executable: false,
+          fallback: {
+            label: remediation.label,
+            command: remediation.command?.(item.id) ?? `sflow status --work-id ${item.id}`
+          }
+        }, 'work.continue', { workId: item.id, workKind: item.kind });
+      })
+    ],
     /**
      * One row per gate, met and unmet alike `[UXH:REQ-062]` `[UXH:AC-003]`.
      *
@@ -165,26 +236,25 @@ export function workReadinessResult(item, { subject = null } = {}) {
             slots: blocked ? { gate, remediation: blocked.reasonCode } : { gate }
           };
         }),
-      ...UNEVALUATED_GATES.map((gate) => ({
-        id: gate,
-        code: gateCode(gate),
-        state: 'unknown',
-        // Not `lifecycle`: nothing was read. The source says where the answer came from, and here
-        // there is no answer — which is the fact the row exists to carry.
-        source: 'unavailable',
-        evidence: null,
-        action: null,
-        slots: {}
+      ...evaluated.map((entry) => ({
+        id: entry.id,
+        code: gateCode(entry.id),
+        state: entry.state,
+        source: entry.source,
+        evidence: entry.evidence,
+        action: entry.state === 'unmet' ? entry.action : null,
+        slots: entry.slots ?? {}
       }))
     ],
     // Ready, or blocked only by other people's decisions: both are answers, and both are a stop.
-    restState: actionable.length ? null : 'informational',
+    restState: actionable.length || evidenceActionable.length ? null : ready ? 'informational' : 'blocked',
     data: {
       work: item.id,
       ready,
       phase: item.phase,
       generation: item.generation,
       blockers,
+      verification: evaluated,
       // Never a verdict, never a recommendation `[INT:CON-180]`.
       recommendation: null
     }
@@ -206,5 +276,8 @@ export async function workReadiness({ arguments: args = {}, subject = null, root
       restState: 'blocked'
     });
   }
-  return workReadinessResult(item, { subject });
+  return workReadinessResult(item, {
+    subject,
+    evidenceRows: await evaluateReadinessEvidence(root, item)
+  });
 }

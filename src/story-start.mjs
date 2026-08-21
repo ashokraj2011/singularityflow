@@ -22,6 +22,7 @@ import {
 } from './state-stores.mjs';
 import { SingularityFlowError } from './util.mjs';
 import { normalizeMcpTargetOrigin } from './mcp-target.mjs';
+import { writeReturnLocator } from './return-locator.mjs';
 
 function lines(value) {
   if (Array.isArray(value)) return value.map((item) => String(item).trim()).filter(Boolean);
@@ -222,12 +223,14 @@ export async function startStory(root, {
     resolved,
     capabilityId
   });
+  const returnLocator = await writeReturnLocator(root, definition, workflow);
   const publication = await commitAndPublish(
     root,
     definition,
     workflow,
     { type: 'binding' },
-    `[${id}][init] start ${workType} workflow`
+    `[${id}][init] start ${workType} workflow`,
+    [returnLocator.path]
   );
   const documents = [];
   if (files.length) {

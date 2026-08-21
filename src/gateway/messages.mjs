@@ -164,15 +164,29 @@ export const RESULT_MESSAGES = Object.freeze({
   'readiness.publication-marker-unreadable': M('Publication recovery record'),
   'readiness.approvals-outstanding': M('Approvals'),
   'readiness.required-artifact-missing': M('Required artifact'),
+  'readiness.published-artifacts': M('Published artifact bytes'),
   'readiness.tests': M('Tests'),
   'readiness.stale-approvals': M('Approval freshness'),
   'readiness.clarifications': M('Clarifications'),
   'readiness.unclaimed-changes': M('Local changes'),
+  'readiness.reconciliation': M('Implementation reconciliation'),
+  'readiness.ast': M('Structural predicates'),
+  'readiness.visual': M('Visual assurance'),
+  'readiness.external-build': M('External build status'),
   'readiness.unrecognised-gate': M('{gate}', 'This build has no name for that gate.'),
   'readiness.resume-publication': M('Finish publishing'),
   'readiness.repair-publication-marker': M('Repair the publication recovery record'),
   'readiness.awaiting-a-human-decision': M('Waiting for a reviewer'),
   'readiness.produce-the-artifact': M('Produce the artifact'),
+  'readiness.publish-artifacts': M('Publish the current required artifacts'),
+  'readiness.run-missing-checks': M('Run the missing or stale checks'),
+  'readiness.revalidate-approvals': M('Revalidate approvals against the current artifact bytes'),
+  'readiness.resolve-clarifications': M('Resolve the recorded clarification markers'),
+  'readiness.claim-changes': M('Record trace claims for the unclaimed changes'),
+  'readiness.reconcile-changes': M('Reconcile changed paths against the governed plan'),
+  'readiness.inspect-ast': M('Inspect the required structural predicates'),
+  'readiness.capture-visuals': M('Capture required visual evidence'),
+  'readiness.record-external-build': M('Record the required external build checks'),
   'readiness.no-known-step': M('No step is known for this'),
 
   /**
@@ -204,6 +218,32 @@ export const RESULT_MESSAGES = Object.freeze({
   'impact.evidence-gap': M('{field} was not read'),
   'impact.tests-by-path-convention': M('{matched} test(s) matched by path convention', 'Matched by naming, not by running anything.'),
   'impact.work-in-the-same-area': M('Other work touches this area'),
+  'context.bounded-brief': M(
+    'Bounded {slice} context from governed records',
+    '{bytes} content byte(s) were included; deeper material remains behind a newly sealed read action.'
+  ),
+  'context.expand-slice': M('Expand only this context slice'),
+  'context.coverage-limited': M(
+    'Some context was not included',
+    '{omission} was unavailable or outside this page\'s explicit byte budget.'
+  ),
+  'repository.explore.bounded-facts': M(
+    'Repository shape from {files} tracked file(s)',
+    'Only bounded structural facts were returned for {path}; source bodies were not included.'
+  ),
+  'repository.explore.empty-scope': M('No tracked source was found under {path}'),
+  'repository.explore.wrong-repository': M('That repository is not the active repository'),
+  'repository.explore.nothing-was-carried-out': M('Nothing was carried out', 'Repository exploration is read-only.'),
+  'investigation.deterministic-triage': M(
+    'Deterministic bug triage found {matches} bounded text match(es)',
+    'The observations narrow investigation; they do not claim a cause.'
+  ),
+  'investigation.assistance-not-invoked': M(
+    'Assisted explanation was not invoked',
+    'This host returned the complete deterministic investigation instead.'
+  ),
+  'investigation.wrong-repository': M('That repository is not the active repository'),
+  'investigation.nothing-was-carried-out': M('Nothing was carried out', 'Investigation is read-only.'),
   'explain.cited': M('Answered from the compiled documentation'),
   'explain.ambiguous': M('More than one topic matches'),
   'explain.no-match': M('No topic matches that'),

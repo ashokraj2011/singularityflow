@@ -116,6 +116,12 @@ export type ResultCardView = {
    * that configured its own.
    */
   readonly rail: readonly { readonly id: string; readonly label: string; readonly state: 'done' | 'current' | 'pending' }[];
+  /** Deterministic replay of the latest durable submission packet; never a second evidence store. */
+  readonly receipt: {
+    readonly workId: string; readonly phase: string; readonly generation: number;
+    readonly changes: string; readonly checks: string; readonly approvals: string;
+    readonly publication: string; readonly sha256: string;
+  } | null;
   /** Redacted unresolved-fault summaries. Evidence paths and raw payloads never enter the webview. */
   readonly faults: readonly {
     readonly faultId: string; readonly severity: string; readonly type: string;
@@ -328,6 +334,19 @@ export function buildResultCard(result: any, { acknowledgement }: ResultCardOpti
     actions,
     /** Named, not spread: a producer that puts something else in `data` does not start rendering it. */
     rail: Array.isArray(result.data?.rail) ? result.data.rail : [],
+    receipt: result.data?.latestReceipt?.kind === 'submission-evidence-receipt'
+      ? Object.freeze({
+        workId: String(result.data.latestReceipt.work?.id ?? ''),
+        phase: String(result.data.latestReceipt.work?.phase ?? ''),
+        generation: Number(result.data.latestReceipt.work?.generation ?? 0),
+        changes: result.data.latestReceipt.changes?.status === 'exact'
+          ? `${Number(result.data.latestReceipt.changes?.count ?? 0)} changed path(s)`
+          : 'Changed paths unavailable',
+        checks: `${Number(result.data.latestReceipt.checks?.passed ?? 0)} passed · ${Number(result.data.latestReceipt.checks?.failed ?? 0)} failed · ${Number(result.data.latestReceipt.checks?.unavailable ?? 0)} unavailable`,
+        approvals: `${Number(result.data.latestReceipt.approvals?.current ?? 0)} of ${Number(result.data.latestReceipt.approvals?.required ?? 0)} required`,
+        publication: String(result.data.latestReceipt.publication?.state ?? 'unavailable'),
+        sha256: String(result.data.latestReceipt.receiptSha256 ?? '')
+      }) : null,
     faults: Array.isArray(result.data?.faults) ? Object.freeze(result.data.faults.map((fault: any) => Object.freeze({
       faultId: String(fault.faultId ?? ''),
       severity: String(fault.severity ?? 'unknown'),

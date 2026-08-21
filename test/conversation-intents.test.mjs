@@ -35,7 +35,7 @@ test('ordinary developer language maps to the six closed intents', () => {
 test('start language infers only a bounded work shape and category', () => {
   const result = planDeveloperConversation('Start a new bug fix for payment retries');
   assert.deepEqual(result.route.work, {
-    shape: 'story', category: 'bug-fix',
+    shape: 'story', category: 'bug-fix', source: 'manual',
     requiredInputs: ['work description', 'definition of done', 'remote base branch']
   });
   const initiative = planDeveloperConversation('Begin a new initiative');

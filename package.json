@@ -78,6 +78,7 @@
     "vscode:visual-fixtures": "node --experimental-strip-types scripts/render-vscode-visual-fixtures.mjs",
     "release": "node scripts/release.mjs",
     "release:dry": "node scripts/release.mjs --dry-run",
+    "smoke:golden": "node scripts/golden-journey-smoke.mjs",
     "benchmark:dx": "node scripts/dx-benchmark.mjs",
     "benchmark:dx:enforce": "node scripts/dx-benchmark.mjs --enforce"
   },

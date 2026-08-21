@@ -259,8 +259,13 @@ async function load(root, { agent: selectedAgent = null, workId = null } = {}) {
     const agent = selectedAgent ?? session?.agent ?? null;
     const agentViewMode = definition.worldModel?.agentViews ?? 'fallback';
     const phases = Object.fromEntries(phaseEntries.map(([id, phase]) => {
+      // A v1 Story migration can reconstruct the lifecycle phase without inventing a historical
+      // world-model policy that was never stored. Preserve a genuinely pinned policy when present;
+      // otherwise retain the same repository-definition fallback that legacy records used before
+      // they were routed through the migration framework.
+      const phaseWorldModel = phase.worldModel ?? definition.phases?.[id]?.worldModel ?? {};
       const agentViews = agent ? definition.agents[agent]?.worldModelViews ?? [] : [];
-      const resolution = resolveViews(phase.worldModel?.views ?? [], agentViews, { mode: agentViewMode });
+      const resolution = resolveViews(phaseWorldModel.views ?? [], agentViews, { mode: agentViewMode });
       return [id, {
         views: resolution.views,
         // Kept so a reader can be told which views came from the phase and which from the agent.
@@ -269,8 +274,8 @@ async function load(root, { agent: selectedAgent = null, workId = null } = {}) {
         declaredViews: resolution.declared,
         agentViews,
         agentViewMode,
-        depth: phase.worldModel?.depth ?? 'standard',
-        evidence: phase.worldModel?.evidence ?? false
+        depth: phaseWorldModel.depth ?? 'standard',
+        evidence: phaseWorldModel.evidence ?? false
       }];
     }));
     return {
@@ -2253,14 +2258,19 @@ function groundingSectionsText(selected, rulePaths) {
 async function workflowPromptContext(root, definition, workflow, phase, workItemRoot) {
   if (!workflow || !phase) return { contract: '', inputs: '', evidence: '', evidenceFiles: [], evidenceEntries: [], warnings: [] };
   const resolvedPhase = workflow.resolution?.phases?.find((candidate) => candidate.id === phase.id);
+  const templateSnapshot = workflow.resolution?.templates?.[phase.id];
   let template = '';
-  if (resolvedPhase) {
+  // Migrating a legacy Story deliberately synthesizes its phase contract even when the old record
+  // never pinned an artifact template. A resolved phase is therefore not proof that a template
+  // path exists. Remote agent templates carry their own immutable path; repository templates need
+  // the resolved template ID before the renderer may join either path.
+  if (resolvedPhase && (resolvedPhase.template || templateSnapshot?.source === 'agent')) {
     template = await renderArtifactTemplate(root, definition, resolvedPhase, {
       id: workflow.workItem.id,
       title: workflow.workItem.title,
       workType: workflow.workItem.workType,
       inputs: '',
-      templateSnapshot: workflow.resolution.templates?.[phase.id]
+      templateSnapshot
     });
   }
   const contract = [

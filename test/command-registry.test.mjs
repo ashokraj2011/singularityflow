@@ -45,6 +45,8 @@ test('mixed deterministic commands classify their actual operation rather than t
   assert.equal(classify('review', ['review', 'intake'], { out: 'review.md' }), 'mutation');
   assert.equal(resolveOperation({ requestedCommand: 'workspace', positionals: ['workspace', 'impact', 'analyze'], options: { 'dry-run': 'true' } }).modelPolicy, 'never');
   assert.equal(resolveOperation({ requestedCommand: 'pr', positionals: ['pr', 'describe'], options: { polish: 'true' } }).modelPolicy, 'optional');
+  assert.equal(resolveOperation({ requestedCommand: 'wm', positionals: ['wm', 'ast', 'evidence', 'reproduce'] }).id, 'wm.ast.evidence.replay');
+  assert.equal(resolveOperation({ requestedCommand: 'wm', positionals: ['wm', 'ast', 'evidence', 'replay'] }).id, 'wm.ast.evidence.replay');
   // Refused before any handler loads — now saying which subcommand was wrong rather than naming
   // the model-policy invariant that only a developer can act on.
   assert.throws(() => resolveOperation({ requestedCommand: 'telemetry', positionals: ['telemetry', 'surprise'] }), /'telemetry' has no subcommand 'surprise'/);

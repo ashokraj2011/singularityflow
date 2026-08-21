@@ -11,7 +11,7 @@ related:
   - agents-and-routing
   - model-independence
   - knowledge-and-remote-assets
-version: 6
+version: 7
 ---
 The world model provides repository-grounded views used during governed generation. In a monorepo, scope it to the capability's source and shared directories so unrelated products do not increase scan cost or invalidate evidence.
 
@@ -32,7 +32,7 @@ Use this topic when the current goal matches **world model**. Start in a governe
 3. Run `sflow doctor --performance --offline`. Review scoped/total file counts and warm fingerprint time before building.
 4. Run `sflow wm status`, then explicitly materialize with `sflow wm light`, `sflow wm build`, or `sflow wm ensure` as policy requires.
 5. Re-read `sflow wm check`. New Stories and Initiatives pin the resolved capability scope, so later capability-map edits do not silently change their evidence boundary.
-6. If structural predicates are configured, run `sflow wm ast gate --json` for diagnostics before publishing. Publication enforces required predicates and writes a generation-bound receipt referencing exact-input, retained-toolchain evidence; submission revalidates it. Audit later with `sflow wm ast evidence replay --receipt <RECEIPT> --json`.
+6. If structural predicates are configured, run `sflow wm ast gate --json` for diagnostics before publishing. Publication enforces required predicates and writes a generation-bound receipt referencing exact-input, retained-toolchain evidence; submission revalidates it. Audit later with `sflow wm ast evidence reproduce --receipt <RECEIPT> --json` (`replay` remains a compatibility alias).
 7. If validation succeeds but publication fails, run `sflow wm recovery list`, inspect the retained ID, then use `sflow wm recovery publish <ID> --confirm <ID>`. It republishes the retained bytes without another model call.
 
 ## State and safety
@@ -41,12 +41,20 @@ World-model fingerprints use Git's existing index object IDs for clean paths and
 
 AST context/query/gate reads reuse content-addressed blob skeletons but never populate the cache;
 only `wm ast build` writes derived local cache records. The built-in JavaScript/TypeScript facts are
-lexical `text` assurance. Syntax and semantic facts require an explicitly configured trusted adapter
-whose bounded structured response validates. Required symbols always need syntax or semantic
-assurance; a text match is advisory. Context and query results are bounded by fact count and
+lexical `text` assurance. Java, Python, Kotlin, and Swift receive `syntax` facts from the bundled,
+on-demand polyglot pack unless the effective policy is `off` or `text-only`. Optional reviewed
+semantic packs enrich—not replace—the syntax skeleton only when an immutable project/toolchain
+binding is complete. Required symbols always need syntax or semantic assurance; a text match is
+advisory. Context and query results are bounded by fact count and
 serialized output bytes and continue through an opaque cursor bound to the exact cone. Required
 predicates fail closed on partial coverage, disabled analysis, insufficient assurance, or a failed
 predicate.
+
+Use `sflow wm ast pack list` and `sflow wm ast pack doctor [PACK]` to inspect providers. Installing
+or removing a local offline pack is previewed and requires its content-bound confirmation phrase;
+repository configuration can select provider IDs but cannot register executable paths. The VS Code
+AST Intelligence page shows the effective per-language provider, assurance, project-model, and
+toolchain matrix for the selected repository.
 
 ## Troubleshooting
 

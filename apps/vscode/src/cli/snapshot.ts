@@ -571,7 +571,10 @@ export interface RepositorySnapshot {
       evidence?: { mode?: 'replayable' | 'identified' | 'off'; store?: string };
       generatedRoots?: string[];
       budgets?: { maxFiles?: number; maxBytes?: number; maxFileBytes?: number };
-      languages?: Record<string, { mode?: 'auto' | 'off'; minimumAssurance?: 'text' | 'syntax' | 'semantic' }>;
+      languages?: Record<string, {
+        mode?: 'auto' | 'off'; minimumAssurance?: 'text' | 'syntax' | 'semantic';
+        syntaxProvider?: string; semanticProvider?: string; semanticProfile?: string;
+      }>;
       predicates?: Array<{
         id?: string; mode?: 'required' | 'advisory'; type?: 'path-exists' | 'symbol-exists';
         path?: string; symbol?: string; minimumAssurance?: 'text' | 'syntax' | 'semantic';

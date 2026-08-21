@@ -1,12 +1,23 @@
 import { createHash, randomBytes, randomUUID } from 'node:crypto';
-import { lstat, readFile, readdir, rm, stat } from 'node:fs/promises';
+import { lstat, mkdtemp, readFile, readdir, rm, stat } from 'node:fs/promises';
 import { existsSync } from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 
 import { normalizeAstPolicy, assuranceSatisfies } from './ast-policy.mjs';
-import { astAdapterRequest, discoverAstAdapters, executeAstAdapter } from './ast-adapter-contract.mjs';
+import {
+  adapterDerivationKey, astAdapterManifestSha256, astAdapterRequest, discoverAstAdapters, executeAstAdapter,
+  inspectAstAdapterArtifacts, validateAstAdapterManifest
+} from './ast-adapter-contract.mjs';
+import {
+  applyAstPackInstall, applyAstPackRemove, planAstPackInstall, planAstPackRemove, readAstPackRegistry
+} from './ast-pack-registry.mjs';
 import { BUILTIN_AST_EXTRACTOR, extractBuiltinAstFacts } from './ast-builtin-extractor.mjs';
+import { compileAstLanguageCatalog, detectAstLanguage } from './ast-language-catalog.mjs';
+import { astSemanticOverlayKey, astSyntaxCacheKey } from './ast-derivation-key.mjs';
+import { bindingForFile, discoverProjectBindings } from './ast-project-binding.mjs';
+import { astSemanticWarmCommand } from './ast-semantic-warm.mjs';
+import { OPTIONAL_AST_SEMANTIC_PACKS, optionalSemanticPack } from './ast-semantic-pack-catalog.mjs';
 import { replayAstEvidence } from './ast-replay.mjs';
 import { loadDefinition, WORKFLOW_PATH } from './config.mjs';
 import { gitCommonDir } from './git.mjs';
@@ -35,13 +46,6 @@ const STATUSES = new Set(['complete', 'partial', 'disabled', 'unsupported', 'sta
 const OPERATIONS = new Set(['context', 'query', 'gate', 'build', 'transform']);
 const GIT_LIST_MAX_BUFFER = 128 * 1024 * 1024;
 
-const LANGUAGE_BY_EXTENSION = new Map([
-  ['.js', 'javascript'], ['.jsx', 'javascript'], ['.mjs', 'javascript'], ['.cjs', 'javascript'],
-  ['.ts', 'typescript'], ['.tsx', 'typescript'], ['.java', 'java'], ['.kt', 'kotlin'], ['.kts', 'kotlin'],
-  ['.swift', 'swift'], ['.m', 'objective-c'], ['.mm', 'objective-cpp'], ['.py', 'python'],
-  ['.go', 'go'], ['.rs', 'rust'], ['.cs', 'csharp'], ['.rb', 'ruby'], ['.php', 'php'],
-  ['.vue', 'vue'], ['.svelte', 'svelte'], ['.xml', 'xml'], ['.json', 'json'], ['.yaml', 'yaml'], ['.yml', 'yaml']
-]);
 const EVIDENCE_CLASSES = new Set(['preview', 'recorded-context', 'gate']);
 
 function sha256(value) {
@@ -159,10 +163,8 @@ function evidenceClass(options = {}) {
   return value;
 }
 
-function languageFor(relative) {
-  const basename = path.posix.basename(relative).toLowerCase();
-  if (basename === 'dockerfile') return 'dockerfile';
-  return LANGUAGE_BY_EXTENSION.get(path.posix.extname(relative).toLowerCase()) ?? 'unknown';
+function languageFor(relative, runtime) {
+  return detectAstLanguage(relative, runtime.languageCatalog).language;
 }
 
 function trackedFiles(root, prefixes = []) {
@@ -261,7 +263,7 @@ function generatedFile(runtime, relative) {
 }
 
 async function candidateFor(root, runtime, file, changed, objectSizes) {
-  const language = languageFor(file.path);
+  const language = languageFor(file.path, runtime);
   const generated = generatedFile(runtime, file.path);
   const languagePolicy = runtime.policy.languages[language] ?? { mode: 'auto', minimumAssurance: 'text' };
   if (file.mode === '160000' || file.mode === '120000') {
@@ -309,6 +311,8 @@ async function candidateFor(root, runtime, file, changed, objectSizes) {
 }
 
 async function enumerateScope(root, runtime, options = {}) {
+  if (!runtime.adapterDiscovery) runtime.adapterDiscovery = await discoverAstAdapters();
+  if (!runtime.languageCatalog) runtime.languageCatalog = compileAstLanguageCatalog(runtime.adapterDiscovery.adapters);
   const requested = explicitPaths(options);
   const all = optionBoolean(options, 'all');
   if (requested.length && all) throw new SingularityFlowError('Use either AST --paths or --all, not both.');
@@ -357,14 +361,28 @@ function resumeJobPath(root, id) {
 }
 
 function blobKey(file, extractor = BUILTIN_EXTRACTOR) {
+  if (extractor.stage === 'syntax') return astSyntaxCacheKey(file.sha256, extractor.derivation);
+  if (extractor.stage === 'semantic') {
+    const syntax = (file.adapters ?? []).find((entry) => entry.extractor?.stage === 'syntax');
+    if (!syntax) throw new SingularityFlowError('A semantic AST overlay requires an accepted syntax skeleton.', {
+      code: 'AST_SEMANTIC_SYNTAX_REQUIRED'
+    });
+    return astSemanticOverlayKey(syntax.cacheKey, extractor.derivation);
+  }
   return sha256(canonicalJson({
     contentKey: file.contentKey, language: file.language,
     extractor
   }));
 }
 
-function blobPath(root, key) {
-  return path.join(storeRoot(root), 'blobs', `${key}.json`);
+function cacheFamily(extractor = BUILTIN_EXTRACTOR) {
+  if (extractor.stage === 'semantic') return { directory: 'semantic', record: 'ast-semantic-overlay' };
+  if (extractor.stage === 'syntax') return { directory: 'syntax', record: 'ast-syntax-skeleton' };
+  return { directory: 'blobs', record: 'ast-cache-blob' };
+}
+
+function blobPath(root, key, extractor = BUILTIN_EXTRACTOR) {
+  return path.join(storeRoot(root), cacheFamily(extractor).directory, `${key}.json`);
 }
 
 function skeletonIntegrity(record) {
@@ -377,7 +395,7 @@ function sealSkeleton(record) {
 }
 
 function validateSkeleton(value, file, key, extractor = BUILTIN_EXTRACTOR) {
-  const record = readRecord('ast-cache-blob', value).record;
+  const record = readRecord(cacheFamily(extractor).record, value).record;
   if (record.key !== key || record.contentKey !== file.contentKey || record.language !== file.language
     || record.extractor?.id !== extractor.id || record.extractor?.version !== extractor.version
     || record.extractor?.assurance !== extractor.assurance || !Array.isArray(record.facts)
@@ -392,7 +410,11 @@ function validateSkeleton(value, file, key, extractor = BUILTIN_EXTRACTOR) {
         ? typeof fact.target === 'string' && fact.target.length > 0
         : fact?.kind === 'relationship'
           ? typeof fact.type === 'string' && fact.type.length > 0 && typeof fact.target === 'string' && fact.target.length > 0
-          : false;
+          : fact?.kind === 'module'
+            ? typeof fact.id === 'string' && typeof fact.name === 'string'
+            : fact?.kind === 'diagnostic'
+              ? typeof fact.code === 'string'
+              : false;
     if (!validKind || fact.assurance !== extractor.assurance
       || ['sourceBody', 'text', 'body', 'content'].some((field) => Object.hasOwn(fact, field))) {
       throw new SingularityFlowError(`AST cache skeleton '${key}' contains an invalid structural fact.`, { code: 'AST_CACHE_INVALID' });
@@ -432,7 +454,7 @@ async function skeletonFor(root, file, {
     if (error?.code !== 'ENOENT' && error?.code !== 'AST_CACHE_INVALID') throw error;
     if (metrics) metrics.misses += 1;
     skeleton = await deriveSkeleton(root, file, key, preparedBytes);
-    if (persist) await writeJson(blobPath(root, key), skeleton);
+    if (persist && file.contentKey?.startsWith('git:')) await writeJson(blobPath(root, key), skeleton);
   }
   memory.set(key, skeleton);
   return skeleton;
@@ -460,22 +482,30 @@ function entryFor(file, skeleton) {
 function materializeFacts(entry, skeleton, { includeFile = true } = {}) {
   const generated = entry.generated === true;
   const extractor = structuredClone(skeleton.extractor);
+  const decorate = (fact) => {
+    if (fact.kind === 'symbol') {
+      return {
+        ...structuredClone(fact), at: `${entry.path}:${fact.span?.startLine ?? fact.line}`,
+        path: entry.path, assurance: fact.assurance, generated, extractor
+      };
+    }
+    if (fact.kind === 'import') {
+      return { ...structuredClone(fact), from: entry.path, assurance: fact.assurance, generated, extractor };
+    }
+    if (fact.kind === 'module' || fact.kind === 'diagnostic') {
+      return { ...structuredClone(fact), path: entry.path, assurance: fact.assurance, generated, extractor };
+    }
+    return {
+      ...structuredClone(fact), from: entry.path,
+      assurance: fact.assurance, generated, extractor
+    };
+  };
   return [
     ...(includeFile ? [{
       kind: 'file', path: entry.path, language: entry.language, bytes: entry.size,
       sha256: skeleton.sha256, generated, assurance: skeleton.extractor.assurance, extractor
     }] : []),
-    ...skeleton.facts.map((fact) => fact.kind === 'symbol'
-      ? {
-          kind: 'symbol', name: fact.name, declarationKind: fact.declarationKind,
-          at: `${entry.path}:${fact.line}`, assurance: fact.assurance, generated, extractor
-        }
-      : fact.kind === 'import'
-        ? { kind: 'import', from: entry.path, target: fact.target, assurance: fact.assurance, generated, extractor }
-        : {
-            kind: 'relationship', from: entry.path, type: fact.type, target: fact.target,
-            ...(fact.sourceId ? { sourceId: fact.sourceId } : {}), assurance: fact.assurance, generated, extractor
-          })
+    ...skeleton.facts.map(decorate)
   ];
 }
 
@@ -489,7 +519,7 @@ async function factsForEntries(root, entries, memory = new Map()) {
       let adapterSkeleton = memory.get(adapter.cacheKey);
       if (!adapterSkeleton) {
         adapterSkeleton = validateSkeleton(
-          await readFile(blobPath(root, adapter.cacheKey)), entry, adapter.cacheKey, adapter.extractor
+          await readFile(blobPath(root, adapter.cacheKey, adapter.extractor)), entry, adapter.cacheKey, adapter.extractor
         );
       }
       facts.push(...materializeFacts(entry, adapterSkeleton, { includeFile: false }));
@@ -557,7 +587,7 @@ async function processCandidates(root, runtime, candidates, {
       root, file, key,
       file.contentKey?.startsWith('git:') ? gitBlobs.get(file.object) : null
     );
-    if (persist) await writeJson(blobPath(root, key), skeleton);
+    if (persist && file.contentKey?.startsWith('git:')) await writeJson(blobPath(root, key), skeleton);
     memory.set(key, skeleton);
     cache.misses += 1;
   }
@@ -572,18 +602,48 @@ function assuranceRank(value) {
   return ['text', 'syntax', 'semantic'].indexOf(value);
 }
 
-function adapterExtractor(adapter) {
+function adapterExtractor(adapter, language, project = null) {
+  const derivation = adapterDerivationKey(adapter, language, project);
   return {
     id: adapter.id,
+    packVersion: adapter.packVersion,
     version: adapter.extractorVersion,
+    stage: adapter.stage,
     assurance: adapter.assurance,
     protocolVersion: adapter.protocolVersion,
+    ...(adapter.legacyProtocol ? { legacyProtocol: adapter.legacyProtocol } : {}),
     manifestSha256: adapter.implementation.manifestSha256,
     artifactSha256: adapter.implementation.artifactSha256,
     runtime: structuredClone(adapter.implementation.runtime),
     grammars: structuredClone(adapter.implementation.grammars),
-    dependencies: structuredClone(adapter.implementation.dependencies)
+    dependencies: structuredClone(adapter.implementation.dependencies),
+    derivation
   };
+}
+
+function providerFor(entry, stage, adapters, policy, diagnostics) {
+  const compatible = adapters
+    .filter((adapter) => adapter.stage === stage && adapter.languages.includes(entry.language)
+      && (adapter.capabilities.length === 0 || adapter.capabilities.includes('skeleton'))
+      && ((adapter.languageDefinitions[entry.language]?.platforms ?? []).length === 0
+        || adapter.languageDefinitions[entry.language].platforms.includes('any')
+        || adapter.languageDefinitions[entry.language].platforms.includes(process.platform)))
+    .sort((left, right) => left.id.localeCompare(right.id));
+  const configured = stage === 'syntax' ? policy.syntaxProvider : policy.semanticProvider;
+  if (configured) {
+    const selected = compatible.find((adapter) => adapter.id === configured);
+    if (!selected) diagnostics.push({
+      code: 'AST_PROVIDER_UNAVAILABLE', language: entry.language, stage, provider: configured,
+      message: `Configured ${stage} provider '${configured}' is unavailable for ${entry.language}.`
+    });
+    return selected ?? null;
+  }
+  if (compatible.length > 1) diagnostics.push({
+    code: 'AST_PROVIDER_CONFLICT', language: entry.language, stage,
+    providers: compatible.map((adapter) => adapter.id),
+    message: `Multiple ${stage} providers are installed for ${entry.language}; '${compatible.find((item) => item.id === 'sflow-polyglot-syntax')?.id ?? compatible[0].id}' was selected deterministically. Pin a provider in ast.languages.${entry.language}.`
+  });
+  return compatible.find((adapter) => adapter.id === 'sflow-polyglot-syntax') ?? compatible[0] ?? null;
 }
 
 async function applyConfiguredAdapters(root, runtime, selection, processed, { persist = false } = {}) {
@@ -591,84 +651,148 @@ async function applyConfiguredAdapters(root, runtime, selection, processed, { pe
   const degradation = [];
   const provenance = [];
   if (runtime.policy.fallback === 'text-only' || !processed.entries.length) {
-    return { diagnostics, degradation, provenance };
+    return { diagnostics, degradation, provenance, projectBindings: [] };
   }
-  const discovery = await discoverAstAdapters();
+  const discovery = runtime.adapterDiscovery ?? await discoverAstAdapters();
+  runtime.adapterDiscovery = discovery;
   diagnostics.push(...discovery.diagnostics);
-  const groups = new Map();
-  for (const entry of processed.entries) {
-    // External adapters are trusted host commands that consume repository paths. A clean sparse
-    // file can still produce built-in facts from its Git blob, but it is never implied to exist on
-    // disk for an adapter.
-    if (entry.materialized === false) continue;
-    const compatible = discovery.adapters
-      .filter((adapter) => adapter.languages.includes(entry.language) && (adapter.capabilities.length === 0 || adapter.capabilities.includes('skeleton')))
-      .sort((left, right) => assuranceRank(right.assurance) - assuranceRank(left.assurance) || left.id.localeCompare(right.id));
-    const adapter = compatible[0];
-    if (!adapter) continue;
-    const extractor = adapterExtractor(adapter);
-    const key = blobKey(entry, extractor);
-    const existingIndex = (entry.adapters ?? []).findIndex((existing) => existing.extractor?.id === extractor.id
-      && existing.extractor?.version === extractor.version
-      && existing.extractor?.assurance === extractor.assurance);
-    try {
-      const cached = validateSkeleton(await readFile(blobPath(root, key)), entry, key, extractor);
-      processed.memory.set(key, cached);
-      if (existingIndex < 0) entry.adapters.push({ cacheKey: key, extractor });
-      entry.assurance = assuranceRank(extractor.assurance) > assuranceRank(entry.assurance) ? extractor.assurance : entry.assurance;
-      processed.cache.hits += 1;
-      provenance.push({ id: adapter.id, version: adapter.extractorVersion, assurance: adapter.assurance, status: 'cache-hit' });
-      continue;
-    } catch (error) {
-      if (error?.code !== 'ENOENT' && error?.code !== 'AST_CACHE_INVALID') throw error;
-      if (existingIndex >= 0) entry.adapters.splice(existingIndex, 1);
-    }
-    const group = groups.get(adapter.id) ?? { adapter, entries: [] };
-    group.entries.push(entry);
-    groups.set(adapter.id, group);
-  }
-  for (const { adapter, entries } of groups.values()) {
-    const request = astAdapterRequest({
-      operation: 'skeleton',
-      scope: selection.scope,
-      files: entries.map((entry) => ({ path: entry.path, sha256: entry.sha256, language: entry.language })),
-      budget: processed.budgets,
-      implementation: adapter.implementation
-    });
-    try {
-      const response = await executeAstAdapter(adapter, request, { root });
-      const byPath = new Map(response.files.map((file) => [file.path, file]));
-      const extractor = adapterExtractor(adapter);
-      for (const entry of entries) {
-        const file = byPath.get(entry.path);
-        if (!file) {
-          degradation.push({ path: entry.path, reason: 'adapter-omitted-file', adapter: adapter.id, required: entry.requiredAssurance });
-          continue;
-        }
-        const key = blobKey(entry, extractor);
-        const skeleton = sealSkeleton({
-          schemaVersion: currentSchemaVersion('ast-cache-blob'), key, contentKey: entry.contentKey,
-          sha256: entry.sha256, language: entry.language, extractor, facts: file.facts
+  const projectDiscovery = discovery.adapters.some((adapter) => adapter.stage === 'semantic')
+    ? await discoverProjectBindings(root, { paths: selection.scope.paths ?? [] })
+    : { bindings: [], diagnostics: [] };
+  diagnostics.push(...projectDiscovery.diagnostics.map((item) => ({ ...item, message: 'Project discovery reached its bounded metadata limit.' })));
+
+  // Syntax always runs before semantic enrichment. A failed semantic provider never discards the
+  // accepted syntax skeleton, and no semantic provider runs without a complete immutable binding.
+  for (const stage of ['syntax', 'semantic']) {
+    const groups = new Map();
+    for (const entry of processed.entries) {
+      if (entry.materialized === false) continue;
+      const policy = runtime.policy.languages[entry.language] ?? {
+        mode: 'auto', minimumAssurance: 'text', syntaxProvider: null, semanticProvider: null, semanticProfile: null
+      };
+      const adapter = providerFor(entry, stage, discovery.adapters, policy, diagnostics);
+      if (!adapter) continue;
+      const definition = adapter.languageDefinitions[entry.language];
+      const project = stage === 'semantic'
+        ? bindingForFile(projectDiscovery.bindings, entry.path, definition.projectKinds ?? [])
+        : null;
+      if (stage === 'semantic' && !(entry.adapters ?? []).some((item) => item.extractor?.stage === 'syntax')) {
+        degradation.push({
+          path: entry.path, reason: 'semantic-syntax-skeleton-unavailable', adapter: adapter.id,
+          required: entry.requiredAssurance
         });
-        processed.memory.set(key, skeleton);
-        if (persist) await writeJson(blobPath(root, key), skeleton);
-        entry.adapters.push({ cacheKey: key, extractor });
-        entry.assurance = assuranceRank(extractor.assurance) > assuranceRank(entry.assurance) ? extractor.assurance : entry.assurance;
-        processed.cache.misses += 1;
+        continue;
       }
-      diagnostics.push(...response.diagnostics);
-      provenance.push({ id: adapter.id, version: adapter.extractorVersion, assurance: adapter.assurance, status: 'executed' });
-    } catch (error) {
-      diagnostics.push({ code: error.code ?? 'AST_ADAPTER_FAILED', message: error.message, adapter: adapter.id });
-      degradation.push(...entries.map((entry) => ({
-        path: entry.path, reason: 'adapter-failed', adapter: adapter.id, required: entry.requiredAssurance
-      })));
-      provenance.push({ id: adapter.id, version: adapter.extractorVersion, assurance: adapter.assurance, status: 'failed' });
+      if (stage === 'semantic' && (!project || project.complete !== true)) {
+        degradation.push({
+          path: entry.path, reason: 'semantic-project-binding-incomplete', adapter: adapter.id,
+          required: entry.requiredAssurance,
+          unavailable: project?.unavailable ?? ['project-binding']
+        });
+        continue;
+      }
+      if (stage === 'semantic' && project.semanticProvider && project.semanticProvider !== adapter.id) {
+        degradation.push({
+          path: entry.path, reason: 'semantic-project-provider-mismatch', adapter: adapter.id,
+          required: entry.requiredAssurance, boundProvider: project.semanticProvider
+        });
+        continue;
+      }
+      if (stage === 'semantic' && policy.semanticProfile && project.profile !== policy.semanticProfile) {
+        degradation.push({
+          path: entry.path, reason: 'semantic-project-profile-mismatch', adapter: adapter.id,
+          required: entry.requiredAssurance, configuredProfile: policy.semanticProfile,
+          boundProfile: project.profile
+        });
+        continue;
+      }
+      const extractor = adapterExtractor(adapter, entry.language, project);
+      const key = blobKey(entry, extractor);
+      const existingIndex = (entry.adapters ?? []).findIndex((existing) => existing.extractor?.derivation?.derivationSha256 === extractor.derivation.derivationSha256);
+      try {
+        const cached = validateSkeleton(await readFile(blobPath(root, key, extractor)), entry, key, extractor);
+        processed.memory.set(key, cached);
+        if (existingIndex < 0) entry.adapters.push({ cacheKey: key, extractor });
+        entry.assurance = assuranceRank(extractor.assurance) > assuranceRank(entry.assurance) ? extractor.assurance : entry.assurance;
+        processed.cache.hits += 1;
+        provenance.push({
+          id: adapter.id, packVersion: adapter.packVersion, version: adapter.extractorVersion,
+          stage, assurance: adapter.assurance, derivationSha256: extractor.derivation.derivationSha256, status: 'cache-hit'
+        });
+        continue;
+      } catch (error) {
+        if (error?.code !== 'ENOENT' && error?.code !== 'AST_CACHE_INVALID') throw error;
+        if (existingIndex >= 0) entry.adapters.splice(existingIndex, 1);
+      }
+      const groupId = `${adapter.id}\0${project?.projectModelSha256 ?? 'syntax'}`;
+      const group = groups.get(groupId) ?? { adapter, project, entries: [] };
+      group.entries.push(entry);
+      groups.set(groupId, group);
+    }
+    for (const { adapter, project, entries } of groups.values()) {
+      const request = astAdapterRequest({
+        protocolVersion: adapter.protocolVersion, operation: 'skeleton', stage,
+        scope: { ...selection.scope, repositoryRevision: selection.repositoryRevision },
+        files: entries.map((entry) => ({ path: entry.path, sha256: entry.sha256, language: entry.language })),
+        budget: { ...processed.budgets, maxOutputBytes: 2 * 1024 * 1024, timeoutMs: 30_000 },
+        implementation: adapter.implementation, project
+      });
+      try {
+        const response = await executeAstAdapter(adapter, request, { root });
+        const byPath = new Map(response.files.map((file) => [file.path, file]));
+        for (const entry of entries) {
+          const file = byPath.get(entry.path);
+          if (!file) {
+            degradation.push({ path: entry.path, reason: 'adapter-omitted-file', adapter: adapter.id, required: entry.requiredAssurance });
+            continue;
+          }
+          if (stage === 'semantic') {
+            const syntaxEntry = entry.adapters.find((item) => item.extractor?.stage === 'syntax');
+            const syntaxSkeleton = processed.memory.get(syntaxEntry.cacheKey)
+              ?? validateSkeleton(await readFile(blobPath(root, syntaxEntry.cacheKey, syntaxEntry.extractor)), entry, syntaxEntry.cacheKey, syntaxEntry.extractor);
+            const syntaxIds = new Set(syntaxSkeleton.facts.filter((fact) => fact.kind === 'symbol').map((fact) => fact.id));
+            if (file.facts.some((fact) => fact.kind === 'symbol' && (!fact.syntaxId || !syntaxIds.has(fact.syntaxId)))) {
+              degradation.push({ path: entry.path, reason: 'semantic-syntax-join-invalid', adapter: adapter.id, required: entry.requiredAssurance });
+              diagnostics.push({ code: 'AST_SEMANTIC_SYNTAX_JOIN_INVALID', message: `Semantic adapter '${adapter.id}' returned a declaration without a valid syntax identity.` });
+              continue;
+            }
+          }
+          const extractor = adapterExtractor(adapter, entry.language, project);
+          const key = blobKey(entry, extractor);
+          const family = cacheFamily(extractor).record;
+          const skeleton = sealSkeleton({
+            schemaVersion: currentSchemaVersion(family), key, contentKey: entry.contentKey,
+            sha256: entry.sha256, language: entry.language, extractor, facts: file.facts
+          });
+          processed.memory.set(key, skeleton);
+          if (persist && entry.contentKey?.startsWith('git:')) await writeJson(blobPath(root, key, extractor), skeleton);
+          entry.adapters.push({ cacheKey: key, extractor });
+          entry.assurance = assuranceRank(extractor.assurance) > assuranceRank(entry.assurance) ? extractor.assurance : entry.assurance;
+          processed.cache.misses += 1;
+        }
+        diagnostics.push(...response.diagnostics);
+        diagnostics.push(...response.rejectedFiles.map((item) => ({ ...item, message: `Adapter '${adapter.id}' returned an invalid result for ${item.path}.` })));
+        const derivations = entries.map((entry) => adapterExtractor(adapter, entry.language, project).derivation.derivationSha256);
+        provenance.push({
+          id: adapter.id, packVersion: adapter.packVersion, version: adapter.extractorVersion,
+          stage, assurance: adapter.assurance, derivations: [...new Set(derivations)].sort(), status: 'executed'
+        });
+      } catch (error) {
+        diagnostics.push({ code: error.code ?? 'AST_ADAPTER_FAILED', message: error.message, adapter: adapter.id });
+        degradation.push(...entries.map((entry) => ({
+          path: entry.path, reason: 'adapter-failed', adapter: adapter.id, required: entry.requiredAssurance
+        })));
+        provenance.push({
+          id: adapter.id, packVersion: adapter.packVersion, version: adapter.extractorVersion,
+          stage, assurance: adapter.assurance, status: 'failed'
+        });
+      }
     }
   }
   return {
     diagnostics,
     degradation,
+    projectBindings: projectDiscovery.bindings.filter((binding) => binding.complete === true),
     provenance: [...new Map(provenance.map((item) => [`${item.id}\0${item.status}`, item])).values()]
   };
 }
@@ -681,6 +805,7 @@ function coverageFor(selection, processed, facts, deferred = []) {
     processed: processed.entries.length,
     skipped: processed.skipped.length + deferred.length,
     bytes: processed.entries.reduce((sum, entry) => sum + entry.size, 0),
+    generated: processed.entries.filter((entry) => entry.generated === true).length,
     facts: facts.length, factsExamined: facts.length, factsMatched: facts.length, factsReturned: facts.length,
     byLanguage
   };
@@ -788,6 +913,7 @@ function baseEnvelope(runtime, operation, scope, mode, { revision = null, finger
     status: mode.mode === 'off' ? 'disabled' : 'complete',
     coverage: {
       selected: 0, processed: 0, skipped: 0, bytes: 0,
+      generated: 0,
       facts: 0, factsExamined: 0, factsMatched: 0, factsReturned: 0, byLanguage: {}
     },
     facts: [], diagnostics: [], degradation: [], resumeHandle: null, nextCursor: null,
@@ -823,6 +949,18 @@ function normalizedOperationOptions(runtime, selection, options, operation) {
     mode: optionString(options, 'mode', 'auto'),
     predicates: structuredClone(runtime.policy.predicates)
   };
+}
+
+function extractorFactSets(facts) {
+  const groups = new Map();
+  for (const fact of facts) {
+    const id = fact.extractor?.id ?? 'unknown';
+    const current = groups.get(id) ?? [];
+    current.push(fact); groups.set(id, current);
+  }
+  return [...groups.entries()].sort(([left], [right]) => left.localeCompare(right)).map(([id, values]) => ({
+    id, count: values.length, factsSha256: recordSha256(values)
+  }));
 }
 
 function attachEvidenceCapture(root, runtime, selection, processed, envelope, options, structuralFacts) {
@@ -868,6 +1006,9 @@ function attachEvidenceCapture(root, runtime, selection, processed, envelope, op
   const operationOptions = normalizedOperationOptions(runtime, selection, options, envelope.operation);
   envelope.provenance.evidence = {
     evidenceClass: requestedClass,
+    extractors: uniqueExtractors(structuralFacts.flatMap((fact) => [
+      fact.extractor, ...(fact.extractors ?? [])
+    ])),
     configuration: {
       astPolicySha256: recordSha256(runtime.policy),
       sourceScopeSha256: recordSha256(runtime.sourceScope),
@@ -875,6 +1016,7 @@ function attachEvidenceCapture(root, runtime, selection, processed, envelope, op
       predicateSetSha256: recordSha256(runtime.policy.predicates),
       operationOptionsSha256: recordSha256(operationOptions)
     },
+    projectBindings: structuredClone(envelope.provenance.projectBindings ?? []),
     replayRecipe: operationOptions,
     inputs: {
       sourceCommit,
@@ -884,6 +1026,7 @@ function attachEvidenceCapture(root, runtime, selection, processed, envelope, op
     outputs: {
       canonicalizationVersion: 1,
       factsSha256: recordSha256(structuralFacts),
+      extractorFactSets: extractorFactSets(structuralFacts),
       predicateResultsSha256: null,
       page: null
     }
@@ -1020,6 +1163,7 @@ async function buildOrContext(root, options, operation) {
   const degradation = [...processed.skipped, ...deferred, ...adapters.degradation, ...assurance];
   envelope.diagnostics.push(...adapters.diagnostics);
   envelope.provenance.adapters = adapters.provenance;
+  envelope.provenance.projectBindings = structuredClone(adapters.projectBindings);
   envelope.coverage = coverageFor(selection, processed, envelope.facts, deferred);
   envelope.degradation = degradation.slice(0, 100);
   if (degradation.length > envelope.degradation.length) {
@@ -1072,6 +1216,7 @@ async function resumeBuild(root, handle, options) {
   result.assurance = resultAssurance(processed.entries);
   result.diagnostics.push(...adapters.diagnostics);
   result.provenance.adapters = adapters.provenance;
+  result.provenance.projectBindings = structuredClone(adapters.projectBindings);
   result.coverage = coverageFor(selection, processed, facts, deferred);
   result.degradation = degradation.slice(0, 100);
   if (degradation.length) result.status = 'partial';
@@ -1096,7 +1241,15 @@ async function resumeBuild(root, handle, options) {
 
 function matchQuery(fact, predicate, value) {
   if (predicate === 'symbol') return fact.kind === 'symbol' && String(fact.name).includes(value);
+  if (predicate === 'symbol-id') return fact.kind === 'symbol' && (fact.id === value || fact.qualifiedName === value);
   if (predicate === 'import') return fact.kind === 'import' && String(fact.target).includes(value);
+  if (predicate === 'references') return fact.kind === 'relationship'
+    && ['references', 'calls', 'reads', 'writes', 'test-covers'].includes(fact.type)
+    && (fact.sourceId === value || fact.target === value);
+  if (predicate === 'hierarchy') return fact.kind === 'relationship'
+    && ['extends', 'implements', 'conforms-to', 'overrides', 'expect-actual'].includes(fact.type)
+    && (fact.sourceId === value || fact.target === value);
+  if (predicate === 'module') return fact.kind === 'module' && (fact.id === value || String(fact.name).includes(value));
   if (predicate === 'language') return fact.kind === 'file' && fact.language === value;
   if (predicate === 'path') return fact.kind === 'file' && inPrefix(fact.path, value);
   return false;
@@ -1273,7 +1426,7 @@ export async function astQuery(root, options = {}) {
   const handle = optionString(options, 'cursor');
   if (handle) {
     const payload = readCursorPayload(root, handle, 'query');
-    if (!payload.query || !['symbol', 'import', 'language', 'path'].includes(payload.query.predicate)
+    if (!payload.query || !['symbol', 'symbol-id', 'import', 'references', 'hierarchy', 'module', 'language', 'path'].includes(payload.query.predicate)
       || typeof payload.query.value !== 'string' || !payload.query.value) {
       throw new SingularityFlowError('AST query cursor does not contain a valid bound query.', { code: 'AST_READ_CURSOR_INVALID' });
     }
@@ -1292,7 +1445,9 @@ export async function astQuery(root, options = {}) {
   }
   const predicate = optionString(options, 'predicate');
   const value = optionString(options, 'value', '');
-  if (!['symbol', 'import', 'language', 'path'].includes(predicate) || !value) throw new SingularityFlowError('wm ast query requires --predicate symbol|import|language|path and --value VALUE.');
+  if (!['symbol', 'symbol-id', 'import', 'references', 'hierarchy', 'module', 'language', 'path'].includes(predicate) || !value) {
+    throw new SingularityFlowError('wm ast query requires --predicate symbol|symbol-id|import|references|hierarchy|module|language|path and --value VALUE.');
+  }
   const envelope = filterQueryEnvelope(await buildOrContext(root, options, 'query'), predicate, value);
   return boundedReadPage(root, envelope, { operation: 'query', options, query: { predicate, value } });
 }
@@ -1308,18 +1463,79 @@ export async function evaluateAstGate(root, options = {}) {
     // extractor intentionally does not parse comments or conditional syntax, so required symbol
     // predicates must be established by at least a syntax adapter even when an older policy says
     // `text`. Advisory predicates retain the useful, explicitly low-assurance lexical result.
-    const requiredAssurance = predicate.mode === 'required' && predicate.type === 'symbol-exists'
-      && !assuranceSatisfies(configuredAssurance, 'syntax') ? 'syntax' : configuredAssurance;
+    const minimumByType = {
+      'symbol-exists': 'syntax', 'import-boundary': 'syntax', 'annotation-present': 'syntax',
+      'inherits-from': 'syntax', 'conforms-to': 'semantic', 'override-exists': 'semantic',
+      'public-signature-changed': 'syntax', 'module-dependency': 'semantic'
+    };
+    const floor = minimumByType[predicate.type] ?? 'text';
+    const requiredAssurance = assuranceSatisfies(configuredAssurance, floor) ? configuredAssurance : floor;
+    const isRichPredicate = !['path-exists', 'symbol-exists'].includes(predicate.type);
+    const languageFacts = envelope.facts.filter((fact) => fact.kind === 'file');
+    const selectedLanguages = new Set(languageFacts.map((fact) => fact.language));
+    const profiles = new Set(envelope.facts.flatMap((fact) => [fact.extractor, ...(fact.extractors ?? [])])
+      .map((extractor) => extractor?.derivation?.profile).filter(Boolean));
+    const languageApplicable = !isRichPredicate || predicate.languages.includes('*')
+      || predicate.languages.some((language) => selectedLanguages.has(language));
+    const profileApplicable = !isRichPredicate || predicate.profiles.includes('*')
+      || predicate.profiles.some((profile) => profiles.has(profile));
+    const symbolMatches = (fact, value) => fact.kind === 'symbol'
+      && [fact.id, fact.name, fact.qualifiedName].includes(value);
+    const v2Eligible = (fact) => !isRichPredicate || ![fact.extractor, ...(fact.extractors ?? [])]
+      .some((extractor) => extractor?.legacyProtocol === 1);
+    const targetMatches = (actual, expected) => actual === expected
+      || String(actual).endsWith(`.${expected}`) || String(actual).startsWith(`${expected}.`);
+    const symbols = envelope.facts.filter((fact) => symbolMatches(fact, predicate.symbol));
+    const symbolIds = new Set(symbols.flatMap((fact) => [fact.id, fact.name, fact.qualifiedName]).filter(Boolean));
+    let matching = [];
+    let negativeConstraint = false;
+    let observedSha256 = null;
+    if (predicate.type === 'path-exists') matching = envelope.facts.filter((fact) => fact.kind === 'file' && fact.path === predicate.path);
+    else if (predicate.type === 'symbol-exists') matching = symbols;
+    else if (predicate.type === 'annotation-present') matching = symbols.filter((fact) => fact.annotations?.includes(predicate.annotation));
+    else if (predicate.type === 'inherits-from') matching = envelope.facts.filter((fact) => fact.kind === 'relationship'
+      && fact.type === 'extends' && symbolIds.has(fact.sourceId) && targetMatches(fact.target, predicate.target));
+    else if (predicate.type === 'conforms-to') matching = envelope.facts.filter((fact) => fact.kind === 'relationship'
+      && ['implements', 'conforms-to'].includes(fact.type) && symbolIds.has(fact.sourceId) && targetMatches(fact.target, predicate.target));
+    else if (predicate.type === 'override-exists') matching = envelope.facts.filter((fact) => fact.kind === 'relationship'
+      && fact.type === 'overrides' && symbolIds.has(fact.sourceId) && targetMatches(fact.target, predicate.target));
+    else if (predicate.type === 'module-dependency') matching = envelope.facts.filter((fact) => fact.kind === 'relationship'
+      && fact.type === 'imports' && fact.sourceId === predicate.module && targetMatches(fact.target, predicate.target));
+    else if (predicate.type === 'import-boundary') {
+      negativeConstraint = true;
+      matching = envelope.facts.filter((fact) => fact.kind === 'import'
+        && String(fact.from ?? fact.path ?? '').startsWith(predicate.path)
+        && targetMatches(fact.target, predicate.target));
+    } else if (predicate.type === 'public-signature-changed') {
+      const publicSymbols = envelope.facts.filter((fact) => fact.kind === 'symbol'
+        && String(fact.path ?? '').startsWith(predicate.path)
+        && (['public', 'open'].includes(fact.visibility)
+          || (fact.extractor?.derivation?.language === 'python' && !fact.name.startsWith('_'))));
+      observedSha256 = recordSha256(publicSymbols.map((fact) => ({
+        id: fact.id, qualifiedName: fact.qualifiedName, signature: fact.signature, path: fact.path
+      })).sort((left, right) => `${left.path}\0${left.id}`.localeCompare(`${right.path}\0${right.id}`)));
+      matching = observedSha256 !== predicate.expectedSha256 ? publicSymbols : [];
+    }
+    matching = matching.filter(v2Eligible);
     let outcome = 'unknown';
-    const matching = predicate.type === 'path-exists'
-      ? envelope.facts.filter((fact) => fact.kind === 'file' && fact.path === predicate.path)
-      : envelope.facts.filter((fact) => fact.kind === 'symbol' && fact.name === predicate.symbol);
-    if (matching.some((fact) => assuranceSatisfies(fact.assurance ?? 'text', requiredAssurance))) outcome = 'pass';
+    const adequate = matching.some((fact) => assuranceSatisfies(fact.assurance ?? 'text', requiredAssurance));
+    if (!languageApplicable || !profileApplicable) outcome = 'unknown';
+    else if (negativeConstraint && assuranceSatisfies(envelope.assurance, requiredAssurance)) outcome = matching.length ? 'fail' : 'pass';
+    else if (predicate.type === 'public-signature-changed' && assuranceSatisfies(envelope.assurance, requiredAssurance)) {
+      outcome = observedSha256 !== predicate.expectedSha256 ? 'pass' : 'fail';
+    } else if (adequate) outcome = 'pass';
     else if (!matching.length && assuranceSatisfies(envelope.assurance, requiredAssurance)) outcome = 'fail';
     const extractors = uniqueExtractors((matching.length ? matching : envelope.facts).flatMap((fact) => [
       fact.extractor, ...(fact.extractors ?? [])
     ]));
-    results.push({ id: predicate.id, mode: predicate.mode, requiredAssurance, outcome, extractors });
+    const { id: _id, mode: _mode, minimumAssurance: _minimum, ...inputs } = predicate;
+    results.push({
+      id: predicate.id, mode: predicate.mode, requiredAssurance, outcome,
+      applicable: languageApplicable && profileApplicable,
+      inputs,
+      ...(observedSha256 ? { observedSha256 } : {}),
+      extractors
+    });
     if (requiredAssurance !== configuredAssurance) envelope.diagnostics.push({
       code: 'AST_REQUIRED_SYMBOL_SYNTAX_ASSURANCE',
       message: `Required symbol predicate '${predicate.id}' was raised from text to syntax assurance; lexical matches remain advisory.`
@@ -1419,11 +1635,13 @@ async function pruneCache(root, options) {
     const current = await enumerateScope(root, runtime, selector);
     return current.coneSha256 === record.coneSha256;
   });
-  const blobs = path.join(storeRoot(root), 'blobs');
-  for (const entry of await readdir(blobs, { withFileTypes: true }).catch((error) => error?.code === 'ENOENT' ? [] : Promise.reject(error))) {
-    const target = path.join(blobs, entry.name);
-    if (entry.isSymbolicLink()) throw new SingularityFlowError(`AST cache contains a symbolic link and will not be traversed: ${target}`);
-    if (entry.isFile() && entry.name.endsWith('.json') && !reachable.has(entry.name.slice(0, -5))) targets.push(target);
+  for (const directory of ['blobs', 'syntax', 'semantic']) {
+    const cacheDirectory = path.join(storeRoot(root), directory);
+    for (const entry of await readdir(cacheDirectory, { withFileTypes: true }).catch((error) => error?.code === 'ENOENT' ? [] : Promise.reject(error))) {
+      const target = path.join(cacheDirectory, entry.name);
+      if (entry.isSymbolicLink()) throw new SingularityFlowError(`AST cache contains a symbolic link and will not be traversed: ${target}`);
+      if (entry.isFile() && entry.name.endsWith('.json') && !reachable.has(entry.name.slice(0, -5))) targets.push(target);
+    }
   }
   async function legacy(current) {
     for (const entry of await readdir(current, { withFileTypes: true }).catch((error) => error?.code === 'ENOENT' ? [] : Promise.reject(error))) {
@@ -1452,6 +1670,10 @@ export async function astDoctor(root) {
   const effective = await effectiveAstMode(runtime.policy);
   const cache = await astCacheStatus(root);
   const adapterDiscovery = await discoverAstAdapters();
+  const artifactHealth = new Map();
+  for (const adapter of adapterDiscovery.adapters) artifactHealth.set(adapter.id, await inspectAstAdapterArtifacts(adapter));
+  runtime.adapterDiscovery = adapterDiscovery;
+  runtime.languageCatalog = compileAstLanguageCatalog(adapterDiscovery.adapters);
   const assuranceAvailable = new Set(['text']);
   for (const adapter of adapterDiscovery.adapters) {
     assuranceAvailable.add(adapter.assurance);
@@ -1462,14 +1684,62 @@ export async function astDoctor(root) {
   const latestGate = activePhase?.astGates?.findLast?.((entry) => entry.generation === activePhase.generation)
     ?? [...(activePhase?.astGates ?? [])].sort((left, right) => right.generation - left.generation)[0]
     ?? null;
+  const selection = effective.mode === 'off' ? { candidates: [] } : await enumerateScope(root, runtime, {});
+  const projects = effective.mode === 'off'
+    ? { mode: 'existing-only', bindings: [], diagnostics: [], digest: null }
+    : await discoverProjectBindings(root, { paths: runtime.sourceScope.paths });
+  const byLanguage = new Map();
+  for (const file of selection.candidates) byLanguage.set(file.language, (byLanguage.get(file.language) ?? 0) + 1);
+  const languages = [...new Set([...byLanguage.keys(), ...Object.keys(runtime.policy.languages)])].sort().map((language) => {
+    const packs = adapterDiscovery.adapters.filter((adapter) => adapter.languages.includes(language));
+    const policy = runtime.policy.languages[language] ?? { mode: 'auto', minimumAssurance: 'text', syntaxProvider: null, semanticProvider: null };
+    const selectedSyntax = providerFor({ language }, 'syntax', packs, policy, []);
+    const selectedSemantic = providerFor({ language }, 'semantic', packs, policy, []);
+    const project = projects.bindings.find((binding) => binding.root === '.' || selection.candidates.some((file) => file.language === language && file.path.startsWith(`${binding.root}/`))) ?? null;
+    return {
+      language, selectedFiles: byLanguage.get(language) ?? 0,
+      availablePacks: packs.map((adapter) => ({ id: adapter.id, stage: adapter.stage, assurance: adapter.assurance, packVersion: adapter.packVersion })),
+      maximumAssurance: selectedSemantic && project?.complete ? 'semantic' : selectedSyntax ? 'syntax' : 'text',
+      selectedProviders: { syntax: selectedSyntax?.id ?? null, semantic: selectedSemantic?.id ?? null },
+      toolchainStatus: project?.toolchain ? 'bound' : selectedSemantic ? 'unavailable' : 'not-required',
+      projectModelStatus: project ? (project.complete ? 'complete' : 'incomplete') : 'not-detected',
+      degradationReason: policy.mode === 'off' ? 'language-disabled'
+        : selectedSemantic && !project?.complete ? 'semantic-project-binding-incomplete'
+          : selectedSyntax ? null : 'syntax-pack-unavailable'
+    };
+  });
   return {
-    schemaVersion: 2, // schema-transient: live diagnostic result, never persisted
-    healthy: adapterDiscovery.diagnostics.length === 0,
+    schemaVersion: 3, // schema-transient: live diagnostic result, never persisted
+    healthy: adapterDiscovery.diagnostics.length === 0
+      && [...artifactHealth.values()].every((health) => health.healthy),
     configured: runtime.policy,
     effective,
     scope: runtime.sourceScope,
     cache,
-    adapters: adapterDiscovery.adapters.map(({ argv: _argv, ...adapter }) => ({ ...adapter, status: 'available-on-demand' })),
+    catalog: runtime.languageCatalog,
+    languages,
+    projects: {
+      mode: projects.mode,
+      bindingCount: projects.bindings.length,
+      bindings: projects.bindings.map((binding) => ({
+        projectKind: binding.projectKind, root: binding.root, modules: binding.modules,
+        sourceSets: binding.sourceSets, profile: binding.profile, complete: binding.complete,
+        unavailable: binding.unavailable, projectModelSha256: binding.projectModelSha256
+      })),
+      diagnostics: projects.diagnostics
+    },
+    adapters: adapterDiscovery.adapters.map(({ argv: _argv, implementation, ...adapter }) => ({
+      ...adapter,
+      implementation: { ...implementation, files: undefined },
+      status: artifactHealth.get(adapter.id)?.healthy ? 'available-on-demand' : 'artifact-invalid'
+    })),
+    optionalPacks: OPTIONAL_AST_SEMANTIC_PACKS.map((pack) => ({
+      ...pack,
+      platformCompatible: pack.platforms.includes(process.platform),
+      status: adapterDiscovery.adapters.some((adapter) => adapter.id === pack.id)
+        ? 'installed'
+        : pack.platforms.includes(process.platform) ? 'not-installed' : 'platform-incompatible'
+    })),
     assuranceAvailable: [...assuranceAvailable].sort((left, right) => ['text', 'syntax', 'semantic'].indexOf(left) - ['text', 'syntax', 'semantic'].indexOf(right)),
     lifecycle: {
       enforced: runtime.policy.predicates.length > 0,
@@ -1482,20 +1752,164 @@ export async function astDoctor(root) {
     },
     diagnostics: [
       ...(effective.mode === 'off' ? [{ code: 'AST_DISABLED', severity: 'info' }] : []),
-      ...adapterDiscovery.diagnostics
+      ...adapterDiscovery.diagnostics,
+      ...[...artifactHealth.values()].flatMap((health) => health.diagnostics)
     ]
   };
 }
 
 function printResult(result, json) {
   if (json) console.log(JSON.stringify(result, null, 2));
-  else if (result.operation) {
+  else if (result.operation && result.coverage) {
     console.log(`AST ${result.operation}: ${result.status} · ${result.assurance} assurance · ${result.coverage.processed}/${result.coverage.selected} files`);
     for (const diagnostic of result.diagnostics) console.log(`- ${diagnostic.code}: ${diagnostic.message ?? ''}`);
     if (result.nextCursor) {
       console.log(`Next page: singularity-flow wm ast ${result.operation} --cursor ${result.nextCursor}`);
     }
   } else console.log(JSON.stringify(result, null, 2));
+}
+
+async function resolveAstPackInstallSource(source) {
+  const absolute = path.resolve(source);
+  if (!/\.(?:tar|tar\.gz|tgz)$/i.test(absolute)) return { manifest: absolute, label: absolute, cleanup: null };
+  const compressed = /\.(?:tar\.gz|tgz)$/i.test(absolute);
+  const listing = run('tar', [compressed ? '-tzf' : '-tf', absolute], {
+    allowFailure: true, maxBuffer: 4 * 1024 * 1024
+  });
+  if (listing.status !== 0) throw new SingularityFlowError('Offline AST pack archive could not be read by the local tar implementation.', { code: 'AST_PACK_ARCHIVE_INVALID' });
+  const members = listing.stdout.split(/\r?\n/).filter(Boolean);
+  if (!members.length || members.length > 2_000 || members.some((entry) => path.isAbsolute(entry)
+    || entry.replaceAll('\\', '/').split('/').includes('..'))) {
+    throw new SingularityFlowError('Offline AST pack archive contains an unsafe or excessive member list.', { code: 'AST_PACK_ARCHIVE_UNSAFE' });
+  }
+  const temporary = await mkdtemp(path.join(os.tmpdir(), 'sflow-ast-pack-'));
+  const extracted = run('tar', [compressed ? '-xzf' : '-xf', absolute, '-C', temporary], {
+    allowFailure: true, maxBuffer: 4 * 1024 * 1024
+  });
+  if (extracted.status !== 0) {
+    await rm(temporary, { recursive: true, force: true });
+    throw new SingularityFlowError('Offline AST pack archive extraction failed.', { code: 'AST_PACK_ARCHIVE_INVALID' });
+  }
+  const manifests = [];
+  async function inspect(directory) {
+    for (const entry of await readdir(directory, { withFileTypes: true })) {
+      const target = path.join(directory, entry.name);
+      if (entry.isSymbolicLink()) throw new SingularityFlowError('Offline AST pack archives must not contain symbolic links.', { code: 'AST_PACK_ARCHIVE_UNSAFE' });
+      if (entry.isDirectory()) await inspect(target);
+      else if (entry.isFile() && entry.name === 'manifest.json') manifests.push(target);
+    }
+  }
+  try { await inspect(temporary); }
+  catch (error) { await rm(temporary, { recursive: true, force: true }); throw error; }
+  if (manifests.length !== 1) {
+    await rm(temporary, { recursive: true, force: true });
+    throw new SingularityFlowError('Offline AST pack archive must contain exactly one manifest.json.', { code: 'AST_PACK_ARCHIVE_INVALID' });
+  }
+  return {
+    manifest: manifests[0], label: absolute,
+    members: members.map((entry) => entry.replaceAll('\\', '/')).sort(),
+    cleanup: () => rm(temporary, { recursive: true, force: true })
+  };
+}
+
+async function astPackCommand(positionals, options) {
+  const action = positionals[1] ?? 'list';
+  const discovery = await discoverAstAdapters();
+  const registry = await readAstPackRegistry();
+  if (action === 'list') {
+    const installedIds = new Set(discovery.adapters.map((adapter) => adapter.id));
+    return {
+      schemaVersion: 1, action: 'list', root: registry.root,
+      packs: [...discovery.adapters.map((adapter) => ({
+        id: adapter.id, packVersion: adapter.packVersion, stage: adapter.stage,
+        languages: adapter.languages, assurance: adapter.assurance,
+        source: adapter.id === 'sflow-polyglot-syntax' ? 'bundled'
+          : registry.entries.some((entry) => entry.id === adapter.id) ? 'installed' : 'development-override'
+      })), ...OPTIONAL_AST_SEMANTIC_PACKS.filter((pack) => !installedIds.has(pack.id)).map((pack) => ({
+        ...pack, assurance: 'semantic', packVersion: null, source: 'optional-catalog', status: 'not-installed'
+      }))],
+      diagnostics: discovery.diagnostics
+    };
+  }
+  if (action === 'status' || action === 'doctor') {
+    const id = positionals[2] ?? null;
+    const packs = [];
+    for (const candidate of discovery.adapters.filter((adapter) => !id || adapter.id === id)) {
+      const { argv: _argv, implementation, ...adapter } = candidate;
+      const health = await inspectAstAdapterArtifacts(candidate);
+      packs.push({
+        ...adapter,
+        implementation: {
+          artifactSha256: implementation.artifactSha256,
+          manifestSha256: implementation.manifestSha256,
+          runtime: implementation.runtime,
+          grammars: implementation.grammars,
+          dependencies: implementation.dependencies
+        },
+        healthy: health.healthy,
+        diagnostics: health.diagnostics
+      });
+    }
+    if (id && !packs.length) {
+      const optional = optionalSemanticPack(id);
+      if (optional) return {
+        schemaVersion: 1, action, healthy: false,
+        packs: [{
+          ...optional, assurance: 'semantic', status: 'not-installed', healthy: false,
+          diagnostics: [{ code: 'AST_PACK_NOT_INSTALLED', message: `Optional semantic pack '${id}' is not installed.` }]
+        }],
+        diagnostics: [{ code: 'AST_PACK_NOT_INSTALLED', message: `Install a reviewed offline '${id}' pack, then run pack doctor again.` }]
+      };
+      throw new SingularityFlowError(`AST pack '${id}' is unavailable.`, { code: 'AST_PACK_NOT_AVAILABLE' });
+    }
+    return {
+      schemaVersion: 1, action,
+      healthy: discovery.diagnostics.length === 0 && packs.every((pack) => pack.healthy),
+      packs,
+      diagnostics: [...discovery.diagnostics, ...packs.flatMap((pack) => pack.diagnostics)]
+    };
+  }
+  if (action === 'install') {
+    const source = positionals[2] ?? optionString(options, 'archive');
+    if (!source) throw new SingularityFlowError('Usage: singularity-flow wm ast pack install <LOCAL-MANIFEST> --dry-run');
+    const resolved = await resolveAstPackInstallSource(source);
+    try {
+      const raw = JSON.parse(await readFile(resolved.manifest, 'utf8'));
+      const archiveDigest = resolved.members ? raw?.implementation?.manifestSha256 : null;
+      if (resolved.members) {
+        if (archiveDigest !== astAdapterManifestSha256(raw)) {
+          throw new SingularityFlowError('Offline AST pack manifest digest is invalid.', { code: 'AST_PACK_ARCHIVE_INVALID' });
+        }
+        const sourceRoot = path.dirname(resolved.manifest);
+        const mapped = new Map();
+        raw.implementation.files = (raw.implementation.files ?? []).map((file) => {
+          if (path.isAbsolute(file.path) || file.path.replaceAll('\\', '/').split('/').includes('..')) {
+            throw new SingularityFlowError('Offline AST pack manifest artifact paths must be relative and contained.', { code: 'AST_PACK_ARCHIVE_UNSAFE' });
+          }
+          const absoluteArtifact = path.resolve(sourceRoot, file.path);
+          mapped.set(file.path, absoluteArtifact);
+          return { ...file, path: absoluteArtifact };
+        });
+        raw.argv = (raw.argv ?? []).map((item) => mapped.get(item) ?? item);
+        raw.implementation.manifestSha256 = '';
+        raw.implementation.manifestSha256 = astAdapterManifestSha256(raw);
+      }
+      const manifest = validateAstAdapterManifest(raw, `AST pack ${resolved.label}`);
+      const plan = await planAstPackInstall(resolved.manifest, manifest);
+      if (archiveDigest) plan.confirmation = `INSTALL AST PACK ${manifest.id}@${manifest.packVersion} ${archiveDigest.slice(0, 12)}`;
+      const publicPlan = { ...plan, source: resolved.label, files: resolved.members ?? plan.files };
+      if (optionBoolean(options, 'dry-run')) return { ...publicPlan, dryRun: true };
+      return await applyAstPackInstall(plan, { confirm: optionString(options, 'confirm') });
+    } finally { await resolved.cleanup?.(); }
+  }
+  if (action === 'remove') {
+    const id = positionals[2];
+    if (!id) throw new SingularityFlowError('Usage: singularity-flow wm ast pack remove <PACK> --dry-run');
+    const plan = await planAstPackRemove(id);
+    if (optionBoolean(options, 'dry-run')) return { ...plan, dryRun: true };
+    return applyAstPackRemove(plan, { confirm: optionString(options, 'confirm') });
+  }
+  throw new SingularityFlowError('Usage: singularity-flow wm ast pack list|status|doctor|install|remove');
 }
 
 export async function astCommand(root, positionals, options) {
@@ -1511,9 +1925,14 @@ export async function astCommand(root, positionals, options) {
   else if (action === 'context') result = await astContext(root, options);
   else if (action === 'query') result = await astQuery(root, options);
   else if (action === 'gate') result = await evaluateAstGate(root, options);
+  else if (action === 'warm') {
+    if (!optionBoolean(options, 'semantic')) throw new SingularityFlowError('Usage: singularity-flow wm ast warm --semantic --provider PACK --profile PROFILE --dry-run|--confirm PHRASE');
+    result = await astSemanticWarmCommand(root, options);
+  }
+  else if (action === 'pack') result = await astPackCommand(positionals, options);
   else if (action === 'evidence') {
     const evidenceAction = positionals[1] ?? 'replay';
-    if (evidenceAction !== 'replay') throw new SingularityFlowError('Usage: singularity-flow wm ast evidence replay --receipt <PATH>');
+    if (!['replay', 'reproduce'].includes(evidenceAction)) throw new SingularityFlowError('Usage: singularity-flow wm ast evidence reproduce --receipt <PATH>');
     result = await replayAstEvidence(root, options);
   }
   else if (action === 'cache') {
@@ -1527,7 +1946,7 @@ export async function astCommand(root, positionals, options) {
     if (preferenceAction === 'show') result = await readAstPreference();
     else if (preferenceAction === 'set') result = await setAstPreference(positionals[2] ?? optionString(options, 'mode'));
     else throw new SingularityFlowError('Usage: singularity-flow wm ast preference show|set auto|off');
-  } else throw new SingularityFlowError('Usage: singularity-flow wm ast doctor|status|build|context|query|gate|evidence replay|cache|preference');
+  } else throw new SingularityFlowError('Usage: singularity-flow wm ast doctor|status|build|context|query|gate|warm|pack|evidence reproduce|cache|preference');
   printResult(result, optionBoolean(options, 'json'));
   return result;
 }

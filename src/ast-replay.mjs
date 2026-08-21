@@ -5,6 +5,9 @@ import path from 'node:path';
 import { pathToFileURL } from 'node:url';
 
 import {
+  astAdapterManifestSha256, astAdapterRequest, executeAstAdapter, validateAstAdapterManifest
+} from './ast-adapter-contract.mjs';
+import {
   currentAstEvidenceIdentities, validateAstDerivationManifest
 } from './ast-evidence.mjs';
 import { resolveAstEvidenceBundle } from './ast-evidence-store.mjs';
@@ -125,6 +128,7 @@ async function committedInputs(root, manifest, temporaryView) {
 async function retainedReplayRunner(bundle, temporaryView) {
   const expected = new Set(['ast-builtin-extractor.mjs', 'ast-replay-runner.mjs']);
   const artifacts = bundle.replayArtifacts;
+  if (artifacts?.some((entry) => entry?.path === 'polyglot-syntax-core.mjs')) expected.add('polyglot-syntax-core.mjs');
   if (!Array.isArray(artifacts) || artifacts.length !== expected.size) return null;
   await mkdir(temporaryView, { recursive: true });
   for (const artifact of artifacts) {
@@ -135,13 +139,109 @@ async function retainedReplayRunner(bundle, temporaryView) {
   }
   if (expected.size) return null;
   const module = await import(`${pathToFileURL(path.join(temporaryView, 'ast-replay-runner.mjs')).href}?sha=${bundle.engine.artifactSha256}`);
-  return typeof module.replayBuiltInDerivation === 'function' ? module.replayBuiltInDerivation : null;
+  return typeof module.replayBuiltInDerivation === 'function' ? module : null;
+}
+
+function replayProjectFor(manifest, adapter, relative) {
+  const projectKinds = adapter.languageDefinitions[manifest.inputs.files.find((file) => file.path === relative)?.language]?.projectKinds ?? [];
+  return (manifest.projectBindings ?? []).filter((binding) => (!projectKinds.length || projectKinds.includes(binding.projectKind))
+    && (binding.root === '.' || relative === binding.root || relative.startsWith(`${binding.root}/`)))
+    .sort((left, right) => right.root.length - left.root.length)[0] ?? null;
+}
+
+async function materializeReplayPack(pack, target) {
+  const tokenPaths = new Map();
+  await mkdir(target, { recursive: true });
+  for (const artifact of pack.files ?? []) {
+    const bytes = Buffer.from(artifact.bytesBase64 ?? '', 'base64');
+    if (sha256(bytes) !== artifact.sha256) return { unavailable: 'retained-pack-artifact-invalid' };
+    const destination = path.join(target, `${artifact.sha256}-${path.basename(artifact.name ?? 'artifact')}`);
+    await writeFile(destination, bytes, { mode: 0o700 });
+    tokenPaths.set(artifact.token, destination);
+  }
+  const token = (value) => {
+    if (tokenPaths.has(value)) return tokenPaths.get(value);
+    if (value === '@runtime:node') return process.execPath;
+    if (String(value).startsWith('@runtime:')) return null;
+    return value;
+  };
+  const argv = pack.manifest.argv.map(token);
+  if (argv.some((value) => value == null)) {
+    return { unavailable: 'semantic-runtime-unavailable', requirements: pack.runtimeRequirements ?? [] };
+  }
+  const candidate = structuredClone(pack.manifest);
+  candidate.argv = argv;
+  candidate.implementation.files = candidate.implementation.files.map((entry) => ({ ...entry, path: token(entry.path) }));
+  if (candidate.implementation.files.some((entry) => !entry.path)) {
+    return { unavailable: 'semantic-runtime-unavailable', requirements: pack.runtimeRequirements ?? [] };
+  }
+  candidate.implementation.manifestSha256 = '';
+  candidate.implementation.manifestSha256 = astAdapterManifestSha256(candidate);
+  try { return { adapter: validateAstAdapterManifest(candidate) }; }
+  catch { return { unavailable: 'retained-pack-manifest-invalid' }; }
+}
+
+async function replayExternalPacks(bundle, manifest, files, inputRoot, temporaryView) {
+  const overlays = [];
+  const packs = [...(bundle.replayPacks ?? [])].sort((left, right) => {
+    const stage = (left.manifest?.stage === 'semantic' ? 1 : 0) - (right.manifest?.stage === 'semantic' ? 1 : 0);
+    return stage || String(left.id).localeCompare(String(right.id));
+  });
+  for (const [index, pack] of packs.entries()) {
+    const materialized = await materializeReplayPack(pack, path.join(temporaryView, `pack-${index}`));
+    if (materialized.unavailable) return materialized;
+    const adapter = materialized.adapter;
+    const selected = files.filter((file) => adapter.languages.includes(file.input.language));
+    const groups = new Map();
+    for (const file of selected) {
+      const project = adapter.stage === 'semantic' ? replayProjectFor(manifest, adapter, file.input.path) : null;
+      if (adapter.stage === 'semantic' && !project) {
+        return { unavailable: 'semantic-project-binding-unavailable', requirements: [adapter.id, file.input.path] };
+      }
+      const key = project?.projectModelSha256 ?? 'syntax';
+      const group = groups.get(key) ?? { project, files: [] };
+      group.files.push(file); groups.set(key, group);
+    }
+    for (const { project, files: groupFiles } of groups.values()) {
+      const request = astAdapterRequest({
+        protocolVersion: adapter.protocolVersion,
+        operation: 'skeleton', stage: adapter.stage,
+        scope: {
+          kind: manifest.replayRecipe.selector.kind,
+          paths: manifest.replayRecipe.selector.paths,
+          repositoryRevision: manifest.inputs.sourceCommit
+        },
+        files: groupFiles.map((file) => ({ path: file.input.path, sha256: file.input.contentSha256, language: file.input.language })),
+        project,
+        budget: {
+          ...manifest.replayRecipe.inputBudgets,
+          maxOutputBytes: manifest.replayRecipe.outputLimits.maxOutputBytes,
+          timeoutMs: 30_000
+        },
+        implementation: adapter.implementation
+      });
+      let response;
+      try { response = await executeAstAdapter(adapter, request, { root: inputRoot }); }
+      catch (error) {
+        return { unavailable: 'semantic-adapter-reproduction-failed', requirements: [adapter.id, error.code ?? 'AST_ADAPTER_FAILED'] };
+      }
+      for (const file of response.files) {
+        const language = groupFiles.find((entry) => entry.input.path === file.path)?.input.language;
+        const original = manifest.adapters.find((entry) => entry.id === adapter.id
+          && entry.derivation?.language === language
+          && entry.derivation?.projectModelSha256 === (project?.projectModelSha256 ?? null));
+        if (!original) return { unavailable: 'semantic-derivation-identity-missing', requirements: [adapter.id, language] };
+        overlays.push({ path: file.path, facts: file.facts, extractor: original });
+      }
+    }
+  }
+  return { overlays };
 }
 
 /** Cache-independent, model-free replay of a durable AST derivation. */
 export async function replayAstEvidence(root, options = {}) {
   const receipt = optionString(options, 'receipt');
-  if (!receipt) throw new SingularityFlowError('wm ast evidence replay requires --receipt <PATH>.');
+  if (!receipt) throw new SingularityFlowError('wm ast evidence reproduce requires --receipt <PATH>.');
   const resolved = await derivationReference(root, receipt);
   if (resolved.unavailable) return unavailable(null, resolved.unavailable, resolved.reason);
   const { manifest } = resolved;
@@ -181,10 +281,25 @@ export async function replayAstEvidence(root, options = {}) {
     if (!runner) {
       return unavailable(manifest.derivationSha256, 'retained-runner-invalid', 'Restore the exact digest-verified replay artifacts in the evidence store.');
     }
-    const recomputed = runner(recovered.files, manifest);
-    const { factsSha256, predicateResultsSha256, pageFactsSha256 } = recomputed;
+    const external = await replayExternalPacks(
+      retained.bundle, manifest, recovered.files,
+      path.join(temporaryView, 'inputs'), path.join(temporaryView, 'external')
+    );
+    if (external.unavailable) {
+      return unavailable(
+        manifest.derivationSha256,
+        external.unavailable,
+        `Restore the exact compatible adapter/toolchain identity: ${(external.requirements ?? []).join(', ') || 'recorded semantic pack'}.`
+      );
+    }
+    const recomputed = runner.replayBuiltInDerivation(recovered.files, manifest, external.overlays);
+    const { factsSha256, predicateResultsSha256, pageFactsSha256, extractorFactSets } = recomputed;
     const differences = [];
     if (factsSha256 !== manifest.outputs.factsSha256) differences.push({ field: 'factsSha256', expected: manifest.outputs.factsSha256, actual: factsSha256 });
+    if (manifest.outputs.extractorFactSets
+      && recordSha256(extractorFactSets) !== recordSha256(manifest.outputs.extractorFactSets)) {
+      differences.push({ field: 'extractorFactSets', expected: manifest.outputs.extractorFactSets, actual: extractorFactSets });
+    }
     if (predicateResultsSha256 !== manifest.outputs.predicateResultsSha256) {
       differences.push({ field: 'predicateResultsSha256', expected: manifest.outputs.predicateResultsSha256, actual: predicateResultsSha256 });
     }
@@ -208,7 +323,7 @@ export async function replayAstEvidence(root, options = {}) {
       result,
       reasons: [],
       differences,
-      outputs: { factsSha256, predicateResultsSha256 }
+      outputs: { factsSha256, predicateResultsSha256, extractorFactSets }
     };
   } finally {
     await rm(temporaryView, { recursive: true, force: true });

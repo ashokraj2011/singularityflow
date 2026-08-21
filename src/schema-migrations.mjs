@@ -628,6 +628,15 @@ const families = [
     paths: [/^\$git\/ast\/v1\/snapshots\/[^/]+\.json$/]
   }),
   family({ id: 'ast-cache-blob', currentVersion: 1, paths: [/^\$git\/ast\/v2\/blobs\/[a-f0-9]{64}\.json$/] }),
+  family({ id: 'ast-syntax-skeleton', currentVersion: 1, paths: [/^\$git\/ast\/v2\/syntax\/[a-f0-9]{64}\.json$/] }),
+  family({ id: 'ast-semantic-overlay', currentVersion: 1, paths: [/^\$git\/ast\/v2\/semantic\/[a-f0-9]{64}\.json$/] }),
+  family({ id: 'ast-language-catalog', currentVersion: 1 }),
+  family({ id: 'ast-project-binding', currentVersion: 1 }),
+  family({ id: 'ast-derivation-key', currentVersion: 1 }),
+  family({ id: 'ast-adapter-manifest', currentVersion: 1, paths: [/^\$local\/ast-packs\/installed\/[^/]+\/manifest\.json$/] }),
+  family({ id: 'ast-pack-registry', currentVersion: 1, paths: [/^\$local\/ast-packs\/registry\.json$/] }),
+  family({ id: 'ast-semantic-warm-plan', currentVersion: 1 }),
+  family({ id: 'ast-semantic-binding', currentVersion: 1, paths: [/^\$git\/ast\/v2\/projects\/[a-f0-9]{64}\.json$/] }),
   family({ id: 'ast-cone-manifest', currentVersion: 1, paths: [/^\$git\/ast\/v2\/manifests\/[a-f0-9]{64}\.json$/] }),
   family({
     id: 'ast-derivation-manifest', currentVersion: 1,

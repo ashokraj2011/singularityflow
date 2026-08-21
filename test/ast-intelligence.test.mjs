@@ -1,10 +1,11 @@
 import assert from 'node:assert/strict';
 import { execFileSync } from 'node:child_process';
 import { createHash } from 'node:crypto';
-import { mkdtemp, readFile, readdir, unlink, writeFile } from 'node:fs/promises';
+import { access, mkdtemp, readFile, readdir, unlink, writeFile } from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
 import test from 'node:test';
+import { setTimeout as delay } from 'node:timers/promises';
 import YAML from 'yaml';
 
 import {
@@ -83,7 +84,45 @@ test('AST policy is closed, bounded, and cannot disable a required predicate', (
   assert.equal(value.budgets.maxFileBytes, 2 * 1024 * 1024);
   assert.throws(() => normalizeAstPolicy({ mode: 'off', predicates: [{ id: 'must', mode: 'required', type: 'path-exists', path: 'src' }] }), /cannot be combined/);
   assert.throws(() => normalizeAstPolicy({ surprise: true }), /unknown field/);
+  assert.throws(() => normalizeAstPolicy({ predicates: [{
+    id: 'boundary', mode: 'required', type: 'import-boundary', path: 'src', target: 'internal'
+  }] }), /applicable languages/);
+  const rich = normalizeAstPolicy({ predicates: [{
+    id: 'boundary', mode: 'required', type: 'import-boundary', path: 'src', target: 'internal',
+    languages: ['java'], profiles: ['*'], minimumAssurance: 'syntax'
+  }] });
+  assert.deepEqual(rich.predicates[0].languages, ['java']);
 });
+
+test('rich structural predicates are applicability-bound and semantic predicates fail closed on syntax', async () => withPreferenceFile(async () => {
+  const root = await repository();
+  await initializeDefinition(root);
+  await execFileSync('mkdir', ['-p', path.join(root, 'src')]);
+  await writeFile(path.join(root, 'src', 'Child.java'), [
+    'package fixture;',
+    'import forbidden.internal.Secret;',
+    '@Deprecated public class Child extends Parent implements Contract {}',
+    ''
+  ].join('\n'));
+  const definitionPath = path.join(root, 'singularity', 'workflow.yml');
+  const definition = YAML.parse(await readFile(definitionPath, 'utf8'));
+  definition.worldModel.sourceRoots = ['src'];
+  definition.ast.predicates = [
+    { id: 'annotation', mode: 'required', type: 'annotation-present', symbol: 'Child', annotation: 'Deprecated', languages: ['java'], profiles: ['*'], minimumAssurance: 'syntax' },
+    { id: 'inherits', mode: 'required', type: 'inherits-from', symbol: 'Child', target: 'Parent', languages: ['java'], profiles: ['*'], minimumAssurance: 'syntax' },
+    { id: 'boundary', mode: 'required', type: 'import-boundary', path: 'src', target: 'forbidden.internal', languages: ['java'], profiles: ['*'], minimumAssurance: 'syntax' },
+    { id: 'semantic-conformance', mode: 'required', type: 'conforms-to', symbol: 'Child', target: 'Contract', languages: ['java'], profiles: ['*'], minimumAssurance: 'semantic' }
+  ];
+  await writeFile(definitionPath, YAML.stringify(definition));
+  git(root, ['add', '.']);
+  git(root, ['commit', '-qm', 'rich predicate fixture']);
+  const result = await astCommand(root, ['gate'], { paths: 'src' });
+  assert.equal(result.facts.find((item) => item.id === 'annotation').outcome, 'pass');
+  assert.equal(result.facts.find((item) => item.id === 'inherits').outcome, 'pass');
+  assert.equal(result.facts.find((item) => item.id === 'boundary').outcome, 'fail');
+  assert.equal(result.facts.find((item) => item.id === 'semantic-conformance').outcome, 'unknown');
+  assert.equal(result.provenance.gate.allowed, false);
+}));
 
 test('v1 AST results migrate with truthful current accounting and legacy resume jobs fail intentionally', () => {
   const result = validateAstResultEnvelope({
@@ -452,18 +491,19 @@ test('cache prune previews and removes only stale derived records after exact co
 }));
 
 test('adapter manifests are versioned structured argv contracts', () => {
-  const adapter = validateAstAdapterManifest(adapterManifestValue({
+  const advertised = adapterManifestValue({
     id: 'typescript-reference',
     languages: ['typescript', 'javascript'],
     assurance: 'syntax',
     argv: ['node', '/opt/adapter.mjs'],
     extractorVersion: '1.0.0',
     capabilities: ['skeleton', 'query']
-  }));
+  });
+  const adapter = validateAstAdapterManifest(advertised);
   assert.deepEqual(adapter.argv, ['node', '/opt/adapter.mjs']);
-  assert.throws(() => validateAstAdapterManifest({ ...adapter, protocolVersion: 1 }), /protocolVersion/);
-  assert.throws(() => validateAstAdapterManifest({ ...adapter, capabilities: 'skeleton' }), /capabilities/);
-  assert.throws(() => validateAstAdapterManifest({ ...adapter, capabilities: ['execute-anything'] }), /capabilities/);
+  assert.throws(() => validateAstAdapterManifest({ ...advertised, protocolVersion: 3 }), /protocolVersion/);
+  assert.throws(() => validateAstAdapterManifest({ ...advertised, capabilities: 'skeleton' }), /capabilities/);
+  assert.throws(() => validateAstAdapterManifest({ ...advertised, capabilities: ['execute-anything'] }), /capabilities/);
 });
 
 test('an explicit adapter executes through bounded structured JSON without a shell', async () => {
@@ -495,10 +535,13 @@ test('an explicit adapter executes through bounded structured JSON without a she
   const response = await executeAstAdapter(manifest, request, { root });
   assert.equal(response.files[0].facts[0].name, 'ParsedSymbol');
   assert.equal(response.files[0].facts[0].assurance, 'syntax');
-  assert.throws(() => validateAstAdapterResponse({
+  const rejected = validateAstAdapterResponse({
     ...response,
     files: [{ path: 'one.ts', sha256: 'a'.repeat(64), facts: [{ kind: 'symbol', name: 'Leak', line: 1, sourceBody: 'secret' }] }]
-  }, manifest, request), /must not contain source bytes/);
+  }, manifest, request);
+  assert.equal(rejected.files.length, 0);
+  assert.deepEqual(rejected.rejectedFiles, [{ path: 'one.ts', code: 'AST_ADAPTER_FILE_RESULT_INVALID' }]);
+  assert.doesNotMatch(JSON.stringify(rejected), /secret/);
   const diagnostic = validateAstAdapterResponse({
     ...response,
     diagnostics: [{ code: 'PARSE_WARNING', message: 'token=secret /Users/private/source.ts' }]
@@ -515,6 +558,37 @@ test('an explicit adapter executes through bounded structured JSON without a she
     () => executeAstAdapter(manifest, request, { root }),
     (error) => error?.code === 'AST_ADAPTER_ARTIFACT_MISMATCH'
   );
+});
+
+test('adapter timeout and cancellation terminate descendants instead of leaving a resident process', async () => {
+  const root = await mkdtemp(path.join(os.tmpdir(), 'sflow-ast-process-tree-'));
+  const marker = path.join(root, 'descendant-survived');
+  const executable = path.join(root, 'adapter.mjs');
+  await writeFile(executable, `
+    import { spawn } from 'node:child_process';
+    const child = spawn(process.execPath, ['-e', ${JSON.stringify(`setTimeout(() => require('node:fs').writeFileSync(${JSON.stringify(marker)}, 'alive'), 700)`) }], { stdio: 'ignore' });
+    child.unref();
+    setInterval(() => {}, 1000);
+  `);
+  const manifest = validateAstAdapterManifest(adapterManifestValue({
+    argv: [process.execPath, executable],
+    implementation: { artifactSha256: digest(await readFile(executable)), files: [{ path: executable, sha256: digest(await readFile(executable)) }] }
+  }));
+  const request = astAdapterRequest({
+    operation: 'skeleton', scope: { kind: 'paths' },
+    files: [{ path: 'one.ts', sha256: 'a'.repeat(64), language: 'typescript' }],
+    budget: { maxFiles: 1, maxBytes: 1000 }, implementation: manifest.implementation
+  });
+  await assert.rejects(() => executeAstAdapter(manifest, request, { root, timeoutMs: 75 }), (error) => error?.code === 'AST_ADAPTER_TIMEOUT');
+  await delay(900);
+  await assert.rejects(access(marker), (error) => error?.code === 'ENOENT');
+
+  const controller = new AbortController();
+  const cancelled = executeAstAdapter(manifest, request, { root, timeoutMs: 5000, signal: controller.signal });
+  setTimeout(() => controller.abort(), 75);
+  await assert.rejects(() => cancelled, (error) => error?.code === 'AST_ADAPTER_CANCELLED');
+  await delay(900);
+  await assert.rejects(access(marker), (error) => error?.code === 'ENOENT');
 });
 
 test('host-and-text executes and caches an approved adapter while text-only never launches it', async () => withPreferenceFile(async () => {

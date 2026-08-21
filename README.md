@@ -1552,9 +1552,11 @@ New lifecycle state pins that resolution so an active Story does not drift when
 the capability map changes.
 
 For bounded structural references, `singularity-flow wm ast context --paths src --max-facts 50 --max-output-bytes 32768 --json` uses the
-same pinned scope and a selected-cone content binding. Its built-in result is explicitly
-`text` assurance; explicitly configured compiler adapters execute through a bounded structured-argv
-contract and are not kernel dependencies. Blob skeletons are reused by content hash, so an
+same pinned scope and a selected-cone content binding. Java, Python, Kotlin, and Swift receive
+`syntax` facts from the bundled on-demand polyglot pack; JavaScript/TypeScript retain the built-in
+lexical `text` floor. Optional reviewed semantic packs execute through a bounded structured-argv
+contract only with a complete project/toolchain binding and are not kernel dependencies. Separate
+text, syntax, and semantic records are reused by content/derivation hash, so an
 unrelated monorepo edit does not invalidate the selected cone. With no configured roots,
 the default is changed tracked files—not a monorepo-wide scan—and `--all` must be explicit. Facts
 are returned in byte- and count-bounded pages; continue only with the opaque `nextCursor`, which
@@ -1565,7 +1567,7 @@ versions as well as outcomes. See
 In VS Code, use **Singularity Flow → Configuration → AST intelligence**, the Configuration Center,
 or **Singularity Flow: AST Intelligence Settings** from the Command Palette. The panel exposes
 repository and machine policy, lifecycle-gate receipts, bounded previews, adapter availability,
-cache hit/miss evidence, and guarded cache cleanup;
+the per-language/project readiness matrix, cache hit/miss evidence, and guarded cache cleanup;
 environment policy is displayed read-only and configuration changes remain local until published.
 Its scope banner names the active workspace repository. Multi-repository workspaces can select a
 different ready repository there; the durable selection is shared with My Work, Lifecycle,
@@ -2051,7 +2053,7 @@ evidence workflow.
 | `singularity-flow wm build [--depth light\|quick\|standard\|deep] [--branch BRANCH] [--local] [--parallel\|--no-parallel] [--workers N] [--resume\|--no-resume]` | Build the repository world model on the current or selected branch; light is deterministic and zero-token, while semantic depths support parallel discovery and exact-match checkpoint resume. |
 | `singularity-flow wm cleanup [--force]` | Prune stale owned worktrees left by interrupted world-model builds; `--force` also removes unowned legacy temporary worktrees after operator review. |
 | `singularity-flow wm recovery list\|inspect <ID>\|publish <ID> --confirm <ID>` | Inspect or republish a validated snapshot retained after publication failure; publishing revalidates exact bytes and never invokes the provider. |
-| `singularity-flow wm ast doctor\|status\|context\|query\|build\|gate` | Inspect or build bounded, hash-bound structural references with explicit assurance and coverage. No model is invoked. |
+| `singularity-flow wm ast doctor\|status\|context\|query\|build\|gate\|warm\|pack\|evidence reproduce` | Inspect, build, warm, package, or reproduce bounded structural evidence with explicit assurance and coverage. No model is invoked. |
 | `sflow-wm-minimal [--phase PHASE] [--branch BRANCH] [--publish]` | Build the smallest deterministic zero-token validated model; defaults to one development view and a local commit. |
 | `singularity-flow documents browse --provider <ID> [--path FOLDER]` | List items in a configured OneDrive/SharePoint, Artifactory, S3, or HTTPS provider. |
 | `singularity-flow documents fetch --provider <ID> --ref <ITEM>` | Materialize provider bytes into the work item's inputs, then commit and publish them. |

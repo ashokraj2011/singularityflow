@@ -13,13 +13,20 @@ export interface AstLanguageDraft {
   language: string;
   mode: AstMode;
   minimumAssurance: AstAssurance;
+  syntaxProvider: string | null;
+  semanticProvider: string | null;
+  semanticProfile: string | null;
 }
 
 export interface AstPredicateDraft {
   id: string;
   mode: 'required' | 'advisory';
-  type: 'path-exists' | 'symbol-exists';
+  type: 'path-exists' | 'symbol-exists' | 'import-boundary' | 'annotation-present'
+    | 'inherits-from' | 'conforms-to' | 'override-exists' | 'public-signature-changed' | 'module-dependency';
   target: string;
+  secondary?: string;
+  languages?: string[];
+  profiles?: string[];
   minimumAssurance: AstAssurance;
 }
 
@@ -113,6 +120,31 @@ const MODES = new Set<AstMode>(['auto', 'off']);
 const FALLBACKS = new Set<AstFallback>(['host-and-text', 'text-only']);
 const ASSURANCE = new Set<AstAssurance>(['text', 'syntax', 'semantic']);
 const ID = /^[a-z][a-z0-9-]*$/;
+const PREDICATE_TYPES = new Set<AstPredicateDraft['type']>([
+  'path-exists', 'symbol-exists', 'import-boundary', 'annotation-present', 'inherits-from',
+  'conforms-to', 'override-exists', 'public-signature-changed', 'module-dependency'
+]);
+const RICH_PREDICATES = new Set<AstPredicateDraft['type']>([...PREDICATE_TYPES].filter((type) => !['path-exists', 'symbol-exists'].includes(type)));
+
+function predicateProjection(value: Record<string, unknown>): AstPredicateDraft {
+  const type = PREDICATE_TYPES.has(value.type as AstPredicateDraft['type'])
+    ? value.type as AstPredicateDraft['type'] : 'path-exists';
+  const primary = ['path-exists', 'import-boundary', 'public-signature-changed'].includes(type)
+    ? value.path : type === 'module-dependency' ? value.module : value.symbol;
+  const secondary = type === 'annotation-present' ? value.annotation
+    : ['inherits-from', 'conforms-to', 'override-exists', 'import-boundary', 'module-dependency'].includes(type) ? value.target
+      : type === 'public-signature-changed' ? value.expectedSha256 : null;
+  return {
+    id: String(value.id ?? ''), mode: value.mode === 'required' ? 'required' : 'advisory', type,
+    target: String(primary ?? ''), minimumAssurance: ASSURANCE.has(value.minimumAssurance as AstAssurance)
+      ? value.minimumAssurance as AstAssurance : 'text',
+    ...(RICH_PREDICATES.has(type) ? {
+      secondary: String(secondary ?? ''),
+      languages: Array.isArray(value.languages) ? value.languages.map(String) : [],
+      profiles: Array.isArray(value.profiles) ? value.profiles.map(String) : []
+    } : {})
+  };
+}
 
 function unsafeRelative(value: string): boolean {
   return !value || value === '.' || value.includes('\\') || /^(?:\/|[A-Za-z]:[\\/])/.test(value)
@@ -147,16 +179,12 @@ export function astPolicyView(snapshot: Pick<RepositorySnapshot, 'definition'>):
       language,
       mode: value.mode === 'off' ? 'off' : 'auto',
       minimumAssurance: ASSURANCE.has(value.minimumAssurance as AstAssurance)
-        ? value.minimumAssurance as AstAssurance : 'text'
+        ? value.minimumAssurance as AstAssurance : 'text',
+      syntaxProvider: typeof value.syntaxProvider === 'string' && value.syntaxProvider ? value.syntaxProvider : null,
+      semanticProvider: typeof value.semanticProvider === 'string' && value.semanticProvider ? value.semanticProvider : null,
+      semanticProfile: typeof value.semanticProfile === 'string' && value.semanticProfile ? value.semanticProfile : null
     })).sort((left, right) => left.language.localeCompare(right.language)),
-    predicates: predicates.map((value): AstPredicateDraft => ({
-      id: String(value.id ?? ''),
-      mode: value.mode === 'required' ? 'required' : 'advisory',
-      type: value.type === 'symbol-exists' ? 'symbol-exists' : 'path-exists',
-      target: String(value.type === 'symbol-exists' ? value.symbol ?? '' : value.path ?? ''),
-      minimumAssurance: ASSURANCE.has(value.minimumAssurance as AstAssurance)
-        ? value.minimumAssurance as AstAssurance : 'text'
-    }))
+    predicates: predicates.map(predicateProjection)
   };
 }
 
@@ -180,6 +208,10 @@ export function validateAstPolicyDraft(draft: AstPolicyDraft): string[] {
     languages.add(row.language);
     if (!MODES.has(row.mode)) errors.push(`Language '${row.language}' mode must be auto or off.`);
     if (!ASSURANCE.has(row.minimumAssurance)) errors.push(`Language '${row.language}' assurance is invalid.`);
+    for (const [label, provider] of [['syntax', row.syntaxProvider], ['semantic', row.semanticProvider]] as const) {
+      if (provider && !ID.test(provider)) errors.push(`Language '${row.language}' ${label} provider must be a lower-case pack id.`);
+    }
+    if (row.semanticProfile != null && !row.semanticProfile.trim()) errors.push(`Language '${row.language}' semantic profile cannot be empty.`);
   }
   const predicates = new Set<string>();
   for (const row of draft.predicates) {
@@ -189,9 +221,14 @@ export function validateAstPolicyDraft(draft: AstPolicyDraft): string[] {
     if (predicates.has(row.id)) errors.push(`Predicate '${row.id}' is duplicated.`);
     predicates.add(row.id);
     if (!['required', 'advisory'].includes(row.mode)) errors.push(`Predicate '${row.id}' mode is invalid.`);
-    if (!['path-exists', 'symbol-exists'].includes(row.type)) errors.push(`Predicate '${row.id}' type is invalid.`);
+    if (!PREDICATE_TYPES.has(row.type)) errors.push(`Predicate '${row.id}' type is invalid.`);
     if (!row.target.trim()) errors.push(`Predicate '${row.id}' needs a path or symbol.`);
-    if (row.type === 'path-exists' && unsafeRelative(row.target.trim())) errors.push(`Predicate '${row.id}' path must be repository-relative.`);
+    if (['path-exists', 'import-boundary', 'public-signature-changed'].includes(row.type) && unsafeRelative(row.target.trim())) errors.push(`Predicate '${row.id}' path must be repository-relative.`);
+    if (RICH_PREDICATES.has(row.type)) {
+      if (!(row.languages?.length) || !(row.profiles?.length)) errors.push(`Predicate '${row.id}' must declare applicable languages and profiles (use * explicitly).`);
+      if (!row.secondary?.trim()) errors.push(`Predicate '${row.id}' requires its comparison value.`);
+      if (row.type === 'public-signature-changed' && !/^[a-f0-9]{64}$/.test(row.secondary ?? '')) errors.push(`Predicate '${row.id}' expected signature must be a SHA-256 digest.`);
+    }
     if (!ASSURANCE.has(row.minimumAssurance)) errors.push(`Predicate '${row.id}' assurance is invalid.`);
     if (row.mode === 'required' && row.type === 'symbol-exists' && row.minimumAssurance === 'text') {
       errors.push(`Required symbol predicate '${row.id}' must use syntax or semantic assurance; lexical text matches are advisory only.`);
@@ -226,29 +263,51 @@ export function updateAstPolicyYaml(text: string, draft: AstPolicyDraft): string
   parsed.setIn(['ast', 'budgets', 'maxBytes'], draft.budgets.maxBytes);
   parsed.setIn(['ast', 'budgets', 'maxFileBytes'], draft.budgets.maxFileBytes);
   parsed.setIn(['ast', 'languages'], Object.fromEntries(draft.languages.map((row) => [row.language, {
-    mode: row.mode, minimumAssurance: row.minimumAssurance
+    mode: row.mode, minimumAssurance: row.minimumAssurance,
+    ...(row.syntaxProvider ? { syntaxProvider: row.syntaxProvider } : {}),
+    ...(row.semanticProvider ? { semanticProvider: row.semanticProvider } : {}),
+    ...(row.semanticProfile ? { semanticProfile: row.semanticProfile } : {})
   }])));
-  parsed.setIn(['ast', 'predicates'], draft.predicates.map((row) => ({
-    id: row.id, mode: row.mode, type: row.type,
-    ...(row.type === 'path-exists' ? { path: row.target.trim() } : { symbol: row.target.trim() }),
-    minimumAssurance: row.minimumAssurance
-  })));
+  parsed.setIn(['ast', 'predicates'], draft.predicates.map((row) => {
+    const primary = ['path-exists', 'import-boundary', 'public-signature-changed'].includes(row.type)
+      ? { path: row.target.trim() } : row.type === 'module-dependency'
+        ? { module: row.target.trim() } : { symbol: row.target.trim() };
+    const secondary = row.type === 'annotation-present' ? { annotation: row.secondary?.trim() }
+      : ['inherits-from', 'conforms-to', 'override-exists', 'import-boundary', 'module-dependency'].includes(row.type)
+        ? { target: row.secondary?.trim() }
+        : row.type === 'public-signature-changed' ? { expectedSha256: row.secondary?.trim() } : {};
+    return {
+      id: row.id, mode: row.mode, type: row.type, ...primary, ...secondary,
+      minimumAssurance: row.minimumAssurance,
+      ...(RICH_PREDICATES.has(row.type) ? { languages: row.languages, profiles: row.profiles } : {})
+    };
+  }));
   return String(parsed);
 }
 
 export function parseAstLanguageRows(value: string): AstLanguageDraft[] {
   return value.split(/\r?\n/).map((line) => line.trim()).filter(Boolean).map((line) => {
-    const [language = '', mode = '', minimumAssurance = ''] = line.split('|').map((part) => part.trim());
-    return { language, mode: mode as AstMode, minimumAssurance: minimumAssurance as AstAssurance };
+    const [language = '', mode = '', minimumAssurance = '', syntaxProvider = '', semanticProvider = '', semanticProfile = ''] = line.split('|').map((part) => part.trim());
+    return {
+      language, mode: mode as AstMode, minimumAssurance: minimumAssurance as AstAssurance,
+      syntaxProvider: syntaxProvider || null, semanticProvider: semanticProvider || null,
+      semanticProfile: semanticProfile || null
+    };
   });
 }
 
 export function parseAstPredicateRows(value: string): AstPredicateDraft[] {
   return value.split(/\r?\n/).map((line) => line.trim()).filter(Boolean).map((line) => {
-    const [id = '', mode = '', type = '', target = '', minimumAssurance = ''] = line.split('|').map((part) => part.trim());
+    const [id = '', mode = '', type = '', target = '', minimumAssurance = '', languages = '', profiles = '', secondary = ''] = line.split('|').map((part) => part.trim());
+    const typed = type as AstPredicateDraft['type'];
     return {
-      id, mode: mode as AstPredicateDraft['mode'], type: type as AstPredicateDraft['type'],
-      target, minimumAssurance: minimumAssurance as AstAssurance
+      id, mode: mode as AstPredicateDraft['mode'], type: typed,
+      target, minimumAssurance: minimumAssurance as AstAssurance,
+      ...(RICH_PREDICATES.has(typed) ? {
+        languages: languages.split(',').map((entry) => entry.trim()).filter(Boolean),
+        profiles: profiles.split(',').map((entry) => entry.trim()).filter(Boolean),
+        secondary
+      } : {})
     };
   });
 }

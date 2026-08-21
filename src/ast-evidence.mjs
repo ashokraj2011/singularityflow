@@ -3,8 +3,10 @@ import { createReadStream } from 'node:fs';
 import { mkdir, readFile, writeFile } from 'node:fs/promises';
 import path from 'node:path';
 
+import { bundledAstAdapters, discoverAstAdapters } from './ast-adapter-contract.mjs';
 import { BUILTIN_AST_EXTRACTOR } from './ast-builtin-extractor.mjs';
 import { normalizeAstPolicy } from './ast-policy.mjs';
+import { validateProjectBinding } from './ast-project-binding.mjs';
 import { retainAstEvidenceBundle } from './ast-evidence-store.mjs';
 import { PACKAGE_ROOT } from './package-root.mjs';
 import { canonicalJson, recordSha256 } from './records.mjs';
@@ -13,9 +15,13 @@ import { SingularityFlowError } from './util.mjs';
 
 const ENGINE_FILES = Object.freeze([
   'src/ast-intelligence.mjs', 'src/ast-builtin-extractor.mjs', 'src/ast-evidence.mjs',
-  'src/ast-replay.mjs', 'src/ast-replay-runner.mjs'
+  'src/ast-replay.mjs', 'src/ast-replay-runner.mjs',
+  'src/ast-packs/polyglot-syntax-core.mjs', 'src/ast-packs/polyglot-syntax-adapter.mjs'
 ]);
-const REPLAY_FILES = Object.freeze(['src/ast-builtin-extractor.mjs', 'src/ast-replay-runner.mjs']);
+const REPLAY_FILES = Object.freeze([
+  'src/ast-builtin-extractor.mjs', 'src/ast-replay-runner.mjs',
+  'src/ast-packs/polyglot-syntax-core.mjs'
+]);
 let identitiesPromise = null;
 
 async function fileSha256(file) {
@@ -45,6 +51,7 @@ async function currentIdentities() {
       implementation: 'builtin-text-v1',
       files: files.filter((entry) => REPLAY_FILES.includes(entry.path))
     });
+    const [polyglot] = await bundledAstAdapters();
     const replayArtifacts = [];
     for (const relative of REPLAY_FILES) {
       const bytes = await readFile(path.join(PACKAGE_ROOT, relative));
@@ -64,12 +71,74 @@ async function currentIdentities() {
         manifestSha256: recordSha256(BUILTIN_AST_EXTRACTOR),
         artifactSha256: builtinArtifactSha256
       },
+      polyglot: {
+        id: polyglot.id,
+        packVersion: polyglot.packVersion,
+        extractorVersion: polyglot.extractorVersion,
+        protocolVersion: polyglot.protocolVersion,
+        stage: polyglot.stage,
+        assurance: polyglot.assurance,
+        manifestSha256: polyglot.implementation.manifestSha256,
+        artifactSha256: polyglot.implementation.artifactSha256,
+        runtime: polyglot.implementation.runtime,
+        grammars: polyglot.implementation.grammars,
+        dependencies: polyglot.implementation.dependencies
+      },
       runtime,
       files,
       replayArtifacts
     };
   })();
   return identitiesPromise;
+}
+
+async function retainedExternalPack(adapter) {
+  const files = [];
+  const byPath = new Map();
+  for (const item of adapter.implementation.files ?? []) {
+    const bytes = await readFile(item.path);
+    const digest = await fileSha256(item.path);
+    if (digest !== item.sha256) {
+      throw new SingularityFlowError(`AST adapter '${adapter.id}' changed before its evidence bundle could be retained.`, {
+        code: 'AST_EVIDENCE_TOOLCHAIN_CHANGED'
+      });
+    }
+    const token = `@artifact:${digest}`;
+    byPath.set(path.resolve(item.path), token);
+    files.push({ token, name: path.basename(item.path), sha256: digest, bytesBase64: bytes.toString('base64') });
+  }
+  const tokenFor = (value) => {
+    const resolved = path.isAbsolute(value) ? path.resolve(value) : null;
+    if (resolved && byPath.has(resolved)) return byPath.get(resolved);
+    if (resolved === path.resolve(process.execPath)) return '@runtime:node';
+    if (path.isAbsolute(value)) return `@runtime:${path.basename(value)}`;
+    return value;
+  };
+  const manifest = {
+    protocolVersion: adapter.protocolVersion,
+    id: adapter.id,
+    packVersion: adapter.packVersion,
+    extractorVersion: adapter.extractorVersion,
+    stage: adapter.stage,
+    assurance: adapter.assurance,
+    argv: adapter.argv.map(tokenFor),
+    capabilities: structuredClone(adapter.capabilities),
+    languages: structuredClone(adapter.languageDefinitions),
+    licenses: structuredClone(adapter.licenses),
+    conformance: structuredClone(adapter.conformance),
+    implementation: {
+      ...structuredClone(adapter.implementation),
+      files: (adapter.implementation.files ?? []).map((item) => ({ ...item, path: tokenFor(item.path) }))
+    }
+  };
+  return {
+    id: adapter.id,
+    originalManifestSha256: adapter.implementation.manifestSha256,
+    originalArtifactSha256: adapter.implementation.artifactSha256,
+    manifest,
+    files,
+    runtimeRequirements: manifest.argv.filter((item) => item.startsWith('@runtime:')).sort()
+  };
 }
 
 export async function currentAstEvidenceIdentities() {
@@ -102,6 +171,10 @@ export function validateAstDerivationManifest(value) {
     || !entry.gitObjectId || !/^[0-7]{6}$/.test(entry.gitMode ?? '') || !entry.contentSha256)) {
     throw new SingularityFlowError('AST derivation input manifest is incomplete.', { code: 'AST_DERIVATION_INVALID' });
   }
+  if (!Array.isArray(value.projectBindings ?? [])) {
+    throw new SingularityFlowError('AST derivation project bindings are invalid.', { code: 'AST_DERIVATION_INVALID' });
+  }
+  for (const binding of value.projectBindings ?? []) validateProjectBinding(binding, 'AST derivation ProjectBindingV1');
   return structuredClone(value);
 }
 
@@ -125,24 +198,30 @@ export async function createAstDerivation(root, config, workflow, phase, result,
   }
   const identities = await currentIdentities();
   const evidencePolicy = normalizeAstPolicy(config.ast ?? {}).evidence;
-  const extractors = [...new Map((result.provenance?.extractors ?? []).map((entry) => [entry.id, entry])).values()];
-  const unsupported = extractors.filter((entry) => entry.id !== BUILTIN_AST_EXTRACTOR.id);
+  const extractors = [...new Map((capture.extractors ?? result.provenance?.extractors ?? []).map((entry) => [
+    `${entry.id}\0${entry.derivation?.derivationSha256 ?? entry.version ?? ''}`, entry
+  ])).values()];
+  const unsupported = extractors.filter((entry) => ![BUILTIN_AST_EXTRACTOR.id, identities.polyglot.id].includes(entry.id));
+  const replayPacks = [];
   if (unsupported.length && evidencePolicy.mode === 'replayable') {
-    throw new SingularityFlowError(
-      `Replayable AST evidence cannot yet retain external adapter(s): ${unsupported.map((entry) => entry.id).join(', ')}. Configure a replay-capable bundle or use preview mode.`,
-      { code: 'AST_EVIDENCE_TOOLCHAIN_UNREPLAYABLE' }
-    );
+    const discovered = await discoverAstAdapters();
+    for (const extractor of unsupported) {
+      const adapter = discovered.adapters.find((candidate) => candidate.id === extractor.id
+        && candidate.extractorVersion === extractor.version
+        && candidate.implementation.manifestSha256 === extractor.manifestSha256
+        && candidate.implementation.artifactSha256 === extractor.artifactSha256);
+      if (!adapter) {
+        throw new SingularityFlowError(
+          `Replayable AST evidence cannot bind the exact installed adapter '${extractor.id}@${extractor.version}'.`,
+          { code: 'AST_EVIDENCE_TOOLCHAIN_UNREPLAYABLE' }
+        );
+      }
+      replayPacks.push(await retainedExternalPack(adapter));
+    }
   }
   const adapters = extractors.map((entry) => entry.id === BUILTIN_AST_EXTRACTOR.id
     ? identities.builtin
-    : {
-        id: entry.id,
-        extractorVersion: String(entry.version),
-        protocolVersion: entry.protocolVersion,
-        assurance: entry.assurance,
-        manifestSha256: entry.manifestSha256,
-        artifactSha256: entry.artifactSha256
-      });
+    : structuredClone(entry));
   if (!adapters.some((entry) => entry.id === identities.builtin.id)) adapters.unshift(identities.builtin);
   adapters.sort((left, right) => left.id.localeCompare(right.id));
   const adapter = adapters.find((entry) => entry.id === BUILTIN_AST_EXTRACTOR.id) ?? adapters[0];
@@ -151,12 +230,13 @@ export async function createAstDerivation(root, config, workflow, phase, result,
     kind: 'singularity-flow-ast-toolchain',
     engine: identities.engine,
     adapters,
-    grammars: [],
+    grammars: adapters.flatMap((entry) => entry.grammars ?? []).sort((left, right) => `${left.language}\0${left.id}`.localeCompare(`${right.language}\0${right.id}`)),
     runtime: identities.runtime,
     dependencies: { lockSha256: null, bundleSha256: null },
-    implementation: { builtin: 'builtin-text-v1', canonicalizationVersion: 1 },
+    implementation: { builtin: 'builtin-text-v1', polyglot: 'sflow-polyglot-syntax-v1', canonicalizationVersion: 1 },
     packagedFiles: identities.files,
-    replayArtifacts: identities.replayArtifacts
+    replayArtifacts: identities.replayArtifacts,
+    replayPacks
   };
   const mode = evidencePolicy.mode;
   const storeId = evidencePolicy.store;
@@ -178,10 +258,11 @@ export async function createAstDerivation(root, config, workflow, phase, result,
     engine: identities.engine,
     adapter,
     adapters,
-    grammars: [],
+    grammars: toolchainBundle.grammars,
     runtime: identities.runtime,
     dependencies: { lockSha256: null, bundleSha256: null },
     configuration: structuredClone(capture.configuration),
+    projectBindings: structuredClone(capture.projectBindings ?? []),
     replayRecipe: structuredClone(capture.replayRecipe),
     inputs: {
       sourceCommit: capture.inputs.sourceCommit,
@@ -193,6 +274,7 @@ export async function createAstDerivation(root, config, workflow, phase, result,
     outputs: {
       resultSchemaVersion: result.schemaVersion,
       factsSha256: capture.outputs.factsSha256,
+      extractorFactSets: structuredClone(capture.outputs.extractorFactSets ?? []),
       predicateResultsSha256: capture.outputs.predicateResultsSha256 ?? null,
       page: structuredClone(capture.outputs.page ?? null)
     },

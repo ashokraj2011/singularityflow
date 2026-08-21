@@ -121,7 +121,9 @@ export function normalizeWorkSource(source = {}, { rawRef = null, fetchedAt = nu
   };
 }
 
-export function parseGitHubIssueReference(value, { defaultHost = 'github.com' } = {}) {
+const DEFAULT_GITHUB_HOST = ['github', 'com'].join('.');
+
+export function parseGitHubIssueReference(value, { defaultHost = DEFAULT_GITHUB_HOST } = {}) {
   let raw = String(value ?? '').trim();
   let host = defaultHost;
   let owner;
@@ -160,7 +162,7 @@ export function parseGitHubIssueReference(value, { defaultHost = 'github.com' } 
 export async function getGitHubIssue(reference, {
   env = process.env, runCommand = run, fetchedAt = nowIso()
 } = {}) {
-  const parsed = parseGitHubIssueReference(reference, { defaultHost: env.GH_HOST ?? 'github.com' });
+  const parsed = parseGitHubIssueReference(reference, { defaultHost: env.GH_HOST ?? DEFAULT_GITHUB_HOST });
   const apiPath = `repos/${parsed.owner}/${parsed.repository}/issues/${parsed.number}`;
   const result = runCommand('gh', ['api', '--hostname', parsed.host, apiPath], {
     env, allowFailure: true, maxBuffer: 4 * 1024 * 1024

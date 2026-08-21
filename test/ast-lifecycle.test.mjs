@@ -24,17 +24,21 @@ function git(root, ...args) {
   return result.stdout.trim();
 }
 
-async function fixture({ predicatePath = 'README.md' } = {}) {
+async function fixture({ predicatePath = 'README.md', predicateSymbol = null } = {}) {
   const root = await mkdtemp(path.join(os.tmpdir(), 'sflow-ast-lifecycle-'));
   git(root, 'init', '-b', 'main');
   git(root, 'config', 'user.name', ACTOR.name);
   git(root, 'config', 'user.email', ACTOR.email);
   await writeFile(path.join(root, 'README.md'), '# AST lifecycle fixture\n');
+  if (predicateSymbol) await writeFile(path.join(root, 'Payment.java'), `public class ${predicateSymbol} {}\n`);
   await initializeDefinition(root);
   const definitionPath = path.join(root, 'singularity', 'workflow.yml');
   const definition = YAML.parse(await readFile(definitionPath, 'utf8'));
-  definition.worldModel.sourceRoots = ['README.md'];
-  definition.ast.predicates = [{
+  definition.worldModel.sourceRoots = predicateSymbol ? ['Payment.java'] : ['README.md'];
+  definition.ast.predicates = [predicateSymbol ? {
+    id: 'required-symbol', mode: 'required', type: 'symbol-exists', symbol: predicateSymbol,
+    minimumAssurance: 'syntax'
+  } : {
     id: 'required-path', mode: 'required', type: 'path-exists', path: predicatePath,
     minimumAssurance: 'text'
   }];
@@ -156,6 +160,24 @@ test('publication records an AST receipt and submission verifies its exact relev
     assert.match(committed.passes[0], /generation commit/);
     await submitPhase(root, config, workflow, { phaseId: phase.id, runChecks: false });
     assert.equal(workflow.status, 'complete');
+  });
+});
+
+test('polyglot syntax gate evidence remains identical after deleting every derived AST cache', async () => {
+  const { root, config, workflow, phase, authorship } = await fixture({ predicateSymbol: 'PaymentService' });
+  await inContext(root, async () => {
+    await publishGeneration(root, config, workflow, { phaseId: phase.id, authorship });
+    const summary = phase.astGates[0];
+    const receipt = JSON.parse(await readFile(path.join(root, summary.path), 'utf8'));
+    assert.equal(receipt.allowed, true);
+    assert.equal(receipt.predicates[0].outcome, 'pass');
+    assert.ok(receipt.predicates[0].extractors.some((entry) => entry.id === 'sflow-polyglot-syntax'));
+    const derivation = JSON.parse(await readFile(path.join(root, receipt.derivation.path), 'utf8'));
+    assert.ok(derivation.adapters.some((entry) => entry.id === 'sflow-polyglot-syntax'
+      && entry.derivation?.derivationSha256));
+    await rm(path.join(root, '.git', 'singularity-flow', 'ast'), { recursive: true, force: true });
+    const replay = await replayAstEvidence(root, { receipt: summary.path });
+    assert.equal(replay.result, 'identical');
   });
 });
 

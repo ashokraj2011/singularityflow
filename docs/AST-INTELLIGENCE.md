@@ -10,12 +10,19 @@ a daemon, and never makes a lifecycle gate weaker when it is disabled.
   content hash;
 - Git-index census with explicit path, capability-cone, changed-file, and opt-in `--all` scopes;
 - file, symbol, and import references at honest `text` assurance, without source bodies in results;
+- a bundled, on-demand polyglot syntax pack for Java, Python, Kotlin, and Swift declarations,
+  signatures, nesting, imports, annotations, declared relationships, and exact spans;
+- a data-driven `LanguageCatalogV1`, rich protocol-v2 fact boundary, and deterministic syntax-first,
+  optional-semantic provider pipeline;
+- bounded, existing-only Maven, Gradle/Android, Python, SwiftPM, and Xcode project discovery that
+  hashes existing metadata without running builds, dependency resolution, or repository scripts;
 - per-operation file, byte, and individual-file budgets with visible partial coverage;
-- a per-blob content-addressed skeleton cache plus cone manifests below
+- separate content-addressed text, syntax-skeleton, and semantic-overlay cache families plus cone manifests below
   `<git-common-dir>/singularity-flow/ast/v2`;
 - machine-local `auto`/`off` preference combined with repository and environment policy by choosing
   the most restrictive value;
-- a versioned, structured-argv contract for bounded out-of-process syntax/semantic adapters;
+- a versioned, structured-argv contract and guarded machine-local registry for bounded
+  out-of-process syntax/semantic adapter packs;
 - immutable derivation manifests that bind exact committed Git objects, policy/profile/options,
   engine and adapter artifacts, runtime, grammars, dependencies, and canonical output digests;
 - a read-after-write-verified directory evidence store plus cache-independent, model-free replay;
@@ -25,11 +32,11 @@ a daemon, and never makes a lifecycle gate weaker when it is disabled.
   governed receipt before submission and terminal governance.
 
 The built-in JavaScript/TypeScript extractor remains lexical and its facts are labeled `text`.
-Syntax or semantic assurance is accepted only from an explicitly configured adapter after its
-identity, version, request binding, paths, content hashes, fact kinds, assurance, output size, and
-JSON response validate. Compiler-backed TypeScript, Android/JVM project models, iOS/Swift project
-models, semantic resolution, and codemods remain adapter-pack milestones; Kotlin and Swift filename
-recognition alone is not parser support.
+Java, Python, Kotlin, and Swift use the bundled `sflow-polyglot-syntax` pack when effective policy
+permits adapters. Its identity, parser/grammar versions, request binding, paths, content hashes,
+fact kinds, assurance, output size, and JSON response are validated before facts are accepted.
+Compiler-backed Java/JDT, Python/Pyright, Kotlin Analysis, and Swift/SourceKit semantics remain
+optional packs: their absence retains syntax facts and reports the exact project/toolchain boundary.
 
 ## Configure
 
@@ -72,9 +79,21 @@ ast:
     maxBytes: 20971520
     maxFileBytes: 2097152
   languages:
-    typescript:
+    java:
       mode: auto
-      minimumAssurance: text
+      minimumAssurance: syntax
+      syntaxProvider: sflow-polyglot-syntax  # optional explicit pin
+    python:
+      mode: auto
+      minimumAssurance: syntax
+    kotlin:
+      mode: auto
+      minimumAssurance: syntax
+      semanticProvider: sflow-kotlin-analysis # optional installed pack
+      semanticProfile: android-debug
+    swift:
+      mode: auto
+      minimumAssurance: syntax
 ```
 
 The active Story's pinned capability source roots are authoritative. When no roots are pinned, an
@@ -85,10 +104,11 @@ The effective mode is the most restrictive of `ast.mode`, the machine preference
 `disabled` envelope before repository census or fingerprinting and creates no cache or
 materialization side effects.
 
-`fallback: text-only` never starts an adapter. `fallback: host-and-text` may execute a compatible
-adapter declared through `SINGULARITY_FLOW_AST_ADAPTER_MANIFESTS`; bounded text facts remain
-available when the adapter is absent or fails, and the result becomes partial when configured
-assurance cannot be established. `generatedRoots` are tagged in facts rather than silently omitted.
+`fallback: text-only` never starts an adapter. `fallback: host-and-text` may execute the bundled
+syntax pack, a reviewed machine-installed pack, or an explicit development/test manifest. Bounded
+text facts remain available when a pack is absent or fails, and the result becomes partial when
+configured assurance cannot be established. `generatedRoots` are tagged in facts rather than
+silently omitted. Repository files can select an allowed provider ID but can never supply `argv`.
 
 ## Use
 
@@ -99,10 +119,15 @@ singularity-flow wm ast context --paths src --max-files 200 --max-facts 50 --max
 singularity-flow wm ast context --cursor OPAQUE-CURSOR --json
 singularity-flow wm ast query --predicate symbol --value Payment --paths src --max-facts 50 --max-output-bytes 32768 --json
 singularity-flow wm ast query --cursor OPAQUE-CURSOR --json
+singularity-flow wm ast query --predicate symbol-id --value SYMBOL-ID --paths src --json
+singularity-flow wm ast query --predicate references --value SYMBOL-ID --paths src --json
+singularity-flow wm ast query --predicate hierarchy --value SYMBOL-ID --paths src --json
+singularity-flow wm ast query --predicate module --value MODULE --paths src --json
 singularity-flow wm ast build --paths src --json
 singularity-flow wm ast build --resume HANDLE --json
 singularity-flow wm ast gate --paths src --json
-singularity-flow wm ast evidence replay --receipt singularity/work-items/WRK-1/context/ast/intake-gen1.json --json
+singularity-flow wm ast evidence reproduce --receipt singularity/work-items/WRK-1/context/ast/intake-gen1.json --json
+singularity-flow wm ast warm --semantic --provider sflow-java-jdt --project maven:. --profile default --dry-run
 singularity-flow wm ast cache status
 singularity-flow wm ast cache prune --dry-run
 singularity-flow wm ast cache prune --confirm "PRUNE AST CACHE"
@@ -110,6 +135,11 @@ singularity-flow wm ast cache clear --dry-run
 singularity-flow wm ast cache clear --confirm "CLEAR AST CACHE"
 singularity-flow wm ast preference set off
 singularity-flow wm ast preference set auto
+singularity-flow wm ast pack list
+singularity-flow wm ast pack doctor sflow-polyglot-syntax
+singularity-flow wm ast pack install /offline/pack/manifest.json --dry-run
+singularity-flow wm ast pack install /offline/pack.tgz --dry-run
+singularity-flow wm ast pack remove PACK --dry-run
 ```
 
 `--paths` may be repeated or contain comma-separated repository-relative prefixes. Symlinks,
@@ -147,9 +177,22 @@ Git objects, verifies the retained toolchain by digest, never reads or fills the
 returns `identical`, `different`, or an honest `unavailable` reason. It never substitutes a currently
 installed artifact with a different digest.
 
-The bundled lexical extractor is fully retainable and replayable. Protocol-v2 external adapters are
-digest-verified for live use, but replayable publication fails closed until an adapter supplies a
-governed retention bundle; the runtime never labels an unretained external toolchain replayable.
+The bundled lexical extractor and bundled polyglot syntax pack are fully retainable and replayable.
+Protocol-v2 external adapters are digest-verified for live use. Replayable publication retains the
+exact manifest, executable/package files, runtime identity, grammar and dependency digests in the
+evidence store; reproduction reconstructs that retained bundle and refuses when any required
+toolchain identity is unavailable. The runtime never substitutes a newly installed provider or
+labels an unretained external toolchain replayable. `replay` remains a compatibility alias for the
+canonical `reproduce` action.
+
+### Bundled-pack provenance
+
+The bundled polyglot syntax pack is repository-native code, not a repackaged third-party grammar.
+Its source is `src/ast-packs/polyglot-syntax-core.mjs`, it inherits the repository's MIT license,
+and its manifest records a digest of the exact source used for each derivation. It has no generated
+binary, downloaded grammar, or separate build step. Optional semantic packs must instead declare
+their license metadata and bind the adapter, runtime, grammar, and dependency artifacts by digest;
+an incomplete or mismatched manifest is unavailable rather than silently downgraded.
 
 ## Lifecycle enforcement
 
@@ -176,18 +219,19 @@ predicate.
 ## Copilot and gateway reads
 
 `/sf-worldmodel` exposes the same bounded CLI operations. Gateway hosts can resolve model-free
-`wm.ast.status`, `wm.ast.context`, `wm.ast.query`, and `wm.ast.evidence.replay` reads; they return the validated result envelope
-with no source bodies and cannot build cache entries or advance lifecycle state. The embedded VS
-Code gateway exposes the same planners. The workflow and developer agents direct symbol/import
-questions through these bounded reads and follow a continuation only while the question remains
-unanswered. Whole-repository scope remains explicit.
+`wm.ast.status`, `wm.ast.context`, `wm.ast.query`, `wm.ast.symbol`, `wm.ast.references`,
+`wm.ast.hierarchy`, `wm.ast.module`, and `wm.ast.evidence.replay` reads; they return the validated
+result envelope with no source bodies and cannot build cache entries or advance lifecycle state.
+The embedded VS Code gateway exposes the same planners. The workflow and developer agents direct
+symbol/import questions through these bounded reads and follow a continuation only while the
+question remains unanswered. Whole-repository scope remains explicit.
 
 ## Safety and troubleshooting
 
 - Results contain paths, hashes, declaration locations, and dependency targets—not source bodies.
-- JavaScript and TypeScript receive built-in lexical symbols. Kotlin, Swift, Java, Python, and the
-  other recognized languages receive file facts unless an explicit syntax/semantic adapter is
-  configured; recognition is not claimed as parsing.
+- JavaScript and TypeScript receive built-in lexical symbols. Java, Python, Kotlin, and Swift use
+  the bundled syntax pack unless policy selects `off`/`text-only`; other catalogued languages retain
+  the text floor until a reviewed pack is installed. Recognition alone is never claimed as parsing.
 - Adapter protocol v2 manifests bind the executable/package, manifest, runtime, grammars, and
   dependency artifacts by SHA-256. The broker verifies the executable digest before launch and the
   adapter must echo the request derivation identity and implementation digests.
@@ -199,9 +243,19 @@ unanswered. Whole-repository scope remains explicit.
 - The cache is derived local state. It is never committed and may be cleared after preview and exact
   confirmation. Linked worktrees share the repository's Git-common cache.
 - A malformed local preference fails closed with its exact path and repair command.
-- Adapter manifests are discovered only through `SINGULARITY_FLOW_AST_ADAPTER_MANIFESTS`, a
-  platform-delimited list of explicit JSON files. The broker does not search repositories or PATH.
-- Run `wm ast doctor --json` to see the effective mode, pinned cone, available assurance, invalid
-  adapter diagnostics, and cache size.
+- Installed manifests are discovered only from the guarded machine-local pack registry.
+  `SINGULARITY_FLOW_AST_ADAPTER_MANIFESTS` remains a development/test override. The broker does not
+  discover executable configuration from repositories or PATH.
+- Pack installation accepts a local manifest/directory or a bounded `.tar`, `.tar.gz`, or `.tgz`
+  archive. It rejects absolute/traversal members and links, validates the manifest and every artifact
+  digest, previews the content-bound confirmation, and never fetches a network URL.
+- Semantic warm-up is an explicit mutation. Its preview discloses each structured command and
+  repository configuration effect; confirmation is bound to the provider, project, profile,
+  metadata, and command plan. Normal context/query/gate reads never warm a project or resolve
+  dependencies. Warm commands use provider-specific offline flags.
+- Timed-out or cancelled adapter processes terminate their process tree before the broker returns,
+  so a descendant cannot continue writing delayed derived output.
+- Run `wm ast doctor --json` to see the effective mode, pinned cone, per-language provider matrix,
+  existing-only project bindings, available assurance, invalid-pack diagnostics, and cache size.
 
 See also [World model](topics/world-model.md), [Repository state and snapshots](topics/repository-state-and-snapshots.md), and [Diagnostics](topics/diagnostics-and-regression.md).

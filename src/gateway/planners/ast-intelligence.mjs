@@ -62,6 +62,21 @@ export async function astQueryPlanner({ root = null, subject = null, arguments: 
   });
 }
 
+async function specializedQuery(operation, predicate, { root = null, subject = null, arguments: args = {} } = {}) {
+  const value = args.symbolId ?? args.name ?? args.module ?? args.value;
+  const data = await astQuery(repositoryRoot(root, operation), {
+    ...optionsFor(args), predicate, value
+  });
+  return result(operation, subject, data, {
+    status: data.status, matched: String(data.coverage?.factsMatched ?? 0), assurance: data.assurance
+  });
+}
+
+export const astSymbolPlanner = (request) => specializedQuery('wm.ast.symbol', request.arguments?.symbolId ? 'symbol-id' : 'symbol', request);
+export const astReferencesPlanner = (request) => specializedQuery('wm.ast.references', 'references', request);
+export const astHierarchyPlanner = (request) => specializedQuery('wm.ast.hierarchy', 'hierarchy', request);
+export const astModulePlanner = (request) => specializedQuery('wm.ast.module', 'module', request);
+
 export async function astEvidenceReplayPlanner({ root = null, subject = null, arguments: args = {} } = {}) {
   const data = await replayAstEvidence(repositoryRoot(root, 'wm.ast.evidence.replay'), {
     receipt: args.receipt

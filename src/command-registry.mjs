@@ -103,8 +103,8 @@ export function commandDefinition(name) {
 const WM_MODEL_OPERATIONS = new Set(['build']);
 const WM_NEVER_OPERATIONS = new Set(['init', 'inject', 'compose', 'show-prompt', 'cleanup', 'prompt', 'context', 'budget', 'facts', 'check', 'cache', 'light', 'availability', 'status', 'design-inventory']);
 const WM_AST_READ_ACTIONS = new Set(['doctor', 'status', 'context', 'query', 'gate']);
-const WM_AST_MUTATION_ACTIONS = new Set(['build']);
-const WM_AST_ACTIONS = Object.freeze([...WM_AST_READ_ACTIONS, ...WM_AST_MUTATION_ACTIONS, 'cache', 'evidence', 'preference']);
+const WM_AST_MUTATION_ACTIONS = new Set(['build', 'warm']);
+const WM_AST_ACTIONS = Object.freeze([...WM_AST_READ_ACTIONS, ...WM_AST_MUTATION_ACTIONS, 'cache', 'evidence', 'pack', 'preference']);
 const WM_RECOVERY_ACTIONS = Object.freeze(['list', 'inspect', 'publish']);
 
 /**
@@ -470,8 +470,17 @@ function resolveWorldModelOperation(definition, positionals) {
     }
     if (action === 'evidence') {
       const evidenceAction = positionals[3] ?? 'replay';
-      if (evidenceAction !== 'replay') return unknownSubcommand('wm ast evidence', evidenceAction, ['replay'], 'action');
+      if (!['replay', 'reproduce'].includes(evidenceAction)) {
+        return unknownSubcommand('wm ast evidence', evidenceAction, ['reproduce', 'replay'], 'action');
+      }
       return never('wm.ast.evidence.replay', definition, 'read');
+    }
+    if (action === 'pack') {
+      const packAction = positionals[3] ?? 'list';
+      if (!['list', 'status', 'doctor', 'install', 'remove'].includes(packAction)) {
+        return unknownSubcommand('wm ast pack', packAction, ['list', 'status', 'doctor', 'install', 'remove'], 'action');
+      }
+      return never(`wm.ast.pack.${packAction}`, definition, ['list', 'status', 'doctor'].includes(packAction) ? 'read' : 'mutation');
     }
     if (action === 'preference') {
       const preferenceAction = positionals[3] ?? 'show';
@@ -575,8 +584,12 @@ export function operationCatalog() {
     .concat([optional('wm.ensure', 'wm.light', commandDefinition('wm'))])
     .concat([...WM_AST_READ_ACTIONS].map((name) => never(`wm.ast.${name}`, commandDefinition('wm'), 'read')))
     .concat([...WM_AST_MUTATION_ACTIONS].map((name) => never(`wm.ast.${name}`, commandDefinition('wm'), 'mutation')))
+    .concat(['symbol', 'references', 'hierarchy', 'module'].map((name) => never(`wm.ast.${name}`, commandDefinition('wm'), 'read')))
     .concat(['status', 'prune', 'clear'].map((name) => never(`wm.ast.cache.${name}`, commandDefinition('wm'), name === 'status' ? 'read' : 'mutation')))
     .concat([never('wm.ast.evidence.replay', commandDefinition('wm'), 'read')])
+    .concat(['list', 'status', 'doctor', 'install', 'remove'].map((name) => never(
+      `wm.ast.pack.${name}`, commandDefinition('wm'), ['list', 'status', 'doctor'].includes(name) ? 'read' : 'mutation'
+    )))
     .concat(['show', 'set'].map((name) => never(`wm.ast.preference.${name}`, commandDefinition('wm'), name === 'show' ? 'read' : 'mutation')));
   wm.push(...WM_RECOVERY_ACTIONS.map((name) => never(
     `wm.recovery.${name}`, commandDefinition('wm'), name === 'publish' ? 'mutation' : 'read'

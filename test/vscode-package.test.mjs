@@ -13,6 +13,7 @@ const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 
 test('the installed VS Code CLI carries the canonical Help manual', async () => {
   assert.ok(CLI_PAYLOAD.includes('HELP.md'), 'HELP.md is part of the declared installed payload');
+  assert.ok(CLI_PAYLOAD.includes('LICENSE'), 'the bundled polyglot pack license is part of the installed payload');
 
   const extension = await mkdtemp(path.join(os.tmpdir(), 'sflow-vscode-package-'));
   const staged = await stageCli({ rootDir: root, extensionDir: extension });

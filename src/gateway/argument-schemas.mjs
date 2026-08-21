@@ -240,6 +240,34 @@ export const ARGUMENT_SCHEMAS = Object.freeze([
     all: optional('boolean'),
     maxFiles: optional('integer', { min: 1, max: 10000 })
   }),
+  schema('ast-symbol-v1', {
+    name: optional('string', { maxLength: 500 }),
+    symbolId: optional('string', { maxLength: 1000 }),
+    path: optional('relative-path'),
+    all: optional('boolean'),
+    maxFiles: optional('integer', { min: 1, max: 10000 }),
+    maxFacts: optional('integer', { min: 1, max: 1000 }),
+    maxOutputBytes: optional('integer', { min: 16384, max: 4194304 }),
+    cursor: optional('string', { maxLength: 16384 })
+  }),
+  schema('ast-symbol-id-v1', {
+    symbolId: required('string', { maxLength: 1000 }),
+    path: optional('relative-path'),
+    all: optional('boolean'),
+    maxFiles: optional('integer', { min: 1, max: 10000 }),
+    maxFacts: optional('integer', { min: 1, max: 1000 }),
+    maxOutputBytes: optional('integer', { min: 16384, max: 4194304 }),
+    cursor: optional('string', { maxLength: 16384 })
+  }),
+  schema('ast-module-v1', {
+    module: required('string', { maxLength: 1000 }),
+    path: optional('relative-path'),
+    all: optional('boolean'),
+    maxFiles: optional('integer', { min: 1, max: 10000 }),
+    maxFacts: optional('integer', { min: 1, max: 1000 }),
+    maxOutputBytes: optional('integer', { min: 16384, max: 4194304 }),
+    cursor: optional('string', { maxLength: 16384 })
+  }),
   schema('ast-context-v2', {
     path: optional('relative-path'),
     all: optional('boolean'),

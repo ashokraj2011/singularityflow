@@ -28,7 +28,7 @@ import { compileOperationRegistry } from './registry.mjs';
  * present in this build.
  */
 export const GATEWAY_PLANNERS = Object.freeze([
-  'ast-status', 'ast-context', 'ast-query', 'ast-evidence-replay',
+  'ast-status', 'ast-context', 'ast-query', 'ast-symbol', 'ast-references', 'ast-hierarchy', 'ast-module', 'ast-evidence-replay',
   'goal-inspect', 'goal-impact', 'goal-next', 'goal-trace',
   'home-overview', 'developer-next', 'work-list', 'work-continue', 'work-handoff', 'context-brief', 'work-start-intake', 'work-start',
   'work-draft-save', 'work-readiness', 'work-return', 'workspace-list', 'workspace-switch', 'workspace-materialize',
@@ -159,6 +159,22 @@ export const GATEWAY_DECLARATIONS = Object.freeze([
     planner: 'ast-query',
     noModelFixture: 'wm-ast-query-model-free'
   },
+  ...[
+    ['symbol', 'ast-symbol', 'ast-symbol-v1', 'find a symbol declaration', 'show a symbol signature'],
+    ['references', 'ast-references', 'ast-symbol-id-v1', 'find symbol references', 'who calls this symbol'],
+    ['hierarchy', 'ast-hierarchy', 'ast-symbol-id-v1', 'show symbol hierarchy', 'what implements this symbol'],
+    ['module', 'ast-module', 'ast-module-v1', 'show symbol module', 'find project module']
+  ].map(([name, planner, argumentSchema, ...phrases]) => ({
+    ...READ,
+    id: `wm.ast.${name}`,
+    kernelOperation: `wm.ast.${name}`,
+    goals: ['repository.explore'],
+    aliases: en(...phrases),
+    subjects: ['repository', 'story'],
+    argumentSchema,
+    planner,
+    noModelFixture: `wm-ast-${name}-model-free`
+  })),
   {
     ...READ,
     id: 'wm.ast.evidence.replay',

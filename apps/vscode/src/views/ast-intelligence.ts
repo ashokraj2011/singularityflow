@@ -22,7 +22,27 @@ interface AstDoctorResult {
   effective?: { mode?: AstMode; sources?: Partial<Record<'repository' | 'local' | 'environment' | 'operation', AstMode>> };
   scope?: { kind?: string; paths?: string[] };
   cache?: AstCacheStatus;
-  adapters?: Array<{ id?: string; languages?: string[]; assurance?: AstAssurance; status?: string }>;
+  languages?: Array<{
+    language?: string; selectedFiles?: number; maximumAssurance?: AstAssurance;
+    availablePacks?: Array<{ id?: string; stage?: string; assurance?: AstAssurance; packVersion?: string }>;
+    selectedProviders?: { syntax?: string | null; semantic?: string | null };
+    toolchainStatus?: string; projectModelStatus?: string; degradationReason?: string | null;
+  }>;
+  projects?: {
+    mode?: string; bindingCount?: number;
+    bindings?: Array<{
+      projectKind?: string; root?: string; modules?: string[]; sourceSets?: string[];
+      profile?: string | null; complete?: boolean; unavailable?: string[]; projectModelSha256?: string;
+    }>;
+  };
+  adapters?: Array<{
+    id?: string; packVersion?: string; stage?: string; languages?: string[];
+    assurance?: AstAssurance; status?: string;
+  }>;
+  optionalPacks?: Array<{
+    id?: string; stage?: string; languages?: string[]; projectKinds?: string[];
+    maturity?: string; status?: string; platformCompatible?: boolean;
+  }>;
   assuranceAvailable?: AstAssurance[];
   lifecycle?: {
     enforced?: boolean; predicateCount?: number; requiredPredicateCount?: number;
@@ -34,7 +54,7 @@ interface AstDoctorResult {
 interface AstRunResult {
   operation?: string; status?: string; assurance?: string;
   scope?: { kind?: string; paths?: string[] };
-  coverage?: { selected?: number; processed?: number; skipped?: number; bytes?: number; facts?: number; factsExamined?: number; factsMatched?: number; factsReturned?: number; byLanguage?: Record<string, number> };
+  coverage?: { selected?: number; processed?: number; skipped?: number; generated?: number; bytes?: number; facts?: number; factsExamined?: number; factsMatched?: number; factsReturned?: number; byLanguage?: Record<string, number> };
   provenance?: { cache?: { hits?: number; misses?: number; entries?: number; format?: string }; adapters?: Array<{ id?: string; status?: string }> };
   diagnostics?: Array<{ code?: string; message?: string }>;
   degradation?: Array<{ path?: string; reason?: string }>;
@@ -43,6 +63,12 @@ interface AstRunResult {
   page?: { offset?: number; returned?: number; hasMore?: boolean };
 }
 interface AstCachePreview { action?: 'prune' | 'clear'; dryRun?: boolean; candidates?: number; removed?: number; bytes?: number; targets?: string[] }
+interface AstWarmPreview {
+  operation?: 'ast-semantic-warm'; project?: string; provider?: string; profile?: string;
+  ready?: boolean; unavailable?: string[]; confirmation?: string;
+  effects?: { repositoryWrites?: boolean; network?: string; executesRepositoryConfiguration?: boolean; writes?: string[] };
+  commands?: Array<{ kind?: string; executable?: string; arguments?: string[]; cwd?: string }>;
+}
 
 const SCRIPT = `
   const vscode = window.__sfVscode;
@@ -69,6 +95,10 @@ const SCRIPT = `
       type: 'run-scope', operation: event.submitter?.value, mode: data.get('mode'),
       paths: csv(data.get('paths')), all: data.get('all') === 'on', maxFiles: Number(data.get('maxFiles'))
     });
+    if (form.id === 'ast-warm-form') send({
+      type: 'preview-warm', provider: data.get('provider'), profile: data.get('profile'), project: data.get('project')
+    });
+    if (form.id === 'ast-warm-confirm') send({ type: 'execute-warm', confirmation: data.get('confirmation') });
     if (form.id === 'ast-cache-confirm') send({
       type: 'execute-cache', kind: data.get('kind'), confirmation: data.get('confirmation')
     });
@@ -87,11 +117,17 @@ function option(value: string, current: string, label: string): string {
 }
 
 function languageRows(policy: AstPolicyDraft): string {
-  return policy.languages.map((row) => `${row.language} | ${row.mode} | ${row.minimumAssurance}`).join('\n');
+  return policy.languages.map((row) => [
+    row.language, row.mode, row.minimumAssurance,
+    row.syntaxProvider ?? '', row.semanticProvider ?? '', row.semanticProfile ?? ''
+  ].join(' | ').replace(/(?: \| )+$/, '')).join('\n');
 }
 
 function predicateRows(policy: AstPolicyDraft): string {
-  return policy.predicates.map((row) => `${row.id} | ${row.mode} | ${row.type} | ${row.target} | ${row.minimumAssurance}`).join('\n');
+  return policy.predicates.map((row) => [
+    row.id, row.mode, row.type, row.target, row.minimumAssurance,
+    (row.languages ?? []).join(','), (row.profiles ?? []).join(','), row.secondary ?? ''
+  ].join(' | ').replace(/(?: \| )+$/, '')).join('\n');
 }
 
 function runtimeSummary(doctor: AstDoctorResult | null): string {
@@ -171,8 +207,8 @@ function policyForm(policy: AstPolicyDraft, scope: AstRepositoryScopeView | null
         <label><span>Total byte budget</span><input name="maxBytes" type="number" min="1" step="1024" value="${policy.budgets.maxBytes}"></label>
         <label><span>Maximum bytes per file</span><input name="maxFileBytes" type="number" min="1" step="1024" value="${policy.budgets.maxFileBytes}"></label>
       </div></div>
-      <div class="editor-card"><h3>Language policy</h3><label class="stack"><span>One language per line</span><textarea name="languages" rows="5" placeholder="typescript | auto | text\nkotlin | off | syntax">${escape(languageRows(policy))}</textarea><small><code>language | auto/off | text/syntax/semantic</code>. Syntax and semantic assurance require an installed adapter whose bounded response passes the runtime contract.</small></label></div>
-      <div class="editor-card"><h3>Structural predicates</h3><label class="stack"><span>One predicate per line</span><textarea name="predicates" rows="5" placeholder="payment-entry | advisory | symbol-exists | Payment | text">${escape(predicateRows(policy))}</textarea><small><code>id | required/advisory | path-exists/symbol-exists | target | text/syntax/semantic</code>. Required symbols need syntax or semantic assurance; lexical text matches remain advisory. Required unknown, failed, disabled, or partial results never pass.</small></label></div>
+      <div class="editor-card"><h3>Language policy</h3><label class="stack"><span>One language per line</span><textarea name="languages" rows="5" placeholder="java | auto | syntax | sflow-polyglot-syntax\nkotlin | auto | semantic | sflow-polyglot-syntax | sflow-kotlin-analysis | android-debug">${escape(languageRows(policy))}</textarea><small><code>language | auto/off | text/syntax/semantic | syntax provider | semantic provider | profile</code>. Provider and profile columns are optional; the product chooses the bundled syntax pack when no provider is pinned.</small></label></div>
+      <div class="editor-card"><h3>Structural predicates</h3><label class="stack"><span>One predicate per line</span><textarea name="predicates" rows="6" placeholder="boundary | required | import-boundary | src/api | syntax | java,kotlin | * | forbidden.internal">${escape(predicateRows(policy))}</textarea><small><code>id | required/advisory | type | path/symbol/module | assurance | languages | profiles | comparison</code>. Types: path/symbol exists, import boundary, annotation, inheritance/conformance/override, public-signature change, and module dependency. Rich predicates require explicit language/profile applicability; use <code>*</code> deliberately. Required unknown, failed, disabled, or partial results never pass.</small></label></div>
       <p class="card-foot"><button type="submit">Save repository AST policy</button><button class="secondary" type="button" data-message="open-workflow">Open advanced YAML</button></p>
     </form></section>`;
 }
@@ -187,6 +223,7 @@ function runResult(result: AstRunResult | null): string {
     <div class="summary-card"><strong>${escape(result.assurance ?? 'text')}</strong><span>assurance</span></div>
     <div class="summary-card"><strong>${escape(`${coverage.processed ?? 0}/${coverage.selected ?? 0}`)}</strong><span>files processed</span></div>
     <div class="summary-card"><strong>${escape(bytes(coverage.bytes))}</strong><span>bytes examined</span></div>
+    ${(coverage.generated ?? 0) > 0 ? `<div class="summary-card"><strong>${escape(coverage.generated ?? 0)}</strong><span>generated files identified</span></div>` : ''}
     ${cache ? `<div class="summary-card"><strong>${escape(`${cache.hits ?? 0} hit / ${cache.misses ?? 0} miss`)}</strong><span>${escape(cache.format ?? 'derived cache')}</span></div>` : ''}</div>
     ${adapters.length ? `<p class="muted">Adapters: ${adapters.map((entry) => `${escape(entry.id ?? 'adapter')} (${escape(entry.status ?? 'used')})`).join(', ')}</p>` : ''}
     ${list<NonNullable<AstRunResult['diagnostics']>[number]>(result.diagnostics).length ? `<ul>${list<NonNullable<AstRunResult['diagnostics']>[number]>(result.diagnostics).map((entry) => `<li><code>${escape(entry.code ?? 'AST_DIAGNOSTIC')}</code> — ${escape(entry.message ?? '')}</li>`).join('')}</ul>` : ''}
@@ -218,15 +255,50 @@ function cacheSection(doctor: AstDoctorResult | null, preview: AstCachePreview |
 
 function adapterSection(doctor: AstDoctorResult | null): string {
   const adapters = list<NonNullable<AstDoctorResult['adapters']>[number]>(doctor?.adapters);
-  return `<section><h2>${icon('mcp')}Structural adapters</h2><p>Adapters are discovered only from explicit manifests inherited by the VS Code process. Context and build operations invoke a compatible adapter with structured arguments, bounded JSON input/output, no shell, and strict fact validation. The broker never searches the repository or PATH and never edits the host environment.</p>
-    ${adapters.length ? `<div class="table-wrap"><table><thead><tr><th>Adapter</th><th>Languages</th><th>Advertised assurance</th><th>Status</th></tr></thead><tbody>${adapters.map((adapter) => `<tr><td><strong>${escape(adapter.id ?? 'adapter')}</strong></td><td>${escape((adapter.languages ?? []).join(', '))}</td><td>${escape(adapter.assurance ?? 'unknown')}</td><td>${escape(adapter.status ?? 'discovered')}</td></tr>`).join('')}</tbody></table></div>` : '<p class="empty">No explicit AST adapter manifests were discovered. Bounded text assurance remains available.</p>'}</section>`;
+  const optional = list<NonNullable<AstDoctorResult['optionalPacks']>[number]>(doctor?.optionalPacks);
+  return `<section><h2>${icon('mcp')}Structural adapter packs</h2><p>The bundled cross-platform syntax pack and reviewed machine-installed packs run only on demand. Context and build operations invoke them with structured arguments, bounded JSON input/output, no shell, and strict fact validation. Repository files cannot register an executable, and the broker never searches PATH for a provider.</p>
+    ${adapters.length ? `<div class="table-wrap"><table><thead><tr><th>Pack</th><th>Stage</th><th>Languages</th><th>Assurance</th><th>Status</th></tr></thead><tbody>${adapters.map((adapter) => `<tr><td><strong>${escape(adapter.id ?? 'adapter')}</strong><br><small>${escape(adapter.packVersion ?? 'version unknown')}</small></td><td>${escape(adapter.stage ?? 'syntax')}</td><td>${escape((adapter.languages ?? []).join(', '))}</td><td>${escape(adapter.assurance ?? 'unknown')}</td><td>${escape(adapter.status ?? 'discovered')}</td></tr>`).join('')}</tbody></table></div>` : '<p class="empty">No compatible adapter pack is available. Bounded text assurance remains available.</p>'}
+    ${optional.length ? `<details><summary>${optional.length} reviewed optional semantic provider(s)</summary><div class="table-wrap"><table><thead><tr><th>Provider</th><th>Languages</th><th>Project models</th><th>Maturity</th><th>Local status</th></tr></thead><tbody>${optional.map((pack) => `<tr><td><strong>${escape(pack.id ?? 'provider')}</strong></td><td>${escape((pack.languages ?? []).join(', '))}</td><td>${escape((pack.projectKinds ?? []).join(', '))}</td><td>${escape(pack.maturity ?? 'optional')}</td><td>${escape(pack.status ?? 'not-installed')}</td></tr>`).join('')}</tbody></table></div><p class="muted">Catalog entries are compatibility declarations, not bundled compiler binaries. Install reviewed pack bytes from an offline source before semantic use.</p></details>` : ''}</section>`;
 }
 
-export function astIntelligenceBody(policy: AstPolicyDraft, doctor: AstDoctorResult | null, run: AstRunResult | null, preview: AstCachePreview | null, notice: string | null, error: string | null, scope: AstRepositoryScopeView | null, inventory: AstWorkspaceRepositoryInventory | null, inventoryError: string | null): string {
+function semanticWarmSection(preview: AstWarmPreview | null): string {
+  return `<section><h2>${icon('refresh')}Semantic project warm-up</h2>
+    <p>Semantic providers require an explicit, hash-bound toolchain and project profile. Preview first: SFlow discloses every structured command, runs it without a shell, and writes only derived machine-local binding metadata.</p>
+    <form id="ast-warm-form" class="form-grid">
+      <label>Provider<select name="provider" required>
+        <option value="">Choose a semantic provider</option>
+        <option value="sflow-java-jdt">Java · JDT</option><option value="sflow-python-pyright">Python · Pyright</option>
+        <option value="sflow-kotlin-analysis">Kotlin · Analysis API</option><option value="sflow-swift-sourcekit">Swift · SourceKit</option>
+      </select></label>
+      <label>Project binding<input name="project" required placeholder="maven:. or gradle:app"></label>
+      <label>Profile<input name="profile" required placeholder="default, debug, or scheme/configuration"></label>
+      <p class="card-foot"><button class="secondary" type="submit">Preview semantic warm-up</button></p>
+    </form>
+    ${preview ? `<div class="review-card"><p><strong>${escape(preview.provider ?? 'provider')}</strong> · ${escape(preview.project ?? 'project')} · ${escape(preview.profile ?? 'profile')}</p>
+      <p>${preview.ready ? 'Ready after exact confirmation.' : `Unavailable: ${escape((preview.unavailable ?? []).join(', ') || 'required toolchain inputs')}`}</p>
+      <ul>${(preview.commands ?? []).map((command) => `<li><code>${escape([command.executable, ...(command.arguments ?? [])].filter(Boolean).join(' '))}</code> · cwd <code>${escape(command.cwd ?? '.')}</code></li>`).join('')}</ul>
+      <p>Network: ${escape(preview.effects?.network ?? 'not declared')} · repository writes: ${preview.effects?.repositoryWrites ? 'yes' : 'no'} · repository configuration execution: ${preview.effects?.executesRepositoryConfiguration ? 'yes' : 'no'}</p>
+      ${preview.ready ? `<form id="ast-warm-confirm"><input name="confirmation" required autocomplete="off" placeholder="${escape(preview.confirmation ?? '')}"><button class="secondary" type="submit">Warm semantic binding</button></form>` : ''}</div>` : ''}
+  </section>`;
+}
+
+function languageMatrixSection(doctor: AstDoctorResult | null): string {
+  const languages = list<NonNullable<AstDoctorResult['languages']>[number]>(doctor?.languages);
+  const projects = doctor?.projects;
+  const projectRows = list<NonNullable<NonNullable<AstDoctorResult['projects']>['bindings']>[number]>(projects?.bindings);
+  return `<section><h2>${icon('worldModel')}Language and project readiness</h2><p>This is the effective repository matrix. Syntax works without a compiler for the bundled Java, Python, Kotlin, and Swift providers. Semantic assurance requires a compatible installed pack and a complete, hash-bound project/toolchain binding.</p>
+    ${languages.length ? `<div class="table-wrap"><table><thead><tr><th>Language</th><th>Files</th><th>Maximum</th><th>Selected providers</th><th>Project/toolchain</th><th>Degradation</th></tr></thead><tbody>${languages.map((entry) => {
+      const providers = [entry.selectedProviders?.syntax ? `syntax: ${entry.selectedProviders.syntax}` : null, entry.selectedProviders?.semantic ? `semantic: ${entry.selectedProviders.semantic}` : null].filter(Boolean).join(' · ');
+      return `<tr><td><strong>${escape(entry.language ?? 'unknown')}</strong></td><td>${escape(entry.selectedFiles ?? 0)}</td><td>${escape(entry.maximumAssurance ?? 'text')}</td><td>${escape(providers || 'built-in text floor')}</td><td>${escape(`${entry.projectModelStatus ?? 'not-detected'} / ${entry.toolchainStatus ?? 'not-required'}`)}</td><td>${escape(entry.degradationReason ?? 'none')}</td></tr>`;
+    }).join('')}</tbody></table></div>` : '<p class="empty">No files are selected by the current bounded scope.</p>'}
+    <details><summary>${escape(projects?.bindingCount ?? 0)} existing project binding(s) discovered without running a build</summary>${projectRows.length ? `<ul>${projectRows.map((binding) => `<li><strong>${escape(binding.projectKind ?? 'project')}</strong> · <code>${escape(binding.root ?? '.')}</code> · ${binding.complete ? 'complete' : `incomplete: ${escape((binding.unavailable ?? []).join(', ') || 'toolchain/profile')}`}</li>`).join('')}</ul>` : '<p>No Maven, Gradle/Android, Python, SwiftPM, or Xcode metadata was found in the selected scope.</p>'}</details></section>`;
+}
+
+export function astIntelligenceBody(policy: AstPolicyDraft, doctor: AstDoctorResult | null, run: AstRunResult | null, preview: AstCachePreview | null, warmPreview: AstWarmPreview | null, notice: string | null, error: string | null, scope: AstRepositoryScopeView | null, inventory: AstWorkspaceRepositoryInventory | null, inventoryError: string | null): string {
   return `<div data-repository-scope="${escape(scope?.key ?? '')}"><header class="inbox-header"><p class="eyebrow">Configuration · World model</p><h1>${icon('worldModel', { size: 24 })}AST Intelligence</h1><p class="meta">Bounded structural facts, explicit assurance, and content-aware local caching. No daemon and no implicit whole-repository scan.</p></header>
     ${notice ? `<div class="notice ok">${escape(notice)}</div>` : ''}${error ? `<div class="notice error"><strong>AST action refused</strong><p>${escape(error)}</p></div>` : ''}
     <p class="card-foot"><button class="secondary" data-message="refresh">Refresh status</button><button class="secondary" data-message="open-help">Open AST guide</button></p>
-    ${repositoryScope(scope, inventory, inventoryError)}${runtimeSummary(doctor)}${machinePreference(doctor)}${policyForm(policy, scope)}${scopeRunner(policy)}${runResult(run)}${cacheSection(doctor, preview)}${adapterSection(doctor)}</div>`;
+    ${repositoryScope(scope, inventory, inventoryError)}${runtimeSummary(doctor)}${languageMatrixSection(doctor)}${semanticWarmSection(warmPreview)}${machinePreference(doctor)}${policyForm(policy, scope)}${scopeRunner(policy)}${runResult(run)}${cacheSection(doctor, preview)}${adapterSection(doctor)}</div>`;
 }
 
 function optionalString(message: InboundMessage, name: string): string {
@@ -241,6 +313,7 @@ export class AstIntelligencePanel {
   private static current: AstIntelligencePanel | null = null;
   private doctor: AstDoctorResult | null = null; private result: AstRunResult | null = null;
   private preview: AstCachePreview | null = null; private notice: string | null = null; private error: string | null = null;
+  private warmPreview: AstWarmPreview | null = null;
   private repositoryInventory: AstWorkspaceRepositoryInventory | null = null;
   private repositoryInventoryError: string | null = null; private repositoryInventoryLoaded = false;
   private refreshRevision = 0;
@@ -273,7 +346,7 @@ export class AstIntelligencePanel {
       { enableScripts: true, retainContextWhenHidden: true, localResourceRoots: [vscode.Uri.joinPath(context.extensionUri, 'media')] });
     AstIntelligencePanel.current = new AstIntelligencePanel(panel, client, store); return AstIntelligencePanel.current;
   }
-  static repositoryChanged(): void { if (AstIntelligencePanel.current) { AstIntelligencePanel.current.doctor = null; AstIntelligencePanel.current.preview = null; AstIntelligencePanel.current.result = null; AstIntelligencePanel.current.notice = null; AstIntelligencePanel.current.error = null; AstIntelligencePanel.current.repositoryInventory = null; AstIntelligencePanel.current.repositoryInventoryError = null; AstIntelligencePanel.current.repositoryInventoryLoaded = false; void AstIntelligencePanel.current.refresh(); } }
+  static repositoryChanged(): void { if (AstIntelligencePanel.current) { AstIntelligencePanel.current.doctor = null; AstIntelligencePanel.current.preview = null; AstIntelligencePanel.current.warmPreview = null; AstIntelligencePanel.current.result = null; AstIntelligencePanel.current.notice = null; AstIntelligencePanel.current.error = null; AstIntelligencePanel.current.repositoryInventory = null; AstIntelligencePanel.current.repositoryInventoryError = null; AstIntelligencePanel.current.repositoryInventoryLoaded = false; void AstIntelligencePanel.current.refresh(); } }
   private router = registerMessageRouter('singularityFlow.astIntelligence', {
     refresh: () => { void this.refresh(); },
     'save-machine': (message) => { const mode = enumField(message, 'mode', ['auto', 'off'] as const); if (mode) void this.saveMachine(mode); },
@@ -281,6 +354,8 @@ export class AstIntelligencePanel {
     'save-policy': (message) => { void this.savePolicy(message); },
     'run-scope': (message) => { void this.runScope(message); },
     'continue-context': (message) => { void this.continueContext(message); },
+    'preview-warm': (message) => { void this.previewWarm(message); },
+    'execute-warm': (message) => { const confirmation = stringField(message, 'confirmation'); if (confirmation) void this.executeWarm(confirmation, message); },
     'preview-cache': (message) => { const kind = enumField(message, 'kind', ['prune', 'clear'] as const); if (kind) void this.previewCache(kind, message); },
     'execute-cache': (message) => { const kind = enumField(message, 'kind', ['prune', 'clear'] as const); const confirmation = stringField(message, 'confirmation'); if (kind && confirmation) void this.executeCache(kind, confirmation, message); },
     'open-configuration': () => { void vscode.commands.executeCommand('singularityFlow.openConfigurationCenter'); },
@@ -428,6 +503,33 @@ export class AstIntelligencePanel {
       await this.refresh();
     } catch (error) { this.error = (error as Error).message; this.render(); }
   }
+  private async previewWarm(message: InboundMessage): Promise<void> {
+    if (!this.acceptsRepositoryScope(message)) return;
+    const provider = enumField(message, 'provider', ['sflow-java-jdt', 'sflow-python-pyright', 'sflow-kotlin-analysis', 'sflow-swift-sourcekit'] as const);
+    const profile = stringField(message, 'profile'); const project = stringField(message, 'project');
+    if (!provider || !profile || !project) return;
+    try {
+      this.warmPreview = commandData<AstWarmPreview>(await this.client.run([
+        'wm', 'ast', 'warm', '--semantic', '--provider', provider, '--project', project,
+        '--profile', profile, '--dry-run', '--json'
+      ]));
+      this.notice = 'Semantic warm-up preview is ready. Review every effect and type the exact confirmation.';
+      this.error = null; this.render();
+    } catch (error) { this.warmPreview = null; this.error = (error as Error).message; this.render(); }
+  }
+  private async executeWarm(confirmation: string, message: InboundMessage): Promise<void> {
+    if (!this.acceptsRepositoryScope(message)) return;
+    const preview = this.warmPreview;
+    if (!preview?.ready || !preview.provider || !preview.project || !preview.profile || confirmation !== preview.confirmation) {
+      this.error = 'The semantic warm-up confirmation does not match the current preview.'; this.render(); return;
+    }
+    try {
+      await this.client.run(['wm', 'ast', 'warm', '--semantic', '--provider', preview.provider,
+        '--project', preview.project, '--profile', preview.profile, '--confirm', confirmation, '--json']);
+      this.warmPreview = null; this.notice = `Semantic binding warmed for ${preview.project}.`;
+      this.error = null; this.render(); await this.refresh();
+    } catch (error) { this.error = (error as Error).message; this.render(); }
+  }
   private async previewCache(kind: 'prune' | 'clear', message: InboundMessage): Promise<void> {
     if (!this.acceptsRepositoryScope(message)) return;
     try { this.preview = commandData<AstCachePreview>(await this.client.run(['wm', 'ast', 'cache', kind, '--dry-run', '--json'])); this.error = null; this.render(); }
@@ -445,6 +547,6 @@ export class AstIntelligencePanel {
   private render(): void {
     const scope = this.repositoryScope();
     this.panel.title = scope ? `AST Intelligence — ${scope.repository}` : 'AST Intelligence';
-    const token = nonce(); this.panel.webview.html = page('AST Intelligence', astIntelligenceBody(this.policy(), this.doctor, this.result, this.preview, this.notice, this.error, scope, this.repositoryInventory, this.repositoryInventoryError), contentSecurityPolicy(this.panel.webview, token), token, SCRIPT, { nav: 'configuration' });
+    const token = nonce(); this.panel.webview.html = page('AST Intelligence', astIntelligenceBody(this.policy(), this.doctor, this.result, this.preview, this.warmPreview, this.notice, this.error, scope, this.repositoryInventory, this.repositoryInventoryError), contentSecurityPolicy(this.panel.webview, token), token, SCRIPT, { nav: 'configuration' });
   }
 }

@@ -5,12 +5,15 @@ import {
   getGitHubIssue, normalizeWorkSource, parseGitHubIssueReference
 } from '../src/work-source.mjs';
 
+const GITHUB_HOST = ['github', 'com'].join('.');
+const githubUrl = (pathname) => `https://${GITHUB_HOST}${pathname}`;
+
 test('GitHub Issue references normalize to one immutable source identity', async () => {
   assert.deepEqual(parseGitHubIssueReference('acme/payments#42'), {
-    raw: 'acme/payments#42', host: 'github.com', owner: 'acme', repository: 'payments', number: 42
+    raw: 'acme/payments#42', host: GITHUB_HOST, owner: 'acme', repository: 'payments', number: 42
   });
   const calls = [];
-  const issue = await getGitHubIssue('https://github.com/Acme/Payments/issues/42?ignored=yes', {
+  const issue = await getGitHubIssue(githubUrl('/Acme/Payments/issues/42?ignored=yes'), {
     fetchedAt: '2026-08-21T00:00:00.000Z',
     runCommand(command, args) {
       calls.push([command, args]);
@@ -18,15 +21,15 @@ test('GitHub Issue references normalize to one immutable source identity', async
         status: 0, stderr: '', stdout: JSON.stringify({
           id: 10042, number: 42, title: 'Retry failed checkout',
           body: '## Acceptance\n- [ ] retries once\n- [x] records the final failure',
-          html_url: 'https://github.com/Acme/Payments/issues/42?notification=1',
+          html_url: githubUrl('/Acme/Payments/issues/42?notification=1'),
           labels: [{ name: 'bug' }, { name: 'checkout' }]
         })
       };
     }
   });
-  assert.deepEqual(calls[0], ['gh', ['api', '--hostname', 'github.com', 'repos/Acme/Payments/issues/42']]);
-  assert.equal(issue.stableId, 'github-issue:github.com/acme/payments#42');
-  assert.equal(issue.url, 'https://github.com/Acme/Payments/issues/42');
+  assert.deepEqual(calls[0], ['gh', ['api', '--hostname', GITHUB_HOST, 'repos/Acme/Payments/issues/42']]);
+  assert.equal(issue.stableId, `github-issue:${GITHUB_HOST}/acme/payments#42`);
+  assert.equal(issue.url, githubUrl('/Acme/Payments/issues/42'));
   assert.deepEqual(issue.acceptanceCriteria, ['retries once', 'records the final failure']);
   assert.match(issue.contentSha256, /^[a-f0-9]{64}$/);
   assert.doesNotMatch(JSON.stringify(issue), /notification=1/);

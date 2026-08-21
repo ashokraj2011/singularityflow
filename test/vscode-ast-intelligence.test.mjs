@@ -15,7 +15,7 @@ const {
 const policy = {
   mode: 'auto', fallback: 'host-and-text', evidence: { mode: 'identified', store: 'local-directory' }, generatedRoots: ['generated/types'],
   budgets: { maxFiles: 300, maxBytes: 10_000_000, maxFileBytes: 1_000_000 },
-  languages: [{ language: 'typescript', mode: 'auto', minimumAssurance: 'text' }],
+  languages: [{ language: 'typescript', mode: 'auto', minimumAssurance: 'text', syntaxProvider: null, semanticProvider: null, semanticProfile: null }],
   predicates: [{ id: 'payment-entry', mode: 'advisory', type: 'symbol-exists', target: 'Payment', minimumAssurance: 'text' }]
 };
 
@@ -28,7 +28,7 @@ test('the AST settings view projects every repository policy field with bounded 
   } } }), {
     mode: 'off', fallback: 'text-only', evidence: { mode: 'replayable', store: 'local-directory' }, generatedRoots: ['generated'],
     budgets: { maxFiles: 12, maxBytes: 1000, maxFileBytes: 100 },
-    languages: [{ language: 'kotlin', mode: 'off', minimumAssurance: 'syntax' }],
+    languages: [{ language: 'kotlin', mode: 'off', minimumAssurance: 'syntax', syntaxProvider: null, semanticProvider: null, semanticProfile: null }],
     predicates: [{ id: 'api', mode: 'required', type: 'path-exists', target: 'src/api', minimumAssurance: 'text' }]
   });
   assert.deepEqual(astPolicyView({}), {
@@ -103,8 +103,8 @@ test('the AST form rejects unsafe roots, duplicate language rows, and disabling 
   assert.match(errors, /duplicated/);
   assert.match(errors, /cannot be off/);
   assert.deepEqual(parseAstLanguageRows('typescript | auto | text\nkotlin | off | syntax'), [
-    { language: 'typescript', mode: 'auto', minimumAssurance: 'text' },
-    { language: 'kotlin', mode: 'off', minimumAssurance: 'syntax' }
+    { language: 'typescript', mode: 'auto', minimumAssurance: 'text', syntaxProvider: null, semanticProvider: null, semanticProfile: null },
+    { language: 'kotlin', mode: 'off', minimumAssurance: 'syntax', syntaxProvider: null, semanticProvider: null, semanticProfile: null }
   ]);
   assert.deepEqual(parseAstPredicateRows('api | required | path-exists | src/api | text'), [
     { id: 'api', mode: 'required', type: 'path-exists', target: 'src/api', minimumAssurance: 'text' }
@@ -117,6 +117,19 @@ test('the AST form rejects unsafe roots, duplicate language rows, and disabling 
     ...policy,
     predicates: [{ id: 'must-symbol', mode: 'required', type: 'symbol-exists', target: 'Payment', minimumAssurance: 'text' }]
   }).join(' '), /syntax or semantic/);
+  const rich = parseAstPredicateRows('boundary | required | import-boundary | src/api | syntax | java,kotlin | * | forbidden.internal');
+  assert.deepEqual(rich, [{
+    id: 'boundary', mode: 'required', type: 'import-boundary', target: 'src/api',
+    minimumAssurance: 'syntax', languages: ['java', 'kotlin'], profiles: ['*'], secondary: 'forbidden.internal'
+  }]);
+  assert.deepEqual(validateAstPolicyDraft({ ...policy, evidence: { mode: 'replayable', store: 'local-directory' }, predicates: rich }), []);
+  const richYaml = YAML.parse(updateAstPolicyYaml('version: 2\n', {
+    ...policy, evidence: { mode: 'replayable', store: 'local-directory' }, predicates: rich
+  }));
+  assert.deepEqual(richYaml.ast.predicates[0], {
+    id: 'boundary', mode: 'required', type: 'import-boundary', path: 'src/api', target: 'forbidden.internal',
+    minimumAssurance: 'syntax', languages: ['java', 'kotlin'], profiles: ['*']
+  });
 });
 
 test('the VS Code AST page exposes every policy source and keeps evidence and resume handles out of HTML', async () => {
@@ -129,6 +142,10 @@ test('the VS Code AST page exposes every policy source and keeps evidence and re
   assert.match(panel, /lifecycle gate/);
   assert.match(panel, /cache\.hits/);
   assert.match(panel, /structured arguments, bounded JSON input\/output, no shell/);
+  assert.match(panel, /Language and project readiness/);
+  assert.match(panel, /bundled Java, Python, Kotlin, and Swift providers/);
+  assert.match(panel, /entry\.selectedProviders\?\.syntax/);
+  assert.match(panel, /existing project binding\(s\) discovered without running a build/);
   assert.match(panel, /handles are deliberately not embedded in webview HTML/);
   assert.doesNotMatch(panel, /escape\(result\.resumeHandle/);
   assert.match(panel, /Current repository scope/);
@@ -141,6 +158,13 @@ test('the VS Code AST page exposes every policy source and keeps evidence and re
   assert.match(panel, /type: 'select-repository'/);
   assert.match(panel, /switchWorkspaceRepository/);
   assert.match(panel, /shared active repository for My Work, Lifecycle, Configuration, Copilot, and the terminal/);
+  assert.match(panel, /Semantic project warm-up/);
+  assert.match(panel, /reviewed optional semantic provider/);
+  assert.match(panel, /id="ast-warm-form"/);
+  assert.match(panel, /type: 'preview-warm'/);
+  assert.match(panel, /type: 'execute-warm'/);
+  assert.match(panel, /wm', 'ast', 'warm', '--semantic'/);
+  assert.match(panel, /confirmation !== preview\.confirmation/);
 });
 
 test('AST Intelligence is contributed, navigable, favorite-capable, and exact-confirmation bound', async () => {

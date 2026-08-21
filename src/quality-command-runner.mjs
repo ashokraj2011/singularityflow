@@ -1,4 +1,4 @@
-import { spawn } from 'node:child_process';
+import { spawn, spawnSync } from 'node:child_process';
 
 const DEFAULT_CAPTURE_BYTES = 128 * 1024;
 
@@ -39,20 +39,47 @@ export function runQualityCommand(command, args = [], {
   shell = false,
   timeoutMs,
   captureBytes = DEFAULT_CAPTURE_BYTES,
-  input = null
+  input = null,
+  signal = null,
+  killTree = false
 } = {}) {
   return new Promise((resolve) => {
     const stdout = boundedCapture(captureBytes);
     const stderr = boundedCapture(captureBytes);
     let timedOut = false;
+    let aborted = signal?.aborted === true;
     let error = null;
     let settled = false;
     let hardKillTimer = null;
     let child;
+    const terminate = (terminationSignal) => {
+      if (!child?.pid) return;
+      if (killTree && process.platform === 'win32') {
+        const force = terminationSignal === 'SIGKILL' ? ['/F'] : [];
+        const killed = spawnSync('taskkill.exe', ['/PID', String(child.pid), '/T', ...force], {
+          stdio: 'ignore',
+          windowsHide: true,
+          timeout: 5_000
+        });
+        if (!killed.error && killed.status === 0) return;
+      }
+      if (killTree && process.platform !== 'win32') {
+        try { process.kill(-child.pid, terminationSignal); return; } catch { /* child may already be gone */ }
+      }
+      child.kill(terminationSignal);
+    };
+    if (aborted) {
+      resolve({ status: 1, signal: null, error: null, timedOut: false, aborted: true, stdout: '', stderr: '', stdoutBytes: 0, stderrBytes: 0, stdoutTruncated: false, stderrTruncated: false });
+      return;
+    }
     try {
-      child = spawn(command, args, { cwd, env, shell, stdio: [input == null ? 'ignore' : 'pipe', 'pipe', 'pipe'] });
+      child = spawn(command, args, {
+        cwd, env, shell,
+        detached: killTree && process.platform !== 'win32',
+        stdio: [input == null ? 'ignore' : 'pipe', 'pipe', 'pipe']
+      });
     } catch (caught) {
-      resolve({ status: 1, signal: null, error: caught, timedOut: false, stdout: '', stderr: '', stdoutBytes: 0, stderrBytes: 0, stdoutTruncated: false, stderrTruncated: false });
+      resolve({ status: 1, signal: null, error: caught, timedOut: false, aborted: false, stdout: '', stderr: '', stdoutBytes: 0, stderrBytes: 0, stdoutTruncated: false, stderrTruncated: false });
       return;
     }
     child.stdout?.on('data', (chunk) => stdout.add(chunk));
@@ -61,23 +88,32 @@ export function runQualityCommand(command, args = [], {
     child.on('error', (caught) => { error = caught; });
     const timer = timeoutMs == null ? null : setTimeout(() => {
       timedOut = true;
-      child.kill('SIGTERM');
-      hardKillTimer = setTimeout(() => child.kill('SIGKILL'), 2_000);
+      terminate('SIGTERM');
+      hardKillTimer = setTimeout(() => terminate('SIGKILL'), 2_000);
       hardKillTimer.unref?.();
     }, timeoutMs);
     timer?.unref?.();
-    child.on('close', (code, signal) => {
+    const onAbort = () => {
+      aborted = true;
+      terminate('SIGTERM');
+      hardKillTimer = setTimeout(() => terminate('SIGKILL'), 2_000);
+      hardKillTimer.unref?.();
+    };
+    signal?.addEventListener('abort', onAbort, { once: true });
+    child.on('close', (code, terminationSignal) => {
       if (settled) return;
       settled = true;
       if (timer) clearTimeout(timer);
       if (hardKillTimer) clearTimeout(hardKillTimer);
+      signal?.removeEventListener?.('abort', onAbort);
       const out = stdout.result();
       const err = stderr.result();
       resolve({
         status: code ?? 1,
-        signal,
+        signal: terminationSignal,
         error,
         timedOut,
+        aborted,
         stdout: out.output,
         stderr: err.output,
         stdoutBytes: out.bytes,

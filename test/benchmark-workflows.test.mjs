@@ -161,7 +161,7 @@ test('Benchmark A injects a bounded, provenance-bearing AST evidence page', asyn
     assert.equal(derivation.subject.evidenceClass, 'recorded-context');
     assert.equal(derivation.outputs.page.factsSha256, result.record.factsSha256);
     const replay = await replayAstEvidence(root, { receipt: result.record.derivation.path });
-    assert.equal(replay.result, 'identical');
+    assert.equal(replay.result, 'identical', JSON.stringify(replay, null, 2));
     assert.equal(result.record.engine, 'singularity-flow-ast-broker');
     assert.ok(result.record.factsReturned > 0);
   } finally {

@@ -5,6 +5,22 @@ export const AST_MODES = Object.freeze(['auto', 'off']);
 export const AST_FALLBACKS = Object.freeze(['host-and-text', 'text-only']);
 export const AST_ASSURANCE = Object.freeze(['text', 'syntax', 'semantic']);
 export const AST_EVIDENCE_MODES = Object.freeze(['replayable', 'identified', 'off']);
+export const AST_PREDICATE_TYPES = Object.freeze([
+  'path-exists', 'symbol-exists', 'import-boundary', 'annotation-present', 'inherits-from',
+  'conforms-to', 'override-exists', 'public-signature-changed', 'module-dependency'
+]);
+
+const PREDICATE_FIELDS = Object.freeze({
+  'path-exists': ['path'],
+  'symbol-exists': ['symbol'],
+  'import-boundary': ['path', 'target'],
+  'annotation-present': ['symbol', 'annotation'],
+  'inherits-from': ['symbol', 'target'],
+  'conforms-to': ['symbol', 'target'],
+  'override-exists': ['symbol', 'target'],
+  'public-signature-changed': ['path', 'expectedSha256'],
+  'module-dependency': ['module', 'target']
+});
 
 function positiveInteger(value, fallback, label) {
   const actual = value ?? fallback;
@@ -31,12 +47,25 @@ export function normalizeAstPolicy(value = {}) {
   for (const [language, policy] of Object.entries(value.languages ?? {})) {
     if (!/^[a-z][a-z0-9-]*$/.test(language)) throw new SingularityFlowError(`ast.languages key '${language}' must be lower-case kebab-case.`);
     if (!policy || typeof policy !== 'object' || Array.isArray(policy)) throw new SingularityFlowError(`ast.languages.${language} must be an object.`);
-    for (const key of Object.keys(policy)) if (!['mode', 'minimumAssurance'].includes(key)) throw new SingularityFlowError(`ast.languages.${language} contains unknown field '${key}'.`);
+    for (const key of Object.keys(policy)) if (!['mode', 'minimumAssurance', 'syntaxProvider', 'semanticProvider', 'semanticProfile'].includes(key)) throw new SingularityFlowError(`ast.languages.${language} contains unknown field '${key}'.`);
     const languageMode = policy.mode ?? 'auto';
     const minimumAssurance = policy.minimumAssurance ?? 'text';
     if (!AST_MODES.includes(languageMode)) throw new SingularityFlowError(`ast.languages.${language}.mode must be auto or off.`);
     if (!AST_ASSURANCE.includes(minimumAssurance)) throw new SingularityFlowError(`ast.languages.${language}.minimumAssurance must be text, syntax, or semantic.`);
-    languages[language] = { mode: languageMode, minimumAssurance };
+    for (const field of ['syntaxProvider', 'semanticProvider']) {
+      if (policy[field] != null && !/^[a-z][a-z0-9-]*$/.test(policy[field])) {
+        throw new SingularityFlowError(`ast.languages.${language}.${field} must be a lower-case pack id.`);
+      }
+    }
+    if (policy.semanticProfile != null && (typeof policy.semanticProfile !== 'string' || !policy.semanticProfile.trim())) {
+      throw new SingularityFlowError(`ast.languages.${language}.semanticProfile must be a non-empty string.`);
+    }
+    languages[language] = {
+      mode: languageMode, minimumAssurance,
+      syntaxProvider: policy.syntaxProvider ?? null,
+      semanticProvider: policy.semanticProvider ?? null,
+      semanticProfile: policy.semanticProfile ?? null
+    };
   }
 
   const generatedRoots = normalizeSourceRoots(value.generatedRoots, 'ast.generatedRoots');
@@ -52,12 +81,31 @@ export function normalizeAstPolicy(value = {}) {
     if (!predicate || typeof predicate !== 'object' || !predicate.id || !['required', 'advisory'].includes(predicate.mode ?? 'advisory')) {
       throw new SingularityFlowError('Each ast predicate requires an id and mode required or advisory.');
     }
-    for (const key of Object.keys(predicate)) {
-      if (!['id', 'mode', 'type', 'path', 'symbol', 'minimumAssurance'].includes(key)) throw new SingularityFlowError(`AST predicate '${predicate.id}' contains unknown field '${key}'.`);
+    if (!AST_PREDICATE_TYPES.includes(predicate.type)) {
+      throw new SingularityFlowError(`AST predicate '${predicate.id}' type must be one of ${AST_PREDICATE_TYPES.join(', ')}.`);
     }
-    if (!['path-exists', 'symbol-exists'].includes(predicate.type)) throw new SingularityFlowError(`AST predicate '${predicate.id}' type must be path-exists or symbol-exists.`);
-    if (predicate.type === 'path-exists' && (typeof predicate.path !== 'string' || !predicate.path)) throw new SingularityFlowError(`AST predicate '${predicate.id}' requires path.`);
-    if (predicate.type === 'symbol-exists' && (typeof predicate.symbol !== 'string' || !predicate.symbol)) throw new SingularityFlowError(`AST predicate '${predicate.id}' requires symbol.`);
+    const requiredFields = PREDICATE_FIELDS[predicate.type];
+    const allowedFields = new Set(['id', 'mode', 'type', 'minimumAssurance', 'languages', 'profiles', ...requiredFields]);
+    for (const key of Object.keys(predicate)) {
+      if (!allowedFields.has(key)) throw new SingularityFlowError(`AST predicate '${predicate.id}' contains unknown field '${key}'.`);
+    }
+    for (const field of requiredFields) {
+      const value = predicate[field];
+      if (typeof value !== 'string' || !value.trim()) throw new SingularityFlowError(`AST predicate '${predicate.id}' requires ${field}.`);
+    }
+    if (predicate.expectedSha256 != null && !/^[a-f0-9]{64}$/.test(predicate.expectedSha256)) {
+      throw new SingularityFlowError(`AST predicate '${predicate.id}' expectedSha256 must be a SHA-256 digest.`);
+    }
+    const rich = !['path-exists', 'symbol-exists'].includes(predicate.type);
+    for (const field of ['languages', 'profiles']) {
+      const list = predicate[field];
+      if (rich && (!Array.isArray(list) || !list.length)) {
+        throw new SingularityFlowError(`AST predicate '${predicate.id}' must declare applicable ${field}. Use ['*'] for every ${field === 'languages' ? 'language' : 'profile'}.`);
+      }
+      if (list != null && (!Array.isArray(list) || list.some((item) => typeof item !== 'string' || !item.trim()))) {
+        throw new SingularityFlowError(`AST predicate '${predicate.id}' ${field} must be a non-empty string array.`);
+      }
+    }
     if (!AST_ASSURANCE.includes(predicate.minimumAssurance ?? 'text')) throw new SingularityFlowError(`AST predicate '${predicate.id}' minimumAssurance must be text, syntax, or semantic.`);
   }
   if (mode === 'off' && predicates.some((predicate) => predicate.mode === 'required')) {
@@ -95,7 +143,9 @@ export function normalizeAstPolicy(value = {}) {
     predicates: Object.freeze(predicates.map((predicate) => Object.freeze({
       ...predicate,
       mode: predicate.mode ?? 'advisory',
-      minimumAssurance: predicate.minimumAssurance ?? 'text'
+      minimumAssurance: predicate.minimumAssurance ?? 'text',
+      ...(predicate.languages ? { languages: Object.freeze([...new Set(predicate.languages)].sort()) } : {}),
+      ...(predicate.profiles ? { profiles: Object.freeze([...new Set(predicate.profiles)].sort()) } : {})
     }))),
     evidence: Object.freeze({ mode: evidenceMode, store: evidenceStore })
   });

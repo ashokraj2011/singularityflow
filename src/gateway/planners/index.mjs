@@ -11,7 +11,8 @@
  */
 import { helpExplain } from './help-explain.mjs';
 import {
-  astContextPlanner, astEvidenceReplayPlanner, astQueryPlanner, astStatusPlanner
+  astContextPlanner, astEvidenceReplayPlanner, astHierarchyPlanner, astModulePlanner,
+  astQueryPlanner, astReferencesPlanner, astStatusPlanner, astSymbolPlanner
 } from './ast-intelligence.mjs';
 import { developerNext } from './developer-next.mjs';
 import { contextBrief } from './context-brief.mjs';
@@ -40,8 +41,12 @@ export function gatewayPlanners(overrides = {}) {
   return new Map(Object.entries({
     'ast-context': astContextPlanner,
     'ast-evidence-replay': astEvidenceReplayPlanner,
+    'ast-hierarchy': astHierarchyPlanner,
+    'ast-module': astModulePlanner,
     'ast-query': astQueryPlanner,
+    'ast-references': astReferencesPlanner,
     'ast-status': astStatusPlanner,
+    'ast-symbol': astSymbolPlanner,
     'help-explain': helpExplain,
     'developer-next': developerNext,
     'context-brief': contextBrief,
@@ -72,7 +77,8 @@ export function gatewayPlanners(overrides = {}) {
 }
 
 export {
-  astContextPlanner, astEvidenceReplayPlanner, astQueryPlanner, astStatusPlanner,
+  astContextPlanner, astEvidenceReplayPlanner, astHierarchyPlanner, astModulePlanner,
+  astQueryPlanner, astReferencesPlanner, astStatusPlanner, astSymbolPlanner,
   contextBrief, developerNext, governedGoalImpactPlanner, governedGoalInspectPlanner, governedGoalNextPlanner,
   governedGoalTracePlanner, helpExplain, homeOverview, impactQuick, problemInvestigate,
   problemInvestigateAssisted, repositoryExplore, reviewPacket, workContinue, workHandoff,

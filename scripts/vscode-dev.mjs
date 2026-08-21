@@ -416,7 +416,7 @@ async function demoRepository({ github = false } = {}) {
  * listed all 32 topics and looked healthy, and every single one failed on click with a raw ENOENT.
  * A missing index would at least have shown an empty list. 128 KB against a 6.3 MB payload.
  */
-export const CLI_PAYLOAD = ['bin', 'src', 'docs', 'templates', 'plugin', 'schemas', 'package.json', 'HELP.md'];
+export const CLI_PAYLOAD = ['bin', 'src', 'docs', 'templates', 'plugin', 'schemas', 'package.json', 'HELP.md', 'LICENSE'];
 
 /**
  * A packaging toolchain that is present in both the public registry and the company mirror.

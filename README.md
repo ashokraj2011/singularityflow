@@ -1553,15 +1553,16 @@ the capability map changes.
 
 For bounded structural references, `singularity-flow wm ast context --paths src --max-facts 50 --max-output-bytes 32768 --json` uses the
 same pinned scope and a selected-cone content binding. Java, Python, Kotlin, and Swift receive
-`syntax` facts from the bundled on-demand polyglot pack; JavaScript/TypeScript retain the built-in
-lexical `text` floor. Optional reviewed semantic packs execute through a bounded structured-argv
+`text`-assured declaration previews from the bundled on-demand polyglot scanner; JavaScript/TypeScript
+retain the built-in lexical `text` floor. The preview scanner is not a parser and cannot satisfy a
+required syntax gate. Optional reviewed parser and semantic packs execute through a bounded structured-argv
 contract only with a complete project/toolchain binding and are not kernel dependencies. Separate
 text, syntax, and semantic records are reused by content/derivation hash, so an
 unrelated monorepo edit does not invalidate the selected cone. With no configured roots,
 the default is changed tracked files—not a monorepo-wide scan—and `--all` must be explicit. Facts
 are returned in byte- and count-bounded pages; continue only with the opaque `nextCursor`, which
 fails stale if policy, revision, scope, or relevant bytes change. Required symbol gates require
-syntax assurance; lexical text matches remain advisory. Receipts bind broker and extractor
+syntax assurance from a real parser; text previews remain advisory. Receipts bind broker and extractor
 versions as well as outcomes. See
 [AST Intelligence](docs/AST-INTELLIGENCE.md) for policy, cache, preference, and adapter details.
 In VS Code, use **Singularity Flow → Configuration → AST intelligence**, the Configuration Center,

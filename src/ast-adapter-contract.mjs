@@ -12,7 +12,7 @@ import { runQualityCommand } from './quality-command-runner.mjs';
 
 export const AST_ADAPTER_PROTOCOL_VERSION = 2;
 export const AST_ADAPTER_MINIMUM_PROTOCOL_VERSION = 1;
-const ASSURANCE = new Set(['syntax', 'semantic']);
+const ASSURANCE = new Set(['text', 'syntax', 'semantic']);
 const CAPABILITIES = new Set(['skeleton', 'query', 'gate']);
 const STAGES = new Set(['syntax', 'semantic']);
 const DIGEST = /^[a-f0-9]{64}$/;
@@ -100,7 +100,7 @@ function languageDefinitions(value, source, stage, assurance) {
       throw new SingularityFlowError(`${source} language '${language}' is invalid.`);
     }
     const maximumAssurance = definition.maximumAssurance ?? assurance;
-    if (!ASSURANCE.has(maximumAssurance) || (stage === 'syntax' && maximumAssurance !== 'syntax')) {
+    if (!ASSURANCE.has(maximumAssurance) || (stage === 'syntax' && maximumAssurance !== assurance)) {
       throw new SingularityFlowError(`${source} language '${language}' has an invalid assurance ceiling.`);
     }
     for (const field of ['parserEngine', 'parserVersion']) {
@@ -143,10 +143,10 @@ export function validateAstAdapterManifest(value, source = 'AST adapter manifest
   for (const key of Object.keys(value)) if (!allowed.has(key)) throw new SingularityFlowError(`${source} contains unknown field '${key}'.`);
   if (value.protocolVersion !== AST_ADAPTER_PROTOCOL_VERSION) throw new SingularityFlowError(`${source} protocolVersion must be ${AST_ADAPTER_PROTOCOL_VERSION}.`);
   if (!/^[a-z][a-z0-9-]*$/.test(value.id ?? '')) throw new SingularityFlowError(`${source} id must be lower-case kebab-case.`);
-  if (!ASSURANCE.has(value.assurance)) throw new SingularityFlowError(`${source} assurance must be syntax or semantic.`);
+  if (!ASSURANCE.has(value.assurance)) throw new SingularityFlowError(`${source} assurance must be text, syntax, or semantic.`);
   const stage = value.stage ?? value.assurance;
-  if (!STAGES.has(stage) || (stage === 'syntax' && value.assurance !== 'syntax') || (stage === 'semantic' && value.assurance !== 'semantic')) {
-    throw new SingularityFlowError(`${source} stage and assurance must both describe syntax or semantic analysis.`);
+  if (!STAGES.has(stage) || (stage === 'syntax' && !['text', 'syntax'].includes(value.assurance)) || (stage === 'semantic' && value.assurance !== 'semantic')) {
+    throw new SingularityFlowError(`${source} stage and assurance are incompatible.`);
   }
   if (!Array.isArray(value.argv) || !value.argv.length || value.argv.some((item) => typeof item !== 'string' || !item)) {
     throw new SingularityFlowError(`${source} argv must be a non-empty structured argument array.`);
@@ -243,23 +243,20 @@ async function bundledPolyglotManifest() {
       extensions: language === 'java' ? ['.java'] : language === 'python' ? ['.py', '.pyi']
         : language === 'kotlin' ? ['.kt', '.kts'] : ['.swift'],
       canonicalFilenames: [], aliases: [], priority: 200,
-      parserEngine: 'sflow-structural-parser', parserVersion: '1.0.0',
-      grammarId: `sflow-${language}-structural`, grammarVersion: '1.0.0', maximumAssurance: 'syntax'
+      parserEngine: 'sflow-structural-preview', parserVersion: '1.1.0',
+      grammarId: null, grammarVersion: null, maximumAssurance: 'text'
     }]));
     const manifest = {
       protocolVersion: AST_ADAPTER_PROTOCOL_VERSION,
-      id: 'sflow-polyglot-syntax', packVersion: '1.0.0', extractorVersion: '1.0.0',
-      stage: 'syntax', assurance: 'syntax', argv: [process.execPath, POLYGLOT_ADAPTER],
+      id: 'sflow-polyglot-syntax', packVersion: '1.1.0', extractorVersion: '1.1.0',
+      stage: 'syntax', assurance: 'text', argv: [process.execPath, POLYGLOT_ADAPTER],
       capabilities: ['skeleton', 'query'], languages,
-      licenses: [{ id: 'singularity-flow-polyglot-structural-parser', spdx: 'MIT', sourceSha256: hashBytes(licenseBytes) }],
-      conformance: { fixtureVersion: '1', status: 'passed', languages: Object.keys(languages) },
+      licenses: [{ id: 'singularity-flow-polyglot-structural-preview', spdx: 'MIT', sourceSha256: hashBytes(licenseBytes) }],
+      conformance: { fixtureVersion: '2', status: 'preview', languages: Object.keys(languages) },
       implementation: {
         artifactSha256, manifestSha256: '0'.repeat(64),
         runtime: { id: 'node', version: process.versions.node, platform: 'any' },
-        grammars: Object.keys(languages).map((language) => ({
-          language, id: languages[language].grammarId, version: languages[language].grammarVersion,
-          artifactSha256: coreSha256
-        })),
+        grammars: [],
         dependencies: { lockSha256: null, bundleSha256: recordSha256({ adapterSha256: artifactSha256, coreSha256 }) },
         files: [
           { path: POLYGLOT_ADAPTER, sha256: artifactSha256 },
@@ -269,7 +266,7 @@ async function bundledPolyglotManifest() {
       }
     };
     manifest.implementation.manifestSha256 = astAdapterManifestSha256(manifest);
-    return validateAstAdapterManifest(manifest, 'bundled polyglot syntax pack');
+    return validateAstAdapterManifest(manifest, 'bundled polyglot structural preview');
   })();
   return bundledManifestPromise;
 }

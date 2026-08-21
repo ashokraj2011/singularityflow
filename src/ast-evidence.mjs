@@ -233,7 +233,7 @@ export async function createAstDerivation(root, config, workflow, phase, result,
     grammars: adapters.flatMap((entry) => entry.grammars ?? []).sort((left, right) => `${left.language}\0${left.id}`.localeCompare(`${right.language}\0${right.id}`)),
     runtime: identities.runtime,
     dependencies: { lockSha256: null, bundleSha256: null },
-    implementation: { builtin: 'builtin-text-v1', polyglot: 'sflow-polyglot-syntax-v1', canonicalizationVersion: 1 },
+    implementation: { builtin: 'builtin-text-v1', polyglot: 'sflow-polyglot-preview-v2', canonicalizationVersion: 1 },
     packagedFiles: identities.files,
     replayArtifacts: identities.replayArtifacts,
     replayPacks

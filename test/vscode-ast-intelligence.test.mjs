@@ -143,7 +143,8 @@ test('the VS Code AST page exposes every policy source and keeps evidence and re
   assert.match(panel, /cache\.hits/);
   assert.match(panel, /structured arguments, bounded JSON input\/output, no shell/);
   assert.match(panel, /Language and project readiness/);
-  assert.match(panel, /bundled Java, Python, Kotlin, and Swift providers/);
+  assert.match(panel, /bundled Java, Python, Kotlin, and Swift scanner supplies text-assured declaration previews only/);
+  assert.match(panel, /syntax gates require a reviewed parser-backed provider/);
   assert.match(panel, /entry\.selectedProviders\?\.syntax/);
   assert.match(panel, /existing project binding\(s\) discovered without running a build/);
   assert.match(panel, /handles are deliberately not embedded in webview HTML/);

@@ -27,7 +27,10 @@ try {
     adapterId: POLYGLOT_SYNTAX_PACK.id,
     packVersion: POLYGLOT_SYNTAX_PACK.packVersion,
     extractorVersion: POLYGLOT_SYNTAX_PACK.extractorVersion,
-    stage: 'syntax', assurance: 'syntax',
+    // This extractor recognizes structural declarations without compiling or parsing the file.
+    // It participates in the syntax pipeline only as a text-assured preview and cannot satisfy a
+    // syntax lifecycle gate.
+    stage: 'syntax', assurance: 'text',
     derivationIdentity: request.derivationIdentity,
     artifactSha256: request.implementation.artifactSha256,
     manifestSha256: request.implementation.manifestSha256,

@@ -2,15 +2,15 @@ import { createHash } from 'node:crypto';
 
 export const POLYGLOT_SYNTAX_PACK = Object.freeze({
   id: 'sflow-polyglot-syntax',
-  packVersion: '1.0.0',
-  extractorVersion: '1.0.0',
-  parserEngine: 'sflow-structural-parser',
-  parserVersion: '1.0.0',
+  packVersion: '1.1.0',
+  extractorVersion: '1.1.0',
+  parserEngine: 'sflow-structural-preview',
+  parserVersion: '1.1.0',
   languages: Object.freeze({
-    java: Object.freeze({ grammarId: 'sflow-java-structural', grammarVersion: '1.0.0' }),
-    python: Object.freeze({ grammarId: 'sflow-python-structural', grammarVersion: '1.0.0' }),
-    kotlin: Object.freeze({ grammarId: 'sflow-kotlin-structural', grammarVersion: '1.0.0' }),
-    swift: Object.freeze({ grammarId: 'sflow-swift-structural', grammarVersion: '1.0.0' })
+    java: Object.freeze({ grammarId: null, grammarVersion: null }),
+    python: Object.freeze({ grammarId: null, grammarVersion: null }),
+    kotlin: Object.freeze({ grammarId: null, grammarVersion: null }),
+    swift: Object.freeze({ grammarId: null, grammarVersion: null })
   })
 });
 
@@ -109,14 +109,14 @@ function createSymbol({ language, name, qualifiedName, declarationKind, signatur
     containerId, visibility: access.visibility, modifiers: access.modifiers,
     annotations: [...new Set(annotations)].sort(),
     span: spanFor(lineNumber, raw, matchIndex, name.length), line: lineNumber,
-    assurance: 'syntax'
+    assurance: 'text'
   };
 }
 
 function importFact(target, lineNumber, raw, { names = [], aliases = [], importKind = 'module' } = {}) {
   return {
     kind: 'import', target, importedNames: [...new Set(names)].sort(), aliases: [...new Set(aliases)].sort(),
-    importKind, span: spanFor(lineNumber, raw, Math.max(0, raw.indexOf(target)), target.length), assurance: 'syntax'
+    importKind, span: spanFor(lineNumber, raw, Math.max(0, raw.indexOf(target)), target.length), assurance: 'text'
   };
 }
 
@@ -124,12 +124,12 @@ function relationship(sourceId, type, target, lineNumber, raw) {
   if (!RELATIONSHIPS.has(type)) return null;
   return {
     kind: 'relationship', sourceId, type, target,
-    span: spanFor(lineNumber, raw, 0, raw.trim().length), assurance: 'syntax'
+    span: spanFor(lineNumber, raw, 0, raw.trim().length), assurance: 'text'
   };
 }
 
 function moduleFact(id, name, lineNumber, raw) {
-  return { kind: 'module', id, name, span: spanFor(lineNumber, raw, Math.max(0, raw.indexOf(name)), name.length), assurance: 'syntax' };
+  return { kind: 'module', id, name, span: spanFor(lineNumber, raw, Math.max(0, raw.indexOf(name)), name.length), assurance: 'text' };
 }
 
 function annotationsFrom(line, language) {
@@ -146,13 +146,13 @@ function balancedDiagnostics(lines, language) {
     brackets += (line.match(/\[/g) ?? []).length - (line.match(/\]/g) ?? []).length;
   }
   const diagnostics = [];
-  if (language !== 'python' && braces !== 0) diagnostics.push({ code: 'AST_SYNTAX_UNBALANCED_BRACES' });
-  if (parentheses !== 0) diagnostics.push({ code: 'AST_SYNTAX_UNBALANCED_PARENTHESES' });
-  if (brackets !== 0) diagnostics.push({ code: 'AST_SYNTAX_UNBALANCED_BRACKETS' });
+  if (language !== 'python' && braces !== 0) diagnostics.push({ code: 'AST_PREVIEW_UNBALANCED_BRACES' });
+  if (parentheses !== 0) diagnostics.push({ code: 'AST_PREVIEW_UNBALANCED_PARENTHESES' });
+  if (brackets !== 0) diagnostics.push({ code: 'AST_PREVIEW_UNBALANCED_BRACKETS' });
   if (language === 'python' && lines.some((line) => /^\s*(?:async\s+def|def|class)\b/.test(line) && !line.includes(':'))) {
-    diagnostics.push({ code: 'AST_SYNTAX_EXPECTED_COLON' });
+    diagnostics.push({ code: 'AST_PREVIEW_EXPECTED_COLON' });
   }
-  return diagnostics;
+  return [{ code: 'AST_STRUCTURAL_PREVIEW_ONLY' }, ...diagnostics];
 }
 
 function javaFacts(lines, parsedLines) {
@@ -327,7 +327,7 @@ function swiftFacts(lines, parsedLines) {
   return facts.filter(Boolean);
 }
 
-/** Parse declarations only. Source bodies and doc text never cross this return boundary. */
+/** Scan declaration-like structure only. This is text assurance, not a language parser. */
 export function extractPolyglotSyntax(bytes, language) {
   const source = Buffer.isBuffer(bytes) ? bytes.toString('utf8') : Buffer.from(bytes).toString('utf8');
   const lines = source.split(/\r?\n/);

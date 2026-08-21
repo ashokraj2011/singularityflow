@@ -163,21 +163,15 @@ test('publication records an AST receipt and submission verifies its exact relev
   });
 });
 
-test('polyglot syntax gate evidence remains identical after deleting every derived AST cache', async () => {
+test('the bundled polyglot preview cannot publish a required syntax gate', async () => {
   const { root, config, workflow, phase, authorship } = await fixture({ predicateSymbol: 'PaymentService' });
   await inContext(root, async () => {
-    await publishGeneration(root, config, workflow, { phaseId: phase.id, authorship });
-    const summary = phase.astGates[0];
-    const receipt = JSON.parse(await readFile(path.join(root, summary.path), 'utf8'));
-    assert.equal(receipt.allowed, true);
-    assert.equal(receipt.predicates[0].outcome, 'pass');
-    assert.ok(receipt.predicates[0].extractors.some((entry) => entry.id === 'sflow-polyglot-syntax'));
-    const derivation = JSON.parse(await readFile(path.join(root, receipt.derivation.path), 'utf8'));
-    assert.ok(derivation.adapters.some((entry) => entry.id === 'sflow-polyglot-syntax'
-      && entry.derivation?.derivationSha256));
-    await rm(path.join(root, '.git', 'singularity-flow', 'ast'), { recursive: true, force: true });
-    const replay = await replayAstEvidence(root, { receipt: summary.path });
-    assert.equal(replay.result, 'identical');
+    await assert.rejects(
+      () => publishGeneration(root, config, workflow, { phaseId: phase.id, authorship }),
+      (error) => error?.code === 'AST_LIFECYCLE_GATE_BLOCKED' && /required-symbol/.test(error.message)
+    );
+    assert.equal(phase.generation, 0);
+    assert.equal(phase.astGates, undefined);
   });
 });
 

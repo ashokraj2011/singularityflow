@@ -10,8 +10,9 @@ a daemon, and never makes a lifecycle gate weaker when it is disabled.
   content hash;
 - Git-index census with explicit path, capability-cone, changed-file, and opt-in `--all` scopes;
 - file, symbol, and import references at honest `text` assurance, without source bodies in results;
-- a bundled, on-demand polyglot syntax pack for Java, Python, Kotlin, and Swift declarations,
-  signatures, nesting, imports, annotations, declared relationships, and exact spans;
+- a bundled, on-demand polyglot structural preview for Java, Python, Kotlin, and Swift declarations,
+  signatures, nesting, imports, annotations, declared relationships, and exact spans, all honestly
+  labeled `text` because the scanner is not a language parser;
 - a data-driven `LanguageCatalogV1`, rich protocol-v2 fact boundary, and deterministic syntax-first,
   optional-semantic provider pipeline;
 - bounded, existing-only Maven, Gradle/Android, Python, SwiftPM, and Xcode project discovery that
@@ -32,11 +33,13 @@ a daemon, and never makes a lifecycle gate weaker when it is disabled.
   governed receipt before submission and terminal governance.
 
 The built-in JavaScript/TypeScript extractor remains lexical and its facts are labeled `text`.
-Java, Python, Kotlin, and Swift use the bundled `sflow-polyglot-syntax` pack when effective policy
-permits adapters. Its identity, parser/grammar versions, request binding, paths, content hashes,
-fact kinds, assurance, output size, and JSON response are validated before facts are accepted.
-Compiler-backed Java/JDT, Python/Pyright, Kotlin Analysis, and Swift/SourceKit semantics remain
-optional packs: their absence retains syntax facts and reports the exact project/toolchain boundary.
+Java, Python, Kotlin, and Swift use the legacy-named `sflow-polyglot-syntax` pack for a structural
+preview when effective policy permits adapters. Despite that compatibility ID and its syntax pipeline
+stage, it performs comment-aware line scanning rather than parsing; its manifest and every emitted
+fact therefore have `text` assurance, no grammar identity, and `preview` conformance. It cannot
+satisfy a required syntax gate. Parser-backed Java/JDT, Python/Pyright, Kotlin Analysis, and
+Swift/SourceKit providers remain optional packs: their absence retains text previews and reports the
+exact parser/project/toolchain boundary.
 
 ## Configure
 
@@ -81,19 +84,19 @@ ast:
   languages:
     java:
       mode: auto
-      minimumAssurance: syntax
-      syntaxProvider: sflow-polyglot-syntax  # optional explicit pin
+      minimumAssurance: text
+      syntaxProvider: sflow-polyglot-syntax  # optional text-only structural preview
     python:
       mode: auto
-      minimumAssurance: syntax
+      minimumAssurance: text
     kotlin:
       mode: auto
-      minimumAssurance: syntax
+      minimumAssurance: semantic
       semanticProvider: sflow-kotlin-analysis # optional installed pack
       semanticProfile: android-debug
     swift:
       mode: auto
-      minimumAssurance: syntax
+      minimumAssurance: text
 ```
 
 The active Story's pinned capability source roots are authoritative. When no roots are pinned, an
@@ -105,7 +108,7 @@ The effective mode is the most restrictive of `ast.mode`, the machine preference
 materialization side effects.
 
 `fallback: text-only` never starts an adapter. `fallback: host-and-text` may execute the bundled
-syntax pack, a reviewed machine-installed pack, or an explicit development/test manifest. Bounded
+structural preview, a reviewed machine-installed parser pack, or an explicit development/test manifest. Bounded
 text facts remain available when a pack is absent or fails, and the result becomes partial when
 configured assurance cannot be established. `generatedRoots` are tagged in facts rather than
 silently omitted. Repository files can select an allowed provider ID but can never supply `argv`.
@@ -177,7 +180,7 @@ Git objects, verifies the retained toolchain by digest, never reads or fills the
 returns `identical`, `different`, or an honest `unavailable` reason. It never substitutes a currently
 installed artifact with a different digest.
 
-The bundled lexical extractor and bundled polyglot syntax pack are fully retainable and replayable.
+The bundled lexical extractor and bundled polyglot structural preview are fully retainable and replayable.
 Protocol-v2 external adapters are digest-verified for live use. Replayable publication retains the
 exact manifest, executable/package files, runtime identity, grammar and dependency digests in the
 evidence store; reproduction reconstructs that retained bundle and refuses when any required
@@ -185,12 +188,13 @@ toolchain identity is unavailable. The runtime never substitutes a newly install
 labels an unretained external toolchain replayable. `replay` remains a compatibility alias for the
 canonical `reproduce` action.
 
-### Bundled-pack provenance
+### Bundled-preview provenance
 
-The bundled polyglot syntax pack is repository-native code, not a repackaged third-party grammar.
+The legacy-named bundled polyglot pack is repository-native preview code, not a parser and not a
+repackaged third-party grammar.
 Its source is `src/ast-packs/polyglot-syntax-core.mjs`, it inherits the repository's MIT license,
 and its manifest records a digest of the exact source used for each derivation. It has no generated
-binary, downloaded grammar, or separate build step. Optional semantic packs must instead declare
+binary, downloaded grammar, or separate build step. Optional parser and semantic packs must instead declare
 their license metadata and bind the adapter, runtime, grammar, and dependency artifacts by digest;
 an incomplete or mismatched manifest is unavailable rather than silently downgraded.
 
@@ -230,8 +234,9 @@ question remains unanswered. Whole-repository scope remains explicit.
 
 - Results contain paths, hashes, declaration locations, and dependency targets—not source bodies.
 - JavaScript and TypeScript receive built-in lexical symbols. Java, Python, Kotlin, and Swift use
-  the bundled syntax pack unless policy selects `off`/`text-only`; other catalogued languages retain
-  the text floor until a reviewed pack is installed. Recognition alone is never claimed as parsing.
+  the bundled text-assured structural preview unless policy selects `off`/`text-only`; other catalogued
+  languages retain the text floor until a reviewed pack is installed. Recognition and preview
+  scanning are never claimed as parsing.
 - Adapter protocol v2 manifests bind the executable/package, manifest, runtime, grammars, and
   dependency artifacts by SHA-256. The broker verifies the executable digest before launch and the
   adapter must echo the request derivation identity and implementation digests.
@@ -247,8 +252,10 @@ question remains unanswered. Whole-repository scope remains explicit.
   `SINGULARITY_FLOW_AST_ADAPTER_MANIFESTS` remains a development/test override. The broker does not
   discover executable configuration from repositories or PATH.
 - Pack installation accepts a local manifest/directory or a bounded `.tar`, `.tar.gz`, or `.tgz`
-  archive. It rejects absolute/traversal members and links, validates the manifest and every artifact
-  digest, previews the content-bound confirmation, and never fetches a network URL.
+  archive. Its in-process reader checks compressed bytes, extracted bytes, expansion ratio, member
+  count, header checksums, paths, types, and link metadata before materializing regular files into an
+  isolated directory. It validates the manifest and every artifact digest, previews the content-bound
+  confirmation, never delegates extraction to system `tar`, and never fetches a network URL.
 - Semantic warm-up is an explicit mutation. Its preview discloses each structured command and
   repository configuration effect; confirmation is bound to the provider, project, profile,
   metadata, and command plan. Normal context/query/gate reads never warm a project or resolve

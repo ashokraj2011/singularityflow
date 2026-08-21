@@ -46,19 +46,20 @@ function materializeFileFacts(input, bytes) {
 function materializePolyglotFacts(input, bytes, extractor) {
   const generated = input.generated === true;
   const { facts } = extractPolyglotSyntax(bytes, input.language);
+  const assurance = extractor.assurance ?? 'text';
   return facts.map((fact) => {
     const normalized = fact.kind === 'symbol' ? { ...fact, line: fact.span.startLine } : fact;
     if (normalized.kind === 'symbol') {
       return {
         ...normalized, at: `${input.path}:${normalized.span?.startLine ?? normalized.line}`,
-        path: input.path, assurance: 'syntax', generated, extractor
+        path: input.path, assurance, generated, extractor
       };
     }
-    if (normalized.kind === 'import') return { ...normalized, from: input.path, assurance: 'syntax', generated, extractor };
+    if (normalized.kind === 'import') return { ...normalized, from: input.path, assurance, generated, extractor };
     if (normalized.kind === 'module' || normalized.kind === 'diagnostic') {
-      return { ...normalized, path: input.path, assurance: 'syntax', generated, extractor };
+      return { ...normalized, path: input.path, assurance, generated, extractor };
     }
-    return { ...normalized, from: input.path, assurance: 'syntax', generated, extractor };
+    return { ...normalized, from: input.path, assurance, generated, extractor };
   });
 }
 
@@ -192,7 +193,7 @@ export function replayBuiltInDerivation(files, manifest, overlays = []) {
   const facts = replayBuiltInFacts(files, manifest, overlays);
   const semanticPaths = new Set(overlays.filter((entry) => entry.extractor?.assurance === 'semantic').map((entry) => entry.path));
   const envelopeAssurance = files.length && files.every((file) => polyglot && polyglotLanguages.has(file.input.language))
-    ? files.every((file) => semanticPaths.has(file.input.path)) ? 'semantic' : 'syntax'
+    ? files.every((file) => semanticPaths.has(file.input.path)) ? 'semantic' : polyglot.assurance ?? 'text'
     : 'text';
   const predicates = manifest.subject.operation === 'gate'
     ? replayPredicates(facts, manifest.replayRecipe.predicates ?? [], envelopeAssurance)

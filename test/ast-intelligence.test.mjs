@@ -94,7 +94,7 @@ test('AST policy is closed, bounded, and cannot disable a required predicate', (
   assert.deepEqual(rich.predicates[0].languages, ['java']);
 });
 
-test('rich structural predicates are applicability-bound and semantic predicates fail closed on syntax', async () => withPreferenceFile(async () => {
+test('rich structural predicates are applicability-bound and fail closed on text-only previews', async () => withPreferenceFile(async () => {
   const root = await repository();
   await initializeDefinition(root);
   await execFileSync('mkdir', ['-p', path.join(root, 'src')]);
@@ -117,10 +117,11 @@ test('rich structural predicates are applicability-bound and semantic predicates
   git(root, ['add', '.']);
   git(root, ['commit', '-qm', 'rich predicate fixture']);
   const result = await astCommand(root, ['gate'], { paths: 'src' });
-  assert.equal(result.facts.find((item) => item.id === 'annotation').outcome, 'pass');
-  assert.equal(result.facts.find((item) => item.id === 'inherits').outcome, 'pass');
-  assert.equal(result.facts.find((item) => item.id === 'boundary').outcome, 'fail');
+  assert.equal(result.facts.find((item) => item.id === 'annotation').outcome, 'unknown');
+  assert.equal(result.facts.find((item) => item.id === 'inherits').outcome, 'unknown');
+  assert.equal(result.facts.find((item) => item.id === 'boundary').outcome, 'unknown');
   assert.equal(result.facts.find((item) => item.id === 'semantic-conformance').outcome, 'unknown');
+  assert.ok(result.diagnostics.some((item) => item.code === 'AST_STRUCTURAL_PREVIEW_ONLY'));
   assert.equal(result.provenance.gate.allowed, false);
 }));
 

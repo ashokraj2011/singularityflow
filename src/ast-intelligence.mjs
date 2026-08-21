@@ -1,8 +1,9 @@
 import { createHash, randomBytes, randomUUID } from 'node:crypto';
-import { lstat, mkdtemp, readFile, readdir, rm, stat } from 'node:fs/promises';
+import { lstat, mkdir, mkdtemp, readFile, readdir, rm, stat, writeFile } from 'node:fs/promises';
 import { existsSync } from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
+import { gunzipSync } from 'node:zlib';
 
 import { normalizeAstPolicy, assuranceSatisfies } from './ast-policy.mjs';
 import {
@@ -733,6 +734,9 @@ async function applyConfiguredAdapters(root, runtime, selection, processed, { pe
       const project = stage === 'semantic'
         ? bindingForFile(projectDiscovery.bindings, entry.path, definition.projectKinds ?? [])
         : null;
+      // A semantic parser may join its validated facts to the preview's stable declaration IDs.
+      // That identity join does not promote the preview itself: only facts returned by the semantic
+      // provider receive semantic assurance.
       if (stage === 'semantic' && !(entry.adapters ?? []).some((item) => item.extractor?.stage === 'syntax')) {
         degradation.push({
           path: entry.path, reason: 'semantic-syntax-skeleton-unavailable', adapter: adapter.id,
@@ -1769,7 +1773,9 @@ export async function astDoctor(root) {
     return {
       language, selectedFiles: byLanguage.get(language) ?? 0,
       availablePacks: packs.map((adapter) => ({ id: adapter.id, stage: adapter.stage, assurance: adapter.assurance, packVersion: adapter.packVersion })),
-      maximumAssurance: selectedSemantic && project?.complete ? 'semantic' : selectedSyntax ? 'syntax' : 'text',
+      maximumAssurance: selectedSemantic && project?.complete
+        ? 'semantic'
+        : selectedSyntax?.assurance ?? 'text',
       selectedProviders: { syntax: selectedSyntax?.id ?? null, semantic: selectedSemantic?.id ?? null },
       toolchainStatus: project?.toolchain ? 'bound' : selectedSemantic ? 'unavailable' : 'not-required',
       projectModelStatus: project ? (project.complete ? 'complete' : 'incomplete') : 'not-detected',
@@ -1839,45 +1845,211 @@ function printResult(result, json) {
   } else console.log(JSON.stringify(result, null, 2));
 }
 
+const AST_PACK_ARCHIVE_LIMITS = Object.freeze({
+  compressedBytes: 32 * 1024 * 1024,
+  extractedBytes: 128 * 1024 * 1024,
+  expansionRatio: 100,
+  members: 2_000
+});
+
+function tarString(bytes, start, length) {
+  const field = bytes.subarray(start, start + length);
+  const end = field.indexOf(0);
+  return field.subarray(0, end < 0 ? field.length : end).toString('utf8').trim();
+}
+
+function tarNumber(bytes, start, length, label) {
+  const field = bytes.subarray(start, start + length);
+  if (field[0] & 0x80) {
+    throw new SingularityFlowError(`Offline AST pack archive uses an unsupported binary ${label}.`, { code: 'AST_PACK_ARCHIVE_INVALID' });
+  }
+  const value = tarString(bytes, start, length).trim();
+  if (!value) return 0;
+  if (!/^[0-7]+$/.test(value)) {
+    throw new SingularityFlowError(`Offline AST pack archive has an invalid ${label}.`, { code: 'AST_PACK_ARCHIVE_INVALID' });
+  }
+  return Number.parseInt(value, 8);
+}
+
+function verifiedTarHeader(bytes, offset) {
+  const header = bytes.subarray(offset, offset + 512);
+  const expected = tarNumber(header, 148, 8, 'header checksum');
+  let actual = 0;
+  for (let index = 0; index < header.length; index += 1) {
+    actual += index >= 148 && index < 156 ? 32 : header[index];
+  }
+  if (actual !== expected) {
+    throw new SingularityFlowError('Offline AST pack archive has an invalid header checksum.', { code: 'AST_PACK_ARCHIVE_INVALID' });
+  }
+  return header;
+}
+
+function paxFields(bytes) {
+  const fields = {};
+  let offset = 0;
+  while (offset < bytes.length) {
+    const space = bytes.indexOf(32, offset);
+    if (space < 0) throw new SingularityFlowError('Offline AST pack archive has invalid PAX metadata.', { code: 'AST_PACK_ARCHIVE_INVALID' });
+    const lengthText = bytes.subarray(offset, space).toString('ascii');
+    if (!/^[1-9][0-9]*$/.test(lengthText)) throw new SingularityFlowError('Offline AST pack archive has invalid PAX metadata.', { code: 'AST_PACK_ARCHIVE_INVALID' });
+    const length = Number(lengthText);
+    const end = offset + length;
+    if (!Number.isSafeInteger(length) || end > bytes.length || bytes[end - 1] !== 10) {
+      throw new SingularityFlowError('Offline AST pack archive has invalid PAX metadata.', { code: 'AST_PACK_ARCHIVE_INVALID' });
+    }
+    const record = bytes.subarray(space + 1, end - 1).toString('utf8');
+    const equals = record.indexOf('=');
+    if (equals < 1) throw new SingularityFlowError('Offline AST pack archive has invalid PAX metadata.', { code: 'AST_PACK_ARCHIVE_INVALID' });
+    fields[record.slice(0, equals)] = record.slice(equals + 1);
+    offset = end;
+  }
+  return fields;
+}
+
+function safeArchiveMember(value, { directory = false } = {}) {
+  let member = String(value ?? '').replace(/\0.*$/s, '');
+  if (member.includes('\\')) throw new SingularityFlowError('Offline AST pack archive member paths must use forward slashes.', { code: 'AST_PACK_ARCHIVE_UNSAFE' });
+  while (member.startsWith('./')) member = member.slice(2);
+  if (directory) member = member.replace(/\/+$/, '');
+  if (directory && (!member || member === '.')) return null;
+  if (!member || path.posix.isAbsolute(member) || /^[A-Za-z]:/.test(member)) {
+    throw new SingularityFlowError('Offline AST pack archive contains an absolute or empty member path.', { code: 'AST_PACK_ARCHIVE_UNSAFE' });
+  }
+  const segments = member.split('/');
+  if (segments.some((segment) => !segment || segment === '.' || segment === '..')) {
+    throw new SingularityFlowError('Offline AST pack archive contains a path traversal member.', { code: 'AST_PACK_ARCHIVE_UNSAFE' });
+  }
+  return segments.join('/');
+}
+
+function parseAstPackTar(bytes) {
+  const members = [];
+  const paths = new Set();
+  let offset = 0; let headerCount = 0; let extractedBytes = 0;
+  let pendingPax = {}; let globalPax = {}; let longName = null;
+  while (offset + 512 <= bytes.length) {
+    const block = bytes.subarray(offset, offset + 512);
+    if (block.every((value) => value === 0)) {
+      if (!bytes.subarray(offset).every((value) => value === 0)) {
+        throw new SingularityFlowError('Offline AST pack archive has data after its end marker.', { code: 'AST_PACK_ARCHIVE_INVALID' });
+      }
+      break;
+    }
+    const header = verifiedTarHeader(bytes, offset);
+    headerCount += 1;
+    if (headerCount > AST_PACK_ARCHIVE_LIMITS.members) {
+      throw new SingularityFlowError('Offline AST pack archive contains excessive members or metadata records.', { code: 'AST_PACK_ARCHIVE_UNSAFE' });
+    }
+    const headerSize = tarNumber(header, 124, 12, 'member size');
+    const type = String.fromCharCode(header[156] || 48);
+    const dataStart = offset + 512;
+    const dataEnd = dataStart + headerSize;
+    if (!Number.isSafeInteger(headerSize) || dataEnd > bytes.length) {
+      throw new SingularityFlowError('Offline AST pack archive member exceeds the archive boundary.', { code: 'AST_PACK_ARCHIVE_INVALID' });
+    }
+    const payload = bytes.subarray(dataStart, dataEnd);
+    offset = dataStart + Math.ceil(headerSize / 512) * 512;
+    if (type === 'x' || type === 'g') {
+      const parsed = paxFields(payload);
+      if (parsed.linkpath != null) throw new SingularityFlowError('Offline AST pack archives must not contain link metadata.', { code: 'AST_PACK_ARCHIVE_UNSAFE' });
+      if (type === 'g') globalPax = { ...globalPax, ...parsed };
+      else pendingPax = parsed;
+      continue;
+    }
+    if (type === 'L') {
+      longName = payload.toString('utf8').replace(/\0.*$/s, '').replace(/\n$/, '');
+      continue;
+    }
+    if (type === 'K' || ['1', '2', '3', '4', '6', '7'].includes(type)) {
+      throw new SingularityFlowError('Offline AST pack archives may contain only directories and regular files; links and special files are prohibited.', { code: 'AST_PACK_ARCHIVE_UNSAFE' });
+    }
+    if (!['0', '5'].includes(type)) {
+      throw new SingularityFlowError(`Offline AST pack archive contains unsupported member type '${type}'.`, { code: 'AST_PACK_ARCHIVE_UNSAFE' });
+    }
+    const metadata = { ...globalPax, ...pendingPax };
+    pendingPax = {};
+    const prefix = tarString(header, 345, 155);
+    const headerName = [prefix, tarString(header, 0, 100)].filter(Boolean).join('/');
+    const directory = type === '5';
+    const memberPath = safeArchiveMember(metadata.path ?? longName ?? headerName, { directory });
+    longName = null;
+    const size = metadata.size == null ? headerSize : Number(metadata.size);
+    if (!Number.isSafeInteger(size) || size < 0 || size !== headerSize || (directory && size !== 0)) {
+      throw new SingularityFlowError('Offline AST pack archive has inconsistent member size metadata.', { code: 'AST_PACK_ARCHIVE_INVALID' });
+    }
+    if (memberPath == null) continue;
+    if (paths.has(memberPath)) {
+      throw new SingularityFlowError('Offline AST pack archive contains duplicate members.', { code: 'AST_PACK_ARCHIVE_UNSAFE' });
+    }
+    paths.add(memberPath);
+    extractedBytes += size;
+    if (extractedBytes > AST_PACK_ARCHIVE_LIMITS.extractedBytes) {
+      throw new SingularityFlowError('Offline AST pack archive exceeds the extracted-byte budget.', { code: 'AST_PACK_ARCHIVE_BUDGET' });
+    }
+    const mode = tarNumber(header, 100, 8, 'member mode');
+    members.push({ path: memberPath, directory, bytes: directory ? null : Buffer.from(payload), mode: mode & 0o111 ? 0o700 : 0o600 });
+  }
+  if (!members.length) throw new SingularityFlowError('Offline AST pack archive is empty.', { code: 'AST_PACK_ARCHIVE_INVALID' });
+  return { members, extractedBytes };
+}
+
 async function resolveAstPackInstallSource(source) {
   const absolute = path.resolve(source);
   if (!/\.(?:tar|tar\.gz|tgz)$/i.test(absolute)) return { manifest: absolute, label: absolute, cleanup: null };
   const compressed = /\.(?:tar\.gz|tgz)$/i.test(absolute);
-  const listing = run('tar', [compressed ? '-tzf' : '-tf', absolute], {
-    allowFailure: true, maxBuffer: 4 * 1024 * 1024
-  });
-  if (listing.status !== 0) throw new SingularityFlowError('Offline AST pack archive could not be read by the local tar implementation.', { code: 'AST_PACK_ARCHIVE_INVALID' });
-  const members = listing.stdout.split(/\r?\n/).filter(Boolean);
-  if (!members.length || members.length > 2_000 || members.some((entry) => path.isAbsolute(entry)
-    || entry.replaceAll('\\', '/').split('/').includes('..'))) {
-    throw new SingularityFlowError('Offline AST pack archive contains an unsafe or excessive member list.', { code: 'AST_PACK_ARCHIVE_UNSAFE' });
+  const sourceInfo = await lstat(absolute).catch(() => null);
+  if (!sourceInfo?.isFile() || sourceInfo.isSymbolicLink()) {
+    throw new SingularityFlowError('Offline AST pack archive must be a regular local file.', { code: 'AST_PACK_ARCHIVE_UNSAFE' });
   }
+  if (sourceInfo.size < 1 || sourceInfo.size > AST_PACK_ARCHIVE_LIMITS.compressedBytes) {
+    throw new SingularityFlowError('Offline AST pack archive exceeds the compressed-byte budget.', { code: 'AST_PACK_ARCHIVE_BUDGET' });
+  }
+  const archive = await readFile(absolute);
+  let tarBytes;
+  try {
+    const decompressionCeiling = Math.min(
+      AST_PACK_ARCHIVE_LIMITS.extractedBytes,
+      archive.length * AST_PACK_ARCHIVE_LIMITS.expansionRatio
+    );
+    tarBytes = compressed
+      ? gunzipSync(archive, { maxOutputLength: decompressionCeiling })
+      : archive;
+  } catch {
+    throw new SingularityFlowError('Offline AST pack archive could not be decompressed within its byte budget.', { code: 'AST_PACK_ARCHIVE_BUDGET' });
+  }
+  if (tarBytes.length > AST_PACK_ARCHIVE_LIMITS.extractedBytes
+    || (compressed && tarBytes.length / archive.length > AST_PACK_ARCHIVE_LIMITS.expansionRatio)) {
+    throw new SingularityFlowError('Offline AST pack archive exceeds its extracted-byte or expansion-ratio budget.', { code: 'AST_PACK_ARCHIVE_BUDGET' });
+  }
+  const parsed = parseAstPackTar(tarBytes);
   const temporary = await mkdtemp(path.join(os.tmpdir(), 'sflow-ast-pack-'));
-  const extracted = run('tar', [compressed ? '-xzf' : '-xf', absolute, '-C', temporary], {
-    allowFailure: true, maxBuffer: 4 * 1024 * 1024
-  });
-  if (extracted.status !== 0) {
-    await rm(temporary, { recursive: true, force: true });
-    throw new SingularityFlowError('Offline AST pack archive extraction failed.', { code: 'AST_PACK_ARCHIVE_INVALID' });
-  }
-  const manifests = [];
-  async function inspect(directory) {
-    for (const entry of await readdir(directory, { withFileTypes: true })) {
-      const target = path.join(directory, entry.name);
-      if (entry.isSymbolicLink()) throw new SingularityFlowError('Offline AST pack archives must not contain symbolic links.', { code: 'AST_PACK_ARCHIVE_UNSAFE' });
-      if (entry.isDirectory()) await inspect(target);
-      else if (entry.isFile() && entry.name === 'manifest.json') manifests.push(target);
+  try {
+    for (const member of parsed.members) {
+      const target = path.join(temporary, member.path);
+      if (member.directory) await mkdir(target, { recursive: true, mode: 0o700 });
+      else {
+        await mkdir(path.dirname(target), { recursive: true, mode: 0o700 });
+        await writeFile(target, member.bytes, { flag: 'wx', mode: member.mode });
+      }
     }
+  } catch (error) {
+    await rm(temporary, { recursive: true, force: true });
+    throw new SingularityFlowError(`Offline AST pack archive extraction failed: ${error.message}`, { code: 'AST_PACK_ARCHIVE_INVALID' });
   }
-  try { await inspect(temporary); }
-  catch (error) { await rm(temporary, { recursive: true, force: true }); throw error; }
+  const manifests = parsed.members.filter((member) => !member.directory && path.posix.basename(member.path) === 'manifest.json')
+    .map((member) => path.join(temporary, member.path));
   if (manifests.length !== 1) {
     await rm(temporary, { recursive: true, force: true });
     throw new SingularityFlowError('Offline AST pack archive must contain exactly one manifest.json.', { code: 'AST_PACK_ARCHIVE_INVALID' });
   }
   return {
     manifest: manifests[0], label: absolute,
-    members: members.map((entry) => entry.replaceAll('\\', '/')).sort(),
+    members: parsed.members.map((entry) => entry.path).sort(),
+    archive: {
+      compressedBytes: archive.length,
+      extractedBytes: parsed.extractedBytes,
+      expansionRatio: compressed ? Number((tarBytes.length / archive.length).toFixed(2)) : 1
+    },
     cleanup: () => rm(temporary, { recursive: true, force: true })
   };
 }
@@ -1967,7 +2139,10 @@ async function astPackCommand(positionals, options) {
       const manifest = validateAstAdapterManifest(raw, `AST pack ${resolved.label}`);
       const plan = await planAstPackInstall(resolved.manifest, manifest);
       if (archiveDigest) plan.confirmation = `INSTALL AST PACK ${manifest.id}@${manifest.packVersion} ${archiveDigest.slice(0, 12)}`;
-      const publicPlan = { ...plan, source: resolved.label, files: resolved.members ?? plan.files };
+      const publicPlan = {
+        ...plan, source: resolved.label, files: resolved.members ?? plan.files,
+        ...(resolved.archive ? { archive: resolved.archive } : {})
+      };
       if (optionBoolean(options, 'dry-run')) return { ...publicPlan, dryRun: true };
       return await applyAstPackInstall(plan, { confirm: optionString(options, 'confirm') });
     } finally { await resolved.cleanup?.(); }

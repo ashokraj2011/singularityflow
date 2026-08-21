@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict';
 import { createHash } from 'node:crypto';
 import { execFileSync } from 'node:child_process';
-import { chmod, cp, mkdtemp, readFile, readdir, writeFile, mkdir } from 'node:fs/promises';
+import { chmod, cp, mkdtemp, readFile, readdir, symlink, writeFile, mkdir } from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
 import test from 'node:test';
@@ -92,15 +92,15 @@ public protocol Payable: Sendable {}
 `
 };
 
-test('the bundled pack emits useful rich syntax for Java, Python, Kotlin, and Swift', () => {
+test('the bundled pack emits useful text-assured structural previews for Java, Python, Kotlin, and Swift', () => {
   for (const [language, source] of Object.entries(FIXTURES)) {
     const result = extractPolyglotSyntax(Buffer.from(source), language);
     assert.ok(result.facts.some((fact) => fact.kind === 'symbol'), language);
     assert.ok(result.facts.filter((fact) => fact.kind === 'symbol').every((fact) =>
-      fact.id && fact.qualifiedName && fact.signature && fact.span?.startLine > 0 && fact.assurance === 'syntax'), language);
+      fact.id && fact.qualifiedName && fact.signature && fact.span?.startLine > 0 && fact.assurance === 'text'), language);
     assert.ok(result.facts.some((fact) => fact.kind === 'import'), `${language} import`);
     assert.ok(result.facts.some((fact) => fact.kind === 'relationship'), `${language} relationship`);
-    assert.doesNotMatch(JSON.stringify(result), /sourceBody|"body"|"content"|"text"/);
+    assert.doesNotMatch(JSON.stringify(result), /sourceBody|"body"\s*:|"content"\s*:|"text"\s*:/);
   }
   assert.ok(extractPolyglotSyntax(Buffer.from(FIXTURES.java), 'java').facts.some((fact) => fact.annotations?.includes('Override')));
   assert.ok(extractPolyglotSyntax(Buffer.from(FIXTURES.python), 'python').facts.some((fact) => fact.annotations?.includes('transactional')));
@@ -108,7 +108,7 @@ test('the bundled pack emits useful rich syntax for Java, Python, Kotlin, and Sw
   assert.ok(extractPolyglotSyntax(Buffer.from(FIXTURES.swift), 'swift').facts.some((fact) => fact.declarationKind === 'actor'));
 });
 
-test('commented and string-contained declarations never become syntax facts', () => {
+test('commented and string-contained declarations never become structural preview facts', () => {
   const fixtures = {
     java: '/*\npublic class Ghost {}\n*/\npublic class Real {}\nString text = "class AlsoGhost {}";\n',
     python: '\"\"\"\nclass Ghost:\n    pass\n\"\"\"\nclass Real:\n    pass\n',
@@ -123,7 +123,45 @@ test('commented and string-contained declarations never become syntax facts', ()
   }
 });
 
-test('syntax fixtures retain Unicode declarations, partial facts, bounded diagnostics, and large-file determinism', () => {
+test('invalid-but-balanced polyglot source remains advisory and cannot satisfy a required syntax gate', async () => isolatedMachine(async () => {
+  const invalid = {
+    java: 'public class Broken { public int works() { return ???; } }\n',
+    python: 'class Broken:\n    def works(self):\n        return ???\n',
+    kotlin: 'class Broken { fun works(): Int { return @ } }\n',
+    swift: 'class Broken { func works() -> Int { return let } }\n'
+  };
+  for (const [language, source] of Object.entries(invalid)) {
+    const result = extractPolyglotSyntax(Buffer.from(source), language);
+    assert.ok(result.facts.some((fact) => fact.kind === 'symbol' && fact.name === 'Broken'), language);
+    assert.ok(result.facts.every((fact) => fact.assurance === 'text'), language);
+    assert.ok(result.diagnostics.some((item) => item.code === 'AST_STRUCTURAL_PREVIEW_ONLY'), language);
+  }
+
+  const root = await repository({ 'src/Broken.java': invalid.java });
+  await initializeDefinition(root);
+  const definitionPath = path.join(root, 'singularity', 'workflow.yml');
+  const definition = YAML.parse(await readFile(definitionPath, 'utf8'));
+  definition.worldModel.sourceRoots = ['src'];
+  definition.ast.mode = 'auto';
+  definition.ast.fallback = 'host-and-text';
+  definition.ast.languages ??= {};
+  definition.ast.languages.java = {
+    mode: 'auto', minimumAssurance: 'syntax', syntaxProvider: 'sflow-polyglot-syntax'
+  };
+  definition.ast.predicates = [{
+    id: 'broken-symbol', mode: 'required', type: 'symbol-exists', symbol: 'Broken', minimumAssurance: 'syntax'
+  }];
+  await writeFile(definitionPath, YAML.stringify(definition));
+  git(root, ['add', '.']); git(root, ['commit', '-qm', 'require real syntax assurance']);
+
+  const gate = await astCommand(root, ['gate'], { paths: 'src', 'evidence-class': 'gate', 'max-facts': 1000 });
+  const predicate = gate.facts.find((fact) => fact.id === 'broken-symbol');
+  assert.equal(predicate.outcome, 'unknown');
+  assert.equal(predicate.requiredAssurance, 'syntax');
+  assert.equal(gate.provenance.gate.allowed, false);
+}));
+
+test('structural preview fixtures retain Unicode declarations, partial facts, bounded diagnostics, and large-file determinism', () => {
   const fixtures = {
     java: 'public class PaiementÉgaré {\n',
     python: 'class PaiementÉgaré:\n    pass\ndef cassé(\n',
@@ -134,7 +172,7 @@ test('syntax fixtures retain Unicode declarations, partial facts, bounded diagno
     const result = extractPolyglotSyntax(Buffer.from(source), language);
     assert.ok(result.facts.some((fact) => fact.kind === 'symbol' && fact.name === 'PaiementÉgaré'), language);
     assert.ok(result.diagnostics.length > 0, `${language} bounded syntax diagnostic`);
-    assert.ok(result.diagnostics.every((item) => /^AST_SYNTAX_[A-Z_]+$/.test(item.code)));
+    assert.ok(result.diagnostics.every((item) => /^AST_(?:PREVIEW|STRUCTURAL)_[A-Z_]+$/.test(item.code)));
   }
   const large = `${'// generated fixture line\n'.repeat(20_000)}public class LargeGenerated {}\n`;
   const first = extractPolyglotSyntax(Buffer.from(large), 'java');
@@ -144,7 +182,7 @@ test('syntax fixtures retain Unicode declarations, partial facts, bounded diagno
   assert.doesNotMatch(JSON.stringify(first), /generated fixture line/);
 });
 
-test('the language catalog is data-driven and the bundled manifest carries grammar provenance', async () => isolatedMachine(async () => {
+test('the language catalog exposes the bundled scanner as a preview without invented grammar provenance', async () => isolatedMachine(async () => {
   const adapters = await bundledAstAdapters();
   const catalog = compileAstLanguageCatalog(adapters);
   assert.equal(detectAstLanguage('app/src/main/kotlin/Payment.kt', catalog).language, 'kotlin');
@@ -152,10 +190,13 @@ test('the language catalog is data-driven and the bundled manifest carries gramm
   assert.match(catalog.sha256, /^[a-f0-9]{64}$/);
   const pack = adapters[0];
   assert.equal(pack.stage, 'syntax');
-  assert.equal(pack.conformance.status, 'passed');
+  assert.equal(pack.assurance, 'text');
+  assert.equal(pack.conformance.status, 'preview');
   assert.deepEqual(pack.languages, ['java', 'kotlin', 'python', 'swift']);
-  assert.equal(pack.implementation.grammars.length, 4);
-  assert.ok(pack.implementation.grammars.every((grammar) => /^[a-f0-9]{64}$/.test(grammar.artifactSha256)));
+  assert.equal(pack.implementation.grammars.length, 0);
+  assert.ok(Object.values(pack.languageDefinitions).every((language) =>
+    language.maximumAssurance === 'text' && language.grammarId === null
+      && language.parserEngine === 'sflow-structural-preview'));
 }));
 
 test('one malformed adapter file result is rejected without erasing already validated files', async () => isolatedMachine(async () => {
@@ -170,7 +211,7 @@ test('one malformed adapter file result is rejected without erasing already vali
   });
   const response = validateAstAdapterResponse({
     protocolVersion: 2, adapterId: manifest.id, packVersion: manifest.packVersion,
-    extractorVersion: manifest.extractorVersion, stage: 'syntax', assurance: 'syntax',
+    extractorVersion: manifest.extractorVersion, stage: 'syntax', assurance: manifest.assurance,
     derivationIdentity: request.derivationIdentity,
     artifactSha256: manifest.implementation.artifactSha256,
     manifestSha256: manifest.implementation.manifestSha256,
@@ -412,11 +453,11 @@ test('a reviewed semantic pack overlays syntax by syntaxId and degrades without 
 
   delete process.env.SINGULARITY_FLOW_AST_ADAPTER_MANIFESTS;
   const syntaxOnly = await astCommand(root, ['context'], { paths: 'src', 'max-facts': 1000 });
-  assert.equal(syntaxOnly.assurance, 'syntax');
-  assert.ok(syntaxOnly.facts.some((fact) => fact.kind === 'symbol' && fact.name === 'Child' && fact.assurance === 'syntax'));
+  assert.equal(syntaxOnly.assurance, 'text');
+  assert.ok(syntaxOnly.facts.some((fact) => fact.kind === 'symbol' && fact.name === 'Child' && fact.assurance === 'text'));
 }));
 
-test('integrated polyglot reads are syntax-assured, bounded, cached only for committed blobs, and gateway-addressable', async () => isolatedMachine(async () => {
+test('integrated polyglot previews are text-assured, bounded, cached only for committed blobs, and gateway-addressable', async () => isolatedMachine(async () => {
   const root = await repository({
     'src/Payment.java': FIXTURES.java,
     'src/payment.py': FIXTURES.python,
@@ -425,7 +466,9 @@ test('integrated polyglot reads are syntax-assured, bounded, cached only for com
   });
   const built = await astCommand(root, ['build'], { paths: 'src', 'max-facts': 1000 });
   assert.equal(built.status, 'complete');
-  assert.equal(built.assurance, 'syntax');
+  assert.equal(built.assurance, 'text');
+  assert.ok(built.facts.filter((fact) => fact.extractor?.id === 'sflow-polyglot-syntax')
+    .every((fact) => fact.assurance === 'text'));
   assert.ok(built.facts.filter((fact) => fact.kind === 'symbol').every((fact) => fact.extractor.derivation?.derivationSha256));
   const syntaxDirectory = path.join(root, '.git', 'singularity-flow', 'ast', 'v2', 'syntax');
   const before = (await readdir(syntaxDirectory)).length;
@@ -459,7 +502,7 @@ test('local pack installation is previewed, content-bound, hash-checked, and rem
   const manifest = {
     protocolVersion: 2,
     id: 'local-polyglot-syntax', packVersion: bundled.packVersion,
-    extractorVersion: bundled.extractorVersion, stage: 'syntax', assurance: 'syntax',
+    extractorVersion: bundled.extractorVersion, stage: 'syntax', assurance: bundled.assurance,
     argv: [process.execPath, adapterPath], capabilities: bundled.capabilities,
     languages: bundled.languageDefinitions, licenses: bundled.licenses, conformance: bundled.conformance,
     implementation: {
@@ -506,7 +549,7 @@ test('a verified offline pack archive installs without a network lookup', async 
   }
   const manifest = {
     protocolVersion: 2, id: 'offline-polyglot-syntax', packVersion: bundled.packVersion,
-    extractorVersion: bundled.extractorVersion, stage: 'syntax', assurance: 'syntax',
+    extractorVersion: bundled.extractorVersion, stage: 'syntax', assurance: bundled.assurance,
     argv: [process.execPath, 'polyglot-syntax-adapter.mjs'], capabilities: bundled.capabilities,
     languages: bundled.languageDefinitions, licenses: bundled.licenses, conformance: bundled.conformance,
     implementation: { ...structuredClone(bundled.implementation), files, manifestSha256: '' }
@@ -517,8 +560,35 @@ test('a verified offline pack archive installs without a network lookup', async 
   execFileSync('tar', ['-czf', archive, '-C', source, '.']);
   const preview = await astCommand(root, ['pack', 'install', archive], { 'dry-run': true });
   assert.equal(preview.source, archive);
+  assert.ok(preview.archive.compressedBytes > 0);
+  assert.ok(preview.archive.extractedBytes > 0);
   assert.ok(preview.files.some((entry) => entry.endsWith('manifest.json')));
   const installed = await astCommand(root, ['pack', 'install', archive], { confirm: preview.confirmation });
   assert.equal(installed.installed, true);
   assert.equal((await astCommand(root, ['pack', 'doctor', 'offline-polyglot-syntax'], {})).healthy, true);
+}));
+
+test('offline pack archives reject links before materialization', async () => isolatedMachine(async () => {
+  const root = await repository({ 'README.md': '# link archive fixture\n' });
+  const source = await mkdtemp(path.join(os.tmpdir(), 'sflow-pad-link-source-'));
+  await writeFile(path.join(source, 'manifest.json'), '{}\n');
+  await symlink('/etc/passwd', path.join(source, 'host-secret'));
+  const archive = path.join(await mkdtemp(path.join(os.tmpdir(), 'sflow-pad-link-archive-')), 'pack.tgz');
+  execFileSync('tar', ['-czf', archive, '-C', source, '.']);
+  await assert.rejects(
+    () => astCommand(root, ['pack', 'install', archive], { 'dry-run': true }),
+    (error) => error?.code === 'AST_PACK_ARCHIVE_UNSAFE' && /links|link metadata/i.test(error.message)
+  );
+}));
+
+test('offline pack archives enforce an expansion-ratio budget before materialization', async () => isolatedMachine(async () => {
+  const root = await repository({ 'README.md': '# expansion archive fixture\n' });
+  const source = await mkdtemp(path.join(os.tmpdir(), 'sflow-pad-expansion-source-'));
+  await writeFile(path.join(source, 'zeros.bin'), Buffer.alloc(8 * 1024 * 1024));
+  const archive = path.join(await mkdtemp(path.join(os.tmpdir(), 'sflow-pad-expansion-archive-')), 'pack.tgz');
+  execFileSync('tar', ['-czf', archive, '-C', source, '.']);
+  await assert.rejects(
+    () => astCommand(root, ['pack', 'install', archive], { 'dry-run': true }),
+    (error) => error?.code === 'AST_PACK_ARCHIVE_BUDGET' && /byte|ratio|decompress/i.test(error.message)
+  );
 }));

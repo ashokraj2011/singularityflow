@@ -11,7 +11,7 @@ related:
   - agents-and-routing
   - model-independence
   - knowledge-and-remote-assets
-version: 7
+version: 8
 ---
 The world model provides repository-grounded views used during governed generation. In a monorepo, scope it to the capability's source and shared directories so unrelated products do not increase scan cost or invalidate evidence.
 
@@ -41,10 +41,12 @@ World-model fingerprints use Git's existing index object IDs for clean paths and
 
 AST context/query/gate reads reuse content-addressed blob skeletons but never populate the cache;
 only `wm ast build` writes derived local cache records. The built-in JavaScript/TypeScript facts are
-lexical `text` assurance. Java, Python, Kotlin, and Swift receive `syntax` facts from the bundled,
-on-demand polyglot pack unless the effective policy is `off` or `text-only`. Optional reviewed
-semantic packs enrich—not replace—the syntax skeleton only when an immutable project/toolchain
-binding is complete. Required symbols always need syntax or semantic assurance; a text match is
+lexical `text` assurance. Java, Python, Kotlin, and Swift receive `text`-assured declaration previews
+from the bundled, on-demand polyglot scanner unless the effective policy is `off` or `text-only`.
+That scanner is not a language parser and cannot satisfy required syntax gates. Optional reviewed
+parser or semantic packs can provide syntax or semantic evidence when their immutable
+project/toolchain binding is complete. Required symbols always need parser-backed syntax or
+semantic assurance; a text match is
 advisory. Context and query results are bounded by fact count and
 serialized output bytes and continue through an opaque cursor bound to the exact cone. Required
 predicates fail closed on partial coverage, disabled analysis, insufficient assurance, or a failed

@@ -78,11 +78,12 @@ test('guided AST edits preserve unrelated workflow configuration', () => {
   const original = `version: 2\n# keep this comment\nworkTypes: {}\nworldModel:\n  grounding: warn\nast:\n  mode: off\n`;
   const updated = updateAstPolicyYaml(original, policy);
   const parsed = YAML.parse(updated);
+  assert.equal(parsed.ast.evidence.store, undefined, 'the workspace-local default needs no YAML setting');
   assert.equal(parsed.version, 2);
   assert.equal(parsed.worldModel.grounding, 'warn');
   assert.match(updated, /# keep this comment/);
   assert.deepEqual(parsed.ast, {
-    mode: 'auto', fallback: 'host-and-text', evidence: { mode: 'identified', store: 'local-directory' }, generatedRoots: ['generated/types'],
+    mode: 'auto', fallback: 'host-and-text', evidence: { mode: 'identified' }, generatedRoots: ['generated/types'],
     budgets: { maxFiles: 300, maxBytes: 10_000_000, maxFileBytes: 1_000_000 },
     languages: { typescript: { mode: 'auto', minimumAssurance: 'text' } },
     predicates: [{ id: 'payment-entry', mode: 'advisory', type: 'symbol-exists', symbol: 'Payment', minimumAssurance: 'text' }]
@@ -160,8 +161,14 @@ test('the VS Code AST page exposes every policy source and keeps evidence and re
   assert.match(panel, /switchWorkspaceRepository/);
   assert.match(panel, /shared active repository for My Work, Lifecycle, Configuration, Copilot, and the terminal/);
   assert.match(panel, /Semantic project warm-up/);
+  assert.match(panel, /Workspace-local/);
+  assert.match(panel, /\.singularity-flow\/ast-evidence-store/);
   assert.match(panel, /reviewed optional semantic provider/);
   assert.match(panel, /id="ast-warm-form"/);
+  assert.match(panel, /Project binding<select name="project" required>/);
+  assert.match(panel, /Choose a discovered project/);
+  assert.match(panel, /binding\.projectKind/);
+  assert.doesNotMatch(panel, /name="project" required placeholder=/);
   assert.match(panel, /type: 'preview-warm'/);
   assert.match(panel, /type: 'execute-warm'/);
   assert.match(panel, /wm', 'ast', 'warm', '--semantic'/);

@@ -143,7 +143,7 @@ test('publication records an AST receipt and submission verifies its exact relev
     });
     assert.equal(gatewayReplay.data.ast.result, 'identical');
     await rm(path.join(
-      root, '.git', 'singularity-flow', 'ast-evidence-store', 'bundles',
+      root, '.singularity-flow', 'ast-evidence-store', 'bundles',
       `${derivation.retention.bundleSha256}.json`
     ));
     const unavailable = await replayAstEvidence(root, { receipt: summary.path });

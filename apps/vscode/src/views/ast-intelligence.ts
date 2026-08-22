@@ -199,7 +199,8 @@ function policyForm(policy: AstPolicyDraft, scope: AstRepositoryScopeView | null
         <label><span>Repository mode for ${escape(repository)}</span><select name="mode">${option('auto', policy.mode, 'Auto — available when requested')}${option('off', policy.mode, `Off — disable for ${repository}`)}</select><small>Off is refused while any required predicate exists.</small></label>
         <label><span>Fallback</span><select name="fallback">${option('host-and-text', policy.fallback, 'Host and bounded text facts')}${option('text-only', policy.fallback, 'Bounded text facts only')}</select></label>
         <label><span>Durable evidence</span><select name="evidenceMode">${option('replayable', policy.evidence.mode, 'Replayable — retain exact toolchain')}${option('identified', policy.evidence.mode, 'Identified — record digests only')}${option('off', policy.evidence.mode, 'Off — previews only')}</select><small>Required lifecycle predicates always require replayable evidence.</small></label>
-        <label><span>Evidence store</span><input name="evidenceStore" value="${escape(policy.evidence.store)}"><small>Logical store ID only; credentials and host paths are never committed.</small></label>
+        <input type="hidden" name="evidenceStore" value="${escape(policy.evidence.store)}">
+        <div><span>Evidence storage</span><p><strong>Workspace-local</strong></p><small>Replay artifacts are kept automatically under <code>.singularity-flow/ast-evidence-store</code>. No path configuration is required.</small></div>
         <label class="span-2"><span>Generated roots</span><input name="generatedRoots" value="${escape(policy.generatedRoots.join(', '))}" placeholder="generated/client, build/types"><small>Comma-separated repository-relative directories. Symlinks, traversal, and globs are refused.</small></label>
       </div></div>
       <div class="editor-card"><h3>Safety budgets</h3><div class="form-grid">
@@ -261,7 +262,9 @@ function adapterSection(doctor: AstDoctorResult | null): string {
     ${optional.length ? `<details><summary>${optional.length} reviewed optional semantic provider(s)</summary><div class="table-wrap"><table><thead><tr><th>Provider</th><th>Languages</th><th>Project models</th><th>Maturity</th><th>Local status</th></tr></thead><tbody>${optional.map((pack) => `<tr><td><strong>${escape(pack.id ?? 'provider')}</strong></td><td>${escape((pack.languages ?? []).join(', '))}</td><td>${escape((pack.projectKinds ?? []).join(', '))}</td><td>${escape(pack.maturity ?? 'optional')}</td><td>${escape(pack.status ?? 'not-installed')}</td></tr>`).join('')}</tbody></table></div><p class="muted">Catalog entries are compatibility declarations, not bundled compiler binaries. Install reviewed pack bytes from an offline source before semantic use.</p></details>` : ''}</section>`;
 }
 
-function semanticWarmSection(preview: AstWarmPreview | null): string {
+function semanticWarmSection(doctor: AstDoctorResult | null, preview: AstWarmPreview | null): string {
+  const bindings = list<NonNullable<NonNullable<AstDoctorResult['projects']>['bindings']>[number]>(doctor?.projects?.bindings);
+  const selectedProject = preview?.project ?? '';
   return `<section><h2>${icon('refresh')}Semantic project warm-up</h2>
     <p>Semantic providers require an explicit, hash-bound toolchain and project profile. Preview first: SFlow discloses every structured command, runs it without a shell, and writes only derived machine-local binding metadata.</p>
     <form id="ast-warm-form" class="form-grid">
@@ -270,7 +273,14 @@ function semanticWarmSection(preview: AstWarmPreview | null): string {
         <option value="sflow-java-jdt">Java · JDT</option><option value="sflow-python-pyright">Python · Pyright</option>
         <option value="sflow-kotlin-analysis">Kotlin · Analysis API</option><option value="sflow-swift-sourcekit">Swift · SourceKit</option>
       </select></label>
-      <label>Project binding<input name="project" required placeholder="maven:. or gradle:app"></label>
+      <label>Project binding<select name="project" required>
+        <option value="">${bindings.length ? 'Choose a discovered project' : 'No project bindings discovered'}</option>
+        ${bindings.map((binding) => {
+          const value = `${binding.projectKind ?? 'project'}:${binding.root ?? '.'}`;
+          const readiness = binding.complete ? 'complete' : `incomplete — ${(binding.unavailable ?? []).join(', ') || 'toolchain/profile required'}`;
+          return `<option value="${escape(value)}"${selectedProject === value ? ' selected' : ''}>${escape(`${value} · ${readiness}`)}</option>`;
+        }).join('')}
+      </select><small>Bindings come from existing Maven, Gradle/Android, Python, SwiftPM, or Xcode metadata; discovery does not run a build.</small></label>
       <label>Profile<input name="profile" required placeholder="default, debug, or scheme/configuration"></label>
       <p class="card-foot"><button class="secondary" type="submit">Preview semantic warm-up</button></p>
     </form>
@@ -298,7 +308,7 @@ export function astIntelligenceBody(policy: AstPolicyDraft, doctor: AstDoctorRes
   return `<div data-repository-scope="${escape(scope?.key ?? '')}"><header class="inbox-header"><p class="eyebrow">Configuration · World model</p><h1>${icon('worldModel', { size: 24 })}AST Intelligence</h1><p class="meta">Bounded structural facts, explicit assurance, and content-aware local caching. No daemon and no implicit whole-repository scan.</p></header>
     ${notice ? `<div class="notice ok">${escape(notice)}</div>` : ''}${error ? `<div class="notice error"><strong>AST action refused</strong><p>${escape(error)}</p></div>` : ''}
     <p class="card-foot"><button class="secondary" data-message="refresh">Refresh status</button><button class="secondary" data-message="open-help">Open AST guide</button></p>
-    ${repositoryScope(scope, inventory, inventoryError)}${runtimeSummary(doctor)}${languageMatrixSection(doctor)}${semanticWarmSection(warmPreview)}${machinePreference(doctor)}${policyForm(policy, scope)}${scopeRunner(policy)}${runResult(run)}${cacheSection(doctor, preview)}${adapterSection(doctor)}</div>`;
+    ${repositoryScope(scope, inventory, inventoryError)}${runtimeSummary(doctor)}${languageMatrixSection(doctor)}${semanticWarmSection(doctor, warmPreview)}${machinePreference(doctor)}${policyForm(policy, scope)}${scopeRunner(policy)}${runResult(run)}${cacheSection(doctor, preview)}${adapterSection(doctor)}</div>`;
 }
 
 function optionalString(message: InboundMessage, name: string): string {

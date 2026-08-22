@@ -3,6 +3,7 @@
 node_modules/
 *.tgz
 coverage/
+/.singularity-flow/ast-evidence-store/
 apps/desktop/dist/
 apps/desktop/release/
 dist/

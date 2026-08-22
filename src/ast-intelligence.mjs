@@ -48,6 +48,7 @@ const OPERATIONS = new Set(['context', 'query', 'gate', 'build', 'transform']);
 const GIT_LIST_MAX_BUFFER = 128 * 1024 * 1024;
 
 const EVIDENCE_CLASSES = new Set(['preview', 'recorded-context', 'gate']);
+const LOCAL_AST_EVIDENCE_PREFIX = '.singularity-flow/ast-evidence-store/';
 
 function sha256(value) {
   return createHash('sha256').update(value).digest('hex');
@@ -240,6 +241,7 @@ function trackedFiles(root, prefixes = []) {
     cwd: root, maxBuffer: GIT_LIST_MAX_BUFFER
   }).stdout)
     .map((relative) => ({ path: posix(relative), mode: 'untracked', object: null }))
+    .filter((file) => !file.path.startsWith(LOCAL_AST_EVIDENCE_PREFIX))
     .filter((file) => !known.has(file.path));
   return [...tracked, ...untracked].sort((left, right) => left.path.localeCompare(right.path));
 }

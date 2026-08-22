@@ -8,7 +8,18 @@ import { SingularityFlowError } from './util.mjs';
 function configuredRoot(root, environment = process.env) {
   return environment.SINGULARITY_FLOW_AST_EVIDENCE_STORE
     ? path.resolve(environment.SINGULARITY_FLOW_AST_EVIDENCE_STORE)
-    : path.join(gitCommonDir(root), 'singularity-flow', 'ast-evidence-store');
+    : path.join(path.resolve(root), '.singularity-flow', 'ast-evidence-store');
+}
+
+async function ensureWorkspaceStoreIgnored(root, environment) {
+  if (environment.SINGULARITY_FLOW_AST_EVIDENCE_STORE) return;
+  const exclude = path.join(gitCommonDir(root), 'info', 'exclude');
+  const pattern = '/.singularity-flow/ast-evidence-store/';
+  const existing = await readFile(exclude, 'utf8').catch((error) => error?.code === 'ENOENT' ? '' : Promise.reject(error));
+  if (existing.split(/\r?\n/).includes(pattern)) return;
+  await mkdir(path.dirname(exclude), { recursive: true });
+  const separator = existing && !existing.endsWith('\n') ? '\n' : '';
+  await writeFile(exclude, `${separator}${pattern}\n`, { flag: 'a', mode: 0o600 });
 }
 
 async function assertDirectoryTarget(target) {
@@ -39,15 +50,18 @@ async function assertStoreTree(storeRoot) {
   }
 }
 
-function bundlePath(root, digest, environment) {
+function bundlePathIn(storeRoot, digest) {
   if (!/^[a-f0-9]{64}$/.test(digest ?? '')) {
     throw new SingularityFlowError('AST evidence bundle digest is invalid.', { code: 'AST_EVIDENCE_BUNDLE_INVALID' });
   }
-  return path.join(configuredRoot(root, environment), 'bundles', `${digest}.json`);
+  return path.join(storeRoot, 'bundles', `${digest}.json`);
 }
+
+function bundlePath(root, digest, environment) { return bundlePathIn(configuredRoot(root, environment), digest); }
 
 /** Content-address and read-after-write verify a toolchain bundle. */
 export async function retainAstEvidenceBundle(root, storeId, bundle, { environment = process.env } = {}) {
+  await ensureWorkspaceStoreIgnored(root, environment);
   const storeRoot = configuredRoot(root, environment);
   await assertDirectoryTarget(storeRoot);
   const bytes = canonicalJson(bundle);
@@ -76,26 +90,32 @@ export async function retainAstEvidenceBundle(root, storeId, bundle, { environme
 
 /** Resolve strictly by logical store id plus digest; physical paths never enter evidence. */
 export async function resolveAstEvidenceBundle(root, storeId, digest, { environment = process.env } = {}) {
-  try {
-    await assertStoreTree(configuredRoot(root, environment));
-  } catch (error) {
-    if (error?.code === 'ENOENT') return { available: false, storeId, bundleSha256: digest, reason: 'bundle-missing' };
-    throw error;
+  const roots = [configuredRoot(root, environment)];
+  if (!environment.SINGULARITY_FLOW_AST_EVIDENCE_STORE) {
+    roots.push(path.join(gitCommonDir(root), 'singularity-flow', 'ast-evidence-store'));
   }
-  const target = bundlePath(root, digest, environment);
-  try {
-    const bytes = await readFile(target, 'utf8');
-    const bundle = JSON.parse(bytes);
-    if (recordSha256(bundle) !== digest) {
-      throw new SingularityFlowError('Retained AST evidence bundle digest does not match its requested content address.', { code: 'AST_EVIDENCE_BUNDLE_INVALID' });
+  for (const storeRoot of [...new Set(roots)]) {
+    try {
+      await assertStoreTree(storeRoot);
+      const bytes = await readFile(bundlePathIn(storeRoot, digest), 'utf8');
+      const bundle = JSON.parse(bytes);
+      if (recordSha256(bundle) !== digest) {
+        throw new SingularityFlowError('Retained AST evidence bundle digest does not match its requested content address.', { code: 'AST_EVIDENCE_BUNDLE_INVALID' });
+      }
+      return { available: true, storeId, bundleSha256: digest, bundle };
+    } catch (error) {
+      if (error?.code !== 'ENOENT') throw error;
     }
-    return { available: true, storeId, bundleSha256: digest, bundle };
-  } catch (error) {
-    if (error?.code === 'ENOENT') return { available: false, storeId, bundleSha256: digest, reason: 'bundle-missing' };
-    throw error;
   }
+  return { available: false, storeId, bundleSha256: digest, reason: 'bundle-missing' };
 }
 
 export function astEvidenceStoreDescription(root, storeId, { environment = process.env } = {}) {
-  return { id: storeId, type: 'directory', configured: Boolean(environment.SINGULARITY_FLOW_AST_EVIDENCE_STORE), root: configuredRoot(root, environment) };
+  return {
+    id: storeId,
+    type: 'directory',
+    configured: Boolean(environment.SINGULARITY_FLOW_AST_EVIDENCE_STORE),
+    location: environment.SINGULARITY_FLOW_AST_EVIDENCE_STORE ? 'configured-directory' : 'workspace-directory',
+    root: configuredRoot(root, environment)
+  };
 }

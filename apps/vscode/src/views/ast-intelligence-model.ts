@@ -257,7 +257,8 @@ export function updateAstPolicyYaml(text: string, draft: AstPolicyDraft): string
   parsed.setIn(['ast', 'mode'], draft.mode);
   parsed.setIn(['ast', 'fallback'], draft.fallback);
   parsed.setIn(['ast', 'evidence', 'mode'], draft.evidence.mode);
-  parsed.setIn(['ast', 'evidence', 'store'], draft.evidence.store);
+  if (draft.evidence.store === 'local-directory') parsed.deleteIn(['ast', 'evidence', 'store']);
+  else parsed.setIn(['ast', 'evidence', 'store'], draft.evidence.store);
   parsed.setIn(['ast', 'generatedRoots'], draft.generatedRoots.map((entry) => entry.trim()));
   parsed.setIn(['ast', 'budgets', 'maxFiles'], draft.budgets.maxFiles);
   parsed.setIn(['ast', 'budgets', 'maxBytes'], draft.budgets.maxBytes);

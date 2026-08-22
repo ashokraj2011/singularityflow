@@ -76,7 +76,6 @@ ast:
   fallback: host-and-text    # host-and-text | text-only
   evidence:
     mode: replayable         # replayable | identified | off
-    store: local-directory   # logical store ID, never a credential or host path
   budgets:
     maxFiles: 500
     maxBytes: 20971520
@@ -172,8 +171,9 @@ to commit the relevant bytes, narrow the evidence cone, or run a non-evidence pr
 
 Derivations are committed below
 `singularity/work-items/<WORK-ID>/context/ast/derivations/`. Toolchain bundles are retained by SHA-256
-in the configured directory evidence store; the default physical store is beneath the Git common
-directory and `SINGULARITY_FLOW_AST_EVIDENCE_STORE` selects a shared directory without exposing that
+in the directory evidence store; the default physical store is the workspace-local
+`.singularity-flow/ast-evidence-store` directory. No store configuration is required.
+`SINGULARITY_FLOW_AST_EVIDENCE_STORE` may select a shared directory without exposing that
 path in governed evidence. Clearing `<git-common-dir>/singularity-flow/ast/` removes only disposable
 skeletons and does not affect replay. Replay resolves source bytes from the recorded commit and exact
 Git objects, verifies the retained toolchain by digest, never reads or fills the skeleton cache, and

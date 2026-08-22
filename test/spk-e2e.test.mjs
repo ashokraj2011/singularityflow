@@ -66,7 +66,7 @@ async function completePhase(root, phase, { articles = [] } = {}) {
   sflow(root, ['artifact', 'scan', '--phase', phase]);
   sflow(root, ['phase', 'publish', phase, '--authored', 'human', '--channel', 'manual-in-place']);
   settle(root, `[${WORK}][phase:${phase}] settle`);
-  sflow(root, ['submit', phase, '--skip-checks']);
+  sflow(root, phase === 'implementation' ? ['submit', phase] : ['submit', phase, '--skip-checks']);
   const approval = ['approve', phase, '--yes', ...articles.flatMap((article) => ['--article', article])];
   const result = sflow(root, approval, { allowFailure: true });
   if (result.status !== 0 && !/already approved|not awaiting/.test(result.output)) {
@@ -178,6 +178,14 @@ test('a Story runs specification through release from a fresh clone', async (t) 
 
   // ---- implementation: source and artifact, one requirement deliberately unclaimed --------------
   await write(root, 'src/payments/retry.ts', 'export function retry() { return { attempt: 1 }; }\n');
+  await write(root, 'tests/payments-retry.test.mjs', [
+    "import assert from 'node:assert/strict';",
+    "import test from 'node:test';",
+    '',
+    '/** @ac:AC-001 */',
+    "test('retry example remains deterministic', () => assert.deepEqual({ attempt: 1 }, { attempt: 1 }));",
+    ''
+  ].join('\n'));
   await write(root, `singularity/work-items/${WORK}/artifacts/implementation/implementation-summary.md`, [
     '# Implementation summary', '',
     'Added the retry handler. The append-only change to attempts is not done yet, so this generation',

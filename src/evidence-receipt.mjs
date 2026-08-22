@@ -21,7 +21,9 @@ function counts(values, names) {
 }
 
 function checkProjection(phase, packet) {
-  const configured = phase?.qualityCommands?.length ?? 0;
+  const configured = phase?.deliveryEvidence?.validation?.commands?.length
+    ?? phase?.qualityCommands?.length
+    ?? 0;
   const recorded = packet.checks ?? [];
   const statuses = recorded.map((check) => check.status);
   const tally = counts(statuses, ['passed', 'failed', 'blocked', 'skipped-warning', 'stale']);

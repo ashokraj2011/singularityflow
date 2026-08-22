@@ -40,6 +40,10 @@ import {
   remainingRequiredAuthorities, requireApprovalAuthority
 } from './approval-authority.mjs';
 import { assertSourceBoundary, normalizeSourceBoundary } from './source-boundary.mjs';
+import {
+  evaluateCodeDeliveryPreflight, phaseRequiresCodeDelivery, resolveDeliveryQualityCommands
+} from './delivery-evidence.mjs';
+import { blockingConformanceVerdicts } from './conformance-verdicts.mjs';
 import { runQualityCommand } from './quality-command-runner.mjs';
 import { createLedgerIntent, ledgerLog, ledgerStatus, reconcileLedger } from './ledger.mjs';
 import { normalizeLedgerConfig } from './ledger-config.mjs';
@@ -1082,6 +1086,10 @@ export async function publishGeneration(root, config, workflow, { phaseId, usage
       + `Complete ${required}, remove every placeholder, and publish again.`
     );
   }
+  // A code-generation phase must deliver code and acceptance-mapped tests. This is deliberately
+  // before prompt/input preparation and telemetry capture: an artifact-only attempt is a refused
+  // preflight, not a half-started generation that has to be repaired in durable state.
+  const deliveryPreflight = await evaluateCodeDeliveryPreflight(root, config, workflow, phase);
   await preparePhaseInputs(root, config, workflow, phase.id);
   const effectiveAuthorship = authorship ?? {
     schemaVersion: currentSchemaVersion('artifact-authorship'), producer: 'legacy-unspecified', channel: 'legacy', actor: structuredClone(session.actor),
@@ -1203,6 +1211,15 @@ export async function publishGeneration(root, config, workflow, { phaseId, usage
   phase.authorship ??= [];
   const publishedAt = nowIso();
   phase.authorship.push({ ...structuredClone(effectiveAuthorship), generation: phase.generation, publishedAt });
+  if (deliveryPreflight) {
+    phase.deliveryEvidence = {
+      ...deliveryPreflight,
+      generation: phase.generation,
+      sourceTreeSha256: await sourceTreeHash(root),
+      capturedAt: publishedAt,
+      validation: null
+    };
+  }
   const astReceipt = await persistAstLifecycleReceipt(root, config, workflow, phase, astGate);
   if (astReceipt) {
     phase.astGates = [
@@ -1434,18 +1451,19 @@ function boundedQualityDiagnostic(value, max = 2000) {
   return `${text.slice(0, first)}${marker}${text.slice(-(remaining - first))}`;
 }
 
-async function qualityChecks(root, phase, config) {
+async function qualityChecks(root, phase, config, commands = phase.qualityCommands ?? []) {
   const checks = [];
   const sourceCommit = head(root);
+  const sourceTreeSha256 = await sourceTreeHash(root);
   const modelEnabled = operationContext()?.modelMode?.enabled !== false;
   const unknownStrictness = config.noModel?.unknownExternalCommands ?? 'warn';
-  for (const [index, value] of (phase.qualityCommands ?? []).entries()) {
+  for (const [index, value] of commands.entries()) {
     const policy = evaluateExternalCommandForModelMode(value, { modelEnabled, unknownStrictness, index });
     const command = policy.command ?? policy.argv.join(' ');
     const startedAt = nowIso();
     if (policy.action === 'block') throw new SingularityFlowError(policy.reason, { code: 'EXTERNAL_MODEL_POLICY_BLOCKED' });
     if (policy.action === 'skip') {
-      checks.push({ id: policy.id, command, externalModelPolicy: policy.modelPolicy, sourceCommit, startedAt, completedAt: nowIso(), status: 'skipped-warning', exitCode: null, stdout: '', stderr: policy.reason });
+      checks.push({ id: policy.id, command, externalModelPolicy: policy.modelPolicy, sourceCommit, sourceTreeSha256, startedAt, completedAt: nowIso(), status: 'skipped-warning', exitCode: null, stdout: '', stderr: policy.reason });
       continue;
     }
     const result = policy.argv
@@ -1457,7 +1475,7 @@ async function qualityChecks(root, phase, config) {
     checks.push({
       id: policy.id, command, externalModelPolicy: policy.modelPolicy,
       timeoutMs: policy.timeoutMs ?? DEFAULT_QUALITY_COMMAND_TIMEOUT_MS,
-      sourceCommit, startedAt, completedAt: nowIso(),
+      sourceCommit, sourceTreeSha256, startedAt, completedAt: nowIso(),
       status: result.timedOut || infrastructureError ? 'blocked' : result.status === 0 ? 'passed' : 'failed',
       exitCode: result.status, stdout: boundedQualityDiagnostic(result.stdout),
       stderr: boundedQualityDiagnostic(result.timedOut
@@ -1520,6 +1538,30 @@ export async function submitPhase(root, config, workflow, { phaseId, runChecks =
   // Re-evaluate the exact scope accepted at publication before assigning generation/publication
   // commit fields or running commands. A receipt is evidence only while its policy and bytes match.
   await requireAstLifecycleReceipt(root, config, workflow, phase, { generation: phase.generation });
+  const codeDeliveryRequired = phaseRequiresCodeDelivery(phase);
+  const deliveryCommands = await resolveDeliveryQualityCommands(root, phase);
+  if (codeDeliveryRequired) {
+    const evidence = phase.deliveryEvidence;
+    if (!evidence || Number(evidence.generation) !== Number(phase.generation)) {
+      throw new SingularityFlowError(
+        `Phase ${phase.id} cannot be submitted because generation ${phase.generation} has no code-delivery receipt. Republish it with source and acceptance-mapped tests.`,
+        { code: 'CODE_DELIVERY_RECEIPT_MISSING' }
+      );
+    }
+    const currentTree = await sourceTreeHash(root);
+    if (evidence.sourceTreeSha256 !== currentTree) {
+      throw new SingularityFlowError(
+        `Phase ${phase.id} code or tests changed after publication. Publish a fresh generation before submission.`,
+        { code: 'CODE_DELIVERY_RECEIPT_STALE' }
+      );
+    }
+    if (!deliveryCommands.length) {
+      throw new SingularityFlowError(
+        `Phase ${phase.id} has no repository test command. Configure a quality command or add a supported build manifest before submission.`,
+        { code: 'CODE_DELIVERY_TEST_COMMAND_REQUIRED' }
+      );
+    }
+  }
   // A Change Flight Plan is advisory until accepted, then becomes an exact scope binding. Compute
   // actual-versus-expected before the first submission mutation so an unexamined expansion cannot
   // be hidden by a later workflow write. The receipt itself is persisted only after every ordinary
@@ -1538,13 +1580,32 @@ export async function submitPhase(root, config, workflow, { phaseId, runChecks =
     requestedPhase: phase.id,
     reason: phase.generationCommit ? `Generation commit ${phase.generationCommit.slice(0, 8)} is not published.` : 'No generation commit is available on the configured remote.'
   });
-  phase.checks = runChecks ? await qualityChecks(root, phase, config) : [];
+  if (codeDeliveryRequired && !runChecks) {
+    throw new SingularityFlowError(
+      `Phase ${phase.id} is a code delivery and cannot skip validation commands.`,
+      { code: 'CODE_DELIVERY_TESTS_CANNOT_BE_SKIPPED' }
+    );
+  }
+  phase.checks = runChecks ? await qualityChecks(root, phase, config, deliveryCommands) : [];
   if (phase.id === 'visual-verification') await assertVisualCoverage(root, workflow, { itemDirectory: workDir(root, config, workflow.workItem.id) });
   const errors = await validatePhase(root, config, workflow, phase); const failed = phase.checks.filter((check) => check.status === 'failed' || check.status === 'blocked');
   const reviewableFailure = Boolean(phase.repairBudget && failed.length);
   if (failed.length && !reviewableFailure) errors.push(`Quality command failed: ${failed.map((check) => check.command).join(', ')}`);
   if (errors.length) throw new SingularityFlowError(`Phase ${phase.id} is not ready:\n- ${errors.join('\n- ')}`);
   phase.validationVerdict = failed.length ? 'failed' : 'passed';
+  if (codeDeliveryRequired) {
+    phase.deliveryEvidence.validation = {
+      sourceCommit: phase.generationCommit,
+      sourceTreeSha256: await sourceTreeHash(root),
+      commands: deliveryCommands.map((command, index) => ({
+        id: phase.checks[index]?.id ?? `quality-${index + 1}`,
+        command: externalCommandText(command, index)
+      })),
+      checks: phase.checks.map((check) => ({ id: check.id, status: check.status, sourceTreeSha256: check.sourceTreeSha256 })),
+      status: failed.length ? 'failed' : 'passed',
+      validatedAt: nowIso()
+    };
+  }
   if (phaseUsesWorkInterval(phase)) {
     const itemDirectory = workDir(root, config, workflow.workItem.id);
     const itemRelative = workDirRelative(config, workflow.workItem.id);
@@ -1681,6 +1742,33 @@ export async function approvePhase(root, config, workflow, {
       `Phase '${phase.id}' cannot be approved because ${failedChecks.length} quality command(s) failed. Reject it to an allowed repair phase.`,
       { code: 'PHASE_VALIDATION_FAILED' }
     );
+  }
+  if (phaseRequiresCodeDelivery(phase)) {
+    const validation = phase.deliveryEvidence?.validation;
+    const currentTree = await sourceTreeHash(root);
+    if (!validation || validation.status !== 'passed') {
+      throw new SingularityFlowError(
+        `Phase '${phase.id}' cannot be approved without a passing code-delivery validation receipt.`,
+        { code: 'CODE_DELIVERY_VALIDATION_REQUIRED' }
+      );
+    }
+    if (validation.sourceTreeSha256 !== currentTree) {
+      throw new SingularityFlowError(
+        `Phase '${phase.id}' code or tests changed after validation. Submit a fresh validated generation.`,
+        { code: 'CODE_DELIVERY_VALIDATION_STALE' }
+      );
+    }
+  }
+  if (phase.requiredArtifact?.kind === 'conformance-report') {
+    const report = await readArtifactText(root, requiredRepoPath(config, workflow, phase));
+    const blocking = blockingConformanceVerdicts(report);
+    if (blocking.length) {
+      throw new SingularityFlowError(
+        `Phase '${phase.id}' cannot be approved while conformance is incomplete:\n- `
+        + blocking.map((finding) => `${finding.clauseId}: ${finding.verdict}`).join('\n- '),
+        { code: 'CONFORMANCE_BLOCKING_VERDICTS' }
+      );
+    }
   }
   const briefReview = await verifyAgentBriefsForReview(root, workflow, phase, {
     itemRelative: workDirRelative(config, workflow.workItem.id)
@@ -2406,6 +2494,16 @@ export async function reopenWorkflow(root, config, workflow, { target, reason, c
   }
   workflow.currentPhase = targetId;
   workflow.status = 'in_progress';
+  // A completed Story created before code-task routing existed is upgraded when a human explicitly
+  // reopens its implementation. Existing in-flight legacy/non-code workflows remain untouched;
+  // the reopened generation receives the current delivery contract instead of repeating the
+  // artifact-only outcome that caused the change request.
+  const reopenedPhase = workflow.phases[targetId];
+  if (reopenedPhase.requiredArtifact?.kind === 'implementation-summary'
+      && (reopenedPhase.writeScope ?? 'artifact-only') === 'source-and-artifact') {
+    reopenedPhase.generationPolicy ??= { requirement: 'required', defaultProducer: 'governed-agent', allowedProducers: ['governed-agent', 'human'] };
+    reopenedPhase.generationPolicy.task = 'code';
+  }
   await ensureWorkIntervalBaseline(root, config, workflow, {
     phaseId: targetId,
     itemDirectory: workDir(root, config, workflow.workItem.id),

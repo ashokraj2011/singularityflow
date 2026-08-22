@@ -1953,6 +1953,18 @@ test('the packaged POC release candidate journey survives publication, review, C
       .replace(/\bTODO\b/g, 'verified evidence');
     phaseText += `\n\nPackaged lifecycle evidence for ${phaseId}: the observed boundary, commands, results, risks, rollback, and human decision are explicit and reproducible. `.repeat(8);
     await writeFile(phaseFile, phaseText);
+    if (phaseId === 'poc-test-generation') {
+      const generatedTest = path.join(root, 'tests', 'poc-generated.test.mjs');
+      await mkdir(path.dirname(generatedTest), { recursive: true });
+      await writeFile(generatedTest, [
+        "import assert from 'node:assert/strict';",
+        "import test from 'node:test';",
+        '',
+        '/** @ac:AC-001 */',
+        "test('generated POC scenario is executable', () => assert.equal(true, true));",
+        ''
+      ].join('\n'));
+    }
     for (const args of [
       ['phase', 'publish', phaseId, '--authored', 'human'],
       ['submit', '--phase', phaseId]

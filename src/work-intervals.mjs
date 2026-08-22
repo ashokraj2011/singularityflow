@@ -236,6 +236,23 @@ function pathsSince(root, sourceBaseCommit) {
   return [...new Set([...splitNull(committed.stdout), ...changedFiles(root)].filter(applicationPath))].sort();
 }
 
+/**
+ * Application paths changed during the active governed work interval.
+ *
+ * Publication needs the same baseline-aware view as reconciliation. Looking only at the working
+ * tree misses source that was committed before `phase publish`; diffing from the Story base admits
+ * work from earlier phases. The interval baseline is the single boundary that handles both cases.
+ */
+export function changedApplicationPathsSinceBaseline(root, workflow, {
+  phaseId = workflow.currentPhase
+} = {}) {
+  const current = workflow.workIntervals?.current;
+  if (!current || current.phaseId !== phaseId || !['open', 'reconciled'].includes(current.status)) {
+    throw new SingularityFlowError(`Phase '${phaseId ?? ''}' has no active governed work interval.`);
+  }
+  return pathsSince(root, current.sourceBaseCommit);
+}
+
 async function fileEvidence(root, paths) {
   const entries = [];
   for (const relative of paths) {

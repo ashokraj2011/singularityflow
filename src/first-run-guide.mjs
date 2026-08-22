@@ -84,6 +84,18 @@ export async function runFirstRunGuide({ keep = false, onBoundary } = {}) {
 
     steps.push(command(cli, repository, ['start', 'TOY-001', '--from-branch', 'main', '--story-file', story, '--work-type', 'quick-fix', '--agent', 'developer'], env));
     await writeFile(path.join(repository, 'greeting.txt'), 'Hello, Singularity Flow!\n');
+    await mkdir(path.join(repository, 'tests'), { recursive: true });
+    await writeFile(path.join(repository, 'tests', 'greeting.test.mjs'), [
+      "import assert from 'node:assert/strict';",
+      "import { readFile } from 'node:fs/promises';",
+      "import test from 'node:test';",
+      '',
+      '/** @ac:AC-001 */',
+      "test('the governed greeting is exact', async () => {",
+      "  assert.equal(await readFile(new URL('../greeting.txt', import.meta.url), 'utf8'), 'Hello, Singularity Flow!\\n');",
+      '});',
+      ''
+    ].join('\n'));
     steps.push(command(cli, repository, ['prepare', 'implement'], env));
     steps.push(command(cli, repository, ['phase', 'publish', 'implement', '--authored', 'deterministic'], env));
     steps.push(command(cli, repository, ['submit', 'implement'], env));

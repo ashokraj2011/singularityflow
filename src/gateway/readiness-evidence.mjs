@@ -35,7 +35,7 @@ function activeDecisions(phase) {
 }
 
 function checksRow(phase, revision) {
-  const configured = phase?.qualityCommands ?? [];
+  const configured = phase?.deliveryEvidence?.validation?.commands ?? phase?.qualityCommands ?? [];
   const checks = phase?.checks ?? [];
   if (!configured.length) return row('tests', 'met', 'policy', `policy:no-quality-commands`, { configured: '0' });
   if (!checks.length) {

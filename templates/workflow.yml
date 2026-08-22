@@ -347,7 +347,9 @@ workTypes:
     templateOverrides:
       intake: chore/intake.md
     phaseOverrides:
-      implementation: { inputs: [intake] }
+      # Chores may deliver an operational/configuration change with no product code. Keep the
+      # shared implementation artifact but do not misclassify this work type as code generation.
+      implementation: { inputs: [intake], generation: { task: analyze } }
       verification: { inputs: [implementation] }
       conformance: { inputs: [implementation, verification] }
   figma-mobile:
@@ -661,6 +663,7 @@ phases:
     artifact: { path: artifacts/implementation/implementation-summary.md, kind: implementation-summary, minimumBytes: 250 }
     worldModel: { views: [development, testing], depth: standard }
     clarification: { mode: when-needed, maxQuestions: 3, topics: [approved deviations, implementation blockers] }
+    generation: { task: code }
     writeScope: source-and-artifact
     approval: { authorities: [engineering-reviewers], minimum: 1, rejectTo: [implementation] }
     qualityCommands: []

@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import { spawnSync } from 'node:child_process';
-import { mkdtemp, readFile, writeFile } from 'node:fs/promises';
+import { mkdir, mkdtemp, readFile, writeFile } from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
 import test from 'node:test';
@@ -57,6 +57,61 @@ async function fixture(name) {
   const target = path.join(root, 'singularity', 'work-items', 'PREFLIGHT-1', phase.requiredArtifact.path);
   const statePath = path.join(root, 'singularity', 'work-items', 'PREFLIGHT-1', 'workflow.json');
   return { root, config, workflow, phase, target, statePath };
+}
+
+async function codeFixture(name, { acceptance = true } = {}) {
+  const root = await mkdtemp(path.join(os.tmpdir(), `sflow-code-delivery-${name}-`));
+  git(root, 'init', '-b', 'main');
+  git(root, 'config', 'user.name', ACTOR.name);
+  git(root, 'config', 'user.email', ACTOR.email);
+  await writeFile(path.join(root, 'pom.xml'), '<project><artifactId>delivery</artifactId></project>\n');
+  await initializeDefinition(root);
+  git(root, 'add', '.');
+  git(root, 'commit', '-m', 'initialize repository');
+  git(root, 'switch', '-c', 'DELIVERY-1');
+
+  const config = await loadConfig(root);
+  config.git.publish = 'off';
+  const resolved = resolveWorkType(config, 'feature');
+  const implementation = resolved.phases.find((phase) => phase.id === 'implementation');
+  resolved.phases = [{
+    ...implementation,
+    order: 0,
+    inputs: [],
+    clarification: { ...implementation.clarification, mode: 'off' },
+    approval: { mode: 'none', authorities: [], minimum: 0, rejectTo: ['implementation'] }
+  }];
+  await setAgentSession(root, config, ACTOR, 'developer', 'DELIVERY-1', { phaseId: 'implementation', source: 'test' });
+  const workflow = await createWorkflow(root, config, {
+    id: 'DELIVERY-1',
+    title: 'Require source and acceptance tests',
+    source: {
+      type: 'manual', key: 'DELIVERY-1', title: 'Require source and acceptance tests',
+      description: 'A code phase must not publish an artifact-only result.',
+      acceptanceCriteria: ['Changed source and tests are both required.']
+    },
+    baseBranch: 'main',
+    workType: 'feature',
+    agent: 'developer',
+    resolved
+  });
+  const phase = workflow.phases.implementation;
+  const item = path.join(root, 'singularity', 'work-items', 'DELIVERY-1');
+  const target = path.join(item, phase.requiredArtifact.path);
+  await writeFile(target, '# Implementation\n\nImplemented source and acceptance tests with deterministic validation evidence.\n');
+
+  if (acceptance) {
+    const requirementsPath = path.join(item, 'artifacts', 'requirements', 'requirements.md');
+    await mkdir(path.dirname(requirementsPath), { recursive: true });
+    await writeFile(requirementsPath, '# Requirements\n\nThe delivery is covered by [DELIVERY-1:AC-001].\n');
+    workflow.phases.requirements = {
+      id: 'requirements', status: 'approved', generation: 1,
+      requiredArtifact: { path: 'artifacts/requirements/requirements.md', kind: 'requirements' },
+      artifacts: [], approvals: [], qualityCommands: []
+    };
+    workflow.phaseOrder = ['requirements', 'implementation'];
+  }
+  return { root, config, workflow, phase, target };
 }
 
 function inContext(root, run) {
@@ -129,4 +184,56 @@ test('the required artifact is expected while unrelated untracked files still wa
     assert.ok(secondWarnings.every((message) => !message.includes('/artifacts/intake/intake.md')),
       `the required artifact reappeared in the adoption warning: ${JSON.stringify(secondWarnings)}`);
   });
+});
+
+test('a code phase refuses an artifact-only generation before mutating phase state', async () => {
+  const { root, config, workflow, phase } = await codeFixture('artifact-only', { acceptance: false });
+  await inContext(root, async () => {
+    const before = JSON.stringify(phase);
+    await assert.rejects(
+      () => publishGeneration(root, config, workflow, { phaseId: 'implementation', authorship: AUTHORSHIP }),
+      /no product source path changed[\s\S]*no acceptance test is available/
+    );
+    assert.equal(JSON.stringify(phase), before, 'a refused code delivery mutated the phase');
+  });
+});
+
+test('a code phase refuses source without tests and tests without acceptance tags', async () => {
+  const sourceOnly = await codeFixture('source-only');
+  await mkdir(path.join(sourceOnly.root, 'src'), { recursive: true });
+  await writeFile(path.join(sourceOnly.root, 'src', 'app.java'), 'final class App {}\n');
+  await inContext(sourceOnly.root, async () => {
+    await assert.rejects(
+      () => publishGeneration(sourceOnly.root, sourceOnly.config, sourceOnly.workflow, { phaseId: 'implementation', authorship: AUTHORSHIP }),
+      /no acceptance test is available/
+    );
+  });
+
+  const untagged = await codeFixture('untagged');
+  await mkdir(path.join(untagged.root, 'src', 'test'), { recursive: true });
+  await writeFile(path.join(untagged.root, 'src', 'app.java'), 'final class App {}\n');
+  await writeFile(path.join(untagged.root, 'src', 'test', 'AppTest.java'), 'final class AppTest {}\n');
+  await inContext(untagged.root, async () => {
+    await assert.rejects(
+      () => publishGeneration(untagged.root, untagged.config, untagged.workflow, { phaseId: 'implementation', authorship: AUTHORSHIP }),
+      /changed tests do not contain required traceability tags: @ac:AC-001/
+    );
+  });
+});
+
+test('a code phase publishes source and acceptance-mapped tests with a delivery receipt', async () => {
+  const context = await codeFixture('complete');
+  await mkdir(path.join(context.root, 'src', 'test'), { recursive: true });
+  await writeFile(path.join(context.root, 'src', 'app.java'), 'final class App {}\n');
+  await writeFile(path.join(context.root, 'src', 'test', 'AppTest.java'), '/** @ac:AC-001 */\nfinal class AppTest {}\n');
+  await inContext(context.root, async () => {
+    await publishGeneration(context.root, context.config, context.workflow, {
+      phaseId: 'implementation', authorship: AUTHORSHIP, persist: false
+    });
+  });
+  assert.equal(context.phase.generation, 1);
+  assert.equal(context.phase.deliveryEvidence.sourcePaths.length, 1);
+  assert.equal(context.phase.deliveryEvidence.testPaths.length, 1);
+  assert.deepEqual(context.phase.deliveryEvidence.acceptanceCriteria.missing, []);
+  assert.equal(context.phase.deliveryEvidence.sourceTreeSha256.startsWith('sha256:'), true);
 });

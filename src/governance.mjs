@@ -23,6 +23,7 @@ import {
   specificationSourceTreeHash
 } from './specifications.mjs';
 import { verifyAstLifecycleReceipt } from './ast-lifecycle.mjs';
+import { blockingConformanceVerdicts } from './conformance-verdicts.mjs';
 
 function trackedFiles(root) { return run('git', ['ls-files', '-z'], { cwd: root }).stdout.split('\0').filter(Boolean); }
 function ids(text, pattern) { return [...new Set([...text.matchAll(pattern)].map((match) => match[0]))]; }
@@ -311,6 +312,10 @@ export async function runGovernanceGate(root, config, workflow, { terminal = fal
       }
     }
     if (!/\b(matched|partial|missing|deviated|unplanned)\b/.test(report)) errors.push('conformance report has no recognized verdict');
+    const blockingVerdicts = blockingConformanceVerdicts(report);
+    for (const finding of blockingVerdicts) {
+      errors.push(`conformance ${finding.clauseId} remains ${finding.verdict}`);
+    }
     if (phase.conformanceTree !== await sourceTreeHash(root)) errors.push('conformance report is stale: source/test tree changed after comparison');
     else passes.push(`conformance freshness: ${expected.size} traced identifiers`);
   }

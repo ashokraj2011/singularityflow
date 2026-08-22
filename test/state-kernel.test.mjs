@@ -15,7 +15,7 @@ import { inspectStatePlanes, reconcileStateProjections } from '../src/state-plan
 import { evaluateSequence, applySequenceDecision, assertPhaseSequence, withConfirmationPort } from '../src/sequence.mjs';
 import { loadDefinition } from '../src/config.mjs';
 import { bindLifecycleEvent, lifecycleEvent, recordPublicationProjection } from '../src/lifecycle-event.mjs';
-import { createLedgerIntent, ledgerIdempotencyKey } from '../src/ledger.mjs';
+import { canonicalJson, createLedgerIntent, ledgerIdempotencyKey } from '../src/ledger.mjs';
 import { saveWorkflow, workDir } from '../src/state.mjs';
 import {
   findLegacyPendingPublications, localPendingPublicationPath, readPendingPublication
@@ -161,11 +161,17 @@ test('revisioned stores and state planes distinguish authority from projections'
   assert.equal(planes.localContext.authority, 'selection-only');
   assert.equal(planes.ledger.authority, 'proof-and-mirror');
   assert.equal(planes.projections.status.current, true);
+  assert.equal(planes.projections.stale, 0, 'a new publication must persist the same ledger intent its aggregate captured');
+  assert.equal(planes.healthy, true);
 
   const status = path.join(root, 'singularity/work-items/KERNEL-1/STATUS.md');
   await writeFile(status, '# stale projection\n');
   planes = await inspectStatePlanes(root, { definition, reference: 'KERNEL-1' });
   assert.equal(planes.projections.status.current, false);
+  const projectionIssue = planes.issues.find((issue) => issue.code === 'STALE_PROJECTIONS');
+  assert.equal(projectionIssue.count, 1);
+  assert.deepEqual(projectionIssue.kinds, [{ kind: 'StatusMarkdown', count: 1 }]);
+  assert.equal(projectionIssue.action, 'singularity-flow state reconcile KERNEL-1 --repair-projections');
   const repaired = await reconcileStateProjections(root, {
     definition,
     reference: 'KERNEL-1',
@@ -173,6 +179,7 @@ test('revisioned stores and state planes distinguish authority from projections'
   });
   assert.equal(repaired.repaired, true);
   assert.equal(repaired.planes.projections.status.current, true);
+  assert.deepEqual(repaired.planes.issues, []);
 });
 
 test('assignment changes are persisted only by publication and roll back on failure', async () => {
@@ -265,6 +272,11 @@ test('reconciler repairs every declared Story projection without changing canoni
     actor: event.actor
   });
   recordPublicationProjection(workflow, event, intent);
+  assert.deepEqual(
+    workflow.publicationProjections.at(-1).ledgerIntent.payload.lifecycleEvent,
+    event,
+    'the replay recipe must capture the exact durable ledger-intent body'
+  );
   await saveWorkflow(root, definition, workflow);
   const canonical = await readFile(path.join(directory, 'workflow.json'), 'utf8');
 
@@ -288,6 +300,51 @@ test('reconciler repairs every declared Story projection without changing canoni
   assert.ok(repaired.planes.projections.items.some((item) => item.kind === 'ApprovalSummary'));
   assert.ok(repaired.planes.projections.items.some((item) => item.kind === 'ReviewPacket'));
   assert.ok(repaired.planes.projections.items.some((item) => item.kind === 'LedgerIntent'));
+});
+
+test('legacy ledger-intent recipes derive the committed lifecycle envelope without rewriting state', async () => {
+  const root = await repository();
+  const definition = await loadDefinition(root);
+  const workflow = await new StoryStateStore(root, definition).loadAggregate('KERNEL-1');
+  const event = lifecycleEvent({
+    type: 'artifact-generated',
+    subject: { kind: 'story', id: workflow.workItem.id, branch: workflow.workItem.branch },
+    phaseId: workflow.currentPhase,
+    generation: workflow.phases[workflow.currentPhase].generation,
+    actor: { name: 'Kernel Tester', email: 'kernel@example.com' }
+  });
+  const intent = createLedgerIntent({
+    eventId: event.eventId,
+    eventType: event.type,
+    capabilityId: 'kernel',
+    subject: { workId: workflow.workItem.id, phase: event.phaseId, generation: event.generation },
+    actor: event.actor
+  });
+  // Reproduce the historical ordering: state captured the intent before the unit of work embedded
+  // the lifecycle event, while the committed durable intent correctly included it.
+  workflow.publicationProjections.push({ schemaVersion: 1, event, ledgerIntent: structuredClone(intent) });
+  await saveWorkflow(root, definition, workflow);
+  const durableIntent = {
+    ...intent,
+    payload: { ...(intent.payload ?? {}), lifecycleEvent: event }
+  };
+  const intentPath = path.join(
+    workDir(root, definition, workflow.workItem.id),
+    'context/ledger-intents',
+    `${intent.eventId}.json`
+  );
+  await mkdir(path.dirname(intentPath), { recursive: true });
+  await writeFile(intentPath, canonicalJson(durableIntent));
+
+  const workflowBytes = await readFile(path.join(workDir(root, definition, workflow.workItem.id), 'workflow.json'), 'utf8');
+  const planes = await inspectStatePlanes(root, { definition, reference: workflow.workItem.id });
+  const projected = planes.projections.items.find((item) => item.id === `ledger-intent:${intent.eventId}`);
+  assert.equal(projected.current, true);
+  assert.equal(
+    await readFile(path.join(workDir(root, definition, workflow.workItem.id), 'workflow.json'), 'utf8'),
+    workflowBytes,
+    'inspection must not migrate or rewrite authoritative lifecycle state'
+  );
 });
 
 test('snapshot coordinator rejects a mixed repository revision', async () => {

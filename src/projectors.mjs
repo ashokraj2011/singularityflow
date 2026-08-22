@@ -175,9 +175,19 @@ export function projectLedgerIntent(root, {
   return (aggregate.publicationProjections ?? [])
     .filter((record) => record.ledgerIntent)
     .map((record) => {
-      const intent = record.ledgerIntent;
+      const intent = structuredClone(record.ledgerIntent);
       if (intent.eventId !== record.event?.eventId) {
         throw new SingularityFlowError(`Ledger intent ${intent.eventId} does not match its publication event.`);
+      }
+      // Releases that first embedded the lifecycle envelope in durable ledger intents attached it
+      // after the aggregate had captured its replay recipe. Existing work therefore has a correct
+      // committed intent and a semantically equivalent legacy recipe missing only this derived
+      // field. Reconstruct it from the same authoritative publication event instead of declaring
+      // every historical intent stale and asking the user to rewrite governed history.
+      if (!intent.payload?.lifecycleEvent) {
+        intent.payload = { ...(intent.payload ?? {}), lifecycleEvent: structuredClone(record.event) };
+      } else if (canonicalJson(intent.payload.lifecycleEvent) !== canonicalJson(record.event)) {
+        throw new SingularityFlowError(`Ledger intent ${intent.eventId} embeds a different lifecycle event than its publication recipe.`);
       }
       const relativePath = path.posix.join(relativeDirectory, LEDGER_INTENT_DIRECTORY, `${intent.eventId}.json`);
       return projection({

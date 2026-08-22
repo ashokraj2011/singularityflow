@@ -153,9 +153,15 @@ export async function doctorSnapshot(root, { workId = null, offline = false, per
       routing.warning ? 'Add or restore singularity/modelTiers.yml so discovery and synthesis route by task.' : null
     ));
   } catch (error) {
+    const deterministicFallback = error.code === 'WORLD_MODEL_ROUTING_UNAVAILABLE';
     checks.push(check(
-      'world-model-routing', 'fail', error.message,
-      'Restore singularity/modelTiers.yml or configure a legacy provider model before running wm build.'
+      'world-model-routing', deterministicFallback ? 'warn' : 'fail',
+      deterministicFallback
+        ? `Semantic world-model routing is not configured: singularity/modelTiers.yml is absent and the provider names no legacy model. Deterministic light generation remains available with zero model tokens.`
+        : error.message,
+      deterministicFallback
+        ? 'Use singularity-flow wm build --depth light for a zero-token model, or restore singularity/modelTiers.yml only when semantic generation is required.'
+        : 'Repair the configured model provider before running semantic world-model generation.'
     ));
   }
   try {
@@ -244,8 +250,10 @@ export async function doctorSnapshot(root, { workId = null, offline = false, per
         planes.healthy ? 'pass' : 'fail',
         planes.healthy
           ? `Lifecycle authority, local selection, publication recovery, ledger mirror, and projections agree at ${planes.lifecycle.head.slice(0, 8)}.`
-          : 'One or more state planes require recovery or projection repair.',
-        planes.healthy ? null : `Run singularity-flow state planes ${selected.id} --json, then singularity-flow state reconcile ${selected.id} --check.`
+          : planes.issues.map((issue) => issue.message).join(' '),
+        planes.healthy
+          ? null
+          : [...new Set(planes.issues.map((issue) => issue.action).filter(Boolean))].join(' Then run: ')
       ));
       // Read-only: the doctor is also what the snapshot runs, and a diagnostic must not change the
       // repository it is diagnosing.

@@ -7,6 +7,65 @@ import { LocalContextStore, StoryStateStore, InitiativeStateStore } from './stat
 import { activeWorkspaceFile, workspaceRegistryFile } from './workspace-context.mjs';
 import { inspectProjections, repairProjections } from './projectors.mjs';
 
+function statePlaneIssues({ context, pending, staleProjections, ledger, ledgerConfig }) {
+  const issues = [];
+  if (pending) {
+    issues.push({
+      code: 'PUBLICATION_PENDING',
+      plane: 'publication-recovery',
+      message: 'A lifecycle commit is waiting for publication recovery.',
+      action: context.kind === 'story'
+        ? 'singularity-flow sync'
+        : 'singularity-flow initiative sync'
+    });
+  }
+  if (staleProjections.length) {
+    const byKind = Object.entries(staleProjections.reduce((counts, item) => {
+      counts[item.kind] = (counts[item.kind] ?? 0) + 1;
+      return counts;
+    }, {})).sort(([left], [right]) => left.localeCompare(right));
+    const repairable = staleProjections.filter((item) => item.repairable).length;
+    issues.push({
+      code: 'STALE_PROJECTIONS',
+      plane: 'projections',
+      count: staleProjections.length,
+      repairable,
+      kinds: byKind.map(([kind, count]) => ({ kind, count })),
+      message: `${staleProjections.length} derived projection(s) are stale (${byKind.map(([kind, count]) => `${kind}: ${count}`).join(', ')}).`,
+      action: repairable === staleProjections.length
+        ? `singularity-flow state reconcile ${context.id} --repair-projections`
+        : `singularity-flow state reconcile ${context.id} --check`
+    });
+  }
+  if (ledger.error) {
+    issues.push({
+      code: 'LEDGER_UNAVAILABLE',
+      plane: 'ledger',
+      message: `The ledger plane could not be inspected: ${ledger.error}`,
+      action: 'singularity-flow ledger doctor'
+    });
+  }
+  if (ledgerConfig.enabled && (ledger.outbox ?? 0) > 0) {
+    issues.push({
+      code: 'LEDGER_OUTBOX_PENDING',
+      plane: 'ledger',
+      count: ledger.outbox,
+      message: `${ledger.outbox} ledger outbox record(s) are waiting to be reconciled.`,
+      action: 'singularity-flow ledger reconcile'
+    });
+  }
+  if (ledgerConfig.enabled && (ledger.pending?.length ?? 0) > 0) {
+    issues.push({
+      code: 'LEDGER_INTENTS_PENDING',
+      plane: 'ledger',
+      count: ledger.pending.length,
+      message: `${ledger.pending.length} durable ledger intent(s) have not been appended.`,
+      action: 'singularity-flow ledger reconcile'
+    });
+  }
+  return issues;
+}
+
 export async function inspectStatePlanes(root, {
   definition,
   portfolio = null,
@@ -60,6 +119,7 @@ export async function inspectStatePlanes(root, {
       config: ledgerConfig
     }))
   ]);
+  const issues = statePlaneIssues({ context, pending, staleProjections, ledger, ledgerConfig });
   return {
     schemaVersion: 1,
     subject: {
@@ -101,8 +161,8 @@ export async function inspectStatePlanes(root, {
       stale: staleProjections.length,
       items: projectionSummaries
     },
-    healthy: !pending && staleProjections.length === 0 && !ledger.error
-      && (!ledgerConfig.enabled || ((ledger.outbox ?? 0) === 0 && (ledger.pending?.length ?? 0) === 0))
+    issues,
+    healthy: issues.length === 0
   };
 }
 

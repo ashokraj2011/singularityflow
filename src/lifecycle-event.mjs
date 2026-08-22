@@ -109,10 +109,17 @@ export function bindLifecycleEvent(event, sourceCommit) {
 export function recordPublicationProjection(aggregate, event, ledgerIntent = null) {
   aggregate.publicationProjections ??= [];
   if (aggregate.publicationProjections.some((entry) => entry.event?.eventId === event.eventId)) return aggregate;
+  const projectedIntent = ledgerIntent ? structuredClone(ledgerIntent) : null;
+  if (projectedIntent && !projectedIntent.payload?.lifecycleEvent) {
+    projectedIntent.payload = {
+      ...(projectedIntent.payload ?? {}),
+      lifecycleEvent: structuredClone(event)
+    };
+  }
   aggregate.publicationProjections.push({
     schemaVersion: 1,
     event: structuredClone(event),
-    ledgerIntent: ledgerIntent ? structuredClone(ledgerIntent) : null
+    ledgerIntent: projectedIntent
   });
   return aggregate;
 }

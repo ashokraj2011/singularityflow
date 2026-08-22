@@ -114,6 +114,14 @@ export class GitPublicationUnitOfWork {
       throw error;
     };
 
+    if (ledger?.config?.enabled && ledger.intent) {
+      // This exact intent is captured in authoritative lifecycle state by `state.write` and then
+      // persisted as a durable projection below. Enrich it before either write so the replay recipe
+      // and the committed file cannot differ merely because they observed two different moments in
+      // this transaction. The event remains deliberately unbound: its commit does not exist yet.
+      ledger.intent.payload = { ...(ledger.intent.payload ?? {}), lifecycleEvent: envelope };
+    }
+
     try {
       // Set before the call, not after. `wroteState` has to mean "the write may have reached disk",
       // because that is the question rollback answers — and `state.write` is not one write. It saves
@@ -129,13 +137,9 @@ export class GitPublicationUnitOfWork {
     } catch (error) { await unwind(error); }
 
     if (ledger?.config?.enabled && ledger.intent) {
-      // The event is attached before the intent is written, so the file and any entry appended from
-      // it carry the same payload. It is deliberately the unbound event: the commit it belongs to
-      // cannot exist yet, and the entry records it as `transport.publishedCommit` regardless. When
-      // this was attached afterwards and only in memory, a direct append and a later reconcile of
-      // the same intent produced two different entry bodies — and therefore two different chain
-      // hashes — decided by whether the network happened to be up.
-      ledger.intent.payload = { ...(ledger.intent.payload ?? {}), lifecycleEvent: envelope };
+      // The event was attached before state.write, so the file, aggregate replay recipe, and any
+      // entry appended from it all carry the same payload. A direct append and a later reconcile
+      // must never produce different chain bodies based on whether the network happened to be up.
       try {
         ledgerIntentPath = await persistLedgerIntent(root, ledger.intentDirectory, ledger.intent);
       } catch (error) { await unwind(error); }

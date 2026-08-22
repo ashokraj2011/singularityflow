@@ -1,6 +1,20 @@
 import assert from 'node:assert/strict';
+import { mkdtemp, rm, writeFile } from 'node:fs/promises';
+import os from 'node:os';
+import path from 'node:path';
+import { fileURLToPath } from 'node:url';
+import { spawnSync } from 'node:child_process';
 import test from 'node:test';
+import { doctorSnapshot } from '../src/doctor.mjs';
 import { modelFreedomSnapshot } from '../src/model-freedom.mjs';
+
+const packageRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
+const bin = path.join(packageRoot, 'bin', 'singularity-flow.mjs');
+
+function run(command, args, cwd) {
+  const result = spawnSync(command, args, { cwd, encoding: 'utf8' });
+  assert.equal(result.status, 0, `${command} ${args.join(' ')}\n${result.stdout}\n${result.stderr}`);
+}
 
 function activeWorkflow(qualityCommands = [], allowedProducers = ['human']) {
   return {
@@ -34,4 +48,22 @@ test('doctor model-freedom checks the configured logical provider and executable
   assert.deepEqual(report.provider, {
     id: 'corporate-copilot', type: 'copilot-cli', executable: process.execPath, available: true
   });
+});
+
+test('doctor reports zero-token world-model readiness when semantic routing is absent', async () => {
+  const root = await mkdtemp(path.join(os.tmpdir(), 'sflow-doctor-zero-token-'));
+  run('git', ['init', '-b', 'main'], root);
+  run('git', ['config', 'user.name', 'Doctor Tester'], root);
+  run('git', ['config', 'user.email', 'doctor@example.com'], root);
+  await writeFile(path.join(root, 'README.md'), '# Doctor routing test\n');
+  run(process.execPath, [bin, 'init'], root);
+  await rm(path.join(root, 'singularity/modelTiers.yml'));
+  run('git', ['add', '.'], root);
+  run('git', ['commit', '-m', 'initialize without semantic routing'], root);
+
+  const report = await doctorSnapshot(root, { offline: true });
+  const routing = report.checks.find((entry) => entry.id === 'world-model-routing');
+  assert.equal(routing.status, 'warn');
+  assert.match(routing.message, /Deterministic light generation remains available with zero model tokens/);
+  assert.match(routing.fix, /wm build --depth light/);
 });

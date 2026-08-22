@@ -125,7 +125,9 @@ export async function resolveLifecycleCapability(root, { capabilityId = null, re
   }
 
   let selected = capabilityId;
-  if (selected && !definition.capabilities[selected]) throw new SingularityFlowError(`Unknown capability '${selected}'.`);
+  if (selected && !definition.capabilities[selected]) {
+    throw new SingularityFlowError(`Unknown capability '${selected}'.`, { code: 'CAPABILITY_UNKNOWN' });
+  }
   if (!selected && source.repositoryId) selected = capabilityForRepository(definition, source.repositoryId)?.id ?? null;
   if (!selected && source.workspace?.capabilities?.length === 1) selected = source.workspace.capabilities[0];
   if (!selected) selected = soleDelivery(definition);

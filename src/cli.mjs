@@ -115,7 +115,10 @@ import { completeEpicDelivery, epicDeliveryReadiness } from './epic-completion.m
 
 import { currentLocalEpicReservation, reserveLocalEpicBranch } from './local-identity.mjs';
 import { adoptWorkspaceConfiguration, archiveWorkspace, createWorkspace, createWorkspaceConfiguration, fetchWorkspace, forgetWorkspace, listWorkspaceDocuments, previewWorkspace, previewWorkspaceConfiguration, previewWorkspaceUpdate, readWorkspace, readWorkspaceRegistry, rememberWorkspace, repairWorkspace, restoreWorkspace, duplicateWorkspaceConfiguration, isCloneTarget, stageWorkspaceDocuments, updateWorkspaceConfiguration, workspaceRemoteCapabilities, workspaceRemoteDefaults, remoteDefaultBranch, workspaceRepositoryDefaults, workspaceArchiveReadiness, workspaceRepositoryPath, workspaceStatus } from './workspace.mjs';
-import { CONFIGURATION_BRANCH, materializeConfigurationSnapshot, resolveConfigurationRemote } from './configuration-branch.mjs';
+import {
+  captureConfigurationState, CONFIGURATION_BRANCH, materializeConfigurationSnapshot,
+  resolveConfigurationRemote, restoreConfigurationState
+} from './configuration-branch.mjs';
 import { analyzeWorkspaceImpact, listWorkspaceImpacts, previewWorkspaceImpact, promoteWorkspaceImpact, workspaceImpactStatus } from './workspace-impact.mjs';
 import { activateWorkspaceContext, activeWorkspaceFile, clearActiveWorkspaceContext, discardUnsupportedWorkflowWorkspaces, readActiveWorkspaceContext, workspacePromptLabel, workspaceContextForRepository, workspaceRegistryFile } from './workspace-context.mjs';
 import { appendLedgerIntent, archiveLedger, createLedgerIntent, initializeLedger, ledgerDoctor, ledgerLog, ledgerShow, ledgerStatus, reconcileLedger, repairLedgerPins, verifyLedger } from './ledger.mjs';
@@ -749,8 +752,8 @@ export async function startCommand(positionals, options) {
   const baseAtStart = storyBase.localBase;
   const publishRequired = (config?.git?.publish ?? 'required') !== 'off';
   const capabilityPreflight = storyBase.scope === 'capability'
-    ? preflightStoryRepositories(storyBase.workspaceRoot, storyBase.plan, canonicalBranch, {
-        remote, publishRequired
+    ? await preflightStoryRepositories(storyBase.workspaceRoot, storyBase.plan, canonicalBranch, {
+        remote, publishRequired, lifecycleRoot: root, capabilityId: storyBase.capability
       })
     : null;
   const capabilityPublications = capabilityPublicationPlan(capabilityPreflight, root);
@@ -800,6 +803,8 @@ export async function startCommand(positionals, options) {
   let createdBranch = false;
   let capabilityRepositoriesPrepared = null;
   let configurationSnapshot = null;
+  let configurationRestorePoint = null;
+  let configurationMaterializationStarted = false;
   try {
   const checkoutResult = checkout(root, canonicalBranch, materializedSeed
     ? { base: baseAtStart, fetch: true, existingOnly: true, remote }
@@ -823,6 +828,8 @@ export async function startCommand(positionals, options) {
   // configuration revision here, before any selection or generation happens, and the initial Story
   // commit publishes the copied files together with their provenance record.
   if (createdBranch && configurationRemote) {
+    configurationRestorePoint = await captureConfigurationState(root);
+    configurationMaterializationStarted = true;
     configurationSnapshot = await materializeConfigurationSnapshot(root, {
       remote: configurationRemote,
       remoteName: remote
@@ -1095,6 +1102,16 @@ export async function startCommand(positionals, options) {
       }
       await restoreAgentSession(root, originalSession);
       await restoreCopilotSession(root, originalCopilotSession);
+      if (configurationMaterializationStarted && configurationRestorePoint) {
+        try {
+          await restoreConfigurationState(root, configurationRestorePoint);
+        } catch (rollbackError) {
+          console.warn(
+            `Warning: start failed before creating workflow state, and configuration rollback failed: `
+            + `${rollbackError.message}. The original error follows.`
+          );
+        }
+      }
     }
     if (createdBranch && !workflowCreated) {
       const restored = run('git', ['switch', originalBranch], { cwd: root, stdio: 'inherit', allowFailure: true });
@@ -7561,11 +7578,13 @@ async function workspaceCommand(positionals, options) {
         defaultBranch: definition.defaultBaseBranch,
         capabilityId: optionString(options, 'capability')
       });
-      const repositories = preflightStoryRepositories(
+      const repositories = await preflightStoryRepositories(
         selected.workspaceRoot, selected.plan, storyId,
         {
           remote: selected.remote,
-          publishRequired: (definition.git?.publish ?? 'required') !== 'off'
+          publishRequired: (definition.git?.publish ?? 'required') !== 'off',
+          lifecycleRoot: root,
+          capabilityId: selected.capability
         }
       );
       preflight = {

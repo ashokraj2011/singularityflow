@@ -27,6 +27,10 @@ import {
 } from './git.mjs';
 import { readWorkspace } from './workspace.mjs';
 import { activeWorkspaceFile, workspaceContextForRepository, workspaceRegistryFile } from './workspace-context.mjs';
+import { resolveLifecycleCapability } from './capability-context.mjs';
+import {
+  resolveApprovedConfigurationCapability, resolveConfigurationRemote
+} from './configuration-branch.mjs';
 import { nowIso, run, SingularityFlowError } from './util.mjs';
 
 /**
@@ -266,9 +270,29 @@ export async function planCapabilityBase(workspace, capability, options = {}, {
  * refusal atomic across a capability: a dirty, missing, moved, read-only, or already-published
  * sibling leaves every checkout where it was.
  */
-export function preflightStoryRepositories(workspaceRoot, plan, storyBranch, {
-  remote = 'origin', publishRequired = true
+export async function preflightStoryRepositories(workspaceRoot, plan, storyBranch, {
+  remote = 'origin', publishRequired = true, lifecycleRoot = null,
+  capabilityId = plan?.record?.capability ?? null
 } = {}) {
+  // Workspace registration decides which repositories move together, but the governed capability
+  // catalog decides whether that identifier exists at all. Resolve the same explicit identifier
+  // createWorkflow will pin before fetching, checking out, or writing any repository. This prevents
+  // a stale machine-local workspace from passing UI preflight and failing only after configuration
+  // has been materialized onto a new Story branch.
+  if (lifecycleRoot && capabilityId) {
+    const configurationRemote = await resolveConfigurationRemote(lifecycleRoot, remote);
+    if (configurationRemote) {
+      await resolveApprovedConfigurationCapability(configurationRemote, capabilityId);
+    } else {
+      await resolveLifecycleCapability(lifecycleRoot, {
+        capabilityId,
+        required: true,
+        // Existence is the preflight question. Lease refresh remains part of authoritative workflow
+        // creation; an unrelated state-branch outage must not disguise an invalid capability id.
+        offline: true
+      });
+    }
+  }
   const checked = [];
   for (const repository of plan.repositories) {
     const target = path.resolve(workspaceRoot ?? '', repository.path);

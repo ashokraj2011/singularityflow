@@ -11,6 +11,7 @@ import {
 import { parseBaseSelection, resolveCapabilityBase } from '../src/capability-branches.mjs';
 import { run } from '../src/util.mjs';
 import { branch as currentBranch } from '../src/git.mjs';
+import { ensureConfigurationBranch } from '../src/configuration-branch.mjs';
 
 const git = (cwd, ...args) => run('git', args, { cwd, allowFailure: false });
 
@@ -97,7 +98,7 @@ test('capability sibling Story branches are published for another machine', asyn
     repositories: published, selection: parseBaseSelection(['main'])
   });
   const plan = { repositories, resolution };
-  const checked = preflightStoryRepositories(base, plan, 'S-REMOTE');
+  const checked = await preflightStoryRepositories(base, plan, 'S-REMOTE');
   prepareCapabilityRepositories(base, plan, 'S-REMOTE');
 
   const leadRoot = path.join(base, repositories[0].path);
@@ -131,7 +132,7 @@ test('a post-preflight sibling publication failure returns an exact resumable re
     repositories: published, selection: parseBaseSelection(['main'])
   });
   const plan = { repositories, resolution };
-  const checked = preflightStoryRepositories(base, plan, 'S-RECOVER');
+  const checked = await preflightStoryRepositories(base, plan, 'S-RECOVER');
   prepareCapabilityRepositories(base, plan, 'S-RECOVER');
   const entries = capabilityPublicationPlan(checked, path.join(base, repositories[0].path));
   const sibling = path.join(base, repositories[1].path);
@@ -210,7 +211,7 @@ test('publication preflight checks every required repository before any branch m
   const blocked = path.join(base, repositories[1].path);
   git(blocked, 'config', 'remote.origin.receivepack', '/usr/bin/false');
 
-  assert.throws(
+  await assert.rejects(
     () => preflightStoryRepositories(base, { repositories, resolution }, 'S-READONLY'),
     /payments-web|Cannot publish/
   );
@@ -234,9 +235,90 @@ test('publication preflight refuses a required repository that is not cloned', a
     repositories: { 'payments-api': ['main'], 'payments-web': ['main'] },
     selection: parseBaseSelection(['main'])
   });
-  assert.throws(
+  await assert.rejects(
     () => preflightStoryRepositories(base, { repositories: [present, absent], resolution }, 'S-MISSING'),
     /not cloned.*Nothing was changed/i
   );
   assert.equal(currentBranch(path.join(base, present.path)), 'main');
+});
+
+test('Story preflight rejects a workspace capability absent from the governed catalog', async () => {
+  const base = await mkdtemp(path.join(tmpdir(), 'sflow-capability-'));
+  const repositoryEntry = await repository(base, 'ruleengine', ['main']);
+  const lifecycleRoot = path.join(base, repositoryEntry.path);
+  await mkdir(path.join(lifecycleRoot, 'singularity'), { recursive: true });
+  await writeFile(path.join(lifecycleRoot, 'singularity/capabilities.yml'), `version: 1
+capabilities:
+  enterprise:
+    kind: collection
+    parent: null
+    policy: {}
+  product:
+    kind: collection
+    parent: enterprise
+    policy: {}
+`);
+  git(lifecycleRoot, 'add', 'singularity/capabilities.yml');
+  git(lifecycleRoot, 'commit', '--quiet', '-m', 'governed capability catalog');
+  git(lifecycleRoot, 'push', '--quiet', 'origin', 'main');
+  const resolution = resolveCapabilityBase({
+    repositories: { ruleengine: ['main'] },
+    selection: parseBaseSelection(['main'])
+  });
+
+  await assert.rejects(
+    () => preflightStoryRepositories(base, {
+      repositories: [repositoryEntry],
+      resolution,
+      record: { capability: 'rule-engine' }
+    }, 'WORK-ANU', {
+      lifecycleRoot,
+      capabilityId: 'rule-engine',
+      publishRequired: false
+    }),
+    (error) => error?.code === 'CAPABILITY_UNKNOWN'
+      && error.message === "Unknown capability 'rule-engine'."
+  );
+  assert.equal(currentBranch(lifecycleRoot), 'main');
+  assert.equal(run('git', ['show-ref', '--verify', '--quiet', 'refs/heads/WORK-ANU'], {
+    cwd: lifecycleRoot, allowFailure: true
+  }).status, 1);
+});
+
+test('Story preflight resolves a valid capability from code-only application branches', async () => {
+  const base = await mkdtemp(path.join(tmpdir(), 'sflow-capability-'));
+  const repositoryEntry = await repository(base, 'ruleengine', ['main']);
+  const lifecycleRoot = path.join(base, repositoryEntry.path);
+  await ensureConfigurationBranch(repositoryEntry.url, {
+    capability: {
+      capabilityId: 'rule-engine',
+      capabilityName: 'Rule Engine',
+      kind: 'delivery',
+      repositoryId: 'ruleengine',
+      jiraProject: null,
+      teams: []
+    }
+  });
+  assert.equal(run('git', ['cat-file', '-e', 'main:singularity/capabilities.yml'], {
+    cwd: lifecycleRoot, allowFailure: true
+  }).status, 128, 'the application branch remains code-only');
+  const resolution = resolveCapabilityBase({
+    repositories: { ruleengine: ['main'] },
+    selection: parseBaseSelection(['main'])
+  });
+
+  const checked = await preflightStoryRepositories(base, {
+    repositories: [repositoryEntry],
+    resolution,
+    record: { capability: 'rule-engine' }
+  }, 'WORK-VALID', {
+    lifecycleRoot,
+    capabilityId: 'rule-engine',
+    publishRequired: false
+  });
+  assert.equal(checked[0].repository, 'ruleengine');
+  assert.equal(currentBranch(lifecycleRoot), 'main');
+  assert.equal(run('git', ['show-ref', '--verify', '--quiet', 'refs/heads/WORK-VALID'], {
+    cwd: lifecycleRoot, allowFailure: true
+  }).status, 1);
 });

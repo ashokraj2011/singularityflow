@@ -245,6 +245,50 @@ test('Story start materializes approved configuration without requiring it on ap
   }
 });
 
+test('failed Story start restores materialized configuration so retries reach the real refusal', async () => {
+  const fixture = await repositoryFixture();
+  try {
+    await ensureConfigurationBranch(fixture.remote);
+    const approved = path.join(fixture.root, 'approved-invalid-id');
+    run('git', ['clone', '-q', '-b', CONFIGURATION_BRANCH, fixture.remote, approved], { cwd: fixture.root });
+    run('git', ['config', 'user.name', 'Configuration Tester'], { cwd: approved });
+    run('git', ['config', 'user.email', 'configuration@example.com'], { cwd: approved });
+    const workflowFile = path.join(approved, 'singularity/workflow.yml');
+    const workflow = YAML.parse(await readFile(workflowFile, 'utf8'));
+    workflow.idPattern = '^CFG-[0-9]+$';
+    await writeFile(workflowFile, YAML.stringify(workflow));
+    run('git', ['add', 'singularity/workflow.yml'], { cwd: approved });
+    run('git', ['commit', '-qm', 'restrict governed Story identifiers'], { cwd: approved });
+    run('git', ['push', '-q', 'origin', CONFIGURATION_BRANCH], { cwd: approved });
+
+    const checkout = path.join(fixture.root, 'failed-story-checkout');
+    run('git', ['clone', '-q', fixture.remote, checkout], { cwd: fixture.root });
+    run('git', ['config', 'user.name', 'Story Tester'], { cwd: checkout });
+    run('git', ['config', 'user.email', 'story@example.com'], { cwd: checkout });
+    const invoke = () => spawnSync(process.execPath, [
+      cli, 'start', 'WORK-ANU', '--title', 'Reach the real refusal',
+      '--description', 'A failed materialization must not poison the next attempt.',
+      '--from-branch', 'main', '--work-type', 'chore', '--agent', 'developer'
+    ], { cwd: checkout, encoding: 'utf8', env: { ...process.env, NO_COLOR: '1' } });
+
+    for (let attempt = 0; attempt < 2; attempt += 1) {
+      const failed = invoke();
+      assert.notEqual(failed.status, 0);
+      assert.match(failed.stderr, /Work ID WORK-ANU does not match \^CFG-\[0-9\]\+\$/);
+      assert.doesNotMatch(failed.stderr, /Working tree is not clean/);
+      assert.equal(run('git', ['branch', '--show-current'], { cwd: checkout }).stdout.trim(), 'main');
+      assert.equal(run('git', ['status', '--porcelain=v1', '--untracked-files=all'], {
+        cwd: checkout
+      }).stdout, '');
+      assert.notEqual(run('git', ['show-ref', '--verify', '--quiet', 'refs/heads/WORK-ANU'], {
+        cwd: checkout, allowFailure: true
+      }).status, 0);
+    }
+  } finally {
+    await rm(fixture.root, { recursive: true, force: true });
+  }
+});
+
 test('Story start from a governance proposal still materializes approved configuration', async () => {
   const fixture = await repositoryFixture();
   try {

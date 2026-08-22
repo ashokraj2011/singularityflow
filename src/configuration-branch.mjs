@@ -138,6 +138,57 @@ async function clearConfigurationAssets(root) {
   return removed;
 }
 
+async function configurationStatePaths(root) {
+  const files = await filesBelow(root);
+  const provenance = path.join(root, CONFIGURATION_SOURCE_PATH);
+  const provenanceInfo = await lstat(provenance).catch(() => null);
+  if (provenanceInfo) {
+    if (!provenanceInfo.isFile() || provenanceInfo.isSymbolicLink()) {
+      throw new SingularityFlowError(`${CONFIGURATION_SOURCE_PATH} must be a regular file.`);
+    }
+    files.push(CONFIGURATION_SOURCE_PATH);
+  }
+  return [...new Set(files)].sort();
+}
+
+/**
+ * Capture the exact configuration bytes that exist before a materialization attempt.
+ *
+ * This is an in-memory transaction savepoint, not a durable record. Story start uses it while the
+ * newly-created branch is checked out so a later validation refusal can put that branch back to its
+ * base before switching to the caller's branch. Runtime work-item state is deliberately outside the
+ * asset predicate and is never hidden by this rollback.
+ */
+export async function captureConfigurationState(root) {
+  const captured = new Map();
+  for (const relative of await configurationStatePaths(root)) {
+    const file = path.join(root, relative);
+    const info = await lstat(file);
+    captured.set(relative, {
+      contents: await readFile(file),
+      mode: info.mode & 0o777
+    });
+  }
+  return captured;
+}
+
+/** Restore one in-memory configuration savepoint without touching runtime or source files. */
+export async function restoreConfigurationState(root, captured) {
+  if (!(captured instanceof Map)) {
+    throw new SingularityFlowError('Configuration rollback requires its in-memory savepoint.');
+  }
+  const current = await configurationStatePaths(root);
+  for (const relative of current) {
+    if (!captured.has(relative)) await rm(path.join(root, relative), { force: true });
+  }
+  for (const [relative, entry] of captured) {
+    const target = path.join(root, relative);
+    await mkdir(path.dirname(target), { recursive: true });
+    await writeFile(target, entry.contents);
+    await chmod(target, entry.mode);
+  }
+}
+
 async function clearScratchWorktree(root) {
   for (const entry of await readdir(root, { withFileTypes: true })) {
     if (entry.name === '.git') continue;
@@ -441,6 +492,27 @@ export async function materializeConfigurationSnapshot(root, {
       ...record,
       paths: [...new Set([...removed, ...files, CONFIGURATION_SOURCE_PATH])].sort()
     };
+  } finally {
+    await rm(scratch, { recursive: true, force: true });
+  }
+}
+
+/**
+ * Resolve one capability from the approved configuration authority without touching the caller's
+ * checkout. Application branches are allowed to contain only application code, so Story preflight
+ * cannot assume the current worktree carries the governed capability catalog.
+ */
+export async function resolveApprovedConfigurationCapability(remote, capabilityId) {
+  const scratch = await mkdtemp(path.join(os.tmpdir(), 'sflow-config-capability-'));
+  try {
+    const commit = await cloneConfiguration(remote, scratch);
+    const { resolveLifecycleCapability } = await import('./capability-context.mjs');
+    const capability = await resolveLifecycleCapability(scratch, {
+      capabilityId,
+      required: true,
+      offline: true
+    });
+    return { branch: CONFIGURATION_BRANCH, commit, capability };
   } finally {
     await rm(scratch, { recursive: true, force: true });
   }

@@ -132,8 +132,8 @@ export async function startStory(root, {
     });
     const publishRequired = (initialDefinition.git?.publish ?? 'required') !== 'off';
     const capabilityPreflight = storyBase.scope === 'capability'
-      ? preflightStoryRepositories(storyBase.workspaceRoot, storyBase.plan, id, {
-          remote, publishRequired
+      ? await preflightStoryRepositories(storyBase.workspaceRoot, storyBase.plan, id, {
+          remote, publishRequired, lifecycleRoot: root, capabilityId: storyBase.capability
         })
       : null;
     fetchRemote(root, remote);

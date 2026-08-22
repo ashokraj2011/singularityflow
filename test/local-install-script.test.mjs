@@ -34,6 +34,12 @@ test('local installer performs a safe ordered pull, pack, global install, and pl
   assert.match(script, /--no-copilot-telemetry/);
   assert.match(script, /--factory-reset/);
   assert.match(script, /--clean-reinstall/);
+  assert.match(script, /--no-workspace-workflow-sync/);
+  assert.match(script, /install_active_workspace_workflows/);
+  assert.match(script, /singularity-flow workflow list --json/);
+  assert.match(script, /singularity-flow workflow install "\$workflow_id" --dry-run/);
+  assert.match(script, /singularity-flow workflow install "\$workflow_id"/);
+  assert.match(script, /status --porcelain/);
   assert.match(script, /REINSTALL_ARGS=\(reinstall --checkout "\$PROJECT_DIR"\)/);
   assert.ok(script.indexOf('if [[ "$CLEAN_REINSTALL" == "on" ]]') < script.indexOf('REQUIRED_COMMANDS=(git node npm)'),
     'clean reinstall must delegate before the normal installer can require or execute Git');
@@ -63,6 +69,7 @@ test('Windows Git Bash wrapper validates CRLF support and delegates to the canon
   assert.match(script, /--registry/);
   assert.match(script, /--cli-only/);
   assert.match(script, /--no-copilot-telemetry/);
+  assert.match(script, /--no-workspace-workflow-sync/);
   assert.doesNotMatch(script, /core\.autocrlf|git config|dos2unix|sed -i/,
     'the wrapper must not rewrite files or alter Git line-ending policy');
 });
@@ -109,6 +116,12 @@ test('standalone install script executes the complete workflow with one invocati
   const bin = path.join(fixture, 'bin');
   const log = path.join(fixture, 'commands.log');
   await mkdir(bin, { recursive: true });
+  const activeRepository = path.join(fixture, 'active-repository');
+  await mkdir(path.join(fixture, '.singularity-flow'), { recursive: true });
+  await mkdir(activeRepository, { recursive: true });
+  await writeFile(path.join(fixture, '.singularity-flow', 'active-workspace.json'), JSON.stringify({
+    repositoryPath: activeRepository
+  }));
   await copyFile(path.join(root, 'install.sh'), path.join(fixture, 'install.sh'));
   await chmod(path.join(fixture, 'install.sh'), 0o755);
 
@@ -117,14 +130,21 @@ test('standalone install script executes the complete workflow with one invocati
     await writeFile(file, `#!/usr/bin/env bash\nset -euo pipefail\nprintf '%s\\n' "${name} $* registry=\${NPM_CONFIG_REGISTRY:-}" >> "$INSTALL_TEST_LOG"\n${body}\n`);
     await chmod(file, 0o755);
   };
-  await fake('git', 'if [[ "$*" == "status --porcelain" ]]; then exit 0; fi');
+  await fake('git', `
+if [[ "$*" == "status --porcelain" ]]; then exit 0; fi
+if [[ "\${1:-}" == "-C" && "\${3:-}" == "rev-parse" && "\${4:-}" == "--show-toplevel" ]]; then printf '%s\\n' "\${2}"; exit 0; fi
+if [[ "\${1:-}" == "-C" && "\${3:-}" == "status" && "\${4:-}" == "--porcelain" ]]; then exit 0; fi`);
   await fake('npm', `
 if [[ "$*" == "config get registry" ]]; then printf '%s\\n' 'https://registry.npmjs.org/'; exit 0; fi
 if [[ "$*" == "pack --json" ]]; then printf '%s\\n' '[{"filename":"singularity-flow-test.tgz"}]'; exit 0; fi
 if [[ "$*" == "run vscode:package" ]]; then mkdir -p "$PWD/apps/vscode"; touch "$PWD/apps/vscode/singularity-flow-vscode-${version}.vsix"; fi`);
   await fake('copilot', 'if [[ "$*" == "plugin list" ]]; then printf "%s\\n" "Installed plugins: singularity-flow@singularity-flow"; fi');
   await fake('code', 'true');
-  await fake('singularity-flow', `if [[ "$*" == "--version" ]]; then printf "%s\\n" "${version}"; fi`);
+  await fake('singularity-flow', `
+if [[ "$*" == "--version" ]]; then printf "%s\\n" "${version}"; fi
+if [[ "$*" == "workflow list --json" ]]; then
+  printf '%s\\n' '[{"id":"benchmarking-a","status":"available","installed":false},{"id":"feature","status":"current","installed":true}]'
+fi`);
 
   const registry = 'https://artifacts.example.com/api/npm/npm-virtual/';
   const result = spawnSync('bash', [path.join(fixture, 'install.sh'), '--registry', registry], {
@@ -156,6 +176,9 @@ if [[ "$*" == "run vscode:package" ]]; then mkdir -p "$PWD/apps/vscode"; touch "
     'npm run vscode:package',
     `code --install-extension ${fixture}/apps/vscode/singularity-flow-vscode-${version}.vsix --force`,
     'singularity-flow plugin install',
+    'singularity-flow workflow list --json',
+    'singularity-flow workflow install benchmarking-a --dry-run',
+    'singularity-flow workflow install benchmarking-a',
     'copilot plugin list'
   ]) assert.match(commands, new RegExp(expected.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')));
   const npmCommands = commands.split('\n').filter((line) => line.startsWith('npm '));

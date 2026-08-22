@@ -16,7 +16,7 @@ related:
   - getting-started
   - resets-and-cleanup
   - diagnostics-and-regression
-version: 1
+version: 2
 ---
 Use this workflow to install Singularity Flow, govern an existing checkout or remote repository, verify the product surfaces, and replace an installed build without changing governed application history.
 
@@ -37,6 +37,12 @@ Use this topic when the current goal matches **installation and upgrades**. Star
 3. Preview or prepare the operation when the command offers a dry-run, plan, packet, or exact confirmation.
 4. Run the smallest applicable command from this topic. Do not substitute an undocumented subcommand.
 5. Re-read state after completion. In Copilot, return to `/sf-home`; in VS Code, refresh the relevant view if it has not already refreshed.
+
+When `./install.sh` performs a normal source install, it also checks the repository selected by the
+active workspace. Missing packaged workflows are installed automatically when that repository is
+clean; local and customized workflows are preserved, and the validated changes remain uncommitted
+for review. Use `--no-workspace-workflow-sync` to skip repository synchronization. The separate
+`--clean-reinstall` path never reads or changes repositories or workspaces.
 
 ## State and safety
 

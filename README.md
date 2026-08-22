@@ -887,6 +887,13 @@ From a clean clone, update the tracked branch, create the distribution tarball, 
 
 `npm run install:local` is an alias for the same script.
 
+A normal install also checks the repository selected by the active workspace. If the new package
+contains workflows that repository does not have yet, the installer adds only those missing
+packaged workflows. Existing and customized workflows and repository agents are preserved. The
+repository must be clean, and the resulting configuration changes are deliberately left
+uncommitted for review and publication. Use `--no-workspace-workflow-sync` to skip this step. The
+fingerprint-bound `--clean-reinstall` path never reads or changes a workspace.
+
 On Windows, open **Git Bash** in the Singularity Flow checkout and use the Windows wrapper. It
 checks Node.js 20+, updates the checkout safely, confirms that the CRLF Agent Markdown fix is
 present, and delegates to the same validated installer:
@@ -999,6 +1006,7 @@ npm run vscode:package
 code --install-extension <generated-vsix> --force
 singularity-flow plugin install
 configure metadata-only Copilot OpenTelemetry
+install missing packaged workflows in the clean active workspace repository
 ```
 
 The script refuses a checkout with uncommitted changes and never resets, rebases, or force-pushes. It keeps the generated `singularity-flow-<version>.tgz` in the repository root for distribution and prints the installed CLI and Copilot plugin versions. Fully exit any running Copilot CLI process, then open a new terminal and start Copilot from the repository after installation; environment variables cannot be injected into a process that was already running.

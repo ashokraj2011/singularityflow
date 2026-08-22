@@ -1,9 +1,9 @@
 {
   "schemaVersion": 1,
   "generatedFrom": "docs/topics",
-  "sourceCommit": "d711529c98ea5327ef7253bfb010aafcfa750f66",
+  "sourceCommit": "5ec22553a48a0119ba4286a13d56bbb52db436f8",
   "topicCount": 54,
-  "contentSha256": "7bcd76b12f1537087f060f1f48c38f25666c2fcbc431553c500b94e15f033c56",
+  "contentSha256": "32ee8f67787b15fcb8a76ac905cc487d660fc186d8c2360b7d12a4db5a0f28b2",
   "topics": [
     {
       "id": "activity-and-prompt-audit",
@@ -176,8 +176,8 @@
     {
       "id": "installation-and-upgrades",
       "title": "Installation, initialization, and upgrades",
-      "version": 1,
-      "sha256": "e8a3c25319602939bb3d084bc43f8814025c7c26a06084e16400f5f802a8f634",
+      "version": 2,
+      "sha256": "e1297915edab0e178c310267403626bdbfa64a927188bba48bfb88e92c4aab16",
       "file": "installation-and-upgrades.md"
     },
     {

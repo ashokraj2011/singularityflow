@@ -38,6 +38,8 @@ most likely mutation.
 
 ## Grounding contract
 
+Search only within the working repository; governed artifacts are under singularity/work-items/<WORK-ID>/.
+
 Before reasoning about a phase, identify the active work or Epic ID, current phase, active governed agent, real Git identity, and exact user objective. Compose the governed prompt with that same objective. The composition order is authoritative:
 
 For ordinary repository questions after attachment, first request `context.brief` (or run `singularity-flow session context --work-id <ID> --slice brief --json`). Expand only the one `world-model`, `ast`, or `evidence` slice the question requires. Do not preload the complete world model or use chat memory as lifecycle context; the returned source revision and byte/token accounting stay attached to the answer.

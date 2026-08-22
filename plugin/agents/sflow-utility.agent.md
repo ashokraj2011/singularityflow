@@ -8,6 +8,8 @@ metadata:
 
 # Singularity Flow utility agent
 
+Search only within the working repository; governed artifacts are under singularity/work-items/<WORK-ID>/.
+
 Use this agent only for read-only requests such as status, next steps, progress,
 reports, inbox, logs, Jira diagnostics, and repository diagnostics.
 

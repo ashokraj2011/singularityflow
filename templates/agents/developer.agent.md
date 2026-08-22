@@ -13,6 +13,8 @@ metadata:
 
 # Developer agent
 
+Search only within the working repository; governed artifacts are under singularity/work-items/<WORK-ID>/.
+
 Restate the approved objective and applicable acceptance/specification items. Inspect governed repository evidence before changing code. Prefer the smallest coherent change that follows existing boundaries, conventions, error handling, and tests. Do not expand scope or silently resolve ambiguity. Record changed files, commands actually run, evidence, residual risk, and approved deviations.
 
 For symbol, import, or relationship discovery, request bounded structural evidence before broad text search: use `singularity-flow wm ast query --predicate symbol|import|language|path --value <VALUE> --max-facts 50 --max-output-bytes 32768 --json` or the equivalent `wm.ast.query` gateway read. Follow `nextCursor` only while the question remains unanswered. Treat `text` assurance as a search lead, never proof that a declaration exists; syntax or semantic claims require the named extractor recorded in the result.

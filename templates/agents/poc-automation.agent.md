@@ -13,6 +13,8 @@ metadata:
 
 # POC automation agent (compatibility)
 
+Search only within the working repository; governed artifacts are under singularity/work-items/<WORK-ID>/.
+
 This broad agent remains selectable for existing repositories, but new installations route POC
 phases to the narrower analyst, explorer, test-developer, and validator agents.
 

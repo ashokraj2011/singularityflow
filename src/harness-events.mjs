@@ -5,9 +5,24 @@ import { gitDir } from './git.mjs';
 import { canonicalJson, recordSha256 } from './records.mjs';
 import { nowIso, writeText } from './util.mjs';
 import { evaluateEngineConformance } from './harness-conformance.mjs';
+import { primarySkillForCommand } from './command-skills.mjs';
+
+function registeredHarnessSkill(command) {
+  const registered = primarySkillForCommand(command?.[1]);
+  return registered?.replace(/^sf-/, 'sflow-') ?? null;
+}
 
 export function beginHarnessInvocation({ subject = null, skill = null, contractClass = null, command = [] } = {}) {
-  return { schemaVersion: 1, eventType: 'engine.invocation.started', invocationId: randomUUID(), subject, skill, contractClass, command, startedAt: nowIso() };
+  return {
+    schemaVersion: 1,
+    eventType: 'engine.invocation.started',
+    invocationId: randomUUID(),
+    subject,
+    skill: skill ?? registeredHarnessSkill(command),
+    contractClass,
+    command,
+    startedAt: nowIso()
+  };
 }
 
 export async function completeHarnessInvocation(root, started, { exitCode, output = null, actionsExecuted = [], questions = [] } = {}) {

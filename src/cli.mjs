@@ -2184,7 +2184,7 @@ async function documentsCommand(positionals, options) {
     if (optionBoolean(options, 'json')) return console.log(JSON.stringify(records, null, 2));
     if (!records.length) return console.log('No documents found.');
     return console.log(table(records.map((item) => ({ id: item.id, type: item.type, phase: item.phase ?? '', status: item.status ?? 'active', label: item.label, location: item.url ?? item.path ?? '', reason: item.detachReason ?? '' })), [
-      { key: 'id', label: 'ID' }, { key: 'type', label: 'TYPE' }, { key: 'phase', label: 'PHASE' }, { key: 'status', label: 'STATUS' }, { key: 'label', label: 'LABEL' }, { key: 'location', label: 'LOCATION' }, { key: 'reason', label: 'DETACH REASON' }
+      { key: 'id', label: 'ID' }, { key: 'type', label: 'TYPE' }, { key: 'phase', label: 'PHASE' }, { key: 'status', label: 'STATUS' }, { key: 'label', label: 'LABEL' }, { key: 'location', label: 'LOCATION', kind: 'path' }, { key: 'reason', label: 'DETACH REASON' }
     ]));
   }
   if (subcommand === 'view') {
@@ -2268,7 +2268,7 @@ async function documentsCommand(positionals, options) {
     console.log(`${result.providerId} (${result.providerType})`);
     if (!result.entries.length) return console.log('No entries.');
     return console.log(table(result.entries.map((entry) => ({ name: entry.name, kind: entry.folder ? 'folder' : 'file', id: entry.id, size: entry.folder ? '' : entry.size ?? '' })), [
-      { key: 'name', label: 'NAME' }, { key: 'kind', label: 'KIND' }, { key: 'size', label: 'BYTES' }, { key: 'id', label: 'ITEM ID' }
+      { key: 'name', label: 'NAME' }, { key: 'kind', label: 'KIND' }, { key: 'size', label: 'BYTES' }, { key: 'id', label: 'ITEM ID', kind: 'path' }
     ]));
   }
   if (subcommand === 'fetch') {
@@ -2440,7 +2440,7 @@ async function inputsCommand(positionals, options) {
     { key: 'optional', label: 'OPTIONAL' },
     { key: 'sha256', label: 'SHA256' },
     { key: 'bytes', label: 'BYTES' },
-    { key: 'path', label: 'PATH' }
+    { key: 'path', label: 'PATH', kind: 'path' }
   ]));
   result.warnings.forEach((warning) => console.warn(`Warning: ${warning}`));
   result.remoteWarnings.forEach((warning) => console.warn(`Warning: ${warning}`));
@@ -7737,7 +7737,7 @@ async function workspaceCommand(positionals, options) {
       { key: 'anchorKey', label: 'JIRA' },
       { key: 'anchorType', label: 'TYPE' },
       { key: 'name', label: 'WORKSPACE' },
-      { key: 'path', label: 'PATH' }
+      { key: 'path', label: 'PATH', kind: 'path' }
     ]));
   }
   if (subcommand === 'current' || subcommand === 'prompt') {
@@ -8264,7 +8264,7 @@ async function workspaceCommand(positionals, options) {
     const documents = await listWorkspaceDocuments(workspacePath);
     if (optionBoolean(options, 'json')) return console.log(JSON.stringify(documents, null, 2));
     return console.log(table(documents, [
-      { key: 'name', label: 'DOCUMENT' },
+      { key: 'name', label: 'DOCUMENT', kind: 'path' },
       { key: 'bytes', label: 'BYTES' },
       { key: 'status', label: 'STATUS' }
     ]));
@@ -8517,7 +8517,7 @@ async function epicCommand(positionals, options) {
           { key: 'sourceId', label: 'SOURCE' },
           { key: 'status', label: 'STATUS' },
           { key: 'version', label: 'VERSION' },
-          { key: 'cachePath', label: 'LOCAL CACHE' }
+          { key: 'cachePath', label: 'LOCAL CACHE', kind: 'path' }
         ]));
         if (publication) console.log(`Verification evidence committed ${publication.sha.slice(0, 8)}${publication.pushed ? ' and pushed' : ''}.`);
       }

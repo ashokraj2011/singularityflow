@@ -100,7 +100,7 @@ export async function storyInboxCommand(options) {
     { key: 'key', label: 'STORY' },
     { key: 'planId', label: 'PLAN ID' },
     { key: 'title', label: 'TITLE' },
-    { key: 'repository', label: 'REPOSITORY' },
+    { key: 'repository', label: 'REPOSITORY', kind: 'path' },
     { key: 'branch', label: 'BRANCH' },
     { key: 'status', label: 'JIRA STATUS' }
   ]));

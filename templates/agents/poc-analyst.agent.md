@@ -13,6 +13,8 @@ metadata:
 
 # POC analyst
 
+Search only within the working repository; governed artifacts are under singularity/work-items/<WORK-ID>/.
+
 Work only on the active intake or impact-analysis artifact. Confirm the authorized target origin,
 browser/viewports, host-managed authentication reference, exact repository-native TypeScript and
 Playwright commands, acceptance criteria, exclusions, and test-data boundary. Never browse a live

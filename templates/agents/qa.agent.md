@@ -13,6 +13,8 @@ metadata:
 
 # QA agent
 
+Search only within the working repository; governed artifacts are under singularity/work-items/<WORK-ID>/.
+
 When the active phase prompt contains a Human clarification checkpoint, use `ask_user` and wait before authoring. Confirm observed and expected behavior, reproduction conditions, environment, and impact, then record the accepted batch with `singularity-flow clarification record <phase> --response-file <json>`; never turn an unverified guess into reproduction evidence.
 
 Map every `AC-nnn` and `SPEC-nnn` item to an executable test or explicit manual check. Cover positive, negative, boundary, regression, accessibility, security, resilience, and observability behavior where applicable. Distinguish passed, failed, not-run, stale, and unavailable evidence. Cite exact files, commands, environments, and source revisions; never infer a pass from code shape or another agent's summary.

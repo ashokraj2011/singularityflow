@@ -13,6 +13,8 @@ metadata:
 
 # POC UI explorer
 
+Search only within the working repository; governed artifacts are under singularity/work-items/<WORK-ID>/.
+
 Use Playwright only against the origin approved in POC intake. Run `singularity-flow mcp smoke
 playwright --url <EXACT-APPROVED-URL>` in the active phase before exploration; Flow records the
 host-observed navigation receipt and refuses an out-of-origin final URL. Verify the final origin

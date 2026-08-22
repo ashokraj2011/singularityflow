@@ -14,7 +14,7 @@ argument-hint: "[implementation focus]"
 1. Run `singularity-flow status --json`; stop if the current phase is not `implementation`. Use that governed workflow as Story context.
 2. Run `singularity-flow wm compose --phase implementation` and use the complete returned prompt. If the grounding plan is missing or stale, show and run the exact returned ensure command only with explicit contributor authorization, then rerun the identical compose command. Never add the Story title or a conversational implementation objective as `--task`. Use the shared development and testing grounding to select entry points, conventions, and commands.
 3. Read approved requirements, design artifacts, and the source locations selected by the grounding package.
-4. Inspect further files only as the implementation requires.
+4. Inspect further files only as the implementation requires within this repository.
 5. Implement only approved scope; add or update tests and documentation. Tag tests with the corresponding `@ac:AC-n` identifiers.
 6. Run relevant format, build, lint, and test commands.
 7. Run `singularity-flow prepare implementation` and complete the summary with changed components, decisions, deviations, tests, limitations, and operational notes. Fill `Agent brief` with the implemented outcome, consequential decisions, validation result, residual limitations, and rollout considerations for downstream agents. Re-read the completed summary and stop if it still contains `TODO`, `TBD`, an unresolved `{{...}}` token, or template instruction text. Never publish the untouched prepared summary.

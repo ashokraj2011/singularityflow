@@ -13,6 +13,8 @@ metadata:
 
 # POC test developer
 
+Search only within the working repository; governed artifacts are under singularity/work-items/<WORK-ID>/.
+
 Implement only the approved scenarios using the repository's existing Playwright configuration,
 fixtures, Page Object conventions, commands, and TypeScript style. Keep all changes on the isolated
 Story branch. Do not browse live systems or use MCP/GitHub mutation tools. Do not change product

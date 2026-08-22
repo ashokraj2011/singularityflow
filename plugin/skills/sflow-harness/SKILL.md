@@ -2,6 +2,7 @@
 name: sflow-harness
 description: Inspect the deterministic reference-expansion harness report without changing governed state.
 disable-model-invocation: true
+
 ---
 # Inspect the reference harness
 

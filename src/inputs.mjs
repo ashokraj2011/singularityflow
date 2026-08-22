@@ -79,6 +79,7 @@ export async function collectInputs(root, workflow, phase, { itemDirectory, item
     const record = {
       phase: declaration.phase,
       path: relativeArtifact,
+      repositoryPath,
       optional: declaration.optional ?? false,
       maxBytes: declaration.maxBytes ?? null,
       status,
@@ -171,7 +172,7 @@ export function renderInputsBlock(result) {
   const sections = result.records.map((entry) => {
     const header = `## Approved phase input: ${entry.phase}`;
     const projection = entry.projection?.kind ?? 'full';
-    const metadata = `<!-- source=${entry.path ?? 'missing'} sha256=${entry.sha256 ?? 'unavailable'} status=${entry.status} projection=${projection}${entry.projection?.briefSha256 ? ` brief-sha256=${entry.projection.briefSha256}` : ''}${entry.projection?.expansionHandle ? ` expansion=${entry.projection.expansionHandle}` : ''} -->`;
+    const metadata = `<!-- source=${entry.repositoryPath ?? entry.path ?? 'missing'} sha256=${entry.sha256 ?? 'unavailable'} status=${entry.status} projection=${projection}${entry.projection?.briefSha256 ? ` brief-sha256=${entry.projection.briefSha256}` : ''}${entry.projection?.expansionHandle ? ` expansion=${entry.projection.expansionHandle}` : ''} -->`;
     if (entry.status !== 'captured') return `${header}\n\n${metadata}\n\n> ${inputMessage({ id: 'This phase' }, entry) ?? `Input is ${entry.status}.`}`;
     const suffix = entry.truncated ? '\n\n> Input truncated at its configured byte limit.' : '';
     const expansion = entry.projection?.expansionHandle

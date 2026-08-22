@@ -8,7 +8,7 @@ argument-hint: "<JIRA-STORY-KEY>"
 # Start a governed Jira Story
 
 <!-- sflow-output-contract: explicit-selection -->
-**Output contract:** Collect every choice; never infer or preselect; preserve errors and next actions.
+**Output contract:** Collect every required choice explicitly; never infer or preselect; preserve errors, artifacts, and next actions.
 
 1. Without a key, run `singularity-flow jira assigned --type Story --json` and ask the contributor to choose. Never infer it.
 2. Run `singularity-flow jira pull <STORY-KEY> --json`; show its details before mutation.

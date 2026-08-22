@@ -62,6 +62,11 @@ test('every shipped contract class routes somewhere', async () => {
     if (contractClass === DUAL_INTENT_CONTRACT_CLASS) continue;
     assert.equal(taskForContractClass(contractClass), 'relay', `${contractClass} is dispatch and should relay`);
   }
+  for (const contractClass of ['governed-review', 'clarification-and-artifact']) {
+    const line = block.match(new RegExp(`'${contractClass}': ([^\\n]+)`))?.[1] ?? '';
+    assert.match(line, /singularity\/work-items\/<WORK-ID>\//);
+    assert.match(line, /never search outside it/);
+  }
 });
 
 test('the class that both asks and drafts is told which it is doing', () => {

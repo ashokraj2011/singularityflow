@@ -2,6 +2,7 @@
 name: sflow-reset-all
 description: Preview and explicitly reset the current repository plus machine registration while preserving physical workspaces and clones.
 disable-model-invocation: true
+
 ---
 # Reset repository and machine registration
 

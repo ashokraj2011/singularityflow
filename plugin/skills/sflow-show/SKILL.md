@@ -7,7 +7,7 @@ argument-hint: "<sfref:v1:...> [--section HEADING | --json-pointer POINTER | --r
 # Show a governed reference
 
 <!-- sflow-output-contract: concise-relay -->
-**Output contract:** Relay the CLI's verified preview exactly. Do not paraphrase, retrieve a repository path directly, or expand a handle the user did not request.
+**Output contract:** Return the named CLI command output verbatim; do not elaborate, re-narrate, or hide errors.
 
 Run `singularity-flow show <HANDLE>` with only the selection options explicitly requested by the user:
 

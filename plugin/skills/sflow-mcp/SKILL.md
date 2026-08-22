@@ -8,7 +8,7 @@ argument-hint: "status | doctor | attest <server> | smoke playwright --url <url>
 # Govern MCP tools
 
 <!-- sflow-output-contract: deterministic-mutation -->
-**Output contract:** Let the CLI validate and mutate state; preserve its exact result, warnings, configured/missing host status, evidence path and hashes. Never claim that the host started, a tool ran, or evidence was committed unless the corresponding command reports it.
+**Output contract:** Let the CLI validate and mutate state; preserve its exact result, warnings, publication status, artifacts, and next actions.
 
 - List governed assignments and detected host configuration: `singularity-flow mcp status`.
 - Diagnose static host and policy readiness without contacting a server: `singularity-flow mcp doctor`.

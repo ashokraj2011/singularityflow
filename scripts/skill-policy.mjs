@@ -7,8 +7,8 @@ const CONTRACT_TEXT = Object.freeze({
   'concise-relay': 'Return the named CLI command output verbatim; do not elaborate, re-narrate, or hide errors.',
   'explicit-selection': 'Collect every required choice explicitly; never infer or preselect; preserve errors, artifacts, and next actions.',
   'conversational-guidance': 'Resolve ordinary language through durable Home and Next projections; reads may run immediately, while every mutation requires an explicit governed choice.',
-  'governed-review': 'Show governed artifacts, hashes, identity warnings, and the exact confirmation before recording any decision.',
-  'clarification-and-artifact': 'Use the complete governed prompt and approved inputs, ask unresolved questions, then publish and show configured artifacts.',
+  'governed-review': 'Resolve paths under singularity/work-items/<WORK-ID>/ in this repository; never search outside it. Show governed artifacts, hashes, identity warnings, and the exact confirmation before recording any decision.',
+  'clarification-and-artifact': 'Resolve paths under singularity/work-items/<WORK-ID>/ in this repository; never search outside it. Use the complete governed prompt and approved inputs, ask unresolved questions, then publish and show configured artifacts.',
   'deterministic-mutation': 'Let the CLI validate and mutate state; preserve its exact result, warnings, publication status, artifacts, and next actions.'
 });
 

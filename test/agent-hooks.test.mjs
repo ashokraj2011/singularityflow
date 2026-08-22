@@ -109,7 +109,10 @@ Inspect boundaries and contracts.
 `);
   await writeFile(path.join(root, 'singularity', 'agent-mappings.yml'), 'version: 1\nmappings:\n  enterprise-delivery: architecture\n');
   await setAgentSession(root, definition, 'User <user@example.com>', 'architect', 'HOOK-1', { phaseId: 'design' });
-  assert.deepEqual(await copilotAgentStartHook(root, { agentName: 'enterprise-delivery' }), {});
+  const hook = await copilotAgentStartHook(root, { agentName: 'enterprise-delivery' });
+  assert.match(hook.additionalContext, new RegExp(`Working repository: ${root.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}`));
+  assert.match(hook.additionalContext, /Governed artifacts for HOOK-1 live under singularity\/work-items\/HOOK-1\//);
+  assert.match(hook.additionalContext, /Never search the filesystem outside this repository/);
   const session = await loadSession(root);
   assert.equal(session.agent, 'architecture');
   assert.equal(session.nativeCopilotAgent, 'enterprise-delivery');
@@ -131,6 +134,9 @@ test('session start gates only work-item selection and then activates the phase 
   const current = workflow();
   const start = await sessionStartAgentHook(root, definition, current, { sessionId: 'copilot-new', source: 'startup' });
   assert.match(start.additionalContext, /work-item selection is required/);
+  assert.match(start.additionalContext, new RegExp(`Working repository: ${root.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}`));
+  assert.match(start.additionalContext, /Governed artifacts for HOOK-1 live under singularity\/work-items\/HOOK-1\//);
+  assert.match(start.additionalContext, /Never search the filesystem outside this repository/);
   let status = await agentSessionStatus(root, definition, current);
   assert.equal(status.workItemSelectionRequired, true);
   assert.equal(status.selectionRequired, false);

@@ -8,7 +8,7 @@ argument-hint: "[status [INTENT-ID] | retry <INTENT-ID>]"
 # Transport recovery
 
 <!-- sflow-output-contract: deterministic-mutation -->
-**Output contract:** Let the CLI inspect or mutate the exact transport intent; preserve its status, evidence, effects, and next action without inventing recovery steps.
+**Output contract:** Let the CLI validate and mutate state; preserve its exact result, warnings, publication status, artifacts, and next actions.
 
 Use this skill when a workspace, capability, configuration, or initialization push was interrupted before a Story publication journal existed.
 

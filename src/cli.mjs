@@ -2290,7 +2290,7 @@ async function documentsCommand(positionals, options) {
 
 function pathForDisplay(root, relative) { return path.join(root, relative); }
 
-async function prepareCommand(positionals) {
+async function prepareCommand(positionals, options) {
   const root = repoRoot();
   const config = await loadConfig(root);
   const workflow = await loadStoryAggregate(root, config);
@@ -2317,7 +2317,7 @@ async function prepareCommand(positionals) {
         rank: 'LATER'
       })
     ]
-  }), { postState: workflow });
+  }), { json: optionBoolean(options, 'json'), postState: workflow });
 }
 
 async function clarificationCommand(positionals, options) {
@@ -2409,15 +2409,31 @@ async function inputsCommand(positionals, options) {
   const dryRun = optionBoolean(options, 'dry-run');
   const result = await preparePhaseInputs(root, config, workflow, positionals[1], { dryRun });
   if (!dryRun) await saveStoryDraft(root, config, workflow);
+  const workItemDirectory = posix(path.relative(root, workDir(root, config, workflow.workItem.id)));
+  const records = result.records.map(({ content, ...entry }) => entry);
+  if (optionBoolean(options, 'json')) {
+    console.log(JSON.stringify({
+      phase: result.phase.id,
+      mode: result.mode,
+      dryRun,
+      generation: result.generation,
+      workItemDirectory,
+      records,
+      warnings: result.warnings,
+      remoteWarnings: result.remoteWarnings
+    }, null, 2));
+    return;
+  }
   console.log(`Phase inputs: ${result.phase.id} (${result.mode})${dryRun ? ' [dry-run]' : ''}`);
-  if (!result.records.length) console.log(result.mode === 'off' ? 'Input dataflow is disabled for this work item.' : 'This phase declares no phase inputs.');
-  else console.log(table(result.records.map((entry) => ({
+  console.log(`Work-item directory: ${workItemDirectory}`);
+  if (!records.length) console.log(result.mode === 'off' ? 'Input dataflow is disabled for this work item.' : 'This phase declares no phase inputs.');
+  else console.log(table(records.map((entry) => ({
     phase: entry.phase,
     status: entry.status,
     optional: entry.optional ? 'yes' : 'no',
     sha256: entry.sha256?.slice(0, 12) ?? '',
     bytes: entry.status === 'captured' ? `${entry.injectedBytes}/${entry.bytes}${entry.truncated ? ' truncated' : ''}` : '',
-    path: entry.path ?? ''
+    path: entry.repositoryPath ?? entry.path ?? ''
   })), [
     { key: 'phase', label: 'INPUT' },
     { key: 'status', label: 'STATUS' },

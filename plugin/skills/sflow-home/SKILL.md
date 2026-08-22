@@ -6,7 +6,7 @@ description: Guide developer requests through explicit governed choices.
 # Singularity Flow home
 
 <!-- sflow-output-contract: conversational-guidance -->
-**Output contract:** Resolve language through durable Home/Next projections; reads may run immediately, mutations require an explicit governed choice.
+**Output contract:** Resolve ordinary language through durable Home and Next projections; reads may run immediately, while every mutation requires an explicit governed choice.
 
 Use this for questions about current work, blockers, next actions, and recovery; automatic invocation is not mutation consent.
 

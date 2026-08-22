@@ -8,7 +8,7 @@ argument-hint: "--checkout <path> [--registry <url>]"
 # Clean-reinstall the local Singularity Flow product
 
 <!-- sflow-output-contract: deterministic-mutation -->
-**Output contract:** Let the CLI build and validate the replacement bundle, inspect the known
+**Output contract:** Let the CLI validate and mutate state; preserve its exact result, warnings, publication status, artifacts, and next actions.
 installation surfaces, and perform the exact confirmed transaction. Preserve its complete preview,
 verification result, recovery command, and receipt path.
 

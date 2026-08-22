@@ -2401,6 +2401,11 @@ function groundingSectionsText(selected, rulePaths) {
 
 async function workflowPromptContext(root, definition, workflow, phase, workItemRoot) {
   if (!workflow || !phase) return { contract: '', inputs: '', evidence: '', evidenceFiles: [], evidenceEntries: [], warnings: [] };
+  const itemDirectory = path.join(root, workItemRoot, workflow.workItem.id);
+  const itemRelative = posix(path.join(workItemRoot, workflow.workItem.id));
+  const requiredArtifact = phase.requiredArtifact?.path
+    ? posix(path.join(itemRelative, phase.requiredArtifact.path))
+    : 'not configured';
   const resolvedPhase = workflow.resolution?.phases?.find((candidate) => candidate.id === phase.id);
   const templateSnapshot = workflow.resolution?.templates?.[phase.id];
   let template = '';
@@ -2424,7 +2429,10 @@ async function workflowPromptContext(root, definition, workflow, phase, workItem
     `- Work type: \`${workflow.workItem.workType}\``,
     `- Phase: \`${phase.id}\``,
     `- Generation to author: ${Number(phase.generation ?? 0) + 1}`,
-    `- Required artifact: \`${phase.requiredArtifact?.path ?? 'not configured'}\``,
+    `- Repository root: \`${root}\``,
+    `- Work-item directory: \`${itemRelative}\``,
+    `- Required artifact: \`${requiredArtifact}\``,
+    '- Path boundary: Resolve every named path inside the work-item directory or repository root. Never search the filesystem outside this repository.',
     `- Write scope: \`${phase.writeScope ?? 'artifact-only'}\``,
     `- Intelligence: world-model=\`${workflow.resolution?.intelligence?.worldModel ?? 'inherit'}\`, AST=\`${workflow.resolution?.intelligence?.ast ?? 'inherit'}\`, agent-briefs=\`${workflow.resolution?.intelligence?.agentBriefs ?? 'inherit'}\``,
     ...(worldModelDisabledForWorkflow(workflow)
@@ -2436,8 +2444,6 @@ async function workflowPromptContext(root, definition, workflow, phase, workItem
       ? `\n## Configured artifact template\n\n${template.trim()}`
       : '\n> No resolved template snapshot is available for this legacy phase.'
   ].join('\n');
-  const itemDirectory = path.join(root, workItemRoot, workflow.workItem.id);
-  const itemRelative = posix(path.join(workItemRoot, workflow.workItem.id));
   const collected = await collectInputs(root, workflow, phase, { itemDirectory, itemRelative });
   if (collected.errors.length) {
     throw new SingularityFlowError(`Phase ${phase.id} inputs are not ready:\n- ${collected.errors.join('\n- ')}`);

@@ -8,7 +8,7 @@ disable-model-invocation: true
 # Manage the repository world model
 
 <!-- sflow-output-contract: clarification-and-artifact -->
-**Output contract:** Use the complete governed prompt and approved inputs, ask unresolved questions, then publish and show configured artifacts.
+**Output contract:** Resolve paths under singularity/work-items/<WORK-ID>/ in this repository; never search outside it. Use the complete governed prompt and approved inputs, ask unresolved questions, then publish and show configured artifacts.
 
 - Configure/inventory: `wm init`; `wm light [--phase PHASE] [--local]`.
 - Build/readiness: `singularity-flow wm build [--phase PHASE] [--task TEXT] [--depth light|quick|standard|deep] [--workers N]`; `wm availability ... --json`; `wm ensure ... --json`.

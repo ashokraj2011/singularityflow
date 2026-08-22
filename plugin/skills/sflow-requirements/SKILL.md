@@ -8,7 +8,7 @@ argument-hint: "[additional business context]"
 # Requirements phase
 
 <!-- sflow-output-contract: clarification-and-artifact -->
-**Output contract:** Use the complete governed prompt and approved inputs, ask unresolved questions, then publish and show configured artifacts.
+**Output contract:** Resolve paths under singularity/work-items/<WORK-ID>/ in this repository; never search outside it. Use the complete governed prompt and approved inputs, ask unresolved questions, then publish and show configured artifacts.
 
 1. Run `singularity-flow status --json`; stop if the current phase is not `requirements`. Use that governed workflow as Story context.
 2. Run `singularity-flow documents list` and view every relevant supporting input before deciding what is unclear.

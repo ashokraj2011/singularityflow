@@ -8,7 +8,7 @@ argument-hint: "[today|refresh|settings|pause|resume|delete|export|doctor]"
 # Local work journal
 
 <!-- sflow-output-contract: explicit-selection -->
-**Output contract:** Keep local memory local, show privacy boundaries, and require exact confirmation for deletion.
+**Output contract:** Collect every required choice explicitly; never infer or preselect; preserve errors, artifacts, and next actions.
 
 The journal is advisory return memory. It is never governance evidence, approval authority, a productivity score, or a remote source of truth.
 

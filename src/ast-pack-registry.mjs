@@ -60,7 +60,18 @@ export async function planAstPackInstall(sourceManifest, manifest, env = process
   if (!files.length) error('AST pack has no local artifacts.', 'AST_PACK_ARTIFACTS_MISSING'); const artifacts = [];
   for (const file of files) { const info = await lstat(file).catch(() => null); if (!info?.isFile() || info.isSymbolicLink() || info.nlink !== 1 || !inside(sourceRoot, file)) error('AST pack source is unsafe.', 'AST_PACK_SOURCE_UNSAFE'); const relative = path.relative(sourceRoot, file).split(path.sep).join('/'); artifacts.push({ path: relative, source: file, sha256: await hashFile(file), size: info.size }); }
   const targetRelative = path.posix.join('installed', `${manifest.id}-${manifest.packVersion}-${manifest.implementation.manifestSha256.slice(0, 12)}`);
-  const plan = { planVersion: 1, schemaVersion: 1, action: 'install', pack: manifest.id, packId: manifest.id, packVersion: manifest.packVersion, packSchemaVersion: manifest.protocolVersion, manifestSha256: sha(await readFile(sourceManifest)), artifacts, files, source: path.resolve(sourceManifest), sourceRoot, targetRelative, target: path.join(registry.root, targetRelative), createdAt: new Date().toISOString(), manifest: structuredClone(manifest), supportedPlatforms: [...new Set(Object.values(manifest.languageDefinitions).flatMap((e) => e.platforms ?? []))].sort(), requiredProjectKinds: [...new Set(Object.values(manifest.languageDefinitions).flatMap((e) => e.projectKinds ?? []))].sort(), licenses: structuredClone(manifest.licenses), restartRequired: false };
+  const plan = {
+    planVersion: 1,
+    schemaVersion: 1, // schema-transient: confirmation preview passed in memory, never persisted
+    action: 'install', pack: manifest.id, packId: manifest.id, packVersion: manifest.packVersion,
+    packSchemaVersion: manifest.protocolVersion, manifestSha256: sha(await readFile(sourceManifest)),
+    artifacts, files, source: path.resolve(sourceManifest), sourceRoot, targetRelative,
+    target: path.join(registry.root, targetRelative), createdAt: new Date().toISOString(),
+    manifest: structuredClone(manifest),
+    supportedPlatforms: [...new Set(Object.values(manifest.languageDefinitions).flatMap((e) => e.platforms ?? []))].sort(),
+    requiredProjectKinds: [...new Set(Object.values(manifest.languageDefinitions).flatMap((e) => e.projectKinds ?? []))].sort(),
+    licenses: structuredClone(manifest.licenses), restartRequired: false
+  };
   plan.confirmationToken = token(plan); plan.confirmation = plan.confirmationToken; return plan;
 }
 async function verifySources(plan) { if (await hashFile(plan.source) !== plan.manifestSha256) error('Manifest changed after preview.', 'AST_PACK_SOURCE_CHANGED_AFTER_PREVIEW'); for (const a of plan.artifacts) { const s = await lstat(a.source).catch(() => null); if (!s?.isFile() || s.isSymbolicLink() || s.nlink !== 1 || s.size !== a.size || await hashFile(a.source) !== a.sha256) error(`Artifact '${a.path}' changed after preview.`, 'AST_PACK_SOURCE_CHANGED_AFTER_PREVIEW'); } }
@@ -77,13 +88,37 @@ export async function applyAstPackInstall(plan, { confirm, environment: env = pr
     await atomicJson(path.join(staging, 'transaction.json'), { transactionId: tx, operation: 'install', packId: plan.packId, state: 'VERIFIED', manifestSha256: plan.manifestSha256, targetRelative: plan.targetRelative, createdAt: new Date().toISOString() });
     await mkdir(path.dirname(finalTarget), { recursive: true }); await rename(staging, finalTarget); staging = null; published = true; syncDir(path.dirname(finalTarget)); for (const a of plan.artifacts) if (await hashFile(path.join(finalTarget, a.path)) !== a.sha256) error('Destination hash mismatch.', 'AST_PACK_DESTINATION_HASH_MISMATCH');
     const entry = { id: stored.id, packVersion: stored.packVersion, manifestPath: path.posix.join(plan.targetRelative, 'manifest.json'), manifestSha256: stored.implementation.manifestSha256, sourceManifestSha256: plan.manifestSha256, artifacts: plan.artifacts.map(({ path: p, sha256, size }) => ({ path: p, sha256, size })), installedAt: new Date().toISOString() };
-    await atomicJson(registry.path, { schemaVersion: AST_PACK_REGISTRY_SCHEMA_VERSION, entries: [...registry.entries, entry].sort((a, b) => a.id.localeCompare(b.id)) }); await rm(path.join(finalTarget, 'transaction.json'), { force: true }); return { schemaVersion: 1, action: 'install', status: 'installed', installed: true, pack: entry, root: registry.root };
+    await atomicJson(registry.path, {
+      schemaVersion: AST_PACK_REGISTRY_SCHEMA_VERSION,
+      entries: [...registry.entries, entry].sort((a, b) => a.id.localeCompare(b.id))
+    });
+    await rm(path.join(finalTarget, 'transaction.json'), { force: true });
+    return { schemaVersion: 1, action: 'install', status: 'installed', installed: true, pack: entry, root: registry.root };
   } catch (e) { if (staging) await rm(staging, { recursive: true, force: true }); if (published) await rm(finalTarget, { recursive: true, force: true }); throw e; } finally { await release(); }
 }
 export async function planAstPackRemove(id, env = process.env) { const registry = await readAstPackRegistry(env), pack = registry.entries.find((e) => e.id === id); if (!pack) error(`AST pack '${id}' is not installed.`, 'AST_PACK_NOT_INSTALLED'); const target = path.dirname(path.join(registry.root, pack.manifestPath)), confirmationToken = removeToken(pack); return { schemaVersion: 1, action: 'remove', pack, target, confirmationToken, confirmation: confirmationToken }; }
 export async function applyAstPackRemove(plan, { confirm, environment: env = process.env } = {}) {
   if (confirm !== plan.confirmationToken || removeToken(plan.pack) !== plan.confirmationToken) error('AST pack removal confirmation is invalid.', 'AST_PACK_CONFIRMATION_INVALID'); const tx = `tx-${randomUUID()}`, release = await lock(env, tx); let trash;
-  try { const registry = await readAstPackRegistry(env), current = registry.entries.find((e) => e.id === plan.pack.id); if (!current) return { schemaVersion: 1, action: 'remove', status: 'already-removed', removed: false, pack: plan.pack, root: registry.root }; if (removeToken(current) !== plan.confirmationToken) error('Registry changed after preview.', 'AST_PACK_SOURCE_CHANGED_AFTER_PREVIEW'); trash = path.join(registry.root, '.staging', tx); await mkdir(path.dirname(trash), { recursive: true }); await rename(plan.target, trash); await atomicJson(path.join(trash, 'transaction.json'), { transactionId: tx, operation: 'remove', packId: current.id, state: 'STAGED', createdAt: new Date().toISOString() }); await atomicJson(registry.path, { schemaVersion: AST_PACK_REGISTRY_SCHEMA_VERSION, entries: registry.entries.filter((e) => e.id !== current.id) }); await rm(trash, { recursive: true, force: true }); trash = null; return { schemaVersion: 1, action: 'remove', status: 'removed', removed: true, pack: current, root: registry.root }; } catch (e) { if (trash) { const r = await readAstPackRegistry(env).catch(() => null); if (r?.entries.some((x) => x.id === plan.pack.id)) await rename(trash, plan.target).catch(() => {}); } throw e; } finally { await release(); }
+  try {
+    const registry = await readAstPackRegistry(env), current = registry.entries.find((e) => e.id === plan.pack.id);
+    if (!current) return { schemaVersion: 1, action: 'remove', status: 'already-removed', removed: false, pack: plan.pack, root: registry.root };
+    if (removeToken(current) !== plan.confirmationToken) error('Registry changed after preview.', 'AST_PACK_SOURCE_CHANGED_AFTER_PREVIEW');
+    trash = path.join(registry.root, '.staging', tx); await mkdir(path.dirname(trash), { recursive: true });
+    await rename(plan.target, trash);
+    await atomicJson(path.join(trash, 'transaction.json'), { transactionId: tx, operation: 'remove', packId: current.id, state: 'STAGED', createdAt: new Date().toISOString() });
+    await atomicJson(registry.path, {
+      schemaVersion: AST_PACK_REGISTRY_SCHEMA_VERSION,
+      entries: registry.entries.filter((e) => e.id !== current.id)
+    });
+    await rm(trash, { recursive: true, force: true }); trash = null;
+    return { schemaVersion: 1, action: 'remove', status: 'removed', removed: true, pack: current, root: registry.root };
+  } catch (e) {
+    if (trash) {
+      const r = await readAstPackRegistry(env).catch(() => null);
+      if (r?.entries.some((x) => x.id === plan.pack.id)) await rename(trash, plan.target).catch(() => {});
+    }
+    throw e;
+  } finally { await release(); }
 }
 export async function inspectAstPackRegistry(env = process.env, { repair = false } = {}) {
   const release = repair ? await lock(env, `doctor-${randomUUID()}`) : null; try { const registry = await readAstPackRegistry(env), report = { schemaVersion: 1, action: 'doctor', installed: registry.entries.length, valid: 0, missing: 0, hashMismatch: 0, orphaned: 0, transactions: 0, registry: 'healthy', diagnostics: [] }, referenced = new Set();

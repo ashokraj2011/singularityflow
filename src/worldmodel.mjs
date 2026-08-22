@@ -58,6 +58,11 @@ import { withWorldModelSourceScope } from './source-scope.mjs';
 import { currentSchemaVersion, readRecord } from './schema-migrations.mjs';
 import { astCommand } from './ast-intelligence.mjs';
 import { resolveImpactPromptOverride } from './impact.mjs';
+import { BUILD_INFO, versionLine } from './build-info.mjs';
+import {
+  resolveWorldModelGenerationRouting, worldModelInvocationAttribution
+} from './world-model-generation-routing.mjs';
+import { latestWorldModelBuildDiagnostics } from './world-model-build-diagnostics.mjs';
 
 const configRelative = 'singularity/worldmodel.json';
 const CHECKPOINT_SCHEMA_VERSION = currentSchemaVersion('worldmodel-checkpoint');
@@ -69,6 +74,27 @@ const WORLD_MODEL_TEMP_PREFIXES = [
 const WORLD_MODEL_OWNER_FILE = 'singularity-flow-owner.json';
 const WORLD_MODEL_RECOVERY_SCHEMA_VERSION = currentSchemaVersion('worldmodel-recovery');
 const WORLD_MODEL_RECOVERY_ID = /^[A-Za-z0-9][A-Za-z0-9._-]{0,159}$/;
+const WORLD_MODEL_REBUILD_REASONS = new Set([
+  'source-input-changed', 'view-definition-changed', 'prompt-input-changed',
+  'structural-profile-changed', 'routing-input-changed', 'required-view-missing',
+  'packet-invalid', 'policy-forced', 'extension-base-unavailable',
+  'legacy-record-insufficient'
+]);
+
+function worldModelBuildReason(options) {
+  return WORLD_MODEL_REBUILD_REASONS.has(options.rebuildReason)
+    ? options.rebuildReason
+    : 'policy-forced';
+}
+
+function availabilityBuildReason(availability) {
+  if (availability?.stale?.length) return 'source-input-changed';
+  if (availability?.missing?.length || availability?.taskGuide?.status === 'missing') {
+    return 'required-view-missing';
+  }
+  if (isMinimalModel(availability?.selected?.manifest)) return 'legacy-record-insufficient';
+  return 'policy-forced';
+}
 
 function worldModelRecoveryRoot(root) {
   return path.join(gitDir(root), 'singularity-flow', 'world-model-recovery');
@@ -1048,7 +1074,7 @@ async function ensureCheckpointDirectory(directory, label) {
   }
 }
 
-async function prepareDiscoveryCheckpoint(root, config, options, views, metadata, sourceState) {
+async function prepareDiscoveryCheckpoint(root, config, options, views, metadata, sourceState, generationRouting) {
   const identity = {
     schemaVersion: CHECKPOINT_SCHEMA_VERSION,
     sourceTreeSha256: sourceState.sha256,
@@ -1058,7 +1084,8 @@ async function prepareDiscoveryCheckpoint(root, config, options, views, metadata
     requestedViews: [...views].sort(),
     task: optionString(options, 'task') ?? null,
     focus: optionString(options, 'focus') ?? null,
-    depth: optionString(options, 'depth', 'standard')
+    depth: optionString(options, 'depth', 'standard'),
+    generationRouting: generationRouting.identity
   };
   const key = sha256(JSON.stringify(identity));
   const outputDirectory = path.join(root, config.outputDir);
@@ -1121,7 +1148,12 @@ async function prepareDiscoveryCheckpoint(root, config, options, views, metadata
       invalidViews.push(view);
       continue;
     }
-    packets.push({ view, content: content.trim(), bytes, resumed: true });
+    packets.push({
+      view, content: content.trim(), bytes, resumed: true, origin: 'checkpoint',
+      attribution: record.attribution ?? worldModelInvocationAttribution(
+        null, generationRouting.discovery, { reason: 'legacy-record-insufficient' }
+      )
+    });
   }
   state.updatedAt = new Date().toISOString();
   await writeJson(stateFile, state);
@@ -1131,7 +1163,7 @@ async function prepareDiscoveryCheckpoint(root, config, options, views, metadata
   return { key, directory, packetDirectory, stateFile, state, packets };
 }
 
-export async function recordDiscoveryCheckpoint(checkpoint, view, packetFile) {
+export async function recordDiscoveryCheckpoint(checkpoint, view, packetFile, attribution = null) {
   const packet = checkpointPacketName(view);
   if (!await regularFile(packetFile)) {
     throw new SingularityFlowError(`World-model discovery packet must be a regular file: ${packetFile}`);
@@ -1147,6 +1179,7 @@ export async function recordDiscoveryCheckpoint(checkpoint, view, packetFile) {
     packet: `packets/${packet}`,
     sha256: `sha256:${sha256(content)}`,
     bytes,
+    attribution,
     completedAt: new Date().toISOString()
   };
   checkpoint.state.updatedAt = new Date().toISOString();
@@ -1172,7 +1205,10 @@ export function recoverPacketFromOutput(output, view) {
   return candidate;
 }
 
-async function runParallelDiscovery(_auditRoot, analysisRoot, temporary, config, options, views, metadata, checkpoint, log = nullLogger) {
+async function runParallelDiscovery(
+  _auditRoot, analysisRoot, temporary, config, options, views, metadata, checkpoint,
+  generationRouting, log = nullLogger
+) {
   const generation = parallelGeneration(config, options, views);
   if (!generation.enabled) {
     return { ...generation, packets: [], degradedViews: [], resumedViews: [], pendingViews: [] };
@@ -1229,7 +1265,7 @@ async function runParallelDiscovery(_auditRoot, analysisRoot, temporary, config,
       result = await invokeModel({
         provider: config.provider,
         providerConfig: config.providerConfig,
-        model: optionString(options, 'model') ?? config.model,
+        ...generationRouting.discovery.request,
         cwd: analysisRoot,
         allowedRoots: [analysisRoot, temporary],
         prompt: { file: promptFile },
@@ -1295,8 +1331,12 @@ async function runParallelDiscovery(_auditRoot, analysisRoot, temporary, config,
     if (bytes > MAX_DISCOVERY_PACKET_BYTES) {
       return outcome({ reason: `created an analysis packet above the 24 KiB limit (${bytes} bytes)`, retryable: false, result: 'oversized', bytes });
     }
-    outcome({ result: 'packet', bytes });
-    return { content: packet.trim(), bytes };
+    const attribution = worldModelInvocationAttribution(result, generationRouting.discovery);
+    outcome({
+      result: 'packet', bytes, invocationId: result.invocationId,
+      routing: attribution
+    });
+    return { content: packet.trim(), bytes, attribution };
   };
 
   const maxAttempts = 2; // one retry: a transient no-write is common and cheap to recover from
@@ -1333,8 +1373,13 @@ async function runParallelDiscovery(_auditRoot, analysisRoot, temporary, config,
         log.warn('worldmodel.discovery.degraded', null, { view, reason: outcome.reason });
         continue;
       }
-      packets.set(view, { view, content: outcome.content, bytes: outcome.bytes });
-      checkpointWrite = checkpointWrite.then(() => recordDiscoveryCheckpoint(checkpoint, view, packetFile));
+      packets.set(view, {
+        view, content: outcome.content, bytes: outcome.bytes, origin: 'generated',
+        attribution: outcome.attribution
+      });
+      checkpointWrite = checkpointWrite.then(() => recordDiscoveryCheckpoint(
+        checkpoint, view, packetFile, outcome.attribution
+      ));
       await checkpointWrite;
       console.error(`World-model discovery complete: ${view} (${outcome.bytes} bytes).`);
       log.info('worldmodel.discovery.packet', null, { view, bytes: outcome.bytes });
@@ -1586,6 +1631,12 @@ async function build(root, config, options) {
   if (!local && (config.definition?.git?.publish ?? 'required') !== 'off') {
     assertNotDefaultBranch(root, config, 'World-model publication');
   }
+  const generationRouting = await resolveWorldModelGenerationRouting(root, {
+    explicitModel: optionString(options, 'model'),
+    legacyModel: config.model
+  });
+  const rebuildReason = worldModelBuildReason(options);
+  if (generationRouting.warning) console.warn(`Warning: ${generationRouting.warning}`);
   const cacheRoot = path.join(gitDir(root), 'singularity-flow');
   await mkdir(cacheRoot, { recursive: true });
   const temporary = await mkdtemp(path.join(os.tmpdir(), 'singularity-flow-world-model-'));
@@ -1621,7 +1672,11 @@ async function build(root, config, options) {
     depth: optionString(options, 'depth', 'standard'),
     phase: optionString(options, 'phase') ?? null, task: optionString(options, 'task') ?? null,
     sourceCommit, branch: metadata.repository_branch, workingTreeClean: metadata.working_tree_clean,
-    provider: config.provider, model: optionString(options, 'model') ?? config.model ?? null
+    provider: config.provider,
+    runtime: versionLine(), buildCommit: BUILD_INFO.commit, buildSourceSha256: BUILD_INFO.sourceSha256,
+    generationRouting: generationRouting.identity, rebuildReason,
+    requestedMode: 'agentic', effectiveMode: 'agentic',
+    selectedViews: plan.views.map((entry) => entry.view).sort()
   });
   await writeWorktreeOwner(temporary, root, 'analysis');
   run('git', ['worktree', 'add', '--detach', analysisRoot, sourceCommit], { cwd: root, stdio: 'inherit' });
@@ -1635,6 +1690,8 @@ async function build(root, config, options) {
   process.env.SINGULARITY_FLOW_WORLD_MODEL_BUILD = '1';
   let checkpoint = null;
   let views = [];
+  let buildSucceeded = false;
+  let buildErrorCode = null;
   try {
     for (const relative of changedFiles(root)) {
       const sourceFile = path.join(root, relative);
@@ -1661,15 +1718,19 @@ async function build(root, config, options) {
     };
     const before = await repositoryContentSnapshot(analysisRoot);
     checkpoint = parallelGeneration(config, options, views).enabled
-      ? await prepareDiscoveryCheckpoint(root, config, options, views, metadata, sourceState)
+      ? await prepareDiscoveryCheckpoint(
+          root, config, options, views, metadata, sourceState, generationRouting
+        )
       : null;
     if (checkpoint) {
       log.info('worldmodel.checkpoint.opened', null, {
         directory: checkpoint.directory, resumed: checkpoint.packets.length
       });
     }
+    const discoveryStarted = Date.now();
     const discovery = await runParallelDiscovery(
-      root, analysisRoot, temporary, config, options, views, metadata, checkpoint, log
+      root, analysisRoot, temporary, config, options, views, metadata, checkpoint,
+      generationRouting, log
     );
     const afterDiscovery = await repositoryContentSnapshot(analysisRoot);
     // The checkpoint is the builder's own scratch space and it lives under the world-model output
@@ -1690,9 +1751,16 @@ async function build(root, config, options) {
       );
     }
     log.info('worldmodel.discovery.complete', null, {
+      durationMs: Date.now() - discoveryStarted,
       packets: discovery.packets.length,
       degraded: discovery.degradedViews.map((entry) => entry.view),
-      resumed: discovery.resumedViews
+      resumed: discovery.resumedViews,
+      selectedViews: views,
+      missingViews: discovery.degradedViews.map((entry) => entry.view),
+      generatedViews: discovery.packets.filter((packet) => packet.origin !== 'checkpoint')
+        .map((packet) => packet.view).sort(),
+      reusedViews: discovery.packets.filter((packet) => packet.origin === 'checkpoint')
+        .map((packet) => packet.view).sort()
     });
     const repositoryFacts = await deriveRepositoryFacts(analysisRoot, sourceState);
     const repositoryFactsDigest = renderFactsDigest(repositoryFacts);
@@ -1712,7 +1780,7 @@ ${repositoryFactsDigest}
     const invokeSynthesis = () => invokeModel({
         provider: config.provider,
         providerConfig: config.providerConfig,
-        model: optionString(options, 'model') ?? config.model,
+        ...generationRouting.synthesis.request,
         cwd: analysisRoot,
         allowedRoots: [analysisRoot, temporary],
         prompt: { file: promptFile },
@@ -1723,15 +1791,24 @@ ${repositoryFactsDigest}
       });
     // Twenty minutes is the allowance, and the provider's output is captured, so without this the
     // command shows nothing at all while it does the most interesting thing it does.
-    const synthesisDone = heartbeat(`Building the world model with ${config.model ?? config.provider}. This can take several minutes.`);
+    const synthesisDone = heartbeat(
+      `Building the world model with ${generationRouting.synthesis.planned.task
+        ? `${generationRouting.synthesis.planned.task} routing`
+        : generationRouting.synthesis.planned.preferredModel ?? config.provider}. This can take several minutes.`
+    );
     const synthesisStarted = Date.now();
+    let synthesisResult = null;
     log.info('worldmodel.synthesis.start', null, {
       promptBytes: Buffer.byteLength(synthesisPrompt, 'utf8'), packets: discovery.packets.length
     });
     try {
-      await invokeSynthesis();
+      synthesisResult = await invokeSynthesis();
       synthesisDone('synthesis complete');
-      log.info('worldmodel.synthesis.ok', null, { durationMs: Date.now() - synthesisStarted });
+      log.info('worldmodel.synthesis.ok', null, {
+        durationMs: Date.now() - synthesisStarted,
+        invocationId: synthesisResult.invocationId,
+        routing: worldModelInvocationAttribution(synthesisResult, generationRouting.synthesis)
+      });
     } catch (error) {
       synthesisDone('synthesis failed');
       log.error('worldmodel.synthesis.failed', error?.message, { durationMs: Date.now() - synthesisStarted });
@@ -1795,7 +1872,14 @@ ${repositoryFactsDigest}
       await rm(staging, { recursive: true, force: true });
       await mkdir(staging, { recursive: true });
       await writeFile(promptFile, synthesisRecoveryPrompt(synthesisPrompt, error.message));
-      await invokeSynthesis();
+      const recoveryStarted = Date.now();
+      log.warn('worldmodel.synthesis.recovery.start', null, { reason: error.message });
+      synthesisResult = await invokeSynthesis();
+      log.info('worldmodel.synthesis.recovery.ok', null, {
+        durationMs: Date.now() - recoveryStarted,
+        invocationId: synthesisResult.invocationId,
+        routing: worldModelInvocationAttribution(synthesisResult, generationRouting.synthesis)
+      });
       try {
         validated = await validateDraft();
       } catch (recoveryError) {
@@ -1823,7 +1907,21 @@ ${repositoryFactsDigest}
         discovery_views: discovery.enabled ? discovery.packets.map((packet) => packet.view).sort() : [],
         degraded_views: discovery.enabled ? discovery.degradedViews.map((entry) => entry.view).sort() : [],
         resumed_views: discovery.enabled ? discovery.resumedViews : [],
-        pending_views_at_start: discovery.enabled ? [...discovery.pendingViews].sort() : []
+        pending_views_at_start: discovery.enabled ? [...discovery.pendingViews].sort() : [],
+        rebuild_reason: rebuildReason,
+        requested_mode: 'agentic',
+        effective_mode: 'agentic',
+        routing: {
+          mode: generationRouting.mode,
+          discovery: discovery.enabled
+            ? discovery.packets.map((packet) => ({
+                view: packet.view,
+                origin: packet.origin ?? (packet.resumed ? 'checkpoint' : 'generated'),
+                ...packet.attribution
+              })).sort((left, right) => left.view.localeCompare(right.view))
+            : [],
+          synthesis: worldModelInvocationAttribution(synthesisResult, generationRouting.synthesis)
+        }
       }
     });
     validated.manifest.generated_at = generatedAt;
@@ -1893,7 +1991,9 @@ ${repositoryFactsDigest}
       log.info('worldmodel.checkpoint.cleared', null, { directory: checkpoint.directory });
       checkpoint = null;
     }
+    buildSucceeded = true;
   } catch (error) {
+    buildErrorCode = error?.code ?? 'WORLD_MODEL_BUILD_FAILED';
     if (checkpoint) {
       const completed = views.filter((view) => checkpoint.state.views[view]?.status === 'completed');
       const pending = views.filter((view) => checkpoint.state.views[view]?.status !== 'completed');
@@ -1911,6 +2011,8 @@ ${repositoryFactsDigest}
     // is why the paths are recorded when they are seen rather than looked for afterwards.
     log.info('worldmodel.build.end', null, {
       durationMs: Date.now() - buildStarted,
+      status: buildSucceeded ? 'completed' : 'failed',
+      errorCode: buildErrorCode,
       checkpointRetained: Boolean(checkpoint),
       analysisRoot
     });
@@ -2138,7 +2240,22 @@ async function budget(root, config, requestedPhase, options) {
 async function availability(root, config, options, requestedPhase = null) {
   const plan = groundingPlan(config, options, requestedPhase);
   const result = await inspectGroundingAvailability(root, config, plan);
-  if (optionBoolean(options, 'json')) console.log(JSON.stringify({ plan, ...result }, null, 2));
+  const generation = result.selected?.manifest?.generation
+    ?? result.candidates?.find((candidate) => candidate?.manifest?.generation)?.manifest?.generation
+    ?? null;
+  const generationDiagnostics = generation ? {
+    rebuildReason: generation.rebuild_reason ?? null,
+    routing: generation.routing ?? null,
+    structuralCoverage: generation.structural_coverage ?? {
+      availability: 'unavailable', reason: 'not-recorded-by-agentic-generation'
+    }
+  } : null;
+  const localBuildDiagnostics = await latestWorldModelBuildDiagnostics(root);
+  if (optionBoolean(options, 'json')) {
+    console.log(JSON.stringify({
+      plan, ...result, generationDiagnostics, localBuildDiagnostics
+    }, null, 2));
+  }
   else {
     console.log(`${result.ready ? style.mark('pass') : style.mark('warn')} world-model grounding ${result.ready ? 'ready' : 'not ready'}${plan.phase ? ` for ${plan.phase}` : ''}`);
     if (result.stateBranch) {
@@ -2147,9 +2264,35 @@ async function availability(root, config, options, requestedPhase = null) {
     for (const item of result.selections) {
       console.log(`  ${item.status === 'ready' ? style.mark('pass') : style.mark('warn')} ${item.id}${item.path ? `  ${item.path}` : ''}`);
     }
+    if (generationDiagnostics?.routing) {
+      const synthesis = generationDiagnostics.routing.synthesis;
+      const discoveryTasks = [...new Set((generationDiagnostics.routing.discovery ?? [])
+        .map((entry) => entry.task).filter(Boolean))];
+      console.log(`  ${style.detail(`generation routing: ${generationDiagnostics.routing.mode}`)}`);
+      if (discoveryTasks.length) console.log(`  ${style.detail(`discovery task: ${discoveryTasks.join(', ')}`)}`);
+      if (synthesis) {
+        console.log(`  ${style.detail(`synthesis: ${synthesis.task ?? synthesis.reason ?? 'caller-named'} → ${synthesis.resolved_model ?? 'unavailable'}`)}`);
+      }
+      if (generationDiagnostics.rebuildReason) {
+        console.log(`  ${style.detail(`rebuild reason: ${generationDiagnostics.rebuildReason}`)}`);
+      }
+      const coverage = generationDiagnostics.structuralCoverage;
+      console.log(`  ${style.detail(`structural coverage: ${coverage.status ?? coverage.availability ?? 'unavailable'}${coverage.reason ? ` (${coverage.reason})` : ''}`)}`);
+    }
+    if (localBuildDiagnostics.availability === 'unavailable') {
+      console.log(`  ${style.detail('local build timings: unavailable (no local build receipt)')}`);
+    } else {
+      const durations = ['discovery', 'synthesis', 'total'].map((stageId) => {
+        const value = localBuildDiagnostics.stages[stageId]?.durationMs;
+        return `${stageId} ${Number.isFinite(value) ? `${value} ms` : 'unavailable'}`;
+      });
+      console.log(`  ${style.detail(`last local build: ${localBuildDiagnostics.status} · ${localBuildDiagnostics.requestedMode ?? 'mode unavailable'} → ${localBuildDiagnostics.effectiveMode ?? 'unavailable'} · ${durations.join(' · ')}`)}`);
+      const viewCounts = localBuildDiagnostics.views;
+      console.log(`  ${style.detail(`views: ${viewCounts.generated.length} generated · ${viewCounts.reused.length} reused · ${viewCounts.missing.length} missing`)}`);
+    }
     if (result.action) console.log(`Next: ${result.action.command}`);
   }
-  return { plan, ...result };
+  return { plan, ...result, generationDiagnostics, localBuildDiagnostics };
 }
 
 async function ensure(root, config, options, requestedPhase = null) {
@@ -2167,7 +2310,8 @@ async function ensure(root, config, options, requestedPhase = null) {
         depth: plan.depth,
         evidence: plan.includeEvidence,
         local: policy.publish === 'local',
-        existingWorldModelDirectory: availability.extensionBase?.directory ?? null
+        existingWorldModelDirectory: availability.extensionBase?.directory ?? null,
+        rebuildReason: availabilityBuildReason(availability)
       };
       if (plan.views.length === 1) buildOptions.view = plan.views[0].view;
       else if (plan.views.length > 1) buildOptions.views = plan.views.map((entry) => entry.view).join(',');

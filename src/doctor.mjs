@@ -18,6 +18,9 @@ import { operationContext } from './operation-context.mjs';
 import { repositoryPerformanceSnapshot } from './performance-doctor.mjs';
 import { withWorldModelSourceScope } from './source-scope.mjs';
 import { schemaCensus, schemaCensusText } from './schema-census.mjs';
+import { resolveModelProvider } from './model-runner.mjs';
+import { resolveWorldModelGenerationRouting } from './world-model-generation-routing.mjs';
+import { latestWorldModelBuildDiagnostics } from './world-model-build-diagnostics.mjs';
 
 function check(id, status, message, fix = null) { return { id, status, message, fix }; }
 
@@ -135,6 +138,47 @@ export async function doctorSnapshot(root, { workId = null, offline = false, per
   } catch (error) {
     checks.push(check('configuration', 'fail', error.message, `Repair ${WORKFLOW_PATH} or restore it from version control.`));
     return summarize(root, checks, null, null, definition, null, null, schemaReport);
+  }
+  try {
+    const provider = resolveModelProvider(definition);
+    const routing = await resolveWorldModelGenerationRouting(root, { legacyModel: provider.model });
+    const discovery = routing.discovery.planned;
+    const synthesis = routing.synthesis.planned;
+    checks.push(check(
+      'world-model-routing',
+      routing.warning ? 'warn' : 'pass',
+      routing.mode === 'task-routed'
+        ? `World-model discovery routes analyze → ${discovery.preferredModel}; synthesis routes reason → ${synthesis.preferredModel}; mapping ${discovery.mappingRevision.slice(0, 12)}.`
+        : `World-model generation uses caller-named compatibility routing → ${synthesis.preferredModel} (${synthesis.reason}).`,
+      routing.warning ? 'Add or restore singularity/modelTiers.yml so discovery and synthesis route by task.' : null
+    ));
+  } catch (error) {
+    checks.push(check(
+      'world-model-routing', 'fail', error.message,
+      'Restore singularity/modelTiers.yml or configure a legacy provider model before running wm build.'
+    ));
+  }
+  try {
+    const latestBuild = await latestWorldModelBuildDiagnostics(root);
+    const duration = (stage) => Number.isFinite(latestBuild.stages?.[stage]?.durationMs)
+      ? `${latestBuild.stages[stage].durationMs} ms`
+      : 'unavailable';
+    const lastRoute = latestBuild.routing
+      ? `${latestBuild.routing.task ?? latestBuild.routing.mode ?? 'caller-named'} → ${latestBuild.routing.resolved_model ?? latestBuild.routing.model ?? 'unavailable'}`
+      : 'unavailable';
+    checks.push(check(
+      'world-model-last-build',
+      latestBuild.availability === 'unavailable' ? 'skip' : latestBuild.status === 'failed' ? 'warn' : 'pass',
+      latestBuild.availability === 'unavailable'
+        ? 'No machine-local world-model build receipt is available.'
+        : `Last local build ${latestBuild.buildId} ${latestBuild.status}; mode ${latestBuild.requestedMode ?? 'unavailable'} → ${latestBuild.effectiveMode ?? 'unavailable'}; routing ${lastRoute}; discovery ${duration('discovery')}, synthesis ${duration('synthesis')}, total ${duration('total')}; views ${latestBuild.views.generated.length} generated, ${latestBuild.views.reused.length} reused, ${latestBuild.views.missing.length} missing; structural coverage unavailable for agentic generation; rebuild ${latestBuild.rebuildReason ?? 'unavailable'}.`,
+      latestBuild.status === 'failed' ? 'Run singularity-flow wm status for the retained checkpoint and exact next action.' : null
+    ));
+  } catch (error) {
+    checks.push(check(
+      'world-model-last-build', 'warn', `Local world-model build diagnostics are unavailable: ${error.message}`,
+      'Run singularity-flow logs --event worldmodel to inspect the machine-local activity log.'
+    ));
   }
   const mcpReadiness = await mcpDoctor(root, definition);
   for (const server of mcpReadiness.servers) {

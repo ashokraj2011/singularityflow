@@ -440,6 +440,68 @@ test('wm build refuses a protected application branch before starting the genera
   assert.equal(existsSync(path.join(root, 'singularity/world-model')), false, 'no generated output was installed');
 });
 
+test('wm build fails before discovery when neither task routing nor a legacy model exists', async () => {
+  const root = await mkdtemp(path.join(os.tmpdir(), 'sflow-worldmodel-unrouted-'));
+  run('git', ['init', '-b', 'main'], root);
+  run('git', ['config', 'user.name', 'Routing Guard Tester'], root);
+  run('git', ['config', 'user.email', 'routing-guard@example.com'], root);
+  await initializeDefinition(root);
+  const definitionPath = path.join(root, 'singularity/workflow.yml');
+  const definition = YAML.parse(await readFile(definitionPath, 'utf8'));
+  definition.git.publish = 'off';
+  await writeFile(definitionPath, YAML.stringify(definition));
+  const marker = path.join(root, 'generator-ran.txt');
+  const builder = path.join(root, 'should-not-run.mjs');
+  await writeFile(builder, `import { writeFile } from 'node:fs/promises';\nawait writeFile(${JSON.stringify(marker)}, 'ran');\n`);
+  await configureMockProvider(root, builder);
+  await unlink(path.join(root, 'singularity/modelTiers.yml'));
+  await writeFile(path.join(root, 'README.md'), '# Routing guard\n');
+  run('git', ['add', '.'], root);
+  run('git', ['commit', '-m', 'initialize without routing'], root);
+
+  const attempted = result(process.execPath, [bin, 'wm', 'build', '--phase', 'design'], root);
+  assert.equal(attempted.status, 1);
+  assert.match(`${attempted.stdout}${attempted.stderr}`, /cannot select a model/);
+  assert.equal(existsSync(marker), false, 'the model provider was never started');
+  assert.equal(existsSync(path.join(root, '.git/singularity-flow/model-invocations')), false);
+});
+
+test('wm build --model records an unrouted caller-named override', async () => {
+  const root = await mkdtemp(path.join(os.tmpdir(), 'sflow-worldmodel-override-'));
+  run('git', ['init', '-b', 'main'], root);
+  run('git', ['config', 'user.name', 'Routing Override Tester'], root);
+  run('git', ['config', 'user.email', 'routing-override@example.com'], root);
+  await initializeDefinition(root);
+  const definitionPath = path.join(root, 'singularity/workflow.yml');
+  const definition = YAML.parse(await readFile(definitionPath, 'utf8'));
+  definition.git.publish = 'off';
+  await writeFile(definitionPath, YAML.stringify(definition));
+  const builder = path.join(root, 'mock-worldmodel-builder.mjs');
+  await writeFile(builder, mockBuilderSource);
+  await configureMockProvider(root, builder);
+  await writeFile(path.join(root, 'README.md'), '# Routing override\n');
+  run('git', ['add', '.'], root);
+  run('git', ['commit', '-m', 'initialize'], root);
+
+  const execution = result(process.execPath, [
+    bin, 'wm', 'build', '--phase', 'design', '--no-parallel', '--model', 'override-model'
+  ], root);
+  assert.equal(execution.status, 0, `${execution.stdout}\n${execution.stderr}`);
+  const manifest = JSON.parse(await readFile(
+    path.join(root, 'singularity/world-model/manifest.json'), 'utf8'
+  ));
+  assert.equal(manifest.generation.routing.mode, 'caller-named');
+  assert.deepEqual(manifest.generation.routing.discovery, []);
+  assert.equal(manifest.generation.routing.synthesis.task, null);
+  assert.equal(manifest.generation.routing.synthesis.resolved_model, 'override-model');
+  assert.equal(manifest.generation.routing.synthesis.reason, 'explicit-model-override');
+  const invocationDirectory = path.join(root, '.git/singularity-flow/model-invocations');
+  const [invocationFile] = (await readdir(invocationDirectory)).filter((name) => name.endsWith('.json'));
+  const invocation = JSON.parse(await readFile(path.join(invocationDirectory, invocationFile), 'utf8'));
+  assert.equal(invocation.model, 'override-model');
+  assert.equal(invocation.routing, null);
+});
+
 test('wm light creates a compact validated repository inventory with zero model tokens', async () => {
   const root = await mkdtemp(path.join(os.tmpdir(), 'sflow-worldmodel-light-'));
   run('git', ['init', '-b', 'main'], root);
@@ -972,15 +1034,52 @@ test('wm build discovers requested views concurrently and synthesizes one valida
   assert.match(execution.stderr, /4 pending view workers, up to 2 concurrent/);
 
   const manifest = JSON.parse(await readFile(path.join(root, 'singularity/world-model/manifest.json'), 'utf8'));
-  assert.deepEqual(manifest.generation, {
+  const { routing, rebuild_reason: rebuildReason, ...generation } = manifest.generation;
+  assert.deepEqual(generation, {
     parallel: true,
     strategy: 'view',
     max_workers: 2,
     discovery_views: ['business', 'development', 'security', 'testing'],
     degraded_views: [],
     resumed_views: [],
-    pending_views_at_start: ['business', 'development', 'security', 'testing']
+    pending_views_at_start: ['business', 'development', 'security', 'testing'],
+    requested_mode: 'agentic',
+    effective_mode: 'agentic'
   });
+  assert.equal(rebuildReason, 'policy-forced');
+  assert.equal(routing.mode, 'task-routed');
+  assert.deepEqual(routing.discovery.map((entry) => entry.view), [
+    'business', 'development', 'security', 'testing'
+  ]);
+  assert.ok(routing.discovery.every((entry) => entry.task === 'analyze' && entry.origin === 'generated'));
+  assert.equal(routing.synthesis.task, 'reason');
+  assert.equal(routing.synthesis.mapping_revision, routing.discovery[0].mapping_revision);
+  const invocationDirectory = path.join(root, '.git/singularity-flow/model-invocations');
+  const invocationFiles = (await readdir(invocationDirectory)).filter((name) => name.endsWith('.json'));
+  const invocations = await Promise.all(invocationFiles.map(async (name) => (
+    JSON.parse(await readFile(path.join(invocationDirectory, name), 'utf8'))
+  )));
+  assert.equal(invocations.filter((entry) => entry.routing?.task === 'analyze').length, 4);
+  assert.equal(invocations.filter((entry) => entry.routing?.task === 'reason').length, 1);
+  const status = JSON.parse(run(process.execPath, [
+    bin, 'wm', 'status', '--phase', 'verification', '--views', 'business', '--json'
+  ], root));
+  assert.equal(status.generationDiagnostics.routing.synthesis.task, 'reason');
+  assert.equal(status.localBuildDiagnostics.availability, 'available');
+  assert.equal(status.localBuildDiagnostics.status, 'completed');
+  assert.equal(status.localBuildDiagnostics.requestedMode, 'agentic');
+  assert.deepEqual(status.localBuildDiagnostics.views.generated, [
+    'business', 'development', 'security', 'testing'
+  ]);
+  assert.ok(status.localBuildDiagnostics.stages.discovery.durationMs >= 0);
+  assert.ok(status.localBuildDiagnostics.stages.synthesis.durationMs >= 0);
+  assert.ok(status.localBuildDiagnostics.stages.total.durationMs >= 0);
+  assert.equal(status.localBuildDiagnostics.invocations.length, 5);
+  assert.ok(status.localBuildDiagnostics.invocations.every((entry) => entry.promptBytes > 0));
+  assert.deepEqual(
+    status.localBuildDiagnostics.invocations.map((entry) => entry.usage.status),
+    ['unavailable', 'unavailable', 'unavailable', 'unavailable', 'unavailable']
+  );
   const events = (await readFile(activityLog, 'utf8')).trim().split(/\r?\n/).map(JSON.parse);
   const firstEnd = events.findIndex((event) => event.event === 'end');
   assert.equal(events.slice(0, firstEnd).filter((event) => event.event === 'start').length, 2);

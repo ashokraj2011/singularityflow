@@ -595,6 +595,8 @@ const PAGES = Object.freeze({
     description: [
       'The world model is the grounding a phase is checked against. `wm build` invokes the',
       'configured model provider; every other subcommand is deterministic and needs no model.',
+      'Discovery routes through the `analyze` task and final synthesis through `reason` in',
+      '`singularity/modelTiers.yml`. `--model` is an explicit caller-named compatibility override.',
       '',
       'If a phase refuses to publish with "grounding is not ready", this is the command that fixes',
       'it — and note that the grounding policy is pinned from the configuration branch, not from the',

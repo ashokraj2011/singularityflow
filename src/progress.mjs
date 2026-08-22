@@ -79,3 +79,66 @@ export function progressFlow(progress) {
   }
   return lines.join('\n');
 }
+
+function markdownCell(value) {
+  return String(value ?? '').replaceAll('|', '\\|').replace(/\r?\n/g, ' ');
+}
+
+function readableStatus(value) {
+  return String(value ?? 'unknown').replaceAll('_', ' ');
+}
+
+function phaseMarker(phase, currentPhase) {
+  if (phase.status === 'approved') return '✅';
+  if (phase.status === 'awaiting_approval') return '🟠';
+  if (phase.status === 'rejected') return '🔁';
+  if (phase.id === currentPhase || phase.status === 'in_progress') return '🔵';
+  return '⚪';
+}
+
+function phaseTokenSummary(phase) {
+  if (phase.tokenStatus === 'exact') return `${phase.tokens.toLocaleString('en-US')} (exact)`;
+  if (phase.tokenStatus === 'partial') return `${phase.tokens.toLocaleString('en-US')} (partial)`;
+  if (phase.tokenStatus === 'unavailable') return 'Unavailable';
+  return 'Not recorded';
+}
+
+function workflowTokenSummary(tokens = {}) {
+  const total = Number(tokens.totalTokens ?? 0);
+  const exact = Number(tokens.exactRecords ?? 0);
+  const unavailable = Number(tokens.unavailableRecords ?? 0);
+  if (!exact && !total) return unavailable ? 'Unavailable' : 'Not recorded';
+  const suffix = unavailable ? 'partial coverage' : 'exact';
+  return `${total.toLocaleString('en-US')} (${suffix})`;
+}
+
+/** Deterministic Markdown intended for visible rendering by Copilot and other chat hosts. */
+export function progressMarkdown(progress) {
+  const current = progress.phases.find((phase) => phase.id === progress.currentPhase) ?? null;
+  const currentText = current
+    ? `${current.label} (${progress.currentPosition} of ${progress.totalPhases})`
+    : 'Complete';
+  const journey = progress.phases.length
+    ? progress.phases.map((phase) => `${phaseMarker(phase, progress.currentPhase)} ${phase.label}`).join(' → ')
+    : '✅ Workflow complete';
+  const rows = progress.phases.map((phase) => `| ${phase.index} | ${phaseMarker(phase, progress.currentPhase)} ${markdownCell(phase.label)} | ${markdownCell(readableStatus(phase.status))} | ${phase.generation} | ${phase.approvals}/${phase.approvalsRequired} | ${phaseTokenSummary(phase)} |`);
+  return [
+    `# Workflow progress — ${markdownCell(progress.workId)}`,
+    '',
+    `**Completion:** ${progress.percentage}% — ${progress.approvedPhases} of ${progress.totalPhases} phases approved`,
+    `**Status:** ${readableStatus(progress.status)}`,
+    `**Current phase:** ${markdownCell(currentText)}`,
+    `**Documents:** ${progress.documents}`,
+    `**Tokens:** ${workflowTokenSummary(progress.tokens)}`,
+    '',
+    '## Journey',
+    '',
+    journey,
+    '',
+    '## Phase details',
+    '',
+    '| # | Phase | Status | Generation | Approvals | Tokens |',
+    '|---:|---|---|---:|---:|---|',
+    ...(rows.length ? rows : ['| — | No phases | complete | — | — | Not recorded |'])
+  ].join('\n');
+}

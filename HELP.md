@@ -1794,9 +1794,10 @@ Use status for detailed state and progress for deterministic completion:
 singularity-flow status WORK-123
 singularity-flow progress WORK-123
 singularity-flow progress WORK-123 --json
+singularity-flow progress WORK-123 --markdown
 ```
 
-Progress is `approved phases / total phases`. Singularity Flow never invents fractional credit inside an unapproved phase. The view includes a vertical arrow-based phase map, with distinct markers for completed (`✓`), current (`▶`), awaiting-approval (`◆`), and pending (`○`) phases, followed by the detailed table. It also includes the current position, generations, approval threshold, document count, and token totals.
+Progress is `approved phases / total phases`. Singularity Flow never invents fractional credit inside an unapproved phase. The view includes a vertical arrow-based phase map, with distinct markers for completed (`✓`), current (`▶`), awaiting-approval (`◆`), and pending (`○`) phases, followed by the detailed table. It also includes the current position, generations, approval threshold, document count, and token totals. `--markdown` produces a chat-ready summary and phase table; `/sf-progress` visibly renders that Markdown outside collapsed tool output.
 
 Use `/sf-status` for full state and `/sf-progress` for a concise completion view.
 
@@ -2806,7 +2807,7 @@ singularity-flow visual status [--json]
 singularity-flow visual compare --expected RECORD-OR-PATH --actual RECORD-OR-PATH [--profile ID] [--json]
 singularity-flow status [WORK-ID] [--json]
 singularity-flow approvals [WORK-ID] [--json]  # alias: approval-chain
-singularity-flow progress [WORK-ID] [--json]
+singularity-flow progress [WORK-ID] [--json|--markdown]
 singularity-flow receipt show [WORK-ID] [--packet SHA256] [--json|--markdown]
 singularity-flow report [WORK-ID] [--format md|html|json] [--out FILE] [--timings]
 singularity-flow impact preview "CHANGE INTENT" [--file PATH|--symbol NAME|--issue ID|--build ID] [--no-ast] [--json]

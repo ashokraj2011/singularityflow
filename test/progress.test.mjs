@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { phaseTokenStatus, progressBar, progressFlow, progressSnapshot } from '../src/progress.mjs';
+import { phaseTokenStatus, progressBar, progressFlow, progressMarkdown, progressSnapshot } from '../src/progress.mjs';
 
 test('progress distinguishes absent, unavailable, partial, and exact token telemetry', () => {
   assert.equal(phaseTokenStatus([]), 'none');
@@ -71,4 +71,24 @@ test('progress bar still clamps values for deterministic percentage display', ()
   assert.equal(progressBar(-1, 4), '[░░░░]');
   assert.equal(progressBar(50, 4), '[██░░]');
   assert.equal(progressBar(101, 4), '[████]');
+});
+
+test('progress Markdown renders a Copilot-ready summary, journey, and phase table', () => {
+  const markdown = progressMarkdown({
+    workId: 'WORK-42', workType: 'feature', status: 'in_progress', currentPhase: 'design',
+    currentPosition: 2, approvedPhases: 1, totalPhases: 3, percentage: 33, documents: 4,
+    tokens: { totalTokens: 1250, exactRecords: 2, unavailableRecords: 1 },
+    phases: [
+      { index: 1, id: 'requirements', label: 'Requirements', status: 'approved', generation: 1, approvals: 1, approvalsRequired: 1, tokens: 1000, tokenStatus: 'exact' },
+      { index: 2, id: 'design', label: 'Design', status: 'in_progress', generation: 2, approvals: 0, approvalsRequired: 1, tokens: 250, tokenStatus: 'partial' },
+      { index: 3, id: 'implementation', label: 'Implementation', status: 'not_started', generation: 0, approvals: 0, approvalsRequired: 1, tokens: 0, tokenStatus: 'none' }
+    ]
+  });
+
+  assert.match(markdown, /^# Workflow progress — WORK-42/m);
+  assert.match(markdown, /\*\*Completion:\*\* 33% — 1 of 3 phases approved/);
+  assert.match(markdown, /✅ Requirements → 🔵 Design → ⚪ Implementation/);
+  assert.match(markdown, /\| 2 \| 🔵 Design \| in progress \| 2 \| 0\/1 \| 250 \(partial\) \|/);
+  assert.match(markdown, /\*\*Tokens:\*\* 1,250 \(partial coverage\)/);
+  assert.doesNotMatch(markdown, /```/, 'the host should render the Markdown rather than show a code block');
 });

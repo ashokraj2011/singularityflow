@@ -99,7 +99,7 @@ function artifactsHtml(journey: Journey): string {
     <thead><tr><th>Artifact</th><th>Status</th><th>Approved by</th><th>Approved at</th><th></th></tr></thead>
     <tbody>${journey.artifacts.map((artifact) => `
       <tr>
-        <td><button class="artifact-link" type="button" data-open="${escape(artifact.id)}">${escape(artifact.label)}</button>${artifact.required ? '' : ' <span class="muted">optional</span>'}
+        <td><a class="artifact-link" href="#" data-open="${escape(artifact.id)}" aria-label="Open ${escape(artifact.label)}">${escape(artifact.label)}</a>${artifact.required ? '' : ' <span class="muted">optional</span>'}
           <small>${escape(artifact.path)}</small></td>
         <td><span class="pill ${artifact.status === 'approved' ? 'ok' : artifact.sha256 ? 'wait' : 'idle'}">${escape(artifact.status.replace(/_/g, ' '))}</span></td>
         <td>${artifact.approvals.length

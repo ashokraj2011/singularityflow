@@ -154,8 +154,9 @@ export const STYLE = `
   .journey-artifacts { min-width: 52rem; }
   .journey-artifacts td:first-child { min-width: 15rem; }
   .journey-artifacts td small { display: block; max-width: 30rem; margin-top: .25rem; color: var(--sf-dim); overflow-wrap: anywhere; }
-  button.artifact-link { padding: 0; color: var(--vscode-textLink-foreground); background: transparent; border: 0; font: inherit; font-weight: 650; text-align: left; cursor: pointer; }
-  button.artifact-link:hover { color: var(--vscode-textLink-activeForeground); text-decoration: underline; }
+  .artifact-link { color: var(--vscode-textLink-foreground); font: inherit; font-weight: 650; text-align: left; cursor: pointer; text-decoration: underline; text-underline-offset: .16rem; }
+  .artifact-link:hover { color: var(--vscode-textLink-activeForeground); }
+  .artifact-link:focus-visible { border-radius: 2px; outline: 2px solid var(--vscode-focusBorder); outline-offset: 2px; }
   .approval-summary { display: flex; flex-wrap: wrap; gap: .6rem; padding: 0; list-style: none; }
   .approval-summary li { display: flex; align-items: flex-start; gap: .45rem; min-width: 13rem; padding: .65rem .75rem; border: var(--sf-border); border-radius: var(--sf-radius); background: var(--vscode-editor-background); }
   .approval-summary li > span { display: grid; gap: .15rem; }

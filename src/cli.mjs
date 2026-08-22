@@ -48,7 +48,7 @@ import { beginHarnessInvocation, completeHarnessInvocation, harnessReport } from
 import { activateWorkItemSession, loadCopilotSession, loadSession, agentSessionStatus, requireCopilotWorkItemSelection, restoreAgentSession, restoreCopilotSession, selectIntakeSource, selectAgent, selectWorkType, setAgentSession } from './session.mjs';
 import { addDocuments, detachDocuments, documentCatalog, fetchRemoteDocument, listRemoteDocuments, previewDocument, viewDocument } from './documents.mjs';
 import { recordClarificationResponses, verifyClarificationRecord } from './clarifications.mjs';
-import { progressBar, progressFlow, progressSnapshot } from './progress.mjs';
+import { progressBar, progressFlow, progressMarkdown, progressSnapshot } from './progress.mjs';
 import { deriveReport, renderHtml, renderMarkdown } from './report.mjs';
 import { loadManualStory, promptManualStory } from './intake.mjs';
 import { guideText, phaseNeedsGeneration, workflowGuide } from './guide.mjs';
@@ -1414,6 +1414,7 @@ export async function statusCommand(positionals, options) {
 async function progressCommand(positionals, options) {
   const root = repoRoot(); const config = await loadConfig(root); const workflow = await loadStoryAggregate(root, config, positionals[1]); const progress = progressSnapshot(workflow);
   if (optionBoolean(options, 'json')) return console.log(JSON.stringify(progress, null, 2));
+  if (optionBoolean(options, 'markdown')) return console.log(progressMarkdown(progress));
   console.log(`\n${progress.workId} — ${progress.workType}`);
   console.log(`${progressBar(progress.percentage)} ${progress.percentage}%`);
   console.log(`${progress.approvedPhases} of ${progress.totalPhases} phases approved; current: ${progress.currentPhase ?? 'complete'} (${progress.currentPosition}/${progress.totalPhases})`);

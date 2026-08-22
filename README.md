@@ -1281,9 +1281,10 @@ The command performs exactly one lifecycle action. It recovers a pending push, p
 ```bash
 singularity-flow progress ENG-142
 singularity-flow progress ENG-142 --json
+singularity-flow progress ENG-142 --markdown
 ```
 
-Progress is based on approved phases, so it is deterministic: `approved phases / total phases`. The command shows an arrow-based workflow map in addition to the progress bar and detailed phase table. Completed (`✓`), current (`▶`), awaiting-approval (`◆`), and pending (`○`) phases are visually distinct. It also shows percentage, current position, generation count, approvals received/required, uploaded-document count, and token usage. It never guesses partial completion inside an unapproved phase.
+Progress is based on approved phases, so it is deterministic: `approved phases / total phases`. The command shows an arrow-based workflow map in addition to the progress bar and detailed phase table. Completed (`✓`), current (`▶`), awaiting-approval (`◆`), and pending (`○`) phases are visually distinct. It also shows percentage, current position, generation count, approvals received/required, uploaded-document count, and token usage. It never guesses partial completion inside an unapproved phase. `--markdown` returns a bounded presentation with headings, a visual journey, and a phase table; `/sf-progress` uses this form so Copilot renders the result instead of relaying a terminal table.
 
 ## Workflow performance reports
 

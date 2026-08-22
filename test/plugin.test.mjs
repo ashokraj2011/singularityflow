@@ -422,6 +422,16 @@ test('generation skills display published documents instead of reducing them to 
   }
 });
 
+test('progress renders its deterministic Markdown visibly in Copilot', async () => {
+  const content = await readFile(path.join(pluginRoot, 'skills', 'sflow-progress', 'SKILL.md'), 'utf8');
+  assert.match(content, /singularity-flow progress <WORK-ID> --markdown/);
+  assert.match(content, /complete returned Markdown in the visible Copilot response/i);
+  assert.match(content, /collapsed Shell\/tool block does not count/i);
+  assert.match(content, /do not wrap the Markdown in a code fence/i);
+  assert.match(content, /exact deterministic percentage and approved\/total phase count/i);
+  assert.match(content, /Do not change files or lifecycle state/i);
+});
+
 test('governed phase skills reuse the shared repository model without Story task guides', async () => {
   for (const name of ['sflow-phase', 'sflow-requirements', 'sflow-design', 'sflow-implement', 'sflow-verify', 'sflow-review', 'sflow-release']) {
     const content = await readFile(path.join(pluginRoot, 'skills', name, 'SKILL.md'), 'utf8');

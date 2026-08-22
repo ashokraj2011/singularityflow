@@ -1285,6 +1285,15 @@ test('the journey panel opens with a strict CSP and no remote origins', async (t
   assert.match(panel.webview.html,
     new RegExp(`data-phase="${selected}"[\\s\\S]*?aria-pressed="true"`),
     'clicking a rail phase updates its detail selection without changing lifecycle state');
+  assert.match(panel.webview.html, /<a class="artifact-link" href="#" data-open="[^"]+" aria-label="Open [^"]+">/,
+    'the selected phase exposes its governed artifacts as recognizable clickable links');
+  const artifactId = panel.webview.html.match(/data-open="([^"]+)"/)?.[1];
+  assert.ok(artifactId, 'the selected phase has an artifact link bound to a governed artifact id');
+  const openedBefore = registered.openedDocuments.length;
+  await panel.post({ type: 'open', id: artifactId });
+  await until(() => registered.openedDocuments.length > openedBefore ? true : null);
+  assert.equal(registered.openedDocuments.length, openedBefore + 1,
+    'activating a journey artifact link opens exactly one governed document');
 });
 
 test('approving from the editor still demands the exact confirmation a terminal would', async (t) => {

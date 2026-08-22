@@ -46,6 +46,11 @@ test('progress and document commands upload, list, and view files, images, and F
   assert.match(visualProgress, /▶ Intake\s+IN PROGRESS · generation 0  ← CURRENT/);
   assert.match(visualProgress, /▼[\s\S]*○ Requirements\s+PENDING/);
   let progress = JSON.parse(flow(root, ['progress', '--json']).stdout); assert.equal(progress.percentage, 0); assert.equal(progress.currentPhase, 'intake');
+  const markdownProgress = flow(root, ['progress', '--markdown']).stdout;
+  assert.match(markdownProgress, /^# Workflow progress — DOCS-1/m);
+  assert.match(markdownProgress, /\*\*Completion:\*\* 0% — 0 of 7 phases approved/);
+  assert.match(markdownProgress, /🔵 Intake → ⚪ Requirements/);
+  assert.match(markdownProgress, /\| # \| Phase \| Status \| Generation \| Approvals \| Tokens \|/);
   flow(root, ['documents', 'upload', notes, image, '--kind', 'research']);
   flow(root, ['documents', 'upload', '--url', 'https://www.figma.com/design/example', '--label', 'Checkout design']);
 

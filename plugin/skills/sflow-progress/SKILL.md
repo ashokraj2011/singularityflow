@@ -1,7 +1,7 @@
 ---
 name: sflow-progress
 description: Show how far a work item has got.
-argument-hint: "[WORK-ID] [--json]"
+argument-hint: "[WORK-ID]"
 
 ---
 # Show workflow progress
@@ -9,9 +9,9 @@ argument-hint: "[WORK-ID] [--json]"
 <!-- sflow-output-contract: concise-relay -->
 **Output contract:** Return the named CLI command output verbatim; do not elaborate, re-narrate, or hide errors.
 
-1. Run `singularity-flow progress <arguments>`.
-2. Preserve the arrow-based workflow map from the command output so completed, current, awaiting-approval, and pending phases are visually clear.
-3. Report the exact phase-based percentage and approved/total phase count. Do not invent partial completion within an unapproved phase.
-4. Identify the current phase and position, its generation, approvals received/required, uploaded-document count, and token status.
-5. Call out blocked publication, rejection, or self-approval warnings from `singularity-flow status` when they affect the next action.
+1. Run `singularity-flow progress <WORK-ID> --markdown`, omitting `<WORK-ID>` when none was supplied. Do not forward user-supplied formatting flags.
+2. Reproduce the complete returned Markdown in the visible Copilot response so its headings, journey, summary fields, and phase table render normally. A collapsed Shell/tool block does not count; do not wrap the Markdown in a code fence.
+3. Preserve the exact deterministic percentage and approved/total phase count. Never invent partial completion inside an unapproved phase.
+4. Preserve `exact`, `partial`, `unavailable`, and `not recorded` token disclosures exactly as returned.
+5. If the output shows a rejected or approval-pending phase, briefly call out that state after the table without guessing a decision or changing the next action.
 6. Do not change files or lifecycle state.

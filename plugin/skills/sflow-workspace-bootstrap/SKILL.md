@@ -8,7 +8,7 @@ argument-hint: "[REMOTE-OR-MANIFEST|BOOTSTRAP-ID]"
 # Prepare or recover a workspace
 
 <!-- sflow-output-contract: explicit-selection -->
-**Output contract:** Show the durable setup ID, exact plan, classified blockers, and next action; require explicit confirmation before materialization.
+**Output contract:** Collect every required choice explicitly; never infer or preselect; preserve errors, artifacts, and next actions.
 
 Use this skill when no workspace exists yet, a clone failed, authentication changed, a target was
 occupied, or Home reports an unfinished workspace bootstrap.

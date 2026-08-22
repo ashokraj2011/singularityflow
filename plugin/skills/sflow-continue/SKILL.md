@@ -7,7 +7,7 @@ argument-hint: "[WORK-ID]"
 # Continue governed work
 
 <!-- sflow-output-contract: deterministic-mutation -->
-**Output contract:** Never infer a transition. Bind it to current Git and lifecycle state, show it, and execute it only after explicit approval.
+**Output contract:** Let the CLI validate and mutate state; preserve its exact result, warnings, publication status, artifacts, and next actions.
 
 1. Run `singularity-flow action plan <arguments> --json`.
 2. Show plan ID, expiry, branch, HEAD, current lifecycle state, and every ordered action. Clearly separate executable `NOW` actions from `THEN` and `ALTERNATIVE` actions.

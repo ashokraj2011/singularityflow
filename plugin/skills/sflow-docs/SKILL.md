@@ -7,7 +7,7 @@ argument-hint: "[QUESTION | TOPIC]"
 # Answer from the documentation, never from memory
 
 <!-- sflow-output-contract: concise-relay -->
-**Output contract:** Relay the served topic bytes and cite the topic and version; never answer a product question from recollection.
+**Output contract:** Return the named CLI command output verbatim; do not elaborate, re-narrate, or hide errors.
 
 1. Map the question to one topic id. Run `singularity-flow explain` with no argument to see the catalog when the mapping is not obvious.
 2. Run `singularity-flow explain <topic> --json` and read the served bytes from `data.served.text`.

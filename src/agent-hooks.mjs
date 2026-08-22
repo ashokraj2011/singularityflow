@@ -31,7 +31,9 @@ async function activeInitiative(root) {
     const state = path.join(root, initiativeRelative(portfolio, id), 'state.json');
     if (!existsSync(state)) return null;
     const parsed = JSON.parse(await readFile(state, 'utf8'));
-    return parsed?.initiative?.id === id ? parsed : null;
+    return parsed?.initiative?.id === id
+      ? { ...parsed, initiativeDirectory: initiativeRelative(portfolio, id) }
+      : null;
   } catch {
     return null;
   }
@@ -42,6 +44,13 @@ function sourceKind(value) { return ['startup', 'resume', 'new'].includes(value)
 function copilotAgentName(payload = {}) {
   const value = payload.agentName ?? payload.agent_name;
   return typeof value === 'string' && value.trim() ? value.trim() : null;
+}
+
+function pathGroundingContext(root, workId = null) {
+  const workItem = workId
+    ? ` Governed artifacts for ${workId} live under singularity/work-items/${workId}/. Paths in Flow output are relative to one of these two roots.`
+    : ' Paths in Flow output are relative to this repository root.';
+  return ` Working repository: ${root}.${workItem} Never search the filesystem outside this repository.`;
 }
 
 // Copilot exposes the selected custom-agent ID on subagentStart, but it does not pass that
@@ -75,7 +84,8 @@ export async function copilotAgentStartHook(root, payload = {}) {
     log.info('hook.agent.mapped', 'Copilot agent mapped to governed Flow agent', {
       agentName, agent: agent.id, mapping: resolution.source, status: status.status, scope: agent.scope
     });
-    return {};
+    const session = await loadSession(root, { required: false });
+    return { additionalContext: pathGroundingContext(root, session?.workId ?? null).trim() };
   }
   const command = status?.status === 'stale'
     ? `singularity-flow agents lock ${agent.id} --update`
@@ -103,7 +113,7 @@ export async function sessionStartAgentHook(root, definition, workflow, payload 
     });
     const phase = initiative.currentPhase ?? 'complete';
     return {
-      additionalContext: `Singularity Flow initiative ${initiative.initiative.id} is active on this branch: '${initiative.initiative.title}' (profile ${initiative.initiative.profile}, current phase ${phase}).${workspaceContext} This is a governed initiative context, not a work item, so no work/Jira ID selection applies and /sf-session is not required here. Compose only the artifact for the phase you were given, treat the supplied governed contract as authoritative, and never write outside the initiative's declared promotion target. Never approve a phase automatically.`
+      additionalContext: `Singularity Flow initiative ${initiative.initiative.id} is active on this branch: '${initiative.initiative.title}' (profile ${initiative.initiative.profile}, current phase ${phase}).${workspaceContext} This is a governed initiative context, not a work item, so no work/Jira ID selection applies and /sf-session is not required here. Compose only the artifact for the phase you were given and treat the supplied governed contract as authoritative. The initiative's declared promotion target is under ${initiative.initiativeDirectory}/; never write outside it. Never approve a phase automatically.${pathGroundingContext(root)}`
     };
   }
   const policy = normalizeSessionPolicy(workflow?.resolution?.session ?? definition.session ?? {});
@@ -146,14 +156,14 @@ export async function sessionStartAgentHook(root, definition, workflow, payload 
   }
   if (!workItemSelectionRequired && active && sessionId) active = await bindAgentToCopilotSession(root, definition, selectedWorkId, record, phase?.id ?? null);
   if (workItemSelectionRequired) return {
-    additionalContext: `Singularity Flow work-item selection is required for implementation and lifecycle work in Copilot session ${sessionId ?? '(unknown)'}. The contributor must type /sf-session; that skill is human-invoked only, so do not invoke it yourself and do not treat the host reporting it as unavailable as a broken installation. Once the contributor confirms the ID you may run 'singularity-flow session attach <WORK-ID>', which stays permitted while this gate is active. Repository-scoped /sf-worldmodel initialization, build, freshness checks, and context inspection are allowed without a work or Jira ID. Ask the contributor for a work ID or Jira ID only when attaching to governed Story work; fetch the configured Git remote and attach only to the exact remote branch after fast-forward verification. Never infer an ID, create a branch, or discard local work. Never approve automatically.${activeWorkId ? ` Current branch candidate: ${activeWorkId}.` : ''}`
+    additionalContext: `Singularity Flow work-item selection is required for implementation and lifecycle work in Copilot session ${sessionId ?? '(unknown)'}. The contributor must type /sf-session; that skill is human-invoked only, so do not invoke it yourself and do not treat the host reporting it as unavailable as a broken installation. Once the contributor confirms the ID you may run 'singularity-flow session attach <WORK-ID>', which stays permitted while this gate is active. Repository-scoped /sf-worldmodel initialization, build, freshness checks, and context inspection are allowed without a work or Jira ID. Ask the contributor for a work ID or Jira ID only when attaching to governed Story work; fetch the configured Git remote and attach only to the exact remote branch after fast-forward verification. Never infer an ID, create a branch, or discard local work. Never approve automatically.${activeWorkId ? ` Current branch candidate: ${activeWorkId}.` : ''}${pathGroundingContext(root, activeWorkId)}`
   };
-  if (!workflow) return { additionalContext: `No Singularity Flow work item is active on this branch.${workspaceContext} Use /sf-session to attach to a remote work/Jira ID.` };
+  if (!workflow) return { additionalContext: `No Singularity Flow work item is active on this branch.${workspaceContext} Use /sf-session to attach to a remote work/Jira ID.${pathGroundingContext(root)}` };
   const agent = active?.agent;
   const context = phase
     ? `Singularity Flow work item ${workflow.workItem.id} is at ${phase.id} (${phase.status}).${workspaceContext}${agent ? ` Governed agent ${agent} is active; change it with /sf-agent. Agent instructions never replace human identity or approval authority.` : ''} Before changing lifecycle state, run /sf-nextsteps. Never approve automatically.`
     : `Singularity Flow work item ${workflow.workItem.id} is complete.${workspaceContext} Run the governance gate before handoff.`;
-  return { additionalContext: context };
+  return { additionalContext: `${context}${pathGroundingContext(root, activeWorkId)}` };
 }
 
 function parsedToolArgs(value) {

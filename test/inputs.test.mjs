@@ -59,8 +59,11 @@ test('record mode captures complete approved content and records a managed block
   const result = await collectInputs(value.root, value.workflow, value.phase, value);
   assert.equal(result.errors.length, 0); assert.equal(result.warnings.length, 0);
   assert.equal(result.records[0].status, 'captured'); assert.equal(result.records[0].truncated, false);
+  assert.equal(result.records[0].repositoryPath, 'singularity/work-items/INPUT-1/artifacts/requirements/requirements.md');
   assert.match(result.records[0].content, /AC-001 complete behavior/);
-  const rendered = renderInputsBlock(result); const artifact = applyInputsBlock('# Design\n\n{{inputs}}\n', rendered.text, 'record');
+  const rendered = renderInputsBlock(result);
+  assert.match(rendered.text, /source=singularity\/work-items\/INPUT-1\/artifacts\/requirements\/requirements\.md/);
+  const artifact = applyInputsBlock('# Design\n\n{{inputs}}\n', rendered.text, 'record');
   assert.equal(extractInputsBlock(artifact), rendered.text);
   const recorded = await recordInputs(value.root, value.workflow, value.phase, result, value);
   assert.match(recorded.path, /inputs-design-gen1\.json$/);

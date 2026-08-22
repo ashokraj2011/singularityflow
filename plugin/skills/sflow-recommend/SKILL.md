@@ -6,7 +6,7 @@ description: Show one grounded next step from the active SFlow workspace.
 # Recommend one next step
 
 <!-- sflow-output-contract: guided-actions -->
-**Output contract:** Relay one read-only recommendation, its evidence, required input, and disclosed effect.
+**Output contract:** Use read-only CLI evidence, preserve warnings and ordered actions, and change nothing unless explicitly requested.
 
 Use the durable workspace, work-item, evidence, and repository records. Never infer lifecycle state from chat history.
 

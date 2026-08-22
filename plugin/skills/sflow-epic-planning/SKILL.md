@@ -8,7 +8,7 @@ disable-model-invocation: true
 # Plan governed Stories
 
 <!-- sflow-output-contract: clarification-and-artifact -->
-**Output contract:** Use the complete governed prompt and approved inputs, ask unresolved questions, then publish and show configured artifacts.
+**Output contract:** Resolve paths under singularity/work-items/<WORK-ID>/ in this repository; never search outside it. Use the complete governed prompt and approved inputs, ask unresolved questions, then publish and show configured artifacts.
 
 This is the compatibility name for `/sf-epic-story-draft`. Follow that skill's canonical procedure:
 

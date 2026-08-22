@@ -5,7 +5,7 @@ description: See a complete governed change in a throwaway repository.
 # See a governed change, end to end
 
 <!-- sflow-output-contract: concise-relay -->
-**Output contract:** Relay the CLI's own report concisely and change nothing in the user's repository.
+**Output contract:** Return the named CLI command output verbatim; do not elaborate, re-narrate, or hide errors.
 
 Use this when someone is new, asks how Singularity Flow works, or wants to try it
 without committing a real repository to it. It runs in a sandbox the command

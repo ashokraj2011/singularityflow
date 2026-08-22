@@ -131,6 +131,10 @@ test('Benchmark B composes a generic governed prompt without a world-model snaps
     out: '.git/benchmark-generic-prompt.md'
   });
   assert.match(composed, /Active Story phase contract: Intake/);
+  assert.match(composed, new RegExp('Repository root: `' + root.replace(/[.*+?^${}()|[\]\\]/g, '\\$&') + '`'));
+  assert.match(composed, /Work-item directory: `singularity\/work-items\/BENCH-B-1`/);
+  assert.match(composed, /Required artifact: `singularity\/work-items\/BENCH-B-1\/artifacts\/intake\/intake\.md`/);
+  assert.match(composed, /Never search the filesystem outside this repository/);
   assert.doesNotMatch(composed, /required repository world-model grounding/i);
   assert.doesNotMatch(composed, /Bounded repository structural context/);
 });

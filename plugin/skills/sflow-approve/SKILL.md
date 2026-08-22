@@ -8,7 +8,7 @@ argument-hint: "[WORK-ID] [--fetch]"
 # Approve the submitted phase
 
 <!-- sflow-output-contract: governed-review -->
-**Output contract:** Show governed artifacts, hashes, identity warnings, and the exact confirmation before recording any decision.
+**Output contract:** Resolve paths under singularity/work-items/<WORK-ID>/ in this repository; never search outside it. Show governed artifacts, hashes, identity warnings, and the exact confirmation before recording any decision.
 
 Never edit state to bypass a gate. The current Git identity—not the governed agent—must match a configured approval authority.
 

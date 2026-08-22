@@ -7,7 +7,7 @@ argument-hint: "[doctor|configuration|workspace|agents|jira|state|recovery]"
 # Administer Singularity Flow
 
 <!-- sflow-output-contract: guided-actions -->
-**Output contract:** Diagnose first; preview every repair or destructive action and require its exact confirmation.
+**Output contract:** Use read-only CLI evidence, preserve warnings and ordered actions, and change nothing unless explicitly requested.
 
 1. Run `singularity-flow doctor --json` and `singularity-flow state planes --json` before proposing a repair.
 2. Route configuration questions to `configuration`, workspace questions to `workspace`, remote Markdown to `agents status`, and Jira connectivity to `jira doctor`.

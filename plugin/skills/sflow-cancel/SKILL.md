@@ -7,7 +7,7 @@ argument-hint: "[WORK-ID] --reason 'explanation'"
 # Cancel and archive governed work
 
 <!-- sflow-output-contract: deterministic-mutation -->
-**Output contract:** Show the exact Story, current phase, preserved evidence, cancellation reason, confirmation, commit, and push result; never imply successful completion or delete governed history.
+**Output contract:** Let the CLI validate and mutate state; preserve its exact result, warnings, publication status, artifacts, and next actions.
 
 This is an explicit human lifecycle decision, not an artifact-generation task.
 

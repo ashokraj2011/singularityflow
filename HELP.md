@@ -2796,7 +2796,7 @@ singularity-flow assign <PHASE> <ASSIGNEE>
 singularity-flow watch [WORK-ID] [--once] [--fetch] [--interval SECONDS]
 singularity-flow recover [WORK-ID] [--fetch] [--apply]
 sflow-next [--task TEXT] [--fetch] [--yes] [--skip-checks]
-singularity-flow inputs [PHASE] [--dry-run]
+singularity-flow inputs [PHASE] [--dry-run] [--json]
 singularity-flow agents list
 singularity-flow agents mappings
 singularity-flow agents lock <PACK> [--update]
@@ -2877,7 +2877,7 @@ singularity-flow epic sources list --epic <EPIC-ID> [--active|--all]
 singularity-flow epic sources detach <SOURCE-ID> --epic <EPIC-ID> --reason TEXT [--yes]
 singularity-flow documents browse --provider <ID> [--path FOLDER] [--json]
 singularity-flow documents fetch --provider <ID> --ref <ITEM> [--name NAME] [--label TEXT] [--kind KIND]
-singularity-flow prepare [PHASE]
+singularity-flow prepare [PHASE] [--json]
 singularity-flow phase show [PHASE] [--json]
 singularity-flow phase publish [PHASE] [--usage-json FILE]
 singularity-flow artifact add <PATH...> [--kind KIND] [--phase PHASE]

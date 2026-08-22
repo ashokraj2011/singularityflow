@@ -2,6 +2,7 @@
 name: sflow-fault
 description: Record, list, or inspect an immutable Singularity Flow fault without treating the report as repair authority.
 disable-model-invocation: true
+
 ---
 
 # Fault intake

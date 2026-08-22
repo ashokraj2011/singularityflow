@@ -8,7 +8,7 @@ argument-hint: "[generation focus]"
 # Generate the active phase
 
 <!-- sflow-output-contract: clarification-and-artifact -->
-**Output contract:** Use the complete governed prompt and approved inputs, ask unresolved questions, then publish and show configured artifacts.
+**Output contract:** Resolve paths under singularity/work-items/<WORK-ID>/ in this repository; never search outside it. Use the complete governed prompt and approved inputs, ask unresolved questions, then publish and show configured artifacts.
 
 On `Out of sequence`, stop and relay the error. On `Soft sequence warning`, show it and leave `continue` to the human. Never edit state to bypass a gate.
 

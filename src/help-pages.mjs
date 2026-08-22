@@ -336,6 +336,7 @@ const PAGES = Object.freeze({
       'Writes the phase\'s required artifact from its template if it is not already there, and',
       'reports what the phase expects. Safe to run repeatedly; it never overwrites your work.'
     ],
+    options: [['--json', 'Emit the structured command result, including the complete artifact path.']],
     examples: [['singularity-flow prepare intake', 'Prepares the intake artifact for the current Story.']],
     seeAlso: ['phase', 'artifact', 'nextsteps']
   },

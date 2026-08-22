@@ -58,6 +58,22 @@ test('legacy prompt and agent context retain their historical verification meani
   assert.equal(agent.nativeCopilotAgent, 'legacy-copilot');
 });
 
+test('legacy context packet telemetry gains only content-free observation defaults', () => {
+  const migrated = readRecord('context-packet-telemetry', {
+    schemaVersion: 1, packetId: 'ctx-123', workId: 'WRK-1', phase: 'implementation',
+    includedBytes: 120, estimatedTokens: 30, omittedItems: 0, unavailableItems: 0,
+    expansionRequests: 0, observationRawBytes: null, observationIncludedBytes: null,
+    cacheKey: 'cache-key', providerInputTokens: null, providerCachedInputTokens: null
+  }).record;
+  assert.equal(migrated.schemaVersion, 2);
+  assert.equal(migrated.estimationMethod, 'utf8-bytes-divided-by-four');
+  assert.deepEqual(migrated.omissionClasses, {});
+  assert.deepEqual(migrated.expansions, []);
+  assert.equal(migrated.expandedBytes, null);
+  assert.equal(migrated.expandedEstimatedTokens, null);
+  assert.equal(migrated.contextManifestSha256, null);
+});
+
 test('readRecord migrates in memory without changing stored bytes', () => {
   const bytes = Buffer.from('{"schemaVersion":1,"marker":"frozen"}\n');
   const before = Buffer.from(bytes);

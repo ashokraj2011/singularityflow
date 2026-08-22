@@ -83,7 +83,7 @@ export const BOOLEAN_OPTIONS = Object.freeze(new Set([
   'opt-out', 'optional', 'parallel', 'polish', 'probe', 'push',
   'readiness', 'recap', 'record', 'record-audit', 'refresh', 'render-only', 'repair', 'repair-on-fault', 'restore-remote',
   'repair-projections', 'replace', 'replace-server', 'resume', 'set', 'sign',
-  'semantic', 'skip-checks', 'staged', 'strict', 'terminal', 'timings', 'update', 'write',
+  'semantic', 'skip-checks', 'staged', 'strict', 'terminal', 'timings', 'today', 'update', 'write',
   'yes',
   // Presentation flags introduced with the narration and output work. They are parsed here before
   // any command reads them, so they must be declared here too.

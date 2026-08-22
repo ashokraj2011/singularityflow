@@ -26,6 +26,7 @@ Every public operation is classified before its implementation module is importe
 | constitution.except | mutation | never | — | — |
 | constitution.generate | mutation | never | — | — |
 | constitution.show | read | never | — | — |
+| context | read | never | — | — |
 | converge | read | never | — | — |
 | copilot.launch | mutation | required | — | copilot-cli |
 | doctor.fix.telemetry | mutation | never | — | — |
@@ -205,6 +206,7 @@ Every public operation is classified before its implementation module is importe
 | telemetry.probe | read | never | — | — |
 | telemetry.reconcile | mutation | never | — | — |
 | telemetry.status | read | never | — | — |
+| tokens | read | never | — | — |
 | validate | read | never | — | — |
 | verify | read | never | — | — |
 | version | read | never | — | — |

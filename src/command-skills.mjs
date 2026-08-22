@@ -44,6 +44,8 @@ const entries = {
   receipt: ['sf-receipt'],
   impact: ['sf-impact'],
   telemetry: ['sf-telemetry'],
+  context: ['sf-telemetry'],
+  tokens: ['sf-telemetry'],
   'prompt-log': ['sf-prompt-log'],
   guide: ['sf-help'],
   'refresh-branch': ['sf-refresh-branch'],

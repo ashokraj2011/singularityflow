@@ -8,6 +8,8 @@
 import { MESSAGES, REASONS } from './messages.mjs';
 import { preservedEverything } from './command-result.mjs';
 import { approvalChainText } from '../approval-chain.mjs';
+import { contextXrayText } from '../context-xray.mjs';
+import { tokenLedgerText } from '../token-ledger.mjs';
 import * as style from '../style.mjs';
 
 /**
@@ -127,6 +129,12 @@ const REST_STATE_LINES = Object.freeze({
 export function renderCommandResult(result) {
   if (result.operation.id === 'approvals' && result.data?.approvalChain) {
     return approvalChainText(result.data.approvalChain).trimEnd();
+  }
+  if (result.operation.id === 'context' && result.data?.xray) {
+    return [contextXrayText(result.data.xray), preservationLine(result)].filter(Boolean).join('\n\n');
+  }
+  if (result.operation.id === 'tokens' && result.data?.ledger) {
+    return [tokenLedgerText(result.data.ledger), preservationLine(result)].filter(Boolean).join('\n\n');
   }
   // A refusal is the one outcome the reader must not skim past, so it is the one that gets weight.
   const emphasise = ['refused', 'failed'].includes(result.outcome.status) ? style.failure : style.heading;

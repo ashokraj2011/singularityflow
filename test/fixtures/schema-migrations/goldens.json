@@ -132,7 +132,7 @@
   "context-manifest": [{ "schemaVersion": 1 }],
   "context-expansion-handle": [{ "schemaVersion": 1 }],
   "observation-summary": [{ "schemaVersion": 1 }],
-  "context-packet-telemetry": [{ "schemaVersion": 1 }],
+  "context-packet-telemetry": [{ "schemaVersion": 1 }, { "schemaVersion": 2 }],
   "ast-resume-job": [{ "schemaVersion": 1 }, { "schemaVersion": 2 }],
   "ast-result": [{ "schemaVersion": 1 }, { "schemaVersion": 2 }, { "schemaVersion": 3 }, { "schemaVersion": 4, "evidenceClass": "preview", "provenance": { "evidence": null } }],
   "ast-cache-blob": [{ "schemaVersion": 1 }],

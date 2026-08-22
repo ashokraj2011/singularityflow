@@ -1855,6 +1855,14 @@ No model prices are bundled because prices change over time. Exact total tokens 
 
 Use `singularity-flow telemetry probe` to inspect documented host capabilities, then `singularity-flow telemetry enable` to review and accept metadata-only local capture. Launch through `singularity-flow copilot` or `singularity-flow workspace copilot`. `telemetry status` reports captured, partial, unavailable, conflict, and disabled SFlow-owned launches without exposing raw host paths. Use `telemetry reconcile [PHASE]` to retry a delayed generation explicitly. Reconciliation commits and pushes only the sanitized record, never raw traces, prompts, source, or tool content.
 
+The first Context X-Ray slice is available through `singularity-flow context xray [WORK-ID]` and
+`singularity-flow tokens status|report [WORK-ID]`. Both commands are read-only: they project
+governed phase usage together with content-free, machine-local Evidence Packet measurements and do
+not invoke a model, expand context, reconcile telemetry, or change workflow state. Requested and
+resolved model identities remain separate. Every metric carries exact, partial, estimated, or
+unavailable status plus its assurance; a provider field that was not emitted is never displayed as
+zero. SFlow byte-based token estimates are explicitly distinct from provider-reported token usage.
+
 ## Git state transfer and recovery
 
 Every successful generation and lifecycle decision is committed and pushed when `git.publish: required` is configured. Resume work from another terminal with:
@@ -2857,6 +2865,9 @@ singularity-flow telemetry probe [--json]
 singularity-flow telemetry enable [--confirm "ENABLE LOCAL USAGE"] [--json]
 singularity-flow telemetry disable [--json]
 singularity-flow telemetry reconcile [PHASE] [--json]
+singularity-flow context xray [WORK-ID] [--work-id WORK-ID] [--phase PHASE] [--packet CTX-ID] [--json]
+singularity-flow tokens status [WORK-ID] [--work-id WORK-ID] [--phase PHASE] [--json]
+singularity-flow tokens report [WORK-ID] [--work-id WORK-ID] [--phase PHASE] [--packet CTX-ID] [--json]
 singularity-flow copilot [--mode interactive|plan] [--repository ID] [--story ID] [--host cli|vscode-terminal|intellij-terminal] [--dry-run]
 singularity-flow documents list [WORK-ID] [--active|--all] [--json]
 singularity-flow documents view <DOCUMENT-ID|PATH> [--work-id ID] [--all]

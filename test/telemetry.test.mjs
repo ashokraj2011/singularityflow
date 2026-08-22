@@ -3,7 +3,7 @@ import assert from 'node:assert/strict';
 import { mkdtemp, mkdir } from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
-import { parseCopilotTelemetry, recordPhaseTelemetry } from '../src/telemetry.mjs';
+import { groupedUsage, parseCopilotTelemetry, recordPhaseTelemetry } from '../src/telemetry.mjs';
 
 test('Copilot telemetry parser accepts direct and OTLP attribute encodings', () => {
   const direct = {
@@ -43,14 +43,50 @@ test('Copilot telemetry parser accepts direct and OTLP attribute encodings', () 
   assert.deepEqual(parsed.privacyDiagnostics, ['dropped disallowed telemetry attributes at line 1']);
   assert.equal(parsed.spans.length, 2);
   assert.deepEqual(parsed.spans[0], {
-    provider: 'github', model: 'model-alpha-1', inputTokens: 1200, outputTokens: 300,
+    provider: 'github', model: 'model-alpha-1', requestedModel: 'auto',
+    resolvedModel: 'model-alpha-1', resolvedModelAssurance: 'provider-reported',
+    inputTokens: 1200, outputTokens: 300,
     cachedInputTokens: 200, cacheWriteInputTokens: null, providerCost: 0.0123,
     startedAt: '2026-07-22T10:00:00.000Z', completedAt: '2026-07-22T10:00:02.000Z'
   });
   assert.equal(parsed.spans[1].model, 'gpt-5.4');
+  assert.equal(parsed.spans[1].requestedModel, null);
+  assert.equal(parsed.spans[1].resolvedModel, 'gpt-5.4');
   assert.equal(parsed.spans[1].inputTokens, 800);
   assert.equal(parsed.spans[1].providerCost, 0.01);
   assert.doesNotMatch(JSON.stringify(parsed), /must-not-be-copied/);
+});
+
+test('usage grouping preserves unavailable fields and requested/resolved model identity', () => {
+  const usage = groupedUsage([{
+    provider: 'github', model: 'model-alpha-1', requestedModel: 'auto',
+    resolvedModel: 'model-alpha-1', resolvedModelAssurance: 'provider-reported',
+    inputTokens: 1200, outputTokens: 300, cachedInputTokens: null,
+    cacheWriteInputTokens: null, providerCost: null,
+    startedAt: '2026-07-22T10:00:00.000Z', completedAt: '2026-07-22T10:00:02.000Z'
+  }])[0];
+
+  assert.equal(usage.status, 'exact');
+  assert.equal(usage.requestedModel, 'auto');
+  assert.equal(usage.resolvedModel, 'model-alpha-1');
+  assert.equal(usage.totalTokens, 1500);
+  assert.equal(usage.cachedInputTokens, null);
+  assert.deepEqual(usage.observations.cachedInputTokens, {
+    value: null, status: 'unavailable', assurance: 'unavailable'
+  });
+});
+
+test('usage grouping labels incomplete provider arithmetic partial instead of adding a missing field as zero', () => {
+  const usage = groupedUsage([{
+    provider: 'github', model: 'model-alpha-1', requestedModel: null,
+    resolvedModel: 'model-alpha-1', resolvedModelAssurance: 'provider-reported',
+    inputTokens: 1200, outputTokens: null, cachedInputTokens: 200,
+    cacheWriteInputTokens: null, providerCost: null, startedAt: null, completedAt: null
+  }])[0];
+
+  assert.equal(usage.status, 'partial');
+  assert.equal(usage.totalTokens, 1200);
+  assert.equal(usage.observations.outputTokens.status, 'unavailable');
 });
 
 test('Copilot telemetry parser ignores tool spans and quarantines malformed interior records', () => {

@@ -661,7 +661,14 @@ export async function expandEvidencePacketHandle(root, handle) {
   } else {
     throw new SingularityFlowError('Context expansion kind is not supported.', { code: 'EPC_EXPANSION_INVALID' });
   }
-  await recordContextExpansionRequest(root, record.packetId);
+  const includedContentBytes = Buffer.byteLength(content);
+  const estimatedInputTokens = Math.ceil(includedContentBytes / 4);
+  await recordContextExpansionRequest(root, record.packetId, {
+    handleKind: record.expansionKind,
+    itemId: record.itemId,
+    includedBytes: includedContentBytes,
+    estimatedTokens: estimatedInputTokens
+  });
   return {
     schemaVersion: 1, // schema-transient: sealed read result, never persisted
     kind: 'evidence-packet-expansion', packetId: record.packetId, itemId: record.itemId,
@@ -670,8 +677,8 @@ export async function expandEvidencePacketHandle(root, handle) {
     instructions: 'not-authoritative', guidanceOnly: true,
     accounting: {
       maximumOutputBytes: record.maximumOutputBytes,
-      includedContentBytes: Buffer.byteLength(content),
-      estimatedInputTokens: Math.ceil(Buffer.byteLength(content) / 4),
+      includedContentBytes,
+      estimatedInputTokens,
       estimationMethod: 'utf8-bytes-divided-by-four', exact: false
     }
   };

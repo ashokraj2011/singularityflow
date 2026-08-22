@@ -3,22 +3,40 @@ import { readFile, readdir } from 'node:fs/promises';
 import path from 'node:path';
 
 import { gitCommonDir } from './git.mjs';
+import { recordSha256 } from './records.mjs';
 import { currentSchemaVersion, readRecord } from './schema-migrations.mjs';
-import { writeAtomic } from './util.mjs';
+import { nowIso, writeAtomic } from './util.mjs';
 
 function telemetryRoot(root) { return path.join(gitCommonDir(root), 'singularity-flow', 'evidence-packets', 'telemetry'); }
 function telemetryFile(root, packetId) { return path.join(telemetryRoot(root), `${packetId}.json`); }
 
 const ALLOWED = new Set([
-  'schemaVersion', 'packetId', 'workId', 'phase', 'includedBytes', 'estimatedTokens',
-  'omittedItems', 'unavailableItems', 'expansionRequests', 'observationRawBytes',
-  'observationIncludedBytes', 'cacheKey', 'providerInputTokens', 'providerCachedInputTokens'
+  'schemaVersion', 'packetId', 'workId', 'flightPlanId', 'phase', 'generation',
+  'sourceRevision', 'includedBytes', 'estimatedTokens', 'estimationMethod',
+  'omittedItems', 'omissionClasses', 'unavailableItems', 'unavailableCodes',
+  'expansionRequests', 'expandedBytes', 'expandedEstimatedTokens', 'expansions',
+  'observationRawBytes', 'observationIncludedBytes', 'cacheKey', 'contextManifestSha256',
+  'providerInputTokens', 'providerCachedInputTokens'
 ]);
 
 function contentFree(record) {
   const unknown = Object.keys(record).filter((key) => !ALLOWED.has(key));
   if (unknown.length) throw new Error(`Context packet telemetry contains disallowed fields: ${unknown.join(', ')}`);
   return record;
+}
+
+function omissionCount(omissions) {
+  return omissions.reduce((total, entry) => total + (Number.isInteger(entry.count) ? entry.count : 1), 0);
+}
+
+function omissionClasses(omissions) {
+  const totals = {};
+  for (const entry of omissions) {
+    for (const [name, count] of Object.entries(entry.omissionClasses ?? {})) {
+      totals[name] = Number(totals[name] ?? 0) + Number(count ?? 0);
+    }
+  }
+  return totals;
 }
 
 export async function recordContextPacketTelemetry(root, packet, { providerTelemetry = null } = {}) {
@@ -31,15 +49,25 @@ export async function recordContextPacketTelemetry(root, packet, { providerTelem
     schemaVersion: currentSchemaVersion('context-packet-telemetry'),
     packetId: packet.packetId,
     workId: packet.binding.workId ?? null,
+    flightPlanId: packet.binding.flightPlanId ?? null,
     phase: packet.binding.phase ?? null,
+    generation: packet.binding.generation ?? null,
+    sourceRevision: packet.binding.sourceRevision ?? null,
     includedBytes: packet.budget.includedContentBytes,
     estimatedTokens: packet.budget.estimatedInputTokens,
-    omittedItems: packet.omissions.length,
+    estimationMethod: packet.budget.estimationMethod,
+    omittedItems: omissionCount(packet.omissions),
+    omissionClasses: omissionClasses(packet.omissions),
     unavailableItems: packet.unavailable.length,
+    unavailableCodes: [...new Set(packet.unavailable.map((entry) => entry.code).filter(Boolean))].sort(),
     expansionRequests: Number(prior?.expansionRequests ?? 0),
+    expandedBytes: prior ? prior.expandedBytes ?? null : 0,
+    expandedEstimatedTokens: prior ? prior.expandedEstimatedTokens ?? null : 0,
+    expansions: prior?.expansions ?? [],
     observationRawBytes: observation?.rawBytes ?? null,
     observationIncludedBytes: observation?.includedBytes ?? null,
     cacheKey: packet.contextManifest.cacheKey,
+    contextManifestSha256: recordSha256(packet.contextManifest),
     providerInputTokens: providerObserved && Number.isFinite(providerTelemetry.inputTokens) ? providerTelemetry.inputTokens : null,
     providerCachedInputTokens: providerObserved && Number.isFinite(providerTelemetry.cachedInputTokens) ? providerTelemetry.cachedInputTokens : null
   });
@@ -47,16 +75,39 @@ export async function recordContextPacketTelemetry(root, packet, { providerTelem
   return record;
 }
 
-export async function recordContextExpansionRequest(root, packetId) {
+export async function recordContextExpansionRequest(root, packetId, {
+  handleKind = 'unknown', itemId = null, includedBytes = null,
+  estimatedTokens = null, expandedAt = nowIso()
+} = {}) {
   let record;
   try { record = readRecord('context-packet-telemetry', await readFile(telemetryFile(root, packetId))).record; }
   catch { return null; }
-  const next = contentFree({ ...record, expansionRequests: Number(record.expansionRequests ?? 0) + 1 });
+  const requestIndex = Number(record.expansionRequests ?? 0) + 1;
+  const bytes = Number.isFinite(includedBytes) ? includedBytes : 0;
+  const tokens = Number.isFinite(estimatedTokens) ? estimatedTokens : Math.ceil(bytes / 4);
+  const expansion = {
+    expansionId: `expand-${recordSha256({ packetId, requestIndex, handleKind, itemId, bytes }).slice(0, 20)}`,
+    handleKind,
+    subjectDigest: itemId == null ? null : recordSha256({ itemId }),
+    includedBytes: bytes,
+    estimatedTokens: tokens,
+    expandedAt
+  };
+  const next = contentFree({
+    ...record,
+    expansionRequests: requestIndex,
+    expandedBytes: record.expandedBytes == null ? null : Number(record.expandedBytes) + bytes,
+    expandedEstimatedTokens: record.expandedEstimatedTokens == null
+      ? null : Number(record.expandedEstimatedTokens) + tokens,
+    expansions: [...(record.expansions ?? []), expansion].slice(-128)
+  });
   await writeAtomic(telemetryFile(root, packetId), `${JSON.stringify(next, null, 2)}\n`, { mode: 0o600 });
   return next;
 }
 
-export async function contextPacketTelemetryForWork(root, workId) {
+export async function contextPacketTelemetryRecords(root, {
+  workId = null, phase = null, packetId = null
+} = {}) {
   const names = await readdir(telemetryRoot(root)).catch((error) => error?.code === 'ENOENT' ? [] : Promise.reject(error));
   const records = [];
   for (const name of names.filter((value) => /^ctx-[a-f0-9]{20}\.json$/.test(value))) {
@@ -64,17 +115,29 @@ export async function contextPacketTelemetryForWork(root, workId) {
       .then((bytes) => readRecord('context-packet-telemetry', bytes).record)
       .catch(() => null);
     if (!record) continue;
-    if (record.workId === workId) records.push(record);
+    if (workId && record.workId !== workId) continue;
+    if (phase && record.phase !== phase) continue;
+    if (packetId && record.packetId !== packetId) continue;
+    records.push(record);
   }
   records.sort((left, right) => left.packetId.localeCompare(right.packetId));
+  return records;
+}
+
+export async function contextPacketTelemetryForWork(root, workId) {
+  const records = await contextPacketTelemetryRecords(root, { workId });
   return {
     packets: records.length,
-    includedBytes: records.reduce((total, record) => total + record.includedBytes, 0),
-    estimatedTokens: records.reduce((total, record) => total + record.estimatedTokens, 0),
-    expansionRequests: records.reduce((total, record) => total + record.expansionRequests, 0),
-    providerInputTokens: records.some((record) => record.providerInputTokens != null)
-      ? records.reduce((total, record) => total + (record.providerInputTokens ?? 0), 0) : null,
-    providerCachedInputTokens: records.some((record) => record.providerCachedInputTokens != null)
-      ? records.reduce((total, record) => total + (record.providerCachedInputTokens ?? 0), 0) : null
+    includedBytes: records.reduce((total, record) => total + Number(record.includedBytes ?? 0), 0),
+    estimatedTokens: records.reduce((total, record) => total + Number(record.estimatedTokens ?? 0), 0),
+    expansionRequests: records.reduce((total, record) => total + Number(record.expansionRequests ?? 0), 0),
+    expandedBytes: records.every((record) => Number.isFinite(record.expandedBytes))
+      ? records.reduce((total, record) => total + record.expandedBytes, 0) : null,
+    expandedEstimatedTokens: records.every((record) => Number.isFinite(record.expandedEstimatedTokens))
+      ? records.reduce((total, record) => total + record.expandedEstimatedTokens, 0) : null,
+    providerInputTokens: records.length && records.every((record) => Number.isFinite(record.providerInputTokens))
+      ? records.reduce((total, record) => total + record.providerInputTokens, 0) : null,
+    providerCachedInputTokens: records.length && records.every((record) => Number.isFinite(record.providerCachedInputTokens))
+      ? records.reduce((total, record) => total + record.providerCachedInputTokens, 0) : null
   };
 }

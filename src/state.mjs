@@ -977,16 +977,25 @@ async function validatePhase(root, config, workflow, phase, { placeholders = tru
 
 function normalizeUsage(raw, session, generation = null) {
   const startedAt = raw?.startedAt ?? nowIso(); const completedAt = raw?.completedAt ?? nowIso();
-  const numeric = ['inputTokens', 'outputTokens', 'cachedInputTokens', 'totalTokens'];
-  const exact = raw && numeric.some((key) => Number.isFinite(raw[key]));
+  const inputExact = Number.isFinite(raw?.inputTokens);
+  const outputExact = Number.isFinite(raw?.outputTokens);
+  const totalExact = Number.isFinite(raw?.totalTokens);
+  const status = ['exact', 'partial', 'unavailable'].includes(raw?.status)
+    ? raw.status
+    : inputExact && outputExact ? 'exact'
+      : (inputExact || outputExact || totalExact) ? (totalExact ? 'exact' : 'partial') : 'unavailable';
   const usage = {
-    status: exact ? 'exact' : 'unavailable', source: raw?.source ?? (exact ? 'provider' : 'copilot-unavailable'),
+    status, source: raw?.source ?? (status !== 'unavailable' ? 'provider' : 'copilot-unavailable'),
     provider: raw?.provider ?? null, model: raw?.model ?? null,
+    requestedModel: raw?.requestedModel ?? null,
+    resolvedModel: raw?.resolvedModel ?? null,
+    resolvedModelAssurance: raw?.resolvedModelAssurance ?? (raw?.resolvedModel ? 'host-observed' : 'unavailable'),
     inputTokens: raw?.inputTokens ?? null, outputTokens: raw?.outputTokens ?? null,
     cachedInputTokens: raw?.cachedInputTokens ?? null, cacheWriteInputTokens: raw?.cacheWriteInputTokens ?? null,
-    totalTokens: raw?.totalTokens ?? (exact ? (raw.inputTokens ?? 0) + (raw.outputTokens ?? 0) : null),
+    totalTokens: raw?.totalTokens ?? (inputExact && outputExact ? raw.inputTokens + raw.outputTokens : null),
     providerCost: Number.isFinite(raw?.providerCost) ? raw.providerCost : null,
     costStatus: raw?.costStatus ?? (Number.isFinite(raw?.providerCost) ? 'exact' : 'unavailable'),
+    observations: raw?.observations ? structuredClone(raw.observations) : undefined,
     spans: Number.isInteger(raw?.spans) ? raw.spans : null,
     startedAt, completedAt, agent: session.agent, generation
   };

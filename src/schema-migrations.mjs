@@ -401,6 +401,25 @@ function vscodeResetMarkerV1ToV2(source) {
   };
 }
 
+function contextPacketTelemetryV1ToV2(source) {
+  return {
+    ...source,
+    schemaVersion: 2,
+    flightPlanId: source.flightPlanId ?? null,
+    generation: source.generation ?? null,
+    sourceRevision: source.sourceRevision ?? null,
+    estimationMethod: source.estimationMethod ?? 'utf8-bytes-divided-by-four',
+    omissionClasses: clone(source.omissionClasses ?? {}),
+    unavailableCodes: clone(source.unavailableCodes ?? []),
+    // v1 counted expansion requests but did not measure their bytes. Unknown historical usage must
+    // stay unknown; migrating it to zero would fabricate an exact observation.
+    expandedBytes: source.expandedBytes ?? null,
+    expandedEstimatedTokens: source.expandedEstimatedTokens ?? null,
+    expansions: clone(source.expansions ?? []),
+    contextManifestSha256: source.contextManifestSha256 ?? null
+  };
+}
+
 function family({
   id, currentVersion, minimumReadableVersion = 1, steps = [], paths = [], immutable = false,
   unversionedAs = null, migrationPolicy = 'migrate-on-read'
@@ -643,7 +662,8 @@ const families = [
     paths: [/^\$git\/evidence-packets\/observations\/summaries\/[a-f0-9]{64}\.json$/]
   }),
   family({
-    id: 'context-packet-telemetry', currentVersion: 1,
+    id: 'context-packet-telemetry', currentVersion: 2,
+    steps: [migration(1, 2, contextPacketTelemetryV1ToV2)],
     paths: [/^\$git\/evidence-packets\/telemetry\/ctx-[a-f0-9]{20}\.json$/]
   }),
   family({

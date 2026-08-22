@@ -100,6 +100,14 @@ export const MESSAGES = Object.freeze({
     headline: (s) => `${slot(s.workId)} is at ${slot(s.phase)}.`,
     preserves: true
   },
+  'context.reported': {
+    headline: (s) => `Context X-Ray for ${slot(s.workId)} covers ${slot(s.phase)}.`,
+    preserves: true
+  },
+  'tokens.reported': {
+    headline: (s) => `Token Ledger for ${slot(s.workId)} covers ${slot(s.phase)}.`,
+    preserves: true
+  },
   'approvals.reported': {
     headline: (s) => `${slot(s.workId)} has ${slot(s.received)}/${slot(s.required)} required approval(s) across ${slot(s.phases)} phase(s).`,
     preserves: true

@@ -15,6 +15,7 @@ import { add, assertClean, branch, changes, checkout, commit, fastForwardTo, fet
 import { buildRepositorySubjectIndex, buildRepositorySubjectIndexFromRefs, resolveContext } from './repository-subject-index.mjs';
 import { approvePhase, assertNoPendingPublication, cancelWorkflow, commitAndPublish, CONFIG_PATH, createWorkflow, currentPhase, loadConfig, preparePhase, preparePhaseInputs, promoteDesignSource, publishGeneration, reconcilePhaseTelemetry, registerArtifact, rejectPhase, reopenWorkflow, resolveWorkItem, saveStoryDraft, transactStory, scanArtifacts, storyPublicationPending, submitPhase, syncPublication, validateId, validateWorkflow, workflowBranchAllowed, workflowPublicationBranch, workflowPath, workDir } from './state-stores.mjs';
 import { copilotTelemetryStatus } from './telemetry.mjs';
+import { contextXray } from './context-xray.mjs';
 import {
   explainTelemetryStatus,
   prepareTelemetryLaunch,
@@ -3633,6 +3634,71 @@ async function telemetryCommand(positionals, options) {
   console.log(`Reconciled ${result.phase} generation ${result.generation}: ${result.status}.`);
   console.log(`Models: ${result.models.join(', ') || 'unavailable'} | Tokens: ${result.usage.reduce((sum, item) => sum + (item.totalTokens ?? 0), 0) || 'unavailable'} | Provider cost: ${result.providerCost == null ? 'unavailable' : `$${result.providerCost.toFixed(6)}`}`);
   console.log(`Commit: ${result.commit.slice(0, 8)}${result.pushed ? ' and pushed' : ''}`);
+}
+
+async function xrayProjection(positionals, options, { defaultToCurrentPhase = true } = {}) {
+  const root = repoRoot();
+  const config = await loadConfig(root);
+  const workId = optionString(options, 'work-id', positionals[2] ?? null);
+  let workflow;
+  try { workflow = await loadStoryAggregate(root, config, workId); }
+  catch (error) {
+    throw new SingularityFlowError(
+      workId
+        ? `Context X-Ray could not resolve governed work '${workId}'.`
+        : 'Context X-Ray requires active governed Story work or --work-id.',
+      { code: 'CXR_NO_ACTIVE_WORK', cause: error }
+    );
+  }
+  return contextXray(root, workflow, {
+    phase: optionString(options, 'phase'),
+    packetId: optionString(options, 'packet'),
+    defaultToCurrentPhase
+  });
+}
+
+async function contextCommand(positionals, options) {
+  const subcommand = positionals[1] ?? 'xray';
+  if (subcommand !== 'xray') {
+    throw new SingularityFlowError(`Unknown context command '${subcommand}'. Available: xray.`);
+  }
+  const projection = await xrayProjection(positionals, options);
+  return emitCommandResult(commandResult({
+    operation: { id: 'context', classification: 'read' },
+    subject: { kind: 'story', id: projection.work.id },
+    outcome: succeeded('context.reported', {
+      workId: projection.work.id, phase: projection.work.phase ?? 'all phases'
+    }),
+    effects: noEffects(),
+    restState: 'informational',
+    data: { xray: projection }
+  }), { json: optionBoolean(options, 'json') });
+}
+
+async function tokensCommand(positionals, options) {
+  const subcommand = positionals[1] ?? 'status';
+  if (!['status', 'report'].includes(subcommand)) {
+    throw new SingularityFlowError(
+      `Unknown tokens command '${subcommand}'. This first implementation slice supports status and report.`
+    );
+  }
+  if (optionBoolean(options, 'today')) {
+    throw new SingularityFlowError(
+      'The machine-local daily Token Ledger summary is not implemented yet. Use tokens report --work-id WORK-ID.',
+      { code: 'CXR_USAGE_UNAVAILABLE' }
+    );
+  }
+  const projection = await xrayProjection(positionals, options, { defaultToCurrentPhase: false });
+  return emitCommandResult(commandResult({
+    operation: { id: 'tokens', classification: 'read' },
+    subject: { kind: 'story', id: projection.work.id },
+    outcome: succeeded('tokens.reported', {
+      workId: projection.work.id, phase: projection.ledger.phase ?? 'all phases'
+    }),
+    effects: noEffects(),
+    restState: 'informational',
+    data: { ledger: projection.ledger }
+  }), { json: optionBoolean(options, 'json') });
 }
 
 async function decisionWorkflow(positionals, options, action) {
@@ -9513,6 +9579,8 @@ async function dispatch(command, positionals, options) {
     report: () => reportCommand(positionals, options),
     impact: () => impactCommand(positionals, options),
     telemetry: () => telemetryCommand(positionals, options),
+    context: () => contextCommand(positionals, options),
+    tokens: () => tokensCommand(positionals, options),
     'prompt-log': () => promptLogCommand(positionals, options),
     guide: () => guideCommand(positionals, options),
     // The front door to the first-run walkthrough. `guide --first-run` still works and does the same

@@ -125,6 +125,50 @@ const PAGES = Object.freeze({
     ],
     seeAlso: ['copilot', 'workspace', 'doctor', 'report']
   },
+  context: {
+    summary: 'Inspect exactly what SFlow supplied, omitted, expanded, and could not observe.',
+    description: [
+      'Context X-Ray is a read-only projection over content-free machine-local Evidence Packet',
+      'telemetry and governed phase usage. It never invokes a model, expands a sealed handle,',
+      're-runs a tool, reconciles telemetry, or changes lifecycle state.',
+      '',
+      'Provider observations remain separate from SFlow byte measurements and token estimates.',
+      'Every unavailable value stays unavailable; omitted context is not described as tokens saved.'
+    ],
+    options: [
+      ['--work-id ID', 'Inspect a governed Story other than the one active on this branch.'],
+      ['--phase ID', 'Limit the projection to one phase.'],
+      ['--packet CTX-ID', 'Inspect one retained content-free packet observation.'],
+      ['--json', 'Emit every status, assurance, provenance source, and safe remediation.']
+    ],
+    examples: [
+      ['singularity-flow context xray PAY-1187', 'Show the current phase context and provider coverage.'],
+      ['singularity-flow context xray --work-id PAY-1187 --phase implementation --json', 'Read one phase without reconciling or expanding anything.']
+    ],
+    seeAlso: ['tokens', 'telemetry', 'session', 'report']
+  },
+  tokens: {
+    summary: 'Read the content-free Token Ledger with field-level status and assurance.',
+    description: [
+      'The Token Ledger joins governed phase usage to SFlow-controlled packet measurements without',
+      'recording prompts, completions, source, tool arguments, or tool results. Requested and',
+      'resolved models remain separate, and missing cache fields never become zero.',
+      '',
+      'Status and report are read-only in this first implementation slice. Daily summaries, study',
+      'comparison, export, and pricing-catalog estimates remain later phases of Context X-Ray.'
+    ],
+    options: [
+      ['--work-id ID', 'Read a governed Story other than the one active on this branch.'],
+      ['--phase ID', 'Limit provider and packet totals to one phase.'],
+      ['--packet CTX-ID', 'Limit packet context to one retained observation.'],
+      ['--json', 'Emit per-model and aggregate metric envelopes.']
+    ],
+    examples: [
+      ['singularity-flow tokens status PAY-1187', 'Show provider, cache, and SFlow context coverage.'],
+      ['singularity-flow tokens report --work-id PAY-1187 --phase implementation --json', 'Emit per-model observations without zero-filling unavailable fields.']
+    ],
+    seeAlso: ['context', 'telemetry', 'progress', 'report']
+  },
   copilot: {
     summary: 'Launch Copilot CLI in the active workspace repository with governed context and consented local usage capture.',
     description: [

@@ -1496,6 +1496,19 @@ singularity-flow telemetry disable
 
 `telemetry status` reports qualified launch coverage as `captured`, `partial`, `unavailable`, `conflict`, or `disabled`. A configured exporter is not called captured until a valid event is observed. Reconciliation never commits raw traces or host paths—only the allow-listed phase record. Telemetry does not participate in lifecycle gates or authorization.
 
+Inspect the same content-free observations without reconciling or mutating anything:
+
+```bash
+singularity-flow context xray WORK-123
+singularity-flow tokens status WORK-123
+singularity-flow tokens report WORK-123 --json
+```
+
+Context X-Ray defaults to the Story's current phase; Token Ledger reports the whole Story unless
+`--phase` is supplied. Requested and resolved model identities are reported separately. Provider
+metrics retain field-level `exact`, `partial`, or `unavailable` status, while SFlow's packet
+byte-to-token values are explicitly `estimated`; missing cache usage is never rewritten as zero.
+
 ## Approval and governed change requests
 
 From a terminal:
@@ -2013,6 +2026,8 @@ evidence workflow.
 | `singularity-flow session candidates` | Fetch and list committed remote work-item branches available for session attachment. |
 | `singularity-flow session workspace <WORKSPACE> [--repository ID] [--story ID]` | Attach session context to a saved workspace from any directory and return the exact governed repository/host handoff. |
 | `singularity-flow session context [--work-id ID] [--flight-plan CFP-ID] [--slice SLICE]` | Return bounded legacy context or a deterministic, token-aware Evidence Packet; deeper content is available only through sealed expansion handles. |
+| `singularity-flow context xray [WORK-ID]` | Read what content-free packet telemetry says was supplied, omitted, unavailable, and expanded for the current phase, together with provider-model coverage. |
+| `singularity-flow tokens status\|report [WORK-ID]` | Read the whole-Story Token Ledger with field-level status and assurance; use `--phase` to narrow it. |
 | `singularity-flow session attach <ID>` | Safely fast-forward to the exact remote work-item head and activate the current phase agent. |
 | `singularity-flow session status` | Inspect work-item and agent binding readiness for the current Copilot session. |
 | `sflow-inbox [--offline] [--json]` | Fetch and list committed remote phases awaiting approval; equivalent to `singularity-flow inbox`. |

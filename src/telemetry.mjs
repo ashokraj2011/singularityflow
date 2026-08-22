@@ -2,6 +2,7 @@ import { readFile, stat } from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
 import { gitCommonDir } from './git.mjs';
+import { combineUsageMetrics, providerTokenArithmetic, usageMetric } from './model-usage-contract.mjs';
 import { exists, nowIso, snapshot, writeJson } from './util.mjs';
 import { currentSchemaVersion, readRecord } from './schema-migrations.mjs';
 import { listTelemetryLaunches, telemetryRawPath, telemetryWorktreeId } from './telemetry-provision.mjs';
@@ -123,7 +124,13 @@ function spanFrom(node) {
   const operation = attributes['gen_ai.operation.name'] ?? node.operationName ?? node.name;
   if (operation !== 'chat' && !String(node.name ?? '').startsWith('chat ')) return null;
   const fallbackModel = String(node.name ?? '').replace(/^chat\s+/, '');
-  const model = attributes['gen_ai.response.model'] ?? attributes['gen_ai.request.model'] ?? node.model ?? (fallbackModel || null);
+  const requestedModel = attributes['gen_ai.request.model'] ?? null;
+  const providerResolvedModel = attributes['gen_ai.response.model'] ?? null;
+  const hostObservedModel = providerResolvedModel ? null : (node.model ?? (fallbackModel || null));
+  const resolvedModel = providerResolvedModel ?? hostObservedModel;
+  const resolvedModelAssurance = providerResolvedModel
+    ? 'provider-reported' : hostObservedModel ? 'host-observed' : 'unavailable';
+  const model = resolvedModel ?? requestedModel;
   const provider = attributes['gen_ai.provider.name'] ?? node.provider ?? 'github-copilot';
   const inputTokens = finite(attributes['gen_ai.usage.input_tokens']);
   const outputTokens = finite(attributes['gen_ai.usage.output_tokens']);
@@ -133,7 +140,15 @@ function spanFrom(node) {
   if (!model && inputTokens == null && outputTokens == null && providerCost == null) return null;
   const startedAt = timestamp(node.startTimeUnixNano ?? node.startTimeUnixNanos ?? node.startTime ?? attributes['gen_ai.request.start_time']);
   const completedAt = timestamp(node.endTimeUnixNano ?? node.endTimeUnixNanos ?? node.endTime ?? attributes['gen_ai.response.end_time']);
-  return { provider: String(provider), model: model ? String(model) : 'unknown', inputTokens, outputTokens, cachedInputTokens, cacheWriteInputTokens, providerCost, startedAt, completedAt };
+  return {
+    provider: String(provider),
+    model: model ? String(model) : 'unknown',
+    requestedModel: requestedModel ? String(requestedModel) : null,
+    resolvedModel: resolvedModel ? String(resolvedModel) : null,
+    resolvedModelAssurance,
+    inputTokens, outputTokens, cachedInputTokens, cacheWriteInputTokens, providerCost,
+    startedAt, completedAt
+  };
 }
 
 function spansIn(value, output = [], seen = new Set()) {
@@ -172,30 +187,59 @@ export function parseCopilotTelemetry(text) {
   return { spans, warnings, privacyDiagnostics };
 }
 
-function groupedUsage(spans) {
+export function groupedUsage(spans) {
   const groups = new Map();
   for (const span of spans) {
-    const key = `${span.provider}\0${span.model}`;
-    const group = groups.get(key) ?? { provider: span.provider, model: span.model, spans: 0, inputTokens: 0, outputTokens: 0, cachedInputTokens: 0, cacheWriteInputTokens: 0, providerCost: 0, tokenSpans: 0, costSpans: 0, startedAt: null, completedAt: null };
+    const key = `${span.provider}\0${span.requestedModel ?? ''}\0${span.resolvedModel ?? ''}\0${span.resolvedModelAssurance}`;
+    const group = groups.get(key) ?? {
+      provider: span.provider, model: span.model,
+      requestedModel: span.requestedModel, resolvedModel: span.resolvedModel,
+      resolvedModelAssurance: span.resolvedModelAssurance,
+      spans: 0, observations: {
+        inputTokens: [], outputTokens: [], cachedInputTokens: [],
+        cacheWriteInputTokens: [], providerCost: []
+      },
+      startedAt: null, completedAt: null
+    };
     group.spans += 1;
-    for (const field of ['inputTokens', 'outputTokens', 'cachedInputTokens', 'cacheWriteInputTokens']) if (span[field] != null) group[field] += span[field];
-    if (span.inputTokens != null || span.outputTokens != null) group.tokenSpans += 1;
-    if (span.providerCost != null) { group.providerCost += span.providerCost; group.costSpans += 1; }
+    for (const field of Object.keys(group.observations)) {
+      group.observations[field].push(span[field] == null
+        ? usageMetric(null)
+        : usageMetric(span[field], { assurance: 'provider-reported' }));
+    }
     if (span.startedAt && (!group.startedAt || span.startedAt < group.startedAt)) group.startedAt = span.startedAt;
     if (span.completedAt && (!group.completedAt || span.completedAt > group.completedAt)) group.completedAt = span.completedAt;
     groups.set(key, group);
   }
-  return [...groups.values()].map((group) => ({
-    source: 'copilot-otel', provider: group.provider, model: group.model,
-    inputTokens: group.tokenSpans ? group.inputTokens : null,
-    outputTokens: group.tokenSpans ? group.outputTokens : null,
-    cachedInputTokens: group.tokenSpans ? group.cachedInputTokens : null,
-    cacheWriteInputTokens: group.tokenSpans ? group.cacheWriteInputTokens : null,
-    totalTokens: group.tokenSpans ? group.inputTokens + group.outputTokens : null,
-    providerCost: group.costSpans ? group.providerCost : null,
-    costStatus: !group.costSpans ? 'unavailable' : group.costSpans === group.spans ? 'exact' : 'partial',
-    spans: group.spans, startedAt: group.startedAt, completedAt: group.completedAt
-  }));
+  return [...groups.values()].map((group) => {
+    const observations = Object.fromEntries(Object.entries(group.observations)
+      .map(([field, values]) => [field, combineUsageMetrics(values, { assurance: 'provider-reported' })]));
+    const arithmetic = providerTokenArithmetic({
+      inputTokens: observations.inputTokens,
+      outputTokens: observations.outputTokens,
+      cachedInputTokens: observations.cachedInputTokens
+    });
+    const availableCore = [observations.inputTokens, observations.outputTokens]
+      .filter((metric) => metric.value != null);
+    const status = availableCore.length === 2 && availableCore.every((metric) => metric.status === 'exact')
+      ? 'exact' : availableCore.length ? 'partial' : 'unavailable';
+    return {
+      source: 'copilot-otel', provider: group.provider, model: group.model,
+      requestedModel: group.requestedModel,
+      resolvedModel: group.resolvedModel,
+      resolvedModelAssurance: group.resolvedModelAssurance,
+      status,
+      inputTokens: observations.inputTokens.value,
+      outputTokens: observations.outputTokens.value,
+      cachedInputTokens: observations.cachedInputTokens.value,
+      cacheWriteInputTokens: observations.cacheWriteInputTokens.value,
+      totalTokens: arithmetic.totalProviderTokens.value,
+      providerCost: observations.providerCost.value,
+      costStatus: observations.providerCost.status,
+      observations,
+      spans: group.spans, startedAt: group.startedAt, completedAt: group.completedAt
+    };
+  });
 }
 
 export async function collectCopilotUsage(root, workflow, phase, { generation } = {}) {

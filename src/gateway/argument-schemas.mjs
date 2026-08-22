@@ -95,6 +95,16 @@ const TYPES = Object.freeze({
     return value;
   },
 
+  /** A machine-local Evidence Packet expansion handle. Never accepts paths, refs, commands, or URLs. */
+  'context-handle'(schemaId, field, value) {
+    if (typeof value !== 'string') reject(schemaId, field, 'must be a string', value);
+    assertPlain(schemaId, field, value);
+    if (!/^ctx_[a-f0-9]{32}_[a-f0-9]{32}$/.test(value)) {
+      reject(schemaId, field, 'is not a valid sealed context handle', value);
+    }
+    return value;
+  },
+
   /**
    * A Git ref, commit, or tag — which is to say, something that will reach `git` as argv.
    *
@@ -194,8 +204,10 @@ export const ARGUMENT_SCHEMAS = Object.freeze([
     includeLocalChanges: optional('boolean')
   }),
   schema('context-brief-v1', {
-    workId: required('identifier'),
-    slice: optional('enum', { values: ['brief', 'world-model', 'ast', 'evidence'] }),
+    workId: optional('identifier'),
+    flightPlanId: optional('identifier'),
+    expandHandle: optional('context-handle'),
+    slice: optional('enum', { values: ['brief', 'impact', 'world-model', 'ast', 'evidence', 'history', 'observation'] }),
     maxOutputBytes: optional('integer', { min: 4096, max: 128 * 1024 })
   }),
   schema('work-start-intake-v1', {

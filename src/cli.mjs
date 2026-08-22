@@ -101,6 +101,7 @@ import {
 import { readReturnLocatorAtRef, writeReturnLocator } from './return-locator.mjs';
 import { getGitHubIssue, normalizeWorkSource, workflowSourceIdentity } from './work-source.mjs';
 import { composeContextBrief } from './context-broker.mjs';
+import { compileObservation } from './observation-compiler.mjs';
 import {
   attemptRepair, authorizeRepair, cancelRepair, diagnoseFault, listFaults, listRepairs,
   governedFaultRepairPolicy, parseVerificationArgv, readFault, readRepair, repairNextActions, reportFault, requestRepair,
@@ -5100,12 +5101,53 @@ async function sessionCommand(positionals, options) {
   const discovery = await sessionDiscoveryConfiguration(root, resolved.authority);
   const config = discovery.definition;
   if (subcommand === 'context') {
+    const expandHandle = optionString(options, 'expand-handle');
+    const observationKind = optionString(options, 'observation-kind');
+    const observationFile = optionString(options, 'observation-file');
+    if (Boolean(observationKind) !== Boolean(observationFile)) {
+      throw new SingularityFlowError('Observation context requires both --observation-kind and --observation-file.');
+    }
+    let observation = null;
+    if (observationFile) {
+      const resolvedObservation = await secureRepositoryPath(root, observationFile, {
+        label: 'Observation input', mustExist: true, type: 'file'
+      });
+      observation = await compileObservation(root, {
+        kind: observationKind,
+        raw: await readFile(resolvedObservation.absolute),
+        commandClass: optionString(options, 'observation-command-class', 'configured-operation'),
+        exitCode: optionNumber(options, 'observation-exit-code'),
+        binding: {
+          workId: optionString(options, 'work-id'),
+          flightPlanId: optionString(options, 'flight-plan'),
+          sourceRevision: head(root),
+          maximumOutputBytes: optionNumber(options, 'max-output-bytes')
+        }
+      });
+    }
     const context = await composeContextBrief(root, {
       workId: optionString(options, 'work-id'),
       slice: optionString(options, 'slice', 'brief'),
+      flightPlanId: optionString(options, 'flight-plan'),
+      expandHandle,
+      observation,
       maxOutputBytes: optionNumber(options, 'max-output-bytes')
     });
     if (optionBoolean(options, 'json')) return console.log(JSON.stringify(context, null, 2));
+    if (context.kind === 'evidence-packet-expansion') {
+      console.log(`${context.packetId} · ${context.representation}`);
+      console.log(`Included: ${context.accounting.includedContentBytes}/${context.accounting.maximumOutputBytes} bytes · ~${context.accounting.estimatedInputTokens} tokens`);
+      console.log(context.content);
+      return;
+    }
+    if (context.kind === 'evidence-packet') {
+      console.log(`${context.binding.workId ?? 'preview'} · ${context.binding.phase ?? 'unbound'} · ${context.requestedSlices.join(',')} evidence packet`);
+      console.log(`Packet: ${context.packetId} · ${context.status} · revision ${context.binding.sourceRevision.slice(0, 12)}`);
+      console.log(`Included: ${context.budget.includedContentBytes}/${context.budget.maximumOutputBytes} bytes · ~${context.budget.estimatedInputTokens} estimated tokens`);
+      console.log(`Items: ${context.items.length} · omissions: ${context.omissions.reduce((total, entry) => total + (entry.count ?? 1), 0)} · unavailable: ${context.unavailable.length}`);
+      console.log(JSON.stringify({ items: context.items, omissions: context.omissions, unavailable: context.unavailable }, null, 2));
+      return;
+    }
     console.log(`${context.work.id} · ${context.phase?.id ?? 'complete'} · ${context.slice} context`);
     console.log(`Revision: ${(context.sourceRevision.commit ?? 'unavailable').slice(0, 12)}`);
     console.log(`Included: ${context.accounting.includedContentBytes}/${context.accounting.maximumOutputBytes} bytes · ~${context.accounting.estimatedInputTokens} tokens`);

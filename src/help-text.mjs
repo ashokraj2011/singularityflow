@@ -65,8 +65,11 @@ Usage:
   singularity-flow session status|candidates [--json]
   singularity-flow session workspace <WORKSPACE> [--repository ID] [--story ID] [--json]
   singularity-flow session attach <WORK-ID> [--json]
-  singularity-flow session context [--work-id WORK-ID] [--slice brief|world-model|ast|evidence]
+  singularity-flow session context [--work-id WORK-ID] [--flight-plan CFP-ID]
+    [--slice brief|impact|world-model|ast|evidence|history|observation]
+    [--observation-kind KIND --observation-file REPOSITORY-PATH [--observation-exit-code N]]
     [--max-output-bytes 32768] [--json]
+  singularity-flow session context --expand-handle SEALED-HANDLE [--json]
   singularity-flow receipt show [WORK-ID] [--packet SHA256] [--json|--markdown]
   singularity-flow goal create "<OUTCOME>" --success "<OBSERVABLE SUCCESS>" [--success TEXT]...
     [--work-id WORK-ID] [--kind story|initiative] [--repository ID] [--json]

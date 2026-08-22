@@ -11,6 +11,7 @@ import path from 'node:path';
 
 import { astQuery } from './ast-intelligence.mjs';
 import { loadDefinition } from './config.mjs';
+import { contextPacketTelemetryForWork } from './context-packet-telemetry.mjs';
 import { gitCommonDir } from './git.mjs';
 import { currentSchemaVersion, readRecord } from './schema-migrations.mjs';
 import {
@@ -37,6 +38,7 @@ function stable(value) {
 
 function canonical(value) { return JSON.stringify(stable(value)); }
 function sha256(value) { return createHash('sha256').update(typeof value === 'string' ? value : canonical(value)).digest('hex'); }
+export function changeFlightPlanSha256(value) { return sha256(value); }
 function splitNull(value) { return String(value ?? '').split('\0').filter(Boolean); }
 
 function gitTextAt(root, revision, relative) {
@@ -824,13 +826,15 @@ export async function persistChangeFlightPlanBoundary(root, definition, workflow
     decision: approval.decision, authorityGroup: approval.authorityGroup ?? null,
     at: approval.at ?? approval.approvedAt ?? null
   })));
+  const contextUsage = await contextPacketTelemetryForWork(root, workflow.workItem.id);
   const receipt = {
     ...boundary.receipt,
     verification: { candidates: boundary.plan.verificationCandidates, evidence: verificationEvidence },
     deviations: workflow.changeFlightPlan.expansionDispositions ?? [],
     requirementChallenges: workflow.changeRequests ?? [],
     approvals,
-    gates: Object.values(workflow.phases ?? {}).flatMap((phase) => (phase.astGates ?? []).map((gate) => ({ phaseId: phase.id, ...gate })))
+    gates: Object.values(workflow.phases ?? {}).flatMap((phase) => (phase.astGates ?? []).map((gate) => ({ phaseId: phase.id, ...gate }))),
+    contextUsage
   };
   await writeJson(path.join(directory, 'actual-delta.json'), boundary.delta);
   await writeJson(path.join(directory, 'receipt.json'), receipt);

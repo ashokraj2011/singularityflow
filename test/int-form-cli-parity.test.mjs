@@ -39,6 +39,7 @@ const DOM_VALUE = Object.freeze({
   identifier: 'WRK-1187',
   ref: 'main',
   'opaque-cursor': `astp_eA.${'a'.repeat(64)}`,
+  'context-handle': `ctx_${'a'.repeat(32)}_${'b'.repeat(32)}`,
   'relative-path': 'src/index.mjs',
   'filesystem-path': '/tmp/workspace'
 });

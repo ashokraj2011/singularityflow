@@ -629,6 +629,24 @@ const families = [
   family({ id: 'change-flight-plan-delta', currentVersion: 1 }),
   family({ id: 'change-flight-plan-receipt', currentVersion: 1 }),
   family({
+    id: 'evidence-packet', currentVersion: 1,
+    paths: [/^singularity\/work-items\/[^/]+\/context\/evidence-packets\/ctx-[a-f0-9]{20}\.json$/],
+    immutable: true
+  }),
+  family({ id: 'context-manifest', currentVersion: 1 }),
+  family({
+    id: 'context-expansion-handle', currentVersion: 1,
+    paths: [/^\$git\/evidence-packets\/handles\/ctx_[a-f0-9]{32}_[a-f0-9]{32}\.json$/]
+  }),
+  family({
+    id: 'observation-summary', currentVersion: 1,
+    paths: [/^\$git\/evidence-packets\/observations\/summaries\/[a-f0-9]{64}\.json$/]
+  }),
+  family({
+    id: 'context-packet-telemetry', currentVersion: 1,
+    paths: [/^\$git\/evidence-packets\/telemetry\/ctx-[a-f0-9]{20}\.json$/]
+  }),
+  family({
     id: 'ast-resume-job', currentVersion: 2,
     steps: [migration(1, 2, astResumeJobV1ToV2)],
     paths: [/^\$git\/ast\/v[12]\/jobs\/[^/]+\.json$/]

@@ -5,9 +5,12 @@ import { noEffects, sflowResult } from '../result.mjs';
 
 const LABELS = Object.freeze({
   brief: 'Open the approved phase brief',
+  impact: 'Open accepted Flight Plan impact',
   'world-model': 'Expand repository world-model context',
   ast: 'Expand bounded structural context',
-  evidence: 'Expand governed evidence references'
+  evidence: 'Expand governed evidence references',
+  history: 'Find similar completed governed work',
+  observation: 'Open the current compressed observation'
 });
 
 export async function contextBrief({ arguments: args = {}, subject = null, root = null } = {}) {
@@ -15,14 +18,28 @@ export async function contextBrief({ arguments: args = {}, subject = null, root 
   const data = await composeContextBrief(root, {
     workId: args.workId,
     slice: args.slice ?? 'brief',
+    flightPlanId: args.flightPlanId,
+    expandHandle: args.expandHandle,
     maxOutputBytes: args.maxOutputBytes
   });
-  const next = CONTEXT_BRIEF_SLICES
-    .filter((slice) => slice !== data.slice)
+  const isPacket = data.kind === 'evidence-packet';
+  const isExpansion = data.kind === 'evidence-packet-expansion';
+  const workId = data.work?.id ?? data.binding?.workId ?? null;
+  const phaseId = data.phase?.id ?? data.binding?.phase ?? 'complete';
+  const sliceNavigation = isPacket
+    ? CONTEXT_BRIEF_SLICES.filter((slice) => !data.requestedSlices?.includes(slice)).map((slice) => ({ slice }))
+    : isExpansion ? [] : (data.expansion ?? []).map((slice) => ({ slice }));
+  const expansionNavigation = isPacket
+    ? (data.expansion ?? []).map((entry) => ({ expansion: entry })) : [];
+  const next = [...expansionNavigation, ...sliceNavigation]
     .map((slice, index) => plannerNavigation({
-      handle: `context:${data.work.id}:${slice}`,
-      id: `context:${data.work.id}:${slice}`,
-      label: LABELS[slice],
+      handle: slice.expansion?.handle ?? `context:${workId}:${slice.slice}`,
+      id: slice.expansion?.itemId
+        ? `context:${data.packetId}:${slice.expansion.itemId}`
+        : slice.expansion ? `context:${data.packetId}:${slice.expansion.kind}`
+          : `context:${workId}:${slice.slice}`,
+      label: slice.expansion
+        ? `Expand ${slice.expansion.kind.replaceAll('-', ' ')}` : LABELS[slice.slice],
       rank: index,
       kind: 'read',
       reasonCode: 'context.expand-slice',
@@ -31,13 +48,17 @@ export async function contextBrief({ arguments: args = {}, subject = null, root 
       emphasis: 'link',
       executable: false,
       fallback: {
-        label: LABELS[slice],
-        command: `singularity-flow session context --work-id ${data.work.id} --slice ${slice}`
+        label: slice.expansion
+          ? `Expand ${slice.expansion.kind.replaceAll('-', ' ')}` : LABELS[slice.slice],
+        command: slice.expansion
+          ? `singularity-flow session context --expand-handle ${slice.expansion.handle}`
+          : `singularity-flow session context --work-id ${workId} --slice ${slice.slice}`
       }
     }, 'context.brief', {
-      workId: data.work.id,
-      slice,
-      maxOutputBytes: data.accounting.maximumOutputBytes
+      ...(slice.expansion ? { expandHandle: slice.expansion.handle } : {
+        workId, slice: slice.slice, ...(data.binding?.flightPlanId ? { flightPlanId: data.binding.flightPlanId } : {})
+      }),
+      maxOutputBytes: data.accounting?.maximumOutputBytes ?? data.budget?.maximumOutputBytes
     }));
 
   return sflowResult({
@@ -46,17 +67,26 @@ export async function contextBrief({ arguments: args = {}, subject = null, root 
     subject,
     outcome: {
       status: 'succeeded', messageId: 'gateway.read',
-      slots: { work: data.work.id, phase: data.phase?.id ?? 'complete' }
+      slots: { work: workId ?? data.packetId, phase: phaseId }
     },
     effects: noEffects(),
     why: [{
       code: 'context.bounded-brief', source: 'deterministic',
-      reference: data.sourceRevision.commit,
-      slots: { slice: data.slice, bytes: String(data.accounting.includedContentBytes) }
+      reference: data.sourceRevision?.commit ?? data.binding?.sourceRevision ?? null,
+      slots: {
+        slice: data.slice ?? data.requestedSlices?.join(',') ?? data.representation,
+        bytes: String(data.accounting?.includedContentBytes ?? data.budget?.includedContentBytes ?? 0)
+      }
     }],
-    warnings: data.omissions.map((omission) => ({
-      code: 'context.coverage-limited', source: 'unavailable', slots: { omission }
-    })),
+    warnings: [
+      ...(data.omissions ?? []).map((omission) => ({
+        code: 'context.coverage-limited', source: 'unavailable',
+        slots: { omission: typeof omission === 'string' ? omission : omission.reason }
+      })),
+      ...(data.unavailable ?? []).map((entry) => ({
+        code: 'context.coverage-limited', source: 'unavailable', slots: { omission: entry.code }
+      }))
+    ],
     next,
     restState: next.length ? null : 'informational',
     data: { context: data }

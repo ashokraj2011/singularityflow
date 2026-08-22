@@ -65,12 +65,16 @@ const CONTROLS: Readonly<Record<string, FieldControl>> = Object.freeze({
   text: 'multiline',
   enum: 'select',
   boolean: 'checkbox',
+  'opaque-cursor': 'text',
+  'context-handle': 'text',
   'relative-path': 'path',
   'filesystem-path': 'path'
 });
 
 const HINTS: Readonly<Record<string, string>> = Object.freeze({
   identifier: 'Letters, digits, dots and dashes.',
+  'opaque-cursor': 'A sealed continuation emitted by a prior bounded read.',
+  'context-handle': 'A sealed context expansion emitted by a prior Evidence Packet.',
   'relative-path': 'Relative to the repository. Not an absolute path, and no “..” segments.',
   'filesystem-path': 'A location on this machine. No “..” segments.'
 });
@@ -108,7 +112,7 @@ export function schemaForm(schema: { id: string; fields: Record<string, { type: 
        * property a ceremony must not have. Restoring the typed confirmation would mean the second
        * open is confirmed by the first open's keystrokes.
        */
-      restorable: !isConfirmation,
+      restorable: !isConfirmation && !['opaque-cursor', 'context-handle'].includes(spec.type),
       hint: isConfirmation ? null : HINTS[spec.type] ?? null
     });
   });
@@ -119,6 +123,8 @@ function exampleFor(type: string): string | null {
   if (type === 'identifier') return 'PAY-1187';
   if (type === 'relative-path') return 'singularity/work-items/PAY-1187/intake.md';
   if (type === 'filesystem-path') return '~/code/payments';
+  if (type === 'opaque-cursor') return 'astp_…';
+  if (type === 'context-handle') return 'ctx_…';
   return null;
 }
 

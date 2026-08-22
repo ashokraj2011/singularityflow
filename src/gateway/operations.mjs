@@ -263,7 +263,12 @@ export const GATEWAY_DECLARATIONS = Object.freeze([
     id: 'context.brief',
     modelPolicy: 'never',
     goals: ['work.continue', 'repository.explore'],
-    aliases: en('give me the current context', 'brief this copilot session', 'what context applies here'),
+    aliases: en(
+      'give me the current context', 'brief this copilot session', 'what context applies here',
+      'give copilot context for this change', 'show the target implementation',
+      'expand impact finding', 'show affected tests', 'show the complete failure',
+      'find similar completed work', 'why was this file omitted'
+    ),
     subjects: ['story'],
     argumentSchema: 'context-brief-v1',
     planner: 'context-brief',

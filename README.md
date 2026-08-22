@@ -2010,6 +2010,7 @@ evidence workflow.
 | `sflow-agent [ID]` | Select or change the prompt-only governed agent for the current local work-item session. |
 | `singularity-flow session candidates` | Fetch and list committed remote work-item branches available for session attachment. |
 | `singularity-flow session workspace <WORKSPACE> [--repository ID] [--story ID]` | Attach session context to a saved workspace from any directory and return the exact governed repository/host handoff. |
+| `singularity-flow session context [--work-id ID] [--flight-plan CFP-ID] [--slice SLICE]` | Return bounded legacy context or a deterministic, token-aware Evidence Packet; deeper content is available only through sealed expansion handles. |
 | `singularity-flow session attach <ID>` | Safely fast-forward to the exact remote work-item head and activate the current phase agent. |
 | `singularity-flow session status` | Inspect work-item and agent binding readiness for the current Copilot session. |
 | `sflow-inbox [--offline] [--json]` | Fetch and list committed remote phases awaiting approval; equivalent to `singularity-flow inbox`. |

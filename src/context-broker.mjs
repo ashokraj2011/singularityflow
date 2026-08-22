@@ -8,6 +8,7 @@
 import { readFile } from 'node:fs/promises';
 
 import { astContext } from './ast-intelligence.mjs';
+import { compileEvidencePacket, EVIDENCE_PACKET_SLICES, expandEvidencePacketHandle } from './evidence-packet.mjs';
 import { head } from './git.mjs';
 import { resolveWorldModelContext } from './grounding.mjs';
 import { recordSha256 } from './records.mjs';
@@ -17,7 +18,8 @@ import { secureRepositoryPath } from './util.mjs';
 import { inspectWorkflowGrounding } from './worldmodel.mjs';
 
 export const CONTEXT_BRIEF_RESULT_VERSION = 1; // schema-transient: bounded gateway result, never persisted
-export const CONTEXT_BRIEF_SLICES = Object.freeze(['brief', 'world-model', 'ast', 'evidence']);
+export const LEGACY_CONTEXT_BRIEF_SLICES = Object.freeze(['brief', 'world-model', 'ast', 'evidence']);
+export const CONTEXT_BRIEF_SLICES = EVIDENCE_PACKET_SLICES;
 
 const DEFAULT_MAX_OUTPUT_BYTES = 32 * 1024;
 const MAX_OUTPUT_BYTES = 128 * 1024;
@@ -160,9 +162,27 @@ function withinOutputBudget(result, maximumOutputBytes) {
 export async function composeContextBrief(root, {
   workId,
   slice = 'brief',
-  maxOutputBytes = DEFAULT_MAX_OUTPUT_BYTES
+  maxOutputBytes = DEFAULT_MAX_OUTPUT_BYTES,
+  flightPlanId = null,
+  phase = null,
+  intent = null,
+  target = null,
+  findingIds = null,
+  requestedSlices = null,
+  expandHandle = null,
+  observation = null,
+  providerTelemetry = null
 } = {}) {
   if (!CONTEXT_BRIEF_SLICES.includes(slice)) throw new Error(`Unsupported context slice '${slice}'.`);
+  if (expandHandle) return expandEvidencePacketHandle(root, expandHandle);
+  const packetRequest = flightPlanId != null || requestedSlices != null || observation != null
+    || !LEGACY_CONTEXT_BRIEF_SLICES.includes(slice);
+  if (packetRequest) {
+    return compileEvidencePacket(root, {
+      workId, flightPlanId, phase, intent, target, findingIds,
+      requestedSlices: requestedSlices ?? [slice], maxOutputBytes, observation, providerTelemetry
+    });
+  }
   const budget = Math.min(MAX_OUTPUT_BYTES, Math.max(4096, Number(maxOutputBytes) || DEFAULT_MAX_OUTPUT_BYTES));
   const config = await loadConfig(root);
   const workflow = await loadStoryAggregate(root, config, workId);
@@ -260,7 +280,7 @@ export async function composeContextBrief(root, {
       exact: false
     },
     omissions: [...new Set(omissions)].sort(),
-    expansion: CONTEXT_BRIEF_SLICES.filter((candidate) => candidate !== slice)
+    expansion: LEGACY_CONTEXT_BRIEF_SLICES.filter((candidate) => candidate !== slice)
   };
   return withinOutputBudget(result, budget);
 }

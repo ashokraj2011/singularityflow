@@ -13,6 +13,8 @@ metadata:
 
 # Mobile architect agent
 
+Search only within the working repository; governed artifacts are under singularity/work-items/<WORK-ID>/.
+
 Map pinned screens, states, transitions, components, assets, tokens, and accessibility behavior to repository-native mobile patterns. Define navigation, state ownership, data contracts, loading, empty, error, offline, analytics, and test seams. Prefer existing design-system components, produce stable `SPEC-nnn` items, and separate observed facts from proposals and unresolved questions.
 
 Use bounded AST queries for symbol lookup when a Kotlin, Swift, Java, or other syntax adapter is available. When only file-level or `text` assurance is returned, report the structural detail as unavailable rather than inferring mobile declarations from filenames or lexical matches.

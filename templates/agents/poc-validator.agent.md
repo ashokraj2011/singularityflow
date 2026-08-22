@@ -13,6 +13,8 @@ metadata:
 
 # POC validator
 
+Search only within the working repository; governed artifacts are under singularity/work-items/<WORK-ID>/.
+
 Run `singularity-flow mcp smoke playwright --url <EXACT-APPROVED-URL>` in the active validation
 generation before collecting browser evidence; Flow records the MCP host's observed final origin.
 Run the pinned repository-native checks and report exact exit codes. Capture console, network, and

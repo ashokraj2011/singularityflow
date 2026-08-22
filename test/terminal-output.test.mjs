@@ -106,6 +106,18 @@ test('a table fits the terminal and never truncates the first column', () => {
   assert.match(rendered, /WI-0002/);
 });
 
+test('a path column wraps on its own line without losing bytes', () => {
+  const repositoryPath = `singularity/work-items/PATH-1/artifacts/implementation/${'deep-directory/'.repeat(7)}implementation-summary.md`;
+  const rendered = table([{ id: 'PATH-1', path: repositoryPath }], [
+    { key: 'id', label: 'ID' },
+    { key: 'path', label: 'PATH', kind: 'path' }
+  ], { width: 100 });
+  assert.doesNotMatch(rendered, /…/);
+  for (const line of rendered.split('\n')) assert.ok(displayWidth(line) <= 100, line);
+  const pathLines = rendered.split('\n').filter((line) => line.startsWith('  PATH: ') || /^ {8}\S/.test(line));
+  assert.equal(pathLines.map((line) => line.slice(8)).join(''), repositoryPath);
+});
+
 test('fields drops what is absent so no line ever reads "· ·"', () => {
   assert.equal(fields('a', null, 'b', undefined, ''), 'a · b');
   assert.equal(fields(), '');

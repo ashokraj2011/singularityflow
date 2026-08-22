@@ -619,11 +619,16 @@ export function truncate(value, max = 2000) {
  * is worse than a wrapped row.
  */
 export function table(rows, columns, { width = terminalWidth(), min = 8 } = {}) {
-  const natural = columns.map((column) => Math.max(
+  // Paths are identifiers, not prose. Truncating one produces a value that cannot be opened or
+  // copied into the next command, so preserved columns move below each row and wrap losslessly.
+  // `shrink: false` is the general spelling; `kind: 'path'` makes path-bearing call sites obvious.
+  const preserved = columns.filter((column) => column.shrink === false || column.kind === 'path');
+  const inline = columns.filter((column) => !preserved.includes(column));
+  const natural = inline.map((column) => Math.max(
     displayWidth(column.label),
     ...rows.map((row) => displayWidth(String(row[column.key] ?? '')))
   ));
-  const gutters = (columns.length - 1) * 2;
+  const gutters = Math.max(0, (inline.length - 1) * 2);
   const widths = [...natural];
   // Reclaim the overflow from the widest shrinkable column, one column at a time, so a single long
   // free-text field gives way before several short ones do.
@@ -638,15 +643,35 @@ export function table(rows, columns, { width = terminalWidth(), min = 8 } = {}) 
     widths[target] -= reduction;
     overflow -= reduction;
   }
-  const line = (row) => columns
+  const line = (row) => inline
     .map((column, index) => padDisplay(truncateDisplay(String(row[column.key] ?? ''), widths[index]), widths[index]))
     .join('  ')
     .replace(/\s+$/, '');
-  return [
-    line(Object.fromEntries(columns.map((column) => [column.key, column.label]))),
-    widths.map((value) => '-'.repeat(value)).join('  '),
-    ...rows.map(line)
-  ].join('\n');
+  const wrap = (value, maximum) => {
+    const chunks = [];
+    let chunk = '';
+    for (const character of String(value ?? '')) {
+      if (chunk && displayWidth(chunk + character) > maximum) {
+        chunks.push(chunk);
+        chunk = '';
+      }
+      chunk += character;
+    }
+    if (chunk || !chunks.length) chunks.push(chunk);
+    return chunks;
+  };
+  const preservedLines = (row) => preserved.flatMap((column) => {
+    const prefix = `  ${column.label}: `;
+    const indentation = ' '.repeat(displayWidth(prefix));
+    const chunks = wrap(row[column.key], Math.max(1, width - displayWidth(prefix)));
+    return chunks.map((chunk, index) => `${index === 0 ? prefix : indentation}${chunk}`);
+  });
+  const output = inline.length ? [
+    line(Object.fromEntries(inline.map((column) => [column.key, column.label]))),
+    widths.map((value) => '-'.repeat(value)).join('  ')
+  ] : [];
+  for (const row of rows) output.push(...(inline.length ? [line(row)] : []), ...preservedLines(row));
+  return output.join('\n');
 }
 
 /**

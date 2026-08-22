@@ -144,3 +144,10 @@ test('harness reports exact engine evidence and honest unavailable host coverage
   assert.equal(report.hostObservations.coverage, 0);
   assert.match(report.hostObservations.reason, /no exact model\/tool-loop observation/);
 });
+
+test('harness invocation attributes a CLI command to its registered driving skill', () => {
+  const started = beginHarnessInvocation({
+    command: ['singularity-flow', 'prepare', 'implementation']
+  });
+  assert.equal(started.skill, 'sflow-phase');
+});

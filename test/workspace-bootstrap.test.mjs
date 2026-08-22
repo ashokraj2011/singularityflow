@@ -11,6 +11,7 @@ import {
   workspaceBootstrapRoot
 } from '../src/workspace-bootstrap.mjs';
 import { run } from '../src/util.mjs';
+import { ensureConfigurationBranch } from '../src/configuration-branch.mjs';
 
 async function remoteFixture(branch = 'trunk') {
   const root = await mkdtemp(path.join(os.tmpdir(), 'sflow-bootstrap-guardian-'));
@@ -51,6 +52,50 @@ function input(root, remote, branch = 'main') {
     }
   };
 }
+
+test('bootstrap blocks unapproved capabilities before materialization and binds them into its plan hash', async () => {
+  const fixture = await remoteFixture('trunk');
+  const env = environment(fixture.root);
+  await ensureConfigurationBranch(fixture.remote, {
+    capability: {
+      capabilityId: 'declared-capability',
+      capabilityName: 'Declared capability',
+      kind: 'delivery',
+      repositoryId: 'application',
+      jiraProject: null,
+      teams: []
+    }
+  });
+
+  const withoutCapability = await prepareWorkspaceBootstrap({
+    source: { kind: 'remote', reference: fixture.remote },
+    createInput: input(fixture.root, fixture.remote, 'trunk')
+  }, { env });
+  const declaredInput = input(fixture.root, fixture.remote, 'trunk');
+  declaredInput.capabilities = ['declared-capability'];
+  declaredInput.repositories.application.capabilities = ['declared-capability'];
+  const withCapability = await prepareWorkspaceBootstrap({
+    source: { kind: 'manifest', reference: fixture.remote },
+    createInput: declaredInput
+  }, { env });
+  assert.equal(withCapability.preflight.ready, true);
+  assert.notEqual(withCapability.planHash, withoutCapability.planHash,
+    'the selected capabilities are part of the reviewed materialization plan');
+
+  const invalidInput = input(fixture.root, fixture.remote, 'trunk');
+  invalidInput.id = 'invalid-capability';
+  invalidInput.name = 'invalid-capability';
+  invalidInput.capabilities = ['missing-capability'];
+  invalidInput.repositories.application.capabilities = ['missing-capability'];
+  const blocked = await prepareWorkspaceBootstrap({
+    source: { kind: 'manifest', reference: fixture.remote },
+    createInput: invalidInput
+  }, { env });
+  assert.equal(blocked.preflight.ready, false);
+  assert.ok(blocked.preflight.findings.some((entry) => entry.classification === 'capability-unknown'));
+  assert.equal(await readFile(blocked.plan.workspace.targetPath).catch(() => null), null,
+    'preflight must not create the invalid workspace destination');
+});
 
 test('the public CLI prepares and reads the same durable bootstrap receipt', async () => {
   const fixture = await remoteFixture('trunk');

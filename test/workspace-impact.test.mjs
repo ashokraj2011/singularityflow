@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import { spawnSync } from 'node:child_process';
-import { mkdtemp, readFile, stat, writeFile } from 'node:fs/promises';
+import { mkdir, mkdtemp, readFile, stat, writeFile } from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
 import test from 'node:test';
@@ -28,10 +28,39 @@ async function repository(base, id) {
   return bare;
 }
 
+async function approveImpactCapabilities(root, api, web) {
+  const checkout = path.join(root, 'capability-authority');
+  run('git', ['clone', '-q', api, checkout], { cwd: root });
+  run('git', ['config', 'user.name', 'Impact Tester'], { cwd: checkout });
+  run('git', ['config', 'user.email', 'impact@example.com'], { cwd: checkout });
+  run('git', ['switch', '--orphan', 'sflow/config'], { cwd: checkout });
+  run('git', ['rm', '-rf', '.'], { cwd: checkout, allowFailure: true });
+  await mkdir(path.join(checkout, 'singularity'), { recursive: true });
+  await writeFile(path.join(checkout, 'singularity', 'capabilities.yml'), [
+    'version: 1',
+    'capabilities:',
+    '  checkout: { name: Checkout, kind: collection, parent: null }',
+    '  checkout-api: { name: Checkout API, kind: delivery, parent: checkout, repository: api }',
+    '  checkout-web: { name: Checkout Web, kind: delivery, parent: checkout, repository: web }',
+    ''
+  ].join('\n'));
+  await writeFile(path.join(checkout, 'singularity', 'portfolio.yml'), [
+    'version: 1',
+    'repositories:',
+    `  api: { url: ${JSON.stringify(api)}, defaultBranch: main }`,
+    `  web: { url: ${JSON.stringify(web)}, defaultBranch: main }`,
+    ''
+  ].join('\n'));
+  run('git', ['add', '-A'], { cwd: checkout });
+  run('git', ['commit', '-m', 'approve impact capabilities'], { cwd: checkout });
+  run('git', ['push', 'origin', 'HEAD:refs/heads/sflow/config'], { cwd: checkout });
+}
+
 async function fixture() {
   const root = await mkdtemp(path.join(os.tmpdir(), 'sflow-workspace-impact-'));
   const api = await repository(root, 'api');
   const web = await repository(root, 'web');
+  await approveImpactCapabilities(root, api, web);
   const created = await createWorkspaceConfiguration({
     baseDirectory: path.join(root, 'workspaces'),
     id: 'checkout',

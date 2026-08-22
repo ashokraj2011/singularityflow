@@ -12,7 +12,8 @@ import {
 import { workspaceRegistryFile } from './workspace-context.mjs';
 import {
   atomicJson, createWorkspaceConfiguration, previewWorkspaceConfiguration, readWorkspace,
-  rememberWorkspace, workspaceRepositoryPath, workspaceStatus
+  rememberWorkspace, validateWorkspaceCapabilityRegistration, workspaceRepositoryPath,
+  workspaceStatus
 } from './workspace.mjs';
 import { run, SingularityFlowError } from './util.mjs';
 import { healerReceipt } from './workspace-healers.mjs';
@@ -54,7 +55,8 @@ function planHashFor(plan) {
     workspace: {
       id: plan.workspace.id,
       targetPath: path.resolve(plan.workspace.targetPath),
-      leadRepository: plan.workspace.leadRepository
+      leadRepository: plan.workspace.leadRepository,
+      capabilities: [...(plan.workspace.capabilities ?? [])].sort()
     },
     repositories: plan.repositories.map((repository) => ({
       id: repository.id,
@@ -63,7 +65,8 @@ function planHashFor(plan) {
       defaultBranch: repository.defaultBranch,
       required: repository.required,
       targetPath: path.resolve(repository.targetPath),
-      clone: repository.clone
+      clone: repository.clone,
+      capabilities: [...(plan.createInput.repositories?.[repository.id]?.capabilities ?? [])].sort()
     })),
     initialization: plan.initialization
   };
@@ -705,6 +708,48 @@ async function remotePreflight(plan, { env = process.env, runCommand = run } = {
         retryable: failure.retryable,
         repository: repository.id,
         evidence: failure.evidence ?? null
+      }));
+    }
+  }
+  const manifest = previewWorkspaceConfiguration(plan.createInput).manifest;
+  const requestedCapabilities = [...new Set([
+    ...(manifest.capabilities ?? []),
+    ...Object.values(manifest.repositories ?? {}).flatMap((repository) => repository.capabilities ?? [])
+  ])].sort();
+  if (requestedCapabilities.length) {
+    try {
+      const validation = await validateWorkspaceCapabilityRegistration(manifest);
+      checks.push({
+        id: 'configuration:capability-catalog',
+        status: 'pass',
+        leadRepository: manifest.leadRepository,
+        branch: validation.branch,
+        path: validation.path,
+        capabilities: validation.requested
+      });
+    } catch (error) {
+      const classification = error?.code === 'WORKSPACE_CAPABILITY_UNKNOWN'
+        ? 'capability-unknown' : 'capability-catalog-unavailable';
+      checks.push({
+        id: 'configuration:capability-catalog',
+        status: 'fail',
+        leadRepository: manifest.leadRepository,
+        capabilities: requestedCapabilities,
+        classification
+      });
+      findings.push(finding({
+        id: `configuration.capability-catalog.${classification}`,
+        scope: 'configuration',
+        classification,
+        message: error?.message || String(error),
+        action: 'Map and approve every selected capability on the lead repository sflow/config branch, then prepare a new workspace session.',
+        retryable: false,
+        repository: manifest.leadRepository,
+        evidence: {
+          capabilities: requestedCapabilities,
+          branch: error?.details?.branch ?? 'sflow/config',
+          path: error?.details?.path ?? 'singularity/capabilities.yml'
+        }
       }));
     }
   }

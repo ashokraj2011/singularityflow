@@ -18,6 +18,7 @@ import {
 } from '../src/workspace-context.mjs';
 import { activeWorkspaceRepositoryRoot, ACTIVE_WORKSPACE_ROUTING_EXCLUSIONS } from '../src/cli-entry.mjs';
 import { run } from '../src/util.mjs';
+import { ensureConfigurationBranch } from '../src/configuration-branch.mjs';
 
 const packageRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 const cli = path.join(packageRoot, 'bin', 'singularity-flow.mjs');
@@ -113,6 +114,61 @@ async function remoteRepository(base, name) {
   run('git', ['clone', '--bare', source, bare], { cwd: base });
   return bare;
 }
+
+test('workspace capability registration is approved before any workspace byte is persisted', async () => {
+  const root = await mkdtemp(path.join(os.tmpdir(), 'sflow-workspace-capability-boundary-'));
+  const remote = await remoteRepository(root, 'platform');
+  await ensureConfigurationBranch(remote, {
+    capability: {
+      capabilityId: 'declared-capability',
+      capabilityName: 'Declared capability',
+      kind: 'delivery',
+      repositoryId: 'platform',
+      jiraProject: null,
+      teams: []
+    }
+  });
+  const baseDirectory = path.join(root, 'workspaces');
+  const input = (id, capability) => ({
+    baseDirectory,
+    id,
+    name: id,
+    leadRepository: 'platform',
+    capabilities: [capability],
+    repositories: {
+      platform: {
+        url: remote,
+        defaultBranch: 'main',
+        capabilities: [capability]
+      }
+    }
+  });
+
+  await assert.rejects(
+    () => createWorkspaceConfiguration(input('invalid-capability', 'missing-capability'), {
+      confirmation: 'invalid-capability', clone: false
+    }),
+    (error) => error?.code === 'WORKSPACE_CAPABILITY_UNKNOWN'
+      && /Nothing was changed/.test(error.message)
+  );
+  assert.equal(await stat(path.join(baseDirectory, 'invalid-capability')).catch(() => null), null,
+    'an unapproved capability must not leave a workspace shell or manifest');
+
+  const created = await createWorkspaceConfiguration(
+    input('valid-capability', 'declared-capability'),
+    { confirmation: 'valid-capability', clone: false }
+  );
+  const manifestFile = path.join(created.workspace.path, 'workspace.json');
+  const before = await readFile(manifestFile, 'utf8');
+  await assert.rejects(
+    () => updateWorkspaceConfiguration(created.workspace.path, {
+      capabilities: ['missing-capability']
+    }, { confirmation: 'valid-capability' }),
+    (error) => error?.code === 'WORKSPACE_CAPABILITY_UNKNOWN'
+  );
+  assert.equal(await readFile(manifestFile, 'utf8'), before,
+    'an invalid capability edit must preserve the last approved manifest exactly');
+});
 
 test('the first capability can be onboarded outside every repository and without a workspace', async () => {
   const root = await mkdtemp(path.join(os.tmpdir(), 'sflow-first-capability-'));

@@ -670,6 +670,101 @@ export async function workspaceRemoteCapabilities(url, {
   }
 }
 
+function catalogCapabilityIds(nodes, output = new Set()) {
+  for (const node of nodes ?? []) {
+    if (node?.id) output.add(node.id);
+    catalogCapabilityIds(node?.children, output);
+  }
+  return output;
+}
+
+/**
+ * Prove every capability named by a workspace against the lead repository's approved authority.
+ *
+ * The manifest validator deliberately checks shape only: it must remain usable while opening an
+ * existing workspace offline. Creation and capability-boundary edits are different — persisting an
+ * identifier that the approved sflow/config branch does not know makes the workspace impossible to
+ * use for governed work. Those writes therefore cross this remote authority boundary first.
+ */
+export async function validateWorkspaceCapabilityRegistration(manifest, {
+  readCapabilities = workspaceRemoteCapabilities
+} = {}) {
+  const workspaceCapabilities = [...new Set(manifest.capabilities ?? [])].sort();
+  const repositoryCapabilities = Object.values(manifest.repositories ?? {})
+    .flatMap((repository) => repository.capabilities ?? []);
+  const requested = [...new Set([...workspaceCapabilities, ...repositoryCapabilities])].sort();
+  if (!requested.length) {
+    return { checked: false, requested: [], known: [], branch: null, path: null };
+  }
+
+  const leadRepository = manifest.repositories?.[manifest.leadRepository];
+  if (!leadRepository?.url) {
+    throw new SingularityFlowError(
+      `Workspace lead repository '${manifest.leadRepository}' has no configuration authority URL. Nothing was changed.`,
+      { code: 'WORKSPACE_CAPABILITY_CATALOG_UNAVAILABLE' }
+    );
+  }
+
+  let catalog;
+  try {
+    catalog = await readCapabilities(leadRepository.url);
+  } catch (error) {
+    throw new SingularityFlowError(
+      `Cannot validate workspace capabilities against the approved catalog of lead repository `
+      + `'${manifest.leadRepository}'. Nothing was changed. ${error?.message || String(error)}`,
+      {
+        code: 'WORKSPACE_CAPABILITY_CATALOG_UNAVAILABLE',
+        details: { leadRepository: manifest.leadRepository, capabilities: requested }
+      }
+    );
+  }
+  if (!catalog?.capabilities) {
+    throw new SingularityFlowError(
+      `Workspace capabilities cannot be registered because lead repository '${manifest.leadRepository}' `
+      + `has no approved capability catalog. Nothing was changed. ${catalog?.reason ?? ''}`.trim(),
+      {
+        code: 'WORKSPACE_CAPABILITY_CATALOG_UNAVAILABLE',
+        details: {
+          leadRepository: manifest.leadRepository,
+          capabilities: requested,
+          branch: catalog?.branch ?? 'sflow/config',
+          path: catalog?.path ?? 'singularity/capabilities.yml'
+        }
+      }
+    );
+  }
+
+  const known = catalogCapabilityIds(catalog.capabilities);
+  const unknown = requested.filter((capability) => !known.has(capability));
+  if (unknown.length) {
+    const label = unknown.length === 1
+      ? `Capability '${unknown[0]}' is`
+      : `Capabilities ${unknown.map((capability) => `'${capability}'`).join(', ')} are`;
+    throw new SingularityFlowError(
+      `${label} not declared by the approved sflow/config catalog of lead repository `
+      + `'${manifest.leadRepository}'. Nothing was changed. Map and approve the capability before `
+      + `creating or updating this workspace.`,
+      {
+        code: 'WORKSPACE_CAPABILITY_UNKNOWN',
+        details: {
+          leadRepository: manifest.leadRepository,
+          capabilities: requested,
+          unknown,
+          branch: catalog.branch ?? 'sflow/config',
+          path: catalog.path ?? 'singularity/capabilities.yml'
+        }
+      }
+    );
+  }
+  return {
+    checked: true,
+    requested,
+    known: [...known].sort(),
+    branch: catalog.branch ?? 'sflow/config',
+    path: catalog.path ?? 'singularity/capabilities.yml'
+  };
+}
+
 export function previewWorkspaceConfiguration({
   baseDirectory, id, name, repositories, leadRepository, capabilities
 }) {
@@ -912,6 +1007,10 @@ export async function updateWorkspaceConfiguration(workspacePath, options, { con
   if (confirmation !== preview.manifest.anchor.key) {
     throw new SingularityFlowError(`Workspace editing requires exact workspace confirmation '${preview.manifest.anchor.key}'.`);
   }
+  const capabilityBoundaryChanged = options.capabilities !== undefined
+    || options.repositories !== undefined
+    || options.leadRepository !== undefined;
+  if (capabilityBoundaryChanged) await validateWorkspaceCapabilityRegistration(preview.manifest);
   await atomicJson(path.join(preview.root, WORKSPACE_FILE), preview.manifest);
   try {
     const repaired = await repairWorkspace(preview.root);
@@ -1189,6 +1288,10 @@ export async function createWorkspace(options, {
   const { root, manifest } = preview;
   const confirmationLabel = manifest.anchor.provider === 'jira' ? 'Jira-key' : 'workspace-ID';
   if (confirmation !== manifest.anchor.key) throw new SingularityFlowError(`Workspace creation requires exact ${confirmationLabel} confirmation '${manifest.anchor.key}'.`);
+  // Authority is checked after the exact human confirmation but before even the workspace parent
+  // directory is created. An invalid capability selection therefore leaves no shell, manifest, or
+  // repair journal behind for a later command to mistake for a resumable workspace.
+  await validateWorkspaceCapabilityRegistration(manifest);
   const existing = await stat(root).catch(() => null);
   if (existing && !(await stat(path.join(root, WORKSPACE_FILE)).catch(() => null))) {
     throw new SingularityFlowError(`Workspace target already exists and is not managed by Singularity Flow: ${root}`);

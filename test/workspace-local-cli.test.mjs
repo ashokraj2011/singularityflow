@@ -40,6 +40,25 @@ function cli(args, env, { allowFailure = false } = {}) {
   return result;
 }
 
+async function approveCapabilities(base, source, capabilityIds) {
+  const seed = path.join(base, 'approve-capabilities');
+  run('git', ['clone', '-q', '-b', 'main', source, seed], { cwd: base });
+  run('git', ['config', 'user.name', 'T'], { cwd: seed });
+  run('git', ['config', 'user.email', 't@example.com'], { cwd: seed });
+  run('git', ['switch', '--orphan', 'sflow/config'], { cwd: seed });
+  run('git', ['rm', '-rf', '.'], { cwd: seed, allowFailure: true });
+  await mkdir(path.join(seed, 'singularity'), { recursive: true });
+  await writeFile(path.join(seed, 'singularity', 'capabilities.yml'), [
+    'version: 1',
+    'capabilities:',
+    ...capabilityIds.map((id) => `  ${id}: { name: ${JSON.stringify(id)}, kind: collection, parent: null }`),
+    ''
+  ].join('\n'));
+  run('git', ['add', '-A'], { cwd: seed });
+  run('git', ['commit', '-qm', 'approve capabilities'], { cwd: seed });
+  run('git', ['push', '-q', source, 'HEAD:sflow/config'], { cwd: seed });
+}
+
 test('a workspace can be created with no tracker at all', async () => {
   // The local anchor must remain reachable through the public CLI so a Jira-less team can
   // not create a workspace once the desktop is out of the picture.
@@ -283,6 +302,7 @@ test('a workspace records the capabilities it is for, not only the repositories 
   // "Workspace is capabilities plus a working directory" is the concept; a manifest that recorded
   // only the repositories would have lost what the workspace was actually about.
   const { base, source, env } = await environment();
+  await approveCapabilities(base, source, ['commerce', 'payments']);
   const created = JSON.parse(cli([
     'workspace', 'create', '--local', '--json', '--id', 'commerce-platform',
     '--base', path.join(base, 'workspaces'), '--lead', 'platform',
@@ -312,6 +332,7 @@ test('a workspace can be copied into a different working directory', async () =>
   // A workspace is local and disposable: the same capabilities and repositories, somewhere else to
   // work on them. Nothing governed lives in it that a second copy would fork.
   const { base, source, env } = await environment();
+  await approveCapabilities(base, source, ['commerce', 'payments']);
   const workspaces = path.join(base, 'workspaces');
   cli(['workspace', 'create', '--local', '--json', '--id', 'commerce',
     '--base', workspaces, '--lead', 'platform', '--repository', `platform=${source}`,
@@ -409,6 +430,7 @@ test('a workspace can be renamed without restating everything about it', async (
   // Renaming is the safest edit there is, and it did not work: `workspace update --name` passed no
   // repositories to the validator and was refused for having none. An edit changes what it names.
   const { base, source, env } = await environment();
+  await approveCapabilities(base, source, ['checkout', 'payments', 'storefront']);
   const workspaces = path.join(base, 'workspaces');
   cli(['workspace', 'create', '--local', '--json', '--id', 'commerce', '--base', workspaces,
     '--lead', 'platform', '--repository', `platform=${source}`,

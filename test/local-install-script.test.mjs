@@ -14,6 +14,8 @@ test('local installer performs a safe ordered pull, pack, global install, and pl
   const script = await readFile(scriptPath, 'utf8');
   const packageJson = JSON.parse(await readFile(path.join(root, 'package.json'), 'utf8'));
   assert.equal(packageJson.scripts['install:local'], 'bash ./install.sh');
+  assert.match(packageJson.devDependencies?.typescript ?? '', /^\^5\./,
+    'CLI-only installs need TypeScript because the mandatory schema migration check imports it');
   assert.ok((await stat(scriptPath)).mode & 0o100, 'install.sh must be executable');
   assert.match(script, /git status --porcelain/);
   assert.match(script, /git pull --ff-only/);

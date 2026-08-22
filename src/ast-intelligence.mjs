@@ -11,7 +11,7 @@ import {
   inspectAstAdapterArtifacts, validateAstAdapterManifest
 } from './ast-adapter-contract.mjs';
 import {
-  applyAstPackInstall, applyAstPackRemove, planAstPackInstall, planAstPackRemove, readAstPackRegistry
+  applyAstPackInstall, applyAstPackRemove, inspectAstPackRegistry, planAstPackInstall, planAstPackRemove, readAstPackRegistry
 } from './ast-pack-registry.mjs';
 import { BUILTIN_AST_EXTRACTOR, extractBuiltinAstFacts } from './ast-builtin-extractor.mjs';
 import { compileAstLanguageCatalog, detectAstLanguage } from './ast-language-catalog.mjs';
@@ -2075,6 +2075,7 @@ async function astPackCommand(positionals, options) {
   }
   if (action === 'status' || action === 'doctor') {
     const id = positionals[2] ?? null;
+    if (action === 'doctor' && !id) return inspectAstPackRegistry(process.env, { repair: optionBoolean(options, 'repair') });
     const packs = [];
     for (const candidate of discovery.adapters.filter((adapter) => !id || adapter.id === id)) {
       const { argv: _argv, implementation, ...adapter } = candidate;
@@ -2138,7 +2139,13 @@ async function astPackCommand(positionals, options) {
       }
       const manifest = validateAstAdapterManifest(raw, `AST pack ${resolved.label}`);
       const plan = await planAstPackInstall(resolved.manifest, manifest);
-      if (archiveDigest) plan.confirmation = `INSTALL AST PACK ${manifest.id}@${manifest.packVersion} ${archiveDigest.slice(0, 12)}`;
+      if (archiveDigest) {
+        plan.targetRelative = path.posix.join('installed', `${manifest.id}-${manifest.packVersion}-${archiveDigest.slice(0, 12)}`);
+        plan.target = path.join((await readAstPackRegistry()).root, plan.targetRelative);
+        const rebound = await planAstPackInstall(resolved.manifest, { ...manifest, implementation: { ...manifest.implementation, manifestSha256: archiveDigest } });
+        plan.confirmationToken = rebound.confirmationToken;
+        plan.confirmation = rebound.confirmation;
+      }
       const publicPlan = {
         ...plan, source: resolved.label, files: resolved.members ?? plan.files,
         ...(resolved.archive ? { archive: resolved.archive } : {})

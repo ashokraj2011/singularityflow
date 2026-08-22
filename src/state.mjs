@@ -59,6 +59,7 @@ import { worldModelDisabledForWorkflow } from './intelligence-policy.mjs';
 import { buildRepositorySubjectIndex, resolveContext } from './repository-subject-index.mjs';
 import {
   clearPendingPublication,
+  discardCleanPreparedPublication,
   hasPendingPublication,
   localPendingPublicationPath,
   readPendingPublication,
@@ -2806,6 +2807,16 @@ export async function syncPublication(root, config, workflow) {
     legacyPath: legacyPendingPublicationPath(root, config, workflow.workItem.id)
   });
   if (pending?.record?.recoveryStage === 'interrupted-before-branch-ref-advanced') {
+    if (await discardCleanPreparedPublication(root, pending)) {
+      return {
+        pushed: head(root),
+        remote: pending.record.remote,
+        branch: pending.record.branch,
+        recoveredPrepared: true,
+        capabilityPublished: [],
+        ledger: await reconcileLedger(root, workflow.resolution?.ledger ?? config.ledger ?? {}, { workId: workflow.workItem.id })
+      };
+    }
     throw new SingularityFlowError(
       `Story '${workflow.workItem.id}' was interrupted before its governed commit completed. `
       + 'Inspect the working tree, run singularity-flow doctor, and repair or discard the partial local state before retrying.'

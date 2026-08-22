@@ -8,8 +8,8 @@ import test from 'node:test';
 import { lifecycleEvent } from '../src/lifecycle-event.mjs';
 import { GitPublicationUnitOfWork } from '../src/publication-unit-of-work.mjs';
 import { commitIsolated } from '../src/git.mjs';
-import { readPendingPublication } from '../src/publication-pending.mjs';
-import { publicationJournalPath } from '../src/publication-journal.mjs';
+import { discardCleanPreparedPublication, readPendingPublication } from '../src/publication-pending.mjs';
+import { beginPublicationJournal, publicationJournalPath } from '../src/publication-journal.mjs';
 import { acquireSubjectLock, releaseSubjectLock, subjectLockPath } from '../src/subject-lock.mjs';
 
 const packageRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
@@ -226,6 +226,33 @@ test('prewritten journals make hard process death discoverable before and after 
       });
     }
   }
+});
+
+test('a dead prepared journal is discarded only when Git proves the pre-commit transaction is empty', async () => {
+  const root = await repository('sflow-clean-prepared-journal-');
+  const subject = { kind: 'story', id: 'STORY-CLEAN-PREPARED', branch: 'main' };
+  const expectedHead = git(['rev-parse', 'HEAD'], root);
+  const event = lifecycleEvent({ type: 'approval-requested', subject, phaseId: 'implementation', generation: 2 });
+  const journalPath = publicationJournalPath(root, subject.kind, subject.id);
+
+  async function deadOwnerJournal() {
+    await beginPublicationJournal(root, { subject, expectedHead, branch: 'main', remote: 'origin', event });
+    const journal = JSON.parse(await readFile(journalPath, 'utf8'));
+    journal.owner.pid = 2147483647;
+    await writeFile(journalPath, `${JSON.stringify(journal, null, 2)}\n`);
+    return readPendingPublication(root, subject);
+  }
+
+  const clean = await deadOwnerJournal();
+  assert.equal(await discardCleanPreparedPublication(root, clean), true);
+  assert.equal(await pathExists(journalPath), false);
+  assert.equal(git(['rev-parse', 'HEAD'], root), expectedHead);
+
+  const dirty = await deadOwnerJournal();
+  await writeFile(path.join(root, 'README.md'), '# interrupted bytes\n');
+  assert.equal(await discardCleanPreparedPublication(root, dirty), false);
+  assert.equal(await pathExists(journalPath), true);
+  assert.match(git(['status', '--porcelain'], root), /README\.md/);
 });
 
 test('a lock left by a killed process is reclaimed for Story and Initiative subjects', async (t) => {

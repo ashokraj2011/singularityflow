@@ -28,6 +28,7 @@ import {
 import { buildRepositorySubjectIndex, resolveContext } from './repository-subject-index.mjs';
 import {
   clearPendingPublication,
+  discardCleanPreparedPublication,
   localPendingPublicationPath,
   readPendingPublication,
 } from './publication-pending.mjs';
@@ -1360,6 +1361,16 @@ export async function syncInitiativePublication(root, portfolio, initiative) {
   }
   const record = pending.record;
   if (record.recoveryStage === 'interrupted-before-branch-ref-advanced') {
+    if (await discardCleanPreparedPublication(root, pending)) {
+      return {
+        pending: false,
+        pushed: null,
+        remote: record.remote,
+        branch: record.branch,
+        recoveredPrepared: true,
+        ledger: await reconcileLedger(root, initiative.resolution?.ledger ?? {}, { workId: initiative.initiative.id })
+      };
+    }
     throw new SingularityFlowError(
       `Initiative '${initiative.initiative.id}' was interrupted before its governed commit completed. `
       + 'Inspect the working tree, run singularity-flow doctor, and repair or discard the partial local state before retrying.'

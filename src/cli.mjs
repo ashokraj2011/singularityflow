@@ -4026,7 +4026,10 @@ async function cancelCommand(positionals, options) {
 
 async function syncCommand() {
   const root = repoRoot(); const config = await loadConfig(root); const workflow = await loadStoryAggregate(root, config);
-  const result = await syncPublication(root, config, workflow); console.log(`Pushed ${result.pushed.slice(0, 8)} to ${result.remote}/${result.branch}.`);
+  const result = await syncPublication(root, config, workflow);
+  console.log(result.recoveredPrepared
+    ? `Cleared the interrupted pre-commit publication for ${workflow.workItem.id}; HEAD and the working tree matched its exact baseline. Retry the original command.`
+    : `Pushed ${result.pushed.slice(0, 8)} to ${result.remote}/${result.branch}.`);
 }
 
 async function ledgerCommand(positionals, options) {

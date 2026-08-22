@@ -1,6 +1,6 @@
 import path from 'node:path';
 import { readdir, unlink } from 'node:fs/promises';
-import { gitDir, head, remoteContains } from './git.mjs';
+import { changes, gitDir, head, remoteContains } from './git.mjs';
 import {
   clearPublicationJournal,
   publicationJournalOwnedByCurrentProcess,
@@ -95,7 +95,7 @@ export async function readPendingPublication(root, { kind, id, legacyPath = null
       await clearPublicationJournal(root, subject);
       return { path: local, record, migrated: true, migratedFrom: journal.path };
     }
-    return { path: journal.path, record, migrated: false, journal: true };
+    return { path: journal.path, record, migrated: false, journal: true, journalRecord: journal.record };
   }
   for (const legacy of legacyCandidates(root, { kind, id, legacyPath, roots })) {
     if (!(await exists(legacy))) continue;
@@ -158,6 +158,34 @@ export async function clearPendingPublication(root, { kind, id, legacyPath = nul
     if (await exists(legacy)) await unlink(legacy);
   }
   await clearPublicationJournal(root, { kind, id });
+}
+
+function processIsAlive(pid) {
+  if (!Number.isInteger(pid) || pid <= 0) return null;
+  try { process.kill(pid, 0); return true; }
+  catch (error) { return error?.code === 'ESRCH' ? false : null; }
+}
+
+/**
+ * Clear only the pre-commit crash state whose complete rollback is proven by Git.
+ *
+ * A `prepared` journal is written before lifecycle state changes. If the process is killed after
+ * its own rollback (or before the first write), the old recovery path permanently blocked the
+ * subject: there was no commit to push, while `sync` refused to clear the journal. HEAD equality and
+ * a clean porcelain status prove that every tracked, staged, and untracked byte is back at the
+ * journal's exact baseline. Anything dirty, advanced, live, or ambiguous remains a hard stop.
+ */
+export async function discardCleanPreparedPublication(root, pending) {
+  const journal = pending?.journalRecord;
+  if (!pending?.journal
+    || pending.record?.recoveryStage !== 'interrupted-before-branch-ref-advanced'
+    || journal?.stage !== 'prepared'
+    || journal?.commit != null
+    || head(root) !== journal.expectedHead
+    || changes(root).trim()
+    || processIsAlive(journal.owner?.pid) !== false) return false;
+  await clearPublicationJournal(root, journal.subject);
+  return true;
 }
 
 /** Find legacy markers that no active subject read has migrated. */

@@ -121,6 +121,16 @@ export const RESULT_CARD_STYLE = `
 .sf-receipt-grid { display:grid; grid-template-columns:repeat(auto-fit,minmax(140px,1fr)); gap:8px; }
 .sf-receipt-grid span { display:grid; gap:2px; color:var(--vscode-descriptionForeground); font-size:.84em; }
 .sf-receipt-grid strong { color:var(--vscode-foreground); font-weight:500; overflow-wrap:anywhere; }
+.sf-flight-plan { display:grid; gap:12px; padding:14px; border:1px solid var(--vscode-panel-border); border-radius:6px; }
+.sf-flight-plan h4, .sf-flight-plan p { margin:0; }
+.sf-flight-summary { display:flex; flex-wrap:wrap; gap:7px; }
+.sf-flight-summary span { padding:3px 8px; border:1px solid var(--vscode-panel-border); border-radius:999px; }
+.sf-flight-findings { margin:0; padding:0; list-style:none; display:grid; gap:7px; }
+.sf-flight-findings li { display:grid; grid-template-columns:auto 1fr; gap:3px 8px; }
+.sf-flight-mark { font-weight:700; }
+.sf-flight-mark-proven { color:var(--vscode-testing-iconPassed, var(--vscode-charts-green)); }
+.sf-flight-mark-inferred, .sf-flight-mark-unknown { color:var(--vscode-editorWarning-foreground); }
+.sf-flight-detail { color:var(--vscode-descriptionForeground); font-size:.9em; }
 .sf-home { display:grid; gap:18px; }
 .sf-home-header { display:flex; flex-wrap:wrap; align-items:flex-start; justify-content:space-between; gap:16px;
   padding-bottom:16px; border-bottom:1px solid var(--vscode-panel-border); }
@@ -373,6 +383,29 @@ function faultsHtml(view: ResultCardView): string {
     </article>`).join('')}</section>`;
 }
 
+function flightPlanHtml(view: ResultCardView): string {
+  const plan = view.flightPlan;
+  if (!plan) return '';
+  const mark = (classification: string) => classification === 'proven' ? '✓' : classification === 'inferred' ? '~' : '?';
+  const rows = plan.findings.map((finding) => `<li>
+    <span class="sf-flight-mark sf-flight-mark-${escape(finding.classification)}">${mark(finding.classification)}</span>
+    <span><b>${escape(finding.kind)} · ${escape(finding.subject)}</b>
+      <span class="sf-flight-detail">${escape(finding.relationship)} — ${escape(finding.explanation)}</span></span>
+  </li>`).join('');
+  const unknowns = plan.unknowns.map((finding) => `<li>
+    <span class="sf-flight-mark sf-flight-mark-unknown">?</span>
+    <span><b>${escape(finding.subject)}</b><span class="sf-flight-detail">Not evaluated — ${escape(finding.explanation)}</span></span>
+  </li>`).join('');
+  return `<section class="sf-flight-plan" aria-label="Change Flight Plan">
+    <span><h4>Change Flight Plan</h4><span class="sf-flight-detail">${escape(plan.planId)} · ${escape(plan.status)} · baseline ${escape(plan.baseline.slice(0, 12))}</span></span>
+    <p><b>Intent</b><br>${escape(plan.intent)}</p>
+    <div class="sf-flight-summary"><span>✓ ${plan.counts.proven} proven</span><span>~ ${plan.counts.inferred} need confirmation</span><span>? ${plan.counts.unknown} unresolved</span></div>
+    ${rows ? `<span><b>Affected</b></span><ul class="sf-flight-findings">${rows}</ul>` : '<p>No affected item was established from the evaluated evidence.</p>'}
+    ${unknowns ? `<span><b>Could not evaluate</b></span><ul class="sf-flight-findings">${unknowns}</ul>` : ''}
+    <p><b>Recommended starting point</b><br>${escape(plan.recommendedStart)}</p>
+  </section>`;
+}
+
 function homeAttention(items: readonly HomeAttentionView[], primaryId: string | null): string {
   return `<ul class="sf-home-list">${items.map((item) => {
     const reason = message(item.reasonCode).label;
@@ -437,7 +470,7 @@ function homeHtml(view: ResultCardView, now: number): string {
       </span></header>
     <form class="sf-home-prompt" data-home-request><label for="sf-home-request">What is on your mind today?</label>
       <span class="sf-home-prompt-row"><input id="sf-home-request" name="request" maxlength="300"
-        placeholder="Continue my work, show what changed, or help me investigate…" autocomplete="off">
+        placeholder="What if I change this, continue my work, or investigate a failure…" autocomplete="off">
         <button type="submit">Ask SFlow</button></span>
       ${quick.length ? `<span class="sf-home-goals">${quick.map((action) => button(action, '')).join('')}</span>` : ''}
     </form>
@@ -521,7 +554,7 @@ export function resultCardHtml(view: ResultCardView, { now = Date.now() }: { now
   return `<section class="sf-card sf-card-${view.tone}">
     ${view.replyName ? `<p class="sf-card-greeting">Hello, ${escape(view.replyName)}.</p>` : ''}
     <h3>${icon(view.tone === 'refusal' ? 'statusBlocked' : 'statusCurrent')} ${escape(view.headline)}</h3>
-    ${railHtml(view)}${receiptHtml(view)}${sinceHtml(view, now)}${guidanceHtml(view)}${faultsHtml(view)}${why}${warnings}${gates}${preserved}${actions}${rest}${details}
+    ${railHtml(view)}${receiptHtml(view)}${sinceHtml(view, now)}${guidanceHtml(view)}${flightPlanHtml(view)}${faultsHtml(view)}${why}${warnings}${gates}${preserved}${actions}${rest}${details}
   </section>`;
 }
 

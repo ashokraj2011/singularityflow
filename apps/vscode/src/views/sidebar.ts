@@ -77,7 +77,7 @@ const SECTION_META: Record<SidebarSection, {
       // A form with no entry point is unreachable, which is the same "declared, never consumed"
       // state the gateway itself was in. Lifecycle, because "what does this change touch" is a
       // question about work in flight.
-      { id: 'impact-form', label: 'Impact of a change', icon: 'compare' },
+      { id: 'impact-form', label: 'Change Flight Plan', icon: 'compare' },
       /**
        * Four more destinations belong here and do not fit. `[UXH:REQ-051]`
        *
@@ -234,7 +234,7 @@ export const FAVORITE_MENUS: readonly FavoriteMenu[] = Object.freeze([
   { id: 'ast-intelligence', label: 'AST intelligence', description: 'structural policy, assurance and cache', icon: 'worldModel', command: ACTION_COMMANDS['ast-intelligence']! },
   { id: 'capability-map', label: 'Map a capability', description: 'capability ownership and repositories', icon: 'capability', command: ACTION_COMMANDS['capability-map']! },
   { id: 'visual-assurance', label: 'Visual assurance', description: 'design and comparison evidence', icon: 'visual', command: ACTION_COMMANDS['visual-assurance']! },
-  { id: 'impact-form', label: 'Impact of a change', description: 'quick change analysis', icon: 'compare', command: ACTION_COMMANDS['impact-form']! },
+  { id: 'impact-form', label: 'Change Flight Plan', description: 'preview and explain a proposed change', icon: 'compare', command: ACTION_COMMANDS['impact-form']! },
   { id: 'flow-impact', label: 'Flow impact', description: 'studies and reports', icon: 'impact', command: ACTION_COMMANDS['flow-impact']! },
   { id: 'logs-open', label: 'Workspace logs', description: 'combined workspace timeline', icon: 'commit', command: ACTION_COMMANDS['logs-open']! },
   { id: 'activity-log', label: 'Activity log', description: 'governed activity', icon: 'commit', command: ACTION_COMMANDS['activity-log']! },

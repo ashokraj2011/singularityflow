@@ -38,6 +38,11 @@ import { assertProducerAllowed, buildGenerationAuthorship, importManualArtifact,
 import { initializationStatus, initializeDefinition, loadDefinition, resolveWorkType, validateDefinition, WORKFLOW_PATH } from './config.mjs';
 import { loadImpactDefinition } from './impact-config.mjs';
 import { collectImpactEvidence, compareImpactReceipts, confirmImpactEnrollment, exportImpactReceipts, hydrateImpactPlan, impactDoctor, importImpactEvidence, listImpactReceipts, recordImpactExposure, verifyImpactReceipt } from './impact.mjs';
+import {
+  explainChangeFlightPlanFinding, previewChangeFlightPlan, readChangeFlightPlan,
+  recordChangeFlightPlanDisposition, recordChangeFlightPlanExpansionDisposition,
+  refreshChangeFlightPlan, startChangeFlightPlan
+} from './change-flight-plan.mjs';
 import { registerReference, resolveReference } from './harness-imports.mjs';
 import { beginHarnessInvocation, completeHarnessInvocation, harnessReport } from './harness-events.mjs';
 import { activateWorkItemSession, loadCopilotSession, loadSession, agentSessionStatus, requireCopilotWorkItemSelection, restoreAgentSession, restoreCopilotSession, selectIntakeSource, selectAgent, selectWorkType, setAgentSession } from './session.mjs';
@@ -1494,9 +1499,135 @@ function printImpactPlan(workflow) {
   console.log(`Exposure records: ${(measurement.exposures ?? []).length} · Evidence records: ${(measurement.evidence ?? []).length}`);
 }
 
+function printChangeFlightPlan(plan) {
+  const all = [...plan.findings, ...plan.unknowns];
+  const counts = Object.fromEntries(['proven', 'inferred', 'unknown'].map((classification) => [
+    classification, all.filter((finding) => finding.classification === classification).length
+  ]));
+  console.log(style.heading('CHANGE FLIGHT PLAN'));
+  console.log(`\nIntent\n${plan.intent.text}`);
+  console.log(`\nPlan: ${plan.planId} · ${plan.status} · baseline ${plan.baseline.revision.slice(0, 12)}`);
+  console.log(`Evidence: ${counts.proven} proven · ${counts.inferred} need confirmation · ${counts.unknown} unresolved`);
+  if (plan.findings.length) {
+    console.log('\nAffected');
+    for (const finding of plan.findings.slice(0, 20)) {
+      const mark = finding.classification === 'proven' ? '✓' : finding.classification === 'inferred' ? '~' : '?';
+      console.log(`${mark} ${finding.kind}: ${finding.subject} — ${finding.relationship} [${finding.findingId}]`);
+    }
+    if (plan.findings.length > 20) console.log(`… ${plan.findings.length - 20} more; use --json for the complete bounded result.`);
+  }
+  if (plan.unknowns.length) {
+    console.log('\nCould not evaluate');
+    for (const finding of plan.unknowns) console.log(`? ${finding.subject}: ${finding.explanation}`);
+  }
+  console.log(`\nRecommended starting point\n${plan.recommendedStart.subject}`);
+  console.log(`\nReview a finding: sflow impact explain ${plan.planId} <finding-id>`);
+  console.log(`Start safely: sflow impact start ${plan.planId} --work-id <ID> --work-type <TYPE> --confirm ${plan.planId}`);
+}
+
 async function impactCommand(positionals, options) {
   const root = repoRoot();
   const action = positionals[1] ?? 'status';
+  if (action === 'preview') {
+    const intent = positionals.slice(2).join(' ').trim();
+    const budgets = {};
+    for (const [optionName, field] of [['max-files', 'maxFiles'], ['max-findings', 'maxFindings'], ['max-output-bytes', 'maxOutputBytes']]) {
+      const value = optionNumber(options, optionName);
+      if (value != null) budgets[field] = value;
+    }
+    const plan = await previewChangeFlightPlan(root, {
+      intent,
+      file: optionString(options, 'file'),
+      symbol: optionString(options, 'symbol'),
+      issue: optionString(options, 'issue'),
+      build: optionString(options, 'build'),
+      source: optionString(options, 'source', 'cli'),
+      workType: optionString(options, 'work-type'),
+      ast: optionBoolean(options, 'ast', true),
+      ...(Object.keys(budgets).length ? { budgets } : {})
+    });
+    if (optionBoolean(options, 'json')) return console.log(JSON.stringify(plan, null, 2));
+    printChangeFlightPlan(plan);
+    return;
+  }
+  if (action === 'explain') {
+    const planId = requirePositional(positionals, 2, 'Change Flight Plan ID');
+    const result = await explainChangeFlightPlanFinding(root, planId, positionals[3] ?? null);
+    if (optionBoolean(options, 'json')) return console.log(JSON.stringify(result, null, 2));
+    if (result.finding) {
+      console.log(`${result.finding.findingId} · ${result.finding.classification} · ${result.finding.kind}`);
+      console.log(`${result.finding.subject} ${result.finding.relationship}`);
+      console.log(result.finding.explanation);
+      console.log(`Source: ${result.finding.source.type} ${result.finding.source.reference ?? ''} · baseline ${result.baseline.revision}`);
+      console.log(`Reproducible: ${result.reproducible ? 'yes' : 'no'}`);
+    } else {
+      console.log(`Plan ${result.planId} · baseline ${result.baseline.revision}`);
+      for (const finding of result.findings) console.log(`${finding.findingId}\t${finding.classification}\t${finding.subject}\t${finding.relationship}`);
+    }
+    return;
+  }
+  if (action === 'refresh') {
+    const planId = requirePositional(positionals, 2, 'Change Flight Plan ID');
+    const result = await refreshChangeFlightPlan(root, planId, { ast: optionBoolean(options, 'ast', true) });
+    if (optionBoolean(options, 'json')) return console.log(JSON.stringify(result, null, 2));
+    console.log(result.changed ? `Plan ${planId} refreshed as ${result.plan.planId}.` : `Plan ${planId} is unchanged at the current baseline.`);
+    printChangeFlightPlan(result.plan);
+    return;
+  }
+  if (action === 'start') {
+    const planId = requirePositional(positionals, 2, 'Change Flight Plan ID');
+    const result = await startChangeFlightPlan(root, planId, {
+      confirm: optionString(options, 'confirm'),
+      workId: optionString(options, 'work-id'),
+      workType: optionString(options, 'work-type'),
+      agent: optionString(options, 'agent'),
+      baseBranch: optionString(options, 'base'),
+      worktree: optionString(options, 'worktree'),
+      acceptPartial: optionBoolean(options, 'accept-partial'),
+      independent: optionBoolean(options, 'independent')
+    });
+    if (optionBoolean(options, 'json')) return console.log(JSON.stringify(result, null, 2));
+    console.log(`${result.idempotent ? 'Reused' : 'Started'} ${result.workId} from ${result.planId}.`);
+    console.log(`Branch: ${result.branch}\nIsolated worktree: ${result.worktree}\nResume: cd ${JSON.stringify(result.worktree)} && sflow resume ${result.workId}`);
+    return;
+  }
+  if (action === 'disposition') {
+    const planId = requirePositional(positionals, 2, 'Change Flight Plan ID');
+    const findingId = requirePositional(positionals, 3, 'finding ID');
+    const result = await recordChangeFlightPlanDisposition(root, planId, findingId, {
+      disposition: optionString(options, 'disposition'), reason: optionString(options, 'reason')
+    });
+    if (optionBoolean(options, 'json')) return console.log(JSON.stringify(result, null, 2));
+    console.log(`Recorded the disposition in new plan ${result.planId}; ${planId} remains unchanged for audit.`);
+    printChangeFlightPlan(result);
+    return;
+  }
+  if (action === 'expansion') {
+    const workId = requirePositional(positionals, 2, 'Work ID');
+    const relative = requirePositional(positionals, 3, 'expanded repository path');
+    if (optionString(options, 'confirm') !== relative) {
+      throw new SingularityFlowError(`Recording a scope expansion requires --confirm ${relative}.`);
+    }
+    const config = await loadConfig(root);
+    const workflow = await loadStoryAggregate(root, config, workId);
+    const { value, publication } = await transactStory(
+      root, config, workflow,
+      { type: 'binding', phaseId: workflow.currentPhase, payload: { kind: 'flight-plan-scope-disposition', path: relative } },
+      `[${workId}][flight-plan:scope] ${relative}`,
+      (aggregate) => recordChangeFlightPlanExpansionDisposition(root, aggregate, relative, {
+        disposition: optionString(options, 'disposition'), reason: optionString(options, 'reason')
+      })
+    );
+    if (optionBoolean(options, 'json')) return console.log(JSON.stringify({ disposition: value, publication }, null, 2));
+    console.log(`Recorded ${value.disposition} for ${value.path}. Commit ${publication.sha.slice(0, 8)}${publication.pushed ? ' pushed' : ' retained locally'}.`);
+    return;
+  }
+  if (action === 'status' && String(positionals[2] ?? '').startsWith('cfp-')) {
+    const plan = await readChangeFlightPlan(root, positionals[2]);
+    if (optionBoolean(options, 'json')) return console.log(JSON.stringify(plan, null, 2));
+    printChangeFlightPlan(plan);
+    return;
+  }
   if (action === 'study') {
     const impact = await loadImpactDefinition(root, { required: true });
     const operation = positionals[2] ?? 'list';

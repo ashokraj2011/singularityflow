@@ -86,6 +86,9 @@ import {
   assertAstLifecycleGate, evaluateAstLifecycleGate, persistAstLifecycleReceipt,
   requireAstLifecycleReceipt
 } from './ast-lifecycle.mjs';
+import {
+  evaluateChangeFlightPlanBoundary, persistChangeFlightPlanBoundary
+} from './change-flight-plan.mjs';
 
 export const CONFIG_PATH = WORKFLOW_PATH;
 export const loadConfig = loadDefinition;
@@ -1508,6 +1511,11 @@ export async function submitPhase(root, config, workflow, { phaseId, runChecks =
   // Re-evaluate the exact scope accepted at publication before assigning generation/publication
   // commit fields or running commands. A receipt is evidence only while its policy and bytes match.
   await requireAstLifecycleReceipt(root, config, workflow, phase, { generation: phase.generation });
+  // A Change Flight Plan is advisory until accepted, then becomes an exact scope binding. Compute
+  // actual-versus-expected before the first submission mutation so an unexamined expansion cannot
+  // be hidden by a later workflow write. The receipt itself is persisted only after every ordinary
+  // submission gate below has passed.
+  const flightPlanBoundary = evaluateChangeFlightPlanBoundary(root, workflow, { phaseId: phase.id });
 
   phase.generationCommit = generationCommit(root, workflow, phase);
   if (!phase.generationCommit) await enforceSequenceGate(root, workflow, 'generationCommit', 'submit for approval', {
@@ -1632,6 +1640,9 @@ export async function submitPhase(root, config, workflow, { phaseId, runChecks =
   // human approval would; otherwise an approved phase paradoxically appears "unapproved" to its
   // consumer because no artifact hash was promoted.
   if (phase.status === 'approved') await registerApprovedSnapshot(root, config, workflow, phase);
+  if (persist && flightPlanBoundary) {
+    await persistChangeFlightPlanBoundary(root, config, workflow, flightPlanBoundary);
+  }
   if (persist) await saveWorkflow(root, config, workflow);
   return phase;
 }

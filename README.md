@@ -621,6 +621,13 @@ governed repository. VS Code replaces the current window with that repository
 and opens a fresh chat; a terminal receives the exact `workspace copilot`
 command because a child process cannot change its parent process's directory.
 
+Before a Story exists, **Change Flight Plan** in Home, the command palette, or the editor context
+menu runs the same model-free repository engine as `singularity-flow impact preview`. It binds
+proven/inferred/unknown findings to a committed baseline and does not create lifecycle state. The
+separate, exactly confirmed `impact start` ceremony revalidates that baseline, creates an isolated
+worktree and Story branch, and pins a compact agent context and verification checklist. Accepted
+work is compared with actual changed paths at submission, and unexamined scope expansion blocks.
+
 Before a Story or Epic exists, **Lifecycle → Explore workspace impact** can call
 Copilot over revision-pinned, disposable copies of every selected workspace
 repository. It needs no Work ID and creates no branch. The local report records the

@@ -215,9 +215,11 @@ export const RESULT_MESSAGES = Object.freeze({
   'workspace.evidence-gap': M('{field} was not read'),
   'workspace.selectable': M('Switch to this workspace'),
   'impact.from-changed-paths': M('From the paths you changed'),
+  'impact.from-committed-evidence': M('From source at the pinned commit'),
   'impact.evidence-gap': M('{field} was not read'),
   'impact.tests-by-path-convention': M('{matched} test(s) matched by path convention', 'Matched by naming, not by running anything.'),
   'impact.work-in-the-same-area': M('Other work touches this area'),
+  'impact.start-reviewed-plan': M('Accept this exact plan in a guarded start ceremony'),
   'context.bounded-brief': M(
     'Bounded {slice} context from governed records',
     '{bytes} content byte(s) were included; deeper material remains behind a newly sealed read action.'

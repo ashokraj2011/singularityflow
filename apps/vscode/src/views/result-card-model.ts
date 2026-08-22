@@ -127,6 +127,17 @@ export type ResultCardView = {
     readonly faultId: string; readonly severity: string; readonly type: string;
     readonly summary: string; readonly disposition: string; readonly repairId: string | null;
   }[];
+  /** Change Flight Plan projection; source bodies and unrestricted host paths never enter it. */
+  readonly flightPlan: {
+    readonly planId: string; readonly status: string; readonly intent: string;
+    readonly baseline: string; readonly recommendedStart: string;
+    readonly counts: { readonly proven: number; readonly inferred: number; readonly unknown: number };
+    readonly findings: readonly {
+      readonly id: string; readonly classification: string; readonly kind: string;
+      readonly subject: string; readonly relationship: string; readonly explanation: string;
+    }[];
+    readonly unknowns: readonly { readonly id: string; readonly subject: string; readonly explanation: string }[];
+  } | null;
   /** Shared developer guidance, present only on the canonical recommendation result. */
   readonly guidance: {
     readonly context: { readonly workspace: string | null; readonly workId: string | null; readonly phase: string | null };
@@ -355,6 +366,32 @@ export function buildResultCard(result: any, { acknowledgement }: ResultCardOpti
       disposition: String(fault.disposition ?? 'recorded'),
       repairId: fault.repair?.repairId ? String(fault.repair.repairId) : null
     })).filter((fault: any) => fault.faultId)) : Object.freeze([]),
+    flightPlan: String(result.operation?.id ?? '').startsWith('impact.what-if') && result.data?.changeFlightPlan
+      ? (() => {
+        const plan = result.data.changeFlightPlan;
+        const findings = [...(Array.isArray(plan.findings) ? plan.findings : [])];
+        const unknowns = [...(Array.isArray(plan.unknowns) ? plan.unknowns : [])];
+        const all = [...findings, ...unknowns];
+        return Object.freeze({
+          planId: String(plan.planId ?? ''), status: String(plan.status ?? 'preview'),
+          intent: String(plan.intent?.text ?? ''), baseline: String(plan.baseline?.revision ?? ''),
+          recommendedStart: String(plan.recommendedStart?.subject ?? ''),
+          counts: Object.freeze({
+            proven: all.filter((finding: any) => finding.classification === 'proven').length,
+            inferred: all.filter((finding: any) => finding.classification === 'inferred').length,
+            unknown: all.filter((finding: any) => finding.classification === 'unknown').length
+          }),
+          findings: Object.freeze(findings.slice(0, 40).map((finding: any) => Object.freeze({
+            id: String(finding.findingId ?? ''), classification: String(finding.classification ?? 'unknown'),
+            kind: String(finding.kind ?? 'finding'), subject: String(finding.subject ?? ''),
+            relationship: String(finding.relationship ?? ''), explanation: String(finding.explanation ?? '')
+          }))),
+          unknowns: Object.freeze(unknowns.slice(0, 20).map((finding: any) => Object.freeze({
+            id: String(finding.findingId ?? ''), subject: String(finding.subject ?? ''),
+            explanation: String(finding.explanation ?? '')
+          })))
+        });
+      })() : null,
     guidance: result.operation?.id === 'developer.next' && result.data?.guidance
       ? Object.freeze({
         context: Object.freeze({

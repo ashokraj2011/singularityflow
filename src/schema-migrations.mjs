@@ -613,6 +613,22 @@ const families = [
   family({ id: 'active-workspace', currentVersion: 1, paths: [/^\$local\/active-workspace\.json$/] }),
   family({ id: 'ast-preference', currentVersion: 1, paths: [/^\$local\/ast-preference\.json$/] }),
   family({
+    id: 'change-flight-plan', currentVersion: 1,
+    paths: [
+      /^\$git\/change-flight-plans\/plans\/cfp-[a-f0-9]+\.json$/,
+      /^singularity\/work-items\/[^/]+\/context\/change-flight-plan\/accepted-plan\.json$/
+    ],
+    immutable: true
+  }),
+  family({
+    id: 'change-flight-plan-start', currentVersion: 1,
+    paths: [/^\$git\/change-flight-plans\/starts\/cfp-[a-f0-9]+\.json$/]
+  }),
+  family({ id: 'change-flight-plan-context', currentVersion: 1 }),
+  family({ id: 'change-flight-plan-verification', currentVersion: 1 }),
+  family({ id: 'change-flight-plan-delta', currentVersion: 1 }),
+  family({ id: 'change-flight-plan-receipt', currentVersion: 1 }),
+  family({
     id: 'ast-resume-job', currentVersion: 2,
     steps: [migration(1, 2, astResumeJobV1ToV2)],
     paths: [/^\$git\/ast\/v[12]\/jobs\/[^/]+\.json$/]

@@ -33,6 +33,7 @@ import {
 } from '../../../src/gateway/planners/governed-goal.mjs';
 import { homeOverview } from '../../../src/gateway/planners/home-overview.mjs';
 import { impactQuick } from '../../../src/gateway/planners/impact-quick.mjs';
+import { impactWhatIf, impactWhatIfAssisted } from '../../../src/gateway/planners/impact-what-if.mjs';
 import {
   problemInvestigate, problemInvestigateAssisted
 } from '../../../src/gateway/planners/problem-investigate.mjs';
@@ -74,6 +75,8 @@ export function editorPlanners(): Map<string, unknown> {
     ['workspace-doctor-guide', workspaceDoctorGuide],
     ['workspace-explore-guide', workspaceExploreGuide],
     ['impact-quick', impactQuick],
+    ['impact-what-if', impactWhatIf],
+    ['impact-what-if-assisted', impactWhatIfAssisted],
     ['problem-investigate', problemInvestigate],
     ['problem-investigate-assisted', problemInvestigateAssisted],
     ['repository-explore', repositoryExplore],

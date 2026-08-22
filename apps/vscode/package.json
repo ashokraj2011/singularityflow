@@ -450,8 +450,13 @@
       },
       {
         "command": "singularityFlow.impactForm",
-        "title": "Singularity Flow: Impact of a Change...",
+        "title": "Singularity Flow: Create a Change Flight Plan...",
         "icon": "$(diff)"
+      },
+      {
+        "command": "singularityFlow.previewSelectedImpact",
+        "title": "SFlow: What if I change this?",
+        "icon": "$(search-fuzzy)"
       },
       {
         "command": "singularityFlow.openJourney",
@@ -568,6 +573,13 @@
       }
     ],
     "menus": {
+      "editor/context": [
+        {
+          "command": "singularityFlow.previewSelectedImpact",
+          "when": "resourceScheme == file",
+          "group": "navigation@20"
+        }
+      ],
       "commandPalette": [
         {
           "command": "singularityFlow.openDeveloperHome",

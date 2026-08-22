@@ -100,6 +100,12 @@ Usage:
   singularity-flow progress [WORK-ID] [--json]
   singularity-flow report [WORK-ID] [--format md|html|json] [--out FILE] [--timings]
   singularity-flow report [WORK-ID] --recap [--length brief|standard|full] [--locale TAG] [--timezone ZONE]
+  singularity-flow impact preview "CHANGE INTENT" [--file PATH|--symbol NAME|--issue ID|--build ID] [--no-ast] [--json]
+  singularity-flow impact explain <CFP-ID> [FINDING-ID] [--json]
+  singularity-flow impact refresh <CFP-ID> [--no-ast] [--json]
+  singularity-flow impact disposition <CFP-ID> <FINDING-ID> --disposition included|excluded|investigate|create-follow-up|challenge-requirement|ask-owner [--reason TEXT]
+  singularity-flow impact start <CFP-ID> --work-id ID [--work-type TYPE] --confirm <CFP-ID> [--worktree PATH] [--independent] [--json]
+  singularity-flow impact expansion <WORK-ID> <PATH> --disposition explained|accepted-expansion|deviation|follow-up|requirement-challenge --reason TEXT --confirm <PATH>
   singularity-flow impact study list|show [STUDY] [--json]
   singularity-flow impact study prompt-hash <singularity/prompts/PROMPT.md> [--json]
   singularity-flow impact enroll [WORK-ID] --complexity BAND --risk BAND --confirm

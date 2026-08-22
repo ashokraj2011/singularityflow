@@ -250,11 +250,16 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
       const conversation = planDeveloperConversation(request);
       const currentWork = requestedHome.envelope.data?.currentWork ?? requestedHome.envelope.data?.activeWork ?? null;
       const workOperations = new Set(['work.continue', 'work.return', 'work.readiness', 'review.packet']);
-      const argumentsForRequest = conversation.route && currentWork
-        && workOperations.has(conversation.route.operationId)
-        ? { workId: currentWork.id, ...(currentWork.kind ? { workKind: currentWork.kind } : {}) }
-        : {};
-      const resolution = kernel.resolve({ utterance: request, arguments: argumentsForRequest });
+      const argumentsForRequest = conversation.route?.operationId === 'impact.what-if'
+        ? { proposal: request }
+        : conversation.route && currentWork && workOperations.has(conversation.route.operationId)
+          ? { workId: currentWork.id, ...(currentWork.kind ? { workKind: currentWork.kind } : {}) }
+          : {};
+      const resolution = kernel.resolve({
+        utterance: request,
+        ...(conversation.route ? { goalHint: conversation.route.operationId } : {}),
+        arguments: argumentsForRequest
+      });
       const envelope = resolution.kind === 'read' && resolution.next.length === 1
         ? await kernel.read({ resolutionId: resolution.next[0].handle })
         : resolution;
@@ -416,7 +421,7 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
   /**
    * `Impact of a change…` — the first form the shell renders from a schema. `[UXH:REQ-070]`
    *
-   * `impact-quick-v1` rather than one of the 25 bespoke panels, deliberately. `[UXH:REQ-075]` lets
+   * `impact-what-if-v1` rather than one of the 25 bespoke panels, deliberately. `[UXH:REQ-075]` lets
    * a specialised form remain "when they provide richer domain validation", and the large ones do —
    * `intake-form.ts` populates repository pickers from the snapshot, which no schema declares.
    * Replacing those first would trade a better form for a more general one. This is a surface that
@@ -455,11 +460,37 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
       return;
     }
     if (!showForm({
-      schemaId: 'impact-quick-v1', goal: 'impact.quick',
-      title: 'Impact of a change', command: 'sflow impact'
+      schemaId: 'impact-what-if-v1', goal: 'impact.what-if',
+      title: 'Change Flight Plan', command: 'sflow impact preview'
     })) {
       showRefusal('This build has no argument schema for that operation.',
         { headline: 'Nothing to ask for' });
+    }
+  }));
+  context.subscriptions.push(vscode.commands.registerCommand('singularityFlow.previewSelectedImpact', async (uri?: vscode.Uri) => {
+    const active = activeRepositoryContext();
+    const selected = uri ?? vscode.window.activeTextEditor?.document.uri;
+    if (!active || !selected || selected.scheme !== 'file') {
+      showRefusal('Open a file inside the active governed repository, then try again.', { headline: 'No code selected' });
+      return;
+    }
+    const relative = path.relative(active.root, selected.fsPath).split(path.sep).join('/');
+    if (!relative || relative === '..' || relative.startsWith('../') || path.isAbsolute(relative)) {
+      showRefusal('The selected file is outside the active governed repository.', { headline: 'Selection is out of scope' });
+      return;
+    }
+    try {
+      const { kernel } = gatewaySession(active);
+      const resolution = kernel.resolve({
+        goalHint: 'impact.what-if',
+        arguments: { proposal: `Change selected file ${relative}`, scope: relative }
+      });
+      const envelope = resolution.kind === 'read' && resolution.next.length === 1
+        ? await kernel.read({ resolutionId: resolution.next[0].handle })
+        : resolution;
+      showResultCard(buildResultCard(envelope), { origin: 'gateway' });
+    } catch (error) {
+      showRefusal(error, { headline: 'Could not preview selected code' });
     }
   }));
 

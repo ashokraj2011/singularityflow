@@ -315,6 +315,10 @@ test('a ref argument is something Git will take, not something a shell will', ()
 
 test('a path argument cannot leave the repository', () => {
   assert.deepEqual(
+    validateArguments('impact-what-if-v1', { proposal: 'Change notification delivery', scope: 'src/payment/notifier.ts' }),
+    { proposal: 'Change notification delivery', scope: 'src/payment/notifier.ts' }
+  );
+  assert.deepEqual(
     validateArguments('intent-trace-v1', { repositoryId: 'checkout', path: 'src/pay.ts' }),
     { repositoryId: 'checkout', path: 'src/pay.ts' }
   );

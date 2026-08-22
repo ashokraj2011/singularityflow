@@ -143,6 +143,7 @@ function fromMessage(text: string, details: Record<string, string>, headline?: s
     rail: [],
     receipt: null,
     faults: [],
+    flightPlan: null,
     guidance: null,
     home: null,
     /**

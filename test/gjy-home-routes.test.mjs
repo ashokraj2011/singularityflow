@@ -19,6 +19,9 @@ const journeys = [
   ['Start from Jira', 'start', 'work.start.intake'],
   ['Describe new work', 'start', 'work.start.intake'],
   ['Investigate a bug where checkout fails', 'investigate', 'problem.investigate'],
+  ['Replace the payment retry implementation', 'impact', 'impact.what-if'],
+  ['Add Kotlin support to the AST adapter', 'impact', 'impact.what-if'],
+  ['What if I change payment notification to an event?', 'impact', 'impact.what-if'],
   ['Assess impact of my changes', 'impact', 'impact.quick'],
   ['Explore this repository', 'orient', 'repository.explore']
 ];

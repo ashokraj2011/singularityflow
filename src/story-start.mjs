@@ -23,6 +23,7 @@ import {
 import { SingularityFlowError } from './util.mjs';
 import { normalizeMcpTargetOrigin } from './mcp-target.mjs';
 import { writeReturnLocator } from './return-locator.mjs';
+import { pinAcceptedChangeFlightPlan } from './change-flight-plan.mjs';
 
 function lines(value) {
   if (Array.isArray(value)) return value.map((item) => String(item).trim()).filter(Boolean);
@@ -88,7 +89,9 @@ export async function startStory(root, {
   capabilityId = null,
   targetUrl = null,
   files = [],
-  urls = []
+  urls = [],
+  expectedBaseCommit = null,
+  flightPlan = null
 } = {}) {
   const initialDefinition = await loadDefinition(root);
   validateId(initialDefinition, id);
@@ -142,6 +145,15 @@ export async function startStory(root, {
       );
     }
     baseCommit = refHead(root, remoteBaseRef);
+    if (expectedBaseCommit && baseCommit !== expectedBaseCommit) {
+      throw new SingularityFlowError(
+        `Selected base '${storyBase.localBase}' moved from accepted revision ${expectedBaseCommit.slice(0, 12)} to ${baseCommit.slice(0, 12)}. Nothing was changed.`,
+        {
+          code: 'CFP_PLAN_STALE',
+          details: { expectedBaseCommit, actualBaseCommit: baseCommit, nextAction: `Refresh Change Flight Plan ${flightPlan?.planId ?? ''}.`.trim() }
+        }
+      );
+    }
     if (publishRequired && !capabilityPreflight) {
       const dryRun = preflightPushBranch(root, remote, remoteBaseRef, id);
       if (dryRun.status !== 0) {
@@ -223,6 +235,7 @@ export async function startStory(root, {
     resolved,
     capabilityId
   });
+  if (flightPlan) await pinAcceptedChangeFlightPlan(root, definition, workflow, flightPlan);
   const returnLocator = await writeReturnLocator(root, definition, workflow);
   const publication = await commitAndPublish(
     root,

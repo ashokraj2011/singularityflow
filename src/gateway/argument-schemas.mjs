@@ -222,7 +222,7 @@ export const ARGUMENT_SCHEMAS = Object.freeze([
     targetRef: optional('ref'),
     includeWorktree: optional('boolean')
   }),
-  schema('impact-what-if-v1', { proposal: required('text'), scope: optional('identifier') }),
+  schema('impact-what-if-v1', { proposal: required('text'), scope: optional('relative-path') }),
   schema('repository-explore-v1', {
     repositoryId: optional('identifier'),
     path: optional('relative-path'),

@@ -99,6 +99,10 @@ declare module '*/gateway/planners/governed-goal.mjs' {
   export const governedGoalTracePlanner: unknown;
 }
 declare module '*/gateway/planners/impact-quick.mjs' { export const impactQuick: unknown; }
+declare module '*/gateway/planners/impact-what-if.mjs' {
+  export const impactWhatIf: unknown;
+  export const impactWhatIfAssisted: unknown;
+}
 declare module '*/gateway/planners/problem-investigate.mjs' {
   export const problemInvestigate: unknown;
   export const problemInvestigateAssisted: unknown;

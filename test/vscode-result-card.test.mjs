@@ -69,6 +69,33 @@ test('no message exists for a code nothing can emit', () => {
   assert.deepEqual(orphans, [], `messages for codes that do not exist:\n  ${orphans.join('\n  ')}`);
 });
 
+test('a Change Flight Plan card keeps proven, inferred, and not-evaluated impact distinct', () => {
+  const card = buildResultCard({
+    kind: 'read', operation: { id: 'impact.what-if', classification: 'read' },
+    outcome: { status: 'succeeded', messageId: 'gateway.read', slots: {} },
+    effects: {}, why: [], warnings: [], preserved: [], checklist: [], next: [], restState: 'informational',
+    data: { changeFlightPlan: {
+      planId: 'cfp-1234567890abcdef1234', status: 'preview',
+      intent: { text: 'Replace synchronous notification with an event' },
+      baseline: { revision: 'a'.repeat(40) }, recommendedStart: { subject: 'PaymentNotifier.send' },
+      findings: [
+        { findingId: 'impact-proven', classification: 'proven', kind: 'code-symbol', subject: 'PaymentNotifier.send', relationship: 'selected-target', explanation: 'Exact structural evidence.' },
+        { findingId: 'impact-inferred', classification: 'inferred', kind: 'test-file', subject: 'test/notifier.test.ts', relationship: 'name-correlates', explanation: 'Confirm the test binding.' }
+      ],
+      unknowns: [{ findingId: 'impact-unknown', classification: 'unknown', subject: 'runtimeEvidence', explanation: 'No test-run provider was selected.' }]
+    } }
+  });
+  const html = resultCardHtml(card);
+  assert.equal(card.flightPlan?.counts.proven, 1);
+  assert.equal(card.flightPlan?.counts.inferred, 1);
+  assert.equal(card.flightPlan?.counts.unknown, 1);
+  assert.match(html, /Change Flight Plan/);
+  assert.match(html, /1 proven/);
+  assert.match(html, /1 need confirmation/);
+  assert.match(html, /Not evaluated/);
+  assert.match(html, /PaymentNotifier\.send/);
+});
+
 test('an unfilled slot keeps its name rather than vanishing', () => {
   // "3 file(s) changed" silently becoming " file(s) changed" reads as zero, which is worse than
   // reading as a bug.

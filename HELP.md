@@ -2806,6 +2806,12 @@ singularity-flow approvals [WORK-ID] [--json]  # alias: approval-chain
 singularity-flow progress [WORK-ID] [--json]
 singularity-flow receipt show [WORK-ID] [--packet SHA256] [--json|--markdown]
 singularity-flow report [WORK-ID] [--format md|html|json] [--out FILE] [--timings]
+singularity-flow impact preview "CHANGE INTENT" [--file PATH|--symbol NAME|--issue ID|--build ID] [--no-ast] [--json]
+singularity-flow impact explain <CFP-ID> [FINDING-ID] [--json]
+singularity-flow impact refresh <CFP-ID> [--no-ast] [--json]
+singularity-flow impact disposition <CFP-ID> <FINDING-ID> --disposition included|excluded|investigate|create-follow-up|challenge-requirement|ask-owner [--reason TEXT]
+singularity-flow impact start <CFP-ID> --work-id ID [--work-type TYPE] --confirm <CFP-ID> [--worktree PATH] [--independent] [--json]
+singularity-flow impact expansion <WORK-ID> <PATH> --disposition explained|accepted-expansion|deviation|follow-up|requirement-challenge --reason TEXT --confirm <PATH>
 singularity-flow impact status [WORK-ID] [--json]
 singularity-flow impact study list|show [STUDY-ID] [--json]
 singularity-flow impact study prompt-hash <singularity/prompts/PROMPT.md> [--json]
@@ -2825,6 +2831,21 @@ confidence intervals, guardrails, and JSONL export. Lifecycle
 links to the same screen from active, completed, and archived Stories. This is
 delivery measurement; **Impact Analysis** is the separate repository change-impact
 tool.
+
+### Change Flight Plans
+
+`impact preview` analyzes a proposed change against one committed repository revision. Deterministic
+Git, text, ownership, approved specification, world-model, and reproducible AST evidence is labeled
+`proven`; unavailable categories are labeled `not-evaluated` and appear as unknowns. Preview writes
+no Story, branch, worktree, commit, approval, or lifecycle transition. Its optional cache under the
+Git common directory is machine-local and disposable.
+
+`impact start` is the separate, exactly confirmed mutation. It revalidates the accepted baseline,
+creates one isolated worktree and Story branch, pins the exact plan, writes a bounded agent context
+index and verification candidates, and returns the directory where development starts. Repeating
+the same start returns the existing binding. Submission compares expected and actual paths; an
+unexamined expansion blocks until `impact expansion` records its governed disposition. Verification
+candidates are never counted as evidence merely because they were generated.
 
 singularity-flow prompt-log on|off|status|list|view [ID|latest] [--agent AGENT] [--phase PHASE]
 singularity-flow telemetry status [--json]

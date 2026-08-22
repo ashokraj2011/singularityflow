@@ -5,7 +5,7 @@ const STRUCTURED = new Set(['specify', 'plan', 'implement', 'verify', 'converge'
 // `secrets` is here because `resolveOperation` returns `definition.operation` before it consults
 // any resolver, so a command with a single registered operation never reaches its own resolver.
 // Without this line `resolveSecretsOperation` is unreachable and the scan/protect split is inert.
-const MODEL_FREE_MIXED_COMMANDS = new Set(['report', 'telemetry', 'doctor', 'review', 'inputs', 'spec', 'visual', 'clarification', 'story', 'constitution', 'secrets', 'fault', 'fix', 'repair', 'goal', 'journal', 'push', 'next', 'return']);
+const MODEL_FREE_MIXED_COMMANDS = new Set(['report', 'telemetry', 'doctor', 'review', 'inputs', 'spec', 'visual', 'clarification', 'story', 'constitution', 'secrets', 'fault', 'fix', 'repair', 'goal', 'journal', 'push', 'next', 'return', 'impact']);
 
 const LAZY_MODULES = Object.freeze({
   // The five verbs share one dispatcher; each is a registered command in its own right so the
@@ -173,6 +173,9 @@ const JOURNAL_SUBCOMMANDS = Object.freeze(['settings', ...JOURNAL_READ_SUBCOMMAN
 const PUSH_READ_SUBCOMMANDS = Object.freeze(['status']);
 const PUSH_MUTATION_SUBCOMMANDS = Object.freeze(['retry']);
 const PUSH_SUBCOMMANDS = Object.freeze([...PUSH_READ_SUBCOMMANDS, ...PUSH_MUTATION_SUBCOMMANDS]);
+const IMPACT_READ_SUBCOMMANDS = Object.freeze(['preview', 'explain', 'refresh', 'status', 'study', 'compare', 'verify', 'doctor']);
+const IMPACT_MUTATION_SUBCOMMANDS = Object.freeze(['start', 'disposition', 'expansion', 'export', 'enroll', 'evidence', 'finalize']);
+const IMPACT_SUBCOMMANDS = Object.freeze([...IMPACT_READ_SUBCOMMANDS, ...IMPACT_MUTATION_SUBCOMMANDS, 'exposure']);
 const CONSTITUTION_READ_SUBCOMMANDS = Object.freeze(['check', 'show']);
 const CONSTITUTION_MUTATION_SUBCOMMANDS = Object.freeze(['generate', 'except']);
 const CONSTITUTION_SUBCOMMANDS = Object.freeze([...CONSTITUTION_READ_SUBCOMMANDS, ...CONSTITUTION_MUTATION_SUBCOMMANDS]);
@@ -198,6 +201,7 @@ export const RESOLVER_SUBCOMMANDS = Object.freeze({
   goal: GOAL_SUBCOMMANDS,
   journal: JOURNAL_SUBCOMMANDS,
   push: PUSH_SUBCOMMANDS,
+  impact: IMPACT_SUBCOMMANDS,
   constitution: CONSTITUTION_SUBCOMMANDS,
   spec: SPEC_SUBCOMMANDS,
   story: STORY_SUBCOMMANDS,
@@ -409,6 +413,23 @@ function resolvePushOperation(definition, positionals) {
   return unknownSubcommand('push', subcommand, PUSH_SUBCOMMANDS);
 }
 
+function resolveImpactOperation(definition, positionals) {
+  const subcommand = positionals[1] ?? 'status';
+  if (subcommand === 'exposure') {
+    const action = positionals[2] ?? 'status';
+    if (!['status', 'attest'].includes(action)) return unknownSubcommand('impact exposure', action, ['attest', 'status'], 'action');
+    return never(`impact.exposure.${action}`, definition, action === 'status' ? 'read' : 'mutation');
+  }
+  if (subcommand === 'study') {
+    const action = positionals[2] ?? 'list';
+    if (!['list', 'show', 'prompt-hash'].includes(action)) return unknownSubcommand('impact study', action, ['list', 'prompt-hash', 'show'], 'action');
+    return never(`impact.study.${action}`, definition, 'read');
+  }
+  if (IMPACT_READ_SUBCOMMANDS.includes(subcommand)) return never(`impact.${subcommand}`, definition, 'read');
+  if (IMPACT_MUTATION_SUBCOMMANDS.includes(subcommand)) return never(`impact.${subcommand}`, definition, 'mutation');
+  return unknownSubcommand('impact', subcommand, IMPACT_SUBCOMMANDS);
+}
+
 function resolveReturnOperation(definition, options) {
   return optionBoolean(options, 'apply')
     ? never('return.apply', definition, 'mutation')
@@ -570,6 +591,7 @@ export function resolveOperation({ requestedCommand, positionals, options = {} }
   if (definition.name === 'goal') return resolveGoalOperation(definition, positionals);
   if (definition.name === 'journal') return resolveJournalOperation(definition, positionals, options);
   if (definition.name === 'push') return resolvePushOperation(definition, positionals);
+  if (definition.name === 'impact') return resolveImpactOperation(definition, positionals);
   if (definition.name === 'return') return resolveReturnOperation(definition, options);
   if (definition.name === 'story') return resolveStoryOperation(definition, positionals, options);
   if (definition.name === 'constitution') return resolveConstitutionOperation(definition, positionals);
@@ -630,6 +652,7 @@ export function operationCatalog() {
   const secretsDefinition = commandDefinition('secrets');
   const nextDefinition = commandDefinition('next');
   const returnDefinition = commandDefinition('return');
+  const impactDefinition = commandDefinition('impact');
   const modelFreeMixed = [
     never('return.plan', returnDefinition, 'read'),
     never('return.apply', returnDefinition, 'mutation'),
@@ -683,6 +706,11 @@ export function operationCatalog() {
     never('journal.export.preview', journalDefinition, 'read'),
     ...PUSH_READ_SUBCOMMANDS.map((name) => never(`push.${name}`, pushDefinition, 'read')),
     ...PUSH_MUTATION_SUBCOMMANDS.map((name) => never(`push.${name}`, pushDefinition, 'mutation')),
+    ...IMPACT_READ_SUBCOMMANDS.filter((name) => name !== 'study').map((name) => never(`impact.${name}`, impactDefinition, 'read')),
+    ...IMPACT_MUTATION_SUBCOMMANDS.map((name) => never(`impact.${name}`, impactDefinition, 'mutation')),
+    ...['list', 'show', 'prompt-hash'].map((name) => never(`impact.study.${name}`, impactDefinition, 'read')),
+    never('impact.exposure.status', impactDefinition, 'read'),
+    never('impact.exposure.attest', impactDefinition, 'mutation'),
     // The same vocabularies the resolvers branch on. These were a third hand-maintained copy of the
     // identical literals, so a subcommand could be added to the resolver and silently missing from
     // the catalog that `doctor`, the tripwires and the model-policy audit all read.

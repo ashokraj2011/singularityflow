@@ -21,7 +21,7 @@ export const GOLDEN_JOURNEY_INTENTS = Object.freeze([
 /** Every operation the five goals can advertise, including repository orientation under Home. */
 export const GOLDEN_JOURNEY_OPERATION_IDS = Object.freeze([
   'developer.next', 'work.continue', 'work.start.intake', 'problem.investigate',
-  'impact.quick', 'repository.explore'
+  'impact.quick', 'impact.what-if', 'repository.explore'
 ]);
 
 const EFFECTS_NONE = Object.freeze({
@@ -43,6 +43,17 @@ const route = ({ id, intent, label, operationId, skill, automatic, confirmation,
  * match; ordering is not permission to silently choose between "generate and submit".
  */
 const ROUTES = Object.freeze([
+  route({
+    id: 'preview-change', intent: 'impact', label: 'Preview a proposed change',
+    operationId: 'impact.what-if', skill: '/sf-impact', automatic: true,
+    confirmation: 'none',
+    patterns: [
+      /^(change|replace|remove|add|move|rename)\b.{2,}$/,
+      /\bwhat if (?:i|we)\b.{0,64}\b(change|replace|remove|add|move|rename)\b/,
+      /\b(change|replace|remove|add|move|rename)\b.{0,64}\bwhat (?:will|would)\b.{0,20}\b(affect|impact|break)\b/,
+      /\b(preview|plan)\b.{0,24}\b(change|impact)\b/
+    ]
+  }),
   route({
     id: 'investigate-problem', intent: 'investigate', label: 'Investigate a bug',
     operationId: 'problem.investigate', skill: '/sf-regression-investigate', automatic: true,

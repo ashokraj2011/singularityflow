@@ -147,10 +147,18 @@ if [[ "$*" == "workflow list --json" ]]; then
 fi`);
 
   const registry = 'https://artifacts.example.com/api/npm/npm-virtual/';
+  const activeWorkspace = path.join(fixture, '.singularity-flow', 'active-workspace.json');
   const result = spawnSync('bash', [path.join(fixture, 'install.sh'), '--registry', registry], {
     cwd: fixture,
     encoding: 'utf8',
-    env: { ...process.env, HOME: fixture, SHELL: '/bin/zsh', PATH: `${bin}:${process.env.PATH}`, INSTALL_TEST_LOG: log }
+    env: {
+      ...process.env,
+      HOME: fixture,
+      SHELL: '/bin/zsh',
+      PATH: `${bin}:${process.env.PATH}`,
+      INSTALL_TEST_LOG: log,
+      SINGULARITY_FLOW_ACTIVE_WORKSPACE: activeWorkspace
+    }
   });
   assert.equal(result.status, 0, `${result.stdout}\n${result.stderr}`);
   assert.match(result.stdout, new RegExp(`Installed Singularity Flow ${version.replaceAll('.', '\\.')}`));
@@ -202,7 +210,8 @@ fi`);
       SHELL: '/bin/zsh',
       PATH: `${bin}:${process.env.PATH}`,
       INSTALL_TEST_LOG: log,
-      NPM_CONFIG_REGISTRY: registry
+      NPM_CONFIG_REGISTRY: registry,
+      SINGULARITY_FLOW_ACTIVE_WORKSPACE: activeWorkspace
     }
   });
   assert.equal(standardEnvironment.status, 0, `${standardEnvironment.stdout}\n${standardEnvironment.stderr}`);

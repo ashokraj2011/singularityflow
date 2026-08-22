@@ -8,6 +8,8 @@ argument-hint: "list|show|record|harvest|resolve"
 
 <!-- sflow-output-contract: deterministic-mutation -->
 **Output contract:** Let the CLI validate and mutate state; preserve its exact result, warnings, publication status, artifacts, and next actions.
+<!-- sflow-execution-boundary -->
+**Boundary:** Flow-reported root only (Story: `singularity/work-items/<WORK-ID>/`). Deterministic: `--no-model`; kernel model: forbidden.
 
 1. Start with `singularity-flow knowledge list` and inspect a selected record with `knowledge show`.
 2. Before record, harvest, or resolve, show the exact source, destination, content hash, trust state, and remote/network requirement.

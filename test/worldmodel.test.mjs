@@ -568,7 +568,7 @@ test('wm light creates a compact validated repository inventory with zero model 
   assert.notEqual(rejected.status, 0);
   assert.match(`${rejected.stdout}${rejected.stderr}`, /does not use --runner/);
 
-  const depthAlias = run(process.execPath, [bin, 'wm', 'build', '--depth', 'light', '--views', 'development', '--local'], root);
+  const depthAlias = run(process.execPath, [bin, '--no-model', 'wm', 'build', '--depth', 'light', '--views', 'development', '--local'], root);
   assert.match(depthAlias, /built with 0 model tokens/);
   assert.equal(
     JSON.parse(await readFile(path.join(modelRoot, 'manifest.json'), 'utf8')).analysis_depth,

@@ -1,11 +1,11 @@
-import { didYouMean, optionBoolean, SingularityFlowError } from './util.mjs';
+import { didYouMean, optionBoolean, optionString, SingularityFlowError } from './util.mjs';
 
 const READ_ONLY = new Set(['specify', 'plan', 'implement', 'verify', 'converge', 'about', 'help', 'show', 'choices', 'inbox', 'home', 'recommend', 'status', 'approvals', 'progress', 'receipt', 'guide', 'logs', 'doctor', 'nextsteps', 'snapshot', 'validate', 'explain', 'context', 'tokens']);
 const STRUCTURED = new Set(['specify', 'plan', 'implement', 'verify', 'converge', 'start', 'resume', 'return', 'home', 'recommend', 'status', 'approvals', 'progress', 'report', 'receipt', 'impact', 'telemetry', 'context', 'tokens', 'doctor', 'inputs', 'reinstall', 'snapshot', 'validate', 'gate', 'clarification', 'explain', 'fault', 'fix', 'repair', 'goal', 'journal', 'run']);
 // `secrets` is here because `resolveOperation` returns `definition.operation` before it consults
 // any resolver, so a command with a single registered operation never reaches its own resolver.
 // Without this line `resolveSecretsOperation` is unreachable and the scan/protect split is inert.
-const MODEL_FREE_MIXED_COMMANDS = new Set(['report', 'telemetry', 'doctor', 'review', 'inputs', 'spec', 'visual', 'clarification', 'story', 'constitution', 'secrets', 'fault', 'fix', 'repair', 'goal', 'journal', 'push', 'next', 'return', 'impact']);
+const MODEL_FREE_MIXED_COMMANDS = new Set(['report', 'telemetry', 'doctor', 'review', 'inputs', 'spec', 'visual', 'clarification', 'story', 'constitution', 'secrets', 'fault', 'fix', 'repair', 'goal', 'journal', 'push', 'next', 'return', 'impact', 'copilot']);
 
 const LAZY_MODULES = Object.freeze({
   // The five verbs share one dispatcher; each is a registered command in its own right so the
@@ -54,9 +54,7 @@ function command([name, aliases = []]) {
     classification,
     modelPolicy: mixed ? 'mixed' : 'never',
     output,
-    operation: name === 'copilot'
-      ? required('copilot.launch')
-      : mixed
+    operation: mixed
       ? null
       : operation(name, 'never', { classification, output, noModelFixture: `${name}-model-free` })
   });
@@ -478,7 +476,7 @@ function unclassified(id) {
   });
 }
 
-function resolveWorldModelOperation(definition, positionals) {
+function resolveWorldModelOperation(definition, positionals, options) {
   const subcommand = positionals[1] ?? 'check';
   if (subcommand === 'ast') {
     const action = positionals[2] ?? 'status';
@@ -516,8 +514,19 @@ function resolveWorldModelOperation(definition, positionals) {
     return never(`wm.recovery.${action}`, definition, action === 'publish' ? 'mutation' : 'read');
   }
   const id = `wm.${subcommand}`;
-  if (subcommand === 'ensure') return optional('wm.ensure', 'wm.light', definition);
-  if (WM_MODEL_OPERATIONS.has(subcommand)) return required(id);
+  // `build --depth light` is a compatibility spelling of `wm light`, and an explicitly light
+  // ensure can only select the same deterministic builder. Classify both from their actual work so
+  // `--no-model` does not reject a zero-token operation before its handler is loaded.
+  if (subcommand === 'ensure') {
+    return optionString(options, 'depth') === 'light'
+      ? never('wm.light', definition, 'mutation')
+      : optional('wm.ensure', 'wm.light', definition);
+  }
+  if (WM_MODEL_OPERATIONS.has(subcommand)) {
+    return optionString(options, 'depth') === 'light'
+      ? never('wm.light', definition, 'mutation')
+      : required(id);
+  }
   if (WM_NEVER_OPERATIONS.has(subcommand)) return never(id, definition, WM_READ_OPERATIONS.has(subcommand) ? 'read' : 'mutation');
   return unknownSubcommand('wm', subcommand, RESOLVER_SUBCOMMANDS.wm);
 }
@@ -532,11 +541,18 @@ function resolveNextOperation(definition) {
 function resolveWorkspaceOperation(definition, positionals, options) {
   const requested = positionals[1] ?? 'list';
   const subcommand = WORKSPACE_SUBCOMMAND_ALIASES.get(requested) ?? requested;
-  if (subcommand === 'copilot') return required('workspace.copilot');
+  if (subcommand === 'copilot') {
+    return optionBoolean(options, 'dry-run')
+      ? never('workspace.copilot.preview', definition, 'read')
+      : required('workspace.copilot');
+  }
   if (subcommand === 'impact') {
     const action = positionals[2] ?? 'list';
     if (!WORKSPACE_IMPACT_OPERATIONS.has(action)) return unknownSubcommand('workspace impact', action, WORKSPACE_IMPACT_OPERATIONS, 'action');
-    if (action === 'analyze' && !optionBoolean(options, 'dry-run')) return required('workspace.impact.analyze');
+    if (action === 'analyze' && optionBoolean(options, 'dry-run')) {
+      return never('workspace.impact.analyze.preview', definition, 'read');
+    }
+    if (action === 'analyze') return required('workspace.impact.analyze');
     return never(`workspace.impact.${action}`, definition, WORKSPACE_IMPACT_READ_OPERATIONS.has(action) ? 'read' : 'mutation');
   }
   if (subcommand === 'bootstrap') {
@@ -570,13 +586,20 @@ function resolvePullRequestOperation(definition, positionals, options) {
   return never('pr.plan', definition);
 }
 
+function resolveCopilotOperation(definition, options) {
+  return optionBoolean(options, 'dry-run')
+    ? never('copilot.preview', definition, 'read')
+    : required('copilot.launch');
+}
+
 export function resolveOperation({ requestedCommand, positionals, options = {} }) {
   const definition = commandDefinition(requestedCommand);
   if (definition.operation) return definition.operation;
-  if (definition.name === 'wm') return resolveWorldModelOperation(definition, positionals);
+  if (definition.name === 'wm') return resolveWorldModelOperation(definition, positionals, options);
   if (definition.name === 'next') return resolveNextOperation(definition);
   if (definition.name === 'workspace') return resolveWorkspaceOperation(definition, positionals, options);
   if (definition.name === 'pr') return resolvePullRequestOperation(definition, positionals, options);
+  if (definition.name === 'copilot') return resolveCopilotOperation(definition, options);
   if (definition.name === 'report' || definition.name === 'review') return resolveOptionalOutputOperation(definition, options);
   if (definition.name === 'secrets') return resolveSecretsOperation(definition, positionals);
   if (definition.name === 'telemetry') return resolveTelemetryOperation(definition, positionals);
@@ -618,7 +641,7 @@ export function operationCatalog() {
   )));
   const workspace = [...WORKSPACE_NEVER_OPERATIONS]
     .map((name) => never(`workspace.${name}`, commandDefinition('workspace'), WORKSPACE_READ_OPERATIONS.has(name) ? 'read' : 'mutation'))
-    .concat([required('workspace.copilot')])
+    .concat([required('workspace.copilot'), never('workspace.copilot.preview', commandDefinition('workspace'), 'read')])
     .concat([...WORKSPACE_BOOTSTRAP_ACTIONS].map((name) => never(
       `workspace.bootstrap.${name}`,
       commandDefinition('workspace'),
@@ -627,6 +650,7 @@ export function operationCatalog() {
     .concat([...WORKSPACE_IMPACT_OPERATIONS].map((name) => name === 'analyze'
       ? required('workspace.impact.analyze')
       : never(`workspace.impact.${name}`, commandDefinition('workspace'), WORKSPACE_IMPACT_READ_OPERATIONS.has(name) ? 'read' : 'mutation')));
+  workspace.push(never('workspace.impact.analyze.preview', commandDefinition('workspace'), 'read'));
   const prDefinition = commandDefinition('pr');
   const pullRequest = [
     never('pr.plan', prDefinition),
@@ -654,6 +678,8 @@ export function operationCatalog() {
   const returnDefinition = commandDefinition('return');
   const impactDefinition = commandDefinition('impact');
   const modelFreeMixed = [
+    never('copilot.preview', commandDefinition('copilot'), 'read'),
+    required('copilot.launch'),
     never('return.plan', returnDefinition, 'read'),
     never('return.apply', returnDefinition, 'mutation'),
     never('next.model-free', nextDefinition, 'mutation'),

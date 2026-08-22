@@ -39,6 +39,13 @@ generation when that policy requests `depth: light`. With `--no-model`, their
 registered fallback remains deterministic and the result identifies a light model;
 they never invoke the provider.
 
+Compatibility forms that prove they are deterministic are classified by their
+actual work: `wm build --depth light` and `wm ensure --depth light` resolve to
+`wm.light`. `copilot --dry-run`, `workspace copilot --dry-run`, and `workspace
+impact analyze --dry-run` have separate preview operation IDs and run with
+`--no-model`; permission is checked only when a real host or analysis process is
+about to start.
+
 An authorized semantic `wm ensure` may fall forward to light only when generation
 or validation fails before publication. A state-branch, installation, commit, or
 push failure is reported as publication recovery and never starts a replacement

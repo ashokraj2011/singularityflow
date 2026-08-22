@@ -10,9 +10,11 @@ commands:
 related:
   - manual-authorship
   - telemetry-and-cost
-version: 2
+version: 3
 ---
 Every operation is classified `never`, `optional` (with a deterministic fallback), or `required`; unclassified operations are rejected, not assumed safe. One chokepoint invokes providers; the effective policy is the most restrictive in the call stack. `SINGULARITY_FLOW_NO_MODEL=1` (or `--no-model`) disables model use — most-restrictive-wins — and model-dependent commands fail fast with the manual alternative.
+
+Deterministic light generation and previews retain that guarantee through aliases: `wm build --depth light`, `wm ensure --depth light`, `copilot --dry-run`, `workspace copilot --dry-run`, and `workspace impact analyze --dry-run` all resolve to registered `never` operations. A real launch or semantic analysis remains model-required.
 
 ## Purpose and prerequisites
 

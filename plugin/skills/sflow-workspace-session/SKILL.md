@@ -8,6 +8,8 @@ disable-model-invocation: true
 
 <!-- sflow-output-contract: explicit-selection -->
 **Output contract:** Collect every required choice explicitly; never infer or preselect; preserve errors, artifacts, and next actions.
+<!-- sflow-execution-boundary -->
+**Boundary:** Flow-reported root only (Story: `singularity/work-items/<WORK-ID>/`). Deterministic: `--no-model`; kernel model: forbidden.
 
 This is context setup only. Do not inspect application files, start implementation, generate artifacts, or advance lifecycle state.
 

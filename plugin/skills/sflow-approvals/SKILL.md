@@ -8,6 +8,8 @@ argument-hint: "[WORK-ID]"
 
 <!-- sflow-output-contract: concise-relay -->
 **Output contract:** Return the named CLI command output verbatim; do not elaborate, re-narrate, or hide errors.
+<!-- sflow-execution-boundary -->
+**Boundary:** Flow-reported root only (Story: `singularity/work-items/<WORK-ID>/`). Deterministic: `--no-model`; kernel model: forbidden.
 
 1. Run `singularity-flow approvals $ARGUMENTS --json`.
 2. Show every phase, governed document, required authority group, approval threshold, recorded reviewer identity, decision, and current wait state.

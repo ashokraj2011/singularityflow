@@ -8,6 +8,8 @@ argument-hint: "[WORK-ID] --reason 'explanation'"
 
 <!-- sflow-output-contract: deterministic-mutation -->
 **Output contract:** Let the CLI validate and mutate state; preserve its exact result, warnings, publication status, artifacts, and next actions.
+<!-- sflow-execution-boundary -->
+**Boundary:** Flow-reported root only (Story: `singularity/work-items/<WORK-ID>/`). Deterministic: `--no-model`; kernel model: forbidden.
 
 This is an explicit human lifecycle decision, not an artifact-generation task.
 

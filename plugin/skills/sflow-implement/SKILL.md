@@ -8,9 +8,11 @@ argument-hint: "[implementation focus]"
 # Implementation phase
 
 <!-- sflow-output-contract: clarification-and-artifact -->
-**Output contract:** Resolve paths under singularity/work-items/<WORK-ID>/ in this repository; never search outside it. Use the complete governed prompt and approved inputs, ask unresolved questions, then publish and show configured artifacts.
+**Output contract:** Use the complete governed prompt and approved inputs, ask unresolved questions, then publish and show configured artifacts.
+<!-- sflow-execution-boundary -->
+**Boundary:** Flow-reported root only (Story: `singularity/work-items/<WORK-ID>/`). Deterministic: `--no-model`; kernel model: forbidden.
 
-1. Run `singularity-flow implement --json` first. It resolves the subject, phase, generation, pending publication and approval state, and returns the milestone, the checkpoint, and the underlying kernel operations. If the checkpoint is `recovery` or `approval`, stop there and relay it — those are human boundaries. Otherwise continue with the authoring below, which publishes through the same kernel operation the phase command uses.
+1. Run `singularity-flow implement --json` first. Relay its subject, phase, generation, publication/approval state, milestone, checkpoint, and kernel operations. Stop at `recovery` or `approval`; otherwise author below and publish through the returned kernel operation.
 1. Run `singularity-flow status --json`; stop if the current phase is not `implementation`. Use that governed workflow as Story context.
 2. Run `singularity-flow wm compose --phase implementation` and use the complete returned prompt. If the grounding plan is missing or stale, show and run the exact returned ensure command only with explicit contributor authorization, then rerun the identical compose command. Never add the Story title or a conversational implementation objective as `--task`. Use the shared development and testing grounding to select entry points, conventions, and commands.
 3. Read approved requirements, design artifacts, and the source locations selected by the grounding package.

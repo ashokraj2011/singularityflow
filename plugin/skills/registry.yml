@@ -31,42 +31,49 @@ automaticInvocationAllowlist:
 classes:
   conversational:
     outputContract: guided-actions
+    kernelModelPolicy: never
     warningTokens: 500
     maximumTokens: 800
     previewBytes: 16384
     hardMaximumBytes: 65536
   echo:
     outputContract: concise-relay
+    kernelModelPolicy: never
     warningTokens: 500
     maximumTokens: 800
     previewBytes: 8192
     hardMaximumBytes: 65536
   interactive:
     outputContract: explicit-selection
+    kernelModelPolicy: never
     warningTokens: 500
     maximumTokens: 800
     previewBytes: 16384
     hardMaximumBytes: 65536
   guided:
     outputContract: conversational-guidance
+    kernelModelPolicy: never
     warningTokens: 500
     maximumTokens: 800
     previewBytes: 16384
     hardMaximumBytes: 65536
   review:
     outputContract: governed-review
+    kernelModelPolicy: never
     warningTokens: 500
     maximumTokens: 800
     previewBytes: 16384
     hardMaximumBytes: 65536
   generative:
     outputContract: clarification-and-artifact
+    kernelModelPolicy: never
     warningTokens: 500
     maximumTokens: 800
     previewBytes: 16384
     hardMaximumBytes: 65536
   mutation:
     outputContract: deterministic-mutation
+    kernelModelPolicy: never
     warningTokens: 500
     maximumTokens: 800
     previewBytes: 16384
@@ -138,7 +145,7 @@ skills:
   sflow-initiative-evidence: { class: mutation }
   sflow-initiative-materialize: { class: mutation }
   sflow-initiative-next: { class: echo }
-  sflow-initiative-phase: { class: generative }
+  sflow-initiative-phase: { class: generative, kernelModelPolicy: conditional }
   sflow-initiative-start: { class: interactive }
   sflow-initiative-status: { class: echo }
   sflow-inputs: { class: echo }
@@ -154,7 +161,7 @@ skills:
   sflow-ledger: { class: mutation }
   sflow-logs: { class: echo }
   sflow-mcp: { class: mutation }
-  sflow-next: { class: mutation }
+  sflow-next: { class: mutation, kernelModelPolicy: conditional }
   sflow-nextsteps: { class: conversational }
   sflow-phase: { class: generative }
   sflow-plugin: { class: mutation }
@@ -176,13 +183,13 @@ skills:
   sflow-resume: { class: interactive }
   sflow-return: { class: interactive }
   sflow-review: { class: review }
-  sflow-run: { class: mutation }
+  sflow-run: { class: mutation, kernelModelPolicy: conditional }
   sflow-secrets: { class: mutation }
   sflow-session: { class: interactive }
   sflow-show: { class: echo }
   sflow-show-prompt: { class: echo }
   sflow-snapshot: { class: echo }
-  sflow-spec: { class: mutation }
+  sflow-spec: { class: mutation, kernelModelPolicy: conditional }
   sflow-stack: { class: mutation }
   sflow-start: { class: interactive }
   sflow-status: { class: conversational }
@@ -191,18 +198,18 @@ skills:
   sflow-story-fetch: { class: interactive }
   sflow-story-inbox: { class: echo }
   sflow-work-interval: { class: mutation }
-  sflow-story-start: { class: interactive }
+  sflow-story-start: { class: interactive, kernelModelPolicy: conditional }
   sflow-submit: { class: review }
   sflow-telemetry: { class: echo }
   sflow-upload: { class: mutation }
   sflow-verify: { class: generative }
   sflow-visual: { class: mutation }
   sflow-watch: { class: echo }
-  sflow-workflow-rules: { class: conversational }
+  sflow-workflow-rules: { class: conversational, kernelModelPolicy: conditional }
   sflow-workflows: { class: mutation }
-  sflow-workspace: { class: interactive }
+  sflow-workspace: { class: interactive, kernelModelPolicy: conditional }
   sflow-workspace-bootstrap: { class: interactive }
-  sflow-workspace-impact: { class: generative }
+  sflow-workspace-impact: { class: generative, kernelModelPolicy: conditional }
   sflow-workspace-session: { class: interactive }
   sflow-workspaces: { class: echo }
-  sflow-worldmodel: { class: generative }
+  sflow-worldmodel: { class: generative, kernelModelPolicy: conditional }

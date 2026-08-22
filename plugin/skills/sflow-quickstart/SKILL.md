@@ -6,6 +6,8 @@ description: See a complete governed change in a throwaway repository.
 
 <!-- sflow-output-contract: concise-relay -->
 **Output contract:** Return the named CLI command output verbatim; do not elaborate, re-narrate, or hide errors.
+<!-- sflow-execution-boundary -->
+**Boundary:** Flow-reported root only (Story: `singularity/work-items/<WORK-ID>/`). Deterministic: `--no-model`; kernel model: forbidden.
 
 Use this when someone is new, asks how Singularity Flow works, or wants to try it
 without committing a real repository to it. It runs in a sandbox the command

@@ -8,6 +8,8 @@ argument-hint: "<sfref:v1:...> [--section HEADING | --json-pointer POINTER | --r
 
 <!-- sflow-output-contract: concise-relay -->
 **Output contract:** Return the named CLI command output verbatim; do not elaborate, re-narrate, or hide errors.
+<!-- sflow-execution-boundary -->
+**Boundary:** Flow-reported root only (Story: `singularity/work-items/<WORK-ID>/`). Deterministic: `--no-model`; kernel model: forbidden.
 
 Run `singularity-flow show <HANDLE>` with only the selection options explicitly requested by the user:
 

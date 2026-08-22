@@ -739,7 +739,7 @@ test('workspace Copilot launcher dry-run uses the selected repository and sessio
   assert.equal(result.status, 0, result.stderr);
   assert.equal(JSON.parse(result.stdout).storyId, 'MOB-321');
 
-  result = spawnSync(process.execPath, [cli, 'workspace', 'copilot', '--mode', 'plan', '--dry-run'], {
+  result = spawnSync(process.execPath, [cli, '--no-model', 'workspace', 'copilot', '--mode', 'plan', '--dry-run'], {
     cwd: root, env, encoding: 'utf8'
   });
   assert.equal(result.status, 0, result.stderr);
@@ -751,7 +751,7 @@ test('workspace Copilot launcher dry-run uses the selected repository and sessio
   assert.equal(launch.prompt, `${created.workspace.name} / MOB-321 >`);
   assert.equal(launch.telemetry.captureStatus, 'disclosure-required');
 
-  result = spawnSync(process.execPath, [cli, 'copilot', '--mode', 'plan', '--dry-run'], {
+  result = spawnSync(process.execPath, [cli, '--no-model', 'copilot', '--mode', 'plan', '--dry-run'], {
     cwd: root, env, encoding: 'utf8'
   });
   assert.equal(result.status, 0, result.stderr);

@@ -9,6 +9,8 @@ disable-model-invocation: true
 
 <!-- sflow-output-contract: concise-relay -->
 **Output contract:** Return the named CLI command output verbatim; do not elaborate, re-narrate, or hide errors.
+<!-- sflow-execution-boundary -->
+**Boundary:** Flow-reported root only (Story: `singularity/work-items/<WORK-ID>/`). Deterministic: `--no-model`; kernel model: forbidden.
 
 1. Run `singularity-flow wm show-prompt`, forwarding `$ARGUMENTS` unchanged when present.
 2. Treat the command as read-only. Do not build the world model, prepare or publish an artifact, edit files, create commits, or change workflow state.

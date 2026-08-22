@@ -8,7 +8,9 @@ argument-hint: "[generation focus]"
 # Generate the active phase
 
 <!-- sflow-output-contract: clarification-and-artifact -->
-**Output contract:** Resolve paths under singularity/work-items/<WORK-ID>/ in this repository; never search outside it. Use the complete governed prompt and approved inputs, ask unresolved questions, then publish and show configured artifacts.
+**Output contract:** Use the complete governed prompt and approved inputs, ask unresolved questions, then publish and show configured artifacts.
+<!-- sflow-execution-boundary -->
+**Boundary:** Flow-reported root only (Story: `singularity/work-items/<WORK-ID>/`). Deterministic: `--no-model`; kernel model: forbidden.
 
 On `Out of sequence`, stop and relay the error. On `Soft sequence warning`, show it and leave `continue` to the human. Never edit state to bypass a gate.
 
@@ -21,4 +23,4 @@ On `Out of sequence`, stop and relay the error. On `Soft sequence warning`, show
 7. For specifications, assign stable `SPEC-nnn` identifiers mapped to `AC-nnn`. For implementation/tests, preserve both identifiers. For conformance, compare every identifier with file/line evidence and disclose all self-approvals.
 8. Run `singularity-flow phase publish <phase> --authored governed-agent --channel copilot-host`. Commit composition, prompt snapshot, and sanitized `telemetry/<phase>-gen<N>.json` without raw traces or conversation identifiers. Usage may be `pending` until submit; use `--usage-json` only for exact external records.
 9. Run `singularity-flow phase show <phase> --json`. Reproduce every published text document in full in the visible assistant response between `--- BEGIN <path> ---` and `--- END <path> ---`, preceded by ID, kind, bytes, and SHA-256. Never replace the published document with a summary. A Shell/tool block does not count, and never say it was “shown above.” For binary documents, show path, metadata, and open instruction.
-10. Report commit, push result, telemetry, resolved model, token/cost status, and next action. Do not submit or approve automatically. Show the next direct Copilot action first as `Next in Copilot: /sf-...`, then its exact CLI form as `Terminal equivalent: singularity-flow ...`. For the normal published-phase handoff, use `/sf-submit <phase>` and `singularity-flow submit <phase>`.
+10. Report commit, push, telemetry, resolved model, token/cost status, and next action. Do not submit or approve. Show `Next in Copilot: /sf-...`, then `Terminal equivalent: singularity-flow ...`. Normal handoff is `/sf-submit <phase>` and `singularity-flow submit <phase>`.

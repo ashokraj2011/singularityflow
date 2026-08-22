@@ -10,6 +10,8 @@ argument-hint: "[BOARD-ID] [--project KEY] [--state active,future]"
 
 <!-- sflow-output-contract: concise-relay -->
 **Output contract:** Return the named CLI command output verbatim; do not elaborate, re-narrate, or hide errors.
+<!-- sflow-execution-boundary -->
+**Boundary:** Flow-reported root only (Story: `singularity/work-items/<WORK-ID>/`). Deterministic: `--no-model`; kernel model: forbidden.
 
 Use Singularity Flow's direct Jira Software REST client. Do not use Jira MCP tools and do not construct a backlog query.
 

@@ -1,16 +1,41 @@
 import { readdir, readFile, writeFile } from 'node:fs/promises';
 import path from 'node:path';
 import YAML from 'yaml';
+import { operationCatalog } from '../src/command-registry.mjs';
 
 const CONTRACT_TEXT = Object.freeze({
   'guided-actions': 'Use read-only CLI evidence, preserve warnings and ordered actions, and change nothing unless explicitly requested.',
   'concise-relay': 'Return the named CLI command output verbatim; do not elaborate, re-narrate, or hide errors.',
   'explicit-selection': 'Collect every required choice explicitly; never infer or preselect; preserve errors, artifacts, and next actions.',
   'conversational-guidance': 'Resolve ordinary language through durable Home and Next projections; reads may run immediately, while every mutation requires an explicit governed choice.',
-  'governed-review': 'Resolve paths under singularity/work-items/<WORK-ID>/ in this repository; never search outside it. Show governed artifacts, hashes, identity warnings, and the exact confirmation before recording any decision.',
-  'clarification-and-artifact': 'Resolve paths under singularity/work-items/<WORK-ID>/ in this repository; never search outside it. Use the complete governed prompt and approved inputs, ask unresolved questions, then publish and show configured artifacts.',
+  'governed-review': 'Show governed artifacts, hashes, identity warnings, and the exact confirmation before recording any decision.',
+  'clarification-and-artifact': 'Use the complete governed prompt and approved inputs, ask unresolved questions, then publish and show configured artifacts.',
   'deterministic-mutation': 'Let the CLI validate and mutate state; preserve its exact result, warnings, publication status, artifacts, and next actions.'
 });
+
+const KERNEL_MODEL_POLICIES = new Set(['never', 'conditional']);
+const MODEL_OPERATION_PATTERNS = Object.freeze({
+  'copilot.launch': /\bsingularity-flow\s+copilot\b/,
+  'next.orchestrate': /\bsingularity-flow\s+next\b/,
+  'pr.describe.polish': /\bsingularity-flow\s+pr\s+describe\b[^\n`]*--polish\b/,
+  'spec.analyze.assisted': /\banalyze\s+--assisted\b/,
+  'story.converge.assisted': /\bstory\s+converge\b[^\n`]*--assisted\b/,
+  'wm.build': /\bwm\s+build\b/,
+  'wm.ensure': /\bwm\s+ensure\b/,
+  'workspace.copilot': /\bsingularity-flow\s+workspace\s+copilot\b/,
+  'workspace.impact.analyze': /\bsingularity-flow\s+workspace\s+impact\s+analyze\b/
+});
+
+function executionBoundary(kernelModelPolicy) {
+  const model = kernelModelPolicy === 'conditional' ? 'consent only' : 'forbidden';
+  return `**Boundary:** Flow-reported root only (Story: \`singularity/work-items/<WORK-ID>/\`). Deterministic: \`--no-model\`; kernel model: ${model}.`;
+}
+
+function referencedModelOperations(body) {
+  return Object.entries(MODEL_OPERATION_PATTERNS)
+    .filter(([, pattern]) => pattern.test(body))
+    .map(([id]) => id);
+}
 
 const AUTOMATIC_DESCRIPTIONS = Object.freeze({
   'sflow-help': 'Answer questions about Singularity Flow and its workflow.',
@@ -43,20 +68,23 @@ function withAutomaticPolicy(text, automatic, description, file) {
   return `---\n${source}\n---\n${skill.body}`;
 }
 
-function withOutputContract(text, contract, file) {
+function withOutputContract(text, contract, kernelModelPolicy, file) {
   const skill = splitSkill(text, file);
   const marker = `<!-- sflow-output-contract: ${contract} -->`;
   const contractText = `**Output contract:** ${CONTRACT_TEXT[contract]}`;
+  const boundaryMarker = '<!-- sflow-execution-boundary -->';
+  const boundaryText = executionBoundary(kernelModelPolicy);
   if (!CONTRACT_TEXT[contract]) throw new Error(`${file}: unknown output contract '${contract}'`);
-  const existing = /<!-- sflow-output-contract: [^>]+ -->\r?\n(?:\*\*Output contract:\*\*[^\n]*\r?\n?)?/;
+  const existing = /<!-- sflow-output-contract: [^>]+ -->\r?\n(?:\*\*Output contract:\*\*[^\n]*\r?\n?)?(?:<!-- sflow-execution-boundary -->\r?\n)?(?:\*\*(?:Execution boundary|Boundary):\*\*[^\n]*\r?\n?)*/;
+  const rendered = `${marker}\n${contractText}\n${boundaryMarker}\n${boundaryText}\n`;
   let body;
   if (existing.test(skill.body)) {
-    body = skill.body.replace(existing, `${marker}\n${contractText}\n`);
+    body = skill.body.replace(existing, rendered);
   } else {
     const heading = skill.body.match(/^# .+$/m);
     if (!heading) throw new Error(`${file}: missing H1 heading for output contract`);
     const end = heading.index + heading[0].length;
-    body = `${skill.body.slice(0, end)}\n\n${marker}\n${contractText}${skill.body.slice(end)}`;
+    body = `${skill.body.slice(0, end)}\n\n${rendered}${skill.body.slice(end)}`;
   }
   return `---\n${skill.frontmatterSource}\n---\n${body}`;
 }
@@ -80,6 +108,14 @@ export async function auditSkillPolicy(repositoryRoot, { write = false } = {}) {
   const warnings = [];
   const rows = [];
   const automatic = new Set(policy.automaticInvocationAllowlist ?? []);
+  const catalogModelOperations = operationCatalog()
+    .filter((entry) => entry.modelPolicy !== 'never')
+    .map((entry) => entry.id)
+    .sort();
+  const auditedModelOperations = Object.keys(MODEL_OPERATION_PATTERNS).sort();
+  if (JSON.stringify(catalogModelOperations) !== JSON.stringify(auditedModelOperations)) {
+    errors.push(`skill model-operation patterns are stale: catalog=${catalogModelOperations.join(', ')}; audit=${auditedModelOperations.join(', ')}`);
+  }
 
   for (const missing of directories.filter((name) => !registered.includes(name))) errors.push(`${missing}: missing from skill registry`);
   for (const stale of registered.filter((name) => !directories.includes(name))) errors.push(`${stale}: registry entry has no skill directory`);
@@ -96,11 +132,13 @@ export async function auditSkillPolicy(repositoryRoot, { write = false } = {}) {
     if (!Number.isInteger(classPolicy.previewBytes) || classPolicy.previewBytes < 1 || classPolicy.previewBytes > 65536) errors.push(`${name}: class previewBytes must be from 1 through 65536`);
     if (classPolicy.hardMaximumBytes !== 65536) errors.push(`${name}: class hardMaximumBytes must be exactly 65536`);
     if (rule.maximumTokenOverride != null && !rule.exception) errors.push(`${name}: token override requires an exception reason`);
+    const kernelModelPolicy = rule.kernelModelPolicy ?? classPolicy.kernelModelPolicy;
+    if (!KERNEL_MODEL_POLICIES.has(kernelModelPolicy)) errors.push(`${name}: kernelModelPolicy must be never or conditional`);
     const file = path.join(skillRoot, name, 'SKILL.md');
     let text = await readFile(file, 'utf8');
     if (write) {
       text = withAutomaticPolicy(text, automatic.has(name), AUTOMATIC_DESCRIPTIONS[name], file);
-      text = withOutputContract(text, classPolicy.outputContract, file);
+      text = withOutputContract(text, classPolicy.outputContract, kernelModelPolicy, file);
       await writeFile(file, text);
     }
     const skill = splitSkill(text, file);
@@ -108,6 +146,9 @@ export async function auditSkillPolicy(repositoryRoot, { write = false } = {}) {
     const descriptionTokens = estimatedTokens(skill.frontmatter.description);
     const maximum = rule.maximumTokenOverride ?? classPolicy.maximumTokens;
     const marker = `<!-- sflow-output-contract: ${classPolicy.outputContract} -->`;
+    const boundaryMarker = '<!-- sflow-execution-boundary -->';
+    const boundaryText = executionBoundary(kernelModelPolicy);
+    const modelOperations = referencedModelOperations(skill.body);
     if (skill.frontmatter.name !== name) errors.push(`${name}: frontmatter name must match directory`);
     if (automatic.has(name)) {
       if (skill.frontmatter['disable-model-invocation'] === true) errors.push(`${name}: automatic skill must not disable model invocation`);
@@ -124,12 +165,19 @@ export async function auditSkillPolicy(repositoryRoot, { write = false } = {}) {
       errors.push(`${name}: explicit-only skill must set disable-model-invocation: true`);
     }
     if (!skill.body.includes(marker)) errors.push(`${name}: missing '${classPolicy.outputContract}' output contract`);
+    if (!skill.body.includes(boundaryMarker) || !skill.body.includes(boundaryText)) errors.push(`${name}: missing generated execution boundary`);
+    if (kernelModelPolicy === 'never' && modelOperations.length) {
+      errors.push(`${name}: never-model skill names model-capable operation(s): ${modelOperations.join(', ')}`);
+    }
+    if (kernelModelPolicy === 'conditional' && !modelOperations.length) errors.push(`${name}: conditional model policy has no model-capable operation reference`);
     if (bodyTokens > maximum) errors.push(`${name}: body is ${bodyTokens} estimated tokens; maximum is ${maximum}`);
     else if (bodyTokens > classPolicy.warningTokens) warnings.push(`${name}: body is ${bodyTokens} estimated tokens; warning threshold is ${classPolicy.warningTokens}`);
     rows.push({
       name,
       class: rule.class,
       automatic: automatic.has(name),
+      kernelModelPolicy,
+      modelOperations,
       descriptionTokens,
       bodyTokens,
       warningTokens: classPolicy.warningTokens,

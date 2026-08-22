@@ -8,6 +8,8 @@ argument-hint: "analyze|claims|coverage|acceptance|tasks|trace"
 
 <!-- sflow-output-contract: deterministic-mutation -->
 **Output contract:** Let the CLI validate and mutate state; preserve its exact result, warnings, publication status, artifacts, and next actions.
+<!-- sflow-execution-boundary -->
+**Boundary:** Flow-reported root only (Story: `singularity/work-items/<WORK-ID>/`). Deterministic: `--no-model`; kernel model: consent only.
 
 1. Inspect the active work item and approved specification before selecting a subcommand.
 2. Use read-only `singularity-flow spec analyze|coverage|trace` directly. State when `analyze --assisted` requests optional model help.

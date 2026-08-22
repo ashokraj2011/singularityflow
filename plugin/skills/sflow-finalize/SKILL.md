@@ -9,6 +9,8 @@ disable-model-invocation: true
 
 <!-- sflow-output-contract: deterministic-mutation -->
 **Output contract:** Let the CLI validate and mutate state; preserve its exact result, warnings, publication status, artifacts, and next actions.
+<!-- sflow-execution-boundary -->
+**Boundary:** Flow-reported root only (Story: `singularity/work-items/<WORK-ID>/`). Deterministic: `--no-model`; kernel model: forbidden.
 
 1. Run `singularity-flow progress` and confirm every configured Story phase is approved.
 2. Run `singularity-flow finalize`.

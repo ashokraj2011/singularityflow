@@ -9,6 +9,8 @@ argument-hint: "[today|refresh|settings|pause|resume|delete|export|doctor]"
 
 <!-- sflow-output-contract: explicit-selection -->
 **Output contract:** Collect every required choice explicitly; never infer or preselect; preserve errors, artifacts, and next actions.
+<!-- sflow-execution-boundary -->
+**Boundary:** Flow-reported root only (Story: `singularity/work-items/<WORK-ID>/`). Deterministic: `--no-model`; kernel model: forbidden.
 
 The journal is advisory return memory. It is never governance evidence, approval authority, a productivity score, or a remote source of truth.
 

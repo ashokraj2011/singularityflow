@@ -8,6 +8,8 @@ disable-model-invocation: true
 
 <!-- sflow-output-contract: deterministic-mutation -->
 **Output contract:** Let the CLI validate and mutate state; preserve its exact result, warnings, publication status, artifacts, and next actions.
+<!-- sflow-execution-boundary -->
+**Boundary:** Flow-reported root only (Story: `singularity/work-items/<WORK-ID>/`). Deterministic: `--no-model`; kernel model: consent only.
 
 Execute one lifecycle action, report its durable Git result, and stop. Never loop through approvals. The phase contract selects the agent; human identity grants approval authority.
 

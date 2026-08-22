@@ -8,6 +8,8 @@ argument-hint: "[WORK-ID] [--include <slice>]"
 
 <!-- sflow-output-contract: concise-relay -->
 **Output contract:** Return the named CLI command output verbatim; do not elaborate, re-narrate, or hide errors.
+<!-- sflow-execution-boundary -->
+**Boundary:** Flow-reported root only (Story: `singularity/work-items/<WORK-ID>/`). Deterministic: `--no-model`; kernel model: forbidden.
 
 1. Run `singularity-flow snapshot $ARGUMENTS --json`.
 2. Preserve the revision, included slices, freshness, not-modified result, warnings, and timings.

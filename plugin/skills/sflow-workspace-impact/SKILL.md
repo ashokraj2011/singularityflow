@@ -8,7 +8,9 @@ disable-model-invocation: true
 # Analyze workspace impact
 
 <!-- sflow-output-contract: clarification-and-artifact -->
-**Output contract:** Resolve paths under singularity/work-items/<WORK-ID>/ in this repository; never search outside it. Use the complete governed prompt and approved inputs, ask unresolved questions, then publish and show configured artifacts.
+**Output contract:** Use the complete governed prompt and approved inputs, ask unresolved questions, then publish and show configured artifacts.
+<!-- sflow-execution-boundary -->
+**Boundary:** Flow-reported root only (Story: `singularity/work-items/<WORK-ID>/`). Deterministic: `--no-model`; kernel model: consent only.
 
 1. Run `singularity-flow workspace current --json`. If no workspace is active, stop and use `/sf-workspace` to let the contributor select one; do not infer a workspace from the current repository.
 2. Ask for a concise change description and optional title. Let the contributor narrow the analysis to repository, capability, or staged-document IDs; otherwise explain that all workspace repositories and staged documents are used.

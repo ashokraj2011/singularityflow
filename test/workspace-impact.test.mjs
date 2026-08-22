@@ -180,7 +180,7 @@ test('workspace impact treats altered local prompt or summary evidence as stale'
 test('workspace impact CLI supports a no-Copilot dry run', async () => {
   const { root, workspace } = await fixture();
   const result = spawnSync(process.execPath, [
-    cli, 'workspace', 'impact', 'analyze', workspace.path,
+    cli, '--no-model', 'workspace', 'impact', 'analyze', workspace.path,
     '--id', 'impact-cli-preview', '--description', 'Assess a CLI-only preview.', '--dry-run', '--json'
   ], {
     cwd: packageRoot,

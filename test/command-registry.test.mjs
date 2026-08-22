@@ -44,6 +44,12 @@ test('mixed deterministic commands classify their actual operation rather than t
   assert.equal(classify('review', ['review', 'intake']), 'read');
   assert.equal(classify('review', ['review', 'intake'], { out: 'review.md' }), 'mutation');
   assert.equal(resolveOperation({ requestedCommand: 'workspace', positionals: ['workspace', 'impact', 'analyze'], options: { 'dry-run': 'true' } }).modelPolicy, 'never');
+  assert.equal(resolveOperation({ requestedCommand: 'workspace', positionals: ['workspace', 'impact', 'analyze'], options: { 'dry-run': 'true' } }).id, 'workspace.impact.analyze.preview');
+  assert.equal(resolveOperation({ requestedCommand: 'workspace', positionals: ['workspace', 'copilot'], options: { 'dry-run': true } }).id, 'workspace.copilot.preview');
+  assert.equal(resolveOperation({ requestedCommand: 'copilot', positionals: ['copilot'], options: { 'dry-run': true } }).id, 'copilot.preview');
+  assert.equal(resolveOperation({ requestedCommand: 'wm', positionals: ['wm', 'build'], options: { depth: 'light' } }).id, 'wm.light');
+  assert.equal(resolveOperation({ requestedCommand: 'wm', positionals: ['wm', 'ensure'], options: { depth: 'light' } }).id, 'wm.light');
+  assert.equal(resolveOperation({ requestedCommand: 'wm', positionals: ['wm', 'build'], options: { depth: 'standard' } }).modelPolicy, 'required');
   assert.equal(resolveOperation({ requestedCommand: 'pr', positionals: ['pr', 'describe'], options: { polish: 'true' } }).modelPolicy, 'optional');
   assert.equal(resolveOperation({ requestedCommand: 'wm', positionals: ['wm', 'ast', 'evidence', 'reproduce'] }).id, 'wm.ast.evidence.replay');
   assert.equal(resolveOperation({ requestedCommand: 'wm', positionals: ['wm', 'ast', 'evidence', 'replay'] }).id, 'wm.ast.evidence.replay');
@@ -119,5 +125,18 @@ test('every advertised subcommand resolves, and has an operation to run', () => 
         `${command} ${subcommand} resolved to '${resolved.id}'`);
       assert.ok(catalog.has(resolved.id), `${resolved.id} is offered and resolvable but absent from the operation catalog`);
     }
+  }
+});
+
+test('every deterministic preview has its own cataloged never-model operation', () => {
+  const catalog = new Map(operationCatalog().map((entry) => [entry.id, entry]));
+  for (const id of [
+    'copilot.preview',
+    'workspace.copilot.preview',
+    'workspace.impact.analyze.preview',
+    'wm.light'
+  ]) {
+    assert.equal(catalog.get(id)?.modelPolicy, 'never', id);
+    assert.ok(catalog.get(id)?.noModelFixture, id);
   }
 });

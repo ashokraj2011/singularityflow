@@ -8,6 +8,8 @@ disable-model-invocation: true
 
 <!-- sflow-output-contract: explicit-selection -->
 **Output contract:** Collect every required choice explicitly; never infer or preselect; preserve errors, artifacts, and next actions.
+<!-- sflow-execution-boundary -->
+**Boundary:** Flow-reported root only (Story: `singularity/work-items/<WORK-ID>/`). Deterministic: `--no-model`; kernel model: forbidden.
 
 Do not orient with raw Git or scan instructions before step 1; session commands validate the repository. This is a session-setup-only skill, never implementation. Do not load phase skills, read source/artifacts, modify files, or execute lifecycle work. End the turn after reporting.
 

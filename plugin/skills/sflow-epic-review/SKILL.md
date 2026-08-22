@@ -8,7 +8,9 @@ disable-model-invocation: true
 # Review an Epic Story submission
 
 <!-- sflow-output-contract: governed-review -->
-**Output contract:** Resolve paths under singularity/work-items/<WORK-ID>/ in this repository; never search outside it. Show governed artifacts, hashes, identity warnings, and the exact confirmation before recording any decision.
+**Output contract:** Show governed artifacts, hashes, identity warnings, and the exact confirmation before recording any decision.
+<!-- sflow-execution-boundary -->
+**Boundary:** Flow-reported root only (Story: `singularity/work-items/<WORK-ID>/`). Deterministic: `--no-model`; kernel model: forbidden.
 
 1. Run `singularity-flow epic review --epic <EPIC-KEY>` to show the cross-repository review inbox.
 2. Open one exact packet with `singularity-flow epic review <STORY-KEY> --epic <EPIC-KEY>`.

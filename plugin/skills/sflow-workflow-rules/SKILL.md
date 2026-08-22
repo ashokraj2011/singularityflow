@@ -8,6 +8,8 @@ user-invocable: false
 
 <!-- sflow-output-contract: guided-actions -->
 **Output contract:** Use read-only CLI evidence, preserve warnings and ordered actions, and change nothing unless explicitly requested.
+<!-- sflow-execution-boundary -->
+**Boundary:** Flow-reported root only (Story: `singularity/work-items/<WORK-ID>/`). Deterministic: `--no-model`; kernel model: consent only.
 
 `/sf-session` is setup only: stop after its report. Do not inspect artifacts/source or infer delivery work from an ID.
 
@@ -22,12 +24,12 @@ user-invocable: false
 7. Never edit `workflow.json`, `STATUS.md`, or approval snapshots by hand.
 8. Never store Jira credentials, API tokens, passwords, or secrets in the repository.
 9. Treat approved artifacts as durable inputs; document deviations in the active artifact.
-10. End governed-agent generation with `phase publish <phase> --authored governed-agent --channel copilot-host`; it is incomplete until pushed. Run `phase show <phase> --json` and reproduce text documents in full visibly. Shell output does not count; never say “shown above” or substitute a summary.
+10. End generation with `phase publish <phase> --authored governed-agent --channel copilot-host`; it is incomplete until pushed. Run `phase show <phase> --json` and visibly reproduce full text documents. Shell output and summaries do not count.
 11. Run `singularity-flow gate` before requesting review. A merge-ready pull request must pass `singularity-flow gate --terminal`.
 12. Tag tests with `@ac:AC-n` for every requirements `AC-n`.
 13. Before reasoning, compose the exact phase/task prompt; if stale, build and recompose identically. Add `--evidence` for verification/review/release.
 14. Treat `singularity/work-items/<WORK-ID>/inputs/` and `documents.json` as managed supporting evidence. Upload through `singularity-flow documents upload`, list/view by stable document ID, and never edit the catalog manually.
 15. Never choose a workflow for the user. Use the phase-default agent unless `/sf-agent` is explicitly invoked. Approval comes only from a matching human authority.
 16. Run `singularity-flow next` only when the user explicitly invokes `/sf-next` or directly asks to execute the next lifecycle action. Execute one action only; approval must retain human-authority validation, exact confirmation, commit, and push.
-17. In every final status or next-action handoff, show the direct Copilot command first using `/sf-*`, then show the equivalent `singularity-flow ...` terminal command. Never give a CLI-only next action when a direct Copilot skill can perform it.
+17. In each handoff show `/sf-*` first, then its `singularity-flow ...` equivalent. Never give a CLI-only action when a direct skill exists.
 18. Execute each clarification checkpoint and record accepted answers before agent publication. Never turn a hypothesis into a requirement, criterion, design, or specification decision without human confirmation.

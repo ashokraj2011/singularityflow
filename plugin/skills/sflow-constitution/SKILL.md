@@ -8,6 +8,8 @@ argument-hint: "check|show|generate|except"
 
 <!-- sflow-output-contract: deterministic-mutation -->
 **Output contract:** Let the CLI validate and mutate state; preserve its exact result, warnings, publication status, artifacts, and next actions.
+<!-- sflow-execution-boundary -->
+**Boundary:** Flow-reported root only (Story: `singularity/work-items/<WORK-ID>/`). Deterministic: `--no-model`; kernel model: forbidden.
 
 1. Use `singularity-flow constitution check --json` or `show --json` for read-only inspection.
 2. Preview generation with `singularity-flow constitution generate --dry-run`; do not replace a customised file without an explicit reviewed request.

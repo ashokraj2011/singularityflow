@@ -13,6 +13,12 @@ test('every public skill has a bounded class and output contract', async () => {
   assert.deepEqual(result.errors, []);
   assert.equal(result.rows.length, Object.keys(policy.skills ?? {}).length);
   assert.ok(result.rows.every((row) => row.class && row.bodyTokens <= 800));
+  assert.ok(result.rows.every((row) => ['never', 'conditional'].includes(row.kernelModelPolicy)));
+  assert.deepEqual(result.rows.filter((row) => row.kernelModelPolicy === 'conditional').map((row) => row.name), [
+    'sflow-initiative-phase', 'sflow-next', 'sflow-run', 'sflow-spec', 'sflow-story-start',
+    'sflow-workflow-rules', 'sflow-workspace', 'sflow-workspace-impact', 'sflow-worldmodel'
+  ]);
+  assert.ok(result.rows.filter((row) => row.kernelModelPolicy === 'never').every((row) => row.modelOperations.length === 0));
 });
 
 /**

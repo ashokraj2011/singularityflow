@@ -14,12 +14,19 @@ Every skill has:
 - a 500-estimated-token warning threshold;
 - an 800-estimated-token hard ceiling.
 
-Only `sflow-help`, `sflow-nextsteps`, and `sflow-status` may be selected
-automatically from natural-language requests. Every other skill sets
-`disable-model-invocation: true` and remains directly available through its
-`/sf-*` or `/sflow-*` command. This reduces automatic selection ambiguity; it
-does not claim that every Copilot host completely removes disabled skill metadata
-from its internal prompt.
+Only the registry's eleven read-only documentation, diagnostics, Home, status,
+progress, receipt, and recommendation skills may be selected automatically from
+natural-language requests. Every other skill sets `disable-model-invocation:
+true` and remains directly available through its `/sf-*` or `/sflow-*` command.
+That frontmatter prevents automatic skill selection; it does not mean that a
+Copilot skill runs without its host model.
+
+Every skill also carries a generated execution boundary. Relative paths resolve
+from the root reported by Flow, Story artifacts remain under
+`singularity/work-items/<WORK-ID>/`, and filesystem-wide discovery is forbidden.
+The same boundary declares the kernel-model policy: deterministic CLI work uses
+`--no-model`; only explicitly classified conditional skills may name a
+model-capable operation, and those require contributor consent.
 
 Run the deterministic audit locally or in CI:
 
@@ -42,7 +49,7 @@ skill diffs before committing.
 | generative | Requirements, design, implementation, and verification | Clarify, compose governed context, author, then publish |
 | mutation | Deterministic lifecycle changes | CLI validates and mutates; skill relays the exact result |
 
-The output contract is visible near the top of every `SKILL.md`. It prevents a
+The output and execution contracts are visible near the top of every `SKILL.md`. They prevent a
 small relay skill from expanding a deterministic CLI result into another long
 model-written report, while preserving the fuller contracts required for
 generation, selection, and approval.

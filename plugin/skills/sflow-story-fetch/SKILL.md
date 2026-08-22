@@ -9,6 +9,8 @@ disable-model-invocation: true
 
 <!-- sflow-output-contract: explicit-selection -->
 **Output contract:** Collect every required choice explicitly; never infer or preselect; preserve errors, artifacts, and next actions.
+<!-- sflow-execution-boundary -->
+**Boundary:** Flow-reported root only (Story: `singularity/work-items/<WORK-ID>/`). Deterministic: `--no-model`; kernel model: forbidden.
 
 1. Ask the user to choose a Story from `/sf-story-inbox`.
 2. Run `singularity-flow story fetch <JIRA-KEY>`. If it belongs to another configured repository, provide the user's chosen local directory through `--directory`.

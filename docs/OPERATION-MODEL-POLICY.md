@@ -29,6 +29,7 @@ Every public operation is classified before its implementation module is importe
 | context | read | never | — | — |
 | converge | read | never | — | — |
 | copilot.launch | mutation | required | — | copilot-cli |
+| copilot.preview | read | never | — | — |
 | doctor.fix.telemetry | mutation | never | — | — |
 | doctor.inspect | read | never | — | — |
 | documents | mutation | never | — | — |
@@ -265,6 +266,7 @@ Every public operation is classified before its implementation module is importe
 | workspace.branches | read | never | — | — |
 | workspace.capabilities | read | never | — | — |
 | workspace.copilot | mutation | required | — | copilot-cli |
+| workspace.copilot.preview | read | never | — | — |
 | workspace.create | mutation | never | — | — |
 | workspace.current | read | never | — | — |
 | workspace.doctor | read | never | — | — |
@@ -272,6 +274,7 @@ Every public operation is classified before its implementation module is importe
 | workspace.duplicate | mutation | never | — | — |
 | workspace.forget | mutation | never | — | — |
 | workspace.impact.analyze | mutation | required | — | copilot-cli |
+| workspace.impact.analyze.preview | read | never | — | — |
 | workspace.impact.list | read | never | — | — |
 | workspace.impact.promote | mutation | never | — | — |
 | workspace.impact.show | read | never | — | — |

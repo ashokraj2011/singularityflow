@@ -8,7 +8,9 @@ disable-model-invocation: true
 # Manage the repository world model
 
 <!-- sflow-output-contract: clarification-and-artifact -->
-**Output contract:** Resolve paths under singularity/work-items/<WORK-ID>/ in this repository; never search outside it. Use the complete governed prompt and approved inputs, ask unresolved questions, then publish and show configured artifacts.
+**Output contract:** Use the complete governed prompt and approved inputs, ask unresolved questions, then publish and show configured artifacts.
+<!-- sflow-execution-boundary -->
+**Boundary:** Flow-reported root only (Story: `singularity/work-items/<WORK-ID>/`). Deterministic: `--no-model`; kernel model: consent only.
 
 - Configure/inventory: `wm init`; `wm light [--phase PHASE] [--local]`.
 - Build/readiness: `singularity-flow wm build [--phase PHASE] [--task TEXT] [--depth light|quick|standard|deep] [--workers N]`; `wm availability ... --json`; `wm ensure ... --json`.
@@ -21,10 +23,10 @@ disable-model-invocation: true
 - AST cache: `wm ast build --paths <ROOT> --json`; resume only with its handle. Preview pruning with `wm ast cache prune --dry-run` before exact confirmation.
 - Evidence audit: `wm ast evidence reproduce --receipt <RECEIPT-PATH> --json` (`replay` remains a compatibility alias).
 
-Prefix commands with `singularity-flow`. `--branch` uses an isolated worktree; fetch is fast-forward-only. Builds follow `git.publish`; `--local` stays local. Never use `wm ensure` for a read or run competing builds. `wm light` is inventory, not semantics. Report time, source hash, commit, views, and stale reason.
+Prefix commands with `singularity-flow`. `--branch` uses an isolated worktree; fetch is fast-forward-only. Builds follow `git.publish`; `--local` stays local. Never use `wm ensure` for a read or run competing builds. `wm light` is inventory, not semantics. Report time, source hash, commit, views, and staleness.
 
-JavaScript/TypeScript facts are lexical `text`. Java, Python, Kotlin, and Swift use the bundled verified syntax pack unless policy is off/text-only. Optional semantic packs require a complete project/toolchain binding and never erase syntax. Required symbol gates need syntax. Default scope is the Story cone or changed paths; use `--all` only on request. Results contain no source bodies. Preview may read dirty bytes but cannot govern. Recorded context/gates require exact committed in-cone objects.
+JavaScript/TypeScript facts are lexical `text`. Java, Python, Kotlin, and Swift use verified syntax unless policy is off/text-only. Semantic packs require a project/toolchain binding and never erase syntax. Required symbol gates need syntax. Default scope is the Story cone or changed paths; use `--all` only on request. No source bodies. Preview may read dirty bytes but cannot govern. Recorded context/gates require exact committed in-cone objects.
 
-For read-only Copilot, resolve AST reads/replay with `sflow_resolve`, then use its `sflow_read` handle. Gateway reads never fill cache. Publication retains the toolchain and inputs; submission revalidates. A manual gate cannot bypass policy. Replay returns `identical`, `different`, or `unavailable` without substitution.
+For Copilot reads, resolve AST reads/replay with `sflow_resolve`, then use its `sflow_read` handle. Gateway reads never fill cache. Publication retains inputs/toolchain; submission revalidates. A gate cannot bypass policy. Replay returns `identical`, `different`, or `unavailable` without substitution.
 
 Composition is additive; agents cannot remove required views or approve. Separate facts from assumptions.

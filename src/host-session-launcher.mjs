@@ -12,7 +12,9 @@ export async function launchHostSession({
   cwd, args = [], dryRun = false, story = null, phase = null, host = 'cli',
   surface = 'cli.workspace-copilot', preparedTelemetry = null, execution = null
 }) {
-  assertModelInvocationAllowed();
+  // Permission belongs to the actual process boundary. A dry run only renders the launch plan;
+  // every real launch is refused before telemetry preparation or any other side effect.
+  if (!dryRun) assertModelInvocationAllowed();
   const telemetry = isPreparedTelemetryLaunch(preparedTelemetry)
     ? preparedTelemetry
     : await prepareTelemetryLaunch({ root: cwd, story, phase, host, surface, baseEnv: process.env });

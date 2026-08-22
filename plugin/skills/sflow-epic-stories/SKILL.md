@@ -9,6 +9,8 @@ disable-model-invocation: true
 
 <!-- sflow-output-contract: concise-relay -->
 **Output contract:** Return the named CLI command output verbatim; do not elaborate, re-narrate, or hide errors.
+<!-- sflow-execution-boundary -->
+**Boundary:** Flow-reported root only (Story: `singularity/work-items/<WORK-ID>/`). Deterministic: `--no-model`; kernel model: forbidden.
 
 1. Run `singularity-flow epic planning status --json`.
 2. Under the active Epic directory, open `singularity/initiatives/<EPIC-ID>/artifacts/epic-planning/story-plan.yml` and the generated `singularity/initiatives/<EPIC-ID>/artifacts/epic-planning/stories/<PLAN-ID>/story-spec.md` files. Resolve both inside this repository; never search outside it.

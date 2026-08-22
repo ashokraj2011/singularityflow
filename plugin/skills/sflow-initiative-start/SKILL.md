@@ -9,6 +9,8 @@ argument-hint: "<INIT-ID> [--jira] [--title TEXT] [--description TEXT]"
 
 <!-- sflow-output-contract: explicit-selection -->
 **Output contract:** Collect every required choice explicitly; never infer or preselect; preserve errors, artifacts, and next actions.
+<!-- sflow-execution-boundary -->
+**Boundary:** Flow-reported root only (Story: `singularity/work-items/<WORK-ID>/`). Deterministic: `--no-model`; kernel model: forbidden.
 
 Keep every choice and confirmation inside GitHub Copilot.
 

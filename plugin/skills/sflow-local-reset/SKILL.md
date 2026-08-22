@@ -9,6 +9,8 @@ argument-hint: "[--forget-only] [--dry-run]"
 
 <!-- sflow-output-contract: deterministic-mutation -->
 **Output contract:** Let the CLI validate and mutate state; preserve its exact result, warnings, publication status, artifacts, and next actions.
+<!-- sflow-execution-boundary -->
+**Boundary:** Flow-reported root only (Story: `singularity/work-items/<WORK-ID>/`). Deterministic: `--no-model`; kernel model: forbidden.
 
 This is not a repository factory reset and not a product reinstall. Prefer
 `--forget-only` when the contributor wants to remove this machine's registrations,

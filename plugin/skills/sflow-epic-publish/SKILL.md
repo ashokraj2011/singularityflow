@@ -8,7 +8,9 @@ disable-model-invocation: true
 # Publish Stories to Jira and Git
 
 <!-- sflow-output-contract: governed-review -->
-**Output contract:** Resolve paths under singularity/work-items/<WORK-ID>/ in this repository; never search outside it. Show governed artifacts, hashes, identity warnings, and the exact confirmation before recording any decision.
+**Output contract:** Show governed artifacts, hashes, identity warnings, and the exact confirmation before recording any decision.
+<!-- sflow-execution-boundary -->
+**Boundary:** Flow-reported root only (Story: `singularity/work-items/<WORK-ID>/`). Deterministic: `--no-model`; kernel model: forbidden.
 
 1. Confirm the combined Planning package is approved.
 2. Ask which approved artifacts should also be attached and whether their target is the Epic, Stories, or both.

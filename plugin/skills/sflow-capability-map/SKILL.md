@@ -9,15 +9,14 @@ disable-model-invocation: true
 
 <!-- sflow-output-contract: explicit-selection -->
 **Output contract:** Collect every required choice explicitly; never infer or preselect; preserve errors, artifacts, and next actions.
+<!-- sflow-execution-boundary -->
+**Boundary:** Flow-reported root only (Story: `singularity/work-items/<WORK-ID>/`). Deterministic: `--no-model`; kernel model: forbidden.
 
-Capabilities form one or more trees. A `delivery` ships from repositories; a `collection` groups capabilities. Any capability may be top-level or linked under another capability.
+Capabilities form trees: `delivery` ships from repositories; `collection` groups capabilities. Either may be top-level or nested.
 
 The lead repository owns `singularity/capabilities.yml`; `portfolio.yml` declares repositories. Flow edits a temporary clone, so this works outside Git.
 
-1. Run `singularity-flow capability leads --json` for the lead repositories this
-   machine knows. If exactly one is returned, use it. If several are,
-   ask which organisation this capability belongs to. If none is, ask for the
-   lead repository's clone URL — do not guess one.
+1. Run `singularity-flow capability leads --json`. Use one result; for several, ask which organisation; for none, ask for the lead clone URL. Never guess.
 2. Run `singularity-flow capability organisation <LEAD-URL> --json` and show the
    tree and possible parents.
 3. Ask only for missing: kebab-case ID, display name, kind (`collection` or `delivery`), optional parent, and repository URL(s). A delivery requires repositories; a collection forbids them. Parent may be any capability allowed by validation; omit it to create a top-level capability.

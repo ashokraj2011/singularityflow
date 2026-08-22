@@ -61,13 +61,12 @@ test('the two broadest skill reads state their governed base and repository fenc
   assert.match(implement, /Inspect further files only as the implementation requires within this repository\./);
 });
 
-test('every generated artifact or review skill inherits the resolve-dont-search contract', async () => {
+test('every skill inherits the Flow-root path boundary', async () => {
   const registry = YAML.parse(await readFile(path.join(root, 'plugin', 'skills', 'registry.yml'), 'utf8'));
-  for (const [name, rule] of Object.entries(registry.skills)) {
-    if (!['generative', 'review'].includes(rule.class)) continue;
+  for (const name of Object.keys(registry.skills)) {
     const content = await readFile(path.join(root, 'plugin', 'skills', name, 'SKILL.md'), 'utf8');
-    assert.match(content, /<!-- sflow-output-contract: (?:clarification-and-artifact|governed-review) -->/, name);
-    assert.match(content, /Resolve paths under singularity\/work-items\/<WORK-ID>\/ in this repository; never search outside it\./, name);
+    assert.match(content, /<!-- sflow-execution-boundary -->/, name);
+    assert.match(content, /Flow-reported root only \(Story: `singularity\/work-items\/<WORK-ID>\/`\)\./, name);
   }
 });
 

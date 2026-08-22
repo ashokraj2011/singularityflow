@@ -8,7 +8,9 @@ argument-hint: "[review emphasis]"
 # Portable review bundle and independent review
 
 <!-- sflow-output-contract: governed-review -->
-**Output contract:** Resolve paths under singularity/work-items/<WORK-ID>/ in this repository; never search outside it. Show governed artifacts, hashes, identity warnings, and the exact confirmation before recording any decision.
+**Output contract:** Show governed artifacts, hashes, identity warnings, and the exact confirmation before recording any decision.
+<!-- sflow-execution-boundary -->
+**Boundary:** Flow-reported root only (Story: `singularity/work-items/<WORK-ID>/`). Deterministic: `--no-model`; kernel model: forbidden.
 
 First run `singularity-flow review` and reproduce its unified artifact, approved-input provenance, checks, decisions, source-change summary, usage, and supporting evidence. Use `singularity-flow review --format html --out <file>` when the user wants a portable browser view.
 

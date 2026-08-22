@@ -9,5 +9,7 @@ argument-hint: "[list|simulate TYPE|diff TYPE|add TYPE --dry-run]"
 
 <!-- sflow-output-contract: deterministic-mutation -->
 **Output contract:** Let the CLI validate and mutate state; preserve its exact result, warnings, publication status, artifacts, and next actions.
+<!-- sflow-execution-boundary -->
+**Boundary:** Flow-reported root only (Story: `singularity/work-items/<WORK-ID>/`). Deterministic: `--no-model`; kernel model: forbidden.
 
 Run `singularity-flow workflow $ARGUMENTS`. Default to `list` when no action is supplied. Before adding or upgrading a profile, run its simulation and diff, then use `--dry-run`. Show affected YAML and Markdown paths. Do not use `--replace` without explicit user confirmation, and do not commit configuration automatically.

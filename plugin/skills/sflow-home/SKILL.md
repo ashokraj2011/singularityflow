@@ -7,6 +7,8 @@ description: Guide developer requests through explicit governed choices.
 
 <!-- sflow-output-contract: conversational-guidance -->
 **Output contract:** Resolve ordinary language through durable Home and Next projections; reads may run immediately, while every mutation requires an explicit governed choice.
+<!-- sflow-execution-boundary -->
+**Boundary:** Flow-reported root only (Story: `singularity/work-items/<WORK-ID>/`). Deterministic: `--no-model`; kernel model: forbidden.
 
 Use this for questions about current work, blockers, next actions, and recovery; automatic invocation is not mutation consent.
 
@@ -22,13 +24,7 @@ Use this for questions about current work, blockers, next actions, and recovery;
    - **I need from you** — nothing for a read; otherwise the exact required input or decision.
    - **This will change** — “Nothing” for reads; otherwise name file, lifecycle, Git, publication, and external effects.
 4. Intents are `orient`, `continue`, `start`, `inspect`, `act`, and `recover`. For `none` or `ambiguous` confidence, render returned choices and use `ask_user`; never guess.
-5. Safe reads may run immediately. For `continue`, `start`, or `act`, show the proposal and use `ask_user`. Follow a sibling only after selection:
-   - `/sf-recommend` → `../sflow-recommend/SKILL.md`
-   - `/sf-resume` → `../sflow-resume/SKILL.md`
-   - `/sf-start` → `../sflow-start/SKILL.md`
-   - `/sf-phase` → `../sflow-phase/SKILL.md`
-   - `/sf-submit` → `../sflow-submit/SKILL.md`
-   - `/sf-next` → `../sflow-next/SKILL.md`
+5. Safe reads may run immediately. For `continue`, `start`, or `act`, show the proposal and use `ask_user`. Follow only the selected direct route: `/sf-recommend`, `/sf-resume`, `/sf-start`, `/sf-phase`, `/sf-submit`, or `/sf-next`.
 6. Decisions, resets, destructive operations, and ceremonies require an explicit `/sf-*` invocation.
 7. Preserve all CLI refusals, warnings, ordered actions, and recovery commands. After a selected flow completes, run `singularity-flow home` and show the refreshed state.
 8. “Catch me up”, “where did I stop?”, “yesterday”, and “what changed while I was away?” are reads.

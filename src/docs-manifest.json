@@ -1,9 +1,9 @@
 {
   "schemaVersion": 1,
   "generatedFrom": "docs/topics",
-  "sourceCommit": "08721b085077313fd7a3a53822abb2dc8e0d3a1b",
+  "sourceCommit": "13628331a28a58c420a5c6a508104a3e7c9662f7",
   "topicCount": 54,
-  "contentSha256": "dc370bd6031a9f9ba25fbaa80b84d62347ae4606caf0ef0380ef7e6213c6acf1",
+  "contentSha256": "781adff0886416eef5d213b40bb88233efc6498e2bad549ff8deb1e7ead4855d",
   "topics": [
     {
       "id": "activity-and-prompt-audit",
@@ -218,8 +218,8 @@
     {
       "id": "model-independence",
       "title": "Model independence",
-      "version": 2,
-      "sha256": "4076564dd1d45083334f2572cfc431f149eb8712f1d595be0e7637f63e503fca",
+      "version": 3,
+      "sha256": "00e07771bd4e006c96e2aaf870f5c403b134d9cc70e439d2a474859b29a59645",
       "file": "model-independence.md"
     },
     {

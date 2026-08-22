@@ -12,8 +12,8 @@ argument-hint: "[review emphasis]"
 
 First run `singularity-flow review` and reproduce its unified artifact, approved-input provenance, checks, decisions, source-change summary, usage, and supporting evidence. Use `singularity-flow review --format html --out <file>` when the user wants a portable browser view.
 
-1. Run `singularity-flow status --json` and read the exact `workItem.title` as `STORY_TITLE`. If the configured workflow has no phase named `review`, use the bundle to review the active phase and do not require that phase ID.
-2. Run `singularity-flow wm compose --phase review --task "$STORY_TITLE" --evidence` and use the complete returned prompt. If the exact grounding plan is missing or stale, show and run the exact returned ensure command only with explicit contributor authorization, then rerun the identical compose command. Never substitute a conversational review scope for `STORY_TITLE`. Use architecture, development, testing, security, and evidence grounding.
+1. Run `singularity-flow status --json` and use that governed workflow as Story context. If the configured workflow has no phase named `review`, use the bundle to review the active phase and do not require that phase ID.
+2. Run `singularity-flow wm compose --phase review --evidence` and use the complete returned prompt. If the grounding plan is missing or stale, show and run the exact returned ensure command only with explicit contributor authorization, then rerun the identical compose command. Never add the Story title or a conversational review scope as `--task`. Use the shared architecture, development, testing, security, and evidence grounding.
 3. Read approved requirements, design, implementation summary, verification evidence, the actual diff, and selected source evidence.
 4. Review correctness, acceptance coverage, maintainability, architecture alignment, security, failures, observability, rollout, rollback, and tests.
 5. Rank findings by severity and include file/line references when available.

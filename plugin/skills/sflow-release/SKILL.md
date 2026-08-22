@@ -10,8 +10,8 @@ argument-hint: "[target environment or release window]"
 <!-- sflow-output-contract: clarification-and-artifact -->
 **Output contract:** Use the complete governed prompt and approved inputs, ask unresolved questions, then publish and show configured artifacts.
 
-1. Run `singularity-flow status --json`; stop if the current phase is not `release`, and read the exact `workItem.title` as `STORY_TITLE`.
-2. Run `singularity-flow wm compose --phase release --task "$STORY_TITLE" --evidence` and use the complete returned prompt. If the exact grounding plan is missing or stale, show and run the exact returned ensure command only with explicit contributor authorization, then rerun the identical compose command. Never substitute a conversational release target for `STORY_TITLE`. Use release, operations, security, and evidence grounding.
+1. Run `singularity-flow status --json`; stop if the current phase is not `release`. Use that governed workflow as Story context.
+2. Run `singularity-flow wm compose --phase release --evidence` and use the complete returned prompt. If the grounding plan is missing or stale, show and run the exact returned ensure command only with explicit contributor authorization, then rerun the identical compose command. Never add the Story title or a conversational release target as `--task`. Use the shared release, operations, security, and evidence grounding.
 3. Read all approved phase artifacts and the deployment locations selected by the grounding package.
 4. Run `singularity-flow prepare release` and complete the release plan.
 5. Include preconditions, deployment steps, migrations, flags, configuration, validation, metrics, alerts, success criteria, rollback triggers and steps, communication, ownership, and support escalation.

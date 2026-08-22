@@ -13,7 +13,7 @@ related:
   - nextsteps
   - sequence-gates
   - reference-previews
-version: 2
+version: 3
 ---
 The engine plans exact actions, binds them to repository and policy revisions, and revalidates them before execution. A model may propose a goal but cannot mint authority or bypass confirmation.
 
@@ -35,10 +35,11 @@ Use this topic when the current goal matches **governed execution**. Start in a 
 4. Run the smallest applicable command from this topic. Do not substitute an undocumented subcommand.
 5. Re-read state after completion. In Copilot, return to `/sf-home`; in VS Code, refresh the relevant view if it has not already refreshed.
 
-`sflow next` keys lifecycle grounding by the governed Story title. A later Copilot chat may
-describe the objective differently without creating a new world-model task guide or starting a
-second model build. Direct `wm ensure/compose --task` remains available for intentionally managed
-ad-hoc guides; conversational wording must not be forwarded to `next --task`.
+`sflow next` consumes the shared repository model keyed by the scoped source snapshot. Story
+context comes from the governed workflow prompt, so another Story or Copilot chat does not create
+a new world-model task guide or start a second model build. Direct `wm ensure/compose --task`
+remains available only for intentionally requested ad-hoc guides; Story titles and conversational
+wording must not be forwarded to lifecycle `--task` options.
 
 ## State and safety
 

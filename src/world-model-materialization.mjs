@@ -68,9 +68,25 @@ export function groundingEnsureCommand(plan) {
     : `singularity-flow wm ensure --depth ${plan.depth ?? 'standard'}`;
 }
 
+function normalizedTask(value) {
+  return String(value ?? '').trim().toLowerCase().replace(/\s+/g, ' ');
+}
+
+function candidateTaskGuide(plan, manifest) {
+  if (!plan.taskGuide?.required) return { required: false, task: null, status: 'not-requested', id: null, path: null };
+  const entry = (manifest?.task_guides ?? []).find((guide) => normalizedTask(guide.task) === normalizedTask(plan.taskGuide.task));
+  return {
+    required: true,
+    task: plan.taskGuide.task,
+    status: entry?.path ? 'ready' : 'missing',
+    id: entry?.id ?? null,
+    path: entry?.path ?? null
+  };
+}
+
 async function inspectCandidate(root, config, plan, candidate, sourceState) {
   if (!existsSync(path.join(candidate.directory, 'manifest.json'))) {
-    return { ...candidate, ready: false, fresh: false, error: 'manifest.json is absent', selections: [] };
+    return { ...candidate, ready: false, fresh: false, error: 'manifest.json is absent', selections: [], taskGuide: candidateTaskGuide(plan, null) };
   }
   let normalized = null;
   try {
@@ -89,7 +105,9 @@ async function inspectCandidate(root, config, plan, candidate, sourceState) {
       return { ...selection, id: selectionId(selection), status: entry?.status ?? 'missing', path: entry?.path ?? null };
     });
     const missing = selections.filter((entry) => entry.status !== 'ready' || !entry.path);
-    if (!missing.length) {
+    const taskGuide = candidateTaskGuide(plan, normalized);
+    const freshness = await worldModelFreshness(root, config.definition ?? config, normalized);
+    if (!missing.length && taskGuide.status !== 'missing') {
       const validated = await validateWorldModelDirectory(candidate.directory, {
         requiredSelections: plan.selections,
         requireEvidence: plan.includeEvidence,
@@ -98,12 +116,15 @@ async function inspectCandidate(root, config, plan, candidate, sourceState) {
         sourceLabel: candidate.source,
         allowLegacyFallback
       });
-      const freshness = await worldModelFreshness(root, config.definition ?? config, validated.manifest);
-      return { ...candidate, complete: true, ready: freshness.fresh, fresh: freshness.fresh, integrityValid: true, selections, manifest: validated.normalizedManifest, sourceTreeSha256: freshness.built, error: freshness.fresh ? null : `source snapshot differs (${freshness.built} != ${sourceState.sha256})` };
+      return { ...candidate, complete: true, ready: freshness.fresh, fresh: freshness.fresh, integrityValid: true, selections, taskGuide, manifest: validated.normalizedManifest, sourceTreeSha256: freshness.built, error: freshness.fresh ? null : `source snapshot differs (${freshness.built} != ${sourceState.sha256})` };
     }
-    return { ...candidate, ready: false, fresh: false, integrityValid: true, selections, manifest: normalized, sourceTreeSha256: normalized.source_tree_sha256 ?? null, error: `missing ${missing.map((entry) => entry.id).join(', ')}` };
+    const absent = [
+      ...missing.map((entry) => entry.id),
+      ...(taskGuide.status === 'missing' ? [`task guide for ${JSON.stringify(taskGuide.task)}`] : [])
+    ];
+    return { ...candidate, complete: false, ready: false, fresh: freshness.fresh, integrityValid: true, selections, taskGuide, manifest: normalized, sourceTreeSha256: freshness.built, error: `missing ${absent.join(', ')}` };
   } catch (error) {
-    return { ...candidate, ready: false, fresh: false, integrityValid: false, selections: [], manifest: normalized, sourceTreeSha256: normalized?.source_tree_sha256 ?? null, error: error.message };
+    return { ...candidate, ready: false, fresh: false, integrityValid: false, selections: [], taskGuide: candidateTaskGuide(plan, normalized), manifest: normalized, sourceTreeSha256: normalized?.source_tree_sha256 ?? null, error: error.message };
   }
 }
 
@@ -180,6 +201,10 @@ export async function inspectGroundingAvailability(root, config, plan, { refresh
   const missing = statuses.filter((entry) => !['ready', 'stale'].includes(entry.status));
   const readySelections = statuses.filter((entry) => ['ready', 'stale'].includes(entry.status));
   const stale = statuses.filter((entry) => entry.status === 'stale');
+  const taskGuide = plan.taskGuide?.required
+    ? candidates.filter((candidate) => candidate.integrityValid).map((candidate) => candidate.taskGuide).find((entry) => entry?.status === 'ready')
+      ?? { required: true, task: plan.taskGuide.task, status: 'missing', id: null, path: null }
+    : { required: false, task: null, status: 'not-requested', id: null, path: null };
   const staleness = worldModelStalenessDecision(
     stalenessPolicy,
     selected ? selected.fresh : stale.length === 0,
@@ -209,6 +234,7 @@ export async function inspectGroundingAvailability(root, config, plan, { refresh
     missingSelections: missing,
     missing,
     stale,
+    taskGuide,
     staleness,
     conflicts,
     generationRequired: !ready,
@@ -218,6 +244,8 @@ export async function inspectGroundingAvailability(root, config, plan, { refresh
         ? conflicts[0].message
         : missing.length
           ? `missing ${missing.map((entry) => entry.id).join(', ')}`
+          : taskGuide.status === 'missing'
+            ? `missing explicit task guide for ${JSON.stringify(taskGuide.task)}`
           : staleness.blocks
             ? staleness.message
           : 'no fresh published model satisfies the plan'

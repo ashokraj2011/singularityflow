@@ -1903,15 +1903,13 @@ async function resolveNextStepsSnapshot(positionals, options) {
       });
       const groundingMode = workflow.resolution?.worldModelGrounding ?? config.worldModel?.grounding ?? 'off';
       if (active?.status === 'in_progress' && phaseNeedsGeneration(workflow, active) && groundingMode !== 'off') {
-        const task = workflow.workItem.title;
         const readiness = await inspectWorkflowGrounding(root, workflow, active.id, {
-          agent: session?.agent ?? null,
-          task
+          agent: session?.agent ?? null
         });
         if (!readiness.availability.ready) {
           const blocks = groundingMode === 'enforce' || readiness.availability.staleness?.blocks;
           prerequisites.push({ timing: blocks ? 'now' : 'optional', skill: '/sf-worldmodel', command: readiness.command, reason: readiness.reason });
-          prerequisites.push({ timing: groundingMode === 'enforce' ? 'then' : 'optional', skill: null, command: `singularity-flow wm compose --phase ${active.id} --task ${JSON.stringify(task)}`, reason: 'Compose and record the governed phase prompt using the exact same task text.' });
+          prerequisites.push({ timing: groundingMode === 'enforce' ? 'then' : 'optional', skill: null, command: `singularity-flow wm compose --phase ${active.id}`, reason: 'Compose and record the governed phase prompt from the shared repository model.' });
         } else {
           if (readiness.availability.staleness?.warns) prerequisites.push({
             timing: 'optional', skill: '/sf-worldmodel', command: readiness.command,
@@ -1919,7 +1917,7 @@ async function resolveNextStepsSnapshot(positionals, options) {
           });
           const grounding = await verifyGroundingRecord(root, config, workflow, active, { agent: session?.agent ?? null });
           if (grounding.errors.length || grounding.warnings.length) prerequisites.push({
-            timing: groundingMode === 'enforce' ? 'now' : 'optional', skill: null, command: `singularity-flow wm compose --phase ${active.id} --task ${JSON.stringify(task)}`,
+            timing: groundingMode === 'enforce' ? 'now' : 'optional', skill: null, command: `singularity-flow wm compose --phase ${active.id}`,
             reason: 'Create or refresh the required grounding record and exact prompt snapshot before publishing this generation.'
           });
         }
@@ -2054,7 +2052,7 @@ async function actionCommand(positionals, options) {
   };
 }
 
-async function materializeWorldModelForNext(root, config, workflow, phase, task, options) {
+async function materializeWorldModelForNext(root, config, workflow, phase, options) {
   const policy = effectiveMaterializationPolicy(config, workflow);
   if (policy.mode !== 'on-demand') return { materialized: false, policy, reason: `materialization mode is ${policy.mode}` };
 
@@ -2071,8 +2069,7 @@ async function materializeWorldModelForNext(root, config, workflow, phase, task,
   const ensureOperation = operationById('wm.ensure');
   if (!ensureOperation) throw new SingularityFlowError("Registered operation 'wm.ensure' is unavailable.");
   const ensurePhase = (phaseId) => runOperation(ensureOperation, () => worldModelCommand(root, ['wm', 'ensure'], {
-    phase: phaseId,
-    task
+    phase: phaseId
   }));
   await ensurePhase(phase.id);
 
@@ -2118,33 +2115,29 @@ async function nextCommand(options) {
     return submitCommand(['submit', phase.id], options);
   }
 
-  // Lifecycle grounding must have a durable identity. Copilot commonly paraphrases the current
-  // objective when a contributor returns in a new chat; using that prose as the task-guide key
-  // made an otherwise ready phase look incomplete and could launch another expensive model build.
-  //
-  // The Story title is already immutable phase context shared by nextsteps, VS Code and fresh
-  // sessions, so `next` always uses it. Keep accepting --task for command-line compatibility, but
-  // do not let it change governed materialization identity. Direct `wm ensure/compose --task`
-  // remains the explicit interface for intentionally creating an ad-hoc task guide.
+  // Lifecycle grounding consumes the repository model, whose durable identity is the scoped
+  // source snapshot. Story context is already supplied by the governed workflow prompt. Adding a
+  // Story title as a task-guide requirement would make every Story look like a missing model and
+  // could launch another expensive build even though the shared repository model is unchanged.
+  // Keep accepting --task for command-line compatibility; only direct `wm ensure/compose --task`
+  // explicitly requests an ad-hoc task guide.
   const requestedTask = optionString(options, 'task');
-  const task = workflow.workItem.title;
-  if (requestedTask && requestedTask.trim() !== task.trim()) {
-    console.warn(`Ignoring --task for lifecycle grounding; using the governed Story title ${JSON.stringify(task)} so the phase world model is reusable across sessions.`);
+  if (requestedTask) {
+    console.warn('Ignoring --task for lifecycle grounding; the repository world model is shared across Stories and Story context comes from the governed phase. Use an explicit wm ensure/compose --task command only to request an ad-hoc task guide.');
   }
   const grounding = workflow.resolution?.worldModelGrounding ?? 'off';
   if (grounding !== 'off') {
     const readiness = await inspectWorkflowGrounding(root, workflow, phase.id, {
-      agent: (await loadSession(root, { required: false }))?.agent ?? null,
-      task
+      agent: (await loadSession(root, { required: false }))?.agent ?? null
     });
     if (!readiness.availability.ready) {
-      const materialization = await materializeWorldModelForNext(root, config, workflow, phase, task, options);
+      const materialization = await materializeWorldModelForNext(root, config, workflow, phase, options);
       if (materialization.materialized) {
         try {
-          await worldModelCommand(root, ['wm', 'compose'], { phase: phase.id, task, evidence: phase.worldModel?.evidence === true });
+          await worldModelCommand(root, ['wm', 'compose'], { phase: phase.id, evidence: phase.worldModel?.evidence === true });
         } catch (error) {
           if (materialization.policy.depth === 'light') {
-            throw new SingularityFlowError(`The configured automatic light world model did not satisfy phase '${phase.id}': ${error.message}\nUse depth: phase with confirmation: prompt, or run singularity-flow wm ensure --phase ${phase.id} --task ${JSON.stringify(task)}.`);
+            throw new SingularityFlowError(`The configured automatic light world model did not satisfy phase '${phase.id}': ${error.message}\nUse depth: phase with confirmation: prompt, or run singularity-flow wm ensure --phase ${phase.id}.`);
           }
           throw error;
         }
@@ -2152,7 +2145,7 @@ async function nextCommand(options) {
         console.log(`Next step prerequisite: ${readiness.reason}`);
         console.log('No model was started. Build explicitly, then continue:');
         console.log(`Copilot: /sf-worldmodel --phase ${phase.id}`);
-        console.log(`Run: singularity-flow wm ensure --phase ${phase.id} --task ${JSON.stringify(task)}`);
+        console.log(`Run: singularity-flow wm ensure --phase ${phase.id}`);
         if (materialization.reason) console.log(`Configured policy did not build it: ${materialization.reason}.`);
         console.log('Model-free alternative: author the prepared artifact manually and publish with --authored human.');
         return;
@@ -2163,7 +2156,7 @@ async function nextCommand(options) {
       }
     } else {
       try {
-        await worldModelCommand(root, ['wm', 'compose'], { phase: phase.id, task, evidence: phase.worldModel?.evidence === true });
+        await worldModelCommand(root, ['wm', 'compose'], { phase: phase.id, evidence: phase.worldModel?.evidence === true });
       } catch (error) {
         if (grounding === 'enforce') throw error;
         console.warn(`Grounding warning: ${error.message}`);

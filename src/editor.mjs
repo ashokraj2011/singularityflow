@@ -525,7 +525,6 @@ async function fullRepositorySnapshot(root, requestedWorkId = null, requestedIni
       const { inspectWorkflowGrounding } = await import('./worldmodel.mjs');
       worldModelReadiness = await inspectWorkflowGrounding(root, workflow, workflow.currentPhase, {
         agent: activeSession?.agent ?? null,
-        task: workflow.workItem.title,
         // A navigation refresh is a local read. The cached state ref is enough to disclose
         // readiness; explicit world-model refresh/ensure operations own network reconciliation.
         refreshRemote: false

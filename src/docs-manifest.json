@@ -1,9 +1,9 @@
 {
   "schemaVersion": 1,
   "generatedFrom": "docs/topics",
-  "sourceCommit": "5ec22553a48a0119ba4286a13d56bbb52db436f8",
+  "sourceCommit": "712851bb12b03bb332957e553afdf163e60bc434",
   "topicCount": 54,
-  "contentSha256": "32ee8f67787b15fcb8a76ac905cc487d660fc186d8c2360b7d12a4db5a0f28b2",
+  "contentSha256": "90df9014d8567cc894804f2ef38de8655871b20d2e2788a7442ba3d3f8d214f4",
   "topics": [
     {
       "id": "activity-and-prompt-audit",
@@ -141,8 +141,8 @@
     {
       "id": "governed-execution",
       "title": "Governed execution and safe next actions",
-      "version": 2,
-      "sha256": "a45ee94668356fad250a56517c340ea94cee2ff65bf29d805a55cbef8de0d96b",
+      "version": 3,
+      "sha256": "26a03c6190d8649db70044db173dcfe6a4641a4ab756be7f77b663ca4a8222db",
       "file": "governed-execution.md"
     },
     {
@@ -225,8 +225,8 @@
     {
       "id": "nextsteps",
       "title": "Guidance — nextsteps and the narration contract",
-      "version": 4,
-      "sha256": "5c75dbc2fdec54143df64008b3cfdac1765ae24ecc493b3bf7ce63d02247ff17",
+      "version": 5,
+      "sha256": "6fa80aacb41829a06e8605dcf8155dbe3b5c7109b5e5bc9198162f58acbbf2e3",
       "file": "nextsteps.md"
     },
     {
@@ -379,8 +379,8 @@
     {
       "id": "world-model",
       "title": "World model grounding and views",
-      "version": 8,
-      "sha256": "e31901a22a2bf1ba1f82b4f8178d647d8dbab7d9a1d5ad39775b22210b10192f",
+      "version": 9,
+      "sha256": "a2ec508d1f5a382938abdd78003046ffd796e4037bb558c66e50e87a1ab62fa1",
       "file": "world-model.md"
     }
   ]

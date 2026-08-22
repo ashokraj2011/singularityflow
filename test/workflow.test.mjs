@@ -428,19 +428,37 @@ test('next can automatically build the configured deterministic light world mode
   const stateBeforeReturn = execute('git', ['rev-parse', 'refs/heads/state'], root).stdout.trim();
 
   // A new Copilot chat may describe the same work differently. `next` must not turn that
-  // conversational wording into a new task-guide identity and rebuild a model that is already
-  // ready for this Story and phase.
+  // conversational wording into a task-guide identity.
   const returned = flow(root, ['next', '--task', 'Prepare intake and advance this work to its next valid step']);
-  assert.match(returned.stderr, /using the governed Story title "Automatic light grounding"/);
+  assert.match(returned.stderr, /repository world model is shared across Stories/);
   assert.doesNotMatch(returned.stdout, /Automatically building/);
   assert.equal(execute('git', ['rev-parse', 'refs/heads/state'], root).stdout.trim(), stateBeforeReturn);
-  const availability = JSON.parse(flow(root, [
+  const availability = JSON.parse(flow(root, ['wm', 'availability', '--phase', 'intake', '--json']).stdout);
+  assert.equal(availability.ready, true);
+  assert.equal(availability.taskGuide.status, 'not-requested');
+  const explicitTask = JSON.parse(flow(root, [
     'wm', 'availability', '--phase', 'intake', '--task', 'Automatic light grounding', '--json'
   ]).stdout);
-  assert.equal(availability.ready, true);
+  assert.equal(explicitTask.ready, false, 'a task guide is only required when explicitly requested');
+  assert.equal(explicitTask.taskGuide.status, 'missing');
   const workflow = JSON.parse(await readFile(path.join(root, 'singularity/work-items', workId, 'workflow.json'), 'utf8'));
   assert.deepEqual(workflow.resolution.worldModelMaterialization, definition.worldModel.materialization);
   assert.equal(workflow.phases.intake.generation, 0);
+
+  // A different Story against the same application source must consume the governed state-branch
+  // snapshot without creating another model or a Story-specific task guide.
+  execute('git', ['add', `singularity/work-items/${workId}`], root);
+  execute('git', ['commit', '-m', `[${workId}] retain prepared grounding context`], root);
+  execute('git', ['switch', 'main'], root);
+  assert.equal(execute('git', ['status', '--short'], root).stdout.trim(), '', 'returning to main must leave a clean tree before another Story starts');
+  const secondWorkId = 'NEXT-LIGHT-AUTO-2';
+  flow(root, ['start', secondWorkId, '--from-branch', 'main', '--work-type', 'feature', '--agent', 'product-owner', '--title', 'A completely different Story', '--description', 'Reuse repository grounding created while another Story was active.']);
+  const second = flow(root, ['next']);
+  assert.doesNotMatch(second.stdout, /Automatically building/);
+  assert.match(second.stdout, /Next step prepared: generate 'intake'/);
+  assert.equal(execute('git', ['rev-parse', 'refs/heads/state'], root).stdout.trim(), stateBeforeReturn);
+  const sharedManifest = JSON.parse(execute('git', ['show', 'refs/heads/state:singularity/world-model/manifest.json'], root).stdout);
+  assert.deepEqual(sharedManifest.task_guides, []);
   assert.equal(execute('git', ['worktree', 'list', '--porcelain'], root).stdout.match(/^worktree /gm)?.length, 1);
 });
 

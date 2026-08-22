@@ -394,6 +394,20 @@ test('wm build isolates the generator, commits a validated model, and tracks sou
   assert.match(run(process.execPath, [bin, 'wm', 'check'], root), /fresh:/);
   assert.match(run(process.execPath, [bin, 'wm', 'context', 'design', '--task', task, '--concat'], root), /Exact task guide/);
 
+  // Asking for another ad-hoc guide must recognize the valid shared model as the extension base.
+  // The missing guide is a materialization requirement, not an integrity failure that permits the
+  // next build to discard the existing repository model.
+  const anotherTask = 'Explain a separate deployment concern';
+  const explicitAvailability = JSON.parse(run(process.execPath, [
+    bin, 'wm', 'availability', '--phase', 'design', '--task', anotherTask, '--json'
+  ], root));
+  assert.equal(explicitAvailability.ready, false);
+  assert.equal(explicitAvailability.taskGuide.status, 'missing');
+  assert.match(explicitAvailability.action.reason, /missing explicit task guide/);
+  assert.equal(explicitAvailability.extensionBase.source, 'worktree');
+  assert.equal(explicitAvailability.candidates.find((candidate) => candidate.source === 'worktree').integrityValid, true);
+  assert.ok(explicitAvailability.selections.every((selection) => selection.status === 'ready'));
+
   await mkdir(path.join(root, 'singularity/work-items/BUILD-1'), { recursive: true });
   await writeFile(path.join(root, 'singularity/work-items/BUILD-1/workflow.json'), '{}\n');
   run('git', ['add', 'singularity/work-items'], root);
@@ -1351,7 +1365,7 @@ test('enforced workflows block generation until the governed prompt is composed'
   assert.match(run('git', ['log', '-1', '--format=%s'], root), /^\[GROUND-1\]\[phase:intake\]\[generated:1\]/);
 });
 
-test('next --yes enters semantic ensure and prepares configured next-phase grounding', async () => {
+test('next --yes enters shared semantic ensure and prepares configured next-phase grounding', async () => {
   const root = await mkdtemp(path.join(os.tmpdir(), 'sflow-worldmodel-next-phase-'));
   run('git', ['init', '-b', 'main'], root);
   run('git', ['config', 'user.name', 'Next Grounding Tester'], root);
@@ -1380,17 +1394,21 @@ test('next --yes enters semantic ensure and prepares configured next-phase groun
   flow(['start', 'NEXT-PHASE-1', '--from-branch', 'main', '--title', task], root);
   const prepared = flow(['next', '--yes', '--task', task], root);
   assert.doesNotMatch(`${prepared.stdout}${prepared.stderr}`, /MODEL_FORBIDDEN|forbids model execution/);
+  assert.match(prepared.stderr, /repository world model is shared across Stories/);
   assert.match(prepared.stdout, /Building the configured phase-depth world model for phase 'intake'/);
   assert.match(prepared.stdout, /World model built from source/);
   assert.match(prepared.stdout, /Preparing configured next-phase grounding for 'requirements'/);
   assert.match(prepared.stdout, /Next step prepared: generate 'intake'/);
 
-  const intake = JSON.parse(flow(['wm', 'availability', '--phase', 'intake', '--task', task, '--json'], root).stdout);
-  const requirements = JSON.parse(flow(['wm', 'availability', '--phase', 'requirements', '--task', task, '--json'], root).stdout);
+  const intake = JSON.parse(flow(['wm', 'availability', '--phase', 'intake', '--json'], root).stdout);
+  const requirements = JSON.parse(flow(['wm', 'availability', '--phase', 'requirements', '--json'], root).stdout);
   assert.equal(intake.ready, true);
   assert.equal(requirements.ready, true);
   assert.equal(intake.source, 'state-branch');
   assert.equal(requirements.source, 'state-branch');
+  const explicitTaskGuide = JSON.parse(flow(['wm', 'availability', '--phase', 'intake', '--task', task, '--json'], root).stdout);
+  assert.equal(explicitTaskGuide.ready, false);
+  assert.equal(explicitTaskGuide.taskGuide.status, 'missing');
 });
 
 test('--no-model wm ensure honors deterministic light materialization policy', async () => {

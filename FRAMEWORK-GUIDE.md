@@ -406,7 +406,7 @@ compose → prepare → author → publish → submit → approve or reject
 ### Compose
 
 ```bash
-singularity-flow wm compose --phase design --task "..."
+singularity-flow wm compose --phase design
 ```
 
 Builds and audits the effective prompt.
@@ -815,9 +815,9 @@ git push -u origin WORK-123
 # Start and bind the Story workflow.
 singularity-flow start WORK-123
 
-# For each active phase.
-singularity-flow wm build --phase intake --task "Add invoice export" --local
-singularity-flow wm compose --phase intake --task "Add invoice export"
+# For each active phase. Ensure only when the shared source model is unavailable.
+singularity-flow wm ensure --phase intake
+singularity-flow wm compose --phase intake
 singularity-flow prepare intake
 # Author the artifact.
 singularity-flow phase publish intake
@@ -831,8 +831,8 @@ singularity-flow report WORK-123
 singularity-flow gate --terminal
 ```
 
-Use the same exact `--task` text for `wm build` and `wm compose`; task guides are
-matched exactly rather than guessed.
+The repository model is shared across Stories. Story context comes from the governed phase
+workflow; add `--task` only when explicitly requesting an ad-hoc task guide.
 
 ## Summary
 

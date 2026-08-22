@@ -498,9 +498,9 @@ The `feature` work type runs `intake → requirements → design → implementat
 For each phase:
 
 ```bash
-singularity-flow wm build   --phase intake --task "Add invoice export" --local
-singularity-flow wm compose --phase intake --task "Add invoice export" --dry-run
-singularity-flow wm compose --phase intake --task "Add invoice export"
+singularity-flow wm ensure  --phase intake
+singularity-flow wm compose --phase intake --dry-run
+singularity-flow wm compose --phase intake
 singularity-flow prepare intake
 # author singularity/work-items/WORK-123/artifacts/intake/intake.md
 singularity-flow artifact scan --phase intake
@@ -510,7 +510,7 @@ singularity-flow submit --phase intake
 singularity-flow approve WORK-123 --fetch
 ```
 
-Use the same `--task` text for `wm build` and `wm compose`: the task guide is matched exactly, and a mismatch fails rather than silently grounding on the wrong guide.
+The model is shared across Stories and reused when its scoped source snapshot is unchanged. Story context comes from the governed workflow; use `--task` only for an explicitly requested ad-hoc task guide.
 
 Artifacts must exceed the phase's configured `minimumBytes` and contain no `TODO`, `TBD`, `{{…}}`, or `[describe …]` placeholders; `publish` and `submit` both refuse otherwise. Phases with `writeScope: artifact-only` reject any change outside `artifacts/<phase>/` — source code belongs to `implementation` and `verification`.
 
@@ -534,7 +534,7 @@ Orientation at any point:
 
 ```bash
 singularity-flow nextsteps WORK-123 [--json]    # read-only ordered plan
-singularity-flow next [--task TEXT]             # one action; grounding always uses the Story title
+singularity-flow next [--task TEXT]             # one action; grounding reuses the shared repository model
 singularity-flow guide WORK-123
 ```
 
@@ -584,7 +584,7 @@ singularity-flow gate --terminal
    `start`, selection receipts, soft-gate confirmation, `approve`, `reject`, and
    `epic start --local`; phase agents are resolved by the workflow.
 5. Consume selection receipts without committing in between; they expire in 15 minutes and are single use.
-6. Run `wm compose` before every `phase publish` while grounding is enforced, using the same `--task` text as `wm build`.
+6. Run `wm compose --phase <phase>` before every `phase publish` while grounding is enforced; do not add a Story-specific `--task`.
 7. Replace every template placeholder and exceed the phase's minimum byte count.
 8. Keep source changes inside `implementation` and `verification`.
 9. Name the branch exactly the work ID.

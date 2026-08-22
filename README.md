@@ -1274,7 +1274,7 @@ sflow-next
 # equivalent: singularity-flow next
 ```
 
-The command performs exactly one lifecycle action. It recovers a pending push, prepares and grounds the active generation, submits an already-published generation, opens the normal interactive approval flow, or runs the terminal gate after completion. Lifecycle grounding uses the durable Story title, so a new Copilot session can paraphrase the objective without regenerating the phase world model. The legacy `--task` flag is accepted for compatibility but cannot change this governed identity; use explicit `wm ensure/compose --task` commands only when intentionally managing an ad-hoc task guide. Copilot completes and publishes a prepared artifact; it does not silently chain that publication into submission. Approval verifies the real reviewer identity and authority group, activates the phase agent, then requires exact phase confirmation; every approval gets its own commit and push.
+The command performs exactly one lifecycle action. It recovers a pending push, prepares and grounds the active generation, submits an already-published generation, opens the normal interactive approval flow, or runs the terminal gate after completion. Lifecycle grounding uses the shared repository world model keyed by its scoped source snapshot; Story context comes from the governed workflow prompt, so starting another Story does not create a task-guide requirement or regenerate unchanged repository grounding. The legacy `--task` flag is accepted for compatibility and ignored by lifecycle grounding; use explicit `wm ensure/compose --task` commands only when intentionally requesting an ad-hoc task guide. Copilot completes and publishes a prepared artifact; it does not silently chain that publication into submission. Approval verifies the real reviewer identity and authority group, activates the phase agent, then requires exact phase confirmation; every approval gets its own commit and push.
 
 ## Progress
 
@@ -1359,8 +1359,8 @@ Copilot users normally invoke the appropriate skill, for example:
 The skill combines its phase contract with the active governed agent and verified repository grounding. The equivalent deterministic CLI sequence is:
 
 ```bash
-singularity-flow wm compose --phase intake --task "Capture the requested change"
-# If instructed, first build with the same phase and exact task text.
+singularity-flow wm compose --phase intake
+# If instructed, first ensure the shared repository model for this phase.
 singularity-flow prepare intake
 # Fill the generated template.
 singularity-flow phase publish intake
@@ -1703,6 +1703,7 @@ singularity-flow wm status --phase design --task "Design invoice export"
 singularity-flow wm availability --phase design --task "Design invoice export"
 singularity-flow wm ensure --phase design --task "Design invoice export"
 singularity-flow wm check --branch release/2026.07
+# These --task forms explicitly request an ad-hoc task guide.
 singularity-flow wm compose --phase design --task "Design invoice export" --dry-run
 singularity-flow wm compose --phase design --task "Design invoice export"
 singularity-flow wm show-prompt
@@ -1742,7 +1743,7 @@ branch in an isolated worktree, and leaves the active checkout unchanged. It
 refuses divergent branches or branches already checked out elsewhere rather
 than overwriting work. Use `--remote <name>` when the branch is not on `origin`.
 
-`wm compose` is the single phase entry point. It combines the active governed Agent Markdown, mandatory phase and agent-added views, the exact task guide, applicable evidence, rule-selected files, and locked remote agent skills. `wm inject` remains an alias for compatibility. Rules can match the governed `agent` ID, phase, immutable work type, committed or pending changed paths, and source labels.
+`wm compose` is the single phase entry point. It combines the active governed Agent Markdown, mandatory phase and agent-added views, an exact task guide only when explicitly requested with `--task`, applicable evidence, rule-selected files, and locked remote agent skills. `wm inject` remains an alias for compatibility. Rules can match the governed `agent` ID, phase, immutable work type, committed or pending changed paths, and source labels.
 
 Use `/sf-show-prompt` at any active Story phase to display the complete
 `/sf-phase` `SKILL.md` followed by the exact rendered governed phase prompt.
@@ -2024,7 +2025,7 @@ evidence workflow.
 | `singularity-flow action plan [STORY-OR-INITIATIVE]` | Create a short-lived action plan bound to subject kind, branch, HEAD, index, working-tree, and lifecycle hashes. |
 | `singularity-flow action authorize <PLAN-ID> --action <ACTION-ID> --confirm <ACTION-ID>` | Record one short-lived, machine-local authorization after reviewing that exact action. |
 | `singularity-flow action execute <PLAN-ID> --action <ACTION-ID> --authorization <TOKEN>` | Revalidate and run one reviewed action directly through the engine. The token is consumed once; read-only actions omit it. |
-| `sflow-next [--task TEXT] [--yes]` | Execute exactly one next valid action; alias for `singularity-flow next`. Lifecycle grounding is keyed by the durable Story title; `--task` is retained for compatibility and cannot trigger a second model from conversational paraphrasing. If a semantic world model is missing, interactive use asks before starting its model agent and non-interactive use requires explicit `--yes`. |
+| `sflow-next [--task TEXT] [--yes]` | Execute exactly one next valid action; alias for `singularity-flow next`. Lifecycle grounding reuses the source-keyed repository model across Stories; `--task` is retained for compatibility and ignored here. If a semantic world model is missing, interactive use asks before starting its model agent and non-interactive use requires explicit `--yes`. |
 | `singularity-flow inputs [PHASE] [--dry-run]` | Inspect or render approved phase-input dataflow. |
 | `singularity-flow agents list\|mappings\|lock\|sync\|status\|refresh-output` | Resolve Copilot-agent mappings and trust, materialize, inspect, or refresh remote Markdown agents. |
 | `singularity-flow mcp list\|status\|doctor` | Join governed MCP assignments to host server names and report static readiness without exposing host secrets or making network calls. |

@@ -11,9 +11,25 @@ related:
   - agents-and-routing
   - model-independence
   - knowledge-and-remote-assets
-version: 8
+version: 9
 ---
 The world model provides repository-grounded views used during governed generation. In a monorepo, scope it to the capability's source and shared directories so unrelated products do not increase scan cost or invalidate evidence.
+
+## Shared lifetime and regeneration
+
+The governed world model belongs to the repository source snapshot, not to a Story. Its validated
+snapshot is published on the configured state branch and reused by every Story, terminal, Copilot
+session, and VS Code surface that resolves the same source scope. Story/work-item lifecycle files
+are excluded from the source fingerprint, and Story context is injected separately by the governed
+phase prompt.
+
+Normal lifecycle commands inspect, reuse, and compose this shared model without a task guide. They
+never turn a Story title or conversational objective into `--task`. A direct `wm ensure --task` or
+`wm compose --task` is an explicit request for an ad-hoc task guide; it may extend the shared model
+while preserving all valid existing artifacts. Expensive semantic generation requires an explicit
+`wm build`/`wm ensure` action or an opted-in `on-demand` policy with confirmation. Automatic
+materialization is restricted to the deterministic `light` builder, which consumes zero model
+tokens. An unchanged ready source snapshot is reused rather than rebuilt.
 
 ## Purpose and prerequisites
 

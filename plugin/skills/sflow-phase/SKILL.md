@@ -12,9 +12,9 @@ argument-hint: "[generation focus]"
 
 On `Out of sequence`, stop and relay the error. On `Soft sequence warning`, show it and leave `continue` to the human. Never edit state to bypass a gate.
 
-1. Run `singularity-flow status --json`; use its active phase and session. Read exact `workItem.title` as `STORY_TITLE`, the stable grounding identity.
+1. Run `singularity-flow status --json`; use its active phase and session. Story context comes from this governed workflow record, while the world model is shared by the repository.
 2. Run `singularity-flow documents list` and view every relevant uploaded input by its stable ID.
-3. Run `singularity-flow wm compose --phase <phase> --task "$STORY_TITLE"`, adding configured `--evidence`, and use the complete prompt. If missing/stale, run its exact ensure command only after contributor authorization, then compose identically. Never paraphrase `STORY_TITLE`; composition records its inputs and hashes.
+3. Run `singularity-flow wm compose --phase <phase>`, adding configured `--evidence`, and use the complete prompt. If missing/stale, run its exact ensure command only after contributor authorization, then compose identically. Never add a Story title or conversational objective as `--task`; direct `wm ... --task` is reserved for an explicitly requested ad-hoc task guide.
 4. Execute any **Human clarification checkpoint** before preparation. Use `ask_user` and wait. `required` pauses; `when-needed` continues only without material ambiguity. If unavailable, display questions and stop before preparation. Record answers with `singularity-flow clarification record <phase> --response-file <file>`; stop on failure.
 5. Run `singularity-flow prepare <phase>` and read its configured template and approved inputs.
 6. Complete only configured artifacts, preserving metadata, confirmed clarifications, and visible deferrals. Re-read each; stop on `TODO`, `TBD`, unresolved `{{...}}`, or template instructions. Never publish an untouched template.

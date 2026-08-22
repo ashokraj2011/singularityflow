@@ -78,15 +78,13 @@ async function storyPrerequisites(root, workflow, selected, modelMode = { enable
     const { verifyGroundingRecord } = await import('../grounding.mjs');
     const { inspectWorkflowGrounding } = await import('../worldmodel.mjs');
     const definition = await loadDefinition(root);
-    const task = workflow.workItem.title;
     const readiness = await inspectWorkflowGrounding(root, workflow, active.id, {
-      agent: session?.agent ?? null,
-      task
+      agent: session?.agent ?? null
     });
     if (!readiness.availability.ready) {
       const blocks = groundingMode === 'enforce' || readiness.availability.staleness?.blocks;
       prerequisites.push({ timing: blocks ? 'now' : 'optional', skill: '/sf-worldmodel', command: readiness.command, reason: readiness.reason });
-      prerequisites.push({ timing: groundingMode === 'enforce' ? 'then' : 'optional', skill: null, command: `singularity-flow wm compose --phase ${active.id} --task ${JSON.stringify(task)}`, reason: 'Compose and record the governed phase prompt using the exact same task text.' });
+      prerequisites.push({ timing: groundingMode === 'enforce' ? 'then' : 'optional', skill: null, command: `singularity-flow wm compose --phase ${active.id}`, reason: 'Compose and record the governed phase prompt from the shared repository model.' });
     } else {
       if (readiness.availability.staleness?.warns) prerequisites.push({
         timing: 'optional', skill: '/sf-worldmodel', command: readiness.command,
@@ -94,7 +92,7 @@ async function storyPrerequisites(root, workflow, selected, modelMode = { enable
       });
       const grounding = await verifyGroundingRecord(root, definition, workflow, active, { agent: session?.agent ?? null });
       if (grounding.errors.length || grounding.warnings.length) prerequisites.push({
-        timing: groundingMode === 'enforce' ? 'now' : 'optional', skill: null, command: `singularity-flow wm compose --phase ${active.id} --task ${JSON.stringify(task)}`,
+        timing: groundingMode === 'enforce' ? 'now' : 'optional', skill: null, command: `singularity-flow wm compose --phase ${active.id}`,
         reason: 'Create or refresh the required grounding record and exact prompt snapshot before publishing this generation.'
       });
     }

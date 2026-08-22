@@ -320,7 +320,7 @@ flowchart TD
 For example, the phase skill may invoke:
 
 ```bash
-singularity-flow wm compose --phase design --task "Design invoice export"
+singularity-flow wm compose --phase design
 singularity-flow prepare design
 singularity-flow phase publish design
 ```

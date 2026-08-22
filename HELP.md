@@ -1781,9 +1781,10 @@ prepares and grounds the current generation, submits a published generation,
 opens the interactive approval flow, or runs the final terminal gate. Generation
 and submission remain separate invocations. Approval never bypasses agent
 selection or confirmation, and its decision commit must be pushed before success.
-Lifecycle grounding uses the durable Story title rather than a conversational
-objective. The legacy `--task` option remains accepted for compatibility, but it
-cannot change this identity or cause an otherwise-ready phase model to regenerate.
+Lifecycle grounding uses the shared repository model keyed by its scoped source
+snapshot. Story context comes from the governed workflow prompt, so another Story
+does not create a task guide or regenerate unchanged grounding. The legacy
+`--task` option remains accepted for compatibility and is ignored by lifecycle commands.
 
 ## Progress and status
 
@@ -1973,6 +1974,7 @@ singularity-flow wm status --phase design --task "Design invoice export"
 singularity-flow wm availability --phase design --task "Design invoice export"
 singularity-flow wm ensure --phase design --task "Design invoice export"
 singularity-flow wm check --branch release/2026.07
+# These --task forms explicitly request an ad-hoc task guide.
 singularity-flow wm compose --phase design --task "Design invoice export" --dry-run
 singularity-flow wm compose --phase design --task "Design invoice export"
 singularity-flow wm show-prompt
@@ -2131,7 +2133,7 @@ worldModel:
 Preview rule matching without writing an audit record:
 
 ```bash
-singularity-flow wm compose --phase design --task "Design invoice export" --dry-run
+singularity-flow wm compose --phase design --dry-run
 ```
 
 Every non-dry-run composition writes
@@ -2166,8 +2168,9 @@ Context composition is additive:
 
 Approved phase inputs are injected separately by `prepare` into the managed
 artifact template. governed-agent views never remove phase-required views. Verification
-and conformance load test/source evidence. Phase skills use `wm compose` once,
-building first with the same exact task text when needed.
+and conformance load test/source evidence. Phase skills use `wm compose` once and
+reuse the shared repository model; an explicit `--task` is only for an intentionally
+requested ad-hoc guide.
 
 ## Remote Markdown agents
 

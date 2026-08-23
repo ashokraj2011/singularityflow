@@ -894,6 +894,12 @@ From a clean clone, update the tracked branch, create the distribution tarball, 
 
 `npm run install:local` is an alias for the same script.
 
+The VSCE packaging toolchain is installed once and cached, content-addressed by its pins, the npm
+registry, and the Node major, under `~/.singularity-flow/toolchains/vsce/`. Every later install
+verifies the cached tree against the pin table and reuses it — the step that used to re-download
+the toolchain on each run now takes seconds. `./install.sh --refresh-vsce-toolchain` forces a
+reinstall of the toolchain; each step of the installer prints its own elapsed time.
+
 A normal install also checks the repository selected by the active workspace. If the new package
 contains workflows that repository does not have yet, the installer adds only those missing
 packaged workflows. Existing and customized workflows and repository agents are preserved. The

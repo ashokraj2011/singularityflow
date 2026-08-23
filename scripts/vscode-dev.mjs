@@ -21,7 +21,8 @@
  */
 import { spawn, spawnSync } from 'node:child_process';
 import { existsSync } from 'node:fs';
-import { cp, mkdtemp, mkdir, readFile, rm, writeFile } from 'node:fs/promises';
+import { createHash } from 'node:crypto';
+import { cp, mkdtemp, mkdir, readdir, readFile, rename, rm, stat, writeFile } from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -455,43 +456,151 @@ async function installedPackageVersion(directory, name) {
 }
 
 /**
- * Install VSCE in a disposable directory instead of asking npx for today's dependency graph.
+ * Where cached VSCE toolchains live, and the env override tests use to relocate them.
  *
- * The scratch install honors the caller's npm configuration, including an Artifactory registry,
- * and is removed after packaging. It never changes this repository's package.json or lockfile.
+ * The machine state root rather than `os.tmpdir()`: macOS purges temp directories on its own
+ * schedule, and a cache that silently evaporates turns "fast on the second install" back into a
+ * five-minute lottery.
  */
-export async function resolveVsce({ tempRoot = os.tmpdir() } = {}) {
-  const directory = await mkdtemp(path.join(tempRoot, 'sflow-vsce-'));
+export const VSCE_TOOLCHAIN_ROOT_ENV = 'SINGULARITY_FLOW_VSCE_TOOLCHAIN_ROOT';
+export const VSCE_TOOLCHAIN_REFRESH_ENV = 'SINGULARITY_FLOW_REFRESH_VSCE_TOOLCHAIN';
+
+function vsceToolchainRoot() {
+  const explicit = String(process.env[VSCE_TOOLCHAIN_ROOT_ENV] ?? '').trim();
+  if (explicit) return path.resolve(explicit);
+  return path.join(os.homedir(), '.singularity-flow', 'toolchains', 'vsce');
+}
+
+/**
+ * The cache key: everything that can change what an install of the manifest produces.
+ *
+ * The manifest carries the five pins, so bumping any pin is automatically a new key. The registry
+ * is part of the key because the same pins from a different registry are a different trust
+ * decision (the Artifactory case). The Node major is included because node-gyp-free as this tree
+ * is, npm's own tree shaping differs across majors.
+ */
+export function vsceToolchainKey() {
+  const registry = String(
+    process.env.NPM_CONFIG_REGISTRY ?? process.env.npm_config_registry ?? 'https://registry.npmjs.org/'
+  ).trim();
+  const seed = JSON.stringify({
+    manifest: vsceToolManifest(), registry, node: process.versions.node.split('.')[0]
+  });
+  return createHash('sha256').update(seed).digest('hex').slice(0, 12);
+}
+
+/**
+ * Verify a toolchain tree and return its vsce entry point.
+ *
+ * This is the same check a fresh install always ran; pointing it at a cached tree is what makes
+ * the cache safe to trust. A partial or tampered tree fails here and is rebuilt, so a cache hit
+ * proves exactly what a cold install proves.
+ */
+async function verifiedVsceEntry(directory) {
+  const expected = new Map([
+    ['@vscode/vsce', VSCE_TOOLCHAIN.vsce],
+    ['@azure/identity', VSCE_TOOLCHAIN.identity],
+    ['@azure/msal-node', VSCE_TOOLCHAIN.msalNode],
+    ['@azure/msal-browser', VSCE_TOOLCHAIN.msalBrowser],
+    ['@azure/msal-common', VSCE_TOOLCHAIN.msalCommon]
+  ]);
+  for (const [name, version] of expected) {
+    const actual = await installedPackageVersion(directory, name);
+    if (actual !== version) throw new Error(`Pinned VSCE toolchain expected ${name}@${version}, installed ${actual}.`);
+  }
+  const packageJson = JSON.parse(await readFile(
+    path.join(directory, 'node_modules', '@vscode', 'vsce', 'package.json'), 'utf8'
+  ));
+  const relativeEntry = typeof packageJson.bin === 'string' ? packageJson.bin : packageJson.bin?.vsce;
+  if (!relativeEntry) throw new Error('Installed @vscode/vsce package does not declare its vsce executable.');
+  return path.join(directory, 'node_modules', '@vscode', 'vsce', relativeEntry);
+}
+
+/** Keep the current key plus one predecessor, so a pin bump does not strand gigabytes forever. */
+async function pruneVsceToolchains(rootDir, keep) {
+  const entries = await readdir(rootDir, { withFileTypes: true }).catch(() => []);
+  const keys = [];
+  for (const entry of entries) {
+    if (!entry.isDirectory()) continue;
+    if (entry.name.includes('.staging-')) {
+      /**
+       * Sweep only staging whose owner is gone. The first draft removed every staging directory it
+       * saw, and the concurrency test failed with `ENOENT: uv_cwd` inside the stub npm — the
+       * winner's prune had deleted the *loser's live working directory* mid-install. "A staging
+       * directory is a crashed install" is only true when the pid in its name is dead.
+       */
+      const owner = Number(entry.name.split('.staging-').pop());
+      let alive = false;
+      if (Number.isInteger(owner) && owner > 0) {
+        try { process.kill(owner, 0); alive = true; } catch { alive = false; }
+      }
+      if (!alive) await rm(path.join(rootDir, entry.name), { recursive: true, force: true });
+      continue;
+    }
+    if (/^[0-9a-f]{12}$/.test(entry.name) && entry.name !== keep) keys.push(entry.name);
+  }
+  // Newest survivor stays; everything older goes. mtime is good enough for a cache.
+  const stats = await Promise.all(keys.map(async (name) => ({
+    name, mtime: (await stat(path.join(rootDir, name))).mtimeMs
+  })));
+  stats.sort((a, b) => b.mtime - a.mtime);
+  for (const { name } of stats.slice(1)) await rm(path.join(rootDir, name), { recursive: true, force: true });
+}
+
+/**
+ * Resolve the pinned VSCE toolchain, installing it at most once per (pins, registry, Node major).
+ *
+ * The previous version installed into a fresh `mkdtemp` directory on every run and deleted it
+ * afterwards — 292 registry fetches and about five minutes per install, to re-create a tree whose
+ * exact content the pin verification had already approved last time. That was most of the wall
+ * time of `./install.sh --skip-tests`. The pinning goal (no npx drift, registry-honoring, never
+ * touching this repository's lockfile) is kept; only the re-download is gone.
+ *
+ * Concurrency: installs land in a per-pid staging directory and take the final name with an
+ * atomic rename. The loser of a race finds the winner's verified tree and uses it.
+ */
+export async function resolveVsce({ refresh = undefined } = {}) {
+  const wantRefresh = refresh ?? (flag('refresh-vsce-toolchain')
+    || String(process.env[VSCE_TOOLCHAIN_REFRESH_ENV] ?? '') === '1');
+  const rootDir = vsceToolchainRoot();
+  const key = vsceToolchainKey();
+  const directory = path.join(rootDir, key);
+
+  if (!wantRefresh) {
+    try {
+      return { directory, entry: await verifiedVsceEntry(directory), cached: true };
+    } catch {
+      // Miss, or a corrupted/partial tree: fall through and rebuild it.
+    }
+  }
+
+  await mkdir(rootDir, { recursive: true });
+  await rm(directory, { recursive: true, force: true });
+  const staging = `${directory}.staging-${process.pid}`;
+  await rm(staging, { recursive: true, force: true });
+  await mkdir(staging, { recursive: true });
   try {
-    await writeFile(path.join(directory, 'package.json'), `${JSON.stringify(vsceToolManifest(), null, 2)}\n`);
+    await writeFile(path.join(staging, 'package.json'), `${JSON.stringify(vsceToolManifest(), null, 2)}\n`);
     const npm = process.platform === 'win32' ? 'npm.cmd' : 'npm';
+    // --prefer-offline: a cold cache key still reuses npm's content cache for tarballs it has.
     const install = spawnSync(npm, [
-      'install', '--ignore-scripts', '--no-audit', '--no-fund', '--package-lock=false'
-    ], { cwd: directory, stdio: 'inherit' });
+      'install', '--ignore-scripts', '--no-audit', '--no-fund', '--package-lock=false', '--prefer-offline'
+    ], { cwd: staging, stdio: 'inherit' });
     if (install.status !== 0) {
       throw new Error(`npm could not install the pinned VSCE toolchain${install.error ? `: ${install.error.message}` : ''}`);
     }
-
-    const expected = new Map([
-      ['@vscode/vsce', VSCE_TOOLCHAIN.vsce],
-      ['@azure/identity', VSCE_TOOLCHAIN.identity],
-      ['@azure/msal-node', VSCE_TOOLCHAIN.msalNode],
-      ['@azure/msal-browser', VSCE_TOOLCHAIN.msalBrowser],
-      ['@azure/msal-common', VSCE_TOOLCHAIN.msalCommon]
-    ]);
-    for (const [name, version] of expected) {
-      const actual = await installedPackageVersion(directory, name);
-      if (actual !== version) throw new Error(`Pinned VSCE toolchain expected ${name}@${version}, installed ${actual}.`);
+    await verifiedVsceEntry(staging);
+    try {
+      await rename(staging, directory);
+    } catch {
+      // Another process won the rename race; its tree passed the same verification. Use it.
+      await rm(staging, { recursive: true, force: true });
+      return { directory, entry: await verifiedVsceEntry(directory), cached: true };
     }
-
-    const packageJson = JSON.parse(await readFile(
-      path.join(directory, 'node_modules', '@vscode', 'vsce', 'package.json'), 'utf8'
-    ));
-    const relativeEntry = typeof packageJson.bin === 'string' ? packageJson.bin : packageJson.bin?.vsce;
-    if (!relativeEntry) throw new Error('Installed @vscode/vsce package does not declare its vsce executable.');
-    return { directory, entry: path.join(directory, 'node_modules', '@vscode', 'vsce', relativeEntry) };
+    await pruneVsceToolchains(rootDir, key);
+    return { directory, entry: await verifiedVsceEntry(directory), cached: false };
   } catch (error) {
-    await rm(directory, { recursive: true, force: true });
+    await rm(staging, { recursive: true, force: true });
     throw error;
   }
 }
@@ -515,6 +624,9 @@ async function packageExtension() {
     step('Resolving the pinned VSCE toolchain');
     try {
       vsce = await resolveVsce();
+      console.log(vsce.cached
+        ? `  Reusing the verified toolchain cache at ${vsce.directory}.`
+        : `  Installed and cached the toolchain at ${vsce.directory}.`);
     } catch (error) {
       console.error(`\nPackaging could not resolve the Artifactory-compatible VSCE toolchain: ${error.message}`);
       console.error('Check that the configured npm registry contains the pinned versions, then retry.');
@@ -522,8 +634,12 @@ async function packageExtension() {
       return;
     }
     step('Packaging a .vsix');
+    // CI=1 suppresses vsce's own "is there a newer vsce" registry probe — the pin table is the
+    // authority on which vsce runs here, so the probe is a network round-trip that can only slow
+    // an install down or contradict a decision already made.
     const pack = spawnSync(process.execPath, [vsce.entry, 'package',
-      '--no-dependencies', '--allow-missing-repository'], { cwd: extension, stdio: 'inherit' });
+      '--no-dependencies', '--allow-missing-repository'],
+    { cwd: extension, stdio: 'inherit', env: { ...process.env, CI: '1' } });
     if (pack.status !== 0) {
       console.error('\nPackaging could not run the pinned @vscode/vsce toolchain.');
       console.error('Without it, use the development host instead: node scripts/vscode-dev.mjs');
@@ -532,8 +648,9 @@ async function packageExtension() {
     }
   } finally {
     // Staged only for the package; leaving it would shadow the repository CLI during development.
+    // The vsce toolchain, by contrast, is deliberately NOT removed any more: it is a verified,
+    // content-addressed cache, and deleting it here is what made every install re-download it.
     await rm(staged, { recursive: true, force: true });
-    if (vsce) await rm(vsce.directory, { recursive: true, force: true });
   }
 
   // Read, not hardcoded. This said `singularity-flow-vscode-0.9.0.vsix` literally, so the first

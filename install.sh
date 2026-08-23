@@ -16,10 +16,18 @@ CLEAN_REINSTALL="off"
 REINSTALL_DRY_RUN="off"
 REINSTALL_CONFIRM=""
 REFRESH_REGISTERED_WORKSPACE_CONFIGURATION="on"
+REFRESH_VSCE_TOOLCHAIN="off"
+
+# Every long-running step prints its own elapsed seconds. The last slow-install investigation had
+# to be reconstructed from npm's debug logs; the transcript itself should answer "which step".
+STEP_LABEL=""
+STEP_STARTED=0
+step_begin() { STEP_LABEL="$1"; STEP_STARTED=$SECONDS; printf '%s\n' "$1..."; }
+step_end() { printf '%s\n' "  ${STEP_LABEL}: $((SECONDS - STEP_STARTED))s"; }
 
 usage() {
   printf '%s\n' \
-    'Usage: ./install.sh [--registry URL] [--no-copilot-telemetry] [--cli-only] [--skip-tests] [--no-workspace-configuration-refresh]' \
+    'Usage: ./install.sh [--registry URL] [--no-copilot-telemetry] [--cli-only] [--skip-tests] [--refresh-vsce-toolchain] [--no-workspace-configuration-refresh]' \
     '       ./install.sh --clean-reinstall [--dry-run | --confirm "REINSTALL SINGULARITY FLOW <fingerprint>"] [--registry URL] [--cli-only]' \
     '       ./install.sh --factory-reset [--yes] [--registry URL] [--cli-only]' \
     '' \
@@ -37,6 +45,7 @@ usage() {
     'managed telemetry wrapper. It never reads or changes Git repositories or workspaces.' \
     '' \
     '--skip-tests keeps npm run check and all requested builds, but skips npm test' \
+    '--refresh-vsce-toolchain reinstalls the cached VSCE packaging toolchain instead of reusing it' \
     'or test:cli. Use it only when this exact commit has already passed its tests.'
 }
 
@@ -58,6 +67,10 @@ while (($#)); do
     --cli-only)
       CLI_ONLY="on"
       ENABLE_COPILOT_TELEMETRY="off"
+      shift
+      ;;
+    --refresh-vsce-toolchain)
+      REFRESH_VSCE_TOOLCHAIN="on"
       shift
       ;;
     --skip-tests)
@@ -304,28 +317,41 @@ printf 'Using npm registry: %s\n' "$REGISTRY"
 # commands retain --registry as an auditable defence in depth.
 export NPM_CONFIG_REGISTRY="$REGISTRY"
 
-printf '%s\n' 'Installing locked dependencies...'
+step_begin 'Installing locked dependencies'
 if [[ "$CLI_ONLY" == "on" ]]; then
   npm ci --workspaces=false --registry="$REGISTRY"
 else
   npm ci --registry="$REGISTRY"
 fi
+step_end
 
-printf '%s\n' 'Compiling and validating the project...'
+step_begin 'Compiling and validating the project'
 npm run check
+step_end
 if [[ "$CLI_ONLY" == "on" ]]; then
   if [[ "$SKIP_TESTS" == "on" ]]; then
     printf '%s\n' 'WARNING: CLI tests skipped by request; this exact commit must already have passed them.' >&2
   else
+    step_begin 'Running the CLI test suite'
     npm run test:cli
+    step_end
   fi
 else
+  step_begin 'Building the VS Code extension'
   npm run vscode:build
+  step_end
   if [[ "$SKIP_TESTS" == "on" ]]; then
     printf '%s\n' 'WARNING: full test suite skipped by request; this exact commit must already have passed it.' >&2
   else
+    step_begin 'Running the full test suite'
     npm test
+    step_end
   fi
+fi
+
+# The VSCE toolchain cache honours this for the vscode:package step below.
+if [[ "$REFRESH_VSCE_TOOLCHAIN" == "on" ]]; then
+  export SINGULARITY_FLOW_REFRESH_VSCE_TOOLCHAIN=1
 fi
 
 # Stamp which source revision this tarball came from, so the installed CLI can say so later.
@@ -367,29 +393,41 @@ TARBALL="$(PACK_OUTPUT="$PACK_OUTPUT" node -e '
 ')"
 
 printf '%s\n' 'Replacing the globally installed CLI...'
+step_begin 'Installing the CLI globally'
 npm uninstall --global singularity-flow >/dev/null 2>&1 || true
 npm install --global "$PROJECT_DIR/$TARBALL" --registry="$REGISTRY"
+step_end
 
 if [[ "$CLI_ONLY" != "on" ]]; then
-  printf '%s\n' 'Packaging and installing the VS Code extension when the code command is available...'
+  step_begin 'Packaging the VS Code extension'
   npm run vscode:package
+  step_end
   VSIX_PATH="$(find "$PROJECT_DIR/apps/vscode" -maxdepth 1 -type f -name 'singularity-flow-vscode-*.vsix' -print | sort | tail -1)"
   [[ -n "$VSIX_PATH" ]] || { printf '%s\n' 'Error: VS Code packaging did not produce a .vsix.' >&2; exit 1; }
   if command -v code >/dev/null 2>&1; then
+    step_begin 'Installing the VS Code extension'
     code --install-extension "$VSIX_PATH" --force
+    step_end
   else
     printf 'VS Code CLI not found; install the extension later with: code --install-extension %s --force\n' "$VSIX_PATH"
   fi
 fi
 
-printf '%s\n' 'Replacing previous Copilot plugin copies...'
-if [[ "$CLI_ONLY" != "on" ]]; then singularity-flow plugin install; fi
+if [[ "$CLI_ONLY" != "on" ]]; then
+  step_begin 'Replacing previous Copilot plugin copies'
+  singularity-flow plugin install
+  step_end
+fi
 
-printf '%s\n' 'Configuring Copilot model, token, and cost telemetry...'
-if [[ "$CLI_ONLY" != "on" ]]; then install_copilot_telemetry; fi
+if [[ "$CLI_ONLY" != "on" ]]; then
+  step_begin 'Configuring Copilot model, token, and cost telemetry'
+  install_copilot_telemetry
+  step_end
+fi
 
-printf '%s\n' 'Refreshing approved configuration in every registered workspace repository...'
+step_begin 'Refreshing approved configuration in every registered workspace repository'
 refresh_registered_workspace_configurations
+step_end
 
 printf '\nInstalled Singularity Flow %s\n' "$(singularity-flow --version)"
 # Named explicitly, because the CLI on PATH is a *copy* and not a link to this checkout: editing

@@ -4,6 +4,7 @@ set -euo pipefail
 PROJECT_DIR="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd -P)"
 REGISTRY="${SINGULARITY_FLOW_NPM_REGISTRY:-${NPM_CONFIG_REGISTRY:-}}"
 CLI_ONLY="off"
+SKIP_TESTS="off"
 TELEMETRY="on"
 WORKSPACE_CONFIGURATION_REFRESH="on"
 
@@ -16,6 +17,7 @@ Update, validate, and install Singularity Flow from Git Bash on Windows.
 Options:
   --registry URL          Use a company npm registry or Artifactory.
   --cli-only              Install only the CLI; skip VS Code and Copilot.
+  --skip-tests            Keep checks/builds, but skip the long test suite.
   --no-copilot-telemetry  Do not install the local telemetry shell wrapper.
   --no-workspace-configuration-refresh
                           Do not refresh registered repository configuration/state branches.
@@ -44,6 +46,10 @@ while (($#)); do
       ;;
     --cli-only)
       CLI_ONLY="on"
+      shift
+      ;;
+    --skip-tests)
+      SKIP_TESTS="on"
       shift
       ;;
     --no-copilot-telemetry)
@@ -106,6 +112,7 @@ fi
 INSTALL_ARGS=()
 [[ -n "$REGISTRY" ]] && INSTALL_ARGS+=(--registry "$REGISTRY")
 [[ "$CLI_ONLY" == "on" ]] && INSTALL_ARGS+=(--cli-only)
+[[ "$SKIP_TESTS" == "on" ]] && INSTALL_ARGS+=(--skip-tests)
 [[ "$TELEMETRY" == "off" ]] && INSTALL_ARGS+=(--no-copilot-telemetry)
 [[ "$WORKSPACE_CONFIGURATION_REFRESH" == "off" ]] && INSTALL_ARGS+=(--no-workspace-configuration-refresh)
 

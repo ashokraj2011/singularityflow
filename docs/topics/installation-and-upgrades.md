@@ -17,7 +17,7 @@ related:
   - getting-started
   - resets-and-cleanup
   - diagnostics-and-regression
-version: 4
+version: 5
 ---
 Use this workflow to install Singularity Flow, govern an existing checkout or remote repository, verify the product surfaces, and replace an installed build without changing governed application history.
 
@@ -71,6 +71,12 @@ Use `--no-workspace-configuration-refresh` to skip this normal-install refresh. 
 `--no-workspace-workflow-sync` spelling remains accepted. The separate
 `--clean-reinstall` path delegates before workspace discovery and never reads or changes Git
 repositories or workspaces.
+
+For a normal source install of a commit that has already passed its test suite, use
+`./install.sh --skip-tests`. This still runs `npm run check`, builds the requested CLI and VS Code
+surfaces, stamps provenance, and packages before installation; it skips only `npm test` (or
+`test:cli` with `--cli-only`). The installer prints a warning so an untested artifact is not mistaken
+for a validated one. The flag is refused for `--factory-reset` and `--clean-reinstall`.
 
 ## State and safety
 

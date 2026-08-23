@@ -36,6 +36,7 @@ test('local installer performs a safe ordered pull, pack, global install, and pl
   assert.match(script, /--no-copilot-telemetry/);
   assert.match(script, /--factory-reset/);
   assert.match(script, /--clean-reinstall/);
+  assert.match(script, /--skip-tests/);
   assert.match(script, /--no-workspace-workflow-sync/);
   assert.match(script, /refresh_registered_workspace_configurations/);
   assert.match(script, /singularity-flow workspace refresh-configuration/);
@@ -47,6 +48,7 @@ test('local installer performs a safe ordered pull, pack, global install, and pl
   assert.ok(script.indexOf('fresh-install-reset.mjs --yes') < script.indexOf("git status --porcelain"));
   assert.match(script, /code --uninstall-extension singularityflow\.singularity-flow-vscode/);
   assert.match(script, /npm run vscode:package/);
+  assert.match(script, /WARNING: full test suite skipped by request/);
   assert.match(script, /code --install-extension "\$VSIX_PATH" --force/);
   assert.match(script, /Prompt and response content capture remains disabled/);
   assert.ok(script.indexOf('git pull --ff-only') < script.indexOf('npm ci --registry="$REGISTRY"'));
@@ -68,6 +70,7 @@ test('Windows Git Bash wrapper validates CRLF support and delegates to the canon
   assert.match(script, /exec bash "\$PROJECT_DIR\/install\.sh"/);
   assert.match(script, /--registry/);
   assert.match(script, /--cli-only/);
+  assert.match(script, /--skip-tests/);
   assert.match(script, /--no-copilot-telemetry/);
   assert.match(script, /--no-workspace-workflow-sync/);
   assert.doesNotMatch(script, /core\.autocrlf|git config|dos2unix|sed -i/,
@@ -219,5 +222,39 @@ fi`);
   for (const command of environmentCommands) {
     assert.match(command, new RegExp(` registry=${registry.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}$`),
       `NPM_CONFIG_REGISTRY must reach: ${command}`);
+  }
+
+  await writeFile(log, '');
+  const skipped = spawnSync('bash', [
+    path.join(fixture, 'install.sh'), '--skip-tests', '--no-workspace-configuration-refresh'
+  ], {
+    cwd: fixture,
+    encoding: 'utf8',
+    env: {
+      ...process.env,
+      HOME: fixture,
+      SHELL: '/bin/zsh',
+      PATH: `${bin}:${process.env.PATH}`,
+      INSTALL_TEST_LOG: log,
+      NPM_CONFIG_REGISTRY: registry,
+      SINGULARITY_FLOW_ACTIVE_WORKSPACE: activeWorkspace
+    }
+  });
+  assert.equal(skipped.status, 0, `${skipped.stdout}\n${skipped.stderr}`);
+  assert.match(skipped.stderr, /full test suite skipped by request/);
+  const skippedCommands = await readFile(log, 'utf8');
+  assert.match(skippedCommands, /npm run check/);
+  assert.match(skippedCommands, /npm run vscode:build/);
+  assert.doesNotMatch(skippedCommands, /^npm test(?:\s|$)/m);
+  assert.doesNotMatch(skippedCommands, /npm run test:cli/);
+});
+
+test('--skip-tests is refused for destructive or isolated reinstall modes', () => {
+  for (const mode of ['--factory-reset', '--clean-reinstall']) {
+    const result = spawnSync('bash', [path.join(root, 'install.sh'), mode, '--skip-tests'], {
+      cwd: root, encoding: 'utf8'
+    });
+    assert.notEqual(result.status, 0);
+    assert.match(result.stderr, /valid only for a normal non-destructive install/);
   }
 });

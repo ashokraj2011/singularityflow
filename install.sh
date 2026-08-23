@@ -9,6 +9,7 @@ PUBLIC_REGISTRY="https://registry.npmjs.org/"
 REGISTRY_OVERRIDE="${SINGULARITY_FLOW_NPM_REGISTRY:-${NPM_CONFIG_REGISTRY:-}}"
 ENABLE_COPILOT_TELEMETRY="${SINGULARITY_FLOW_COPILOT_TELEMETRY:-on}"
 CLI_ONLY="off"
+SKIP_TESTS="off"
 FACTORY_RESET="off"
 FACTORY_RESET_CONFIRMED="off"
 CLEAN_REINSTALL="off"
@@ -18,7 +19,7 @@ REFRESH_REGISTERED_WORKSPACE_CONFIGURATION="on"
 
 usage() {
   printf '%s\n' \
-    'Usage: ./install.sh [--registry URL] [--no-copilot-telemetry] [--cli-only] [--no-workspace-configuration-refresh]' \
+    'Usage: ./install.sh [--registry URL] [--no-copilot-telemetry] [--cli-only] [--skip-tests] [--no-workspace-configuration-refresh]' \
     '       ./install.sh --clean-reinstall [--dry-run | --confirm "REINSTALL SINGULARITY FLOW <fingerprint>"] [--registry URL] [--cli-only]' \
     '       ./install.sh --factory-reset [--yes] [--registry URL] [--cli-only]' \
     '' \
@@ -33,7 +34,10 @@ usage() {
     '' \
     '--clean-reinstall validates and packages this checkout first, then replaces' \
     'only the installed CLI, VS Code extension, Copilot plugin/direct skills, and' \
-    'managed telemetry wrapper. It never reads or changes Git repositories or workspaces.'
+    'managed telemetry wrapper. It never reads or changes Git repositories or workspaces.' \
+    '' \
+    '--skip-tests keeps npm run check and all requested builds, but skips npm test' \
+    'or test:cli. Use it only when this exact commit has already passed its tests.'
 }
 
 while (($#)); do
@@ -54,6 +58,10 @@ while (($#)); do
     --cli-only)
       CLI_ONLY="on"
       ENABLE_COPILOT_TELEMETRY="off"
+      shift
+      ;;
+    --skip-tests)
+      SKIP_TESTS="on"
       shift
       ;;
     --no-workspace-workflow-sync|--no-workspace-configuration-refresh)
@@ -104,6 +112,11 @@ esac
 
 if [[ "$FACTORY_RESET_CONFIRMED" == "on" && "$FACTORY_RESET" != "on" ]]; then
   printf '%s\n' 'Error: --yes is valid only with --factory-reset.' >&2
+  exit 1
+fi
+
+if [[ "$SKIP_TESTS" == "on" && ( "$FACTORY_RESET" == "on" || "$CLEAN_REINSTALL" == "on" ) ]]; then
+  printf '%s\n' 'Error: --skip-tests is valid only for a normal non-destructive install.' >&2
   exit 1
 fi
 
@@ -301,10 +314,18 @@ fi
 printf '%s\n' 'Compiling and validating the project...'
 npm run check
 if [[ "$CLI_ONLY" == "on" ]]; then
-  npm run test:cli
+  if [[ "$SKIP_TESTS" == "on" ]]; then
+    printf '%s\n' 'WARNING: CLI tests skipped by request; this exact commit must already have passed them.' >&2
+  else
+    npm run test:cli
+  fi
 else
   npm run vscode:build
-  npm test
+  if [[ "$SKIP_TESTS" == "on" ]]; then
+    printf '%s\n' 'WARNING: full test suite skipped by request; this exact commit must already have passed it.' >&2
+  else
+    npm test
+  fi
 fi
 
 # Stamp which source revision this tarball came from, so the installed CLI can say so later.

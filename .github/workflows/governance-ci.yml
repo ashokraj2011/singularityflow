@@ -28,16 +28,16 @@ jobs:
       - run: npm run check
 
   full-suite:
-    name: npm test (${{ matrix.os }}, Node ${{ matrix.node }})
+    name: ${{ matrix.label }}
     strategy:
       fail-fast: false
       matrix:
         include:
-          - { os: ubuntu-latest, node: 20 }
-          - { os: ubuntu-latest, node: 22 }
-          - { os: ubuntu-latest, node: 26 }
-          - { os: macos-latest, node: 22 }
-          - { os: windows-latest, node: 22 }
+          - { os: ubuntu-latest, node: 20, suite: full, label: 'npm test (ubuntu-latest, Node 20)' }
+          - { os: ubuntu-latest, node: 22, suite: full, label: 'npm test (ubuntu-latest, Node 22)' }
+          - { os: ubuntu-latest, node: 26, suite: full, label: 'npm test (ubuntu-latest, Node 26)' }
+          - { os: macos-latest, node: 22, suite: full, label: 'npm test (macos-latest, Node 22)' }
+          - { os: windows-latest, node: 22, suite: platform, label: 'platform assurance (windows-latest, Node 22)' }
     runs-on: ${{ matrix.os }}
     timeout-minutes: 60
     steps:
@@ -52,7 +52,15 @@ jobs:
           git config --global user.email "singularity-flow-ci@example.invalid"
       - run: npm ci
       - run: npm run vscode:build
-      - run: npm test
+      - name: Run full test suite
+        if: matrix.suite == 'full'
+        run: npm test
+      # The product currently installs on Windows through Git Bash, while most repository and
+      # installer scenarios exercise POSIX-only shell contracts. Keep the Windows gate focused on
+      # the cross-platform code-generation assurance, process, path, encoding, and vocabulary APIs.
+      - name: Run Windows platform assurance suite
+        if: matrix.suite == 'platform'
+        run: npm run test:platform:windows
 
   provenance:
     name: attest release artifacts

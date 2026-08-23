@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import { createHash } from 'node:crypto';
-import { mkdtemp, mkdir, readFile, rm, symlink, utimes, writeFile } from 'node:fs/promises';
+import { mkdtemp, mkdir, readFile, readlink, rm, symlink, utimes, writeFile } from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
 import test from 'node:test';
@@ -140,8 +140,9 @@ test('record-link-only change evidence hashes the Git symlink target bytes', asy
   await symlink('../src/payment.js', path.join(root, 'payment-link.js'));
   const changeSet = await buildRepositoryChangeSet(root, { baseCommit: baseline });
   const link = changeSet.entries.find((entry) => entry.newPath === 'payment-link.js');
+  const targetBytes = await readlink(path.join(root, 'payment-link.js'));
   assert.equal(link.newContent.kind, 'symlink');
-  assert.equal(link.newContent.sha256, `sha256:${createHash('sha256').update('../src/payment.js').digest('hex')}`);
+  assert.equal(link.newContent.sha256, `sha256:${createHash('sha256').update(targetBytes).digest('hex')}`);
 });
 
 test('only current regular executable test sources satisfy delivery', async () => {

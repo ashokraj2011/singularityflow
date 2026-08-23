@@ -49,6 +49,7 @@
     "test:cli": "node scripts/run-test-suite.mjs cli",
     "test:vscode": "node scripts/run-test-suite.mjs vscode",
     "test:all": "node scripts/run-test-suite.mjs all",
+    "test:platform:windows": "node --test --test-concurrency=2 test/code-generation-assurance.test.mjs test/model-runner.test.mjs test/quality-command-runner.test.mjs test/quality-validation-verdict.test.mjs test/voc-sweep.test.mjs",
     "test:reinstall": "node --test test/reinstall.test.mjs test/direct-skills.test.mjs test/plugin.test.mjs",
     "test:no-model": "node --test test/model-boundary.test.mjs test/no-model-operations.test.mjs test/no-model-lifecycle.test.mjs",
     "test:manual-authorship": "node --test test/manual-authorship.test.mjs test/manual-import.test.mjs",

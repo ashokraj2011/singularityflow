@@ -165,8 +165,9 @@ export async function runGovernanceGate(root, config, workflow, { terminal = fal
               sourceBoundary: phase.sourceBoundary,
               symlinkPolicy: workflow.resolution?.codeDelivery?.changeSet?.symlinks ?? 'reject',
               minimumDiscovered: workflow.resolution?.codeDelivery?.tests?.minimumDiscovered ?? 1,
+              minimumPassed: workflow.resolution?.codeDelivery?.tests?.minimumPassed ?? 1,
               requireAffectedModuleCoverage: workflow.resolution?.codeDelivery?.tests?.requireAffectedModuleCoverage !== false,
-              minimumModelAssurance: workflow.resolution?.codeDelivery?.model?.minimumAssurance ?? 'observed'
+              minimumModelAssurance: workflow.resolution?.codeDelivery?.model?.minimumAssurance ?? 'unavailable'
             });
             errors.push(...replay.errors.map((message) => `${phaseId} generation ${generation}: ${message}`));
             if (replay.valid) passes.push(`code delivery verified: ${phaseId} generation ${generation}`);
@@ -333,7 +334,7 @@ export async function runGovernanceGate(root, config, workflow, { terminal = fal
       for (const id of phase.deliveryEvidence?.acceptanceCriteria?.required ?? []) required.add(id);
       for (const id of phase.deliveryEvidence?.acceptanceCriteria?.tagged ?? []) bound.add(id);
     }
-    for (const id of required) if (!bound.has(id)) errors.push(`AC coverage: ${id} has no executable test binding`);
+    for (const id of required) if (!bound.has(id)) errors.push(`AC coverage: ${id} has no module test-source binding`);
     if (required.size && [...required].every((id) => bound.has(id))) passes.push(`acceptance coverage: ${required.size} namespaced criteria mapped`);
   }
 

@@ -256,7 +256,7 @@ export async function epicReviewDecision(root, initiativeId, storyReference, {
     selected.clone,
     selected.config,
     selected.workflow,
-    { type: decision === 'approve' ? 'phase-approved' : 'phase-rejected', phaseId: preview.phase, payload: { packetSha256 } },
+    { type: decision === 'approve' ? LIFECYCLE_EVENT.PHASE_APPROVED : LIFECYCLE_EVENT.PHASE_REJECTED, phaseId: preview.phase, payload: { packetSha256 } },
     `[${selected.workflow.workItem.id}][review:${decision}] ${packetSha256.slice(0, 12)}`,
     [],
     {

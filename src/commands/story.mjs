@@ -960,7 +960,7 @@ async function decideProposedIntentAmendment(root, config, workflow, proposalId,
     config,
     workflow,
     {
-      type: decision === 'approve' ? 'intent-amendment-approved' : 'intent-amendment-rejected',
+      type: decision === 'approve' ? LIFECYCLE_EVENT.INTENT_AMENDMENT_APPROVED : LIFECYCLE_EVENT.INTENT_AMENDMENT_REJECTED,
       phaseId: 'specification',
       generation: workflow.phases.specification?.generation ?? null,
       payload: { proposalId, proposalSha256: proposal.proposalSha256, decision }

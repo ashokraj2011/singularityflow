@@ -31,3 +31,26 @@ test('the producer lint requires symbols but ignores strings outside producer bo
   assert.equal(findings[0].member, 'artifact-generated');
 });
 
+test('the producer lint fails closed for dynamic, helper, spread, and unknown element access', () => {
+  const findings = vocabularyProducerLint(new Map([['src/planted.mjs', `
+    import { LIFECYCLE_EVENT as EVENT } from './lifecycle-event.mjs';
+    const dynamic = 'artifact-generated';
+    lifecycleEvent({ type: dynamic, subject });
+    lifecycleEvent(makeEvent(subject));
+    lifecycleEvent({ ...draft, subject });
+    lifecycleEvent({ type: EVENT['NOT_REGISTERED'], subject });
+  `]]));
+  assert.deepEqual(findings.map((finding) => finding.code), [
+    'VOCABULARY_PRODUCER_LITERAL',
+    'VOCABULARY_MEMBER_DYNAMIC',
+    'VOCABULARY_MEMBER_DYNAMIC',
+    'VOCABULARY_MEMBER_UNKNOWN'
+  ]);
+});
+
+test('the producer lint accepts an imported alias and symbol-only conditional', () => {
+  assert.deepEqual(vocabularyProducerLint(new Map([['src/planted.mjs', `
+    import { LIFECYCLE_EVENT as EVENT } from './lifecycle-event.mjs';
+    lifecycleEvent({ type: approved ? EVENT.PHASE_APPROVED : EVENT.PHASE_REJECTED, subject });
+  `]])), []);
+});

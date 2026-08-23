@@ -1736,7 +1736,7 @@ async function impactCommand(positionals, options) {
     const optOut = optionBoolean(options, 'opt-out');
     const { value, publication } = await transactStory(
       root, config, workflow,
-      { type: optOut ? 'impact-opted-out' : 'impact-classified', phaseId: workflow.currentPhase },
+      { type: optOut ? LIFECYCLE_EVENT.IMPACT_OPTED_OUT : LIFECYCLE_EVENT.IMPACT_CLASSIFIED, phaseId: workflow.currentPhase },
       `[${workflow.workItem.id}][impact:${optOut ? 'opt-out' : 'classify'}]`,
       (aggregate) => confirmImpactEnrollment(root, config, aggregate, {
         complexity: optionString(options, 'complexity'),
@@ -1775,7 +1775,7 @@ async function impactCommand(positionals, options) {
     const sourceFile = path.resolve(root, requirePositional(positionals, operation === 'collect' ? 4 : 3, operation === 'collect' ? 'provider observation file' : 'evidence file'));
     const { value, publication } = await transactStory(
       root, config, workflow,
-      { type: operation === 'collect' ? 'impact-evidence-collected' : 'impact-evidence-imported', phaseId: workflow.currentPhase, payload: providerId ? { providerId } : undefined },
+      { type: operation === 'collect' ? LIFECYCLE_EVENT.IMPACT_EVIDENCE_COLLECTED : LIFECYCLE_EVENT.IMPACT_EVIDENCE_IMPORTED, phaseId: workflow.currentPhase, payload: providerId ? { providerId } : undefined },
       `[${workflow.workItem.id}][impact:evidence] ${operation}`,
       (aggregate) => operation === 'collect'
         ? collectImpactEvidence(root, config, aggregate, {
@@ -3119,6 +3119,13 @@ async function phaseReview(root, config, workflow, phase) {
     phaseLabel: phase.label,
     status: phase.status,
     generation: phase.generation,
+    testEvidence: phase.deliveryEvidence ? {
+      status: phase.deliveryEvidence.status ?? 'unavailable',
+      executions: phase.deliveryEvidence.testExecutions?.length ?? 0,
+      executionAssurance: 'module-executed',
+      testcaseExecutionProven: false,
+      notice: 'module executed; tagged test execution not independently proven'
+    } : null,
     documents
   };
 }
@@ -3135,6 +3142,10 @@ async function phaseReview(root, config, workflow, phase) {
  */
 function printPhaseReview(review, { showArtifact = false } = {}) {
   console.log(`\n${style.heading('Generated documents ready for review')} ${style.detail(style.fields(review.workId, review.phase, `generation ${review.generation}`))}`);
+  if (review.testEvidence) {
+    console.log(`Test evidence: ${review.testEvidence.status} · ${review.testEvidence.executions} module execution(s)`);
+    console.log(`  ${review.testEvidence.notice}`);
+  }
   if (!review.documents.length) {
     console.log('No generated documents are registered for this phase.');
     return;
@@ -3253,16 +3264,23 @@ async function phaseCommand(positionals, options) {
   // absent from the transaction's immutable path allowlist and therefore absent from the exact
   // generation commit later used by governed references and review packets.
   await scanArtifacts(root, config, workflow, phaseId);
-  // Attribute the kernel-model invocations this generation actually made. Reading the audit store is
-  // what makes `kernelModel.invoked` a fact rather than the constant `false` it has always been.
-  // Invocations already claimed by an earlier generation are excluded, so each is attributed once.
+  // Attribute only invocations explicitly bound to this generation intent. Story-wide unclaimed
+  // audits may come from exploration, another phase, or an abandoned attempt and can never prove
+  // the model assurance of the generation being published.
   const attributedInvocations = new Set(Object.values(workflow.phases ?? {})
     .flatMap((item) => item.authorship ?? [])
     .flatMap((record) => record.kernelModel?.invocationIds ?? []));
-  const kernelInvocations = (await listModelInvocations(root, { subjectId: workflow.workItem.id }))
+  const generation = requestedPhase.generation + 1;
+  const kernelInvocations = (await listModelInvocations(root, {
+    subjectId: workflow.workItem.id,
+    phase: requestedPhase.id,
+    generationIntentId: requestedPhase.generationIntent?.id ?? null,
+    generation,
+    task: 'code',
+    startedAfter: requestedPhase.generationIntent?.startedAt ?? null
+  }))
     .filter((record) => !attributedInvocations.has(record.id));
   const kernelInvocationIds = kernelInvocations.map((record) => record.id);
-  const generation = requestedPhase.generation + 1;
   const generationStart = await generationStartPublicationBinding(root, workflow, requestedPhase);
   let phase = requestedPhase;
   const result = await commitAndPublish(

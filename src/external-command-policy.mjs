@@ -5,6 +5,7 @@ export const EXTERNAL_MODEL_POLICIES = Object.freeze(['never', 'required', 'unkn
 export const QUALITY_COMMAND_KINDS = Object.freeze([
   'test', 'compile', 'lint', 'format', 'static-analysis', 'security', 'other'
 ]);
+export const QUALITY_COMMAND_REQUIREMENTS = Object.freeze(['required', 'advisory']);
 export const TEST_RESULT_ADAPTERS = Object.freeze([
   'junit-xml', 'jest-json', 'vitest-json', 'playwright-json', 'go-test-json',
   'dotnet-trx', 'cargo-json', 'sflow-test-result-v1'
@@ -24,7 +25,13 @@ function relativePath(value, label, { allowDot = false } = {}) {
 
 export function normalizeExternalCommand(value, index = 0) {
   if (typeof value === 'string' && value.trim()) {
-    return { id: value.trim(), command: value.trim(), argv: null, modelPolicy: 'unknown', timeoutMs: null };
+    // Legacy string commands are still readable, but they are gates, not optional hints. If their
+    // model behavior is unknown while models are disabled, the resulting unavailability blocks
+    // submission instead of being mislabeled as a passing validation.
+    return {
+      id: value.trim(), command: value.trim(), argv: null, modelPolicy: 'unknown',
+      requirement: 'required', timeoutMs: null
+    };
   }
   if (!value || typeof value !== 'object' || Array.isArray(value)) {
     throw new SingularityFlowError(`qualityCommands[${index}] must be a command string or object.`);
@@ -40,6 +47,10 @@ export function normalizeExternalCommand(value, index = 0) {
   }
   const id = String(value.id ?? command ?? argv.join(' ')).trim();
   if (!id) throw new SingularityFlowError(`qualityCommands[${index}].id must be non-empty.`);
+  const requirement = value.requirement ?? 'required';
+  if (!QUALITY_COMMAND_REQUIREMENTS.includes(requirement)) {
+    throw new SingularityFlowError(`qualityCommands[${index}].requirement must be ${QUALITY_COMMAND_REQUIREMENTS.join(' or ')}.`);
+  }
   const timeoutMs = value.timeoutMs ?? null;
   if (timeoutMs != null && (!Number.isInteger(timeoutMs) || timeoutMs < 1_000 || timeoutMs > 2 * 60 * 60 * 1_000)) {
     throw new SingularityFlowError(`qualityCommands[${index}].timeoutMs must be an integer from 1000 through 7200000.`);
@@ -68,14 +79,19 @@ export function normalizeExternalCommand(value, index = 0) {
     if (!Number.isInteger(minimumDiscovered) || minimumDiscovered < 1) {
       throw new SingularityFlowError(`qualityCommands[${index}].result.minimumDiscovered must be a positive integer.`);
     }
+    const minimumPassed = value.result.minimumPassed ?? 1;
+    if (!Number.isInteger(minimumPassed) || minimumPassed < 1) {
+      throw new SingularityFlowError(`qualityCommands[${index}].result.minimumPassed must be a positive integer.`);
+    }
     result = {
       adapter: value.result.adapter,
       path: relativePath(value.result.path, `qualityCommands[${index}].result.path`),
-      minimumDiscovered
+      minimumDiscovered,
+      minimumPassed
     };
   }
   return {
-    id, command, argv, modelPolicy, timeoutMs,
+    id, command, argv, modelPolicy, requirement, timeoutMs,
     ...(value.kind != null ? { kind } : {}),
     ...(value.workingDirectory != null ? { workingDirectory } : {}),
     ...(value.affectedRoots != null ? { affectedRoots: normalizedRoots } : {}),

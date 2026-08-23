@@ -19,6 +19,28 @@ const PRODUCER_EVENT_ARGUMENT = new Map([
   ['transactInitiative', 3]
 ]);
 
+// These are the audited runtime validation adapters. They accept an already-created event draft,
+// add the governed subject/actor envelope, and immediately pass it through lifecycleEvent(). They
+// are not member producers, so their dynamic forwarding is the one centrally registered exception.
+const TRUSTED_DYNAMIC_FORWARDERS = new Map([
+  ['src/lifecycle-event.mjs', new Set(['assertLifecycleEvent'])],
+  ['src/state.mjs', new Set(['commitAndPublish'])],
+  ['src/initiative-state.mjs', new Set(['commitInitiativeChange'])],
+  ['src/state-stores.mjs', new Set(['publish'])]
+]);
+
+function containingFunctionName(node) {
+  let current = node.parent;
+  while (current) {
+    if ((ts.isFunctionDeclaration(current) || ts.isFunctionExpression(current) || ts.isMethodDeclaration(current))
+        && current.name) return propertyName(current.name, current.getSourceFile());
+    if (ts.isArrowFunction(current) && ts.isVariableDeclaration(current.parent)
+        && ts.isIdentifier(current.parent.name)) return current.parent.name.text;
+    current = current.parent;
+  }
+  return null;
+}
+
 function callName(node) {
   if (!ts.isCallExpression(node)) return null;
   if (ts.isIdentifier(node.expression)) return node.expression.text;
@@ -73,10 +95,41 @@ function lifecycleType(object, sourceFile) {
   return assignment?.initializer ?? null;
 }
 
-function symbolicMember(node, sourceFile) {
-  if (!ts.isPropertyAccessExpression(node)) return null;
-  if (node.expression.getText(sourceFile) !== 'LIFECYCLE_EVENT') return null;
-  return { symbol: node.name.text, value: LIFECYCLE_EVENT[node.name.text] ?? null };
+function lifecycleSymbolRoots(sourceFile) {
+  const roots = new Set(['LIFECYCLE_EVENT']);
+  for (const statement of sourceFile.statements) {
+    if (!ts.isImportDeclaration(statement) || !statement.importClause?.namedBindings
+        || !ts.isNamedImports(statement.importClause.namedBindings)) continue;
+    for (const specifier of statement.importClause.namedBindings.elements) {
+      if ((specifier.propertyName?.text ?? specifier.name.text) === 'LIFECYCLE_EVENT') {
+        roots.add(specifier.name.text);
+      }
+    }
+  }
+  return roots;
+}
+
+function symbolicMember(node, sourceFile, roots) {
+  if (ts.isPropertyAccessExpression(node) && roots.has(node.expression.getText(sourceFile))) {
+    return { symbol: node.name.text, value: LIFECYCLE_EVENT[node.name.text] ?? null };
+  }
+  if (ts.isElementAccessExpression(node) && roots.has(node.expression.getText(sourceFile))
+      && ts.isStringLiteralLike(node.argumentExpression)) {
+    const symbol = node.argumentExpression.text;
+    return { symbol, value: LIFECYCLE_EVENT[symbol] ?? null };
+  }
+  return null;
+}
+
+function ownedSymbolicMembers(node, sourceFile, roots) {
+  if (ts.isParenthesizedExpression(node)) return ownedSymbolicMembers(node.expression, sourceFile, roots);
+  if (ts.isConditionalExpression(node)) {
+    const left = ownedSymbolicMembers(node.whenTrue, sourceFile, roots);
+    const right = ownedSymbolicMembers(node.whenFalse, sourceFile, roots);
+    return left && right ? [...left, ...right] : null;
+  }
+  const member = symbolicMember(node, sourceFile, roots);
+  return member ? [member] : null;
 }
 
 /**
@@ -90,11 +143,18 @@ export function vocabularyProducerLint(sources) {
     if (!file.startsWith('src/') || !file.endsWith('.mjs')) continue;
     const sourceFile = ts.createSourceFile(file, String(source), ts.ScriptTarget.Latest, true, ts.ScriptKind.JS);
     const declarations = declarationIndex(sourceFile);
+    const symbolRoots = lifecycleSymbolRoots(sourceFile);
     const visit = (node) => {
       if (ts.isCallExpression(node) && PRODUCER_EVENT_ARGUMENT.has(callName(node))) {
         const boundary = callName(node);
+        const forwarder = containingFunctionName(node);
+        if (TRUSTED_DYNAMIC_FORWARDERS.get(file)?.has(forwarder)) {
+          ts.forEachChild(node, visit);
+          return;
+        }
         const argument = resolveValue(node.arguments[PRODUCER_EVENT_ARGUMENT.get(boundary)], node.getStart(sourceFile), declarations);
-        const memberNode = lifecycleType(argument, sourceFile);
+        const unresolvedMember = lifecycleType(argument, sourceFile);
+        const memberNode = resolveValue(unresolvedMember, node.getStart(sourceFile), declarations);
         const line = sourceFile.getLineAndCharacterOfPosition((memberNode ?? argument ?? node).getStart(sourceFile)).line + 1;
         if (memberNode && ts.isStringLiteralLike(memberNode)) {
           const member = memberNode.text;
@@ -111,15 +171,35 @@ export function vocabularyProducerLint(sources) {
               : `unregistered lifecycle-event-type member '${member}' at ${boundary}(); register it in ${LIFECYCLE_EVENT_VOCABULARY.id} or remove the invalid emitter`
           });
         } else if (memberNode) {
-          const symbolic = symbolicMember(memberNode, sourceFile);
-          if (symbolic && !symbolic.value) violations.push({
+          const symbolics = ownedSymbolicMembers(memberNode, sourceFile, symbolRoots);
+          const unknown = symbolics?.find((symbolic) => !symbolic.value);
+          if (unknown) violations.push({
             file,
             line,
             code: 'VOCABULARY_MEMBER_UNKNOWN',
             vocabulary: LIFECYCLE_EVENT_VOCABULARY.id,
-            member: symbolic.symbol,
+            member: unknown.symbol,
             boundary,
-            message: `unknown lifecycle symbol LIFECYCLE_EVENT.${symbolic.symbol} at ${boundary}()`
+            message: `unknown lifecycle symbol LIFECYCLE_EVENT.${unknown.symbol} at ${boundary}()`
+          });
+          else if (!symbolics) violations.push({
+            file,
+            line,
+            code: 'VOCABULARY_MEMBER_DYNAMIC',
+            vocabulary: LIFECYCLE_EVENT_VOCABULARY.id,
+            member: memberNode.getText(sourceFile),
+            boundary,
+            message: `lifecycle event type at ${boundary}() is not a provably owned LIFECYCLE_EVENT symbol`
+          });
+        } else {
+          violations.push({
+            file,
+            line,
+            code: 'VOCABULARY_MEMBER_DYNAMIC',
+            vocabulary: LIFECYCLE_EVENT_VOCABULARY.id,
+            member: null,
+            boundary,
+            message: `lifecycle event draft at ${boundary}() does not expose a provably owned type member`
           });
         }
       }
@@ -155,4 +235,3 @@ if (path.resolve(process.argv[1] ?? '') === fileURLToPath(import.meta.url)) {
     process.stdout.write('Closed vocabulary producer boundary is clean.\n');
   }
 }
-

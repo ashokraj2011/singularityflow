@@ -50,11 +50,15 @@ test('local installer performs a safe ordered pull, pack, global install, and pl
   assert.match(script, /npm run vscode:package/);
   assert.match(script, /WARNING: full test suite skipped by request/);
   assert.match(script, /code --install-extension "\$VSIX_PATH" --force/);
+  assert.match(script, /activation-current\.json/);
+  assert.match(script, /recoveryCommand/);
+  assert.match(script, /trap activation_failed ERR/);
   assert.match(script, /Prompt and response content capture remains disabled/);
   assert.ok(script.indexOf('git pull --ff-only') < script.indexOf('npm ci --registry="$REGISTRY"'));
   assert.ok(script.indexOf('npm ci --registry="$REGISTRY"') < script.indexOf('npm pack --json'));
   assert.ok(script.indexOf('scripts/stamp-build-info.mjs') < script.indexOf('npm pack --json'));
   assert.ok(script.indexOf('npm pack --json') < script.indexOf('npm install --global "$PROJECT_DIR/$TARBALL"'));
+  assert.ok(script.indexOf('write_activation_journal activating staged') < script.indexOf('code --install-extension "$VSIX_PATH" --force'));
   assert.ok(script.indexOf('npm install --global "$PROJECT_DIR/$TARBALL"') < script.indexOf('singularity-flow plugin install'));
 });
 
@@ -168,6 +172,9 @@ fi`);
   assert.match(result.stdout, /SFlow Copilot launcher helper: enabled/);
   assert.match(result.stdout, /Prompt and response content capture remains disabled/);
   assert.match(result.stdout, /Use sflow copilot for consented, story-scoped local usage capture/);
+  const activation = JSON.parse(await readFile(path.join(fixture, '.singularity-flow', 'installations', 'activation-current.json'), 'utf8'));
+  assert.equal(activation.status, 'complete');
+  assert.match(activation.recoveryCommand, /install\.sh.*--skip-tests/);
   const telemetryEnv = await readFile(path.join(fixture, '.singularity-flow', 'copilot-otel.sh'), 'utf8');
   const shellProfile = await readFile(path.join(fixture, '.zshrc'), 'utf8');
   assert.match(telemetryEnv, /sflow_copilot\(\)/);

@@ -81,6 +81,7 @@ codeDelivery:
   tests:
     requireExecutableSource: true
     minimumDiscovered: 1
+    minimumPassed: 1
     executionAssurance: module
     stringCommands: reject
     unknownModelPolicy: block
@@ -97,7 +98,9 @@ codeDelivery:
     previewBytes: 4096
     fullDocumentMaximumBytes: 65536
   model:
-    minimumAssurance: observed
+    # Copilot-hosted authoring has no kernel model audit. Raise this only when the selected host
+    # emits a generation-bound observation receipt that satisfies the configured assurance floor.
+    minimumAssurance: unavailable
 
 planning:
   enabled: true

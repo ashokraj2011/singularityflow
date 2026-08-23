@@ -5,7 +5,7 @@ import path from 'node:path';
 import { normalizeExternalCommand } from './external-command-policy.mjs';
 import { currentSchemaVersion } from './schema-migrations.mjs';
 import { isTestAutomationPath } from './source-boundary.mjs';
-import { exists, posix, SingularityFlowError } from './util.mjs';
+import { exists, posix, secureRepositoryPath, SingularityFlowError } from './util.mjs';
 
 const SUPPORTING_SEGMENTS = new Set([
   '__snapshots__', 'fixture', 'fixtures', 'page-object', 'page-objects', 'pageobjects',
@@ -206,7 +206,10 @@ export async function inferModuleTestCommand(root, module, { platform = process.
       affectedRoots: [module.root], modelPolicy: 'never',
       result: { adapter: 'go-test-json', path: resultBase + '.jsonl', minimumDiscovered: 1 }
     };
-    case 'rust': return null;
+    case 'rust': throw new SingularityFlowError(
+      `Rust module '${module.root}' requires an explicit argv-form test command with a structured result adapter; stable cargo test output does not provide testcase counts.`,
+      { code: 'RUST_TEST_ADAPTER_REQUIRED' }
+    );
     case 'dotnet': return {
       id: `${module.root}-dotnet-tests`, kind: 'test', argv: ['dotnet', 'test', '--logger', 'trx'], workingDirectory: module.root,
       affectedRoots: [module.root], modelPolicy: 'never',
@@ -265,8 +268,161 @@ function number(value, fallback = 0) {
   return Number.isFinite(parsed) ? parsed : fallback;
 }
 
-function attribute(xml, name) {
-  return number(xml.match(new RegExp(`\\b${name}=["'](\\d+)["']`, 'i'))?.[1]);
+const MAX_XML_ELEMENTS = 1_000_000;
+const MAX_XML_DEPTH = 128;
+
+function xmlFailure(message) {
+  throw new SingularityFlowError(`Structured XML test result is invalid: ${message}`, {
+    code: 'CODE_TEST_RESULT_REQUIRED'
+  });
+}
+
+function tagEnd(xml, start) {
+  let quote = null;
+  for (let index = start; index < xml.length; index += 1) {
+    const character = xml[index];
+    if (quote) {
+      if (character === quote) quote = null;
+    } else if (character === '"' || character === "'") quote = character;
+    else if (character === '>') return index;
+  }
+  xmlFailure('unterminated tag');
+}
+
+function parseAttributes(value) {
+  const attributes = Object.create(null);
+  let index = 0;
+  while (index < value.length) {
+    while (/\s/.test(value[index] ?? '')) index += 1;
+    if (index >= value.length) break;
+    const name = value.slice(index).match(/^[A-Za-z_][A-Za-z0-9_.:-]*/)?.[0];
+    if (!name) xmlFailure('malformed attribute name');
+    index += name.length;
+    while (/\s/.test(value[index] ?? '')) index += 1;
+    if (value[index] !== '=') xmlFailure(`attribute '${name}' has no value`);
+    index += 1;
+    while (/\s/.test(value[index] ?? '')) index += 1;
+    const quote = value[index];
+    if (quote !== '"' && quote !== "'") xmlFailure(`attribute '${name}' is not quoted`);
+    const end = value.indexOf(quote, index + 1);
+    if (end === -1) xmlFailure(`attribute '${name}' is unterminated`);
+    if (Object.hasOwn(attributes, name)) xmlFailure(`attribute '${name}' is duplicated`);
+    attributes[name] = value.slice(index + 1, end);
+    index = end + 1;
+  }
+  return attributes;
+}
+
+function parseXml(xml) {
+  if (/<!DOCTYPE|<!ENTITY/i.test(xml)) xmlFailure('DOCTYPE and entity declarations are forbidden');
+  let index = 0;
+  let elements = 0;
+  let root = null;
+  const stack = [];
+  while (index < xml.length) {
+    const open = xml.indexOf('<', index);
+    if (open === -1) {
+      if (stack.length || xml.slice(index).trim()) xmlFailure('text exists outside the root element');
+      break;
+    }
+    if (!stack.length && xml.slice(index, open).trim()) xmlFailure('text exists outside the root element');
+    if (xml.startsWith('<!--', open)) {
+      const end = xml.indexOf('-->', open + 4);
+      if (end === -1) xmlFailure('unterminated comment');
+      index = end + 3;
+      continue;
+    }
+    if (xml.startsWith('<?', open)) {
+      const end = xml.indexOf('?>', open + 2);
+      if (end === -1) xmlFailure('unterminated processing instruction');
+      index = end + 2;
+      continue;
+    }
+    if (xml.startsWith('<![CDATA[', open)) {
+      if (!stack.length) xmlFailure('CDATA exists outside the root element');
+      const end = xml.indexOf(']]>', open + 9);
+      if (end === -1) xmlFailure('unterminated CDATA section');
+      index = end + 3;
+      continue;
+    }
+    if (xml.startsWith('</', open)) {
+      const end = tagEnd(xml, open + 2);
+      const name = xml.slice(open + 2, end).trim();
+      const current = stack.pop();
+      if (!current || current.name !== name) xmlFailure(`closing tag '${name}' does not match the open element`);
+      index = end + 1;
+      continue;
+    }
+    if (xml.startsWith('<!', open)) xmlFailure('unsupported declaration');
+    const end = tagEnd(xml, open + 1);
+    let body = xml.slice(open + 1, end).trim();
+    const selfClosing = body.endsWith('/');
+    if (selfClosing) body = body.slice(0, -1).trim();
+    const name = body.match(/^[A-Za-z_][A-Za-z0-9_.:-]*/)?.[0];
+    if (!name) xmlFailure('malformed element name');
+    const node = { name, localName: name.split(':').at(-1), attributes: parseAttributes(body.slice(name.length)), children: [] };
+    if (++elements > MAX_XML_ELEMENTS) xmlFailure(`element count exceeds ${MAX_XML_ELEMENTS}`);
+    if (stack.length >= MAX_XML_DEPTH) xmlFailure(`depth exceeds ${MAX_XML_DEPTH}`);
+    if (stack.length) stack.at(-1).children.push(node);
+    else if (root) xmlFailure('document contains multiple root elements');
+    else root = node;
+    if (!selfClosing) stack.push(node);
+    index = end + 1;
+  }
+  if (stack.length) xmlFailure(`element '${stack.at(-1).name}' is not closed`);
+  if (!root) xmlFailure('document has no root element');
+  return root;
+}
+
+function descendants(node, localName, output = []) {
+  if (node.localName === localName) output.push(node);
+  for (const child of node.children) descendants(child, localName, output);
+  return output;
+}
+
+function integerAttribute(node, names, { required = false } = {}) {
+  const name = names.find((candidate) => Object.hasOwn(node.attributes, candidate));
+  if (!name) {
+    if (required) xmlFailure(`element '${node.name}' has no '${names[0]}' count`);
+    return null;
+  }
+  if (!/^\d+$/.test(node.attributes[name])) xmlFailure(`attribute '${name}' is not a non-negative integer`);
+  return Number(node.attributes[name]);
+}
+
+function junitCounts(xml) {
+  const root = parseXml(xml);
+  if (!['testsuite', 'testsuites'].includes(root.localName)) xmlFailure(`unrecognized JUnit root '${root.name}'`);
+  const cases = descendants(root, 'testcase');
+  if (cases.length) {
+    const failed = cases.filter((item) => item.children.some((child) => ['failure', 'error'].includes(child.localName))).length;
+    const skipped = cases.filter((item) => item.children.some((child) => child.localName === 'skipped')
+      || ['disabled', 'notrun', 'notexecuted'].includes(String(item.attributes.status ?? '').toLowerCase())).length;
+    const counts = { discovered: cases.length, passed: cases.length - failed - skipped, failed, skipped };
+    const declared = integerAttribute(root, ['tests', 'total']);
+    if (declared != null && declared !== counts.discovered) xmlFailure('JUnit aggregate count differs from testcase elements');
+    return counts;
+  }
+  const discovered = integerAttribute(root, ['tests', 'total'], { required: true });
+  const failed = (integerAttribute(root, ['failures', 'failed']) ?? 0) + (integerAttribute(root, ['errors']) ?? 0);
+  const skipped = (integerAttribute(root, ['skipped', 'notExecuted']) ?? 0) + (integerAttribute(root, ['disabled']) ?? 0);
+  if (failed + skipped > discovered) xmlFailure('JUnit outcome counts exceed discovered tests');
+  return { discovered, passed: discovered - failed - skipped, failed, skipped };
+}
+
+function trxCounts(xml) {
+  const root = parseXml(xml);
+  if (root.localName !== 'TestRun') xmlFailure(`unrecognized TRX root '${root.name}'`);
+  const counters = descendants(root, 'Counters');
+  if (counters.length !== 1) xmlFailure('TRX must contain exactly one Counters element');
+  const counter = counters[0];
+  const discovered = integerAttribute(counter, ['total'], { required: true });
+  const passed = integerAttribute(counter, ['passed']) ?? 0;
+  const failed = ['failed', 'error', 'timeout', 'aborted', 'inconclusive', 'notRunnable', 'disconnected', 'warning']
+    .reduce((sum, name) => sum + (integerAttribute(counter, [name]) ?? 0), 0);
+  const skipped = integerAttribute(counter, ['notExecuted']) ?? 0;
+  if (passed + failed + skipped !== discovered) xmlFailure('TRX outcome counts do not equal total tests');
+  return { discovered, passed, failed, skipped };
 }
 
 function countsFromJson(adapter, parsed) {
@@ -332,11 +488,16 @@ async function resultFiles(absolute, adapter, state = { files: 0 }, depth = 0) {
 export async function parseTestResult(root, command, { startedAt = null } = {}) {
   const normalizedCommand = normalizeRequiredTestCommand(command);
   const moduleRoot = normalizedCommand.workingDirectory === '.' ? '' : normalizedCommand.workingDirectory;
-  const absolute = path.resolve(root, moduleRoot, normalizedCommand.result.path);
-  const repositoryRoot = path.resolve(root);
-  if (absolute !== repositoryRoot && !absolute.startsWith(`${repositoryRoot}${path.sep}`)) {
-    throw new SingularityFlowError('Test result path resolves outside the repository.', { code: 'CODE_TEST_RESULT_REQUIRED' });
-  }
+  const secured = await secureRepositoryPath(
+    root,
+    path.join(moduleRoot, normalizedCommand.result.path),
+    { label: 'Structured test result', mustExist: true }
+  ).catch((error) => {
+    throw new SingularityFlowError(`Structured test result is not securely repository-contained: ${error.message}`, {
+      code: 'CODE_TEST_RESULT_REQUIRED', cause: error
+    });
+  });
+  const absolute = secured.absolute;
   const adapter = normalizedCommand.result.adapter;
   let files = await resultFiles(absolute, adapter);
   if (!files.length) {
@@ -357,26 +518,19 @@ export async function parseTestResult(root, command, { startedAt = null } = {}) 
   if (['junit-xml', 'dotnet-trx'].includes(adapter)) {
     const documents = contents.map((content) => content.toString('utf8'));
     if (adapter === 'dotnet-trx') {
-      const counters = documents.reduce((totals, xml) => ({
-        discovered: totals.discovered + attribute(xml, 'total'),
-        passed: totals.passed + attribute(xml, 'passed'),
-        failed: totals.failed + attribute(xml, 'failed') + attribute(xml, 'error')
-          + attribute(xml, 'timeout') + attribute(xml, 'aborted'),
-        skipped: totals.skipped + attribute(xml, 'notExecuted')
+      tests = documents.map(trxCounts).reduce((totals, counts) => ({
+        discovered: totals.discovered + counts.discovered,
+        passed: totals.passed + counts.passed,
+        failed: totals.failed + counts.failed,
+        skipped: totals.skipped + counts.skipped
       }), { discovered: 0, passed: 0, failed: 0, skipped: 0 });
-      tests = counters;
     } else {
-      const discovered = documents.reduce((sum, xml) => sum
-        + (attribute(xml, 'tests') || attribute(xml, 'total') || (xml.match(/<testcase\b/gi) ?? []).length), 0);
-      const failed = documents.reduce((sum, xml) => {
-        const summary = attribute(xml, 'failures') + attribute(xml, 'errors') + attribute(xml, 'failed');
-        return sum + (summary || (xml.match(/<(?:failure|error)\b/gi) ?? []).length);
-      }, 0);
-      const skipped = documents.reduce((sum, xml) => {
-        const summary = attribute(xml, 'skipped') + attribute(xml, 'disabled') + attribute(xml, 'notExecuted');
-        return sum + (summary || (xml.match(/<skipped\b/gi) ?? []).length);
-      }, 0);
-      tests = { discovered, passed: Math.max(0, discovered - failed - skipped), failed, skipped };
+      tests = documents.map(junitCounts).reduce((totals, counts) => ({
+        discovered: totals.discovered + counts.discovered,
+        passed: totals.passed + counts.passed,
+        failed: totals.failed + counts.failed,
+        skipped: totals.skipped + counts.skipped
+      }), { discovered: 0, passed: 0, failed: 0, skipped: 0 });
     }
   } else if (adapter === 'go-test-json') {
     const events = bytes.toString('utf8').split(/\r?\n/).filter(Boolean).map((line) => JSON.parse(line));
@@ -387,23 +541,40 @@ export async function parseTestResult(root, command, { startedAt = null } = {}) 
   return {
     adapter, tests,
     result: { path: normalizedCommand.result.path, sha256: sha256(bytes), bytes: bytes.length },
-    minimumDiscovered: normalizedCommand.result.minimumDiscovered
+    minimumDiscovered: normalizedCommand.result.minimumDiscovered,
+    minimumPassed: normalizedCommand.result.minimumPassed
   };
 }
 
-export function testReceiptPassing(receipt, minimumDiscovered = 1) {
+function consistentTestCounts(tests) {
+  const discovered = number(tests?.discovered);
+  const passed = number(tests?.passed);
+  const failed = number(tests?.failed);
+  const skipped = number(tests?.skipped);
+  return [discovered, passed, failed, skipped].every(Number.isInteger)
+    && [discovered, passed, failed, skipped].every((value) => value >= 0)
+    && passed + failed + skipped === discovered;
+}
+
+export function testReceiptPassing(receipt, minimumDiscovered = 1, minimumPassed = 1) {
   return receipt?.status === 'passed'
     && receipt.exitCode === 0
     && receipt.timedOut === false
     && receipt.skipped === false
     && receipt.suppressed === false
+    && consistentTestCounts(receipt.tests)
     && number(receipt.tests?.discovered) >= minimumDiscovered
+    && number(receipt.tests?.passed) >= minimumPassed
     && number(receipt.tests?.failed) === 0;
 }
 
 export function buildTestExecutionReceipt(command, check, parsed) {
+  const countsValid = consistentTestCounts(parsed.tests);
   const status = check.status === 'passed'
-    ? (parsed.tests.discovered < parsed.minimumDiscovered ? 'failed' : parsed.tests.failed ? 'failed' : 'passed')
+    ? (!countsValid
+      || parsed.tests.discovered < parsed.minimumDiscovered
+      || parsed.tests.passed < parsed.minimumPassed
+      || parsed.tests.failed ? 'failed' : 'passed')
     : check.status === 'skipped-warning' ? 'skipped' : check.status;
   const receipt = {
     schemaVersion: currentSchemaVersion('test-execution'), kind: 'test-execution',
@@ -420,7 +591,9 @@ export function buildTestExecutionReceipt(command, check, parsed) {
     suppressed: false,
     tests: parsed.tests,
     result: parsed.result,
-    assurance: 'module-executed'
+    assurance: 'module-executed',
+    testcaseExecutionProven: false,
+    assuranceNotice: 'module executed; tagged test execution not independently proven'
   };
   return receipt;
 }

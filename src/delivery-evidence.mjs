@@ -165,6 +165,25 @@ async function pathEvidence(root, paths) {
   return records;
 }
 
+async function validatedReusablePaths(root, candidates, priorEvidence, { role }) {
+  const prior = new Map((priorEvidence ?? []).map((record) => [record.path, record]));
+  const current = await pathEvidence(root, candidates);
+  const valid = [];
+  for (const record of current) {
+    const previous = prior.get(record.path);
+    const executable = role !== 'test' || await isExecutableTestSourcePath(root, record.path);
+    if (!previous || previous.fileKind !== 'regular-file' || record.fileKind !== 'regular-file'
+        || !previous.sha256 || previous.sha256 !== record.sha256 || !executable) {
+      throw new SingularityFlowError(
+        `Previously governed ${role} path '${record.path}' is missing, replaced, symbolic, no longer executable, or differs from its prior evidence. Change or restore it in the current generation.`,
+        { code: 'CODE_DELIVERY_REUSE_INVALID' }
+      );
+    }
+    valid.push(record.path);
+  }
+  return valid;
+}
+
 /** Refuse a code phase before generation state or telemetry is mutated. */
 export async function evaluateCodeDeliveryPreflight(root, config, workflow, phase) {
   if (!phaseRequiresCodeDelivery(phase)) return null;
@@ -212,6 +231,8 @@ export async function evaluateCodeDeliveryPreflight(root, config, workflow, phas
     .filter((entry) => entry.status !== 'deleted' && entry.newPath && entry.newContent?.kind === 'regular-file')
     .map((entry) => entry.newPath);
   const changedPaths = [...new Set(currentPaths)].sort();
+  const changedEndpointPaths = new Set(applicationEntries.flatMap((entry) =>
+    [entry.oldPath, entry.newPath].filter(Boolean)));
   const changedTestCandidates = changedPaths.filter(isAllowedTestAutomationPath);
   const changedTestPaths = [];
   const supportingTestPaths = [];
@@ -232,18 +253,31 @@ export async function evaluateCodeDeliveryPreflight(root, config, workflow, phas
   // A correction generation may exercise acceptance tests delivered by its previous generation
   // without changing their source merely to satisfy the gate. Reuse only the exact governed test
   // paths from the prior receipt; first generations still have to introduce/change their tests.
-  const reusableTestPaths = Number(phase.generation ?? 0) > 0
-    ? (phase.deliveryEvidence?.testPaths ?? []).filter((candidate) => !changedTestPaths.includes(candidate))
+  const reusableTestCandidates = Number(phase.generation ?? 0) > 0
+    ? (phase.deliveryEvidence?.testPaths ?? []).filter((candidate) => !changedEndpointPaths.has(candidate))
     : [];
+  const reusableTestPaths = await validatedReusablePaths(
+    root, reusableTestCandidates, phase.deliveryEvidence?.paths, { role: 'test' }
+  );
   const testPaths = [...new Set([...changedTestPaths, ...reusableTestPaths])].sort();
-  const changedSourcePaths = changedPaths.filter((candidate) => !isAllowedTestAutomationPath(candidate));
-  const reusableSourcePaths = intentRevalidation
-    ? (phase.deliveryEvidence?.sourcePaths ?? []).filter((candidate) => !changedSourcePaths.includes(candidate))
+  const deletedSourcePaths = applicationEntries
+    .filter((entry) => entry.status === 'deleted' && entry.oldPath
+      && !isAllowedTestAutomationPath(entry.oldPath))
+    .map((entry) => entry.oldPath);
+  const changedSourcePaths = [...new Set([
+    ...changedPaths.filter((candidate) => !isAllowedTestAutomationPath(candidate)),
+    ...deletedSourcePaths
+  ])].sort();
+  const reusableSourceCandidates = intentRevalidation
+    ? (phase.deliveryEvidence?.sourcePaths ?? []).filter((candidate) => !changedEndpointPaths.has(candidate))
     : [];
+  const reusableSourcePaths = await validatedReusablePaths(
+    root, reusableSourceCandidates, phase.deliveryEvidence?.paths, { role: 'source' }
+  );
   const sourcePaths = [...new Set([...changedSourcePaths, ...reusableSourcePaths])].sort();
   const errors = [];
 
-  if (!changedPaths.length && !intentRevalidation) {
+  if (!applicationEntries.length && !intentRevalidation) {
     errors.push('no application source or test paths changed during the governed work interval');
   }
   if (phase.sourceBoundary !== 'test-automation' && !sourcePaths.length) {
@@ -283,9 +317,10 @@ export async function evaluateCodeDeliveryPreflight(root, config, workflow, phas
     generationIntentId: phase.generationIntent?.id ?? null,
     changeSet,
     paths: await pathEvidence(root, [...new Set([
-      ...changedPaths, ...reusableSourcePaths, ...reusableTestPaths
+      ...changedPaths, ...deletedSourcePaths, ...reusableSourcePaths, ...reusableTestPaths
     ])].sort()),
     sourcePaths,
+    deletedSourcePaths: [...new Set(deletedSourcePaths)].sort(),
     testPaths,
     supportingTestPaths,
     intentRevalidation: intentRevalidation ? phase.intentAmendmentRevalidation.id : null,
@@ -438,6 +473,7 @@ export async function verifyCodeDeliveryReceipt(root, receipt, {
   sourceBoundary = 'unrestricted',
   symlinkPolicy = 'reject',
   minimumDiscovered = 1,
+  minimumPassed = 1,
   requireAffectedModuleCoverage = true,
   minimumModelAssurance = 'unavailable',
   evidenceCommit = null
@@ -493,7 +529,7 @@ export async function verifyCodeDeliveryReceipt(root, receipt, {
   const bindings = traceability.bindings ?? [];
   for (const clauseId of traceability.required ?? []) {
     if (!bound.has(clauseId) || !bindings.some((binding) => binding.clauseId === clauseId)) {
-      fail(`acceptance clause ${clauseId} has no executable test binding`);
+      fail(`acceptance clause ${clauseId} has no module test-source binding`);
     }
   }
 
@@ -514,7 +550,7 @@ export async function verifyCodeDeliveryReceipt(root, receipt, {
     if (receiptDigest(testReceipt) !== String(execution.receiptSha256 ?? '').replace(/^sha256:/, '')) {
       fail(`test receipt ${execution.commandId} differs from its bound digest`);
     }
-    if (!testReceiptPassing(testReceipt, minimumDiscovered)) fail(`test receipt ${execution.commandId} is not passing`);
+    if (!testReceiptPassing(testReceipt, minimumDiscovered, minimumPassed)) fail(`test receipt ${execution.commandId} is not passing`);
     executions.set(execution.commandId, testReceipt);
   }
   if (!executions.size) fail('no passing test-execution receipt is bound');

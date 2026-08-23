@@ -11,7 +11,7 @@ export const DEFAULT_CODE_DELIVERY_POLICY = Object.freeze({
     includeWorktree: true, includeUntracked: true, symlinks: 'reject'
   }),
   tests: Object.freeze({
-    requireExecutableSource: true, minimumDiscovered: 1, executionAssurance: 'module',
+    requireExecutableSource: true, minimumDiscovered: 1, minimumPassed: 1, executionAssurance: 'module',
     stringCommands: 'reject', unknownModelPolicy: 'block', requireResultAdapter: true,
     requireAffectedModuleCoverage: true
   }),
@@ -21,7 +21,9 @@ export const DEFAULT_CODE_DELIVERY_POLICY = Object.freeze({
   }),
   publication: Object.freeze({ idempotency: 'generation-intent' }),
   display: Object.freeze({ source: 'reference-preview', previewBytes: 4096, fullDocumentMaximumBytes: 65536 }),
-  model: Object.freeze({ minimumAssurance: 'observed' })
+  // Copilot-hosted generation is outside the kernel model runner. Until the host supplies a
+  // generation-bound observation receipt, the only honest default is unavailable.
+  model: Object.freeze({ minimumAssurance: 'unavailable' })
 });
 
 function enumValue(value, allowed, label) {
@@ -80,6 +82,7 @@ export function normalizeCodeDeliveryPolicy(value = {}) {
     tests: {
       requireExecutableSource: requiredBoolean(tests.requireExecutableSource, true, 'codeDelivery.tests.requireExecutableSource'),
       minimumDiscovered: integerValue(tests.minimumDiscovered, 1, 1_000_000, 'codeDelivery.tests.minimumDiscovered'),
+      minimumPassed: integerValue(tests.minimumPassed, 1, 1_000_000, 'codeDelivery.tests.minimumPassed'),
       executionAssurance: enumValue(tests.executionAssurance, ['module', 'testcase-exact'], 'codeDelivery.tests.executionAssurance'),
       stringCommands: enumValue(tests.stringCommands, ['reject'], 'codeDelivery.tests.stringCommands'),
       unknownModelPolicy: enumValue(tests.unknownModelPolicy, ['block'], 'codeDelivery.tests.unknownModelPolicy'),

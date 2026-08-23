@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import { createHash } from 'node:crypto';
-import { mkdtemp, mkdir, readFile, symlink, utimes, writeFile } from 'node:fs/promises';
+import { mkdtemp, mkdir, readFile, rm, symlink, utimes, writeFile } from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
 import test from 'node:test';
@@ -12,13 +12,14 @@ import {
 } from '../src/code-delivery-tests.mjs';
 import { generationSkillForPhase, normalizeCodeDeliveryPolicy } from '../src/code-delivery-policy.mjs';
 import { normalizeExternalCommand } from '../src/external-command-policy.mjs';
-import { taggedAcceptanceIds, verifyCodeDeliveryReceipt } from '../src/delivery-evidence.mjs';
+import { evaluateCodeDeliveryPreflight, taggedAcceptanceIds, verifyCodeDeliveryReceipt } from '../src/delivery-evidence.mjs';
 import { beginCodeGeneration, verifyOpenGenerationIntent } from '../src/generation-boundary.mjs';
 import {
   buildRepositoryChangeSet, evaluateProtectedPaths, evaluateSourceBoundary, parseRawDiff
 } from '../src/repository-change-set.mjs';
 import { run } from '../src/util.mjs';
 import { canonicalJson } from '../src/records.mjs';
+import { ensureWorkIntervalBaseline } from '../src/work-intervals.mjs';
 
 function git(root, args) {
   const result = run('git', args, { cwd: root, allowFailure: true });
@@ -54,6 +55,46 @@ test('raw change sets preserve both rename endpoints and ignore user rename conf
   }).valid, false, 'the product-source endpoint disappeared from boundary policy');
 });
 
+test('a pure product-source deletion remains first-class code delivery evidence', async () => {
+  const root = await repository('source-deletion');
+  await mkdir(path.join(root, 'tests'), { recursive: true });
+  await writeFile(path.join(root, 'tests', 'payment.test.js'), '// @ac:CGA:AC-001\ntest("removed", () => {});\n');
+  await writeFile(path.join(root, 'package.json'), JSON.stringify({ scripts: { test: 'node --test' } }));
+  git(root, ['add', '.']);
+  git(root, ['commit', '-m', 'add baseline acceptance test']);
+  git(root, ['switch', '-c', 'CGA-DELETE']);
+  const phase = {
+    id: 'implementation', generation: 0, status: 'in_progress', writeScope: 'source-and-artifact',
+    sourceBoundary: 'unrestricted', generationPolicy: { task: 'code' }, requiredArtifact: { kind: 'implementation-summary' }
+  };
+  const workflow = {
+    workItem: { id: 'CGA-DELETE', workType: 'feature', branch: 'CGA-DELETE' },
+    currentPhase: phase.id, phaseOrder: [phase.id], phases: { [phase.id]: phase },
+    resolution: {
+      configSha256: 'c'.repeat(64), sourceSha256: 's'.repeat(64), templates: {},
+      capability: { policy: { protectedPaths: [] } },
+      codeDelivery: normalizeCodeDeliveryPolicy()
+    },
+    lineage: { canonicalBranch: 'CGA-DELETE', requiredChecks: [] }, history: []
+  };
+  const config = {
+    workItemRoot: 'singularity/work-items', governance: { requireAcceptanceCriteriaTags: false },
+    workTypes: { feature: {} }
+  };
+  const itemDirectory = path.join(root, 'singularity', 'work-items', workflow.workItem.id);
+  await mkdir(itemDirectory, { recursive: true });
+  await ensureWorkIntervalBaseline(root, config, workflow, {
+    phaseId: phase.id, itemDirectory,
+    itemRelative: path.relative(root, itemDirectory).replaceAll(path.sep, '/')
+  });
+  await rm(path.join(root, 'src', 'payment.js'));
+  await writeFile(path.join(root, 'tests', 'payment.test.js'), '// @ac:CGA:AC-001\ntest("removed source stays removed", () => {});\n');
+  const evidence = await evaluateCodeDeliveryPreflight(root, config, workflow, phase);
+  assert.deepEqual(evidence.deletedSourcePaths, ['src/payment.js']);
+  assert.ok(evidence.sourcePaths.includes('src/payment.js'));
+  assert.equal(evidence.paths.find((entry) => entry.path === 'src/payment.js').fileKind, 'missing');
+});
+
 test('protected-path evaluation checks the source and destination of renames', () => {
   const changeSet = {
     entries: [{ changeId: 'one', status: 'renamed', oldPath: 'singularity/workflow.yml', newPath: 'archive/workflow.yml' }]
@@ -76,6 +117,9 @@ test('quality working directories cannot normalize outside the repository', () =
 });
 
 test('unsupported code-delivery policy alternatives are rejected instead of silently ignored', () => {
+  assert.equal(normalizeCodeDeliveryPolicy().model.minimumAssurance, 'unavailable',
+    'the external Copilot host cannot inherit a kernel-audit assurance floor');
+  assert.equal(normalizeCodeDeliveryPolicy().tests.minimumPassed, 1);
   assert.throws(() => normalizeCodeDeliveryPolicy({ mode: 'warn' }), /codeDelivery.mode/);
   assert.throws(() => normalizeCodeDeliveryPolicy({ changeSet: { includeUntracked: false } }), /currently supports only true/);
   assert.throws(() => normalizeCodeDeliveryPolicy({ tests: { stringCommands: 'compatibility-warn' } }), /stringCommands/);
@@ -150,6 +194,26 @@ test('structured test receipts require discovery and zero failures', async () =>
   assert.equal(testReceiptPassing(receipt), true);
   assert.equal(testReceiptPassing({ ...receipt, tests: { ...receipt.tests, discovered: 0 } }), false);
   assert.equal(testReceiptPassing({ ...receipt, skipped: true }), false);
+  assert.equal(testReceiptPassing({
+    ...receipt, tests: { discovered: 20, passed: 0, failed: 0, skipped: 20 }
+  }), false, 'an all-skipped suite is unavailable, never passing');
+  assert.equal(testReceiptPassing({
+    ...receipt, tests: { discovered: 2, passed: 1, failed: 0, skipped: 0 }
+  }), false, 'summary counts must account for every discovered test');
+});
+
+test('structured result containment rejects a symlinked parent directory', async () => {
+  const root = await mkdtemp(path.join(os.tmpdir(), 'sflow-cga-contained-results-'));
+  const outside = await mkdtemp(path.join(os.tmpdir(), 'sflow-cga-outside-results-'));
+  await mkdir(path.join(root, '.sflow'), { recursive: true });
+  await writeFile(path.join(outside, 'unit.json'), JSON.stringify({
+    tests: { discovered: 1, passed: 1, failed: 0, skipped: 0 }
+  }));
+  await symlink(outside, path.join(root, '.sflow', 'results'));
+  await assert.rejects(() => parseTestResult(root, {
+    id: 'unit', kind: 'test', argv: ['npm', 'test'], workingDirectory: '.', affectedRoots: ['.'],
+    modelPolicy: 'never', result: { adapter: 'sflow-test-result-v1', path: '.sflow/results/unit.json' }
+  }), (error) => error.code === 'CODE_TEST_RESULT_REQUIRED' && /securely repository-contained/.test(error.message));
 });
 
 test('directory result discovery ignores stale siblings when fresh results exist', async () => {
@@ -183,6 +247,25 @@ test('the TRX adapter counts failures, infrastructure outcomes, and skipped test
   assert.deepEqual((await parseTestResult(root, command)).tests, {
     discovered: 6, passed: 2, failed: 3, skipped: 1
   });
+});
+
+test('XML adapters reject malformed documents and entity declarations', async () => {
+  const root = await mkdtemp(path.join(os.tmpdir(), 'sflow-cga-xml-'));
+  await mkdir(path.join(root, 'results'), { recursive: true });
+  const command = {
+    id: 'junit', kind: 'test', argv: ['test'], workingDirectory: '.', affectedRoots: ['.'],
+    modelPolicy: 'never', result: { adapter: 'junit-xml', path: 'results/result.xml' }
+  };
+  await writeFile(path.join(root, 'results', 'result.xml'), '<testsuite tests="1"><testcase></testsuite>');
+  await assert.rejects(() => parseTestResult(root, command), /closing tag/);
+  await writeFile(path.join(root, 'results', 'result.xml'), '<!DOCTYPE x [<!ENTITY e SYSTEM "file:///etc/passwd">]><testsuite tests="1"/>');
+  await assert.rejects(() => parseTestResult(root, command), /entity declarations are forbidden/);
+});
+
+test('Rust module inference reports the structured adapter requirement explicitly', async () => {
+  await assert.rejects(() => inferModuleTestCommand(process.cwd(), {
+    root: '.', system: 'rust', manifest: 'Cargo.toml'
+  }), (error) => error.code === 'RUST_TEST_ADAPTER_REQUIRED' && /explicit argv-form/.test(error.message));
 });
 
 test('nearest module ownership wins and same-root polyglot ownership is ambiguous', async () => {

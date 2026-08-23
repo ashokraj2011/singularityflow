@@ -180,11 +180,15 @@ if (!existsSync(governanceWorkflow)) {
     const workflow = YAML.parse(workflowText);
     const jobs = workflow?.jobs ?? {};
     const commands = workflowText.match(/\bnpm (?:run check|test)\b/g) ?? [];
+    const actionUses = Object.values(jobs).flatMap((job) => job?.steps ?? [])
+      .map((step) => step?.uses).filter(Boolean);
+    const pinnedActions = actionUses.every((uses) => /@[0-9a-f]{40}$/.test(String(uses)));
     if (!jobs.check || !jobs['full-suite'] || !jobs.provenance
         || !commands.includes('npm run check') || !commands.includes('npm test')
         || !/git config --global user\.email/.test(workflowText)
         || !/npm run vscode:build/.test(workflowText)
-        || !/actions\/attest@v\d+/.test(workflowText)) {
+        || !actionUses.some((uses) => String(uses).startsWith('actions/attest@'))
+        || !pinnedActions) {
       fail(`${hostedAutomationRoot}/governance-ci.yml must retain check, host-prepared full-suite, and attested-provenance jobs.`);
     } else checked.push(path.relative(root, governanceWorkflow));
   } catch (error) {

@@ -19,6 +19,8 @@ REINSTALL_CONFIRM=""
 REFRESH_REGISTERED_WORKSPACE_CONFIGURATION="on"
 REFRESH_VSCE_TOOLCHAIN="off"
 VSIX_PATH=""
+INSTALL_ACTIVATION_JOURNAL=""
+INSTALL_RECOVERY_COMMAND=""
 
 # Every long-running step prints its own elapsed seconds. The last slow-install investigation had
 # to be reconstructed from npm's debug logs; the transcript itself should answer "which step".
@@ -443,6 +445,58 @@ if [[ "$CLI_ONLY" != "on" && "$SKIP_VSCODE" != "on" ]]; then
   [[ -f "$VSIX_PATH" ]] || { printf 'Error: VS Code packaging did not produce expected archive: %s\n' "$VSIX_PATH" >&2; exit 1; }
 fi
 
+# Validate the version join before the first active surface changes. Packaging each surface first
+# is not enough if their manifests disagree: a successful sequence would still activate an
+# incoherent product.
+node -e '
+  const fs = require("node:fs");
+  const path = require("node:path");
+  const root = process.argv[1];
+  const manifests = ["package.json", "plugin/plugin.json", "apps/vscode/package.json"]
+    .map((file) => path.join(root, file)).filter((file) => fs.existsSync(file))
+    .map((file) => JSON.parse(fs.readFileSync(file, "utf8")));
+  const versions = [...new Set(manifests.map((manifest) => manifest.version))];
+  if (versions.length > 1) throw new Error(`Product surface versions differ: ${versions.join(", ")}`);
+' "$PROJECT_DIR"
+
+# Activation is resumable. The journal exists before VS Code, npm, Copilot, or telemetry changes,
+# is updated after each surface, and retains the exact idempotent retry command on failure. This
+# prevents a partial install from becoming an unexplained machine state.
+INSTALL_MANIFEST_DIR="$HOME/.singularity-flow/installations"
+mkdir -p "$INSTALL_MANIFEST_DIR"
+chmod 700 "$INSTALL_MANIFEST_DIR"
+INSTALL_ACTIVATION_JOURNAL="$INSTALL_MANIFEST_DIR/activation-current.json"
+RECOVERY_ARGS=(--skip-tests --registry "$REGISTRY" --no-workspace-configuration-refresh)
+[[ "$CLI_ONLY" == "on" ]] && RECOVERY_ARGS+=(--cli-only)
+[[ "$SKIP_VSCODE" == "on" ]] && RECOVERY_ARGS+=(--skip-vscode)
+[[ "$ENABLE_COPILOT_TELEMETRY" == "off" && "$CLI_ONLY" != "on" ]] && RECOVERY_ARGS+=(--no-copilot-telemetry)
+printf -v INSTALL_RECOVERY_COMMAND '%q ' "$PROJECT_DIR/install.sh" "${RECOVERY_ARGS[@]}"
+write_activation_journal() {
+  local status="$1" surface="$2"
+  local temporary
+  temporary="$(mktemp "$INSTALL_MANIFEST_DIR/activation-current.json.XXXXXX")"
+  node -e '
+    const fs = require("node:fs");
+    const [file, status, surface, checkout, tarball, vsix, recovery] = process.argv.slice(1);
+    fs.writeFileSync(file, JSON.stringify({
+      schemaVersion: 1, operation: "normal-install-activation", status, surface,
+      checkout, tarball, vsix: vsix || null, recoveryCommand: recovery.trim(),
+      updatedAt: new Date().toISOString()
+    }, null, 2) + "\n", { mode: 0o600 });
+  ' "$temporary" "$status" "$surface" "$PROJECT_DIR" "$PROJECT_DIR/$TARBALL" "$VSIX_PATH" "$INSTALL_RECOVERY_COMMAND"
+  mv "$temporary" "$INSTALL_ACTIVATION_JOURNAL"
+}
+activation_failed() {
+  local exit_code=$?
+  trap - ERR
+  write_activation_journal failed "${STEP_LABEL:-activation}" || true
+  printf '\nError: product activation stopped at %s. The recovery journal is %s\n' "${STEP_LABEL:-activation}" "$INSTALL_ACTIVATION_JOURNAL" >&2
+  printf 'Retry the complete idempotent activation exactly: %s\n' "$INSTALL_RECOVERY_COMMAND" >&2
+  exit "$exit_code"
+}
+write_activation_journal activating staged
+trap activation_failed ERR
+
 if [[ "$CLI_ONLY" != "on" && "$SKIP_VSCODE" != "on" ]]; then
   if command -v code >/dev/null 2>&1; then
     step_begin 'Installing the VS Code extension'
@@ -452,6 +506,7 @@ if [[ "$CLI_ONLY" != "on" && "$SKIP_VSCODE" != "on" ]]; then
       exit 1
     fi
     step_end
+    write_activation_journal activating vscode
   else
     printf 'VS Code CLI not found; install the extension later with: code --install-extension %s --force\n' "$VSIX_PATH"
   fi
@@ -462,17 +517,20 @@ step_begin 'Installing the CLI globally'
 npm uninstall --global singularity-flow >/dev/null 2>&1 || true
 npm install --global "$PROJECT_DIR/$TARBALL" --registry="$REGISTRY"
 step_end
+write_activation_journal activating cli
 
 if [[ "$CLI_ONLY" != "on" ]]; then
   step_begin 'Replacing previous Copilot plugin copies'
   singularity-flow plugin install
   step_end
+  write_activation_journal activating copilot-plugin
 fi
 
 if [[ "$CLI_ONLY" != "on" ]]; then
   step_begin 'Configuring Copilot model, token, and cost telemetry'
   install_copilot_telemetry
   step_end
+  write_activation_journal activating telemetry
 fi
 
 step_begin 'Refreshing approved configuration in every registered workspace repository'
@@ -487,8 +545,6 @@ step_end
 # The manifest is written only after every requested product surface has completed. Workspace
 # maintenance has its own explicit pending state and retry command, so a slow or unavailable clone
 # cannot make an otherwise coherent installation look rolled back.
-INSTALL_MANIFEST_DIR="$HOME/.singularity-flow/installations"
-mkdir -p "$INSTALL_MANIFEST_DIR"
 INSTALL_MANIFEST_TEMP="$(mktemp "$INSTALL_MANIFEST_DIR/current.json.XXXXXX")"
 node -e '
   const fs = require("node:fs");
@@ -499,6 +555,8 @@ node -e '
   }, null, 2) + "\n", {mode: 0o600});
 ' "$INSTALL_MANIFEST_TEMP" "$(singularity-flow --version)" "$PROJECT_DIR" "$PROJECT_DIR/$TARBALL" "$VSIX_PATH" "$WORKSPACE_REFRESH_STATUS"
 mv "$INSTALL_MANIFEST_TEMP" "$INSTALL_MANIFEST_DIR/current.json"
+write_activation_journal complete complete
+trap - ERR
 
 printf '\nInstalled Singularity Flow %s\n' "$(singularity-flow --version)"
 # Named explicitly, because the CLI on PATH is a *copy* and not a link to this checkout: editing

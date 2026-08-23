@@ -1,10 +1,10 @@
 import assert from 'node:assert/strict';
 import { createHash } from 'node:crypto';
-import { access, mkdtemp, readFile, readdir } from 'node:fs/promises';
+import { access, mkdtemp, readFile, readdir, writeFile } from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
 import test from 'node:test';
-import { invokeModel } from '../src/model-runner.mjs';
+import { invokeModel, listModelInvocations } from '../src/model-runner.mjs';
 import { withOperationContext } from '../src/operation-context.mjs';
 import { run } from '../src/util.mjs';
 
@@ -30,7 +30,8 @@ test('the model runner audits and cleans the exact staged attachment bytes', asy
     operation: { id: 'model.test', modelPolicy: 'required' }, modelMode: { enabled: true }, root, command: 'test'
   }, () => invokeModel(request(root, {
     providerConfig: { executable: process.execPath, arguments: ['-e', script, '--'] },
-    prompt: { text: prompt }, limits: { timeoutMs: 5000, outputBytes: 512 * 1024 }
+    prompt: { text: prompt }, limits: { timeoutMs: 5000, outputBytes: 512 * 1024 },
+    subject: { kind: 'story', id: 'MODEL-1', phase: 'implementation', generationIntentId: 'intent-1', generation: 2 }
   })));
   const provider = JSON.parse(result.output);
   assert.equal(provider.body, prompt);
@@ -44,6 +45,16 @@ test('the model runner audits and cleans the exact staged attachment bytes', asy
   assert.equal(audit.promptBytes, Buffer.byteLength(prompt));
   assert.equal(audit.promptSha256, createHash('sha256').update(prompt).digest('hex'));
   assert.doesNotMatch(JSON.stringify(audit), /CGR_CANARY|_END/);
+  audit.routing = { task: 'code', mappingRevision: 'test', resolvedModel: audit.model };
+  await writeFile(path.join(auditDirectory, name), `${JSON.stringify(audit, null, 2)}\n`);
+  assert.equal((await listModelInvocations(root, {
+    subjectId: 'MODEL-1', phase: 'implementation', generationIntentId: 'intent-1',
+    generation: 2, task: 'code', startedAfter: audit.startedAt
+  })).length, 1);
+  assert.equal((await listModelInvocations(root, {
+    subjectId: 'MODEL-1', phase: 'implementation', generationIntentId: 'another-intent',
+    generation: 2, task: 'code'
+  })).length, 0, 'an unrelated generation intent cannot claim the audit');
 });
 
 test('unknown providers fail before audit creation', async () => {

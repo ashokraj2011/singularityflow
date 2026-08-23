@@ -116,7 +116,14 @@ export function resolveModelProvider(definition) {
  * kernel model demonstrably ran — and that constant was then sealed into the immutable review
  * packet. This is the reader that closes the loop.
  */
-export async function listModelInvocations(root, { subjectId = null } = {}) {
+export async function listModelInvocations(root, {
+  subjectId = null,
+  phase = null,
+  generationIntentId = null,
+  generation = null,
+  task = null,
+  startedAfter = null
+} = {}) {
   const directory = path.join(gitDir(root), 'singularity-flow', 'model-invocations');
   const names = await readdir(directory).catch(() => []);
   const records = [];
@@ -132,6 +139,11 @@ export async function listModelInvocations(root, { subjectId = null } = {}) {
     }
     if (record?.status !== 'completed') continue;
     if (subjectId && record.subject?.id !== subjectId) continue;
+    if (phase && record.subject?.phase !== phase) continue;
+    if (generationIntentId && record.subject?.generationIntentId !== generationIntentId) continue;
+    if (generation != null && Number(record.subject?.generation) !== Number(generation)) continue;
+    if (task && record.routing?.task !== task) continue;
+    if (startedAfter && (!record.startedAt || Date.parse(record.startedAt) < Date.parse(startedAfter))) continue;
     records.push(record);
   }
   return records.sort((a, b) => String(a.completedAt).localeCompare(String(b.completedAt)));

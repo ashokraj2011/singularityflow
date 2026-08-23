@@ -1340,7 +1340,7 @@ export async function publishGeneration(root, config, workflow, { phaseId, usage
     ?.find((observation) => observation.task === 'code') ?? null;
   const codeModelAssurance = codeModelObservation?.assurance ?? 'unavailable';
   if (deliveryPreflight && effectiveAuthorship.producer === 'governed-agent') {
-    const minimum = workflow.resolution?.codeDelivery?.model?.minimumAssurance ?? 'observed';
+    const minimum = workflow.resolution?.codeDelivery?.model?.minimumAssurance ?? 'unavailable';
     if ((MODEL_ASSURANCE_RANK[codeModelAssurance] ?? -1) < requiredModelAssuranceRank(minimum)) {
       throw new SingularityFlowError(
         `Governed code generation requires ${minimum} model assurance; the host supplied ${codeModelAssurance}.`,
@@ -1415,6 +1415,7 @@ export async function publishGeneration(root, config, workflow, { phaseId, usage
         path: changeSetPath,
         digest: deliveryPreflight.changeSet.digest,
         sourcePaths: deliveryPreflight.sourcePaths,
+        deletedSourcePaths: deliveryPreflight.deletedSourcePaths,
         executableTestPaths: deliveryPreflight.testPaths,
         supportingTestPaths: deliveryPreflight.supportingTestPaths
       },
@@ -1431,7 +1432,7 @@ export async function publishGeneration(root, config, workflow, { phaseId, usage
         task: 'code',
         required: effectiveAuthorship.producer === 'governed-agent',
         authorshipProducer: effectiveAuthorship.producer,
-        minimumAssurance: workflow.resolution?.codeDelivery?.model?.minimumAssurance ?? 'observed',
+        minimumAssurance: workflow.resolution?.codeDelivery?.model?.minimumAssurance ?? 'unavailable',
         mappingRevision: codeModelObservation?.mappingRevision ?? null,
         provider: codeModelObservation?.provider ?? null,
         requestedModel: codeModelObservation?.requestedModel ?? null,
@@ -1713,7 +1714,12 @@ async function qualityChecks(root, phase, config, commands = phase.qualityComman
     const startedAt = nowIso();
     if (policy.action === 'block') throw new SingularityFlowError(policy.reason, { code: 'EXTERNAL_MODEL_POLICY_BLOCKED' });
     if (policy.action === 'skip') {
-      checks.push({ id: policy.id, command, externalModelPolicy: policy.modelPolicy, sourceCommit, sourceTreeSha256, startedAt, completedAt: nowIso(), status: 'skipped-warning', exitCode: null, stdout: '', stderr: policy.reason });
+      checks.push({
+        id: policy.id, command, requirement: policy.requirement,
+        externalModelPolicy: policy.modelPolicy, sourceCommit, sourceTreeSha256,
+        startedAt, completedAt: nowIso(), status: 'skipped-warning', exitCode: null,
+        stdout: '', stderr: policy.reason
+      });
       continue;
     }
     const commandTarget = await secureRepositoryPath(
@@ -1727,7 +1733,13 @@ async function qualityChecks(root, phase, config, commands = phase.qualityComman
       if (resultTarget !== root && !resultTarget.startsWith(`${path.resolve(root)}${path.sep}`)) {
         throw new SingularityFlowError(`Test result path resolves outside the repository: ${policy.result.path}`, { code: 'CODE_TEST_RESULT_REQUIRED' });
       }
+      await secureRepositoryPath(root, path.relative(root, resultTarget), {
+        label: `Test result '${policy.result.path}'`, mustExist: false
+      });
       await mkdir(path.dirname(resultTarget), { recursive: true });
+      await secureRepositoryPath(root, path.relative(root, path.dirname(resultTarget)), {
+        label: `Test result parent '${policy.result.path}'`, mustExist: true, type: 'directory'
+      });
     }
     // A CLI invoked from Node's own test runner inherits NODE_TEST_CONTEXT. Passing that private
     // harness marker to a nested `node --test` process makes Node treat the required repository
@@ -1757,7 +1769,8 @@ async function qualityChecks(root, phase, config, commands = phase.qualityComman
       ? `Unable to run quality command: ${result.error.message}`
       : null;
     checks.push({
-      id: policy.id, command, kind: policy.kind, workingDirectory: policy.workingDirectory,
+      id: policy.id, command, kind: policy.kind, requirement: policy.requirement,
+      workingDirectory: policy.workingDirectory,
       externalModelPolicy: policy.modelPolicy,
       timeoutMs: policy.timeoutMs ?? DEFAULT_QUALITY_COMMAND_TIMEOUT_MS,
       sourceCommit, sourceTreeSha256, startedAt, completedAt: nowIso(),
@@ -1773,6 +1786,18 @@ async function qualityChecks(root, phase, config, commands = phase.qualityComman
     });
   }
   return checks;
+}
+
+export function qualityValidationVerdict(checks = []) {
+  const failed = checks.filter((check) => check.status === 'failed' || check.status === 'blocked');
+  const unavailable = checks.filter((check) => check.status === 'skipped-warning');
+  const unavailableRequired = unavailable.filter((check) => (check.requirement ?? 'required') === 'required');
+  return {
+    verdict: failed.length ? 'failed' : unavailable.length ? 'partial' : 'passed',
+    failed,
+    unavailable,
+    unavailableRequired
+  };
 }
 
 export async function submitPhase(root, config, workflow, { phaseId, runChecks = true, persist = true } = {}) {
@@ -1857,6 +1882,10 @@ export async function submitPhase(root, config, workflow, { phaseId, runChecks =
           minimumDiscovered: Math.max(
             command.result.minimumDiscovered,
             workflow.resolution?.codeDelivery?.tests?.minimumDiscovered ?? 1
+          ),
+          minimumPassed: Math.max(
+            command.result.minimumPassed,
+            workflow.resolution?.codeDelivery?.tests?.minimumPassed ?? 1
           )
         }
       }));
@@ -1907,10 +1936,14 @@ export async function submitPhase(root, config, workflow, { phaseId, runChecks =
       }
       const parsed = await parseTestResult(root, command, { startedAt: check.startedAt });
       const receipt = buildTestExecutionReceipt(command, check, parsed);
+      const minimumPassed = Math.max(
+        parsed.minimumPassed,
+        workflow.resolution?.codeDelivery?.tests?.minimumPassed ?? 1
+      );
       if (receipt.tests.discovered < parsed.minimumDiscovered) {
         throw new SingularityFlowError(`Required test command '${command.id}' discovered zero or too few tests.`, { code: 'CODE_TEST_ZERO_DISCOVERED' });
       }
-      if (!testReceiptPassing(receipt, parsed.minimumDiscovered)) {
+      if (!testReceiptPassing(receipt, parsed.minimumDiscovered, minimumPassed)) {
         throw new SingularityFlowError(`Required test command '${command.id}' did not produce passing executable-test evidence.`, { code: 'CODE_TEST_FAILED' });
       }
       const safeId = command.id.replace(/[^A-Za-z0-9._-]+/g, '-');
@@ -1939,11 +1972,16 @@ export async function submitPhase(root, config, workflow, { phaseId, runChecks =
     }
   }
   if (phase.id === 'visual-verification') await assertVisualCoverage(root, workflow, { itemDirectory: workDir(root, config, workflow.workItem.id) });
-  const errors = await validatePhase(root, config, workflow, phase); const failed = phase.checks.filter((check) => check.status === 'failed' || check.status === 'blocked');
+  const errors = await validatePhase(root, config, workflow, phase);
+  const validation = qualityValidationVerdict(phase.checks);
+  const { failed, unavailable, unavailableRequired } = validation;
   const reviewableFailure = Boolean(phase.repairBudget && failed.length);
   if (failed.length && !reviewableFailure) errors.push(`Quality command failed: ${failed.map((check) => check.command).join(', ')}`);
+  if (unavailableRequired.length) {
+    errors.push(`Required quality command was unavailable: ${unavailableRequired.map((check) => check.command).join(', ')}`);
+  }
   if (errors.length) throw new SingularityFlowError(`Phase ${phase.id} is not ready:\n- ${errors.join('\n- ')}`);
-  phase.validationVerdict = failed.length ? 'failed' : 'passed';
+  phase.validationVerdict = validation.verdict;
   if (codeDeliveryRequired) {
     const generationTree = phase.generationCommit
       ? run('git', ['rev-parse', `${phase.generationCommit}^{tree}`], { cwd: root }).stdout.trim()
@@ -1987,7 +2025,9 @@ export async function submitPhase(root, config, workflow, { phaseId, runChecks =
         testIdentity: null,
         moduleRoot: module.root,
         commandId: execution.commandId,
-        executionAssurance: 'module-executed'
+        executionAssurance: 'module-executed',
+        testcaseExecutionProven: false,
+        assuranceNotice: 'module executed; tagged test execution not independently proven'
       });
     }
     const readyReceipt = {
@@ -2136,10 +2176,12 @@ export async function approvePhase(root, config, workflow, {
 } = {}) {
   await assertNoPendingPublication(root, config, workflow, 'approve');
   const phase = await assertPhaseSequence(root, workflow, 'approve', { requestedPhase: phaseId, allowedStatuses: ['awaiting_approval'] });
-  const failedChecks = (phase.checks ?? []).filter((check) => check.status === 'failed' || check.status === 'blocked');
-  if (failedChecks.length) {
+  const validation = qualityValidationVerdict(phase.checks ?? []);
+  const failedChecks = validation.failed;
+  const unavailableRequiredChecks = validation.unavailableRequired;
+  if (failedChecks.length || unavailableRequiredChecks.length) {
     throw new SingularityFlowError(
-      `Phase '${phase.id}' cannot be approved because ${failedChecks.length} quality command(s) failed. Reject it to an allowed repair phase.`,
+      `Phase '${phase.id}' cannot be approved because ${failedChecks.length} quality command(s) failed and ${unavailableRequiredChecks.length} required command(s) were unavailable. Reject it to an allowed repair phase.`,
       { code: 'PHASE_VALIDATION_FAILED' }
     );
   }
@@ -2223,8 +2265,9 @@ export async function approvePhase(root, config, workflow, {
         sourceBoundary: phase.sourceBoundary,
         symlinkPolicy: workflow.resolution?.codeDelivery?.changeSet?.symlinks ?? 'reject',
         minimumDiscovered: workflow.resolution?.codeDelivery?.tests?.minimumDiscovered ?? 1,
+        minimumPassed: workflow.resolution?.codeDelivery?.tests?.minimumPassed ?? 1,
         requireAffectedModuleCoverage: workflow.resolution?.codeDelivery?.tests?.requireAffectedModuleCoverage !== false,
-        minimumModelAssurance: workflow.resolution?.codeDelivery?.model?.minimumAssurance ?? 'observed',
+        minimumModelAssurance: workflow.resolution?.codeDelivery?.model?.minimumAssurance ?? 'unavailable',
         evidenceCommit: submittedReview.evidenceCommit
       });
       if (!replay.valid) {

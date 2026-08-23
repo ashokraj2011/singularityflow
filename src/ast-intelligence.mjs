@@ -14,7 +14,10 @@ import {
   applyAstPackInstall, applyAstPackRemove, inspectAstPackRegistry, planAstPackInstall, planAstPackRemove, readAstPackRegistry
 } from './ast-pack-registry.mjs';
 import { BUILTIN_AST_EXTRACTOR, extractBuiltinAstFacts } from './ast-builtin-extractor.mjs';
-import { compileAstLanguageCatalog, detectAstLanguage } from './ast-language-catalog.mjs';
+import {
+  compileAstLanguageCatalog, detectAstLanguage, unsupportedAstProgrammingPaths
+} from './ast-language-catalog.mjs';
+import { assertAstProgrammingLanguagesSupported } from './ast-language-support.mjs';
 import { astSemanticOverlayKey, astSyntaxCacheKey } from './ast-derivation-key.mjs';
 import { bindingForFile, discoverProjectBindings } from './ast-project-binding.mjs';
 import { astSemanticWarmCommand } from './ast-semantic-warm.mjs';
@@ -1212,6 +1215,11 @@ async function buildOrContext(root, options, operation, workBinding = null) {
     return validateAstResultEnvelope(refreshEnvelopeAccounting(disabled));
   }
   const selection = await enumerateScope(root, runtime, options);
+  assertAstProgrammingLanguagesSupported(
+    selection.candidates.map((file) => file.path),
+    runtime.languageCatalog,
+    { boundary: `AST ${operation}` }
+  );
   const processed = await processCandidates(root, runtime, selection.candidates, {
     options, persist: operation === 'build'
   });
@@ -1761,6 +1769,10 @@ export async function astDoctor(root) {
     ?? [...(activePhase?.astGates ?? [])].sort((left, right) => right.generation - left.generation)[0]
     ?? null;
   const selection = effective.mode === 'off' ? { candidates: [] } : await enumerateScope(root, runtime, {});
+  const repositoryUnsupported = unsupportedAstProgrammingPaths(
+    trackedFiles(root).map((file) => file.path),
+    runtime.languageCatalog
+  );
   const projects = effective.mode === 'off'
     ? { mode: 'existing-only', bindings: [], diagnostics: [], digest: null }
     : await discoverProjectBindings(root, { paths: runtime.sourceScope.paths });
@@ -1788,7 +1800,8 @@ export async function astDoctor(root) {
   });
   return {
     schemaVersion: 3, // schema-transient: live diagnostic result, never persisted
-    healthy: adapterDiscovery.diagnostics.length === 0
+    healthy: repositoryUnsupported.length === 0
+      && adapterDiscovery.diagnostics.length === 0
       && [...artifactHealth.values()].every((health) => health.healthy),
     configured: runtime.policy,
     effective,
@@ -1830,6 +1843,11 @@ export async function astDoctor(root) {
     },
     diagnostics: [
       ...(effective.mode === 'off' ? [{ code: 'AST_DISABLED', severity: 'info' }] : []),
+      ...(repositoryUnsupported.length ? [{
+        code: 'AST_LANGUAGE_UNSUPPORTED', severity: 'fail',
+        message: `Unsupported programming source blocks governed AST/code work: ${repositoryUnsupported.slice(0, 20).map((entry) => entry.path).join(', ')}`,
+        paths: repositoryUnsupported.map((entry) => entry.path)
+      }] : []),
       ...adapterDiscovery.diagnostics,
       ...[...artifactHealth.values()].flatMap((health) => health.diagnostics)
     ]

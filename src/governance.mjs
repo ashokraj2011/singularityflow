@@ -165,7 +165,8 @@ export async function runGovernanceGate(root, config, workflow, { terminal = fal
               sourceBoundary: phase.sourceBoundary,
               symlinkPolicy: workflow.resolution?.codeDelivery?.changeSet?.symlinks ?? 'reject',
               minimumDiscovered: workflow.resolution?.codeDelivery?.tests?.minimumDiscovered ?? 1,
-              requireAffectedModuleCoverage: workflow.resolution?.codeDelivery?.tests?.requireAffectedModuleCoverage !== false
+              requireAffectedModuleCoverage: workflow.resolution?.codeDelivery?.tests?.requireAffectedModuleCoverage !== false,
+              minimumModelAssurance: workflow.resolution?.codeDelivery?.model?.minimumAssurance ?? 'observed'
             });
             errors.push(...replay.errors.map((message) => `${phaseId} generation ${generation}: ${message}`));
             if (replay.valid) passes.push(`code delivery verified: ${phaseId} generation ${generation}`);

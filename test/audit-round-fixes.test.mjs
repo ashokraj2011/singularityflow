@@ -261,7 +261,7 @@ test('governance material does not consume a work interval', () => {
   assert.equal(isApplicationPath('.git/index'), false);
   for (const generated of ['.sflow/results/unit.json', 'services/orders/.sflow/results/test.xml', 'coverage/index.html']) {
     assert.equal(isGeneratedOutputPath(generated), true, `${generated} is generated output`);
-    assert.equal(isApplicationPath(generated), false, `${generated} is not application source`);
+    assert.equal(isApplicationPath(generated), true, `${generated} may be tracked application source`);
   }
 
   // Derived from the one list, so a new governed root cannot silently become application source.

@@ -1,5 +1,6 @@
 import { createHash, randomUUID } from 'node:crypto';
-import { chmod, lstat, mkdir, mkdtemp, open, readFile, rm } from 'node:fs/promises';
+import { constants as fsConstants } from 'node:fs';
+import { chmod, lstat, mkdir, mkdtemp, open, rm } from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
 import { TextDecoder } from 'node:util';
@@ -10,20 +11,55 @@ export const DEFAULT_MODEL_PROMPT_MAXIMUM_BYTES = 8 * 1024 * 1024;
 
 function sha256(bytes) { return createHash('sha256').update(bytes).digest('hex'); }
 
-function promptBytes(prompt) {
+async function boundedPromptFile(file, maximumBytes) {
+  const flags = fsConstants.O_RDONLY | (fsConstants.O_NOFOLLOW ?? 0);
+  const handle = await open(file, flags);
+  try {
+    const before = await handle.stat();
+    if (!before.isFile()) {
+      throw new SingularityFlowError('Model prompt file must be a regular non-symbolic file.', {
+        code: 'MODEL_REQUEST_INVALID'
+      });
+    }
+    if (before.size > maximumBytes) {
+      throw new SingularityFlowError(`Model prompt exceeds the ${maximumBytes}-byte input policy.`, {
+        code: 'MODEL_PROMPT_LIMIT', details: { promptBytes: before.size, maximumBytes }
+      });
+    }
+    const chunks = [];
+    let total = 0;
+    let position = 0;
+    while (true) {
+      const buffer = Buffer.allocUnsafe(Math.min(64 * 1024, maximumBytes + 1 - total));
+      const { bytesRead } = await handle.read(buffer, 0, buffer.length, position);
+      if (!bytesRead) break;
+      chunks.push(buffer.subarray(0, bytesRead));
+      total += bytesRead;
+      position += bytesRead;
+      if (total > maximumBytes) {
+        throw new SingularityFlowError(`Model prompt exceeds the ${maximumBytes}-byte input policy.`, {
+          code: 'MODEL_PROMPT_LIMIT', details: { promptBytes: total, maximumBytes }
+        });
+      }
+    }
+    const after = await handle.stat();
+    if (after.dev !== before.dev || after.ino !== before.ino || after.size !== total) {
+      throw new SingularityFlowError('Model prompt file changed while it was being staged.', {
+        code: 'MODEL_PROMPT_STAGE_FAILED'
+      });
+    }
+    return Buffer.concat(chunks, total);
+  } finally { await handle.close(); }
+}
+
+function promptBytes(prompt, maximumBytes) {
   if (!prompt || (typeof prompt.text === 'string') === Boolean(prompt.file)) {
     throw new SingularityFlowError('Model request requires exactly one of prompt.text or prompt.file.', {
       code: 'MODEL_REQUEST_INVALID'
     });
   }
   if (typeof prompt.text === 'string') return Promise.resolve(Buffer.from(prompt.text, 'utf8'));
-  return lstat(prompt.file).then(async (info) => {
-    if (!info.isFile() || info.isSymbolicLink()) {
-      throw new SingularityFlowError('Model prompt file must be a regular non-symbolic file.', {
-        code: 'MODEL_REQUEST_INVALID'
-      });
-    }
-    const bytes = await readFile(prompt.file);
+  return boundedPromptFile(prompt.file, maximumBytes).then(async (bytes) => {
     try { new TextDecoder('utf-8', { fatal: true }).decode(bytes); }
     catch {
       throw new SingularityFlowError('Model prompt file is not valid UTF-8.', {
@@ -50,9 +86,9 @@ export async function stageModelPrompt(prompt, {
     });
   }
   let bytes;
-  try { bytes = await promptBytes(prompt); }
+  try { bytes = await promptBytes(prompt, maximumBytes); }
   catch (error) {
-    if (['MODEL_REQUEST_INVALID', 'MODEL_PROMPT_ENCODING_INVALID'].includes(error?.code)) throw error;
+    if (['MODEL_REQUEST_INVALID', 'MODEL_PROMPT_ENCODING_INVALID', 'MODEL_PROMPT_LIMIT'].includes(error?.code)) throw error;
     throw new SingularityFlowError('Unable to read the model prompt for private staging.', {
       code: 'MODEL_PROMPT_STAGE_FAILED', cause: error,
       details: { nativeCode: error?.code ?? null }

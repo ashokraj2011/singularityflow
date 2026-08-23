@@ -152,7 +152,7 @@ export async function inspectInPlaceArtifact(targetPath, contract) {
 }
 
 export function buildGenerationAuthorship({
-  options, actor, governedAgentContext, source, kernelInvocationIds = [], kernelInvocations = []
+  options, actor, governedAgentContext, source, kernelInvocationIds = [], kernelInvocations = [], generation = null
 }) {
   const kernelInvoked = kernelInvocationIds.length > 0;
   return Object.freeze({
@@ -172,9 +172,15 @@ export function buildGenerationAuthorship({
           invocationId: record.id,
           task: record.routing?.task ?? null,
           mappingRevision: record.routing?.mappingRevision ?? null,
+          provider: record.provider ?? null,
           requestedModel: null,
           resolvedModel: record.routing?.resolvedModel ?? record.model ?? null,
-          assurance: record.routing?.task ? 'policy-selected' : 'unavailable'
+          assurance: record.routing?.task ? 'policy-selected'
+            : record.status === 'completed' && record.provider && record.model ? 'host-observed' : 'unavailable',
+          host: 'singularity-flow-kernel',
+          source: 'model-invocation-audit',
+          observedAt: record.completedAt ?? record.startedAt ?? null,
+          generation
         }))
       } : {})
     },

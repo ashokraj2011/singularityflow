@@ -199,6 +199,8 @@ fi`);
   }
   assert.ok(commands.indexOf('git pull --ff-only') < commands.indexOf('npm ci --registry='));
   assert.ok(commands.indexOf('npm pack --json') < commands.indexOf('npm install --global'));
+  assert.ok(commands.indexOf('code --install-extension') < commands.indexOf('npm uninstall --global'),
+    'an IDE replacement failure must leave the active CLI and Copilot surfaces unchanged');
   assert.ok(commands.indexOf('npm install --global') < commands.indexOf('singularity-flow plugin install'));
 
   await writeFile(log, '');

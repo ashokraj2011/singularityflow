@@ -56,7 +56,10 @@ const workflowOf = async (root) =>
  */
 function settle(root, message) {
   if (!git(root, 'status', '--porcelain')) return;
-  git(root, 'add', '-A');
+  // Structured test reports are workspace-local execution output. Leaving them untracked keeps
+  // this helper from turning them into application source merely because it settles with Git.
+  git(root, 'add', '-A', '--', '.', ':(exclude).sflow/results/**');
+  if (!git(root, 'diff', '--cached', '--name-only')) return;
   git(root, 'commit', '-m', message);
   shell('git', ['push', '-q', 'origin', WORK], root, { allowFailure: true });
 }
@@ -183,7 +186,7 @@ test('a Story runs specification through release from a fresh clone', async (t) 
     "import assert from 'node:assert/strict';",
     "import test from 'node:test';",
     '',
-    '/** @ac:AC-001 */',
+    '/** @ac:E2E:AC-001 */',
     "test('retry example remains deterministic', () => assert.deepEqual({ attempt: 1 }, { attempt: 1 }));",
     ''
   ].join('\n'));

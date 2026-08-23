@@ -1,5 +1,5 @@
 import { createHash } from 'node:crypto';
-import { lstat, readFile } from 'node:fs/promises';
+import { lstat, readFile, readlink } from 'node:fs/promises';
 import path from 'node:path';
 
 import { canonicalJson } from './records.mjs';
@@ -21,6 +21,11 @@ function git(root, args, { allowFailure = false } = {}) {
     throw new SingularityFlowError((result.stderr || result.stdout).trim() || `git ${args.join(' ')} failed`);
   }
   return result;
+}
+
+export function repositoryCaseInsensitivePaths(root) {
+  const value = git(root, ['config', '--bool', '--get', 'core.ignorecase'], { allowFailure: true });
+  return value.status === 0 && value.stdout.trim() === 'true';
 }
 
 function normalizeRepositoryPath(value) {
@@ -68,7 +73,8 @@ async function currentContent(root, relative) {
   try {
     const info = await lstat(absolute);
     if (info.isSymbolicLink()) {
-      return { kind: 'symlink', sha256: null, bytes: info.size };
+      const target = Buffer.from(await readlink(absolute));
+      return { kind: 'symlink', sha256: sha256(target), bytes: target.length };
     }
     if (!info.isFile()) return { kind: 'non-regular', sha256: null, bytes: info.size };
     const bytes = await readFile(absolute);
@@ -149,6 +155,7 @@ export async function buildRepositoryChangeSet(root, {
   const baseline = base.stdout.trim();
   const tree = git(root, ['rev-parse', `${baseline}^{tree}`]).stdout.trim();
   const head = git(root, ['rev-parse', 'HEAD']).stdout.trim();
+  const caseInsensitivePaths = repositoryCaseInsensitivePaths(root);
   const raw = git(root, [
     'diff', '--raw', '-z', '--no-abbrev', '--find-renames', '--find-copies',
     '--no-ext-diff', '--no-textconv', baseline, '--'
@@ -165,7 +172,7 @@ export async function buildRepositoryChangeSet(root, {
     kind: 'repository-change-set',
     subject,
     base: { commit: baseline, tree },
-    target: { head, includesIndex: true, includesWorktree: true, includesUntracked: true },
+    target: { head, includesIndex: true, includesWorktree: true, includesUntracked: true, caseInsensitivePaths },
     entries
   };
   return { ...core, digest: repositoryChangeSetDigest(core) };
@@ -180,7 +187,7 @@ export function changeSetPaths(changeSet, { bothEndpoints = true } = {}) {
   return [...new Set(paths)].sort();
 }
 
-function pathMatches(candidate, guard, { caseInsensitive = process.platform === 'win32' } = {}) {
+function pathMatches(candidate, guard, { caseInsensitive = false } = {}) {
   const pathValue = posix(candidate);
   const guardValue = posix(guard).replace(/\/$/, '');
   const [left, right] = caseInsensitive
@@ -190,11 +197,14 @@ function pathMatches(candidate, guard, { caseInsensitive = process.platform === 
 }
 
 export function evaluateProtectedPaths(changeSet, guards = [], options = {}) {
+  const comparison = {
+    caseInsensitive: options.caseInsensitive ?? changeSet?.target?.caseInsensitivePaths ?? false
+  };
   const violations = [];
   for (const entry of changeSet?.entries ?? []) {
     for (const endpoint of ['oldPath', 'newPath']) {
       const candidate = entry[endpoint];
-      const guard = candidate && guards.find((value) => pathMatches(candidate, value, options));
+      const guard = candidate && guards.find((value) => pathMatches(candidate, value, comparison));
       if (guard) violations.push({ changeId: entry.changeId, endpoint, path: candidate, guard, status: entry.status });
     }
   }

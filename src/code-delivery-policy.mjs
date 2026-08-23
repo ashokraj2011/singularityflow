@@ -34,6 +34,14 @@ function booleanValue(value, label) {
   return value;
 }
 
+function requiredBoolean(value, expected, label) {
+  const normalized = booleanValue(value, label);
+  if (normalized !== expected) {
+    throw new SingularityFlowError(`${label} currently supports only ${expected}; the alternative is not implemented and cannot be pinned as policy.`);
+  }
+  return normalized;
+}
+
 function integerValue(value, minimum, maximum, label) {
   if (!Number.isInteger(value) || value < minimum || value > maximum) {
     throw new SingularityFlowError(`${label} must be an integer from ${minimum} through ${maximum}.`);
@@ -56,26 +64,26 @@ export function normalizeCodeDeliveryPolicy(value = {}) {
   const model = { ...defaults.model, ...(value.model ?? {}) };
   return {
     schemaVersion: 2,
-    mode: enumValue(value.mode ?? defaults.mode, ['observe', 'warn', 'enforce'], 'codeDelivery.mode'),
+    mode: enumValue(value.mode ?? defaults.mode, ['enforce'], 'codeDelivery.mode'),
     generationBoundary: {
       requireBegin: booleanValue(generationBoundary.requireBegin, 'codeDelivery.generationBoundary.requireBegin'),
       dirtyStart: enumValue(generationBoundary.dirtyStart, ['block', 'allow-explicit-adoption'], 'codeDelivery.generationBoundary.dirtyStart')
     },
     changeSet: {
       renameDetection: enumValue(changeSet.renameDetection, ['required'], 'codeDelivery.changeSet.renameDetection'),
-      includeCommitted: booleanValue(changeSet.includeCommitted, 'codeDelivery.changeSet.includeCommitted'),
-      includeIndex: booleanValue(changeSet.includeIndex, 'codeDelivery.changeSet.includeIndex'),
-      includeWorktree: booleanValue(changeSet.includeWorktree, 'codeDelivery.changeSet.includeWorktree'),
-      includeUntracked: booleanValue(changeSet.includeUntracked, 'codeDelivery.changeSet.includeUntracked'),
+      includeCommitted: requiredBoolean(changeSet.includeCommitted, true, 'codeDelivery.changeSet.includeCommitted'),
+      includeIndex: requiredBoolean(changeSet.includeIndex, true, 'codeDelivery.changeSet.includeIndex'),
+      includeWorktree: requiredBoolean(changeSet.includeWorktree, true, 'codeDelivery.changeSet.includeWorktree'),
+      includeUntracked: requiredBoolean(changeSet.includeUntracked, true, 'codeDelivery.changeSet.includeUntracked'),
       symlinks: enumValue(changeSet.symlinks, ['reject', 'record-link-only'], 'codeDelivery.changeSet.symlinks')
     },
     tests: {
-      requireExecutableSource: booleanValue(tests.requireExecutableSource, 'codeDelivery.tests.requireExecutableSource'),
+      requireExecutableSource: requiredBoolean(tests.requireExecutableSource, true, 'codeDelivery.tests.requireExecutableSource'),
       minimumDiscovered: integerValue(tests.minimumDiscovered, 1, 1_000_000, 'codeDelivery.tests.minimumDiscovered'),
       executionAssurance: enumValue(tests.executionAssurance, ['module', 'testcase-exact'], 'codeDelivery.tests.executionAssurance'),
-      stringCommands: enumValue(tests.stringCommands, ['reject', 'compatibility-warn'], 'codeDelivery.tests.stringCommands'),
+      stringCommands: enumValue(tests.stringCommands, ['reject'], 'codeDelivery.tests.stringCommands'),
       unknownModelPolicy: enumValue(tests.unknownModelPolicy, ['block'], 'codeDelivery.tests.unknownModelPolicy'),
-      requireResultAdapter: booleanValue(tests.requireResultAdapter, 'codeDelivery.tests.requireResultAdapter'),
+      requireResultAdapter: requiredBoolean(tests.requireResultAdapter, true, 'codeDelivery.tests.requireResultAdapter'),
       requireAffectedModuleCoverage: booleanValue(tests.requireAffectedModuleCoverage, 'codeDelivery.tests.requireAffectedModuleCoverage')
     },
     traceability: {

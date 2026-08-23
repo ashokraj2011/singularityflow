@@ -338,7 +338,19 @@ async function candidateFor(root, runtime, file, changed, objectSizes) {
 }
 
 async function enumerateScope(root, runtime, options = {}) {
-  if (!runtime.adapterDiscovery) runtime.adapterDiscovery = await discoverAstAdapters();
+  if (!runtime.adapterDiscovery) {
+    const discovered = await discoverAstAdapters();
+    const inspected = await Promise.all(discovered.adapters.map(async (adapter) => ({
+      adapter, health: await inspectAstAdapterArtifacts(adapter)
+    })));
+    runtime.adapterDiscovery = {
+      adapters: inspected.filter((entry) => entry.health.healthy).map((entry) => entry.adapter),
+      diagnostics: [
+        ...discovered.diagnostics,
+        ...inspected.flatMap((entry) => entry.health.diagnostics)
+      ]
+    };
+  }
   if (!runtime.languageCatalog) runtime.languageCatalog = compileAstLanguageCatalog(runtime.adapterDiscovery.adapters);
   const requested = explicitPaths(options);
   const all = optionBoolean(options, 'all');
@@ -958,7 +970,8 @@ function baseEnvelope(runtime, operation, scope, mode, { revision = null, finger
     },
     provenance: {
       engine: AST_ENGINE.id, engineVersion: AST_ENGINE.version,
-      adapters: [], extractors: [], effectiveMode: mode.mode, modeSources: mode.sources
+      adapters: [], extractors: [], effectiveMode: mode.mode, modeSources: mode.sources,
+      languageCatalogSha256: runtime.languageCatalog?.sha256 ?? null
     }
   };
 }
@@ -1720,10 +1733,17 @@ export async function astDoctor(root) {
   const adapterDiscovery = await discoverAstAdapters();
   const artifactHealth = new Map();
   for (const adapter of adapterDiscovery.adapters) artifactHealth.set(adapter.id, await inspectAstAdapterArtifacts(adapter));
-  runtime.adapterDiscovery = adapterDiscovery;
-  runtime.languageCatalog = compileAstLanguageCatalog(adapterDiscovery.adapters);
+  const healthyAdapters = adapterDiscovery.adapters.filter((adapter) => artifactHealth.get(adapter.id)?.healthy);
+  runtime.adapterDiscovery = {
+    adapters: healthyAdapters,
+    diagnostics: [
+      ...adapterDiscovery.diagnostics,
+      ...[...artifactHealth.values()].flatMap((health) => health.diagnostics)
+    ]
+  };
+  runtime.languageCatalog = compileAstLanguageCatalog(healthyAdapters);
   const assuranceAvailable = new Set(['text']);
-  for (const adapter of adapterDiscovery.adapters) {
+  for (const adapter of healthyAdapters) {
     assuranceAvailable.add(adapter.assurance);
   }
   const activePhase = runtime.state?.currentPhase
@@ -1734,17 +1754,24 @@ export async function astDoctor(root) {
     ?? null;
   const requiredPredicateCount = runtime.policy.predicates.filter((entry) => entry.mode === 'required').length;
   const selection = effective.mode === 'off' ? { candidates: [] } : await enumerateScope(root, runtime, {});
-  const repositoryUnsupported = effective.mode === 'off' ? [] : unsupportedAstProgrammingPaths(
-    trackedFiles(root).map((file) => file.path),
-    runtime.languageCatalog
-  );
+  const repositoryUnsupported = effective.mode === 'off' ? [] : [...new Map([
+    // Known programming extensions are diagnosed repository-wide for compatibility with the
+    // existing doctor contract. Arbitrary unknown extensions fail closed only when the current
+    // source cone selected them, avoiding false code claims about unrelated repository assets.
+    ...unsupportedAstProgrammingPaths(
+      trackedFiles(root).map((file) => file.path), runtime.languageCatalog
+    ),
+    ...unsupportedAstProgrammingPaths(
+      selection.candidates.map((file) => file.path), runtime.languageCatalog, { classifyUnknown: true }
+    )
+  ].map((entry) => [entry.path, entry])).values()].sort((left, right) => left.path.localeCompare(right.path));
   const projects = effective.mode === 'off'
     ? { mode: 'existing-only', bindings: [], diagnostics: [], digest: null }
     : await discoverProjectBindings(root, { paths: runtime.sourceScope.paths });
   const byLanguage = new Map();
   for (const file of selection.candidates) byLanguage.set(file.language, (byLanguage.get(file.language) ?? 0) + 1);
   const languages = [...new Set([...byLanguage.keys(), ...Object.keys(runtime.policy.languages)])].sort().map((language) => {
-    const packs = adapterDiscovery.adapters.filter((adapter) => adapter.languages.includes(language));
+    const packs = healthyAdapters.filter((adapter) => adapter.languages.includes(language));
     const policy = runtime.policy.languages[language] ?? { mode: 'auto', minimumAssurance: 'text', syntaxProvider: null, semanticProvider: null };
     const selectedSyntax = providerFor({ language }, 'syntax', packs, policy, []);
     const selectedSemantic = providerFor({ language }, 'semantic', packs, policy, []);

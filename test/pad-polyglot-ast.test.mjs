@@ -13,7 +13,9 @@ import {
 } from '../src/ast-adapter-contract.mjs';
 import { readAstPackRegistry } from '../src/ast-pack-registry.mjs';
 import { createAstDerivationKey, astSemanticOverlayKey, astSyntaxCacheKey } from '../src/ast-derivation-key.mjs';
-import { compileAstLanguageCatalog, detectAstLanguage } from '../src/ast-language-catalog.mjs';
+import {
+  compileAstLanguageCatalog, detectAstLanguage, isAstProgrammingSource, unsupportedAstProgrammingPaths
+} from '../src/ast-language-catalog.mjs';
 import { astCommand } from '../src/ast-intelligence.mjs';
 import { discoverProjectBindings } from '../src/ast-project-binding.mjs';
 import { extractPolyglotSyntax } from '../src/ast-packs/polyglot-syntax-core.mjs';
@@ -198,6 +200,24 @@ test('the language catalog exposes the bundled scanner as a preview without inve
     language.maximumAssurance === 'text' && language.grammarId === null
       && language.parserEngine === 'sflow-structural-preview'));
 }));
+
+test('explicit AST operations classify emerging programming sources instead of treating them as non-code', () => {
+  const paths = [
+    'src/main.zig', 'src/main.lua', 'lib/app.exs', 'src/core.clj', 'schema/api.proto',
+    'src/App.groovy', 'contracts/Token.sol', 'src/App.fsx', 'analysis/model.r', 'tools/build.pl'
+  ];
+  assert.ok(paths.every(isAstProgrammingSource));
+  assert.deepEqual(
+    unsupportedAstProgrammingPaths(paths, compileAstLanguageCatalog()).map((entry) => entry.path),
+    [...paths].sort()
+  );
+  assert.deepEqual(
+    unsupportedAstProgrammingPaths(
+      ['src/custom.fluxsrc', 'src/notes.md'], compileAstLanguageCatalog(), { classifyUnknown: true }
+    ).map((entry) => entry.path),
+    ['src/custom.fluxsrc']
+  );
+});
 
 test('one malformed adapter file result is rejected without erasing already validated files', async () => isolatedMachine(async () => {
   const [manifest] = await bundledAstAdapters();

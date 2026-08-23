@@ -18,7 +18,7 @@
       "type": "object",
       "properties": {
         "schemaVersion": { "const": 2 },
-        "mode": { "enum": ["observe", "warn", "enforce"] },
+        "mode": { "const": "enforce" },
         "generationBoundary": {
           "type": "object",
           "properties": { "requireBegin": { "type": "boolean" }, "dirtyStart": { "enum": ["block", "allow-explicit-adoption"] } },
@@ -28,8 +28,8 @@
           "type": "object",
           "properties": {
             "renameDetection": { "const": "required" },
-            "includeCommitted": { "type": "boolean" }, "includeIndex": { "type": "boolean" },
-            "includeWorktree": { "type": "boolean" }, "includeUntracked": { "type": "boolean" },
+            "includeCommitted": { "const": true }, "includeIndex": { "const": true },
+            "includeWorktree": { "const": true }, "includeUntracked": { "const": true },
             "symlinks": { "enum": ["reject", "record-link-only"] }
           },
           "additionalProperties": false
@@ -37,12 +37,12 @@
         "tests": {
           "type": "object",
           "properties": {
-            "requireExecutableSource": { "type": "boolean" },
+            "requireExecutableSource": { "const": true },
             "minimumDiscovered": { "type": "integer", "minimum": 1 },
             "executionAssurance": { "enum": ["module", "testcase-exact"] },
-            "stringCommands": { "enum": ["reject", "compatibility-warn"] },
+            "stringCommands": { "const": "reject" },
             "unknownModelPolicy": { "const": "block" },
-            "requireResultAdapter": { "type": "boolean" },
+            "requireResultAdapter": { "const": true },
             "requireAffectedModuleCoverage": { "type": "boolean" }
           },
           "additionalProperties": false

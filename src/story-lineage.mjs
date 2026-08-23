@@ -13,6 +13,7 @@ import { listVisualComparisons } from './visual-compare.mjs';
 import { referenceRevision, registerReference } from './harness-imports.mjs';
 import { createImpactReceipt } from './impact.mjs';
 import { currentSchemaVersion, readRecord } from './schema-migrations.mjs';
+import { canonicalJson } from './records.mjs';
 
 function hash(value) {
   return createHash('sha256').update(JSON.stringify(value)).digest('hex');
@@ -212,6 +213,22 @@ export async function createStoryReviewPacket(root, config, workflow, phase) {
     coverage: await evaluateVisualCoverage(root, workflow),
     comparisons: await listVisualComparisons(root, workflow)
   } : null;
+  const submissionEvidence = phase.deliveryEvidence?.receiptPath ? {
+    codeDelivery: {
+      path: phase.deliveryEvidence.receiptPath,
+      sha256: phase.deliveryEvidence.receiptSha256 ?? null,
+      changeSetPath: phase.deliveryEvidence.changeSetPath ?? null,
+      changeSetDigest: phase.deliveryEvidence.changeSet?.digest ?? null,
+      status: phase.deliveryEvidence.status ?? null
+    },
+    testExecutions: (phase.deliveryEvidence.testExecutions ?? []).map((entry) => ({
+      commandId: entry.commandId,
+      path: entry.receiptPath,
+      sha256: entry.receiptSha256,
+      status: entry.status
+    })),
+    checksSha256: hash(phase.checks ?? [])
+  } : null;
   const base = {
     schemaVersion: currentSchemaVersion('story-submission-packet'),
     workId: workflow.workItem.id,
@@ -243,6 +260,7 @@ export async function createStoryReviewPacket(root, config, workflow, phase) {
     usage: phase.usage ?? [],
     approvals: phase.approvals?.filter((entry) => !entry.invalidatedAt) ?? [],
     visualAssurance,
+    submissionEvidence,
     submittedAt: phase.submittedAt ?? nowIso(),
     submittedBy: identity(root),
     status: phase.status === 'approved'
@@ -276,10 +294,53 @@ export async function readStoryReviewPacket(root, config, workflow, packetSha256
     ? workflow.lineage?.submissions?.find((entry) => entry.packetSha256 === packetSha256)
     : workflow.lineage?.submissions?.at(-1);
   if (!selected) throw new SingularityFlowError(`Story '${workflow.workItem.id}' has no submitted review packet.`);
-  const packet = readRecord('story-submission-packet', await readFile(path.join(root, selected.path))).record;
-  const { packetSha256: provided, ...base } = packet;
-  if (provided !== selected.packetSha256 || hash(base) !== provided) throw new SingularityFlowError('Story review packet hash is invalid.');
-  return packet;
+  // Approval is against the currently checked-out submitted branch. Looking across every local
+  // ref would let an unrelated branch provide the bytes even though they were never part of the
+  // reviewed branch's ancestry.
+  const commits = run('git', ['log', '--format=%H', 'HEAD', '--', selected.path], { cwd: root, allowFailure: true })
+    .stdout.split(/\r?\n/).filter(Boolean);
+  const failures = [];
+  for (const evidenceCommit of commits) {
+    const historical = run('git', ['show', `${evidenceCommit}:${selected.path}`], { cwd: root, allowFailure: true });
+    if (historical.status !== 0) continue;
+    let packet;
+    try { packet = readRecord('story-submission-packet', historical.stdout).record; }
+    catch (error) { failures.push(`${evidenceCommit.slice(0, 12)} packet unreadable: ${error.message}`); continue; }
+    const { packetSha256: provided, ...base } = packet;
+    if (provided !== selected.packetSha256 || hash(base) !== provided) continue;
+    const bindings = [
+      ...(packet.submissionEvidence?.codeDelivery?.path ? [{
+        kind: 'code-delivery', path: packet.submissionEvidence.codeDelivery.path,
+        sha256: packet.submissionEvidence.codeDelivery.sha256
+      }] : []),
+      ...(packet.submissionEvidence?.testExecutions ?? []).map((entry) => ({
+        kind: 'test-execution', path: entry.path, sha256: entry.sha256
+      }))
+    ];
+    let valid = true;
+    for (const binding of bindings) {
+      const evidence = run('git', ['show', `${evidenceCommit}:${binding.path}`], { cwd: root, allowFailure: true });
+      if (evidence.status !== 0) { failures.push(`${evidenceCommit.slice(0, 12)} lacks ${binding.path}`); valid = false; break; }
+      try {
+        const record = readRecord(binding.kind, evidence.stdout).record;
+        const digest = createHash('sha256').update(canonicalJson(record)).digest('hex');
+        if (digest !== String(binding.sha256 ?? '').replace(/^sha256:/, '')) {
+          failures.push(`${evidenceCommit.slice(0, 12)} has a different ${binding.path}`);
+          valid = false;
+          break;
+        }
+      } catch (error) {
+        failures.push(`${evidenceCommit.slice(0, 12)} has unreadable ${binding.path}: ${error.message}`);
+        valid = false;
+        break;
+      }
+    }
+    if (valid) return { ...packet, evidenceCommit };
+  }
+  throw new SingularityFlowError(
+    `Story review packet has no immutable Git commit containing its bound submission evidence.${failures.length ? ` ${failures[0]}` : ''}`,
+    { code: 'STORY_REVIEW_EVIDENCE_INVALID' }
+  );
 }
 
 export async function finalizeStoryDelivery(root, config, workflow, { persist = true } = {}) {

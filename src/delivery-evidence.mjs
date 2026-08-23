@@ -16,7 +16,7 @@ import { readRecord } from './schema-migrations.mjs';
 import { loadActiveSpecRecords, predecessorSpecClauses } from './specifications.mjs';
 import { SingularityFlowError, exists, posix, run, snapshot } from './util.mjs';
 import {
-  isApplicationPath, verifyWorkIntervalBaseline
+  isApplicationChangeEntry, verifyWorkIntervalBaseline
 } from './work-intervals.mjs';
 
 export { phaseRequiresCodeDelivery } from './code-delivery-policy.mjs';
@@ -61,7 +61,9 @@ export async function acceptanceIds(root, config, workflow, phase) {
   return [...ids].sort();
 }
 
-export async function taggedAcceptanceIds(root, testPaths, requiredIds = []) {
+export async function taggedAcceptanceIds(root, testPaths, requiredIds = [], {
+  requireNamespaceQualifiedIds = false
+} = {}) {
   const exact = new Set();
   const bare = new Set();
   const exactSources = new Map();
@@ -83,16 +85,50 @@ export async function taggedAcceptanceIds(root, testPaths, requiredIds = []) {
   const inferred = [];
   const bindings = [];
   for (const clauseId of exact) {
+    const suffix = clauseId.slice(clauseId.lastIndexOf(':') + 1);
+    const legacyBareMatches = requiredIds.filter((id) => id === suffix);
+    const competingQualifiedTags = [...exact].filter((id) => id.endsWith(`:${suffix}`));
+    // Some pre-index Stories persist an intrinsically bare AC identity even though their tests
+    // already use a namespace-qualified tag. Preserve the stronger test identity and bind it to
+    // the one bare durable clause only when there is no competing namespace. This is not suffix
+    // guessing: one competing qualified tag makes the binding ambiguous and blocks delivery.
+    if (!requiredIds.includes(clauseId) && legacyBareMatches.length === 1) {
+      if (competingQualifiedTags.length > 1) {
+        ambiguous.push({ suffix, matches: competingQualifiedTags, reason: 'legacy-clause-ambiguous' });
+        continue;
+      }
+      inferred.push(legacyBareMatches[0]);
+      for (const testSource of exactSources.get(clauseId) ?? []) {
+        bindings.push({
+          clauseId: legacyBareMatches[0], testSource,
+          bindingAssurance: 'namespace-qualified-legacy-clause', tag: clauseId
+        });
+      }
+      continue;
+    }
     for (const testSource of exactSources.get(clauseId) ?? []) {
       bindings.push({ clauseId, testSource, bindingAssurance: 'namespace-qualified' });
     }
   }
   for (const suffix of bare) {
     const matches = requiredIds.filter((id) => id === suffix || id.endsWith(`:${suffix}`));
+    const namespacedMatches = matches.filter((id) => id.includes(':'));
+    // Installed Stories created before specification indexes may legitimately have only a bare
+    // clause identity. Namespace enforcement cannot invent a namespace for those records; it
+    // becomes mandatory as soon as the pinned specification supplies one. This keeps the new
+    // policy strict for modern records without making legacy, intrinsically bare identities
+    // impossible to satisfy.
+    if (requireNamespaceQualifiedIds && namespacedMatches.length) {
+      ambiguous.push({ suffix, matches, reason: 'namespace-required' });
+      continue;
+    }
     if (matches.length === 1) {
       inferred.push(matches[0]);
       for (const testSource of bareSources.get(suffix) ?? []) {
-        bindings.push({ clauseId: matches[0], testSource, bindingAssurance: 'legacy-inferred' });
+        bindings.push({
+          clauseId: matches[0], testSource,
+          bindingAssurance: requireNamespaceQualifiedIds ? 'namespace-not-applicable' : 'legacy-inferred'
+        });
       }
     }
     else if (matches.length > 1) ambiguous.push({ suffix, matches });
@@ -161,8 +197,7 @@ export async function evaluateCodeDeliveryPreflight(root, config, workflow, phas
       { code: 'CHANGE_SET_POLICY_VIOLATION' }
     );
   }
-  const applicationEntries = changeSet.entries.filter((entry) =>
-    [entry.oldPath, entry.newPath].filter(Boolean).some(isApplicationPath));
+  const applicationEntries = changeSet.entries.filter(isApplicationChangeEntry);
   const applicationChangeSet = { ...changeSet, entries: applicationEntries };
   const boundaryResult = evaluateSourceBoundary(applicationChangeSet, phase.sourceBoundary, {
     phaseId: phase.id, allowedPath: isAllowedTestAutomationPath
@@ -217,11 +252,16 @@ export async function evaluateCodeDeliveryPreflight(root, config, workflow, phas
   if (!testPaths.length) errors.push('no acceptance test is available for the implementation');
 
   const requiredAcIds = await acceptanceIds(root, config, workflow, phase);
-  const tags = await taggedAcceptanceIds(root, testPaths, requiredAcIds);
+  const tags = await taggedAcceptanceIds(root, testPaths, requiredAcIds, {
+    requireNamespaceQualifiedIds: workflow.resolution?.codeDelivery?.traceability?.requireNamespaceQualifiedIds === true
+  });
   if (tags.ambiguous.length) {
+    const namespaceRequired = tags.ambiguous.some((item) => item.reason === 'namespace-required');
     throw new SingularityFlowError(
-      `Bare acceptance tag is ambiguous: ${tags.ambiguous.map((item) => `${item.suffix} -> ${item.matches.join(', ')}`).join('; ')}`,
-      { code: 'AC_NAMESPACE_AMBIGUOUS' }
+      namespaceRequired
+        ? `Acceptance tags must be namespace-qualified: ${tags.ambiguous.map((item) => item.suffix).join(', ')}`
+        : `Bare acceptance tag is ambiguous: ${tags.ambiguous.map((item) => `${item.suffix} -> ${item.matches.join(', ')}`).join('; ')}`,
+      { code: namespaceRequired ? 'AC_NAMESPACE_REQUIRED' : 'AC_NAMESPACE_AMBIGUOUS' }
     );
   }
   const taggedAcIds = tags.ids;
@@ -381,6 +421,13 @@ function pathCoveredByRoots(candidate, roots = []) {
     || candidate.startsWith(`${root.replace(/\/$/, '')}/`));
 }
 
+const MODEL_ASSURANCE_RANK = Object.freeze({
+  unavailable: 0, 'host-observed': 1, 'provider-reported': 2, 'policy-selected': 3
+});
+function modelAssuranceRank(value) {
+  return MODEL_ASSURANCE_RANK[value === 'observed' ? 'host-observed' : value] ?? -1;
+}
+
 /**
  * Re-verify the durable code-delivery receipt without consulting current source bytes.
  * Source policy is replayed from the change set committed with the generation; test receipts are
@@ -391,7 +438,9 @@ export async function verifyCodeDeliveryReceipt(root, receipt, {
   sourceBoundary = 'unrestricted',
   symlinkPolicy = 'reject',
   minimumDiscovered = 1,
-  requireAffectedModuleCoverage = true
+  requireAffectedModuleCoverage = true,
+  minimumModelAssurance = 'unavailable',
+  evidenceCommit = null
 } = {}) {
   const errors = [];
   const fail = (message) => errors.push(message);
@@ -426,8 +475,7 @@ export async function verifyCodeDeliveryReceipt(root, receipt, {
     if (!protectedResult.valid) fail(`protected path policy fails: ${protectedResult.violations.map((item) => item.path).join(', ')}`);
     const applicationChangeSet = {
       ...changeSet,
-      entries: changeSet.entries.filter((entry) =>
-        [entry.oldPath, entry.newPath].filter(Boolean).some(isApplicationPath))
+      entries: changeSet.entries.filter(isApplicationChangeEntry)
     };
     const boundary = evaluateSourceBoundary(applicationChangeSet, sourceBoundary, {
       phaseId: receipt.phase, allowedPath: isAllowedTestAutomationPath
@@ -452,7 +500,13 @@ export async function verifyCodeDeliveryReceipt(root, receipt, {
   const executions = new Map();
   for (const execution of receipt.testExecutions ?? []) {
     let testReceipt;
-    try { testReceipt = readRecord('test-execution', await readFile(path.join(root, execution.receiptPath))).record; }
+    try {
+      const source = evidenceCommit
+        ? run('git', ['show', `${evidenceCommit}:${execution.receiptPath}`], { cwd: root, allowFailure: true })
+        : null;
+      if (source && source.status !== 0) throw new Error(`not present in evidence commit ${evidenceCommit}`);
+      testReceipt = readRecord('test-execution', source ? source.stdout : await readFile(path.join(root, execution.receiptPath))).record;
+    }
     catch (error) {
       fail(`test receipt ${execution.commandId} is unavailable: ${error.message}`);
       continue;
@@ -480,8 +534,27 @@ export async function verifyCodeDeliveryReceipt(root, receipt, {
   if (!['policy-selected', 'provider-reported', 'host-observed', 'unavailable'].includes(receipt.model?.assurance)) {
     fail(`model assurance '${receipt.model?.assurance ?? ''}' is invalid`);
   }
+  // The assurance floor governs model-authored code; it must not manufacture a mandatory model
+  // dependency for explicitly human-authored delivery. Older v2 receipts did not record `required`,
+  // so a real observation remains governed while an unavailable observation is treated as manual.
+  const modelRequired = receipt.model?.required ?? receipt.model?.assurance !== 'unavailable';
+  if (modelRequired && modelAssuranceRank(receipt.model?.assurance) < modelAssuranceRank(minimumModelAssurance)) {
+    fail(`model assurance '${receipt.model?.assurance ?? 'unavailable'}' is below required '${minimumModelAssurance}'`);
+  }
+  if (receipt.model?.minimumAssurance != null
+      && receipt.model.minimumAssurance !== minimumModelAssurance) {
+    fail('model assurance minimum differs from the pinned policy');
+  }
   if (receipt.model?.assurance === 'policy-selected' && !(receipt.model.invocationIds ?? []).length) {
     fail('policy-selected model assurance has no kernel invocation binding');
+  }
+  if (receipt.model?.assurance !== 'unavailable' && (!receipt.model?.provider || !receipt.model?.resolvedModel
+      || receipt.model?.host !== 'singularity-flow-kernel'
+      || receipt.model?.observationSource !== 'model-invocation-audit'
+      || !receipt.model?.observedAt
+      || Number(receipt.model?.generation) !== Number(receipt.generation)
+      || !(receipt.model?.invocationIds ?? []).length)) {
+    fail('model assurance is missing its provider/model, host audit source, timestamp, generation, or invocation binding');
   }
   return { valid: errors.length === 0, errors, changeSet, executions: [...executions.values()] };
 }

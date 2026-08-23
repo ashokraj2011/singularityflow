@@ -13,6 +13,7 @@
 import { spawn, spawnSync, type ChildProcess } from 'node:child_process';
 import { lstat, realpath } from 'node:fs/promises';
 import path from 'node:path';
+import { StringDecoder } from 'node:string_decoder';
 
 /** Lifecycle snapshots include branch cataloguing and deterministic governance checks. */
 export const CLI_TIMEOUT_MS = 120_000;
@@ -201,9 +202,14 @@ export function invokeCli<T = unknown>(options: InvokeOptions): Promise<T> {
     let settled = false;
     let timingReported = false;
     let timer: NodeJS.Timeout | undefined;
+    let hardKillTimer: NodeJS.Timeout | undefined;
+    let pendingFailure: { error: Error; outcome: CliCommandTiming['outcome']; cancelled: boolean } | null = null;
+    const stdoutDecoder = new StringDecoder('utf8');
+    const stderrDecoder = new StringDecoder('utf8');
 
     const cleanup = () => {
       if (timer) clearTimeout(timer);
+      if (hardKillTimer) clearTimeout(hardKillTimer);
       signal?.removeEventListener('abort', onAbort);
     };
     const reportTiming = (
@@ -241,9 +247,28 @@ export function invokeCli<T = unknown>(options: InvokeOptions): Promise<T> {
       reportTiming(outcome, child?.exitCode ?? null, cancelled);
       reject(error instanceof Error ? error : new Error(String(error)));
     };
+    const signalTree = (terminationSignal: NodeJS.Signals) => {
+      if (!child) return false;
+      if (child.pid && process.platform === 'win32') {
+        const force = terminationSignal === 'SIGKILL' ? ['/F'] : [];
+        const killed = spawnSync('taskkill.exe', ['/PID', String(child.pid), '/T', ...force], {
+          stdio: 'ignore', windowsHide: true, timeout: 5_000
+        });
+        if (!killed.error && killed.status === 0) return true;
+      } else if (child.pid) {
+        try { process.kill(-child.pid, terminationSignal); return true; } catch { /* fall through */ }
+      }
+      return child.kill(terminationSignal);
+    };
+    const terminate = (error: Error, outcome: CliCommandTiming['outcome'], cancelled = false) => {
+      if (settled || pendingFailure) return;
+      pendingFailure = { error, outcome, cancelled };
+      signalTree('SIGTERM');
+      hardKillTimer = setTimeout(() => signalTree('SIGKILL'), 2_000);
+      hardKillTimer.unref?.();
+    };
     function onAbort() {
-      child?.kill('SIGTERM');
-      fail(new Error('The Singularity Flow command was cancelled.'), 'cancelled', true);
+      terminate(new Error('The Singularity Flow command was cancelled.'), 'cancelled', true);
     }
 
     if (signal?.aborted) return fail(new Error('The Singularity Flow command was cancelled.'), 'cancelled', true);
@@ -251,11 +276,10 @@ export function invokeCli<T = unknown>(options: InvokeOptions): Promise<T> {
     const collect = (target: string, chunk: Buffer, stream: OutputStream): string => {
       outputBytes += chunk.length;
       if (outputBytes > MAX_OUTPUT_BYTES) {
-        child?.kill('SIGTERM');
-        fail(new Error('The Singularity Flow CLI returned too much data to display.'));
+        terminate(new Error('The Singularity Flow CLI returned too much data to display.'), 'error');
         return target;
       }
-      const text = chunk.toString('utf8');
+      const text = (stream === 'stdout' ? stdoutDecoder : stderrDecoder).write(chunk);
       // A progress observer that throws must never take the command down with it.
       try { onOutput?.(text, stream); } catch { /* ignored on purpose */ }
       return target + text;
@@ -265,6 +289,7 @@ export function invokeCli<T = unknown>(options: InvokeOptions): Promise<T> {
       child = spawnImpl(executable, [cli, ...args], {
         cwd: repository,
         env,
+        detached: process.platform !== 'win32',
         stdio: ['pipe', 'pipe', 'pipe'],
         windowsHide: true
       });
@@ -273,8 +298,7 @@ export function invokeCli<T = unknown>(options: InvokeOptions): Promise<T> {
     }
 
     timer = setTimeout(() => {
-      child?.kill('SIGTERM');
-      fail(new Error(`The Singularity Flow CLI did not finish within ${Math.ceil(timeoutMs / 1000)} seconds. Run the same command in a terminal to see what it is waiting on.`));
+      terminate(new Error(`The Singularity Flow CLI did not finish within ${Math.ceil(timeoutMs / 1000)} seconds. Run the same command in a terminal to see what it is waiting on.`), 'error');
     }, timeoutMs);
     timer.unref?.();
     signal?.addEventListener('abort', onAbort, { once: true });
@@ -284,6 +308,9 @@ export function invokeCli<T = unknown>(options: InvokeOptions): Promise<T> {
     child.on('error', fail);
     child.on('close', (code) => {
       if (settled) return;
+      stdout += stdoutDecoder.end();
+      stderr += stderrDecoder.end();
+      if (pendingFailure) return fail(pendingFailure.error, pendingFailure.outcome, pendingFailure.cancelled);
       if (code !== 0) {
         let result: unknown = null;
         if (json && stdout.trim()) {

@@ -7,8 +7,9 @@
  * CLI staged inside it. Both install identically on Windows, macOS and Linux — `install.sh` is a
  * build-from-source bootstrap for people working on the product, not the way anybody else gets it.
  *
- * This stays a local script on purpose. `scripts/check.mjs` fails the build if `.github/workflows/`
- * appears, so releases are cut from a machine, deliberately, by a person who can see the output.
+ * This remains the deliberate local release surface while Governance CI independently runs the
+ * mandatory checks and produces signed provenance for its packaged artifacts. A human still owns
+ * registry publication; the hosted workflow supplies verification, not hidden deployment policy.
  *
  * What it does not do is upload. The destination is an internal registry that differs per
  * organisation, and guessing at it in a tracked file would be worse than leaving the last step to
@@ -67,9 +68,9 @@ async function main() {
   step('Checking governance and the version across every manifest');
   must('npm', ['run', 'check']);
 
-  // Latency is a release property, not an optional developer observation. This stays in the local
-  // release path because the repository deliberately carries no hosted automation. The benchmark
-  // validates absolute budgets everywhere and adds the relative 20-percent gate when it runs on
+  // Latency is a release property, not an optional developer observation. It stays in the local
+  // release path because the benchmark needs the accepted baseline runtime/topology. It validates
+  // absolute budgets everywhere and adds the relative 20-percent gate when it runs on
   // the exact runtime/topology of the accepted baseline.
   step('Enforcing developer-experience latency budgets');
   must('npm', ['run', 'benchmark:dx:enforce']);

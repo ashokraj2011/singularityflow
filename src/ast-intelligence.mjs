@@ -18,7 +18,7 @@ import {
   compileAstLanguageCatalog, detectAstLanguage, unsupportedAstProgrammingPaths
 } from './ast-language-catalog.mjs';
 import { assertAstProgrammingLanguagesSupported } from './ast-language-support.mjs';
-import { effectiveAstMode } from './ast-mode.mjs';
+import { effectiveAstMode, readAstPreference, setAstPreference } from './ast-mode.mjs';
 import { astSemanticOverlayKey, astSyntaxCacheKey } from './ast-derivation-key.mjs';
 import { bindingForFile, discoverProjectBindings } from './ast-project-binding.mjs';
 import { astSemanticWarmCommand } from './ast-semantic-warm.mjs';
@@ -82,7 +82,7 @@ function splitNull(value) {
   return String(value).split('\0').filter(Boolean);
 }
 
-export { effectiveAstMode, readAstPreference, setAstPreference } from './ast-mode.mjs';
+export { effectiveAstMode, readAstPreference, setAstPreference };
 
 function storeRoot(root) {
   return path.join(gitCommonDir(root), STORE_DIR);
@@ -1732,6 +1732,7 @@ export async function astDoctor(root) {
   const latestGate = activePhase?.astGates?.findLast?.((entry) => entry.generation === activePhase.generation)
     ?? [...(activePhase?.astGates ?? [])].sort((left, right) => right.generation - left.generation)[0]
     ?? null;
+  const requiredPredicateCount = runtime.policy.predicates.filter((entry) => entry.mode === 'required').length;
   const selection = effective.mode === 'off' ? { candidates: [] } : await enumerateScope(root, runtime, {});
   const repositoryUnsupported = effective.mode === 'off' ? [] : unsupportedAstProgrammingPaths(
     trackedFiles(root).map((file) => file.path),
@@ -1797,9 +1798,9 @@ export async function astDoctor(root) {
     })),
     assuranceAvailable: [...assuranceAvailable].sort((left, right) => ['text', 'syntax', 'semantic'].indexOf(left) - ['text', 'syntax', 'semantic'].indexOf(right)),
     lifecycle: {
-      enforced: runtime.policy.predicates.length > 0,
+      enforced: effective.mode !== 'off' && requiredPredicateCount > 0,
       predicateCount: runtime.policy.predicates.length,
-      requiredPredicateCount: runtime.policy.predicates.filter((entry) => entry.mode === 'required').length,
+      requiredPredicateCount,
       workId: runtime.state?.workItem?.id ?? null,
       phase: activePhase?.id ?? null,
       generation: activePhase?.generation ?? null,
@@ -1809,7 +1810,7 @@ export async function astDoctor(root) {
       ...(effective.mode === 'off' ? [{ code: 'AST_DISABLED', severity: 'info' }] : []),
       ...(repositoryUnsupported.length ? [{
         code: 'AST_LANGUAGE_UNSUPPORTED', severity: 'fail',
-        message: `Unsupported programming source blocks governed AST/code work: ${repositoryUnsupported.slice(0, 20).map((entry) => entry.path).join(', ')}`,
+        message: `AST operations are unavailable for unsupported programming source; ordinary file-based work remains available: ${repositoryUnsupported.slice(0, 20).map((entry) => entry.path).join(', ')}`,
         paths: repositoryUnsupported.map((entry) => entry.path)
       }] : []),
       ...adapterDiscovery.diagnostics,

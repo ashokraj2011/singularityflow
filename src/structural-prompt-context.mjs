@@ -19,12 +19,21 @@ export async function requiredStructuralPromptContext(root, workflow) {
   if (!astContextRequired(workflow)) {
     return { text: '', record: null, warnings: [] };
   }
-  const result = await astContext(root, {
-    all: true,
-    'max-facts': MAX_FACTS,
-    'max-output-bytes': MAX_OUTPUT_BYTES,
-    'evidence-class': 'recorded-context'
-  });
+  let result;
+  try {
+    result = await astContext(root, {
+      all: true,
+      'max-facts': MAX_FACTS,
+      'max-output-bytes': MAX_OUTPUT_BYTES,
+      'evidence-class': 'recorded-context'
+    });
+  } catch (error) {
+    if (!['AST_DISABLED', 'AST_EVIDENCE_DISABLED'].includes(error?.code)) throw error;
+    throw new SingularityFlowError(
+      `Work type '${workflow.workItem.workType}' requires bounded AST context, but AST intelligence is disabled.`,
+      { code: 'WORK_TYPE_AST_CONTEXT_DISABLED', cause: error }
+    );
+  }
   if (result.status === 'disabled') {
     throw new SingularityFlowError(
       `Work type '${workflow.workItem.workType}' requires bounded AST context, but AST intelligence is disabled.`,

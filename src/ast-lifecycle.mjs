@@ -10,10 +10,22 @@ import { recordSha256 } from './records.mjs';
 import { currentSchemaVersion, readRecord } from './schema-migrations.mjs';
 import { run, SingularityFlowError, writeJson } from './util.mjs';
 import { astDisabledForWorkflow } from './intelligence-policy.mjs';
+import { effectiveAstMode } from './ast-mode.mjs';
 
 function configuredPredicates(config, workflow = null) {
   if (astDisabledForWorkflow(workflow)) return [];
   return Array.isArray(config.ast?.predicates) ? config.ast.predicates : [];
+}
+
+async function lifecyclePolicy(config, workflow) {
+  const configured = configuredPredicates(config, workflow);
+  const required = configured.filter((predicate) => predicate.mode === 'required');
+  if (!required.length) {
+    return { active: false, reason: configured.length ? 'advisory-only' : 'not-configured', required };
+  }
+  const effective = await effectiveAstMode(config.ast ?? { mode: 'auto' });
+  if (effective.mode === 'off') return { active: false, reason: 'disabled', required, effective };
+  return { active: true, reason: 'required', required, effective };
 }
 
 function receiptRelative(config, workflow, phaseId, generation) {
@@ -38,8 +50,10 @@ function gateErrors(result) {
 
 /** Evaluate configured AST policy without writing lifecycle or repository state. */
 export async function evaluateAstLifecycleGate(root, config, workflow, phase, { generation = phase.generation + 1, options = {} } = {}) {
-  const predicates = configuredPredicates(config, workflow);
-  if (!predicates.length) return { applies: false, errors: [], warnings: [], result: null, receipt: null };
+  const policy = await lifecyclePolicy(config, workflow);
+  if (!policy.active) {
+    return { applies: false, reason: policy.reason, errors: [], warnings: [], result: null, receipt: null };
+  }
   const result = await evaluateAstGate(root, { ...options, 'evidence-class': 'gate' });
   const errors = gateErrors(result);
   const warnings = result.facts
@@ -167,7 +181,8 @@ async function receiptFor(root, config, workflow, phase, generation, sourceCommi
 export async function verifyAstLifecycleReceipt(root, config, workflow, phase, {
   generation = phase.generation, revalidate = true, sourceCommit = null
 } = {}) {
-  if (!configuredPredicates(config, workflow).length) return { applies: false, errors: [], warnings: [], passes: [] };
+  const policy = await lifecyclePolicy(config, workflow);
+  if (!policy.active) return { applies: false, reason: policy.reason, errors: [], warnings: [], passes: [] };
   const loaded = await receiptFor(root, config, workflow, phase, generation, sourceCommit);
   if (loaded.error) return { applies: true, errors: [loaded.error], warnings: [], passes: [] };
   const { record } = loaded;

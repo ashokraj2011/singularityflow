@@ -78,11 +78,16 @@ async function withPreferenceFile(fn) {
   }
 }
 
-test('AST policy is closed, bounded, and cannot disable a required predicate', () => {
+test('AST policy is closed and bounded while off can suspend a required predicate', () => {
   const value = normalizeAstPolicy({ mode: 'auto', budgets: { maxFiles: 7 } });
   assert.equal(value.budgets.maxFiles, 7);
   assert.equal(value.budgets.maxFileBytes, 2 * 1024 * 1024);
-  assert.throws(() => normalizeAstPolicy({ mode: 'off', predicates: [{ id: 'must', mode: 'required', type: 'path-exists', path: 'src' }] }), /cannot be combined/);
+  const disabled = normalizeAstPolicy({
+    mode: 'off', evidence: { mode: 'identified' },
+    predicates: [{ id: 'must', mode: 'required', type: 'path-exists', path: 'src' }]
+  });
+  assert.equal(disabled.mode, 'off');
+  assert.equal(disabled.predicates[0].mode, 'required');
   assert.throws(() => normalizeAstPolicy({ surprise: true }), /unknown field/);
   assert.throws(() => normalizeAstPolicy({ predicates: [{
     id: 'boundary', mode: 'required', type: 'import-boundary', path: 'src', target: 'internal'
@@ -157,13 +162,17 @@ test('v1 AST results migrate with truthful current accounting and legacy resume 
 });
 
 test('the most restrictive preference wins and show has no write side effect', async () => withPreferenceFile(async () => {
+  const root = await repository();
   const shown = await readAstPreference();
   assert.equal(shown.mode, 'auto');
   assert.equal(shown.exists, false);
-  await setAstPreference('off');
+  const changed = await astCommand(root, ['preference', 'set', 'off'], { json: false });
+  assert.equal(changed.mode, 'off');
   const effective = await effectiveAstMode(normalizeAstPolicy({ mode: 'auto' }));
   assert.equal(effective.mode, 'off');
-  assert.equal((await readAstPreference()).exists, true);
+  const current = await astCommand(root, ['preference', 'show'], { json: false });
+  assert.equal(current.exists, true);
+  assert.equal(current.mode, 'off');
 }));
 
 test('off returns a valid disabled envelope and creates no AST store', async () => withPreferenceFile(async () => {
@@ -219,7 +228,7 @@ test('text facts contain references and hashes but never source bodies', async (
   assert.doesNotMatch(JSON.stringify(result), /return 1/);
 }));
 
-test('an unknown programming language is a show stopper while documentation remains non-programming input', async () => withPreferenceFile(async () => {
+test('an explicit AST operation refuses an unknown programming language while documentation remains valid input', async () => withPreferenceFile(async () => {
   const root = await repository();
   await writeFile(path.join(root, 'engine.cpp'), 'int main() { return 0; }\n');
   await writeFile(path.join(root, 'notes.md'), '# Repository notes\n');

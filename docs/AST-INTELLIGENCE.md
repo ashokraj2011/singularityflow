@@ -112,10 +112,11 @@ text facts remain available when a pack is absent or fails, and the result becom
 configured assurance cannot be established. `generatedRoots` are tagged in facts rather than
 silently omitted. Repository files can select an allowed provider ID but can never supply `argv`.
 
-While AST is enabled, an unknown programming-language extension is not a text fallback. It fails
-with `AST_LANGUAGE_UNSUPPORTED` before indexing, and the same check blocks AST-backed code-delivery
-publication. Install a reviewed pack whose validated manifest advertises the language and extension,
-or turn AST off to continue through normal Copilot file access and non-AST delivery. Documentation,
+While AST is enabled, an unknown programming-language extension is not a text fallback. Explicit
+AST build, context, query, and gate operations fail with `AST_LANGUAGE_UNSUPPORTED` before indexing.
+Ordinary code delivery does not invoke this check and continues through normal Copilot file access.
+Install a reviewed pack whose validated manifest advertises the language and extension to use AST
+on that source, or turn AST off when structural intelligence is not wanted. Documentation,
 configuration, stylesheets, and assets are not classified as programming-language claims by this
 check.
 
@@ -207,17 +208,20 @@ an incomplete or mismatched manifest is unavailable rather than silently downgra
 
 ## Lifecycle enforcement
 
-When `ast.predicates` is empty, lifecycle behavior is unchanged. When predicates are configured:
+When no predicate is explicitly marked `required`, lifecycle behavior is unchanged. Advisory
+predicates remain available through explicit AST diagnostics. When required predicates are active:
 
 1. publication evaluates the bounded selected cone before any generation mutation;
-2. any required failure, unknown, disabled result, adapter shortfall, or partial coverage blocks;
+2. any required failure, unknown result, adapter shortfall, or partial coverage blocks;
 3. a passing evaluation retains its exact toolchain, stores an immutable derivation manifest, and
    stores a receipt that references that manifest for the phase generation;
 4. submission re-reads the receipt and re-evaluates the exact accepted paths; and
 5. governance and terminal gates verify the receipt's exact integrity-protected bytes from the
    generation commit rather than trusting a later working-tree copy.
 
-The v3 receipt binds the work item, phase, generation, derivation digest and integrity, predicate
+Repository, machine, environment, workflow-profile, and operation-level AST-off switches suspend
+these lifecycle gates; no receipt is required while AST is off. The v3 receipt binds the work item,
+phase, generation, derivation digest and integrity, predicate
 fact-set digests, outcomes, assurance, and diagnostics. The derivation binds exact input objects,
 configuration, engine/adapter/runtime/grammar/dependency artifact digests, and outputs. Revalidation
 refuses any toolchain, policy, input-object, or outcome change even when display versions happen to
@@ -245,9 +249,9 @@ question remains unanswered. Whole-repository scope remains explicit.
   languages retain the text floor until a reviewed pack is installed. Recognition and preview
   scanning are never claimed as parsing.
 - While AST is enabled, programming source that the compiled language catalog cannot identify is a
-  hard failure, not an empty successful result. AST reads and AST-backed code-delivery publication
-  stop until a reviewed pack adds the language, the unsupported source leaves the governed scope, or
-  AST is turned off. With AST off, normal Copilot file access and non-AST delivery continue.
+  hard failure for explicit AST operations, not an empty successful result. Normal Copilot file
+  access and ordinary code delivery continue regardless of AST language support. A required AST
+  context or required structural predicate remains strict only while AST is active.
 - Adapter protocol v2 manifests bind the executable/package, manifest, runtime, grammars, and
   dependency artifacts by SHA-256. The broker verifies the executable digest before launch and the
   adapter must echo the request derivation identity and implementation digests.

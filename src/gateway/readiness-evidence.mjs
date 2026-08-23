@@ -183,7 +183,10 @@ async function astRow(root, config, workflow, phase) {
     : await evaluateAstLifecycleGate(root, config, workflow, phase, {
       generation: Math.max(1, Number(phase.generation ?? 0))
     });
-  if (!evaluation.applies) return row('ast', 'met', 'policy', 'ast:not-configured', { required: 'false' });
+  if (!evaluation.applies) {
+    const reason = evaluation.reason ?? 'not-configured';
+    return row('ast', 'met', 'policy', `ast:${reason}`, { required: 'false', mode: reason });
+  }
   const errors = evaluation.errors ?? [];
   const evidence = evaluation.receipt?.integritySha256
     ?? evaluation.record?.integritySha256

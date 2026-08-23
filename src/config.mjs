@@ -607,9 +607,6 @@ export function validateDefinition(definition) {
         );
       }
     }
-    if (resolved.intelligence.ast === 'required-context' && definition.ast.mode === 'off') {
-      throw new SingularityFlowError(`Work type '${workTypeId}' requires AST context, but ast.mode is off.`);
-    }
   }
   if (definition.worldModel?.views) {
     const configuredViews = new Set(definition.worldModel.views);

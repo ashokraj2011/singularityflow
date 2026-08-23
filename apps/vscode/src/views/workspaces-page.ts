@@ -7,7 +7,9 @@
  */
 import {
   duplicateDirectory, duplicateProblems, type WorkspaceRow, type WorkspaceStatus,
-  type WorkspaceRepositoryStatus, type WorkspaceCapabilityChoice
+  type WorkspaceRepositoryStatus, type WorkspaceCapabilityChoice,
+  type WorkspaceConfigurationConflict, type WorkspaceConfigurationRefreshResult,
+  type WorkspaceConfigurationResolution
 } from './workspaces-model.ts';
 import { escape, icon } from './webview.ts';
 
@@ -106,7 +108,8 @@ function detailHtml(
   edit: WorkspaceEditDraft,
   status: WorkspaceStatus | null,
   loading: boolean,
-  detailError: string | null
+  detailError: string | null,
+  configuration: WorkspaceConfigurationRefreshView
 ): string {
   const problems = duplicateProblems(row, draft.id, draft.base, rows);
   const target = duplicateDirectory(row, draft.id || '<identifier>', draft.base);
@@ -119,6 +122,8 @@ function detailHtml(
   <p class="muted">${icon('directory')}<code>${escape(row.directory)}</code></p>
 
   ${workspaceDetails(status, loading, detailError)}
+
+  ${configurationRefreshHtml(row, configuration)}
 
   ${archiveWorkspaceHtml(row, status, loading)}
 
@@ -209,6 +214,96 @@ export const EMPTY_EDIT_DRAFT: WorkspaceEditDraft = {
   open: false, name: '', capabilities: [], busy: false
 };
 
+export interface WorkspaceConfigurationRefreshView {
+  scope: 'selected' | 'all';
+  result: WorkspaceConfigurationRefreshResult | null;
+  resolutions: Record<string, WorkspaceConfigurationResolution>;
+  loading: boolean;
+  applying: boolean;
+  error: string | null;
+}
+
+export const EMPTY_CONFIGURATION_REFRESH: WorkspaceConfigurationRefreshView = {
+  scope: 'selected', result: null, resolutions: {}, loading: false, applying: false, error: null
+};
+
+function conflictChoice(
+  conflict: WorkspaceConfigurationConflict,
+  choices: Record<string, WorkspaceConfigurationResolution>
+): WorkspaceConfigurationResolution {
+  const selected = choices[conflict.path];
+  if (selected) return selected;
+  if (conflict.resolution.includes('bundled')) return 'bundled';
+  if (conflict.resolution.includes('merged')) return 'merge';
+  return 'local';
+}
+
+function mergeableConflict(conflict: WorkspaceConfigurationConflict): boolean {
+  return Array.isArray(conflict.local) && Array.isArray(conflict.bundled)
+    && conflict.local.every((entry) => typeof entry === 'string')
+    && conflict.bundled.every((entry) => typeof entry === 'string');
+}
+
+function configurationRefreshHtml(row: WorkspaceRow, view: WorkspaceConfigurationRefreshView): string {
+  const result = view.result;
+  const repositories = result?.results ?? [];
+  const conflicts = [...new Map(repositories.flatMap((repository) => repository.conflicts ?? [])
+    .map((conflict) => [conflict.path, conflict])).values()];
+  const actionable = result?.status === 'preview' && repositories.some((repository) =>
+    repository.status !== 'current' && repository.status !== 'preflight-passed');
+  return `<h2>${icon('configuration')}SFlow configuration</h2>
+  <div class="card${view.error ? ' blocked' : ''}">
+    <div class="card-head"><strong>Refresh approved configuration and state branches</strong>
+      <span class="grow"></span>${result ? `<span class="pill ${result.status === 'blocked' || result.status === 'partial' ? 'bad' : 'ok'}">${escape(result.status)}</span>` : ''}</div>
+    <p class="muted">Preview packaged workflow, templates, prompts and agents before changing
+      <code>sflow/config</code>. Apply projects those same files at canonical paths on
+      <code>state</code>; world models and other runtime state are preserved.</p>
+    <p class="card-foot">
+      <button class="secondary" data-config-preview="selected"${view.loading || view.applying ? ' disabled' : ''}>
+        ${view.loading && view.scope === 'selected' ? 'Checking…' : `Check ${escape(row.name)}`}</button>
+      <button class="secondary" data-config-preview="all"${view.loading || view.applying ? ' disabled' : ''}>
+        ${view.loading && view.scope === 'all' ? 'Checking…' : 'Check all workspaces'}</button>
+    </p>
+    ${view.error ? `<p class="blockers">${escape(view.error)}</p>` : ''}
+    ${result ? `<p><strong>${view.scope === 'all' ? 'All registered workspaces' : row.name}</strong>
+      · ${escape(result.total)} ${result.total === 1 ? 'repository' : 'repositories'}
+      ${result.planId ? `· plan <code>${escape(result.planId)}</code>` : ''}</p>
+      ${repositories.length ? `<table>
+        <thead><tr><th>Repository</th><th>Configuration</th><th>State branch</th><th>Details</th></tr></thead>
+        <tbody>${repositories.map((repository) => `<tr>
+          <td><strong>${escape(repository.repository)}</strong><br><span class="muted">${escape(repository.remote)}</span></td>
+          <td><span class="pill ${repository.configurationChanged ? 'wait' : 'ok'}">${repository.configurationChanged ? 'update' : 'current'}</span></td>
+          <td><span class="pill ${repository.stateChanged ? 'wait' : 'ok'}">${escape(repository.stateStatus ?? (repository.stateChanged ? 'update' : 'current'))}</span></td>
+          <td>${repository.error ? `<span class="blockers">${escape(repository.error)}</span>${repository.proposalBranch
+            ? `<br><span class="muted">Review <code>${escape(repository.proposalBranch)}</code></span>` : ''}`
+            : `<span class="muted">${escape(repository.files?.length ?? 0)} packaged files
+              · ${escape(repository.conflicts?.length ?? 0)} choices</span>`}</td>
+        </tr>`).join('')}</tbody>
+      </table>` : '<p class="muted">No registered workspace repositories were found.</p>'}
+      ${conflicts.length ? `<h3>Review repository choices</h3>
+        <p class="muted">Local is the default. Choose packaged for only the paths you want to
+          replace; merge is offered only for compatible string lists.</p>
+        <table><thead><tr><th>Path</th><th>Use</th></tr></thead><tbody>
+          ${conflicts.map((conflict) => {
+            const choice = conflictChoice(conflict, view.resolutions);
+            return `<tr><td><code>${escape(conflict.path)}</code></td><td>
+              <select data-configuration-resolution="${escape(conflict.path)}"${view.loading || view.applying ? ' disabled' : ''}>
+                <option value="local"${choice === 'local' ? ' selected' : ''}>Keep repository</option>
+                <option value="bundled"${choice === 'bundled' ? ' selected' : ''}>Use packaged</option>
+                ${mergeableConflict(conflict) ? `<option value="merge"${choice === 'merge' ? ' selected' : ''}>Merge lists</option>` : ''}
+              </select></td></tr>`;
+          }).join('')}
+        </tbody></table>
+        <p><button class="secondary" data-config-bundled="assets"${view.loading || view.applying ? ' disabled' : ''}>
+          Use packaged templates, prompts and agents</button></p>` : ''}
+      <p class="card-foot"><button data-config-apply="${escape(view.scope)}"
+        ${!result.planId || !actionable || view.loading || view.applying ? 'disabled' : ''}>
+        ${view.applying ? 'Applying…' : 'Apply reviewed refresh'}</button></p>
+      <p class="muted">Apply is bound to this plan. If either authority changed after preview,
+        nothing is published and a new preview is required.</p>` : ''}
+  </div>`;
+}
+
 function capabilityLabel(choice: WorkspaceCapabilityChoice | undefined, id: string): string {
   return choice?.name ?? id;
 }
@@ -279,7 +374,8 @@ export function workspacesHtml(
   status: WorkspaceStatus | null = null,
   loading = false,
   detailError: string | null = null,
-  edit: WorkspaceEditDraft = EMPTY_EDIT_DRAFT
+  edit: WorkspaceEditDraft = EMPTY_EDIT_DRAFT,
+  configuration: WorkspaceConfigurationRefreshView = EMPTY_CONFIGURATION_REFRESH
 ): string {
   const row = rows.find((entry) => entry.path === selected) ?? null;
   const collisions = rows.filter((entry) => entry.collides);
@@ -309,7 +405,7 @@ export function workspacesHtml(
   </section>
 
   <section>${row
-    ? detailHtml(row, rows, draft, edit, status, loading, detailError)
+    ? detailHtml(row, rows, draft, edit, status, loading, detailError, configuration)
     : '<p class="muted">Choose a workspace name to see its working directory, repositories, capabilities and Jira context.</p>'}</section>
   <div hidden data-context="${escape(JSON.stringify({
     parent: row ? row.directory.split('/').slice(0, -1).join('/') : '',
@@ -320,7 +416,7 @@ export function workspacesHtml(
 export const WORKSPACES_SCRIPT = `
   const vscode = window.__sfVscode;
   document.addEventListener('click', (event) => {
-    const target = event.target.closest('[data-select],[data-switch],[data-rename],[data-duplicate],[data-forget],[data-create],[data-adopt],[data-edit],[data-edit-add],[data-edit-remove],[data-edit-save],[data-edit-cancel],[data-archive],[data-restore]');
+    const target = event.target.closest('[data-select],[data-switch],[data-rename],[data-duplicate],[data-forget],[data-create],[data-adopt],[data-edit],[data-edit-add],[data-edit-remove],[data-edit-save],[data-edit-cancel],[data-archive],[data-restore],[data-config-preview],[data-config-apply],[data-config-bundled]');
     if (!target) return;
     event.preventDefault();
     const data = target.dataset;
@@ -332,6 +428,9 @@ export const WORKSPACES_SCRIPT = `
     else if (data.forget !== undefined) vscode.postMessage({ type: 'forget', path: data.forget });
     else if (data.archive !== undefined) vscode.postMessage({ type: 'archive', path: data.archive });
     else if (data.restore !== undefined) vscode.postMessage({ type: 'restore', path: data.restore });
+    else if (data.configPreview !== undefined) vscode.postMessage({ type: 'configuration-preview', scope: data.configPreview });
+    else if (data.configApply !== undefined) vscode.postMessage({ type: 'configuration-apply' });
+    else if (data.configBundled !== undefined) vscode.postMessage({ type: 'configuration-bundled-assets' });
     else if (data.rename !== undefined) vscode.postMessage({ type: 'rename', path: data.rename, name: value('name') });
     else if (data.edit !== undefined) vscode.postMessage({ type: 'edit', path: data.edit });
     else if (data.editCancel !== undefined) vscode.postMessage({ type: 'edit-cancel' });
@@ -381,5 +480,10 @@ export const WORKSPACES_SCRIPT = `
     if (field !== 'copy-id' && field !== 'copy-base') return;
     vscode.postMessage({ type: 'draft', field, value: event.target.value });
     affordances();
+  });
+  document.addEventListener('change', (event) => {
+    const conflictPath = event.target.dataset?.configurationResolution;
+    if (!conflictPath) return;
+    vscode.postMessage({ type: 'configuration-resolution', path: conflictPath, resolution: event.target.value });
   });
 `;

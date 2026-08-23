@@ -7714,17 +7714,23 @@ async function workspaceCommand(positionals, options) {
       workspace: positionals[2] ?? optionString(options, 'workspace'),
       repositories: optionStrings(options, 'repository'),
       dryRun: optionBoolean(options, 'dry-run'),
-      acceptBundledConflicts: optionBoolean(options, 'accept-bundled-conflicts')
+      acceptBundledConflicts: optionBoolean(options, 'accept-bundled-conflicts'),
+      resolutions: optionMap(optionStrings(options, 'resolve'), '--resolve'),
+      confirmPlan: optionString(options, 'confirm-plan')
     });
     if (optionBoolean(options, 'json')) console.log(JSON.stringify(result, null, 2));
     else if (!result.results.length) console.log('No registered workspace repositories require configuration refresh.');
     else {
       console.log(`${result.dryRun ? 'Configuration refresh preview' : 'Configuration refresh'}: ${result.status}`);
+      if (result.planId) console.log(`  Plan: ${result.planId}`);
       for (const item of result.results) {
         const configuration = item.configurationChanged ? 'configuration updated' : 'configuration unchanged';
-        const state = item.stateChanged ? 'state mirror updated' : 'state mirror unchanged';
+        const state = item.stateChanged ? 'state projection updated' : 'state projection unchanged';
         console.log(`  ${item.repository}: ${item.status} · ${configuration} · ${state}`);
-        if (item.conflicts?.length) console.log(`    ${item.conflicts.length} repository customization conflict(s) retained and reported.`);
+        if (item.stateStatus) console.log(`    State branch: ${item.stateStatus}`);
+        for (const conflict of item.conflicts ?? []) {
+          console.log(`    Conflict: ${conflict.path} · ${conflict.resolution}`);
+        }
         if (item.proposalBranch) console.log(`    Review branch: ${item.proposalBranch}`);
         if (item.error) console.log(`    ${item.error}`);
       }

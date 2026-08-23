@@ -17,7 +17,7 @@ related:
   - getting-started
   - resets-and-cleanup
   - diagnostics-and-regression
-version: 3
+version: 4
 ---
 Use this workflow to install Singularity Flow, govern an existing checkout or remote repository, verify the product surfaces, and replace an installed build without changing governed application history.
 
@@ -44,17 +44,28 @@ against every unique repository registered by every non-archived workspace. Refr
 isolated clones, so dirty application checkouts and active Story branches are never switched or
 edited. It three-way merges packaged workflow policy and assets against the last examined package
 baseline, publishes the approved result to `sflow/config`, and mirrors the exact configuration,
-source commit, product revision, and per-file hashes under `configuration/` on the repository's
-orphan state branch. Existing Story configuration snapshots remain immutable; new Stories use the
-new authority revision.
+source commit, product revision, and per-file hashes to the repository's orphan state branch.
+Configuration remains at its canonical paths (`singularity/**` and `.github/agents/**`); only the
+projection manifest lives under `configuration/`. Refresh removes stale managed configuration and
+the older `configuration/files/**` layout, while preserving runtime state such as
+`singularity/world-model/**`. Existing Story configuration snapshots remain immutable; new Stories
+use the new authority revision.
 
 Use `workspace refresh-configuration --dry-run` to preview all repositories, or add a workspace
 reference and repeatable `--repository ID` filters for a bounded repair. Repository customizations
-changed in parallel with the package are retained and reported; `--accept-bundled-conflicts` is the
-explicit migration boundary that selects packaged values. A protected `sflow/config` push retains
+changed in parallel with the package are retained and reported. Use repeatable
+`--resolve PATH=local|bundled|merge` choices to decide individual conflicts. A UI preview can bind
+apply to the observed authorities with `--confirm-plan ID`; if either branch moved, apply refuses
+and requires a new preview. `--accept-bundled-conflicts` remains the broad migration boundary for
+explicitly selecting every packaged value. A protected `sflow/config` push retains
 the exact candidate on the reported `sflow/config-refresh/*` review branch. Merge that proposal and
 re-run the command to complete its state mirror. Reruns are idempotent and retry incomplete
 repositories while current repositories become no-ops.
+
+In VS Code, open **Workspaces**, choose a workspace, and use **SFlow configuration**. Check the
+selected workspace or every registered workspace, review each conflict in its dropdown, then apply
+the plan. The convenience action selects packaged templates, prompts, and agents only; it does not
+silently replace unrelated workflow policy.
 
 Use `--no-workspace-configuration-refresh` to skip this normal-install refresh. The legacy
 `--no-workspace-workflow-sync` spelling remains accepted. The separate

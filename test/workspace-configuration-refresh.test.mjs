@@ -124,6 +124,30 @@ test('three-way package merging updates untouched values and retains repository 
   assert.equal(conflict.conflicts[0].resolution, 'preserved-local');
 });
 
+test('first package baseline safely expands allowlists and supports one reviewed conflict choice', () => {
+  const local = {
+    ledger: { enabled: true },
+    phases: { implementation: { allowedAgents: ['developer'], allowedTools: ['git'] } }
+  };
+  const incoming = {
+    ledger: { enabled: false },
+    phases: { implementation: { allowedAgents: ['developer', 'qa'], allowedTools: ['git', 'tests'] } }
+  };
+  const preserved = mergePackagedConfiguration({}, local, incoming);
+  assert.deepEqual(preserved.value.phases.implementation.allowedAgents, ['developer', 'qa']);
+  assert.deepEqual(preserved.value.phases.implementation.allowedTools, ['git', 'tests']);
+  assert.equal(preserved.value.ledger.enabled, true);
+  assert.ok(preserved.conflicts.some((entry) => entry.path === 'workflow.ledger.enabled'
+    && entry.resolution === 'preserved-local'));
+
+  const selected = mergePackagedConfiguration({}, local, incoming, {
+    resolutions: { 'workflow.ledger.enabled': 'bundled' }
+  });
+  assert.equal(selected.value.ledger.enabled, false);
+  assert.ok(selected.conflicts.some((entry) => entry.path === 'workflow.ledger.enabled'
+    && entry.resolution === 'accepted-bundled'));
+});
+
 test('explicit workflow replacement also replaces its shared phase contract', async (t) => {
   const root = await mkdtemp(path.join(os.tmpdir(), 'sflow-workflow-replace-'));
   t.after(() => rm(root, { recursive: true, force: true }));
@@ -194,7 +218,34 @@ test('all-workspace refresh leaves a dirty clone untouched and mirrors approved 
   const dirtyBefore = git(repository, ['status', '--porcelain']);
   const headBefore = git(repository, ['rev-parse', 'HEAD']);
 
-  const result = await refreshWorkspaceConfigurations({ registryFile: registry });
+  // An older install mirrored configuration below configuration/files and also left one retired
+  // canonical policy file. Runtime world-model bytes share the state branch but are not part of the
+  // configuration projection and must survive the migration exactly.
+  const statePublisher = path.join(root, 'state-publisher');
+  run('git', ['init', '--initial-branch=state', statePublisher]);
+  git(statePublisher, ['config', 'user.name', 'Configuration Test']);
+  git(statePublisher, ['config', 'user.email', 'configuration@example.test']);
+  await mkdir(path.join(statePublisher, 'configuration/files/singularity'), { recursive: true });
+  await mkdir(path.join(statePublisher, 'singularity/world-model'), { recursive: true });
+  await writeFile(path.join(statePublisher, 'configuration/manifest.json'),
+    '{"format":"singularity-flow-configuration-mirror/v1"}\n');
+  await writeFile(path.join(statePublisher, 'configuration/files/singularity/workflow.yml'), 'legacy: true\n');
+  await writeFile(path.join(statePublisher, 'singularity/obsolete-policy.yml'), 'retired: true\n');
+  const worldModelBytes = Buffer.from('expensive world model: preserve exactly\n');
+  await writeFile(path.join(statePublisher, 'singularity/world-model/model.md'), worldModelBytes);
+  git(statePublisher, ['add', '-A']);
+  git(statePublisher, ['commit', '-m', 'Seed legacy state projection']);
+  git(statePublisher, ['remote', 'add', 'origin', remote]);
+  git(statePublisher, ['push', 'origin', 'HEAD:state']);
+
+  const preview = await refreshWorkspaceConfigurations({ registryFile: registry, dryRun: true });
+  assert.equal(preview.status, 'preview');
+  assert.match(preview.planId, /^cfgp-[a-f0-9]{24}$/);
+  assert.equal(preview.results[0].stateStatus, 'would-follow-configuration');
+
+  const result = await refreshWorkspaceConfigurations({
+    registryFile: registry, confirmPlan: preview.planId
+  });
   assert.equal(result.status, 'complete');
   assert.equal(result.results.length, 1);
   assert.equal(result.results[0].configurationChanged, true);
@@ -211,10 +262,37 @@ test('all-workspace refresh leaves a dirty clone untouched and mirrors approved 
     '--git-dir', remote, 'show', `state:${STATE_CONFIGURATION_MANIFEST}`
   ]).stdout;
   const mirror = JSON.parse(manifestText);
+  assert.equal(mirror.format, 'singularity-flow-configuration-mirror/v2');
+  assert.equal(mirror.layout, 'canonical-paths');
   assert.equal(mirror.source.commit, run('git', ['--git-dir', remote, 'rev-parse', 'sflow/config']).stdout.trim());
   const mirroredWorkflow = run('git', [
-    '--git-dir', remote, 'show', 'state:configuration/files/singularity/workflow.yml'
+    '--git-dir', remote, 'show', 'state:singularity/workflow.yml'
   ]).stdout;
   assert.equal(YAML.parse(mirroredWorkflow).phases.implementation.generation.task, 'code');
+  assert.equal(run('git', [
+    '--git-dir', remote, 'show', 'state:configuration/files/singularity/workflow.yml'
+  ], { allowFailure: true }).status, 128);
+  assert.equal(run('git', [
+    '--git-dir', remote, 'show', 'state:singularity/obsolete-policy.yml'
+  ], { allowFailure: true }).status, 128);
+  assert.deepEqual(run('git', [
+    '--git-dir', remote, 'show', 'state:singularity/world-model/model.md'
+  ], { encoding: 'buffer' }).stdout, worldModelBytes);
 
+  const current = await refreshWorkspaceConfigurations({ registryFile: registry, dryRun: true });
+  assert.equal(current.results[0].status, 'current');
+  assert.equal(current.results[0].configurationChanged, false);
+  assert.equal(current.results[0].stateChanged, false);
+
+  // A preview-bound UI apply may also be the first operation to establish sflow/config. Its plan
+  // must be checked before initialization, then remain valid across that intentional branch create.
+  run('git', ['--git-dir', remote, 'update-ref', '-d', 'refs/heads/sflow/config']);
+  const initializePreview = await refreshWorkspaceConfigurations({ registryFile: registry, dryRun: true });
+  assert.equal(initializePreview.results[0].status, 'would-initialize');
+  const initialized = await refreshWorkspaceConfigurations({
+    registryFile: registry, confirmPlan: initializePreview.planId
+  });
+  assert.equal(initialized.status, 'complete');
+  assert.match(run('git', ['--git-dir', remote, 'rev-parse', 'refs/heads/sflow/config']).stdout.trim(),
+    /^[a-f0-9]{40}$/);
 });

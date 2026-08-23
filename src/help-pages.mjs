@@ -661,7 +661,9 @@ const PAGES = Object.freeze({
       '`workspace refresh-configuration` discovers every unique repository in registered',
       'non-archived workspaces. It prepares package updates in isolated clones, three-way merges',
       'against the recorded package baseline, publishes `sflow/config`, and then mirrors the exact',
-      'approved files and hashes to the orphan state branch. Existing Story snapshots never move.'
+      'approved files at their canonical paths on the orphan state branch. The manifest records the',
+      'source commit, product revision, and hashes. Runtime state such as world models is preserved,',
+      'and existing Story snapshots never move.'
     ],
     options: [
       ['--id ID', 'Portable local workspace identifier used by prepare.'],
@@ -673,6 +675,8 @@ const PAGES = Object.freeze({
       ['--confirm-dirty SHA256', 'Content-bound acknowledgement required to retain a dirty adopted clone.'],
       ['--dry-run', 'Preview configuration refresh for every selected repository without changing a ref.'],
       ['--repository ID', 'For configuration refresh, limit work to this repeatable repository ID.'],
+      ['--resolve PATH=CHOICE', 'Resolve one reported conflict as local, bundled, or merge; repeat for additional paths.'],
+      ['--confirm-plan ID', 'Apply only if configuration and state authorities still match a previously previewed plan.'],
       ['--accept-bundled-conflicts', 'Explicitly select packaged values where both package and repository changed the same field or asset.'],
       ['--json', 'Emit the structured session, preflight, findings, and recovery command.']
     ],
@@ -684,6 +688,7 @@ const PAGES = Object.freeze({
       ['singularity-flow workspace adopt ~/src/payments --id payments --dry-run', 'Inspect an existing clone and preview the preserving workspace shell.'],
       ['singularity-flow workspace doctor --network', 'Diagnose machine state and unfinished-session remotes without changing them.'],
       ['singularity-flow workspace refresh-configuration --dry-run', 'Preview package/configuration drift across every registered repository.'],
+      ['singularity-flow workspace refresh-configuration payments --resolve singularity/templates/feature/spec.md=bundled --confirm-plan cfgp-…', 'Apply reviewed choices only while the preview remains current.'],
       ['singularity-flow workspace refresh-configuration payments', 'Refresh one registered workspace and verify each state mirror.']
     ],
     seeAlso: ['capability', 'session', 'bootstrap']

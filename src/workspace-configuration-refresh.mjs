@@ -5,7 +5,9 @@ import path from 'node:path';
 import YAML from 'yaml';
 
 import { BUILD_INFO } from './build-info.mjs';
-import { configurationAssetPaths, CONFIGURATION_BRANCH, ensureConfigurationBranch } from './configuration-branch.mjs';
+import {
+  configurationAssetPaths, CONFIGURATION_BRANCH, ensureConfigurationBranch, isConfigurationAsset
+} from './configuration-branch.mjs';
 import { validateDefinition, WORKFLOW_PATH } from './config.mjs';
 import { identity } from './git.mjs';
 import { publishToStateBranch } from './ledger.mjs';
@@ -19,7 +21,7 @@ export const PACKAGE_BASELINE_PATH = 'singularity/.product/configuration-baselin
 export const STATE_CONFIGURATION_ROOT = 'configuration';
 export const STATE_CONFIGURATION_MANIFEST = `${STATE_CONFIGURATION_ROOT}/manifest.json`;
 const BASELINE_FORMAT = 'singularity-flow-configuration-baseline/v1';
-const MIRROR_FORMAT = 'singularity-flow-configuration-mirror/v1';
+const MIRROR_FORMAT = 'singularity-flow-configuration-mirror/v2';
 
 const FIXED_PACKAGE_ASSETS = Object.freeze([
   ['agent-mappings.yml', 'singularity/agent-mappings.yml'],
@@ -62,13 +64,21 @@ function displayPath(parts) {
  *
  * The package baseline is the version last examined by a refresh. A repository value that still
  * equals that baseline can move automatically; a value changed by both the repository and the new
- * package is retained and reported. With no baseline, recursive additions are safe but differing
- * scalar/array values are treated as customizations rather than guessed at.
+ * package is retained and reported. With no baseline, recursive additions and compatible closed
+ * string-list expansions are safe; other differing values remain explicit customizations.
  */
 export function mergePackagedConfiguration(base, local, incoming, {
-  acceptBundledConflicts = false
+  acceptBundledConflicts = false,
+  resolutions = {}
 } = {}) {
   const conflicts = [];
+  const resolutionFor = (parts) => resolutions[displayPath(parts)]
+    ?? (acceptBundledConflicts ? 'bundled' : 'local');
+
+  const primitiveStringArray = (value) => Array.isArray(value)
+    && value.every((entry) => typeof entry === 'string');
+
+  const additiveArray = (left, right) => [...new Set([...left, ...right])];
 
   const conflict = (parts, localValue, bundledValue, resolution) => {
     conflicts.push({
@@ -86,16 +96,27 @@ export function mergePackagedConfiguration(base, local, incoming, {
     if (!incomingPresent) {
       if (!basePresent || !localPresent) return { present: localPresent, value: clone(localValue) };
       if (equal(localValue, baseValue)) return { present: false, value: undefined };
-      conflict(parts, localValue, undefined, 'preserved-local');
-      return { present: true, value: clone(localValue) };
+      const resolution = resolutionFor(parts);
+      if (resolution === 'merge') {
+        throw new SingularityFlowError(`Configuration conflict '${displayPath(parts)}' cannot be merged; choose local or bundled.`);
+      }
+      conflict(parts, localValue, undefined,
+        resolution === 'bundled' ? 'accepted-bundled-deletion' : 'preserved-local');
+      return resolution === 'bundled'
+        ? { present: false, value: undefined }
+        : { present: true, value: clone(localValue) };
     }
 
     if (!localPresent) {
       if (!basePresent) return { present: true, value: clone(incomingValue) };
       if (equal(incomingValue, baseValue)) return { present: false, value: undefined };
+      const resolution = resolutionFor(parts);
+      if (resolution === 'merge') {
+        throw new SingularityFlowError(`Configuration conflict '${displayPath(parts)}' cannot be merged; choose local or bundled.`);
+      }
       conflict(parts, undefined, incomingValue,
-        acceptBundledConflicts ? 'accepted-bundled' : 'preserved-local-deletion');
-      return acceptBundledConflicts
+        resolution === 'bundled' ? 'accepted-bundled' : 'preserved-local-deletion');
+      return resolution === 'bundled'
         ? { present: true, value: clone(incomingValue) }
         : { present: false, value: undefined };
     }
@@ -105,9 +126,28 @@ export function mergePackagedConfiguration(base, local, incoming, {
       if (plainObject(localValue) && plainObject(incomingValue)) {
         return { present: true, value: mergeObject({}, localValue, incomingValue, parts) };
       }
+      // First-upgrade repositories have no package baseline. A common safe case is a package
+      // expanding a closed string allowlist (agents, phases, tools). Retain every local addition and
+      // add every packaged requirement; this avoids producing a cross-field-invalid intermediate
+      // workflow merely because the previous package revision did not record its baseline.
+      if (primitiveStringArray(localValue) && primitiveStringArray(incomingValue)
+        && (localValue.every((entry) => incomingValue.includes(entry))
+          || incomingValue.every((entry) => localValue.includes(entry)))) {
+        return { present: true, value: additiveArray(localValue, incomingValue) };
+      }
+      const resolution = resolutionFor(parts);
+      if (resolution === 'merge'
+        && !(primitiveStringArray(localValue) && primitiveStringArray(incomingValue))) {
+        throw new SingularityFlowError(`Configuration conflict '${displayPath(parts)}' cannot be merged; choose local or bundled.`);
+      }
+      const selected = resolution === 'bundled' ? incomingValue
+        : resolution === 'merge' && primitiveStringArray(localValue) && primitiveStringArray(incomingValue)
+          ? additiveArray(localValue, incomingValue)
+          : localValue;
       conflict(parts, localValue, incomingValue,
-        acceptBundledConflicts ? 'accepted-bundled' : 'preserved-local');
-      return { present: true, value: clone(acceptBundledConflicts ? incomingValue : localValue) };
+        resolution === 'bundled' ? 'accepted-bundled'
+          : resolution === 'merge' ? 'merged-additively' : 'preserved-local');
+      return { present: true, value: clone(selected) };
     }
 
     if (equal(localValue, baseValue)) return { present: true, value: clone(incomingValue) };
@@ -117,9 +157,19 @@ export function mergePackagedConfiguration(base, local, incoming, {
     if (plainObject(baseValue) && plainObject(localValue) && plainObject(incomingValue)) {
       return { present: true, value: mergeObject(baseValue, localValue, incomingValue, parts) };
     }
+    const resolution = resolutionFor(parts);
+    if (resolution === 'merge'
+      && !(primitiveStringArray(localValue) && primitiveStringArray(incomingValue))) {
+      throw new SingularityFlowError(`Configuration conflict '${displayPath(parts)}' cannot be merged; choose local or bundled.`);
+    }
+    const selected = resolution === 'bundled' ? incomingValue
+      : resolution === 'merge' && primitiveStringArray(localValue) && primitiveStringArray(incomingValue)
+        ? additiveArray(localValue, incomingValue)
+        : localValue;
     conflict(parts, localValue, incomingValue,
-      acceptBundledConflicts ? 'accepted-bundled' : 'preserved-local');
-    return { present: true, value: clone(acceptBundledConflicts ? incomingValue : localValue) };
+      resolution === 'bundled' ? 'accepted-bundled'
+        : resolution === 'merge' ? 'merged-additively' : 'preserved-local');
+    return { present: true, value: clone(selected) };
   };
 
   const mergeObject = (baseObject, localObject, incomingObject, parts) => {
@@ -187,6 +237,23 @@ function safeRelative(value) {
   return relative;
 }
 
+export function normalizeRefreshResolutions(value = {}) {
+  if (!plainObject(value)) throw new SingularityFlowError('Configuration conflict resolutions must be an object.');
+  const output = {};
+  for (const [rawPath, rawResolution] of Object.entries(value)) {
+    const conflictPath = String(rawPath).trim();
+    const resolution = String(rawResolution).trim();
+    if (!conflictPath || (!conflictPath.startsWith('workflow.') && !isConfigurationAsset(conflictPath))) {
+      throw new SingularityFlowError(`Configuration conflict path is not managed: ${rawPath}`);
+    }
+    if (!['local', 'bundled', 'merge'].includes(resolution)) {
+      throw new SingularityFlowError(`Configuration conflict '${conflictPath}' must resolve to local, bundled, or merge.`);
+    }
+    output[conflictPath] = resolution;
+  }
+  return output;
+}
+
 async function assertSafeTarget(root, relative) {
   const parts = safeRelative(relative).split('/');
   let current = root;
@@ -219,7 +286,8 @@ async function readBaseline(root) {
 /** Refresh one isolated checkout from the package while retaining proven repository customizations. */
 export async function refreshPackagedConfiguration(root, {
   dryRun = false,
-  acceptBundledConflicts = false
+  acceptBundledConflicts = false,
+  resolutions = {}
 } = {}) {
   const workflowFile = path.join(root, WORKFLOW_PATH);
   const [currentText, incomingText, baseline] = await Promise.all([
@@ -239,7 +307,8 @@ export async function refreshPackagedConfiguration(root, {
   validateDefinition(structuredClone(incoming));
 
   const merged = mergePackagedConfiguration(baseline?.workflow ?? {}, current, incoming, {
-    acceptBundledConflicts
+    acceptBundledConflicts,
+    resolutions
   });
   validateDefinition(structuredClone(merged.value));
 
@@ -266,7 +335,11 @@ export async function refreshPackagedConfiguration(root, {
     const priorHash = priorAssets[relative]?.sha256 ?? null;
     const safeToWrite = !info || currentHash === bundledHash || (priorHash && currentHash === priorHash);
     if (currentHash === bundledHash) continue;
-    if (!safeToWrite && !acceptBundledConflicts) {
+    const resolution = resolutions[relative] ?? (acceptBundledConflicts ? 'bundled' : 'local');
+    if (resolution === 'merge') {
+      throw new SingularityFlowError(`Configuration asset conflict '${relative}' cannot be merged; choose local or bundled.`);
+    }
+    if (!safeToWrite && resolution !== 'bundled') {
       conflicts.push({
         path: relative,
         localSha256: currentHash,
@@ -301,7 +374,11 @@ export async function refreshPackagedConfiguration(root, {
       throw new SingularityFlowError(`Retired packaged configuration asset must be a regular file: ${relative}`);
     }
     const currentHash = sha256(await readFile(target));
-    if (currentHash !== prior.sha256 && !acceptBundledConflicts) {
+    const resolution = resolutions[relative] ?? (acceptBundledConflicts ? 'bundled' : 'local');
+    if (resolution === 'merge') {
+      throw new SingularityFlowError(`Configuration asset conflict '${relative}' cannot be merged; choose local or bundled.`);
+    }
+    if (currentHash !== prior.sha256 && resolution !== 'bundled') {
       conflicts.push({ path: relative, localSha256: currentHash, bundledSha256: null, resolution: 'preserved-local' });
       continue;
     }
@@ -364,6 +441,117 @@ async function cloneConfiguration(remote) {
   return scratch;
 }
 
+function stateConfiguration(approved) {
+  return {
+    ...(approved.ledger ?? {}),
+    enabled: true,
+    remote: 'origin',
+    branch: approved.ledger?.branch ?? 'state'
+  };
+}
+
+function stateTree(root, ref) {
+  const listed = run('git', [
+    'ls-tree', '-r', '-z', '--format=%(objectname) %(path)', ref, '--',
+    'configuration', 'singularity', '.github/agents'
+  ], { cwd: root });
+  const entries = listed.stdout.split('\0').filter(Boolean).map((line) => {
+    const separator = line.indexOf(' ');
+    return { oid: line.slice(0, separator), file: line.slice(separator + 1) };
+  });
+  if (!entries.length) return new Map();
+  const batch = run('git', ['cat-file', '--batch'], {
+    cwd: root, encoding: 'buffer', input: `${entries.map((entry) => entry.oid).join('\n')}\n`
+  });
+  const output = new Map();
+  let cursor = 0;
+  for (const entry of entries) {
+    const newline = batch.stdout.indexOf(0x0a, cursor);
+    if (newline < 0) throw new SingularityFlowError(`State configuration object '${entry.file}' was truncated.`);
+    const header = batch.stdout.toString('utf8', cursor, newline).trim().split(' ');
+    const size = Number(header[2]);
+    if (header[0] !== entry.oid || header[1] !== 'blob' || !Number.isSafeInteger(size) || size < 0) {
+      throw new SingularityFlowError(`State configuration path '${entry.file}' is not a readable file.`);
+    }
+    const start = newline + 1;
+    const end = start + size;
+    if (end > batch.stdout.length) {
+      throw new SingularityFlowError(`State configuration object '${entry.file}' was truncated.`);
+    }
+    output.set(entry.file, batch.stdout.subarray(start, end));
+    cursor = end + 1;
+  }
+  return output;
+}
+
+function fetchStateRef(root, config) {
+  const remoteRef = `refs/remotes/${config.remote}/${config.branch}`;
+  const fetched = run('git', [
+    'fetch', '--no-tags', config.remote,
+    `+refs/heads/${config.branch}:${remoteRef}`
+  ], { cwd: root, allowFailure: true });
+  if (fetched.status !== 0) return null;
+  return run('git', ['rev-parse', remoteRef], { cwd: root }).stdout.trim();
+}
+
+async function desiredStateProjection(root) {
+  const paths = await configurationAssetPaths(root);
+  const files = {};
+  const hashes = {};
+  for (const relative of paths) {
+    const contents = await readFile(path.join(root, relative));
+    files[relative] = contents;
+    hashes[relative] = sha256(contents);
+  }
+  const approved = YAML.parse(await readFile(path.join(root, WORKFLOW_PATH), 'utf8'));
+  return {
+    paths,
+    files,
+    hashes: Object.fromEntries(Object.entries(hashes).sort(([left], [right]) => left.localeCompare(right))),
+    approved,
+    stateConfig: stateConfiguration(approved)
+  };
+}
+
+function observeStateProjection(root, desired, sourceCommit, product) {
+  const stateCommit = fetchStateRef(root, desired.stateConfig);
+  if (!stateCommit) {
+    return {
+      status: 'missing', stateCommit: null, changed: true,
+      missingPaths: desired.paths, changedPaths: [], extraPaths: [], legacyPaths: [], manifest: null
+    };
+  }
+  const tree = stateTree(root, stateCommit);
+  const paths = [...tree.keys()].sort();
+  const canonical = paths.filter(isConfigurationAsset);
+  const desiredSet = new Set(desired.paths);
+  const missingPaths = desired.paths.filter((relative) => !canonical.includes(relative));
+  const changedPaths = desired.paths.filter((relative) => {
+    const bytes = tree.get(relative);
+    return bytes != null && sha256(bytes) !== desired.hashes[relative];
+  });
+  const extraPaths = canonical.filter((relative) => !desiredSet.has(relative));
+  const legacyPaths = paths.filter((relative) => relative.startsWith(`${STATE_CONFIGURATION_ROOT}/files/`));
+  let manifest = null;
+  const manifestBytes = tree.get(STATE_CONFIGURATION_MANIFEST);
+  if (manifestBytes) {
+    try { manifest = JSON.parse(manifestBytes.toString('utf8')); }
+    catch { manifest = null; }
+  }
+  const manifestCurrent = manifest?.format === MIRROR_FORMAT
+    && manifest?.layout === 'canonical-paths'
+    && manifest?.source?.branch === CONFIGURATION_BRANCH
+    && manifest?.source?.commit === sourceCommit
+    && manifest?.product?.revision === product.revision
+    && equal(manifest?.files ?? {}, desired.hashes);
+  const changed = !manifestCurrent || missingPaths.length > 0 || changedPaths.length > 0
+    || extraPaths.length > 0 || legacyPaths.length > 0;
+  return {
+    status: changed ? 'stale' : 'current', stateCommit, changed,
+    missingPaths, changedPaths, extraPaths, legacyPaths, manifest
+  };
+}
+
 function workspaceMatches(entry, reference) {
   if (!reference) return true;
   const raw = String(reference).trim();
@@ -413,11 +601,26 @@ async function prepareCandidate(repository, options) {
   try {
     const sourceCommit = run('git', ['rev-parse', 'HEAD'], { cwd: root }).stdout.trim();
     const refresh = await refreshPackagedConfiguration(root, options);
-    return { repository, root, sourceCommit, refresh };
+    const desired = await desiredStateProjection(root);
+    const stateBefore = observeStateProjection(root, desired, sourceCommit, refresh.product);
+    return { repository, root, sourceCommit, refresh, desired, stateBefore };
   } catch (error) {
     await rm(root, { recursive: true, force: true });
     throw error;
   }
+}
+
+function refreshPlanId(candidates, resolutions) {
+  const identity = {
+    repositories: candidates.map((candidate) => ({
+      remote: candidate.repository.displayRemote,
+      configurationCommit: candidate.sourceCommit,
+      stateCommit: candidate.stateBefore.stateCommit,
+      productRevision: candidate.refresh.product.revision
+    })).sort((left, right) => left.remote.localeCompare(right.remote)),
+    resolutions: canonical(resolutions)
+  };
+  return `cfgp-${sha256(JSON.stringify(identity)).slice(0, 24)}`;
 }
 
 function proposalBranch(candidateCommit, sourceCommit, product) {
@@ -426,7 +629,7 @@ function proposalBranch(candidateCommit, sourceCommit, product) {
 }
 
 async function publishCandidate(candidate) {
-  const { root, repository, refresh, sourceCommit } = candidate;
+  const { root, repository, refresh, sourceCommit, desired } = candidate;
   let approvedCommit = sourceCommit;
   let configurationChanged = false;
   if (refresh.changed) {
@@ -473,37 +676,29 @@ async function publishCandidate(candidate) {
     }
   }
 
-  const paths = await configurationAssetPaths(root);
-  const mirrored = {};
-  const hashes = {};
-  for (const relative of paths) {
-    const contents = await readFile(path.join(root, relative));
-    mirrored[`${STATE_CONFIGURATION_ROOT}/files/${relative}`] = contents;
-    hashes[relative] = sha256(contents);
-  }
+  const projection = configurationChanged ? await desiredStateProjection(root) : desired;
+  const stateBefore = observeStateProjection(root, projection, approvedCommit, refresh.product);
+  const mirrored = { ...projection.files };
   const manifest = {
     format: MIRROR_FORMAT,
+    layout: 'canonical-paths',
     source: { branch: CONFIGURATION_BRANCH, commit: approvedCommit },
     product: refresh.product,
-    files: Object.fromEntries(Object.entries(hashes).sort(([left], [right]) => left.localeCompare(right)))
+    files: projection.hashes
   };
   mirrored[STATE_CONFIGURATION_MANIFEST] = `${JSON.stringify(manifest, null, 2)}\n`;
-  const approved = YAML.parse(await readFile(path.join(root, WORKFLOW_PATH), 'utf8'));
-  const stateConfig = {
-    ...(approved.ledger ?? {}),
-    enabled: true,
-    remote: 'origin',
-    branch: approved.ledger?.branch ?? 'state'
-  };
   const state = await publishToStateBranch(
     root,
-    stateConfig,
+    projection.stateConfig,
     mirrored,
     `[configuration][source:${approvedCommit.slice(0, 12)}] mirror approved configuration`,
-    { replaceRoots: [STATE_CONFIGURATION_ROOT] }
+    {
+      replaceRoots: [STATE_CONFIGURATION_ROOT],
+      removePaths: stateBefore.extraPaths
+    }
   );
   const stateRef = state.commit
-    ?? run('git', ['rev-parse', `refs/remotes/origin/${stateConfig.branch}`], { cwd: root }).stdout.trim();
+    ?? run('git', ['rev-parse', `refs/remotes/origin/${projection.stateConfig.branch}`], { cwd: root }).stdout.trim();
   const verified = run('git', ['show', `${stateRef}:${STATE_CONFIGURATION_MANIFEST}`], { cwd: root });
   let verifiedManifest;
   try { verifiedManifest = JSON.parse(verified.stdout); }
@@ -511,8 +706,13 @@ async function publishCandidate(candidate) {
   if (verifiedManifest?.source?.commit !== approvedCommit) {
     throw new SingularityFlowError(`State configuration mirror for '${repository.displayRemote}' does not pin the approved configuration commit.`);
   }
+  const stateAfter = observeStateProjection(root, projection, approvedCommit, refresh.product);
+  if (stateAfter.status !== 'current') {
+    throw new SingularityFlowError(`State configuration projection for '${repository.displayRemote}' did not verify after publication.`);
+  }
+  const changed = configurationChanged || state.changed;
   return {
-    status: 'updated',
+    status: changed ? 'updated' : 'current',
     repository: repository.id,
     remote: repository.displayRemote,
     memberships: repository.memberships,
@@ -521,6 +721,8 @@ async function publishCandidate(candidate) {
     stateCommit: stateRef,
     configurationChanged,
     stateChanged: state.changed,
+    stateStatus: stateAfter.status,
+    removedStatePaths: state.removed,
     files: refresh.files,
     conflicts: refresh.conflicts
   };
@@ -538,9 +740,12 @@ export async function refreshWorkspaceConfigurations({
   workspace = null,
   repositories = [],
   dryRun = false,
-  acceptBundledConflicts = false
+  acceptBundledConflicts = false,
+  resolutions = {},
+  confirmPlan = null
 } = {}) {
   if (!registryFile) throw new SingularityFlowError('Workspace configuration refresh requires the workspace registry path.');
+  const normalizedResolutions = normalizeRefreshResolutions(resolutions);
   const targets = await registeredRepositories(registryFile, { workspace, repositories });
   const observations = [];
   for (const repository of targets) {
@@ -567,8 +772,13 @@ export async function refreshWorkspaceConfigurations({
 
   if (dryRun) {
     const results = [];
+    const planCandidates = [];
     for (const observation of observations) {
       if (!observation.commit) {
+        planCandidates.push({
+          repository: observation.repository, sourceCommit: null,
+          stateBefore: { stateCommit: null }, refresh: { product: productIdentity() }
+        });
         results.push({
           status: 'would-initialize', repository: observation.repository.id,
           remote: observation.repository.displayRemote, memberships: observation.repository.memberships,
@@ -577,16 +787,23 @@ export async function refreshWorkspaceConfigurations({
         continue;
       }
       const candidate = await prepareCandidate(observation.repository, {
-        dryRun: true, acceptBundledConflicts
+        dryRun: false, acceptBundledConflicts, resolutions: normalizedResolutions
       });
+      planCandidates.push(candidate);
       try {
+        const stateChanged = candidate.refresh.changed || candidate.stateBefore.changed;
         results.push({
-          status: candidate.refresh.changed ? 'would-update' : 'current',
+          status: candidate.refresh.changed || stateChanged ? 'would-update' : 'current',
           repository: observation.repository.id,
           remote: observation.repository.displayRemote,
           memberships: observation.repository.memberships,
           configurationChanged: candidate.refresh.changed,
-          stateChanged: true,
+          stateChanged,
+          stateStatus: candidate.refresh.changed ? 'would-follow-configuration' : candidate.stateBefore.status,
+          stateCommit: candidate.stateBefore.stateCommit,
+          missingStatePaths: candidate.stateBefore.missingPaths,
+          changedStatePaths: candidate.stateBefore.changedPaths,
+          extraStatePaths: candidate.stateBefore.extraPaths,
           files: candidate.refresh.files,
           conflicts: candidate.refresh.conflicts
         });
@@ -594,11 +811,71 @@ export async function refreshWorkspaceConfigurations({
         await rm(candidate.root, { recursive: true, force: true });
       }
     }
-    return { status: 'preview', dryRun: true, total: targets.length, updated: 0, results };
+    return {
+      status: 'preview', dryRun: true, planId: refreshPlanId(planCandidates, normalizedResolutions),
+      total: targets.length, updated: 0, results
+    };
   }
 
-  // New workspace repositories receive the same authority as a normal bootstrap before candidate
-  // preparation. Existing authorities remain untouched during this step.
+  // A UI apply is bound to the preview even when one repository has not created its configuration
+  // authority yet. Existing repositories can be prepared without mutation, while missing ones use
+  // the same sentinel identity emitted by dry-run. Validate that combined plan before initialization
+  // so a stale page cannot create a branch and only then discover that its confirmation was stale.
+  let candidates = [];
+  let previewBoundPlanId = null;
+  if (confirmPlan && observations.some((item) => !item.commit)) {
+    const confirmationCandidates = [];
+    const confirmationFailures = [];
+    for (const observation of observations) {
+      if (!observation.commit) {
+        confirmationCandidates.push({
+          repository: observation.repository, sourceCommit: null,
+          stateBefore: { stateCommit: null }, refresh: { product: productIdentity() }
+        });
+        continue;
+      }
+      try {
+        const candidate = await prepareCandidate(observation.repository, {
+          acceptBundledConflicts, resolutions: normalizedResolutions
+        });
+        candidates.push(candidate);
+        confirmationCandidates.push(candidate);
+      } catch (error) {
+        confirmationFailures.push({ observation, error });
+      }
+    }
+    if (confirmationFailures.length) {
+      await Promise.all(candidates.map((candidate) => rm(candidate.root, { recursive: true, force: true })));
+      return {
+        status: 'blocked', dryRun: false, total: targets.length, updated: 0,
+        results: observations.map((item) => {
+          const failed = confirmationFailures.find((entry) => entry.observation === item);
+          return {
+            status: failed ? 'failed' : 'preflight-passed', repository: item.repository.id,
+            remote: item.repository.displayRemote, memberships: item.repository.memberships,
+            error: failed?.error?.message ?? null
+          };
+        })
+      };
+    }
+    previewBoundPlanId = refreshPlanId(confirmationCandidates, normalizedResolutions);
+    if (previewBoundPlanId !== confirmPlan) {
+      await Promise.all(candidates.map((candidate) => rm(candidate.root, { recursive: true, force: true })));
+      return {
+        status: 'blocked', dryRun: false, planId: previewBoundPlanId,
+        total: targets.length, updated: 0, failed: 0,
+        results: observations.map((item) => ({
+          status: 'stale-plan', repository: item.repository.id,
+          remote: item.repository.displayRemote, memberships: item.repository.memberships,
+          configurationChanged: false, stateChanged: false,
+          error: 'Configuration or state authority changed after preview. Refresh the plan before applying it.'
+        }))
+      };
+    }
+  }
+
+  // New workspace repositories receive the same authority as a normal bootstrap after any bound
+  // preview has been validated. Existing authorities remain untouched during this step.
   const initializationFailures = [];
   for (const observation of observations.filter((item) => !item.commit)) {
     try {
@@ -610,6 +887,7 @@ export async function refreshWorkspaceConfigurations({
     }
   }
   if (initializationFailures.length) {
+    await Promise.all(candidates.map((candidate) => rm(candidate.root, { recursive: true, force: true })));
     return {
       status: 'blocked', dryRun: false, total: targets.length, updated: 0,
       results: observations.map((item) => {
@@ -623,11 +901,13 @@ export async function refreshWorkspaceConfigurations({
     };
   }
 
-  const candidates = [];
   const preparationFailures = [];
   for (const observation of observations) {
+    if (previewBoundPlanId && observation.commit) continue;
     try {
-      candidates.push(await prepareCandidate(observation.repository, { acceptBundledConflicts }));
+      candidates.push(await prepareCandidate(observation.repository, {
+        acceptBundledConflicts, resolutions: normalizedResolutions
+      }));
     } catch (error) {
       preparationFailures.push({ observation, error });
     }
@@ -644,6 +924,20 @@ export async function refreshWorkspaceConfigurations({
           error: failed?.error?.message ?? null
         };
       })
+    };
+  }
+
+  const planId = previewBoundPlanId ?? refreshPlanId(candidates, normalizedResolutions);
+  if (!previewBoundPlanId && confirmPlan && confirmPlan !== planId) {
+    await Promise.all(candidates.map((candidate) => rm(candidate.root, { recursive: true, force: true })));
+    return {
+      status: 'blocked', dryRun: false, planId, total: targets.length, updated: 0, failed: 0,
+      results: candidates.map((candidate) => ({
+        status: 'stale-plan', repository: candidate.repository.id,
+        remote: candidate.repository.displayRemote, memberships: candidate.repository.memberships,
+        configurationChanged: false, stateChanged: false,
+        error: 'Configuration or state authority changed after preview. Refresh the plan before applying it.'
+      }))
     };
   }
 
@@ -665,7 +959,7 @@ export async function refreshWorkspaceConfigurations({
   const failed = results.filter((result) => ['failed', 'review-required'].includes(result.status));
   return {
     status: failed.length ? 'partial' : 'complete',
-    dryRun: false,
+    dryRun: false, planId,
     total: targets.length,
     updated: results.filter((result) => result.status === 'updated').length,
     failed: failed.length,

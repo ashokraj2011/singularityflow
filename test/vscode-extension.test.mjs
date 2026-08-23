@@ -64,6 +64,8 @@ test('VS Code classifies configuration publication as a mutation', () => {
   assert.equal(commandClass(['configuration', 'save', 'singularity/workflow.yml']), 'mutation');
   assert.equal(commandClass(['configuration', 'publish', '--json']), 'mutation');
   assert.equal(commandClass(['configuration', 'portfolio-bootstrap']), 'mutation');
+  assert.equal(commandClass(['workspace', 'refresh-configuration', '/work/a', '--dry-run']), 'read');
+  assert.equal(commandClass(['workspace', 'refresh-configuration', '/work/a', '--confirm-plan', 'cfgp-1']), 'mutation');
 });
 
 test('VS Code command audit classification follows mixed read and mutation subcommands', () => {
@@ -156,6 +158,22 @@ test('a non-zero exit rejects with the CLI message, stripped of its prefix', asy
       assert.ok(error instanceof CliError);
       assert.equal(error.message, "Phase 'define' is not ready.");
       assert.equal(error.exitCode, 1);
+      return true;
+    }
+  );
+});
+
+test('a structured non-zero result remains available without turning JSON into the error message', async () => {
+  await assert.rejects(
+    invoke({ spawnImpl: fakeSpawn({
+      stdout: '{"status":"partial","results":[{"repository":"api","status":"review-required"}]}',
+      code: 2
+    }) }),
+    (error) => {
+      assert.ok(error instanceof CliError);
+      assert.equal(error.message, 'The Singularity Flow command reported partial.');
+      assert.equal(error.result.status, 'partial');
+      assert.equal(error.result.results[0].repository, 'api');
       return true;
     }
   );
@@ -319,6 +337,7 @@ test('large remote operations and lifecycle submissions get operation-appropriat
     await client.run(['wm', 'build']).catch(() => {});
     await client.run(['capability', 'map', 'payments']).catch(() => {});
     await client.run(['capability', 'activate', 'proposal']).catch(() => {});
+    await client.run(['workspace', 'refresh-configuration', '--dry-run']).catch(() => {});
     await client.run(['submit', '--phase', 'poc-validation']).catch(() => {});
     await client.run(['initiative', 'status']).catch(() => {});
   } finally {
@@ -326,9 +345,10 @@ test('large remote operations and lifecycle submissions get operation-appropriat
   }
   assert.equal(timeouts[0], 15 * 60_000);
   assert.equal(timeouts[1], 15 * 60_000);
-  assert.equal(timeouts[2], 15 * 60_000);
-  assert.equal(timeouts[3], 30 * 60_000);
-  assert.equal(timeouts[4], 120_000);
+    assert.equal(timeouts[2], 15 * 60_000);
+    assert.equal(timeouts[3], 15 * 60_000);
+    assert.equal(timeouts[4], 30 * 60_000);
+    assert.equal(timeouts[5], 120_000);
 });
 
 test('phases are read in declared order with the state each is in', () => {
@@ -2763,7 +2783,7 @@ test('a refused start is reported on the form that caused it', () => {
 });
 
 const {
-  archiveCommand, duplicateCommand, duplicateDirectory, duplicateProblems,
+  archiveCommand, configurationRefreshCommand, duplicateCommand, duplicateDirectory, duplicateProblems,
   renameCommand, restoreCommand, updateCommand, workspaceRows
 } =
   await import(source('views/workspaces-model.ts'));
@@ -2839,6 +2859,65 @@ test('the copy and rename commands are what the engine expects', () => {
     ['workspace', 'update', '/work/commerce', '--name', 'Commerce platform',
       '--capability', 'checkout', '--capability', 'payments',
       '--confirm', 'commerce', '--json']);
+});
+
+test('configuration refresh commands bind apply to the preview and carry only reviewed choices', () => {
+  const [commerce] = workspaceRows(REGISTRY);
+  assert.deepEqual(configurationRefreshCommand(commerce, {
+    dryRun: true, resolutions: { 'workflow.ledger.enabled': 'local' }
+  }), [
+    'workspace', 'refresh-configuration', '/work/commerce', '--dry-run',
+    '--resolve', 'workflow.ledger.enabled=local', '--json'
+  ]);
+  assert.deepEqual(configurationRefreshCommand(null, {
+    dryRun: false,
+    planId: 'cfgp-123',
+    resolutions: {
+      'workflow.ledger.enabled': 'local',
+      '.github/agents/developer.agent.md': 'bundled'
+    }
+  }), [
+    'workspace', 'refresh-configuration', '--confirm-plan', 'cfgp-123',
+    '--resolve', '.github/agents/developer.agent.md=bundled',
+    '--resolve', 'workflow.ledger.enabled=local', '--json'
+  ]);
+});
+
+test('workspace configuration refresh renders per-path dropdowns and a plan-bound apply', () => {
+  const rows = workspaceRows(REGISTRY);
+  const html = workspacesHtml(
+    rows, '/work/commerce', EMPTY_COPY, null, null, false, null, undefined,
+    {
+      scope: 'selected', loading: false, applying: false, error: null,
+      resolutions: { '.github/agents/developer.agent.md': 'bundled' },
+      result: {
+        status: 'preview', dryRun: true, planId: 'cfgp-123', total: 1, updated: 0,
+        results: [{
+          status: 'would-update', repository: 'platform', remote: '/git/platform.git',
+          configurationChanged: true, stateChanged: true, stateStatus: 'would-follow-configuration',
+          files: ['singularity/workflow.yml'],
+          conflicts: [
+            { path: 'workflow.ledger.enabled', resolution: 'preserved-local', local: true, bundled: false },
+            {
+              path: '.github/agents/developer.agent.md', resolution: 'accepted-bundled',
+              localSha256: 'a', bundledSha256: 'b'
+            }
+          ]
+        }]
+      }
+    }
+  );
+  assert.match(html, /SFlow configuration/);
+  assert.match(html, /world models and other runtime state are preserved/);
+  assert.match(html, /data-config-preview="selected"/);
+  assert.match(html, /data-config-preview="all"/);
+  assert.match(html, /data-configuration-resolution="workflow\.ledger\.enabled"/);
+  assert.match(html, /data-configuration-resolution="\.github\/agents\/developer\.agent\.md"/);
+  assert.match(html, /<option value="bundled" selected>Use packaged<\/option>/);
+  assert.match(html, /data-config-bundled="assets"/);
+  assert.match(html, /data-config-apply="selected"/);
+  assert.doesNotMatch(html, /data-config-apply="selected"\s+disabled/);
+  assert.match(html, /cfgp-123/);
 });
 
 test('the selected workspace offers edit, copy and forget, and says what each costs', () => {

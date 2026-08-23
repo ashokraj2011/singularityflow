@@ -11,11 +11,12 @@ import { contentSecurityPolicy, navigationTarget, nonce, page } from './webview.
 import { navigateTo } from './navigate.ts';
 import { booleanField, registerMessageRouter, stringField, type InboundMessage } from './messages.ts';
 import {
-  EMPTY_DRAFT, EMPTY_EDIT_DRAFT, workspacesHtml, WORKSPACES_SCRIPT,
-  type DuplicateDraft, type WorkspaceEditDraft
+  EMPTY_CONFIGURATION_REFRESH, EMPTY_DRAFT, EMPTY_EDIT_DRAFT, workspacesHtml, WORKSPACES_SCRIPT,
+  type DuplicateDraft, type WorkspaceConfigurationRefreshView, type WorkspaceEditDraft
 } from './workspaces-page.ts';
 import {
   duplicateCommand, duplicateProblems, renameCommand, updateCommand, workspaceRows,
+  type WorkspaceConfigurationRefreshResult, type WorkspaceConfigurationResolution,
   type WorkspaceEntry, type WorkspaceRow, type WorkspaceStatus
 } from './workspaces-model.ts';
 
@@ -35,6 +36,14 @@ export class WorkspacesPanel {
   private readonly onMessage: (message: WorkspacesMessage) => Promise<string | null>;
   private readonly reload: () => Promise<WorkspaceEntry[]>;
   private readonly loadDetails: (path: string) => Promise<WorkspaceStatus>;
+  private readonly refreshConfiguration: (
+    path: string | null,
+    request: {
+      dryRun: boolean;
+      planId?: string | null;
+      resolutions: Record<string, WorkspaceConfigurationResolution>;
+    }
+  ) => Promise<WorkspaceConfigurationRefreshResult>;
   private readonly disposables: vscode.Disposable[] = [];
   private rows: WorkspaceRow[] = [];
   private selected: string | null = null;
@@ -45,6 +54,9 @@ export class WorkspacesPanel {
   private details: WorkspaceStatus | null = null;
   private detailsLoading = false;
   private detailRequest = 0;
+  private configuration: WorkspaceConfigurationRefreshView = {
+    ...EMPTY_CONFIGURATION_REFRESH, resolutions: {}
+  };
 
   private constructor(
     panel: vscode.WebviewPanel,
@@ -52,12 +64,14 @@ export class WorkspacesPanel {
     reload: () => Promise<WorkspaceEntry[]>,
     onMessage: (message: WorkspacesMessage) => Promise<string | null>,
     loadDetails: (path: string) => Promise<WorkspaceStatus>,
+    refreshConfiguration: WorkspacesPanel['refreshConfiguration'],
     selected: string | null
   ) {
     this.panel = panel;
     this.reload = reload;
     this.onMessage = onMessage;
     this.loadDetails = loadDetails;
+    this.refreshConfiguration = refreshConfiguration;
     this.rows = workspaceRows(entries);
     this.selected = this.initialSelection(selected);
     // Return the promise so sequential UI events (typing, then immediately saving) are observed in
@@ -81,6 +95,7 @@ export class WorkspacesPanel {
     reload: () => Promise<WorkspaceEntry[]>,
     onMessage: (message: WorkspacesMessage) => Promise<string | null>,
     loadDetails: (path: string) => Promise<WorkspaceStatus>,
+    refreshConfiguration: WorkspacesPanel['refreshConfiguration'],
     selected: string | null = null
   ): WorkspacesPanel {
     if (WorkspacesPanel.current) {
@@ -98,7 +113,9 @@ export class WorkspacesPanel {
         retainContextWhenHidden: true,
         localResourceRoots: [vscode.Uri.joinPath(context.extensionUri, 'media')]
       });
-    WorkspacesPanel.current = new WorkspacesPanel(panel, entries, reload, onMessage, loadDetails, selected);
+    WorkspacesPanel.current = new WorkspacesPanel(
+      panel, entries, reload, onMessage, loadDetails, refreshConfiguration, selected
+    );
     return WorkspacesPanel.current;
   }
 
@@ -118,7 +135,7 @@ export class WorkspacesPanel {
       'Workspaces',
       workspacesHtml(
         this.rows, this.selected, this.draft, this.error,
-        this.details, this.detailsLoading, this.detailError, this.edit
+        this.details, this.detailsLoading, this.detailError, this.edit, this.configuration
       ),
       contentSecurityPolicy(this.panel.webview, token),
       token,
@@ -152,6 +169,7 @@ export class WorkspacesPanel {
     this.detailError = null;
     this.details = null;
     this.detailsLoading = true;
+    this.configuration = { ...EMPTY_CONFIGURATION_REFRESH, resolutions: {} };
     this.render();
     try {
       const details = await this.loadDetails(path);
@@ -173,7 +191,7 @@ export class WorkspacesPanel {
   }
 
   /**
-   * The fifteen messages this panel speaks, enumerated. `[UXH:REQ-134]` `[UXH:AC-014]`
+   * Every message this panel speaks, enumerated. `[UXH:REQ-134]` `[UXH:AC-014]`
    *
    * The chain this replaces had a *shared tail*: eight types fell past the early returns to
    * `const row = this.rowFor(message.path); if (!row) return;` and then branched again. That is the
@@ -237,6 +255,36 @@ export class WorkspacesPanel {
     forget: (message) => this.withRow(message, (row) => this.actOnRow(row, 'forget', true)),
     archive: (message) => this.withRow(message, (row) => this.actOnRow(row, 'archive', true)),
     restore: (message) => this.withRow(message, (row) => this.actOnRow(row, 'restore', false)),
+    'configuration-preview': (message) => {
+      const scope = stringField(message, 'scope');
+      if (scope !== 'selected' && scope !== 'all') return;
+      return this.previewConfiguration(scope);
+    },
+    'configuration-resolution': (message) => {
+      const conflictPath = stringField(message, 'path');
+      const resolution = stringField(message, 'resolution');
+      if (!conflictPath || !['local', 'bundled', 'merge'].includes(resolution ?? '')) return;
+      const known = this.configuration.result?.results.some((repository) =>
+        repository.conflicts?.some((conflict) => conflict.path === conflictPath));
+      if (!known) return;
+      this.configuration.resolutions[conflictPath] = resolution as WorkspaceConfigurationResolution;
+      this.configuration.error = null;
+      return this.previewConfiguration(this.configuration.scope);
+    },
+    'configuration-bundled-assets': () => {
+      for (const repository of this.configuration.result?.results ?? []) {
+        for (const conflict of repository.conflicts ?? []) {
+          if (conflict.path.startsWith('singularity/templates/')
+            || conflict.path.startsWith('singularity/prompts/')
+            || conflict.path.startsWith('.github/agents/')) {
+            this.configuration.resolutions[conflict.path] = 'bundled';
+          }
+        }
+      }
+      this.configuration.error = null;
+      return this.previewConfiguration(this.configuration.scope);
+    },
+    'configuration-apply': () => this.applyConfiguration(),
     rename: (message) => this.withRow(message, (row) => this.rename(row, stringField(message, 'name'))),
     duplicate: (message) => this.withRow(message, (row) => this.duplicate(row, message))
   });
@@ -270,6 +318,56 @@ export class WorkspacesPanel {
     }
     this.edit = { ...EMPTY_EDIT_DRAFT };
     await this.refresh();
+  }
+
+  private async previewConfiguration(scope: 'selected' | 'all'): Promise<void> {
+    if (this.configuration.loading || this.configuration.applying || !this.selected) return;
+    if (scope !== this.configuration.scope) {
+      this.configuration = { ...EMPTY_CONFIGURATION_REFRESH, scope, resolutions: {} };
+    }
+    this.configuration.loading = true;
+    this.configuration.error = null;
+    this.render();
+    try {
+      this.configuration.result = await this.refreshConfiguration(
+        scope === 'selected' ? this.selected : null,
+        { dryRun: true, resolutions: { ...this.configuration.resolutions } }
+      );
+    } catch (error) {
+      this.configuration.result = null;
+      this.configuration.error = (error as Error).message;
+    } finally {
+      this.configuration.loading = false;
+      this.render();
+    }
+  }
+
+  private async applyConfiguration(): Promise<void> {
+    const planId = this.configuration.result?.planId;
+    if (!planId || this.configuration.loading || this.configuration.applying || !this.selected) return;
+    this.configuration.applying = true;
+    this.configuration.error = null;
+    this.render();
+    try {
+      const result = await this.refreshConfiguration(
+        this.configuration.scope === 'selected' ? this.selected : null,
+        {
+          dryRun: false,
+          planId,
+          resolutions: { ...this.configuration.resolutions }
+        }
+      );
+      this.configuration.result = result;
+      this.configuration.applying = false;
+      this.render();
+      if (result.status === 'complete') await this.previewConfiguration(this.configuration.scope);
+      return;
+    } catch (error) {
+      this.configuration.error = (error as Error).message;
+    } finally {
+      this.configuration.applying = false;
+      this.render();
+    }
   }
 
   /** The three that differ only in verb and whether a success clears the selection. */

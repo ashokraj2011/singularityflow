@@ -59,11 +59,14 @@ export class CliError extends Error {
   readonly code = 'SINGULARITY_FLOW_CLI_ERROR';
   readonly exitCode: number | null;
   readonly stderr: string;
-  constructor(message: string, exitCode: number | null, stderr: string) {
+  /** Structured stdout returned with a deliberate non-zero status, when the command provided it. */
+  readonly result: unknown;
+  constructor(message: string, exitCode: number | null, stderr: string, result: unknown = null) {
     super(message);
     this.name = 'CliError';
     this.exitCode = exitCode;
     this.stderr = stderr;
+    this.result = result;
   }
 }
 
@@ -282,10 +285,17 @@ export function invokeCli<T = unknown>(options: InvokeOptions): Promise<T> {
     child.on('close', (code) => {
       if (settled) return;
       if (code !== 0) {
+        let result: unknown = null;
+        if (json && stdout.trim()) {
+          try { result = JSON.parse(stdout); } catch { /* the original text remains the diagnostic */ }
+        }
+        const structuredStatus = result && typeof result === 'object' && 'status' in result
+          ? String((result as { status?: unknown }).status ?? '').trim()
+          : '';
         const message = humanError(stderr)
-          || stdout.trim()
+          || (structuredStatus ? `The Singularity Flow command reported ${structuredStatus}.` : stdout.trim())
           || `The Singularity Flow CLI exited with ${code}.`;
-        return fail(new CliError(message, code, stderr));
+        return fail(new CliError(message, code, stderr, result));
       }
       if (!json) {
         reportTiming('success', code);

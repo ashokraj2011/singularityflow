@@ -423,6 +423,30 @@ test('an explicit replacement root supports deletion-only mirrors', async () => 
   assert.match(run('git', ['show', `${enabled.branch}:singularity/keep.yml`], { cwd: root }).stdout, /preserved/);
 });
 
+test('an exact managed removal prunes one stale file without replacing its siblings', async () => {
+  const { root } = await repository();
+  await initializeLedger(root, enabled);
+  await publishToStateBranch(root, enabled, {
+    'singularity/obsolete.yml': 'obsolete: true\n',
+    'singularity/world-model/model.md': '# costly model\n',
+    'singularity/keep.yml': 'preserved: true\n'
+  }, 'Seed shared state');
+
+  const result = await publishToStateBranch(root, enabled, {
+    'configuration/manifest.json': '{"layout":"canonical-paths"}\n'
+  }, 'Retire one managed file', { removePaths: ['singularity/obsolete.yml'] });
+
+  assert.equal(result.changed, true);
+  assert.deepEqual(result.removed, ['singularity/obsolete.yml']);
+  assert.equal(run('git', ['show', `${enabled.branch}:singularity/obsolete.yml`], {
+    cwd: root, allowFailure: true
+  }).status, 128);
+  assert.match(run('git', ['show', `${enabled.branch}:singularity/world-model/model.md`], { cwd: root }).stdout,
+    /costly model/);
+  assert.match(run('git', ['show', `${enabled.branch}:singularity/keep.yml`], { cwd: root }).stdout,
+    /preserved/);
+});
+
 test('a state-branch path that climbs out of the branch is refused', async () => {
   // The files are written into a temporary worktree, so `..` writes into the system temp folder.
   const { root } = await repository();
@@ -438,6 +462,9 @@ test('a state-branch path that climbs out of the branch is refused', async () =>
     /must stay inside the branch/);
   await assert.rejects(
     () => publishToStateBranch(root, enabled, {}, 'Escape', { replaceRoots: ['C:\\outside'] }),
+    /must stay inside the branch/);
+  await assert.rejects(
+    () => publishToStateBranch(root, enabled, {}, 'Escape', { removePaths: ['../outside'] }),
     /must stay inside the branch/);
 });
 

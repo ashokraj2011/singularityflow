@@ -657,10 +657,11 @@ export async function appendLedgerIntent(root, rawConfig, intent, publishedCommi
  * @param files a map of state-branch-relative path to contents; identical contents commit nothing.
  * @param options.replaceRoots optional state-branch-relative directories whose tracked contents are
  * authoritative mirrors of `files`. Files previously tracked beneath those roots but absent from
- * `files` are removed. No path outside an explicitly named replacement root is ever pruned.
+ * `files` are removed. `removePaths` names additional exact managed files to retire. No path outside
+ * an explicitly named replacement root or exact removal is ever pruned.
  */
 export async function publishToStateBranch(root, rawConfig, files, message, {
-  replaceRoots = [], expectedRemoteSha: suppliedExpectedRemoteSha = undefined,
+  replaceRoots = [], removePaths = [], expectedRemoteSha: suppliedExpectedRemoteSha = undefined,
   baseRef: suppliedBaseRef = null, refreshRemote = true
 } = {}) {
   const config = normalizeLedgerConfig(rawConfig);
@@ -682,7 +683,8 @@ export async function publishToStateBranch(root, rawConfig, files, message, {
     throw new SingularityFlowError('State-branch publication contains duplicate normalized paths.');
   }
   const replacementRoots = [...new Set((replaceRoots ?? []).map(safePath))].sort();
-  if (!entries.length && !replacementRoots.length) {
+  const exactRemovals = [...new Set((removePaths ?? []).map(safePath))].sort();
+  if (!entries.length && !replacementRoots.length && !exactRemovals.length) {
     return { branch: config.branch, commit: null, changed: false, published: [], removed: [] };
   }
 
@@ -708,7 +710,7 @@ export async function publishToStateBranch(root, rawConfig, files, message, {
 
   return temporaryWorktree(root, publicationBase, async (worktree) => {
     const desired = new Set(entries.map(([file]) => file));
-    const removed = new Set();
+    const removed = new Set(exactRemovals.filter((file) => !desired.has(file)));
     for (const replacementRoot of replacementRoots) {
       const tracked = git(worktree, ['ls-files', '--', replacementRoot]).stdout
         .split(/\r?\n/).map((file) => file.trim()).filter(Boolean);
@@ -717,7 +719,7 @@ export async function publishToStateBranch(root, rawConfig, files, message, {
       }
     }
     const removedFiles = [...removed].sort();
-    if (removedFiles.length) git(worktree, ['rm', '-f', '--', ...removedFiles]);
+    if (removedFiles.length) git(worktree, ['rm', '-f', '--ignore-unmatch', '--', ...removedFiles]);
     for (const [file, contents] of entries) {
       const target = path.join(worktree, file);
       await ensureDir(path.dirname(target));

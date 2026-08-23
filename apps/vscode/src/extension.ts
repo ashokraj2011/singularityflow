@@ -34,8 +34,8 @@ import type { HelpDocument } from './views/help-page.ts';
 import type { WorkspacesMessage } from './views/workspaces-panel.ts';
 import type { Mapped } from './views/bootstrap-panel.ts';
 import {
-  archiveCommand, restoreCommand, type WorkspaceArchiveReadiness,
-  type WorkspaceEntry, type WorkspaceStatus
+  archiveCommand, configurationRefreshCommand, restoreCommand, workspaceRows, type WorkspaceArchiveReadiness,
+  type WorkspaceConfigurationRefreshResult, type WorkspaceEntry, type WorkspaceStatus
 } from './views/workspaces-model.ts';
 import { capabilityChoices, type RemoteCapability } from './views/workspace-form.ts';
 import { capabilityProposalArgv } from './views/capability-model.ts';
@@ -1527,12 +1527,41 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
     };
 
     const { WorkspacesPanel } = await import('./views/workspaces-panel.ts');
+    const refreshConfiguration = async (
+      workspacePath: string | null,
+      request: Parameters<typeof configurationRefreshCommand>[1]
+    ): Promise<WorkspaceConfigurationRefreshResult> => {
+      const row = workspacePath
+        ? workspaceRows(await list()).find((entry) => entry.path === workspacePath) ?? null
+        : null;
+      if (workspacePath && !row) throw new Error('The selected workspace is no longer registered.');
+      const command = configurationRefreshCommand(row, request);
+      output.appendLine(`\n$ singularity-flow ${command.join(' ')}`);
+      try {
+        return await vscode.window.withProgress(
+          {
+            location: vscode.ProgressLocation.Notification,
+            title: request.dryRun ? 'Checking SFlow configuration' : 'Refreshing SFlow configuration'
+          },
+          () => registry.run<WorkspaceConfigurationRefreshResult>(command)
+        );
+      } catch (error) {
+        // This command deliberately exits non-zero for a blocked or partial multi-repository result.
+        // Keep that structured result so the page can name the failed repository, review branch,
+        // and recovery state instead of displaying a serialized JSON object as an exception.
+        const result = (error as { result?: unknown }).result;
+        if (result && typeof result === 'object' && Array.isArray((result as { results?: unknown }).results)) {
+          return result as WorkspaceConfigurationRefreshResult;
+        }
+        throw error;
+      }
+    };
     WorkspacesPanel.show(context, await list(), list, async (message) => {
       const failure = await onMessage(message);
       // Anything that changes the registry changes the tree beside it.
       if (message.type !== 'switch') void refreshWorkspaceTree();
       return failure;
-    }, details, workspacePathOf(node) ?? node?.path ?? null);
+    }, details, refreshConfiguration, workspacePathOf(node) ?? node?.path ?? null);
   }));
 
   /**

@@ -120,6 +120,7 @@ export function commandClass(args: string[]): 'read' | 'mutation' | 'unknown' {
   if (args[0] === 'visual') return (args[1] ?? 'status') === 'status' ? 'read' : 'mutation';
   if (args[0] === 'capabilities' && args[1] === 'doctor') return 'read';
   if (args[0] === 'workspace' && ['current', 'list', 'status', 'doctor', 'branches'].includes(args[1] ?? 'list')) return 'read';
+  if (args[0] === 'workspace' && args[1] === 'refresh-configuration' && hasOption(args, 'dry-run')) return 'read';
   if (args[0] === 'goal') return ['list', 'show', 'status', 'next'].includes(args[1] ?? 'list') ? 'read' : 'mutation';
   if (args[0] === 'fault') return (args[1] ?? 'list') === 'report' ? 'mutation' : 'read';
   if (args[0] === 'fix') return hasOption(args, 'plan-only') ? 'read' : 'mutation';
@@ -309,6 +310,9 @@ export class SingularityFlowClient {
     // the middle; the CLI still owns rollback and the panel remains non-shelling.
     if (args[0] === 'local-reset') return CAPABILITY_AUTHORITY_TIMEOUT_MS;
     if (args[0] === 'capability' && REMOTE_CAPABILITY_OPERATIONS.has(args[1] ?? '')) {
+      return CAPABILITY_AUTHORITY_TIMEOUT_MS;
+    }
+    if (args[0] === 'workspace' && args[1] === 'refresh-configuration') {
       return CAPABILITY_AUTHORITY_TIMEOUT_MS;
     }
     return (args[0] === 'wm' && args[1] === 'build')

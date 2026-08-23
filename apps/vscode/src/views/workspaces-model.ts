@@ -103,6 +103,46 @@ export interface WorkspaceRepositoryStatus {
   worldModel?: { state?: string; warning?: string | null } | null;
 }
 
+export type WorkspaceConfigurationResolution = 'local' | 'bundled' | 'merge';
+
+export interface WorkspaceConfigurationConflict {
+  path: string;
+  resolution: string;
+  local?: unknown;
+  bundled?: unknown;
+  localSha256?: string | null;
+  bundledSha256?: string | null;
+}
+
+export interface WorkspaceConfigurationRefreshRepository {
+  status: string;
+  repository: string;
+  remote: string;
+  configurationChanged?: boolean;
+  stateChanged?: boolean;
+  stateStatus?: string;
+  configurationCommit?: string;
+  stateCommit?: string | null;
+  proposalBranch?: string;
+  files?: string[];
+  missingStatePaths?: string[];
+  changedStatePaths?: string[];
+  extraStatePaths?: string[];
+  removedStatePaths?: string[];
+  conflicts?: WorkspaceConfigurationConflict[];
+  error?: string | null;
+}
+
+export interface WorkspaceConfigurationRefreshResult {
+  status: string;
+  dryRun: boolean;
+  planId?: string;
+  total: number;
+  updated: number;
+  failed?: number;
+  results: WorkspaceConfigurationRefreshRepository[];
+}
+
 export interface WorkspaceRow extends WorkspaceEntry {
   /** The directory a person actually works in, which is what the list is really about. */
   directory: string;
@@ -200,6 +240,31 @@ export function archiveCommand(row: WorkspaceRow): string[] {
 
 export function restoreCommand(row: WorkspaceRow): string[] {
   return ['workspace', 'restore', row.directory, '--json'];
+}
+
+/** Preview or apply the exact configuration/state refresh rendered by the Workspaces page. */
+export function configurationRefreshCommand(
+  row: WorkspaceRow | null,
+  {
+    dryRun,
+    planId = null,
+    resolutions = {}
+  }: {
+    dryRun: boolean;
+    planId?: string | null;
+    resolutions?: Record<string, WorkspaceConfigurationResolution>;
+  }
+): string[] {
+  const args = ['workspace', 'refresh-configuration'];
+  if (row) args.push(row.directory);
+  if (dryRun) args.push('--dry-run');
+  if (!dryRun && planId) args.push('--confirm-plan', planId);
+  for (const [conflictPath, resolution] of Object.entries(resolutions)
+    .sort(([left], [right]) => left.localeCompare(right))) {
+    args.push('--resolve', `${conflictPath}=${resolution}`);
+  }
+  args.push('--json');
+  return args;
 }
 
 /**

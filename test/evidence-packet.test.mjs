@@ -229,7 +229,7 @@ test('the Observation Firewall preserves failures, compresses repetition, and ke
   assert.ok(observation.includedBytes < observation.rawBytes);
   assert.equal(observation.modelInvoked, false);
   assert.deepEqual(observation.compiler, {
-    id: 'test-result-observation', version: '2.0.0', profile: { maximumIncludedBytes: 4096 }
+    id: 'test-result-observation', version: '3.0.0', profile: { maximumIncludedBytes: 4096 }
   });
   assert.equal(observation.correlation.packetId, null);
 

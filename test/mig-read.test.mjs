@@ -89,6 +89,42 @@ test('legacy observation summaries do not gain a fabricated redaction claim', ()
   assert.equal(migrated.correlation.packetId, null);
 });
 
+test('v2 observation outcomes migrate from execution metadata rather than text heuristics', () => {
+  const corrected = readRecord('observation-summary', {
+    schemaVersion: 2,
+    status: 'failed',
+    source: { exitCode: 0 },
+    summary: { errors: 1 }
+  }).record;
+  assert.equal(corrected.schemaVersion, 3);
+  assert.equal(corrected.status, 'passed');
+  assert.equal(corrected.outcome.state, 'succeeded');
+  assert.equal(corrected.outcome.legacyReportedStatus, 'failed');
+  assert.equal(corrected.outcome.correction, 'v2-text-heuristic-discarded');
+  assert.equal(corrected.summary.errorDiagnostics, 1);
+
+  const failed = readRecord('observation-summary', {
+    schemaVersion: 2, status: 'passed', source: { exitCode: 2 }, summary: { errors: 0 }
+  }).record;
+  assert.equal(failed.status, 'failed');
+  assert.equal(failed.outcome.exitCode, 2);
+
+  const unknown = readRecord('observation-summary', {
+    schemaVersion: 2, status: 'failed', source: {}, summary: { errors: 5 }
+  }).record;
+  assert.equal(unknown.status, 'unknown');
+  assert.equal(unknown.outcome.authority, 'unavailable');
+});
+
+test('v1 model invocation audits identify their historical argv transport', () => {
+  const migrated = readRecord('model-invocation-audit', {
+    schemaVersion: 1, promptSha256: 'a'.repeat(64), promptBytes: 204800
+  }).record;
+  assert.equal(migrated.schemaVersion, 2);
+  assert.equal(migrated.promptTransport, 'legacy-argv');
+  assert.equal(migrated.promptEncoding, 'utf-8');
+});
+
 test('readRecord migrates in memory without changing stored bytes', () => {
   const bytes = Buffer.from('{"schemaVersion":1,"marker":"frozen"}\n');
   const before = Buffer.from(bytes);

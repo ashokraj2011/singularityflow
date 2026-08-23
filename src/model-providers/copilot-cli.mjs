@@ -1,5 +1,5 @@
 import { spawn } from 'node:child_process';
-import { readFile } from 'node:fs/promises';
+import { lstat } from 'node:fs/promises';
 import { isPreparedTelemetryLaunch, recordTelemetryLaunch } from '../telemetry-provision.mjs';
 import { SingularityFlowError } from '../util.mjs';
 
@@ -15,6 +15,30 @@ const SAFE_ENVIRONMENT = [
 const SAFE_ENVIRONMENT_SET = new Set(SAFE_ENVIRONMENT);
 const TEST_ENVIRONMENT = ['SFLOW_PARALLEL_TEST_LOG', 'SFLOW_MOCK_SKIP_PACKET_VIEW', 'SFLOW_MOCK_FAIL_SYNTHESIS',
   'SFLOW_MOCK_MANIFEST_RETRY_MARKER', 'SFLOW_MOCK_DIRECTORY_VIEW_RETRY_MARKER', 'SFLOW_MOCK_SHORT_SHA'];
+
+export const COPILOT_ATTACHMENT_BOOTSTRAP_PROMPT = [
+  'The attached UTF-8 Markdown file is the complete Singularity Flow request.',
+  'Treat its full contents as the user request and execute it.',
+  'Do not merely summarize or describe the attachment.'
+].join(' ');
+
+const RESERVED_OPTIONS = Object.freeze([
+  '-p', '--prompt', '--attachment', '-C', '--model', '--available-tools', '--allow-tool',
+  '--allow-all-tools'
+]);
+
+function reservedOption(argument) {
+  if (argument.startsWith('-p') && !argument.startsWith('--')) return '-p';
+  if (argument.startsWith('-C') && !argument.startsWith('--')) return '-C';
+  return RESERVED_OPTIONS.find((option) => argument === option || argument.startsWith(`${option}=`)) ?? null;
+}
+
+export function modelProviderStartErrorCode(nativeCode) {
+  if (nativeCode === 'ENOENT') return 'MODEL_PROVIDER_UNAVAILABLE';
+  if (nativeCode === 'EACCES' || nativeCode === 'EPERM') return 'MODEL_PROVIDER_NOT_EXECUTABLE';
+  if (nativeCode === 'E2BIG') return 'MODEL_PROVIDER_ARGUMENT_LIMIT';
+  return 'MODEL_PROVIDER_START_FAILED';
+}
 
 function providerEnvironment(overrides = {}, telemetry = null) {
   const forbidden = Object.keys(overrides).filter((key) => !SAFE_ENVIRONMENT_SET.has(key));
@@ -37,7 +61,6 @@ function providerEnvironment(overrides = {}, telemetry = null) {
 }
 
 export async function invokeCopilotCli(request) {
-  const prompt = request.prompt?.text ?? await readFile(request.prompt.file, 'utf8');
   const configured = request.providerConfig ?? {};
   const executable = configured.executable ?? 'copilot';
   if (typeof executable !== 'string' || !executable.trim() || /[\r\n\0]/.test(executable)) {
@@ -45,6 +68,28 @@ export async function invokeCopilotCli(request) {
   }
   if (configured.arguments != null && (!Array.isArray(configured.arguments) || configured.arguments.some((item) => typeof item !== 'string'))) {
     throw new SingularityFlowError('Model provider arguments must be an array of strings.', { code: 'MODEL_REQUEST_INVALID' });
+  }
+  const conflict = (configured.arguments ?? []).map(reservedOption).find(Boolean);
+  if (conflict) {
+    throw new SingularityFlowError(`Model provider arguments cannot override adapter-owned option '${conflict}'.`, {
+      code: 'MODEL_REQUEST_INVALID', details: { option: conflict }
+    });
+  }
+  if (request.promptTransport !== 'attachment' || request.prompt?.text != null || !request.prompt?.staged || !request.prompt?.file
+    || request.prompt?.encoding !== 'utf-8' || !Number.isSafeInteger(request.prompt?.bytes)
+    || !/^[a-f0-9]{64}$/.test(String(request.prompt?.sha256 ?? ''))) {
+    throw new SingularityFlowError('Copilot attachment transport requires a trusted staged prompt.', {
+      code: 'MODEL_REQUEST_INVALID'
+    });
+  }
+  const promptInfo = await lstat(request.prompt.file).catch(() => null);
+  if (!promptInfo?.isFile() || promptInfo.isSymbolicLink()) {
+    throw new SingularityFlowError('Copilot attachment transport requires a regular staged prompt file.', {
+      code: 'MODEL_REQUEST_INVALID'
+    });
+  }
+  if (request.signal?.aborted) {
+    throw new SingularityFlowError('Model invocation was cancelled.', { code: 'MODEL_CANCELLED' });
   }
   const command = process.platform === 'win32' && executable === 'copilot' ? 'copilot.cmd' : executable;
   /**
@@ -61,7 +106,10 @@ export async function invokeCopilotCli(request) {
   const providerLabel = request.provider === 'copilot-cli'
     ? (configuredExecutable ? `Model provider '${command}'` : 'Copilot CLI')
     : `Model provider '${request.provider}'`;
-  const args = [...(configured.arguments ?? []), '-C', request.cwd, '-p', prompt];
+  const args = [
+    ...(configured.arguments ?? []), '-C', request.cwd,
+    '--attachment', request.prompt.file, '-p', COPILOT_ATTACHMENT_BOOTSTRAP_PROMPT
+  ];
   if (request.tools?.mode === 'none') args.push('--available-tools=');
   if (request.tools?.mode === 'allowlist') {
     const tools = request.tools.names.join(',');
@@ -123,9 +171,13 @@ export async function invokeCopilotCli(request) {
       cleanup();
       if (terminationTimer) clearTimeout(terminationTimer);
       if (request.telemetry) await recordTelemetryLaunch(request.telemetry, {
-        state: 'finished', errorCode: error.code ?? 'MODEL_PROVIDER_UNAVAILABLE'
+        state: 'finished', errorCode: modelProviderStartErrorCode(error.code)
       }).catch(() => {});
-      reject(new SingularityFlowError(`Unable to start ${providerLabel}: ${error.message}`, { code: 'MODEL_PROVIDER_UNAVAILABLE', cause: error }));
+      const code = modelProviderStartErrorCode(error.code);
+      reject(new SingularityFlowError(`Unable to start ${providerLabel} (${error.code ?? 'unknown startup error'}).`, {
+        code, cause: error,
+        details: { nativeCode: error.code ?? null, transport: 'attachment', promptBytes: request.prompt.bytes }
+      }));
     });
     child.once('close', async (status, signal) => {
       if (finished) return;

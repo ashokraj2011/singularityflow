@@ -710,7 +710,9 @@ async function fullRepositorySnapshot(root, requestedWorkId = null, requestedIni
      */
     fastPath: fastPathProjection(definition, workflow),
     visualAssurance: await visualAssuranceSnapshot(root, definition, workflow),
-    diagnostics: await doctorSnapshot(root, { workId: selectedId, offline: true }),
+    diagnostics: await doctorSnapshot(root, {
+      workId: selectedId, offline: true, probeModelProvider: false
+    }),
     workflowSimulations: await simulateWorkflow(root),
     session: activeSession
   };
@@ -1118,7 +1120,9 @@ async function repositorySnapshotInScope(root, requestedWorkId, requestedInitiat
     else if (slice === 'configuration') result.configuration = await configurationSlice(root);
     else if (slice === 'capabilities') result.capabilities = await capabilitySlice(root);
     else if (slice === 'integrations') result.integrations = await integrationSlice(root);
-    else if (slice === 'diagnostics') result.diagnostics = await doctorSnapshot(root, { workId: requestedWorkId, offline: true });
+    else if (slice === 'diagnostics') result.diagnostics = await doctorSnapshot(root, {
+      workId: requestedWorkId, offline: true, probeModelProvider: false
+    });
   }
   return result;
 }

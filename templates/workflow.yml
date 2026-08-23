@@ -172,6 +172,8 @@ ast:
 
 # Trusted kernel-owned model providers. Arguments are passed directly without a
 # shell; credentials remain in the provider/host environment and are never stored here.
+# The Copilot adapter owns cwd, prompt attachment, model, and tool-policy flags. Keep
+# arguments free of -C, -p/--prompt, --attachment, --model, and --allow*/--available-tools.
 models:
   defaultProvider: copilot-cli
   providers:

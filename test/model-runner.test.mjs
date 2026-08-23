@@ -1,14 +1,16 @@
 import assert from 'node:assert/strict';
-import { access, mkdtemp } from 'node:fs/promises';
+import { createHash } from 'node:crypto';
+import { access, mkdtemp, readFile, readdir } from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
 import test from 'node:test';
 import { invokeModel } from '../src/model-runner.mjs';
 import { withOperationContext } from '../src/operation-context.mjs';
+import { run } from '../src/util.mjs';
 
 function request(root, overrides = {}) {
   return {
-    provider: 'copilot-cli', providerConfig: { executable: process.execPath, arguments: ['-e', 'process.stdout.write("ok")'] },
+    provider: 'copilot-cli', providerConfig: { executable: process.execPath, arguments: ['-e', 'process.stdout.write("ok")', '--'] },
     cwd: root, allowedRoots: [root], auditRoot: root, channel: 'test', prompt: { text: 'test' },
     tools: { mode: 'none', names: [] }, limits: { timeoutMs: 1000, outputBytes: 1024 }, ...overrides
   };
@@ -17,6 +19,31 @@ function request(root, overrides = {}) {
 test('the model runner rejects calls without registered operation context', async () => {
   const root = await mkdtemp(path.join(os.tmpdir(), 'sflow-model-runner-'));
   await assert.rejects(() => invokeModel(request(root)), (error) => error.code === 'MODEL_CONTEXT_MISSING');
+});
+
+test('the model runner audits and cleans the exact staged attachment bytes', async () => {
+  const root = await mkdtemp(path.join(os.tmpdir(), 'sflow-model-attachment-'));
+  run('git', ['init', '-q'], { cwd: root });
+  const prompt = `CGR_CANARY_${'x'.repeat(200 * 1024)}_END`;
+  const script = 'const fs=require("node:fs"),a=process.argv.slice(1),f=a[a.indexOf("--attachment")+1],b=fs.readFileSync(f);process.stdout.write(JSON.stringify({file:f,bytes:b.length,body:b.toString("utf8")}))';
+  const result = await withOperationContext({
+    operation: { id: 'model.test', modelPolicy: 'required' }, modelMode: { enabled: true }, root, command: 'test'
+  }, () => invokeModel(request(root, {
+    providerConfig: { executable: process.execPath, arguments: ['-e', script, '--'] },
+    prompt: { text: prompt }, limits: { timeoutMs: 5000, outputBytes: 512 * 1024 }
+  })));
+  const provider = JSON.parse(result.output);
+  assert.equal(provider.body, prompt);
+  await assert.rejects(access(provider.file));
+  const auditDirectory = path.join(root, '.git', 'singularity-flow', 'model-invocations');
+  const [name] = await readdir(auditDirectory);
+  const audit = JSON.parse(await readFile(path.join(auditDirectory, name), 'utf8'));
+  assert.equal(audit.schemaVersion, 2);
+  assert.equal(audit.promptTransport, 'attachment');
+  assert.equal(audit.promptEncoding, 'utf-8');
+  assert.equal(audit.promptBytes, Buffer.byteLength(prompt));
+  assert.equal(audit.promptSha256, createHash('sha256').update(prompt).digest('hex'));
+  assert.doesNotMatch(JSON.stringify(audit), /CGR_CANARY|_END/);
 });
 
 test('unknown providers fail before audit creation', async () => {

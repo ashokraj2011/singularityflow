@@ -1,35 +1,24 @@
 import { createHash, randomUUID } from 'node:crypto';
-import { lstat, mkdir, readFile, readdir, realpath } from 'node:fs/promises';
+import { mkdir, readFile, readdir, realpath } from 'node:fs/promises';
 import path from 'node:path';
 import { gitDir } from './git.mjs';
 import { assertModelInvocationAllowed } from './operation-context.mjs';
 import { modelProvider } from './model-provider-registry.mjs';
+import {
+  DEFAULT_MODEL_PROMPT_MAXIMUM_BYTES, stageModelPrompt
+} from './model-prompt-transport.mjs';
 import { assertModelTask } from './model-tasks.mjs';
 import { loadModelTiers, MODEL_TIERS_PATH, tierLadder } from './model-tiers.mjs';
 import { currentSchemaVersion, readRecord } from './schema-migrations.mjs';
 import { nowIso, SingularityFlowError, writeJson } from './util.mjs';
 import { prepareTelemetryLaunch } from './telemetry-provision.mjs';
+import { repositoryLogger } from './logging.mjs';
 
 function sha256(value) { return createHash('sha256').update(value).digest('hex'); }
 
 function inside(candidate, root) {
   const relative = path.relative(path.resolve(root), path.resolve(candidate));
   return relative === '' || (!relative.startsWith('..') && !path.isAbsolute(relative));
-}
-
-async function promptFingerprint(prompt) {
-  if (!prompt || (typeof prompt.text === 'string') === Boolean(prompt.file)) {
-    throw new SingularityFlowError('Model request requires exactly one of prompt.text or prompt.file.', { code: 'MODEL_REQUEST_INVALID' });
-  }
-  if (typeof prompt?.text === 'string') {
-    const bytes = Buffer.from(prompt.text, 'utf8');
-    return { sha256: sha256(bytes), bytes: bytes.length };
-  }
-  if (!prompt?.file) throw new SingularityFlowError('Model request requires prompt.text or prompt.file.', { code: 'MODEL_REQUEST_INVALID' });
-  const info = await lstat(prompt.file).catch(() => null);
-  if (!info?.isFile() || info.isSymbolicLink()) throw new SingularityFlowError('Model prompt file must be a regular non-symbolic file.', { code: 'MODEL_REQUEST_INVALID' });
-  const bytes = await readFile(prompt.file);
-  return { sha256: sha256(bytes), bytes: bytes.length };
 }
 
 function positiveInteger(value, label) {
@@ -72,7 +61,10 @@ async function normalizeRequest(request, context) {
   }
   const limits = {
     timeoutMs: positiveInteger(request.limits?.timeoutMs, 'limits.timeoutMs'),
-    outputBytes: positiveInteger(request.limits?.outputBytes, 'limits.outputBytes')
+    outputBytes: positiveInteger(request.limits?.outputBytes, 'limits.outputBytes'),
+    promptBytes: request.limits?.promptBytes == null
+      ? DEFAULT_MODEL_PROMPT_MAXIMUM_BYTES
+      : positiveInteger(request.limits.promptBytes, 'limits.promptBytes')
   };
   const roots = request.allowedRoots?.length ? request.allowedRoots : [context.root].filter(Boolean);
   if (!roots.length || roots.some((root) => typeof root !== 'string' || !path.isAbsolute(root))) {
@@ -203,10 +195,14 @@ export async function invokeModel(request) {
     throw new SingularityFlowError('Model invocation audit root must be the trusted operation root.', { code: 'MODEL_AUDIT_ROOT_INVALID' });
   }
   const resolvedAuditRoot = trustedAuditRoot;
+  const log = repositoryLogger(resolvedAuditRoot, null, { context: { invocationId: id } });
   const directory = path.join(gitDir(resolvedAuditRoot), 'singularity-flow', 'model-invocations');
   const file = path.join(directory, `${id}.json`);
   await mkdir(directory, { recursive: true });
-  const fingerprint = await promptFingerprint(normalized.prompt);
+  const staged = await stageModelPrompt(normalized.prompt, { maximumBytes: normalized.limits.promptBytes });
+  log.info('model.prompt.staged', null, {
+    provider: providerId, transport: 'attachment', promptBytes: staged.bytes
+  });
   const event = {
     schemaVersion: currentSchemaVersion('model-invocation-audit'),
     id,
@@ -230,8 +226,10 @@ export async function invokeModel(request) {
         paramsDigest: routing.paramsDigest
       }
       : null,
-    promptSha256: fingerprint.sha256,
-    promptBytes: fingerprint.bytes,
+    promptSha256: staged.sha256,
+    promptBytes: staged.bytes,
+    promptTransport: 'attachment',
+    promptEncoding: staged.encoding,
     cwdSha256: sha256(normalized.cwd),
     channel: normalized.channel,
     subject: normalized.subject ?? null,
@@ -241,8 +239,6 @@ export async function invokeModel(request) {
     startedAt: nowIso(),
     completedAt: null
   };
-  // Audit is fail-closed: if this write fails, the provider is never started.
-  await writeJson(file, event);
   /**
    * The provider is asked for the model the routing chose. `[ADP:REQ-032]` `[ADP:AC-004]`
    *
@@ -260,24 +256,39 @@ export async function invokeModel(request) {
    * The caller-named path is unchanged: `routing` is null there, and `normalized.model` already
    * held the answer.
    */
-  const telemetryHost = normalized.channel.includes('vscode')
-    ? 'vscode-terminal'
-    : normalized.channel.includes('intellij') ? 'intellij-terminal' : 'cli';
-  const telemetry = adapterId === 'copilot-cli'
-    ? await prepareTelemetryLaunch({
-      root: resolvedAuditRoot,
-      story: normalized.subject?.id ?? normalized.subject?.workId ?? null,
-      phase: normalized.subject?.phase ?? null,
-      provider: 'github-copilot', runtime: 'copilot-cli', host: telemetryHost,
-      surface: normalized.channel, baseEnv: process.env
-    })
-    : null;
-  const invocation = Object.freeze({
-    ...normalized,
-    ...(routing ? { model: routing.model } : {}),
-    ...(telemetry ? { telemetry } : {})
-  });
+  let auditStarted = false;
+  let providerStartedAt = null;
   try {
+    // Audit is fail-closed: if this write fails, the provider is never started. Staged material is
+    // still removed by the outer finally.
+    await writeJson(file, event);
+    auditStarted = true;
+    const telemetryHost = normalized.channel.includes('vscode')
+      ? 'vscode-terminal'
+      : normalized.channel.includes('intellij') ? 'intellij-terminal' : 'cli';
+    const telemetry = adapterId === 'copilot-cli'
+      ? await prepareTelemetryLaunch({
+        root: resolvedAuditRoot,
+        story: normalized.subject?.id ?? normalized.subject?.workId ?? null,
+        phase: normalized.subject?.phase ?? null,
+        provider: 'github-copilot', runtime: 'copilot-cli', host: telemetryHost,
+        surface: normalized.channel, baseEnv: process.env
+      })
+      : null;
+    const invocation = Object.freeze({
+      ...normalized,
+      prompt: Object.freeze({
+        file: staged.file, sha256: staged.sha256, bytes: staged.bytes,
+        encoding: staged.encoding, staged: true
+      }),
+      promptTransport: 'attachment',
+      ...(routing ? { model: routing.model } : {}),
+      ...(telemetry ? { telemetry } : {})
+    });
+    providerStartedAt = Date.now();
+    log.info('model.provider.started', null, {
+      provider: providerId, transport: 'attachment', promptBytes: staged.bytes
+    });
     const result = await provider(invocation);
     if (!result || typeof result !== 'object' || typeof result.output !== 'string') {
       throw new SingularityFlowError(`Model provider '${providerId}' returned an invalid result.`, { code: 'MODEL_PROVIDER_FAILED' });
@@ -292,6 +303,10 @@ export async function invokeModel(request) {
       outputBytes,
       outputSha256,
       usage: result.usage ?? { status: 'unavailable' }
+    });
+    log.info('model.provider.completed', null, {
+      provider: providerId, transport: 'attachment', promptBytes: staged.bytes,
+      durationMs: Date.now() - providerStartedAt, exitCode: result.status ?? 0, signal: result.signal ?? null
     });
     return {
       schemaVersion: 1, // schema-transient: provider result envelope, never persisted
@@ -314,12 +329,25 @@ export async function invokeModel(request) {
       invocation: { id, path: file, provider: providerId, model: event.model }
     };
   } catch (error) {
-    await writeJson(file, {
+    if (auditStarted) await writeJson(file, {
       ...event,
       status: 'failed',
       completedAt: nowIso(),
       error: { code: error.code ?? 'MODEL_PROVIDER_FAILED' }
+    }).catch(() => {});
+    if (providerStartedAt != null) log.info('model.provider.failed', null, {
+      provider: providerId, transport: 'attachment', promptBytes: staged.bytes,
+      durationMs: Date.now() - providerStartedAt, exitCode: error?.details?.status ?? null,
+      signal: error?.details?.signal ?? null, errorCode: error?.code ?? 'MODEL_PROVIDER_FAILED'
     });
     throw error;
+  } finally {
+    // Cleanup is best-effort and never replaces the provider or audit outcome.
+    let cleanupError = null;
+    await staged.cleanup().catch((error) => { cleanupError = error; });
+    log.info('model.prompt.cleaned', null, {
+      provider: providerId, transport: 'attachment', promptBytes: staged.bytes,
+      errorCode: cleanupError?.code ?? null
+    });
   }
 }

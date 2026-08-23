@@ -1,13 +1,13 @@
-import { discoverAstAdapters } from './ast-adapter-contract.mjs';
+import { discoverAstAdapters, inspectAstAdapterArtifacts } from './ast-adapter-contract.mjs';
 import {
   compileAstLanguageCatalog, unsupportedAstProgrammingPaths
 } from './ast-language-catalog.mjs';
 import { SingularityFlowError } from './util.mjs';
 
 export function assertAstProgrammingLanguagesSupported(paths, catalog, {
-  boundary = 'governed operation'
+  boundary = 'governed operation', classifyUnknown = true
 } = {}) {
-  const unsupported = unsupportedAstProgrammingPaths(paths, catalog);
+  const unsupported = unsupportedAstProgrammingPaths(paths, catalog, { classifyUnknown });
   if (!unsupported.length) return { supported: true, unsupported: [] };
   const listed = unsupported.slice(0, 20).map((entry) => entry.path);
   const remainder = unsupported.length - listed.length;
@@ -29,6 +29,9 @@ export function assertAstProgrammingLanguagesSupported(paths, catalog, {
 
 export async function assertInstalledAstProgrammingLanguagesSupported(paths, options = {}) {
   const discovery = await discoverAstAdapters();
-  const catalog = compileAstLanguageCatalog(discovery.adapters);
+  const inspected = await Promise.all(discovery.adapters.map(async (adapter) => ({
+    adapter, health: await inspectAstAdapterArtifacts(adapter)
+  })));
+  const catalog = compileAstLanguageCatalog(inspected.filter((entry) => entry.health.healthy).map((entry) => entry.adapter));
   return assertAstProgrammingLanguagesSupported(paths, catalog, options);
 }

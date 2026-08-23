@@ -2,6 +2,7 @@ import { createHash } from 'node:crypto';
 import path from 'node:path';
 import { lstat, readFile } from 'node:fs/promises';
 import { branch, changedFiles, gitDir, head } from './git.mjs';
+import { buildRepositoryChangeSet, changeSetPaths, repositoryCaseInsensitivePaths } from './repository-change-set.mjs';
 import { loadActiveSpecRecords } from './specifications.mjs';
 import { currentSchemaVersion, readRecord } from './schema-migrations.mjs';
 import {
@@ -223,25 +224,35 @@ export function isGeneratedOutputPath(candidate) {
 export function isApplicationPath(candidate) {
   const normalized = posix(candidate);
   if (!normalized || normalized.startsWith('.git/')) return false;
-  if (isGeneratedOutputPath(normalized)) return false;
   return !GOVERNED_ROOTS.some((root) => normalized === root || normalized.startsWith(`${root}/`));
 }
 
-const applicationPath = isApplicationPath;
+/**
+ * Classify one observed path with its Git provenance. A tracked path is application input by
+ * default, even when a directory happens to be named build, vendor, target, or coverage. Generated
+ * output exclusions apply only to untracked/ignored material unless a future pinned policy says
+ * otherwise.
+ */
+export function isApplicationChangePath(candidate, { untracked = false } = {}) {
+  return isApplicationPath(candidate) && !(untracked && isGeneratedOutputPath(candidate));
+}
+
+export function isApplicationChangeEntry(entry) {
+  return [entry?.oldPath, entry?.newPath].filter(Boolean).some((candidate) =>
+    isApplicationChangePath(candidate, { untracked: entry?.untracked === true && candidate === entry?.newPath }));
+}
 
 function splitNull(value) {
   return value.split('\0').map((item) => item.trim()).filter(Boolean);
 }
 
-function pathsSince(root, sourceBaseCommit) {
-  const committed = run('git', ['diff', '--name-only', '-z', sourceBaseCommit, 'HEAD'], {
-    cwd: root,
-    allowFailure: true
-  });
-  if (committed.status !== 0) {
-    throw new SingularityFlowError(`Work interval baseline commit ${sourceBaseCommit} is not available.`);
-  }
-  return [...new Set([...splitNull(committed.stdout), ...changedFiles(root)].filter(applicationPath))].sort();
+async function pathsSince(root, sourceBaseCommit) {
+  const changeSet = await buildRepositoryChangeSet(root, { baseCommit: sourceBaseCommit });
+  const applicationChangeSet = {
+    ...changeSet,
+    entries: changeSet.entries.filter(isApplicationChangeEntry)
+  };
+  return changeSetPaths(applicationChangeSet, { bothEndpoints: true });
 }
 
 /**
@@ -251,7 +262,7 @@ function pathsSince(root, sourceBaseCommit) {
  * tree misses source that was committed before `phase publish`; diffing from the Story base admits
  * work from earlier phases. The interval baseline is the single boundary that handles both cases.
  */
-export function changedApplicationPathsSinceBaseline(root, workflow, {
+export async function changedApplicationPathsSinceBaseline(root, workflow, {
   phaseId = workflow.currentPhase
 } = {}) {
   const current = workflow.workIntervals?.current;
@@ -295,8 +306,13 @@ async function plannedPaths(itemDirectory, workflow) {
   return byPath;
 }
 
-function pathProtected(candidate, guards) {
-  return guards.some((guard) => candidate === guard || candidate.startsWith(`${guard.replace(/\/$/, '')}/`));
+function pathProtected(candidate, guards, { caseInsensitive = false } = {}) {
+  const compared = caseInsensitive ? candidate.toLocaleLowerCase('en-US') : candidate;
+  return guards.some((guard) => {
+    const normalized = guard.replace(/\/$/, '');
+    const comparedGuard = caseInsensitive ? normalized.toLocaleLowerCase('en-US') : normalized;
+    return compared === comparedGuard || compared.startsWith(`${comparedGuard}/`);
+  });
 }
 
 export async function reconcileWorkInterval(root, config, workflow, {
@@ -311,15 +327,16 @@ export async function reconcileWorkInterval(root, config, workflow, {
     throw new SingularityFlowError(`Phase '${phase.id}' has no open governed work interval.`);
   }
   const baseline = await verifyWorkIntervalBaseline(root, config, workflow, { phaseId: phase.id, itemDirectory });
-  const paths = pathsSince(root, current.sourceBaseCommit);
+  const paths = await pathsSince(root, current.sourceBaseCommit);
   const evidence = await fileEvidence(root, paths);
   const planned = await plannedPaths(itemDirectory, workflow);
   const guards = protectedPaths(config, workflow);
+  const caseInsensitive = repositoryCaseInsensitivePaths(root);
   const findings = evidence.map((entry) => ({
     ...entry,
     verdict: planned.has(entry.path) ? 'planned' : 'unplanned',
     clauseIds: [...(planned.get(entry.path) ?? [])].sort(),
-    protected: pathProtected(entry.path, guards)
+    protected: pathProtected(entry.path, guards, { caseInsensitive })
   }));
   const changedPathLimit = Number(phase.approvalPolicy?.maximumChangedPaths ?? 5);
   const reasons = [];
@@ -330,7 +347,9 @@ export async function reconcileWorkInterval(root, config, workflow, {
   if (workflow.workItem.workType === 'quick-fix' && protectedChanged.length) {
     reasons.push(`protected paths changed: ${protectedChanged.join(', ')}`);
   }
-  const uncommittedApplicationPaths = changedFiles(root).filter(applicationPath);
+  const untracked = new Set(splitNull(run('git', ['ls-files', '--others', '--exclude-standard', '-z'], { cwd: root }).stdout).map(posix));
+  const uncommittedApplicationPaths = changedFiles(root)
+    .filter((candidate) => isApplicationChangePath(candidate, { untracked: untracked.has(candidate) }));
   const dirtyTargetBlocked = requireCleanTarget && uncommittedApplicationPaths.length > 0;
   if (dirtyTargetBlocked) {
     reasons.push(`uncommitted application paths remain: ${uncommittedApplicationPaths.join(', ')}`);
@@ -564,8 +583,9 @@ export function closeWorkInterval(workflow, {
 export async function createLocalCheckpoint(root, workflow, { name = null, note = null } = {}) {
   const current = workflow.workIntervals?.current;
   if (!current || current.status !== 'open') throw new SingularityFlowError('The current Story phase has no open governed work interval.');
-  const paths = pathsSince(root, current.sourceBaseCommit);
+  const paths = await pathsSince(root, current.sourceBaseCommit);
   const evidence = await fileEvidence(root, paths);
+  const untracked = new Set(splitNull(run('git', ['ls-files', '--others', '--exclude-standard', '-z'], { cwd: root }).stdout).map(posix));
   const core = {
     schemaVersion: currentSchemaVersion('work-checkpoint'),
     kind: 'work-checkpoint',
@@ -577,7 +597,8 @@ export async function createLocalCheckpoint(root, workflow, { name = null, note 
     baselineSha256: current.baselineSha256,
     branch: branch(root),
     head: head(root),
-    hasUncommittedBytes: changedFiles(root).filter(applicationPath).length > 0,
+    hasUncommittedBytes: changedFiles(root)
+      .some((candidate) => isApplicationChangePath(candidate, { untracked: untracked.has(candidate) })),
     durabilityNotice: 'This checkpoint stores fingerprints only. Uncommitted source bytes are not remotely durable.',
     name: name?.trim() || null,
     note: note?.trim() || null,

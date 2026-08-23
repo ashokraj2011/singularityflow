@@ -1,0 +1,78 @@
+name: Governance CI
+
+on:
+  pull_request:
+  push:
+    branches: [main]
+    tags: ['v*']
+
+permissions:
+  contents: read
+
+concurrency:
+  group: governance-ci-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  check:
+    name: npm run check
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+      - run: npm ci
+      - run: npm run check
+
+  full-suite:
+    name: npm test
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+      - run: npm ci
+      - run: npm test
+
+  provenance:
+    name: attest release artifacts
+    if: github.event_name == 'push'
+    needs: [check, full-suite]
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    permissions:
+      contents: read
+      id-token: write
+      attestations: write
+      artifact-metadata: write
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+      - run: npm ci
+      - name: Build release artifacts
+        run: |
+          npm pack
+          npm run vscode:build
+          npm run vscode:package
+      - name: Attest package provenance
+        uses: actions/attest@v4
+        with:
+          subject-path: |
+            ${{ github.workspace }}/*.tgz
+            ${{ github.workspace }}/apps/vscode/*.vsix
+      - uses: actions/upload-artifact@v4
+        with:
+          name: singularity-flow-${{ github.sha }}
+          if-no-files-found: error
+          path: |
+            *.tgz
+            apps/vscode/*.vsix

@@ -157,3 +157,23 @@ test('quick fixes touching protected paths require a non-destructive workflow es
   assert.match(plan.action, /not rewritten/);
   assert.equal(git(context.root, ['branch', '--show-current']), 'WORK-1');
 });
+
+test('tracked source remains governed under directories commonly used for generated output', async () => {
+  const context = await fixture();
+  const candidates = [
+    'src/vendor/crypto.c', 'services/build/compiler.ts', 'src/coverage/model.ts',
+    'modules/target/runtime.java', 'packages/node_modules/runtime.js'
+  ];
+  for (const candidate of candidates) {
+    await mkdir(path.dirname(path.join(context.root, candidate)), { recursive: true });
+    await writeFile(path.join(context.root, candidate), 'before\n');
+  }
+  git(context.root, ['add', '.']);
+  git(context.root, ['commit', '-m', 'tracked source layouts']);
+  await ensureWorkIntervalBaseline(context.root, context.config, context.workflow, context);
+  for (const candidate of candidates) await writeFile(path.join(context.root, candidate), 'after\n');
+  await mkdir(path.join(context.root, 'node_modules', 'scratch'), { recursive: true });
+  await writeFile(path.join(context.root, 'node_modules', 'scratch', 'output.js'), 'generated\n');
+  const report = await reconcileWorkInterval(context.root, context.config, context.workflow, context);
+  assert.deepEqual(report.findings.map((entry) => entry.path).sort(), candidates.sort());
+});

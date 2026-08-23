@@ -39,12 +39,16 @@ function fakeSpawn({ stdout = '', stderr = '', code = 0, delayMs = 0 } = {}) {
     child.stdout = new EventEmitter();
     child.stderr = new EventEmitter();
     child.stdin = { end() {} };
-    child.kill = () => { child.killed = true; };
-    setTimeout(() => {
+    let closed = false;
+    const close = () => {
+      if (closed) return;
+      closed = true;
       if (stdout) child.stdout.emit('data', Buffer.from(stdout, 'utf8'));
       if (stderr) child.stderr.emit('data', Buffer.from(stderr, 'utf8'));
       child.emit('close', code);
-    }, delayMs);
+    };
+    const timer = setTimeout(close, delayMs);
+    child.kill = () => { child.killed = true; clearTimeout(timer); setTimeout(close, 10); return true; };
     return child;
   };
 }
@@ -232,6 +236,23 @@ test('progress is reported per stream as it arrives', async () => {
     spawnImpl: fakeSpawn({ stdout: '{"ok":true}', stderr: 'building world model' })
   });
   assert.deepEqual(seen, [['stdout', '{"ok":true}'], ['stderr', 'building world model']]);
+});
+
+test('VS Code preserves UTF-8 split across CLI output chunks', async () => {
+  const value = JSON.stringify({ message: 'नमस्ते 🌍' });
+  const bytes = Buffer.from(value);
+  const splitSpawn = () => {
+    const child = new EventEmitter();
+    child.stdout = new EventEmitter(); child.stderr = new EventEmitter();
+    child.stdin = { end() {} }; child.kill = () => true;
+    setTimeout(() => {
+      child.stdout.emit('data', bytes.subarray(0, bytes.indexOf(Buffer.from('नमस्ते')) + 2));
+      child.stdout.emit('data', bytes.subarray(bytes.indexOf(Buffer.from('नमस्ते')) + 2));
+      child.emit('close', 0);
+    }, 0);
+    return child;
+  };
+  assert.deepEqual(await invoke({ spawnImpl: splitSpawn }), { message: 'नमस्ते 🌍' });
 });
 
 /** A Git repository that has actually been initialized with Singularity Flow. */

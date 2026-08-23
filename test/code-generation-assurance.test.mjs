@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import { createHash } from 'node:crypto';
-import { mkdtemp, mkdir, symlink, writeFile } from 'node:fs/promises';
+import { mkdtemp, mkdir, readFile, symlink, utimes, writeFile } from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
 import test from 'node:test';
@@ -10,9 +10,10 @@ import {
   normalizeRequiredTestCommand, parseTestResult, resolveAffectedModule, testReceiptPassing,
   testSuppression
 } from '../src/code-delivery-tests.mjs';
-import { generationSkillForPhase } from '../src/code-delivery-policy.mjs';
+import { generationSkillForPhase, normalizeCodeDeliveryPolicy } from '../src/code-delivery-policy.mjs';
+import { normalizeExternalCommand } from '../src/external-command-policy.mjs';
 import { taggedAcceptanceIds, verifyCodeDeliveryReceipt } from '../src/delivery-evidence.mjs';
-import { beginCodeGeneration } from '../src/generation-boundary.mjs';
+import { beginCodeGeneration, verifyOpenGenerationIntent } from '../src/generation-boundary.mjs';
 import {
   buildRepositoryChangeSet, evaluateProtectedPaths, evaluateSourceBoundary, parseRawDiff
 } from '../src/repository-change-set.mjs';
@@ -60,6 +61,26 @@ test('protected-path evaluation checks the source and destination of renames', (
   assert.deepEqual(evaluateProtectedPaths(changeSet, ['singularity']).violations.map((entry) => entry.endpoint), ['oldPath']);
 });
 
+test('protected-path evaluation follows the repository case policy', () => {
+  const changeSet = {
+    target: { caseInsensitivePaths: true },
+    entries: [{ changeId: 'one', status: 'modified', oldPath: 'Singularity/workflow.yml', newPath: 'Singularity/workflow.yml' }]
+  };
+  assert.equal(evaluateProtectedPaths(changeSet, ['singularity']).valid, false);
+});
+
+test('quality working directories cannot normalize outside the repository', () => {
+  for (const workingDirectory of ['src/../../../tmp', 'module/../../outside', 'src/../outside', '../tmp', '/tmp']) {
+    assert.throws(() => normalizeExternalCommand({ argv: ['node', '--test'], workingDirectory }), /repository-relative/);
+  }
+});
+
+test('unsupported code-delivery policy alternatives are rejected instead of silently ignored', () => {
+  assert.throws(() => normalizeCodeDeliveryPolicy({ mode: 'warn' }), /codeDelivery.mode/);
+  assert.throws(() => normalizeCodeDeliveryPolicy({ changeSet: { includeUntracked: false } }), /currently supports only true/);
+  assert.throws(() => normalizeCodeDeliveryPolicy({ tests: { stringCommands: 'compatibility-warn' } }), /stringCommands/);
+});
+
 test('raw parser retains type, modes, objects, and copy similarity', () => {
   const oldObject = 'a'.repeat(40), newObject = 'b'.repeat(40);
   const parsed = parseRawDiff(`:100644 100755 ${oldObject} ${newObject} C087\0src/a.js\0test/a.test.js\0`);
@@ -67,6 +88,16 @@ test('raw parser retains type, modes, objects, and copy similarity', () => {
     status: 'copied', similarity: 87, oldPath: 'src/a.js', newPath: 'test/a.test.js',
     oldMode: '100644', newMode: '100755', oldObject, newObject
   });
+});
+
+test('record-link-only change evidence hashes the Git symlink target bytes', async () => {
+  const root = await repository('symlink-target');
+  const baseline = git(root, ['rev-parse', 'HEAD']);
+  await symlink('../src/payment.js', path.join(root, 'payment-link.js'));
+  const changeSet = await buildRepositoryChangeSet(root, { baseCommit: baseline });
+  const link = changeSet.entries.find((entry) => entry.newPath === 'payment-link.js');
+  assert.equal(link.newContent.kind, 'symlink');
+  assert.equal(link.newContent.sha256, `sha256:${createHash('sha256').update('../src/payment.js').digest('hex')}`);
 });
 
 test('only current regular executable test sources satisfy delivery', async () => {
@@ -92,7 +123,11 @@ test('suppression flags and shell strings cannot satisfy required tests', () => 
   };
   assert.equal(normalizeRequiredTestCommand(base).kind, 'test');
   assert.match(testSuppression({ ...base, argv: ['mvn', 'test', '-DskipTests'] }), /disabled/);
+  assert.match(testSuppression({ ...base, argv: ['mvn', 'test', '-DskipTests=true'] }), /disabled/);
+  assert.match(testSuppression({ ...base, argv: ['mvn', 'test', '-Dmaven.test.skip'] }), /disabled/);
   assert.match(testSuppression({ ...base, argv: ['gradle', 'test', '-x', 'test'] }), /excluded/);
+  assert.match(testSuppression({ ...base, argv: ['gradle', 'test', '-x', ':module:test'] }), /excluded/);
+  assert.match(testSuppression({ ...base, argv: ['gradle', 'test', '--exclude-task=test'] }), /excluded/);
   assert.match(testSuppression({ ...base, argv: ['npx', 'vitest', '--passWithNoTests'] }), /zero discovered/);
   assert.throws(() => normalizeRequiredTestCommand('npm test'), (error) => error.code === 'CODE_TEST_RESULT_REQUIRED');
   assert.throws(() => normalizeRequiredTestCommand({ ...base, argv: ['mvn', 'test', '-DskipTests'] }), (error) => error.code === 'CODE_TEST_SUPPRESSED');
@@ -115,6 +150,22 @@ test('structured test receipts require discovery and zero failures', async () =>
   assert.equal(testReceiptPassing(receipt), true);
   assert.equal(testReceiptPassing({ ...receipt, tests: { ...receipt.tests, discovered: 0 } }), false);
   assert.equal(testReceiptPassing({ ...receipt, skipped: true }), false);
+});
+
+test('directory result discovery ignores stale siblings when fresh results exist', async () => {
+  const root = await mkdtemp(path.join(os.tmpdir(), 'sflow-cga-fresh-results-'));
+  await mkdir(path.join(root, 'results'), { recursive: true });
+  const old = path.join(root, 'results', 'old.xml');
+  const fresh = path.join(root, 'results', 'fresh.xml');
+  await writeFile(old, '<testsuite tests="99" failures="0"/>');
+  await utimes(old, new Date(0), new Date(0));
+  const startedAt = new Date().toISOString();
+  await writeFile(fresh, '<testsuite tests="2" failures="0"/>');
+  const parsed = await parseTestResult(root, {
+    id: 'junit', kind: 'test', argv: ['node', '--test'], workingDirectory: '.', affectedRoots: ['.'],
+    modelPolicy: 'never', result: { adapter: 'junit-xml', path: 'results', minimumDiscovered: 1 }
+  }, { startedAt });
+  assert.equal(parsed.tests.discovered, 2);
 });
 
 test('the TRX adapter counts failures, infrastructure outcomes, and skipped tests', async () => {
@@ -161,6 +212,22 @@ test('configured roots prefer the nearest override and Windows selects command w
   assert.deepEqual((await inferModuleTestCommand(root, module, { platform: 'win32' })).argv, ['mvnw.cmd', 'test']);
 });
 
+test('inferred commands follow monorepo package managers and platform-native runners', async () => {
+  const root = await mkdtemp(path.join(os.tmpdir(), 'sflow-cga-portable-runners-'));
+  await writeFile(path.join(root, 'pnpm-lock.yaml'), 'lockfileVersion: 9\n');
+  await mkdir(path.join(root, 'packages', 'web'), { recursive: true });
+  await writeFile(path.join(root, 'packages', 'web', 'package.json'), JSON.stringify({ scripts: { test: 'vitest run' } }));
+  const nodeCommand = await inferModuleTestCommand(root, {
+    root: 'packages/web', system: 'node', manifest: 'package.json'
+  });
+  assert.deepEqual(nodeCommand.argv.slice(0, 3), ['pnpm', 'test', '--']);
+  const pythonCommand = await inferModuleTestCommand(root, { root: '.', system: 'python', manifest: 'pyproject.toml' }, { platform: 'win32' });
+  assert.deepEqual(pythonCommand.argv.slice(0, 4), ['py', '-3', '-m', 'pytest']);
+  const swiftCommand = await inferModuleTestCommand(root, { root: '.', system: 'swift', manifest: 'Package.swift' });
+  assert.deepEqual(swiftCommand.argv.slice(0, 2), ['swift', 'test']);
+  assert.equal(swiftCommand.result.adapter, 'junit-xml');
+});
+
 test('acceptance tags preserve namespaces and reject ambiguous bare suffixes', async () => {
   const root = await mkdtemp(path.join(os.tmpdir(), 'sflow-cga-ac-'));
   await mkdir(path.join(root, 'tests'), { recursive: true });
@@ -170,6 +237,17 @@ test('acceptance tags preserve namespaces and reject ambiguous bare suffixes', a
   ]);
   assert.deepEqual(tags.ids, ['ORDER:AC-002']);
   assert.deepEqual(tags.ambiguous, [{ suffix: 'AC-001', matches: ['ORDER:AC-001', 'PAYMENT:AC-001'] }]);
+
+  await writeFile(path.join(root, 'tests', 'legacy.test.js'), '// @ac:MOBILE-101:AC-001\n');
+  const qualifiedLegacy = await taggedAcceptanceIds(root, ['tests/legacy.test.js'], ['AC-001'], {
+    requireNamespaceQualifiedIds: true
+  });
+  assert.deepEqual(qualifiedLegacy.ids, ['AC-001', 'MOBILE-101:AC-001']);
+  assert.deepEqual(qualifiedLegacy.ambiguous, []);
+  assert.deepEqual(qualifiedLegacy.bindings, [{
+    clauseId: 'AC-001', testSource: 'tests/legacy.test.js',
+    bindingAssurance: 'namespace-qualified-legacy-clause', tag: 'MOBILE-101:AC-001'
+  }]);
 });
 
 test('all code tasks route to the canonical skill without hard-coded phase names', () => {
@@ -200,6 +278,23 @@ test('generation begin is idempotent and refuses source mutated before its bound
     () => beginCodeGeneration(root, { workItemRoot: 'singularity/work-items' }, workflow, dirtyPhase, { persist: false }),
     (error) => error.code === 'GENERATION_DIRTY_START' && /--adopt-existing/.test(error.message)
   );
+});
+
+test('generation-start verification binds the entire durable receipt', async () => {
+  const root = await repository('intent-integrity');
+  const baseline = git(root, ['rev-parse', 'HEAD']);
+  const phase = { id: 'implementation', generation: 0, generationPolicy: { task: 'code' }, sourceBoundary: 'unrestricted' };
+  const workflow = {
+    workItem: { id: 'CGA-INTENT' },
+    workIntervals: { current: { phaseId: 'implementation', status: 'open', sourceBaseCommit: baseline } },
+    resolution: { codeDelivery: { generationBoundary: { dirtyStart: 'block' } } }
+  };
+  await beginCodeGeneration(root, { workItemRoot: 'singularity/work-items' }, workflow, phase, { persist: true });
+  const receiptPath = path.join(root, phase.generationIntent.path);
+  const receipt = JSON.parse(await readFile(receiptPath, 'utf8'));
+  receipt.sourceBoundary = 'test-automation';
+  await writeFile(receiptPath, `${JSON.stringify(receipt, null, 2)}\n`);
+  await assert.rejects(() => verifyOpenGenerationIntent(root, workflow, phase), /differs from its durable/);
 });
 
 test('approval replay binds the committed tree, change-set policy, and exact test receipt', async () => {
@@ -246,10 +341,17 @@ test('approval replay binds the committed tree, change-set policy, and exact tes
       receiptSha256: createHash('sha256').update(canonicalJson(testReceipt)).digest('hex'), status: 'passed'
     }],
     tree: { workingStateDigest: 'working', generationCommit, generationTree },
-    model: { task: 'code', assurance: 'unavailable', invocationIds: [] },
+    model: { task: 'code', required: true, authorshipProducer: 'governed-agent', assurance: 'unavailable', invocationIds: [] },
     status: 'ready', capturedAt: new Date(0).toISOString()
   };
   assert.equal((await verifyCodeDeliveryReceipt(root, receipt)).valid, true);
+  const insufficientModel = await verifyCodeDeliveryReceipt(root, receipt, { minimumModelAssurance: 'observed' });
+  assert.equal(insufficientModel.valid, false);
+  assert.ok(insufficientModel.errors.some((message) => /below required 'observed'/.test(message)));
+  const manualModel = await verifyCodeDeliveryReceipt(root, {
+    ...receipt, model: { ...receipt.model, required: false, authorshipProducer: 'human' }
+  }, { minimumModelAssurance: 'observed' });
+  assert.equal(manualModel.valid, true, 'human-authored delivery must not require a model invocation');
   await writeFile(path.join(root, testReceiptPath), `${JSON.stringify({ ...testReceipt, skipped: true }, null, 2)}\n`);
   const replay = await verifyCodeDeliveryReceipt(root, receipt);
   assert.equal(replay.valid, false);

@@ -24,6 +24,10 @@ const TEST_SOURCE_EXTENSIONS = new Set([
   '.c', '.cc', '.cpp', '.cs', '.cxx', '.go', '.java', '.js', '.jsx', '.kt', '.kts',
   '.mjs', '.mts', '.py', '.rb', '.rs', '.scala', '.swift', '.ts', '.tsx'
 ]);
+const MAX_RESULT_FILES = 1_000;
+const MAX_RESULT_DEPTH = 8;
+const MAX_RESULT_FILE_BYTES = 16 * 1024 * 1024;
+const MAX_RESULT_TOTAL_BYTES = 64 * 1024 * 1024;
 
 const MANIFESTS = Object.freeze({
   'pom.xml': 'maven',
@@ -123,6 +127,23 @@ function executable(platform, unix, windows) {
   return platform === 'win32' ? windows : unix;
 }
 
+async function nodePackageManager(root, moduleRoot, manifest) {
+  const declared = String(manifest.packageManager ?? '').split('@')[0].toLowerCase();
+  if (['npm', 'pnpm', 'yarn', 'bun'].includes(declared)) return declared;
+  let current = moduleRoot === '.' ? '' : normalized(moduleRoot);
+  while (true) {
+    const at = (name) => exists(path.join(root, current, name));
+    if (await at('pnpm-lock.yaml')) return 'pnpm';
+    if (await at('yarn.lock')) return 'yarn';
+    if (await at('bun.lockb') || await at('bun.lock')) return 'bun';
+    if (await at('package-lock.json') || await at('npm-shrinkwrap.json')) return 'npm';
+    if (!current) break;
+    const parent = path.posix.dirname(current);
+    current = parent === '.' ? '' : parent;
+  }
+  return 'npm';
+}
+
 export async function inferModuleTestCommand(root, module, { platform = process.platform } = {}) {
   const cwd = module.root === '.' ? '' : module.root;
   const at = (name) => exists(path.join(root, cwd, name));
@@ -149,15 +170,19 @@ export async function inferModuleTestCommand(root, module, { platform = process.
     case 'node': {
       const manifest = JSON.parse(await readFile(path.join(root, cwd, 'package.json'), 'utf8'));
       const script = String(manifest.scripts?.test ?? '');
+      const manager = await nodePackageManager(root, module.root, manifest);
+      const testArgv = manager === 'npm' ? ['npm', 'test', '--']
+        : manager === 'yarn' ? ['yarn', 'test']
+          : manager === 'pnpm' ? ['pnpm', 'test', '--'] : ['bun', 'run', 'test', '--'];
       if (/\bjest\b/i.test(script)) return {
         id: `${module.root}-node-tests`, kind: 'test',
-        argv: ['npm', 'test', '--', '--json', '--outputFile', `${resultBase}.json`],
+        argv: [...testArgv, '--json', '--outputFile', `${resultBase}.json`],
         workingDirectory: module.root, affectedRoots: [module.root], modelPolicy: 'never',
         result: { adapter: 'jest-json', path: `${resultBase}.json`, minimumDiscovered: 1 }
       };
       if (/\bvitest\b/i.test(script)) return {
         id: `${module.root}-node-tests`, kind: 'test',
-        argv: ['npm', 'test', '--', '--reporter=json', `--outputFile=${resultBase}.json`],
+        argv: [...testArgv, '--reporter=json', `--outputFile=${resultBase}.json`],
         workingDirectory: module.root, affectedRoots: [module.root], modelPolicy: 'never',
         result: { adapter: 'vitest-json', path: `${resultBase}.json`, minimumDiscovered: 1 }
       };
@@ -170,7 +195,9 @@ export async function inferModuleTestCommand(root, module, { platform = process.
       return null;
     }
     case 'python': return {
-      id: `${module.root}-python-tests`, kind: 'test', argv: ['python3', '-m', 'pytest', `--junitxml=${resultBase}.xml`], workingDirectory: module.root,
+      id: `${module.root}-python-tests`, kind: 'test', argv: platform === 'win32'
+        ? ['py', '-3', '-m', 'pytest', `--junitxml=${resultBase}.xml`]
+        : ['python3', '-m', 'pytest', `--junitxml=${resultBase}.xml`], workingDirectory: module.root,
       affectedRoots: [module.root], modelPolicy: 'never',
       result: { adapter: 'junit-xml', path: resultBase + '.xml', minimumDiscovered: 1 }
     };
@@ -185,7 +212,12 @@ export async function inferModuleTestCommand(root, module, { platform = process.
       affectedRoots: [module.root], modelPolicy: 'never',
       result: { adapter: 'dotnet-trx', path: 'TestResults', minimumDiscovered: 1 }
     };
-    case 'swift': return null;
+    case 'swift': return {
+      id: `${module.root}-swift-tests`, kind: 'test',
+      argv: ['swift', 'test', `--xunit-output=${resultBase}.xml`], workingDirectory: module.root,
+      affectedRoots: [module.root], modelPolicy: 'never',
+      result: { adapter: 'junit-xml', path: resultBase + '.xml', minimumDiscovered: 1 }
+    };
     default: throw new SingularityFlowError(`Unsupported build system '${module.system}'.`, { code: 'TEST_MODULE_UNCOVERED' });
   }
 }
@@ -199,12 +231,15 @@ export function testSuppression(command) {
   const tokens = lowerTokens(normalizedCommand);
   const joined = tokens.join(' ');
   const adapter = normalizedCommand.result?.adapter;
-  if (tokens.some((token) => token === '-dskiptests' || token === '-dmaven.test.skip=true')) return 'Maven test execution is disabled.';
-  if (tokens.some((token, index) => ['-x', '--exclude-task'].includes(token) && tokens[index + 1] === 'test')) return 'Gradle test execution is excluded.';
-  if (tokens.includes('--passwithnotests')) return 'The command permits zero discovered tests.';
-  if (tokens.some((token) => ['--collect-only', '--collectonly', '--co'].includes(token))) return 'Pytest is configured for collection only.';
-  if (tokens.some((token) => ['--list', '--list-only'].includes(token)) && (adapter === 'playwright-json' || joined.includes('playwright'))) return 'Playwright is configured for list-only mode.';
-  if (tokens.some((token) => ['--dry-run', '--dryrun'].includes(token))) return 'The test command is configured as a dry run.';
+  const compact = (value) => value.replace(/[_.-]/g, '');
+  if (tokens.some((token) => /^-d(?:maven\.test\.skip|skiptests)(?:=(?:true|1|yes|on))?$/i.test(token))) return 'Maven test execution is disabled.';
+  const excludedTask = (value) => String(value ?? '').split('=').at(-1).split(':').filter(Boolean).at(-1) === 'test';
+  if (tokens.some((token, index) => ['-x', '--exclude-task', '--exclude-task='].some((flag) => token === flag || token.startsWith(flag))
+    && (excludedTask(token) || excludedTask(tokens[index + 1])))) return 'Gradle test execution is excluded.';
+  if (tokens.some((token) => compact(token.replace(/^--/, '')) === 'passwithnotests')) return 'The command permits zero discovered tests.';
+  if (tokens.some((token) => ['collectonly', 'co'].includes(compact(token.replace(/^-+/, ''))))) return 'Pytest is configured for collection only.';
+  if (tokens.some((token) => ['list', 'listonly'].includes(compact(token.replace(/^-+/, '')))) && (adapter === 'playwright-json' || joined.includes('playwright'))) return 'Playwright is configured for list-only mode.';
+  if (tokens.some((token) => ['dryrun', 'dry'].includes(compact(token.replace(/^-+/, ''))))) return 'The test command is configured as a dry run.';
   return null;
 }
 
@@ -270,17 +305,26 @@ function countsFromJson(adapter, parsed) {
   };
 }
 
-async function resultFiles(absolute, adapter) {
+async function resultFiles(absolute, adapter, state = { files: 0 }, depth = 0) {
+  if (depth > MAX_RESULT_DEPTH) {
+    throw new SingularityFlowError(`Structured test result directory exceeds depth ${MAX_RESULT_DEPTH}.`, { code: 'CODE_TEST_RESULT_REQUIRED' });
+  }
   const info = await lstat(absolute).catch((error) => error?.code === 'ENOENT' ? null : Promise.reject(error));
   if (!info || info.isSymbolicLink()) return [];
-  if (info.isFile()) return [{ absolute, info }];
+  if (info.isFile()) {
+    if (++state.files > MAX_RESULT_FILES) throw new SingularityFlowError(`Structured test results exceed ${MAX_RESULT_FILES} files.`, { code: 'CODE_TEST_RESULT_REQUIRED' });
+    return [{ absolute, info }];
+  }
   if (!info.isDirectory() || !['junit-xml', 'dotnet-trx'].includes(adapter)) return [];
   const extension = adapter === 'dotnet-trx' ? /\.trx$/i : /\.xml$/i;
   const output = [];
   for (const entry of await readdir(absolute, { withFileTypes: true })) {
     const target = path.join(absolute, entry.name);
-    if (entry.isDirectory()) output.push(...await resultFiles(target, adapter));
-    else if (entry.isFile() && extension.test(entry.name)) output.push({ absolute: target, info: await lstat(target) });
+    if (entry.isDirectory()) output.push(...await resultFiles(target, adapter, state, depth + 1));
+    else if (entry.isFile() && extension.test(entry.name)) {
+      if (++state.files > MAX_RESULT_FILES) throw new SingularityFlowError(`Structured test results exceed ${MAX_RESULT_FILES} files.`, { code: 'CODE_TEST_RESULT_REQUIRED' });
+      output.push({ absolute: target, info: await lstat(target) });
+    }
   }
   return output.sort((left, right) => left.absolute.localeCompare(right.absolute));
 }
@@ -294,14 +338,19 @@ export async function parseTestResult(root, command, { startedAt = null } = {}) 
     throw new SingularityFlowError('Test result path resolves outside the repository.', { code: 'CODE_TEST_RESULT_REQUIRED' });
   }
   const adapter = normalizedCommand.result.adapter;
-  const files = await resultFiles(absolute, adapter);
+  let files = await resultFiles(absolute, adapter);
   if (!files.length) {
     throw new SingularityFlowError(`Required structured test result is unavailable: ${normalizedCommand.result.path}`, { code: 'CODE_TEST_RESULT_REQUIRED' });
   }
   const startMs = startedAt ? Date.parse(startedAt) : null;
-  if (Number.isFinite(startMs) && files.some((file) => file.info.mtimeMs + 1000 < startMs)) {
+  if (Number.isFinite(startMs)) files = files.filter((file) => file.info.mtimeMs + 1000 >= startMs);
+  if (!files.length) {
     throw new SingularityFlowError(`Structured test result is stale: ${normalizedCommand.result.path}`, { code: 'CODE_TEST_RESULT_REQUIRED' });
   }
+  const oversized = files.find((file) => file.info.size > MAX_RESULT_FILE_BYTES);
+  if (oversized) throw new SingularityFlowError(`Structured test result exceeds ${MAX_RESULT_FILE_BYTES} bytes: ${path.basename(oversized.absolute)}`, { code: 'CODE_TEST_RESULT_REQUIRED' });
+  const declaredBytes = files.reduce((total, file) => total + file.info.size, 0);
+  if (declaredBytes > MAX_RESULT_TOTAL_BYTES) throw new SingularityFlowError(`Structured test results exceed ${MAX_RESULT_TOTAL_BYTES} total bytes.`, { code: 'CODE_TEST_RESULT_REQUIRED' });
   const contents = await Promise.all(files.map((file) => readFile(file.absolute)));
   const bytes = Buffer.concat(contents.flatMap((content, index) => index ? [Buffer.from('\n'), content] : [content]));
   let tests;

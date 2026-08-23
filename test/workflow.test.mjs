@@ -515,6 +515,10 @@ test('feature profile publishes generations, records tokens, approvals, and conf
   for (const phase of Object.values(definition.phases)) {
     if (phase.worldModel) phase.worldModel.depth = 'light';
   }
+  // This lifecycle fixture supplies synthetic usage rather than a model-invocation audit. Pin the
+  // lowest accepted assurance explicitly; the default observed tier is exercised by the assurance
+  // refusal tests and must not be forged from this usage record.
+  definition.codeDelivery.model.minimumAssurance = 'unavailable';
   await writeFile(definitionPath, YAML.stringify(definition));
   execute('git', ['add', 'singularity/workflow.yml'], root);
   execute('git', ['commit', '-m', 'Use light grounding for lifecycle fixture'], root);
@@ -540,7 +544,7 @@ test('feature profile publishes generations, records tokens, approvals, and conf
     }
     if (phaseId === 'implementation') {
       await mkdir(path.join(root, 'src'), { recursive: true }); await mkdir(path.join(root, 'tests'), { recursive: true });
-      await writeFile(path.join(root, 'src/feature.mjs'), 'export const feature = true; // SPEC-001\n'); await writeFile(path.join(root, 'tests/feature.test.mjs'), '// @ac:AC-001 SPEC-001\n');
+      await writeFile(path.join(root, 'src/feature.mjs'), 'export const feature = true; // SPEC-001\n'); await writeFile(path.join(root, 'tests/feature.test.mjs'), '// @ac:FEATURE-101:AC-001 SPEC-001\n');
     }
     const usagePath = path.join(root, '.git/usage.json'); await writeFile(usagePath, JSON.stringify({ provider: 'test', model: 'test-model', inputTokens: 10, outputTokens: 5, totalTokens: 15 }));
     flow(root, ['phase', 'publish', phaseId, '--authored', 'governed-agent', '--channel', 'copilot-host', '--usage-json', usagePath], { selection: selection('feature', agents[phaseId]) });
@@ -597,7 +601,7 @@ test('figma-mobile completes the governed design-to-visual-conformance lifecycle
     if (phaseId === 'implementation') {
       await mkdir(path.join(root, 'src'), { recursive: true }); await mkdir(path.join(root, 'tests'), { recursive: true });
       await writeFile(path.join(root, 'src/mobile.mjs'), 'export const mobile = true; // SPEC-001\n');
-      await writeFile(path.join(root, 'tests/mobile.test.mjs'), '// @ac:AC-001 SPEC-001\n');
+      await writeFile(path.join(root, 'tests/mobile.test.mjs'), '// @ac:MOBILE-101:AC-001 SPEC-001\n');
     }
     if (phaseId === 'visual-verification') {
       for (const profile of workflow.resolution.verification.profiles) {

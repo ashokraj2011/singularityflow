@@ -225,7 +225,7 @@ test('an unsupported AST language does not block ordinary code publication', asy
   const context = await codeFixture('unsupported-language');
   await mkdir(path.join(context.root, 'src', 'test'), { recursive: true });
   await writeFile(path.join(context.root, 'src', 'app.cpp'), 'int answer() { return 42; }\n');
-  await writeFile(path.join(context.root, 'src', 'test', 'app.test.cpp'), '// @ac:AC-001\nint main() { return answer() == 42 ? 0 : 1; }\n');
+  await writeFile(path.join(context.root, 'src', 'test', 'app.test.cpp'), '// @ac:DELIVERY-1:AC-001\nint main() { return answer() == 42 ? 0 : 1; }\n');
   await inContext(context.root, async () => {
     await publishGeneration(context.root, context.config, context.workflow, {
       phaseId: 'implementation', authorship: AUTHORSHIP, persist: false
@@ -241,7 +241,7 @@ test('an AST-off code phase publishes through normal non-AST file access', async
   context.config.ast = { ...context.config.ast, mode: 'off' };
   await mkdir(path.join(context.root, 'src', 'test'), { recursive: true });
   await writeFile(path.join(context.root, 'src', 'app.cpp'), 'int answer() { return 42; }\n');
-  await writeFile(path.join(context.root, 'src', 'test', 'app.test.cpp'), '// @ac:AC-001\nint main() { return answer() == 42 ? 0 : 1; }\n');
+  await writeFile(path.join(context.root, 'src', 'test', 'app.test.cpp'), '// @ac:DELIVERY-1:AC-001\nint main() { return answer() == 42 ? 0 : 1; }\n');
   await inContext(context.root, async () => {
     await publishGeneration(context.root, context.config, context.workflow, {
       phaseId: 'implementation', authorship: AUTHORSHIP, persist: false
@@ -260,7 +260,7 @@ test('an AST-off workflow profile bypasses AST without weakening ordinary delive
   };
   await mkdir(path.join(context.root, 'src', 'test'), { recursive: true });
   await writeFile(path.join(context.root, 'src', 'app.cpp'), 'int answer() { return 42; }\n');
-  await writeFile(path.join(context.root, 'src', 'test', 'app.test.cpp'), '// @ac:AC-001\nint main() { return answer() == 42 ? 0 : 1; }\n');
+  await writeFile(path.join(context.root, 'src', 'test', 'app.test.cpp'), '// @ac:DELIVERY-1:AC-001\nint main() { return answer() == 42 ? 0 : 1; }\n');
   await inContext(context.root, async () => {
     await publishGeneration(context.root, context.config, context.workflow, {
       phaseId: 'implementation', authorship: AUTHORSHIP, persist: false
@@ -274,7 +274,7 @@ test('a code phase publishes source and acceptance-mapped tests with a delivery 
   const context = await codeFixture('complete');
   await mkdir(path.join(context.root, 'src', 'test'), { recursive: true });
   await writeFile(path.join(context.root, 'src', 'app.java'), 'final class App {}\n');
-  await writeFile(path.join(context.root, 'src', 'test', 'AppTest.java'), '/** @ac:AC-001 */\nfinal class AppTest {}\n');
+  await writeFile(path.join(context.root, 'src', 'test', 'AppTest.java'), '/** @ac:DELIVERY-1:AC-001 */\nfinal class AppTest {}\n');
   await inContext(context.root, async () => {
     await publishGeneration(context.root, context.config, context.workflow, {
       phaseId: 'implementation', authorship: AUTHORSHIP, persist: false
@@ -291,4 +291,21 @@ test('a code phase publishes source and acceptance-mapped tests with a delivery 
   assert.equal(receipt.status, 'pending-tests');
   assert.equal(receipt.generationIntentId, context.phase.generationIntent.id);
   assert.equal(receipt.changeSet.digest, context.phase.deliveryEvidence.changeSet.digest);
+
+  const retried = await inContext(context.root, () => publishGeneration(
+    context.root, context.config, context.workflow,
+    { phaseId: 'implementation', authorship: AUTHORSHIP, persist: false }
+  ));
+  assert.equal(retried.generation, 1, 'an unchanged retry created another generation');
+
+  await writeFile(
+    path.join(context.root, context.phase.deliveryEvidence.receiptPath),
+    `${JSON.stringify({ ...receipt, status: 'tampered-secondary-output' }, null, 2)}\n`
+  );
+  await inContext(context.root, () => assert.rejects(
+    () => publishGeneration(context.root, context.config, context.workflow, {
+      phaseId: 'implementation', authorship: AUTHORSHIP, persist: false
+    }),
+    /already consumed and the source or artifact bytes now differ/
+  ));
 });

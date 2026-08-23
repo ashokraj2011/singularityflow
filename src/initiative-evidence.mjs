@@ -26,6 +26,7 @@ import { harvestInitiativeKnowledge } from './knowledge.mjs';
 // this one — that cycle is what stopped the approval path from harvesting knowledge. See records.mjs.
 import { canonicalJson, recordSha256 } from './records.mjs';
 import { currentSchemaVersion, readRecord } from './schema-migrations.mjs';
+import { repositoryCaseInsensitivePaths } from './repository-change-set.mjs';
 
 export { canonicalJson, recordSha256 };
 
@@ -785,8 +786,13 @@ export async function publishInitiativePhase(root, initiativeId, phaseId, { agen
   if (phase.status !== 'in_progress') throw new SingularityFlowError(`Initiative phase '${phaseId}' is ${phase.status}.`);
   await verifyInitiativePhaseInputs(root, portfolio, initiative, phaseId);
   const protectedPaths = initiative.resolution?.capability?.policy?.protectedPaths ?? [];
-  const protectedChange = protectedPaths.find((protectedPath) => changedFiles(root)
-    .some((file) => file === protectedPath || file.startsWith(`${protectedPath}/`)));
+  const ignoreCase = repositoryCaseInsensitivePaths(root);
+  const compare = (value) => ignoreCase ? value.toLocaleLowerCase('en-US') : value;
+  const protectedChange = protectedPaths.find((protectedPath) => changedFiles(root).some((file) => {
+    const candidate = compare(file);
+    const guard = compare(protectedPath.replace(/\/$/, ''));
+    return candidate === guard || candidate.startsWith(`${guard}/`);
+  }));
   if (protectedChange) {
     throw new SingularityFlowError(`Initiative generation cannot modify protected capability path: ${protectedChange}`);
   }

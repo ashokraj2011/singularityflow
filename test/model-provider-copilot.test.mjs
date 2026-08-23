@@ -29,6 +29,12 @@ test('the Copilot provider uses structured argv and captures bounded output', as
   assert.equal(result.output, 'provider output');
 });
 
+test('the Copilot provider preserves UTF-8 characters split across process chunks', async () => {
+  const root = await mkdtemp(path.join(os.tmpdir(), 'sflow-provider-utf8-'));
+  const result = await invoke(root, 'const b=Buffer.from("नमस्ते 🌍"); process.stdout.write(b.subarray(0,5)); setTimeout(() => process.stdout.write(b.subarray(5)), 10)');
+  assert.equal(result.output, 'नमस्ते 🌍');
+});
+
 test('the Copilot provider enforces none, allowlist, and all tool policies in argv', async () => {
   const root = await mkdtemp(path.join(os.tmpdir(), 'sflow-provider-tools-'));
   const argvScript = 'process.stdout.write(JSON.stringify(process.argv.slice(1)))';

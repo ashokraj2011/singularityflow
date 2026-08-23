@@ -1,5 +1,5 @@
 import assert from 'node:assert/strict';
-import { access, lstat, mkdtemp, readFile, writeFile } from 'node:fs/promises';
+import { access, lstat, mkdtemp, readFile, symlink, writeFile } from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
 import test from 'node:test';
@@ -61,4 +61,16 @@ test('a staged prompt remains an immutable snapshot when its source changes', as
     await writeFile(source, 'replacement bytes');
     assert.equal(await readFile(staged.file, 'utf8'), 'first bytes');
   } finally { await staged.cleanup(); }
+});
+
+test('file prompt staging rejects symlinks and oversize files before staging', async () => {
+  const root = await mkdtemp(path.join(os.tmpdir(), 'sflow-stage-file-boundary-'));
+  const source = path.join(root, 'source.md');
+  await writeFile(source, '12345');
+  const linked = path.join(root, 'linked.md');
+  await symlink(source, linked);
+  await assert.rejects(() => stageModelPrompt({ file: linked }, { maximumBytes: 10, tempRoot: root }),
+    (error) => error.code === 'MODEL_REQUEST_INVALID' || error.cause?.code === 'ELOOP');
+  await assert.rejects(() => stageModelPrompt({ file: source }, { maximumBytes: 4, tempRoot: root }),
+    (error) => error.code === 'MODEL_PROMPT_LIMIT');
 });

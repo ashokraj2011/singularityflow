@@ -170,8 +170,23 @@ if (existsSync(path.join(root, 'examples', 'singularity-flow-approve.yml'))) {
 }
 
 const hostedAutomationRoot = ['.github', 'workflows'].join('/');
-if (allFiles.some((file) => path.relative(root, file).startsWith(`${hostedAutomationRoot}/`))) {
-  fail(`${hostedAutomationRoot}/ must remain absent; use the local release and verification scripts.`);
+const governanceWorkflow = path.join(root, hostedAutomationRoot, 'governance-ci.yml');
+if (!existsSync(governanceWorkflow)) {
+  fail(`${hostedAutomationRoot}/governance-ci.yml must enforce check, full-suite, and release provenance.`);
+} else {
+  try {
+    const workflowText = await readFile(governanceWorkflow, 'utf8');
+    const workflow = YAML.parse(workflowText);
+    const jobs = workflow?.jobs ?? {};
+    const commands = workflowText.match(/\bnpm (?:run check|test)\b/g) ?? [];
+    if (!jobs.check || !jobs['full-suite'] || !jobs.provenance
+        || !commands.includes('npm run check') || !commands.includes('npm test')
+        || !/actions\/attest@v\d+/.test(workflowText)) {
+      fail(`${hostedAutomationRoot}/governance-ci.yml must retain check, full-suite, and attested-provenance jobs.`);
+    } else checked.push(path.relative(root, governanceWorkflow));
+  } catch (error) {
+    fail(`${hostedAutomationRoot}/governance-ci.yml is unreadable: ${error.message}`);
+  }
 }
 for (const file of allFiles.filter((candidate) => candidate.endsWith('.mjs'))) {
   const result = spawnSync(process.execPath, ['--check', file], { encoding: 'utf8' });

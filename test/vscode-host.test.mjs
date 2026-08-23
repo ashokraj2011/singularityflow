@@ -1960,7 +1960,7 @@ test('the packaged POC release candidate journey survives publication, review, C
         "import assert from 'node:assert/strict';",
         "import test from 'node:test';",
         '',
-        '/** @ac:AC-001 */',
+        '/** @ac:POC:AC-001 */',
         "test('generated POC scenario is executable', () => assert.equal(true, true));",
         ''
       ].join('\n'));

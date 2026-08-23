@@ -9,6 +9,7 @@ PUBLIC_REGISTRY="https://registry.npmjs.org/"
 REGISTRY_OVERRIDE="${SINGULARITY_FLOW_NPM_REGISTRY:-${NPM_CONFIG_REGISTRY:-}}"
 ENABLE_COPILOT_TELEMETRY="${SINGULARITY_FLOW_COPILOT_TELEMETRY:-on}"
 CLI_ONLY="off"
+SKIP_VSCODE="off"
 SKIP_TESTS="off"
 FACTORY_RESET="off"
 FACTORY_RESET_CONFIRMED="off"
@@ -17,6 +18,7 @@ REINSTALL_DRY_RUN="off"
 REINSTALL_CONFIRM=""
 REFRESH_REGISTERED_WORKSPACE_CONFIGURATION="on"
 REFRESH_VSCE_TOOLCHAIN="off"
+VSIX_PATH=""
 
 # Every long-running step prints its own elapsed seconds. The last slow-install investigation had
 # to be reconstructed from npm's debug logs; the transcript itself should answer "which step".
@@ -27,7 +29,7 @@ step_end() { printf '%s\n' "  ${STEP_LABEL}: $((SECONDS - STEP_STARTED))s"; }
 
 usage() {
   printf '%s\n' \
-    'Usage: ./install.sh [--registry URL] [--no-copilot-telemetry] [--cli-only] [--skip-tests] [--refresh-vsce-toolchain] [--no-workspace-configuration-refresh]' \
+    'Usage: ./install.sh [--registry URL] [--no-copilot-telemetry] [--cli-only | --skip-vscode] [--skip-tests] [--refresh-vsce-toolchain] [--no-workspace-configuration-refresh]' \
     '       ./install.sh --clean-reinstall [--dry-run | --confirm "REINSTALL SINGULARITY FLOW <fingerprint>"] [--registry URL] [--cli-only]' \
     '       ./install.sh --factory-reset [--yes] [--registry URL] [--cli-only]' \
     '' \
@@ -45,6 +47,7 @@ usage() {
     'managed telemetry wrapper. It never reads or changes Git repositories or workspaces.' \
     '' \
     '--skip-tests keeps npm run check and all requested builds, but skips npm test' \
+    '--skip-vscode installs the CLI, Copilot plugin, skills, and telemetry without replacing the VS Code extension' \
     '--refresh-vsce-toolchain reinstalls the cached VSCE packaging toolchain instead of reusing it' \
     'or test:cli. Use it only when this exact commit has already passed its tests.'
 }
@@ -67,6 +70,10 @@ while (($#)); do
     --cli-only)
       CLI_ONLY="on"
       ENABLE_COPILOT_TELEMETRY="off"
+      shift
+      ;;
+    --skip-vscode)
+      SKIP_VSCODE="on"
       shift
       ;;
     --refresh-vsce-toolchain)
@@ -125,6 +132,14 @@ esac
 
 if [[ "$FACTORY_RESET_CONFIRMED" == "on" && "$FACTORY_RESET" != "on" ]]; then
   printf '%s\n' 'Error: --yes is valid only with --factory-reset.' >&2
+  exit 1
+fi
+if [[ "$CLI_ONLY" == "on" && "$SKIP_VSCODE" == "on" ]]; then
+  printf '%s\n' 'Error: --cli-only already skips VS Code; pass only one of these options.' >&2
+  exit 1
+fi
+if [[ "$SKIP_VSCODE" == "on" && ( "$FACTORY_RESET" == "on" || "$CLEAN_REINSTALL" == "on" ) ]]; then
+  printf '%s\n' 'Error: --skip-vscode is supported only by a normal install; reset and clean-reinstall replace their complete declared surface.' >&2
   exit 1
 fi
 
@@ -338,7 +353,7 @@ if [[ "$CLI_ONLY" == "on" ]]; then
   fi
 else
   step_begin 'Building the VS Code extension'
-  npm run vscode:build
+  if [[ "$SKIP_VSCODE" != "on" ]]; then npm run vscode:build; fi
   step_end
   if [[ "$SKIP_TESTS" == "on" ]]; then
     printf '%s\n' 'WARNING: full test suite skipped by request; this exact commit must already have passed it.' >&2
@@ -392,26 +407,61 @@ TARBALL="$(PACK_OUTPUT="$PACK_OUTPUT" node -e '
   process.stdout.write(result[0].filename);
 ')"
 
-printf '%s\n' 'Replacing the globally installed CLI...'
-step_begin 'Installing the CLI globally'
-npm uninstall --global singularity-flow >/dev/null 2>&1 || true
-npm install --global "$PROJECT_DIR/$TARBALL" --registry="$REGISTRY"
-step_end
-
-if [[ "$CLI_ONLY" != "on" ]]; then
+# Build every requested artifact before replacing any active surface. A packaging failure now leaves
+# the existing CLI, extension, plugin, and telemetry configuration untouched.
+if [[ "$CLI_ONLY" != "on" && "$SKIP_VSCODE" != "on" ]]; then
+  VSIX_MANIFEST="$PROJECT_DIR/apps/vscode/package.json"
+  VSIX_BUILD_MARKER=''
+  if [[ -f "$VSIX_MANIFEST" ]]; then
+    VSIX_PATH="$(node -e '
+      const manifest = require(process.argv[1]);
+      process.stdout.write(require("node:path").join(process.argv[2], `${manifest.name}-${manifest.version}.vsix`));
+    ' "$VSIX_MANIFEST" "$PROJECT_DIR/apps/vscode")"
+    rm -f "$VSIX_PATH"
+  else
+    # A copied standalone installer has no manifest from which to derive the filename. Bind its
+    # result to this packaging invocation by accepting exactly one archive newer than the marker;
+    # pre-existing sibling archives can never be selected.
+    VSIX_BUILD_MARKER="$(mktemp "${TMPDIR:-/tmp}/sflow-vsix-build.XXXXXX")"
+    VSIX_PATH=''
+  fi
   step_begin 'Packaging the VS Code extension'
   npm run vscode:package
   step_end
-  VSIX_PATH="$(find "$PROJECT_DIR/apps/vscode" -maxdepth 1 -type f -name 'singularity-flow-vscode-*.vsix' -print | sort | tail -1)"
-  [[ -n "$VSIX_PATH" ]] || { printf '%s\n' 'Error: VS Code packaging did not produce a .vsix.' >&2; exit 1; }
+  if [[ -n "$VSIX_BUILD_MARKER" ]]; then
+    VSIX_CANDIDATES=()
+    while IFS= read -r candidate; do VSIX_CANDIDATES+=("$candidate"); done < <(
+      find "$PROJECT_DIR/apps/vscode" -maxdepth 1 -type f -name '*.vsix' -newer "$VSIX_BUILD_MARKER" -print 2>/dev/null
+    )
+    rm -f "$VSIX_BUILD_MARKER"
+    if [[ "${#VSIX_CANDIDATES[@]}" -ne 1 ]]; then
+      printf 'Error: VS Code packaging produced %s fresh archives; expected exactly one.\n' "${#VSIX_CANDIDATES[@]}" >&2
+      exit 1
+    fi
+    VSIX_PATH="${VSIX_CANDIDATES[0]}"
+  fi
+  [[ -f "$VSIX_PATH" ]] || { printf 'Error: VS Code packaging did not produce expected archive: %s\n' "$VSIX_PATH" >&2; exit 1; }
+fi
+
+if [[ "$CLI_ONLY" != "on" && "$SKIP_VSCODE" != "on" ]]; then
   if command -v code >/dev/null 2>&1; then
     step_begin 'Installing the VS Code extension'
-    code --install-extension "$VSIX_PATH" --force
+    if ! code --install-extension "$VSIX_PATH" --force; then
+      printf '%s\n' 'Error: VS Code did not accept the newly packaged extension; the existing CLI and Copilot plugin were not changed.' >&2
+      printf 'Retry exactly: code --install-extension %q --force\n' "$VSIX_PATH" >&2
+      exit 1
+    fi
     step_end
   else
     printf 'VS Code CLI not found; install the extension later with: code --install-extension %s --force\n' "$VSIX_PATH"
   fi
 fi
+
+printf '%s\n' 'Replacing the globally installed CLI...'
+step_begin 'Installing the CLI globally'
+npm uninstall --global singularity-flow >/dev/null 2>&1 || true
+npm install --global "$PROJECT_DIR/$TARBALL" --registry="$REGISTRY"
+step_end
 
 if [[ "$CLI_ONLY" != "on" ]]; then
   step_begin 'Replacing previous Copilot plugin copies'
@@ -426,8 +476,29 @@ if [[ "$CLI_ONLY" != "on" ]]; then
 fi
 
 step_begin 'Refreshing approved configuration in every registered workspace repository'
-refresh_registered_workspace_configurations
+WORKSPACE_REFRESH_STATUS="complete"
+if ! refresh_registered_workspace_configurations; then
+  WORKSPACE_REFRESH_STATUS="pending"
+  printf '%s\n' 'WARNING: product surfaces are installed, but workspace configuration refresh is pending.' >&2
+  printf '%s\n' 'Retry exactly: singularity-flow workspace refresh-configuration' >&2
+fi
 step_end
+
+# The manifest is written only after every requested product surface has completed. Workspace
+# maintenance has its own explicit pending state and retry command, so a slow or unavailable clone
+# cannot make an otherwise coherent installation look rolled back.
+INSTALL_MANIFEST_DIR="$HOME/.singularity-flow/installations"
+mkdir -p "$INSTALL_MANIFEST_DIR"
+INSTALL_MANIFEST_TEMP="$(mktemp "$INSTALL_MANIFEST_DIR/current.json.XXXXXX")"
+node -e '
+  const fs = require("node:fs");
+  const [file, version, checkout, tarball, vsix, workspaceRefresh] = process.argv.slice(1);
+  fs.writeFileSync(file, JSON.stringify({
+    schemaVersion: 1, status: workspaceRefresh === "complete" ? "complete" : "workspace-refresh-pending",
+    version, checkout, tarball, vsix: vsix || null, workspaceRefresh, installedAt: new Date().toISOString()
+  }, null, 2) + "\n", {mode: 0o600});
+' "$INSTALL_MANIFEST_TEMP" "$(singularity-flow --version)" "$PROJECT_DIR" "$PROJECT_DIR/$TARBALL" "$VSIX_PATH" "$WORKSPACE_REFRESH_STATUS"
+mv "$INSTALL_MANIFEST_TEMP" "$INSTALL_MANIFEST_DIR/current.json"
 
 printf '\nInstalled Singularity Flow %s\n' "$(singularity-flow --version)"
 # Named explicitly, because the CLI on PATH is a *copy* and not a link to this checkout: editing

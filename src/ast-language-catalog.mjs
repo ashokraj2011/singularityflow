@@ -34,9 +34,24 @@ const BUILTIN_ENTRIES = Object.freeze([
 // source census plus native C/C++ header and Objective-C variants.
 const PROGRAMMING_SOURCE_EXTENSIONS = new Set([
   '.c', '.cc', '.cpp', '.cxx', '.h', '.hh', '.hpp', '.hxx',
-  '.cs', '.dart', '.go', '.java', '.js', '.jsx', '.kt', '.kts', '.m', '.mm',
-  '.php', '.py', '.pyi', '.rb', '.rs', '.scala', '.sh', '.swift', '.ts', '.tsx',
-  '.vue', '.svelte'
+  '.clj', '.cljc', '.cljs', '.cs', '.dart', '.ex', '.exs', '.fs', '.fsi', '.fsx',
+  '.go', '.groovy', '.gsh', '.gvy', '.gy', '.java', '.js', '.jsx', '.kt', '.kts',
+  '.lua', '.m', '.mm', '.php', '.pl', '.proto', '.py', '.pyi', '.r', '.rb', '.rs',
+  '.scala', '.sh', '.sol', '.swift', '.ts', '.tsx', '.vue', '.svelte', '.zig'
+]);
+
+// Unknown files selected by an AST operation fail closed unless their format is explicitly
+// classified as non-code. This list is intentionally an allowlist of data/document/asset formats,
+// not an attempted census of programming languages. A repository-specific source extension is
+// therefore unknown-source-kind until a reviewed adapter advertises it.
+const EXPLICIT_NON_CODE_EXTENSIONS = new Set([
+  '.bmp', '.csv', '.css', '.env', '.gif', '.html', '.ico', '.ini', '.jpeg', '.jpg',
+  '.json', '.lock', '.md', '.pdf', '.png', '.properties', '.scss', '.svg', '.toml',
+  '.txt', '.webp', '.xml', '.yaml', '.yml'
+]);
+const EXPLICIT_NON_CODE_FILENAMES = new Set([
+  '.dockerignore', '.editorconfig', '.gitattributes', '.gitignore', '.npmignore',
+  'license', 'license.md', 'readme', 'readme.md'
 ]);
 
 function normalizeList(value, label, { extension = false } = {}) {
@@ -115,16 +130,25 @@ export function isAstProgrammingSource(relative) {
   return PROGRAMMING_SOURCE_EXTENSIONS.has(path.posix.extname(String(relative ?? '').toLowerCase()));
 }
 
+export function isExplicitAstNonCode(relative) {
+  const normalized = String(relative ?? '').toLowerCase();
+  const basename = path.posix.basename(normalized);
+  return EXPLICIT_NON_CODE_FILENAMES.has(basename)
+    || EXPLICIT_NON_CODE_EXTENSIONS.has(path.posix.extname(basename));
+}
+
 /**
  * A programming source is supported only when the compiled catalog can name it unambiguously.
  * Installed, validated packs extend that catalog, so adding support is possible without weakening
  * this fail-closed boundary. Non-programming files are intentionally outside this decision.
  */
-export function unsupportedAstProgrammingPaths(paths, catalog = compileAstLanguageCatalog()) {
+export function unsupportedAstProgrammingPaths(paths, catalog = compileAstLanguageCatalog(), {
+  classifyUnknown = false
+} = {}) {
   return [...new Set((paths ?? []).map((value) => String(value)).filter(Boolean))]
-    .filter(isAstProgrammingSource)
     .map((sourcePath) => ({ path: sourcePath, ...detectAstLanguage(sourcePath, catalog) }))
-    .filter((entry) => entry.language === 'unknown')
+    .filter((entry) => entry.language === 'unknown'
+      && (isAstProgrammingSource(entry.path) || (classifyUnknown && !isExplicitAstNonCode(entry.path))))
     .sort((left, right) => left.path.localeCompare(right.path));
 }
 

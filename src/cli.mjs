@@ -3055,6 +3055,7 @@ async function phaseReview(root, config, workflow, phase) {
       const viewed = await viewDocument(root, config, workflow, record.id);
       const source = ['code', 'test'].includes(record.kind) && viewed.content != null;
       const previewBytes = workflow.resolution?.codeDelivery?.display?.previewBytes ?? 4096;
+      const fullDocumentMaximumBytes = workflow.resolution?.codeDelivery?.display?.fullDocumentMaximumBytes ?? 65536;
       const sourceBytes = source && viewed.content != null ? Buffer.from(viewed.content) : null;
       documents.push({
         id: record.id,
@@ -3073,6 +3074,8 @@ async function phaseReview(root, config, workflow, phase) {
             preview: sourceBytes.subarray(0, previewBytes).toString('utf8'),
             previewBytes: Math.min(sourceBytes.length, previewBytes),
             truncated: sourceBytes.length > previewBytes,
+            full: sourceBytes.length <= fullDocumentMaximumBytes ? viewed.content : null,
+            fullDocumentMaximumBytes,
             reference: `sfref://generation/${encodeURIComponent(workflow.workItem.id)}/${encodeURIComponent(phase.id)}/${phase.generation}/${record.path.split('/').map(encodeURIComponent).join('/')}`
           }
         } : { content: viewed.content })
@@ -3148,7 +3151,11 @@ function printPhaseReview(review, { showArtifact = false } = {}) {
     else if (document.binary) console.log(`  Binary document: open ${document.absolutePath}`);
     else if (document.display?.mode === 'reference-preview') {
       console.log(`  ${style.detail(`Reference: ${document.display.reference}`)}`);
-      if (showArtifact) console.log(`\n${document.display.preview}${document.display.truncated ? '\n… preview truncated …' : ''}`);
+      if (showArtifact) {
+        const body = document.display.full ?? document.display.preview;
+        const truncated = document.display.full == null && document.display.truncated;
+        console.log(`\n${body}${truncated ? `\n… preview truncated at policy limit; use the sfref handle for the full document (maximum inline bytes ${document.display.fullDocumentMaximumBytes}) …` : ''}`);
+      }
     }
     else if (document.content != null && showArtifact) {
       console.log(`\n--- BEGIN ${document.path} ---`);
@@ -3283,7 +3290,8 @@ async function phaseCommand(positionals, options) {
           governedAgentContext: session.agent,
           source,
           kernelInvocationIds,
-          kernelInvocations
+          kernelInvocations,
+          generation
         });
         await scanArtifacts(root, config, workflow, phaseId);
         phase = await publishGeneration(root, config, workflow, { phaseId, usage, authorship, persist: false });

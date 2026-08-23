@@ -1,11 +1,12 @@
-import { randomUUID } from 'node:crypto';
+import { createHash, randomUUID } from 'node:crypto';
 import path from 'node:path';
 
 import { phaseRequiresCodeDelivery } from './code-delivery-policy.mjs';
 import { buildRepositoryChangeSet } from './repository-change-set.mjs';
 import { currentSchemaVersion, readRecord } from './schema-migrations.mjs';
+import { canonicalJson } from './records.mjs';
 import { beginTelemetryCapture } from './telemetry.mjs';
-import { isApplicationPath } from './work-intervals.mjs';
+import { isApplicationChangeEntry } from './work-intervals.mjs';
 import { nowIso, posix, readJson, SingularityFlowError, writeJson } from './util.mjs';
 
 function receiptRelative(config, workflow, phase, generation) {
@@ -16,8 +17,12 @@ function receiptRelative(config, workflow, phase, generation) {
 }
 
 function currentApplicationEntries(changeSet) {
-  return (changeSet.entries ?? []).filter((entry) =>
-    [entry.oldPath, entry.newPath].filter(Boolean).some(isApplicationPath));
+  return (changeSet.entries ?? []).filter(isApplicationChangeEntry);
+}
+
+function generationStartSha256(record) {
+  const { receiptSha256: _receiptSha256, ...content } = record ?? {};
+  return `sha256:${createHash('sha256').update(canonicalJson(content)).digest('hex')}`;
 }
 
 async function verifiedIntentRecord(root, workflow, phase, intent) {
@@ -32,13 +37,16 @@ async function verifiedIntentRecord(root, workflow, phase, intent) {
     });
   }
   const expectedGeneration = Number(phase.generation ?? 0) + 1;
+  const receiptSha256 = generationStartSha256(receipt);
   if (receipt.kind !== 'generation-start'
       || receipt.generationIntentId !== intent.id
       || receipt.workId !== workflow.workItem.id
       || receipt.phase !== phase.id
       || Number(receipt.generation) !== expectedGeneration
       || receipt.status !== 'open'
-      || receipt.baseline?.commit !== intent.baseline?.commit) {
+      || receipt.baseline?.commit !== intent.baseline?.commit
+      || receipt.receiptSha256 !== receiptSha256
+      || intent.receiptSha256 !== receiptSha256) {
     throw new SingularityFlowError('The open generation intent differs from its durable generation-start receipt.', {
       code: 'GENERATION_INTENT_REQUIRED'
     });
@@ -97,7 +105,7 @@ export async function beginCodeGeneration(root, config, workflow, phase, {
   const startedAt = nowIso();
   const intentId = randomUUID();
   const receiptPath = receiptRelative(config, workflow, phase, generation);
-  const receipt = {
+  const receiptContent = {
     schemaVersion: currentSchemaVersion('generation-start'),
     kind: 'generation-start',
     generationIntentId: intentId,
@@ -123,11 +131,13 @@ export async function beginCodeGeneration(root, config, workflow, phase, {
     telemetryCursor: { key: `${workflow.workItem.id}:${phase.id}:${generation}`, startedAt: telemetry.startedAt },
     adoption: existing.length ? { confirmedDigest: changeSet.digest, paths: existing.length } : null
   };
+  const receipt = { ...receiptContent, receiptSha256: generationStartSha256(receiptContent) };
   phase.generationIntent = {
     id: intentId,
     generation,
     status: 'open',
     path: receiptPath,
+    receiptSha256: receipt.receiptSha256,
     baseline: receipt.baseline,
     startedAt,
     startedBy: receipt.startedBy,
@@ -173,12 +183,15 @@ export async function consumeGenerationIntent(root, phase, publication) {
   if (phase.generationIntent.path) {
     const absolute = path.join(root, phase.generationIntent.path);
     const receipt = await readJson(absolute);
-    await writeJson(absolute, {
+    const consumed = {
       ...receipt,
       status: 'consumed',
       consumedAt: publication.publishedAt,
       publication: phase.generationIntent.publication
-    });
+    };
+    consumed.receiptSha256 = generationStartSha256(consumed);
+    phase.generationIntent.receiptSha256 = consumed.receiptSha256;
+    await writeJson(absolute, consumed);
   }
   return phase.generationIntent;
 }

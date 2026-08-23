@@ -1,3 +1,4 @@
+import path from 'node:path';
 import { SingularityFlowError } from './util.mjs';
 
 export const EXTERNAL_MODEL_POLICIES = Object.freeze(['never', 'required', 'unknown']);
@@ -10,11 +11,15 @@ export const TEST_RESULT_ADAPTERS = Object.freeze([
 ]);
 
 function relativePath(value, label, { allowDot = false } = {}) {
-  const normalized = String(value ?? '').replaceAll('\\', '/').replace(/^\.\//, '').replace(/\/$/, '');
-  if ((!normalized && !allowDot) || normalized.startsWith('../') || normalized.startsWith('/') || /^[A-Za-z]:\//.test(normalized)) {
+  const proposed = String(value ?? '').replaceAll('\\', '/');
+  const normalized = proposed.replace(/^\.\//, '').replace(/\/$/, '');
+  const collapsed = normalized ? path.posix.normalize(normalized) : normalized;
+  if ((!collapsed && !allowDot) || normalized.split('/').includes('..')
+      || collapsed === '..' || collapsed.startsWith('../')
+      || collapsed.startsWith('/') || /^[A-Za-z]:\//.test(collapsed)) {
     throw new SingularityFlowError(`${label} must be repository-relative.`);
   }
-  return normalized || '.';
+  return collapsed || '.';
 }
 
 export function normalizeExternalCommand(value, index = 0) {

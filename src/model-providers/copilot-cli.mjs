@@ -1,5 +1,6 @@
-import { spawn } from 'node:child_process';
+import { spawn, spawnSync } from 'node:child_process';
 import { lstat } from 'node:fs/promises';
+import { StringDecoder } from 'node:string_decoder';
 import { isPreparedTelemetryLaunch, recordTelemetryLaunch } from '../telemetry-provision.mjs';
 import { SingularityFlowError } from '../util.mjs';
 
@@ -127,9 +128,12 @@ export async function invokeCopilotCli(request) {
       cwd: request.cwd,
       env: providerEnvironment(request.env, request.telemetry),
       shell: false,
+      detached: process.platform !== 'win32',
       stdio: ['ignore', 'pipe', 'pipe']
     });
     let stdout = ''; let stderr = ''; let outputBytes = 0; let finished = false; let failure = null; let timer; let terminationTimer;
+    const stdoutDecoder = new StringDecoder('utf8');
+    const stderrDecoder = new StringDecoder('utf8');
     const onAbort = () => terminate(new SingularityFlowError('Model invocation was cancelled.', { code: 'MODEL_CANCELLED' }));
     const cleanup = () => {
       if (timer) clearTimeout(timer);
@@ -139,32 +143,43 @@ export async function invokeCopilotCli(request) {
       if (finished || failure) return;
       failure = error;
       cleanup();
-      const signalled = child.kill('SIGTERM');
+      let signalled = false;
+      if (child.pid && process.platform === 'win32') {
+        const killed = spawnSync('taskkill.exe', ['/PID', String(child.pid), '/T'], { stdio: 'ignore', windowsHide: true, timeout: 5_000 });
+        signalled = !killed.error && killed.status === 0;
+      } else if (child.pid) {
+        try { process.kill(-child.pid, 'SIGTERM'); signalled = true; } catch { signalled = child.kill('SIGTERM'); }
+      }
       if (!signalled) {
         finished = true;
         reject(error);
         return;
       }
       terminationTimer = setTimeout(() => {
-        if (child.exitCode == null && child.signalCode == null) child.kill('SIGKILL');
+        if (child.exitCode != null || child.signalCode != null) return;
+        if (child.pid && process.platform === 'win32') {
+          spawnSync('taskkill.exe', ['/PID', String(child.pid), '/T', '/F'], { stdio: 'ignore', windowsHide: true, timeout: 5_000 });
+        } else if (child.pid) {
+          try { process.kill(-child.pid, 'SIGKILL'); } catch { child.kill('SIGKILL'); }
+        }
       }, TERMINATION_GRACE_MS);
       terminationTimer.unref?.();
     };
-    const append = (current, chunk) => {
+    const append = (current, chunk, decoder) => {
       outputBytes += chunk.length;
       if (outputBytes > outputLimit) {
         terminate(new SingularityFlowError(`${providerLabel} output exceeded ${outputLimit} bytes.`, { code: 'MODEL_OUTPUT_LIMIT' }));
         return current;
       }
-      return `${current}${chunk.toString('utf8')}`;
+      return `${current}${decoder.write(chunk)}`;
     };
     timer = setTimeout(() => {
       terminate(new SingularityFlowError(`${providerLabel} invocation exceeded ${timeoutMs}ms.`, { code: 'MODEL_TIMEOUT' }));
     }, timeoutMs);
     if (request.signal?.aborted) return onAbort();
     request.signal?.addEventListener('abort', onAbort, { once: true });
-    child.stdout?.on('data', (chunk) => { stdout = append(stdout, chunk); });
-    child.stderr?.on('data', (chunk) => { stderr = append(stderr, chunk); });
+    child.stdout?.on('data', (chunk) => { stdout = append(stdout, chunk, stdoutDecoder); });
+    child.stderr?.on('data', (chunk) => { stderr = append(stderr, chunk, stderrDecoder); });
     child.once('error', async (error) => {
       if (finished) return;
       finished = true;
@@ -184,6 +199,8 @@ export async function invokeCopilotCli(request) {
       finished = true;
       cleanup();
       if (terminationTimer) clearTimeout(terminationTimer);
+      stdout += stdoutDecoder.end();
+      stderr += stderrDecoder.end();
       if (request.telemetry) await recordTelemetryLaunch(request.telemetry, {
         state: 'finished', exitCode: status, signal
       }).catch(() => {});

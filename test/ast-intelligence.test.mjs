@@ -14,7 +14,7 @@ import {
 } from '../src/ast-adapter-contract.mjs';
 import { initializeDefinition } from '../src/config.mjs';
 import {
-  astCacheStatus, astCommand, effectiveAstMode, readAstPreference, setAstPreference,
+  astCacheStatus, astCommand, astDoctor, effectiveAstMode, readAstPreference, setAstPreference,
   validateAstResultEnvelope
 } from '../src/ast-intelligence.mjs';
 import { normalizeAstPolicy } from '../src/ast-policy.mjs';
@@ -210,6 +210,30 @@ test('text facts contain references and hashes but never source bodies', async (
   assert.ok(result.facts.some((fact) => fact.kind === 'symbol' && fact.name === 'one'));
   assert.ok(result.facts.some((fact) => fact.kind === 'import' && fact.target === './one.js'));
   assert.doesNotMatch(JSON.stringify(result), /return 1/);
+}));
+
+test('an unknown programming language is a show stopper while documentation remains non-programming input', async () => withPreferenceFile(async () => {
+  const root = await repository();
+  await writeFile(path.join(root, 'engine.cpp'), 'int main() { return 0; }\n');
+  await writeFile(path.join(root, 'notes.md'), '# Repository notes\n');
+  git(root, ['add', '.']);
+  git(root, ['commit', '-qm', 'add unsupported source and documentation']);
+
+  await assert.rejects(
+    () => astCommand(root, ['context'], { paths: 'engine.cpp' }),
+    (error) => error?.code === 'AST_LANGUAGE_UNSUPPORTED'
+      && /engine\.cpp/.test(error.message)
+      && /reviewed AST pack/.test(error.message)
+  );
+
+  const diagnosis = await astDoctor(root);
+  assert.equal(diagnosis.healthy, false);
+  assert.ok(diagnosis.diagnostics.some((entry) => entry.code === 'AST_LANGUAGE_UNSUPPORTED'
+    && entry.paths.includes('engine.cpp')));
+
+  const documentation = await astCommand(root, ['context'], { paths: 'notes.md' });
+  assert.equal(documentation.status, 'complete');
+  assert.equal(documentation.facts.find((fact) => fact.path === 'notes.md')?.language, 'unknown');
 }));
 
 test('durable evidence rejects dirty in-cone bytes but ignores dirty paths outside the cone', async () => withPreferenceFile(async () => {

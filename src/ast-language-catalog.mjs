@@ -28,6 +28,17 @@ const BUILTIN_ENTRIES = Object.freeze([
   { id: 'dockerfile', extensions: [], filenames: ['Dockerfile'], aliases: [], priority: 100 }
 ]);
 
+// This is deliberately narrower than "all text files". Markdown, configuration, stylesheets,
+// templates, and assets may legitimately be selected beside source without becoming a claim that
+// SFlow understands another programming language. The list mirrors the deterministic world-model
+// source census plus native C/C++ header and Objective-C variants.
+const PROGRAMMING_SOURCE_EXTENSIONS = new Set([
+  '.c', '.cc', '.cpp', '.cxx', '.h', '.hh', '.hpp', '.hxx',
+  '.cs', '.dart', '.go', '.java', '.js', '.jsx', '.kt', '.kts', '.m', '.mm',
+  '.php', '.py', '.pyi', '.rb', '.rs', '.scala', '.sh', '.swift', '.ts', '.tsx',
+  '.vue', '.svelte'
+]);
+
 function normalizeList(value, label, { extension = false } = {}) {
   if (value == null) return [];
   if (!Array.isArray(value) || value.some((item) => typeof item !== 'string' || !item.trim())) {
@@ -98,6 +109,23 @@ export function detectAstLanguage(relative, catalog = compileAstLanguageCatalog(
     ambiguous: preferred.length > 1,
     candidates: preferred.map((entry) => entry.id).sort()
   };
+}
+
+export function isAstProgrammingSource(relative) {
+  return PROGRAMMING_SOURCE_EXTENSIONS.has(path.posix.extname(String(relative ?? '').toLowerCase()));
+}
+
+/**
+ * A programming source is supported only when the compiled catalog can name it unambiguously.
+ * Installed, validated packs extend that catalog, so adding support is possible without weakening
+ * this fail-closed boundary. Non-programming files are intentionally outside this decision.
+ */
+export function unsupportedAstProgrammingPaths(paths, catalog = compileAstLanguageCatalog()) {
+  return [...new Set((paths ?? []).map((value) => String(value)).filter(Boolean))]
+    .filter(isAstProgrammingSource)
+    .map((sourcePath) => ({ path: sourcePath, ...detectAstLanguage(sourcePath, catalog) }))
+    .filter((entry) => entry.language === 'unknown')
+    .sort((left, right) => left.path.localeCompare(right.path));
 }
 
 export function builtinAstLanguageCatalog() {

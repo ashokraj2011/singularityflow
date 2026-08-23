@@ -221,6 +221,25 @@ test('a code phase refuses source without tests and tests without acceptance tag
   });
 });
 
+test('a code phase refuses an unsupported programming language before publication mutation', async () => {
+  const context = await codeFixture('unsupported-language');
+  await mkdir(path.join(context.root, 'src', 'test'), { recursive: true });
+  await writeFile(path.join(context.root, 'src', 'app.cpp'), 'int answer() { return 42; }\n');
+  await writeFile(path.join(context.root, 'src', 'test', 'app.test.cpp'), '// @ac:AC-001\nint main() { return answer() == 42 ? 0 : 1; }\n');
+  const before = JSON.stringify(context.phase);
+  await inContext(context.root, async () => {
+    await assert.rejects(
+      () => publishGeneration(context.root, context.config, context.workflow, {
+        phaseId: 'implementation', authorship: AUTHORSHIP
+      }),
+      (error) => error?.code === 'AST_LANGUAGE_UNSUPPORTED'
+        && /src\/app\.cpp/.test(error.message)
+        && /src\/test\/app\.test\.cpp/.test(error.message)
+    );
+  });
+  assert.equal(JSON.stringify(context.phase), before, 'unsupported source mutated phase state');
+});
+
 test('a code phase publishes source and acceptance-mapped tests with a delivery receipt', async () => {
   const context = await codeFixture('complete');
   await mkdir(path.join(context.root, 'src', 'test'), { recursive: true });

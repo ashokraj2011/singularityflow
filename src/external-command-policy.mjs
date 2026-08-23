@@ -1,6 +1,21 @@
 import { SingularityFlowError } from './util.mjs';
 
 export const EXTERNAL_MODEL_POLICIES = Object.freeze(['never', 'required', 'unknown']);
+export const QUALITY_COMMAND_KINDS = Object.freeze([
+  'test', 'compile', 'lint', 'format', 'static-analysis', 'security', 'other'
+]);
+export const TEST_RESULT_ADAPTERS = Object.freeze([
+  'junit-xml', 'jest-json', 'vitest-json', 'playwright-json', 'go-test-json',
+  'dotnet-trx', 'cargo-json', 'sflow-test-result-v1'
+]);
+
+function relativePath(value, label, { allowDot = false } = {}) {
+  const normalized = String(value ?? '').replaceAll('\\', '/').replace(/^\.\//, '').replace(/\/$/, '');
+  if ((!normalized && !allowDot) || normalized.startsWith('../') || normalized.startsWith('/') || /^[A-Za-z]:\//.test(normalized)) {
+    throw new SingularityFlowError(`${label} must be repository-relative.`);
+  }
+  return normalized || '.';
+}
 
 export function normalizeExternalCommand(value, index = 0) {
   if (typeof value === 'string' && value.trim()) {
@@ -24,7 +39,43 @@ export function normalizeExternalCommand(value, index = 0) {
   if (timeoutMs != null && (!Number.isInteger(timeoutMs) || timeoutMs < 1_000 || timeoutMs > 2 * 60 * 60 * 1_000)) {
     throw new SingularityFlowError(`qualityCommands[${index}].timeoutMs must be an integer from 1000 through 7200000.`);
   }
-  return { id, command, argv, modelPolicy, timeoutMs };
+  const kind = value.kind ?? null;
+  if (kind != null && !QUALITY_COMMAND_KINDS.includes(kind)) {
+    throw new SingularityFlowError(`qualityCommands[${index}].kind must be ${QUALITY_COMMAND_KINDS.join(', ')}.`);
+  }
+  const workingDirectory = value.workingDirectory == null
+    ? null
+    : relativePath(value.workingDirectory, `qualityCommands[${index}].workingDirectory`, { allowDot: true });
+  const affectedRoots = value.affectedRoots == null ? [] : value.affectedRoots;
+  if (!Array.isArray(affectedRoots) || affectedRoots.some((root) => typeof root !== 'string')) {
+    throw new SingularityFlowError(`qualityCommands[${index}].affectedRoots must be an array of repository-relative paths.`);
+  }
+  const normalizedRoots = [...new Set(affectedRoots.map((root) => relativePath(root, `qualityCommands[${index}].affectedRoots`, { allowDot: true })))];
+  let result = null;
+  if (value.result != null) {
+    if (!value.result || typeof value.result !== 'object' || Array.isArray(value.result)) {
+      throw new SingularityFlowError(`qualityCommands[${index}].result must be an object.`);
+    }
+    if (!TEST_RESULT_ADAPTERS.includes(value.result.adapter)) {
+      throw new SingularityFlowError(`qualityCommands[${index}].result.adapter must be ${TEST_RESULT_ADAPTERS.join(', ')}.`);
+    }
+    const minimumDiscovered = value.result.minimumDiscovered ?? 1;
+    if (!Number.isInteger(minimumDiscovered) || minimumDiscovered < 1) {
+      throw new SingularityFlowError(`qualityCommands[${index}].result.minimumDiscovered must be a positive integer.`);
+    }
+    result = {
+      adapter: value.result.adapter,
+      path: relativePath(value.result.path, `qualityCommands[${index}].result.path`),
+      minimumDiscovered
+    };
+  }
+  return {
+    id, command, argv, modelPolicy, timeoutMs,
+    ...(value.kind != null ? { kind } : {}),
+    ...(value.workingDirectory != null ? { workingDirectory } : {}),
+    ...(value.affectedRoots != null ? { affectedRoots: normalizedRoots } : {}),
+    ...(value.result != null ? { result } : {})
+  };
 }
 
 export function externalCommandText(value, index = 0) {

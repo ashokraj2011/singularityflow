@@ -6,6 +6,7 @@ import { exists, nowIso, SingularityFlowError } from './util.mjs';
 import { actionCommandLines, copilotAction } from './copilot-guidance.mjs';
 import { action, because, commandResult, noEffects, refused } from './narration/command-result.mjs';
 import { withCommandResult } from './narration/emit.mjs';
+import { generationSkillForPhase } from './code-delivery-policy.mjs';
 
 const confirmed = new WeakMap();
 let activeConfirmationPort = null;
@@ -49,8 +50,8 @@ export function sequenceGuidance(workflow) {
   if (phase.status === 'in_progress' && phaseNeedsGeneration(workflow, phase)) return {
     summary: `${phase.generation > 0 ? 'Regenerate' : 'Generate'} and publish phase '${phase.id}' before submission.`,
     actions: [
-      copilotAction({ skill: '/sflow-phase', command: `singularity-flow prepare ${phase.id}` }),
-      copilotAction({ skill: '/sflow-phase', command: `singularity-flow phase publish ${phase.id}` })
+      copilotAction({ skill: generationSkillForPhase(phase), command: `singularity-flow prepare ${phase.id}` }),
+      copilotAction({ skill: generationSkillForPhase(phase), command: `singularity-flow phase publish ${phase.id}` })
     ]
   };
   if (phase.status === 'in_progress') return {

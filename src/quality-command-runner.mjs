@@ -1,4 +1,5 @@
 import { spawn, spawnSync } from 'node:child_process';
+import { createWriteStream } from 'node:fs';
 
 const DEFAULT_CAPTURE_BYTES = 128 * 1024;
 
@@ -39,6 +40,7 @@ export function runQualityCommand(command, args = [], {
   shell = false,
   timeoutMs,
   captureBytes = DEFAULT_CAPTURE_BYTES,
+  stdoutFile = null,
   input = null,
   signal = null,
   killTree = false
@@ -51,6 +53,7 @@ export function runQualityCommand(command, args = [], {
     let error = null;
     let settled = false;
     let hardKillTimer = null;
+    let stdoutStream = null;
     let child;
     const terminate = (terminationSignal) => {
       if (!child?.pid) return;
@@ -73,6 +76,7 @@ export function runQualityCommand(command, args = [], {
       return;
     }
     try {
+      stdoutStream = stdoutFile ? createWriteStream(stdoutFile, { flags: 'w' }) : null;
       child = spawn(command, args, {
         cwd, env, shell,
         detached: killTree && process.platform !== 'win32',
@@ -82,7 +86,10 @@ export function runQualityCommand(command, args = [], {
       resolve({ status: 1, signal: null, error: caught, timedOut: false, aborted: false, stdout: '', stderr: '', stdoutBytes: 0, stderrBytes: 0, stdoutTruncated: false, stderrTruncated: false });
       return;
     }
-    child.stdout?.on('data', (chunk) => stdout.add(chunk));
+    child.stdout?.on('data', (chunk) => {
+      stdout.add(chunk);
+      stdoutStream?.write(chunk);
+    });
     child.stderr?.on('data', (chunk) => stderr.add(chunk));
     if (input != null) child.stdin?.end(Buffer.isBuffer(input) ? input : Buffer.from(String(input), 'utf8'));
     child.on('error', (caught) => { error = caught; });
@@ -106,21 +113,25 @@ export function runQualityCommand(command, args = [], {
       if (timer) clearTimeout(timer);
       if (hardKillTimer) clearTimeout(hardKillTimer);
       signal?.removeEventListener?.('abort', onAbort);
-      const out = stdout.result();
-      const err = stderr.result();
-      resolve({
-        status: code ?? 1,
-        signal: terminationSignal,
-        error,
-        timedOut,
-        aborted,
-        stdout: out.output,
-        stderr: err.output,
-        stdoutBytes: out.bytes,
-        stderrBytes: err.bytes,
-        stdoutTruncated: out.truncated,
-        stderrTruncated: err.truncated
-      });
+      const finish = () => {
+        const out = stdout.result();
+        const err = stderr.result();
+        resolve({
+          status: code ?? 1,
+          signal: terminationSignal,
+          error,
+          timedOut,
+          aborted,
+          stdout: out.output,
+          stderr: err.output,
+          stdoutBytes: out.bytes,
+          stderrBytes: err.bytes,
+          stdoutTruncated: out.truncated,
+          stderrTruncated: err.truncated
+        });
+      };
+      if (stdoutStream) stdoutStream.end(finish);
+      else finish();
     });
   });
 }

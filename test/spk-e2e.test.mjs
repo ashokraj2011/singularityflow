@@ -177,6 +177,7 @@ test('a Story runs specification through release from a fresh clone', async (t) 
   assert.equal((await workflowOf(root)).phases.planning.status, 'approved');
 
   // ---- implementation: source and artifact, one requirement deliberately unclaimed --------------
+  sflow(root, ['prepare', 'implementation']);
   await write(root, 'src/payments/retry.ts', 'export function retry() { return { attempt: 1 }; }\n');
   await write(root, 'tests/payments-retry.test.mjs', [
     "import assert from 'node:assert/strict';",
@@ -197,7 +198,6 @@ test('a Story runs specification through release from a fresh clone', async (t) 
     '# Operator notes', '',
     'The provider sandbox and local retry harness remain available for later verification.', ''
   ].join('\n'));
-  sflow(root, ['prepare', 'implementation'], { allowFailure: true });
   await completePhase(root, 'implementation');
   assert.equal((await workflowOf(root)).phases.implementation.status, 'approved');
 
@@ -248,6 +248,7 @@ test('a Story runs specification through release from a fresh clone', async (t) 
   await readFile(path.join(root, `singularity/work-items/${WORK}/context/convergence/iteration-1.json`), 'utf8');
 
   // ---- implementation, generation two ------------------------------------------------------------
+  sflow(root, ['prepare', 'implementation']);
   await write(root, 'src/payments/attempts.ts', 'export const attempts = [];\nexport function append(attempt) { return [...attempts, attempt]; }\n');
   await write(root, `singularity/work-items/${WORK}/artifacts/implementation/implementation-summary.md`, [
     '# Implementation summary', '',
@@ -333,6 +334,7 @@ test('a Story runs specification through release from a fresh clone', async (t) 
   // stay in place; their preservation label is evidence, not an automatic re-approval.
   sflow(root, ['spec', 'tasks']);
   await completePhase(root, 'planning');
+  sflow(root, ['prepare', 'implementation']);
   await completePhase(root, 'implementation');
 
   const third = JSON.parse(sflow(root, ['story', 'converge', '--json']).stdout);

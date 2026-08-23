@@ -1,5 +1,6 @@
 import { phaseNeedsGeneration, workflowGuide } from './guide.mjs';
 import { copilotAction } from './copilot-guidance.mjs';
+import { generationSkillForPhase } from './code-delivery-policy.mjs';
 
 function action(timing, skill, command, reason, metadata = {}) {
   return copilotAction({ timing, skill, command, reason, modelPolicy: 'never', availability: 'available', ...metadata });
@@ -31,7 +32,7 @@ function cancellationActions(workflow) {
 function afterApprovalActions(workflow, phase) {
   const upcoming = nextPhase(workflow, phase.id);
   if (!upcoming) return completionActions(workflow.workItem.id, 'then');
-  return [action('then', '/sflow-phase', `singularity-flow prepare ${upcoming.id}`, `After ${phase.id} approval advances the workflow, generate and publish ${upcoming.label}.`)];
+  return [action('then', generationSkillForPhase(upcoming), `singularity-flow prepare ${upcoming.id}`, `After ${phase.id} approval advances the workflow, generate and publish ${upcoming.label}.`)];
 }
 
 export function workflowNextSteps(workflow, { publicationPending = false, prerequisites = [], modelMode = { enabled: true } } = {}) {
@@ -57,12 +58,12 @@ export function workflowNextSteps(workflow, { publicationPending = false, prereq
   const modelFreeProducer = generationPolicy.allowedProducers?.find((producer) => ['human', 'deterministic', 'external-tool'].includes(producer));
   if (needsGeneration && !modelMode.enabled) {
     if (modelFreeProducer === 'human') actions.unshift(action(
-      'now', '/sf-phase', `singularity-flow phase publish ${phase.id} --authored human --from <FILE> --channel manual-import --no-model`,
+      'now', generationSkillForPhase(phase), `singularity-flow phase publish ${phase.id} --authored human --from <FILE> --channel manual-import --no-model`,
       `Import and publish ${phase.label} without invoking a model.`,
       { operationId: 'phase', modelPolicy: 'never', route: 'manual' }
     ));
     else if (modelFreeProducer === 'deterministic') actions.unshift(action(
-      'now', '/sf-phase', `singularity-flow prepare ${phase.id} --no-model`,
+      'now', generationSkillForPhase(phase), `singularity-flow prepare ${phase.id} --no-model`,
       `Generate ${phase.label} deterministically without invoking a model.`,
       { operationId: 'prepare', modelPolicy: 'never', route: 'deterministic' }
     ));

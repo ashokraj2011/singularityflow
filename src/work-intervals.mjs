@@ -213,9 +213,17 @@ export async function ensureWorkIntervalBaseline(root, config, workflow, {
  * Derived from `GOVERNED_ROOTS` rather than restating the list, so a future governed root cannot
  * silently become "application source" that eats somebody's interval.
  */
+export function isGeneratedOutputPath(candidate) {
+  const normalized = posix(candidate);
+  if (!normalized) return false;
+  return /(?:^|\/)\.sflow\/results(?:\/|$)/.test(normalized)
+    || normalized.split('/').some((segment) => ['node_modules', 'vendor', 'target', 'build', 'coverage'].includes(segment));
+}
+
 export function isApplicationPath(candidate) {
   const normalized = posix(candidate);
   if (!normalized || normalized.startsWith('.git/')) return false;
+  if (isGeneratedOutputPath(normalized)) return false;
   return !GOVERNED_ROOTS.some((root) => normalized === root || normalized.startsWith(`${root}/`));
 }
 

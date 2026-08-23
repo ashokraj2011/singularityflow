@@ -50,7 +50,7 @@ import { normalizeSourceBoundary } from './source-boundary.mjs';
 import { normalizeFaultRepairPolicy } from './fault-repair.mjs';
 import { normalizeAstPolicy } from './ast-policy.mjs';
 import {
-  assertCodeDeliveryConfiguration, pinCodeDeliveryTask
+  assertCodeDeliveryConfiguration, normalizeCodeDeliveryPolicy, pinCodeDeliveryTask
 } from './code-delivery-policy.mjs';
 import {
   normalizeWorkTypeIntelligence, worldModelModeForIntelligence
@@ -471,6 +471,7 @@ export function validateDefinition(definition) {
     throw new SingularityFlowError("worldModel.staleness must be 'warn', 'fail', or 'ignore'.");
   }
   validateInjectionDefinition(definition);
+  definition.codeDelivery = normalizeCodeDeliveryPolicy(definition.codeDelivery ?? {});
   if (definition.tokens?.mode && definition.tokens.mode !== 'exact-or-unavailable') throw new SingularityFlowError("tokens.mode must be 'exact-or-unavailable'.");
   for (const [model, pricing] of Object.entries(definition.tokens?.pricing ?? {})) {
     if (!model.trim()) throw new SingularityFlowError('tokens.pricing model names must not be empty.');
@@ -977,6 +978,7 @@ export function resolveWorkType(definition, workTypeId) {
     // configuration rather than a constant, and pinned per Story like every other policy.
     analysisLimits: analysisLimits(definition.analysisLimits),
     spec: normalizeSpecPolicy(definition.spec ?? {}),
+    codeDelivery: normalizeCodeDeliveryPolicy(definition.codeDelivery ?? {}),
     // Fault policy is pinned with the Story resolution so a repair requested for that Story cannot
     // acquire more authority merely because shared configuration changed later.
     faultRepair: normalizeFaultRepairPolicy(definition.faultRepair ?? {}),
@@ -1031,6 +1033,7 @@ export async function snapshotResolution(root, definition, resolved) {
     tokenEconomy: structuredClone(resolved.tokenEconomy ?? normalizeTokenEconomy(definition.tokenEconomy ?? {})),
     ledger: structuredClone(resolved.ledger ?? normalizeLedgerConfig(definition.ledger ?? {})),
     spec: structuredClone(resolved.spec ?? normalizeSpecPolicy(definition.spec ?? {})),
+    codeDelivery: structuredClone(resolved.codeDelivery ?? normalizeCodeDeliveryPolicy(definition.codeDelivery ?? {})),
     /**
      * The constitution policy the Story is held to `[SPK:CON-039]`.
      *

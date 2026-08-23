@@ -1,4 +1,4 @@
-import { copyFile, mkdir, readFile, readdir, rm } from 'node:fs/promises';
+import { copyFile, lstat, mkdir, readFile, readlink, readdir, rm } from 'node:fs/promises';
 import { existsSync } from 'node:fs';
 import { createHash } from 'node:crypto';
 import path from 'node:path';
@@ -41,10 +41,13 @@ import {
 } from './approval-authority.mjs';
 import { assertSourceBoundary, normalizeSourceBoundary } from './source-boundary.mjs';
 import {
-  evaluateCodeDeliveryPreflight, isTestQualityCommand, phaseRequiresCodeDelivery,
-  resolveDeliveryQualityCommands
+  evaluateCodeDeliveryPreflight, phaseRequiresCodeDelivery, resolveDeliveryQualityCommands,
+  verifyCodeDeliveryReceipt
 } from './delivery-evidence.mjs';
 import { pinCodeDeliveryTask } from './code-delivery-policy.mjs';
+import {
+  beginCodeGeneration, consumeGenerationIntent, verifyOpenGenerationIntent
+} from './generation-boundary.mjs';
 import { blockingConformanceVerdicts } from './conformance-verdicts.mjs';
 import { runQualityCommand } from './quality-command-runner.mjs';
 import { createLedgerIntent, ledgerLog, ledgerStatus, reconcileLedger } from './ledger.mjs';
@@ -82,7 +85,7 @@ import {
 } from './impact.mjs';
 import { evaluateQuickFixWaiver } from './quick-fix-policy.mjs';
 import {
-  closeWorkInterval, ensureWorkIntervalBaseline, phaseUsesWorkInterval, reconcileWorkInterval, recordFinalReconciliation
+  closeWorkInterval, ensureWorkIntervalBaseline, isApplicationPath, isGeneratedOutputPath, phaseUsesWorkInterval, reconcileWorkInterval, recordFinalReconciliation
 } from './work-intervals.mjs';
 import { operationContext } from './operation-context.mjs';
 import { evaluateExternalCommandForModelMode, externalCommandText } from './external-command-policy.mjs';
@@ -97,6 +100,11 @@ import {
   evaluateChangeFlightPlanBoundary, persistChangeFlightPlanBoundary
 } from './change-flight-plan.mjs';
 import { normalizeTokenEconomy } from './token-economy.mjs';
+import { canonicalJson } from './records.mjs';
+import {
+  buildTestExecutionReceipt, normalizeRequiredTestCommand, parseTestResult, resolveAffectedModule,
+  testReceiptPassing
+} from './code-delivery-tests.mjs';
 
 export const CONFIG_PATH = WORKFLOW_PATH;
 export const loadConfig = loadDefinition;
@@ -768,6 +776,28 @@ export async function preparePhase(root, config, workflow, requested = undefined
   return result.path;
 }
 
+export async function beginPhaseGeneration(root, config, workflow, {
+  phaseId = workflow.currentPhase,
+  adoptExisting = false,
+  confirm = null
+} = {}) {
+  await assertNoPendingPublication(root, config, workflow, 'begin code generation');
+  const phase = await assertPhaseSequence(root, workflow, 'begin code generation', { requestedPhase: phaseId });
+  if (!phaseRequiresCodeDelivery(phase)) {
+    throw new SingularityFlowError(`Phase '${phase.id}' is not a code-generation phase.`, { code: 'GENERATION_INTENT_NOT_APPLICABLE' });
+  }
+  const itemDirectory = workDir(root, config, workflow.workItem.id);
+  const itemRelative = workDirRelative(config, workflow.workItem.id);
+  await ensureWorkIntervalBaseline(root, config, workflow, { phaseId: phase.id, itemDirectory, itemRelative });
+  const session = await loadSession(root, { required: false });
+  return beginCodeGeneration(root, config, workflow, phase, {
+    adoptExisting,
+    confirm,
+    actor: session?.actor ?? null,
+    agent: session?.agent ?? null
+  });
+}
+
 export async function preparePhaseInputs(root, config, workflow, requested = undefined, { dryRun = false } = {}) {
   if (!dryRun) await assertNoPendingPublication(root, config, workflow, 'prepare or change phase inputs');
   const phase = await assertPhaseSequence(root, workflow, 'prepare', { requestedPhase: requested });
@@ -775,7 +805,6 @@ export async function preparePhaseInputs(root, config, workflow, requested = und
   await hydrateImpactPlan(root, workflow);
   const impactGate = impactImplementationGate(workflow, phase.id);
   if (impactGate) throw new SingularityFlowError(impactGate);
-  if (!dryRun) await beginTelemetryCapture(root, workflow, phase);
   const itemDirectory = workDir(root, config, workflow.workItem.id);
   const itemRelative = workDirRelative(config, workflow.workItem.id);
   if (!dryRun) {
@@ -787,13 +816,24 @@ export async function preparePhaseInputs(root, config, workflow, requested = und
   }
   const target = path.join(itemDirectory, phase.requiredArtifact.path);
   const session = await loadSession(root, { required: false });
+  const inputs = await collectInputs(root, workflow, phase, { itemDirectory, itemRelative });
+  if (inputs.errors.length) throw new SingularityFlowError(`Phase ${phase.id} inputs are not ready:\n- ${inputs.errors.join('\n- ')}`);
+  const rendered = renderInputsBlock(inputs);
+  if (!dryRun) {
+    if (phaseRequiresCodeDelivery(phase)) {
+      if (phase.generationIntent?.status !== 'open') {
+        await beginCodeGeneration(root, config, workflow, phase, {
+          actor: session?.actor ?? null,
+          agent: session?.agent ?? null,
+          inputRenderedSha256: rendered.sha256
+        });
+      }
+    } else await beginTelemetryCapture(root, workflow, phase);
+  }
   const remote = dryRun ? { outputs: [], warnings: [] } : await prepareRemoteOutputs(root, workflow, phase, session, { itemDirectory });
   if (remote.outputs.length) {
     phase.remoteOutputs = [...(phase.remoteOutputs ?? []).filter((entry) => !remote.outputs.some((output) => output.resource === entry.resource && output.generation === entry.generation)), ...remote.outputs];
   }
-  const inputs = await collectInputs(root, workflow, phase, { itemDirectory, itemRelative });
-  if (inputs.errors.length) throw new SingularityFlowError(`Phase ${phase.id} inputs are not ready:\n- ${inputs.errors.join('\n- ')}`);
-  const rendered = renderInputsBlock(inputs);
   if (!dryRun) {
     let text;
     if (phase.generationPolicy?.producer === 'deterministic') {
@@ -887,6 +927,7 @@ export async function registerArtifact(root, workflow, candidate, { phaseId, kin
 }
 
 function ignored(config, workflow, relativePath) {
+  if (isGeneratedOutputPath(relativePath)) return true;
   if ([WORKFLOW_PATH, 'singularity/config.json', 'singularity/worldmodel.json'].includes(relativePath)) return true;
   if (relativePath.startsWith('singularity/world-model/')) return true;
   if (['.git/', 'node_modules/', '.idea/', '.vscode/'].some((prefix) => relativePath.startsWith(prefix))) return true;
@@ -1054,14 +1095,62 @@ function generationCommit(root, workflow, phase, number = phase.generation) {
 }
 
 export async function sourceTreeHash(root) {
-  const tracked = run('git', ['ls-files', '-z'], { cwd: root }).stdout.split('\0').filter(Boolean);
-  const files = [...new Set([...tracked, ...changedFiles(root)])].filter((file) => !file.startsWith('singularity/') && !file.startsWith('.git/') && !file.startsWith('node_modules/')).sort();
-  const hash = createHash('sha256');
-  for (const file of files) {
-    if (!existsSync(path.join(root, file))) continue;
-    hash.update(file).update('\0').update(await readFile(path.join(root, file))).update('\0');
+  const indexed = run('git', ['ls-files', '--stage', '-z'], { cwd: root }).stdout.split('\0').filter(Boolean)
+    .map((line) => {
+      const tab = line.indexOf('\t');
+      const [mode, object, stage] = line.slice(0, tab).split(' ');
+      return { path: posix(line.slice(tab + 1)), mode, object, stage: Number(stage) };
+    })
+    .filter((entry) => entry.stage === 0 && isApplicationPath(entry.path));
+  const unstaged = new Set(run('git', ['diff', '--name-only', '-z', 'HEAD', '--'], { cwd: root }).stdout.split('\0').filter(Boolean).map(posix));
+  const byPath = new Map(indexed.map((entry) => [entry.path, entry]));
+  for (const relative of untrackedFiles(root).filter(isApplicationPath)) {
+    byPath.set(relative, { path: relative, mode: null, object: null, stage: 0, untracked: true });
+    unstaged.add(relative);
   }
-  return `sha256:${hash.digest('hex')}`;
+  const manifest = [];
+  const objectFormat = run('git', ['rev-parse', '--show-object-format'], { cwd: root }).stdout.trim() || 'sha1';
+  const blobObject = (bytes) => createHash(objectFormat)
+    .update(Buffer.from(`blob ${bytes.length}\0`))
+    .update(bytes)
+    .digest('hex');
+  for (const entry of [...byPath.values()].sort((left, right) => left.path.localeCompare(right.path))) {
+    if (!entry.untracked && !unstaged.has(entry.path)) {
+      manifest.push({ path: entry.path, mode: entry.mode, kind: entry.mode === '120000' ? 'symlink' : 'git-object', object: entry.object });
+      continue;
+    }
+    const absolute = path.join(root, entry.path);
+    const info = await lstat(absolute).catch((error) => error?.code === 'ENOENT' ? null : Promise.reject(error));
+    if (!info) {
+      // The final committed tree does not contain a deleted path. Omitting it now makes the
+      // working-state manifest stable when Git commits the exact deletion a moment later.
+      continue;
+    } else if (info.isSymbolicLink()) {
+      const target = Buffer.from(await readlink(absolute));
+      manifest.push({
+        path: entry.path, mode: '120000', kind: 'symlink',
+        object: blobObject(target)
+      });
+    } else if (info.isFile()) {
+      const bytes = await readFile(absolute);
+      manifest.push({
+        path: entry.path, mode: (info.mode & 0o111) ? '100755' : '100644', kind: 'git-object',
+        object: blobObject(bytes)
+      });
+    } else {
+      manifest.push({ path: entry.path, mode: String(info.mode), kind: 'non-regular', object: null });
+    }
+  }
+  return `sha256:${createHash('sha256').update(canonicalJson(manifest)).digest('hex')}`;
+}
+
+export async function generationResultDigest(root, config, workflow, phase) {
+  const artifact = await snapshot(path.join(root, requiredRepoPath(config, workflow, phase)));
+  return `sha256:${createHash('sha256').update(canonicalJson({
+    sourceTreeSha256: await sourceTreeHash(root),
+    artifactSha256: artifact.sha256,
+    artifactBytes: artifact.size
+  })).digest('hex')}`;
 }
 
 function assertRequiredAssignment(workflow, phase) {
@@ -1073,6 +1162,17 @@ function assertRequiredAssignment(workflow, phase) {
 export async function publishGeneration(root, config, workflow, { phaseId, usage: rawUsage, authorship = null, persist = true } = {}) {
   await assertNoPendingPublication(root, config, workflow, 'publish a generation');
   const phase = await assertPhaseSequence(root, workflow, 'publish a generation', { requestedPhase: phaseId }); const session = await loadSession(root);
+  if (phaseRequiresCodeDelivery(phase)
+      && phase.generationIntent?.status === 'consumed'
+      && Number(phase.generationIntent.generation) === Number(phase.generation)) {
+    const digest = await generationResultDigest(root, config, workflow, phase);
+    if (digest === phase.generationIntent.publication?.resultDigest) return phase;
+    throw new SingularityFlowError(
+      `Generation intent ${phase.generationIntent.id} was already consumed and the source or artifact bytes now differ. Begin a new generation intent before publishing again.`,
+      { code: 'GENERATION_INTENT_ALREADY_CONSUMED' }
+    );
+  }
+  const generationIntent = await verifyOpenGenerationIntent(root, workflow, phase);
   assertRequiredAssignment(workflow, phase);
   await assertMcpPhaseReadiness(root, workflow, phase);
   // Template completeness is a publication preflight, not a late transaction failure. In
@@ -1124,21 +1224,26 @@ export async function publishGeneration(root, config, workflow, { phaseId, usage
     targetGeneration: phase.generation + 1
   });
   if (mcpEvidence.errors.length) throw new SingularityFlowError(`Phase ${phase.id} MCP evidence is not ready:\n- ${mcpEvidence.errors.join('\n- ')}`, { code: 'MCP_EVIDENCE_REQUIRED' });
-  const changed = changedFiles(root);
-  const protectedPaths = [...new Set([
-    ...(config.governance?.protectedPaths ?? []),
-    ...(workflow.resolution?.capability?.policy?.protectedPaths ?? [])
-  ])];
-  const protectedChange = protectedPaths.find((protectedPath) => changed.some((file) => file === protectedPath || file.startsWith(`${protectedPath}/`)));
-  if (protectedChange) throw new SingularityFlowError(`Generation cannot modify protected process path: ${protectedChange}`);
-  if ((phase.writeScope ?? 'artifact-only') === 'artifact-only') {
-    const allowed = `${workDirRelative(config, workflow.workItem.id)}/artifacts/${phase.id}/`;
-    const outside = changed.filter((file) => !ignored(config, workflow, file) && !file.startsWith(allowed));
-    if (outside.length) throw new SingularityFlowError(`Phase ${phase.id} is artifact-only; move these changes to implementation/verification: ${outside.join(', ')}`);
-  } else {
-    const allowedArtifact = `${workDirRelative(config, workflow.workItem.id)}/artifacts/${phase.id}/`;
-    const sourceChanges = changed.filter((file) => !ignored(config, workflow, file) && !file.startsWith(allowedArtifact));
-    assertSourceBoundary(phase.sourceBoundary, sourceChanges, { phaseId: phase.id });
+  // Code delivery has already evaluated protected paths and source boundaries against its one
+  // baseline-aware, rename-aware RepositoryChangeSet. Reconstructing those facts from a name-only
+  // dirty-tree list here would both disagree on committed changes and reintroduce rename bypasses.
+  if (!deliveryPreflight) {
+    const changed = changedFiles(root);
+    const protectedPaths = [...new Set([
+      ...(config.governance?.protectedPaths ?? []),
+      ...(workflow.resolution?.capability?.policy?.protectedPaths ?? [])
+    ])];
+    const protectedChange = protectedPaths.find((protectedPath) => changed.some((file) => file === protectedPath || file.startsWith(`${protectedPath}/`)));
+    if (protectedChange) throw new SingularityFlowError(`Generation cannot modify protected process path: ${protectedChange}`);
+    if ((phase.writeScope ?? 'artifact-only') === 'artifact-only') {
+      const allowed = `${workDirRelative(config, workflow.workItem.id)}/artifacts/${phase.id}/`;
+      const outside = changed.filter((file) => !ignored(config, workflow, file) && !file.startsWith(allowed));
+      if (outside.length) throw new SingularityFlowError(`Phase ${phase.id} is artifact-only; move these changes to implementation/verification: ${outside.join(', ')}`);
+    } else {
+      const allowedArtifact = `${workDirRelative(config, workflow.workItem.id)}/artifacts/${phase.id}/`;
+      const sourceChanges = changed.filter((file) => !ignored(config, workflow, file) && !file.startsWith(allowedArtifact));
+      assertSourceBoundary(phase.sourceBoundary, sourceChanges, { phaseId: phase.id });
+    }
   }
   /**
    * The specification gate `[SPK:REQ-065]`.
@@ -1218,10 +1323,58 @@ export async function publishGeneration(root, config, workflow, { phaseId, usage
   const publishedAt = nowIso();
   phase.authorship.push({ ...structuredClone(effectiveAuthorship), generation: phase.generation, publishedAt });
   if (deliveryPreflight) {
+    const deliveryRoot = posix(path.join(
+      workDirRelative(config, workflow.workItem.id), 'context', 'code-delivery'
+    ));
+    const receiptPath = `${deliveryRoot}/${phase.id}-gen${phase.generation}.json`;
+    const changeSetPath = `${deliveryRoot}/${phase.id}-gen${phase.generation}-changes.json`;
+    await writeJson(path.join(root, changeSetPath), deliveryPreflight.changeSet);
+    const workingStateDigest = await sourceTreeHash(root);
+    const codeModelObservation = effectiveAuthorship.kernelModel?.observations
+      ?.find((observation) => observation.task === 'code') ?? null;
+    const receipt = {
+      schemaVersion: currentSchemaVersion('code-delivery'),
+      kind: 'code-delivery',
+      workId: workflow.workItem.id,
+      phase: phase.id,
+      generation: phase.generation,
+      generationIntentId: deliveryPreflight.generationIntentId,
+      changeSet: {
+        path: changeSetPath,
+        digest: deliveryPreflight.changeSet.digest,
+        sourcePaths: deliveryPreflight.sourcePaths,
+        executableTestPaths: deliveryPreflight.testPaths,
+        supportingTestPaths: deliveryPreflight.supportingTestPaths
+      },
+      traceability: {
+        required: deliveryPreflight.acceptanceCriteria.required,
+        bound: deliveryPreflight.acceptanceCriteria.tagged,
+        missing: deliveryPreflight.acceptanceCriteria.missing,
+        ambiguous: deliveryPreflight.acceptanceCriteria.ambiguous,
+        bindings: deliveryPreflight.acceptanceCriteria.bindings
+      },
+      testExecutions: [],
+      tree: { workingStateDigest, generationCommit: null, generationTree: null },
+      model: {
+        task: 'code',
+        mappingRevision: codeModelObservation?.mappingRevision ?? null,
+        requestedModel: codeModelObservation?.requestedModel ?? null,
+        resolvedModel: codeModelObservation?.resolvedModel ?? null,
+        assurance: codeModelObservation?.assurance
+          ?? (effectiveAuthorship.producer === 'governed-agent' ? 'host-observed' : 'unavailable'),
+        invocationIds: codeModelObservation ? [codeModelObservation.invocationId] : []
+      },
+      status: 'pending-tests',
+      capturedAt: publishedAt
+    };
+    await writeJson(path.join(root, receiptPath), receipt);
     phase.deliveryEvidence = {
       ...deliveryPreflight,
       generation: phase.generation,
-      sourceTreeSha256: await sourceTreeHash(root),
+      receiptPath,
+      changeSetPath,
+      sourceTreeSha256: workingStateDigest,
+      status: 'pending-tests',
       capturedAt: publishedAt,
       validation: null
     };
@@ -1383,6 +1536,14 @@ export async function publishGeneration(root, config, workflow, { phaseId, usage
   await updateRemoteOutputRenderedHashes(root, workflow, phase, { itemDirectory: workDir(root, config, workflow.workItem.id) });
   const errors = await validatePhase(root, config, workflow, phase);
   if (errors.length) throw new SingularityFlowError(`Phase ${phase.id} generation is not publishable:\n- ${errors.join('\n- ')}`);
+  if (generationIntent) {
+    await consumeGenerationIntent(root, phase, {
+      generation: phase.generation,
+      publishedAt,
+      changeSetDigest: deliveryPreflight?.changeSet?.digest ?? null,
+      resultDigest: await generationResultDigest(root, config, workflow, phase)
+    });
+  }
   normalizedUsage.forEach((usage) => addUsageAggregate(workflow, phase, usage));
   workflow.history.push({ at: nowIso(), actor: actorKey(session.actor), agent: session.agent, event: 'phase_generated', phase: phase.id, detail: `generation ${phase.generation}` });
   if (persist) await saveWorkflow(root, config, workflow);
@@ -1472,14 +1633,42 @@ async function qualityChecks(root, phase, config, commands = phase.qualityComman
       checks.push({ id: policy.id, command, externalModelPolicy: policy.modelPolicy, sourceCommit, sourceTreeSha256, startedAt, completedAt: nowIso(), status: 'skipped-warning', exitCode: null, stdout: '', stderr: policy.reason });
       continue;
     }
+    const commandRoot = path.resolve(root, policy.workingDirectory && policy.workingDirectory !== '.' ? policy.workingDirectory : '.');
+    if (policy.kind === 'test' && policy.result?.path) {
+      const resultTarget = path.resolve(commandRoot, policy.result.path);
+      if (resultTarget !== root && !resultTarget.startsWith(`${path.resolve(root)}${path.sep}`)) {
+        throw new SingularityFlowError(`Test result path resolves outside the repository: ${policy.result.path}`, { code: 'CODE_TEST_RESULT_REQUIRED' });
+      }
+      await mkdir(path.dirname(resultTarget), { recursive: true });
+    }
+    // A CLI invoked from Node's own test runner inherits NODE_TEST_CONTEXT. Passing that private
+    // harness marker to a nested `node --test` process makes Node treat the required repository
+    // test as an internal child and emit no reporter events. External quality commands are a new
+    // execution boundary, so they receive the ordinary process environment without the parent's
+    // test-runner control marker.
+    const commandEnvironment = { ...process.env };
+    delete commandEnvironment.NODE_TEST_CONTEXT;
     const result = policy.argv
-      ? await runQualityCommand(policy.argv[0], policy.argv.slice(1), { cwd: root, timeoutMs: policy.timeoutMs ?? DEFAULT_QUALITY_COMMAND_TIMEOUT_MS })
-      : await runQualityCommand(policy.command, [], { cwd: root, shell: true, timeoutMs: policy.timeoutMs ?? DEFAULT_QUALITY_COMMAND_TIMEOUT_MS });
+      ? await runQualityCommand(policy.argv[0], policy.argv.slice(1), {
+        cwd: commandRoot,
+        env: commandEnvironment,
+        timeoutMs: policy.timeoutMs ?? DEFAULT_QUALITY_COMMAND_TIMEOUT_MS,
+        stdoutFile: policy.kind === 'test' && (policy.result?.adapter === 'go-test-json'
+          || (policy.result?.adapter === 'junit-xml'
+            && policy.argv.some((argument) => argument === '--test-reporter=junit')))
+          ? path.resolve(commandRoot, policy.result.path)
+          : null
+      })
+      : await runQualityCommand(policy.command, [], {
+        cwd: commandRoot, env: commandEnvironment, shell: true,
+        timeoutMs: policy.timeoutMs ?? DEFAULT_QUALITY_COMMAND_TIMEOUT_MS
+      });
     const infrastructureError = result.error
       ? `Unable to run quality command: ${result.error.message}`
       : null;
     checks.push({
-      id: policy.id, command, externalModelPolicy: policy.modelPolicy,
+      id: policy.id, command, kind: policy.kind, workingDirectory: policy.workingDirectory,
+      externalModelPolicy: policy.modelPolicy,
       timeoutMs: policy.timeoutMs ?? DEFAULT_QUALITY_COMMAND_TIMEOUT_MS,
       sourceCommit, sourceTreeSha256, startedAt, completedAt: nowIso(),
       status: result.timedOut || infrastructureError ? 'blocked' : result.status === 0 ? 'passed' : 'failed',
@@ -1546,7 +1735,14 @@ export async function submitPhase(root, config, workflow, { phaseId, runChecks =
   await requireAstLifecycleReceipt(root, config, workflow, phase, { generation: phase.generation });
   const codeDeliveryRequired = phaseRequiresCodeDelivery(phase);
   const deliveryCommands = await resolveDeliveryQualityCommands(root, phase);
+  let requiredTestCommands = [];
   if (codeDeliveryRequired) {
+    if (workflow.resolution?.codeDelivery?.tests?.executionAssurance === 'testcase-exact') {
+      throw new SingularityFlowError(
+        'testcase-exact assurance requires an adapter that binds source annotations to executed test identities; no such binding is configured.',
+        { code: 'CODE_TEST_RESULT_REQUIRED' }
+      );
+    }
     const evidence = phase.deliveryEvidence;
     if (!evidence || Number(evidence.generation) !== Number(phase.generation)) {
       throw new SingularityFlowError(
@@ -1561,9 +1757,22 @@ export async function submitPhase(root, config, workflow, { phaseId, runChecks =
         { code: 'CODE_DELIVERY_RECEIPT_STALE' }
       );
     }
-    if (!deliveryCommands.some(isTestQualityCommand)) {
+    requiredTestCommands = deliveryCommands
+      .filter((command) => command && typeof command === 'object' && !Array.isArray(command) && command.kind === 'test')
+      .map((command, index) => normalizeRequiredTestCommand(command, index))
+      .map((command) => ({
+        ...command,
+        result: {
+          ...command.result,
+          minimumDiscovered: Math.max(
+            command.result.minimumDiscovered,
+            workflow.resolution?.codeDelivery?.tests?.minimumDiscovered ?? 1
+          )
+        }
+      }));
+    if (!requiredTestCommands.length) {
       throw new SingularityFlowError(
-        `Phase ${phase.id} has no repository test command. Configure a quality command or add a supported build manifest before submission.`,
+        `Phase ${phase.id} has no structured repository test command. Configure kind: test, argv, workingDirectory, affectedRoots, and a result adapter.`,
         { code: 'CODE_DELIVERY_TEST_COMMAND_REQUIRED' }
       );
     }
@@ -1593,6 +1802,52 @@ export async function submitPhase(root, config, workflow, { phaseId, runChecks =
     );
   }
   phase.checks = runChecks ? await qualityChecks(root, phase, config, deliveryCommands) : [];
+  const testExecutions = [];
+  if (codeDeliveryRequired) {
+    for (const command of requiredTestCommands) {
+      const check = phase.checks.find((entry) => entry.id === command.id);
+      if (!check || check.status === 'skipped-warning') {
+        throw new SingularityFlowError(`Required test command '${command.id}' was skipped.`, { code: 'CODE_TEST_SKIPPED' });
+      }
+      if (check.status === 'blocked') {
+        throw new SingularityFlowError(`Required test command '${command.id}' was blocked: ${check.stderr}`, { code: 'CODE_TEST_FAILED' });
+      }
+      if (check.status !== 'passed' || check.exitCode !== 0) {
+        throw new SingularityFlowError(`Required test command '${command.id}' failed.`, { code: 'CODE_TEST_FAILED' });
+      }
+      const parsed = await parseTestResult(root, command, { startedAt: check.startedAt });
+      const receipt = buildTestExecutionReceipt(command, check, parsed);
+      if (receipt.tests.discovered < parsed.minimumDiscovered) {
+        throw new SingularityFlowError(`Required test command '${command.id}' discovered zero or too few tests.`, { code: 'CODE_TEST_ZERO_DISCOVERED' });
+      }
+      if (!testReceiptPassing(receipt, parsed.minimumDiscovered)) {
+        throw new SingularityFlowError(`Required test command '${command.id}' did not produce passing executable-test evidence.`, { code: 'CODE_TEST_FAILED' });
+      }
+      const safeId = command.id.replace(/[^A-Za-z0-9._-]+/g, '-');
+      const receiptPath = posix(path.join(
+        workDirRelative(config, workflow.workItem.id), 'context', 'code-delivery', 'tests',
+        `${phase.id}-gen${phase.generation}-${safeId}.json`
+      ));
+      await writeJson(path.join(root, receiptPath), receipt);
+      testExecutions.push({
+        commandId: command.id, receiptPath,
+        receiptSha256: createHash('sha256').update(canonicalJson(receipt)).digest('hex'),
+        status: receipt.status,
+        affectedRoots: command.affectedRoots
+      });
+    }
+    if (workflow.resolution?.codeDelivery?.tests?.requireAffectedModuleCoverage !== false) {
+      const pathsRequiringCoverage = phase.sourceBoundary === 'test-automation'
+        ? phase.deliveryEvidence.testPaths
+        : phase.deliveryEvidence.sourcePaths;
+      const uncovered = pathsRequiringCoverage.filter((candidate) => !testExecutions.some((execution) =>
+        execution.affectedRoots.some((affectedRoot) => affectedRoot === '.'
+          || candidate === affectedRoot || candidate.startsWith(`${affectedRoot.replace(/\/$/, '')}/`))));
+      if (uncovered.length) {
+        throw new SingularityFlowError(`No passing test command covers affected paths: ${uncovered.join(', ')}`, { code: 'TEST_MODULE_UNCOVERED' });
+      }
+    }
+  }
   if (phase.id === 'visual-verification') await assertVisualCoverage(root, workflow, { itemDirectory: workDir(root, config, workflow.workItem.id) });
   const errors = await validatePhase(root, config, workflow, phase); const failed = phase.checks.filter((check) => check.status === 'failed' || check.status === 'blocked');
   const reviewableFailure = Boolean(phase.repairBudget && failed.length);
@@ -1600,6 +1855,9 @@ export async function submitPhase(root, config, workflow, { phaseId, runChecks =
   if (errors.length) throw new SingularityFlowError(`Phase ${phase.id} is not ready:\n- ${errors.join('\n- ')}`);
   phase.validationVerdict = failed.length ? 'failed' : 'passed';
   if (codeDeliveryRequired) {
+    const generationTree = phase.generationCommit
+      ? run('git', ['rev-parse', `${phase.generationCommit}^{tree}`], { cwd: root }).stdout.trim()
+      : null;
     phase.deliveryEvidence.validation = {
       sourceCommit: phase.generationCommit,
       sourceTreeSha256: await sourceTreeHash(root),
@@ -1611,6 +1869,52 @@ export async function submitPhase(root, config, workflow, { phaseId, runChecks =
       status: failed.length ? 'failed' : 'passed',
       validatedAt: nowIso()
     };
+    phase.deliveryEvidence.status = 'ready';
+    phase.deliveryEvidence.testExecutions = testExecutions;
+    const deliveryReceipt = await readJson(path.join(root, phase.deliveryEvidence.receiptPath));
+    const traceabilityBindings = [];
+    for (const binding of deliveryReceipt.traceability?.bindings ?? []) {
+      const execution = testExecutions.find((candidate) => candidate.affectedRoots.some((affectedRoot) =>
+        affectedRoot === '.' || binding.testSource === affectedRoot
+          || binding.testSource.startsWith(`${affectedRoot.replace(/\/$/, '')}/`)));
+      if (!execution) {
+        throw new SingularityFlowError(
+          `Acceptance clause '${binding.clauseId}' is not bound to a passing command for '${binding.testSource}'.`,
+          { code: 'AC_BINDING_MISSING' }
+        );
+      }
+      const module = await resolveAffectedModule(root, binding.testSource).catch((error) => {
+        // The deterministic direct-node fallback is an explicit root-module adapter for
+        // repositories that intentionally have executable .mjs tests but no package manifest.
+        // It is valid only when the passing command names the repository root as its affected root.
+        if (error?.code === 'TEST_MODULE_UNCOVERED' && execution.affectedRoots.includes('.')) {
+          return { root: '.', system: 'node-direct' };
+        }
+        throw error;
+      });
+      traceabilityBindings.push({
+        ...binding,
+        testIdentity: null,
+        moduleRoot: module.root,
+        commandId: execution.commandId,
+        executionAssurance: 'module-executed'
+      });
+    }
+    const readyReceipt = {
+      ...deliveryReceipt,
+      traceability: { ...deliveryReceipt.traceability, bindings: traceabilityBindings },
+      testExecutions: testExecutions.map(({ affectedRoots: _affectedRoots, ...entry }) => entry),
+      tree: {
+        ...deliveryReceipt.tree,
+        workingStateDigest: await sourceTreeHash(root),
+        generationCommit: phase.generationCommit,
+        generationTree
+      },
+      status: 'ready',
+      validatedAt: phase.deliveryEvidence.validation.validatedAt
+    };
+    await writeJson(path.join(root, phase.deliveryEvidence.receiptPath), readyReceipt);
+    phase.deliveryEvidence.receiptSha256 = createHash('sha256').update(canonicalJson(readyReceipt)).digest('hex');
   }
   if (phaseUsesWorkInterval(phase)) {
     const itemDirectory = workDir(root, config, workflow.workItem.id);
@@ -1763,6 +2067,47 @@ export async function approvePhase(root, config, workflow, {
         `Phase '${phase.id}' code or tests changed after validation. Submit a fresh validated generation.`,
         { code: 'CODE_DELIVERY_VALIDATION_STALE' }
       );
+    }
+    const receiptPath = phase.deliveryEvidence?.receiptPath;
+    const receipt = receiptPath ? readRecord('code-delivery', await readJson(path.join(root, receiptPath))).record : null;
+    if (!receipt || receipt.legacyV1) {
+      // A generation published before code-delivery v2 has only the inline validation checked
+      // above. It remains approvable for migration compatibility, but every generation begun by
+      // this build has an intent and therefore must take the strict v2 path below.
+      if (phase.generationIntent?.id) {
+        throw new SingularityFlowError(
+          `Phase '${phase.id}' requires a current code-delivery v2 receipt before approval.`,
+          { code: 'CODE_DELIVERY_VALIDATION_REQUIRED' }
+        );
+      }
+      console.warn(`Warning: phase '${phase.id}' uses legacy inline code-delivery validation; regenerate to obtain v2 assurance.`);
+    } else {
+      const receiptSha256 = createHash('sha256').update(canonicalJson(receipt)).digest('hex');
+      if (receipt.status !== 'ready'
+        || receiptSha256 !== phase.deliveryEvidence?.receiptSha256
+        || receipt.tree?.generationCommit !== phase.generationCommit
+        || (receipt.testExecutions ?? []).some((execution) => execution.status !== 'passed')) {
+        throw new SingularityFlowError(
+          `Phase '${phase.id}' code-delivery receipt is absent, stale, or does not contain passing test evidence.`,
+          { code: 'CODE_DELIVERY_VALIDATION_REQUIRED' }
+        );
+      }
+      const replay = await verifyCodeDeliveryReceipt(root, receipt, {
+        protectedPaths: [...new Set([
+          ...(config.governance?.protectedPaths ?? []),
+          ...(workflow.resolution?.capability?.policy?.protectedPaths ?? [])
+        ])],
+        sourceBoundary: phase.sourceBoundary,
+        symlinkPolicy: workflow.resolution?.codeDelivery?.changeSet?.symlinks ?? 'reject',
+        minimumDiscovered: workflow.resolution?.codeDelivery?.tests?.minimumDiscovered ?? 1,
+        requireAffectedModuleCoverage: workflow.resolution?.codeDelivery?.tests?.requireAffectedModuleCoverage !== false
+      });
+      if (!replay.valid) {
+        throw new SingularityFlowError(
+          `Phase '${phase.id}' committed code-delivery evidence no longer verifies:\n- ${replay.errors.join('\n- ')}`,
+          { code: 'CODE_DELIVERY_VALIDATION_REQUIRED' }
+        );
+      }
     }
   }
   if (phase.requiredArtifact?.kind === 'conformance-report') {

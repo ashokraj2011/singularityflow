@@ -1,7 +1,7 @@
 import { readFile } from 'node:fs/promises';
 import path from 'node:path';
 import { currentPhase, sourceTreeHash, validateWorkflow, workDir, workflowPublicationBranch } from './state-stores.mjs';
-import { exists, snapshot, run } from './util.mjs';
+import { exists, posix, snapshot, run } from './util.mjs';
 import { verifyInputsIntegrity } from './inputs.mjs';
 import { verifyAgentIntegrity } from './agents.mjs';
 import { matchApprovalAuthority, remainingRequiredAuthorities } from './approval-authority.mjs';
@@ -24,6 +24,10 @@ import {
 } from './specifications.mjs';
 import { verifyAstLifecycleReceipt } from './ast-lifecycle.mjs';
 import { blockingConformanceVerdicts } from './conformance-verdicts.mjs';
+import { buildRepositoryChangeSet, evaluateProtectedPaths } from './repository-change-set.mjs';
+import { phaseRequiresCodeDelivery } from './code-delivery-policy.mjs';
+import { readRecord } from './schema-migrations.mjs';
+import { verifyCodeDeliveryReceipt } from './delivery-evidence.mjs';
 
 function trackedFiles(root) { return run('git', ['ls-files', '-z'], { cwd: root }).stdout.split('\0').filter(Boolean); }
 function ids(text, pattern) { return [...new Set([...text.matchAll(pattern)].map((match) => match[0]))]; }
@@ -94,11 +98,12 @@ export async function runGovernanceGate(root, config, workflow, { terminal = fal
     else passes.push(`document integrity: ${manifest.documents?.length ?? 0} supporting inputs`);
   } else if ((workflow.documents?.count ?? 0) > 0) errors.push('workflow records documents but documents.json is missing');
 
-  const diff = run('git', ['diff', '--name-only', `${workflow.workItem.baseBranch}...HEAD`], { cwd: root, allowFailure: true });
-  if (diff.status === 0) {
-    const changed = diff.stdout.split(/\r?\n/).filter(Boolean);
-    for (const protectedPath of config.governance?.protectedPaths ?? []) {
-      if (changed.some((file) => file === protectedPath || file.startsWith(`${protectedPath}/`))) errors.push(`protected process path changed on work branch: ${protectedPath}`);
+  const mergeBase = run('git', ['merge-base', workflow.workItem.baseBranch, 'HEAD'], { cwd: root, allowFailure: true });
+  if (mergeBase.status === 0) {
+    const branchChangeSet = await buildRepositoryChangeSet(root, { baseCommit: mergeBase.stdout.trim() });
+    const protectedResult = evaluateProtectedPaths(branchChangeSet, config.governance?.protectedPaths ?? []);
+    for (const violation of protectedResult.violations) {
+      errors.push(`protected process path changed on work branch: ${violation.path} (${violation.endpoint})`);
     }
   } else warnings.push(`could not compare protected process paths with ${workflow.workItem.baseBranch}`);
 
@@ -128,6 +133,45 @@ export async function runGovernanceGate(root, config, workflow, { terminal = fal
       });
       errors.push(...ast.errors); warnings.push(...ast.warnings);
       if (found) passes.push(...ast.passes);
+      if (phaseRequiresCodeDelivery(phase)) {
+        const receiptPath = posix(path.join(
+          config.workItemRoot ?? 'singularity/work-items', workflow.workItem.id,
+          'context', 'code-delivery', `${phase.id}-gen${generation}.json`
+        ));
+        if (!(await exists(path.join(root, receiptPath)))) {
+          const generationStartPath = posix(path.join(
+            config.workItemRoot ?? 'singularity/work-items', workflow.workItem.id,
+            'context', 'generation-start', `${phase.id}-gen${generation}.json`
+          ));
+          const v2Generation = phase.generationIntent?.generation === generation
+            || await exists(path.join(root, generationStartPath))
+            || Boolean(found && run('git', ['cat-file', '-e', `${found[0]}:${generationStartPath}`], {
+              cwd: root, allowFailure: true
+            }).status === 0);
+          (v2Generation ? errors : warnings).push(
+            `${phaseId} generation ${generation} has ${v2Generation ? 'no required' : 'legacy inline'} code-delivery evidence instead of a v2 receipt`
+          );
+        } else {
+          const receipt = readRecord('code-delivery', await readFile(path.join(root, receiptPath))).record;
+          if (receipt.legacyV1) {
+            warnings.push(`${phaseId} generation ${generation} code-delivery receipt is readable legacy v1 evidence`);
+          } else {
+            if (found && receipt.tree?.generationCommit !== found[0]) errors.push(`${phaseId} generation ${generation} receipt names a different generation commit`);
+            const replay = await verifyCodeDeliveryReceipt(root, receipt, {
+              protectedPaths: [...new Set([
+                ...(config.governance?.protectedPaths ?? []),
+                ...(workflow.resolution?.capability?.policy?.protectedPaths ?? [])
+              ])],
+              sourceBoundary: phase.sourceBoundary,
+              symlinkPolicy: workflow.resolution?.codeDelivery?.changeSet?.symlinks ?? 'reject',
+              minimumDiscovered: workflow.resolution?.codeDelivery?.tests?.minimumDiscovered ?? 1,
+              requireAffectedModuleCoverage: workflow.resolution?.codeDelivery?.tests?.requireAffectedModuleCoverage !== false
+            });
+            errors.push(...replay.errors.map((message) => `${phaseId} generation ${generation}: ${message}`));
+            if (replay.valid) passes.push(`code delivery verified: ${phaseId} generation ${generation}`);
+          }
+        }
+      }
       const authorship = (phase.authorship ?? []).find((record) => record.generation === generation);
       if (authorship?.producer === 'governed-agent') {
         const clarification = await verifyClarificationRecord(root, config, workflow, phase, { generation, groundingRecord: grounding.record });
@@ -282,19 +326,14 @@ export async function runGovernanceGate(root, config, workflow, { terminal = fal
   }
 
   if (config.governance?.requireAcceptanceCriteriaTags) {
-    const acIds = new Set();
-    for (const source of traceabilitySources(workflow)) {
-      const sourcePath = path.join(workDir(root, config, workflow.workItem.id), source.requiredArtifact.path);
-      if (await exists(sourcePath)) ids(await readFile(sourcePath, 'utf8'), /\bAC-\d+\b/g).forEach((id) => acIds.add(id));
+    const required = new Set();
+    const bound = new Set();
+    for (const phase of Object.values(workflow.phases).filter(phaseRequiresCodeDelivery)) {
+      for (const id of phase.deliveryEvidence?.acceptanceCriteria?.required ?? []) required.add(id);
+      for (const id of phase.deliveryEvidence?.acceptanceCriteria?.tagged ?? []) bound.add(id);
     }
-    if (acIds.size) {
-      const tags = new Set();
-      for (const file of trackedFiles(root).filter((item) => /(^|\/)(test|tests|__tests__)(\/|\.|$)|\.(test|spec)\./i.test(item))) {
-        const text = await readFile(path.join(root, file), 'utf8').catch(() => ''); for (const match of text.matchAll(/@ac:\s*(AC-\d+)/g)) tags.add(match[1]);
-      }
-      for (const id of acIds) if (!tags.has(id)) errors.push(`AC coverage: ${id} has no test tagged @ac:${id}`);
-      if ([...acIds].every((id) => tags.has(id))) passes.push(`acceptance coverage: ${acIds.size} criteria mapped`);
-    }
+    for (const id of required) if (!bound.has(id)) errors.push(`AC coverage: ${id} has no executable test binding`);
+    if (required.size && [...required].every((id) => bound.has(id))) passes.push(`acceptance coverage: ${required.size} namespaced criteria mapped`);
   }
 
   if (workflow.phases.conformance?.generation > 0) {

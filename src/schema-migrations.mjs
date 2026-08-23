@@ -512,6 +512,32 @@ function contextPacketTelemetryV2ToV3(source) {
   };
 }
 
+function codeDeliveryV1ToV2(source) {
+  return {
+    ...source,
+    schemaVersion: 2,
+    generationIntentId: source.generationIntentId ?? null,
+    changeSet: clone(source.changeSet ?? {
+      path: null,
+      digest: null,
+      sourcePaths: clone(source.sourcePaths ?? []),
+      executableTestPaths: clone(source.testPaths ?? []),
+      supportingTestPaths: []
+    }),
+    traceability: clone(source.traceability ?? source.acceptanceCriteria ?? {
+      required: [], bound: [], missing: [], ambiguous: []
+    }),
+    testExecutions: clone(source.testExecutions ?? []),
+    tree: clone(source.tree ?? {
+      workingStateDigest: source.sourceTreeSha256 ?? null,
+      generationCommit: null,
+      generationTree: null
+    }),
+    status: source.status ?? (source.validation?.status === 'passed' ? 'ready' : 'pending-tests'),
+    legacyV1: true
+  };
+}
+
 function family({
   id, currentVersion, minimumReadableVersion = 1, steps = [], paths = [], immutable = false,
   unversionedAs = null, migrationPolicy = 'migrate-on-read'
@@ -562,6 +588,23 @@ const families = [
   family({ id: 'design-source-provenance', currentVersion: 1, paths: [/^singularity\/work-items\/[^/]+\/context\/design-sources-[^/]+-gen\d+\.json$/], immutable: true }),
   family({ id: 'work-interval-baseline', currentVersion: 1, paths: [/^singularity\/work-items\/[^/]+\/context\/work-intervals\/[^/]+-gen\d+-baseline\.json$/] }),
   family({ id: 'work-interval-state', currentVersion: 1 }),
+  family({
+    id: 'generation-start', currentVersion: 1,
+    paths: [/^singularity\/work-items\/[^/]+\/context\/generation-start\/[^/]+-gen\d+\.json$/]
+  }),
+  family({
+    id: 'repository-change-set', currentVersion: 1,
+    paths: [/^singularity\/work-items\/[^/]+\/context\/code-delivery\/[^/]+-gen\d+-changes\.json$/], immutable: true
+  }),
+  family({
+    id: 'test-execution', currentVersion: 1,
+    paths: [/^singularity\/work-items\/[^/]+\/context\/code-delivery\/tests\/[^/]+\.json$/], immutable: true
+  }),
+  family({
+    id: 'code-delivery', currentVersion: 2, minimumReadableVersion: 1,
+    steps: [migration(1, 2, codeDeliveryV1ToV2)],
+    paths: [/^singularity\/work-items\/[^/]+\/context\/code-delivery\/[^/]+-gen\d+\.json$/]
+  }),
   family({
     id: 'work-reconciliation', currentVersion: 1,
     paths: [/^singularity\/work-items\/[^/]+\/context\/work-intervals\/reconciliations\/[^/]+\.json$/, /^\$git\/reconciliations\/[^/]+\/[^/]+\.json$/]

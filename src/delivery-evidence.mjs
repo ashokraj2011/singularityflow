@@ -1,17 +1,46 @@
-import { readFile } from 'node:fs/promises';
+import { createHash } from 'node:crypto';
+import { lstat, readFile } from 'node:fs/promises';
 import path from 'node:path';
 
 import { phaseRequiresCodeDelivery } from './code-delivery-policy.mjs';
-import { isTestAutomationPath } from './source-boundary.mjs';
-import { SingularityFlowError, exists, posix, snapshot } from './util.mjs';
 import {
-  changedApplicationPathsSinceBaseline, verifyWorkIntervalBaseline
+  inferModuleTestCommand, isAllowedTestAutomationPath, isExecutableTestSourcePath,
+  isSupportingTestResourcePath, resolveAffectedModule, testReceiptPassing
+} from './code-delivery-tests.mjs';
+import {
+  buildRepositoryChangeSet, evaluateProtectedPaths, evaluateSourceBoundary,
+  verifyRepositoryChangeSetIntegrity
+} from './repository-change-set.mjs';
+import { canonicalJson } from './records.mjs';
+import { readRecord } from './schema-migrations.mjs';
+import { loadActiveSpecRecords, predecessorSpecClauses } from './specifications.mjs';
+import { SingularityFlowError, exists, posix, run, snapshot } from './util.mjs';
+import {
+  isApplicationPath, verifyWorkIntervalBaseline
 } from './work-intervals.mjs';
 
 export { phaseRequiresCodeDelivery } from './code-delivery-policy.mjs';
 
+function legacySpecificationText(text) {
+  return text
+    .replace(/<!-- singularity-flow:metadata[\s\S]*?-->/gi, '')
+    .replace(/<!--[\s\S]*?-->/g, '')
+    .replace(/^\s*(```|~~~)[^\r\n]*[\r\n][\s\S]*?^\s*\1\s*$/gm, '')
+    .replace(/`[^`\r\n]+`/g, '');
+}
+
 export async function acceptanceIds(root, config, workflow, phase) {
   if (!config.governance?.requireAcceptanceCriteriaTags) return [];
+  const itemDirectory = path.join(root, config.workItemRoot ?? 'singularity/work-items', workflow.workItem.id);
+  const records = await loadActiveSpecRecords(itemDirectory, workflow);
+  const indexed = predecessorSpecClauses(records, workflow, phase.id)
+    .filter((clause) => clause.type === 'AC' || /:AC-\d+$/.test(clause.id ?? ''))
+    .map((clause) => clause.id);
+  if (indexed.length) return [...new Set(indexed)].sort();
+  // Compatibility for workflows created before specification indexes existed. New records always
+  // preserve the namespace; a legacy bare suffix is normalized only when a configured namespace
+  // makes the identity unambiguous.
+  const namespace = (workflow.resolution?.spec ?? config.spec)?.namespace ?? null;
   const position = workflow.phaseOrder.indexOf(phase.id);
   const ids = new Set();
   for (const phaseId of workflow.phaseOrder.slice(0, Math.max(0, position))) {
@@ -23,30 +52,75 @@ export async function acceptanceIds(root, config, workflow, phase) {
     ));
     const absolute = path.join(root, relative);
     if (!(await exists(absolute))) continue;
-    const text = await readFile(absolute, 'utf8');
-    for (const match of text.matchAll(/\bAC-\d+\b/g)) ids.add(match[0]);
+    const text = legacySpecificationText(await readFile(absolute, 'utf8'));
+    for (const match of text.matchAll(/\b(?:[A-Z0-9][A-Z0-9._-]{0,63}:)?AC-\d+\b/gi)) {
+      const value = match[0].toUpperCase();
+      ids.add(value.includes(':') ? value : namespace ? `${namespace}:${value}` : value);
+    }
   }
   return [...ids].sort();
 }
 
-async function taggedAcceptanceIds(root, testPaths) {
-  const ids = new Set();
+export async function taggedAcceptanceIds(root, testPaths, requiredIds = []) {
+  const exact = new Set();
+  const bare = new Set();
+  const exactSources = new Map();
+  const bareSources = new Map();
   for (const relative of testPaths) {
     const absolute = path.join(root, relative);
     if (!(await exists(absolute))) continue;
     const text = await readFile(absolute, 'utf8');
-    for (const match of text.matchAll(/@ac:\s*(AC-\d+)/g)) ids.add(match[1]);
+    for (const match of text.matchAll(/@ac:\s*((?:[A-Z0-9][A-Z0-9._-]{0,63}:)?AC-\d+)/gi)) {
+      const value = match[1].toUpperCase();
+      const target = value.includes(':') ? exact : bare;
+      const sources = value.includes(':') ? exactSources : bareSources;
+      target.add(value);
+      if (!sources.has(value)) sources.set(value, new Set());
+      sources.get(value).add(relative);
+    }
   }
-  return [...ids].sort();
+  const ambiguous = [];
+  const inferred = [];
+  const bindings = [];
+  for (const clauseId of exact) {
+    for (const testSource of exactSources.get(clauseId) ?? []) {
+      bindings.push({ clauseId, testSource, bindingAssurance: 'namespace-qualified' });
+    }
+  }
+  for (const suffix of bare) {
+    const matches = requiredIds.filter((id) => id === suffix || id.endsWith(`:${suffix}`));
+    if (matches.length === 1) {
+      inferred.push(matches[0]);
+      for (const testSource of bareSources.get(suffix) ?? []) {
+        bindings.push({ clauseId: matches[0], testSource, bindingAssurance: 'legacy-inferred' });
+      }
+    }
+    else if (matches.length > 1) ambiguous.push({ suffix, matches });
+    else {
+      exact.add(suffix);
+      for (const testSource of bareSources.get(suffix) ?? []) {
+        bindings.push({ clauseId: suffix, testSource, bindingAssurance: 'legacy-unresolved' });
+      }
+    }
+  }
+  return {
+    ids: [...new Set([...exact, ...inferred])].sort(), inferred: inferred.sort(), ambiguous,
+    bindings: bindings.sort((left, right) => left.clauseId.localeCompare(right.clauseId) || left.testSource.localeCompare(right.testSource))
+  };
 }
 
 async function pathEvidence(root, paths) {
   const records = [];
   for (const relative of paths) {
-    const current = await snapshot(path.join(root, relative));
+    const absolute = path.join(root, relative);
+    const info = await lstat(absolute).catch((error) => error?.code === 'ENOENT' ? null : Promise.reject(error));
+    const current = info?.isSymbolicLink()
+      ? { exists: true, size: info.size, sha256: null }
+      : await snapshot(absolute);
     records.push({
       path: relative,
-      kind: isTestAutomationPath(relative) ? 'test' : 'source',
+      kind: isAllowedTestAutomationPath(relative) ? 'test' : 'source',
+      fileKind: !info ? 'missing' : info.isSymbolicLink() ? 'symlink' : info.isFile() ? 'regular-file' : 'non-regular',
       exists: current.exists,
       size: current.size,
       sha256: current.sha256
@@ -67,8 +141,56 @@ export async function evaluateCodeDeliveryPreflight(root, config, workflow, phas
 
   const itemDirectory = path.join(root, config.workItemRoot ?? 'singularity/work-items', workflow.workItem.id);
   await verifyWorkIntervalBaseline(root, config, workflow, { phaseId: phase.id, itemDirectory });
-  const changedPaths = changedApplicationPathsSinceBaseline(root, workflow, { phaseId: phase.id });
-  const changedTestPaths = changedPaths.filter(isTestAutomationPath);
+  const baselineCommit = phase.generationIntent?.baseline?.commit
+    ?? workflow.workIntervals.current.sourceBaseCommit;
+  const changeSet = await buildRepositoryChangeSet(root, {
+    baseCommit: baselineCommit,
+    subject: {
+      workId: workflow.workItem.id, phase: phase.id, generation: phase.generation + 1,
+      generationIntentId: phase.generationIntent?.id ?? null
+    }
+  });
+  const guards = [...new Set([
+    ...(config.governance?.protectedPaths ?? []),
+    ...(workflow.resolution?.capability?.policy?.protectedPaths ?? [])
+  ])];
+  const protectedResult = evaluateProtectedPaths(changeSet, guards);
+  if (!protectedResult.valid) {
+    throw new SingularityFlowError(
+      `Generation cannot modify protected process paths: ${protectedResult.violations.map((entry) => `${entry.endpoint} ${entry.path}`).join(', ')}`,
+      { code: 'CHANGE_SET_POLICY_VIOLATION' }
+    );
+  }
+  const applicationEntries = changeSet.entries.filter((entry) =>
+    [entry.oldPath, entry.newPath].filter(Boolean).some(isApplicationPath));
+  const applicationChangeSet = { ...changeSet, entries: applicationEntries };
+  const boundaryResult = evaluateSourceBoundary(applicationChangeSet, phase.sourceBoundary, {
+    phaseId: phase.id, allowedPath: isAllowedTestAutomationPath
+  });
+  if (!boundaryResult.valid) {
+    throw new SingularityFlowError(
+      `Phase ${phase.id} may change test automation only; product-source endpoints are outside its governed boundary: ${boundaryResult.violations.map((entry) => entry.path).join(', ')}`,
+      { code: 'CHANGE_SET_POLICY_VIOLATION' }
+    );
+  }
+  const currentPaths = applicationEntries
+    .filter((entry) => entry.status !== 'deleted' && entry.newPath && entry.newContent?.kind === 'regular-file')
+    .map((entry) => entry.newPath);
+  const changedPaths = [...new Set(currentPaths)].sort();
+  const changedTestCandidates = changedPaths.filter(isAllowedTestAutomationPath);
+  const changedTestPaths = [];
+  const supportingTestPaths = [];
+  for (const candidate of changedTestCandidates) {
+    if (await isExecutableTestSourcePath(root, candidate)) changedTestPaths.push(candidate);
+    else if (isSupportingTestResourcePath(candidate)) supportingTestPaths.push(candidate);
+  }
+  const symlinks = applicationEntries.filter((entry) => entry.newContent?.kind === 'symlink');
+  if (symlinks.length && (workflow.resolution?.codeDelivery?.changeSet?.symlinks ?? 'reject') === 'reject') {
+    throw new SingularityFlowError(
+      `Source or test delivery cannot use symbolic links: ${symlinks.map((entry) => entry.newPath).join(', ')}`,
+      { code: 'SYMLINK_DELIVERY_FORBIDDEN' }
+    );
+  }
   const intentRevalidation = Boolean(
     phase.intentAmendmentRevalidation?.id && !phase.intentAmendmentRevalidation?.revalidatedAt
   );
@@ -79,7 +201,7 @@ export async function evaluateCodeDeliveryPreflight(root, config, workflow, phas
     ? (phase.deliveryEvidence?.testPaths ?? []).filter((candidate) => !changedTestPaths.includes(candidate))
     : [];
   const testPaths = [...new Set([...changedTestPaths, ...reusableTestPaths])].sort();
-  const changedSourcePaths = changedPaths.filter((candidate) => !isTestAutomationPath(candidate));
+  const changedSourcePaths = changedPaths.filter((candidate) => !isAllowedTestAutomationPath(candidate));
   const reusableSourcePaths = intentRevalidation
     ? (phase.deliveryEvidence?.sourcePaths ?? []).filter((candidate) => !changedSourcePaths.includes(candidate))
     : [];
@@ -95,7 +217,14 @@ export async function evaluateCodeDeliveryPreflight(root, config, workflow, phas
   if (!testPaths.length) errors.push('no acceptance test is available for the implementation');
 
   const requiredAcIds = await acceptanceIds(root, config, workflow, phase);
-  const taggedAcIds = await taggedAcceptanceIds(root, testPaths);
+  const tags = await taggedAcceptanceIds(root, testPaths, requiredAcIds);
+  if (tags.ambiguous.length) {
+    throw new SingularityFlowError(
+      `Bare acceptance tag is ambiguous: ${tags.ambiguous.map((item) => `${item.suffix} -> ${item.matches.join(', ')}`).join('; ')}`,
+      { code: 'AC_NAMESPACE_AMBIGUOUS' }
+    );
+  }
+  const taggedAcIds = tags.ids;
   const missingAcIds = requiredAcIds.filter((id) => !taggedAcIds.includes(id));
   if (missingAcIds.length) {
     errors.push(`changed tests do not contain required traceability tags: ${missingAcIds.map((id) => `@ac:${id}`).join(', ')}`);
@@ -110,14 +239,20 @@ export async function evaluateCodeDeliveryPreflight(root, config, workflow, phas
 
   return {
     requirement: 'source-and-tests',
-    baselineCommit: workflow.workIntervals.current.sourceBaseCommit,
+    baselineCommit,
+    generationIntentId: phase.generationIntent?.id ?? null,
+    changeSet,
     paths: await pathEvidence(root, [...new Set([
       ...changedPaths, ...reusableSourcePaths, ...reusableTestPaths
     ])].sort()),
     sourcePaths,
     testPaths,
+    supportingTestPaths,
     intentRevalidation: intentRevalidation ? phase.intentAmendmentRevalidation.id : null,
-    acceptanceCriteria: { required: requiredAcIds, tagged: taggedAcIds, missing: [] }
+    acceptanceCriteria: {
+      required: requiredAcIds, tagged: taggedAcIds, missing: [], ambiguous: [],
+      inferred: tags.inferred, bindings: tags.bindings
+    }
   };
 }
 
@@ -140,6 +275,9 @@ function executableName(value) {
 
 /** A code receipt must execute tests; lint/compile/diff commands alone are not sufficient. */
 export function isTestQualityCommand(command) {
+  if (command && typeof command === 'object' && !Array.isArray(command) && command.kind != null) {
+    return command.kind === 'test';
+  }
   const [rawExecutable, ...rawArguments] = commandTokens(command);
   const executable = executableName(rawExecutable);
   const args = rawArguments.map((argument) => argument.toLowerCase());
@@ -201,13 +339,149 @@ export async function inferRepositoryTestCommands(root) {
 export async function resolveDeliveryQualityCommands(root, phase) {
   const configured = [...(phase.qualityCommands ?? [])];
   if (!phaseRequiresCodeDelivery(phase)) return configured;
-  const inferred = await inferRepositoryTestCommands(root);
+  const inferred = [];
+  const deliveryPaths = [...new Set([
+    ...(phase.deliveryEvidence?.sourcePaths ?? []),
+    ...(phase.deliveryEvidence?.testPaths ?? [])
+  ])];
+  const modules = new Map();
+  for (const candidate of deliveryPaths) {
+    const module = await resolveAffectedModule(root, candidate).catch((error) => {
+      if (error?.code === 'TEST_MODULE_UNCOVERED') return null;
+      throw error;
+    });
+    if (module) modules.set(`${module.root}:${module.system}`, module);
+  }
+  for (const module of modules.values()) {
+    const command = await inferModuleTestCommand(root, module);
+    if (command) inferred.push(command);
+  }
+  if (!inferred.length) inferred.push(...await inferRepositoryTestCommands(root));
   if (!inferred.length) {
     const tests = phase.deliveryEvidence?.testPaths ?? [];
     if (tests.length && tests.every((candidate) => /\.(?:c|m)?js$/i.test(candidate))) {
-      inferred.push({ id: 'node-tests', argv: ['node', '--test', ...tests], modelPolicy: 'never' });
+      inferred.push({
+        id: 'node-tests', kind: 'test',
+        argv: ['node', '--test', '--test-reporter=junit', ...tests],
+        workingDirectory: '.', affectedRoots: ['.'], modelPolicy: 'never',
+        result: { adapter: 'junit-xml', path: '.sflow/results/node-tests.xml', minimumDiscovered: 1 }
+      });
     }
   }
   const seen = new Set(configured.map(commandText));
-  return [...configured, ...inferred.filter((command) => !seen.has(commandText(command)))];
+  return [...configured, ...inferred.filter((command) => command && !seen.has(commandText(command)))];
+}
+
+function receiptDigest(record) {
+  return createHash('sha256').update(canonicalJson(record)).digest('hex');
+}
+
+function pathCoveredByRoots(candidate, roots = []) {
+  return roots.some((root) => root === '.' || candidate === root
+    || candidate.startsWith(`${root.replace(/\/$/, '')}/`));
+}
+
+/**
+ * Re-verify the durable code-delivery receipt without consulting current source bytes.
+ * Source policy is replayed from the change set committed with the generation; test receipts are
+ * hash-bound by the ready receipt written at submission.
+ */
+export async function verifyCodeDeliveryReceipt(root, receipt, {
+  protectedPaths = [],
+  sourceBoundary = 'unrestricted',
+  symlinkPolicy = 'reject',
+  minimumDiscovered = 1,
+  requireAffectedModuleCoverage = true
+} = {}) {
+  const errors = [];
+  const fail = (message) => errors.push(message);
+  if (!receipt || receipt.kind !== 'code-delivery' || Number(receipt.schemaVersion) !== 2) {
+    return { valid: false, errors: ['code-delivery v2 receipt is unavailable'] };
+  }
+  if (receipt.status !== 'ready') fail(`code-delivery receipt is ${receipt.status ?? 'unavailable'}`);
+
+  const generationCommit = receipt.tree?.generationCommit;
+  if (!generationCommit) fail('generation commit is absent');
+  else {
+    const tree = run('git', ['rev-parse', '--verify', `${generationCommit}^{tree}`], { cwd: root, allowFailure: true });
+    if (tree.status !== 0) fail(`generation commit ${generationCommit} is unavailable`);
+    else if (tree.stdout.trim() !== receipt.tree?.generationTree) fail('generation tree differs from the committed generation');
+  }
+
+  let changeSet = null;
+  if (!generationCommit || !receipt.changeSet?.path) fail('committed repository change set is absent');
+  else {
+    const historical = run('git', ['show', `${generationCommit}:${receipt.changeSet.path}`], { cwd: root, allowFailure: true });
+    if (historical.status !== 0) fail('repository change set was not committed with the generation');
+    else {
+      try { changeSet = readRecord('repository-change-set', historical.stdout).record; }
+      catch (error) { fail(`repository change set is unreadable: ${error.message}`); }
+    }
+  }
+  if (changeSet) {
+    const integrity = verifyRepositoryChangeSetIntegrity(changeSet);
+    if (!integrity.valid) fail('repository change-set integrity does not reproduce');
+    if (changeSet.digest !== receipt.changeSet.digest) fail('repository change-set digest differs from its receipt');
+    const protectedResult = evaluateProtectedPaths(changeSet, protectedPaths);
+    if (!protectedResult.valid) fail(`protected path policy fails: ${protectedResult.violations.map((item) => item.path).join(', ')}`);
+    const applicationChangeSet = {
+      ...changeSet,
+      entries: changeSet.entries.filter((entry) =>
+        [entry.oldPath, entry.newPath].filter(Boolean).some(isApplicationPath))
+    };
+    const boundary = evaluateSourceBoundary(applicationChangeSet, sourceBoundary, {
+      phaseId: receipt.phase, allowedPath: isAllowedTestAutomationPath
+    });
+    if (!boundary.valid) fail(`source boundary fails: ${boundary.violations.map((item) => item.path).join(', ')}`);
+    if (symlinkPolicy === 'reject' && applicationChangeSet.entries.some((entry) => entry.newContent?.kind === 'symlink')) {
+      fail('source or test delivery contains a symbolic link');
+    }
+  }
+
+  const traceability = receipt.traceability ?? {};
+  if (traceability.missing?.length) fail(`acceptance bindings are missing: ${traceability.missing.join(', ')}`);
+  if (traceability.ambiguous?.length) fail('acceptance bindings are ambiguous');
+  const bound = new Set(traceability.bound ?? []);
+  const bindings = traceability.bindings ?? [];
+  for (const clauseId of traceability.required ?? []) {
+    if (!bound.has(clauseId) || !bindings.some((binding) => binding.clauseId === clauseId)) {
+      fail(`acceptance clause ${clauseId} has no executable test binding`);
+    }
+  }
+
+  const executions = new Map();
+  for (const execution of receipt.testExecutions ?? []) {
+    let testReceipt;
+    try { testReceipt = readRecord('test-execution', await readFile(path.join(root, execution.receiptPath))).record; }
+    catch (error) {
+      fail(`test receipt ${execution.commandId} is unavailable: ${error.message}`);
+      continue;
+    }
+    if (receiptDigest(testReceipt) !== String(execution.receiptSha256 ?? '').replace(/^sha256:/, '')) {
+      fail(`test receipt ${execution.commandId} differs from its bound digest`);
+    }
+    if (!testReceiptPassing(testReceipt, minimumDiscovered)) fail(`test receipt ${execution.commandId} is not passing`);
+    executions.set(execution.commandId, testReceipt);
+  }
+  if (!executions.size) fail('no passing test-execution receipt is bound');
+  for (const binding of bindings) {
+    const execution = executions.get(binding.commandId);
+    if (!execution || !pathCoveredByRoots(binding.testSource, execution.affectedRoots)) {
+      fail(`acceptance clause ${binding.clauseId} is not covered by its bound test command`);
+    }
+  }
+  if (requireAffectedModuleCoverage) {
+    for (const sourcePath of receipt.changeSet?.sourcePaths ?? []) {
+      if (![...executions.values()].some((execution) => pathCoveredByRoots(sourcePath, execution.affectedRoots))) {
+        fail(`affected source path ${sourcePath} has no passing module test receipt`);
+      }
+    }
+  }
+  if (!['policy-selected', 'provider-reported', 'host-observed', 'unavailable'].includes(receipt.model?.assurance)) {
+    fail(`model assurance '${receipt.model?.assurance ?? ''}' is invalid`);
+  }
+  if (receipt.model?.assurance === 'policy-selected' && !(receipt.model.invocationIds ?? []).length) {
+    fail('policy-selected model assurance has no kernel invocation binding');
+  }
+  return { valid: errors.length === 0, errors, changeSet, executions: [...executions.values()] };
 }

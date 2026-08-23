@@ -112,11 +112,12 @@ text facts remain available when a pack is absent or fails, and the result becom
 configured assurance cannot be established. `generatedRoots` are tagged in facts rather than
 silently omitted. Repository files can select an allowed provider ID but can never supply `argv`.
 
-An unknown programming-language extension is not a text fallback. It fails with
-`AST_LANGUAGE_UNSUPPORTED` before indexing, and the same check blocks code-delivery publication.
-Install a reviewed pack whose validated manifest advertises the language and extension before
-governed work continues. Documentation, configuration, stylesheets, and assets are not classified
-as programming-language claims by this check.
+While AST is enabled, an unknown programming-language extension is not a text fallback. It fails
+with `AST_LANGUAGE_UNSUPPORTED` before indexing, and the same check blocks AST-backed code-delivery
+publication. Install a reviewed pack whose validated manifest advertises the language and extension,
+or turn AST off to continue through normal Copilot file access and non-AST delivery. Documentation,
+configuration, stylesheets, and assets are not classified as programming-language claims by this
+check.
 
 ## Use
 
@@ -243,9 +244,10 @@ question remains unanswered. Whole-repository scope remains explicit.
   the bundled text-assured structural preview unless policy selects `off`/`text-only`; other catalogued
   languages retain the text floor until a reviewed pack is installed. Recognition and preview
   scanning are never claimed as parsing.
-- Programming source that the compiled language catalog cannot identify is a hard failure, not an
-  empty successful result. AST reads and code-delivery publication stop until a reviewed pack adds
-  the language or the unsupported source is removed from the governed scope.
+- While AST is enabled, programming source that the compiled language catalog cannot identify is a
+  hard failure, not an empty successful result. AST reads and AST-backed code-delivery publication
+  stop until a reviewed pack adds the language, the unsupported source leaves the governed scope, or
+  AST is turned off. With AST off, normal Copilot file access and non-AST delivery continue.
 - Adapter protocol v2 manifests bind the executable/package, manifest, runtime, grammars, and
   dependency artifacts by SHA-256. The broker verifies the executable digest before launch and the
   adapter must echo the request derivation identity and implementation digests.

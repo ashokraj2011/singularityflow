@@ -168,12 +168,19 @@ test('the most restrictive preference wins and show has no write side effect', a
 
 test('off returns a valid disabled envelope and creates no AST store', async () => withPreferenceFile(async () => {
   const root = await repository();
+  await writeFile(path.join(root, 'engine.cpp'), 'int main() { return 0; }\n');
+  git(root, ['add', '.']);
+  git(root, ['commit', '-qm', 'add source outside the AST catalog']);
   await setAstPreference('off');
   const result = await astCommand(root, ['context'], { all: true });
   assert.equal(validateAstResultEnvelope(result).status, 'disabled');
   assert.equal(result.coverage.processed, 0);
   assert.equal(result.scope.worktreeFingerprint, null);
   assert.equal((await astCacheStatus(root)).exists, false);
+  const diagnosis = await astDoctor(root);
+  assert.equal(diagnosis.healthy, true);
+  assert.ok(diagnosis.diagnostics.some((entry) => entry.code === 'AST_DISABLED'));
+  assert.ok(!diagnosis.diagnostics.some((entry) => entry.code === 'AST_LANGUAGE_UNSUPPORTED'));
 }));
 
 test('off returns before repository census or worktree fingerprinting', async () => withPreferenceFile(async () => {

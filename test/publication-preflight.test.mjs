@@ -240,6 +240,40 @@ test('a code phase refuses an unsupported programming language before publicatio
   assert.equal(JSON.stringify(context.phase), before, 'unsupported source mutated phase state');
 });
 
+test('an AST-off code phase publishes through normal non-AST file access', async () => {
+  const context = await codeFixture('unsupported-language-ast-off');
+  context.config.ast = { ...context.config.ast, mode: 'off' };
+  await mkdir(path.join(context.root, 'src', 'test'), { recursive: true });
+  await writeFile(path.join(context.root, 'src', 'app.cpp'), 'int answer() { return 42; }\n');
+  await writeFile(path.join(context.root, 'src', 'test', 'app.test.cpp'), '// @ac:AC-001\nint main() { return answer() == 42 ? 0 : 1; }\n');
+  await inContext(context.root, async () => {
+    await publishGeneration(context.root, context.config, context.workflow, {
+      phaseId: 'implementation', authorship: AUTHORSHIP, persist: false
+    });
+  });
+  assert.equal(context.phase.generation, 1);
+  assert.deepEqual(context.phase.deliveryEvidence.sourcePaths, ['src/app.cpp']);
+  assert.deepEqual(context.phase.deliveryEvidence.testPaths, ['src/test/app.test.cpp']);
+});
+
+test('an AST-off workflow profile bypasses AST without weakening ordinary delivery checks', async () => {
+  const context = await codeFixture('unsupported-language-profile-off');
+  context.workflow.resolution.intelligence = {
+    ...context.workflow.resolution.intelligence,
+    ast: 'off'
+  };
+  await mkdir(path.join(context.root, 'src', 'test'), { recursive: true });
+  await writeFile(path.join(context.root, 'src', 'app.cpp'), 'int answer() { return 42; }\n');
+  await writeFile(path.join(context.root, 'src', 'test', 'app.test.cpp'), '// @ac:AC-001\nint main() { return answer() == 42 ? 0 : 1; }\n');
+  await inContext(context.root, async () => {
+    await publishGeneration(context.root, context.config, context.workflow, {
+      phaseId: 'implementation', authorship: AUTHORSHIP, persist: false
+    });
+  });
+  assert.equal(context.phase.generation, 1);
+  assert.deepEqual(context.phase.deliveryEvidence.acceptanceCriteria.missing, []);
+});
+
 test('a code phase publishes source and acceptance-mapped tests with a delivery receipt', async () => {
   const context = await codeFixture('complete');
   await mkdir(path.join(context.root, 'src', 'test'), { recursive: true });

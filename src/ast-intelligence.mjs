@@ -18,6 +18,7 @@ import {
   compileAstLanguageCatalog, detectAstLanguage, unsupportedAstProgrammingPaths
 } from './ast-language-catalog.mjs';
 import { assertAstProgrammingLanguagesSupported } from './ast-language-support.mjs';
+import { effectiveAstMode } from './ast-mode.mjs';
 import { astSemanticOverlayKey, astSyntaxCacheKey } from './ast-derivation-key.mjs';
 import { bindingForFile, discoverProjectBindings } from './ast-project-binding.mjs';
 import { astSemanticWarmCommand } from './ast-semantic-warm.mjs';
@@ -34,7 +35,6 @@ import {
 } from './util.mjs';
 
 export const AST_RESULT_SCHEMA_VERSION = currentSchemaVersion('ast-result');
-const AST_PREFERENCE_SCHEMA_VERSION = currentSchemaVersion('ast-preference');
 const AST_RESUME_JOB_SCHEMA_VERSION = currentSchemaVersion('ast-resume-job');
 const STORE_DIR = 'singularity-flow/ast/v2';
 const LEGACY_STORE_DIR = 'singularity-flow/ast/v1';
@@ -82,43 +82,7 @@ function splitNull(value) {
   return String(value).split('\0').filter(Boolean);
 }
 
-function preferencePath() {
-  return process.env.SINGULARITY_FLOW_AST_PREFERENCE_FILE
-    ? path.resolve(process.env.SINGULARITY_FLOW_AST_PREFERENCE_FILE)
-    : path.join(os.homedir(), '.singularity-flow', 'ast-preference.json');
-}
-
-export async function readAstPreference() {
-  try {
-    const value = readRecord('ast-preference', await readFile(preferencePath())).record;
-    if (!['auto', 'off'].includes(value.mode)) throw new Error('unsupported preference');
-    return { schemaVersion: AST_PREFERENCE_SCHEMA_VERSION, mode: value.mode, path: preferencePath(), exists: true };
-  } catch (error) {
-    if (error?.code === 'ENOENT') return { schemaVersion: AST_PREFERENCE_SCHEMA_VERSION, mode: 'auto', path: preferencePath(), exists: false };
-    if (error instanceof SingularityFlowError) throw error;
-    throw new SingularityFlowError(`AST preference is invalid at ${preferencePath()}. Remove it or run 'wm ast preference set auto'.`);
-  }
-}
-
-export async function setAstPreference(mode) {
-  if (!['auto', 'off'].includes(mode)) throw new SingularityFlowError('AST preference must be auto or off.');
-  const value = { schemaVersion: AST_PREFERENCE_SCHEMA_VERSION, mode, updatedAt: new Date().toISOString() };
-  await writeJson(preferencePath(), value);
-  return { ...value, path: preferencePath() };
-}
-
-function environmentMode() {
-  const value = String(process.env.SINGULARITY_FLOW_AST ?? 'auto').trim().toLowerCase();
-  if (!['auto', 'off'].includes(value)) throw new SingularityFlowError('SINGULARITY_FLOW_AST must be auto or off.');
-  return value;
-}
-
-export async function effectiveAstMode(policy, operationMode = 'auto') {
-  if (!['auto', 'off'].includes(operationMode)) throw new SingularityFlowError('AST operation mode must be auto or off.');
-  const local = await readAstPreference();
-  const sources = { repository: policy.mode, local: local.mode, environment: environmentMode(), operation: operationMode };
-  return { mode: Object.values(sources).includes('off') ? 'off' : 'auto', sources };
-}
+export { effectiveAstMode, readAstPreference, setAstPreference } from './ast-mode.mjs';
 
 function storeRoot(root) {
   return path.join(gitCommonDir(root), STORE_DIR);
@@ -1769,7 +1733,7 @@ export async function astDoctor(root) {
     ?? [...(activePhase?.astGates ?? [])].sort((left, right) => right.generation - left.generation)[0]
     ?? null;
   const selection = effective.mode === 'off' ? { candidates: [] } : await enumerateScope(root, runtime, {});
-  const repositoryUnsupported = unsupportedAstProgrammingPaths(
+  const repositoryUnsupported = effective.mode === 'off' ? [] : unsupportedAstProgrammingPaths(
     trackedFiles(root).map((file) => file.path),
     runtime.languageCatalog
   );

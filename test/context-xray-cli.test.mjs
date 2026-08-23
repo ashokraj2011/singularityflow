@@ -47,11 +47,13 @@ async function repository() {
   return root;
 }
 
-test('context and tokens CLI commands emit structured read-only projections', async () => {
+test('context and tokens CLI commands separate read-only projections from machine-local compilation', async () => {
   const root = await repository();
   const before = git(root, 'status', '--porcelain');
   const xray = JSON.parse(flow(root, 'context', 'xray', 'CXR-CLI-1', '--json'));
   const ledger = JSON.parse(flow(root, 'tokens', 'report', 'CXR-CLI-1', '--json'));
+  const doctor = JSON.parse(flow(root, 'context', 'doctor', '--json'));
+  const compiled = JSON.parse(flow(root, 'context', 'compile', 'CXR-CLI-1', '--slice', 'evidence', '--json'));
   const text = flow(root, 'context', 'xray', 'CXR-CLI-1');
 
   assert.equal(xray.operation.id, 'context');
@@ -60,6 +62,12 @@ test('context and tokens CLI commands emit structured read-only projections', as
   assert.equal(xray.data.xray.work.id, 'CXR-CLI-1');
   assert.equal(ledger.operation.id, 'tokens');
   assert.equal(ledger.data.ledger.phase, null);
+  assert.equal(doctor.operation.id, 'context.doctor');
+  assert.equal(doctor.data.diagnostic.policy.mode, 'observe');
+  assert.equal(compiled.operation.id, 'context.compile');
+  assert.equal(compiled.operation.classification, 'mutation');
+  assert.equal(compiled.data.packet.correlation.storyId, 'CXR-CLI-1');
+  assert.ok(compiled.data.packet.items.some((item) => item.mandatory));
   assert.match(text, /CONTEXT X-RAY · CXR-CLI-1/);
   assert.match(text, /No governed state, files, publications or external systems were changed/);
   assert.equal(git(root, 'status', '--porcelain'), before);

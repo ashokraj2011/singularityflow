@@ -16,7 +16,10 @@ const ALLOWED = new Set([
   'omittedItems', 'omissionClasses', 'unavailableItems', 'unavailableCodes',
   'expansionRequests', 'expandedBytes', 'expandedEstimatedTokens', 'expansions',
   'observationRawBytes', 'observationIncludedBytes', 'cacheKey', 'contextManifestSha256',
-  'providerInputTokens', 'providerCachedInputTokens'
+  'providerInputTokens', 'providerCachedInputTokens', 'provider', 'requestedModel',
+  'resolvedModel', 'modelResolutionAssurance', 'captureCoverage', 'correlation',
+  'tokenEconomyMode', 'tokenEconomyProfile', 'tokenEconomyConfigurationDigest',
+  'cacheManifestId', 'itemUsage', 'outcome'
 ]);
 
 function contentFree(record) {
@@ -68,8 +71,42 @@ export async function recordContextPacketTelemetry(root, packet, { providerTelem
     observationIncludedBytes: observation?.includedBytes ?? null,
     cacheKey: packet.contextManifest.cacheKey,
     contextManifestSha256: recordSha256(packet.contextManifest),
-    providerInputTokens: providerObserved && Number.isFinite(providerTelemetry.inputTokens) ? providerTelemetry.inputTokens : null,
-    providerCachedInputTokens: providerObserved && Number.isFinite(providerTelemetry.cachedInputTokens) ? providerTelemetry.cachedInputTokens : null
+    providerInputTokens: providerObserved && Number.isFinite(providerTelemetry.inputTokens)
+      ? providerTelemetry.inputTokens : prior?.providerInputTokens ?? null,
+    providerCachedInputTokens: providerObserved && Number.isFinite(providerTelemetry.cachedInputTokens)
+      ? providerTelemetry.cachedInputTokens : prior?.providerCachedInputTokens ?? null,
+    provider: providerTelemetry?.provider ?? prior?.provider ?? null,
+    requestedModel: providerTelemetry?.requestedModel ?? prior?.requestedModel ?? null,
+    resolvedModel: providerTelemetry?.resolvedModel ?? prior?.resolvedModel ?? null,
+    modelResolutionAssurance: providerTelemetry?.resolvedModel
+      ? providerTelemetry.modelResolutionAssurance ?? (providerObserved ? 'provider-reported' : 'host-observed')
+      : prior?.modelResolutionAssurance ?? 'unavailable',
+    captureCoverage: providerObserved && Number.isFinite(providerTelemetry.inputTokens)
+      ? 'partial' : prior?.captureCoverage ?? 'estimated',
+    correlation: structuredClone(packet.correlation ?? {
+      workspaceId: null, storyId: packet.binding.workId ?? null,
+      workType: packet.binding.workType ?? null, phase: packet.binding.phase ?? null,
+      generation: packet.binding.generation ?? null, intervalId: packet.binding.intervalId ?? null,
+      goalId: null, flightPlanId: packet.binding.flightPlanId ?? null,
+      operationId: packet.binding.operationId ?? null, packetId: packet.packetId,
+      launchId: null, sessionId: null
+    }),
+    tokenEconomyMode: packet.tokenEconomy?.mode ?? packet.binding.tokenEconomyMode ?? null,
+    tokenEconomyProfile: packet.tokenEconomy?.profile ?? packet.binding.tokenEconomyProfile ?? null,
+    tokenEconomyConfigurationDigest: packet.tokenEconomy?.configurationDigest
+      ?? packet.binding.tokenEconomyConfigurationDigest ?? null,
+    cacheManifestId: packet.contextManifest.cacheManifestId ?? null,
+    itemUsage: (packet.items ?? []).map((item) => ({
+      itemDigest: recordSha256({ itemId: item.itemId }),
+      bytes: item.bytes,
+      estimatedTokens: Number.isFinite(item.estimatedTokens) ? item.estimatedTokens : Math.ceil(item.bytes / 4),
+      mandatory: item.mandatory === true,
+      cacheClass: item.cacheClass ?? 'variable'
+    })),
+    outcome: packet.outcome ? {
+      ...structuredClone(packet.outcome),
+      contextExpansions: Number(prior?.outcome?.contextExpansions ?? packet.outcome.contextExpansions ?? 0)
+    } : prior?.outcome ?? null
   });
   await writeAtomic(telemetryFile(root, packet.packetId), `${JSON.stringify(record, null, 2)}\n`, { mode: 0o600 });
   return record;
@@ -99,7 +136,11 @@ export async function recordContextExpansionRequest(root, packetId, {
     expandedBytes: record.expandedBytes == null ? null : Number(record.expandedBytes) + bytes,
     expandedEstimatedTokens: record.expandedEstimatedTokens == null
       ? null : Number(record.expandedEstimatedTokens) + tokens,
-    expansions: [...(record.expansions ?? []), expansion].slice(-128)
+    expansions: [...(record.expansions ?? []), expansion].slice(-128),
+    outcome: record.outcome ? {
+      ...record.outcome,
+      contextExpansions: Number(record.outcome.contextExpansions ?? 0) + 1
+    } : null
   });
   await writeAtomic(telemetryFile(root, packetId), `${JSON.stringify(next, null, 2)}\n`, { mode: 0o600 });
   return next;

@@ -7,15 +7,19 @@ import { gitCommonDir, head } from './git.mjs';
 import { issueContextExpansionHandle } from './context-handles.mjs';
 import { recordSha256 } from './records.mjs';
 import { currentSchemaVersion, readRecord } from './schema-migrations.mjs';
+import { SECRET_RULES } from './secrets.mjs';
 import { SingularityFlowError, writeAtomic } from './util.mjs';
 
 const MAX_RAW_BYTES = 8 * 1024 * 1024;
 const DEFAULT_INCLUDED_BYTES = 16 * 1024;
 const DEFAULT_CACHE_BYTES = 64 * 1024 * 1024;
 const DEFAULT_RETENTION_MS = 7 * 24 * 60 * 60 * 1000;
+const OBSERVATION_COMPILER_VERSION = '2.0.0';
 
 function sha256(value) { return createHash('sha256').update(value).digest('hex'); }
-function cacheRoot(root) { return path.join(gitCommonDir(root), 'singularity-flow', 'evidence-packets', 'observations'); }
+// v1 raw observations could be written before redaction. A versioned cache root prevents
+// current readers from ever resolving those legacy bytes through a new expansion handle.
+function cacheRoot(root) { return path.join(gitCommonDir(root), 'singularity-flow', 'evidence-packets', 'observations', 'v2'); }
 function rawFile(root, digest) { return path.join(cacheRoot(root), 'raw', `${digest}.raw`); }
 function summaryFile(root, cacheKey) { return path.join(cacheRoot(root), 'summaries', `${cacheKey}.json`); }
 
@@ -34,6 +38,34 @@ function boundedText(value, maximumBytes) {
 
 function lines(raw) { return String(raw).replace(/\r\n?/g, '\n').split('\n'); }
 function unique(values) { return [...new Set(values.filter(Boolean))]; }
+
+/** Redact before parsing, hashing, caching, or issuing a raw expansion handle. */
+function redactObservation(raw) {
+  let text = String(raw ?? '');
+  const counts = new Map();
+  const privateBlock = /-----BEGIN ((?:RSA |EC |DSA |OPENSSH |PGP )?PRIVATE KEY)-----[\s\S]*?-----END \1-----/g;
+  text = text.replace(privateBlock, () => {
+    counts.set('private-key', (counts.get('private-key') ?? 0) + 1);
+    return '[redacted-secret:private-key]';
+  });
+  for (const rule of SECRET_RULES) {
+    const pattern = new RegExp(rule.pattern.source, rule.pattern.flags);
+    text = text.replace(pattern, (...args) => {
+      const whole = args[0];
+      const captures = args.slice(1, -2);
+      const value = captures.find((entry) => entry != null) ?? whole;
+      if (rule.accept && !rule.accept(value)) return whole;
+      counts.set(rule.id, (counts.get(rule.id) ?? 0) + 1);
+      return `[redacted-secret:${rule.id}]`;
+    });
+  }
+  return {
+    bytes: Buffer.from(text, 'utf8'),
+    facts: [...counts].sort(([left], [right]) => left.localeCompare(right))
+      .map(([rule, count]) => ({ rule, count })),
+    occurrences: [...counts.values()].reduce((total, count) => total + count, 0)
+  };
+}
 function integerMatch(source, patterns) {
   for (const pattern of patterns) {
     const match = source.match(pattern);
@@ -210,8 +242,8 @@ export async function readRawObservation(root, digest) {
   }
   try { return await readFile(rawFile(root, digest)); }
   catch (error) {
-    if (error?.code === 'ENOENT') throw new SingularityFlowError('Raw observation was evicted from the disposable cache.', {
-      code: 'EPC_OBSERVATION_EVICTED', details: { nextAction: 'Rerun the configured safe operation, then request a new packet.' }
+    if (error?.code === 'ENOENT') throw new SingularityFlowError('Raw observation is unavailable, expired, or predates the redacted v2 cache.', {
+      code: 'EPC_OBSERVATION_EVICTED', details: { nextAction: 'Rerun the configured safe operation, then request a new redacted packet.' }
     });
     throw error;
   }
@@ -241,21 +273,42 @@ export async function compileObservation(root, {
   if (!Number.isInteger(maximumIncludedBytes) || maximumIncludedBytes < 256 || maximumIncludedBytes > 128 * 1024) {
     throw new SingularityFlowError('Observation included-byte budget is invalid.', { code: 'EPC_CONTEXT_BUDGET_INVALID' });
   }
-  const source = bytes.toString('utf8');
+  const redacted = redactObservation(bytes.toString('utf8'));
+  const source = redacted.bytes.toString('utf8');
   const compiler = kind === 'test-result' ? testObservation
     : kind === 'stack-trace' ? stackObservation
       : kind === 'git-diff' ? gitObservation
         : ['build-output', 'package-install', 'static-analysis'].includes(kind) ? buildObservation
           : genericObservation;
   const compiled = compiler(source, exitCode, maximumIncludedBytes);
-  const digest = sha256(bytes);
-  const observationId = `obs-${recordSha256({ kind, digest, exitCode, compiled }).slice(0, 20)}`;
+  const digest = sha256(redacted.bytes);
+  const compilerIdentity = {
+    id: `${String(kind ?? 'generic')}-observation`,
+    version: OBSERVATION_COMPILER_VERSION,
+    profile: { maximumIncludedBytes }
+  };
+  const observationId = `obs-${recordSha256({ kind, digest, exitCode, compiler: compilerIdentity }).slice(0, 20)}`;
   const result = {
     schemaVersion: currentSchemaVersion('observation-summary'),
     observationId,
     kind: String(kind ?? 'unknown'),
     status: compiled.status,
     source: { commandClass: String(commandClass), exitCode, sha256: digest },
+    compiler: compilerIdentity,
+    correlation: {
+      workspaceId: `sha256:${recordSha256({ root })}`,
+      storyId: binding.workId ?? null,
+      workType: binding.workType ?? null,
+      phase: binding.phase ?? null,
+      generation: binding.generation ?? null,
+      intervalId: binding.intervalId ?? null,
+      goalId: binding.goalId ?? null,
+      flightPlanId: binding.flightPlanId ?? null,
+      operationId: binding.operationId ?? null,
+      packetId: binding.packetId ?? null,
+      launchId: binding.launchId ?? null,
+      sessionId: binding.sessionId ?? null
+    },
     summary: compiled.summary,
     included: compiled.included,
     omitted: compiled.omitted,
@@ -265,6 +318,12 @@ export async function compileObservation(root, {
     parsing: compiled.parsed ? { status: 'parsed', code: null } : { status: 'unparsed', code: 'EPC_OBSERVATION_UNPARSED' },
     guidanceOnly: true,
     modelInvoked: false,
+    redaction: {
+      status: redacted.occurrences > 0 ? 'applied' : 'not-needed',
+      applied: redacted.occurrences > 0,
+      occurrences: redacted.occurrences,
+      facts: redacted.facts
+    },
     expansion: []
   };
   const sourceRevision = binding.sourceRevision ?? head(root);
@@ -288,6 +347,6 @@ export async function compileObservation(root, {
       lifecycleRevision: binding.lifecycleRevision ?? null
     }
   });
-  await storeObservation(root, digest, bytes, summaryKey, result);
+  await storeObservation(root, digest, redacted.bytes, summaryKey, result);
   return result;
 }

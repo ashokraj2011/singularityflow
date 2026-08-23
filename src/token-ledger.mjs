@@ -63,6 +63,7 @@ function packetEntry(record) {
   const compression = observationCompression(record.observationRawBytes, record.observationIncludedBytes);
   return Object.freeze({
     packetId: record.packetId,
+    correlation: record.correlation ?? null,
     flightPlanId: record.flightPlanId ?? null,
     phase: record.phase ?? null,
     generation: record.generation ?? null,
@@ -90,8 +91,49 @@ function packetEntry(record) {
       ...compression
     },
     cacheKey: record.cacheKey ?? null,
-    contextManifestSha256: record.contextManifestSha256 ?? null
+    contextManifestSha256: record.contextManifestSha256 ?? null,
+    cacheManifestId: record.cacheManifestId ?? null,
+    tokenEconomy: {
+      mode: record.tokenEconomyMode ?? null,
+      profile: record.tokenEconomyProfile ?? null,
+      configurationDigest: record.tokenEconomyConfigurationDigest ?? null
+    },
+    itemUsage: record.itemUsage ?? [],
+    provider: {
+      id: record.provider ?? null,
+      requestedModel: record.requestedModel ?? null,
+      resolvedModel: record.resolvedModel ?? null,
+      resolutionAssurance: record.modelResolutionAssurance ?? 'unavailable',
+      captureCoverage: record.captureCoverage ?? 'estimated'
+    },
+    outcome: record.outcome ?? null
   });
+}
+
+function uniqueContextMetric(packets) {
+  const unique = new Map();
+  for (const packet of packets) {
+    for (const item of packet.itemUsage) {
+      if (!item.itemDigest || !Number.isFinite(item.estimatedTokens)) continue;
+      unique.set(item.itemDigest, Math.max(unique.get(item.itemDigest) ?? 0, item.estimatedTokens));
+    }
+    for (const expansion of packet.expansions) {
+      if (!expansion.subjectDigest || !Number.isFinite(expansion.estimatedTokens)) continue;
+      unique.set(expansion.subjectDigest, Math.max(unique.get(expansion.subjectDigest) ?? 0, expansion.estimatedTokens));
+    }
+  }
+  return unique.size
+    ? usageMetric([...unique.values()].reduce((total, value) => total + value, 0), {
+      status: 'estimated', assurance: 'sflow-estimated'
+    })
+    : usageMetric(null, { reason: 'packet item digests unavailable' });
+}
+
+function coverageSplit(models, packets) {
+  const split = { exact: 0, partial: 0, estimated: 0, unavailable: 0 };
+  for (const model of models) split[model.totalProviderTokens.status] += 1;
+  for (const packet of packets) split[packet.provider.captureCoverage] += 1;
+  return Object.freeze(split);
 }
 
 export function tokenLedgerProjection(workflow, packetRecords = [], { phase = null } = {}) {
@@ -110,7 +152,11 @@ export function tokenLedgerProjection(workflow, packetRecords = [], { phase = nu
     totalProviderTokens: combineUsageMetrics(models.map((entry) => entry.totalProviderTokens)),
     sflowIncludedBytes: combineUsageMetrics(packets.map((entry) => entry.includedBytes), { assurance: 'sflow-measured' }),
     sflowEstimatedTokens: combineUsageMetrics(packets.map((entry) => entry.estimatedTokens), { assurance: 'sflow-estimated' }),
-    expandedBytes: combineUsageMetrics(packets.map((entry) => entry.expandedBytes), { assurance: 'sflow-measured' })
+    expandedBytes: combineUsageMetrics(packets.map((entry) => entry.expandedBytes), { assurance: 'sflow-measured' }),
+    deliveredContextTokens: combineUsageMetrics(packets.flatMap((entry) => [
+      entry.estimatedTokens, entry.expandedEstimatedTokens
+    ]), { assurance: 'sflow-estimated' }),
+    uniqueContextTokens: uniqueContextMetric(packets)
   };
   const arithmetic = providerTokenArithmetic({
     inputTokens: totals.inputTokens,
@@ -124,6 +170,11 @@ export function tokenLedgerProjection(workflow, packetRecords = [], { phase = nu
     phase,
     models,
     packets,
+    outcomes: packets.filter((packet) => packet.outcome).map((packet) => Object.freeze({
+      packetId: packet.packetId, operationId: packet.correlation?.operationId ?? null,
+      ...packet.outcome
+    })),
+    coverage: coverageSplit(models, packets),
     totals: Object.freeze({ ...totals, uncachedInputTokens: arithmetic.uncachedInputTokens })
   });
 }
@@ -143,9 +194,12 @@ export function tokenLedgerText(ledger) {
     `Provider uncached    ${metricText(ledger.totals.uncachedInputTokens)}`,
     `Provider total       ${metricText(ledger.totals.totalProviderTokens)}`,
     `SFlow packet context ${metricText(ledger.totals.sflowEstimatedTokens, 'estimated tokens')}`,
+    `Delivered context    ${metricText(ledger.totals.deliveredContextTokens, 'estimated tokens')}`,
+    `Unique context       ${metricText(ledger.totals.uniqueContextTokens, 'estimated tokens')}`,
     `SFlow expansions     ${metricText(ledger.totals.expandedBytes, 'bytes')}`,
     '',
-    `Models: ${ledger.models.length || 'none'} · Packets: ${ledger.packets.length}`
+    `Models: ${ledger.models.length || 'none'} · Packets: ${ledger.packets.length}`,
+    `Coverage: exact ${ledger.coverage.exact} · partial ${ledger.coverage.partial} · estimated ${ledger.coverage.estimated} · unavailable ${ledger.coverage.unavailable}`
   ];
   for (const model of ledger.models) {
     lines.push(`- ${model.provider ?? 'provider unavailable'} · requested ${model.requested ?? 'unavailable'} · resolved ${model.resolved ?? 'unavailable'} (${model.resolvedAssurance})`);

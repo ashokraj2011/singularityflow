@@ -139,11 +139,15 @@ const PAGES = Object.freeze({
       ['--work-id ID', 'Inspect a governed Story other than the one active on this branch.'],
       ['--phase ID', 'Limit the projection to one phase.'],
       ['--packet CTX-ID', 'Inspect one retained content-free packet observation.'],
+      ['--profile ID', 'Compile with one approved profile from the pinned token-economy policy.'],
       ['--json', 'Emit every status, assurance, provenance source, and safe remediation.']
     ],
     examples: [
       ['singularity-flow context xray PAY-1187', 'Show the current phase context and provider coverage.'],
-      ['singularity-flow context xray --work-id PAY-1187 --phase implementation --json', 'Read one phase without reconciling or expanding anything.']
+      ['singularity-flow context xray --work-id PAY-1187 --phase implementation --json', 'Read one phase without reconciling or expanding anything.'],
+      ['singularity-flow context compile PAY-1187 --slice evidence --json', 'Compile one bounded packet and retain only content-free local accounting.'],
+      ['singularity-flow context expand sfref:...', 'Resolve one packet-bound sealed expansion and account for it.'],
+      ['singularity-flow context doctor', 'Inspect the pinned default mode, profile, and feature switches without a model.']
     ],
     seeAlso: ['tokens', 'telemetry', 'session', 'report']
   },
@@ -154,8 +158,8 @@ const PAGES = Object.freeze({
       'recording prompts, completions, source, tool arguments, or tool results. Requested and',
       'resolved models remain separate, and missing cache fields never become zero.',
       '',
-      'Status and report are read-only in this first implementation slice. Daily summaries, study',
-      'comparison, export, and pricing-catalog estimates remain later phases of Context X-Ray.'
+      'Status, report, and compare are read-only. Compare reuses the pre-registered IMP study and',
+      'classifies improved, inconclusive, cheaper-but-worse, no-improvement, or unavailable.'
     ],
     options: [
       ['--work-id ID', 'Read a governed Story other than the one active on this branch.'],
@@ -165,7 +169,8 @@ const PAGES = Object.freeze({
     ],
     examples: [
       ['singularity-flow tokens status PAY-1187', 'Show provider, cache, and SFlow context coverage.'],
-      ['singularity-flow tokens report --work-id PAY-1187 --phase implementation --json', 'Emit per-model observations without zero-filling unavailable fields.']
+      ['singularity-flow tokens report --work-id PAY-1187 --phase implementation --json', 'Emit per-model observations without zero-filling unavailable fields.'],
+      ['singularity-flow tokens compare --study context-packet-pilot', 'Classify a quality-gated IMP comparison without turning lower quality into savings.']
     ],
     seeAlso: ['context', 'telemetry', 'progress', 'report']
   },

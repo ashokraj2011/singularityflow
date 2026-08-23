@@ -104,6 +104,18 @@ export const MESSAGES = Object.freeze({
     headline: (s) => `Context X-Ray for ${slot(s.workId)} covers ${slot(s.phase)}.`,
     preserves: true
   },
+  'context.compiled': {
+    headline: (s) => `Compiled ${slot(s.packetId)} with ${slot(s.items)} item(s); status ${slot(s.status)}.`,
+    preserves: false
+  },
+  'context.expanded': {
+    headline: (s) => `Expanded ${slot(s.packetId)} as ${slot(s.representation)} (${slot(s.bytes)} bytes).`,
+    preserves: false
+  },
+  'context.diagnosed': {
+    headline: (s) => `Token economy is ${slot(s.status)} in ${slot(s.mode)} mode with profile ${slot(s.profile)}.`,
+    preserves: true
+  },
   'tokens.reported': {
     headline: (s) => `Token Ledger for ${slot(s.workId)} covers ${slot(s.phase)}.`,
     preserves: true

@@ -96,6 +96,7 @@ import {
 import {
   evaluateChangeFlightPlanBoundary, persistChangeFlightPlanBoundary
 } from './change-flight-plan.mjs';
+import { normalizeTokenEconomy } from './token-economy.mjs';
 
 export const CONFIG_PATH = WORKFLOW_PATH;
 export const loadConfig = loadDefinition;
@@ -544,6 +545,7 @@ export async function createWorkflow(root, config, {
       collaboration: structuredClone(config.collaboration ?? { assignmentMode: 'off', notifications: ['terminal'] }),
       session: normalizeSessionPolicy(config.session ?? {}),
       contextPolicy: snapshotState.contextPolicy ?? normalizeContextPolicy(config.contextPolicy ?? {}, { phaseIds: Object.keys(config.phases ?? {}) }),
+      tokenEconomy: structuredClone(snapshotState.tokenEconomy ?? normalizeTokenEconomy(config.tokenEconomy ?? {})),
       ledger: structuredClone(snapshotState.ledger ?? normalizeLedgerConfig(config.ledger ?? {})),
       sourceSha256: createHash('sha256').update(`${JSON.stringify(source, null, 2)}\n`).digest('hex'),
       phases: resolution.phases
@@ -2899,6 +2901,9 @@ export async function validateWorkflow(root, config, workflow, { strict = false,
     const expectedContextPolicy = normalizeContextPolicy(config.contextPolicy ?? {}, { phaseIds: Object.keys(config.phases ?? {}) });
     const pinnedContextPolicy = normalizeContextPolicy(workflow.resolution?.contextPolicy ?? {});
     if (JSON.stringify(pinnedContextPolicy) !== JSON.stringify(expectedContextPolicy)) errors.push('Copilot context-boundary policy differs from the immutable configuration snapshot.');
+    const expectedTokenEconomy = normalizeTokenEconomy(config.tokenEconomy ?? {});
+    const pinnedTokenEconomy = normalizeTokenEconomy(workflow.resolution?.tokenEconomy ?? {});
+    if (JSON.stringify(pinnedTokenEconomy) !== JSON.stringify(expectedTokenEconomy)) errors.push('Token-economy policy differs from the immutable configuration snapshot.');
   }
   let activeCount = 0;
   for (const phaseId of workflow.phaseOrder) {

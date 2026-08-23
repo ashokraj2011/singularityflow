@@ -128,8 +128,12 @@ Usage:
   singularity-flow telemetry disable [--json]
   singularity-flow telemetry reconcile [PHASE] [--json]
   singularity-flow context xray [WORK-ID] [--work-id WORK-ID] [--phase PHASE] [--packet CTX-ID] [--json]
+  singularity-flow context compile [WORK-ID] [--work-id WORK-ID] [--flight-plan CFP-ID] [--profile PROFILE] [--slice SLICE]... [--max-output-bytes N] [--json]
+  singularity-flow context expand <SEALED-HANDLE> [--json]
+  singularity-flow context doctor [--json]
   singularity-flow tokens status [WORK-ID] [--work-id WORK-ID] [--phase PHASE] [--json]
   singularity-flow tokens report [WORK-ID] [--work-id WORK-ID] [--phase PHASE] [--packet CTX-ID] [--json]
+  singularity-flow tokens compare --study STUDY-ID [--filter DIMENSION=VALUE]... [--json]
   singularity-flow copilot [--mode interactive|plan] [--repository ID] [--story ID]
     [--host cli|vscode-terminal|intellij-terminal] [--dry-run]
   singularity-flow prompt-log on|off|status

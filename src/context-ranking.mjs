@@ -1,7 +1,9 @@
 /** Deterministic Evidence Packet ranking. Intent may choose a class; it never rewrites a fact. */
 import { recordSha256 } from './records.mjs';
+import { SingularityFlowError } from './util.mjs';
 
 export const CONTEXT_REASON_PRIORITY = Object.freeze({
+  'governance.mandatory': 0,
   'flight-plan.direct-target': 1,
   'flight-plan.proven-impact': 2,
   'requirement.bound-to-impact': 3,
@@ -27,6 +29,7 @@ function candidateIdentity(candidate) {
     representation: candidate.representation,
     reason: candidate.reason,
     source: candidate.source,
+    mandatory: candidate.mandatory === true,
     contentSha256: recordSha256(text(candidate.content))
   };
 }
@@ -56,6 +59,9 @@ export function normalizeContextCandidate(candidate) {
     relationship: text(candidate?.relationship || ''),
     bytes: Buffer.byteLength(content),
     sourceMaterial: candidate?.sourceMaterial === true,
+    mandatory: candidate?.mandatory === true,
+    cacheClass: ['stable', 'session-stable', 'variable'].includes(candidate?.cacheClass)
+      ? candidate.cacheClass : 'variable',
     expansion: candidate?.expansion ? structuredClone(candidate.expansion) : null
   };
   return {
@@ -67,7 +73,8 @@ export function normalizeContextCandidate(candidate) {
 export function compareContextCandidates(leftValue, rightValue) {
   const left = normalizeContextCandidate(leftValue);
   const right = normalizeContextCandidate(rightValue);
-  return (CONTEXT_REASON_PRIORITY[left.reason.code] - CONTEXT_REASON_PRIORITY[right.reason.code])
+  return Number(right.mandatory) - Number(left.mandatory)
+    || (CONTEXT_REASON_PRIORITY[left.reason.code] - CONTEXT_REASON_PRIORITY[right.reason.code])
     || (CLASSIFICATION_ORDER[left.classification] - CLASSIFICATION_ORDER[right.classification])
     || left.relationship.localeCompare(right.relationship)
     || left.subject.localeCompare(right.subject)
@@ -87,6 +94,24 @@ export function rankContextCandidates(candidates = []) {
 /** Select in priority order while allowing a smaller later item to use otherwise stranded bytes. */
 export function selectContextCandidates(candidates, maximumContentBytes) {
   const ranked = rankContextCandidates(candidates);
+  const mandatory = ranked.filter((candidate) => candidate.mandatory);
+  const requiredBytes = mandatory.reduce((total, candidate) => total + candidate.bytes, 0);
+  if (requiredBytes > maximumContentBytes) {
+    const byClass = Object.fromEntries([...new Set(mandatory.map((candidate) => candidate.kind))].sort()
+      .map((kind) => [kind, mandatory.filter((candidate) => candidate.kind === kind)
+        .reduce((total, candidate) => total + candidate.bytes, 0)]));
+    throw new SingularityFlowError(
+      `Mandatory governance context requires ${requiredBytes} bytes but the context-content limit is ${maximumContentBytes} bytes.`,
+      {
+        code: 'TKN_MANDATORY_CONTEXT_OVERFLOW',
+        details: {
+          requiredBytes, configuredLimitBytes: maximumContentBytes, byClass,
+          unsafeReason: 'Applicable governance context cannot be truncated or budget-evicted.',
+          nextAction: 'Select an approved larger token-economy profile, narrow the operation, or split the work.'
+        }
+      }
+    );
+  }
   const items = [];
   const omissions = [];
   let includedContentBytes = 0;

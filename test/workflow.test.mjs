@@ -381,6 +381,8 @@ test('next executes one valid lifecycle action at a time', async () => {
   workflow = JSON.parse(await readFile(workflowFile, 'utf8'));
   assert.equal(workflow.currentPhase, 'requirements');
   assert.deepEqual(workflow.resolution.contextPolicy, { onApproval: 'new', onRejection: 'keep', phaseOverrides: {} });
+  assert.equal(workflow.resolution.tokenEconomy.mode, 'observe');
+  assert.equal(workflow.resolution.tokenEconomy.profile, 'standard');
   assert.equal(execute('git', ['log', '-1', '--format=%s'], root).stdout.trim(), `[${workId}][phase:intake][approve] product-approvers`);
 });
 

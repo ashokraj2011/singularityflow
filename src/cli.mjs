@@ -16,6 +16,11 @@ import { buildRepositorySubjectIndex, buildRepositorySubjectIndexFromRefs, resol
 import { approvePhase, assertNoPendingPublication, cancelWorkflow, commitAndPublish, CONFIG_PATH, createWorkflow, currentPhase, loadConfig, preparePhase, preparePhaseInputs, promoteDesignSource, publishGeneration, reconcilePhaseTelemetry, registerArtifact, rejectPhase, reopenWorkflow, resolveWorkItem, saveStoryDraft, transactStory, scanArtifacts, storyPublicationPending, submitPhase, syncPublication, validateId, validateWorkflow, workflowBranchAllowed, workflowPublicationBranch, workflowPath, workDir } from './state-stores.mjs';
 import { copilotTelemetryStatus } from './telemetry.mjs';
 import { contextXray } from './context-xray.mjs';
+import { compileEvidencePacket, expandEvidencePacketHandle } from './evidence-packet.mjs';
+import {
+  classifyTokenOptimization, normalizeTokenEconomy, selectedTokenEconomyProfile,
+  tokenEconomyDigest
+} from './token-economy.mjs';
 import {
   explainTelemetryStatus,
   prepareTelemetryLaunch,
@@ -2930,6 +2935,7 @@ async function mcpCommand(positionals, options) {
       server,
       tool: optionString(options, 'tool'),
       phase: optionString(options, 'phase'),
+      profile: optionString(options, 'profile'),
       outputPath: optionString(options, 'output'),
       outputUrl: optionString(options, 'output-url'),
       note: optionString(options, 'note'),
@@ -3676,8 +3682,63 @@ async function xrayProjection(positionals, options, { defaultToCurrentPhase = tr
 
 async function contextCommand(positionals, options) {
   const subcommand = positionals[1] ?? 'xray';
+  if (subcommand === 'compile') {
+    const root = repoRoot();
+    const packet = await compileEvidencePacket(root, {
+      workId: optionString(options, 'work-id', positionals[2] ?? null),
+      flightPlanId: optionString(options, 'flight-plan'),
+      phase: optionString(options, 'phase'),
+      requestedSlices: optionStrings(options, 'slice'),
+      maxOutputBytes: optionNumber(options, 'max-output-bytes')
+    });
+    return emitCommandResult(commandResult({
+      operation: { id: 'context.compile', classification: 'mutation' },
+      subject: packet.binding.workId ? { kind: 'story', id: packet.binding.workId } : null,
+      outcome: succeeded('context.compiled', {
+        packetId: packet.packetId, status: packet.status, items: packet.items.length
+      }),
+      effects: effects({ stateChanged: true }),
+      restState: 'informational',
+      data: { packet }
+    }), { json: optionBoolean(options, 'json') });
+  }
+  if (subcommand === 'expand') {
+    const expansion = await expandEvidencePacketHandle(
+      repoRoot(), requirePositional(positionals, 2, 'sealed expansion handle')
+    );
+    return emitCommandResult(commandResult({
+      operation: { id: 'context.expand', classification: 'mutation' },
+      subject: { kind: 'context-packet', id: expansion.packetId },
+      outcome: succeeded('context.expanded', {
+        packetId: expansion.packetId, representation: expansion.representation,
+        bytes: expansion.accounting.includedContentBytes
+      }),
+      effects: effects({ stateChanged: true }),
+      restState: 'informational',
+      data: { expansion }
+    }), { json: optionBoolean(options, 'json') });
+  }
+  if (subcommand === 'doctor') {
+    const config = await loadConfig(repoRoot());
+    const policy = normalizeTokenEconomy(config.tokenEconomy ?? {});
+    const profile = selectedTokenEconomyProfile(policy);
+    const result = {
+      schemaVersion: 1, // schema-transient: read-only diagnostic
+      status: policy.enabled ? 'ready' : 'disabled', policy, profile,
+      configurationDigest: tokenEconomyDigest(policy),
+      modelInvoked: false
+    };
+    return emitCommandResult(commandResult({
+      operation: { id: 'context.doctor', classification: 'read' },
+      subject: null,
+      outcome: succeeded('context.diagnosed', {
+        status: result.status, mode: policy.mode, profile: profile.id
+      }),
+      effects: noEffects(), restState: 'informational', data: { diagnostic: result }
+    }), { json: optionBoolean(options, 'json') });
+  }
   if (subcommand !== 'xray') {
-    throw new SingularityFlowError(`Unknown context command '${subcommand}'. Available: xray.`);
+    throw new SingularityFlowError(`Unknown context command '${subcommand}'. Available: xray, compile, expand, doctor.`);
   }
   const projection = await xrayProjection(positionals, options);
   return emitCommandResult(commandResult({
@@ -3694,10 +3755,29 @@ async function contextCommand(positionals, options) {
 
 async function tokensCommand(positionals, options) {
   const subcommand = positionals[1] ?? 'status';
-  if (!['status', 'report'].includes(subcommand)) {
+  if (!['status', 'report', 'compare'].includes(subcommand)) {
     throw new SingularityFlowError(
-      `Unknown tokens command '${subcommand}'. This first implementation slice supports status and report.`
+      `Unknown tokens command '${subcommand}'. Available: status, report, compare.`
     );
+  }
+  if (subcommand === 'compare') {
+    const root = repoRoot();
+    const studyId = optionString(options, 'study', positionals[2] ?? null);
+    if (!studyId) throw new SingularityFlowError('tokens compare requires --study STUDY-ID.');
+    const impact = await loadImpactDefinition(root, { required: true });
+    const study = impact.studies.find((item) => item.id === studyId);
+    if (!study) throw new SingularityFlowError(`Unknown impact study '${studyId}'.`);
+    const comparison = compareImpactReceipts(
+      await listImpactReceipts(root, await loadConfig(root), { studyId }), study,
+      { filters: impactFilters(optionStrings(options, 'filter')) }
+    );
+    const classification = classifyTokenOptimization(comparison);
+    const result = { schemaVersion: 1, studyId, classification, comparison };
+    if (optionBoolean(options, 'json')) return console.log(JSON.stringify(result, null, 2));
+    console.log(`Token optimization: ${classification.state}`);
+    console.log(classification.reason);
+    console.log(`Release claim: ${classification.releaseClaimAllowed ? 'allowed' : 'blocked'}`);
+    return;
   }
   if (optionBoolean(options, 'today')) {
     throw new SingularityFlowError(

@@ -65,13 +65,28 @@ test('legacy context packet telemetry gains only content-free observation defaul
     expansionRequests: 0, observationRawBytes: null, observationIncludedBytes: null,
     cacheKey: 'cache-key', providerInputTokens: null, providerCachedInputTokens: null
   }).record;
-  assert.equal(migrated.schemaVersion, 2);
+  assert.equal(migrated.schemaVersion, currentSchemaVersion('context-packet-telemetry'));
   assert.equal(migrated.estimationMethod, 'utf8-bytes-divided-by-four');
   assert.deepEqual(migrated.omissionClasses, {});
   assert.deepEqual(migrated.expansions, []);
   assert.equal(migrated.expandedBytes, null);
   assert.equal(migrated.expandedEstimatedTokens, null);
   assert.equal(migrated.contextManifestSha256, null);
+  assert.equal(migrated.correlation.storyId, 'WRK-1');
+  assert.deepEqual(migrated.itemUsage, []);
+  assert.equal(migrated.outcome, null);
+});
+
+test('legacy observation summaries do not gain a fabricated redaction claim', () => {
+  const migrated = readRecord('observation-summary', {
+    schemaVersion: 1, observationId: 'obs-legacy', summary: { errors: 1 }
+  }).record;
+  assert.equal(migrated.schemaVersion, currentSchemaVersion('observation-summary'));
+  assert.deepEqual(migrated.redaction, {
+    status: 'unavailable', applied: null, occurrences: null, facts: []
+  });
+  assert.equal(migrated.compiler.version, null);
+  assert.equal(migrated.correlation.packetId, null);
 });
 
 test('readRecord migrates in memory without changing stored bytes', () => {

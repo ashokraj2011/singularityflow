@@ -101,12 +101,21 @@ export function contextXrayText(xray) {
     '',
     `SFlow packets     ${ledger.packets.length}`,
     `Initial context   ${metricText(ledger.totals.sflowEstimatedTokens, 'estimated tokens')}`,
-    `Expanded context  ${metricText(ledger.totals.expandedBytes, 'bytes')}`
+    `Expanded context  ${metricText(ledger.totals.expandedBytes, 'bytes')}`,
+    `Delivered context ${metricText(ledger.totals.deliveredContextTokens, 'estimated tokens')}`,
+    `Unique context    ${metricText(ledger.totals.uniqueContextTokens, 'estimated tokens')}`,
+    `Coverage          exact ${ledger.coverage.exact} · partial ${ledger.coverage.partial} · estimated ${ledger.coverage.estimated} · unavailable ${ledger.coverage.unavailable}`
   ];
   if (ledger.packets.length) {
     lines.push('', 'Packets');
     for (const packet of ledger.packets) {
-      lines.push(`- ${packet.packetId} · ${metricText(packet.estimatedTokens, 'estimated tokens')} · omitted ${packet.omittedItems} · unavailable ${packet.unavailableItems} · expansions ${packet.expansionRequests}`);
+      lines.push(`- ${packet.packetId} · ${metricText(packet.estimatedTokens, 'estimated tokens')} · ${packet.tokenEconomy.mode ?? 'mode unavailable'}/${packet.tokenEconomy.profile ?? 'profile unavailable'} · omitted ${packet.omittedItems} · unavailable ${packet.unavailableItems} · expansions ${packet.expansionRequests}`);
+    }
+  }
+  if (ledger.outcomes.length) {
+    lines.push('', 'Outcomes');
+    for (const outcome of ledger.outcomes) {
+      lines.push(`- ${outcome.packetId} · ${outcome.completed ? 'completed' : 'incomplete'} · verification ${outcome.verification} · retries ${outcome.agentRetries ?? 'unavailable'} · missing-context ${outcome.missingContextIncidents ?? 'unavailable'}`);
     }
   }
   if (xray.gaps.length) {

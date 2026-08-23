@@ -1,11 +1,11 @@
 import { didYouMean, optionBoolean, optionString, SingularityFlowError } from './util.mjs';
 
-const READ_ONLY = new Set(['specify', 'plan', 'implement', 'verify', 'converge', 'about', 'help', 'show', 'choices', 'inbox', 'home', 'recommend', 'status', 'approvals', 'progress', 'receipt', 'guide', 'logs', 'doctor', 'nextsteps', 'snapshot', 'validate', 'explain', 'context', 'tokens']);
+const READ_ONLY = new Set(['specify', 'plan', 'implement', 'verify', 'converge', 'about', 'help', 'show', 'choices', 'inbox', 'home', 'recommend', 'status', 'approvals', 'progress', 'receipt', 'guide', 'logs', 'doctor', 'nextsteps', 'snapshot', 'validate', 'explain']);
 const STRUCTURED = new Set(['specify', 'plan', 'implement', 'verify', 'converge', 'start', 'resume', 'return', 'home', 'recommend', 'status', 'approvals', 'progress', 'report', 'receipt', 'impact', 'telemetry', 'context', 'tokens', 'doctor', 'inputs', 'reinstall', 'snapshot', 'validate', 'gate', 'clarification', 'explain', 'fault', 'fix', 'repair', 'goal', 'journal', 'run']);
 // `secrets` is here because `resolveOperation` returns `definition.operation` before it consults
 // any resolver, so a command with a single registered operation never reaches its own resolver.
 // Without this line `resolveSecretsOperation` is unreachable and the scan/protect split is inert.
-const MODEL_FREE_MIXED_COMMANDS = new Set(['report', 'telemetry', 'doctor', 'review', 'inputs', 'spec', 'visual', 'clarification', 'story', 'constitution', 'secrets', 'fault', 'fix', 'repair', 'goal', 'journal', 'push', 'next', 'return', 'impact', 'copilot']);
+const MODEL_FREE_MIXED_COMMANDS = new Set(['report', 'telemetry', 'doctor', 'review', 'inputs', 'spec', 'visual', 'clarification', 'story', 'constitution', 'secrets', 'fault', 'fix', 'repair', 'goal', 'journal', 'push', 'next', 'return', 'impact', 'copilot', 'context', 'tokens']);
 
 const LAZY_MODULES = Object.freeze({
   // The five verbs share one dispatcher; each is a registered command in its own right so the
@@ -174,6 +174,10 @@ const PUSH_SUBCOMMANDS = Object.freeze([...PUSH_READ_SUBCOMMANDS, ...PUSH_MUTATI
 const IMPACT_READ_SUBCOMMANDS = Object.freeze(['preview', 'explain', 'refresh', 'status', 'study', 'compare', 'verify', 'doctor']);
 const IMPACT_MUTATION_SUBCOMMANDS = Object.freeze(['start', 'disposition', 'expansion', 'export', 'enroll', 'evidence', 'finalize']);
 const IMPACT_SUBCOMMANDS = Object.freeze([...IMPACT_READ_SUBCOMMANDS, ...IMPACT_MUTATION_SUBCOMMANDS, 'exposure']);
+const CONTEXT_READ_SUBCOMMANDS = Object.freeze(['xray', 'doctor']);
+const CONTEXT_MUTATION_SUBCOMMANDS = Object.freeze(['compile', 'expand']);
+const CONTEXT_SUBCOMMANDS = Object.freeze([...CONTEXT_READ_SUBCOMMANDS, ...CONTEXT_MUTATION_SUBCOMMANDS]);
+const TOKENS_SUBCOMMANDS = Object.freeze(['status', 'report', 'compare']);
 const CONSTITUTION_READ_SUBCOMMANDS = Object.freeze(['check', 'show']);
 const CONSTITUTION_MUTATION_SUBCOMMANDS = Object.freeze(['generate', 'except']);
 const CONSTITUTION_SUBCOMMANDS = Object.freeze([...CONSTITUTION_READ_SUBCOMMANDS, ...CONSTITUTION_MUTATION_SUBCOMMANDS]);
@@ -200,6 +204,8 @@ export const RESOLVER_SUBCOMMANDS = Object.freeze({
   journal: JOURNAL_SUBCOMMANDS,
   push: PUSH_SUBCOMMANDS,
   impact: IMPACT_SUBCOMMANDS,
+  context: CONTEXT_SUBCOMMANDS,
+  tokens: TOKENS_SUBCOMMANDS,
   constitution: CONSTITUTION_SUBCOMMANDS,
   spec: SPEC_SUBCOMMANDS,
   story: STORY_SUBCOMMANDS,
@@ -245,6 +251,19 @@ function resolveTelemetryOperation(definition, positionals) {
   if (TELEMETRY_READ_SUBCOMMANDS.includes(subcommand)) return never(`telemetry.${subcommand}`, definition, 'read');
   if (TELEMETRY_MUTATION_SUBCOMMANDS.includes(subcommand)) return never(`telemetry.${subcommand}`, definition, 'mutation');
   return unknownSubcommand('telemetry', subcommand, TELEMETRY_SUBCOMMANDS);
+}
+
+function resolveContextOperation(definition, positionals) {
+  const subcommand = positionals[1] ?? 'xray';
+  if (CONTEXT_READ_SUBCOMMANDS.includes(subcommand)) return never(`context.${subcommand}`, definition, 'read');
+  if (CONTEXT_MUTATION_SUBCOMMANDS.includes(subcommand)) return never(`context.${subcommand}`, definition, 'mutation');
+  return unknownSubcommand('context', subcommand, CONTEXT_SUBCOMMANDS);
+}
+
+function resolveTokensOperation(definition, positionals) {
+  const subcommand = positionals[1] ?? 'status';
+  if (TOKENS_SUBCOMMANDS.includes(subcommand)) return never(`tokens.${subcommand}`, definition, 'read');
+  return unknownSubcommand('tokens', subcommand, TOKENS_SUBCOMMANDS);
 }
 
 function resolveDoctorOperation(definition, options) {
@@ -623,6 +642,8 @@ export function resolveOperation({ requestedCommand, positionals, options = {} }
   if (definition.name === 'journal') return resolveJournalOperation(definition, positionals, options);
   if (definition.name === 'push') return resolvePushOperation(definition, positionals);
   if (definition.name === 'impact') return resolveImpactOperation(definition, positionals);
+  if (definition.name === 'context') return resolveContextOperation(definition, positionals);
+  if (definition.name === 'tokens') return resolveTokensOperation(definition, positionals);
   if (definition.name === 'return') return resolveReturnOperation(definition, options);
   if (definition.name === 'story') return resolveStoryOperation(definition, positionals, options);
   if (definition.name === 'constitution') return resolveConstitutionOperation(definition, positionals);
@@ -687,6 +708,8 @@ export function operationCatalog() {
   const nextDefinition = commandDefinition('next');
   const returnDefinition = commandDefinition('return');
   const impactDefinition = commandDefinition('impact');
+  const contextDefinition = commandDefinition('context');
+  const tokensDefinition = commandDefinition('tokens');
   const modelFreeMixed = [
     never('copilot.preview', commandDefinition('copilot'), 'read'),
     required('copilot.launch'),
@@ -744,6 +767,9 @@ export function operationCatalog() {
     ...PUSH_MUTATION_SUBCOMMANDS.map((name) => never(`push.${name}`, pushDefinition, 'mutation')),
     ...IMPACT_READ_SUBCOMMANDS.filter((name) => name !== 'study').map((name) => never(`impact.${name}`, impactDefinition, 'read')),
     ...IMPACT_MUTATION_SUBCOMMANDS.map((name) => never(`impact.${name}`, impactDefinition, 'mutation')),
+    ...CONTEXT_READ_SUBCOMMANDS.map((name) => never(`context.${name}`, contextDefinition, 'read')),
+    ...CONTEXT_MUTATION_SUBCOMMANDS.map((name) => never(`context.${name}`, contextDefinition, 'mutation')),
+    ...TOKENS_SUBCOMMANDS.map((name) => never(`tokens.${name}`, tokensDefinition, 'read')),
     ...['list', 'show', 'prompt-hash'].map((name) => never(`impact.study.${name}`, impactDefinition, 'read')),
     never('impact.exposure.status', impactDefinition, 'read'),
     never('impact.exposure.attest', impactDefinition, 'mutation'),

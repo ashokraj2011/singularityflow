@@ -21,6 +21,10 @@ import { resolveWorldModelContext } from './grounding.mjs';
 import { readRawObservation } from './observation-compiler.mjs';
 import { recordSha256 } from './records.mjs';
 import { currentSchemaVersion, readRecord } from './schema-migrations.mjs';
+import { operationContext } from './operation-context.mjs';
+import {
+  normalizeTokenEconomy, selectedTokenEconomyProfile, tokenEconomyDigest
+} from './token-economy.mjs';
 import { withWorldModelSourceScope, worldModelSourceScope } from './source-scope.mjs';
 import { loadConfig, loadStoryAggregate } from './state-stores.mjs';
 import { run, secureRepositoryPath, SingularityFlowError } from './util.mjs';
@@ -29,6 +33,7 @@ import { inspectWorkflowGrounding } from './worldmodel.mjs';
 export const EVIDENCE_PACKET_SLICES = Object.freeze([
   'brief', 'impact', 'world-model', 'ast', 'evidence', 'history', 'observation'
 ]);
+export const EVIDENCE_PACKET_COMPILER_VERSION = 2;
 
 const DEFAULT_MAX_OUTPUT_BYTES = 32 * 1024;
 const MAX_OUTPUT_BYTES = 128 * 1024;
@@ -102,7 +107,9 @@ function candidateForFinding(finding, directTarget) {
       ? { kind: 'requirement-reference', path: finding.source.reference }
       : test ? { kind: 'repository-record', path: finding.subject }
         : { kind: 'supporting-evidence', findingId: finding.findingId },
-    sourceMaterial: false
+    sourceMaterial: false,
+    mandatory: requirement,
+    cacheClass: requirement ? 'session-stable' : 'variable'
   };
 }
 
@@ -202,7 +209,8 @@ async function briefCandidates(root, definition, workflow) {
             type: 'governed-agent-brief', reference: verified.record.rendered.path,
             sha256: verified.record.rendered.sha256
           },
-          expansion: { kind: 'repository-record', path: verified.record.rendered.path }, sourceMaterial: true
+          expansion: { kind: 'repository-record', path: verified.record.rendered.path },
+          sourceMaterial: true, mandatory: true, cacheClass: 'session-stable'
         });
       } catch { /* The unavailable entry is added by the caller from the absence of candidates. */ }
     }
@@ -283,7 +291,7 @@ function governedEvidenceCandidates(workflow) {
     reason: { code: 'phase.required-context', findingIds: [] },
     source: { type: 'governed-submission', reference: entry.path, sha256: entry.packetSha256 },
     expansion: entry.path ? { kind: 'repository-record', path: entry.path } : null,
-    sourceMaterial: false
+    sourceMaterial: false, mandatory: true, cacheClass: 'session-stable'
   }));
   const approvals = Object.values(workflow.phases ?? {}).flatMap((phase) =>
     (phase.approvals ?? []).filter((entry) => !entry.invalidatedAt).map((entry) => ({
@@ -297,10 +305,63 @@ function governedEvidenceCandidates(workflow) {
       relationship: 'current-work-approval',
       reason: { code: 'phase.required-context', findingIds: [] },
       source: { type: 'governed-approval', reference: workflow.workItem.id, sha256: recordSha256(entry) },
-      expansion: null, sourceMaterial: false
+      expansion: null, sourceMaterial: false, mandatory: true, cacheClass: 'session-stable'
     }))
   );
   return [...submissions, ...approvals];
+}
+
+function mandatoryGovernanceCandidate(definition, workflow, phaseId) {
+  if (!workflow) return null;
+  const phase = workflow.phases?.[phaseId] ?? null;
+  const policy = {
+    workId: workflow.workItem.id,
+    workType: workflow.workItem.workType,
+    phase: phaseId,
+    configurationSha256: workflow.resolution?.configSha256 ?? null,
+    constitution: workflow.resolution?.constitutionPin ?? workflow.resolution?.constitution ?? null,
+    approval: phase?.approvalPolicy ?? null,
+    generation: phase?.generationPolicy ?? null,
+    sourceBoundary: phase?.sourceBoundary ?? null,
+    requiredChecks: phase?.qualityCommands ?? [],
+    sequenceGates: workflow.resolution?.sequenceGates ?? null
+  };
+  return {
+    kind: 'governance-policy-binding',
+    subject: `${workflow.workItem.id}:${phaseId ?? 'complete'}`,
+    classification: 'proven', representation: 'policy-binding',
+    content: JSON.stringify(policy), relationship: 'applicable-governance',
+    reason: { code: 'governance.mandatory', findingIds: [] },
+    source: {
+      type: 'pinned-work-resolution',
+      reference: `${definition.workItemRoot ?? 'singularity/work-items'}/${workflow.workItem.id}/workflow.json`,
+      sha256: recordSha256(policy)
+    },
+    expansion: null, sourceMaterial: false, mandatory: true, cacheClass: 'session-stable'
+  };
+}
+
+function lifecycleOutcome(workflow, phaseId) {
+  if (!workflow) return null;
+  const phase = workflow.phases?.[phaseId] ?? null;
+  const checks = phase?.checks ?? [];
+  const failed = checks.filter((check) => ['failed', 'blocked'].includes(check.status)).length;
+  const passed = checks.filter((check) => check.status === 'passed').length;
+  const verification = failed ? 'failed'
+    : checks.length && passed === checks.length ? 'passed'
+      : checks.length ? 'partial'
+        : phase?.status === 'approved' ? 'passed' : 'not-run';
+  return {
+    completed: workflow.status === 'complete' || phase?.status === 'approved',
+    verification,
+    gates: { passed, failed },
+    agentRetries: (workflow.history ?? []).filter((entry) => entry.event === 'phase_rejected'
+      && (!phaseId || entry.phase === phaseId)).length,
+    contextExpansions: 0,
+    missingContextIncidents: null,
+    unexaminedChanges: null,
+    durationMs: null
+  };
 }
 
 async function acceptedPlan(root, workflow, flightPlanId) {
@@ -350,6 +411,7 @@ function publicItem(candidate) {
   const { expansion: _expansion, sourceMaterial, ...item } = candidate;
   return {
     ...item,
+    estimatedTokens: Math.ceil(item.bytes / 4),
     material: sourceMaterial ? 'untrusted-source' : 'governed-guidance',
     instructions: sourceMaterial ? 'not-authoritative' : 'guidance-only'
   };
@@ -391,10 +453,15 @@ function compactOmission(omissions, handle = null) {
 
 function packetIdentity(binding, items, omissions, manifest) {
   return {
+    compilerVersion: EVIDENCE_PACKET_COMPILER_VERSION,
     binding: {
       mode: binding.mode, workId: binding.workId, flightPlanId: binding.flightPlanId,
       sourceRevision: binding.sourceRevision, lifecycleRevision: binding.lifecycleRevision,
-      intentSha256: binding.intentSha256
+      intentSha256: binding.intentSha256, workType: binding.workType,
+      intervalId: binding.intervalId, operationId: binding.operationId,
+      tokenEconomyMode: binding.tokenEconomyMode,
+      tokenEconomyProfile: binding.tokenEconomyProfile,
+      tokenEconomyConfigurationDigest: binding.tokenEconomyConfigurationDigest
     },
     items: items.map((item) => ({ itemId: item.itemId, source: item.source, bytes: item.bytes })),
     omissions: omissions.map((item) => item.itemId), cacheKey: manifest.cacheKey
@@ -408,8 +475,12 @@ function finalPacket(packet) {
 
 /** Compile a bounded, no-model Evidence Packet. */
 export async function compileEvidencePacket(root, request = {}) {
-  const maximumOutputBytes = packetBudget(request.maxOutputBytes);
   const { definition, workflow, plan, bindingMode } = await resolveBinding(root, request);
+  const tokenEconomy = normalizeTokenEconomy(workflow?.resolution?.tokenEconomy ?? definition.tokenEconomy ?? {});
+  const selectedProfile = selectedTokenEconomyProfile(tokenEconomy, request.profile ?? null);
+  const profileBudget = ['assist', 'enforce'].includes(tokenEconomy.mode)
+    ? Math.min(MAX_OUTPUT_BYTES, selectedProfile.maxInputTokens * 4) : null;
+  const maximumOutputBytes = packetBudget(request.maxOutputBytes ?? profileBudget);
   const sourceRevision = head(root);
   if (!sourceRevision) throw new SingularityFlowError('Repository source revision is unavailable.', {
     code: 'EPC_SOURCE_UNAVAILABLE', details: { nextAction: 'Commit or restore a readable repository revision, then refresh context.' }
@@ -427,6 +498,8 @@ export async function compileEvidencePacket(root, request = {}) {
   const findings = acceptedFinding(plan, request.findingIds);
   const unavailable = [];
   const candidates = [];
+  const mandatoryGovernance = mandatoryGovernanceCandidate(definition, workflow, phase);
+  if (mandatoryGovernance) candidates.push(mandatoryGovernance);
   if (!plan && workflow) {
     candidates.push({
       kind: 'current-work-context', subject: workflow.workItem.id,
@@ -434,7 +507,7 @@ export async function compileEvidencePacket(root, request = {}) {
       content: `${workflow.workItem.id} is ${workflow.status} in ${phase ?? 'complete'}.`,
       relationship: 'current-phase', reason: { code: 'phase.required-context', findingIds: [] },
       source: { type: 'governed-workflow', reference: `${definition.workItemRoot ?? 'singularity/work-items'}/${workflow.workItem.id}/workflow.json` },
-      sourceMaterial: false
+      sourceMaterial: false, mandatory: true, cacheClass: 'session-stable'
     });
     if (requested(slices, 'impact')) unavailable.push({
       code: 'EPC_FLIGHT_PLAN_NOT_FOUND', subject: 'impact',
@@ -509,11 +582,20 @@ export async function compileEvidencePacket(root, request = {}) {
     configurationSha256: recordSha256(workflow?.resolution ?? definition),
     worldModelSha256: recordSha256(sourceScope),
     intentSha256: intent?.digest ?? (intent ? recordSha256(intent) : null),
-    lifecycleRevision
+    lifecycleRevision,
+    workType: workflow?.workItem?.workType ?? null,
+    intervalId: workflow?.workIntervals?.current?.intervalId ?? null,
+    operationId: request.operationId ?? operationContext()?.operation?.id ?? null,
+    tokenEconomyMode: tokenEconomy.mode,
+    tokenEconomyProfile: selectedProfile.id,
+    tokenEconomyConfigurationDigest: tokenEconomyDigest(tokenEconomy)
   };
   const ranked = rankContextCandidates(candidates);
-  const capped = ranked.slice(0, MAX_CANDIDATES);
-  const overflow = ranked.slice(MAX_CANDIDATES).map((entry) => ({ ...entry, omissionReason: 'candidate-bound' }));
+  const mandatory = ranked.filter((entry) => entry.mandatory);
+  const optional = ranked.filter((entry) => !entry.mandatory);
+  const capped = [...mandatory, ...optional.slice(0, Math.max(0, MAX_CANDIDATES - mandatory.length))];
+  const overflow = optional.slice(Math.max(0, MAX_CANDIDATES - mandatory.length))
+    .map((entry) => ({ ...entry, omissionReason: 'candidate-bound' }));
   const selection = selectContextCandidates(capped, Math.max(512, Math.floor(maximumOutputBytes * 0.42)));
   let selected = [...selection.items];
   const omitted = [...selection.omissions, ...overflow];
@@ -536,11 +618,35 @@ export async function compileEvidencePacket(root, request = {}) {
         : unavailable.length ? 'degraded' : 'complete';
     return {
       schemaVersion: currentSchemaVersion('evidence-packet'),
-      kind: 'evidence-packet', packetId, status, guidanceOnly: true, modelInvoked: false,
+      kind: 'evidence-packet', packetId, compilerVersion: EVIDENCE_PACKET_COMPILER_VERSION,
+      status, guidanceOnly: true, modelInvoked: false,
       binding: Object.fromEntries(Object.entries(binding).filter(([key]) => key !== 'lifecycleRevision')),
+      correlation: {
+        workspaceId: `sha256:${recordSha256({ root })}`,
+        storyId: binding.workId,
+        workType: binding.workType,
+        phase: binding.phase,
+        generation: binding.generation,
+        intervalId: binding.intervalId,
+        goalId: null,
+        flightPlanId: binding.flightPlanId,
+        operationId: binding.operationId,
+        packetId,
+        launchId: request.launchId ?? null,
+        sessionId: request.sessionId ?? null
+      },
+      tokenEconomy: {
+        enabled: tokenEconomy.enabled, mode: tokenEconomy.mode,
+        profile: selectedProfile.id,
+        selectionReason: request.profile ? 'explicit-approved-profile' : 'pinned-default',
+        configurationDigest: binding.tokenEconomyConfigurationDigest
+      },
+      outcome: lifecycleOutcome(workflow, phase),
       requestedSlices: slices,
       budget: {
-        maximumOutputBytes, includedContentBytes,
+        maximumOutputBytes, includedContentBytes, profile: selectedProfile.id,
+        maximumInputTokens: selectedProfile.maxInputTokens,
+        reservedOutputTokens: selectedProfile.reservedOutputTokens,
         estimatedInputTokens: Math.ceil(includedContentBytes / 4),
         estimationMethod: 'utf8-bytes-divided-by-four', exact: false
       },
@@ -562,7 +668,9 @@ export async function compileEvidencePacket(root, request = {}) {
   };
   let packet = finalPacket(makePacket());
   while (Buffer.byteLength(JSON.stringify(packet)) > maximumOutputBytes && items.length) {
-    const removed = selected.pop();
+    const removableIndex = selected.findLastIndex((candidate) => !candidate.mandatory);
+    if (removableIndex < 0) break;
+    const [removed] = selected.splice(removableIndex, 1);
     omitted.unshift({ ...removed, omissionReason: 'budget' });
     packetId = `ctx-${recordSha256(packetIdentity(binding, selected, omitted, manifest)).slice(0, 20)}`;
     items = await addExpansionHandles(root, selected, binding, packetId, maximumOutputBytes);
@@ -580,8 +688,13 @@ export async function compileEvidencePacket(root, request = {}) {
     packet = finalPacket(packet);
   }
   if (Buffer.byteLength(JSON.stringify(packet)) > maximumOutputBytes) {
-    throw new SingularityFlowError('Evidence Packet metadata cannot fit the requested output budget.', {
-      code: 'EPC_CONTEXT_BUDGET_INVALID', details: { nextAction: 'Increase --max-output-bytes and request the packet again.' }
+    const requiredBytes = Buffer.byteLength(JSON.stringify(packet));
+    throw new SingularityFlowError('Mandatory Evidence Packet metadata cannot fit the requested output budget.', {
+      code: 'TKN_MANDATORY_CONTEXT_OVERFLOW', details: {
+        requiredBytes, configuredLimitBytes: maximumOutputBytes,
+        unsafeReason: 'Applicable governance context cannot be truncated or budget-evicted.',
+        nextAction: 'Select an approved larger token-economy profile, narrow the operation, or split the work.'
+      }
     });
   }
   await recordContextPacketTelemetry(root, packet, { providerTelemetry: request.providerTelemetry ?? null });

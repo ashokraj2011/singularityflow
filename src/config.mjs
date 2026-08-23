@@ -55,6 +55,7 @@ import {
 import {
   normalizeWorkTypeIntelligence, worldModelModeForIntelligence
 } from './intelligence-policy.mjs';
+import { normalizeTokenEconomy } from './token-economy.mjs';
 
 export const WORKFLOW_PATH = 'singularity/workflow.yml';
 export const CONTROL_ROOT = 'singularity';
@@ -416,6 +417,7 @@ export function validateDefinition(definition) {
   normalizeSequenceGates(definition.sequenceGates ?? {});
   normalizeSessionPolicy(definition.session ?? {});
   normalizeContextPolicy(definition.contextPolicy ?? {}, { phaseIds: Object.keys(definition.phases) });
+  definition.tokenEconomy = normalizeTokenEconomy(definition.tokenEconomy ?? {});
   normalizePlanning(definition.planning ?? {});
   definition.models = normalizeModelProviders(definition.models ?? {});
   definition.harnessImports = normalizeHarnessImports(definition.harnessImports);
@@ -952,6 +954,7 @@ export function resolveWorkType(definition, workTypeId) {
   documents.allowedPhases = (documents.allowedPhases ?? []).filter((phaseId) => workType.phases.includes(phaseId));
   const sequenceGates = normalizeSequenceGates(definition.sequenceGates ?? {}, workType.sequenceGates ?? {});
   const contextPolicy = normalizeContextPolicy(definition.contextPolicy ?? {}, { phaseIds: Object.keys(definition.phases) });
+  const tokenEconomy = normalizeTokenEconomy(definition.tokenEconomy ?? {});
   const intelligence = normalizeWorkTypeIntelligence(workType.intelligence, `Work type '${workTypeId}' intelligence`);
   return {
     id: workTypeId,
@@ -960,6 +963,7 @@ export function resolveWorkType(definition, workTypeId) {
     approvalAuthorities: structuredClone(definition.approvalAuthorities),
     sequenceGates,
     contextPolicy,
+    tokenEconomy,
     intelligence,
     worldModelGrounding: worldModelModeForIntelligence(groundingMode(definition), intelligence),
     ledger: normalizeLedgerConfig(definition.ledger ?? {}),
@@ -1024,6 +1028,7 @@ export async function snapshotResolution(root, definition, resolved) {
     approvalAuthorities: structuredClone(resolved.approvalAuthorities ?? normalizeApprovalAuthorities(definition.approvalAuthorities)),
     sequenceGates: resolved.sequenceGates ?? normalizeSequenceGates(definition.sequenceGates ?? {}),
     contextPolicy: resolved.contextPolicy ?? normalizeContextPolicy(definition.contextPolicy ?? {}, { phaseIds: Object.keys(definition.phases) }),
+    tokenEconomy: structuredClone(resolved.tokenEconomy ?? normalizeTokenEconomy(definition.tokenEconomy ?? {})),
     ledger: structuredClone(resolved.ledger ?? normalizeLedgerConfig(definition.ledger ?? {})),
     spec: structuredClone(resolved.spec ?? normalizeSpecPolicy(definition.spec ?? {})),
     /**

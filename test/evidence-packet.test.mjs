@@ -159,6 +159,13 @@ test('accepted Flight Plan binding controls packet selection and detects tamperi
   assert.equal(packet.binding.mode, 'accepted-flight-plan');
   assert.equal(packet.binding.workId, 'PAY-EPC-1');
   assert.equal(packet.binding.intentSha256, plan.intent.digest);
+  assert.equal(packet.compilerVersion, 2);
+  assert.equal(packet.correlation.storyId, 'PAY-EPC-1');
+  assert.equal(packet.correlation.workType, 'feature');
+  assert.equal(packet.tokenEconomy.mode, 'observe');
+  assert.equal(packet.tokenEconomy.profile, 'standard');
+  assert.equal(packet.outcome.completed, false);
+  assert.ok(packet.items.some((item) => item.kind === 'governance-policy-binding' && item.mandatory));
   assert.ok(packet.items.some((item) => item.reason.findingIds.length));
   const gateway = await contextBrief({
     root: worktree, operation: gatewayOperation('context.brief'),
@@ -221,6 +228,10 @@ test('the Observation Firewall preserves failures, compresses repetition, and ke
   assert.match(observation.included[0].content, /Expected values/);
   assert.ok(observation.includedBytes < observation.rawBytes);
   assert.equal(observation.modelInvoked, false);
+  assert.deepEqual(observation.compiler, {
+    id: 'test-result-observation', version: '2.0.0', profile: { maximumIncludedBytes: 4096 }
+  });
+  assert.equal(observation.correlation.packetId, null);
 
   const packet = await compileEvidencePacket(root, {
     requestedSlices: ['observation'], observation, maxOutputBytes: 12 * 1024
@@ -240,6 +251,18 @@ test('the Observation Firewall preserves failures, compresses repetition, and ke
   const unknown = await compileObservation(root, { kind: 'search-result', raw: 'unrecognized output', exitCode: 0 });
   assert.equal(unknown.parsing.status, 'unparsed');
   assert.equal(unknown.status, 'unparsed');
+
+  const credential = `ghp_${'A'.repeat(36)}`;
+  const protectedObservation = await compileObservation(root, {
+    kind: 'build-output', raw: `Build failed with token ${credential}\n`, exitCode: 1
+  });
+  assert.deepEqual(protectedObservation.redaction, {
+    status: 'applied', applied: true, occurrences: 1, facts: [{ rule: 'github-token', count: 1 }]
+  });
+  assert.doesNotMatch(JSON.stringify(protectedObservation), new RegExp(credential));
+  const protectedRaw = await expandEvidencePacketHandle(root, protectedObservation.expansion[0].handle);
+  assert.match(protectedRaw.content, /\[redacted-secret:github-token\]/);
+  assert.doesNotMatch(protectedRaw.content, new RegExp(credential));
 });
 
 test('manifest cache identity excludes mutable state and telemetry remains content-free', async (t) => {

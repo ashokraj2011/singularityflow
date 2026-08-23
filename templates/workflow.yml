@@ -152,6 +152,26 @@ tokens:
   # pricing:
   #   provider-model-name: { input: 3, output: 15, cachedInput: 0.3 }
 
+# Closed-loop context accounting starts in observe mode: packets and local metadata are measured,
+# but the host's agent context is not changed until a repository explicitly selects assist/enforce.
+tokenEconomy:
+  enabled: true
+  mode: observe
+  profile: standard
+  profiles:
+    standard:
+      maxInputTokens: 18000
+      reservedOutputTokens: 6000
+      maxExpansionTokens: 8000
+      observationCapsuleTokens: 3000
+      policyOnBudgetBreach: refuse
+  observationFirewall: true
+  progressiveRetrieval: true
+  historicalMemory: false
+  cacheStableComposition: true
+  providerTelemetry: optional
+  ast: optional
+
 # Stable clause anchors such as [APP:REQ-001] are indexed at publication time.
 # Recording is non-blocking for new repositories; switch mode/coverage to enforce
 # once existing specification templates and claim maps have been adopted.

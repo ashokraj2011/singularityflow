@@ -11,6 +11,7 @@ import {
 } from '../src/context-packet-telemetry.mjs';
 import { contextXray } from '../src/context-xray.mjs';
 import { gitCommonDir } from '../src/git.mjs';
+import { currentSchemaVersion } from '../src/schema-migrations.mjs';
 
 function git(root, ...args) {
   return execFileSync('git', args, { cwd: root, encoding: 'utf8' }).trim();
@@ -83,7 +84,7 @@ function workflow() {
 test('Context X-Ray projects content-free packet, expansion, model, and metric provenance without writing', async () => {
   const root = await repository();
   const recorded = await recordContextPacketTelemetry(root, packet());
-  assert.equal(recorded.schemaVersion, 2);
+  assert.equal(recorded.schemaVersion, currentSchemaVersion('context-packet-telemetry'));
   assert.equal(recorded.omittedItems, 5);
   assert.deepEqual(recorded.omissionClasses, { budget: 3, policy: 2 });
   await recordContextExpansionRequest(root, recorded.packetId, {

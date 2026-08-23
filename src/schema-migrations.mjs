@@ -420,6 +420,98 @@ function contextPacketTelemetryV1ToV2(source) {
   };
 }
 
+function contextManifestV1ToV2(source) {
+  const stablePrefix = clone(source.stablePrefix ?? []);
+  const mutableTail = clone(source.mutableTail ?? []);
+  const sessionStable = mutableTail.filter((entry) => entry.kind === 'flight-plan');
+  const variable = mutableTail.filter((entry) => entry.kind !== 'flight-plan');
+  return {
+    ...source,
+    schemaVersion: 2,
+    stablePrefix,
+    sessionStable,
+    variable,
+    mutableTail: [...sessionStable, ...variable],
+    // Historical records did not carry enough information to reproduce the exact cache identity;
+    // unknown remains unknown rather than fabricating a hash-shaped value.
+    cacheKey: source.cacheKey ?? null,
+    sessionCacheKey: source.sessionCacheKey ?? null,
+    cacheManifestId: source.cacheManifestId ?? null
+  };
+}
+
+function evidencePacketV1ToV2(source) {
+  return {
+    ...source,
+    schemaVersion: 2,
+    compilerVersion: source.compilerVersion ?? 1,
+    correlation: clone(source.correlation ?? {
+      storyId: source.binding?.workId ?? null,
+      workType: null,
+      phase: source.binding?.phase ?? null,
+      generation: source.binding?.generation ?? null,
+      intervalId: null,
+      goalId: null,
+      flightPlanId: source.binding?.flightPlanId ?? null,
+      operationId: null,
+      packetId: source.packetId ?? null,
+      launchId: null,
+      sessionId: null
+    }),
+    tokenEconomy: clone(source.tokenEconomy ?? null),
+    items: (source.items ?? []).map((item) => ({
+      ...clone(item), mandatory: item.mandatory === true,
+      cacheClass: item.cacheClass ?? 'variable',
+      estimatedTokens: item.estimatedTokens ?? Math.ceil(Number(item.bytes ?? 0) / 4)
+    }))
+  };
+}
+
+function observationSummaryV1ToV2(source) {
+  return {
+    ...source,
+    schemaVersion: 2,
+    compiler: clone(source.compiler ?? { id: 'legacy-observation-compiler', version: null, profile: null }),
+    correlation: clone(source.correlation ?? {
+      workspaceId: null, storyId: null, workType: null, phase: null, generation: null,
+      intervalId: null, goalId: null, flightPlanId: null, operationId: null,
+      packetId: null, launchId: null, sessionId: null
+    }),
+    // v1 summaries did not prove whether their source bytes were redacted. Preserve that
+    // uncertainty explicitly; migration must not manufacture a security claim.
+    redaction: clone(source.redaction ?? {
+      status: 'unavailable', applied: null, occurrences: null, facts: []
+    })
+  };
+}
+
+function contextPacketTelemetryV2ToV3(source) {
+  return {
+    ...source,
+    schemaVersion: 3,
+    correlation: clone(source.correlation ?? {
+      workspaceId: null,
+      storyId: source.workId ?? null,
+      workType: null,
+      phase: source.phase ?? null,
+      generation: source.generation ?? null,
+      intervalId: null,
+      goalId: null,
+      flightPlanId: source.flightPlanId ?? null,
+      operationId: null,
+      packetId: source.packetId ?? null,
+      launchId: null,
+      sessionId: null
+    }),
+    tokenEconomyMode: source.tokenEconomyMode ?? null,
+    tokenEconomyProfile: source.tokenEconomyProfile ?? null,
+    tokenEconomyConfigurationDigest: source.tokenEconomyConfigurationDigest ?? null,
+    cacheManifestId: source.cacheManifestId ?? null,
+    itemUsage: clone(source.itemUsage ?? []),
+    outcome: clone(source.outcome ?? null)
+  };
+}
+
 function family({
   id, currentVersion, minimumReadableVersion = 1, steps = [], paths = [], immutable = false,
   unversionedAs = null, migrationPolicy = 'migrate-on-read'
@@ -648,22 +740,27 @@ const families = [
   family({ id: 'change-flight-plan-delta', currentVersion: 1 }),
   family({ id: 'change-flight-plan-receipt', currentVersion: 1 }),
   family({
-    id: 'evidence-packet', currentVersion: 1,
+    id: 'evidence-packet', currentVersion: 2,
+    steps: [migration(1, 2, evidencePacketV1ToV2)],
     paths: [/^singularity\/work-items\/[^/]+\/context\/evidence-packets\/ctx-[a-f0-9]{20}\.json$/],
     immutable: true
   }),
-  family({ id: 'context-manifest', currentVersion: 1 }),
+  family({
+    id: 'context-manifest', currentVersion: 2,
+    steps: [migration(1, 2, contextManifestV1ToV2)]
+  }),
   family({
     id: 'context-expansion-handle', currentVersion: 1,
     paths: [/^\$git\/evidence-packets\/handles\/ctx_[a-f0-9]{32}_[a-f0-9]{32}\.json$/]
   }),
   family({
-    id: 'observation-summary', currentVersion: 1,
-    paths: [/^\$git\/evidence-packets\/observations\/summaries\/[a-f0-9]{64}\.json$/]
+    id: 'observation-summary', currentVersion: 2,
+    steps: [migration(1, 2, observationSummaryV1ToV2)],
+    paths: [/^\$git\/evidence-packets\/observations\/(?:v2\/)?summaries\/[a-f0-9]{64}\.json$/]
   }),
   family({
-    id: 'context-packet-telemetry', currentVersion: 2,
-    steps: [migration(1, 2, contextPacketTelemetryV1ToV2)],
+    id: 'context-packet-telemetry', currentVersion: 3,
+    steps: [migration(1, 2, contextPacketTelemetryV1ToV2), migration(2, 3, contextPacketTelemetryV2ToV3)],
     paths: [/^\$git\/evidence-packets\/telemetry\/ctx-[a-f0-9]{20}\.json$/]
   }),
   family({

@@ -133,6 +133,26 @@ export function renderCommandResult(result) {
   if (result.operation.id === 'context' && result.data?.xray) {
     return [contextXrayText(result.data.xray), preservationLine(result)].filter(Boolean).join('\n\n');
   }
+  if (result.operation.id === 'context.compile' && result.data?.packet) {
+    return JSON.stringify(result.data.packet, null, 2);
+  }
+  if (result.operation.id === 'context.expand' && result.data?.expansion) {
+    const expansion = result.data.expansion;
+    return [
+      `CONTEXT EXPANSION · ${expansion.packetId} · ${expansion.representation}`,
+      '', expansion.content, '',
+      `${expansion.accounting.includedContentBytes.toLocaleString('en-US')} bytes · ${expansion.accounting.estimatedInputTokens.toLocaleString('en-US')} estimated tokens`
+    ].join('\n');
+  }
+  if (result.operation.id === 'context.doctor' && result.data?.diagnostic) {
+    const { status, policy, profile, configurationDigest } = result.data.diagnostic;
+    return [
+      `TOKEN ECONOMY · ${status} · ${policy.mode} · profile ${profile.id}`,
+      `Input ${profile.maxInputTokens.toLocaleString('en-US')} · reserved output ${profile.reservedOutputTokens.toLocaleString('en-US')} · expansion ${profile.maxExpansionTokens.toLocaleString('en-US')} tokens`,
+      `Observation firewall ${policy.observationFirewall ? 'on' : 'off'} · progressive retrieval ${policy.progressiveRetrieval ? 'on' : 'off'} · provider telemetry ${policy.providerTelemetry}`,
+      `Configuration ${configurationDigest}`
+    ].join('\n');
+  }
   if (result.operation.id === 'tokens' && result.data?.ledger) {
     return [tokenLedgerText(result.data.ledger), preservationLine(result)].filter(Boolean).join('\n\n');
   }

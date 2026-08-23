@@ -38,7 +38,8 @@ async function repository({ mapping = MAPPING } = {}) {
   await mkdir(path.join(root, 'singularity'), { recursive: true });
   if (mapping !== null) await writeFile(path.join(root, MODEL_TIERS_PATH), mapping);
   // A stand-in provider binary. It has to be a script rather than `node -e`, because the adapter
-  // appends `-C <cwd> -p <prompt>` and node rejects `-C` as a bad option before the script runs.
+  // appends its cwd, attachment, bootstrap prompt, and policy flags and node would parse them as
+  // runtime options before the fixture ran.
   // It also records the argv it was handed. Asserting on what the caller *meant* and never on what
   // the provider was *asked* is how a routed invocation came to resolve a model, put it in the
   // receipt, and then run the provider with no model at all — see `the routed model is the model

@@ -19,12 +19,15 @@ import { repositoryPerformanceSnapshot } from './performance-doctor.mjs';
 import { withWorldModelSourceScope } from './source-scope.mjs';
 import { schemaCensus, schemaCensusText } from './schema-census.mjs';
 import { resolveModelProvider } from './model-runner.mjs';
+import { probePromptAttachmentCapability } from './model-provider-capability.mjs';
 import { resolveWorldModelGenerationRouting } from './world-model-generation-routing.mjs';
 import { latestWorldModelBuildDiagnostics } from './world-model-build-diagnostics.mjs';
 
-function check(id, status, message, fix = null) { return { id, status, message, fix }; }
+function check(id, status, message, fix = null, details = {}) { return { id, status, message, fix, ...details }; }
 
-export async function doctorSnapshot(root, { workId = null, offline = false, performance = false } = {}) {
+export async function doctorSnapshot(root, {
+  workId = null, offline = false, performance = false, probeModelProvider = true
+} = {}) {
   const checks = [];
   let performanceReport = null;
   let schemaReport = null;
@@ -138,6 +141,33 @@ export async function doctorSnapshot(root, { workId = null, offline = false, per
   } catch (error) {
     checks.push(check('configuration', 'fail', error.message, `Repair ${WORKFLOW_PATH} or restore it from version control.`));
     return summarize(root, checks, null, null, definition, null, null, schemaReport);
+  }
+  const configuredProvider = resolveModelProvider(definition);
+  if (probeModelProvider) {
+    const providerType = configuredProvider.providerConfig?.type ?? configuredProvider.provider;
+    const providerExecutable = configuredProvider.providerConfig?.executable
+      ?? (process.platform === 'win32' ? 'copilot.cmd' : 'copilot');
+    const attachment = probePromptAttachmentCapability({ type: providerType, executable: providerExecutable });
+    checks.push(check(
+      'model-provider-prompt-attachment',
+      attachment.state === 'ready' || attachment.state === 'not-applicable' ? 'pass' : 'fail',
+      attachment.state === 'ready'
+        ? `Model provider '${configuredProvider.provider}' supports private prompt attachments.`
+        : attachment.state === 'not-applicable'
+          ? `Model provider '${configuredProvider.provider}' owns its prompt transport outside the Copilot adapter.`
+          : `Model provider '${configuredProvider.provider}' cannot provide the required prompt-attachment capability.`,
+      attachment.state === 'blocked'
+        ? 'Update or replace the configured Copilot-compatible executable before running model-backed generation.'
+        : null,
+      { state: attachment.state, code: attachment.code, capability: attachment.capability }
+    ));
+  } else {
+    checks.push(check(
+      'model-provider-prompt-attachment', 'skip',
+      'Prompt-attachment capability is checked only by the explicit doctor command to keep repository snapshots fast.',
+      'Run singularity-flow doctor before model-backed generation.',
+      { state: 'not-checked', code: null, capability: 'prompt-attachment' }
+    ));
   }
   try {
     const provider = resolveModelProvider(definition);

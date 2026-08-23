@@ -74,9 +74,9 @@ const mockBuilderSource = `
 import { appendFile, mkdir, readFile, readdir, writeFile } from 'node:fs/promises';
 import { spawnSync } from 'node:child_process';
 import path from 'node:path';
-const promptArgument = process.argv[process.argv.indexOf('-p') + 1] ?? process.argv[2];
-let prompt;
-try { prompt = await readFile(promptArgument, 'utf8'); } catch { prompt = promptArgument; }
+const attachmentIndex = process.argv.indexOf('--attachment');
+if (attachmentIndex < 0 || !process.argv[attachmentIndex + 1]) throw new Error('prompt attachment was not provided');
+const prompt = await readFile(process.argv[attachmentIndex + 1], 'utf8');
 const packet = prompt.match(/Packet file:\\s+([^\\n]+)/)?.[1].trim();
 const assignedView = prompt.match(/Assigned view:\\s+([^\\n]+)/)?.[1].trim();
 if (packet) {

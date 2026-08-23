@@ -485,6 +485,49 @@ function observationSummaryV1ToV2(source) {
   };
 }
 
+function modelInvocationAuditV1ToV2(source) {
+  return {
+    ...source,
+    schemaVersion: 2,
+    promptTransport: source.promptTransport ?? 'legacy-argv',
+    promptEncoding: source.promptEncoding ?? 'utf-8'
+  };
+}
+
+function observationSummaryV2ToV3(source) {
+  const exitCode = source.source?.exitCode;
+  const hasExitCode = Number.isInteger(exitCode);
+  const status = hasExitCode ? (exitCode === 0 ? 'passed' : 'failed') : 'unknown';
+  const legacyReportedStatus = source.status ?? null;
+  return {
+    ...source,
+    schemaVersion: 3,
+    status,
+    compiler: {
+      ...clone(source.compiler ?? {}),
+      version: source.compiler?.version ?? null
+    },
+    summary: {
+      ...clone(source.summary ?? {}),
+      ...(Number.isInteger(source.summary?.errors) && !Number.isInteger(source.summary?.errorDiagnostics)
+        ? { errorDiagnostics: source.summary.errors }
+        : {})
+    },
+    outcome: {
+      state: hasExitCode ? (exitCode === 0 ? 'succeeded' : 'failed') : 'unknown',
+      authority: hasExitCode ? 'process-exit' : 'unavailable',
+      exitCode: hasExitCode ? exitCode : null,
+      signal: null,
+      reason: hasExitCode ? (exitCode === 0 ? null : `exit-code:${exitCode}`) : 'execution-metadata-unavailable',
+      contradiction: null,
+      legacyReportedStatus,
+      correction: legacyReportedStatus != null && legacyReportedStatus !== status
+        ? 'v2-text-heuristic-discarded'
+        : null
+    }
+  };
+}
+
 function contextPacketTelemetryV2ToV3(source) {
   return {
     ...source,
@@ -633,7 +676,11 @@ const families = [
   family({ id: 'ledger-deployment-report', currentVersion: 1, immutable: true }),
   family({ id: 'local-identity-reservation', currentVersion: 1, paths: [/^singularity\/identity-reservations\/[^/]+\.json$/], immutable: true }),
   family({ id: 'mcp-host-receipt', currentVersion: 1, paths: [/^\$git\/mcp\/(?:cache|receipts)\/[^/]+\.json$/] }),
-  family({ id: 'model-invocation-audit', currentVersion: 1, paths: [/^\$git\/model-invocations\/[^/]+\.json$/] }),
+  family({
+    id: 'model-invocation-audit', currentVersion: 2,
+    steps: [migration(1, 2, modelInvocationAuditV1ToV2)],
+    paths: [/^\$git\/model-invocations\/[^/]+\.json$/]
+  }),
   family({ id: 'planning-session', currentVersion: 1, paths: [/^\$git\/planning\/[^/]+\/manifest\.json$/] }),
   family({ id: 'specification-index', currentVersion: 1, paths: [/^singularity\/work-items\/[^/]+\/context\/spec-indexes\/[^/]+\.json$/], immutable: true }),
   family({ id: 'specification-claim-map', currentVersion: 1, paths: [/^singularity\/work-items\/[^/]+\/context\/claims\/[^/]+\.json$/], immutable: true }),
@@ -797,8 +844,8 @@ const families = [
     paths: [/^\$git\/evidence-packets\/handles\/ctx_[a-f0-9]{32}_[a-f0-9]{32}\.json$/]
   }),
   family({
-    id: 'observation-summary', currentVersion: 2,
-    steps: [migration(1, 2, observationSummaryV1ToV2)],
+    id: 'observation-summary', currentVersion: 3,
+    steps: [migration(1, 2, observationSummaryV1ToV2), migration(2, 3, observationSummaryV2ToV3)],
     paths: [/^\$git\/evidence-packets\/observations\/(?:v2\/)?summaries\/[a-f0-9]{64}\.json$/]
   }),
   family({

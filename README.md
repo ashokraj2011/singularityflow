@@ -1003,6 +1003,14 @@ SINGULARITY_FLOW_MARKETPLACE_SOURCE="company/singularity-flow" \
 
 The installer provides a named `sflow_copilot` compatibility helper, but never shadows the user's `copilot` executable. Start an instrumented session with `sflow copilot`, `sflow workspace copilot`, or VS Code **Continue with Copilot CLI**. After one machine-local disclosure, the Node launcher creates a unique metadata-only OpenTelemetry file for that process under `<git-common-dir>/singularity-flow/telemetry/raw/`; prompt, response, source, and tool content capture is forced off. Existing endpoints and authentication headers are preserved, and unsafe composition reports `conflict` while work continues. Manual Copilot and native IDE chat remain unmetered by SFlow. Phase publication commits only a sanitized summary to `singularity/work-items/<WORK-ID>/telemetry/<phase>-gen<N>.json`.
 
+Model-backed generation snapshots each UTF-8 prompt once into a private temporary file and sends it
+through Copilot CLI's `--attachment` channel. Prompt content never enters process arguments,
+environment variables, logs, telemetry, or invocation receipts; receipts retain only its SHA-256,
+byte count, encoding, and transport. The default input policy is 8 MiB. `singularity-flow doctor`
+blocks model-backed generation when the configured Copilot-compatible executable does not advertise
+`--attachment`. Provider configuration must not override adapter-owned cwd, prompt, attachment,
+model, or tool-policy flags.
+
 The single self-contained `install.sh` performs:
 
 ```text

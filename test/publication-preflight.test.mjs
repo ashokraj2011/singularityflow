@@ -216,7 +216,7 @@ test('a code phase refuses source without tests and tests without acceptance tag
   await inContext(untagged.root, async () => {
     await assert.rejects(
       () => publishGeneration(untagged.root, untagged.config, untagged.workflow, { phaseId: 'implementation', authorship: AUTHORSHIP }),
-      /changed tests do not contain required traceability tags: @ac:AC-001/
+      /changed tests do not contain required traceability tags: @ac:DELIVERY-1:AC-001/
     );
   });
 });
@@ -236,4 +236,10 @@ test('a code phase publishes source and acceptance-mapped tests with a delivery 
   assert.equal(context.phase.deliveryEvidence.testPaths.length, 1);
   assert.deepEqual(context.phase.deliveryEvidence.acceptanceCriteria.missing, []);
   assert.equal(context.phase.deliveryEvidence.sourceTreeSha256.startsWith('sha256:'), true);
+  assert.equal(context.phase.generationIntent.status, 'consumed');
+  const receipt = JSON.parse(await readFile(path.join(context.root, context.phase.deliveryEvidence.receiptPath), 'utf8'));
+  assert.equal(receipt.schemaVersion, 2);
+  assert.equal(receipt.status, 'pending-tests');
+  assert.equal(receipt.generationIntentId, context.phase.generationIntent.id);
+  assert.equal(receipt.changeSet.digest, context.phase.deliveryEvidence.changeSet.digest);
 });

@@ -1,6 +1,7 @@
 import readline from 'node:readline/promises';
 
 import { actionActor, activatePhaseAgent, activeActionContext, confirm, summary } from './commands/kernel.mjs';
+import { createHash } from 'node:crypto';
 import os from 'node:os';
 import path from 'node:path';
 import * as style from './style.mjs';
@@ -13,7 +14,9 @@ import YAML from 'yaml';
 import { SingularityFlowError, exists, nowIso, optionBoolean, optionNumber, optionString, optionStrings, parseArgs, posix, readJson, requirePositional, run, secureRepositoryPath, snapshot, table, writeJson, writeText } from './util.mjs';
 import { add, assertClean, branch, changes, checkout, commit, fastForwardTo, fetchOrigin, fetchRemote, fileAtRef, gitDir, hasUpstream, head, identity, localBranches, preflightPushBranch, pullFastForward, refExists, refHead, remoteBranches, repoRoot } from './git.mjs';
 import { buildRepositorySubjectIndex, buildRepositorySubjectIndexFromRefs, resolveContext } from './repository-subject-index.mjs';
-import { approvePhase, assertNoPendingPublication, cancelWorkflow, commitAndPublish, CONFIG_PATH, createWorkflow, currentPhase, loadConfig, preparePhase, preparePhaseInputs, promoteDesignSource, publishGeneration, reconcilePhaseTelemetry, registerArtifact, rejectPhase, reopenWorkflow, resolveWorkItem, saveStoryDraft, transactStory, scanArtifacts, storyPublicationPending, submitPhase, syncPublication, validateId, validateWorkflow, workflowBranchAllowed, workflowPublicationBranch, workflowPath, workDir } from './state-stores.mjs';
+import { approvePhase, assertNoPendingPublication, beginPhaseGeneration, cancelWorkflow, commitAndPublish, CONFIG_PATH, createWorkflow, currentPhase, generationResultDigest, loadConfig, preparePhase, preparePhaseInputs, promoteDesignSource, publishGeneration, reconcilePhaseTelemetry, registerArtifact, rejectPhase, reopenWorkflow, resolveWorkItem, saveStoryDraft, transactStory, scanArtifacts, storyPublicationPending, submitPhase, syncPublication, validateId, validateWorkflow, workflowBranchAllowed, workflowPublicationBranch, workflowPath, workDir } from './state-stores.mjs';
+import { phaseRequiresCodeDelivery } from './code-delivery-policy.mjs';
+import { verifyOpenGenerationIntent } from './generation-boundary.mjs';
 import { copilotTelemetryStatus } from './telemetry.mjs';
 import { contextXray } from './context-xray.mjs';
 import { compileEvidencePacket, expandEvidencePacketHandle } from './evidence-packet.mjs';
@@ -3050,6 +3053,9 @@ async function phaseReview(root, config, workflow, phase) {
   for (const record of records) {
     try {
       const viewed = await viewDocument(root, config, workflow, record.id);
+      const source = ['code', 'test'].includes(record.kind) && viewed.content != null;
+      const previewBytes = workflow.resolution?.codeDelivery?.display?.previewBytes ?? 4096;
+      const sourceBytes = source && viewed.content != null ? Buffer.from(viewed.content) : null;
       documents.push({
         id: record.id,
         label: record.label,
@@ -3061,7 +3067,15 @@ async function phaseReview(root, config, workflow, phase) {
         generation: record.generation ?? phase.generation,
         binary: viewed.binary,
         absolutePath: viewed.absolutePath ?? pathForDisplay(root, record.path),
-        content: viewed.content
+        ...(source ? {
+          display: {
+            mode: 'reference-preview',
+            preview: sourceBytes.subarray(0, previewBytes).toString('utf8'),
+            previewBytes: Math.min(sourceBytes.length, previewBytes),
+            truncated: sourceBytes.length > previewBytes,
+            reference: `sfref://generation/${encodeURIComponent(workflow.workItem.id)}/${encodeURIComponent(phase.id)}/${phase.generation}/${record.path.split('/').map(encodeURIComponent).join('/')}`
+          }
+        } : { content: viewed.content })
       });
     } catch (error) {
       documents.push({
@@ -3132,6 +3146,10 @@ function printPhaseReview(review, { showArtifact = false } = {}) {
     ))}`);
     if (document.error) console.warn(`  Warning: document preview unavailable: ${document.error}`);
     else if (document.binary) console.log(`  Binary document: open ${document.absolutePath}`);
+    else if (document.display?.mode === 'reference-preview') {
+      console.log(`  ${style.detail(`Reference: ${document.display.reference}`)}`);
+      if (showArtifact) console.log(`\n${document.display.preview}${document.display.truncated ? '\n… preview truncated …' : ''}`);
+    }
     else if (document.content != null && showArtifact) {
       console.log(`\n--- BEGIN ${document.path} ---`);
       process.stdout.write(document.content.endsWith('\n') ? document.content : `${document.content}\n`);
@@ -3148,6 +3166,41 @@ function printPhaseReview(review, { showArtifact = false } = {}) {
 async function phaseCommand(positionals, options) {
   const subcommand = requirePositional(positionals, 1, 'phase subcommand');
   const root = repoRoot(); const config = await loadConfig(root); const workflow = await loadStoryAggregate(root, config);
+  if (subcommand === 'begin') {
+    const phaseId = positionals[2] ?? workflow.currentPhase;
+    const phase = workflow.phases[phaseId];
+    if (!phase) throw new SingularityFlowError(`Unknown or unavailable phase '${phaseId ?? ''}'. Provide a phase ID.`);
+    const existing = phase.generationIntent;
+    if (existing?.status === 'open' && Number(existing.generation) === Number(phase.generation) + 1) {
+      await verifyOpenGenerationIntent(root, workflow, phase);
+      if (optionBoolean(options, 'json')) console.log(JSON.stringify(existing, null, 2));
+      else console.log(`Generation intent ${existing.id} is already open for ${phase.id} generation ${existing.generation}.`);
+      return;
+    }
+    let intent;
+    const generation = Number(phase.generation ?? 0) + 1;
+    const result = await commitAndPublish(
+      root,
+      config,
+      workflow,
+      { type: 'generation-started', phaseId, generation },
+      `[${workflow.workItem.id}][phase:${phaseId}][generation-start:${generation}] establish code boundary`,
+      [],
+      {
+        beforeStateWrite: async () => {
+          intent = await beginPhaseGeneration(root, config, workflow, {
+            phaseId,
+            adoptExisting: optionBoolean(options, 'adopt-existing') || optionBoolean(options, 'adopt-current-interval'),
+            confirm: optionString(options, 'confirm')
+          });
+        }
+      }
+    );
+    const output = { ...intent, commit: result.sha, pushed: result.pushed };
+    if (optionBoolean(options, 'json')) console.log(JSON.stringify(output, null, 2));
+    else console.log(`Began ${phaseId} generation ${generation} with intent ${intent.id} at ${result.sha.slice(0, 8)}${result.pushed ? ' and pushed' : ''}.`);
+    return;
+  }
   if (subcommand === 'show') {
     const phaseId = positionals[2] ?? workflow.currentPhase;
     const phase = workflow.phases[phaseId];
@@ -3162,6 +3215,20 @@ async function phaseCommand(positionals, options) {
   const phaseId = positionals[2] ?? workflow.currentPhase;
   const requestedPhase = workflow.phases[phaseId];
   if (!requestedPhase) throw new SingularityFlowError(`Unknown or unavailable phase '${phaseId ?? ''}'. Provide a phase ID.`);
+  if (phaseRequiresCodeDelivery(requestedPhase)
+      && requestedPhase.generationIntent?.status === 'consumed'
+      && Number(requestedPhase.generationIntent.generation) === Number(requestedPhase.generation)) {
+    const digest = await generationResultDigest(root, config, workflow, requestedPhase);
+    if (digest !== requestedPhase.generationIntent.publication?.resultDigest) {
+      throw new SingularityFlowError(
+        `Generation intent ${requestedPhase.generationIntent.id} was already consumed and the source or artifact bytes now differ. Run singularity-flow phase begin ${phaseId} before publishing a new generation.`,
+        { code: 'GENERATION_INTENT_ALREADY_CONSUMED' }
+      );
+    }
+    console.log(`Published ${requestedPhase.id} generation ${requestedPhase.generation} already exists; the idempotent retry created no commit.`);
+    printPhaseReview(await phaseReview(root, config, workflow, requestedPhase), { showArtifact: optionBoolean(options, 'show-artifact') });
+    return;
+  }
   const sourcePath = optionString(options, 'from');
   const authored = optionString(options, 'authored');
   const authorshipOptions = normalizeAuthorshipOptions({
@@ -3193,9 +3260,9 @@ async function phaseCommand(positionals, options) {
   const attributedInvocations = new Set(Object.values(workflow.phases ?? {})
     .flatMap((item) => item.authorship ?? [])
     .flatMap((record) => record.kernelModel?.invocationIds ?? []));
-  const kernelInvocationIds = (await listModelInvocations(root, { subjectId: workflow.workItem.id }))
-    .map((record) => record.id)
-    .filter((invocationId) => !attributedInvocations.has(invocationId));
+  const kernelInvocations = (await listModelInvocations(root, { subjectId: workflow.workItem.id }))
+    .filter((record) => !attributedInvocations.has(record.id));
+  const kernelInvocationIds = kernelInvocations.map((record) => record.id);
   const generation = requestedPhase.generation + 1;
   let phase = requestedPhase;
   const result = await commitAndPublish(
@@ -3215,7 +3282,8 @@ async function phaseCommand(positionals, options) {
           actor: session.actor,
           governedAgentContext: session.agent,
           source,
-          kernelInvocationIds
+          kernelInvocationIds,
+          kernelInvocations
         });
         await scanArtifacts(root, config, workflow, phaseId);
         phase = await publishGeneration(root, config, workflow, { phaseId, usage, authorship, persist: false });
@@ -9535,6 +9603,8 @@ async function showCommand(positionals, options) {
   // registered governed evidence, and neither can be mistaken for the other.
   const docs = await expandDocsHandle(handle, options);
   if (docs) return docs;
+  const generated = await expandGenerationReference(handle, options);
+  if (generated) return generated;
   const result = await resolveReference(repoRoot(), handle, {
     section: optionString(options, 'section'),
     jsonPointer: optionString(options, 'json-pointer'),
@@ -9551,6 +9621,83 @@ async function showCommand(positionals, options) {
       previewSha256: result.preview.sha256,
       previewBytes: result.preview.bytes,
       handle: result.handle
+    }
+  };
+}
+
+function parseGenerationReference(handle) {
+  const match = String(handle).match(/^sfref:\/\/generation\/([^/]+)\/([^/]+)\/(\d+)\/(.+)$/);
+  if (!match) return null;
+  let segments;
+  try { segments = match.slice(1).map((segment) => decodeURIComponent(segment)); }
+  catch { throw new SingularityFlowError('Generation reference contains invalid percent encoding.', { code: 'handle.expansion_invalid' }); }
+  const [workId, phaseId, generationText, ...pathSegments] = segments;
+  if (pathSegments.some((segment) => !segment || segment === '.' || segment === '..' || segment.includes('/') || segment.includes('\\'))) {
+    throw new SingularityFlowError('Generation reference contains an invalid repository path.', { code: 'handle.expansion_invalid' });
+  }
+  return { workId, phaseId, generation: Number(generationText), relative: pathSegments.join('/') };
+}
+
+async function expandGenerationReference(handle, options) {
+  const reference = parseGenerationReference(handle);
+  if (!reference) return null;
+  if (optionString(options, 'section') || optionString(options, 'json-pointer') || optionString(options, 'range')) {
+    throw new SingularityFlowError('Generation source references do not support section, JSON pointer, or range selectors.', { code: 'handle.expansion_invalid' });
+  }
+  const root = repoRoot();
+  const config = await loadConfig(root);
+  const workflow = await loadStoryAggregate(root, config, reference.workId);
+  const phase = workflow.phases?.[reference.phaseId];
+  if (!phase || reference.generation < 1 || reference.generation > Number(phase.generation ?? 0)) {
+    throw new SingularityFlowError('Generation reference does not identify a published phase generation.', { code: 'handle.expansion_invalid' });
+  }
+  const records = await documentCatalog(root, config, workflow);
+  const record = records.find((entry) => entry.type === 'artifact'
+    && entry.phase === reference.phaseId
+    && Number(entry.generation ?? reference.generation) === reference.generation
+    && entry.path === reference.relative);
+  if (!record || !['code', 'test'].includes(record.kind)) {
+    throw new SingularityFlowError('Generation reference is not bound to a published source artifact.', { code: 'handle.expansion_invalid' });
+  }
+  const subject = `[${reference.workId}][phase:${reference.phaseId}][generated:${reference.generation}]`;
+  const commit = run('git', ['log', '--format=%H%x09%s', '--fixed-strings', '--grep', subject], {
+    cwd: root, allowFailure: true
+  }).stdout.split(/\r?\n/).filter(Boolean).map((line) => line.split('\t'))
+    .find(([, message]) => message.startsWith(subject))?.[0] ?? null;
+  let bytes;
+  if (commit) {
+    const content = run('git', ['show', `${commit}:${reference.relative}`], { cwd: root, allowFailure: true });
+    if (content.status !== 0) throw new SingularityFlowError('Published source is absent from its generation commit.', { code: 'handle.expansion_invalid' });
+    bytes = Buffer.from(content.stdout);
+  } else {
+    const secured = await secureRepositoryPath(root, reference.relative, { label: 'Generated source', mustExist: true, type: 'file' });
+    bytes = await readFile(secured.absolute);
+  }
+  const rawSha256 = createHash('sha256').update(bytes).digest('hex');
+  if (record.sha256 && record.sha256 !== rawSha256) {
+    throw new SingularityFlowError('Published source bytes do not match the hash-bound generation reference.', { code: 'handle.integrity_failed' });
+  }
+  const binary = bytes.includes(0);
+  const maximum = optionNumber(options, 'max-bytes');
+  const served = maximum == null ? bytes : bytes.subarray(0, Math.max(0, maximum));
+  const result = {
+    schemaVersion: 1,
+    resultType: 'generation-source',
+    handle,
+    source: { workId: reference.workId, phase: reference.phaseId, generation: reference.generation, path: reference.relative, commit, rawSha256, rawBytes: bytes.length, binary },
+    preview: binary ? null : {
+      text: served.toString('utf8'), bytes: served.length,
+      sha256: createHash('sha256').update(served).digest('hex'), truncated: served.length < bytes.length
+    }
+  };
+  if (optionBoolean(options, 'json') || binary) console.log(JSON.stringify(result, null, 2));
+  else console.log(result.preview.text);
+  return {
+    harnessOutput: {
+      rawSha256, rawBytes: bytes.length,
+      previewSha256: result.preview?.sha256 ?? null,
+      previewBytes: result.preview?.bytes ?? 0,
+      handle
     }
   };
 }

@@ -125,12 +125,14 @@ test('initial phase skills require interactive clarification instead of silently
   const phase = await readFile(path.join(pluginRoot, 'skills', 'sflow-phase', 'SKILL.md'), 'utf8');
   const requirements = await readFile(path.join(pluginRoot, 'skills', 'sflow-requirements', 'SKILL.md'), 'utf8');
   const next = await readFile(path.join(pluginRoot, 'skills', 'sflow-next', 'SKILL.md'), 'utf8');
+  const code = await readFile(path.join(pluginRoot, 'skills', 'sflow-code', 'SKILL.md'), 'utf8');
   const epicRequirements = await readFile(path.join(pluginRoot, 'skills', 'sflow-epic-requirements', 'SKILL.md'), 'utf8');
-  for (const content of [workflowAgent, phase, requirements, next, epicRequirements]) {
+  for (const content of [workflowAgent, phase, requirements, code, epicRequirements]) {
     assert.match(content, /ask_user/);
     assert.match(content, /wait/i);
     assert.match(content, /stop before (?:authoring|preparation)/i);
   }
+  assert.match(next, /delegate terminally.*\/sf-code/is);
   assert.match(requirements, /required.*evidence looks complete/is);
   assert.match(epicRequirements, /epic sources answer/);
 });
@@ -410,8 +412,8 @@ test('guided run and world-model skills preserve consent and crash-recovery boun
   assert.match(worldModel, /Required symbol gates need syntax/);
 });
 
-test('generation skills display published documents instead of reducing them to summaries', async () => {
-  for (const name of ['sflow-design', 'sflow-implement', 'sflow-next', 'sflow-phase', 'sflow-release', 'sflow-requirements', 'sflow-review', 'sflow-verify']) {
+test('document phases display Markdown while code phases use bounded reference previews', async () => {
+  for (const name of ['sflow-design', 'sflow-release', 'sflow-requirements', 'sflow-review', 'sflow-verify']) {
     const content = await readFile(path.join(pluginRoot, 'skills', name, 'SKILL.md'), 'utf8');
     assert.match(content, /published text document in full/i, `${name} must display published document content`);
     assert.match(content, /never replace (?:it|the published document) with a summary/i, `${name} must prohibit summary-only publication output`);
@@ -420,6 +422,15 @@ test('generation skills display published documents instead of reducing them to 
     assert.match(content, /Shell\/tool block.*does not (?:count|satisfy)/i, `${name} must reject collapsed Shell output as review`);
     assert.match(content, /shown above/i, `${name} must explicitly prohibit the misleading shown-above response`);
   }
+  for (const name of ['sflow-code', 'sflow-next', 'sflow-phase']) {
+    const content = await readFile(path.join(pluginRoot, 'skills', name, 'SKILL.md'), 'utf8');
+    assert.match(content, /bounded (?:source )?preview|reference-preview/i, `${name} must bound source display`);
+    assert.match(content, /hash-bound reference|hash-bound references/i, `${name} must provide expandable references`);
+    assert.doesNotMatch(content, /source files[\s\S]{0,100}reproduced.*full/i, `${name} must not replay source in full`);
+  }
+  const alias = await readFile(path.join(pluginRoot, 'skills', 'sflow-implement', 'SKILL.md'), 'utf8');
+  assert.match(alias, /Run `\/sflow-code`/);
+  assert.match(alias, /must not publish.*again/i);
 });
 
 test('progress renders its deterministic Markdown visibly in Copilot', async () => {
@@ -433,12 +444,14 @@ test('progress renders its deterministic Markdown visibly in Copilot', async () 
 });
 
 test('governed phase skills reuse the shared repository model without Story task guides', async () => {
-  for (const name of ['sflow-phase', 'sflow-requirements', 'sflow-design', 'sflow-implement', 'sflow-verify', 'sflow-review', 'sflow-release']) {
+  for (const name of ['sflow-phase', 'sflow-requirements', 'sflow-design', 'sflow-code', 'sflow-verify', 'sflow-review', 'sflow-release']) {
     const content = await readFile(path.join(pluginRoot, 'skills', name, 'SKILL.md'), 'utf8');
     assert.match(content, /wm compose --phase/i, `${name} must compose repository grounding`);
     assert.doesNotMatch(content, /singularity-flow wm compose --phase [^`\n]*--task/i, `${name} must not create a Story-specific task guide`);
     assert.match(content, /Story context|governed workflow/i, `${name} must preserve Story context separately`);
   }
+  const alias = await readFile(path.join(pluginRoot, 'skills', 'sflow-implement', 'SKILL.md'), 'utf8');
+  assert.match(alias, /\/sflow-code/);
 });
 
 test('generation skills preserve sanitized work-item telemetry with each publication', async () => {

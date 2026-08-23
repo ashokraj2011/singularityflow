@@ -151,7 +151,9 @@ export async function inspectInPlaceArtifact(targetPath, contract) {
   return Object.freeze({ kind: 'in-place', filename: path.basename(targetPath), mediaType, sha256: sha256(authored), bytes: authored.length });
 }
 
-export function buildGenerationAuthorship({ options, actor, governedAgentContext, source, kernelInvocationIds = [] }) {
+export function buildGenerationAuthorship({
+  options, actor, governedAgentContext, source, kernelInvocationIds = [], kernelInvocations = []
+}) {
   const kernelInvoked = kernelInvocationIds.length > 0;
   return Object.freeze({
     schemaVersion: 1,
@@ -163,7 +165,19 @@ export function buildGenerationAuthorship({ options, actor, governedAgentContext
       : typeof governedAgentContext === 'string'
         ? { agentId: governedAgentContext }
         : structuredClone(governedAgentContext),
-    kernelModel: { invoked: kernelInvoked, status: 'exact', invocationIds: [...kernelInvocationIds] },
+    kernelModel: {
+      invoked: kernelInvoked, status: 'exact', invocationIds: [...kernelInvocationIds],
+      ...(kernelInvocations.length ? {
+        observations: kernelInvocations.map((record) => ({
+          invocationId: record.id,
+          task: record.routing?.task ?? null,
+          mappingRevision: record.routing?.mappingRevision ?? null,
+          requestedModel: null,
+          resolvedModel: record.routing?.resolvedModel ?? record.model ?? null,
+          assurance: record.routing?.task ? 'policy-selected' : 'unavailable'
+        }))
+      } : {})
+    },
     externalAiUse: options.externalAiUse == null
       ? { value: 'unknown', status: 'unavailable' }
       : { value: options.externalAiUse, status: 'self-reported' },

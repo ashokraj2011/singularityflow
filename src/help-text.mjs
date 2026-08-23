@@ -260,6 +260,8 @@ Usage:
   singularity-flow clarification record [PHASE] (--question TEXT --answer TEXT | --marker TEXT --answer TEXT | --response-file FILE)
     [--why TEXT] [--status answered|deferred] [--blocking] [--owner TEXT] [--impact TEXT] [--replace]
   singularity-flow phase show [PHASE] [--json]
+  singularity-flow phase begin [PHASE] [--json]
+    [--adopt-existing|--adopt-current-interval] [--confirm CHANGE-SET-DIGEST]
   singularity-flow phase publish [PHASE]
     [--authored human|governed-agent|deterministic|external-tool]
     [--from FILE] [--channel manual-in-place|manual-import|copilot-host|kernel-model|kernel-generator|external-tool]

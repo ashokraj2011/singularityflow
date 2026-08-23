@@ -93,6 +93,7 @@ skills:
   sflow-capabilities: { class: echo }
   sflow-capability-doctor: { class: echo }
   sflow-capability-map: { class: interactive }
+  sflow-code: { class: generative }
   sflow-continue: { class: mutation }
   sflow-configuration: { class: mutation }
   sflow-constitution: { class: mutation }

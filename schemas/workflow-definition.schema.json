@@ -14,6 +14,62 @@
       },
       "additionalProperties": false
     },
+    "codeDelivery": {
+      "type": "object",
+      "properties": {
+        "schemaVersion": { "const": 2 },
+        "mode": { "enum": ["observe", "warn", "enforce"] },
+        "generationBoundary": {
+          "type": "object",
+          "properties": { "requireBegin": { "type": "boolean" }, "dirtyStart": { "enum": ["block", "allow-explicit-adoption"] } },
+          "additionalProperties": false
+        },
+        "changeSet": {
+          "type": "object",
+          "properties": {
+            "renameDetection": { "const": "required" },
+            "includeCommitted": { "type": "boolean" }, "includeIndex": { "type": "boolean" },
+            "includeWorktree": { "type": "boolean" }, "includeUntracked": { "type": "boolean" },
+            "symlinks": { "enum": ["reject", "record-link-only"] }
+          },
+          "additionalProperties": false
+        },
+        "tests": {
+          "type": "object",
+          "properties": {
+            "requireExecutableSource": { "type": "boolean" },
+            "minimumDiscovered": { "type": "integer", "minimum": 1 },
+            "executionAssurance": { "enum": ["module", "testcase-exact"] },
+            "stringCommands": { "enum": ["reject", "compatibility-warn"] },
+            "unknownModelPolicy": { "const": "block" },
+            "requireResultAdapter": { "type": "boolean" },
+            "requireAffectedModuleCoverage": { "type": "boolean" }
+          },
+          "additionalProperties": false
+        },
+        "traceability": {
+          "type": "object",
+          "properties": {
+            "source": { "const": "pinned-spec-index" },
+            "requireNamespaceQualifiedIds": { "type": "boolean" },
+            "bareIdCompatibility": { "const": "unique-only" }
+          },
+          "additionalProperties": false
+        },
+        "publication": { "type": "object", "properties": { "idempotency": { "const": "generation-intent" } }, "additionalProperties": false },
+        "display": {
+          "type": "object",
+          "properties": {
+            "source": { "const": "reference-preview" },
+            "previewBytes": { "type": "integer", "minimum": 1, "maximum": 65536 },
+            "fullDocumentMaximumBytes": { "type": "integer", "minimum": 1, "maximum": 1048576 }
+          },
+          "additionalProperties": false
+        },
+        "model": { "type": "object", "properties": { "minimumAssurance": { "enum": ["unavailable", "observed", "provider-reported", "policy-selected"] } }, "additionalProperties": false }
+      },
+      "additionalProperties": false
+    },
     "models": {
       "type": "object",
       "properties": {
@@ -685,7 +741,20 @@
             "command": { "type": "string", "minLength": 1 },
             "argv": { "type": "array", "minItems": 1, "items": { "type": "string" } },
             "modelPolicy": { "enum": ["never", "required", "unknown"] },
-            "timeoutMs": { "type": "integer", "minimum": 1000, "maximum": 7200000 }
+            "timeoutMs": { "type": "integer", "minimum": 1000, "maximum": 7200000 },
+            "kind": { "enum": ["test", "compile", "lint", "format", "static-analysis", "security", "other"] },
+            "workingDirectory": { "type": "string", "minLength": 1 },
+            "affectedRoots": { "type": "array", "minItems": 1, "uniqueItems": true, "items": { "type": "string", "minLength": 1 } },
+            "result": {
+              "type": "object",
+              "required": ["adapter", "path"],
+              "properties": {
+                "adapter": { "enum": ["junit-xml", "jest-json", "vitest-json", "playwright-json", "go-test-json", "dotnet-trx", "cargo-json", "sflow-test-result-v1"] },
+                "path": { "type": "string", "minLength": 1 },
+                "minimumDiscovered": { "type": "integer", "minimum": 1 }
+              },
+              "additionalProperties": false
+            }
           },
           "oneOf": [
             { "required": ["command"], "not": { "required": ["argv"] } },

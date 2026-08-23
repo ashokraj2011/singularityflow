@@ -64,6 +64,41 @@ noModel:
   # warning in model-disabled mode; set this to block for stricter repositories.
   unknownExternalCommands: warn
 
+# One canonical boundary and evidence contract for every phase whose generation task is code.
+codeDelivery:
+  schemaVersion: 2
+  mode: enforce
+  generationBoundary:
+    requireBegin: true
+    dirtyStart: block
+  changeSet:
+    renameDetection: required
+    includeCommitted: true
+    includeIndex: true
+    includeWorktree: true
+    includeUntracked: true
+    symlinks: reject
+  tests:
+    requireExecutableSource: true
+    minimumDiscovered: 1
+    executionAssurance: module
+    stringCommands: reject
+    unknownModelPolicy: block
+    requireResultAdapter: true
+    requireAffectedModuleCoverage: true
+  traceability:
+    source: pinned-spec-index
+    requireNamespaceQualifiedIds: true
+    bareIdCompatibility: unique-only
+  publication:
+    idempotency: generation-intent
+  display:
+    source: reference-preview
+    previewBytes: 4096
+    fullDocumentMaximumBytes: 65536
+  model:
+    minimumAssurance: observed
+
 planning:
   enabled: true
   promptSource: singularity/prompts/copilot-planning.md

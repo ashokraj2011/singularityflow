@@ -1,5 +1,6 @@
 import { phaseNeedsGeneration } from './sequence.mjs';
 import { copilotAction } from './copilot-guidance.mjs';
+import { generationSkillForPhase } from './code-delivery-policy.mjs';
 
 export { phaseNeedsGeneration } from './sequence.mjs';
 
@@ -20,7 +21,7 @@ function nextActions(workflow, phase) {
   ];
   const regenerate = phaseNeedsGeneration(workflow, phase);
   if (regenerate) return [
-    copilotAction({ skill: '/sflow-phase', command: `singularity-flow prepare ${phase.id}`, reason: `${phase.generation > 0 ? 'Regenerate' : 'Generate'} the required ${phase.label} artifact, then publish it.` })
+    copilotAction({ skill: generationSkillForPhase(phase), command: `singularity-flow prepare ${phase.id}`, reason: `${phase.generation > 0 ? 'Regenerate' : 'Generate'} the required ${phase.label} artifact, then publish it.` })
   ];
   return [
     copilotAction({ skill: '/sflow-submit', command: `singularity-flow submit ${phase.id}`, reason: `Run configured checks and submit ${phase.id} for approval.` })

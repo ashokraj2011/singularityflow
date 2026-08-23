@@ -13,7 +13,7 @@ import test from 'node:test';
 
 import { acquireSubjectLock, subjectLockPath, withSubjectLock } from '../src/subject-lock.mjs';
 import { GOVERNED_ROOTS, initializeDefinition } from '../src/config.mjs';
-import { isApplicationPath } from '../src/work-intervals.mjs';
+import { isApplicationPath, isGeneratedOutputPath } from '../src/work-intervals.mjs';
 import { assertNotDefaultBranch, defaultBranchName, protectedBranchNames } from '../src/git.mjs';
 import { DEFAULT_IMPACT_METRIC_AUTHORITIES } from '../src/impact-config.mjs';
 import { selectAuthoritativeImpactEvidence } from '../src/impact.mjs';
@@ -259,6 +259,10 @@ test('governance material does not consume a work interval', () => {
     assert.equal(isApplicationPath(source), true, `${source} is application source`);
   }
   assert.equal(isApplicationPath('.git/index'), false);
+  for (const generated of ['.sflow/results/unit.json', 'services/orders/.sflow/results/test.xml', 'coverage/index.html']) {
+    assert.equal(isGeneratedOutputPath(generated), true, `${generated} is generated output`);
+    assert.equal(isApplicationPath(generated), false, `${generated} is not application source`);
+  }
 
   // Derived from the one list, so a new governed root cannot silently become application source.
   for (const root of GOVERNED_ROOTS) assert.equal(isApplicationPath(`${root}/anything.md`), false);

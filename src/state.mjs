@@ -1289,9 +1289,9 @@ export async function publishGeneration(root, config, workflow, { phaseId, usage
   }
   citations.errors.forEach((error) => console.warn(`Warning: ${error}`));
 
-  // Structural predicates are lifecycle policy, not an optional diagnostic command. Evaluate them
-  // at the last read-only boundary so a partial, disabled, stale, or failed required result cannot
-  // leave a half-published generation behind.
+  // Only predicates explicitly marked required participate in lifecycle policy. Evaluate those at
+  // the last read-only boundary so a partial, stale, or failed required result cannot leave a
+  // half-published generation behind. Advisory predicates and disabled AST remain diagnostic-only.
   const astGate = await evaluateAstLifecycleGate(root, config, workflow, phase, {
     generation: phase.generation + 1
   });

@@ -18,9 +18,6 @@ import { SingularityFlowError, exists, posix, run, snapshot } from './util.mjs';
 import {
   isApplicationPath, verifyWorkIntervalBaseline
 } from './work-intervals.mjs';
-import { assertInstalledAstProgrammingLanguagesSupported } from './ast-language-support.mjs';
-import { effectiveAstMode } from './ast-mode.mjs';
-import { astDisabledForWorkflow } from './intelligence-policy.mjs';
 
 export { phaseRequiresCodeDelivery } from './code-delivery-policy.mjs';
 
@@ -180,13 +177,6 @@ export async function evaluateCodeDeliveryPreflight(root, config, workflow, phas
     .filter((entry) => entry.status !== 'deleted' && entry.newPath && entry.newContent?.kind === 'regular-file')
     .map((entry) => entry.newPath);
   const changedPaths = [...new Set(currentPaths)].sort();
-  const astEnabled = !astDisabledForWorkflow(workflow)
-    && (await effectiveAstMode(config.ast ?? { mode: 'auto' })).mode !== 'off';
-  if (astEnabled) {
-    await assertInstalledAstProgrammingLanguagesSupported(changedPaths, {
-      boundary: `AST-backed code delivery for phase '${phase.id}'`
-    });
-  }
   const changedTestCandidates = changedPaths.filter(isAllowedTestAutomationPath);
   const changedTestPaths = [];
   const supportingTestPaths = [];

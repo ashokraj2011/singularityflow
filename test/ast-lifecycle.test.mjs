@@ -12,6 +12,7 @@ import { withOperationContext } from '../src/operation-context.mjs';
 import { setAgentSession } from '../src/session.mjs';
 import { createWorkflow, loadConfig, publishGeneration, submitPhase } from '../src/state.mjs';
 import { verifyAstLifecycleReceipt } from '../src/ast-lifecycle.mjs';
+import { setAstPreference } from '../src/ast-mode.mjs';
 import { replayAstEvidence } from '../src/ast-replay.mjs';
 import { recordSha256 } from '../src/records.mjs';
 import { astEvidenceReplayPlanner } from '../src/gateway/planners/ast-intelligence.mjs';
@@ -24,7 +25,9 @@ function git(root, ...args) {
   return result.stdout.trim();
 }
 
-async function fixture({ predicatePath = 'README.md', predicateSymbol = null } = {}) {
+async function fixture({
+  predicatePath = 'README.md', predicateSymbol = null, predicateMode = 'required', astMode = 'auto'
+} = {}) {
   const root = await mkdtemp(path.join(os.tmpdir(), 'sflow-ast-lifecycle-'));
   git(root, 'init', '-b', 'main');
   git(root, 'config', 'user.name', ACTOR.name);
@@ -35,11 +38,12 @@ async function fixture({ predicatePath = 'README.md', predicateSymbol = null } =
   const definitionPath = path.join(root, 'singularity', 'workflow.yml');
   const definition = YAML.parse(await readFile(definitionPath, 'utf8'));
   definition.worldModel.sourceRoots = predicateSymbol ? ['Payment.java'] : ['README.md'];
+  definition.ast.mode = astMode;
   definition.ast.predicates = [predicateSymbol ? {
-    id: 'required-symbol', mode: 'required', type: 'symbol-exists', symbol: predicateSymbol,
+    id: 'required-symbol', mode: predicateMode, type: 'symbol-exists', symbol: predicateSymbol,
     minimumAssurance: 'syntax'
   } : {
-    id: 'required-path', mode: 'required', type: 'path-exists', path: predicatePath,
+    id: 'required-path', mode: predicateMode, type: 'path-exists', path: predicatePath,
     minimumAssurance: 'text'
   }];
   await writeFile(definitionPath, YAML.stringify(definition));
@@ -47,7 +51,7 @@ async function fixture({ predicatePath = 'README.md', predicateSymbol = null } =
   git(root, 'commit', '-m', 'initialize AST lifecycle fixture');
   git(root, 'switch', '-c', 'AST-1');
 
-  const preference = path.join(root, '.ast-preference.json');
+  const preference = path.join(root, '.git', 'ast-preference.json');
   process.env.SINGULARITY_FLOW_AST_PREFERENCE_FILE = preference;
   const config = await loadConfig(root);
   config.git.publish = 'off';
@@ -109,6 +113,38 @@ test('a required AST predicate refuses publication before generation mutation', 
 test('an explicit generic intelligence profile skips repository AST lifecycle gates', async () => {
   const { root, config, workflow, phase, authorship } = await fixture({ predicatePath: 'missing.ts' });
   workflow.resolution.intelligence = { worldModel: 'off', ast: 'off', agentBriefs: 'off' };
+  await inContext(root, async () => {
+    await publishGeneration(root, config, workflow, { phaseId: phase.id, authorship });
+    assert.equal(phase.generation, 1);
+    assert.equal(phase.astGates, undefined);
+  });
+});
+
+test('repository AST off bypasses required predicates without invalidating workflow configuration', async () => {
+  const { root, config, workflow, phase, authorship } = await fixture({
+    predicatePath: 'missing.ts', astMode: 'off'
+  });
+  await inContext(root, async () => {
+    await publishGeneration(root, config, workflow, { phaseId: phase.id, authorship });
+    assert.equal(phase.generation, 1);
+    assert.equal(phase.astGates, undefined);
+  });
+});
+
+test('local AST off is an escape hatch from required repository predicates', async () => {
+  const { root, config, workflow, phase, authorship } = await fixture({ predicatePath: 'missing.ts' });
+  await setAstPreference('off');
+  await inContext(root, async () => {
+    await publishGeneration(root, config, workflow, { phaseId: phase.id, authorship });
+    assert.equal(phase.generation, 1);
+    assert.equal(phase.astGates, undefined);
+  });
+});
+
+test('advisory AST predicates never become lifecycle blockers', async () => {
+  const { root, config, workflow, phase, authorship } = await fixture({
+    predicatePath: 'missing.ts', predicateMode: 'advisory'
+  });
   await inContext(root, async () => {
     await publishGeneration(root, config, workflow, { phaseId: phase.id, authorship });
     assert.equal(phase.generation, 1);

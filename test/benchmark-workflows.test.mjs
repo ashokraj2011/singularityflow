@@ -14,6 +14,7 @@ import { worldModelCommand } from '../src/worldmodel.mjs';
 import { applyCapabilityPolicyToWorkResolution } from '../src/capability-context.mjs';
 import { requiredStructuralPromptContext } from '../src/structural-prompt-context.mjs';
 import { replayAstEvidence } from '../src/ast-replay.mjs';
+import { setAstPreference } from '../src/ast-mode.mjs';
 
 const PHASES = ['intake', 'design', 'implementation', 'testing', 'conformance'];
 
@@ -94,10 +95,8 @@ test('benchmark intelligence declarations fail closed when their phase inputs di
 
   const disabledAst = structuredClone(definition);
   disabledAst.ast.mode = 'off';
-  assert.throws(
-    () => validateDefinition(disabledAst),
-    /benchmarking-a.*requires AST context.*ast.mode is off/
-  );
+  assert.doesNotThrow(() => validateDefinition(disabledAst));
+  assert.equal(resolveWorkType(disabledAst, 'benchmarking-b').intelligence.ast, 'off');
 });
 
 test('Benchmark B composes a generic governed prompt without a world-model snapshot', async () => {
@@ -168,6 +167,36 @@ test('Benchmark A injects a bounded, provenance-bearing AST evidence page', asyn
     assert.equal(replay.result, 'identical', JSON.stringify(replay, null, 2));
     assert.equal(result.record.engine, 'singularity-flow-ast-broker');
     assert.ok(result.record.factsReturned > 0);
+  } finally {
+    if (previousPreference == null) delete process.env.SINGULARITY_FLOW_AST_PREFERENCE_FILE;
+    else process.env.SINGULARITY_FLOW_AST_PREFERENCE_FILE = previousPreference;
+  }
+});
+
+test('AST off blocks only an explicitly selected required-context operation', async () => {
+  const root = await mkdtemp(path.join(os.tmpdir(), 'sflow-benchmark-ast-disabled-'));
+  git(root, 'init', '-b', 'main');
+  git(root, 'config', 'user.name', 'Benchmark User');
+  git(root, 'config', 'user.email', 'benchmark@example.invalid');
+  await initializeDefinition(root);
+  const preference = path.join(root, '.git', 'benchmark-ast-preference.json');
+  const previousPreference = process.env.SINGULARITY_FLOW_AST_PREFERENCE_FILE;
+  process.env.SINGULARITY_FLOW_AST_PREFERENCE_FILE = preference;
+  try {
+    await setAstPreference('off');
+    await assert.rejects(
+      () => requiredStructuralPromptContext(root, {
+        workItem: { id: 'BENCH-A-OFF', workType: 'benchmarking-a' },
+        resolution: { intelligence: { worldModel: 'required', ast: 'required-context', agentBriefs: 'required' } }
+      }),
+      (error) => error?.code === 'WORK_TYPE_AST_CONTEXT_DISABLED'
+    );
+    const generic = await requiredStructuralPromptContext(root, {
+      workItem: { id: 'BENCH-B-OFF', workType: 'benchmarking-b' },
+      resolution: { intelligence: { worldModel: 'off', ast: 'off', agentBriefs: 'off' } }
+    });
+    assert.equal(generic.text, '');
+    assert.equal(generic.record, null);
   } finally {
     if (previousPreference == null) delete process.env.SINGULARITY_FLOW_AST_PREFERENCE_FILE;
     else process.env.SINGULARITY_FLOW_AST_PREFERENCE_FILE = previousPreference;

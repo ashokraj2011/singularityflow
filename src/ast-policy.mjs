@@ -108,9 +108,6 @@ export function normalizeAstPolicy(value = {}) {
     }
     if (!AST_ASSURANCE.includes(predicate.minimumAssurance ?? 'text')) throw new SingularityFlowError(`AST predicate '${predicate.id}' minimumAssurance must be text, syntax, or semantic.`);
   }
-  if (mode === 'off' && predicates.some((predicate) => predicate.mode === 'required')) {
-    throw new SingularityFlowError('ast.mode off cannot be combined with a required structural predicate.');
-  }
   const evidenceSource = value.evidence ?? {};
   if (!evidenceSource || typeof evidenceSource !== 'object' || Array.isArray(evidenceSource)) {
     throw new SingularityFlowError('ast.evidence must be an object.');
@@ -127,7 +124,7 @@ export function normalizeAstPolicy(value = {}) {
   if (!/^[a-z][a-z0-9-]*$/.test(evidenceStore)) {
     throw new SingularityFlowError('ast.evidence.store must be a lower-case logical store id.');
   }
-  if (hasRequiredPredicate && evidenceMode !== 'replayable') {
+  if (mode !== 'off' && hasRequiredPredicate && evidenceMode !== 'replayable') {
     throw new SingularityFlowError('A required AST predicate requires ast.evidence.mode replayable.');
   }
   return Object.freeze({

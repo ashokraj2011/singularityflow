@@ -181,8 +181,10 @@ if (!existsSync(governanceWorkflow)) {
     const commands = workflowText.match(/\bnpm (?:run check|test)\b/g) ?? [];
     if (!jobs.check || !jobs['full-suite'] || !jobs.provenance
         || !commands.includes('npm run check') || !commands.includes('npm test')
+        || !/git config --global user\.email/.test(workflowText)
+        || !/npm run vscode:build/.test(workflowText)
         || !/actions\/attest@v\d+/.test(workflowText)) {
-      fail(`${hostedAutomationRoot}/governance-ci.yml must retain check, full-suite, and attested-provenance jobs.`);
+      fail(`${hostedAutomationRoot}/governance-ci.yml must retain check, host-prepared full-suite, and attested-provenance jobs.`);
     } else checked.push(path.relative(root, governanceWorkflow));
   } catch (error) {
     fail(`${hostedAutomationRoot}/governance-ci.yml is unreadable: ${error.message}`);

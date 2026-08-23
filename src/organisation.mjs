@@ -19,10 +19,10 @@
 import path from 'node:path';
 import os from 'node:os';
 import { createHash } from 'node:crypto';
-import { mkdtemp, readFile, writeFile, rm, mkdir } from 'node:fs/promises';
+import { mkdtemp, readFile, writeFile, mkdir } from 'node:fs/promises';
 import { existsSync } from 'node:fs';
 import YAML from 'yaml';
-import { SingularityFlowError, run, readJson, YAML_OUTPUT } from './util.mjs';
+import { removeTemporaryTree, SingularityFlowError, run, readJson, YAML_OUTPUT } from './util.mjs';
 import {
   CAPABILITIES_PATH, editCapability, validateCapabilities, capabilityTree
 } from './capabilities.mjs';
@@ -122,7 +122,7 @@ async function withCapabilityProposalCheckout(url, branch, operation) {
     return await operation(scratch, remote, proposalBranch,
       `refs/remotes/origin/${proposalBranch}`);
   } finally {
-    await rm(scratch, { recursive: true, force: true });
+    await removeTemporaryTree(scratch);
   }
 }
 
@@ -270,7 +270,7 @@ async function withLeadCheckout(url, message, reviewBranchPrefix, mutate) {
       branch: reviewBranch, baseBranch, baseCommit, reviewRequired: true
     };
   } finally {
-    await rm(scratch, { recursive: true, force: true });
+    await removeTemporaryTree(scratch);
   }
 }
 
@@ -345,7 +345,7 @@ async function capabilityMapFromState(remote, branch = 'state') {
       branch
     };
   } finally {
-    await rm(scratch, { recursive: true, force: true });
+    await removeTemporaryTree(scratch);
   }
 }
 
@@ -447,7 +447,7 @@ export async function readOrganisation(url, { refresh = false } = {}) {
       remoteError: null
     };
   } finally {
-    await rm(scratch, { recursive: true, force: true });
+    await removeTemporaryTree(scratch);
   }
 }
 
@@ -640,7 +640,7 @@ export async function publishOrganisationCapabilityMap(url) {
     });
     return { baseBranch, ...state };
   } finally {
-    await rm(scratch, { recursive: true, force: true });
+    await removeTemporaryTree(scratch);
   }
 }
 
@@ -933,7 +933,7 @@ export async function capabilityReadiness(leadUrl, { stateBranch = 'state', outp
           allowFailure: true
         }).status === 0;
       } finally {
-        await rm(scratch, { recursive: true, force: true });
+        await removeTemporaryTree(scratch);
       }
     };
     const onState = hasState && await modelOn(stateBranch);

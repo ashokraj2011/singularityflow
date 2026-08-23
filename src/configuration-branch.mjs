@@ -21,7 +21,7 @@ import { loadCapabilities } from './capabilities.mjs';
 import { identity } from './git.mjs';
 import { activeWorkspaceFile, readActiveWorkspaceContext, workspaceRegistryFile } from './workspace-context.mjs';
 import { readWorkspace, remoteDefaultBranch, workspaceRepositoryPath } from './workspace.mjs';
-import { SingularityFlowError, run } from './util.mjs';
+import { removeTemporaryTree, SingularityFlowError, run } from './util.mjs';
 import { sanitizeRemote } from './git-remote-diagnostics.mjs';
 import {
   createAndPushTransportIntent, listTransportIntents, retryTransportIntent
@@ -207,7 +207,7 @@ export async function restoreConfigurationState(root, captured) {
 async function clearScratchWorktree(root) {
   for (const entry of await readdir(root, { withFileTypes: true })) {
     if (entry.name === '.git') continue;
-    await rm(path.join(root, entry.name), { recursive: true, force: true });
+    await removeTemporaryTree(path.join(root, entry.name));
   }
 }
 
@@ -276,7 +276,7 @@ async function inspectApprovedConfiguration(remote, capability = null) {
     assertRequestedCapability(capabilities, capability, remote);
     return { branch: CONFIGURATION_BRANCH, commit, created: false };
   } finally {
-    await rm(scratch, { recursive: true, force: true });
+    await removeTemporaryTree(scratch);
   }
 }
 
@@ -422,8 +422,8 @@ export async function ensureConfigurationBranch(remote, {
       transportIntent
     };
   } finally {
-    await rm(scratch, { recursive: true, force: true });
-    await rm(seed, { recursive: true, force: true });
+    await removeTemporaryTree(scratch);
+    await removeTemporaryTree(seed);
   }
 }
 
@@ -508,7 +508,7 @@ export async function materializeConfigurationSnapshot(root, {
       paths: [...new Set([...removed, ...files, CONFIGURATION_SOURCE_PATH])].sort()
     };
   } finally {
-    await rm(scratch, { recursive: true, force: true });
+    await removeTemporaryTree(scratch);
   }
 }
 
@@ -529,7 +529,7 @@ export async function resolveApprovedConfigurationCapability(remote, capabilityI
     });
     return { branch: CONFIGURATION_BRANCH, commit, capability };
   } finally {
-    await rm(scratch, { recursive: true, force: true });
+    await removeTemporaryTree(scratch);
   }
 }
 

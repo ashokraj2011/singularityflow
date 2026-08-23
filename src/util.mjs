@@ -488,6 +488,24 @@ export async function ensureDir(directory) {
   await mkdir(directory, { recursive: true });
 }
 
+/**
+ * Remove a disposable directory without exposing Node's zero-retry `rm` default to callers.
+ *
+ * Git may briefly finish lock-file or maintenance cleanup after the command that created a
+ * scratch repository exits. On Linux that can race the directory walk and surface as ENOTEMPTY;
+ * `fs.rm` has a bounded retry mechanism specifically for this class of transient filesystem
+ * errors, but it is disabled unless maxRetries is supplied. This helper is for already-resolved,
+ * narrowly scoped temporary trees only—not user-owned repository deletion.
+ */
+export async function removeTemporaryTree(directory) {
+  await rm(directory, {
+    recursive: true,
+    force: true,
+    maxRetries: 6,
+    retryDelay: 50
+  });
+}
+
 export async function exists(filePath) {
   try {
     await stat(filePath);

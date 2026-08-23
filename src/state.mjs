@@ -41,8 +41,10 @@ import {
 } from './approval-authority.mjs';
 import { assertSourceBoundary, normalizeSourceBoundary } from './source-boundary.mjs';
 import {
-  evaluateCodeDeliveryPreflight, phaseRequiresCodeDelivery, resolveDeliveryQualityCommands
+  evaluateCodeDeliveryPreflight, isTestQualityCommand, phaseRequiresCodeDelivery,
+  resolveDeliveryQualityCommands
 } from './delivery-evidence.mjs';
+import { pinCodeDeliveryTask } from './code-delivery-policy.mjs';
 import { blockingConformanceVerdicts } from './conformance-verdicts.mjs';
 import { runQualityCommand } from './quality-command-runner.mjs';
 import { createLedgerIntent, ledgerLog, ledgerStatus, reconcileLedger } from './ledger.mjs';
@@ -635,6 +637,7 @@ function normalizeCurrentWorkflow(workflow) {
     phase.approvalPolicy.mode ??= 'required';
     if (phase.approvalPolicy.mode !== 'none') phase.approvalPolicy.authorities ??= [DEFAULT_APPROVAL_AUTHORITY];
     phase.generationPolicy ??= workflow.resolution.phases?.find((item) => item.id === id)?.generation ?? { requirement: 'required', producer: 'agent' };
+    phase.generationPolicy = pinCodeDeliveryTask(phase, 'generationPolicy');
     phase.mcp ??= structuredClone(workflow.resolution.phases?.find((item) => item.id === id)?.mcp ?? { requiredServers: [], requireSmoke: false, evidence: [] });
     phase.repairBudget ??= structuredClone(workflow.resolution.phases?.find((item) => item.id === id)?.repairBudget ?? null);
     delete phase.approvalPolicy.agents;
@@ -1556,7 +1559,7 @@ export async function submitPhase(root, config, workflow, { phaseId, runChecks =
         { code: 'CODE_DELIVERY_RECEIPT_STALE' }
       );
     }
-    if (!deliveryCommands.length) {
+    if (!deliveryCommands.some(isTestQualityCommand)) {
       throw new SingularityFlowError(
         `Phase ${phase.id} has no repository test command. Configure a quality command or add a supported build manifest before submission.`,
         { code: 'CODE_DELIVERY_TEST_COMMAND_REQUIRED' }

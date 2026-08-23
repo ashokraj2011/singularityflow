@@ -52,6 +52,8 @@ phases:
     defaultTemplate: common/implementation.md
     artifact: { path: artifacts/implementation/implementation-summary.md, kind: implementation-summary, minimumBytes: 250 }
     worldModel: { views: [development, testing], depth: standard }
+    generation: { task: code }
+    writeScope: source-and-artifact
     qualityCommands: [npm test, npm run check]
     approval: { authorities: [engineering-reviewers], minimum: 1, rejectTo: [implementation] }
   verification:

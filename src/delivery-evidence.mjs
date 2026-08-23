@@ -1,26 +1,22 @@
 import { readFile } from 'node:fs/promises';
 import path from 'node:path';
 
+import { phaseRequiresCodeDelivery } from './code-delivery-policy.mjs';
 import { isTestAutomationPath } from './source-boundary.mjs';
 import { SingularityFlowError, exists, posix, snapshot } from './util.mjs';
 import {
   changedApplicationPathsSinceBaseline, verifyWorkIntervalBaseline
 } from './work-intervals.mjs';
 
-const TRACEABILITY_KINDS = new Set(['requirements', 'implementation-spec']);
+export { phaseRequiresCodeDelivery } from './code-delivery-policy.mjs';
 
-export function phaseRequiresCodeDelivery(phase) {
-  if (!phase) return false;
-  return phase.generationPolicy?.task === 'code';
-}
-
-async function acceptanceIds(root, config, workflow, phase) {
+export async function acceptanceIds(root, config, workflow, phase) {
   if (!config.governance?.requireAcceptanceCriteriaTags) return [];
   const position = workflow.phaseOrder.indexOf(phase.id);
   const ids = new Set();
   for (const phaseId of workflow.phaseOrder.slice(0, Math.max(0, position))) {
     const prior = workflow.phases[phaseId];
-    if (!TRACEABILITY_KINDS.has(prior?.requiredArtifact?.kind)) continue;
+    if (!prior?.requiredArtifact?.path) continue;
     const relative = posix(path.join(
       config.workItemRoot ?? 'singularity/work-items', workflow.workItem.id,
       prior.requiredArtifact.path
@@ -130,6 +126,49 @@ function commandText(command) {
   if (Array.isArray(command)) return command.join(' ');
   if (Array.isArray(command?.argv)) return command.argv.join(' ');
   return String(command?.command ?? '');
+}
+
+function commandTokens(command) {
+  if (Array.isArray(command)) return command.map(String);
+  if (Array.isArray(command?.argv)) return command.argv.map(String);
+  return commandText(command).trim().split(/\s+/).filter(Boolean);
+}
+
+function executableName(value) {
+  return path.basename(String(value ?? '')).toLowerCase().replace(/\.(?:cmd|exe)$/i, '');
+}
+
+/** A code receipt must execute tests; lint/compile/diff commands alone are not sufficient. */
+export function isTestQualityCommand(command) {
+  const [rawExecutable, ...rawArguments] = commandTokens(command);
+  const executable = executableName(rawExecutable);
+  const args = rawArguments.map((argument) => argument.toLowerCase());
+  const hasTask = (names) => args.some((argument) => names.has(argument.replace(/^.*:/, '')));
+
+  if (['mvn', 'mvnw'].includes(executable)) return hasTask(new Set(['test', 'verify', 'integration-test']));
+  if (['gradle', 'gradlew'].includes(executable)) return hasTask(new Set(['test', 'check']));
+  if (['go', 'cargo', 'dotnet', 'swift'].includes(executable)) return args[0] === 'test';
+  if (['pytest', 'jest', 'vitest', 'mocha'].includes(executable)) return true;
+  if (['python', 'python3', 'py'].includes(executable)) {
+    return args.some((argument, index) => argument === '-m' && ['pytest', 'unittest'].includes(args[index + 1]));
+  }
+  if (executable === 'node') return args.some((argument) => argument === '--test' || argument.startsWith('--test='));
+  if (['npm', 'pnpm', 'yarn', 'bun'].includes(executable)) {
+    if (args[0] === 'test') return true;
+    const script = args[0] === 'run' ? args[1] : args[0];
+    return /(^|[:_-])(test|tests|acceptance|e2e|integration|unit)(?:$|[:_.-])/.test(script ?? '');
+  }
+  if (['npx', 'pnpx', 'yarnx', 'bunx'].includes(executable)) {
+    const packageIndex = args.findIndex((argument) => !argument.startsWith('-'));
+    const runner = executableName(args[packageIndex]);
+    const runnerArgs = args.slice(packageIndex + 1);
+    if (['jest', 'vitest', 'mocha'].includes(runner)) return true;
+    if (runner === 'playwright') return runnerArgs.includes('test');
+  }
+  if (['bash', 'sh', 'zsh'].includes(executable)) {
+    return /(^|[._-])(test|tests|acceptance|e2e)(?:[._-]|$)/.test(executableName(args[0]));
+  }
+  return /(^|[._-])(test|tests|acceptance|e2e)(?:[._-]|$)/.test(executable);
 }
 
 /** Repository-native, deterministic defaults. No model is needed to identify a build manifest. */

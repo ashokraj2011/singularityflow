@@ -24,6 +24,7 @@ import { groundingMode } from '../src/grounding.mjs';
 import {
   contextBoundaryHandoff, normalizeContextPolicy
 } from '../src/context-policy.mjs';
+import { phaseRequiresCodeDelivery } from '../src/code-delivery-policy.mjs';
 
 test('starter YAML resolves feature, bugfix, and Figma-mobile templates and agents', async () => {
   const root = await mkdtemp(path.join(os.tmpdir(), 'sflow-config-')); await mkdir(path.join(root, '.git'), { recursive: true }); await initializeDefinition(root);
@@ -75,6 +76,55 @@ test('starter YAML resolves feature, bugfix, and Figma-mobile templates and agen
   assert.deepEqual(figmaSnapshot.designSources, figmaMobile.designSources);
   assert.match(await agentPrompt(root, definition, 'product-designer'), /hash-pinned exports/i);
   assert.match(await readFile(path.join(root, 'singularity/templates/figma-mobile/visual-verification.md'), 'utf8'), /Screen comparison/);
+});
+
+test('every shipped workflow profile resolves an explicit safe code-delivery contract', async () => {
+  const definition = YAML.parse(await readFile(new URL('../templates/workflow.yml', import.meta.url), 'utf8'));
+  validateDefinition(definition);
+  const found = [];
+
+  for (const workTypeId of Object.keys(definition.workTypes).sort()) {
+    for (const phase of resolveWorkType(definition, workTypeId).phases) {
+      if (!phaseRequiresCodeDelivery(phase)) continue;
+      found.push(`${workTypeId}/${phase.id}`);
+      assert.equal(phase.generation.task, 'code', `${workTypeId}/${phase.id} did not pin task: code`);
+      assert.equal(phase.writeScope, 'source-and-artifact', `${workTypeId}/${phase.id} permits document-only delivery`);
+    }
+  }
+
+  assert.deepEqual(found, [
+    'benchmarking-a/implementation',
+    'benchmarking-b/implementation',
+    'bugfix/implementation',
+    'feature/implementation',
+    'figma-mobile/implementation',
+    'poc-workflow/poc-test-generation',
+    'quick-fix/implement',
+    'spec-driven-standard/implementation'
+  ]);
+  assert.equal(
+    resolveWorkType(definition, 'chore').phases.find((phase) => phase.id === 'implementation').generation.task,
+    'analyze',
+    'the explicitly non-code chore profile must not be silently reclassified'
+  );
+});
+
+test('legacy implementation contracts are upgraded to code and unsafe scopes fail at configuration load', async () => {
+  const definition = YAML.parse(await readFile(new URL('../templates/workflow.yml', import.meta.url), 'utf8'));
+  validateDefinition(definition);
+  delete definition.phases.implementation.generation;
+  delete definition.workTypes.chore.phaseOverrides.implementation.generation;
+
+  const feature = resolveWorkType(definition, 'feature').phases.find((phase) => phase.id === 'implementation');
+  assert.equal(feature.generation.task, 'code');
+  const chore = resolveWorkType(definition, 'chore').phases.find((phase) => phase.id === 'implementation');
+  assert.equal(chore.generation.task, 'code', 'legacy ambiguous implementations must fail closed');
+
+  definition.phases.implementation.writeScope = 'artifact-only';
+  assert.throws(
+    () => resolveWorkType(definition, 'feature'),
+    /document-only implementation is forbidden/
+  );
 });
 
 test('world-model on-demand policy permits automatic deterministic light builds only', async () => {

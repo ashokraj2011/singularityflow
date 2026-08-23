@@ -662,6 +662,7 @@
             "requirement": { "enum": ["required", "optional", "none"] },
             "producer": { "enum": ["agent", "deterministic", "manual"] },
             "defaultProducer": { "enum": ["human", "governed-agent", "deterministic", "external-tool"] },
+            "task": { "enum": ["relay", "clarify", "reason", "code", "analyze", "summarize"] },
             "allowedProducers": {
               "type": "array",
               "minItems": 1,

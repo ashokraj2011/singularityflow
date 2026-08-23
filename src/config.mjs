@@ -50,6 +50,9 @@ import { normalizeSourceBoundary } from './source-boundary.mjs';
 import { normalizeFaultRepairPolicy } from './fault-repair.mjs';
 import { normalizeAstPolicy } from './ast-policy.mjs';
 import {
+  assertCodeDeliveryConfiguration, pinCodeDeliveryTask
+} from './code-delivery-policy.mjs';
+import {
   normalizeWorkTypeIntelligence, worldModelModeForIntelligence
 } from './intelligence-policy.mjs';
 
@@ -929,12 +932,15 @@ export function resolveWorkType(definition, workTypeId) {
     const inputs = normalizePhaseInputs(merged.inputs, `Work type '${workTypeId}' phase '${id}' inputs`);
     const approval = normalizeApprovalPolicy(merged.approval ?? {}, definition.approvalAuthorities, id);
     const sourceBoundary = normalizeSourceBoundary(merged.sourceBoundary, id);
-    const generation = normalizeGenerationPolicy(merged.generation, id);
+    let generation = normalizeGenerationPolicy(merged.generation, id);
+    generation = pinCodeDeliveryTask({ ...merged, generation }, 'generation');
     const mcp = normalizePhaseMcpPolicy(merged.mcp, { servers: definition.mcpServers, phaseId: id });
     const repairBudget = normalizeRepairBudget(merged.repairBudget, { phaseId: id, phases: workType.phases });
     const clarification = normalizeClarificationPolicy(merged.clarification);
     const specificationQuality = specificationQualityPolicy(merged.specificationQuality ?? {});
-    return { id, order, ...merged, approval, generation, mcp, repairBudget, clarification, specificationQuality, sourceBoundary, inputs, template };
+    const resolvedPhase = { id, order, ...merged, approval, generation, mcp, repairBudget, clarification, specificationQuality, sourceBoundary, inputs, template };
+    assertCodeDeliveryConfiguration(resolvedPhase, `Work type '${workTypeId}' phase '${id}'`);
+    return resolvedPhase;
   });
   const phaseById = Object.fromEntries(phases.map((phase) => [phase.id, phase]));
   phases = phases.map((phase) => ({

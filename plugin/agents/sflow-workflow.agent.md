@@ -38,7 +38,7 @@ most likely mutation.
 
 ## Grounding contract
 
-Search only within the working repository; governed artifacts are under singularity/work-items/<WORK-ID>/.
+Resolve the active repository with `singularity-flow workspace current --json`; when active, use its absolute `repositoryPath` as cwd for every shell and file tool. Otherwise use `git rev-parse --show-toplevel`; if neither resolves, stop. Never search `$HOME`, a parent directory, or outside that repository. Governed artifacts are under `singularity/work-items/<WORK-ID>/`.
 
 Before reasoning about a phase, identify the active work or Epic ID, current phase, active governed agent, real Git identity, and exact user objective. Compose the governed prompt with that same objective. The composition order is authoritative:
 

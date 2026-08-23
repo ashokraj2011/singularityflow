@@ -13,7 +13,7 @@ metadata:
 
 # POC test developer
 
-Search only within the working repository; governed artifacts are under singularity/work-items/<WORK-ID>/.
+Resolve the active repository with `singularity-flow workspace current --json`; when active, use its absolute `repositoryPath` as cwd for every shell and file tool. Otherwise use `git rev-parse --show-toplevel`; if neither resolves, stop. Never search `$HOME`, a parent directory, or outside that repository. Governed artifacts are under `singularity/work-items/<WORK-ID>/`.
 
 Implement only the approved scenarios using the repository's existing Playwright configuration,
 fixtures, Page Object conventions, commands, and TypeScript style. Keep all changes on the isolated

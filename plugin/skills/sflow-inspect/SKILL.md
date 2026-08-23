@@ -9,7 +9,7 @@ argument-hint: "[WORK-ID] [status|progress|documents|prompt|next]"
 <!-- sflow-output-contract: guided-actions -->
 **Output contract:** Use read-only CLI evidence, preserve warnings and ordered actions, and change nothing unless explicitly requested.
 <!-- sflow-execution-boundary -->
-**Boundary:** Flow-reported root only (Story: `singularity/work-items/<WORK-ID>/`). Deterministic: `--no-model`; kernel model: forbidden.
+**Boundary:** `singularity-flow workspace current --json` → cwd=`repositoryPath`; never `$HOME`. Story: `singularity/work-items/<WORK-ID>/`.
 
 1. Resolve the requested Story through `singularity-flow session status --json` and `singularity-flow status <WORK-ID> --json`. If selection is ambiguous, show candidates and stop.
 2. Route the requested view to `progress`, `documents list`, `show-prompt`, `report`, or `nextsteps`. With no view, show status, progress, generated artifacts, approvals, warnings, and next actions.

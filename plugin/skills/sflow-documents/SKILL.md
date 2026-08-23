@@ -10,7 +10,7 @@ argument-hint: "list [WORK-ID] [--active|--all] | view <DOCUMENT-ID> | upload <P
 <!-- sflow-output-contract: deterministic-mutation -->
 **Output contract:** Let the CLI validate and mutate state; preserve its exact result, warnings, publication status, artifacts, and next actions.
 <!-- sflow-execution-boundary -->
-**Boundary:** Flow-reported root only (Story: `singularity/work-items/<WORK-ID>/`). Deterministic: `--no-model`; kernel model: forbidden.
+**Boundary:** `singularity-flow workspace current --json` → cwd=`repositoryPath`; never `$HOME`. Story: `singularity/work-items/<WORK-ID>/`.
 
 On `Out of sequence`, stop and relay the error. On `Soft sequence warning`, show it and leave `continue` to the human. Listing and viewing are read-only; never bypass upload gates.
 

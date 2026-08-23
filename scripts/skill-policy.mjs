@@ -26,9 +26,13 @@ const MODEL_OPERATION_PATTERNS = Object.freeze({
   'workspace.impact.analyze': /\bsingularity-flow\s+workspace\s+impact\s+analyze\b/
 });
 
-function executionBoundary(kernelModelPolicy) {
-  const model = kernelModelPolicy === 'conditional' ? 'consent only' : 'forbidden';
-  return `**Boundary:** Flow-reported root only (Story: \`singularity/work-items/<WORK-ID>/\`). Deterministic: \`--no-model\`; kernel model: ${model}.`;
+function executionBoundary() {
+  // A relative artifact path is not a usable boundary after Copilot `/clear`: the host can retain
+  // its process cwd while the model loses the conversational repository hint. Resolve the selected
+  // workspace on every skill invocation and make its absolute repository path the cwd of every
+  // shell/file tool. Keeping this generated makes the rule catalog-wide and prevents a new skill
+  // from silently falling back to the user's home directory.
+  return '**Boundary:** `singularity-flow workspace current --json` → cwd=`repositoryPath`; never `$HOME`. Story: `singularity/work-items/<WORK-ID>/`.';
 }
 
 function referencedModelOperations(body) {
@@ -73,7 +77,7 @@ function withOutputContract(text, contract, kernelModelPolicy, file) {
   const marker = `<!-- sflow-output-contract: ${contract} -->`;
   const contractText = `**Output contract:** ${CONTRACT_TEXT[contract]}`;
   const boundaryMarker = '<!-- sflow-execution-boundary -->';
-  const boundaryText = executionBoundary(kernelModelPolicy);
+  const boundaryText = executionBoundary();
   if (!CONTRACT_TEXT[contract]) throw new Error(`${file}: unknown output contract '${contract}'`);
   const existing = /<!-- sflow-output-contract: [^>]+ -->\r?\n(?:\*\*Output contract:\*\*[^\n]*\r?\n?)?(?:<!-- sflow-execution-boundary -->\r?\n)?(?:\*\*(?:Execution boundary|Boundary):\*\*[^\n]*\r?\n?)*/;
   const rendered = `${marker}\n${contractText}\n${boundaryMarker}\n${boundaryText}\n`;
@@ -147,7 +151,7 @@ export async function auditSkillPolicy(repositoryRoot, { write = false } = {}) {
     const maximum = rule.maximumTokenOverride ?? classPolicy.maximumTokens;
     const marker = `<!-- sflow-output-contract: ${classPolicy.outputContract} -->`;
     const boundaryMarker = '<!-- sflow-execution-boundary -->';
-    const boundaryText = executionBoundary(kernelModelPolicy);
+    const boundaryText = executionBoundary();
     const modelOperations = referencedModelOperations(skill.body);
     if (skill.frontmatter.name !== name) errors.push(`${name}: frontmatter name must match directory`);
     if (automatic.has(name)) {

@@ -16,7 +16,7 @@ import { snapshot } from '../src/util.mjs';
 
 const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 const cli = path.join(root, 'bin', 'singularity-flow.mjs');
-const boundary = 'Search only within the working repository; governed artifacts are under singularity/work-items/<WORK-ID>/.';
+const boundary = 'Resolve the active repository with `singularity-flow workspace current --json`';
 
 function git(repository, ...args) {
   const result = spawnSync('git', args, { cwd: repository, encoding: 'utf8' });
@@ -42,7 +42,7 @@ async function markdownFiles(directory) {
   return files;
 }
 
-test('every packaged and template agent carries the repository search boundary', async () => {
+test('every packaged and template agent rebinds tools to the active repository after context clears', async () => {
   const directories = [path.join(root, 'plugin', 'agents'), path.join(root, 'templates', 'agents')];
   for (const directory of directories) {
     const names = (await readdir(directory)).filter((name) => name.endsWith('.md'));
@@ -50,6 +50,9 @@ test('every packaged and template agent carries the repository search boundary',
     for (const name of names) {
       const content = await readFile(path.join(directory, name), 'utf8');
       assert.match(content, new RegExp(boundary.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')), name);
+      assert.match(content, /absolute `repositoryPath` as cwd for every shell and file tool/, name);
+      assert.match(content, /Never search `\$HOME`, a parent directory, or outside that repository/, name);
+      assert.match(content, /singularity\/work-items\/<WORK-ID>\//, name);
     }
   }
 });
@@ -61,13 +64,21 @@ test('the two broadest skill reads state their governed base and repository fenc
   assert.match(implement, /Inspect further files only as the implementation requires within this repository\./);
 });
 
-test('every skill inherits the Flow-root path boundary', async () => {
+test('every skill resolves the selected workspace repository and forbids home-directory fallback', async () => {
   const registry = YAML.parse(await readFile(path.join(root, 'plugin', 'skills', 'registry.yml'), 'utf8'));
   for (const name of Object.keys(registry.skills)) {
     const content = await readFile(path.join(root, 'plugin', 'skills', name, 'SKILL.md'), 'utf8');
     assert.match(content, /<!-- sflow-execution-boundary -->/, name);
-    assert.match(content, /Flow-reported root only \(Story: `singularity\/work-items\/<WORK-ID>\/`\)\./, name);
+    assert.match(content, /`singularity-flow workspace current --json` → cwd=`repositoryPath`/, name);
+    assert.match(content, /never `\$HOME`/, name);
+    assert.match(content, /Story: `singularity\/work-items\/<WORK-ID>\/`/, name);
   }
+});
+
+test('sf-next reapplies the repository boundary after clear or compact', async () => {
+  const content = await readFile(path.join(root, 'plugin', 'skills', 'sflow-next', 'SKILL.md'), 'utf8');
+  assert.match(content, /run `\/clear` and then `\/sf-next`/);
+  assert.match(content, /After either reset, reapply the Boundary before artifact reads/);
 });
 
 test('model-facing Markdown never instructs a home-wide recursive search', async () => {
@@ -94,7 +105,8 @@ test('an active Story session hook injects the repository and governed work-item
   const result = await sessionStartAgentHook(repository, definition, workflow, { sessionId: 'path-hook' });
   assert.match(result.additionalContext, new RegExp(`Working repository: ${repository.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}`));
   assert.match(result.additionalContext, /Governed artifacts for GROUND-1 live under singularity\/work-items\/GROUND-1\//);
-  assert.match(result.additionalContext, /Never search the filesystem outside this repository/);
+  assert.match(result.additionalContext, /Use this exact repository as the cwd for every shell and file tool/);
+  assert.match(result.additionalContext, /Never search \$HOME, a parent directory, or outside this repository/);
 });
 
 test('prepare, inputs, and compose replay complete repository-rooted paths without truncation', async () => {

@@ -9,7 +9,7 @@ argument-hint: "[WORK-ID | TOPIC] [--json]"
 <!-- sflow-output-contract: guided-actions -->
 **Output contract:** Use read-only CLI evidence, preserve warnings and ordered actions, and change nothing unless explicitly requested.
 <!-- sflow-execution-boundary -->
-**Boundary:** Flow-reported root only (Story: `singularity/work-items/<WORK-ID>/`). Deterministic: `--no-model`; kernel model: forbidden.
+**Boundary:** `singularity-flow workspace current --json` → cwd=`repositoryPath`; never `$HOME`. Story: `singularity/work-items/<WORK-ID>/`.
 
 1. For a general question, no work item, or a manual topic such as `quick-start`, `jira-intake`, `copilot-commands`, or `troubleshooting`, run `singularity-flow help <topic>` and use the returned canonical manual content. With no topic, run `singularity-flow help`.
 2. For a work ID or a question about the active work item's current phase, run `singularity-flow guide <WORK-ID>` instead.

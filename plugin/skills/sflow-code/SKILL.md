@@ -10,7 +10,7 @@ argument-hint: "[code-generation focus]"
 <!-- sflow-output-contract: clarification-and-artifact -->
 **Output contract:** Use the complete governed prompt and approved inputs, ask unresolved questions, then publish and show configured artifacts.
 <!-- sflow-execution-boundary -->
-**Boundary:** Flow-reported root only (Story: `singularity/work-items/<WORK-ID>/`). Deterministic: `--no-model`; kernel model: forbidden.
+**Boundary:** `singularity-flow workspace current --json` → cwd=`repositoryPath`; never `$HOME`. Story: `singularity/work-items/<WORK-ID>/`.
 
 1. Run `singularity-flow status --json` and use the governed workflow as Story context. Stop unless the active phase's normalized `generation.task` is `code`; never hard-code `implementation`.
 2. Run `singularity-flow wm compose --phase <phase>` and use its approved grounding and inputs. Materialize missing model context only after the contributor gives the authorization requested by the returned command.

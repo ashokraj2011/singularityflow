@@ -50,7 +50,7 @@ function pathGroundingContext(root, workId = null) {
   const workItem = workId
     ? ` Governed artifacts for ${workId} live under singularity/work-items/${workId}/. Paths in Flow output are relative to one of these two roots.`
     : ' Paths in Flow output are relative to this repository root.';
-  return ` Working repository: ${root}.${workItem} Never search the filesystem outside this repository.`;
+  return ` Working repository: ${root}.${workItem} Use this exact repository as the cwd for every shell and file tool. Never search $HOME, a parent directory, or outside this repository.`;
 }
 
 // Copilot exposes the selected custom-agent ID on subagentStart, but it does not pass that

@@ -63,7 +63,9 @@ test('every shipped contract class routes somewhere', async () => {
     assert.equal(taskForContractClass(contractClass), 'relay', `${contractClass} is dispatch and should relay`);
   }
   const boundary = source.slice(source.indexOf('function executionBoundary'), source.indexOf('function referencedModelOperations'));
-  assert.match(boundary, /Flow-reported root only/);
+  assert.match(boundary, /singularity-flow workspace current --json/);
+  assert.match(boundary, /cwd=`repositoryPath`/);
+  assert.match(boundary, /never `\$HOME`/);
   assert.match(boundary, /singularity\/work-items\/<WORK-ID>\//);
 });
 

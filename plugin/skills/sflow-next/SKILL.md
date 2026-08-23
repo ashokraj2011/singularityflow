@@ -9,7 +9,7 @@ disable-model-invocation: true
 <!-- sflow-output-contract: deterministic-mutation -->
 **Output contract:** Let the CLI validate and mutate state; preserve its exact result, warnings, publication status, artifacts, and next actions.
 <!-- sflow-execution-boundary -->
-**Boundary:** Flow-reported root only (Story: `singularity/work-items/<WORK-ID>/`). Deterministic: `--no-model`; kernel model: consent only.
+**Boundary:** `singularity-flow workspace current --json` → cwd=`repositoryPath`; never `$HOME`. Story: `singularity/work-items/<WORK-ID>/`.
 
 Execute one lifecycle action, report its durable Git result, and stop. Never loop through approvals. The phase contract selects the agent; human identity grants approval authority.
 
@@ -19,5 +19,5 @@ Execute one lifecycle action, report its durable Git result, and stop. Never loo
 4. When this skill itself owns a non-delegated publication, run `singularity-flow phase publish <phase> --authored governed-agent --channel copilot-host` once. Confirm sanitized `telemetry/<phase>-gen<N>.json`; use `--usage-json` only for exact external usage.
 5. Run `singularity-flow phase show <phase> --json`. Show the publication manifest. Display bounded previews and hash-bound references for generated source; expand exact content only when explicitly requested. For binary documents, show path, metadata, and open instruction.
 6. Report action, commit/push, actor/authority for decisions, agent, telemetry, resolved model, token/cost status, and next action. Do not automatically submit a generation you just published. Show the next direct Copilot action first as `Next in Copilot: /sf-...`, then its exact CLI form as `Terminal equivalent: singularity-flow ...`.
-7. If an approval prints a `Context boundary`, obey it and stop. For `new`, tell the contributor to run `/clear` and then `/sf-next`; for `compact`, tell them to run `/compact` and then `/sf-next`. Never start the newly unlocked phase before the requested boundary.
+7. If an approval prints a `Context boundary`, obey it and stop. For `new`, tell the contributor to run `/clear` and then `/sf-next`; for `compact`, tell them to run `/compact` and then `/sf-next`. After either reset, reapply the Boundary before artifact reads. Never start the newly unlocked phase before the requested boundary.
 8. On failure, run `singularity-flow logs --level error --tail 40` and relay message, command, and exit code before retrying.

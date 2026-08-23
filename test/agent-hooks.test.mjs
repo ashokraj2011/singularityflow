@@ -112,7 +112,8 @@ Inspect boundaries and contracts.
   const hook = await copilotAgentStartHook(root, { agentName: 'enterprise-delivery' });
   assert.match(hook.additionalContext, new RegExp(`Working repository: ${root.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}`));
   assert.match(hook.additionalContext, /Governed artifacts for HOOK-1 live under singularity\/work-items\/HOOK-1\//);
-  assert.match(hook.additionalContext, /Never search the filesystem outside this repository/);
+  assert.match(hook.additionalContext, /Use this exact repository as the cwd for every shell and file tool/);
+  assert.match(hook.additionalContext, /Never search \$HOME, a parent directory, or outside this repository/);
   const session = await loadSession(root);
   assert.equal(session.agent, 'architecture');
   assert.equal(session.nativeCopilotAgent, 'enterprise-delivery');
@@ -136,7 +137,8 @@ test('session start gates only work-item selection and then activates the phase 
   assert.match(start.additionalContext, /work-item selection is required/);
   assert.match(start.additionalContext, new RegExp(`Working repository: ${root.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}`));
   assert.match(start.additionalContext, /Governed artifacts for HOOK-1 live under singularity\/work-items\/HOOK-1\//);
-  assert.match(start.additionalContext, /Never search the filesystem outside this repository/);
+  assert.match(start.additionalContext, /Use this exact repository as the cwd for every shell and file tool/);
+  assert.match(start.additionalContext, /Never search \$HOME, a parent directory, or outside this repository/);
   let status = await agentSessionStatus(root, definition, current);
   assert.equal(status.workItemSelectionRequired, true);
   assert.equal(status.selectionRequired, false);

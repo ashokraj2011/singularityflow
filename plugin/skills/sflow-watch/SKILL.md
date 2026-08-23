@@ -9,7 +9,7 @@ argument-hint: "[WORK-ID] [--once]"
 <!-- sflow-output-contract: concise-relay -->
 **Output contract:** Return the named CLI command output verbatim; do not elaborate, re-narrate, or hide errors.
 <!-- sflow-execution-boundary -->
-**Boundary:** Flow-reported root only (Story: `singularity/work-items/<WORK-ID>/`). Deterministic: `--no-model`; kernel model: forbidden.
+**Boundary:** `singularity-flow workspace current --json` → cwd=`repositoryPath`; never `$HOME`. Story: `singularity/work-items/<WORK-ID>/`.
 
 1. Prefer `singularity-flow watch $ARGUMENTS --once --fetch` for one bounded refresh.
 2. Start continuous watching only when the user explicitly asks for it and preserve the requested interval.

@@ -37,11 +37,9 @@ test('local installer performs a safe ordered pull, pack, global install, and pl
   assert.match(script, /--factory-reset/);
   assert.match(script, /--clean-reinstall/);
   assert.match(script, /--no-workspace-workflow-sync/);
-  assert.match(script, /install_active_workspace_workflows/);
-  assert.match(script, /singularity-flow workflow list --json/);
-  assert.match(script, /singularity-flow workflow install "\$workflow_id" --dry-run/);
-  assert.match(script, /singularity-flow workflow install "\$workflow_id"/);
-  assert.match(script, /status --porcelain/);
+  assert.match(script, /refresh_registered_workspace_configurations/);
+  assert.match(script, /singularity-flow workspace refresh-configuration/);
+  assert.doesNotMatch(script, /singularity-flow workflow install "\$workflow_id"/);
   assert.match(script, /REINSTALL_ARGS=\(reinstall --checkout "\$PROJECT_DIR"\)/);
   assert.ok(script.indexOf('if [[ "$CLEAN_REINSTALL" == "on" ]]') < script.indexOf('REQUIRED_COMMANDS=(git node npm)'),
     'clean reinstall must delegate before the normal installer can require or execute Git');
@@ -186,9 +184,7 @@ fi`);
     'npm run vscode:package',
     `code --install-extension ${fixture}/apps/vscode/singularity-flow-vscode-${version}.vsix --force`,
     'singularity-flow plugin install',
-    'singularity-flow workflow list --json',
-    'singularity-flow workflow install benchmarking-a --dry-run',
-    'singularity-flow workflow install benchmarking-a',
+    'singularity-flow workspace refresh-configuration',
     'copilot plugin list'
   ]) assert.match(commands, new RegExp(expected.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')));
   const npmCommands = commands.split('\n').filter((line) => line.startsWith('npm '));

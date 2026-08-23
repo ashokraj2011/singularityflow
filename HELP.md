@@ -1045,6 +1045,7 @@ singularity-flow workspace copilot [WORKSPACE] [--repository ID] [--story STORY]
 singularity-flow workspace status <DIRECTORY>
 singularity-flow workspace sync <DIRECTORY>
 singularity-flow workspace repair <DIRECTORY>
+singularity-flow workspace refresh-configuration [WORKSPACE] [--repository ID] [--dry-run]
 singularity-flow workspace documents <DIRECTORY>
 singularity-flow workspace impact analyze <DIRECTORY> --description "<PROPOSED CHANGE>"
 singularity-flow workspace impact analyze <DIRECTORY> --description-file <FILE> [--repository ID] [--capability ID] [--document PATH] [--model MODEL] [--dry-run]
@@ -1052,6 +1053,14 @@ singularity-flow workspace impact list <DIRECTORY>
 singularity-flow workspace impact show <DIRECTORY> <ANALYSIS-ID>
 singularity-flow workspace impact promote <DIRECTORY> <ANALYSIS-ID>
 ```
+
+`workspace refresh-configuration` does not use the currently checked-out application branch. It
+discovers every unique repository in registered non-archived workspaces, prepares and validates the
+package merge in isolated clones, publishes `sflow/config`, and mirrors the exact approved
+configuration beneath `configuration/` on each orphan state branch. The mirror manifest pins the
+configuration commit, installed product revision, and per-file SHA-256 values. Existing Story
+snapshots remain unchanged. Re-run the command after a partial failure or after merging a reported
+`sflow/config-refresh/*` review branch; completed repositories become no-ops.
 
 `workspace use` records a machine-local active workspace and repository. The
 context label is `<workspace> >`, or `<workspace> / <story> >` on a governed

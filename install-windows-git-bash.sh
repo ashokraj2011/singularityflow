@@ -5,7 +5,7 @@ PROJECT_DIR="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd -P)"
 REGISTRY="${SINGULARITY_FLOW_NPM_REGISTRY:-${NPM_CONFIG_REGISTRY:-}}"
 CLI_ONLY="off"
 TELEMETRY="on"
-WORKSPACE_WORKFLOW_SYNC="on"
+WORKSPACE_CONFIGURATION_REFRESH="on"
 
 usage() {
   cat <<'EOF'
@@ -17,8 +17,8 @@ Options:
   --registry URL          Use a company npm registry or Artifactory.
   --cli-only              Install only the CLI; skip VS Code and Copilot.
   --no-copilot-telemetry  Do not install the local telemetry shell wrapper.
-  --no-workspace-workflow-sync
-                          Do not add missing packaged workflows to the active repository.
+  --no-workspace-configuration-refresh
+                          Do not refresh registered repository configuration/state branches.
   -h, --help              Show this help.
 
 Registry credentials belong in the user's .npmrc, never in the URL.
@@ -50,8 +50,8 @@ while (($#)); do
       TELEMETRY="off"
       shift
       ;;
-    --no-workspace-workflow-sync)
-      WORKSPACE_WORKFLOW_SYNC="off"
+    --no-workspace-workflow-sync|--no-workspace-configuration-refresh)
+      WORKSPACE_CONFIGURATION_REFRESH="off"
       shift
       ;;
     -h|--help)
@@ -107,7 +107,7 @@ INSTALL_ARGS=()
 [[ -n "$REGISTRY" ]] && INSTALL_ARGS+=(--registry "$REGISTRY")
 [[ "$CLI_ONLY" == "on" ]] && INSTALL_ARGS+=(--cli-only)
 [[ "$TELEMETRY" == "off" ]] && INSTALL_ARGS+=(--no-copilot-telemetry)
-[[ "$WORKSPACE_WORKFLOW_SYNC" == "off" ]] && INSTALL_ARGS+=(--no-workspace-workflow-sync)
+[[ "$WORKSPACE_CONFIGURATION_REFRESH" == "off" ]] && INSTALL_ARGS+=(--no-workspace-configuration-refresh)
 
 printf '%s\n' 'Windows CRLF compatibility: ready.'
 printf '%s\n' 'Starting the validated Singularity Flow installer...'

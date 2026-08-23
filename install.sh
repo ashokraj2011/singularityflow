@@ -14,11 +14,11 @@ FACTORY_RESET_CONFIRMED="off"
 CLEAN_REINSTALL="off"
 REINSTALL_DRY_RUN="off"
 REINSTALL_CONFIRM=""
-SYNC_ACTIVE_WORKSPACE_WORKFLOWS="on"
+REFRESH_REGISTERED_WORKSPACE_CONFIGURATION="on"
 
 usage() {
   printf '%s\n' \
-    'Usage: ./install.sh [--registry URL] [--no-copilot-telemetry] [--cli-only] [--no-workspace-workflow-sync]' \
+    'Usage: ./install.sh [--registry URL] [--no-copilot-telemetry] [--cli-only] [--no-workspace-configuration-refresh]' \
     '       ./install.sh --clean-reinstall [--dry-run | --confirm "REINSTALL SINGULARITY FLOW <fingerprint>"] [--registry URL] [--cli-only]' \
     '       ./install.sh --factory-reset [--yes] [--registry URL] [--cli-only]' \
     '' \
@@ -56,8 +56,8 @@ while (($#)); do
       ENABLE_COPILOT_TELEMETRY="off"
       shift
       ;;
-    --no-workspace-workflow-sync)
-      SYNC_ACTIVE_WORKSPACE_WORKFLOWS="off"
+    --no-workspace-workflow-sync|--no-workspace-configuration-refresh)
+      REFRESH_REGISTERED_WORKSPACE_CONFIGURATION="off"
       shift
       ;;
     --factory-reset)
@@ -239,96 +239,19 @@ install_copilot_telemetry() {
   printf '%s\n' 'Prompt and response content capture remains disabled.'
 }
 
-# A product update can add a packaged workflow after a repository was initialized. The catalog
-# intentionally reports that workflow as `available` rather than silently changing reviewed
-# repository policy. A normal source install is the one explicit maintenance operation where we
-# make those new defaults usable in the currently selected repository too.
-#
-# Scope stays narrow: one machine-selected repository, only missing packaged workflows, and only a
-# clean worktree. `workflow install` preserves customized workflows and existing repository agents,
-# validates the merged definition, and leaves every change uncommitted for normal configuration
-# review. Clean reinstall delegates above this function and therefore keeps its no-workspace promise.
-install_active_workspace_workflows() {
-  if [[ "$SYNC_ACTIVE_WORKSPACE_WORKFLOWS" == "off" ]]; then
-    printf '%s\n' 'Active-workspace workflow sync: skipped by request.'
+# A normal product install is also the explicit configuration-maintenance boundary. The installed
+# command discovers every registered workspace repository, refreshes its independent sflow/config
+# authority in an isolated clone, and mirrors the exact approved configuration to its orphan state
+# branch. Active Story branches and dirty working trees are never read or changed. A protected
+# configuration authority retains a review branch and makes this installer fail visibly instead of
+# silently losing the candidate. Clean reinstall delegates before this function and keeps its strict
+# no-workspace promise.
+refresh_registered_workspace_configurations() {
+  if [[ "$REFRESH_REGISTERED_WORKSPACE_CONFIGURATION" == "off" ]]; then
+    printf '%s\n' 'Registered-workspace configuration refresh: skipped by request.'
     return
   fi
-
-  local selection_file selected_repository active_repository repository_status catalog available_workflows workflow_id
-  selection_file="${SINGULARITY_FLOW_ACTIVE_WORKSPACE:-$HOME/.singularity-flow/active-workspace.json}"
-  if [[ ! -f "$selection_file" ]]; then
-    printf '%s\n' 'Active-workspace workflow sync: no active workspace is selected.'
-    return
-  fi
-
-  if ! selected_repository="$(node -e '
-    const fs = require("node:fs");
-    const path = require("node:path");
-    const selection = JSON.parse(fs.readFileSync(process.argv[1], "utf8"));
-    const repository = String(selection.repositoryPath ?? "").trim();
-    if (!repository || !path.isAbsolute(repository)) process.exit(2);
-    process.stdout.write(repository);
-  ' "$selection_file" 2>/dev/null)" || [[ -z "$selected_repository" ]]; then
-    printf 'Active-workspace workflow sync: skipped; selection is invalid: %s\n' "$selection_file"
-    return
-  fi
-
-  if ! active_repository="$(git -C "$selected_repository" rev-parse --show-toplevel 2>/dev/null)"; then
-    printf 'Active-workspace workflow sync: skipped; selected repository is unavailable: %s\n' "$selected_repository"
-    return
-  fi
-
-  if ! catalog="$(cd "$active_repository" && singularity-flow workflow list --json 2>/dev/null)"; then
-    printf 'Active-workspace workflow sync: skipped; %s has no valid workflow configuration.\n' "$active_repository"
-    return
-  fi
-  if ! available_workflows="$(WORKFLOW_CATALOG="$catalog" node -e '
-    const catalog = JSON.parse(process.env.WORKFLOW_CATALOG ?? "[]");
-    const available = catalog
-      .filter((workflow) => workflow?.status === "available" && workflow?.installed === false)
-      .map((workflow) => String(workflow.id));
-    process.stdout.write(available.join("\n"));
-  ' 2>/dev/null)"; then
-    printf 'Active-workspace workflow sync: skipped; workflow catalog from %s was invalid.\n' "$active_repository"
-    return
-  fi
-
-  if [[ -z "$available_workflows" ]]; then
-    printf 'Active-workspace workflow sync: packaged workflows are current in %s.\n' "$active_repository"
-    return
-  fi
-
-  if ! repository_status="$(git -C "$active_repository" status --porcelain)"; then
-    printf 'Active-workspace workflow sync: skipped; repository status could not be verified: %s\n' "$active_repository"
-    return
-  fi
-  if [[ -n "$repository_status" ]]; then
-    printf 'Active-workspace workflow sync: skipped; repository has uncommitted changes: %s\n' "$active_repository"
-    while IFS= read -r workflow_id; do
-      [[ -n "$workflow_id" ]] && printf '  After cleaning it: (cd %q && singularity-flow workflow install %q)\n' "$active_repository" "$workflow_id"
-    done <<< "$available_workflows"
-    return
-  fi
-
-  # Validate the complete set before writing the first workflow. This keeps definition or packaged
-  # asset errors from producing a predictable partial update.
-  while IFS= read -r workflow_id; do
-    [[ -n "$workflow_id" ]] || continue
-    if ! (cd "$active_repository" && singularity-flow workflow install "$workflow_id" --dry-run >/dev/null); then
-      printf 'Active-workspace workflow sync: validation failed for %s; no workflow was installed.\n' "$workflow_id" >&2
-      return
-    fi
-  done <<< "$available_workflows"
-
-  printf 'Installing newly packaged workflows in active repository: %s\n' "$active_repository"
-  while IFS= read -r workflow_id; do
-    [[ -n "$workflow_id" ]] || continue
-    if ! (cd "$active_repository" && singularity-flow workflow install "$workflow_id"); then
-      printf 'Warning: active-workspace workflow sync stopped while installing %s. Review the repository changes.\n' "$workflow_id" >&2
-      return
-    fi
-  done <<< "$available_workflows"
-  printf '%s\n' 'Packaged workflow changes are validated and uncommitted; review and publish them through the normal configuration path.'
+  singularity-flow workspace refresh-configuration
 }
 
 cd "$PROJECT_DIR"
@@ -444,8 +367,8 @@ if [[ "$CLI_ONLY" != "on" ]]; then singularity-flow plugin install; fi
 printf '%s\n' 'Configuring Copilot model, token, and cost telemetry...'
 if [[ "$CLI_ONLY" != "on" ]]; then install_copilot_telemetry; fi
 
-printf '%s\n' 'Synchronizing newly packaged workflows into the active workspace...'
-install_active_workspace_workflows
+printf '%s\n' 'Refreshing approved configuration in every registered workspace repository...'
+refresh_registered_workspace_configurations
 
 printf '\nInstalled Singularity Flow %s\n' "$(singularity-flow --version)"
 # Named explicitly, because the CLI on PATH is a *copy* and not a link to this checkout: editing

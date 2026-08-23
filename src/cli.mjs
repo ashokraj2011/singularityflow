@@ -122,6 +122,7 @@ import {
 } from './configuration-branch.mjs';
 import { analyzeWorkspaceImpact, listWorkspaceImpacts, previewWorkspaceImpact, promoteWorkspaceImpact, workspaceImpactStatus } from './workspace-impact.mjs';
 import { activateWorkspaceContext, activeWorkspaceFile, clearActiveWorkspaceContext, discardUnsupportedWorkflowWorkspaces, readActiveWorkspaceContext, workspacePromptLabel, workspaceContextForRepository, workspaceRegistryFile } from './workspace-context.mjs';
+import { refreshWorkspaceConfigurations } from './workspace-configuration-refresh.mjs';
 import { appendLedgerIntent, archiveLedger, createLedgerIntent, initializeLedger, ledgerDoctor, ledgerLog, ledgerShow, ledgerStatus, reconcileLedger, repairLedgerPins, verifyLedger } from './ledger.mjs';
 import { validateLedgerDeployment } from './ledger-deployment.mjs';
 import { CAPABILITY_KINDS, CAPABILITY_TYPES, CAPABILITIES_PATH, capabilityDeliveries, capabilityForRepository, capabilityTree, editCapability, flattenCapabilityTree, loadCapabilities, resolveCapabilityPolicy, resolveEffectiveCapabilityPolicy, validateCapabilities } from './capabilities.mjs';
@@ -7625,6 +7626,31 @@ async function workspaceCommand(positionals, options) {
     }
     if (!result.networkChecked) console.log('Network remotes were not contacted. Add --network to test pending bootstrap remotes.');
     for (const session of result.sessions) console.log(`  ${session.bootstrapId}: ${session.status} · ${session.workspaceName ?? session.workspaceId}`);
+    return result;
+  }
+  if (subcommand === 'refresh-configuration') {
+    const result = await refreshWorkspaceConfigurations({
+      registryFile: registry,
+      workspace: positionals[2] ?? optionString(options, 'workspace'),
+      repositories: optionStrings(options, 'repository'),
+      dryRun: optionBoolean(options, 'dry-run'),
+      acceptBundledConflicts: optionBoolean(options, 'accept-bundled-conflicts')
+    });
+    if (optionBoolean(options, 'json')) console.log(JSON.stringify(result, null, 2));
+    else if (!result.results.length) console.log('No registered workspace repositories require configuration refresh.');
+    else {
+      console.log(`${result.dryRun ? 'Configuration refresh preview' : 'Configuration refresh'}: ${result.status}`);
+      for (const item of result.results) {
+        const configuration = item.configurationChanged ? 'configuration updated' : 'configuration unchanged';
+        const state = item.stateChanged ? 'state mirror updated' : 'state mirror unchanged';
+        console.log(`  ${item.repository}: ${item.status} · ${configuration} · ${state}`);
+        if (item.conflicts?.length) console.log(`    ${item.conflicts.length} repository customization conflict(s) retained and reported.`);
+        if (item.proposalBranch) console.log(`    Review branch: ${item.proposalBranch}`);
+        if (item.error) console.log(`    ${item.error}`);
+      }
+      if (!result.dryRun) console.log('Re-run the same command to retry only incomplete publications; current repositories become no-ops.');
+    }
+    if (['blocked', 'partial'].includes(result.status)) process.exitCode = 2;
     return result;
   }
   /**

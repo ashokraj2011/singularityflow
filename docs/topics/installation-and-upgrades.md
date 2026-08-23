@@ -10,13 +10,14 @@ commands:
   - bootstrap
   - quickstart
   - plugin
+  - workspace
   - fresh-install
   - reinstall
 related:
   - getting-started
   - resets-and-cleanup
   - diagnostics-and-regression
-version: 2
+version: 3
 ---
 Use this workflow to install Singularity Flow, govern an existing checkout or remote repository, verify the product surfaces, and replace an installed build without changing governed application history.
 
@@ -38,11 +39,27 @@ Use this topic when the current goal matches **installation and upgrades**. Star
 4. Run the smallest applicable command from this topic. Do not substitute an undocumented subcommand.
 5. Re-read state after completion. In Copilot, return to `/sf-home`; in VS Code, refresh the relevant view if it has not already refreshed.
 
-When `./install.sh` performs a normal source install, it also checks the repository selected by the
-active workspace. Missing packaged workflows are installed automatically when that repository is
-clean; local and customized workflows are preserved, and the validated changes remain uncommitted
-for review. Use `--no-workspace-workflow-sync` to skip repository synchronization. The separate
-`--clean-reinstall` path never reads or changes repositories or workspaces.
+When `./install.sh` performs a normal source install, it runs `workspace refresh-configuration`
+against every unique repository registered by every non-archived workspace. Refresh operates in
+isolated clones, so dirty application checkouts and active Story branches are never switched or
+edited. It three-way merges packaged workflow policy and assets against the last examined package
+baseline, publishes the approved result to `sflow/config`, and mirrors the exact configuration,
+source commit, product revision, and per-file hashes under `configuration/` on the repository's
+orphan state branch. Existing Story configuration snapshots remain immutable; new Stories use the
+new authority revision.
+
+Use `workspace refresh-configuration --dry-run` to preview all repositories, or add a workspace
+reference and repeatable `--repository ID` filters for a bounded repair. Repository customizations
+changed in parallel with the package are retained and reported; `--accept-bundled-conflicts` is the
+explicit migration boundary that selects packaged values. A protected `sflow/config` push retains
+the exact candidate on the reported `sflow/config-refresh/*` review branch. Merge that proposal and
+re-run the command to complete its state mirror. Reruns are idempotent and retry incomplete
+repositories while current repositories become no-ops.
+
+Use `--no-workspace-configuration-refresh` to skip this normal-install refresh. The legacy
+`--no-workspace-workflow-sync` spelling remains accepted. The separate
+`--clean-reinstall` path delegates before workspace discovery and never reads or changes Git
+repositories or workspaces.
 
 ## State and safety
 

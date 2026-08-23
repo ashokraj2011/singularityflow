@@ -204,7 +204,10 @@ export const RESOLVER_SUBCOMMANDS = Object.freeze({
   spec: SPEC_SUBCOMMANDS,
   story: STORY_SUBCOMMANDS,
   wm: Object.freeze([...WM_MODEL_OPERATIONS, ...WM_NEVER_OPERATIONS, 'ensure', 'ast', 'recovery']),
-  workspace: Object.freeze(['copilot', 'impact', 'bootstrap', ...WORKSPACE_NEVER_OPERATIONS, ...WORKSPACE_SUBCOMMAND_ALIASES.keys()])
+  workspace: Object.freeze([
+    'copilot', 'impact', 'bootstrap', 'refresh-configuration',
+    ...WORKSPACE_NEVER_OPERATIONS, ...WORKSPACE_SUBCOMMAND_ALIASES.keys()
+  ])
 });
 
 function required(id) {
@@ -566,6 +569,11 @@ function resolveWorkspaceOperation(definition, positionals, options) {
       WORKSPACE_BOOTSTRAP_READ_ACTIONS.has(action) ? 'read' : 'mutation'
     );
   }
+  if (subcommand === 'refresh-configuration') {
+    return optionBoolean(options, 'dry-run')
+      ? never('workspace.refresh-configuration.preview', definition, 'read')
+      : never('workspace.refresh-configuration', definition, 'mutation');
+  }
   if (WORKSPACE_NEVER_OPERATIONS.has(subcommand)) {
     return never(`workspace.${subcommand}`, definition, WORKSPACE_READ_OPERATIONS.has(subcommand) ? 'read' : 'mutation');
   }
@@ -651,6 +659,8 @@ export function operationCatalog() {
       ? required('workspace.impact.analyze')
       : never(`workspace.impact.${name}`, commandDefinition('workspace'), WORKSPACE_IMPACT_READ_OPERATIONS.has(name) ? 'read' : 'mutation')));
   workspace.push(never('workspace.impact.analyze.preview', commandDefinition('workspace'), 'read'));
+  workspace.push(never('workspace.refresh-configuration', commandDefinition('workspace'), 'mutation'));
+  workspace.push(never('workspace.refresh-configuration.preview', commandDefinition('workspace'), 'read'));
   const prDefinition = commandDefinition('pr');
   const pullRequest = [
     never('pr.plan', prDefinition),

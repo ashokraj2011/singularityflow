@@ -34,7 +34,11 @@ export const CONFIGURATION_SOURCE_PATH = 'singularity/configuration-source.json'
 // These directories are lifecycle state or generated evidence, never shared configuration.
 const RUNTIME_ROOTS = new Set([
   'initiatives', 'work-items', 'seeds', 'world-model', 'knowledge', 'pins',
-  'identity-reservations', 'telemetry'
+  'identity-reservations', 'telemetry',
+  // Product refresh metadata belongs only to the configuration authority. Story branches pin the
+  // approved configuration bytes, not the package baseline used to decide how a later release may
+  // merge them, so this directory must never be materialized into lifecycle history.
+  '.product'
 ]);
 
 function slash(value) { return value.split(path.sep).join('/'); }
@@ -59,6 +63,17 @@ async function filesBelow(root, relative = '', output = []) {
     else if (entry.isFile() && isConfigurationAsset(child)) output.push(slash(child));
   }
   return output;
+}
+
+/**
+ * Enumerate the complete approved configuration payload without exposing lifecycle/runtime state.
+ *
+ * Configuration refresh uses this exact predicate for its orphan-state mirror. Exporting the
+ * enumeration keeps materialization and mirroring from growing two subtly different definitions
+ * of "configuration" as new governed files are introduced.
+ */
+export async function configurationAssetPaths(root) {
+  return [...await filesBelow(root)].sort();
 }
 
 async function copyAssets(source, destination) {

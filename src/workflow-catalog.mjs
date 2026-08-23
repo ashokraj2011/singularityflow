@@ -70,7 +70,12 @@ export async function installWorkflow(root, id, { replace = false, dryRun = fals
   if (installed.workTypes[id] && !replace) throw new Error(`Workflow '${id}' already exists. Use workflow diff ${id}, or --replace after reviewing customizations.`);
   const next = structuredClone(installed); next.workTypes[id] = structuredClone(profile);
   const phaseIds = new Set(profile.phases);
-  for (const phaseId of phaseIds) next.phases[phaseId] ??= structuredClone(starter.phases[phaseId]);
+  for (const phaseId of phaseIds) {
+    // `--replace` is an explicit decision to take the bundled workflow contract. Replacing only
+    // the work-type row while retaining stale shared phase policy made the command claim success
+    // while generation, approval and evidence behavior remained on the old release.
+    if (replace || !next.phases[phaseId]) next.phases[phaseId] = structuredClone(starter.phases[phaseId]);
+  }
   const authorityIds = new Set();
   for (const phaseId of phaseIds) {
     for (const authority of starter.phases[phaseId].approval?.authorities ?? []) authorityIds.add(authority);

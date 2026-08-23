@@ -651,7 +651,12 @@ const PAGES = Object.freeze({
       '`workspace adopt` is the explicit path for an existing clone. Its dry-run records canonical',
       'location, origin, branch, HEAD-related state, worktrees, submodules, SFlow configuration and',
       'a content-aware dirty-tree hash. Adoption creates a separate workspace shell and does not',
-      'fetch, checkout, stash, commit, reset, clean, or edit the clone remote.'
+      'fetch, checkout, stash, commit, reset, clean, or edit the clone remote.',
+      '',
+      '`workspace refresh-configuration` discovers every unique repository in registered',
+      'non-archived workspaces. It prepares package updates in isolated clones, three-way merges',
+      'against the recorded package baseline, publishes `sflow/config`, and then mirrors the exact',
+      'approved files and hashes to the orphan state branch. Existing Story snapshots never move.'
     ],
     options: [
       ['--id ID', 'Portable local workspace identifier used by prepare.'],
@@ -661,6 +666,9 @@ const PAGES = Object.freeze({
       ['--network', 'Allow workspace doctor to contact pending-session remotes.'],
       ['--confirm ID', 'Exact workspace ID required before a bootstrap session may materialize.'],
       ['--confirm-dirty SHA256', 'Content-bound acknowledgement required to retain a dirty adopted clone.'],
+      ['--dry-run', 'Preview configuration refresh for every selected repository without changing a ref.'],
+      ['--repository ID', 'For configuration refresh, limit work to this repeatable repository ID.'],
+      ['--accept-bundled-conflicts', 'Explicitly select packaged values where both package and repository changed the same field or asset.'],
       ['--json', 'Emit the structured session, preflight, findings, and recovery command.']
     ],
     examples: [
@@ -669,7 +677,9 @@ const PAGES = Object.freeze({
       ['singularity-flow workspace prepare https://git.example/payments.git --id payments', 'Record and preflight setup without creating the destination.'],
       ['singularity-flow workspace bootstrap resume bst_… --confirm payments', 'Recheck and materialize the exact recorded plan.'],
       ['singularity-flow workspace adopt ~/src/payments --id payments --dry-run', 'Inspect an existing clone and preview the preserving workspace shell.'],
-      ['singularity-flow workspace doctor --network', 'Diagnose machine state and unfinished-session remotes without changing them.']
+      ['singularity-flow workspace doctor --network', 'Diagnose machine state and unfinished-session remotes without changing them.'],
+      ['singularity-flow workspace refresh-configuration --dry-run', 'Preview package/configuration drift across every registered repository.'],
+      ['singularity-flow workspace refresh-configuration payments', 'Refresh one registered workspace and verify each state mirror.']
     ],
     seeAlso: ['capability', 'session', 'bootstrap']
   },

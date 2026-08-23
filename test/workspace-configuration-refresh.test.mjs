@@ -1,0 +1,220 @@
+import assert from 'node:assert/strict';
+import { mkdir, mkdtemp, readFile, readdir, rm, writeFile } from 'node:fs/promises';
+import os from 'node:os';
+import path from 'node:path';
+import test from 'node:test';
+import { fileURLToPath } from 'node:url';
+import YAML from 'yaml';
+
+import { run } from '../src/util.mjs';
+import { rememberWorkspace } from '../src/workspace.mjs';
+import { installWorkflow } from '../src/workflow-catalog.mjs';
+import {
+  mergePackagedConfiguration,
+  PACKAGE_BASELINE_PATH,
+  refreshPackagedConfiguration,
+  refreshWorkspaceConfigurations,
+  STATE_CONFIGURATION_MANIFEST
+} from '../src/workspace-configuration-refresh.mjs';
+
+const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
+process.env.GIT_CONFIG_GLOBAL = '/dev/null';
+process.env.GIT_CONFIG_SYSTEM = '/dev/null';
+process.env.GIT_LFS_SKIP_SMUDGE = '1';
+if (process.platform === 'darwin') process.env.TMPDIR = '/tmp';
+const INITIAL_FILES = [
+  ['workflow.yml', 'singularity/workflow.yml'],
+  ['portfolio.yml', 'singularity/portfolio.yml'],
+  ['capabilities.yml', 'singularity/capabilities.yml'],
+  ['agent-mappings.yml', 'singularity/agent-mappings.yml'],
+  ['impact.yml', 'singularity/impact.yml'],
+  ['modelTiers.yml', 'singularity/modelTiers.yml'],
+  ['artifacts', 'singularity/templates'],
+  ['agents', '.github/agents'],
+  ['worldmodel-builder.md', 'singularity/prompts/worldmodel-builder.md'],
+  ['copilot-planning.md', 'singularity/prompts/copilot-planning.md']
+];
+
+function git(root, args) {
+  return run('git', args, { cwd: root }).stdout.trim();
+}
+
+async function copyBytes(source, destination) {
+  const info = await lstatForCopy(source);
+  if (info.directory) {
+    await mkdir(destination, { recursive: true });
+    for (const entry of await readdir(source)) await copyBytes(path.join(source, entry), path.join(destination, entry));
+  } else {
+    await mkdir(path.dirname(destination), { recursive: true });
+    await writeFile(destination, await readFile(source));
+  }
+}
+
+async function lstatForCopy(source) {
+  const entries = await readdir(source, { withFileTypes: true }).catch((error) => {
+    if (error?.code === 'ENOTDIR') return null;
+    throw error;
+  });
+  return { directory: entries !== null };
+}
+
+async function initializeFixture(root) {
+  for (const [source, destination] of INITIAL_FILES) {
+    await copyBytes(path.join(ROOT, 'templates', source), path.join(root, destination));
+  }
+}
+
+async function repositoryFixture(root, id = 'application') {
+  const remote = path.join(root, `${id}.git`);
+  const repository = path.join(root, 'workspace', 'repos', id);
+  run('git', ['init', '--bare', '--initial-branch=main', remote]);
+  run('git', ['init', '--initial-branch=main', repository]);
+  git(repository, ['config', 'user.name', 'Configuration Test']);
+  git(repository, ['config', 'user.email', 'configuration@example.test']);
+  await writeFile(path.join(repository, 'application.txt'), 'application source\n');
+  git(repository, ['add', '-A']);
+  git(repository, ['commit', '-m', 'Initialize application']);
+  git(repository, ['remote', 'add', 'origin', remote]);
+  git(repository, ['push', '-u', 'origin', 'main']);
+
+  // Seed only the authority file this regression needs. The refresh itself installs the packaged
+  // assets; avoiding a second full fixture commit keeps this test about refresh rather than macOS
+  // metadata-copy performance.
+  const publisher = path.join(root, 'configuration-publisher');
+  run('git', ['init', '--initial-branch=sflow/config', publisher]);
+  git(publisher, ['config', 'user.name', 'Configuration Test']);
+  git(publisher, ['config', 'user.email', 'configuration@example.test']);
+  const workflow = YAML.parse(await readFile(path.join(ROOT, 'templates/workflow.yml'), 'utf8'));
+  delete workflow.phases.implementation.generation.task;
+  workflow.defaultBaseBranch = 'release';
+  await mkdir(path.join(publisher, 'singularity'), { recursive: true });
+  await writeFile(path.join(publisher, 'singularity/workflow.yml'), YAML.stringify(workflow));
+  git(publisher, ['add', 'singularity/workflow.yml']);
+  git(publisher, ['commit', '-m', 'Retain older workflow policy']);
+  git(publisher, ['remote', 'add', 'origin', remote]);
+  git(publisher, ['push', 'origin', 'HEAD:sflow/config']);
+  return { remote, repository };
+}
+
+test('three-way package merging updates untouched values and retains repository customizations', () => {
+  const base = {
+    phases: { implementation: { generation: { task: 'code', allowed: ['model'] } } },
+    defaultBaseBranch: 'main'
+  };
+  const incoming = {
+    phases: { implementation: { generation: { task: 'implement', allowed: ['model', 'human'] } } },
+    defaultBaseBranch: 'main'
+  };
+  const local = {
+    phases: { implementation: { generation: { task: 'code', allowed: ['model'] } } },
+    defaultBaseBranch: 'release'
+  };
+  const merged = mergePackagedConfiguration(base, local, incoming);
+  assert.equal(merged.value.phases.implementation.generation.task, 'implement');
+  assert.deepEqual(merged.value.phases.implementation.generation.allowed, ['model', 'human']);
+  assert.equal(merged.value.defaultBaseBranch, 'release');
+  assert.equal(merged.conflicts.length, 0, 'the package did not change the customized branch field');
+
+  const conflict = mergePackagedConfiguration(base, {
+    ...local,
+    phases: { implementation: { generation: { task: 'repository-task', allowed: ['model'] } } }
+  }, incoming);
+  assert.equal(conflict.value.phases.implementation.generation.task, 'repository-task');
+  assert.equal(conflict.conflicts[0].path, 'workflow.phases.implementation.generation.task');
+  assert.equal(conflict.conflicts[0].resolution, 'preserved-local');
+});
+
+test('explicit workflow replacement also replaces its shared phase contract', async (t) => {
+  const root = await mkdtemp(path.join(os.tmpdir(), 'sflow-workflow-replace-'));
+  t.after(() => rm(root, { recursive: true, force: true }));
+  await initializeFixture(root);
+  const workflowFile = path.join(root, 'singularity/workflow.yml');
+  const workflow = YAML.parse(await readFile(workflowFile, 'utf8'));
+  workflow.phases.implementation.generation.task = 'analyze';
+  await writeFile(workflowFile, YAML.stringify(workflow));
+
+  await installWorkflow(root, 'feature', { replace: true });
+  const replaced = YAML.parse(await readFile(workflowFile, 'utf8'));
+  assert.equal(replaced.phases.implementation.generation.task, 'code');
+});
+
+test('repository refresh restores additive policy and missing assets without overwriting custom files', async (t) => {
+  const root = await mkdtemp(path.join(os.tmpdir(), 'sflow-package-refresh-'));
+  t.after(() => rm(root, { recursive: true, force: true }));
+  await initializeFixture(root);
+  const workflowFile = path.join(root, 'singularity/workflow.yml');
+  const workflow = YAML.parse(await readFile(workflowFile, 'utf8'));
+  delete workflow.phases.implementation.generation.task;
+  workflow.defaultBaseBranch = 'release';
+  await writeFile(workflowFile, YAML.stringify(workflow));
+  const missing = path.join(root, 'singularity/templates/feature/implementation-spec.md');
+  await rm(missing);
+  const customAgent = path.join(root, '.github/agents/developer.agent.md');
+  await writeFile(customAgent, '# Repository developer\n');
+
+  const result = await refreshPackagedConfiguration(root);
+  const refreshed = YAML.parse(await readFile(workflowFile, 'utf8'));
+  assert.equal(refreshed.phases.implementation.generation.task, 'code');
+  assert.equal(refreshed.defaultBaseBranch, 'release');
+  assert.match(await readFile(missing, 'utf8'), /implementation/i);
+  assert.equal(await readFile(customAgent, 'utf8'), '# Repository developer\n');
+  assert.ok(result.conflicts.some((entry) => entry.path === '.github/agents/developer.agent.md'));
+  assert.equal(YAML.parse(await readFile(path.join(root, PACKAGE_BASELINE_PATH), 'utf8')).format,
+    'singularity-flow-configuration-baseline/v1');
+  const repeated = await refreshPackagedConfiguration(root);
+  assert.equal(repeated.changed, false);
+  assert.deepEqual(repeated.files, []);
+});
+
+test('all-workspace refresh leaves a dirty clone untouched and mirrors approved configuration to state', async (t) => {
+  const root = await mkdtemp(path.join(os.tmpdir(), 'sflow-workspace-refresh-'));
+  t.after(() => rm(root, { recursive: true, force: true }));
+  const { remote, repository } = await repositoryFixture(root);
+
+  const workspaceRoot = path.join(root, 'workspace');
+  const manifest = {
+    version: 1,
+    id: 'refresh-workspace',
+    name: 'Refresh workspace',
+    path: workspaceRoot,
+    anchor: { provider: 'workspace', key: 'refresh-workspace', title: 'Refresh workspace' },
+    leadRepository: 'application',
+    repositories: {
+      application: {
+        id: 'application', url: remote, defaultBranch: 'main', required: true,
+        path: 'repos/application', role: 'lead', capabilities: []
+      }
+    }
+  };
+  const registry = path.join(root, 'workspaces.json');
+  await writeFile(path.join(workspaceRoot, 'workspace.json'), `${JSON.stringify(manifest, null, 2)}\n`);
+  await rememberWorkspace(registry, manifest);
+
+  await writeFile(path.join(repository, 'application.txt'), 'dirty application work\n');
+  const dirtyBefore = git(repository, ['status', '--porcelain']);
+  const headBefore = git(repository, ['rev-parse', 'HEAD']);
+
+  const result = await refreshWorkspaceConfigurations({ registryFile: registry });
+  assert.equal(result.status, 'complete');
+  assert.equal(result.results.length, 1);
+  assert.equal(result.results[0].configurationChanged, true);
+  assert.equal(result.results[0].stateChanged, true);
+  assert.equal(git(repository, ['rev-parse', 'HEAD']), headBefore);
+  assert.equal(git(repository, ['status', '--porcelain']), dirtyBefore);
+
+  const approved = YAML.parse(run('git', [
+    '--git-dir', remote, 'show', 'sflow/config:singularity/workflow.yml'
+  ]).stdout);
+  assert.equal(approved.phases.implementation.generation.task, 'code');
+  assert.equal(approved.defaultBaseBranch, 'release');
+  const manifestText = run('git', [
+    '--git-dir', remote, 'show', `state:${STATE_CONFIGURATION_MANIFEST}`
+  ]).stdout;
+  const mirror = JSON.parse(manifestText);
+  assert.equal(mirror.source.commit, run('git', ['--git-dir', remote, 'rev-parse', 'sflow/config']).stdout.trim());
+  const mirroredWorkflow = run('git', [
+    '--git-dir', remote, 'show', 'state:configuration/files/singularity/workflow.yml'
+  ]).stdout;
+  assert.equal(YAML.parse(mirroredWorkflow).phases.implementation.generation.task, 'code');
+
+});

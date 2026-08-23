@@ -14,6 +14,7 @@ import { referenceRevision, registerReference } from './harness-imports.mjs';
 import { createImpactReceipt } from './impact.mjs';
 import { currentSchemaVersion, readRecord } from './schema-migrations.mjs';
 import { canonicalJson } from './records.mjs';
+import { LIFECYCLE_EVENT } from './lifecycle-event.mjs';
 
 function hash(value) {
   return createHash('sha256').update(JSON.stringify(value)).digest('hex');
@@ -110,7 +111,7 @@ export async function attachStoryBranch(root, config, {
     root,
     config,
     workflow,
-    { type: 'branch-linked', payload: { childBranch: current } },
+    { type: LIFECYCLE_EVENT.BRANCH_LINKED, payload: { childBranch: current } },
     `[${workflow.workItem.id}][branch:attach] ${current}`,
     [],
     { beforeStateWrite: async () => { await saveStoryDraft(root, config, workflow); } }

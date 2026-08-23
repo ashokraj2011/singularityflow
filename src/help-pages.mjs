@@ -351,6 +351,8 @@ const PAGES = Object.freeze({
       '`phase begin` establishes a code-generation boundary before source mutation. `phase publish`',
       'records a new generation: it registers the artifacts, captures authorship and model usage,',
       'and commits the result as one governed transition.',
+      'Begin is local and idempotent: it creates no lifecycle event, commit, push, or ledger entry.',
+      'Publish verifies and binds the exact generation-start receipt into artifact-generated.',
       '',
       'Publication refuses when the phase is not ready — a missing artifact, an unmet world-model',
       'grounding policy, or a phase out of sequence. Nothing is written when it refuses.'

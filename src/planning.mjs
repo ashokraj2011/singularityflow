@@ -3,6 +3,7 @@ import { readFile } from 'node:fs/promises';
 import path from 'node:path';
 import YAML from 'yaml';
 import { currentSchemaVersion, readRecord } from './schema-migrations.mjs';
+import { LIFECYCLE_EVENT } from './lifecycle-event.mjs';
 import { artifactBlockMarkers, PHASE_SCOPE } from './planning-scope.mjs';
 import { renderAgentSkills } from './agents.mjs';
 import {
@@ -867,7 +868,7 @@ export async function promotePlanningArtifacts(root, { sessionId, artifacts = []
     });
     await saveInitiativeDraft(root, portfolio, fresh);
     const summary = promoted.map((item) => item.target).join(', ');
-    const publication = await commitInitiativeChange(root, portfolio, fresh, { type: 'artifact-generated', phaseId: definition.id, payload: { targets: promoted.map((item) => item.target) } }, `[${fresh.initiative.id}][initiative:${definition.id}][planning] promote ${summary}`);
+    const publication = await commitInitiativeChange(root, portfolio, fresh, { type: LIFECYCLE_EVENT.ARTIFACT_GENERATED, phaseId: definition.id, payload: { targets: promoted.map((item) => item.target) } }, `[${fresh.initiative.id}][initiative:${definition.id}][planning] promote ${summary}`);
     return {
       scope: 'initiative',
       id: fresh.initiative.id,
@@ -926,7 +927,7 @@ export async function promotePlanningArtifacts(root, { sessionId, artifacts = []
     root,
     definition,
     workflow,
-    { type: 'artifact-generated', phaseId: phase.id, generation: phase.generation, payload: { planningArtifactSha256: current.sha256 } },
+    { type: LIFECYCLE_EVENT.ARTIFACT_GENERATED, phaseId: phase.id, generation: phase.generation, payload: { planningArtifactSha256: current.sha256 } },
     `[${workflow.workItem.id}][phase:${phase.id}][planning] promote reviewed plan`,
     [posix(path.relative(root, target)), posix(path.relative(root, auditDirectory))],
     // Inside the unit, so a refused publication does not leave the promotion recorded in the

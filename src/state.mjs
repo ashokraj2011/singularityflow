@@ -1187,6 +1187,7 @@ export async function generationResultDigest(root, config, workflow, phase) {
       artifactSet: phase.artifactSet?.bundleSha256 ?? null,
       deliveryChangeSet: phase.deliveryEvidence?.changeSet?.digest ?? null,
       generationIntentId: phase.generationIntent?.id ?? null,
+      generationStartSha256: phase.generationIntent?.receiptSha256 ?? null,
       generationBaseline: phase.generationIntent?.baseline ?? null
     }
   })).digest('hex')}`;

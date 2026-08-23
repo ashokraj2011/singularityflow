@@ -14,6 +14,7 @@ import { commitInitiativeChange } from './state-stores.mjs';
 import { setAgentSession } from './session.mjs';
 import { exists, run, SingularityFlowError } from './util.mjs';
 import { matchApprovalAuthority } from './approval-authority.mjs';
+import { LIFECYCLE_EVENT } from './lifecycle-event.mjs';
 
 function workItemPath(workId) {
   return `singularity/work-items/${workId}/workflow.json`;
@@ -277,7 +278,7 @@ export async function epicReviewDecision(root, initiativeId, storyReference, {
     root,
     refreshed.portfolio,
     refreshed.initiative,
-    { type: 'evidence-recorded', payload: { storyId: selected.story.workId ?? selected.story.id, decision, packetSha256 } },
+    { type: LIFECYCLE_EVENT.EVIDENCE_RECORDED, payload: { storyId: selected.story.workId ?? selected.story.id, decision, packetSha256 } },
     `[${initiativeId}][epic:review] ${decision} ${selected.story.workId ?? selected.story.id}`
   );
   return {
@@ -309,7 +310,7 @@ export async function epicCheckStory(root, initiativeId, storyReference, {
     root,
     refreshed.portfolio,
     refreshed.initiative,
-    { type: 'evidence-recorded', payload: { storyId: selected.story.workId ?? selected.story.id, checksRecorded: true } },
+    { type: LIFECYCLE_EVENT.EVIDENCE_RECORDED, payload: { storyId: selected.story.workId ?? selected.story.id, checksRecorded: true } },
     `[${initiativeId}][epic:review] record ${selected.story.workId ?? selected.story.id} checks`
   );
   return {

@@ -16,7 +16,8 @@ import { add, assertClean, branch, changes, checkout, commit, fastForwardTo, fet
 import { buildRepositorySubjectIndex, buildRepositorySubjectIndexFromRefs, resolveContext } from './repository-subject-index.mjs';
 import { approvePhase, assertNoPendingPublication, beginPhaseGeneration, cancelWorkflow, commitAndPublish, CONFIG_PATH, createWorkflow, currentPhase, generationResultDigest, loadConfig, preparePhase, preparePhaseInputs, promoteDesignSource, publishGeneration, reconcilePhaseTelemetry, registerArtifact, rejectPhase, reopenWorkflow, resolveWorkItem, saveStoryDraft, transactStory, scanArtifacts, storyPublicationPending, submitPhase, syncPublication, validateId, validateWorkflow, workflowBranchAllowed, workflowPublicationBranch, workflowPath, workDir } from './state-stores.mjs';
 import { phaseRequiresCodeDelivery } from './code-delivery-policy.mjs';
-import { verifyOpenGenerationIntent } from './generation-boundary.mjs';
+import { generationStartPublicationBinding, verifyOpenGenerationIntent } from './generation-boundary.mjs';
+import { LIFECYCLE_EVENT } from './lifecycle-event.mjs';
 import { copilotTelemetryStatus } from './telemetry.mjs';
 import { contextXray } from './context-xray.mjs';
 import { compileEvidencePacket, expandEvidencePacketHandle } from './evidence-packet.mjs';
@@ -961,7 +962,7 @@ export async function startCommand(positionals, options) {
       root,
       config,
       workflow,
-      { type: 'binding', payload: configurationSnapshot ? {
+      { type: LIFECYCLE_EVENT.BINDING, payload: configurationSnapshot ? {
         configurationBranch: configurationSnapshot.branch,
         configurationCommit: configurationSnapshot.commit
       } : {} },
@@ -984,7 +985,7 @@ export async function startCommand(positionals, options) {
         label: document.label,
         kind: document.kind
       });
-      await commitAndPublish(root, config, workflow, { type: 'evidence-recorded', payload: { documents: records.map((item) => item.id) } }, `[${id}][documents][upload] ${records.map((item) => item.id).join(',')}`);
+      await commitAndPublish(root, config, workflow, { type: LIFECYCLE_EVENT.EVIDENCE_RECORDED, payload: { documents: records.map((item) => item.id) } }, `[${id}][documents][upload] ${records.map((item) => item.id).join(',')}`);
     }
   } catch (error) {
     await retainCapabilityPublicationRecovery(root, id, {
@@ -1641,7 +1642,7 @@ async function impactCommand(positionals, options) {
     const workflow = await loadStoryAggregate(root, config, workId);
     const { value, publication } = await transactStory(
       root, config, workflow,
-      { type: 'binding', phaseId: workflow.currentPhase, payload: { kind: 'flight-plan-scope-disposition', path: relative } },
+      { type: LIFECYCLE_EVENT.BINDING, phaseId: workflow.currentPhase, payload: { kind: 'flight-plan-scope-disposition', path: relative } },
       `[${workId}][flight-plan:scope] ${relative}`,
       (aggregate) => recordChangeFlightPlanExpansionDisposition(root, aggregate, relative, {
         disposition: optionString(options, 'disposition'), reason: optionString(options, 'reason')
@@ -1760,7 +1761,7 @@ async function impactCommand(positionals, options) {
     const level = optionString(options, 'level'); const assurance = optionString(options, 'assurance');
     const { value, publication } = await transactStory(
       root, config, workflow,
-      { type: 'impact-exposure-recorded', phaseId, payload: { level, assurance } },
+      { type: LIFECYCLE_EVENT.IMPACT_EXPOSURE_RECORDED, phaseId, payload: { level, assurance } },
       `[${workflow.workItem.id}][impact:exposure] ${phaseId} ${level}`,
       (aggregate) => recordImpactExposure(root, config, aggregate, { phaseId, level, assurance, reason: optionString(options, 'reason') })
     );
@@ -2232,7 +2233,7 @@ async function documentsCommand(positionals, options) {
       root,
       config,
       workflow,
-      { type: 'evidence-recorded', phaseId: workflow.currentPhase, payload: { action: 'detached', documentId, scope } },
+      { type: LIFECYCLE_EVENT.EVIDENCE_RECORDED, phaseId: workflow.currentPhase, payload: { action: 'detached', documentId, scope } },
       `[${workflow.workItem.id}][evidence:detach] ${documentId}`,
       [],
       { beforeStateWrite: async () => { detached = await detachDocuments(root, config, workflow, { documentId, scope, reason }); } }
@@ -2267,7 +2268,7 @@ async function documentsCommand(positionals, options) {
   }
   if (['upload', 'add'].includes(subcommand)) {
     const workflow = await loadStoryAggregate(root, config); const records = await addDocuments(root, config, workflow, { files: positionals.slice(2), url: optionString(options, 'url'), label: optionString(options, 'label'), kind: optionString(options, 'kind') });
-    const result = await commitAndPublish(root, config, workflow, { type: 'evidence-recorded', payload: { documents: records.map((item) => item.id) } }, `[${workflow.workItem.id}][documents][upload] ${records.map((item) => item.id).join(',')}`);
+    const result = await commitAndPublish(root, config, workflow, { type: LIFECYCLE_EVENT.EVIDENCE_RECORDED, payload: { documents: records.map((item) => item.id) } }, `[${workflow.workItem.id}][documents][upload] ${records.map((item) => item.id).join(',')}`);
     records.forEach((record) => console.log(`${record.id}\t${record.type}\t${record.url ?? record.path}`)); console.log(`Committed ${result.sha.slice(0, 8)}${result.pushed ? ' and pushed' : ''}.`); return;
   }
   if (subcommand === 'browse') {
@@ -2289,7 +2290,7 @@ async function documentsCommand(positionals, options) {
       label: optionString(options, 'label'),
       kind: optionString(options, 'kind')
     });
-    const result = await commitAndPublish(root, config, workflow, { type: 'external-synchronized', payload: { documents: records.map((item) => item.id) } }, `[${workflow.workItem.id}][documents][fetch] ${records.map((item) => item.id).join(',')}`);
+    const result = await commitAndPublish(root, config, workflow, { type: LIFECYCLE_EVENT.EXTERNAL_SYNCHRONIZED, payload: { documents: records.map((item) => item.id) } }, `[${workflow.workItem.id}][documents][fetch] ${records.map((item) => item.id).join(',')}`);
     records.forEach((record) => console.log(`${record.id}\t${record.type}\t${record.remote?.providerId ?? ''}\t${record.path}`));
     console.log(`Committed ${result.sha.slice(0, 8)}${result.pushed ? ' and pushed' : ''}.`);
     return;
@@ -2975,7 +2976,7 @@ async function mcpCommand(positionals, options) {
       const rollbackWorkflow = structuredClone(workflow);
       let promoted;
       const publication = await commitAndPublish(root, config, workflow, {
-        type: 'design-source-promoted', phaseId: workflow.resolution?.designSources?.capturePhase,
+        type: LIFECYCLE_EVENT.DESIGN_SOURCE_PROMOTED, phaseId: workflow.resolution?.designSources?.capturePhase,
         actor: session.actor, agent: session.agent, payload: { candidateRecordId }
       }, `[${workflow.workItem.id}][design-source:promote] ${candidateRecordId}`, [], {
         rollbackWorkflow,
@@ -3184,28 +3185,19 @@ async function phaseCommand(positionals, options) {
       else console.log(`Generation intent ${existing.id} is already open for ${phase.id} generation ${existing.generation}.`);
       return;
     }
-    let intent;
     const generation = Number(phase.generation ?? 0) + 1;
-    const result = await commitAndPublish(
-      root,
-      config,
-      workflow,
-      { type: 'generation-started', phaseId, generation },
-      `[${workflow.workItem.id}][phase:${phaseId}][generation-start:${generation}] establish code boundary`,
-      [],
-      {
-        beforeStateWrite: async () => {
-          intent = await beginPhaseGeneration(root, config, workflow, {
-            phaseId,
-            adoptExisting: optionBoolean(options, 'adopt-existing') || optionBoolean(options, 'adopt-current-interval'),
-            confirm: optionString(options, 'confirm')
-          });
-        }
-      }
-    );
-    const output = { ...intent, commit: result.sha, pushed: result.pushed };
+    const intent = await beginPhaseGeneration(root, config, workflow, {
+      phaseId,
+      adoptExisting: optionBoolean(options, 'adopt-existing') || optionBoolean(options, 'adopt-current-interval'),
+      confirm: optionString(options, 'confirm')
+    });
+    // Generation begin is a local authoring boundary, not lifecycle authority. Persist the workflow
+    // and its hash-bound receipt without creating a commit, push, ledger entry, or lifecycle event.
+    await saveStoryDraft(root, config, workflow);
+    await verifyOpenGenerationIntent(root, workflow, phase);
+    const output = { ...intent, local: true, lifecycleEvent: null };
     if (optionBoolean(options, 'json')) console.log(JSON.stringify(output, null, 2));
-    else console.log(`Began ${phaseId} generation ${generation} with intent ${intent.id} at ${result.sha.slice(0, 8)}${result.pushed ? ' and pushed' : ''}.`);
+    else console.log(`Began ${phaseId} generation ${generation} with local intent ${intent.id}. The receipt will be bound into the generation publication.`);
     return;
   }
   if (subcommand === 'show') {
@@ -3271,12 +3263,18 @@ async function phaseCommand(positionals, options) {
     .filter((record) => !attributedInvocations.has(record.id));
   const kernelInvocationIds = kernelInvocations.map((record) => record.id);
   const generation = requestedPhase.generation + 1;
+  const generationStart = await generationStartPublicationBinding(root, workflow, requestedPhase);
   let phase = requestedPhase;
   const result = await commitAndPublish(
     root,
     config,
     workflow,
-    { type: 'artifact-generated', phaseId, generation },
+    {
+      type: LIFECYCLE_EVENT.ARTIFACT_GENERATED,
+      phaseId,
+      generation,
+      payload: generationStart ?? {}
+    },
     `[${workflow.workItem.id}][phase:${phaseId}][generated:${generation}] publish artifacts`,
     [...new Set([...requestedPhase.artifacts.map((item) => item.path), targetRelative])],
     {
@@ -3578,7 +3576,7 @@ export async function submitCommand(positionals, options) {
   const requestedPhase = selectedPhaseArgument(positionals, options, 'submit');
   const reconciliation = await reconcilePhaseTelemetry(root, config, workflow, { phaseId: requestedPhase });
   if (reconciliation.updated) {
-    const telemetryPublication = await commitAndPublish(root, config, workflow, { type: 'telemetry-recorded', phaseId: reconciliation.phase, generation: reconciliation.generation }, `[${workflow.workItem.id}][phase:${reconciliation.phase}][telemetry:${reconciliation.generation}] reconcile Copilot usage`);
+    const telemetryPublication = await commitAndPublish(root, config, workflow, { type: LIFECYCLE_EVENT.TELEMETRY_RECORDED, phaseId: reconciliation.phase, generation: reconciliation.generation }, `[${workflow.workItem.id}][phase:${reconciliation.phase}][telemetry:${reconciliation.generation}] reconcile Copilot usage`);
     console.log(`Reconciled ${reconciliation.phase} generation ${reconciliation.generation} telemetry at ${telemetryPublication.sha.slice(0, 8)}${telemetryPublication.pushed ? ' and pushed' : ''}.`);
     console.log(`Models: ${reconciliation.models.join(', ') || 'unavailable'} | Tokens: ${reconciliation.usage.reduce((sum, item) => sum + (item.totalTokens ?? 0), 0) || 'unavailable'} | Provider cost: ${reconciliation.providerCost == null ? 'unavailable' : `$${reconciliation.providerCost.toFixed(6)}`}`);
     workflow = await loadStoryAggregate(root, config);
@@ -3593,7 +3591,7 @@ export async function submitCommand(positionals, options) {
     root,
     config,
     workflow,
-    { type: 'approval-requested', phaseId: requested.id, generation: requested.generation },
+    { type: LIFECYCLE_EVENT.APPROVAL_REQUESTED, phaseId: requested.id, generation: requested.generation },
     `[${workflow.workItem.id}][phase:${requested.id}][submit] request approval`,
     requested.artifacts.map((item) => item.path),
     {
@@ -3721,7 +3719,7 @@ async function telemetryCommand(positionals, options) {
   const config = await loadConfig(root); const workflow = await loadStoryAggregate(root, config);
   const result = await reconcilePhaseTelemetry(root, config, workflow, { phaseId: positionals[2] });
   if (result.updated) {
-    const publication = await commitAndPublish(root, config, workflow, { type: 'telemetry-recorded', phaseId: result.phase, generation: result.generation }, `[${workflow.workItem.id}][phase:${result.phase}][telemetry:${result.generation}] reconcile Copilot usage`);
+    const publication = await commitAndPublish(root, config, workflow, { type: LIFECYCLE_EVENT.TELEMETRY_RECORDED, phaseId: result.phase, generation: result.generation }, `[${workflow.workItem.id}][phase:${result.phase}][telemetry:${result.generation}] reconcile Copilot usage`);
     Object.assign(result, { commit: publication.sha, pushed: publication.pushed });
   }
   if (optionBoolean(options, 'json')) return console.log(JSON.stringify({ exporter: status, reconciliation: result }, null, 2));
@@ -3997,7 +3995,7 @@ async function approveCommand(positionals, options) {
     root,
     config,
     workflow,
-    { type: 'phase-approved', phaseId: phase.id, generation: phase.generation, actor: result.approval.actor, agent: result.approval.agent, authorityGroup: result.approval.authorityGroup },
+    { type: LIFECYCLE_EVENT.PHASE_APPROVED, phaseId: phase.id, generation: phase.generation, actor: result.approval.actor, agent: result.approval.agent, authorityGroup: result.approval.authorityGroup },
     `[${workflow.workItem.id}][phase:${phase.id}][approve] ${result.approval.authorityGroup}`,
     phase.artifacts.map((item) => item.path),
     { rollbackWorkflow: workflowBeforeApproval }
@@ -4034,7 +4032,7 @@ async function rejectCommand(positionals, options) {
     root,
     config,
     workflow,
-    { type: 'phase-rejected', phaseId: current.id, generation: current.generation, actor: session.actor, agent: session.agent, payload: { targetPhaseId: target.id ?? target } },
+    { type: LIFECYCLE_EVENT.PHASE_REJECTED, phaseId: current.id, generation: current.generation, actor: session.actor, agent: session.agent, payload: { targetPhaseId: target.id ?? target } },
     `[${workflow.workItem.id}][phase:${current.id}][reject] return to ${target.id ?? target}`,
     (aggregate) => rejectPhase(root, config, aggregate, {
       phaseId: current.id,
@@ -4098,7 +4096,7 @@ async function reopenCommand(positionals, options) {
     config,
     workflow,
     {
-      type: 'workflow-reopened',
+      type: LIFECYCLE_EVENT.WORKFLOW_REOPENED,
       phaseId: completionPhase.id,
       generation: completionPhase.generation,
       actor: session.actor,
@@ -4160,7 +4158,7 @@ async function cancelCommand(positionals, options) {
     config,
     workflow,
     {
-      type: 'work-cancelled',
+      type: LIFECYCLE_EVENT.WORK_CANCELLED,
       phaseId: cancelPhase.id,
       generation: cancelPhase.generation,
       actor: cancelSession.actor,
@@ -4706,7 +4704,7 @@ async function assignCommand(positionals) {
     root,
     config,
     workflow,
-    { type: 'configuration-changed', phaseId, payload: { assignee } },
+    { type: LIFECYCLE_EVENT.CONFIGURATION_CHANGED, phaseId, payload: { assignee } },
     `[${workflow.workItem.id}][phase:${phaseId}][assign] ${assignee}`,
     (aggregate) => assignPhase(aggregate, phaseId, assignee, session)
   );
@@ -6568,7 +6566,7 @@ async function initiativeCommand(positionals, options) {
       });
     }
     const started = await loadInitiativeAggregate(root, initiativeId);
-    const publication = await commitInitiativeChange(root, started.portfolio, started.initiative, { type: 'binding' }, `[${initiativeId}][initiative:init] start ${profile}`);
+    const publication = await commitInitiativeChange(root, started.portfolio, started.initiative, { type: LIFECYCLE_EVENT.BINDING }, `[${initiativeId}][initiative:init] start ${profile}`);
     // Spent once the start has landed. Consumed before the Jira read and the creation, a network
     // failure or any refusal burned the one-shot receipt and a new one was needed to retry.
     if (receiptToken) await consumeSelectionReceipt(root, receiptToken);
@@ -6576,7 +6574,7 @@ async function initiativeCommand(positionals, options) {
     if (profile === 'epic-planning') {
       const completed = await completeEpicIntake(root, initiativeId, { agent: selectedAgent.agent });
       if (completed.advanced) {
-        await commitInitiativeChange(root, completed.portfolio, completed.initiative, { type: 'phase-approved', phaseId: 'epic-intake' }, `[${initiativeId}][epic:intake] sources accepted`);
+        await commitInitiativeChange(root, completed.portfolio, completed.initiative, { type: LIFECYCLE_EVENT.PHASE_APPROVED, phaseId: 'epic-intake' }, `[${initiativeId}][epic:intake] sources accepted`);
         current = await loadInitiativeAggregate(root, initiativeId);
       }
     }
@@ -6656,7 +6654,7 @@ async function initiativeCommand(positionals, options) {
       agent: session?.agent ?? null
     });
     const state = await loadInitiativeAggregate(root, initiativeId);
-    const publication = await commitInitiativeChange(root, state.portfolio, state.initiative, { type: 'configuration-changed', phaseId: state.initiative.currentPhase }, `[${initiativeId}][initiative:restart] back to ${state.initiative.currentPhase}`);
+    const publication = await commitInitiativeChange(root, state.portfolio, state.initiative, { type: LIFECYCLE_EVENT.CONFIGURATION_CHANGED, phaseId: state.initiative.currentPhase }, `[${initiativeId}][initiative:restart] back to ${state.initiative.currentPhase}`);
     console.log(`${initiativeId} restarted at ${state.initiative.currentPhase}. ${result.removed.length} artifact${result.removed.length === 1 ? '' : 's'} discarded; Epic branch and sources kept, Story-branch world models unchanged. Commit ${publication.sha.slice(0, 8)}${publication.pushed ? ' pushed' : ''}.`);
     return;
   }
@@ -6682,7 +6680,7 @@ async function initiativeCommand(positionals, options) {
       agent: session?.agent ?? null
     });
     const saved = await loadInitiativeAggregate(root, initiativeId);
-    const publication = await commitInitiativeChange(root, saved.portfolio, saved.initiative, { type: 'configuration-changed', phaseId: saved.initiative.currentPhase, payload: { policyId } }, `[${initiativeId}][initiative:applicability] ${policyId}`);
+    const publication = await commitInitiativeChange(root, saved.portfolio, saved.initiative, { type: LIFECYCLE_EVENT.CONFIGURATION_CHANGED, phaseId: saved.initiative.currentPhase, payload: { policyId } }, `[${initiativeId}][initiative:applicability] ${policyId}`);
     if (optionBoolean(options, 'json')) {
       return console.log(JSON.stringify({ policyId, applicable: result.applicable, publication }, null, 2));
     }
@@ -6708,7 +6706,7 @@ async function initiativeCommand(positionals, options) {
       agent: session?.agent ?? null
     });
     const state = await loadInitiativeAggregate(root, initiativeId);
-    const publication = await commitInitiativeChange(root, state.portfolio, state.initiative, { type: 'configuration-changed', phaseId, payload: { selection: 'outputs' } }, `[${initiativeId}][initiative:${phaseId}][outputs] select`);
+    const publication = await commitInitiativeChange(root, state.portfolio, state.initiative, { type: LIFECYCLE_EVENT.CONFIGURATION_CHANGED, phaseId, payload: { selection: 'outputs' } }, `[${initiativeId}][initiative:${phaseId}][outputs] select`);
     console.log(`${phaseId} will produce ${result.included.join(', ') || 'nothing'}${result.adopted.length ? ` (adopted ${result.adopted.join(', ')})` : ''}. Commit ${publication.sha.slice(0, 8)}${publication.pushed ? ' pushed' : ''}.`);
     return;
   }
@@ -6724,7 +6722,7 @@ async function initiativeCommand(positionals, options) {
       // and the VS Code extension record the same thing. They used to live here, which is why publishing
       // from the editor left blocking gates unsatisfied and the phase impossible to approve.
       const result = await publishInitiativePhase(root, initiativeId, phaseId, { agent: session?.agent ?? null });
-      const generationPublication = await commitInitiativeChange(root, result.portfolio, result.initiative, { type: 'artifact-generated', phaseId, generation: result.phase.generation }, `[${initiativeId}][initiative:${phaseId}][generated:${result.phase.generation}] publish`);
+      const generationPublication = await commitInitiativeChange(root, result.portfolio, result.initiative, { type: LIFECYCLE_EVENT.ARTIFACT_GENERATED, phaseId, generation: result.phase.generation }, `[${initiativeId}][initiative:${phaseId}][generated:${result.phase.generation}] publish`);
       // A governed handle must name bytes which already exist in an immutable Git revision. Publish
       // the generation first, then register its handles in a small atomic follow-up publication.
       // This avoids prospective or synthetic commit identifiers and keeps every handle reproducible.
@@ -6738,7 +6736,7 @@ async function initiativeCommand(positionals, options) {
           root,
           referenceState.portfolio,
           referenceState.initiative,
-          { type: 'configuration-changed', phaseId, generation: referencePhase.generation, payload: { references: references.map((entry) => entry.handle) } },
+          { type: LIFECYCLE_EVENT.CONFIGURATION_CHANGED, phaseId, generation: referencePhase.generation, payload: { references: references.map((entry) => entry.handle) } },
           `[${initiativeId}][initiative:${phaseId}][references:${referencePhase.generation}] register governed handles`
         );
       }
@@ -6747,7 +6745,7 @@ async function initiativeCommand(positionals, options) {
     } else {
       const context = await composeInitiativeContext(root, initiativeId, phaseId, { agent: session?.agent ?? null });
       const result = await prepareInitiativePhase(root, initiativeId, phaseId, { agent: session?.agent ?? null });
-      const publication = await commitInitiativeChange(root, result.portfolio, result.initiative, { type: 'artifact-generated', phaseId, generation: result.initiative.phases[phaseId].generation }, `[${initiativeId}][initiative:${phaseId}][prepare] outputs`);
+      const publication = await commitInitiativeChange(root, result.portfolio, result.initiative, { type: LIFECYCLE_EVENT.ARTIFACT_GENERATED, phaseId, generation: result.initiative.phases[phaseId].generation }, `[${initiativeId}][initiative:${phaseId}][prepare] outputs`);
       console.log(`Prepared ${result.outputs.length} ${phaseId} documents. Commit ${publication.sha.slice(0, 8)}${publication.pushed ? ' pushed' : ''}.`);
       console.log(`Governed Copilot prompt: ${context.record.promptPath} (${context.record.renderedSha256.slice(0, 12)})`);
       context.warnings.forEach((warning) => console.warn(`Warning: ${warning}`));
@@ -6836,7 +6834,7 @@ async function initiativeCommand(positionals, options) {
         supersedes: optionStrings(options, 'supersedes')
       });
       const fresh = await loadInitiativeAggregate(root, initiativeId);
-      const publication = await commitInitiativeChange(root, fresh.portfolio, fresh.initiative, { type: 'evidence-recorded', phaseId, payload: { checkId } }, `[${initiativeId}][initiative:${phaseId}][evidence] ${checkId}`, { appendOnly: true });
+      const publication = await commitInitiativeChange(root, fresh.portfolio, fresh.initiative, { type: LIFECYCLE_EVENT.EVIDENCE_RECORDED, phaseId, payload: { checkId } }, `[${initiativeId}][initiative:${phaseId}][evidence] ${checkId}`, { appendOnly: true });
       console.log(`Evidence ${appended.sha256.slice(0, 12)} committed ${publication.sha.slice(0, 8)}${publication.pushed ? ' and pushed' : ''}.`);
       return;
     }
@@ -6886,7 +6884,7 @@ async function initiativeCommand(positionals, options) {
     // Knowledge harvested by this approval is committed with it. Two commits would let one land
     // without the other, and leaving it unstaged left the working tree dirty — which the next
     // governed command refuses outright, since every one of them starts from a clean checkout.
-    const publication = await commitInitiativeChange(root, result.portfolio, result.initiative, { type: 'phase-approved', phaseId, agent: session?.agent ?? null, payload: { approvalSubject: subject } }, `[${initiativeId}][initiative:${phaseId}][approve] ${subject}`, {
+    const publication = await commitInitiativeChange(root, result.portfolio, result.initiative, { type: LIFECYCLE_EVENT.PHASE_APPROVED, phaseId, agent: session?.agent ?? null, payload: { approvalSubject: subject } }, `[${initiativeId}][initiative:${phaseId}][approve] ${subject}`, {
       extraPaths: result.knowledge?.harvested?.length ? [KNOWLEDGE_ROOT] : []
     });
     // Spent once the approval has landed, not before it is attempted.
@@ -6906,7 +6904,7 @@ async function initiativeCommand(positionals, options) {
     const subject = positionals[2] ?? 'phase';
     const session = await loadSession(root, { required: false });
     const result = await rejectInitiative(root, { initiativeId, subject, reason: optionString(options, 'reason'), agent: session?.agent ?? null });
-    const publication = await commitInitiativeChange(root, result.portfolio, result.initiative, { type: 'phase-rejected', phaseId: result.target.phaseId ?? result.initiative.currentPhase, payload: { targetType: result.target.type, targetId: result.target.id } }, `[${initiativeId}][initiative:${result.target.type}][reject] ${result.target.id}`);
+    const publication = await commitInitiativeChange(root, result.portfolio, result.initiative, { type: LIFECYCLE_EVENT.PHASE_REJECTED, phaseId: result.target.phaseId ?? result.initiative.currentPhase, payload: { targetType: result.target.type, targetId: result.target.id } }, `[${initiativeId}][initiative:${result.target.type}][reject] ${result.target.id}`);
     console.log(`Rejected ${result.target.type}/${result.target.id}; invalidated ${result.invalidation.affected.length} dependent nodes. Commit ${publication.sha.slice(0, 8)}${publication.pushed ? ' pushed' : ''}.`);
     return;
   }
@@ -6940,14 +6938,14 @@ async function initiativeCommand(positionals, options) {
       replace: optionBoolean(options, 'replace'),
       actor: identity(root).email?.toLowerCase() ?? identity(root).name
     });
-    const publication = await commitInitiativeChange(root, result.portfolio, result.initiative, { type: 'external-synchronized', payload: { system: 'jira', operation: 'adopt', epicKey } }, `[${initiativeId}][initiative:jira-adopt] ${epicKey}`);
+    const publication = await commitInitiativeChange(root, result.portfolio, result.initiative, { type: LIFECYCLE_EVENT.EXTERNAL_SYNCHRONIZED, payload: { system: 'jira', operation: 'adopt', epicKey } }, `[${initiativeId}][initiative:jira-adopt] ${epicKey}`);
     console.log(`Adopted ${epicKey} as ${result.breakdown.epics.length} Epic and ${result.breakdown.stories.length} stories.`);
     console.log(`Source snapshot: ${result.sourceSha256.slice(0, 12)} · Commit ${publication.sha.slice(0, 8)}${publication.pushed ? ' pushed' : ''}.`);
     return;
   }
   if (subcommand === 'jira-plan') {
     const result = await createJiraWritePlan(root, initiativeId);
-    const publication = await commitInitiativeChange(root, result.portfolio, result.initiative, { type: 'external-synchronized', payload: { system: 'jira', operation: 'plan', planSha256: result.plan.sha256 } }, `[${initiativeId}][initiative:jira-plan] ${result.plan.sha256.slice(0, 12)}`);
+    const publication = await commitInitiativeChange(root, result.portfolio, result.initiative, { type: LIFECYCLE_EVENT.EXTERNAL_SYNCHRONIZED, payload: { system: 'jira', operation: 'plan', planSha256: result.plan.sha256 } }, `[${initiativeId}][initiative:jira-plan] ${result.plan.sha256.slice(0, 12)}`);
     if (optionBoolean(options, 'json')) console.log(JSON.stringify({ plan: result.plan, publication }, null, 2));
     else {
       console.log(`Jira write plan ${result.plan.sha256} contains ${result.plan.operations.length} operations.`);
@@ -6973,7 +6971,7 @@ async function initiativeCommand(positionals, options) {
       confirmation: initiativeId,
       actor: identity(root).email?.toLowerCase() ?? identity(root).name
     });
-    const publication = await commitInitiativeChange(root, result.portfolio, result.initiative, { type: 'external-synchronized', payload: { system: 'jira', operation: 'apply', planSha256 } }, `[${initiativeId}][initiative:jira-apply] ${planSha256.slice(0, 12)}`);
+    const publication = await commitInitiativeChange(root, result.portfolio, result.initiative, { type: LIFECYCLE_EVENT.EXTERNAL_SYNCHRONIZED, payload: { system: 'jira', operation: 'apply', planSha256 } }, `[${initiativeId}][initiative:jira-apply] ${planSha256.slice(0, 12)}`);
     console.log(`Applied ${result.results.length} Jira operations. Commit ${publication.sha.slice(0, 8)}${publication.pushed ? ' pushed' : ''}.`);
     result.results.forEach((receipt) => console.log(`- ${receipt.operationId}: ${receipt.jiraKey}`));
     return;
@@ -6988,7 +6986,7 @@ async function initiativeCommand(positionals, options) {
     if (!(await confirmInitiativeExact(`Materialize every reviewed repository story for ${initiativeId}?`, initiativeId, options))) throw new SingularityFlowError('Initiative materialization cancelled.');
     const result = await materializeInitiative(root, initiativeId, { confirmation: initiativeId });
     const fresh = await loadInitiativeAggregate(root, initiativeId);
-    const publication = await commitInitiativeChange(root, fresh.portfolio, fresh.initiative, { type: 'external-synchronized', payload: { operation: 'materialize', status: result.attempt.status } }, `[${initiativeId}][initiative:materialize] ${result.attempt.status}`);
+    const publication = await commitInitiativeChange(root, fresh.portfolio, fresh.initiative, { type: LIFECYCLE_EVENT.EXTERNAL_SYNCHRONIZED, payload: { operation: 'materialize', status: result.attempt.status } }, `[${initiativeId}][initiative:materialize] ${result.attempt.status}`);
     console.log(`Materialization ${result.attempt.status}: ${result.attempt.stories.length - result.failures.length}/${result.attempt.stories.length} ready. Commit ${publication.sha.slice(0, 8)}${publication.pushed ? ' pushed' : ''}.`);
     result.failures.forEach((failure) => console.warn(`- ${failure.storyId}: ${failure.error}`));
     return;
@@ -6997,7 +6995,7 @@ async function initiativeCommand(positionals, options) {
     const pending = await syncInitiativePublication(root, portfolio, initiative);
     const result = await syncInitiativeRepositories(root, initiativeId);
     const fresh = await loadInitiativeAggregate(root, initiativeId);
-    const publication = await commitInitiativeChange(root, fresh.portfolio, fresh.initiative, { type: 'external-synchronized', payload: { operation: 'repository-sync' } }, `[${initiativeId}][initiative:sync] repository evidence`);
+    const publication = await commitInitiativeChange(root, fresh.portfolio, fresh.initiative, { type: LIFECYCLE_EVENT.EXTERNAL_SYNCHRONIZED, payload: { operation: 'repository-sync' } }, `[${initiativeId}][initiative:sync] repository evidence`);
     console.log(`Synchronized ${result.results.filter((item) => item.status === 'synchronized').length}/${result.results.length} stories. Commit ${publication.sha.slice(0, 8)}${publication.pushed ? ' pushed' : ''}.${pending.pushed ? ` Retried ${pending.pushed.slice(0, 8)} first.` : ''}`);
     return;
   }
@@ -7016,7 +7014,7 @@ async function initiativeCommand(positionals, options) {
         agent: session?.agent ?? null
       });
       const fresh = await loadInitiativeAggregate(root, initiativeId);
-      const publication = await commitInitiativeChange(root, fresh.portfolio, fresh.initiative, { type: 'artifact-generated', payload: { contractId: result.contract.id, contractVersion: result.contract.version } }, `[${initiativeId}][initiative:contract] ${result.contract.id}@${result.contract.version}`);
+      const publication = await commitInitiativeChange(root, fresh.portfolio, fresh.initiative, { type: LIFECYCLE_EVENT.ARTIFACT_GENERATED, payload: { contractId: result.contract.id, contractVersion: result.contract.version } }, `[${initiativeId}][initiative:contract] ${result.contract.id}@${result.contract.version}`);
       console.log(`Registered ${result.contract.id}@${result.contract.version} (${result.contract.sha256.slice(0, 12)}). Commit ${publication.sha.slice(0, 8)}${publication.pushed ? ' pushed' : ''}.`);
       return;
     }
@@ -7165,7 +7163,7 @@ async function editorCommand(positionals, options, namespace = 'configuration') 
       root,
       fresh.portfolio,
       fresh.initiative,
-      { type: 'external-synchronized', payload: { operation: 'materialize', status: result.attempt.status } },
+      { type: LIFECYCLE_EVENT.EXTERNAL_SYNCHRONIZED, payload: { operation: 'materialize', status: result.attempt.status } },
       `[${initiativeId}][initiative:materialize] ${result.attempt.status}`
     );
   }
@@ -7179,7 +7177,7 @@ async function editorCommand(positionals, options, namespace = 'configuration') 
       root,
       fresh.portfolio,
       fresh.initiative,
-      { type: 'external-synchronized', payload: { operation: 'repository-sync' } },
+      { type: LIFECYCLE_EVENT.EXTERNAL_SYNCHRONIZED, payload: { operation: 'repository-sync' } },
       `[${initiativeId}][initiative:sync] repository evidence`
     );
     result.pendingPublication = pendingPublication;
@@ -7280,7 +7278,7 @@ async function stateCommand(positionals, options) {
     const subject = result.planes.subject;
     const repairedPaths = result.repairedPaths ?? [result.repairedPath].filter(Boolean);
     const event = {
-      type: 'projection-reconciled',
+      type: LIFECYCLE_EVENT.PROJECTION_RECONCILED,
       phaseId: null,
       generation: null,
       payload: { projections: repairedPaths }
@@ -7388,7 +7386,7 @@ async function publishEpicStoryUpdate(root, initiativeId, planId, changes, detai
     root,
     updated.portfolio,
     updated.initiative,
-    { type: 'artifact-generated', phaseId: updated.initiative.currentPhase, payload: { planId, operation: detail } },
+    { type: LIFECYCLE_EVENT.ARTIFACT_GENERATED, phaseId: updated.initiative.currentPhase, payload: { planId, operation: detail } },
     `[${initiativeId}][epic:story] ${detail}`
   );
   return { updated, publication };
@@ -8557,7 +8555,7 @@ async function epicCommand(positionals, options) {
         root,
         started.portfolio,
         started.initiative,
-        { type: 'binding' },
+        { type: LIFECYCLE_EVENT.BINDING },
         `[${reservation.id}][epic:init] start ${profile}`
       );
       const result = { initiativeId: reservation.id, source, reservation, publication };
@@ -8630,7 +8628,7 @@ async function epicCommand(positionals, options) {
         root,
         loaded.portfolio,
         loaded.initiative,
-        { type: 'evidence-recorded', phaseId: loaded.initiative.currentPhase, payload: { action: 'detached', sourceId } },
+        { type: LIFECYCLE_EVENT.EVIDENCE_RECORDED, phaseId: loaded.initiative.currentPhase, payload: { action: 'detached', sourceId } },
         `[${initiativeId}][epic:evidence:detach] ${sourceId}`,
         { beforeStateWrite: async () => { detached = await detachEpicSource(root, loaded.portfolio, loaded.initiative, { sourceId, reason, agent: session.agent ?? null }); } }
       );
@@ -8657,7 +8655,7 @@ async function epicCommand(positionals, options) {
         root,
         result.portfolio,
         result.initiative,
-        { type: 'evidence-recorded', phaseId: result.initiative.currentPhase, payload: { sourceId: result.record.sourceId } },
+        { type: LIFECYCLE_EVENT.EVIDENCE_RECORDED, phaseId: result.initiative.currentPhase, payload: { sourceId: result.record.sourceId } },
         `[${initiativeId}][epic:source] ${result.record.sourceId}`,
         { appendOnly: true }
       );
@@ -8675,7 +8673,7 @@ async function epicCommand(positionals, options) {
         label: optionString(options, 'label'),
         mimeType: optionString(options, 'mime', 'application/octet-stream')
       });
-      const publication = await commitInitiativeChange(root, result.portfolio, result.initiative, { type: 'evidence-recorded', phaseId: result.initiative.currentPhase, payload: { sourceId: result.record.sourceId } }, `[${initiativeId}][epic:source] ${result.record.sourceId}`, { appendOnly: true });
+      const publication = await commitInitiativeChange(root, result.portfolio, result.initiative, { type: LIFECYCLE_EVENT.EVIDENCE_RECORDED, phaseId: result.initiative.currentPhase, payload: { sourceId: result.record.sourceId } }, `[${initiativeId}][epic:source] ${result.record.sourceId}`, { appendOnly: true });
       const output = { record: result.record, recordSha256: result.recordSha256, publication };
       if (optionBoolean(options, 'json')) return console.log(JSON.stringify(output, null, 2));
       console.log(`Registered ${result.record.sourceId}: ${result.record.name}`);
@@ -8700,7 +8698,7 @@ async function epicCommand(positionals, options) {
           }
         });
         const verifiedState = await loadInitiativeAggregate(root, initiativeId);
-        publication = await commitInitiativeChange(root, verifiedState.portfolio, verifiedState.initiative, { type: 'evidence-recorded', phaseId: verifiedState.initiative.currentPhase, payload: { verifiedSources: result.results.length } }, `[${initiativeId}][epic:sources] verify ${result.results.length}`, { appendOnly: true });
+        publication = await commitInitiativeChange(root, verifiedState.portfolio, verifiedState.initiative, { type: LIFECYCLE_EVENT.EVIDENCE_RECORDED, phaseId: verifiedState.initiative.currentPhase, payload: { verifiedSources: result.results.length } }, `[${initiativeId}][epic:sources] verify ${result.results.length}`, { appendOnly: true });
       }
       if (optionBoolean(options, 'json')) console.log(JSON.stringify(result, null, 2));
       else {
@@ -8741,7 +8739,7 @@ async function epicCommand(positionals, options) {
           root,
           completed.portfolio,
           completed.initiative,
-          { type: 'phase-approved', phaseId: EPIC_PHASES.intake },
+          { type: LIFECYCLE_EVENT.PHASE_APPROVED, phaseId: EPIC_PHASES.intake },
           `[${initiativeId}][epic:intake] sources accepted`
         );
         loaded = await loadInitiativeAggregate(root, initiativeId);
@@ -8923,7 +8921,7 @@ async function epicCommand(positionals, options) {
         root,
         added.portfolio,
         added.initiative,
-        { type: 'artifact-generated', phaseId: added.initiative.currentPhase, payload: { planId: added.story.planId, operation: 'add-story' } },
+        { type: LIFECYCLE_EVENT.ARTIFACT_GENERATED, phaseId: added.initiative.currentPhase, payload: { planId: added.story.planId, operation: 'add-story' } },
         `[${initiativeId}][epic:story] add ${added.story.planId}`
       );
       if (optionBoolean(options, 'json')) return console.log(JSON.stringify({ story: added.story, publication }, null, 2));
@@ -8939,7 +8937,7 @@ async function epicCommand(positionals, options) {
         root,
         split.portfolio,
         split.initiative,
-        { type: 'artifact-generated', phaseId: split.initiative.currentPhase, payload: { planId: split.story.planId, sourcePlanId: planId, operation: 'split-story' } },
+        { type: LIFECYCLE_EVENT.ARTIFACT_GENERATED, phaseId: split.initiative.currentPhase, payload: { planId: split.story.planId, sourcePlanId: planId, operation: 'split-story' } },
         `[${initiativeId}][epic:story] split ${planId} as ${split.story.planId}`
       );
       if (optionBoolean(options, 'json')) return console.log(JSON.stringify({ story: split.story, publication }, null, 2));
@@ -8960,7 +8958,7 @@ async function epicCommand(positionals, options) {
         root,
         adopted.portfolio,
         adopted.initiative,
-        { type: 'external-synchronized', phaseId: adopted.initiative.currentPhase, payload: { system: 'jira', operation: 'adopt-story', jiraKey: issue.key, planId: adopted.story.planId } },
+        { type: LIFECYCLE_EVENT.EXTERNAL_SYNCHRONIZED, phaseId: adopted.initiative.currentPhase, payload: { system: 'jira', operation: 'adopt-story', jiraKey: issue.key, planId: adopted.story.planId } },
         `[${initiativeId}][epic:story] adopt ${issue.key} as ${adopted.story.planId}`
       );
       if (optionBoolean(options, 'json')) return console.log(JSON.stringify({ story: adopted.story, publication }, null, 2));
@@ -9027,7 +9025,7 @@ async function epicCommand(positionals, options) {
         await completeEpicPublication(root, initiativeId);
       }
       const fresh = await loadInitiativeAggregate(root, initiativeId);
-      const publication = await commitInitiativeChange(root, fresh.portfolio, fresh.initiative, { type: 'external-synchronized', payload: { operation: 'materialize-branches', status: materialized.attempt.status } }, `[${initiativeId}][epic:branches] ${materialized.attempt.status}`);
+      const publication = await commitInitiativeChange(root, fresh.portfolio, fresh.initiative, { type: LIFECYCLE_EVENT.EXTERNAL_SYNCHRONIZED, payload: { operation: 'materialize-branches', status: materialized.attempt.status } }, `[${initiativeId}][epic:branches] ${materialized.attempt.status}`);
       const result = { authority: 'local', materialization: materialized.attempt, publication };
       if (optionBoolean(options, 'json')) return console.log(JSON.stringify(result, null, 2));
       console.log(`Local Story branches ready: ${materialized.attempt.stories.filter((entry) => entry.status !== 'failed').length}/${materialized.attempt.stories.length}.`);
@@ -9047,7 +9045,7 @@ async function epicCommand(positionals, options) {
         console.log(`Publish it with singularity-flow epic jira apply.`);
         return;
       }
-      const publication = await commitInitiativeChange(root, result.portfolio, result.initiative, { type: 'external-synchronized', payload: { system: 'jira', operation: 'plan', planSha256: result.plan.sha256 } }, `[${initiativeId}][epic:jira-plan] ${result.plan.sha256.slice(0, 12)}`);
+      const publication = await commitInitiativeChange(root, result.portfolio, result.initiative, { type: LIFECYCLE_EVENT.EXTERNAL_SYNCHRONIZED, payload: { system: 'jira', operation: 'plan', planSha256: result.plan.sha256 } }, `[${initiativeId}][epic:jira-plan] ${result.plan.sha256.slice(0, 12)}`);
       if (optionBoolean(options, 'json')) return console.log(JSON.stringify({ plan: result.plan, publication }, null, 2));
       console.log(`Created and published Jira write plan ${result.plan.sha256}.`);
       console.log(`Review it, then run singularity-flow epic create-stories --plan ${result.plan.sha256}.`);
@@ -9077,7 +9075,7 @@ async function epicCommand(positionals, options) {
       }
     });
     const appliedState = await loadInitiativeAggregate(root, initiativeId);
-    const applicationPublication = await commitInitiativeChange(root, appliedState.portfolio, appliedState.initiative, { type: 'external-synchronized', payload: { system: 'jira', operation: 'apply', planSha256 } }, `[${initiativeId}][epic:jira-apply] ${planSha256.slice(0, 12)}`);
+    const applicationPublication = await commitInitiativeChange(root, appliedState.portfolio, appliedState.initiative, { type: LIFECYCLE_EVENT.EXTERNAL_SYNCHRONIZED, payload: { system: 'jira', operation: 'apply', planSha256 } }, `[${initiativeId}][epic:jira-apply] ${planSha256.slice(0, 12)}`);
     const materialized = await materializeInitiative(root, initiativeId, { confirmation: initiativeId });
     if (!materialized.failures.length) {
       await registerInitiativeEvidence(root, {
@@ -9095,7 +9093,7 @@ async function epicCommand(positionals, options) {
       await completeEpicPublication(root, initiativeId);
     }
     const fresh = await loadInitiativeAggregate(root, initiativeId);
-    const branchPublication = await commitInitiativeChange(root, fresh.portfolio, fresh.initiative, { type: 'external-synchronized', payload: { operation: 'materialize-branches', status: materialized.attempt.status } }, `[${initiativeId}][epic:branches] ${materialized.attempt.status}`);
+    const branchPublication = await commitInitiativeChange(root, fresh.portfolio, fresh.initiative, { type: LIFECYCLE_EVENT.EXTERNAL_SYNCHRONIZED, payload: { operation: 'materialize-branches', status: materialized.attempt.status } }, `[${initiativeId}][epic:branches] ${materialized.attempt.status}`);
     const result = { plan: planSha256, applied: applied.results, materialization: materialized.attempt, publications: { application: applicationPublication, branches: branchPublication } };
     if (optionBoolean(options, 'json')) return console.log(JSON.stringify(result, null, 2));
     console.log(`Created or attached ${applied.results.filter((entry) => entry.subject.type === 'story').length} Jira Stories.`);
@@ -9118,12 +9116,12 @@ async function epicCommand(positionals, options) {
     }
     const synchronized = await syncInitiativeRepositories(root, initiativeId);
     const synced = await loadInitiativeAggregate(root, initiativeId);
-    const syncPublication = await commitInitiativeChange(root, synced.portfolio, synced.initiative, { type: 'external-synchronized', payload: { operation: 'completion-preflight' } }, `[${initiativeId}][epic:sync] completion preflight`);
+    const syncPublication = await commitInitiativeChange(root, synced.portfolio, synced.initiative, { type: LIFECYCLE_EVENT.EXTERNAL_SYNCHRONIZED, payload: { operation: 'completion-preflight' } }, `[${initiativeId}][epic:sync] completion preflight`);
     const result = await completeEpicDelivery(root, initiativeId, {
       confirmation: initiativeId,
       actor: identity(root)
     });
-    const publication = await commitInitiativeChange(root, result.portfolio, result.initiative, { type: 'work-completed', payload: { completionSha256: result.record.sha256 } }, `[${initiativeId}][epic:complete] ${result.record.sha256.slice(0, 12)}`);
+    const publication = await commitInitiativeChange(root, result.portfolio, result.initiative, { type: LIFECYCLE_EVENT.WORK_COMPLETED, payload: { completionSha256: result.record.sha256 } }, `[${initiativeId}][epic:complete] ${result.record.sha256.slice(0, 12)}`);
     const output = { record: result.record, reportPath: result.reportPath, synchronized, publications: { sync: syncPublication, completion: publication } };
     if (optionBoolean(options, 'json')) return console.log(JSON.stringify(output, null, 2));
     console.log(`Epic ${initiativeId} marked complete.`);
@@ -9333,7 +9331,7 @@ async function epicCommand(positionals, options) {
     const action = positionals[2] ?? 'observe';
     if (action === 'observe') {
       const result = await observeJiraDrift(root, initiativeId);
-      const publication = await commitInitiativeChange(root, result.portfolio, result.initiative, { type: 'external-synchronized', payload: { system: 'jira', operation: 'observe-drift', observationSha256: result.record.observationSha256 } }, `[${initiativeId}][epic:jira-drift] observe`);
+      const publication = await commitInitiativeChange(root, result.portfolio, result.initiative, { type: LIFECYCLE_EVENT.EXTERNAL_SYNCHRONIZED, payload: { system: 'jira', operation: 'observe-drift', observationSha256: result.record.observationSha256 } }, `[${initiativeId}][epic:jira-drift] observe`);
       const output = { record: result.record, publication };
       if (optionBoolean(options, 'json')) return console.log(JSON.stringify(output, null, 2));
       console.log(`Jira drift: ${result.record.observations.filter((entry) => entry.drifted).length}/${result.record.observations.length} issue(s).`);
@@ -9345,14 +9343,14 @@ async function epicCommand(positionals, options) {
         observationSha256: optionString(options, 'observation'),
         actor: identity(root).email?.toLowerCase() ?? identity(root).name
       });
-      const publication = await commitInitiativeChange(root, result.portfolio, result.initiative, { type: 'external-synchronized', payload: { system: 'jira', operation: 'adopt-drift', observationSha256: result.observation.observationSha256 } }, `[${initiativeId}][epic:jira-drift] adopt ${result.observation.observationSha256.slice(0, 12)}`);
+      const publication = await commitInitiativeChange(root, result.portfolio, result.initiative, { type: LIFECYCLE_EVENT.EXTERNAL_SYNCHRONIZED, payload: { system: 'jira', operation: 'adopt-drift', observationSha256: result.observation.observationSha256 } }, `[${initiativeId}][epic:jira-drift] adopt ${result.observation.observationSha256.slice(0, 12)}`);
       if (optionBoolean(options, 'json')) return console.log(JSON.stringify({ observation: result.observation, publication }, null, 2));
       console.log(`Adopted Jira observations into a new governed Git generation. Commit ${publication.sha.slice(0, 8)}.`);
       return;
     }
     if (action === 'restore-plan') {
       const result = await createJiraWritePlan(root, initiativeId);
-      const publication = await commitInitiativeChange(root, result.portfolio, result.initiative, { type: 'external-synchronized', payload: { system: 'jira', operation: 'restore-plan', planSha256: result.plan.sha256 } }, `[${initiativeId}][epic:jira-restore] ${result.plan.sha256.slice(0, 12)}`);
+      const publication = await commitInitiativeChange(root, result.portfolio, result.initiative, { type: LIFECYCLE_EVENT.EXTERNAL_SYNCHRONIZED, payload: { system: 'jira', operation: 'restore-plan', planSha256: result.plan.sha256 } }, `[${initiativeId}][epic:jira-restore] ${result.plan.sha256.slice(0, 12)}`);
       if (optionBoolean(options, 'json')) return console.log(JSON.stringify({ plan: result.plan, publication }, null, 2));
       console.log(`Created reviewed Jira restore plan ${result.plan.sha256}. No Jira fields were changed.`);
       return;
@@ -9480,7 +9478,7 @@ async function constitutionCommand(positionals, options) {
       // `evidence-recorded`, from the closed lifecycle-event vocabulary, rather than a new type: an
       // exception is a governed record attached to the Story, and inventing an event kind for it
       // would put a second vocabulary beside the one the ledger already validates against.
-      { type: 'evidence-recorded', kind: 'constitution-exception', articleId, phaseId: workflow.currentPhase ?? null },
+      { type: LIFECYCLE_EVENT.EVIDENCE_RECORDED, kind: 'constitution-exception', articleId, phaseId: workflow.currentPhase ?? null },
       `[${workflow.workItem.id}][constitution:except] ${articleId}`,
       [],
       {

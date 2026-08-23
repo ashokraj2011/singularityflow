@@ -29,6 +29,7 @@ import { advancementBlocked, convergenceBindings, convergenceFacts, convergenceP
 import { assertClean, branch, changedFiles, changes, checkout, commit, identity, repoRoot } from '../git.mjs';
 import { runAndRecordStoryChecks } from '../github-evidence.mjs';
 import { loadPortfolio } from '../initiative-config.mjs';
+import { LIFECYCLE_EVENT } from '../lifecycle-event.mjs';
 import { sameRepositoryRemote } from '../initiative-repositories.mjs';
 import { getIssue, getIssueProperty, listMyIssues } from '../jira.mjs';
 import { invokeModel, resolveModelProvider } from '../model-runner.mjs';
@@ -252,7 +253,7 @@ export async function storyFetchCommand(positionals, options) {
       resolved: resolvedWorkType,
       capabilityId: optionString(options, 'capability')
     });
-    await commitAndPublish(target, config, workflow, { type: 'binding' }, `[${storyKey}][init] start governed Story workflow`);
+    await commitAndPublish(target, config, workflow, { type: LIFECYCLE_EVENT.BINDING }, `[${storyKey}][init] start governed Story workflow`);
   }
   if (optionBoolean(options, 'json')) {
     return console.log(JSON.stringify({ storyKey, repository: repositoryId, directory: target, workflow: workflow.workItem, property }, null, 2));
@@ -905,7 +906,7 @@ async function proposeIntentAmendment(root, config, workflow, projection, option
     config,
     workflow,
     {
-      type: 'intent-amendment-proposed',
+      type: LIFECYCLE_EVENT.INTENT_AMENDMENT_PROPOSED,
       phaseId: 'specification',
       generation: specification.generation,
       payload: { proposalId: id, proposalSha256: proposal.proposalSha256, changedClauses: diff.changed }
@@ -989,7 +990,7 @@ async function acknowledgeApprovedIntentAmendment(root, config, workflow, propos
     config,
     workflow,
     {
-      type: 'intent-amendment-acknowledged',
+      type: LIFECYCLE_EVENT.INTENT_AMENDMENT_ACKNOWLEDGED,
       phaseId: workflow.currentPhase,
       generation: currentPhase(workflow)?.generation ?? null,
       payload: { proposalId: proposalId ?? null }
@@ -1095,7 +1096,7 @@ export async function storyReworkCommand(positionals, options) {
     root,
     config,
     workflow,
-    { type: 'phase-rejected', phaseId: subject.phase.id, generation: subject.phase.generation },
+    { type: LIFECYCLE_EVENT.PHASE_REJECTED, phaseId: subject.phase.id, generation: subject.phase.generation },
     `[${workflow.workItem.id}][converge:rework] iteration ${projection.iteration}`,
     [],
     {

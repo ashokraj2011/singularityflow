@@ -8,6 +8,7 @@ import {
 import { readStoryReviewPacket } from './story-lineage.mjs';
 import { runGovernanceGate } from './governance.mjs';
 import { currentSchemaVersion } from './schema-migrations.mjs';
+import { LIFECYCLE_EVENT } from './lifecycle-event.mjs';
 
 function hash(value) {
   return createHash('sha256').update(JSON.stringify(value)).digest('hex');
@@ -180,7 +181,7 @@ export async function runAndRecordStoryChecks(root, config, workflow, {
     root,
     config,
     workflow,
-    { type: 'evidence-recorded', phaseId: packet.phase, payload: { packetSha256: packet.packetSha256, evidenceSha256 } },
+    { type: LIFECYCLE_EVENT.EVIDENCE_RECORDED, phaseId: packet.phase, payload: { packetSha256: packet.packetSha256, evidenceSha256 } },
     `[${workflow.workItem.id}][checks] ${packet.packetSha256.slice(0, 12)}`,
     [path.relative(root, file)],
     {

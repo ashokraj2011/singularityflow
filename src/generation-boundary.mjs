@@ -171,27 +171,50 @@ export async function verifyOpenGenerationIntent(root, workflow, phase) {
   return intent;
 }
 
+/**
+ * Verify and expose the immutable generation-start provenance bound into publication.
+ *
+ * Beginning work is not a lifecycle transition. The later artifact-generated event carries this
+ * exact receipt hash so the publication can prove which local authoring boundary it consumed.
+ */
+export async function generationStartPublicationBinding(root, workflow, phase) {
+  const intent = requireOpenGenerationIntent(workflow, phase);
+  if (!intent) return null;
+  const receipt = await verifiedIntentRecord(root, workflow, phase, intent);
+  return Object.freeze({
+    generationIntentId: receipt.generationIntentId,
+    generationStartPath: intent.path,
+    generationStartSha256: receipt.receiptSha256,
+    baselineCommit: receipt.baseline?.commit ?? null,
+    baselineTree: receipt.baseline?.tree ?? null,
+    initialChangeSetDigest: receipt.baseline?.initialChangeSetDigest ?? null,
+    previousGenerationCommit: phase.deliveryEvidence?.tree?.generationCommit ?? null
+  });
+}
+
 export async function consumeGenerationIntent(root, phase, publication) {
   if (!phase.generationIntent) return null;
+  if (phase.generationIntent.path) {
+    const receipt = readRecord(
+      'generation-start',
+      await readJson(path.join(root, phase.generationIntent.path))
+    ).record;
+    const receiptSha256 = generationStartSha256(receipt);
+    if (receipt.status !== 'open'
+        || receipt.receiptSha256 !== receiptSha256
+        || phase.generationIntent.receiptSha256 !== receiptSha256) {
+      throw new SingularityFlowError('The generation-start receipt changed before publication could consume it.', {
+        code: 'GENERATION_INTENT_REQUIRED'
+      });
+    }
+  }
   phase.generationIntent.status = 'consumed';
   phase.generationIntent.consumedAt = publication.publishedAt;
   phase.generationIntent.publication = {
     generation: publication.generation,
     changeSetDigest: publication.changeSetDigest,
-    resultDigest: publication.resultDigest ?? null
+    resultDigest: publication.resultDigest ?? null,
+    generationStartSha256: phase.generationIntent.receiptSha256
   };
-  if (phase.generationIntent.path) {
-    const absolute = path.join(root, phase.generationIntent.path);
-    const receipt = await readJson(absolute);
-    const consumed = {
-      ...receipt,
-      status: 'consumed',
-      consumedAt: publication.publishedAt,
-      publication: phase.generationIntent.publication
-    };
-    consumed.receiptSha256 = generationStartSha256(consumed);
-    phase.generationIntent.receiptSha256 = consumed.receiptSha256;
-    await writeJson(absolute, consumed);
-  }
   return phase.generationIntent;
 }

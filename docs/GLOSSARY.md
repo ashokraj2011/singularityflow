@@ -39,6 +39,8 @@ already exist.
 | Approval authority | A configured group of real identities permitted to approve | `approvalAuthorities` in workflow/portfolio configuration | Whether an approval decision is valid |
 | Capability ledger | Optional append-only proof/mirror of high-value lifecycle events on an orphan `state` branch | Orphan Git branch | Audit proof and reconciliation, never active operational state |
 | Generation | One numbered attempt at a phase. Rejecting a phase and reworking it produces generation 2, and so on; artifacts, telemetry and review packets are all recorded per generation | `phases.<id>.generation` in the work item, and `-gen<N>` suffixes on stored records | Which attempt an artifact, approval or telemetry record belongs to |
+| Generation-start receipt | Immutable local proof of the source/tree and change-set boundary established before code authoring; it is not a lifecycle event | `singularity/work-items/<ID>/context/generation-start/` | Which exact authoring boundary a later artifact publication consumed |
+| Closed vocabulary | Immutable registry that owns finite first-party symbolic members such as lifecycle event types | `src/vocabularies/` and its generated manifest | Whether a producer may create authority using a symbolic member |
 | Publication | The atomic unit of a governed change: take the subject lock, run preflight, write state, commit, push, append to the ledger. Either all of it happens or none of it does | `src/publication-unit-of-work.mjs` | Whether a lifecycle transition actually took effect |
 | Configuration branch | The orphan `sflow/config` branch holding governed configuration, with no shared history with any code branch. A Story pins its hashes at start, so later edits stop it rather than silently change it | Orphan Git branch | What configuration a Story is judged against |
 | Grounding | Whether a phase requires a current world-model composition before it may generate. `off`, `warn` or `enforce` | `worldModel.grounding` | Whether generation may proceed without repository facts |
@@ -94,4 +96,3 @@ Story or Initiative history.
 The capability map describes ownership and relationships. The optional capability
 ledger records append-only proof events. Neither replaces Story or Initiative
 state.
-

@@ -24,6 +24,7 @@ import { SingularityFlowError } from './util.mjs';
 import { normalizeMcpTargetOrigin } from './mcp-target.mjs';
 import { writeReturnLocator } from './return-locator.mjs';
 import { pinAcceptedChangeFlightPlan } from './change-flight-plan.mjs';
+import { LIFECYCLE_EVENT } from './lifecycle-event.mjs';
 
 function lines(value) {
   if (Array.isArray(value)) return value.map((item) => String(item).trim()).filter(Boolean);
@@ -241,7 +242,7 @@ export async function startStory(root, {
     root,
     definition,
     workflow,
-    { type: 'binding' },
+    { type: LIFECYCLE_EVENT.BINDING },
     `[${id}][init] start ${workType} workflow`,
     [returnLocator.path]
   );
@@ -253,7 +254,7 @@ export async function startStory(root, {
       root,
       definition,
       workflow,
-      { type: 'evidence-recorded', payload: { documents: added.map((item) => item.id) } },
+      { type: LIFECYCLE_EVENT.EVIDENCE_RECORDED, payload: { documents: added.map((item) => item.id) } },
       `[${id}][documents][upload] ${added.map((item) => item.id).join(',')}`
     );
   }
@@ -264,7 +265,7 @@ export async function startStory(root, {
       root,
       definition,
       workflow,
-      { type: 'evidence-recorded', payload: { documents: added.map((item) => item.id) } },
+      { type: LIFECYCLE_EVENT.EVIDENCE_RECORDED, payload: { documents: added.map((item) => item.id) } },
       `[${id}][documents][upload] ${added.map((item) => item.id).join(',')}`
     );
   }

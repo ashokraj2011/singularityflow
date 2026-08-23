@@ -1,33 +1,11 @@
 import { createHash, randomUUID } from 'node:crypto';
 import { SingularityFlowError, nowIso } from './util.mjs';
+import {
+  LIFECYCLE_EVENT, LIFECYCLE_EVENT_VOCABULARY
+} from './vocabularies/catalog.mjs';
 
-export const LIFECYCLE_EVENT_TYPES = Object.freeze([
-  'binding',
-  'configuration-changed',
-  'artifact-generated',
-  'approval-requested',
-  'phase-approved',
-  'phase-rejected',
-  'intent-amendment-proposed',
-  'intent-amendment-approved',
-  'intent-amendment-rejected',
-  'intent-amendment-acknowledged',
-  'workflow-reopened',
-  'sequence-override',
-  'evidence-recorded',
-  'external-synchronized',
-  'branch-linked',
-  'telemetry-recorded',
-  'projection-reconciled',
-  'impact-classified',
-  'impact-opted-out',
-  'impact-exposure-recorded',
-  'impact-evidence-collected',
-  'impact-evidence-imported',
-  'impact-finalized',
-  'work-cancelled',
-  'work-completed'
-]);
+export { LIFECYCLE_EVENT, LIFECYCLE_EVENT_VOCABULARY };
+export const LIFECYCLE_EVENT_TYPES = LIFECYCLE_EVENT_VOCABULARY.values;
 
 export function lifecycleEvent({
   type,
@@ -39,8 +17,33 @@ export function lifecycleEvent({
   authorityGroup = null,
   payload = {}
 } = {}) {
-  if (!LIFECYCLE_EVENT_TYPES.includes(type)) {
-    throw new SingularityFlowError(`Unsupported lifecycle event type '${type}'. Allowed: ${LIFECYCLE_EVENT_TYPES.join(', ')}.`);
+  const descriptor = LIFECYCLE_EVENT_VOCABULARY.descriptors[type];
+  if (!descriptor) {
+    throw new SingularityFlowError(
+      `Lifecycle write refused: vocabulary '${LIFECYCLE_EVENT_VOCABULARY.id}' does not own member '${type}'. No lifecycle authority was recorded. Source, artifacts, tests, and any valid generation intent are preserved. Upgrade Singularity Flow or remove the invalid first-party emitter, then retry the operation.`,
+      {
+        code: 'VOCABULARY_MEMBER_UNKNOWN',
+        details: {
+          status: 'refused',
+          scope: { operation: 'lifecycle.write', subject: subject ?? null, repositoryWide: false },
+          vocabulary: {
+            id: LIFECYCLE_EVENT_VOCABULARY.id,
+            installedVersion: LIFECYCLE_EVENT_VOCABULARY.version,
+            installedSha256: LIFECYCLE_EVENT_VOCABULARY.manifest.sha256,
+            member: type
+          },
+          authority: { wouldCreateAuthority: true, recorded: false },
+          workPreserved: { source: true, artifact: true, tests: true, generationIntent: true },
+          allowedOperations: ['status', 'show', 'edit', 'test', 'phase.begin']
+        }
+      }
+    );
+  }
+  if (!descriptor.writeAllowed) {
+    throw new SingularityFlowError(`Lifecycle member '${type}' is retained for reads but cannot be written.`, {
+      code: 'VOCABULARY_MEMBER_NOT_WRITABLE',
+      details: { vocabulary: LIFECYCLE_EVENT_VOCABULARY.id, member: type }
+    });
   }
   if (!['story', 'initiative'].includes(subject?.kind) || !String(subject?.id ?? '').trim()) {
     throw new SingularityFlowError('Lifecycle events require subject.kind story|initiative and subject.id.');

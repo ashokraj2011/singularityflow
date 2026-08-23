@@ -12,7 +12,7 @@ related:
   - configuration
   - agents-and-routing
   - artifacts-and-generation
-version: 4
+version: 5
 ---
 Author work types, ordered phases, gates, artifacts, inputs, and approval policy through governed configuration. Existing work remains pinned to the resolution it started with.
 
@@ -73,9 +73,9 @@ and `Benchmark B — generic context` (`benchmarking-b`). Both run:
 `intake → design → implementation → testing → conformance`
 
 They share the same templates, default agents, artifact contracts, write scopes, approval groups,
-thresholds, and rejection routes. A requires governed world-model grounding, automatically injects
-one bounded AST evidence page, and consumes approval-bound agent briefs. B disables world-model and
-AST context, skips AST lifecycle predicates, and consumes full approved artifacts. The resolved
+thresholds, and rejection routes. A requires governed world-model grounding, requests one bounded
+optional AST evidence page, and consumes approval-bound agent briefs. If AST is unavailable, A
+continues with ordinary repository access. B disables world-model and AST context and consumes full approved artifacts. The resolved
 `intelligence` policy is pinned into `workflow.json`, so a later configuration change cannot switch
 an active Story between arms.
 

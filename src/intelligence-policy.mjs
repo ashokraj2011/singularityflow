@@ -1,7 +1,7 @@
 import { SingularityFlowError } from './util.mjs';
 
 export const WORK_TYPE_WORLD_MODEL_MODES = Object.freeze(['inherit', 'required', 'off']);
-export const WORK_TYPE_AST_MODES = Object.freeze(['inherit', 'required-context', 'off']);
+export const WORK_TYPE_AST_MODES = Object.freeze(['inherit', 'optional-context', 'required-context', 'off']);
 export const WORK_TYPE_AGENT_BRIEF_MODES = Object.freeze(['inherit', 'required', 'off']);
 
 /**
@@ -41,7 +41,16 @@ export function worldModelModeForIntelligence(configuredMode, intelligence) {
 }
 
 export function astContextRequired(workflow) {
-  return workflow?.resolution?.intelligence?.ast === 'required-context';
+  return astContextRequested(workflow);
+}
+
+/**
+ * Whether a work type would benefit from bounded AST context. `required-context` is retained as a
+ * backward-compatible spelling, but has optional semantics: failure to obtain AST context never
+ * prevents the model-backed operation from continuing with ordinary repository file access.
+ */
+export function astContextRequested(workflow) {
+  return ['optional-context', 'required-context'].includes(workflow?.resolution?.intelligence?.ast);
 }
 
 export function astDisabledForWorkflow(workflow) {

@@ -90,7 +90,7 @@ test('guided AST edits preserve unrelated workflow configuration', () => {
   });
 });
 
-test('the AST form rejects unsafe roots, duplicate language rows, and disabling required gates', () => {
+test('the AST form rejects unsafe roots and duplicate language rows while AST off remains valid', () => {
   const invalid = {
     ...policy, mode: 'off', generatedRoots: ['../secret'],
     languages: [
@@ -102,7 +102,7 @@ test('the AST form rejects unsafe roots, duplicate language rows, and disabling 
   const errors = validateAstPolicyDraft(invalid).join(' ');
   assert.match(errors, /repository-relative/);
   assert.match(errors, /duplicated/);
-  assert.match(errors, /cannot be off/);
+  assert.doesNotMatch(errors, /cannot be off/);
   assert.deepEqual(parseAstLanguageRows('typescript | auto | text\nkotlin | off | syntax'), [
     { language: 'typescript', mode: 'auto', minimumAssurance: 'text', syntaxProvider: null, semanticProvider: null, semanticProfile: null },
     { language: 'kotlin', mode: 'off', minimumAssurance: 'syntax', syntaxProvider: null, semanticProvider: null, semanticProfile: null }
@@ -140,7 +140,8 @@ test('the VS Code AST page exposes every policy source and keeps evidence and re
   assert.match(panel, /CLEAR AST CACHE/);
   assert.match(panel, /escape\(adapter\.id/);
   assert.match(panel, /Facts and source bodies are not rendered/);
-  assert.match(panel, /lifecycle gate/);
+  assert.match(panel, /workflow dependency/);
+  assert.match(panel, /AST is always optional/);
   assert.match(panel, /cache\.hits/);
   assert.match(panel, /structured arguments, bounded JSON input\/output, no shell/);
   assert.match(panel, /Language and project readiness/);

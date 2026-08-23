@@ -160,13 +160,12 @@ export function astPolicyView(snapshot: Pick<RepositorySnapshot, 'definition'>):
   const predicates = Array.isArray(raw.predicates) ? raw.predicates as Array<Record<string, unknown>> : [];
   const evidence = (raw.evidence && typeof raw.evidence === 'object' && !Array.isArray(raw.evidence)
     ? raw.evidence : {}) as Record<string, unknown>;
-  const requiredEvidence = predicates.some((entry) => entry.mode === 'required');
   return {
     mode: raw.mode === 'off' ? 'off' : 'auto',
     fallback: raw.fallback === 'text-only' ? 'text-only' : 'host-and-text',
     evidence: {
       mode: evidence.mode === 'replayable' || evidence.mode === 'off' || evidence.mode === 'identified'
-        ? evidence.mode : requiredEvidence ? 'replayable' : 'identified',
+        ? evidence.mode : 'identified',
       store: typeof evidence.store === 'string' && evidence.store ? evidence.store : 'local-directory'
     },
     generatedRoots: Array.isArray(raw.generatedRoots) ? raw.generatedRoots.filter((entry): entry is string => typeof entry === 'string') : [],
@@ -233,12 +232,6 @@ export function validateAstPolicyDraft(draft: AstPolicyDraft): string[] {
     if (row.mode === 'required' && row.type === 'symbol-exists' && row.minimumAssurance === 'text') {
       errors.push(`Required symbol predicate '${row.id}' must use syntax or semantic assurance; lexical text matches are advisory only.`);
     }
-  }
-  if (draft.mode === 'off' && draft.predicates.some((row) => row.mode === 'required')) {
-    errors.push('Repository mode cannot be off while a required structural predicate exists.');
-  }
-  if (draft.predicates.some((row) => row.mode === 'required') && draft.evidence.mode !== 'replayable') {
-    errors.push('Required structural predicates require replayable evidence.');
   }
   return errors;
 }

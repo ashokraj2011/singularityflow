@@ -131,7 +131,7 @@ export async function runGovernanceGate(root, config, workflow, { terminal = fal
       const ast = await verifyAstLifecycleReceipt(root, config, workflow, phase, {
         generation, revalidate: false, sourceCommit: found?.[0] ?? null
       });
-      errors.push(...ast.errors); warnings.push(...ast.warnings);
+      warnings.push(...ast.errors.map((error) => `optional AST evidence: ${error}`), ...ast.warnings);
       if (found) passes.push(...ast.passes);
       if (phaseRequiresCodeDelivery(phase)) {
         const receiptPath = posix(path.join(

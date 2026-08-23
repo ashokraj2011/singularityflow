@@ -45,7 +45,7 @@ interface AstDoctorResult {
   }>;
   assuranceAvailable?: AstAssurance[];
   lifecycle?: {
-    enforced?: boolean; predicateCount?: number; requiredPredicateCount?: number;
+    enforced?: boolean; optional?: boolean; predicateCount?: number; requiredPredicateCount?: number;
     workId?: string | null; phase?: string | null; generation?: number | null;
     latestGate?: { generation?: number; status?: string; assurance?: string; path?: string } | null;
   };
@@ -140,20 +140,15 @@ function runtimeSummary(doctor: AstDoctorResult | null): string {
     ['VS Code environment', sources.environment, 'Inherited when VS Code launched; shown read-only'],
     ['Operation default', sources.operation, 'Individual previews may choose a stricter off mode']
   ];
-  const lifecycle = doctor.lifecycle ?? {};
-  const gateStatus = lifecycle.enforced
-    ? lifecycle.latestGate
-      ? `${lifecycle.latestGate.status ?? 'unknown'} · generation ${lifecycle.latestGate.generation ?? 'unknown'}`
-      : lifecycle.phase ? 'required at next publication' : 'configured'
-    : 'not configured';
+  const gateStatus = 'never required';
   return `<section class="plain"><h2>${icon(effective === 'off' ? 'warning' : 'ok')}Effective mode</h2>
     <div class="summary-grid"><div class="summary-card ${effective === 'off' ? 'important' : ''}"><strong>${escape(effective)}</strong><span>effective AST mode</span></div>
       <div class="summary-card"><strong>${escape((doctor.assuranceAvailable ?? ['text']).join(', '))}</strong><span>available assurance</span></div>
       <div class="summary-card"><strong>${escape(doctor.scope?.kind ?? 'changed')}</strong><span>default scope</span></div>
       <div class="summary-card"><strong>${escape(doctor.cache?.files ?? 0)}</strong><span>derived cache records</span></div>
-      <div class="summary-card"><strong>${escape(gateStatus)}</strong><span>lifecycle gate</span></div></div>
+      <div class="summary-card"><strong>${escape(gateStatus)}</strong><span>workflow dependency</span></div></div>
     <div class="table-wrap"><table><thead><tr><th>Source</th><th>Mode</th><th>Ownership</th></tr></thead><tbody>${sourceRows.map(([name, mode, detail]) => `<tr><td><strong>${escape(name)}</strong></td><td><code>${escape(mode ?? 'auto')}</code></td><td>${escape(detail)}</td></tr>`).join('')}</tbody></table></div>
-    <p class="notice">The most restrictive source wins. There is deliberately no force-enable control that can override a repository, machine, or environment setting. Configured predicates are evaluated before phase publication and their exact receipt is revalidated before submission.</p>
+    <p class="notice">The most restrictive source wins. AST is always optional: disabled modes, missing language packs, unavailable adapters, and evidence-store problems degrade structural results but never block phase publication, submission, governance, or ordinary repository file access.</p>
     ${list<NonNullable<AstDoctorResult['diagnostics']>[number]>(doctor.diagnostics).length ? `<ul>${list<NonNullable<AstDoctorResult['diagnostics']>[number]>(doctor.diagnostics).map((entry) => `<li><code>${escape(entry.code ?? 'AST_DIAGNOSTIC')}</code>${entry.message ? ` — ${escape(entry.message)}` : ''}</li>`).join('')}</ul>` : ''}
   </section>`;
 }
@@ -196,9 +191,9 @@ function policyForm(policy: AstPolicyDraft, scope: AstRepositoryScopeView | null
   return `<section><div class="section-heading"><div><h2>${icon('worldModel')}Repository policy</h2><p>Saved through the governed configuration engine. Review and publish <code>singularity/workflow.yml</code> through the normal configuration path.</p></div><button class="secondary" data-message="open-configuration">Configuration Center</button></div>
     <form id="ast-policy-form">
       <div class="editor-card"><h3>Behavior</h3><div class="form-grid">
-        <label><span>Repository mode for ${escape(repository)}</span><select name="mode">${option('auto', policy.mode, 'Auto — available when requested')}${option('off', policy.mode, `Off — disable for ${repository}`)}</select><small>Off is refused while any required predicate exists.</small></label>
+        <label><span>Repository mode for ${escape(repository)}</span><select name="mode">${option('auto', policy.mode, 'Auto — available when requested')}${option('off', policy.mode, `Off — disable for ${repository}`)}</select><small>Off is always allowed and ordinary repository file access continues.</small></label>
         <label><span>Fallback</span><select name="fallback">${option('host-and-text', policy.fallback, 'Host and bounded text facts')}${option('text-only', policy.fallback, 'Bounded text facts only')}</select></label>
-        <label><span>Durable evidence</span><select name="evidenceMode">${option('replayable', policy.evidence.mode, 'Replayable — retain exact toolchain')}${option('identified', policy.evidence.mode, 'Identified — record digests only')}${option('off', policy.evidence.mode, 'Off — previews only')}</select><small>Required lifecycle predicates always require replayable evidence.</small></label>
+        <label><span>Durable evidence</span><select name="evidenceMode">${option('replayable', policy.evidence.mode, 'Replayable — retain exact toolchain')}${option('identified', policy.evidence.mode, 'Identified — record digests only')}${option('off', policy.evidence.mode, 'Off — previews only')}</select><small>Evidence is optional and never participates in lifecycle authorization.</small></label>
         <input type="hidden" name="evidenceStore" value="${escape(policy.evidence.store)}">
         <div><span>Evidence storage</span><p><strong>Workspace-local</strong></p><small>Replay artifacts are kept automatically under <code>.singularity-flow/ast-evidence-store</code>. No path configuration is required.</small></div>
         <label class="span-2"><span>Generated roots</span><input name="generatedRoots" value="${escape(policy.generatedRoots.join(', '))}" placeholder="generated/client, build/types"><small>Comma-separated repository-relative directories. Symlinks, traversal, and globs are refused.</small></label>
@@ -209,7 +204,7 @@ function policyForm(policy: AstPolicyDraft, scope: AstRepositoryScopeView | null
         <label><span>Maximum bytes per file</span><input name="maxFileBytes" type="number" min="1" step="1024" value="${policy.budgets.maxFileBytes}"></label>
       </div></div>
       <div class="editor-card"><h3>Language policy</h3><label class="stack"><span>One language per line</span><textarea name="languages" rows="5" placeholder="java | auto | text | sflow-polyglot-syntax\nkotlin | auto | semantic | | sflow-kotlin-analysis | android-debug">${escape(languageRows(policy))}</textarea><small><code>language | auto/off | text/syntax/semantic | parser provider | semantic provider | profile</code>. Provider and profile columns are optional. The legacy-named bundled polyglot provider is a text-assured structural preview, not a parser; syntax gates require a reviewed parser-backed provider.</small></label></div>
-      <div class="editor-card"><h3>Structural predicates</h3><label class="stack"><span>One predicate per line</span><textarea name="predicates" rows="6" placeholder="boundary | required | import-boundary | src/api | syntax | java,kotlin | * | forbidden.internal">${escape(predicateRows(policy))}</textarea><small><code>id | required/advisory | type | path/symbol/module | assurance | languages | profiles | comparison</code>. Types: path/symbol exists, import boundary, annotation, inheritance/conformance/override, public-signature change, and module dependency. Rich predicates require explicit language/profile applicability; use <code>*</code> deliberately. Required unknown, failed, disabled, or partial results never pass.</small></label></div>
+      <div class="editor-card"><h3>Structural predicates</h3><label class="stack"><span>One predicate per line</span><textarea name="predicates" rows="6" placeholder="boundary | required | import-boundary | src/api | syntax | java,kotlin | * | forbidden.internal">${escape(predicateRows(policy))}</textarea><small><code>id | required/advisory | type | path/symbol/module | assurance | languages | profiles | comparison</code>. Types: path/symbol exists, import boundary, annotation, inheritance/conformance/override, public-signature change, and module dependency. Rich predicates require explicit language/profile applicability; use <code>*</code> deliberately. “Required” affects only an explicitly requested AST diagnostic; it never becomes a workflow gate.</small></label></div>
       <p class="card-foot"><button type="submit">Save repository AST policy</button><button class="secondary" type="button" data-message="open-workflow">Open advanced YAML</button></p>
     </form></section>`;
 }

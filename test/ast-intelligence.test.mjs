@@ -228,31 +228,33 @@ test('text facts contain references and hashes but never source bodies', async (
   assert.doesNotMatch(JSON.stringify(result), /return 1/);
 }));
 
-test('an explicit AST operation refuses an unknown programming language while documentation remains valid input', async () => withPreferenceFile(async () => {
+test('an explicit AST operation skips an unknown programming language while documentation remains valid input', async () => withPreferenceFile(async () => {
   const root = await repository();
   await writeFile(path.join(root, 'engine.cpp'), 'int main() { return 0; }\n');
   await writeFile(path.join(root, 'notes.md'), '# Repository notes\n');
   git(root, ['add', '.']);
   git(root, ['commit', '-qm', 'add unsupported source and documentation']);
 
-  await assert.rejects(
-    () => astCommand(root, ['context'], { paths: 'engine.cpp' }),
-    (error) => error?.code === 'AST_LANGUAGE_UNSUPPORTED'
-      && /engine\.cpp/.test(error.message)
-      && /reviewed AST pack/.test(error.message)
-  );
+  const unsupported = await astCommand(root, ['context'], { paths: 'engine.cpp' });
+  assert.equal(unsupported.status, 'partial');
+  assert.equal(unsupported.coverage.processed, 0);
+  assert.ok(unsupported.degradation.some((entry) => entry.path === 'engine.cpp'
+    && entry.reason === 'language-unsupported'));
+  assert.ok(unsupported.diagnostics.some((entry) => entry.code === 'AST_LANGUAGE_UNSUPPORTED'
+    && entry.severity === 'warn'));
 
   const diagnosis = await astDoctor(root);
-  assert.equal(diagnosis.healthy, false);
+  assert.equal(diagnosis.healthy, true);
+  assert.equal(diagnosis.degraded, true);
   assert.ok(diagnosis.diagnostics.some((entry) => entry.code === 'AST_LANGUAGE_UNSUPPORTED'
-    && entry.paths.includes('engine.cpp')));
+    && entry.severity === 'warn' && entry.paths.includes('engine.cpp')));
 
   const documentation = await astCommand(root, ['context'], { paths: 'notes.md' });
   assert.equal(documentation.status, 'complete');
   assert.equal(documentation.facts.find((fact) => fact.path === 'notes.md')?.language, 'unknown');
 }));
 
-test('durable evidence rejects dirty in-cone bytes but ignores dirty paths outside the cone', async () => withPreferenceFile(async () => {
+test('durable evidence degrades for dirty in-cone bytes but ignores dirty paths outside the cone', async () => withPreferenceFile(async () => {
   const root = await repository();
   await initializeDefinition(root);
   git(root, ['add', '.']);
@@ -266,17 +268,14 @@ test('durable evidence rejects dirty in-cone bytes but ignores dirty paths outsi
   assert.deepEqual(outside.provenance.evidence.inputs.files.map((entry) => entry.path), ['one.ts']);
 
   await writeFile(path.join(root, 'one.ts'), 'export const dirty = true;\n');
-  await assert.rejects(
-    () => astCommand(root, ['context'], { paths: 'one.ts', 'evidence-class': 'recorded-context' }),
-    (error) => error?.code === 'AST_EVIDENCE_INPUT_NOT_COMMITTED'
-      && /one\.ts/.test(error.message)
-      && /Commit the relevant bytes/.test(error.message)
-  );
+  const dirty = await astCommand(root, ['context'], { paths: 'one.ts', 'evidence-class': 'recorded-context' });
+  assert.equal(dirty.status, 'partial');
+  assert.equal(dirty.provenance.evidence, undefined);
+  assert.ok(dirty.diagnostics.some((entry) => entry.code === 'AST_EVIDENCE_INPUT_NOT_COMMITTED'));
   await writeFile(path.join(root, 'new.ts'), 'export const untracked = true;\n');
-  await assert.rejects(
-    () => astCommand(root, ['context'], { paths: 'new.ts', 'evidence-class': 'recorded-context' }),
-    (error) => error?.code === 'AST_EVIDENCE_INPUT_NOT_COMMITTED' && /untracked/.test(error.message)
-  );
+  const untracked = await astCommand(root, ['context'], { paths: 'new.ts', 'evidence-class': 'recorded-context' });
+  assert.equal(untracked.status, 'partial');
+  assert.ok(untracked.diagnostics.some((entry) => entry.code === 'AST_EVIDENCE_INPUT_NOT_COMMITTED'));
 }));
 
 test('a clean sparse file is indexed from its immutable Git blob without materializing it', async () => withPreferenceFile(async () => {
@@ -510,9 +509,11 @@ test('turning AST off before resume performs no additional indexing and keeps th
   const first = await astCommand(root, ['build'], { all: true, 'max-files': '1' });
   const before = await astCacheStatus(root);
   await setAstPreference('off');
-  await assert.rejects(() => astCommand(root, ['build', first.resumeHandle], {
+  const disabled = await astCommand(root, ['build', first.resumeHandle], {
     resume: true, 'max-files': '10'
-  }), (error) => error.code === 'AST_DISABLED');
+  });
+  assert.equal(disabled.status, 'disabled');
+  assert.ok(disabled.diagnostics.some((entry) => entry.code === 'AST_DISABLED'));
   assert.equal((await astCacheStatus(root)).files, before.files);
   await setAstPreference('auto');
   const resumed = await astCommand(root, ['build', first.resumeHandle], { resume: true, 'max-files': '10' });

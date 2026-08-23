@@ -17,7 +17,6 @@ import { BUILTIN_AST_EXTRACTOR, extractBuiltinAstFacts } from './ast-builtin-ext
 import {
   compileAstLanguageCatalog, detectAstLanguage, unsupportedAstProgrammingPaths
 } from './ast-language-catalog.mjs';
-import { assertAstProgrammingLanguagesSupported } from './ast-language-support.mjs';
 import { effectiveAstMode, readAstPreference, setAstPreference } from './ast-mode.mjs';
 import { astSemanticOverlayKey, astSyntaxCacheKey } from './ast-derivation-key.mjs';
 import { bindingForFile, discoverProjectBindings } from './ast-project-binding.mjs';
@@ -380,6 +379,13 @@ async function enumerateScope(root, runtime, options = {}) {
   const candidates = [];
   const objectSizes = gitObjectSizes(root, selected.filter((file) => file.object && !changed.has(file.path)));
   for (const file of selected) candidates.push(await candidateFor(root, runtime, file, changed, objectSizes));
+  const unsupported = unsupportedAstProgrammingPaths(
+    candidates.map((file) => file.path), runtime.languageCatalog, { classifyUnknown: true }
+  );
+  const unsupportedPaths = new Set(unsupported.map((entry) => entry.path));
+  for (const candidate of candidates) {
+    if (unsupportedPaths.has(candidate.path) && !candidate.skipReason) candidate.skipReason = 'language-unsupported';
+  }
   const coneSha256 = sha256(canonicalJson(candidates.map((file) => ({
     path: file.path, contentKey: file.contentKey, mode: file.mode, language: file.language,
     size: file.size, generated: file.generated, skipReason: file.skipReason
@@ -390,6 +396,7 @@ async function enumerateScope(root, runtime, options = {}) {
       definitionSha256: runtime.definitionSha256, coneSha256
     },
     candidates,
+    unsupported,
     coneSha256,
     repositoryRevision: repositoryRevision(root)
   };
@@ -1023,24 +1030,30 @@ function attachEvidenceCapture(root, runtime, selection, processed, envelope, op
     return envelope;
   }
   if (runtime.policy.evidence.mode === 'off') {
-    throw new SingularityFlowError(
-      `AST ${requestedClass} evidence is disabled by ast.evidence.mode=off. Enable identified/replayable evidence or run a non-evidence preview.`,
-      { code: 'AST_EVIDENCE_DISABLED' }
-    );
+    envelope.status = envelope.status === 'disabled' ? 'disabled' : 'partial';
+    envelope.diagnostics.push({
+      code: 'AST_EVIDENCE_DISABLED', severity: 'warn',
+      message: `AST ${requestedClass} evidence is disabled; the operation continued without durable AST evidence.`
+    });
+    return envelope;
   }
   if (problems.length) {
-    const listed = problems.slice(0, 50).map((item) => `- ${item.path} (${item.reason})`).join('\n');
-    throw new SingularityFlowError(
-      `AST ${requestedClass} requires exact committed inputs:\n${listed}\n`
-      + 'Commit the relevant bytes, narrow the evidence cone, or run a non-evidence preview.',
-      { code: 'AST_EVIDENCE_INPUT_NOT_COMMITTED', details: { paths: problems } }
-    );
+    envelope.status = 'partial';
+    envelope.diagnostics.push({
+      code: 'AST_EVIDENCE_INPUT_NOT_COMMITTED', severity: 'warn',
+      message: `Durable AST evidence was omitted because ${problems.length} selected path(s) are not exact committed Git blobs.`,
+      paths: problems.slice(0, 50)
+    });
+    return envelope;
   }
   const sourceCommit = selection.repositoryRevision;
   if (!sourceCommit) {
-    throw new SingularityFlowError('AST durable evidence requires a committed Git HEAD.', {
-      code: 'AST_EVIDENCE_SOURCE_COMMIT_MISSING'
+    envelope.status = 'partial';
+    envelope.diagnostics.push({
+      code: 'AST_EVIDENCE_SOURCE_COMMIT_MISSING', severity: 'warn',
+      message: 'Durable AST evidence was omitted because the repository has no committed Git HEAD.'
     });
+    return envelope;
   }
   const files = processed.entries.map((entry) => ({
     path: entry.path,
@@ -1173,11 +1186,6 @@ async function buildOrContext(root, options, operation, workBinding = null) {
   const mode = await effectiveAstMode(runtime.policy, optionString(options, 'mode', 'auto'));
   if (mode.mode === 'off') {
     const requestedClass = evidenceClass(options);
-    if (requestedClass !== 'preview') {
-      throw new SingularityFlowError(`AST ${requestedClass} evidence cannot run while AST is disabled.`, {
-        code: 'AST_EVIDENCE_DISABLED'
-      });
-    }
     const requested = explicitPaths(options);
     const all = optionBoolean(options, 'all');
     if (requested.length && all) throw new SingularityFlowError('Use either AST --paths or --all, not both.');
@@ -1188,15 +1196,13 @@ async function buildOrContext(root, options, operation, workBinding = null) {
     };
     const disabled = baseEnvelope(runtime, operation, scope, mode);
     disabled.evidenceClass = requestedClass;
-    disabled.diagnostics.push({ code: 'AST_DISABLED', message: 'Structural intelligence is disabled by the most restrictive effective preference.' });
+    disabled.diagnostics.push({
+      code: 'AST_DISABLED', severity: 'info',
+      message: 'Structural intelligence is disabled; ordinary repository file access remains available.'
+    });
     return validateAstResultEnvelope(refreshEnvelopeAccounting(disabled));
   }
   const selection = await enumerateScope(root, runtime, options);
-  assertAstProgrammingLanguagesSupported(
-    selection.candidates.map((file) => file.path),
-    runtime.languageCatalog,
-    { boundary: `AST ${operation}` }
-  );
   const processed = await processCandidates(root, runtime, selection.candidates, {
     options, persist: operation === 'build'
   });
@@ -1205,6 +1211,11 @@ async function buildOrContext(root, options, operation, workBinding = null) {
   });
   const envelope = baseEnvelope(runtime, operation, selection.scope, mode, {
     revision: selection.repositoryRevision, fingerprint: selection.coneSha256
+  });
+  if (selection.unsupported.length) envelope.diagnostics.push({
+    code: 'AST_LANGUAGE_UNSUPPORTED', severity: 'warn',
+    message: `${selection.unsupported.length} programming source path(s) have no installed AST support; they were skipped and ordinary file access remains available.`,
+    paths: selection.unsupported.map((entry) => entry.path)
   });
   envelope.facts = await factsForEntries(root, processed.entries, processed.memory);
   const structuralFacts = structuredClone(envelope.facts);
@@ -1248,7 +1259,17 @@ async function resumeBuild(root, handle, options) {
   const resumedOptions = { ...options };
   delete resumedOptions.resume;
   const mode = await effectiveAstMode(runtime.policy, optionString(resumedOptions, 'mode', 'auto'));
-  if (mode.mode === 'off') throw new SingularityFlowError('AST was disabled after this build began; the resume handle was not consumed.', { code: 'AST_DISABLED' });
+  if (mode.mode === 'off') {
+    const disabled = baseEnvelope(runtime, 'build', selection.scope, mode, {
+      revision: selection.repositoryRevision, fingerprint: selection.coneSha256
+    });
+    disabled.evidenceClass = evidenceClass(resumedOptions);
+    disabled.diagnostics.push({
+      code: 'AST_DISABLED', severity: 'info',
+      message: 'AST was disabled after this build began; the resume handle was preserved and ordinary repository file access remains available.'
+    });
+    return validateAstResultEnvelope(refreshEnvelopeAccounting(disabled));
+  }
   const processed = await processCandidates(root, runtime, job.candidates, {
     startIndex: job.nextIndex, entries: job.entries, skipped: job.skipped,
     options: resumedOptions, persist: true
@@ -1471,7 +1492,13 @@ export async function astContext(root, options = {}, workBinding = null) {
       throw new SingularityFlowError('AST read cursor belongs to different governed work.', { code: 'AST_READ_CURSOR_STALE' });
     }
     const envelope = await buildOrContext(root, cursorOptions(payload), 'context', boundWork);
-    if (envelope.status === 'disabled') throw new SingularityFlowError('AST is disabled; the read cursor was not consumed.', { code: 'AST_DISABLED' });
+    if (envelope.status === 'disabled') {
+      return boundedReadPage(root, envelope, {
+        operation: 'context', options: cursorOptions(payload), offset: 0,
+        limits: payload.outputLimits, inputBudgets: payload.inputBudgets,
+        selector: payload.selector, workBinding: boundWork
+      });
+    }
     assertCursorBinding(envelope, payload);
     return boundedReadPage(root, envelope, {
       operation: 'context', options: cursorOptions(payload), offset: payload.nextOffset,
@@ -1496,7 +1523,12 @@ export async function astQuery(root, options = {}) {
       payload.query.predicate,
       payload.query.value
     );
-    if (envelope.status === 'disabled') throw new SingularityFlowError('AST is disabled; the query cursor was not consumed.', { code: 'AST_DISABLED' });
+    if (envelope.status === 'disabled') {
+      return boundedReadPage(root, envelope, {
+        operation: 'query', options: cursorOptions(payload), query: payload.query, offset: 0,
+        limits: payload.outputLimits, inputBudgets: payload.inputBudgets, selector: payload.selector
+      });
+    }
     assertCursorBinding(envelope, payload);
     return boundedReadPage(root, envelope, {
       operation: 'query', options: cursorOptions(payload), query: payload.query,
@@ -1792,9 +1824,11 @@ export async function astDoctor(root) {
   });
   return {
     schemaVersion: 3, // schema-transient: live diagnostic result, never persisted
-    healthy: repositoryUnsupported.length === 0
-      && adapterDiscovery.diagnostics.length === 0
-      && [...artifactHealth.values()].every((health) => health.healthy),
+    healthy: true,
+    available: effective.mode !== 'off',
+    degraded: repositoryUnsupported.length > 0
+      || adapterDiscovery.diagnostics.length > 0
+      || [...artifactHealth.values()].some((health) => !health.healthy),
     configured: runtime.policy,
     effective,
     scope: runtime.sourceScope,
@@ -1825,7 +1859,8 @@ export async function astDoctor(root) {
     })),
     assuranceAvailable: [...assuranceAvailable].sort((left, right) => ['text', 'syntax', 'semantic'].indexOf(left) - ['text', 'syntax', 'semantic'].indexOf(right)),
     lifecycle: {
-      enforced: effective.mode !== 'off' && requiredPredicateCount > 0,
+      enforced: false,
+      optional: true,
       predicateCount: runtime.policy.predicates.length,
       requiredPredicateCount,
       workId: runtime.state?.workItem?.id ?? null,
@@ -1836,12 +1871,13 @@ export async function astDoctor(root) {
     diagnostics: [
       ...(effective.mode === 'off' ? [{ code: 'AST_DISABLED', severity: 'info' }] : []),
       ...(repositoryUnsupported.length ? [{
-        code: 'AST_LANGUAGE_UNSUPPORTED', severity: 'fail',
-        message: `AST operations are unavailable for unsupported programming source; ordinary file-based work remains available: ${repositoryUnsupported.slice(0, 20).map((entry) => entry.path).join(', ')}`,
+        code: 'AST_LANGUAGE_UNSUPPORTED', severity: 'warn',
+        message: `AST extraction will skip unsupported programming source; ordinary file-based work remains available: ${repositoryUnsupported.slice(0, 20).map((entry) => entry.path).join(', ')}`,
         paths: repositoryUnsupported.map((entry) => entry.path)
       }] : []),
-      ...adapterDiscovery.diagnostics,
+      ...adapterDiscovery.diagnostics.map((item) => ({ ...item, severity: item.severity === 'info' ? 'info' : 'warn' })),
       ...[...artifactHealth.values()].flatMap((health) => health.diagnostics)
+        .map((item) => ({ ...item, severity: item.severity === 'info' ? 'info' : 'warn' }))
     ]
   };
 }

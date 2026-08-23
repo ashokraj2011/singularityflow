@@ -1,8 +1,7 @@
 import { astContext } from './ast-intelligence.mjs';
 import { createAstDerivation, persistAstDerivation } from './ast-evidence.mjs';
 import { loadDefinition } from './config.mjs';
-import { astContextRequired } from './intelligence-policy.mjs';
-import { SingularityFlowError } from './util.mjs';
+import { astContextRequested } from './intelligence-policy.mjs';
 
 const MAX_FACTS = 50;
 // The model still receives at most 50 facts. The larger broker envelope budget carries the exact
@@ -16,7 +15,7 @@ const MAX_OUTPUT_BYTES = 256 * 1024;
  * can request more only when its question remains unanswered.
  */
 export async function requiredStructuralPromptContext(root, workflow) {
-  if (!astContextRequired(workflow)) {
+  if (!astContextRequested(workflow)) {
     return { text: '', record: null, warnings: [] };
   }
   let result;
@@ -28,17 +27,16 @@ export async function requiredStructuralPromptContext(root, workflow) {
       'evidence-class': 'recorded-context'
     });
   } catch (error) {
-    if (!['AST_DISABLED', 'AST_EVIDENCE_DISABLED'].includes(error?.code)) throw error;
-    throw new SingularityFlowError(
-      `Work type '${workflow.workItem.workType}' requires bounded AST context, but AST intelligence is disabled.`,
-      { code: 'WORK_TYPE_AST_CONTEXT_DISABLED', cause: error }
-    );
+    return {
+      text: '', record: null,
+      warnings: [`Optional AST context is unavailable; continuing with ordinary repository file access: ${error.message}`]
+    };
   }
   if (result.status === 'disabled') {
-    throw new SingularityFlowError(
-      `Work type '${workflow.workItem.workType}' requires bounded AST context, but AST intelligence is disabled.`,
-      { code: 'WORK_TYPE_AST_CONTEXT_DISABLED' }
-    );
+    return {
+      text: '', record: null,
+      warnings: ['Optional AST context is disabled; continuing with ordinary repository file access.']
+    };
   }
   const facts = JSON.stringify(result.facts ?? [], null, 2);
   const scope = result.scope ?? {};
@@ -47,12 +45,22 @@ export async function requiredStructuralPromptContext(root, workflow) {
     id: workflow.currentPhase ?? workflow.resolution?.phases?.[0]?.id ?? 'intake',
     generation: 0
   };
-  const derivation = await createAstDerivation(root, config, workflow, phase, result, {
-    generation: phase.generation,
-    evidenceClass: 'recorded-context',
-    operation: 'context'
-  });
-  await persistAstDerivation(root, derivation);
+  let derivation = null;
+  const derivationWarnings = [];
+  if (result.provenance?.evidence) {
+    try {
+      derivation = await createAstDerivation(root, config, workflow, phase, result, {
+        generation: phase.generation,
+        evidenceClass: 'recorded-context',
+        operation: 'context'
+      });
+      await persistAstDerivation(root, derivation);
+    } catch (error) {
+      derivationWarnings.push(`Optional AST derivation could not be retained: ${error.message}`);
+    }
+  } else {
+    derivationWarnings.push('Optional AST context is not durable evidence; continuing with the available bounded facts.');
+  }
   const page = result.provenance?.evidence?.outputs?.page;
   const record = {
     status: result.status,
@@ -63,7 +71,7 @@ export async function requiredStructuralPromptContext(root, workflow) {
     definitionSha256: scope.definitionSha256 ?? null,
     repositoryRevision: scope.repositoryRevision ?? null,
     coneSha256: scope.coneSha256 ?? scope.worktreeFingerprint ?? null,
-    derivation: structuredClone(derivation.reference),
+    derivation: derivation ? structuredClone(derivation.reference) : null,
     factsSha256: page?.factsSha256 ?? null,
     factsReturned: result.facts?.length ?? 0,
     factsAvailable: result.page?.available ?? result.facts?.length ?? 0,
@@ -88,6 +96,7 @@ export async function requiredStructuralPromptContext(root, workflow) {
     '```'
   ].join('\n');
   const warnings = [
+    ...derivationWarnings,
     ...(result.status === 'partial' ? ['Bounded AST context is partial; only the disclosed first page was injected.'] : []),
     ...(result.diagnostics ?? [])
       .filter((item) => item.code !== 'AST_RESULT_PAGED')

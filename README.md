@@ -1079,9 +1079,9 @@ The bundled profiles are:
 
 The two benchmark profiles are paired controls. They use the same five phases, artifact templates,
 default agents, write scopes, approvals, and rejection routes. Benchmark A requires a published
-world model, injects one bounded AST page, and passes approval-bound agent briefs between phases.
-Benchmark B disables repository and capability world-model context, AST context and AST lifecycle
-gates, and passes the full approved artifacts instead. The selected profile and intelligence policy
+world model, requests one bounded optional AST page, and passes approval-bound agent briefs between phases.
+If AST is unavailable, Benchmark A continues through ordinary repository file access. Benchmark B
+disables repository and capability world-model context and AST context, and passes the full approved artifacts instead. The selected profile and intelligence policy
 are immutable for the Story. Select the two profiles across comparable Stories; do not treat a
 hand-selected pair as randomized evidence. Use Flow Impact receipts when measuring the result.
 

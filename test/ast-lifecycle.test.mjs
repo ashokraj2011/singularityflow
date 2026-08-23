@@ -13,9 +13,6 @@ import { setAgentSession } from '../src/session.mjs';
 import { createWorkflow, loadConfig, publishGeneration, submitPhase } from '../src/state.mjs';
 import { verifyAstLifecycleReceipt } from '../src/ast-lifecycle.mjs';
 import { setAstPreference } from '../src/ast-mode.mjs';
-import { replayAstEvidence } from '../src/ast-replay.mjs';
-import { recordSha256 } from '../src/records.mjs';
-import { astEvidenceReplayPlanner } from '../src/gateway/planners/ast-intelligence.mjs';
 
 const ACTOR = { name: 'AST Lifecycle', email: 'ast-lifecycle@example.invalid', login: null };
 
@@ -96,16 +93,11 @@ function inContext(root, run) {
   }, run);
 }
 
-test('a required AST predicate refuses publication before generation mutation', async () => {
+test('a required AST predicate remains an optional diagnostic during publication', async () => {
   const { root, config, workflow, phase, authorship } = await fixture({ predicatePath: 'missing.ts' });
   await inContext(root, async () => {
-    const before = JSON.stringify(phase);
-    await assert.rejects(
-      () => publishGeneration(root, config, workflow, { phaseId: phase.id, authorship }),
-      (error) => error?.code === 'AST_LIFECYCLE_GATE_BLOCKED' && /required-path/.test(error.message)
-    );
-    assert.equal(JSON.stringify(phase), before);
-    assert.equal(phase.generation, 0);
+    await publishGeneration(root, config, workflow, { phaseId: phase.id, authorship });
+    assert.equal(phase.generation, 1);
     assert.equal(phase.astGates, undefined);
   });
 });
@@ -152,66 +144,36 @@ test('advisory AST predicates never become lifecycle blockers', async () => {
   });
 });
 
-test('publication records an AST receipt and submission verifies its exact relevant bytes', async () => {
+test('publication and submission never require an AST receipt', async () => {
   const { root, config, workflow, phase, authorship } = await fixture();
   await inContext(root, async () => {
     await publishGeneration(root, config, workflow, { phaseId: phase.id, authorship });
     assert.equal(phase.generation, 1);
-    assert.equal(phase.astGates.length, 1);
-    const summary = phase.astGates[0];
-    const receipt = JSON.parse(await readFile(path.join(root, summary.path), 'utf8'));
-    assert.equal(receipt.allowed, true);
-    assert.equal(receipt.schemaVersion, 3);
-    assert.equal(receipt.derivation.replayability, 'replayable');
-    const derivation = JSON.parse(await readFile(path.join(root, receipt.derivation.path), 'utf8'));
-    assert.equal(derivation.engine.version, 3);
-    assert.equal(derivation.adapter.id, 'builtin-text');
-    assert.match(summary.provenanceLine, /^AST evidence replayable/);
-    assert.doesNotMatch(JSON.stringify(derivation), /sourceBody|bytesBase64|sflow-ast-lifecycle-/);
-    assert.equal(receipt.predicates[0].outcome, 'pass');
-    assert.equal(receipt.predicates[0].derivationSha256, receipt.derivation.sha256);
-
-    await rm(path.join(root, '.git', 'singularity-flow', 'ast'), { recursive: true, force: true });
-    const replay = await replayAstEvidence(root, { receipt: summary.path });
-    assert.equal(replay.result, 'identical');
-    const gatewayReplay = await astEvidenceReplayPlanner({
-      root, subject: { kind: 'work-item', id: 'AST-1' }, arguments: { receipt: summary.path }
-    });
-    assert.equal(gatewayReplay.data.ast.result, 'identical');
-    await rm(path.join(
-      root, '.singularity-flow', 'ast-evidence-store', 'bundles',
-      `${derivation.retention.bundleSha256}.json`
-    ));
-    const unavailable = await replayAstEvidence(root, { receipt: summary.path });
-    assert.equal(unavailable.result, 'unavailable');
-    assert.equal(unavailable.reasons[0].code, 'toolchain-bundle-missing');
+    assert.equal(phase.astGates, undefined);
 
     git(root, 'add', 'singularity');
-    git(root, 'commit', '-m', '[AST-1][phase:intake][generated:1] publish AST receipt');
-    assert.doesNotThrow(() => git(root, 'cat-file', '-e', `HEAD:${summary.path}`));
+    git(root, 'commit', '-m', '[AST-1][phase:intake][generated:1] publish without AST');
     const committed = await verifyAstLifecycleReceipt(root, config, workflow, phase, {
       generation: phase.generation, revalidate: false, sourceCommit: git(root, 'rev-parse', 'HEAD')
     });
+    assert.equal(committed.applies, false);
+    assert.equal(committed.reason, 'optional-diagnostic');
     assert.deepEqual(committed.errors, []);
-    assert.match(committed.passes[0], /generation commit/);
     await submitPhase(root, config, workflow, { phaseId: phase.id, runChecks: false });
     assert.equal(workflow.status, 'complete');
   });
 });
 
-test('the bundled polyglot preview cannot publish a required syntax gate', async () => {
+test('unavailable required syntax assurance cannot block publication', async () => {
   const { root, config, workflow, phase, authorship } = await fixture({ predicateSymbol: 'PaymentService' });
   await inContext(root, async () => {
-    await assert.rejects(
-      () => publishGeneration(root, config, workflow, { phaseId: phase.id, authorship }),
-      (error) => error?.code === 'AST_LIFECYCLE_GATE_BLOCKED' && /required-symbol/.test(error.message)
-    );
-    assert.equal(phase.generation, 0);
+    await publishGeneration(root, config, workflow, { phaseId: phase.id, authorship });
+    assert.equal(phase.generation, 1);
     assert.equal(phase.astGates, undefined);
   });
 });
 
-test('submission refuses when a relevant file changes after the AST receipt was published', async () => {
+test('source changes do not create an AST receipt prerequisite at submission', async () => {
   const { root, config, workflow, phase, authorship } = await fixture();
   await inContext(root, async () => {
     await publishGeneration(root, config, workflow, { phaseId: phase.id, authorship });
@@ -221,35 +183,25 @@ test('submission refuses when a relevant file changes after the AST receipt was 
     const historical = await verifyAstLifecycleReceipt(root, config, workflow, phase, {
       generation: phase.generation, revalidate: false
     });
-    assert.deepEqual(historical.errors, [], 'the committed historical receipt remains valid evidence');
-    await assert.rejects(
-      () => submitPhase(root, config, workflow, { phaseId: phase.id, runChecks: false }),
-      (error) => error?.code === 'AST_LIFECYCLE_RECEIPT_INVALID' && /exact committed inputs/.test(error.message)
-    );
-    assert.equal(phase.status, 'in_progress');
-    assert.equal(phase.generationCommit, undefined);
+    assert.equal(historical.applies, false);
+    assert.deepEqual(historical.errors, []);
+    await submitPhase(root, config, workflow, { phaseId: phase.id, runChecks: false });
+    assert.equal(workflow.status, 'complete');
   });
 });
 
-test('submission refuses a validly rehashed receipt with a different derivation reference', async () => {
+test('legacy or corrupt AST receipt summaries are ignored by lifecycle submission', async () => {
   const { root, config, workflow, phase, authorship } = await fixture();
   await inContext(root, async () => {
     await publishGeneration(root, config, workflow, { phaseId: phase.id, authorship });
-    const summary = phase.astGates[0];
-    const receipt = JSON.parse(await readFile(path.join(root, summary.path), 'utf8'));
-    receipt.derivation.sha256 = 'f'.repeat(64);
-    const { integritySha256: _oldIntegrity, ...payload } = receipt;
-    receipt.integritySha256 = recordSha256(payload);
-    summary.sha256 = receipt.integritySha256;
-    await writeFile(path.join(root, summary.path), `${JSON.stringify(receipt, null, 2)}\n`);
+    phase.astGates = [{ generation: 1, path: '../invalid', sha256: 'f'.repeat(64) }];
 
     const verification = await verifyAstLifecycleReceipt(root, config, workflow, phase);
-    assert.match(verification.errors.join('\n'), /derivation integrity/);
-    await assert.rejects(
-      () => submitPhase(root, config, workflow, { phaseId: phase.id, runChecks: false }),
-      (error) => error?.code === 'AST_LIFECYCLE_RECEIPT_INVALID'
-        && /derivation integrity/.test(error.message)
-    );
-    assert.equal(phase.status, 'in_progress');
+    assert.equal(verification.applies, false);
+    assert.deepEqual(verification.errors, []);
+    git(root, 'add', 'singularity');
+    git(root, 'commit', '-m', '[AST-1][phase:intake][generated:1] optional legacy AST summary');
+    await submitPhase(root, config, workflow, { phaseId: phase.id, runChecks: false });
+    assert.equal(workflow.status, 'complete');
   });
 });

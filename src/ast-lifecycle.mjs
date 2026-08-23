@@ -10,7 +10,6 @@ import { recordSha256 } from './records.mjs';
 import { currentSchemaVersion, readRecord } from './schema-migrations.mjs';
 import { run, SingularityFlowError, writeJson } from './util.mjs';
 import { astDisabledForWorkflow } from './intelligence-policy.mjs';
-import { effectiveAstMode } from './ast-mode.mjs';
 
 function configuredPredicates(config, workflow = null) {
   if (astDisabledForWorkflow(workflow)) return [];
@@ -20,12 +19,15 @@ function configuredPredicates(config, workflow = null) {
 async function lifecyclePolicy(config, workflow) {
   const configured = configuredPredicates(config, workflow);
   const required = configured.filter((predicate) => predicate.mode === 'required');
-  if (!required.length) {
-    return { active: false, reason: configured.length ? 'advisory-only' : 'not-configured', required };
-  }
-  const effective = await effectiveAstMode(config.ast ?? { mode: 'auto' });
-  if (effective.mode === 'off') return { active: false, reason: 'disabled', required, effective };
-  return { active: true, reason: 'required', required, effective };
+  // AST is an optional accelerator. Predicates are available to the explicit `wm ast gate`
+  // diagnostic, but they must never become publication, submission, readiness, or governance
+  // prerequisites. Keep this policy boundary permanently inactive so an unavailable runtime,
+  // language pack, adapter, or evidence store cannot strand governed work.
+  return {
+    active: false,
+    reason: configured.length ? 'optional-diagnostic' : 'not-configured',
+    required
+  };
 }
 
 function receiptRelative(config, workflow, phaseId, generation) {
@@ -93,13 +95,9 @@ export async function evaluateAstLifecycleGate(root, config, workflow, phase, { 
 
 export function assertAstLifecycleGate(evaluation, action) {
   evaluation.warnings.forEach((warning) => console.warn(`AST warning: ${warning}`));
-  if (evaluation.errors.length) {
-    throw new SingularityFlowError(
-      `AST lifecycle gate blocks ${action}:\n- ${evaluation.errors.join('\n- ')}\n`
-      + 'Run singularity-flow wm ast gate --json for bounded diagnostics.',
-      { code: 'AST_LIFECYCLE_GATE_BLOCKED', details: { errors: evaluation.errors } }
-    );
-  }
+  evaluation.errors.forEach((error) => console.warn(
+    `AST warning: optional structural diagnostics could not validate ${action}: ${error}`
+  ));
 }
 
 /** Persist the already-passed evaluation with the generation it protects. */
@@ -256,12 +254,8 @@ export async function verifyAstLifecycleReceipt(root, config, workflow, phase, {
 export async function requireAstLifecycleReceipt(root, config, workflow, phase, options = {}) {
   const verification = await verifyAstLifecycleReceipt(root, config, workflow, phase, options);
   verification.warnings.forEach((warning) => console.warn(`AST warning: ${warning}`));
-  if (verification.errors.length) {
-    throw new SingularityFlowError(
-      `Phase ${phase.id} AST lifecycle receipt is not valid:\n- ${verification.errors.join('\n- ')}\n`
-      + `Republish generation ${options.generation ?? phase.generation} after running singularity-flow wm ast gate --json.`,
-      { code: 'AST_LIFECYCLE_RECEIPT_INVALID', details: { errors: verification.errors } }
-    );
-  }
+  verification.errors.forEach((error) => console.warn(
+    `AST warning: optional structural receipt for phase ${phase.id} could not be verified: ${error}`
+  ));
   return verification;
 }

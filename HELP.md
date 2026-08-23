@@ -1381,11 +1381,12 @@ Starter work types are:
 Feature work produces stable `AC-n` acceptance criteria and `SPEC-nnn` implementation items. Bugfix work uses a smaller fix specification but retains the same traceability model. Verification links tests and source evidence. Conformance compares approved requirements and specifications with exact code/test evidence.
 
 `benchmarking-a` and `benchmarking-b` are deliberately paired. Both run the same templates, agents,
-artifacts, approvals, and rejection routes. A pins `worldModel: required`, `ast: required-context`,
+artifacts, approvals, and rejection routes. A pins `worldModel: required`, `ast: optional-context`,
 and `agentBriefs: required`; B pins all three off and uses full approved phase inputs. A refuses
-prompt composition until governed world-model grounding exists. Its AST page is bounded and records
+prompt composition until governed world-model grounding exists. Its optional AST page is bounded and records
 the cone, engine, extractor, assurance, fact count, and whether a continuation exists. B never
-silently acquires world-model context from a capability policy. Choose the profile during normal
+silently acquires world-model context from a capability policy. Missing AST never blocks either arm;
+ordinary repository file access remains available. Choose the profile during normal
 Story intake. Existing Stories retain their selected arm.
 
 `poc-workflow` is the packaged UI-regression demonstration flow. It requires an explicitly selected
@@ -1936,12 +1937,12 @@ singularity-flow wm ast preference set off
 The effective mode is the most restrictive repository, machine, environment, and operation value.
 `off` returns a valid disabled envelope before repository enumeration and writes no AST cache.
 Derived per-blob records and cone manifests live under the Git common directory and never contain
-source bodies. They are disposable: durable gate and recorded-prompt evidence instead commits an
+source bodies. They are disposable: durable diagnostic and recorded-prompt evidence may commit an
 immutable derivation bound to exact Git objects and content-addressed toolchain artifacts. Dirty or
-untracked in-cone bytes block durable capture; out-of-cone edits do not. `wm ast evidence replay`
-recomputes from the recorded commit with the ordinary cache disabled and reports `identical`,
-`different`, or `unavailable`. Configured required predicates run before publication and their
-governed receipts are revalidated before submission. Required symbol predicates need syntax assurance; lexical
+untracked in-cone bytes produce partial results without durable capture; out-of-cone edits do not
+affect it. `wm ast evidence replay` recomputes from the recorded commit with the ordinary cache
+disabled and reports `identical`, `different`, or `unavailable`. AST never gates publication,
+submission, readiness, or governance. Required symbol diagnostics need syntax assurance; lexical
 matches are advisory. Results are page-bounded by fact count and serialized bytes, and an opaque
 `nextCursor` continues only while its policy/revision/cone/file binding remains current. Receipts
 reference v1 derivation manifests; migrated legacy receipts remain honest but unreplayable. See

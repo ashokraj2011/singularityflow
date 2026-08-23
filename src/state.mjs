@@ -1363,9 +1363,8 @@ export async function publishGeneration(root, config, workflow, { phaseId, usage
     }
   }
 
-  // Only predicates explicitly marked required participate in lifecycle policy. Evaluate those at
-  // the last read-only boundary so a partial, stale, or failed required result cannot leave a
-  // half-published generation behind. Advisory predicates and disabled AST remain diagnostic-only.
+  // AST is optional. This boundary may collect structural diagnostics, but it never blocks or
+  // mutates publication when AST, a language pack, an adapter, or its evidence store is absent.
   const astGate = await evaluateAstLifecycleGate(root, config, workflow, phase, {
     generation: phase.generation + 1
   });
@@ -1820,8 +1819,8 @@ export async function submitPhase(root, config, workflow, { phaseId, runChecks =
     throw new SingularityFlowError(`Phase ${phase.id} cannot be submitted for approval:\n- ${gate.errors.join('\n- ')}`);
   }
 
-  // Re-evaluate the exact scope accepted at publication before assigning generation/publication
-  // commit fields or running commands. A receipt is evidence only while its policy and bytes match.
+  // Legacy AST receipts are observed diagnostically. Their absence or invalidity cannot prevent
+  // submission because normal repository file access is the permanent fallback.
   await requireAstLifecycleReceipt(root, config, workflow, phase, { generation: phase.generation });
   const codeDeliveryRequired = phaseRequiresCodeDelivery(phase);
   const deliveryCommands = await resolveDeliveryQualityCommands(root, phase);

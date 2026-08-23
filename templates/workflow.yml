@@ -160,8 +160,8 @@ worldModel:
 ast:
   mode: auto
   fallback: host-and-text
-  # Recorded prompt context keeps immutable identities; required lifecycle predicates must use
-  # replayable. The logical store ID never contains credentials or machine-specific paths.
+  # Recorded prompt context may keep immutable identities, but AST evidence never participates in
+  # lifecycle authorization. The logical store ID never contains credentials or machine paths.
   evidence:
     mode: replayable
     store: local-directory
@@ -465,7 +465,7 @@ workTypes:
     # Experimental arm: identical lifecycle, templates, agents, artifacts, and approvals to
     # Benchmark B. Only the pinned intelligence profile and input projection differ.
     phases: [intake, design, implementation, testing, conformance]
-    intelligence: { worldModel: required, ast: required-context, agentBriefs: required }
+    intelligence: { worldModel: required, ast: optional-context, agentBriefs: required }
     templateOverrides:
       intake: benchmark/intake.md
       design: benchmark/design.md

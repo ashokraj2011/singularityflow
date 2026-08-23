@@ -192,10 +192,11 @@ async function astRow(root, config, workflow, phase) {
     ?? evaluation.record?.integritySha256
     ?? evaluation.result?.scope?.coneSha256
     ?? null;
-  return row('ast', errors.length ? 'unmet' : 'met', 'evidence', evidence, {
+  return row('ast', errors.length ? 'unknown' : 'met', 'evidence', evidence, {
     errors: String(errors.length), warnings: String(evaluation.warnings?.length ?? 0),
+    required: 'false',
     assurance: evaluation.receipt?.assurance ?? evaluation.record?.assurance ?? evaluation.result?.assurance ?? 'unknown'
-  }, errors.length ? 'fix:ast' : null);
+  });
 }
 
 async function visualRow(root, config, workflow) {

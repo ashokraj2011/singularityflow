@@ -1,9 +1,9 @@
 {
   "schemaVersion": 1,
   "generatedFrom": "docs/topics",
-  "sourceCommit": "a938252c37e0b408398f3538615fdb5aa663ffcb",
+  "sourceCommit": "c5b06449a98f11fb164ec138cca2f9d094802b50",
   "topicCount": 54,
-  "contentSha256": "7ea266fea9f4b629268d2437813e4963c3d2aebdda9e8486bb1a6b8816b0d0d3",
+  "contentSha256": "a9421e0e9ac17d495cf2ece2c1197080b70bf0dcf64e412b0caa1c95b093ae28",
   "topics": [
     {
       "id": "activity-and-prompt-audit",
@@ -365,8 +365,8 @@
     {
       "id": "workflow-authoring",
       "title": "Workflow and configuration authoring",
-      "version": 4,
-      "sha256": "fa7684689a2c1160e92f6259ee7a2298816ed61b94bfc2e4eeefbe5efc8c0fb1",
+      "version": 5,
+      "sha256": "46994fb743fdee3b66508e701be0bb5566690adace1b7fa94bbe3851a8bdff99",
       "file": "workflow-authoring.md"
     },
     {
@@ -379,8 +379,8 @@
     {
       "id": "world-model",
       "title": "World model grounding and views",
-      "version": 10,
-      "sha256": "306e34a7e560d32068dd101281cd2b0d01bc977ac048f2df14972fdefdc9948d",
+      "version": 11,
+      "sha256": "c605f62b730a2e6247d96ff5f047526488538cc5360fe1d3974b760eb2c25c6c",
       "file": "world-model.md"
     }
   ]

@@ -115,17 +115,13 @@ export function normalizeAstPolicy(value = {}) {
   for (const key of Object.keys(evidenceSource)) {
     if (!['mode', 'store'].includes(key)) throw new SingularityFlowError(`ast.evidence contains unknown field '${key}'.`);
   }
-  const hasRequiredPredicate = predicates.some((predicate) => predicate.mode === 'required');
-  const evidenceMode = evidenceSource.mode ?? (hasRequiredPredicate ? 'replayable' : 'identified');
+  const evidenceMode = evidenceSource.mode ?? 'identified';
   const evidenceStore = evidenceSource.store ?? 'local-directory';
   if (!AST_EVIDENCE_MODES.includes(evidenceMode)) {
     throw new SingularityFlowError(`ast.evidence.mode must be ${AST_EVIDENCE_MODES.join(', ')}.`);
   }
   if (!/^[a-z][a-z0-9-]*$/.test(evidenceStore)) {
     throw new SingularityFlowError('ast.evidence.store must be a lower-case logical store id.');
-  }
-  if (mode !== 'off' && hasRequiredPredicate && evidenceMode !== 'replayable') {
-    throw new SingularityFlowError('A required AST predicate requires ast.evidence.mode replayable.');
   }
   return Object.freeze({
     mode,

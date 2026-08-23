@@ -1,8 +1,8 @@
 # AST Intelligence
 
 Singularity Flow's structural-intelligence broker adds bounded, evidence-bearing code facts to the
-world-model path. It is optional. It does not replace the existing text and Git paths, does not run
-a daemon, and never makes a lifecycle gate weaker when it is disabled.
+world-model path. It is always optional. It does not replace the existing text and Git paths, does
+not run a daemon, and never participates in lifecycle authorization.
 
 ## What this release provides
 
@@ -29,8 +29,8 @@ a daemon, and never makes a lifecycle gate weaker when it is disabled.
 - a read-after-write-verified directory evidence store plus cache-independent, model-free replay;
 - resumable builds that retain accumulated pages and return a usable handle even when the first
   file exceeds the current operation budget; and
-- deterministic structural predicates enforced before phase publication and revalidated from a
-  governed receipt before submission and terminal governance.
+- deterministic structural predicates available through explicit diagnostics without becoming a
+  prerequisite for publication, submission, readiness, or terminal governance.
 
 The built-in JavaScript/TypeScript extractor remains lexical and its facts are labeled `text`.
 Java, Python, Kotlin, and Swift use the legacy-named `sflow-polyglot-syntax` pack for a structural
@@ -112,11 +112,10 @@ text facts remain available when a pack is absent or fails, and the result becom
 configured assurance cannot be established. `generatedRoots` are tagged in facts rather than
 silently omitted. Repository files can select an allowed provider ID but can never supply `argv`.
 
-While AST is enabled, an unknown programming-language extension is not a text fallback. Explicit
-AST build, context, query, and gate operations fail with `AST_LANGUAGE_UNSUPPORTED` before indexing.
-Ordinary code delivery does not invoke this check and continues through normal Copilot file access.
-Install a reviewed pack whose validated manifest advertises the language and extension to use AST
-on that source, or turn AST off when structural intelligence is not wanted. Documentation,
+While AST is enabled, an unknown programming-language extension is skipped with the warning
+`AST_LANGUAGE_UNSUPPORTED`; the result is partial and ordinary file access continues. Install a
+reviewed pack whose validated manifest advertises the language and extension to obtain structural
+facts for that source, or turn AST off when structural intelligence is not wanted. Documentation,
 configuration, stylesheets, and assets are not classified as programming-language claims by this
 check.
 
@@ -171,11 +170,11 @@ removes stale manifests/jobs, legacy v1 records, and blobs no live manifest refe
 use a repository-wide dirty-tree hash.
 
 Every structural result declares an evidence class. Ordinary CLI and UI reads are `preview` and may
-inspect dirty worktree bytes, but they can never authorize a lifecycle transition. Governed prompt
-context is `recorded-context`; lifecycle authorization is `gate`. Those durable classes enumerate
-every selected committed Git blob and refuse dirty, untracked, symlink, gitlink, missing-object, or
-otherwise degraded in-cone inputs. Dirty paths outside the selected cone do not block. The remedy is
-to commit the relevant bytes, narrow the evidence cone, or run a non-evidence preview.
+inspect dirty worktree bytes. Governed prompt context is `recorded-context`; `gate` is an explicit
+diagnostic class. Durable capture enumerates selected committed Git blobs. Dirty, untracked,
+symlink, gitlink, missing-object, or otherwise degraded in-cone inputs produce a partial result and
+omit durable evidence instead of failing the operation. Dirty paths outside the selected cone are
+ignored. Commit the relevant bytes or narrow the cone when durable reproduction is desired.
 
 Derivations are committed below
 `singularity/work-items/<WORK-ID>/context/ast/derivations/`. Toolchain bundles are retained by SHA-256
@@ -206,30 +205,21 @@ binary, downloaded grammar, or separate build step. Optional parser and semantic
 their license metadata and bind the adapter, runtime, grammar, and dependency artifacts by digest;
 an incomplete or mismatched manifest is unavailable rather than silently downgraded.
 
-## Lifecycle enforcement
+## Lifecycle independence
 
-When no predicate is explicitly marked `required`, lifecycle behavior is unchanged. Advisory
-predicates remain available through explicit AST diagnostics. When required predicates are active:
+AST never gates publication, submission, readiness, or governance. A predicate marked `required`
+means only that an explicitly requested `wm ast gate` diagnostic reports `allowed: false` when the
+predicate cannot be established. It does not create a workflow prerequisite or receipt obligation.
+Repository, machine, environment, workflow-profile, and operation-level AST-off switches are always
+valid. Missing packs, unsupported languages, adapter failures, incomplete project bindings, dirty
+evidence inputs, and evidence-store problems are reported as disabled/partial diagnostics while the
+workflow continues through ordinary Git and file access.
 
-1. publication evaluates the bounded selected cone before any generation mutation;
-2. any required failure, unknown result, adapter shortfall, or partial coverage blocks;
-3. a passing evaluation retains its exact toolchain, stores an immutable derivation manifest, and
-   stores a receipt that references that manifest for the phase generation;
-4. submission re-reads the receipt and re-evaluates the exact accepted paths; and
-5. governance and terminal gates verify the receipt's exact integrity-protected bytes from the
-   generation commit rather than trusting a later working-tree copy.
-
-Repository, machine, environment, workflow-profile, and operation-level AST-off switches suspend
-these lifecycle gates; no receipt is required while AST is off. The v3 receipt binds the work item,
-phase, generation, derivation digest and integrity, predicate
-fact-set digests, outcomes, assurance, and diagnostics. The derivation binds exact input objects,
-configuration, engine/adapter/runtime/grammar/dependency artifact digests, and outputs. Revalidation
-refuses any toolchain, policy, input-object, or outcome change even when display versions happen to
-be the same. Migrated v1/v2 receipts remain authentic historical verdicts but are explicitly
-`legacy-unreplayable`; migration never invents missing hashes. A required `symbol-exists` predicate always
-requires at least syntax assurance; the lexical built-in can expose a matching name only as
-advisory evidence. Advisory predicates are reported but do not authorize a failed required
-predicate.
+When durable diagnostic evidence is successfully captured, its derivation still binds exact input
+objects, configuration, engine/adapter/runtime/grammar/dependency artifact digests, and outputs.
+Migrated v1/v2 receipts remain authentic historical records but are `legacy-unreplayable`; they are
+never required for current lifecycle transitions. A `required` `symbol-exists` diagnostic still
+needs syntax assurance to report a pass; a lexical name remains advisory evidence.
 
 ## Copilot and gateway reads
 
@@ -248,10 +238,9 @@ question remains unanswered. Whole-repository scope remains explicit.
   the bundled text-assured structural preview unless policy selects `off`/`text-only`; other catalogued
   languages retain the text floor until a reviewed pack is installed. Recognition and preview
   scanning are never claimed as parsing.
-- While AST is enabled, programming source that the compiled language catalog cannot identify is a
-  hard failure for explicit AST operations, not an empty successful result. Normal Copilot file
-  access and ordinary code delivery continue regardless of AST language support. A required AST
-  context or required structural predicate remains strict only while AST is active.
+- Programming source that the compiled language catalog cannot identify is skipped with a visible
+  warning and partial coverage. Normal Copilot file access, code delivery, and lifecycle transitions
+  continue regardless of AST language support or availability.
 - Adapter protocol v2 manifests bind the executable/package, manifest, runtime, grammars, and
   dependency artifacts by SHA-256. The broker verifies the executable digest before launch and the
   adapter must echo the request derivation identity and implementation digests.

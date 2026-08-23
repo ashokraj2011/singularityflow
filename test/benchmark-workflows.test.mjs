@@ -34,7 +34,7 @@ test('starter configuration ships comparable Benchmark A and Benchmark B workflo
   assert.deepEqual(governed.phases.map((phase) => phase.id), PHASES);
   assert.deepEqual(generic.phases.map((phase) => phase.id), PHASES);
   assert.deepEqual(governed.intelligence, {
-    worldModel: 'required', ast: 'required-context', agentBriefs: 'required'
+    worldModel: 'required', ast: 'optional-context', agentBriefs: 'required'
   });
   assert.deepEqual(generic.intelligence, {
     worldModel: 'off', ast: 'off', agentBriefs: 'off'
@@ -173,7 +173,7 @@ test('Benchmark A injects a bounded, provenance-bearing AST evidence page', asyn
   }
 });
 
-test('AST off blocks only an explicitly selected required-context operation', async () => {
+test('AST off degrades an explicitly selected structural-context operation', async () => {
   const root = await mkdtemp(path.join(os.tmpdir(), 'sflow-benchmark-ast-disabled-'));
   git(root, 'init', '-b', 'main');
   git(root, 'config', 'user.name', 'Benchmark User');
@@ -184,13 +184,13 @@ test('AST off blocks only an explicitly selected required-context operation', as
   process.env.SINGULARITY_FLOW_AST_PREFERENCE_FILE = preference;
   try {
     await setAstPreference('off');
-    await assert.rejects(
-      () => requiredStructuralPromptContext(root, {
-        workItem: { id: 'BENCH-A-OFF', workType: 'benchmarking-a' },
-        resolution: { intelligence: { worldModel: 'required', ast: 'required-context', agentBriefs: 'required' } }
-      }),
-      (error) => error?.code === 'WORK_TYPE_AST_CONTEXT_DISABLED'
-    );
+    const governed = await requiredStructuralPromptContext(root, {
+      workItem: { id: 'BENCH-A-OFF', workType: 'benchmarking-a' },
+      resolution: { intelligence: { worldModel: 'required', ast: 'optional-context', agentBriefs: 'required' } }
+    });
+    assert.equal(governed.text, '');
+    assert.equal(governed.record, null);
+    assert.match(governed.warnings.join('\n'), /ordinary repository file access/);
     const generic = await requiredStructuralPromptContext(root, {
       workItem: { id: 'BENCH-B-OFF', workType: 'benchmarking-b' },
       resolution: { intelligence: { worldModel: 'off', ast: 'off', agentBriefs: 'off' } }

@@ -1,5 +1,5 @@
 import assert from 'node:assert/strict';
-import { mkdtemp, rm, writeFile } from 'node:fs/promises';
+import { mkdtemp, readFile, rm, writeFile } from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -66,4 +66,27 @@ test('doctor reports zero-token world-model readiness when semantic routing is a
   assert.equal(routing.status, 'warn');
   assert.match(routing.message, /Deterministic light generation remains available with zero model tokens/);
   assert.match(routing.fix, /wm build --depth light/);
+});
+
+test('doctor keeps model-free work healthy when the optional provider is not installed', async () => {
+  const root = await mkdtemp(path.join(os.tmpdir(), 'sflow-doctor-no-provider-'));
+  run('git', ['init', '-b', 'main'], root);
+  run('git', ['config', 'user.name', 'Doctor Tester'], root);
+  run('git', ['config', 'user.email', 'doctor@example.com'], root);
+  await writeFile(path.join(root, 'README.md'), '# Doctor provider test\n');
+  run(process.execPath, [bin, 'init'], root);
+  const workflowPath = path.join(root, 'singularity/workflow.yml');
+  const workflow = await readFile(workflowPath, 'utf8');
+  await writeFile(workflowPath, workflow
+    .replace('publish: required', 'publish: off')
+    .replace('executable: copilot', `executable: ${path.join(root, 'missing-copilot')}`));
+  run('git', ['add', '.'], root);
+  run('git', ['commit', '-m', 'initialize without optional provider'], root);
+
+  const report = await doctorSnapshot(root, { offline: true });
+  const provider = report.checks.find((entry) => entry.id === 'model-provider-prompt-attachment');
+  assert.equal(provider.status, 'warn');
+  assert.equal(provider.code, 'MODEL_PROVIDER_UNAVAILABLE');
+  assert.match(provider.message, /model-free work remains available/);
+  assert.equal(report.healthy, true);
 });

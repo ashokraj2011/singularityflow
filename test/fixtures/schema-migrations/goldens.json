@@ -2,6 +2,7 @@
   "session-registry": [{ "schemaVersion": 1 }, { "schemaVersion": 2 }],
   "copilot-session": [{ "schemaVersion": 1 }],
   "copilot-turn-intent": [{ "schemaVersion": 1 }],
+  "harness-event": [{ "schemaVersion": 1 }],
   "story-workflow": [{ "schemaVersion": 1, "workItem": { "id": "OLD-1", "branch": "OLD-1" }, "phaseOrder": [], "phases": {} }, { "schemaVersion": 2 }],
   "action-plan": [{ "schemaVersion": 1, "workId": "OLD-1", "revision": {}, "actions": [] }, { "schemaVersion": 2 }],
   "action-authorization": [{ "schemaVersion": 1 }],

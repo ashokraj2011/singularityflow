@@ -10,6 +10,7 @@ import {
   parseReferenceHandle, registerReference, renderReferencePreview, resolveReference
 } from '../src/harness-imports.mjs';
 import { beginHarnessInvocation, completeHarnessInvocation, harnessReport } from '../src/harness-events.mjs';
+import { currentSchemaVersion, familyForStoredPath } from '../src/schema-migrations.mjs';
 
 function git(root, args) {
   const result = spawnSync('git', args, { cwd: root, encoding: 'utf8' });
@@ -139,10 +140,17 @@ test('harness reports exact engine evidence and honest unavailable host coverage
   });
   const report = await harnessReport(root);
   assert.equal(report.invocations, 1);
+  assert.equal(report.events[0].schemaVersion, currentSchemaVersion('harness-event'));
   assert.deepEqual(report.output, { rawBytes: 1200, previewBytes: 300, savedBytes: 900 });
   assert.equal(report.hostObservations.status, 'unavailable');
   assert.equal(report.hostObservations.coverage, 0);
   assert.match(report.hostObservations.reason, /no exact model\/tool-loop observation/);
+});
+
+test('persisted harness events are a registered immutable schema family', () => {
+  const family = familyForStoredPath('$git/harness-events/5119eca9-f2d7-4d72-846b-16f3f93e7279.json');
+  assert.equal(family.id, 'harness-event');
+  assert.equal(family.immutable, true);
 });
 
 test('harness invocation attributes a CLI command to its registered driving skill', () => {

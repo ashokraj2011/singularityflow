@@ -6,6 +6,7 @@ import { canonicalJson, recordSha256 } from './records.mjs';
 import { nowIso, writeText } from './util.mjs';
 import { evaluateEngineConformance } from './harness-conformance.mjs';
 import { primarySkillForCommand } from './command-skills.mjs';
+import { currentSchemaVersion, readRecord } from './schema-migrations.mjs';
 
 function registeredHarnessSkill(command) {
   const registered = primarySkillForCommand(command?.[1]);
@@ -14,7 +15,7 @@ function registeredHarnessSkill(command) {
 
 export function beginHarnessInvocation({ subject = null, skill = null, contractClass = null, command = [] } = {}) {
   return {
-    schemaVersion: 1,
+    schemaVersion: currentSchemaVersion('harness-event'),
     eventType: 'engine.invocation.started',
     invocationId: randomUUID(),
     subject,
@@ -41,9 +42,11 @@ export async function harnessReport(root) {
   const events = [];
   for (const name of names) {
     try {
-      const event = JSON.parse(await readFile(path.join(directory, name), 'utf8'));
-      const { eventId, ...core } = event;
-      if (recordSha256(core) === eventId) events.push(event);
+      const stored = JSON.parse(await readFile(path.join(directory, name), 'utf8'));
+      const { eventId, ...core } = stored;
+      // Verify the exact stored bytes' logical record before any future in-memory migration. The
+      // eventId is an immutable receipt for that historical shape, not for its upgraded projection.
+      if (recordSha256(core) === eventId) events.push(readRecord('harness-event', stored).record);
     } catch { /* corrupt local projections are omitted and surfaced in counts below */ }
   }
   const verdicts = { pass: 0, fail: 0, 'not-observed': 0 };

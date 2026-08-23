@@ -607,6 +607,7 @@ const families = [
   }),
   family({ id: 'copilot-session', currentVersion: 1, paths: [/^\$git\/copilot-session\.json$/] }),
   family({ id: 'copilot-turn-intent', currentVersion: 1, paths: [/^\$git\/copilot-turn-[^/]+\.json$/] }),
+  family({ id: 'harness-event', currentVersion: 1, paths: [/^\$git\/harness-events\/[0-9a-f-]{36}\.json$/], immutable: true }),
   family({
     id: 'story-workflow', currentVersion: 2,
     steps: [migration(1, 2, storyWorkflowV1ToV2)],

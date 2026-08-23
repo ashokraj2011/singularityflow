@@ -148,16 +148,27 @@ export async function doctorSnapshot(root, {
     const providerExecutable = configuredProvider.providerConfig?.executable
       ?? (process.platform === 'win32' ? 'copilot.cmd' : 'copilot');
     const attachment = probePromptAttachmentCapability({ type: providerType, executable: providerExecutable });
+    // A missing optional provider disables only model-backed generation. The phase contract still
+    // permits human/model-free production, so turning the whole repository unhealthy here makes a
+    // capability that is not required a show-stopper. An installed Copilot adapter that cannot use
+    // the required private attachment transport remains a failure: attempting to fall back to
+    // command-line prompt text would cross the security boundary this probe protects.
+    const providerUnavailable = attachment.code === 'MODEL_PROVIDER_UNAVAILABLE';
+    const attachmentReady = attachment.state === 'ready' || attachment.state === 'not-applicable';
     checks.push(check(
       'model-provider-prompt-attachment',
-      attachment.state === 'ready' || attachment.state === 'not-applicable' ? 'pass' : 'fail',
+      attachmentReady ? 'pass' : providerUnavailable ? 'warn' : 'fail',
       attachment.state === 'ready'
         ? `Model provider '${configuredProvider.provider}' supports private prompt attachments.`
         : attachment.state === 'not-applicable'
           ? `Model provider '${configuredProvider.provider}' owns its prompt transport outside the Copilot adapter.`
-          : `Model provider '${configuredProvider.provider}' cannot provide the required prompt-attachment capability.`,
+          : providerUnavailable
+            ? `Model provider '${configuredProvider.provider}' is not installed; model-backed generation is unavailable, while model-free work remains available.`
+            : `Model provider '${configuredProvider.provider}' cannot provide the required prompt-attachment capability.`,
       attachment.state === 'blocked'
-        ? 'Update or replace the configured Copilot-compatible executable before running model-backed generation.'
+        ? providerUnavailable
+          ? 'Install or configure the provider only before running model-backed generation.'
+          : 'Update or replace the configured Copilot-compatible executable before running model-backed generation.'
         : null,
       { state: attachment.state, code: attachment.code, capability: attachment.capability }
     ));

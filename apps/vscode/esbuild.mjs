@@ -19,7 +19,10 @@ import { execSync } from 'node:child_process';
 const describe = (command, fallback) => {
   try { return execSync(command, { encoding: 'utf8' }).trim(); } catch { return fallback; }
 };
-const BUILD = `${describe('git rev-parse --short HEAD', 'unknown')}${
+// Never inherit Git's configurable abbreviation length (`core.abbrev`). The build label is a
+// user-visible package identity and its seven-character shape is consumed by diagnostics and host
+// tests, so two machines must not package the same commit as seven and eight characters.
+const BUILD = `${describe('git rev-parse --short=7 HEAD', 'unknown')}${
   describe('git status --porcelain', '') ? '+local' : ''} ${new Date().toISOString().slice(0, 16)}Z`;
 
 /**

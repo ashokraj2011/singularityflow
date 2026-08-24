@@ -167,6 +167,30 @@ function processIsAlive(pid) {
 }
 
 /**
+ * Identify a pre-commit journal whose owning process is still running.
+ *
+ * A live owner is not an interrupted publication. In particular, a CLI command may be waiting at
+ * an interactive confirmation while another surface asks to synchronize the same Story. Calling
+ * that an interruption sends the operator toward destructive repair even though the transaction
+ * still owns its lock. Recovery callers use this distinction to tell the operator to return to the
+ * active command; they still fail closed when liveness is unknown.
+ */
+export function livePreparedPublicationOwner(pending) {
+  const journal = pending?.journalRecord;
+  if (!pending?.journal
+    || pending.record?.recoveryStage !== 'interrupted-before-branch-ref-advanced'
+    || journal?.stage !== 'prepared'
+    || journal?.commit != null
+    || processIsAlive(journal.owner?.pid) !== true) return null;
+  return Object.freeze({
+    pid: journal.owner.pid,
+    processId: journal.owner.processId ?? null,
+    createdAt: journal.createdAt ?? null,
+    updatedAt: journal.updatedAt ?? null
+  });
+}
+
+/**
  * Clear only the pre-commit crash state whose complete rollback is proven by Git.
  *
  * A `prepared` journal is written before lifecycle state changes. If the process is killed after

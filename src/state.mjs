@@ -66,6 +66,7 @@ import {
   clearPendingPublication,
   discardCleanPreparedPublication,
   hasPendingPublication,
+  livePreparedPublicationOwner,
   localPendingPublicationPath,
   readPendingPublication,
   writePendingPublication,
@@ -3355,6 +3356,15 @@ export async function syncPublication(root, config, workflow) {
         capabilityPublished: [],
         ledger: await reconcileLedger(root, workflow.resolution?.ledger ?? config.ledger ?? {}, { workId: workflow.workItem.id })
       };
+    }
+    const liveOwner = livePreparedPublicationOwner(pending);
+    if (liveOwner) {
+      throw new SingularityFlowError(
+        `Story '${workflow.workItem.id}' has an active governed publication command (PID ${liveOwner.pid}`
+        + `${liveOwner.createdAt ? `, started ${liveOwner.createdAt}` : ''}). `
+        + 'Return to that terminal and complete or interrupt the command; do not start another mutation. '
+        + 'After interrupting it, run singularity-flow sync again.'
+      );
     }
     throw new SingularityFlowError(
       `Story '${workflow.workItem.id}' was interrupted before its governed commit completed. `

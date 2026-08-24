@@ -3611,6 +3611,32 @@ export async function submitCommand(positionals, options) {
   const config = await loadConfig(root);
   let workflow = await loadStoryAggregate(root, config);
   const requestedPhase = selectedPhaseArgument(positionals, options, 'submit');
+  const initialPhaseId = requestedPhase ?? workflow.currentPhase;
+  const initialPhase = workflow.phases[initialPhaseId];
+  if (!initialPhase) throw new SingularityFlowError(`Unknown or unavailable phase '${initialPhaseId ?? ''}'. Provide a phase ID.`);
+  // Submission is an idempotent boundary. A retry can come from Copilot replaying an action after
+  // the first command succeeded, or from a person not seeing the prior terminal result. Letting the
+  // ordinary soft phase-status gate handle it opens the publication journal and subject lock before
+  // asking "continue?"; while that prompt waits, every other surface mistakes the live command for
+  // an interrupted commit. The committed aggregate already proves the exact phase and generation
+  // awaiting review, so no transaction or override is appropriate.
+  if (initialPhase.status === 'awaiting_approval') {
+    if (await storyPublicationPending(root, config, workflow.workItem.id)) {
+      await assertNoPendingPublication(root, config, workflow, 'submit for approval');
+    }
+    emitCommandResult(commandResult({
+      operation: { id: 'submit', classification: 'mutation' },
+      subject: { kind: 'story', id: workflow.workItem.id },
+      outcome: noop('submit.noop', { phase: initialPhase.id }),
+      effects: noEffects(),
+      data: {
+        phase: initialPhase.id,
+        generation: initialPhase.generation,
+        submittedAt: initialPhase.submittedAt ?? null
+      }
+    }), { json: optionBoolean(options, 'json'), postState: workflow });
+    return;
+  }
   const reconciliation = await reconcilePhaseTelemetry(root, config, workflow, { phaseId: requestedPhase });
   if (reconciliation.updated) {
     const telemetryPublication = await commitAndPublish(root, config, workflow, { type: LIFECYCLE_EVENT.TELEMETRY_RECORDED, phaseId: reconciliation.phase, generation: reconciliation.generation }, `[${workflow.workItem.id}][phase:${reconciliation.phase}][telemetry:${reconciliation.generation}] reconcile Copilot usage`);

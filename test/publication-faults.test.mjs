@@ -8,7 +8,9 @@ import test from 'node:test';
 import { lifecycleEvent } from '../src/lifecycle-event.mjs';
 import { GitPublicationUnitOfWork } from '../src/publication-unit-of-work.mjs';
 import { commitIsolated } from '../src/git.mjs';
-import { discardCleanPreparedPublication, readPendingPublication } from '../src/publication-pending.mjs';
+import {
+  discardCleanPreparedPublication, livePreparedPublicationOwner, readPendingPublication
+} from '../src/publication-pending.mjs';
 import { beginPublicationJournal, publicationJournalPath } from '../src/publication-journal.mjs';
 import { acquireSubjectLock, releaseSubjectLock, subjectLockPath } from '../src/subject-lock.mjs';
 
@@ -253,6 +255,26 @@ test('a dead prepared journal is discarded only when Git proves the pre-commit t
   assert.equal(await discardCleanPreparedPublication(root, dirty), false);
   assert.equal(await pathExists(journalPath), true);
   assert.match(git(['status', '--porcelain'], root), /README\.md/);
+});
+
+test('a live prepared journal is reported as active rather than interrupted', () => {
+  const pending = {
+    journal: true,
+    record: { recoveryStage: 'interrupted-before-branch-ref-advanced' },
+    journalRecord: {
+      stage: 'prepared', commit: null,
+      owner: { pid: process.pid, processId: 'live-test-owner' },
+      createdAt: '2026-08-24T12:49:36.648Z', updatedAt: '2026-08-24T12:49:36.648Z'
+    }
+  };
+  assert.deepEqual(livePreparedPublicationOwner(pending), {
+    pid: process.pid,
+    processId: 'live-test-owner',
+    createdAt: '2026-08-24T12:49:36.648Z',
+    updatedAt: '2026-08-24T12:49:36.648Z'
+  });
+  pending.journalRecord.owner.pid = 2147483647;
+  assert.equal(livePreparedPublicationOwner(pending), null);
 });
 
 test('a lock left by a killed process is reclaimed for Story and Initiative subjects', async (t) => {

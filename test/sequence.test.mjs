@@ -6,6 +6,7 @@ import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { spawnSync } from 'node:child_process';
 import YAML from 'yaml';
+import { acquireSubjectLock, releaseSubjectLock } from '../src/subject-lock.mjs';
 
 const packageRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 const bin = path.join(packageRoot, 'bin', 'singularity-flow.mjs');
@@ -211,6 +212,17 @@ test('submitted work blocks generation mutations and rejection requires regenera
 
   const submittedWorkflow = await readFile(workflowFile, 'utf8');
   const submittedHead = execute('git', ['rev-parse', 'HEAD'], root).stdout.trim();
+  // A repeated host action is a read-only success before the publication unit opens. Holding the
+  // mutation lock proves the retry neither tries to take that lock nor creates a journal while it
+  // reports the already-committed state.
+  const subject = { kind: 'story', id: 'SEQ-1', branch: 'SEQ-1' };
+  const owner = await acquireSubjectLock(root, subject);
+  const repeated = flow(root, ['submit']);
+  assert.equal(await releaseSubjectLock(root, subject, owner), true);
+  assert.equal(repeated.status, 0, repeated.stderr);
+  assert.match(repeated.stdout, /intake is already awaiting approval/i);
+  assert.equal(await readFile(workflowFile, 'utf8'), submittedWorkflow);
+  assert.equal(execute('git', ['rev-parse', 'HEAD'], root).stdout.trim(), submittedHead);
   assertSequenceFailure(flow(root, ['prepare', 'intake'], { allowFailure: true }), /approve intake --work-id SEQ-1 --fetch/, /reject intake --work-id SEQ-1 --fetch/);
   assertSequenceFailure(flow(root, ['phase', 'publish', 'intake'], { allowFailure: true }), /approve intake --work-id SEQ-1 --fetch/);
   assertSequenceFailure(flow(root, ['documents', 'upload', artifact], { allowFailure: true }), /cannot upload documents/, /awaiting_approval/);

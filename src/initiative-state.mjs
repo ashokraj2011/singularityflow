@@ -29,6 +29,7 @@ import { buildRepositorySubjectIndex, resolveContext } from './repository-subjec
 import {
   clearPendingPublication,
   discardCleanPreparedPublication,
+  livePreparedPublicationOwner,
   localPendingPublicationPath,
   readPendingPublication,
 } from './publication-pending.mjs';
@@ -1370,6 +1371,15 @@ export async function syncInitiativePublication(root, portfolio, initiative) {
         recoveredPrepared: true,
         ledger: await reconcileLedger(root, initiative.resolution?.ledger ?? {}, { workId: initiative.initiative.id })
       };
+    }
+    const liveOwner = livePreparedPublicationOwner(pending);
+    if (liveOwner) {
+      throw new SingularityFlowError(
+        `Initiative '${initiative.initiative.id}' has an active governed publication command (PID ${liveOwner.pid}`
+        + `${liveOwner.createdAt ? `, started ${liveOwner.createdAt}` : ''}). `
+        + 'Return to that terminal and complete or interrupt the command; do not start another mutation. '
+        + 'After interrupting it, run singularity-flow initiative sync again.'
+      );
     }
     throw new SingularityFlowError(
       `Initiative '${initiative.initiative.id}' was interrupted before its governed commit completed. `

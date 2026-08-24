@@ -786,8 +786,8 @@ large source bytes. SharePoint delegated OAuth in VS Code remains unsupported un
 corporate redirect-flow and proxy spike succeeds; credentials must remain in approved secure
 stores. Requirements trace `SRC-* → REQ-nnn → AC-nnn`; plan version
 2 then traces these to `STORY-nnn → returned Jira key/numeric ID → canonical
-branch → optional Developer child branch → review packet → GitHub Actions/PR
-evidence → conformance → exact-hash decision`.
+branch → optional Developer child branch → review packet → configured repository-check
+and PR evidence → conformance → exact-hash decision`.
 
 Developers register custom branches explicitly:
 
@@ -797,8 +797,8 @@ singularity-flow story submit
 ```
 
 Reviewers use **Epic workspace → Review** or
-`singularity-flow epic review MOB-123`. Exact-SHA checks read GitHub evidence
-through `gh` and do not run repository code on the reviewer’s machine. See
+`singularity-flow epic review MOB-123`. Exact-SHA checks can read configured
+GitHub repository-check and PR state without running repository code on the reviewer’s machine. See
 [HELP.md](HELP.md#epic-to-story-planning-and-lifecycle-lineage) for the complete
 workflow and corporate credential/storage behavior.
 

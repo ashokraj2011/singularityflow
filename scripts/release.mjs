@@ -7,9 +7,9 @@
  * CLI staged inside it. Both install identically on Windows, macOS and Linux — `install.sh` is a
  * build-from-source bootstrap for people working on the product, not the way anybody else gets it.
  *
- * This remains the deliberate local release surface while Governance CI independently runs the
- * mandatory checks and produces signed provenance for its packaged artifacts. A human still owns
- * registry publication; the hosted workflow supplies verification, not hidden deployment policy.
+ * This is the deliberate local release surface. It runs the mandatory checks and produces
+ * checksums for both packaged artifacts without requiring hosted Git automation. A human still
+ * owns registry publication and any organisation-specific signing or provenance step.
  *
  * What it does not do is upload. The destination is an internal registry that differs per
  * organisation, and guessing at it in a tracked file would be worse than leaving the last step to

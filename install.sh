@@ -326,6 +326,16 @@ fi
 printf '%s\n' 'Updating the current tracked branch...'
 git pull --ff-only
 
+# Office-safe distribution boundary: this installer must never provision Git-host automation.
+# `npm run check` repeats this invariant, while this early guard fails before dependency install or
+# packaging if a hosted workflow is accidentally reintroduced into the tracked checkout.
+HOSTED_AUTOMATION_FILES="$(git ls-files -- '.github/workflows/*' 'examples/singularity-flow-validation.yml')"
+if [[ -n "$HOSTED_AUTOMATION_FILES" ]]; then
+  printf '%s\n' 'Error: hosted GitHub workflow assets are unsupported by this installer:' >&2
+  printf '%s\n' "$HOSTED_AUTOMATION_FILES" >&2
+  exit 1
+fi
+
 REGISTRY="$(choose_registry)"
 printf 'Using npm registry: %s\n' "$REGISTRY"
 
@@ -347,7 +357,7 @@ npm run check
 step_end
 if [[ "$CLI_ONLY" == "on" ]]; then
   if [[ "$SKIP_TESTS" == "on" ]]; then
-    printf '%s\n' 'WARNING: CLI tests skipped by request; this exact commit must already have passed them.' >&2
+    printf '%s\n' 'WARNING: CLI tests skipped by request; run npm run test:cli locally before distributing this build.' >&2
   else
     step_begin 'Running the CLI test suite'
     npm run test:cli
@@ -358,7 +368,7 @@ else
   if [[ "$SKIP_VSCODE" != "on" ]]; then npm run vscode:build; fi
   step_end
   if [[ "$SKIP_TESTS" == "on" ]]; then
-    printf '%s\n' 'WARNING: full test suite skipped by request; this exact commit must already have passed it.' >&2
+    printf '%s\n' 'WARNING: full test suite skipped by request; run npm test locally before distributing this build.' >&2
   else
     step_begin 'Running the full test suite'
     npm test

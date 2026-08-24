@@ -267,25 +267,31 @@ test('an exact capability proposal can be reviewed, activated, and projected wit
 test('capability review and activation do not negotiate unrelated monorepo history', async () => {
   const org = await remotes('platform');
   process.env.SINGULARITY_FLOW_LEAD_REGISTRY = registry(org.base);
-  const seed = path.join(org.base, 'platform-seed');
-  await writeFile(path.join(seed, 'unrelated-application.bin'), Buffer.alloc(1024 * 1024, 0x51));
-  run('git', ['add', 'unrelated-application.bin'], { cwd: seed });
-  run('git', ['commit', '-qm', 'large unrelated application object'], { cwd: seed });
-  // Keep the test object loose so it can make the application ref deliberately unreadable after
-  // the capability proposal has been created. Configuration-only review must remain usable.
-  run('git', ['config', 'receive.unpackLimit', '10000'], { cwd: org.platform });
-  run('git', ['config', 'uploadpack.allowFilter', 'true'], { cwd: org.platform });
-  run('git', ['push', '-q', org.platform, 'main:main'], { cwd: seed });
 
   const proposed = await mapCapability(org.platform, {
     capabilityId: 'calculator', name: 'Calculator', kind: 'collection'
   });
-  const applicationBlob = run('git', ['rev-parse', 'main:unrelated-application.bin'], {
-    cwd: org.platform
+  // Make the application ref incomplete after the proposal exists. `mktree --missing` expresses
+  // that condition directly; deleting a presumed loose object was storage-layout dependent and
+  // stopped working when newer Git versions packed the received blob automatically.
+  const missingBlob = 'f'.repeat(40);
+  const applicationTree = run('git', ['mktree', '--missing'], {
+    cwd: org.platform,
+    input: `100644 blob ${missingBlob}\tunrelated-application.bin\n`
   }).stdout.trim();
-  const objectFile = path.join(org.platform, 'objects', applicationBlob.slice(0, 2), applicationBlob.slice(2));
-  assert.equal(existsSync(objectFile), true, 'the fixture application blob must be independently removable');
-  await rm(objectFile);
+  const priorMain = run('git', ['rev-parse', 'main'], { cwd: org.platform }).stdout.trim();
+  const fixtureIdentity = {
+    ...process.env,
+    GIT_AUTHOR_NAME: 'Fixture Author', GIT_AUTHOR_EMAIL: 'fixture@example.invalid',
+    GIT_COMMITTER_NAME: 'Fixture Author', GIT_COMMITTER_EMAIL: 'fixture@example.invalid'
+  };
+  const brokenMain = run('git', [
+    'commit-tree', applicationTree, '-p', priorMain, '-m', 'reference unavailable application history'
+  ], { cwd: org.platform, env: fixtureIdentity }).stdout.trim();
+  run('git', ['update-ref', 'refs/heads/main', brokenMain, priorMain], { cwd: org.platform });
+  assert.notEqual(run('git', ['cat-file', '-e', 'main:unrelated-application.bin'], {
+    cwd: org.platform, allowFailure: true
+  }).status, 0, 'the fixture application ref must be unreadable independently of object storage');
 
   const ordinaryClone = path.join(org.base, 'ordinary-full-clone');
   assert.notEqual(run('git', ['clone', '--quiet', '--no-local', org.platform, ordinaryClone], {

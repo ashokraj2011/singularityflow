@@ -1871,9 +1871,13 @@ test('the packaged POC release candidate journey survives publication, review, C
     const state = JSON.parse(readFileSync(workflowStateFile, 'utf8'));
     return state.currentPhase === 'poc-impact-analysis' ? state : null;
   }, { what: 'the independent approval to advance the POC Story' });
-  assert.equal(run('git', ['ls-remote', 'origin', 'refs/heads/POC-RC-1'], { cwd: root }).stdout.split(/\s+/)[0],
-    run('git', ['rev-parse', 'HEAD'], { cwd: root }).stdout.trim(),
-    'the approval is durably published to the Story ref');
+  await until(() => {
+    const remoteHead = run('git', ['ls-remote', 'origin', 'refs/heads/POC-RC-1'], {
+      cwd: root
+    }).stdout.split(/\s+/)[0];
+    const localHead = run('git', ['rev-parse', 'HEAD'], { cwd: root }).stdout.trim();
+    return remoteHead && remoteHead === localHead ? remoteHead : null;
+  }, { what: 'the approval to be durably published to the Story ref' });
   assert.equal(run('git', ['ls-remote', 'origin', 'refs/heads/main'], { cwd: root }).stdout.split(/\s+/)[0], baseCommit,
     'review and advancement still never write the selected base ref');
 

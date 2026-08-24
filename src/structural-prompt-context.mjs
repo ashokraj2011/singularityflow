@@ -19,9 +19,21 @@ export async function requiredStructuralPromptContext(root, workflow) {
     return { text: '', record: null, warnings: [] };
   }
   let result;
+  /**
+   * Scope to the work's source cone when one is declared, and select structure before pagination.
+   *
+   * `all: true` was unconditional, so on any repository with a declared source scope the bounded
+   * page spent its 50 facts on paths the phase does not touch. And without `structural-first`,
+   * canonical order let the file inventory occupy the entire first page while every symbol,
+   * import, and relationship waited behind a cursor no model follows unprompted.
+   */
+  const sourceRoots = workflow.resolution?.worldModelSourceScope?.sourceRoots
+    ?? workflow.resolution?.worldModel?.sourceRoots
+    ?? [];
   try {
     result = await astContext(root, {
-      all: true,
+      ...(Array.isArray(sourceRoots) && sourceRoots.length ? { paths: sourceRoots } : { all: true }),
+      priority: 'structural-first',
       'max-facts': MAX_FACTS,
       'max-output-bytes': MAX_OUTPUT_BYTES,
       'evidence-class': 'recorded-context'
@@ -38,7 +50,20 @@ export async function requiredStructuralPromptContext(root, workflow) {
       warnings: ['Optional AST context is disabled; continuing with ordinary repository file access.']
     };
   }
-  const facts = JSON.stringify(result.facts ?? [], null, 2);
+  /**
+   * Compact prompt serialization: descriptors become a legend, facts carry only the extractor id.
+   *
+   * Every fact clones its full extractor descriptor — licenses, conformance, language definitions —
+   * which is right for durable evidence and ruinous for a bounded prompt: fifty structural facts
+   * serialized to ~93 KB, five times the block this page replaced, with the same descriptor
+   * repeated fifty times. The derivation keeps the full records; the prompt gets each one once.
+   */
+  const compactFacts = (result.facts ?? []).map((fact) => ({
+    ...fact,
+    extractor: fact.extractor?.id ?? null,
+    ...(fact.extractors ? { extractors: fact.extractors.map((entry) => entry?.id ?? null) } : {})
+  }));
+  const facts = JSON.stringify(compactFacts, null, 2);
   const scope = result.scope ?? {};
   const config = await loadDefinition(root);
   const phase = workflow.phases?.[workflow.currentPhase] ?? {
@@ -75,6 +100,7 @@ export async function requiredStructuralPromptContext(root, workflow) {
     factsSha256: page?.factsSha256 ?? null,
     factsReturned: result.facts?.length ?? 0,
     factsAvailable: result.page?.available ?? result.facts?.length ?? 0,
+    structuralFactsReturned: (result.facts ?? []).filter((fact) => fact?.kind !== 'file').length,
     continuationAvailable: Boolean(result.nextCursor),
     canonicalizationVersion: page?.canonicalizationVersion ?? 1,
     pageOffset: page?.offset ?? 0,
@@ -87,9 +113,10 @@ export async function requiredStructuralPromptContext(root, workflow) {
     '',
     `- Status: \`${record.status}\``,
     `- Assurance: \`${record.assurance}\``,
-    `- Facts: ${record.factsReturned} of ${record.factsAvailable}`,
+    `- Facts: ${record.factsReturned} of ${record.factsAvailable} · ${record.structuralFactsReturned} structural`,
     `- Cone: \`${record.coneSha256 ?? 'unavailable'}\``,
     `- More facts available through a bound cursor: ${record.continuationAvailable ? 'yes' : 'no'}`,
+    `- Extractors: ${(record.extractors ?? []).map((entry) => `\`${entry.id}\` (${entry.stage ?? 'text'}, ${entry.assurance ?? 'text'})`).join(', ') || '`builtin-text`'}`,
     '',
     '```json',
     facts,

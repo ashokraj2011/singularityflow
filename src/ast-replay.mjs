@@ -126,7 +126,7 @@ async function committedInputs(root, manifest, temporaryView) {
 }
 
 async function retainedReplayRunner(bundle, temporaryView) {
-  const expected = new Set(['ast-builtin-extractor.mjs', 'ast-replay-runner.mjs']);
+  const expected = new Set(['ast-builtin-extractor.mjs', 'ast-fact-order.mjs', 'ast-replay-runner.mjs']);
   const artifacts = bundle.replayArtifacts;
   if (artifacts?.some((entry) => entry?.path === 'polyglot-syntax-core.mjs')) expected.add('polyglot-syntax-core.mjs');
   if (!Array.isArray(artifacts) || artifacts.length !== expected.size) return null;

@@ -15,11 +15,12 @@ import { SingularityFlowError } from './util.mjs';
 
 const ENGINE_FILES = Object.freeze([
   'src/ast-intelligence.mjs', 'src/ast-builtin-extractor.mjs', 'src/ast-evidence.mjs',
+  'src/ast-fact-order.mjs',
   'src/ast-replay.mjs', 'src/ast-replay-runner.mjs',
   'src/ast-packs/polyglot-syntax-core.mjs', 'src/ast-packs/polyglot-syntax-adapter.mjs'
 ]);
 const REPLAY_FILES = Object.freeze([
-  'src/ast-builtin-extractor.mjs', 'src/ast-replay-runner.mjs',
+  'src/ast-builtin-extractor.mjs', 'src/ast-fact-order.mjs', 'src/ast-replay-runner.mjs',
   'src/ast-packs/polyglot-syntax-core.mjs'
 ]);
 let identitiesPromise = null;

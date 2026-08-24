@@ -618,8 +618,8 @@ promotes the Story.
 Product Owners use **Epic workspace → Review** or `epic review`. The isolated
 review checkout discovers published packets across participating repositories
 without changing the reviewer’s working tree. **Run and record checks** performs
-deterministic lineage/hash/freshness governance and reads GitHub Actions and PR
-state through the authenticated `gh` CLI for the exact submitted SHA. It never
+deterministic lineage/hash/freshness governance and can read configured GitHub
+repository-check and PR state for the exact submitted SHA. It never
 runs repository build or test code locally. The evidence commit is pushed to
 the submitted branch; approval and rejection decisions remain bound to the
 packet hash.

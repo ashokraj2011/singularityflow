@@ -45,8 +45,8 @@ export function summary(workflow) {
 /**
  * Who is acting.
  *
- * In GitHub Actions the git identity is the runner, not a person, so the actor the workflow declares
- * wins — otherwise every governed decision made in CI would be attributed to a bot account.
+ * In Git-host automation the git identity is the runner, not a person, so an explicitly declared
+ * actor wins — otherwise every governed decision made by automation would be attributed to a bot.
  */
 export function actionActor(root) {
   return process.env.SINGULARITY_FLOW_GITHUB_ACTOR

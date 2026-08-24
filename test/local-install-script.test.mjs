@@ -37,6 +37,8 @@ test('local installer performs a safe ordered pull, pack, global install, and pl
   assert.match(script, /--factory-reset/);
   assert.match(script, /--clean-reinstall/);
   assert.match(script, /--skip-tests/);
+  assert.match(script, /HOSTED_AUTOMATION_FILES="\$\(git ls-files -- '\.github\/workflows\/\*'/);
+  assert.match(script, /hosted GitHub workflow assets are unsupported by this installer/);
   assert.match(script, /--no-workspace-workflow-sync/);
   assert.match(script, /refresh_registered_workspace_configurations/);
   assert.match(script, /singularity-flow workspace refresh-configuration/);

@@ -170,31 +170,15 @@ if (existsSync(path.join(root, 'examples', 'singularity-flow-approve.yml'))) {
   if (unknown.length) fail(`Help pages describe commands that do not exist: ${unknown.join(', ')}`);
 }
 
-const hostedAutomationRoot = ['.github', 'workflows'].join('/');
-const governanceWorkflow = path.join(root, hostedAutomationRoot, 'governance-ci.yml');
-if (!existsSync(governanceWorkflow)) {
-  fail(`${hostedAutomationRoot}/governance-ci.yml must enforce check, full-suite, and release provenance.`);
-} else {
-  try {
-    const workflowText = await readFile(governanceWorkflow, 'utf8');
-    const workflow = YAML.parse(workflowText);
-    const jobs = workflow?.jobs ?? {};
-    const commands = workflowText.match(/\bnpm (?:run check|test)\b/g) ?? [];
-    const actionUses = Object.values(jobs).flatMap((job) => job?.steps ?? [])
-      .map((step) => step?.uses).filter(Boolean);
-    const pinnedActions = actionUses.every((uses) => /@[0-9a-f]{40}$/.test(String(uses)));
-    if (!jobs.check || !jobs['full-suite'] || !jobs.provenance
-        || !commands.includes('npm run check') || !commands.includes('npm test')
-        || !/git config --global user\.email/.test(workflowText)
-        || !/npm run vscode:build/.test(workflowText)
-        || !actionUses.some((uses) => String(uses).startsWith('actions/attest@'))
-        || !pinnedActions) {
-      fail(`${hostedAutomationRoot}/governance-ci.yml must retain check, host-prepared full-suite, and attested-provenance jobs.`);
-    } else checked.push(path.relative(root, governanceWorkflow));
-  } catch (error) {
-    fail(`${hostedAutomationRoot}/governance-ci.yml is unreadable: ${error.message}`);
-  }
-}
+// Corporate installations may not provide GitHub Actions. Keep validation and packaging local and
+// fail if a hosted workflow or the formerly shipped Actions example is reintroduced. This also
+// prevents `install.sh` from packaging an unsupported automation template through `examples/`.
+const hostedAutomation = allFiles.map((file) => path.relative(root, file).split(path.sep).join('/'))
+  .filter((file) => file.startsWith('.github/workflows/')
+    || file === 'examples/singularity-flow-validation.yml');
+if (hostedAutomation.length) {
+  fail(`Hosted GitHub workflow assets are unsupported: ${hostedAutomation.join(', ')}`);
+} else checked.push('hosted GitHub workflow absence');
 for (const file of allFiles.filter((candidate) => candidate.endsWith('.mjs'))) {
   const result = spawnSync(process.execPath, ['--check', file], { encoding: 'utf8' });
   if (result.status !== 0) fail(`${path.relative(root, file)}: JavaScript syntax check failed\n${result.stderr}`);

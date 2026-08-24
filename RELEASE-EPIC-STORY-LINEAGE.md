@@ -22,7 +22,7 @@ initiative engines without changing existing work items.
 - Explicit canonical/child branch registration, fast-forward-only direct
   promotion, and PR/either completion policies.
 - Hash-bound review packets and isolated cross-repository Product Owner review.
-- Exact-SHA GitHub Actions and PR evidence through the authenticated `gh` CLI.
+- Optional exact-SHA GitHub repository-check and PR evidence through the authenticated `gh` CLI.
 - Timestamped Jira drift observations with explicit adopt or restore-plan
   choices.
 - Focused CLI commands, seven Copilot skills, and an Epic desktop workspace for

@@ -883,7 +883,7 @@ const PAGES = Object.freeze({
     examples: [
       ['singularity-flow story branch create --parent PAY-1 --name PAY-1-ui', 'Create a governed child branch.'],
       ['singularity-flow story intent-amendment propose --file amended-spec.md --reason "Retry policy changed"', 'Propose corrected intent for an update-intent finding without editing the approved specification.'],
-      ['singularity-flow story checks PAY-1', 'Record CI evidence against the submitted packet.']
+      ['singularity-flow story checks PAY-1', 'Record configured repository-check evidence against the submitted packet.']
     ],
     seeAlso: ['start', 'submit', 'epic']
   },

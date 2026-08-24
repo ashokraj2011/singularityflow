@@ -153,5 +153,12 @@
   "ast-semantic-binding": [{ "schemaVersion": 1 }],
   "ast-cone-manifest": [{ "schemaVersion": 1 }],
   "ast-derivation-manifest": [{ "schemaVersion": 1 }],
-  "ast-gate-receipt": [{ "schemaVersion": 1 }, { "schemaVersion": 2 }, { "schemaVersion": 3, "derivation": { "replayability": "legacy-unreplayable", "reason": "artifact and exact-input derivation were not recorded" } }]
+  "ast-gate-receipt": [{ "schemaVersion": 1 }, { "schemaVersion": 2 }, { "schemaVersion": 3, "derivation": { "replayability": "legacy-unreplayable", "reason": "artifact and exact-input derivation were not recorded" } }],
+  "auto-plan": [{ "schemaVersion": 1 }],
+  "auto-plan-ratification": [{ "schemaVersion": 1 }],
+  "auto-authorization": [{ "schemaVersion": 1 }],
+  "auto-origin": [{ "schemaVersion": 1 }],
+  "auto-flight-state": [{ "schemaVersion": 1 }],
+  "auto-step-result": [{ "schemaVersion": 1 }],
+  "auto-flight-report": [{ "schemaVersion": 1 }]
 }

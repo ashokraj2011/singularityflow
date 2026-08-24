@@ -333,6 +333,35 @@ function verificationCandidates(findings) {
   return [...new Map(candidates.map((candidate) => [candidate.id, candidate])).values()];
 }
 
+function predictedPathFindings(value, revision) {
+  if (value == null) return [];
+  if (!Array.isArray(value) || value.length > 200) {
+    throw new SingularityFlowError('Change Flight Plan predictedPaths must be an array of at most 200 paths.', {
+      code: 'CFP_TARGET_NOT_FOUND'
+    });
+  }
+  return [...new Set(value.map((candidate) => {
+    if (typeof candidate !== 'string') throw new SingularityFlowError('Change Flight Plan predictedPaths must contain strings.', {
+      code: 'CFP_TARGET_NOT_FOUND'
+    });
+    const portable = candidate.trim().replaceAll('\\', '/').replace(/\/$/, '');
+    const normalized = path.posix.normalize(portable);
+    if (!normalized || normalized === '.' || normalized === '..' || normalized.startsWith('../')
+      || path.posix.isAbsolute(normalized) || path.win32.isAbsolute(candidate)
+      || /[*?{}[\]\0]/.test(candidate)) {
+      throw new SingularityFlowError(`Predicted path '${candidate}' is not a bounded repository-relative path.`, {
+        code: 'CFP_TARGET_NOT_FOUND'
+      });
+    }
+    return normalized;
+  }))].map((subject) => makeFinding({
+    classification: 'inferred', kind: impactKind(subject), subject,
+    relationship: 'ratifiable-predicted-scope',
+    source: { type: 'planning-proposal', reference: subject, revision },
+    explanation: `${subject} was proposed as expected change scope and must be explicitly confirmed with the Plan before execution.`
+  }));
+}
+
 function localRoot(root) { return path.join(gitCommonDir(root), 'singularity-flow', 'change-flight-plans'); }
 function planFile(root, planId) { return path.join(localRoot(root), 'plans', `${planId}.json`); }
 function startFile(root, planId) { return path.join(localRoot(root), 'starts', `${planId}.json`); }
@@ -424,6 +453,7 @@ export async function previewChangeFlightPlan(root, input = {}) {
       ? { status: structural.envelopeStatus === 'partial' ? 'partial' : 'not-evaluated', reason: structural.unavailable }
       : { status: 'evaluated' };
   }
+  findings.push(...predictedPathFindings(input.predictedPaths, baseline.revision));
   findings = dedupeFindings(findings).slice(0, budgets.maxFindings);
 
   const unknowns = Object.entries(categories).filter(([, value]) => value.status === 'not-evaluated').map(([category, value]) => makeFinding({
@@ -695,13 +725,20 @@ export async function startChangeFlightPlan(root, planId, options = {}) {
     if (added.status !== 0) throw new SingularityFlowError(`Git could not create the isolated worktree: ${(added.stderr || added.stdout).trim()}`, { code: 'CFP_WORKSPACE_CREATION_FAILED' });
     created = true;
     const { manualStorySource, startStory } = await import('./story-start.mjs');
+    const autoProposal = options.auto?.plan?.proposal ?? null;
     const source = {
       ...manualStorySource(workId, {
-        title: plan.intent.text || `Change ${plan.target.reference}`,
+        title: (autoProposal?.title ?? plan.intent.text) || `Change ${plan.target.reference}`,
         description: `Accepted Change Flight Plan ${plan.planId}.`,
         desiredOutcome: plan.intent.text,
-        constraints: plan.unknowns.map((finding) => finding.explanation),
-        acceptanceCriteria: plan.verificationCandidates.map((candidate) => `Verify ${candidate.subject}`)
+        constraints: [
+          ...(autoProposal?.assumptions ?? []).map((entry) => `Assumption: ${entry}`),
+          ...(autoProposal?.unresolvedDecisions ?? []).map((entry) => `Unresolved decision: ${entry}`),
+          ...plan.unknowns.map((finding) => finding.explanation)
+        ],
+        acceptanceCriteria: autoProposal?.acceptanceCriteria?.length
+          ? autoProposal.acceptanceCriteria
+          : plan.verificationCandidates.map((candidate) => `Verify ${candidate.subject}`)
       }),
       planId: plan.planId
     };
@@ -709,7 +746,8 @@ export async function startChangeFlightPlan(root, planId, options = {}) {
       id: workId, source, workType, agent: options.agent,
       baseBranch: options.baseBranch ?? plan.baseline.branch ?? definition.defaultBaseBranch,
       expectedBaseCommit: plan.baseline.revision,
-      flightPlan: plan
+      flightPlan: plan,
+      auto: options.auto ?? null
     });
     run('git', ['branch', '-D', '--', stagingBranch], { cwd: root, allowFailure: true });
     const record = {
@@ -751,7 +789,9 @@ export function evaluateChangeFlightPlanBoundary(root, workflow, { phaseId = nul
   const expectedPaths = [...new Set(plan.findings.filter((finding) => finding.disposition === 'included' && [
     'code-file', 'test-file', 'configuration', 'database-migration', 'build-configuration'
   ].includes(finding.kind)).map((finding) => finding.subject))].sort();
-  const expansions = changedPaths.filter((relative) => !expectedPaths.includes(relative));
+  const expansions = changedPaths.filter((relative) => !expectedPaths.some((expected) => (
+    relative === expected || relative.startsWith(`${expected.replace(/\/$/, '')}/`)
+  )));
   const priorDispositions = new Map((workflow.changeFlightPlan.expansionDispositions ?? []).map((entry) => [entry.path, entry]));
   const unresolved = expansions.filter((relative) => !priorDispositions.has(relative));
   const delta = {
@@ -760,7 +800,9 @@ export function evaluateChangeFlightPlanBoundary(root, workflow, { phaseId = nul
     baselineRevision: plan.baseline.revision,
     observedRevision: run('git', ['rev-parse', 'HEAD'], { cwd: root }).stdout.trim(),
     expectedPaths, actualPaths: changedPaths,
-    expectedTouched: changedPaths.filter((relative) => expectedPaths.includes(relative)),
+    expectedTouched: changedPaths.filter((relative) => expectedPaths.some((expected) => (
+      relative === expected || relative.startsWith(`${expected.replace(/\/$/, '')}/`)
+    ))),
     expansions: expansions.map((relative) => ({ path: relative, disposition: priorDispositions.get(relative) ?? null })),
     unresolved
   };

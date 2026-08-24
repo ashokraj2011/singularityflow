@@ -37,6 +37,23 @@ defaultBaseBranch: main
 workItemRoot: singularity/work-items
 idPattern: '^[A-Za-z0-9][A-Za-z0-9._-]{0,63}$'
 
+# Auto is deliberately opt-in twice: once here and once on each work type allowed to use it.
+# Enabling planning never authorizes execution; start still requires the exact Plan SHA-256.
+auto:
+  enabled: false
+  defaultPace: phase
+  defaultUntil: first-human-boundary
+  workIdAllocator: ulid
+  planTtlMinutes: 30
+  execution:
+    allowedHosts: [copilot-cli]
+    requireManagedWorktree: true
+    automaticResume: false
+    allowPolicyWaivers: false
+    allowClarificationAnswers: false
+    allowSequenceOverrides: false
+    allowScopeExpansion: false
+
 git:
   remote: origin
   publish: required

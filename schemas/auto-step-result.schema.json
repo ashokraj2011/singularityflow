@@ -1,0 +1,23 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://example.invalid/singularity-flow/auto-step-result.schema.json",
+  "title": "Singularity Flow Auto step result v1",
+  "type": "object",
+  "required": ["schemaVersion", "kind", "mode", "flightId", "stepId", "idempotencyKey", "operation", "beforeRevision", "afterRevision", "effects", "status", "recordSha256"],
+  "properties": {
+    "schemaVersion": { "const": 1 },
+    "kind": { "const": "auto-step-result" },
+    "mode": { "const": "auto" },
+    "flightId": { "type": "string" },
+    "stepId": { "type": "string" },
+    "idempotencyKey": { "type": "string", "pattern": "^sha256:[a-f0-9]{64}$" },
+    "operation": { "type": "string" },
+    "beforeRevision": { "type": ["object", "string", "null"] },
+    "afterRevision": { "type": ["object", "string", "null"] },
+    "commandResultSha256": { "type": ["string", "null"] },
+    "effects": { "type": "object" },
+    "status": { "enum": ["succeeded", "failed", "unknown"] },
+    "recordSha256": { "type": "string", "pattern": "^sha256:[a-f0-9]{64}$" }
+  },
+  "additionalProperties": false
+}

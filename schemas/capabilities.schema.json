@@ -139,6 +139,17 @@
               "contextMaxBytes": {
                 "type": "integer",
                 "minimum": 1
+              },
+              "auto": {
+                "type": "object",
+                "properties": {
+                  "eligibility": { "enum": ["disabled", "plan-only", "bounded"] },
+                  "forbiddenWhenProtectedScopePredicted": { "type": "boolean" },
+                  "maximumTouchedPaths": { "type": "integer", "minimum": 1 },
+                  "maximumConcurrentFlights": { "type": "integer", "minimum": 1 },
+                  "ceilings": { "type": "object" }
+                },
+                "additionalProperties": false
               }
             },
             "additionalProperties": false

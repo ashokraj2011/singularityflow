@@ -6,6 +6,18 @@
   "required": ["schemaVersion", "workItem", "status", "currentPhase", "phaseOrder", "phases", "history"],
   "properties": {
     "schemaVersion": { "enum": [1, 2] },
+    "executionOrigin": {
+      "type": "object",
+      "required": ["schemaVersion", "mode", "flightId", "planId", "planSha256"],
+      "properties": {
+        "schemaVersion": { "const": 1 },
+        "mode": { "const": "auto" },
+        "flightId": { "type": "string", "pattern": "^AFL-[A-F0-9]{26}$" },
+        "planId": { "type": "string", "pattern": "^APL-[A-F0-9]{26}$" },
+        "planSha256": { "type": "string", "pattern": "^sha256:[a-f0-9]{64}$" }
+      },
+      "additionalProperties": false
+    },
     "mcpAuthorizations": {
       "type": "object",
       "additionalProperties": {

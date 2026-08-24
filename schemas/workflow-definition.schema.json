@@ -6,6 +6,7 @@
   "required": ["version", "git", "templatesRoot", "workTypes", "phases"],
   "properties": {
     "version": { "const": 2 },
+    "auto": { "$ref": "#/$defs/autoPolicy" },
     "inputsMode": { "enum": ["off", "record", "enforce"], "default": "off" },
     "noModel": {
       "type": "object",
@@ -308,6 +309,7 @@
           "label": { "type": "string", "minLength": 1 },
           "phases": { "type": "array", "minItems": 1, "items": { "type": "string" }, "uniqueItems": true },
           "intelligence": { "$ref": "#/$defs/workTypeIntelligence" },
+          "auto": { "$ref": "#/$defs/autoWorkTypePolicy" },
           "templateOverrides": { "type": "object", "additionalProperties": { "type": "string" } },
           "phaseOverrides": {
             "type": "object",
@@ -496,6 +498,78 @@
   },
   "additionalProperties": false,
   "$defs": {
+    "autoCeilings": {
+      "type": "object",
+      "properties": {
+        "maximumPhases": { "type": "integer", "minimum": 1 },
+        "maximumAuthoringAttemptsPerPhase": { "type": "integer", "minimum": 1 },
+        "maximumModelInvocations": { "type": "integer", "minimum": 1 },
+        "maximumActiveMinutes": { "type": "integer", "minimum": 1 },
+        "maximumElapsedMinutes": { "type": "integer", "minimum": 1 },
+        "maximumTouchedPaths": { "type": "integer", "minimum": 1 },
+        "maximumTouchedChanges": { "type": "integer", "minimum": 1 },
+        "tokenBudget": {
+          "type": "object",
+          "properties": {
+            "maximum": { "type": "integer", "minimum": 1 },
+            "assurance": { "enum": ["exact-required", "best-available"] }
+          },
+          "additionalProperties": false
+        }
+      },
+      "additionalProperties": false
+    },
+    "autoPolicy": {
+      "type": "object",
+      "properties": {
+        "enabled": { "type": "boolean" },
+        "defaultPace": { "type": "string", "pattern": "^(continuous|phase|interval|interval:[1-9][0-9]*(m|h))$" },
+        "defaultUntil": { "type": "string", "minLength": 1 },
+        "workIdAllocator": { "enum": ["require-explicit", "workspace-sequence", "ulid", "jira-or-workspace"] },
+        "planTtlMinutes": { "type": "integer", "minimum": 1 },
+        "concurrency": {
+          "type": "object",
+          "properties": {
+            "maximumPerCapability": { "type": "integer", "minimum": 1 },
+            "maximumPerWorkspace": { "type": "integer", "minimum": 1 }
+          },
+          "additionalProperties": false
+        },
+        "execution": {
+          "type": "object",
+          "properties": {
+            "allowedHosts": { "type": "array", "minItems": 1, "uniqueItems": true, "items": { "type": "string", "minLength": 1 } },
+            "requireManagedWorktree": { "const": true },
+            "automaticResume": { "const": false },
+            "allowPolicyWaivers": { "const": false },
+            "allowClarificationAnswers": { "const": false },
+            "allowSequenceOverrides": { "const": false },
+            "allowScopeExpansion": { "const": false }
+          },
+          "additionalProperties": false
+        },
+        "ceilings": { "$ref": "#/$defs/autoCeilings" },
+        "reporting": {
+          "type": "object",
+          "properties": {
+            "checkpoint": { "const": "governed-when-publishing" },
+            "final": { "const": "required" }
+          },
+          "additionalProperties": false
+        }
+      },
+      "additionalProperties": false
+    },
+    "autoWorkTypePolicy": {
+      "type": "object",
+      "properties": {
+        "eligibility": { "enum": ["disabled", "plan-only", "bounded"] },
+        "allowedPaces": { "type": "array", "minItems": 1, "uniqueItems": true, "items": { "enum": ["continuous", "phase", "interval"] } },
+        "defaultUntil": { "type": "string", "minLength": 1 },
+        "ceilings": { "$ref": "#/$defs/autoCeilings" }
+      },
+      "additionalProperties": false
+    },
     "sourceRoot": {
       "type": "string",
       "minLength": 1,

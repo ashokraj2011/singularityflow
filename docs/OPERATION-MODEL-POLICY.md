@@ -14,6 +14,16 @@ Every public operation is classified before its implementation module is importe
 | approve | mutation | never | — | — |
 | artifact | mutation | never | — | — |
 | assign | mutation | never | — | — |
+| auto.discard | mutation | never | — | — |
+| auto.flight-step | mutation | required | — | copilot-cli |
+| auto.halt | mutation | never | — | — |
+| auto.pause | mutation | never | — | — |
+| auto.plan | mutation | required | — | copilot-cli |
+| auto.report | read | never | — | — |
+| auto.resume | mutation | never | — | — |
+| auto.show-plan | read | never | — | — |
+| auto.start | mutation | never | — | — |
+| auto.status | read | never | — | — |
 | bootstrap | mutation | never | — | — |
 | cancel | mutation | never | — | — |
 | capabilities | mutation | never | — | — |

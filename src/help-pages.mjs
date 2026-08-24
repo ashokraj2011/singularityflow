@@ -79,6 +79,31 @@ export function synopsisFor(command) {
  * what it refuses and why, and a worked example. Commands absent from this map still render.
  */
 const PAGES = Object.freeze({
+  auto: {
+    summary: 'Plan and start bounded, hash-ratified work in an isolated managed worktree.',
+    description: [
+      'Auto is opt-in repository policy. Planning may use a model to propose scope, but the kernel',
+      'revalidates every field and creates no Story, branch, worktree, approval, or authorization.',
+      'Starting requires the exact SHA-256 printed on the Plan and revalidates all pinned inputs.',
+      '',
+      'This release is the single-repository Story-rail pilot. It creates the governed Story and',
+      'then pauses at a checkpoint. It never answers clarification, approves, waives policy, retries',
+      'a failed model attempt, expands scope, merges, deploys, or silently resumes.'
+    ],
+    options: [
+      ['--work-type ID', 'Select an Auto-eligible Story work type.'],
+      ['--from-branch BRANCH', 'Pin one branch that is currently published by every selected repository.'],
+      ['--pace MODE', 'continuous, phase, or interval:DURATION; policy may only restrict it.'],
+      ['--until SELECTOR', 'first-human-boundary, story-complete, or a phase publication/submission/completion boundary.'],
+      ['--confirm HASH', 'Exact Plan or checkpoint hash; stale and partial confirmations are refused.'],
+      ['--json', 'Emit the complete Plan or flight record.']
+    ],
+    examples: [
+      ['singularity-flow auto plan "Add bounded retry telemetry" --work-type feature --from-branch main', 'Creates only a machine-local Plan.'],
+      ['singularity-flow auto start APL-... --confirm sha256:...', 'Creates the Story only after exact Plan ratification.']
+    ],
+    seeAlso: ['start', 'impact', 'status', 'goal']
+  },
   receipt: {
     summary: 'Replay a compact, deterministic evidence receipt for the latest submitted phase.',
     description: [

@@ -361,6 +361,12 @@ for (const schemaFile of [
   'schemas/model-invocation-request.schema.json',
   'schemas/model-invocation-event.schema.json',
   'schemas/generation-authorship.schema.json',
+  'schemas/auto-plan.schema.json',
+  'schemas/auto-plan-ratification.schema.json',
+  'schemas/auto-flight-state.schema.json',
+  'schemas/auto-origin.schema.json',
+  'schemas/auto-step-result.schema.json',
+  'schemas/auto-flight-report.schema.json',
   'schemas/artifact-validation.schema.json'
 ]) {
   JSON.parse(await readFile(path.join(root, schemaFile), 'utf8'));

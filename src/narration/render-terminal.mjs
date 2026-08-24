@@ -127,6 +127,7 @@ const REST_STATE_LINES = Object.freeze({
 });
 
 export function renderCommandResult(result) {
+  if (result.operation.id.startsWith('auto.') && result.data?.card) return result.data.card;
   if (result.operation.id === 'approvals' && result.data?.approvalChain) {
     return approvalChainText(result.data.approvalChain).trimEnd();
   }

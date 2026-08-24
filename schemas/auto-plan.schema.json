@@ -1,0 +1,31 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://example.invalid/singularity-flow/auto-plan.schema.json",
+  "title": "Singularity Flow Auto Plan v1",
+  "type": "object",
+  "required": ["schemaVersion", "kind", "mode", "planId", "planSha256", "requirement", "proposal", "story", "execution", "scope", "repositories", "executionHost", "bindings", "safety", "createdAt", "expiresAt"],
+  "properties": {
+    "schemaVersion": { "const": 1 },
+    "kind": { "const": "auto-plan" },
+    "mode": { "const": "auto" },
+    "planId": { "type": "string", "pattern": "^APL-[A-F0-9]{26}$" },
+    "planSha256": { "$ref": "#/$defs/hash" },
+    "requirement": { "type": "object", "required": ["text", "sha256"] },
+    "proposal": { "type": "object", "required": ["title", "assumptions", "unresolvedDecisions", "predictedPaths", "acceptanceCriteria"] },
+    "story": { "type": "object", "required": ["workId", "workType", "branch", "phaseRail"] },
+    "execution": { "type": "object", "required": ["pace", "until", "ceilings", "eligibility"] },
+    "humanBoundaries": { "type": "object" },
+    "scope": { "type": "object" },
+    "capability": { "type": ["object", "null"] },
+    "repositories": { "type": "array", "minItems": 1, "items": { "type": "object", "required": ["id", "remote", "baseBranch", "baseCommit"] } },
+    "executionHost": { "type": "object", "required": ["id", "modelTask", "modelAssurance", "capabilities", "writableRoots", "containment", "cancellation", "status"] },
+    "accounting": { "type": "object" },
+    "bindings": { "type": "object" },
+    "safety": { "type": "object", "required": ["startable", "reasons"] },
+    "createdAt": { "type": "string", "format": "date-time" },
+    "expiresAt": { "type": "string", "format": "date-time" },
+    "synthesis": { "type": ["object", "null"] }
+  },
+  "$defs": { "hash": { "type": "string", "pattern": "^sha256:[a-f0-9]{64}$" } },
+  "additionalProperties": false
+}

@@ -3,6 +3,7 @@ import path from 'node:path';
 import { mkdir, readFile, readdir, rm } from 'node:fs/promises';
 import { exists, nowIso, writeJson, writeText } from './util.mjs';
 import { currentSchemaVersion, readRecord } from './schema-migrations.mjs';
+import { gitCommonDir } from './git.mjs';
 
 function sha256(value) {
   return createHash('sha256').update(value).digest('hex');
@@ -15,7 +16,10 @@ function stable(value) {
 }
 
 export function compositionCacheRoot(root) {
-  return path.join(root, '.git', 'singularity-flow', 'composition-cache');
+  // In a linked worktree `.git` is a pointer file, not a directory. Composition
+  // is repository-scoped, so keep its cache in the common Git directory shared
+  // by the primary checkout and every governed/Auto worktree.
+  return path.join(gitCommonDir(root), 'singularity-flow', 'composition-cache');
 }
 
 export function compositionFingerprint(inputs) {

@@ -1,0 +1,24 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://example.invalid/singularity-flow/auto-flight-report.schema.json",
+  "title": "Singularity Flow deterministic Auto flight report v1",
+  "type": "object",
+  "required": ["schemaVersion", "kind", "mode", "flightId", "planId", "planSha256", "status", "stopReason", "nextAction", "counters", "checkpointSha256", "reportSha256"],
+  "properties": {
+    "schemaVersion": { "const": 1 },
+    "kind": { "const": "auto-flight-report" },
+    "mode": { "const": "auto" },
+    "flightId": { "type": "string" },
+    "planId": { "type": "string" },
+    "planSha256": { "type": "string", "pattern": "^sha256:[a-f0-9]{64}$" },
+    "status": { "type": "string" },
+    "stopReason": { "type": "string" },
+    "nextAction": { "type": "string" },
+    "counters": { "type": "object" },
+    "scope": { "type": "object" },
+    "accounting": { "type": "object" },
+    "checkpointSha256": { "type": "string", "pattern": "^sha256:[a-f0-9]{64}$" },
+    "reportSha256": { "type": "string", "pattern": "^sha256:[a-f0-9]{64}$" }
+  },
+  "additionalProperties": false
+}

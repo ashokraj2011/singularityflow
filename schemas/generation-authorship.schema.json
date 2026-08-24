@@ -16,7 +16,18 @@
       "additionalProperties": false
     },
     "externalAiUse": { "type": "object" },
-    "source": { "type": ["object", "null"] }
+    "source": { "type": ["object", "null"] },
+    "executionOrigin": {
+      "type": "object",
+      "required": ["mode", "flightId", "planId", "planSha256"],
+      "properties": {
+        "mode": { "const": "auto" },
+        "flightId": { "type": "string" },
+        "planId": { "type": "string" },
+        "planSha256": { "type": "string", "pattern": "^sha256:[a-f0-9]{64}$" }
+      },
+      "additionalProperties": true
+    }
   },
   "additionalProperties": true
 }

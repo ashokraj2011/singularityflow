@@ -56,6 +56,7 @@ import {
   normalizeWorkTypeIntelligence, worldModelModeForIntelligence
 } from './intelligence-policy.mjs';
 import { normalizeTokenEconomy } from './token-economy.mjs';
+import { normalizeAutoPolicy, normalizeAutoWorkTypePolicy } from './auto/auto-policy.mjs';
 
 export const WORKFLOW_PATH = 'singularity/workflow.yml';
 export const CONTROL_ROOT = 'singularity';
@@ -420,6 +421,7 @@ export function validateDefinition(definition) {
   definition.tokenEconomy = normalizeTokenEconomy(definition.tokenEconomy ?? {});
   normalizePlanning(definition.planning ?? {});
   definition.models = normalizeModelProviders(definition.models ?? {});
+  definition.auto = normalizeAutoPolicy(definition.auto);
   definition.harnessImports = normalizeHarnessImports(definition.harnessImports);
   normalizeLogging(definition.logging ?? {});
   definition.mcpServers = normalizeMcpServers(definition.mcpServers ?? {}, {
@@ -507,6 +509,7 @@ export function validateDefinition(definition) {
     workType.designSources = normalizeDesignSourcePolicy(workType.designSources, { phases: workType.phases });
     workType.verification = normalizeVerificationPolicy(workType.verification, { phases: workType.phases });
     workType.intelligence = normalizeWorkTypeIntelligence(workType.intelligence, `Work type '${id}' intelligence`);
+    workType.auto = normalizeAutoWorkTypePolicy(workType.auto, `Work type '${id}' auto`, workType.phases);
   }
   if (definition.noModel != null) {
     if (!definition.noModel || typeof definition.noModel !== 'object' || Array.isArray(definition.noModel)) throw new SingularityFlowError('noModel must be an object.');
@@ -969,6 +972,7 @@ export function resolveWorkType(definition, workTypeId) {
   return {
     id: workTypeId,
     label: workType.label,
+    auto: normalizeAutoWorkTypePolicy(workType.auto, `Work type '${workTypeId}' auto`, workType.phases),
     inputsMode: configuredInputsMode(definition),
     approvalAuthorities: structuredClone(definition.approvalAuthorities),
     sequenceGates,

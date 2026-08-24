@@ -1,0 +1,15 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://example.invalid/singularity-flow/auto-origin.schema.json",
+  "title": "Singularity Flow Auto origin v1",
+  "type": "object",
+  "required": ["schemaVersion", "mode", "flightId", "planId", "planSha256"],
+  "properties": {
+    "schemaVersion": { "const": 1 },
+    "mode": { "const": "auto" },
+    "flightId": { "type": "string", "pattern": "^AFL-[A-F0-9]{26}$" },
+    "planId": { "type": "string", "pattern": "^APL-[A-F0-9]{26}$" },
+    "planSha256": { "type": "string", "pattern": "^sha256:[a-f0-9]{64}$" }
+  },
+  "additionalProperties": false
+}

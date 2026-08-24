@@ -2759,8 +2759,24 @@ async function compose(root, options) {
   if (destination) {
     await writeFile(path.resolve(root, destination), composedText);
     console.log(`Composed prompt written to ${destination}.`);
-  } else process.stdout.write(composedText);
+  } else if (!options['return-only']) process.stdout.write(composedText);
   return composedText;
+}
+
+/**
+ * Internal phase-authoring boundary used by registered orchestrators such as Auto.
+ * It records the same grounding composition and prompt audit as `wm compose`, but returns the
+ * prompt to the caller instead of leaking it through stdout where a child process would have to
+ * scrape presentation text.
+ */
+export async function composePhasePrompt(root, { workId, phase, agent, task = null } = {}) {
+  return compose(root, {
+    'work-id': workId,
+    phase,
+    agent,
+    ...(task ? { task } : {}),
+    'return-only': true
+  });
 }
 
 async function showPrompt(root, options) {

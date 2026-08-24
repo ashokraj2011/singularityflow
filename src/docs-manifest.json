@@ -1,9 +1,9 @@
 {
   "schemaVersion": 1,
   "generatedFrom": "docs/topics",
-  "sourceCommit": "9580731e09eeaeae024df00304452fdc3a1fec17",
-  "topicCount": 54,
-  "contentSha256": "4bf066a8fb29f4ec3f1798816d71bdb8e5d3ce39b25598a63b443dd0c218a881",
+  "sourceCommit": "cb615de5a76cd0cb30f1eec8a570b866b4ffa83e",
+  "topicCount": 55,
+  "contentSha256": "b36e68878f60ff101e53be055d7acb77e26734a0f9194868278f6d227396625a",
   "topics": [
     {
       "id": "activity-and-prompt-audit",
@@ -39,6 +39,13 @@
       "version": 1,
       "sha256": "a795061346e9b522237a0f6a5fa335d50279f53e98bf9d775341dd19c0bc7037",
       "file": "assignments-and-watchlists.md"
+    },
+    {
+      "id": "auto-mode",
+      "title": "Bounded Auto mode",
+      "version": 1,
+      "sha256": "cc156e4a61cd30ace3e1a1d3304157aafa088c99ae4a3c9668eb8aa36dc147e1",
+      "file": "auto-mode.md"
     },
     {
       "id": "capability-management",

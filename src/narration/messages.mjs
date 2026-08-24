@@ -17,6 +17,18 @@ function slot(value, fallback = '') {
 }
 
 export const MESSAGES = Object.freeze({
+  'auto.plan-ready': {
+    headline: (s) => `Auto Plan ${slot(s.planId)} is ready for exact review.`,
+    preserves: true
+  },
+  'auto.flight-reported': {
+    headline: (s) => `Auto flight ${slot(s.flightId)} is ${slot(s.status)}.`,
+    preserves: false
+  },
+  'auto.report-ready': {
+    headline: (s) => `Auto flight ${slot(s.flightId)} report is ready.`,
+    preserves: true
+  },
   /**
    * Secret scanning. The headline carries counts, never a value — the whole point of the check is
    * that the credential does not get repeated anywhere, and a narration layer is a place text goes

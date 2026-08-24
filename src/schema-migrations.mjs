@@ -819,6 +819,34 @@ const families = [
   family({ id: 'active-workspace', currentVersion: 1, paths: [/^\$local\/active-workspace\.json$/] }),
   family({ id: 'ast-preference', currentVersion: 1, paths: [/^\$local\/ast-preference\.json$/] }),
   family({
+    id: 'auto-plan', currentVersion: 1,
+    paths: [
+      /^\$git\/auto-plans\/APL-[A-F0-9]{26}\.json$/,
+      /^singularity\/work-items\/[^/]+\/context\/auto\/accepted-plan\.json$/
+    ],
+    immutable: true
+  }),
+  family({
+    id: 'auto-plan-ratification', currentVersion: 1,
+    paths: [/^singularity\/work-items\/[^/]+\/context\/auto\/ratification\.json$/],
+    immutable: true
+  }),
+  family({
+    id: 'auto-authorization', currentVersion: 1,
+    paths: [/^\$git\/auto-authorizations\/APL-[A-F0-9]{26}\.json$/]
+  }),
+  family({
+    id: 'auto-flight-state', currentVersion: 1,
+    paths: [/^\$git\/auto-flights\/AFL-[A-F0-9]{26}\/state\.json$/]
+  }),
+  family({ id: 'auto-origin', currentVersion: 1 }),
+  family({ id: 'auto-step-result', currentVersion: 1, immutable: true }),
+  family({
+    id: 'auto-flight-report', currentVersion: 1,
+    paths: [/^\$git\/auto-flights\/AFL-[A-F0-9]{26}\/report\.json$/],
+    immutable: true
+  }),
+  family({
     id: 'change-flight-plan', currentVersion: 1,
     paths: [
       /^\$git\/change-flight-plans\/plans\/cfp-[a-f0-9]+\.json$/,

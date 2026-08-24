@@ -1,0 +1,30 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://example.invalid/singularity-flow/auto-flight-state.schema.json",
+  "title": "Singularity Flow local Auto flight state v1",
+  "type": "object",
+  "required": ["schemaVersion", "kind", "mode", "flightId", "planId", "planSha256", "status", "story", "worktree", "position", "execution", "counters", "checkpointSequence", "checkpointSha256", "stopReason", "nextAction", "createdAt", "updatedAt", "recordSha256"],
+  "properties": {
+    "schemaVersion": { "const": 1 },
+    "kind": { "const": "auto-flight-state" },
+    "mode": { "const": "auto" },
+    "flightId": { "type": "string", "pattern": "^AFL-[A-F0-9]{26}$" },
+    "planId": { "type": "string", "pattern": "^APL-[A-F0-9]{26}$" },
+    "planSha256": { "$ref": "#/$defs/hash" },
+    "status": { "enum": ["running", "paused", "waiting-human", "halted", "completed", "discarded"] },
+    "story": { "type": "object" },
+    "worktree": { "type": "string" },
+    "position": { "type": "string" },
+    "execution": { "type": "object" },
+    "counters": { "type": "object" },
+    "checkpointSequence": { "type": "integer", "minimum": 1 },
+    "checkpointSha256": { "$ref": "#/$defs/hash" },
+    "stopReason": { "type": "string" },
+    "nextAction": { "type": "string" },
+    "createdAt": { "type": "string", "format": "date-time" },
+    "updatedAt": { "type": "string", "format": "date-time" },
+    "recordSha256": { "type": "string", "pattern": "^[a-f0-9]{64}$" }
+  },
+  "$defs": { "hash": { "type": "string", "pattern": "^sha256:[a-f0-9]{64}$" } },
+  "additionalProperties": true
+}

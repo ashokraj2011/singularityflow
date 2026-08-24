@@ -3,6 +3,7 @@ import path from 'node:path';
 import YAML from 'yaml';
 import { normalizeSourceRoots } from './source-scope.mjs';
 import { exists, SingularityFlowError, YAML_OUTPUT } from './util.mjs';
+import { foldCapabilityAutoPolicy, normalizeCapabilityAutoPolicy } from './auto/auto-policy.mjs';
 
 export const CAPABILITIES_PATH = 'singularity/capabilities.yml';
 
@@ -68,7 +69,7 @@ export function foldCapabilityPolicy(parent = {}, child = {}) {
     'allowedPhases', 'requiredChecks', 'requiredAuthorityGroups', 'jiraProjects', 'jiraHosts', 'jiraOperations', 'jiraFields',
     'protectedPaths', 'worldModelGrounding', 'worldModelStaleness', 'requiredWorldModelViews',
     'writeScopes', 'qualityCommands', 'storageProviders', 'allowedMimeTypes', 'tokenBudget',
-    'gitPublication', 'contextBoundary', 'contextMaxBytes'
+    'gitPublication', 'contextBoundary', 'contextMaxBytes', 'auto'
   ]);
   for (const key of Object.keys(child)) if (!allowed.has(key)) throw new SingularityFlowError(`Capability policy contains unknown key '${key}'.`);
   const array = (key) => uniqueStrings(child[key], `Capability policy.${key}`);
@@ -83,6 +84,8 @@ export function foldCapabilityPolicy(parent = {}, child = {}) {
   const childContextMaxBytes = nonNegativeInteger(child.contextMaxBytes, 'Capability policy.contextMaxBytes', { positive: true });
   if (parent.allowSelfApproval != null && typeof parent.allowSelfApproval !== 'boolean') throw new SingularityFlowError('Parent capability policy.allowSelfApproval must be boolean.');
   if (child.allowSelfApproval != null && typeof child.allowSelfApproval !== 'boolean') throw new SingularityFlowError('Capability policy.allowSelfApproval must be boolean.');
+  const parentAuto = parent.auto == null ? null : normalizeCapabilityAutoPolicy(parent.auto, 'Parent capability policy.auto');
+  const childAuto = child.auto == null ? null : normalizeCapabilityAutoPolicy(child.auto, 'Capability policy.auto');
   const result = {
     gateSeverity: stricterEnum(parent.gateSeverity, child.gateSeverity, GATE_ORDER, 'gateSeverity'),
     approvalMinimum: max(parentApprovalMinimum, childApprovalMinimum),
@@ -108,7 +111,8 @@ export function foldCapabilityPolicy(parent = {}, child = {}) {
     tokenBudget: min(parentTokenBudget, childTokenBudget),
     gitPublication: stricterEnum(parent.gitPublication, child.gitPublication, PUBLICATION_ORDER, 'gitPublication'),
     contextBoundary: stricterEnum(parent.contextBoundary, child.contextBoundary, CONTEXT_ORDER, 'contextBoundary'),
-    contextMaxBytes: min(parentContextMaxBytes, childContextMaxBytes)
+    contextMaxBytes: min(parentContextMaxBytes, childContextMaxBytes),
+    auto: foldCapabilityAutoPolicy(parentAuto, childAuto)
   };
   return Object.fromEntries(Object.entries(result).filter(([, value]) => value != null));
 }

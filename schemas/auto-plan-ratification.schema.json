@@ -1,0 +1,24 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://example.invalid/singularity-flow/auto-plan-ratification.schema.json",
+  "title": "Singularity Flow Auto Plan ratification v1",
+  "type": "object",
+  "required": ["schemaVersion", "kind", "mode", "planId", "planSha256", "actor", "identityAssurance", "ratifiedAt", "expiresAt", "authorizationSha256"],
+  "properties": {
+    "schemaVersion": { "const": 1 },
+    "kind": { "const": "auto-plan-ratification" },
+    "mode": { "const": "auto" },
+    "flightId": { "type": "string", "pattern": "^AFL-[A-F0-9]{26}$" },
+    "planId": { "type": "string", "pattern": "^APL-[A-F0-9]{26}$" },
+    "planSha256": { "$ref": "#/$defs/hash" },
+    "actor": { "type": "object" },
+    "identityAssurance": { "enum": ["configured-local", "github-authenticated", "signed"] },
+    "ratifiedAt": { "type": "string", "format": "date-time" },
+    "expiresAt": { "type": "string", "format": "date-time" },
+    "authorizationSha256": { "$ref": "#/$defs/hash" },
+    "pinnedAt": { "type": "string", "format": "date-time" },
+    "recordSha256": { "type": "string", "pattern": "^[a-f0-9]{64}$" }
+  },
+  "$defs": { "hash": { "type": "string", "pattern": "^sha256:[a-f0-9]{64}$" } },
+  "additionalProperties": false
+}

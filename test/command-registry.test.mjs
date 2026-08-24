@@ -79,6 +79,9 @@ test('a mistyped subcommand is told what it typed, what was meant, and what work
    * from eleven call sites.
    */
   for (const [command, known] of Object.entries(RESOLVER_SUBCOMMANDS)) {
+    // `auto <free-form requirement>` is an intentional shorthand for `auto plan <requirement>`.
+    // An unknown second token is therefore requirement text, not a misspelled subcommand.
+    if (command === 'auto') continue;
     assert.throws(
       () => resolveOperation({ requestedCommand: command, positionals: [command, 'definitely-not-real'] }),
       (error) => {
@@ -92,6 +95,7 @@ test('a mistyped subcommand is told what it typed, what was meant, and what work
       `${command} does not report an unknown subcommand`
     );
   }
+  assert.equal(resolveOperation({ requestedCommand: 'auto', positionals: ['auto', 'add bounded telemetry'] }).id, 'auto.plan');
 
   // The near miss is named, the same way an unknown top-level command already does it.
   assert.throws(() => resolveOperation({ requestedCommand: 'spec', positionals: ['spec', 'analyse'] }),

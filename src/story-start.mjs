@@ -25,6 +25,7 @@ import { normalizeMcpTargetOrigin } from './mcp-target.mjs';
 import { writeReturnLocator } from './return-locator.mjs';
 import { pinAcceptedChangeFlightPlan } from './change-flight-plan.mjs';
 import { LIFECYCLE_EVENT } from './lifecycle-event.mjs';
+import { pinAcceptedAutoPlan } from './auto/auto-origin.mjs';
 
 function lines(value) {
   if (Array.isArray(value)) return value.map((item) => String(item).trim()).filter(Boolean);
@@ -92,7 +93,8 @@ export async function startStory(root, {
   files = [],
   urls = [],
   expectedBaseCommit = null,
-  flightPlan = null
+  flightPlan = null,
+  auto = null
 } = {}) {
   const initialDefinition = await loadDefinition(root);
   validateId(initialDefinition, id);
@@ -234,9 +236,11 @@ export async function startStory(root, {
     workType,
     agent: selectedAgent,
     resolved,
-    capabilityId
+    capabilityId,
+    executionOrigin: auto?.executionOrigin ?? null
   });
   if (flightPlan) await pinAcceptedChangeFlightPlan(root, definition, workflow, flightPlan);
+  if (auto) await pinAcceptedAutoPlan(root, definition, workflow, auto);
   const returnLocator = await writeReturnLocator(root, definition, workflow);
   const publication = await commitAndPublish(
     root,

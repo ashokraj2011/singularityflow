@@ -1,11 +1,11 @@
 import { didYouMean, optionBoolean, optionString, SingularityFlowError } from './util.mjs';
 
 const READ_ONLY = new Set(['specify', 'plan', 'implement', 'verify', 'converge', 'about', 'help', 'show', 'choices', 'inbox', 'home', 'recommend', 'status', 'approvals', 'progress', 'receipt', 'guide', 'logs', 'doctor', 'nextsteps', 'snapshot', 'validate', 'explain']);
-const STRUCTURED = new Set(['specify', 'plan', 'implement', 'verify', 'converge', 'start', 'resume', 'return', 'home', 'recommend', 'status', 'approvals', 'progress', 'report', 'receipt', 'impact', 'telemetry', 'context', 'tokens', 'doctor', 'inputs', 'reinstall', 'snapshot', 'validate', 'gate', 'clarification', 'explain', 'fault', 'fix', 'repair', 'recover', 'goal', 'journal', 'run']);
+const STRUCTURED = new Set(['specify', 'plan', 'implement', 'verify', 'converge', 'start', 'resume', 'return', 'home', 'recommend', 'status', 'approvals', 'progress', 'report', 'receipt', 'impact', 'telemetry', 'context', 'tokens', 'doctor', 'inputs', 'reinstall', 'snapshot', 'validate', 'gate', 'clarification', 'explain', 'fault', 'fix', 'repair', 'recover', 'goal', 'journal', 'run', 'auto']);
 // `secrets` is here because `resolveOperation` returns `definition.operation` before it consults
 // any resolver, so a command with a single registered operation never reaches its own resolver.
 // Without this line `resolveSecretsOperation` is unreachable and the scan/protect split is inert.
-const MODEL_FREE_MIXED_COMMANDS = new Set(['report', 'telemetry', 'doctor', 'review', 'inputs', 'spec', 'visual', 'clarification', 'story', 'constitution', 'secrets', 'fault', 'fix', 'repair', 'recover', 'goal', 'journal', 'push', 'next', 'return', 'impact', 'copilot', 'context', 'tokens']);
+const MODEL_FREE_MIXED_COMMANDS = new Set(['report', 'telemetry', 'doctor', 'review', 'inputs', 'spec', 'visual', 'clarification', 'story', 'constitution', 'secrets', 'fault', 'fix', 'repair', 'recover', 'goal', 'journal', 'push', 'next', 'return', 'impact', 'copilot', 'context', 'tokens', 'auto']);
 
 const LAZY_MODULES = Object.freeze({
   // The five verbs share one dispatcher; each is a registered command in its own right so the
@@ -25,6 +25,7 @@ const LAZY_MODULES = Object.freeze({
   goal: './commands/goal.mjs',
   journal: './commands/journal.mjs',
   push: './commands/push.mjs',
+  auto: './commands/auto.mjs',
   // `explain` must answer from a global install with no repository, so it must never reach the
   // legacy dispatcher, which resolves a repository root before it does anything else.
   explain: './commands/explain.mjs'
@@ -64,7 +65,7 @@ export const COMMAND_REGISTRY = Object.freeze([
   ['specify'], ['plan'], ['implement'], ['verify'], ['converge'],
   ['about'], ['help'], ['explain', ['docs']], ['show'], ['harness'], ['init'], ['factory-reset'], ['reset-all'], ['local-reset'], ['fresh-install'], ['reinstall'], ['choices'], ['start'], ['resume'], ['return'], ['agent'], ['session'],
   ['inbox'], ['finalize'], ['status'], ['approvals', ['approval-chain']], ['progress'], ['report'], ['receipt'], ['impact'], ['telemetry'], ['context'], ['tokens'], ['prompt-log'], ['guide'], ['refresh-branch'],
-  ['next'], ['run'], ['fault'], ['fix'], ['repair'], ['goal'], ['journal'], ['push'], ['home', ['cockpit']], ['recommend', ['what-next']], ['logs'], ['doctor'], ['review'], ['workflow'],
+  ['next'], ['run'], ['fault'], ['fix'], ['repair'], ['goal'], ['journal'], ['push'], ['auto'], ['home', ['cockpit']], ['recommend', ['what-next']], ['logs'], ['doctor'], ['review'], ['workflow'],
   ['assign'], ['watch'], ['recover'], ['nextsteps', ['next-steps']], ['action'], ['inputs'], ['spec'],
   ['agents'], ['mcp'], ['visual'], ['documents'], ['prepare'], ['phase'], ['artifact'], ['pr'], ['stack'], ['regression'], ['submit'],
   ['clarification'],
@@ -178,6 +179,7 @@ const CONTEXT_READ_SUBCOMMANDS = Object.freeze(['xray', 'doctor']);
 const CONTEXT_MUTATION_SUBCOMMANDS = Object.freeze(['compile', 'expand']);
 const CONTEXT_SUBCOMMANDS = Object.freeze([...CONTEXT_READ_SUBCOMMANDS, ...CONTEXT_MUTATION_SUBCOMMANDS]);
 const TOKENS_SUBCOMMANDS = Object.freeze(['status', 'report', 'compare']);
+const AUTO_SUBCOMMANDS = Object.freeze(['plan', 'show-plan', 'start', 'status', 'report', 'pause', 'resume', 'halt', 'discard', 'flight-step']);
 const CONSTITUTION_READ_SUBCOMMANDS = Object.freeze(['check', 'show']);
 const CONSTITUTION_MUTATION_SUBCOMMANDS = Object.freeze(['generate', 'except']);
 const CONSTITUTION_SUBCOMMANDS = Object.freeze([...CONSTITUTION_READ_SUBCOMMANDS, ...CONSTITUTION_MUTATION_SUBCOMMANDS]);
@@ -206,6 +208,7 @@ export const RESOLVER_SUBCOMMANDS = Object.freeze({
   impact: IMPACT_SUBCOMMANDS,
   context: CONTEXT_SUBCOMMANDS,
   tokens: TOKENS_SUBCOMMANDS,
+  auto: AUTO_SUBCOMMANDS,
   constitution: CONSTITUTION_SUBCOMMANDS,
   spec: SPEC_SUBCOMMANDS,
   story: STORY_SUBCOMMANDS,
@@ -456,6 +459,15 @@ function resolveReturnOperation(definition, options) {
     : never('return.plan', definition, 'read');
 }
 
+function resolveAutoOperation(definition, positionals) {
+  const token = positionals[1] ?? 'status';
+  // A token outside the closed subcommand vocabulary is the documented shorthand requirement.
+  const subcommand = AUTO_SUBCOMMANDS.includes(token) ? token : 'plan';
+  if (subcommand === 'plan' || subcommand === 'flight-step') return required(`auto.${subcommand}`);
+  if (['show-plan', 'status', 'report'].includes(subcommand)) return never(`auto.${subcommand}`, definition, 'read');
+  return never(`auto.${subcommand}`, definition, 'mutation');
+}
+
 function optional(id, fallbackOperationId, definition) {
   return operation(id, 'optional', {
     classification: definition.classification,
@@ -651,6 +663,7 @@ export function resolveOperation({ requestedCommand, positionals, options = {} }
   if (definition.name === 'impact') return resolveImpactOperation(definition, positionals);
   if (definition.name === 'context') return resolveContextOperation(definition, positionals);
   if (definition.name === 'tokens') return resolveTokensOperation(definition, positionals);
+  if (definition.name === 'auto') return resolveAutoOperation(definition, positionals);
   if (definition.name === 'return') return resolveReturnOperation(definition, options);
   if (definition.name === 'story') return resolveStoryOperation(definition, positionals, options);
   if (definition.name === 'constitution') return resolveConstitutionOperation(definition, positionals);
@@ -718,9 +731,15 @@ export function operationCatalog() {
   const impactDefinition = commandDefinition('impact');
   const contextDefinition = commandDefinition('context');
   const tokensDefinition = commandDefinition('tokens');
+  const autoDefinition = commandDefinition('auto');
   const modelFreeMixed = [
     never('copilot.preview', commandDefinition('copilot'), 'read'),
     required('copilot.launch'),
+    required('auto.plan'),
+    required('auto.flight-step'),
+    ...AUTO_SUBCOMMANDS.filter((name) => !['plan', 'flight-step'].includes(name)).map((name) => never(
+      `auto.${name}`, autoDefinition, ['show-plan', 'status', 'report'].includes(name) ? 'read' : 'mutation'
+    )),
     never('return.plan', returnDefinition, 'read'),
     never('return.apply', returnDefinition, 'mutation'),
     never('next.model-free', nextDefinition, 'mutation'),

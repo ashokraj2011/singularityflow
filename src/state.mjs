@@ -442,7 +442,8 @@ export async function saveWorkflow(root, config, workflow) {
 
 export async function createWorkflow(root, config, {
   id, title, source, baseBranch, baseCommit = null, baseRemote = null,
-  canonicalBranch = id, workType, agent, resolved, capabilityId = null
+  canonicalBranch = id, workType, agent, resolved, capabilityId = null,
+  executionOrigin = null
 } = {}) {
   validateId(config, id);
   if (branch(root) !== canonicalBranch) {
@@ -512,6 +513,7 @@ export async function createWorkflow(root, config, {
   const createdAt = nowIso();
   const workflow = {
     schemaVersion: currentSchemaVersion('story-workflow'),
+    ...(executionOrigin ? { executionOrigin: structuredClone(executionOrigin) } : {}),
     mcpAuthorizations: targetOrigin ? {
       playwright: { schemaVersion: currentSchemaVersion('mcp-authorization'), origins: [targetOrigin], source: 'story-intake', pinnedAt: createdAt }
     } : {},
@@ -1249,12 +1251,18 @@ export async function publishGeneration(root, config, workflow, { phaseId, usage
     generation: phase.generation + 1
   });
   await preparePhaseInputs(root, config, workflow, phase.id);
-  const effectiveAuthorship = authorship ?? {
+  let effectiveAuthorship = authorship ?? {
     schemaVersion: currentSchemaVersion('artifact-authorship'), producer: 'legacy-unspecified', channel: 'legacy', actor: structuredClone(session.actor),
     governedAgentContext: session.agent ? { agentId: session.agent } : null,
     kernelModel: { invoked: false, status: 'unavailable', invocationIds: [] },
     externalAiUse: { value: 'unknown', status: 'unavailable' }, source: null
   };
+  if (workflow.executionOrigin?.mode === 'auto') {
+    effectiveAuthorship = {
+      ...effectiveAuthorship,
+      executionOrigin: structuredClone(workflow.executionOrigin)
+    };
+  }
   assertProducerAllowed(phase, effectiveAuthorship.producer);
   // Grounding and telemetry preserve the existing legacy behavior. Clarification is narrower:
   // only explicit governed-agent authorship proves that an interactive model path ran and must

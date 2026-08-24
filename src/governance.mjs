@@ -28,6 +28,7 @@ import { buildRepositoryChangeSet, evaluateProtectedPaths } from './repository-c
 import { phaseRequiresCodeDelivery } from './code-delivery-policy.mjs';
 import { readRecord } from './schema-migrations.mjs';
 import { verifyCodeDeliveryReceipt } from './delivery-evidence.mjs';
+import { classifyStoryGateFailures } from './gate-recovery.mjs';
 
 function trackedFiles(root) { return run('git', ['ls-files', '-z'], { cwd: root }).stdout.split('\0').filter(Boolean); }
 function ids(text, pattern) { return [...new Set([...text.matchAll(pattern)].map((match) => match[0]))]; }
@@ -372,5 +373,5 @@ export async function runGovernanceGate(root, config, workflow, { terminal = fal
     for (const phaseId of workflow.phaseOrder) if (workflow.phases[phaseId]?.status !== 'approved') errors.push(`terminal: phase ${phaseId} is not approved`);
     if (workflow.status !== 'complete' || currentPhase(workflow)) errors.push('terminal: workflow is not complete'); else passes.push('terminal lifecycle');
   }
-  return { errors, warnings, passes };
+  return { errors, warnings, passes, findings: classifyStoryGateFailures(workflow, errors) };
 }

@@ -3,6 +3,8 @@ import { currentPhase, generationResultDigest, syncPublication } from './state-s
 import { inspectPendingPublication } from './publication-pending.mjs';
 import { recordSha256 } from './records.mjs';
 import { inspectPhaseRecovery } from './recovery-plan.mjs';
+import { runGovernanceGate } from './governance.mjs';
+import { recoveryActionsForFindings } from './gate-recovery.mjs';
 import { currentSchemaVersion } from './schema-migrations.mjs';
 import { nowIso, SingularityFlowError } from './util.mjs';
 import { worktreeFingerprint } from './worktree-fingerprint.mjs';
@@ -96,6 +98,16 @@ export async function recoveryPlan(root, config, workflow, { fetch = false, phas
     : { blockers: [], actions: [], requiresLifecycleRecovery: false };
   blockers.push(...phaseRecovery.blockers);
   actions.push(...phaseRecovery.actions);
+  // A completed workflow has no current phase, which used to make `recover` report that nothing was
+  // wrong even when the terminal gate named stale conformance, missing AC coverage, or unpublished
+  // state. Run that read-only gate here and preserve its explicit phase ownership. The gate cannot
+  // mutate state; a reopen remains a reviewed guided action governed by the completion policy.
+  let terminalGate = null;
+  if (workflow.status === 'complete' && workflow.currentPhase == null) {
+    terminalGate = await runGovernanceGate(root, config, workflow, { terminal: true });
+    blockers.push(...terminalGate.findings);
+    actions.push(...recoveryActionsForFindings(terminalGate.findings));
+  }
   if (changes(root).trim()) actions.push({
     id: 'working-tree', safe: false, automatic: false, mode: 'manual',
     confirmation: 'human-authority', command: null,
@@ -117,10 +129,23 @@ export async function recoveryPlan(root, config, workflow, { fetch = false, phas
     targetBranch: workflow.workItem.branch,
     pendingPublication: pending.status === 'pending',
     publicationRecovery: pending.status === 'absent' ? null : pending,
+    terminalGate: terminalGate ? {
+      valid: terminalGate.errors.length === 0,
+      errors: terminalGate.errors,
+      warnings: terminalGate.warnings,
+      findings: terminalGate.findings
+    } : null,
     revision,
     blockers,
-    actions: [...new Map(actions.map((entry) => [entry.id, entry])).values()],
-    requiresRecovery: pending.status !== 'absent' || phaseRecovery.requiresLifecycleRecovery
+    // Publication-pending and a terminal remote gate can describe the same retained sync. Collapse
+    // automatic commands so --apply never replays one recovery operation twice.
+    actions: [...new Map(actions.map((entry) => [
+      entry.automatic && entry.command ? `automatic:${entry.command}` : entry.id,
+      entry
+    ])).values()],
+    requiresRecovery: pending.status !== 'absent'
+      || phaseRecovery.requiresLifecycleRecovery
+      || Boolean(terminalGate?.errors.length)
   };
   return { ...core, planId: `sha256:${recordSha256(core)}` };
 }
@@ -145,7 +170,10 @@ export async function applyRecovery(root, config, workflow, plan, { confirm = nu
   );
   const completed = [];
   for (const action of automatic) {
-    if (action.id === 'publish') { completed.push({ id: action.id, result: await syncPublication(root, config, workflow) }); continue; }
+    if (action.id === 'publish' || action.command === 'singularity-flow sync') {
+      completed.push({ id: action.id, result: await syncPublication(root, config, workflow) });
+      continue;
+    }
     if (action.id === 'fast-forward') { fetchOrigin(root); pullFastForward(root); completed.push({ id: action.id, result: 'fast-forward complete' }); }
   }
   const pending = await inspectPendingPublication(root, {
@@ -153,7 +181,7 @@ export async function applyRecovery(root, config, workflow, plan, { confirm = nu
     roots: { workItemRoot: config.workItemRoot }
   });
   const postconditions = [
-    ...(automatic.some((item) => item.id === 'publish')
+    ...(automatic.some((item) => item.id === 'publish' || item.command === 'singularity-flow sync')
       ? [{ id: 'publication-cleared', met: pending.status === 'absent', observed: pending.status }]
       : []),
     ...(automatic.some((item) => item.id === 'fast-forward')

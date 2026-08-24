@@ -26,7 +26,11 @@ const TRUSTED_DYNAMIC_FORWARDERS = new Map([
   ['src/lifecycle-event.mjs', new Set(['assertLifecycleEvent'])],
   ['src/state.mjs', new Set(['commitAndPublish'])],
   ['src/initiative-state.mjs', new Set(['commitInitiativeChange'])],
-  ['src/state-stores.mjs', new Set(['publish'])]
+  ['src/state-stores.mjs', new Set(['publish'])],
+  // CLI Initiative transitions are deliberately executed inside this single publication adapter.
+  // The adapter forwards the already-created draft to commitInitiativeChange(), whose runtime
+  // lifecycleEvent() validation remains the closed-vocabulary authority.
+  ['src/cli.mjs', new Set(['transactInitiativeCommand'])]
 ]);
 
 function containingFunctionName(node) {

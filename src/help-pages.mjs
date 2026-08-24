@@ -910,7 +910,10 @@ const PAGES = Object.freeze({
     description: [
       'After a commit, sync retries its exact push. Before a commit, a dead transaction restores',
       'the integrity-bound preimage recorded in its local journal and preserves partial bytes in',
-      '.git/singularity-flow/publication-rescues/. A live command is never rolled back.'
+      '.git/singularity-flow/publication-rescues/. This includes first creation, phase preparation,',
+      'document/evidence ingestion, telemetry reconciliation, approval, rejection, and publication.',
+      'Recovery reads the subject journal before parsing a possibly damaged aggregate. A failed',
+      'rollback retains that journal for another exact retry; a live command is never rolled back.'
     ],
     examples: [['singularity-flow sync', '']],
     seeAlso: ['doctor', 'ledger', 'status']

@@ -31,7 +31,9 @@ export async function beginPublicationJournal(root, {
   branch,
   remote,
   event,
-  recoveryPreimage = null
+  recoveryPreimage = null,
+  transactionKind = 'publication',
+  operation = null
 }) {
   const record = {
     schemaVersion: currentSchemaVersion('publication-journal'),
@@ -41,6 +43,8 @@ export async function beginPublicationJournal(root, {
     branch,
     remote,
     event,
+    transactionKind,
+    operation,
     stage: 'prepared',
     owner: { pid: process.pid, processId: PROCESS_OWNER_ID },
     createdAt: nowIso(),

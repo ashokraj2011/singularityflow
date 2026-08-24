@@ -4,7 +4,8 @@ import { changes, gitDir, head, remoteContains } from './git.mjs';
 import {
   clearPublicationJournal,
   publicationJournalOwnedByCurrentProcess,
-  readPublicationJournal
+  readPublicationJournal,
+  updatePublicationJournal
 } from './publication-journal.mjs';
 import { bindLifecycleEvent } from './lifecycle-event.mjs';
 import { exists, readJson, writeJson } from './util.mjs';
@@ -181,7 +182,7 @@ export function livePreparedPublicationOwner(pending) {
   const journal = pending?.journalRecord;
   if (!pending?.journal
     || pending.record?.recoveryStage !== 'interrupted-before-branch-ref-advanced'
-    || journal?.stage !== 'prepared'
+    || !['prepared', 'restoring', 'rollback-failed'].includes(journal?.stage)
     || journal?.commit != null
     || processIsAlive(journal.owner?.pid) !== true) return null;
   return Object.freeze({
@@ -203,7 +204,7 @@ export async function recoverPreparedPublication(root, pending) {
   const journal = pending?.journalRecord;
   if (!pending?.journal
     || pending.record?.recoveryStage !== 'interrupted-before-branch-ref-advanced'
-    || journal?.stage !== 'prepared'
+    || !['prepared', 'restoring', 'rollback-failed'].includes(journal?.stage)
     || journal?.commit != null
     || head(root) !== journal.expectedHead
     || processIsAlive(journal.owner?.pid) !== false) return null;
@@ -214,19 +215,50 @@ export async function recoverPreparedPublication(root, pending) {
     if (!latest
       || latest.record.owner?.processId !== journal.owner?.processId
       || latest.record.expectedHead !== journal.expectedHead
-      || latest.record.stage !== 'prepared'
+      || !['prepared', 'restoring', 'rollback-failed'].includes(latest.record.stage)
       || latest.record.commit != null
       || head(root) !== journal.expectedHead) return null;
     let restoration = { restored: false, rescuePath: null, preimageSha256: null };
-    if (latest.record.recoveryPreimage) {
-      restoration = await restorePublicationPreimage(root, latest.record.recoveryPreimage, {
-        subject,
-        preserveCurrent: true
-      });
-    } else if (changes(root).trim()) return null;
+    try {
+      if (!latest.record.recoveryPreimage && changes(root).trim()) return null;
+      await updatePublicationJournal(root, subject, { stage: 'restoring', recoveryAttemptedAt: new Date().toISOString() });
+      if (latest.record.recoveryPreimage) {
+        restoration = await restorePublicationPreimage(root, latest.record.recoveryPreimage, {
+          subject,
+          preserveCurrent: true
+        });
+      }
+    } catch (error) {
+      await updatePublicationJournal(root, subject, {
+        stage: 'rollback-failed',
+        rollbackError: error?.message ?? String(error),
+        rollbackFailedAt: new Date().toISOString()
+      }).catch(() => {});
+      throw error;
+    }
     await clearPublicationJournal(root, subject);
     return Object.freeze({ recovered: true, ...restoration });
   });
+}
+
+/**
+ * Recover a dead pre-commit transaction using only its Git-local subject identity.
+ *
+ * This deliberately does not load workflow.json or state.json. A process can die halfway through
+ * writing either aggregate, and requiring that damaged file to parse before its own write-ahead
+ * journal can be read makes the recovery path unreachable at the exact failure it exists for.
+ */
+export async function recoverPreparedPublicationBySubject(root, subject) {
+  const pending = await readPendingPublication(root, { ...subject, migrate: false });
+  if (!pending?.journal || pending.record?.recoveryStage !== 'interrupted-before-branch-ref-advanced') {
+    return Object.freeze({ status: pending ? 'not-precommit' : 'absent', subject, pending });
+  }
+  const active = livePreparedPublicationOwner(pending);
+  if (active) return Object.freeze({ status: 'active', subject, active, pending });
+  const recovery = await recoverPreparedPublication(root, pending);
+  return recovery
+    ? Object.freeze({ status: 'recovered', subject, ...recovery })
+    : Object.freeze({ status: 'manual', subject, pending });
 }
 
 /** Backward-compatible boolean wrapper used by older clean-journal recovery callers and tests. */

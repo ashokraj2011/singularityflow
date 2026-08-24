@@ -3,6 +3,7 @@ import { mkdir, readFile, rename, rm, stat, writeFile } from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
 import { Worker } from 'node:worker_threads';
+import { AsyncLocalStorage } from 'node:async_hooks';
 import { gitCommonDir } from './git.mjs';
 import { currentSchemaVersion, readRecord } from './schema-migrations.mjs';
 import { SingularityFlowError, nowIso } from './util.mjs';
@@ -11,6 +12,7 @@ const PROCESS_TOKEN = randomUUID();
 // A heartbeat renews active `withSubjectLock` leases. Three hours is the fail-safe if a worker
 // cannot start: one configured quality command may legally run for two hours.
 const DEFAULT_TTL_MS = 3 * 60 * 60 * 1000;
+const heldLocks = new AsyncLocalStorage();
 
 function safe(value) {
   return encodeURIComponent(String(value)).replace(/%/g, '_');
@@ -212,10 +214,18 @@ export async function releaseSubjectLock(root, subject, owner) {
 }
 
 export async function withSubjectLock(root, subject, callback, options = {}) {
+  const key = `${gitCommonDir(root)}\0${subject.kind}\0${subject.id}`;
+  const inherited = heldLocks.getStore();
+  // A creation transaction opens its recovery journal before the aggregate exists, then hands the
+  // same lock to the publication transaction. Reentrancy is scoped to this async call chain: an
+  // unrelated task in the same Node process still has no inherited store and must acquire normally.
+  if (inherited?.has(key)) return callback(inherited.get(key));
   const ttlMs = options.ttlMs ?? DEFAULT_TTL_MS;
   const owner = await acquireSubjectLock(root, subject, { ...options, ttlMs });
   const heartbeat = startHeartbeat(subjectLockPath(root, subject), owner, ttlMs);
-  try { return await callback(owner); }
+  const scope = new Map(inherited ?? []);
+  scope.set(key, owner);
+  try { return await heldLocks.run(scope, () => callback(owner)); }
   finally {
     await stopHeartbeat(heartbeat);
     // A false release means the lock we were holding is no longer ours — it was reclaimed as stale

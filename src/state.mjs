@@ -3141,7 +3141,8 @@ export async function cancelWorkflow(root, config, workflow, { reason, channel =
 
 export async function commitAndPublish(root, config, workflow, event, message, extraPaths = [], {
   beforeStateWrite = null,
-  rollbackWorkflow = null
+  rollbackWorkflow = null,
+  recoveryPreimage = null
 } = {}) {
   if (await storyPublicationPending(root, config, workflow.workItem.id)) await assertNoPendingPublication(root, config, workflow, 'create another lifecycle commit');
   const ledgerConfig = normalizeLedgerConfig(workflow.resolution?.ledger ?? config.ledger ?? {});
@@ -3274,7 +3275,10 @@ export async function commitAndPublish(root, config, workflow, event, message, e
       // touches, not only the aggregate.
       // The captured bytes are the aggregate too, so restoring them is the whole undo — writing
       // `priorWorkflow` on top would re-serialise a file that is already correct.
-      rollback: (preimage) => restorePublicationPreimage(root, preimage, { subject: envelope.subject }),
+      rollback: (preimage, recoveryOptions = {}) => restorePublicationPreimage(root, preimage, {
+        subject: envelope.subject,
+        ...recoveryOptions
+      }),
       validate: async () => {
         const validation = await validateWorkflow(root, config, workflow);
         if (!validation.valid) {
@@ -3284,7 +3288,8 @@ export async function commitAndPublish(root, config, workflow, event, message, e
     },
     publication: { mode: workflowPublicationMode(config, workflow), remote: config.git?.remote ?? 'origin', branch: targetBranch },
     pendingRecord: () => ({ workId: workflow.workItem.id }),
-    ledger: { config: ledgerConfig, intent: ledgerIntent, intentDirectory: workDirRelative(config, workflow.workItem.id) }
+    ledger: { config: ledgerConfig, intent: ledgerIntent, intentDirectory: workDirRelative(config, workflow.workItem.id) },
+    recoveryPreimage
   });
   if (workflow[Symbol.for('singularity-flow.state-revision')]) {
     workflow[Symbol.for('singularity-flow.state-revision')].head = result.sha;

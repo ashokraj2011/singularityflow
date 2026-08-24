@@ -18,7 +18,8 @@ import {
   commitAndPublish,
   createWorkflow,
   loadWorkflow,
-  validateId
+  validateId,
+  workDirRelative
 } from './state-stores.mjs';
 import { SingularityFlowError } from './util.mjs';
 import { normalizeMcpTargetOrigin } from './mcp-target.mjs';
@@ -26,6 +27,7 @@ import { writeReturnLocator } from './return-locator.mjs';
 import { pinAcceptedChangeFlightPlan } from './change-flight-plan.mjs';
 import { LIFECYCLE_EVENT } from './lifecycle-event.mjs';
 import { pinAcceptedAutoPlan } from './auto/auto-origin.mjs';
+import { runDraftTransaction } from './draft-unit-of-work.mjs';
 
 function lines(value) {
   if (Array.isArray(value)) return value.map((item) => String(item).trim()).filter(Boolean);
@@ -226,52 +228,68 @@ export async function startStory(root, {
   }
 
   await setAgentSession(root, definition, actor, selectedAgent, id, { phaseId: resolved.phases[0]?.id, source: agent ? 'explicit-override' : 'phase-default' });
-  const workflow = await createWorkflow(root, definition, {
-    id,
-    title: normalizedSource.title,
-    source: normalizedSource,
-    baseBranch: storyBase.localBase,
-    baseCommit,
-    baseRemote: remote,
-    workType,
-    agent: selectedAgent,
-    resolved,
-    capabilityId,
-    executionOrigin: auto?.executionOrigin ?? null
+  let workflow;
+  let returnLocator;
+  let publication;
+  await runDraftTransaction(root, {
+    subject: { kind: 'story', id, branch: id },
+    allowedPaths: [workDirRelative(definition, id)],
+    operation: 'story-start',
+    write: async (creationPreimage) => {
+      workflow = await createWorkflow(root, definition, {
+        id,
+        title: normalizedSource.title,
+        source: normalizedSource,
+        baseBranch: storyBase.localBase,
+        baseCommit,
+        baseRemote: remote,
+        workType,
+        agent: selectedAgent,
+        resolved,
+        capabilityId,
+        executionOrigin: auto?.executionOrigin ?? null
+      });
+      if (flightPlan) await pinAcceptedChangeFlightPlan(root, definition, workflow, flightPlan);
+      if (auto) await pinAcceptedAutoPlan(root, definition, workflow, auto);
+      returnLocator = await writeReturnLocator(root, definition, workflow);
+      publication = await commitAndPublish(
+        root,
+        definition,
+        workflow,
+        { type: LIFECYCLE_EVENT.BINDING },
+        `[${id}][init] start ${workType} workflow`,
+        [returnLocator.path],
+        { recoveryPreimage: creationPreimage }
+      );
+      return { workflow, publication };
+    }
   });
-  if (flightPlan) await pinAcceptedChangeFlightPlan(root, definition, workflow, flightPlan);
-  if (auto) await pinAcceptedAutoPlan(root, definition, workflow, auto);
-  const returnLocator = await writeReturnLocator(root, definition, workflow);
-  const publication = await commitAndPublish(
-    root,
-    definition,
-    workflow,
-    { type: LIFECYCLE_EVENT.BINDING },
-    `[${id}][init] start ${workType} workflow`,
-    [returnLocator.path]
-  );
   const documents = [];
   if (files.length) {
-    const added = await addDocuments(root, definition, workflow, { files });
-    documents.push(...added);
+    let added = [];
     await commitAndPublish(
       root,
       definition,
       workflow,
-      { type: LIFECYCLE_EVENT.EVIDENCE_RECORDED, payload: { documents: added.map((item) => item.id) } },
-      `[${id}][documents][upload] ${added.map((item) => item.id).join(',')}`
+      { type: LIFECYCLE_EVENT.EVIDENCE_RECORDED, payload: { operation: 'document-upload' } },
+      `[${id}][documents][upload] governed evidence`,
+      [],
+      { beforeStateWrite: async () => { added = await addDocuments(root, definition, workflow, { files }); } }
     );
+    documents.push(...added);
   }
   for (const url of urls) {
-    const added = await addDocuments(root, definition, workflow, { url });
-    documents.push(...added);
+    let added = [];
     await commitAndPublish(
       root,
       definition,
       workflow,
-      { type: LIFECYCLE_EVENT.EVIDENCE_RECORDED, payload: { documents: added.map((item) => item.id) } },
-      `[${id}][documents][upload] ${added.map((item) => item.id).join(',')}`
+      { type: LIFECYCLE_EVENT.EVIDENCE_RECORDED, payload: { operation: 'document-upload' } },
+      `[${id}][documents][upload] governed evidence`,
+      [],
+      { beforeStateWrite: async () => { added = await addDocuments(root, definition, workflow, { url }); } }
     );
+    documents.push(...added);
   }
   return {
     workId: id,

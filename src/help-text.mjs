@@ -286,7 +286,7 @@ Usage:
   singularity-flow cancel [WORK-ID] [--fetch] --reason TEXT --confirm WORK-ID
   singularity-flow sync
   singularity-flow validate [--strict]
-  singularity-flow gate [--terminal]
+  singularity-flow gate [--terminal] [--json]
   singularity-flow wm init
   singularity-flow wm light [--branch BRANCH] [--remote REMOTE] [--phase PHASE] [--views LIST] [--task TEXT] [--local]
   singularity-flow wm build [--branch BRANCH] [--remote REMOTE] [--phase PHASE] [--task TEXT] [--focus TEXT] [--depth light|quick|standard|deep] [--parallel|--no-parallel] [--workers N] [--model MODEL]
@@ -370,7 +370,8 @@ Usage:
   singularity-flow initiative jira-adopt EPIC-KEY [--repository JIRA-KEY=REPO] [--dry-run]
   singularity-flow initiative jira-plan
   singularity-flow initiative jira-apply --plan SHA256 [--confirm INIT-ID]
-  singularity-flow initiative sync
+  singularity-flow initiative sync [INIT-ID]
+  singularity-flow initiative recover [INIT-ID] [--json]
   singularity-flow initiative contracts [add] [--id ID --version VERSION --format FORMAT --path FILE]
   singularity-flow initiative report [INIT-ID] [--format md|json] [--out FILE]
   singularity-flow initiative gate [INIT-ID] [--terminal] [--json]

@@ -14,7 +14,7 @@ import YAML from 'yaml';
 import { SingularityFlowError, exists, nowIso, optionBoolean, optionNumber, optionString, optionStrings, parseArgs, posix, readJson, requirePositional, run, secureRepositoryPath, snapshot, table, writeJson, writeText } from './util.mjs';
 import { add, assertClean, branch, changes, checkout, commit, fastForwardTo, fetchOrigin, fetchRemote, fileAtRef, gitDir, hasUpstream, head, identity, localBranches, preflightPushBranch, pullFastForward, refExists, refHead, remoteBranches, repoRoot } from './git.mjs';
 import { buildRepositorySubjectIndex, buildRepositorySubjectIndexFromRefs, resolveContext } from './repository-subject-index.mjs';
-import { approvePhase, assertNoPendingPublication, beginPhaseGeneration, cancelWorkflow, commitAndPublish, CONFIG_PATH, createWorkflow, currentPhase, generationResultDigest, loadConfig, preparePhase, preparePhaseInputs, promoteDesignSource, publishGeneration, reconcilePhaseTelemetry, registerArtifact, rejectPhase, reopenWorkflow, resolveWorkItem, saveStoryDraft, transactStory, scanArtifacts, storyPublicationPending, submitPhase, syncPublication, validateId, validateWorkflow, workflowBranchAllowed, workflowPublicationBranch, workflowPath, workDir } from './state-stores.mjs';
+import { approvePhase, assertNoPendingPublication, beginPhaseGeneration, cancelWorkflow, commitAndPublish, CONFIG_PATH, createWorkflow, currentPhase, generationResultDigest, loadConfig, preparePhase, preparePhaseInputs, promoteDesignSource, publishGeneration, reconcilePhaseTelemetry, registerArtifact, rejectPhase, reopenWorkflow, resolveWorkItem, saveStoryDraft, transactStory, scanArtifacts, storyPublicationPending, submitPhase, syncPublication, validateId, validateWorkflow, workflowBranchAllowed, workflowPublicationBranch, workflowPath, workDir, workDirRelative } from './state-stores.mjs';
 import { generationSkillForPhase, phaseRequiresCodeDelivery } from './code-delivery-policy.mjs';
 import { generationStartPublicationBinding, verifyOpenGenerationIntent } from './generation-boundary.mjs';
 import { LIFECYCLE_EVENT } from './lifecycle-event.mjs';
@@ -40,6 +40,7 @@ import { jiraDoctor, jiraDoctorText } from './jira-doctor.mjs';
 import { installPlugin, listPlugins, pluginPath, uninstallPlugin } from './plugin.mjs';
 import { runGovernanceGate } from './governance.mjs';
 import { inspectWorkflowGrounding, worldModelCommand } from './worldmodel.mjs';
+import { runDraftTransaction } from './draft-unit-of-work.mjs';
 import { effectiveMaterializationPolicy } from './world-model-materialization.mjs';
 import { launchHostSession } from './host-session-launcher.mjs';
 import { operationContext, runOperation } from './operation-context.mjs';
@@ -88,7 +89,7 @@ import { remainingRequiredAuthorities, requireApprovalAuthority } from './approv
 import { answerSelectionReceipt, beginCustomSelectionReceipt, beginSelectionReceipt, consumeSelectionReceipt, resolveCustomSelectionReceipt, resolveSelectionReceipt, selectionReceiptStatus } from './choices.mjs';
 import { loadPortfolio } from './initiative-config.mjs';
 import { KNOWLEDGE_ROOT, currentKnowledge, filterKnowledge, harvestInitiativeKnowledge, readKnowledge, recordKnowledge, resolveKnowledge } from './knowledge.mjs';
-import { commitInitiativeChange, createInitiative, initiativeProgress, initiativeStartPreflight, listInitiatives, availableInitiativeOutputs, initiativeRelative, prepareInitiativePhase, restartInitiative, secureInitiativePath, saveInitiativeDraft, selectInitiativePhaseOutputs, setInitiativeApplicability, initiativeApplicabilityState, syncInitiativePublication, validateInitiativeId } from './state-stores.mjs';
+import { commitInitiativeChange, createInitiative, initiativeProgress, initiativeStartPreflight, listInitiatives, availableInitiativeOutputs, initiativeRelative, prepareInitiativePhase, restartInitiative, secureInitiativePath, selectInitiativePhaseOutputs, setInitiativeApplicability, initiativeApplicabilityState, syncInitiativePublication, validateInitiativeId } from './state-stores.mjs';
 import { approveInitiative, evaluateInitiativePhase, initiativeBundle, publishInitiativePhase, readInitiativeRecords, registerInitiativeEvidence } from './initiative-evidence.mjs';
 import { rejectInitiative } from './initiative-graph.mjs';
 import { impactDocument, impactFindings, initiativeImpact } from './initiative-impact.mjs';
@@ -147,7 +148,10 @@ import { localReset, localResetPlan } from './fresh-install-reset.mjs';
 import { applyLocalReinstall, reinstallPlanText, resolveReinstallPlan } from './reinstall.mjs';
 import { capabilityDoctor } from './capability-doctor.mjs';
 import { inspectStatePlanes, reconcileStateProjections } from './state-planes.mjs';
-import { clearPendingPublication, readPendingPublication, writePendingPublication } from './publication-pending.mjs';
+import {
+  clearPendingPublication, readPendingPublication, recoverPreparedPublicationBySubject,
+  writePendingPublication
+} from './publication-pending.mjs';
 import { InitiativeStateStore, StoryStateStore, loadInitiativeAggregate, loadStoryAggregate } from './state-stores.mjs';
 
 import { SnapshotCoordinator } from './snapshot-coordinator.mjs';
@@ -942,50 +946,75 @@ export async function startCommand(positionals, options) {
     // the epic branch's governance artifacts.
     if (!explicitBase && seed.story.parentBranch) base = seed.story.parentBranch;
   }
-  const workflow = await createWorkflow(root, config, {
-    id,
-    title: optionString(options, 'title', source.title || id),
-    source,
-    baseBranch: base,
-    baseCommit: baseCommitAtStart,
-    baseRemote: remote,
-    canonicalBranch,
-    workType,
-    agent: selectedAgent.agent,
-    resolved: resolvedWorkType,
-    capabilityId: optionString(options, 'capability')
-  });
-  const returnLocator = await writeReturnLocator(root, config, workflow);
+  let workflow;
+  let returnLocator;
   let publication;
   try {
-    publication = await commitAndPublish(
-      root,
-      config,
-      workflow,
-      { type: LIFECYCLE_EVENT.BINDING, payload: configurationSnapshot ? {
-        configurationBranch: configurationSnapshot.branch,
-        configurationCommit: configurationSnapshot.commit
-      } : {} },
-      `[${id}][init] start ${workType} workflow`,
-      [...(configurationSnapshot?.paths ?? []), returnLocator.path]
-    );
+    await runDraftTransaction(root, {
+      subject: { kind: 'story', id, branch: canonicalBranch },
+      allowedPaths: [workDirRelative(config, id)],
+      operation: 'story-start',
+      write: async (creationPreimage) => {
+        workflow = await createWorkflow(root, config, {
+          id,
+          title: optionString(options, 'title', source.title || id),
+          source,
+          baseBranch: base,
+          baseCommit: baseCommitAtStart,
+          baseRemote: remote,
+          canonicalBranch,
+          workType,
+          agent: selectedAgent.agent,
+          resolved: resolvedWorkType,
+          capabilityId: optionString(options, 'capability')
+        });
+        returnLocator = await writeReturnLocator(root, config, workflow);
+        publication = await commitAndPublish(
+          root,
+          config,
+          workflow,
+          { type: LIFECYCLE_EVENT.BINDING, payload: configurationSnapshot ? {
+            configurationBranch: configurationSnapshot.branch,
+            configurationCommit: configurationSnapshot.commit
+          } : {} },
+          `[${id}][init] start ${workType} workflow`,
+          [...(configurationSnapshot?.paths ?? []), returnLocator.path],
+          { recoveryPreimage: creationPreimage }
+        );
+        return { workflow, publication };
+      }
+    });
   } catch (error) {
-    await retainCapabilityPublicationRecovery(root, id, {
-      remote, branch: canonicalBranch, commit: head(root)
-    }, capabilityPublications, error);
+    if (workflow) {
+      await retainCapabilityPublicationRecovery(root, id, {
+        remote, branch: canonicalBranch, commit: head(root)
+      }, capabilityPublications, error);
+    }
     throw error;
   }
   // Spent once the start has landed, not before it is attempted.
   if (receiptToken) await consumeSelectionReceipt(root, receiptToken);
   try {
     for (const document of supportingDocuments) {
-      const records = await addDocuments(root, config, workflow, {
-        files: document.type === 'file' ? [document.path] : [],
-        url: document.type === 'url' ? document.url : null,
-        label: document.label,
-        kind: document.kind
-      });
-      await commitAndPublish(root, config, workflow, { type: LIFECYCLE_EVENT.EVIDENCE_RECORDED, payload: { documents: records.map((item) => item.id) } }, `[${id}][documents][upload] ${records.map((item) => item.id).join(',')}`);
+      let records = [];
+      await commitAndPublish(
+        root,
+        config,
+        workflow,
+        { type: LIFECYCLE_EVENT.EVIDENCE_RECORDED, payload: { operation: 'supporting-document-upload' } },
+        `[${id}][documents][upload] supporting evidence`,
+        [],
+        {
+          beforeStateWrite: async () => {
+            records = await addDocuments(root, config, workflow, {
+              files: document.type === 'file' ? [document.path] : [],
+              url: document.type === 'url' ? document.url : null,
+              label: document.label,
+              kind: document.kind
+            });
+          }
+        }
+      );
     }
   } catch (error) {
     await retainCapabilityPublicationRecovery(root, id, {
@@ -2099,14 +2128,14 @@ async function materializeWorldModelForNext(root, config, workflow, phase, optio
 }
 
 async function nextCommand(options) {
-  const root = repoRoot(); const config = await loadConfig(root); const workflow = await loadStoryAggregate(root, config);
+  const root = repoRoot(); const config = await loadConfig(root); let workflow = await loadStoryAggregate(root, config);
   if (await storyPublicationPending(root, config, workflow.workItem.id)) {
     console.log('Run: singularity-flow sync');
     console.log('In Copilot: /sf-next');
     console.log('Publish the retained local commit.');
     return syncCommand();
   }
-  const phase = currentPhase(workflow);
+  let phase = currentPhase(workflow);
   if (!phase) {
     console.log('Run: singularity-flow gate --terminal');
     console.log('In Copilot: /sf-next');
@@ -2180,9 +2209,18 @@ async function nextCommand(options) {
         console.warn('Continuing because world-model grounding is advisory.');
       }
     }
+    // Composition records governed context and refreshes workflow.json. Continue from that exact
+    // aggregate revision; otherwise the draft transaction correctly sees the pre-composition copy
+    // as stale and refuses to prepare, turning a successful automatic world-model build into a
+    // false concurrency failure.
+    workflow = await loadStoryAggregate(root, config, workflow.workItem.id);
+    phase = workflow.phases[phase.id];
   }
-  const artifact = await preparePhase(root, config, workflow, phase.id);
-  await saveStoryDraft(root, config, workflow);
+  const artifact = await storyDraftTransaction(root, config, workflow, `prepare:${phase.id}`, async () => {
+    const prepared = await preparePhase(root, config, workflow, phase.id);
+    await saveStoryDraft(root, config, workflow);
+    return prepared;
+  });
   console.log(`Next step prepared: generate '${phase.id}' using ${artifact}.`);
   console.log('\nAfter authoring and validation, publish the generation:');
   console.log(`  Run (authored by you): singularity-flow phase publish ${phase.id} --authored human`);
@@ -2272,8 +2310,26 @@ async function documentsCommand(positionals, options) {
     return;
   }
   if (['upload', 'add'].includes(subcommand)) {
-    const workflow = await loadStoryAggregate(root, config); const records = await addDocuments(root, config, workflow, { files: positionals.slice(2), url: optionString(options, 'url'), label: optionString(options, 'label'), kind: optionString(options, 'kind') });
-    const result = await commitAndPublish(root, config, workflow, { type: LIFECYCLE_EVENT.EVIDENCE_RECORDED, payload: { documents: records.map((item) => item.id) } }, `[${workflow.workItem.id}][documents][upload] ${records.map((item) => item.id).join(',')}`);
+    const workflow = await loadStoryAggregate(root, config);
+    let records = [];
+    const result = await commitAndPublish(
+      root,
+      config,
+      workflow,
+      { type: LIFECYCLE_EVENT.EVIDENCE_RECORDED, payload: { operation: 'document-upload' } },
+      `[${workflow.workItem.id}][documents][upload] governed evidence`,
+      [],
+      {
+        beforeStateWrite: async () => {
+          records = await addDocuments(root, config, workflow, {
+            files: positionals.slice(2),
+            url: optionString(options, 'url'),
+            label: optionString(options, 'label'),
+            kind: optionString(options, 'kind')
+          });
+        }
+      }
+    );
     records.forEach((record) => console.log(`${record.id}\t${record.type}\t${record.url ?? record.path}`)); console.log(`Committed ${result.sha.slice(0, 8)}${result.pushed ? ' and pushed' : ''}.`); return;
   }
   if (subcommand === 'browse') {
@@ -2288,14 +2344,26 @@ async function documentsCommand(positionals, options) {
   }
   if (subcommand === 'fetch') {
     const workflow = await loadStoryAggregate(root, config);
-    const records = await fetchRemoteDocument(root, config, workflow, {
-      providerId: optionString(options, 'provider'),
-      remoteRef: optionString(options, 'ref') ?? positionals[2],
-      name: optionString(options, 'name'),
-      label: optionString(options, 'label'),
-      kind: optionString(options, 'kind')
-    });
-    const result = await commitAndPublish(root, config, workflow, { type: LIFECYCLE_EVENT.EXTERNAL_SYNCHRONIZED, payload: { documents: records.map((item) => item.id) } }, `[${workflow.workItem.id}][documents][fetch] ${records.map((item) => item.id).join(',')}`);
+    let records = [];
+    const result = await commitAndPublish(
+      root,
+      config,
+      workflow,
+      { type: LIFECYCLE_EVENT.EXTERNAL_SYNCHRONIZED, payload: { operation: 'document-fetch' } },
+      `[${workflow.workItem.id}][documents][fetch] governed evidence`,
+      [],
+      {
+        beforeStateWrite: async () => {
+          records = await fetchRemoteDocument(root, config, workflow, {
+            providerId: optionString(options, 'provider'),
+            remoteRef: optionString(options, 'ref') ?? positionals[2],
+            name: optionString(options, 'name'),
+            label: optionString(options, 'label'),
+            kind: optionString(options, 'kind')
+          });
+        }
+      }
+    );
     records.forEach((record) => console.log(`${record.id}\t${record.type}\t${record.remote?.providerId ?? ''}\t${record.path}`));
     console.log(`Committed ${result.sha.slice(0, 8)}${result.pushed ? ' and pushed' : ''}.`);
     return;
@@ -2305,13 +2373,31 @@ async function documentsCommand(positionals, options) {
 
 function pathForDisplay(root, relative) { return path.join(root, relative); }
 
+function storyDraftTransaction(root, config, workflow, operation, write, validate = null) {
+  return runDraftTransaction(root, {
+    subject: {
+      kind: 'story',
+      id: workflow.workItem.id,
+      branch: workflowPublicationBranch(root, workflow)
+    },
+    expectedRevision: workflow[Symbol.for('singularity-flow.state-revision')] ?? null,
+    allowedPaths: [posix(path.relative(root, workDir(root, config, workflow.workItem.id)))],
+    operation,
+    write,
+    validate
+  });
+}
+
 async function prepareCommand(positionals, options) {
   const root = repoRoot();
   const config = await loadConfig(root);
   const workflow = await loadStoryAggregate(root, config);
-  const artifact = await preparePhase(root, config, workflow, positionals[1]);
-  await saveStoryDraft(root, config, workflow);
   const phase = positionals[1] ?? workflow.currentPhase;
+  const artifact = await storyDraftTransaction(root, config, workflow, `prepare:${phase}`, async () => {
+    const prepared = await preparePhase(root, config, workflow, positionals[1]);
+    await saveStoryDraft(root, config, workflow);
+    return prepared;
+  });
   emitCommandResult(commandResult({
     operation: { id: 'prepare', classification: 'mutation' },
     subject: { kind: 'story', id: workflow.workItem.id },
@@ -2392,12 +2478,13 @@ async function clarificationCommand(positionals, options) {
     }];
   }
   const session = await loadSession(root);
-  const result = await recordClarificationResponses(root, config, workflow, phase, {
-    responses,
-    actor: session.actor,
-    agent: session.agent,
-    replace: optionBoolean(options, 'replace')
-  });
+  const result = await storyDraftTransaction(root, config, workflow, `clarification:${phase.id}`, () =>
+    recordClarificationResponses(root, config, workflow, phase, {
+      responses,
+      actor: session.actor,
+      agent: session.agent,
+      replace: optionBoolean(options, 'replace')
+    }));
   console.log(`Recorded ${result.record.responses.length} human clarification response${result.record.responses.length === 1 ? '' : 's'} for ${phase.id} generation ${result.record.generation}.`);
   console.log(`Record: ${result.path} · SHA-256: ${result.sha256}`);
   console.log(result.record.completed
@@ -2422,8 +2509,16 @@ async function inputsCommand(positionals, options) {
   const config = await loadConfig(root);
   const workflow = await loadStoryAggregate(root, config);
   const dryRun = optionBoolean(options, 'dry-run');
-  const result = await preparePhaseInputs(root, config, workflow, positionals[1], { dryRun });
-  if (!dryRun) await saveStoryDraft(root, config, workflow);
+  const prepareInputs = async () => {
+    const prepared = await preparePhaseInputs(root, config, workflow, positionals[1], { dryRun });
+    if (!dryRun) await saveStoryDraft(root, config, workflow);
+    return prepared;
+  };
+  const result = dryRun
+    ? await prepareInputs()
+    : await storyDraftTransaction(
+      root, config, workflow, `inputs:${positionals[1] ?? workflow.currentPhase}`, prepareInputs
+    );
   const workItemDirectory = posix(path.relative(root, workDir(root, config, workflow.workItem.id)));
   const records = result.records.map(({ content, ...entry }) => entry);
   if (optionBoolean(options, 'json')) {
@@ -2828,10 +2923,15 @@ async function agentsCommand(positionals, options) {
     await assertPhaseSequence(root, workflow, 'refresh remote generated output');
     const session = await loadSession(root);
     const itemDirectory = workDir(root, config, workflow.workItem.id);
-    const refreshed = await prepareRemoteOutputs(root, workflow, phase, session, { itemDirectory, refresh: true, replace: optionBoolean(options, 'replace'), resourceId });
-    phase.remoteOutputs = [...(phase.remoteOutputs ?? []).filter((entry) => !refreshed.outputs.some((output) => output.resource === entry.resource && output.generation === entry.generation)), ...refreshed.outputs];
-    await preparePhaseInputs(root, config, workflow, phase.id);
-    await saveStoryDraft(root, config, workflow);
+    const refreshed = await storyDraftTransaction(root, config, workflow, `agent-output-refresh:${phase.id}`, async () => {
+      const prepared = await prepareRemoteOutputs(root, workflow, phase, session, {
+        itemDirectory, refresh: true, replace: optionBoolean(options, 'replace'), resourceId
+      });
+      phase.remoteOutputs = [...(phase.remoteOutputs ?? []).filter((entry) => !prepared.outputs.some((output) => output.resource === entry.resource && output.generation === entry.generation)), ...prepared.outputs];
+      await preparePhaseInputs(root, config, workflow, phase.id);
+      await saveStoryDraft(root, config, workflow);
+      return prepared;
+    });
     refreshed.warnings.forEach((warning) => console.warn(`Warning: ${warning}`));
     return console.log(`Refreshed remote generated artifact '${resourceId}'. It will be committed by the next phase publication.`);
   }
@@ -3202,15 +3302,18 @@ async function phaseCommand(positionals, options) {
       return;
     }
     const generation = Number(phase.generation ?? 0) + 1;
-    const intent = await beginPhaseGeneration(root, config, workflow, {
-      phaseId,
-      adoptExisting: optionBoolean(options, 'adopt-existing') || optionBoolean(options, 'adopt-current-interval'),
-      confirm: optionString(options, 'confirm')
+    const intent = await storyDraftTransaction(root, config, workflow, `phase-begin:${phaseId}`, async () => {
+      const opened = await beginPhaseGeneration(root, config, workflow, {
+        phaseId,
+        adoptExisting: optionBoolean(options, 'adopt-existing') || optionBoolean(options, 'adopt-current-interval'),
+        confirm: optionString(options, 'confirm')
+      });
+      // Generation begin is a local authoring boundary, not lifecycle authority. Persist the
+      // workflow and receipt without a commit, but with a hard-crash recovery journal.
+      await saveStoryDraft(root, config, workflow);
+      await verifyOpenGenerationIntent(root, workflow, phase);
+      return opened;
     });
-    // Generation begin is a local authoring boundary, not lifecycle authority. Persist the workflow
-    // and its hash-bound receipt without creating a commit, push, ledger entry, or lifecycle event.
-    await saveStoryDraft(root, config, workflow);
-    await verifyOpenGenerationIntent(root, workflow, phase);
     const output = { ...intent, local: true, lifecycleEvent: null };
     if (optionBoolean(options, 'json')) console.log(JSON.stringify(output, null, 2));
     else console.log(`Began ${phaseId} generation ${generation} with local intent ${intent.id}. The receipt will be bound into the generation publication.`);
@@ -3363,15 +3466,21 @@ async function artifactCommand(positionals, options) {
   if (subcommand === 'add') {
     const paths = positionals.slice(2);
     if (!paths.length) throw new SingularityFlowError('Provide at least one artifact path.');
-    const records = [];
-    for (const candidate of paths) records.push(await registerArtifact(root, workflow, candidate, { phaseId, kind: optionString(options, 'kind') }));
-    await saveStoryDraft(root, config, workflow);
+    const records = await storyDraftTransaction(root, config, workflow, `artifact-add:${phaseId ?? workflow.currentPhase}`, async () => {
+      const registered = [];
+      for (const candidate of paths) registered.push(await registerArtifact(root, workflow, candidate, { phaseId, kind: optionString(options, 'kind') }));
+      await saveStoryDraft(root, config, workflow);
+      return registered;
+    });
     records.forEach((record) => console.log(`${record.kind}\t${record.path}`));
     return;
   }
   if (subcommand === 'scan') {
-    const records = await scanArtifacts(root, config, workflow, phaseId);
-    await saveStoryDraft(root, config, workflow);
+    const records = await storyDraftTransaction(root, config, workflow, `artifact-scan:${phaseId ?? workflow.currentPhase}`, async () => {
+      const scanned = await scanArtifacts(root, config, workflow, phaseId);
+      await saveStoryDraft(root, config, workflow);
+      return scanned;
+    });
     if (!records.length) console.log('No changed artifacts found.');
     else records.forEach((record) => console.log(`${record.kind}\t${record.path}`));
     return;
@@ -3637,9 +3746,28 @@ export async function submitCommand(positionals, options) {
     }), { json: optionBoolean(options, 'json'), postState: workflow });
     return;
   }
-  const reconciliation = await reconcilePhaseTelemetry(root, config, workflow, { phaseId: requestedPhase });
+  // A failed required push is a transport recovery, not an opportunity to open a second draft
+  // transaction for telemetry. Preserve the established sequence-gate refusal (including its
+  // structured recovery command and exit code) before any reconciliation boundary is opened.
+  await assertNoPendingPublication(root, config, workflow, 'submit');
+  let reconciliation;
+  let telemetryPublication = null;
+  await storyDraftTransaction(root, config, workflow, `telemetry-reconcile:${initialPhaseId}`, async (recoveryPreimage) => {
+    reconciliation = await reconcilePhaseTelemetry(root, config, workflow, { phaseId: requestedPhase });
+    if (reconciliation.updated) {
+      telemetryPublication = await commitAndPublish(
+        root,
+        config,
+        workflow,
+        { type: LIFECYCLE_EVENT.TELEMETRY_RECORDED, phaseId: reconciliation.phase, generation: reconciliation.generation },
+        `[${workflow.workItem.id}][phase:${reconciliation.phase}][telemetry:${reconciliation.generation}] reconcile Copilot usage`,
+        [],
+        { recoveryPreimage }
+      );
+    }
+    return reconciliation;
+  });
   if (reconciliation.updated) {
-    const telemetryPublication = await commitAndPublish(root, config, workflow, { type: LIFECYCLE_EVENT.TELEMETRY_RECORDED, phaseId: reconciliation.phase, generation: reconciliation.generation }, `[${workflow.workItem.id}][phase:${reconciliation.phase}][telemetry:${reconciliation.generation}] reconcile Copilot usage`);
     console.log(`Reconciled ${reconciliation.phase} generation ${reconciliation.generation} telemetry at ${telemetryPublication.sha.slice(0, 8)}${telemetryPublication.pushed ? ' and pushed' : ''}.`);
     console.log(`Models: ${reconciliation.models.join(', ') || 'unavailable'} | Tokens: ${reconciliation.usage.reduce((sum, item) => sum + (item.totalTokens ?? 0), 0) || 'unavailable'} | Provider cost: ${reconciliation.providerCost == null ? 'unavailable' : `$${reconciliation.providerCost.toFixed(6)}`}`);
     workflow = await loadStoryAggregate(root, config);
@@ -3780,11 +3908,23 @@ async function telemetryCommand(positionals, options) {
   }
   if (subcommand !== 'reconcile') throw new SingularityFlowError(`Unknown telemetry subcommand: ${subcommand}`);
   const config = await loadConfig(root); const workflow = await loadStoryAggregate(root, config);
-  const result = await reconcilePhaseTelemetry(root, config, workflow, { phaseId: positionals[2] });
-  if (result.updated) {
-    const publication = await commitAndPublish(root, config, workflow, { type: LIFECYCLE_EVENT.TELEMETRY_RECORDED, phaseId: result.phase, generation: result.generation }, `[${workflow.workItem.id}][phase:${result.phase}][telemetry:${result.generation}] reconcile Copilot usage`);
-    Object.assign(result, { commit: publication.sha, pushed: publication.pushed });
-  }
+  let result;
+  await storyDraftTransaction(root, config, workflow, `telemetry-reconcile:${positionals[2] ?? workflow.currentPhase}`, async (recoveryPreimage) => {
+    result = await reconcilePhaseTelemetry(root, config, workflow, { phaseId: positionals[2] });
+    if (result.updated) {
+      const publication = await commitAndPublish(
+        root,
+        config,
+        workflow,
+        { type: LIFECYCLE_EVENT.TELEMETRY_RECORDED, phaseId: result.phase, generation: result.generation },
+        `[${workflow.workItem.id}][phase:${result.phase}][telemetry:${result.generation}] reconcile Copilot usage`,
+        [],
+        { recoveryPreimage }
+      );
+      Object.assign(result, { commit: publication.sha, pushed: publication.pushed });
+    }
+    return result;
+  });
   if (optionBoolean(options, 'json')) return console.log(JSON.stringify({ exporter: status, reconciliation: result }, null, 2));
   if (!result.updated) {
     console.log(`Telemetry was not changed: ${result.reason}`);
@@ -4046,22 +4186,28 @@ async function approveCommand(positionals, options) {
   console.log(`Prior approvals: ${phase.approvals.filter((item) => !item.invalidatedAt).map((item) => `${item.actor?.name ?? item.actor?.email ?? 'unknown'} via ${item.authorityGroup ?? 'unrecorded authority'}; agent ${item.agent ?? 'unavailable'} (${item.decision})`).join(', ') || 'none'}`);
   if (selfApproval) console.warn('Warning: this identity generated the phase; approval will be recorded as self-approval.');
   if (!receipt && !optionBoolean(options, 'yes') && !(await confirm(phase))) throw new SingularityFlowError('Approval cancelled.');
-  const workflowBeforeApproval = structuredClone(workflow);
-  const result = await approvePhase(root, config, workflow, {
-    phaseId: phase.id,
-    channel: process.env.SINGULARITY_FLOW_GITHUB_ACTOR ? 'github-pr-comment' : receipt ? 'copilot-selection-receipt' : 'terminal',
-    actionContext: activeActionContext() ?? receipt?.approvalContext ?? null,
-    checklist: await checklistDecisions(options),
-    persist: false
-  });
-  const publication = await commitAndPublish(
+  const checklist = await checklistDecisions(options);
+  const { value: result, publication } = await transactStory(
     root,
     config,
     workflow,
-    { type: LIFECYCLE_EVENT.PHASE_APPROVED, phaseId: phase.id, generation: phase.generation, actor: result.approval.actor, agent: result.approval.agent, authorityGroup: result.approval.authorityGroup },
-    `[${workflow.workItem.id}][phase:${phase.id}][approve] ${result.approval.authorityGroup}`,
-    phase.artifacts.map((item) => item.path),
-    { rollbackWorkflow: workflowBeforeApproval }
+    {
+      type: LIFECYCLE_EVENT.PHASE_APPROVED,
+      phaseId: phase.id,
+      generation: phase.generation,
+      actor: session.actor,
+      agent: session.agent,
+      authorityGroup: approvalAuthority.authorityGroup
+    },
+    `[${workflow.workItem.id}][phase:${phase.id}][approve] ${approvalAuthority.authorityGroup}`,
+    (aggregate) => approvePhase(root, config, aggregate, {
+      phaseId: phase.id,
+      channel: process.env.SINGULARITY_FLOW_GITHUB_ACTOR ? 'github-pr-comment' : receipt ? 'copilot-selection-receipt' : 'terminal',
+      actionContext: activeActionContext() ?? receipt?.approvalContext ?? null,
+      checklist,
+      persist: false
+    }),
+    { paths: phase.artifacts.map((item) => item.path) }
   );
   // Spent once the approval has actually landed. Consuming it up front — before the confirmation
   // prompt, let alone the publication — meant declining at the prompt or hitting any refusal burned
@@ -4242,8 +4388,30 @@ async function cancelCommand(positionals, options) {
     : `Cancellation committed ${publication.sha.slice(0, 8)} locally; the Story is now archived.`);
 }
 
-async function syncCommand() {
-  const root = repoRoot(); const config = await loadConfig(root); const workflow = await loadStoryAggregate(root, config);
+async function syncCommand(positionals = []) {
+  const root = repoRoot();
+  const config = await loadConfig(root);
+  const requestedId = positionals[1] ?? branch(root);
+  const direct = await recoverPreparedPublicationBySubject(root, { kind: 'story', id: requestedId });
+  if (direct.status === 'active') {
+    throw new SingularityFlowError(
+      `Story '${requestedId}' has an active governed publication command (PID ${direct.active.pid}). `
+      + 'Return to that terminal and complete or interrupt it; recovery never rolls back a live owner.'
+    );
+  }
+  if (direct.status === 'recovered') {
+    console.log(`Rolled back the interrupted pre-commit publication for ${requestedId} to its exact durable pre-transaction state.`);
+    if (direct.rescuePath) console.log(`Preserved the interrupted partial bytes at ${direct.rescuePath}.`);
+    console.log(`Run singularity-flow nextsteps ${requestedId} before retrying.`);
+    return direct;
+  }
+  if (direct.status === 'manual') {
+    throw new SingularityFlowError(
+      `Story '${requestedId}' has an interrupted pre-commit publication that cannot be restored automatically. `
+      + 'Its journal was retained; run singularity-flow doctor --json and inspect the reported recovery evidence.'
+    );
+  }
+  const workflow = await loadStoryAggregate(root, config, requestedId);
   const result = await syncPublication(root, config, workflow);
   if (result.recoveredPrepared && result.restoredPrepared) {
     console.log(`Rolled back the interrupted pre-commit publication for ${workflow.workItem.id} to its exact durable pre-transaction state.`);
@@ -5615,9 +5783,22 @@ async function gateCommand(options) {
   const result = await runGovernanceGate(root, config, workflow, {
     terminal: optionBoolean(options, 'terminal') || process.env.SINGULARITY_FLOW_ENFORCE_TERMINAL === '1'
   });
+  if (optionBoolean(options, 'json')) {
+    console.log(JSON.stringify({ valid: result.errors.length === 0, ...result }, null, 2));
+    if (result.errors.length) process.exitCode = 2;
+    return;
+  }
   result.passes.forEach((message) => console.log(`  ${style.mark('pass')} ${message}`));
   result.warnings.forEach((message) => console.warn(`  ${style.mark('warn')} ${message}`));
-  if (result.errors.length) throw new SingularityFlowError(`Governance gate failed:\n- ${result.errors.join('\n- ')}`, { exitCode: 2 });
+  if (result.errors.length) {
+    const commands = [...new Set(result.findings.map((finding) => finding.recovery?.command).filter(Boolean))];
+    commands.forEach((command) => console.error(`  ${style.action('Recover:')} ${command}`));
+    throw new SingularityFlowError(`Governance gate failed:\n- ${result.errors.join('\n- ')}`, {
+      exitCode: 2,
+      code: 'GOVERNANCE_GATE_FAILED',
+      details: { findings: result.findings }
+    });
+  }
   console.log('Singularity Flow governance gate passed.');
 }
 
@@ -6566,6 +6747,43 @@ async function knowledgeCommand(positionals, options) {
   console.log(`\n${entries.length} entr${entries.length === 1 ? 'y' : 'ies'}.`);
 }
 
+async function transactInitiativeCommand(
+  root, portfolio, initiative, event, message, transition, options = {}
+) {
+  let value;
+  const publication = await commitInitiativeChange(root, portfolio, initiative, event, message, {
+    ...options,
+    beforeStateWrite: async () => {
+      value = await transition();
+      const replacement = value?.initiative ?? null;
+      if (replacement && replacement !== initiative) {
+        // Keep the original aggregate object because the publication wrapper owns its optimistic
+        // revision symbol. Replace every enumerable domain field with the transition's fresh state;
+        // the transition may have loaded and saved through an older compatibility helper, but it is
+        // now executing inside the journal/preimage boundary rather than before it.
+        for (const key of Object.keys(initiative)) delete initiative[key];
+        Object.assign(initiative, replacement);
+      }
+    }
+  });
+  return { value, publication };
+}
+
+function initiativeDraftTransaction(root, portfolio, initiative, operation, write, validate = null) {
+  return runDraftTransaction(root, {
+    subject: {
+      kind: 'initiative',
+      id: initiative.initiative.id,
+      branch: initiative.initiative.branch
+    },
+    expectedRevision: initiative[Symbol.for('singularity-flow.state-revision')] ?? null,
+    allowedPaths: [initiativeRelative(portfolio, initiative.initiative.id)],
+    operation,
+    write,
+    validate
+  });
+}
+
 async function initiativeCommand(positionals, options) {
   const subcommand = positionals[1] ?? 'status';
   const root = repoRoot();
@@ -6610,34 +6828,52 @@ async function initiativeCommand(positionals, options) {
     const source = optionBoolean(options, 'jira')
       ? await getIssue(initiativeId)
       : { type: 'manual', id: initiativeId, title: optionString(options, 'title', initiativeId), description: optionString(options, 'description', '') };
-    const created = await createInitiative(root, {
-      // Enter the lifecycle where the work actually is. The phases before it are recorded as
-      // skipped rather than approved — an approval that never happened must never look like one.
-      startPhase: startPhaseId,
-      id: initiativeId,
-      title: optionString(options, 'title', source.title ?? initiativeId),
-      profile,
-      source,
-      agent: selectedAgent.agent,
-      capabilityId: optionString(options, 'capability')
+    let created;
+    let started;
+    let publication;
+    await runDraftTransaction(root, {
+      subject: { kind: 'initiative', id: initiativeId, branch: initiativeId },
+      allowedPaths: [initiativeRelative(portfolio, initiativeId)],
+      operation: 'initiative-start',
+      write: async (creationPreimage) => {
+        created = await createInitiative(root, {
+          // Enter the lifecycle where the work actually is. The phases before it are recorded as
+          // skipped rather than approved — an approval that never happened must never look like one.
+          startPhase: startPhaseId,
+          id: initiativeId,
+          title: optionString(options, 'title', source.title ?? initiativeId),
+          profile,
+          source,
+          agent: selectedAgent.agent,
+          capabilityId: optionString(options, 'capability')
+        });
+        if (profile === 'epic-planning' && source.type === 'jira') {
+          await registerInitiativeEvidence(root, {
+            initiativeId,
+            phaseId: 'epic-intake',
+            checkId: 'epic-identity-verified',
+            assurance: 'system-verified',
+            verificationMethod: 'jira-issue-read',
+            source: {
+              externalId: source.id ?? source.key ?? initiativeId,
+              version: source.updatedAt ?? null,
+              observedState: `${source.key ?? initiativeId}: ${source.title ?? initiativeId}`
+            },
+            agent: selectedAgent.agent
+          });
+        }
+        started = await loadInitiativeAggregate(root, initiativeId);
+        publication = await commitInitiativeChange(
+          root,
+          started.portfolio,
+          started.initiative,
+          { type: LIFECYCLE_EVENT.BINDING },
+          `[${initiativeId}][initiative:init] start ${profile}`,
+          { recoveryPreimage: creationPreimage }
+        );
+        return { created, started, publication };
+      }
     });
-    if (profile === 'epic-planning' && source.type === 'jira') {
-      await registerInitiativeEvidence(root, {
-        initiativeId,
-        phaseId: 'epic-intake',
-        checkId: 'epic-identity-verified',
-        assurance: 'system-verified',
-        verificationMethod: 'jira-issue-read',
-        source: {
-          externalId: source.id ?? source.key ?? initiativeId,
-          version: source.updatedAt ?? null,
-          observedState: `${source.key ?? initiativeId}: ${source.title ?? initiativeId}`
-        },
-        agent: selectedAgent.agent
-      });
-    }
-    const started = await loadInitiativeAggregate(root, initiativeId);
-    const publication = await commitInitiativeChange(root, started.portfolio, started.initiative, { type: LIFECYCLE_EVENT.BINDING }, `[${initiativeId}][initiative:init] start ${profile}`);
     // Spent once the start has landed. Consumed before the Jira read and the creation, a network
     // failure or any refusal burned the one-shot receipt and a new one was needed to retry.
     if (receiptToken) await consumeSelectionReceipt(root, receiptToken);
@@ -6698,8 +6934,32 @@ async function initiativeCommand(positionals, options) {
     else console.log(table(initiatives, [{ key: 'id', label: 'INITIATIVE' }, { key: 'profile', label: 'PROFILE' }, { key: 'status', label: 'STATUS' }, { key: 'currentPhase', label: 'CURRENT' }]));
     return;
   }
-  const acceptsExplicitId = new Set(['status', 'next', 'journey', 'report', 'gate']);
+  const acceptsExplicitId = new Set(['status', 'next', 'journey', 'report', 'gate', 'recover', 'sync']);
   const initiativeId = optionString(options, 'initiative') ?? (acceptsExplicitId.has(subcommand) && positionals[2] ? positionals[2] : branch(root));
+  // Pre-commit recovery must not parse the file that the interrupted command may have stopped
+  // halfway through writing. Resolve the Git-local journal first; ordinary post-commit sync can
+  // load the aggregate below because the committed state already passed publication validation.
+  if (subcommand === 'sync') {
+    const direct = await recoverPreparedPublicationBySubject(root, { kind: 'initiative', id: initiativeId });
+    if (direct.status === 'active') {
+      throw new SingularityFlowError(
+        `Initiative '${initiativeId}' has an active governed publication command (PID ${direct.active.pid}). `
+        + 'Return to that terminal and complete or interrupt it; recovery never rolls back a live owner.'
+      );
+    }
+    if (direct.status === 'recovered') {
+      console.log(`Rolled back the interrupted pre-commit Initiative publication for ${initiativeId}.`);
+      if (direct.rescuePath) console.log(`Preserved the interrupted partial bytes at ${direct.rescuePath}.`);
+      console.log(`Run singularity-flow initiative next ${initiativeId} before retrying.`);
+      return;
+    }
+    if (direct.status === 'manual') {
+      throw new SingularityFlowError(
+        `Initiative '${initiativeId}' has an interrupted pre-commit publication that cannot be restored automatically. `
+        + 'Its journal was retained; run singularity-flow doctor --json and inspect the reported recovery evidence.'
+      );
+    }
+  }
   const loaded = await loadInitiativeAggregate(root, initiativeId, portfolio);
   const initiative = loaded.initiative;
   if (subcommand === 'status') {
@@ -6720,13 +6980,19 @@ async function initiativeCommand(positionals, options) {
     );
     if (!confirmed) throw new SingularityFlowError('Restart was not confirmed.');
     const session = await loadSession(root, { required: false });
-    const result = await restartInitiative(root, initiativeId, {
-      reason: optionString(options, 'reason') ?? null,
-      agent: session?.agent ?? null
-    });
-    const state = await loadInitiativeAggregate(root, initiativeId);
-    const publication = await commitInitiativeChange(root, state.portfolio, state.initiative, { type: LIFECYCLE_EVENT.CONFIGURATION_CHANGED, phaseId: state.initiative.currentPhase }, `[${initiativeId}][initiative:restart] back to ${state.initiative.currentPhase}`);
-    console.log(`${initiativeId} restarted at ${state.initiative.currentPhase}. ${result.removed.length} artifact${result.removed.length === 1 ? '' : 's'} discarded; Epic branch and sources kept, Story-branch world models unchanged. Commit ${publication.sha.slice(0, 8)}${publication.pushed ? ' pushed' : ''}.`);
+    const restartPhase = portfolio.initiativeProfiles[initiative.initiative.profile]?.phases?.[0] ?? initiative.currentPhase;
+    const { value: result, publication } = await transactInitiativeCommand(
+      root,
+      portfolio,
+      initiative,
+      { type: LIFECYCLE_EVENT.CONFIGURATION_CHANGED, phaseId: restartPhase },
+      `[${initiativeId}][initiative:restart] back to ${restartPhase}`,
+      () => restartInitiative(root, initiativeId, {
+        reason: optionString(options, 'reason') ?? null,
+        agent: session?.agent ?? null
+      })
+    );
+    console.log(`${initiativeId} restarted at ${initiative.currentPhase}. ${result.removed.length} artifact${result.removed.length === 1 ? '' : 's'} discarded; Epic branch and sources kept, Story-branch world models unchanged. Commit ${publication.sha.slice(0, 8)}${publication.pushed ? ' pushed' : ''}.`);
     return;
   }
   if (subcommand === 'applicability') {
@@ -6746,12 +7012,17 @@ async function initiativeCommand(positionals, options) {
     const answer = String(requirePositional(positionals, 4, 'yes or no')).toLowerCase();
     if (!['yes', 'no', 'true', 'false'].includes(answer)) throw new SingularityFlowError(`Answer '${answer}' must be yes or no.`);
     const session = await loadSession(root, { required: false });
-    const result = await setInitiativeApplicability(root, initiativeId, policyId, ['yes', 'true'].includes(answer), {
-      reason: optionString(options, 'reason') ?? null,
-      agent: session?.agent ?? null
-    });
-    const saved = await loadInitiativeAggregate(root, initiativeId);
-    const publication = await commitInitiativeChange(root, saved.portfolio, saved.initiative, { type: LIFECYCLE_EVENT.CONFIGURATION_CHANGED, phaseId: saved.initiative.currentPhase, payload: { policyId } }, `[${initiativeId}][initiative:applicability] ${policyId}`);
+    const { value: result, publication } = await transactInitiativeCommand(
+      root,
+      portfolio,
+      initiative,
+      { type: LIFECYCLE_EVENT.CONFIGURATION_CHANGED, phaseId: initiative.currentPhase, payload: { policyId } },
+      `[${initiativeId}][initiative:applicability] ${policyId}`,
+      () => setInitiativeApplicability(root, initiativeId, policyId, ['yes', 'true'].includes(answer), {
+        reason: optionString(options, 'reason') ?? null,
+        agent: session?.agent ?? null
+      })
+    );
     if (optionBoolean(options, 'json')) {
       return console.log(JSON.stringify({ policyId, applicable: result.applicable, publication }, null, 2));
     }
@@ -6772,12 +7043,18 @@ async function initiativeCommand(positionals, options) {
       return;
     }
     const session = await loadSession(root, { required: false });
-    const result = await selectInitiativePhaseOutputs(root, initiativeId, phaseId, include.split(',').map((value) => value.trim()).filter(Boolean), {
-      reason: optionString(options, 'reason') ?? null,
-      agent: session?.agent ?? null
-    });
-    const state = await loadInitiativeAggregate(root, initiativeId);
-    const publication = await commitInitiativeChange(root, state.portfolio, state.initiative, { type: LIFECYCLE_EVENT.CONFIGURATION_CHANGED, phaseId, payload: { selection: 'outputs' } }, `[${initiativeId}][initiative:${phaseId}][outputs] select`);
+    const { value: result, publication } = await transactInitiativeCommand(
+      root,
+      portfolio,
+      initiative,
+      { type: LIFECYCLE_EVENT.CONFIGURATION_CHANGED, phaseId, payload: { selection: 'outputs' } },
+      `[${initiativeId}][initiative:${phaseId}][outputs] select`,
+      () => selectInitiativePhaseOutputs(
+        root, initiativeId, phaseId,
+        include.split(',').map((value) => value.trim()).filter(Boolean),
+        { reason: optionString(options, 'reason') ?? null, agent: session?.agent ?? null }
+      )
+    );
     console.log(`${phaseId} will produce ${result.included.join(', ') || 'nothing'}${result.adopted.length ? ` (adopted ${result.adopted.join(', ')})` : ''}. Commit ${publication.sha.slice(0, 8)}${publication.pushed ? ' pushed' : ''}.`);
     return;
   }
@@ -6792,31 +7069,68 @@ async function initiativeCommand(positionals, options) {
       // Traceability verification and its evidence now live in publishInitiativePhase, so the CLI
       // and the VS Code extension record the same thing. They used to live here, which is why publishing
       // from the editor left blocking gates unsatisfied and the phase impossible to approve.
-      const result = await publishInitiativePhase(root, initiativeId, phaseId, { agent: session?.agent ?? null });
-      const generationPublication = await commitInitiativeChange(root, result.portfolio, result.initiative, { type: LIFECYCLE_EVENT.ARTIFACT_GENERATED, phaseId, generation: result.phase.generation }, `[${initiativeId}][initiative:${phaseId}][generated:${result.phase.generation}] publish`);
+      const generation = Number(initiative.phases[phaseId].generation) + 1;
+      const { value: result, publication: generationPublication } = await transactInitiativeCommand(
+        root,
+        portfolio,
+        initiative,
+        { type: LIFECYCLE_EVENT.ARTIFACT_GENERATED, phaseId, generation },
+        `[${initiativeId}][initiative:${phaseId}][generated:${generation}] publish`,
+        () => publishInitiativePhase(root, initiativeId, phaseId, { agent: session?.agent ?? null })
+      );
       // A governed handle must name bytes which already exist in an immutable Git revision. Publish
       // the generation first, then register its handles in a small atomic follow-up publication.
       // This avoids prospective or synthetic commit identifiers and keeps every handle reproducible.
       const referenceState = await loadInitiativeAggregate(root, initiativeId);
       const referencePhase = referenceState.initiative.phases[phaseId];
-      const references = await registerInitiativePhaseReferences(root, config, referenceState.initiative, referencePhase, generationPublication.sha);
+      let references = [];
       let referencePublication = null;
-      if (references.length) {
-        await saveInitiativeDraft(root, referenceState.portfolio, referenceState.initiative);
-        referencePublication = await commitInitiativeChange(
+      const referencePolicy = referenceState.initiative.resolution?.harnessImports
+        ?? config.harnessImports
+        ?? { mode: 'off' };
+      const referenceCandidates = Object.values(referencePhase.outputs ?? {})
+        .filter((output) => output.sha256 && Number.isInteger(output.bytes));
+      if (referencePolicy.mode !== 'off' && referenceCandidates.length) {
+        // Reference records and phase.references are both governed Initiative state. Create them
+        // only after the publication journal has captured the complete Initiative directory; a
+        // failed handle registration must restore both files and aggregate to the prior generation.
+        const registered = await transactInitiativeCommand(
           root,
           referenceState.portfolio,
           referenceState.initiative,
-          { type: LIFECYCLE_EVENT.CONFIGURATION_CHANGED, phaseId, generation: referencePhase.generation, payload: { references: references.map((entry) => entry.handle) } },
-          `[${initiativeId}][initiative:${phaseId}][references:${referencePhase.generation}] register governed handles`
+          {
+            type: LIFECYCLE_EVENT.CONFIGURATION_CHANGED,
+            phaseId,
+            generation: referencePhase.generation,
+            payload: { referenceCommit: generationPublication.sha }
+          },
+          `[${initiativeId}][initiative:${phaseId}][references:${referencePhase.generation}] register governed handles`,
+          async () => ({
+            initiative: referenceState.initiative,
+            references: await registerInitiativePhaseReferences(
+              root, config, referenceState.initiative, referencePhase, generationPublication.sha)
+          })
         );
+        references = registered.value.references;
+        referencePublication = registered.publication;
       }
       console.log(`Published ${phaseId} generation ${result.phase.generation}. Commit ${generationPublication.sha.slice(0, 8)}${generationPublication.pushed ? ' pushed' : ''}.`);
       if (referencePublication) console.log(`Registered ${references.length} governed reference(s). Commit ${referencePublication.sha.slice(0, 8)}${referencePublication.pushed ? ' pushed' : ''}.`);
     } else {
-      const context = await composeInitiativeContext(root, initiativeId, phaseId, { agent: session?.agent ?? null });
-      const result = await prepareInitiativePhase(root, initiativeId, phaseId, { agent: session?.agent ?? null });
-      const publication = await commitInitiativeChange(root, result.portfolio, result.initiative, { type: LIFECYCLE_EVENT.ARTIFACT_GENERATED, phaseId, generation: result.initiative.phases[phaseId].generation }, `[${initiativeId}][initiative:${phaseId}][prepare] outputs`);
+      const generation = Number(initiative.phases[phaseId].generation) + 1;
+      const { value: prepared, publication } = await transactInitiativeCommand(
+        root,
+        portfolio,
+        initiative,
+        { type: LIFECYCLE_EVENT.ARTIFACT_GENERATED, phaseId, generation },
+        `[${initiativeId}][initiative:${phaseId}][prepare] outputs`,
+        async () => {
+          const context = await composeInitiativeContext(root, initiativeId, phaseId, { agent: session?.agent ?? null });
+          const result = await prepareInitiativePhase(root, initiativeId, phaseId, { agent: session?.agent ?? null });
+          return { ...result, context };
+        }
+      );
+      const { context, ...result } = prepared;
       console.log(`Prepared ${result.outputs.length} ${phaseId} documents. Commit ${publication.sha.slice(0, 8)}${publication.pushed ? ' pushed' : ''}.`);
       console.log(`Governed Copilot prompt: ${context.record.promptPath} (${context.record.renderedSha256.slice(0, 12)})`);
       context.warnings.forEach((warning) => console.warn(`Warning: ${warning}`));
@@ -6832,10 +7146,14 @@ async function initiativeCommand(positionals, options) {
   if (subcommand === 'context') {
     const phaseId = positionals[2] ?? initiative.currentPhase;
     const session = await loadSession(root, { required: false });
-    const result = await composeInitiativeContext(root, initiativeId, phaseId, {
+    const dryRun = optionBoolean(options, 'dry-run');
+    const compose = () => composeInitiativeContext(root, initiativeId, phaseId, {
       agent: optionString(options, 'agent') ?? session?.agent ?? null,
-      dryRun: optionBoolean(options, 'dry-run')
+      dryRun
     });
+    const result = dryRun
+      ? await compose()
+      : await initiativeDraftTransaction(root, portfolio, initiative, `context:${phaseId}`, compose);
     result.warnings.forEach((warning) => console.warn(`Warning: ${warning}`));
     if (optionBoolean(options, 'json')) console.log(JSON.stringify(result.record, null, 2));
     else process.stdout.write(result.rendered);
@@ -6886,26 +7204,37 @@ async function initiativeCommand(positionals, options) {
       const checkId = requirePositional(positionals, 3, 'checklist ID');
       const phaseId = optionString(options, 'phase', initiative.currentPhase);
       const session = await loadSession(root, { required: false });
-      const appended = await registerInitiativeEvidence(root, {
-        initiativeId,
-        phaseId,
-        checkId,
-        assurance: optionString(options, 'assurance'),
-        verificationMethod: optionString(options, 'verification'),
-        source: {
-          path: optionString(options, 'path'),
-          url: optionString(options, 'url'),
-          externalId: optionString(options, 'external-id'),
-          observedState: optionString(options, 'observed-state'),
-          version: optionString(options, 'source-version')
+      const { value, publication } = await transactInitiativeCommand(
+        root,
+        portfolio,
+        initiative,
+        { type: LIFECYCLE_EVENT.EVIDENCE_RECORDED, phaseId, payload: { checkId } },
+        `[${initiativeId}][initiative:${phaseId}][evidence] ${checkId}`,
+        async () => {
+          const appended = await registerInitiativeEvidence(root, {
+            initiativeId,
+            phaseId,
+            checkId,
+            assurance: optionString(options, 'assurance'),
+            verificationMethod: optionString(options, 'verification'),
+            source: {
+              path: optionString(options, 'path'),
+              url: optionString(options, 'url'),
+              externalId: optionString(options, 'external-id'),
+              observedState: optionString(options, 'observed-state'),
+              version: optionString(options, 'source-version')
+            },
+            agent: session?.agent ?? null,
+            decision: optionString(options, 'decision'),
+            reason: optionString(options, 'reason'),
+            supersedes: optionStrings(options, 'supersedes')
+          });
+          const fresh = await loadInitiativeAggregate(root, initiativeId);
+          return { initiative: fresh.initiative, appended };
         },
-        agent: session?.agent ?? null,
-        decision: optionString(options, 'decision'),
-        reason: optionString(options, 'reason'),
-        supersedes: optionStrings(options, 'supersedes')
-      });
-      const fresh = await loadInitiativeAggregate(root, initiativeId);
-      const publication = await commitInitiativeChange(root, fresh.portfolio, fresh.initiative, { type: LIFECYCLE_EVENT.EVIDENCE_RECORDED, phaseId, payload: { checkId } }, `[${initiativeId}][initiative:${phaseId}][evidence] ${checkId}`, { appendOnly: true });
+        { appendOnly: true }
+      );
+      const appended = value.appended;
       console.log(`Evidence ${appended.sha256.slice(0, 12)} committed ${publication.sha.slice(0, 8)}${publication.pushed ? ' and pushed' : ''}.`);
       return;
     }
@@ -6951,13 +7280,29 @@ async function initiativeCommand(positionals, options) {
       root, config, initiativeId, initiative.resolution.phases[phaseId], optionString(options, 'agent') ?? null
     );
     if (!receipt && !(await confirmInitiativeExact(`Approve exact initiative subject ${expected}?`, expected, options))) throw new SingularityFlowError('Initiative approval cancelled.');
-    const result = await approveInitiative(root, { initiativeId, phaseId, subject, agent: session.agent, channel: receipt ? 'copilot-selection-receipt' : 'terminal' });
-    // Knowledge harvested by this approval is committed with it. Two commits would let one land
-    // without the other, and leaving it unstaged left the working tree dirty — which the next
-    // governed command refuses outright, since every one of them starts from a clean checkout.
-    const publication = await commitInitiativeChange(root, result.portfolio, result.initiative, { type: LIFECYCLE_EVENT.PHASE_APPROVED, phaseId, agent: session?.agent ?? null, payload: { approvalSubject: subject } }, `[${initiativeId}][initiative:${phaseId}][approve] ${subject}`, {
-      extraPaths: result.knowledge?.harvested?.length ? [KNOWLEDGE_ROOT] : []
-    });
+    // Approval records, aggregate advancement, and harvested knowledge are one transaction. The
+    // knowledge root is captured even when harvesting ultimately produces no records, because the
+    // preimage must exist before the transition decides whether it has anything to write.
+    const { value: result, publication } = await transactInitiativeCommand(
+      root,
+      portfolio,
+      initiative,
+      {
+        type: LIFECYCLE_EVENT.PHASE_APPROVED,
+        phaseId,
+        agent: session?.agent ?? null,
+        payload: { approvalSubject: subject }
+      },
+      `[${initiativeId}][initiative:${phaseId}][approve] ${subject}`,
+      () => approveInitiative(root, {
+        initiativeId,
+        phaseId,
+        subject,
+        agent: session.agent,
+        channel: receipt ? 'copilot-selection-receipt' : 'terminal'
+      }),
+      { extraPaths: [KNOWLEDGE_ROOT] }
+    );
     // Spent once the approval has landed, not before it is attempted.
     if (receiptToken) await consumeSelectionReceipt(root, receiptToken);
     console.log(`Approved ${phaseId}:${subject}. Commit ${publication.sha.slice(0, 8)}${publication.pushed ? ' pushed' : ''}.`);
@@ -6974,8 +7319,25 @@ async function initiativeCommand(positionals, options) {
   if (subcommand === 'reject') {
     const subject = positionals[2] ?? 'phase';
     const session = await loadSession(root, { required: false });
-    const result = await rejectInitiative(root, { initiativeId, subject, reason: optionString(options, 'reason'), agent: session?.agent ?? null });
-    const publication = await commitInitiativeChange(root, result.portfolio, result.initiative, { type: LIFECYCLE_EVENT.PHASE_REJECTED, phaseId: result.target.phaseId ?? result.initiative.currentPhase, payload: { targetType: result.target.type, targetId: result.target.id } }, `[${initiativeId}][initiative:${result.target.type}][reject] ${result.target.id}`);
+    const phaseId = initiative.currentPhase;
+    const { value: result, publication } = await transactInitiativeCommand(
+      root,
+      portfolio,
+      initiative,
+      {
+        type: LIFECYCLE_EVENT.PHASE_REJECTED,
+        phaseId,
+        payload: { rejectionSubject: subject }
+      },
+      `[${initiativeId}][initiative:${phaseId}][reject] ${subject}`,
+      () => rejectInitiative(root, {
+        initiativeId,
+        phaseId,
+        subject,
+        reason: optionString(options, 'reason'),
+        agent: session?.agent ?? null
+      })
+    );
     console.log(`Rejected ${result.target.type}/${result.target.id}; invalidated ${result.invalidation.affected.length} dependent nodes. Commit ${publication.sha.slice(0, 8)}${publication.pushed ? ' pushed' : ''}.`);
     return;
   }
@@ -7131,8 +7493,34 @@ async function initiativeCommand(positionals, options) {
       result.passes.forEach((message) => console.log(`PASS: ${message}`));
       result.warnings.forEach((message) => console.warn(`WARN: ${message}`));
       result.errors.forEach((message) => console.error(`ERROR: ${message}`));
+      [...new Set(result.findings.map((finding) => finding.recovery?.command).filter(Boolean))]
+        .forEach((command) => console.error(`RECOVER: ${command}`));
     }
     if (!result.valid) process.exitCode = 2;
+    return;
+  }
+  if (subcommand === 'recover') {
+    const terminal = initiative.status === 'complete' && initiative.currentPhase == null;
+    const result = await runInitiativeGate(root, initiativeId, { terminal });
+    const plan = {
+      schemaVersion: 1,
+      kind: 'initiative-gate-recovery',
+      initiativeId,
+      stableState: 'unchanged',
+      valid: result.valid,
+      findings: result.findings,
+      actions: result.findings.map((finding) => finding.recovery)
+    };
+    if (optionBoolean(options, 'json')) return console.log(JSON.stringify(plan, null, 2));
+    if (result.valid) return console.log(`Initiative ${initiativeId} has no gate recovery findings.`);
+    console.log(`Recovery plan — Initiative ${initiativeId}`);
+    console.log('Stable state: unchanged (the gate is read-only)');
+    for (const finding of result.findings) {
+      console.log(`BLOCKED ${finding.code}${finding.phase ? ` — owner ${finding.phase}` : ''}`);
+      console.log(`  ${finding.details.message}`);
+      if (finding.recovery.command) console.log(`  Run: ${finding.recovery.command}`);
+      else console.log(`  Human authority required: ${finding.recovery.detail}`);
+    }
     return;
   }
   throw new SingularityFlowError(`Unknown initiative subcommand '${subcommand}'.`);
@@ -10005,7 +10393,7 @@ async function dispatch(command, positionals, options) {
     reject: () => rejectCommand(positionals, options),
     reopen: () => reopenCommand(positionals, options),
     cancel: () => cancelCommand(positionals, options),
-    sync: () => syncCommand(),
+    sync: () => syncCommand(positionals),
     ledger: () => ledgerCommand(positionals, options),
     capabilities: () => capabilitiesCommand(positionals, options),
     state: () => stateCommand(positionals, options),

@@ -6,6 +6,7 @@ import { verifyInitiativeContext } from './initiative-context.mjs';
 import { verifyEpicSources } from './epic-sources.mjs';
 import { verifyEpicTraceability } from './epic-traceability.mjs';
 import { run } from './util.mjs';
+import { classifyInitiativeGateFailures } from './gate-recovery.mjs';
 
 export async function runInitiativeGate(root, initiativeId, { terminal = false } = {}) {
   const { portfolio, initiative } = await loadInitiative(root, initiativeId);
@@ -63,5 +64,13 @@ export async function runInitiativeGate(root, initiativeId, { terminal = false }
     if (remoteHead !== head(root)) errors.push(`local initiative HEAD is not published to ${remote}/${initiative.initiative.branch}`);
     else passes.push('remote publication');
   }
-  return { valid: errors.length === 0, initiativeId, terminal, errors, warnings, passes };
+  return {
+    valid: errors.length === 0,
+    initiativeId,
+    terminal,
+    errors,
+    warnings,
+    passes,
+    findings: classifyInitiativeGateFailures(initiative, errors)
+  };
 }

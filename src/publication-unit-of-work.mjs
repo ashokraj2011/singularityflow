@@ -33,7 +33,8 @@ export class GitPublicationUnitOfWork {
   conflictStrategy = null,
   state = null,
   beforeCommit = null,
-  fault = null
+  fault = null,
+  recoveryPreimage: suppliedRecoveryPreimage = null
   } = {}) {
   const root = this.root;
   let envelope = assertLifecycleEvent(event, subject);
@@ -86,9 +87,10 @@ export class GitPublicationUnitOfWork {
     // Persist the exact pre-transaction bytes before the journal authorizes the first state write.
     // An ordinary exception can use the same preimage immediately; a hard process death leaves it
     // in the journal for the next `sync` to restore after reclaiming the dead owner's lock.
-    const recoveryPreimage = state?.captureRecovery
-      ? await state.captureRecovery()
-      : await capturePublicationPreimage(root, allowedPaths);
+    const recoveryPreimage = suppliedRecoveryPreimage
+      ?? (state?.captureRecovery
+        ? await state.captureRecovery()
+        : await capturePublicationPreimage(root, allowedPaths));
     await beginPublicationJournal(root, {
       subject,
       expectedHead: publicationHead,
@@ -102,26 +104,38 @@ export class GitPublicationUnitOfWork {
     const unwind = async (error) => {
       if (ledgerIntentPath) await rm(path.join(root, ledgerIntentPath), { force: true });
       let restoreFailure = null;
+      let restoration = null;
       if (wroteState) {
         try {
-          if (state?.rollback) await state.rollback(recoveryPreimage);
-          else await restorePublicationPreimage(root, recoveryPreimage, { subject });
+          await updatePublicationJournal(root, subject, {
+            stage: 'restoring',
+            recoveryAttemptedAt: nowIso(),
+            originalError: error?.message ?? String(error)
+          });
+          restoration = state?.rollback
+            ? await state.rollback(recoveryPreimage, { preserveCurrent: true })
+            : await restorePublicationPreimage(root, recoveryPreimage, { subject, preserveCurrent: true });
         } catch (failure) { restoreFailure = failure; }
       }
-      // The journal is cleared on every path out, including a failed restore. Rethrowing before this
-      // left a `prepared` journal whose expectedHead still matched HEAD, which every later process
-      // reads as an interrupted publication: `assertNoPendingPublication` then blocks every mutation
-      // and `syncPublication` hard-refuses. Combined with a half-restored working tree, that left
-      // the subject unusable with no route out except deleting a file inside `.git` by hand — the
-      // worst possible response to a rollback that had already gone wrong.
-      await clearPublicationJournal(root, subject);
       if (restoreFailure) {
+        // The preimage is the only authoritative route back after a failed restore. Keep it and
+        // make the failure explicit; clearing this journal would destroy the recovery path exactly
+        // when it is needed most. A later subject-first `sync` can retry without parsing the damaged
+        // aggregate and will preserve the then-current partial bytes before doing so.
+        await updatePublicationJournal(root, subject, {
+          stage: 'rollback-failed',
+          rollbackError: restoreFailure.message,
+          rollbackFailedAt: nowIso(),
+          rescuePath: restoration?.rescuePath ?? null
+        }).catch(() => {});
         throw new SingularityFlowError(
           `${subject.kind} '${subject.id}' failed to publish and its state could not be restored: ${restoreFailure.message}. `
-          + `Inspect the work item before running another governed command. `
-          + `The original failure was: ${error.message}`
+          + 'The durable recovery journal was retained. Run the appropriate sync command to retry exact restoration. '
+          + `The original failure was: ${error.message}`,
+          { code: 'PUBLICATION_ROLLBACK_FAILED', details: { subject, originalError: error.message, rollbackError: restoreFailure.message } }
         );
       }
+      await clearPublicationJournal(root, subject);
       throw error;
     };
 

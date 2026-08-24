@@ -1,5 +1,5 @@
 import assert from 'node:assert/strict';
-import { access, chmod, mkdtemp, readFile, stat, writeFile } from 'node:fs/promises';
+import { access, chmod, mkdir, mkdtemp, readFile, stat, writeFile } from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
 import { fileURLToPath, pathToFileURL } from 'node:url';
@@ -10,11 +10,12 @@ import { GitPublicationUnitOfWork } from '../src/publication-unit-of-work.mjs';
 import { commitIsolated } from '../src/git.mjs';
 import {
   discardCleanPreparedPublication, livePreparedPublicationOwner, readPendingPublication,
-  recoverPreparedPublication
+  recoverPreparedPublication, recoverPreparedPublicationBySubject
 } from '../src/publication-pending.mjs';
 import { capturePublicationPreimage, restorePublicationPreimage } from '../src/publication-recovery.mjs';
 import { beginPublicationJournal, publicationJournalPath } from '../src/publication-journal.mjs';
 import { acquireSubjectLock, releaseSubjectLock, subjectLockPath } from '../src/subject-lock.mjs';
+import { runDraftTransaction } from '../src/draft-unit-of-work.mjs';
 
 const packageRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 
@@ -38,6 +39,7 @@ async function repository(prefix) {
 const stages = ['after-state-write', 'after-commit', 'after-push', 'after-ledger'];
 const kinds = ['story', 'initiative'];
 const publicationModule = pathToFileURL(path.join(packageRoot, 'src/publication-unit-of-work.mjs')).href;
+const draftModule = pathToFileURL(path.join(packageRoot, 'src/draft-unit-of-work.mjs')).href;
 const eventModule = pathToFileURL(path.join(packageRoot, 'src/lifecycle-event.mjs')).href;
 const recoveryModule = pathToFileURL(path.join(packageRoot, 'src/publication-recovery.mjs')).href;
 
@@ -361,6 +363,147 @@ test('durable preimages restore executable modes as well as file bytes', async (
   assert.equal(recovery.restored, true);
   assert.equal(await readFile(target, 'utf8'), '#!/bin/sh\necho before\n');
   assert.equal((await stat(target)).mode & 0o777, 0o755);
+});
+
+test('subject-first recovery restores an aggregate that no longer parses', async () => {
+  const root = await repository('sflow-subject-first-');
+  const subject = { kind: 'story', id: 'BROKEN-AGGREGATE', branch: 'main' };
+  const target = 'workflow.json';
+  const prior = '{"status":"in_progress","currentPhase":"intake"}\n';
+  await writeFile(path.join(root, target), prior);
+  git(['add', target], root);
+  git(['commit', '-m', 'canonical aggregate'], root);
+  const script = [
+    `import { writeFile } from 'node:fs/promises';`,
+    `import { GitPublicationUnitOfWork } from ${JSON.stringify(publicationModule)};`,
+    `import { lifecycleEvent } from ${JSON.stringify(eventModule)};`,
+    `const root = ${JSON.stringify(root)};`,
+    `const subject = ${JSON.stringify(subject)};`,
+    `await new GitPublicationUnitOfWork(root).execute({`,
+    `  subject, allowedPaths: [${JSON.stringify(target)}],`,
+    `  event: lifecycleEvent({ type: 'artifact-generated', subject, phaseId: 'intake', generation: 1 }),`,
+    `  commit: { message: '[BROKEN-AGGREGATE] interrupted' },`,
+    `  publication: { mode: 'off', branch: 'main' },`,
+    `  state: { write: () => writeFile(root + '/workflow.json', '{') },`,
+    `  fault: (stage) => { if (stage === 'after-state-write') process.exit(74); }`,
+    `});`
+  ].join('\n');
+  const child = spawnSync(process.execPath, ['--input-type=module', '--eval', script], {
+    cwd: packageRoot, encoding: 'utf8'
+  });
+  assert.equal(child.status, 74, child.stderr);
+  assert.equal(await readFile(path.join(root, target), 'utf8'), '{');
+
+  const recovered = await recoverPreparedPublicationBySubject(root, subject);
+  assert.equal(recovered.status, 'recovered');
+  assert.equal(recovered.restored, true);
+  assert.equal(await readFile(path.join(root, target), 'utf8'), prior);
+});
+
+test('a failed in-process rollback retains its journal for a later exact retry', async () => {
+  const root = await repository('sflow-rollback-retry-');
+  const subject = { kind: 'initiative', id: 'ROLLBACK-RETRY', branch: 'main' };
+  const target = 'state.json';
+  const prior = '{"status":"before"}\n';
+  await writeFile(path.join(root, target), prior);
+  git(['add', target], root);
+  git(['commit', '-m', 'canonical state'], root);
+  const script = [
+    `import { writeFile } from 'node:fs/promises';`,
+    `import { GitPublicationUnitOfWork } from ${JSON.stringify(publicationModule)};`,
+    `import { lifecycleEvent } from ${JSON.stringify(eventModule)};`,
+    `const root = ${JSON.stringify(root)};`,
+    `const subject = ${JSON.stringify(subject)};`,
+    `try { await new GitPublicationUnitOfWork(root).execute({`,
+    `  subject, allowedPaths: [${JSON.stringify(target)}],`,
+    `  event: lifecycleEvent({ type: 'artifact-generated', subject, phaseId: 'define', generation: 1 }),`,
+    `  commit: { message: '[ROLLBACK-RETRY] interrupted' },`,
+    `  publication: { mode: 'off', branch: 'main' },`,
+    `  state: {`,
+    `    write: () => writeFile(root + '/state.json', '{\"status\":\"partial\"}\\n'),`,
+    `    validate: () => { throw new Error('validation failed'); },`,
+    `    rollback: () => { throw new Error('restore failed'); }`,
+    `  }`,
+    `}); } catch (error) { if (error.code !== 'PUBLICATION_ROLLBACK_FAILED') process.exit(75); }`
+  ].join('\n');
+  const child = spawnSync(process.execPath, ['--input-type=module', '--eval', script], {
+    cwd: packageRoot, encoding: 'utf8'
+  });
+  assert.equal(child.status, 0, child.stderr);
+  const pending = await readPendingPublication(root, subject);
+  assert.equal(pending.journalRecord.stage, 'rollback-failed');
+  assert.match(pending.journalRecord.rollbackError, /restore failed/);
+
+  const recovered = await recoverPreparedPublicationBySubject(root, subject);
+  assert.equal(recovered.status, 'recovered');
+  assert.equal(await readFile(path.join(root, target), 'utf8'), prior);
+  assert.equal(await pathExists(publicationJournalPath(root, subject.kind, subject.id)), false);
+});
+
+test('a hard-killed draft preparation restores through the same subject-first recovery path', async () => {
+  const root = await repository('sflow-draft-recovery-');
+  const subject = { kind: 'story', id: 'DRAFT-RECOVERY', branch: 'main' };
+  const target = 'story';
+  await writeFile(path.join(root, 'story'), 'stable prepared state\n');
+  git(['add', target], root);
+  git(['commit', '-m', 'stable draft baseline'], root);
+  const script = [
+    `import { writeFile } from 'node:fs/promises';`,
+    `import { runDraftTransaction } from ${JSON.stringify(draftModule)};`,
+    `const root = ${JSON.stringify(root)};`,
+    `const subject = ${JSON.stringify(subject)};`,
+    `await runDraftTransaction(root, {`,
+    `  subject, allowedPaths: ['story'], operation: 'prepare:intake',`,
+    `  write: () => writeFile(root + '/story', 'partial preparation\\n'),`,
+    `  fault: (stage) => { if (stage === 'after-draft-write') process.exit(76); }`,
+    `});`
+  ].join('\n');
+  const child = spawnSync(process.execPath, ['--input-type=module', '--eval', script], {
+    cwd: packageRoot, encoding: 'utf8'
+  });
+  assert.equal(child.status, 76, child.stderr);
+  const pending = await readPendingPublication(root, subject);
+  assert.equal(pending.journalRecord.transactionKind, 'draft');
+  assert.equal(pending.journalRecord.operation, 'prepare:intake');
+  assert.equal(await readFile(path.join(root, target), 'utf8'), 'partial preparation\n');
+
+  const recovered = await recoverPreparedPublicationBySubject(root, subject);
+  assert.equal(recovered.status, 'recovered');
+  assert.equal(await readFile(path.join(root, target), 'utf8'), 'stable prepared state\n');
+});
+
+test('first creation hands its absent preimage into publication and restores no-work state on failure', async () => {
+  const root = await repository('sflow-create-recovery-');
+  const subject = { kind: 'story', id: 'CREATE-RECOVERY', branch: 'main' };
+  const target = 'singularity/work-items/CREATE-RECOVERY';
+  const before = git(['rev-parse', 'HEAD'], root);
+
+  await assert.rejects(() => runDraftTransaction(root, {
+    subject,
+    allowedPaths: [target],
+    operation: 'story-start',
+    write: async (creationPreimage) => {
+      await mkdir(path.join(root, target), { recursive: true });
+      await writeFile(path.join(root, target, 'workflow.json'), '{"status":"creating"}\n');
+      return new GitPublicationUnitOfWork(root).execute({
+        subject,
+        event: lifecycleEvent({ type: 'binding', subject }),
+        commit: { message: '[CREATE-RECOVERY][init] start' },
+        publication: { mode: 'off', branch: 'main' },
+        allowedPaths: [target],
+        recoveryPreimage: creationPreimage,
+        state: {
+          write: () => writeFile(path.join(root, target, 'workflow.json'), '{"status":"ready"}\n')
+        },
+        fault: (stage) => { if (stage === 'after-state-write') throw new Error('creation publication failed'); }
+      });
+    }
+  }), /creation publication failed/);
+
+  assert.equal(git(['rev-parse', 'HEAD'], root), before);
+  assert.equal(await pathExists(path.join(root, target)), false, 'partial first aggregate was removed');
+  assert.equal(await pathExists(publicationJournalPath(root, subject.kind, subject.id)), false);
+  assert.equal(git(['status', '--porcelain'], root), '');
 });
 
 test('a lock left by a killed process is reclaimed for Story and Initiative subjects', async (t) => {

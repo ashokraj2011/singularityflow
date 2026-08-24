@@ -1,7 +1,7 @@
 import path from 'node:path';
 import { mkdir, mkdtemp, rm } from 'node:fs/promises';
 // Synchronous, because `identity()` is synchronous and called from synchronous code throughout.
-import { mkdirSync, readFileSync, statSync, writeFileSync } from 'node:fs';
+import { existsSync, mkdirSync, readFileSync, statSync, writeFileSync } from 'node:fs';
 import { SingularityFlowError, invariant, run } from './util.mjs';
 import { scopedReadSync } from './read-scope.mjs';
 import { scanEntries, secretRefusal } from './secrets.mjs';
@@ -538,7 +538,13 @@ export async function commitIsolated(root, message, paths, {
   signingKey = null,
   fault = null
 } = {}) {
-  const scope = [...new Set((paths ?? []).filter(Boolean))];
+  // Optional transaction roots may legitimately remain absent (for example an approval that was
+  // allowed to harvest knowledge but found none). Git rejects an entirely unknown pathspec even
+  // when `git add -A` is otherwise correct. Keep paths that exist now or were tracked at HEAD so
+  // deletions are still staged; omit only roots that have never contained governed bytes.
+  const scope = [...new Set((paths ?? []).filter(Boolean))].filter((candidate) =>
+    existsSync(path.join(root, candidate))
+      || Boolean(git(['ls-files', '-z', '--', candidate], { cwd: root }).stdout));
   if (!scope.length) throw new SingularityFlowError('Governed publication requires at least one allowed path.');
 
   const stagedOverlap = git(['diff', '--cached', '--name-only', '-z', expectedHead, '--', ...scope], { cwd: root }).stdout

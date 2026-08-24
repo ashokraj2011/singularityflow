@@ -1237,7 +1237,8 @@ export async function commitInitiativeChange(root, portfolio, initiative, event,
   extraPaths = [],
   appendOnly = false,
   beforeStateWrite = null,
-  rollbackInitiative = null
+  rollbackInitiative = null,
+  recoveryPreimage = null
 } = {}) {
   if (branch(root) !== initiative.initiative.branch) throw new SingularityFlowError(`Current branch ${branch(root)} must match initiative branch ${initiative.initiative.branch}.`);
   const pending = await readPendingPublication(root, {
@@ -1305,7 +1306,10 @@ export async function commitInitiativeChange(root, portfolio, initiative, event,
       },
       // Restore the complete governed Initiative directory: a publication that fails after any
       // manifest, context, decision, projection, or state write must leave no unpublished change.
-      rollback: (preimage) => restorePublicationPreimage(root, preimage, { subject: envelope.subject })
+      rollback: (preimage, recoveryOptions = {}) => restorePublicationPreimage(root, preimage, {
+        subject: envelope.subject,
+        ...recoveryOptions
+      })
     },
     publication: { mode, remote, branch: initiative.initiative.branch },
     pendingRecord: () => ({ initiativeId: initiative.initiative.id, appendOnly }),
@@ -1315,7 +1319,8 @@ export async function commitInitiativeChange(root, portfolio, initiative, event,
       if (rebased.status !== 0) return { result: rebased, replayed: false, publishedCommit: sourceCommit };
       const pushed = pushBranch(root, remote, initiative.initiative.branch);
       return { result: pushed, replayed: pushed.status === 0, publishedCommit: head(root) };
-    } : null
+    } : null,
+    recoveryPreimage
   });
   if (initiative[Symbol.for('singularity-flow.state-revision')]) {
     initiative[Symbol.for('singularity-flow.state-revision')].head = result.sha;

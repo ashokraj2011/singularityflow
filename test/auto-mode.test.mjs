@@ -99,6 +99,17 @@ function runFlightStep(root, flight) {
   }, () => executeAutoFlightStep(root, flight.flightId, flight.checkpointSha256));
 }
 
+async function withRetriedSubjectLock(root, subject, callback, timeoutMs = 2_000) {
+  const deadline = Date.now() + timeoutMs;
+  for (;;) {
+    try { return await withSubjectLock(root, subject, callback); }
+    catch (error) {
+      if (error?.code !== 'SUBJECT_LOCK_BUSY' || Date.now() >= deadline) throw error;
+      await delay(20);
+    }
+  }
+}
+
 const proposal = {
   title: 'Change the application value', workType: 'feature',
   assumptions: ['The exported value is the intended integration point.'],
@@ -401,7 +412,7 @@ test('a stop observed while its flight-state lock is still held remains recovera
   }
   assert.equal(active.counters.modelInvocations, 1, 'model process never became active');
 
-  await withSubjectLock(root, { kind: 'auto-flight', id: started.flight.flightId }, async () => {
+  await withRetriedSubjectLock(root, { kind: 'auto-flight', id: started.flight.flightId }, async () => {
     await mutateAutoFlightState(root, started.flight.flightId, (draft) => {
       draft.status = 'paused'; draft.stopReason = 'human-paused';
       draft.stopRequested = { kind: 'pause', requestedAt: new Date().toISOString() };

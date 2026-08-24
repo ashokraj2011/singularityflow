@@ -7,7 +7,7 @@ import { spawnSync } from 'node:child_process';
 import test from 'node:test';
 import { lifecycleEvent } from '../src/lifecycle-event.mjs';
 import { GitPublicationUnitOfWork } from '../src/publication-unit-of-work.mjs';
-import { commitIsolated, gitDir } from '../src/git.mjs';
+import { commitIsolated, gitDir, governedCommitIdentity } from '../src/git.mjs';
 import {
   discardCleanPreparedPublication, livePreparedPublicationOwner, readPendingPublication,
   recoverPreparedPublication, recoverPreparedPublicationBySubject
@@ -16,6 +16,8 @@ import { capturePublicationPreimage, restorePublicationPreimage } from '../src/p
 import { beginPublicationJournal, publicationJournalPath } from '../src/publication-journal.mjs';
 import { acquireSubjectLock, releaseSubjectLock, subjectLockPath } from '../src/subject-lock.mjs';
 import { runDraftTransaction } from '../src/draft-unit-of-work.mjs';
+import { recordSha256 } from '../src/records.mjs';
+import { syncPublication } from '../src/state.mjs';
 
 const packageRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 
@@ -145,6 +147,75 @@ test('an active publication does not diagnose its own prewritten journal as pend
 
   assert.equal(pendingSeenInsideValidation, null);
   assert.equal(await pathExists(publicationJournalPath(root, subject.kind, subject.id)), false);
+});
+
+test('push-failure recovery binds a finalized event digest to its exact governed commit', async () => {
+  const root = await repository('sflow-finalized-event-push-failure-');
+  const remote = await mkdtemp(path.join(os.tmpdir(), 'sflow-finalized-event-origin-'));
+  git(['init', '--bare', '-q'], remote);
+  git(['remote', 'add', 'origin', remote], root);
+  git(['push', '-u', 'origin', 'main'], root);
+  const subject = { kind: 'story', id: 'FINALIZED-EVENT', branch: 'main' };
+  const target = 'story-state.json';
+  await writeFile(path.join(root, target), '{"status":"before"}\n');
+  git(['add', target], root);
+  git(['commit', '-m', 'canonical finalized-event state'], root);
+  git(['push', 'origin', 'main'], root);
+  const original = lifecycleEvent({
+    type: 'artifact-generated', subject, phaseId: 'intake', generation: 1,
+    payload: { documentId: null }
+  });
+  const finalized = {
+    ...original,
+    actor: { name: 'Allocated Reviewer', email: 'reviewer@example.test' },
+    payload: { documentId: 'DOC-0001' }
+  };
+  const originalSha256 = `sha256:${recordSha256(original)}`;
+  git(['remote', 'set-url', 'origin', `${remote}-unreachable`], root);
+
+  await assert.rejects(() => new GitPublicationUnitOfWork(root).execute({
+    subject,
+    event: original,
+    commit: { message: '[FINALIZED-EVENT] bind finalized result' },
+    publication: { mode: 'required', branch: 'main', remote: 'origin' },
+    allowedPaths: [target],
+    state: {
+      write: async () => {
+        await writeFile(path.join(root, target), '{"status":"finalized"}\n');
+        return { event: finalized };
+      }
+    }
+  }), /retained locally but push failed/);
+
+  const pending = await readPendingPublication(root, subject);
+  const marker = pending.record;
+  const transactionEvent = {
+    ...marker.event,
+    // These three values are derived from the commit after its transaction digest is sealed. The
+    // trailer and marker bind the canonical finalized event with those transport bindings cleared.
+    sourceCommit: null,
+    idempotencyKey: null,
+    idempotencyHash: null
+  };
+  const finalizedSha256 = `sha256:${recordSha256(transactionEvent)}`;
+  const commitIdentity = governedCommitIdentity(root, marker.commit);
+  assert.notEqual(finalizedSha256, originalSha256, 'the fixture did not finalize the event');
+  assert.equal(marker.event.actor.email, 'reviewer@example.test');
+  assert.equal(marker.event.payload.documentId, 'DOC-0001');
+  assert.equal(marker.eventSha256, finalizedSha256);
+  assert.equal(marker.eventSha256, commitIdentity.eventSha256);
+
+  git(['remote', 'set-url', 'origin', remote], root);
+  const synced = await syncPublication(root, {
+    git: { remote: 'origin' }, ledger: { enabled: false }
+  }, {
+    workItem: { id: subject.id, branch: 'main' },
+    lineage: { canonicalBranch: 'main', childBranches: [] },
+    resolution: { ledger: { enabled: false } }
+  });
+  assert.equal(synced.pushed, marker.commit);
+  assert.equal(git(['--git-dir', remote, 'rev-parse', 'refs/heads/main'], root), marker.commit);
+  assert.equal(await readPendingPublication(root, subject), null);
 });
 
 test('abrupt process death leaves the same recoverable boundary for Story and Initiative', async (t) => {

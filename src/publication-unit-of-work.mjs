@@ -322,7 +322,10 @@ export class GitPublicationUnitOfWork {
             commit: sourceCommit,
             transactionId: journal.transactionId,
             tree: transactionTree,
-            eventSha256: journal.eventSha256,
+            // state.write may finalize actor/document identities inside the transaction. Bind the
+            // recovery marker to that exact event, just like the governed commit trailer and the
+            // ref-advancement recovery path, rather than to the pre-result journal intent.
+            eventSha256: transactionEventSha256,
             stateSha256: transactionStateSha256,
             publicationMode: journal.publicationMode,
             event: envelope,

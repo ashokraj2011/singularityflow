@@ -8,7 +8,7 @@ import YAML from 'yaml';
 const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 const source = (name) => path.join(root, 'apps', 'vscode', 'src', 'views', name);
 const {
-  astPolicyView, astRepositoryScopeView, astWorkspaceRepositoryInventory,
+  astPolicyPreset, astPolicyView, astRepositoryScopeView, astWorkspaceRepositoryInventory,
   parseAstLanguageRows, parseAstPredicateRows, updateAstPolicyYaml, validateAstPolicyDraft
 } = await import(source('ast-intelligence-model.ts'));
 
@@ -36,6 +36,14 @@ test('the AST settings view projects every repository policy field with bounded 
     budgets: { maxFiles: 500, maxBytes: 20 * 1024 * 1024, maxFileBytes: 2 * 1024 * 1024 },
     languages: [], predicates: []
   });
+});
+
+test('the AST settings view reduces the detailed schema to automatic, off, or custom', () => {
+  const automatic = astPolicyView({});
+  assert.equal(astPolicyPreset(automatic), 'automatic');
+  assert.equal(astPolicyPreset({ ...automatic, mode: 'off' }), 'off');
+  assert.equal(astPolicyPreset({ ...automatic, evidence: { ...automatic.evidence, mode: 'replayable' } }), 'custom');
+  assert.equal(astPolicyPreset({ ...automatic, languages: policy.languages }), 'custom');
 });
 
 test('the AST settings view names and binds the shared active repository context', () => {
@@ -136,7 +144,16 @@ test('the AST form rejects unsafe roots and duplicate language rows while AST of
 test('the VS Code AST page exposes every policy source and keeps evidence and resume handles out of HTML', async () => {
   const panel = await readFile(source('ast-intelligence.ts'), 'utf8');
   for (const label of ['Repository policy', 'Machine preference', 'VS Code environment', 'Operation default']) assert.match(panel, new RegExp(label));
-  for (const field of ['evidenceMode', 'evidenceStore', 'generatedRoots', 'maxFiles', 'maxBytes', 'maxFileBytes', 'languages', 'predicates']) assert.ok(panel.includes(`name="${field}"`), field);
+  for (const field of ['preset', 'evidenceMode', 'evidenceStore', 'generatedRoots', 'maxFiles', 'maxBytesMiB', 'maxFileBytesMiB', 'languages', 'predicates']) assert.ok(panel.includes(`name="${field}"`), field);
+  assert.match(panel, /Automatic — Recommended/);
+  assert.match(panel, /Normal Copilot file access always continues/);
+  assert.match(panel, /Advanced custom settings/);
+  assert.match(panel, /Advanced diagnostics and tools/);
+  assert.match(panel, /Reproducibility/);
+  assert.match(panel, /Total size \(MiB\)/);
+  assert.match(panel, /data-open-ast-advanced/);
+  assert.match(panel, /preset === 'automatic'.*recommendedAstPolicyDraft/s);
+  assert.match(panel, /preset === 'off'.*this\.policy\(\), mode: 'off'/s);
   assert.match(panel, /CLEAR AST CACHE/);
   assert.match(panel, /escape\(adapter\.id/);
   assert.match(panel, /Facts and source bodies are not rendered/);
@@ -146,14 +163,14 @@ test('the VS Code AST page exposes every policy source and keeps evidence and re
   assert.match(panel, /structured arguments, bounded JSON input\/output, no shell/);
   assert.match(panel, /Language and project readiness/);
   assert.match(panel, /bundled Java, Python, Kotlin, and Swift scanner supplies text-assured declaration previews only/);
-  assert.match(panel, /syntax gates require a reviewed parser-backed provider/);
+  assert.match(panel, /syntax and semantic assurance require reviewed providers/);
   assert.match(panel, /entry\.selectedProviders\?\.syntax/);
   assert.match(panel, /existing project binding\(s\) discovered without running a build/);
   assert.match(panel, /handles are deliberately not embedded in webview HTML/);
   assert.doesNotMatch(panel, /escape\(result\.resumeHandle/);
   assert.match(panel, /Current repository scope/);
   assert.match(panel, /Switch workspace/);
-  assert.match(panel, /Off — disable for \$\{repository\}/);
+  assert.match(panel, /Do not provide structural context/);
   assert.match(panel, /data-repository-scope/);
   assert.match(panel, /active repository changed after this screen was rendered/i);
   assert.match(panel, /executeCommand\('singularityFlow\.openWorkspaces'\)/);
@@ -162,8 +179,7 @@ test('the VS Code AST page exposes every policy source and keeps evidence and re
   assert.match(panel, /switchWorkspaceRepository/);
   assert.match(panel, /shared active repository for My Work, Lifecycle, Configuration, Copilot, and the terminal/);
   assert.match(panel, /Semantic project warm-up/);
-  assert.match(panel, /Workspace-local/);
-  assert.match(panel, /\.singularity-flow\/ast-evidence-store/);
+  assert.match(panel, /Stored automatically inside the workspace/);
   assert.match(panel, /reviewed optional semantic provider/);
   assert.match(panel, /id="ast-warm-form"/);
   assert.match(panel, /Project binding<select name="project" required>/);

@@ -1145,6 +1145,12 @@ test('AST Intelligence edits every policy layer through one guarded VS Code surf
   assert.match(panel.webview.html, /name="generatedRoots"/);
   assert.match(panel.webview.html, /name="languages"/);
   assert.match(panel.webview.html, /name="predicates"/);
+  assert.match(panel.webview.html, /Automatic — Recommended/);
+  assert.match(panel.webview.html, /Normal Copilot file access always continues/);
+  assert.match(panel.webview.html, /<details id="ast-advanced-tools" class="configuration-advanced-tools"><summary>Advanced diagnostics and tools<\/summary>/,
+    'diagnostics and expert tools are collapsed on first render');
+  assert.match(panel.webview.html, /<details id="ast-custom-settings" class="configuration-advanced-tools"><summary>Advanced custom settings/,
+    'raw policy fields are collapsed even when an existing repository uses custom settings');
   assert.match(panel.webview.html, /default-src 'none'/);
   assert.match(panel.webview.html, /Current repository scope/);
   assert.match(panel.webview.html, /Open repository/);

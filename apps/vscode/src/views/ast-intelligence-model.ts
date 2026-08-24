@@ -40,6 +40,37 @@ export interface AstPolicyDraft {
   predicates: AstPredicateDraft[];
 }
 
+export type AstPolicyPreset = 'automatic' | 'off' | 'custom';
+
+/** The quiet, bounded policy used when a repository chooses the recommended automatic setup. */
+export function recommendedAstPolicyDraft(): AstPolicyDraft {
+  return {
+    mode: 'auto',
+    fallback: 'host-and-text',
+    evidence: { mode: 'identified', store: 'local-directory' },
+    generatedRoots: [],
+    budgets: { maxFiles: 500, maxBytes: 20 * 1024 * 1024, maxFileBytes: 2 * 1024 * 1024 },
+    languages: [],
+    predicates: []
+  };
+}
+
+/** Project the detailed schema into the three choices a normal settings page needs. */
+export function astPolicyPreset(policy: AstPolicyDraft): AstPolicyPreset {
+  if (policy.mode === 'off') return 'off';
+  const recommended = recommendedAstPolicyDraft();
+  const usesRecommendedDetails = policy.fallback === recommended.fallback
+    && policy.evidence.mode === recommended.evidence.mode
+    && policy.evidence.store === recommended.evidence.store
+    && policy.budgets.maxFiles === recommended.budgets.maxFiles
+    && policy.budgets.maxBytes === recommended.budgets.maxBytes
+    && policy.budgets.maxFileBytes === recommended.budgets.maxFileBytes
+    && policy.generatedRoots.length === 0
+    && policy.languages.length === 0
+    && policy.predicates.length === 0;
+  return usesRecommendedDetails ? 'automatic' : 'custom';
+}
+
 /** The shared editor context this repository-scoped screen is acting on. */
 export interface AstRepositoryScope {
   root: string;
@@ -160,19 +191,20 @@ export function astPolicyView(snapshot: Pick<RepositorySnapshot, 'definition'>):
   const predicates = Array.isArray(raw.predicates) ? raw.predicates as Array<Record<string, unknown>> : [];
   const evidence = (raw.evidence && typeof raw.evidence === 'object' && !Array.isArray(raw.evidence)
     ? raw.evidence : {}) as Record<string, unknown>;
+  const recommended = recommendedAstPolicyDraft();
   return {
     mode: raw.mode === 'off' ? 'off' : 'auto',
     fallback: raw.fallback === 'text-only' ? 'text-only' : 'host-and-text',
     evidence: {
       mode: evidence.mode === 'replayable' || evidence.mode === 'off' || evidence.mode === 'identified'
-        ? evidence.mode : 'identified',
+        ? evidence.mode : recommended.evidence.mode,
       store: typeof evidence.store === 'string' && evidence.store ? evidence.store : 'local-directory'
     },
     generatedRoots: Array.isArray(raw.generatedRoots) ? raw.generatedRoots.filter((entry): entry is string => typeof entry === 'string') : [],
     budgets: {
-      maxFiles: Number.isInteger(budgets.maxFiles) ? Number(budgets.maxFiles) : 500,
-      maxBytes: Number.isInteger(budgets.maxBytes) ? Number(budgets.maxBytes) : 20 * 1024 * 1024,
-      maxFileBytes: Number.isInteger(budgets.maxFileBytes) ? Number(budgets.maxFileBytes) : 2 * 1024 * 1024
+      maxFiles: Number.isInteger(budgets.maxFiles) ? Number(budgets.maxFiles) : recommended.budgets.maxFiles,
+      maxBytes: Number.isInteger(budgets.maxBytes) ? Number(budgets.maxBytes) : recommended.budgets.maxBytes,
+      maxFileBytes: Number.isInteger(budgets.maxFileBytes) ? Number(budgets.maxFileBytes) : recommended.budgets.maxFileBytes
     },
     languages: Object.entries(languages).map(([language, value]): AstLanguageDraft => ({
       language,

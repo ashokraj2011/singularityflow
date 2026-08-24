@@ -6,10 +6,11 @@ import type { WorkspaceStore } from '../state.ts';
 import { activeRepositoryContext, type ActiveRepositoryContext } from '../gateway-session.ts';
 import { commandData, list } from './surface-adapters.ts';
 import {
-  astPolicyView, astRepositoryScopeView, parseAstLanguageRows, parseAstPredicateRows,
+  astPolicyPreset, astPolicyView, astRepositoryScopeView, parseAstLanguageRows, parseAstPredicateRows,
+  recommendedAstPolicyDraft,
   astWorkspaceRepositoryInventory, updateAstPolicyYaml, validateAstPolicyDraft,
   type AstAssurance, type AstEvidenceMode, type AstFallback, type AstMode, type AstPolicyDraft,
-  type AstRepositoryScopeView, type AstWorkspaceRepositoryInventory
+  type AstPolicyPreset, type AstRepositoryScopeView, type AstWorkspaceRepositoryInventory
 } from './ast-intelligence-model.ts';
 import { contentSecurityPolicy, escape, icon, navigationTarget, nonce, page } from './webview.ts';
 import { navigateTo } from './navigate.ts';
@@ -76,19 +77,35 @@ const SCRIPT = `
   const repositoryScope = () => document.querySelector('[data-repository-scope]')?.dataset.repositoryScope || '';
   const send = (message) => vscode.postMessage({ ...message, repositoryScope: repositoryScope() });
   document.addEventListener('click', (event) => {
+    const advanced = event.target.closest('[data-open-ast-advanced]');
+    if (advanced) {
+      const details = document.getElementById('ast-advanced-tools');
+      if (details) details.open = true;
+      document.getElementById('ast-semantic-setup')?.scrollIntoView({ behavior: 'smooth', block: 'start' });
+      return;
+    }
     const action = event.target.closest('[data-message]');
     if (action) send({ type: action.dataset.message, kind: action.dataset.kind });
+  });
+  document.addEventListener('change', (event) => {
+    if (!event.target.matches('input[name="preset"]')) return;
+    document.querySelectorAll('[data-ast-preset]').forEach((choice) => choice.classList.toggle('chosen', choice.dataset.astPreset === event.target.value));
+    if (event.target.value === 'custom') {
+      const details = document.getElementById('ast-custom-settings');
+      if (details) details.open = true;
+    }
   });
   document.addEventListener('submit', (event) => {
     event.preventDefault(); const form = event.target; const data = new FormData(form);
     if (form.id === 'ast-machine-form') send({ type: 'save-machine', mode: data.get('mode') });
     if (form.id === 'ast-repository-form') send({ type: 'select-repository', repository: data.get('repository') });
     if (form.id === 'ast-policy-form') send({
-      type: 'save-policy', mode: data.get('mode'), fallback: data.get('fallback'),
+      type: 'save-policy', preset: data.get('preset'), mode: data.get('mode'), fallback: data.get('fallback'),
       evidenceMode: data.get('evidenceMode'), evidenceStore: data.get('evidenceStore'),
       generatedRoots: String(data.get('generatedRoots') || ''),
-      maxFiles: Number(data.get('maxFiles')), maxBytes: Number(data.get('maxBytes')),
-      maxFileBytes: Number(data.get('maxFileBytes')),
+      maxFiles: Number(data.get('maxFiles')),
+      maxBytes: Math.round(Number(data.get('maxBytesMiB')) * 1024 * 1024),
+      maxFileBytes: Math.round(Number(data.get('maxFileBytesMiB')) * 1024 * 1024),
       languages: String(data.get('languages') || ''), predicates: String(data.get('predicates') || '')
     });
     if (form.id === 'ast-scope-form') send({
@@ -186,26 +203,52 @@ function repositoryScope(scope: AstRepositoryScopeView | null, inventory: AstWor
     <p class="notice">This screen follows the shared active workspace and repository context. Switching either one updates the repository here before another action can run.</p></section>`;
 }
 
-function policyForm(policy: AstPolicyDraft, scope: AstRepositoryScopeView | null): string {
+function detectedLanguageCards(doctor: AstDoctorResult | null): string {
+  const languages = list<NonNullable<AstDoctorResult['languages']>[number]>(doctor?.languages)
+    .filter((entry) => (entry.selectedFiles ?? 0) > 0);
+  if (!languages.length) return '<p class="muted">No language files are in the current bounded scope. Automatic mode detects them when structural context is requested.</p>';
+  return `<div class="summary-grid">${languages.map((entry) => {
+    const assurance = entry.maximumAssurance ?? 'text';
+    const ready = assurance === 'semantic' ? 'Deep analysis ready'
+      : assurance === 'syntax' ? 'Parser-backed structure ready' : 'Basic structure ready';
+    return `<div class="summary-card"><strong>${escape(entry.language ?? 'unknown')}</strong><span>${escape(`${entry.selectedFiles ?? 0} file(s) · ${ready}`)}</span></div>`;
+  }).join('')}</div>`;
+}
+
+function presetChoice(value: AstPolicyPreset, current: AstPolicyPreset, title: string, detail: string): string {
+  return `<label class="choice${value === current ? ' chosen' : ''}" data-ast-preset="${value}"><input type="radio" name="preset" value="${value}"${value === current ? ' checked' : ''}><span class="choice-label">${escape(title)}</span><span class="choice-detail">${escape(detail)}</span></label>`;
+}
+
+function policyForm(policy: AstPolicyDraft, scope: AstRepositoryScopeView | null, doctor: AstDoctorResult | null): string {
   const repository = scope?.repository ?? 'the selected repository';
+  const preset = astPolicyPreset(policy);
   return `<section><div class="section-heading"><div><h2>${icon('worldModel')}Repository policy</h2><p>Saved through the governed configuration engine. Review and publish <code>singularity/workflow.yml</code> through the normal configuration path.</p></div><button class="secondary" data-message="open-configuration">Configuration Center</button></div>
     <form id="ast-policy-form">
-      <div class="editor-card"><h3>Behavior</h3><div class="form-grid">
-        <label><span>Repository mode for ${escape(repository)}</span><select name="mode">${option('auto', policy.mode, 'Auto — available when requested')}${option('off', policy.mode, `Off — disable for ${repository}`)}</select><small>Off is always allowed and ordinary repository file access continues.</small></label>
-        <label><span>Fallback</span><select name="fallback">${option('host-and-text', policy.fallback, 'Host and bounded text facts')}${option('text-only', policy.fallback, 'Bounded text facts only')}</select></label>
-        <label><span>Durable evidence</span><select name="evidenceMode">${option('replayable', policy.evidence.mode, 'Replayable — retain exact toolchain')}${option('identified', policy.evidence.mode, 'Identified — record digests only')}${option('off', policy.evidence.mode, 'Off — previews only')}</select><small>Evidence is optional and never participates in lifecycle authorization.</small></label>
+      <div class="editor-card"><h3>Choose how AST works for ${escape(repository)}</h3><div class="choices">
+        ${presetChoice('automatic', preset, 'Automatic — Recommended', 'Use safe managed limits and detect supported languages only when requested.')}
+        ${presetChoice('off', preset, 'Off', 'Do not provide structural context. Normal Copilot file access always continues.')}
+        ${presetChoice('custom', preset, 'Custom', 'Keep repository-specific language, evidence, budget, or predicate settings.')}
+      </div>
+      ${detectedLanguageCards(doctor)}
+      <p class="notice">AST is optional. Missing packs, unsupported languages, and disabled analysis never prevent normal Copilot repository access.</p>
+      <p class="card-foot"><button type="button" class="secondary" data-open-ast-advanced>Set up deeper analysis</button></p></div>
+      <details id="ast-custom-settings" class="configuration-advanced-tools"><summary>Advanced custom settings${preset === 'custom' ? ' · currently active' : ''}</summary>
+        <input type="hidden" name="mode" value="auto">
+        <input type="hidden" name="fallback" value="${escape(policy.fallback)}">
         <input type="hidden" name="evidenceStore" value="${escape(policy.evidence.store)}">
-        <div><span>Evidence storage</span><p><strong>Workspace-local</strong></p><small>Replay artifacts are kept automatically under <code>.singularity-flow/ast-evidence-store</code>. No path configuration is required.</small></div>
-        <label class="span-2"><span>Generated roots</span><input name="generatedRoots" value="${escape(policy.generatedRoots.join(', '))}" placeholder="generated/client, build/types"><small>Comma-separated repository-relative directories. Symlinks, traversal, and globs are refused.</small></label>
-      </div></div>
-      <div class="editor-card"><h3>Safety budgets</h3><div class="form-grid">
-        <label><span>Maximum files</span><input name="maxFiles" type="number" min="1" step="1" value="${policy.budgets.maxFiles}"></label>
-        <label><span>Total byte budget</span><input name="maxBytes" type="number" min="1" step="1024" value="${policy.budgets.maxBytes}"></label>
-        <label><span>Maximum bytes per file</span><input name="maxFileBytes" type="number" min="1" step="1024" value="${policy.budgets.maxFileBytes}"></label>
-      </div></div>
-      <div class="editor-card"><h3>Language policy</h3><label class="stack"><span>One language per line</span><textarea name="languages" rows="5" placeholder="java | auto | text | sflow-polyglot-syntax\nkotlin | auto | semantic | | sflow-kotlin-analysis | android-debug">${escape(languageRows(policy))}</textarea><small><code>language | auto/off | text/syntax/semantic | parser provider | semantic provider | profile</code>. Provider and profile columns are optional. The legacy-named bundled polyglot provider is a text-assured structural preview, not a parser; syntax gates require a reviewed parser-backed provider.</small></label></div>
-      <div class="editor-card"><h3>Structural predicates</h3><label class="stack"><span>One predicate per line</span><textarea name="predicates" rows="6" placeholder="boundary | required | import-boundary | src/api | syntax | java,kotlin | * | forbidden.internal">${escape(predicateRows(policy))}</textarea><small><code>id | required/advisory | type | path/symbol/module | assurance | languages | profiles | comparison</code>. Types: path/symbol exists, import boundary, annotation, inheritance/conformance/override, public-signature change, and module dependency. Rich predicates require explicit language/profile applicability; use <code>*</code> deliberately. “Required” affects only an explicitly requested AST diagnostic; it never becomes a workflow gate.</small></label></div>
-      <p class="card-foot"><button type="submit">Save repository AST policy</button><button class="secondary" type="button" data-message="open-workflow">Open advanced YAML</button></p>
+        <div class="editor-card"><h3>Reproducibility</h3><div class="form-grid">
+          <label><span>Result history</span><select name="evidenceMode">${option('identified', policy.evidence.mode, 'Standard — retain result identities')}${option('replayable', policy.evidence.mode, 'Full — retain exact toolchain for replay')}${option('off', policy.evidence.mode, 'Preview only — retain nothing')}</select><small>Stored automatically inside the workspace. No path configuration is required.</small></label>
+          <label><span>Generated folders to ignore</span><input name="generatedRoots" value="${escape(policy.generatedRoots.join(', '))}" placeholder="generated/client, build/types"><small>Comma-separated repository-relative directories.</small></label>
+        </div></div>
+        <div class="editor-card"><h3>Custom safety limits</h3><div class="form-grid">
+          <label><span>Maximum files</span><input name="maxFiles" type="number" min="1" step="1" value="${policy.budgets.maxFiles}"></label>
+          <label><span>Total size (MiB)</span><input name="maxBytesMiB" type="number" min="0.000001" step="any" value="${policy.budgets.maxBytes / (1024 * 1024)}"></label>
+          <label><span>Maximum file size (MiB)</span><input name="maxFileBytesMiB" type="number" min="0.000001" step="any" value="${policy.budgets.maxFileBytes / (1024 * 1024)}"></label>
+        </div></div>
+        <div class="editor-card"><h3>Language overrides</h3><label class="stack"><span>One language per line</span><textarea name="languages" rows="5" placeholder="java | auto | text | sflow-polyglot-syntax\nkotlin | auto | semantic | | sflow-kotlin-analysis | android-debug">${escape(languageRows(policy))}</textarea><small><code>language | auto/off | text/syntax/semantic | parser provider | semantic provider | profile</code>. Leave empty for automatic language detection. The bundled preview is text-assured; syntax and semantic assurance require reviewed providers.</small></label></div>
+        <div class="editor-card"><h3>Structural predicates</h3><label class="stack"><span>One predicate per line</span><textarea name="predicates" rows="6" placeholder="boundary | required | import-boundary | src/api | syntax | java,kotlin | * | forbidden.internal">${escape(predicateRows(policy))}</textarea><small><code>id | required/advisory | type | path/symbol/module | assurance | languages | profiles | comparison</code>. These expert diagnostics remain optional and never become workflow gates.</small></label></div>
+      </details>
+      <p class="card-foot"><button type="submit">Save AST setting</button><button class="secondary" type="button" data-message="open-workflow">Open advanced YAML</button></p>
     </form></section>`;
 }
 
@@ -260,7 +303,7 @@ function adapterSection(doctor: AstDoctorResult | null): string {
 function semanticWarmSection(doctor: AstDoctorResult | null, preview: AstWarmPreview | null): string {
   const bindings = list<NonNullable<NonNullable<AstDoctorResult['projects']>['bindings']>[number]>(doctor?.projects?.bindings);
   const selectedProject = preview?.project ?? '';
-  return `<section><h2>${icon('refresh')}Semantic project warm-up</h2>
+  return `<section id="ast-semantic-setup"><h2>${icon('refresh')}Semantic project warm-up</h2>
     <p>Semantic providers require an explicit, hash-bound toolchain and project profile. Preview first: SFlow discloses every structured command, runs it without a shell, and writes only derived machine-local binding metadata.</p>
     <form id="ast-warm-form" class="form-grid">
       <label>Provider<select name="provider" required>
@@ -303,7 +346,10 @@ export function astIntelligenceBody(policy: AstPolicyDraft, doctor: AstDoctorRes
   return `<div data-repository-scope="${escape(scope?.key ?? '')}"><header class="inbox-header"><p class="eyebrow">Configuration · World model</p><h1>${icon('worldModel', { size: 24 })}AST Intelligence</h1><p class="meta">Bounded structural facts, explicit assurance, and content-aware local caching. No daemon and no implicit whole-repository scan.</p></header>
     ${notice ? `<div class="notice ok">${escape(notice)}</div>` : ''}${error ? `<div class="notice error"><strong>AST action refused</strong><p>${escape(error)}</p></div>` : ''}
     <p class="card-foot"><button class="secondary" data-message="refresh">Refresh status</button><button class="secondary" data-message="open-help">Open AST guide</button></p>
-    ${repositoryScope(scope, inventory, inventoryError)}${runtimeSummary(doctor)}${languageMatrixSection(doctor)}${semanticWarmSection(doctor, warmPreview)}${machinePreference(doctor)}${policyForm(policy, scope)}${scopeRunner(policy)}${runResult(run)}${cacheSection(doctor, preview)}${adapterSection(doctor)}</div>`;
+    ${repositoryScope(scope, inventory, inventoryError)}${policyForm(policy, scope, doctor)}${runResult(run)}
+    <details id="ast-advanced-tools" class="configuration-advanced-tools"><summary>Advanced diagnostics and tools</summary>
+      ${runtimeSummary(doctor)}${languageMatrixSection(doctor)}${semanticWarmSection(doctor, warmPreview)}${machinePreference(doctor)}${scopeRunner(policy)}${cacheSection(doctor, preview)}${adapterSection(doctor)}
+    </details></div>`;
 }
 
 function optionalString(message: InboundMessage, name: string): string {
@@ -439,6 +485,9 @@ export class AstIntelligencePanel {
     } catch (error) { this.error = (error as Error).message; this.render(); }
   }
   private draft(message: InboundMessage): AstPolicyDraft {
+    const preset = optionalString(message, 'preset');
+    if (preset === 'automatic') return recommendedAstPolicyDraft();
+    if (preset === 'off') return { ...this.policy(), mode: 'off' };
     return {
       mode: optionalString(message, 'mode') as AstMode,
       fallback: optionalString(message, 'fallback') as AstFallback,

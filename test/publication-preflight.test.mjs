@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import { spawnSync } from 'node:child_process';
-import { mkdir, mkdtemp, readFile, writeFile } from 'node:fs/promises';
+import { mkdir, mkdtemp, readFile, unlink, writeFile } from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
 import test from 'node:test';
@@ -14,7 +14,9 @@ import {
   inspectRequiredArtifactContent
 } from '../src/publication-preflight.mjs';
 import { setAgentSession } from '../src/session.mjs';
-import { createWorkflow, loadConfig, publishGeneration, scanArtifacts } from '../src/state.mjs';
+import {
+  createWorkflow, loadConfig, preparePhaseInputs, publishGeneration, scanArtifacts
+} from '../src/state.mjs';
 
 const ACTOR = { name: 'Template Author', email: 'author@example.invalid', login: null };
 
@@ -212,6 +214,26 @@ test('an untouched prepared template is refused before publication mutates phase
     assert.equal(await readFile(statePath, 'utf8'), stateBefore, 'the refused template rewrote durable Story state');
     assert.deepEqual(warnings, [], 'an expected prepared artifact was reported as accidental adoption');
   });
+});
+
+test('preparation baselines only a template the kernel creates, across every preparation entry point', async () => {
+  const { root, config, workflow, phase, target } = await fixture('baseline-capture');
+  delete phase.authoringBaseline;
+  await writeFile(target, [
+    '# Intake', '',
+    '## Outcome', '',
+    'The contributor-authored outcome is already complete and must never become a new template baseline after an upgrade.', '',
+    '## Evidence', '',
+    'The reviewed scope, measurable result, constraints, ownership, and validation evidence are all recorded here before preparation is repeated.'
+  ].join('\n'));
+  await inContext(root, () => preparePhaseInputs(root, config, workflow, 'intake'));
+  assert.equal(phase.authoringBaseline, undefined, 'repeated preparation captured existing authored content as a template');
+
+  await unlink(target);
+  await inContext(root, () => preparePhaseInputs(root, config, workflow, 'intake'));
+  assert.equal(phase.authoringBaseline.generation, 1);
+  assert.equal(phase.authoringBaseline.fingerprint, authoredArtifactFingerprint(await readFile(target, 'utf8')));
+  assert.ok(phase.authoringBaseline.bytes >= phase.requiredArtifact.minimumBytes);
 });
 
 test('recovery exposes the same authored-byte findings and a bounded Copilot retry contract', async () => {

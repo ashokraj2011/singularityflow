@@ -43,6 +43,7 @@ import { assertWorldModelStaleness } from './world-model-policy.mjs';
 import { operationContext } from './operation-context.mjs';
 import { renderCapabilityWorldModelPack } from './capability-context.mjs';
 import { worldModelDisabledForWorkflow } from './intelligence-policy.mjs';
+import { artifactContentContractLines } from './publication-preflight.mjs';
 import { requiredStructuralPromptContext } from './structural-prompt-context.mjs';
 import { recordPromptAudit } from './prompt-audit.mjs';
 import { normalizeClarificationPolicy, renderClarificationProtocol } from './clarifications.mjs';
@@ -2432,6 +2433,7 @@ async function workflowPromptContext(root, definition, workflow, phase, workItem
     `- Repository root: \`${root}\``,
     `- Work-item directory: \`${itemRelative}\``,
     `- Required artifact: \`${requiredArtifact}\``,
+    ...artifactContentContractLines(phase.requiredArtifact),
     '- Path boundary: Resolve every named path inside the work-item directory or repository root. Never search the filesystem outside this repository.',
     `- Write scope: \`${phase.writeScope ?? 'artifact-only'}\``,
     `- Intelligence: world-model=\`${workflow.resolution?.intelligence?.worldModel ?? 'inherit'}\`, AST=\`${workflow.resolution?.intelligence?.ast ?? 'inherit'}\`, agent-briefs=\`${workflow.resolution?.intelligence?.agentBriefs ?? 'inherit'}\``,

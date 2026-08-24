@@ -518,6 +518,12 @@ export function validateDefinition(definition) {
     assertId(id, 'Phase');
     if (!phase.label || !phase.artifact?.path) throw new SingularityFlowError(`Phase '${id}' requires label and artifact.path.`);
     assertRelative(phase.artifact.path, `Phase '${id}' artifact.path`);
+    for (const field of ['minimumBytes', 'maximumBytes']) {
+      if (phase.artifact[field] != null
+          && (!Number.isSafeInteger(phase.artifact[field]) || phase.artifact[field] < 1)) {
+        throw new SingularityFlowError(`Phase '${id}' artifact.${field} must be a positive safe integer.`);
+      }
+    }
     if (phase.artifact.maximumBytes != null && phase.artifact.maximumBytes < (phase.artifact.minimumBytes ?? 1)) {
       throw new SingularityFlowError(`Phase '${id}' artifact.maximumBytes must be greater than or equal to artifact.minimumBytes.`);
     }
@@ -530,11 +536,17 @@ export function validateDefinition(definition) {
         throw new SingularityFlowError(`Phase '${id}' artifact.${field} must be a non-empty unique array of valid values.`);
       }
     }
-    if (phase.artifact.validation?.requiredHeadings != null && !Array.isArray(phase.artifact.validation.requiredHeadings)) {
-      throw new SingularityFlowError(`Phase '${id}' artifact.validation.requiredHeadings must be an array.`);
+    if (phase.artifact.validation != null
+        && (!phase.artifact.validation || typeof phase.artifact.validation !== 'object' || Array.isArray(phase.artifact.validation))) {
+      throw new SingularityFlowError(`Phase '${id}' artifact.validation must be an object.`);
     }
-    if (phase.artifact.validation?.forbiddenPlaceholders != null && !Array.isArray(phase.artifact.validation.forbiddenPlaceholders)) {
-      throw new SingularityFlowError(`Phase '${id}' artifact.validation.forbiddenPlaceholders must be an array.`);
+    for (const field of ['requiredHeadings', 'forbiddenPlaceholders']) {
+      const values = phase.artifact.validation?.[field];
+      if (values != null
+          && (!Array.isArray(values) || values.some((value) => typeof value !== 'string' || !value.trim())
+            || new Set(values.map((value) => value.trim().toLocaleLowerCase('en-US'))).size !== values.length)) {
+        throw new SingularityFlowError(`Phase '${id}' artifact.validation.${field} must be an array of non-empty unique strings.`);
+      }
     }
     const template = phase.defaultTemplate;
     if (template) assertTemplate(template, `Phase '${id}' defaultTemplate`);

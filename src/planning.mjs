@@ -59,6 +59,7 @@ import { PACKAGE_ROOT } from './package-root.mjs';
 import { withWorldModelSourceScope } from './source-scope.mjs';
 import { worldModelDisabledForWorkflow } from './intelligence-policy.mjs';
 import { requiredStructuralPromptContext } from './structural-prompt-context.mjs';
+import { artifactContentContractLines } from './publication-preflight.mjs';
 
 const SESSION_ID = /^[a-zA-Z0-9][a-zA-Z0-9._-]{0,127}$/;
 const INITIATIVE_METADATA = /^<!-- singularity-flow:initiative-metadata[\s\S]*?-->/;
@@ -236,6 +237,7 @@ function workItemPhaseContract(workflow, phase) {
     `- Work type: ${workflow.workItem.workTypeLabel} (${workflow.workItem.workType})`,
     `- Current phase: ${workflow.currentPhase}`,
     `- Required artifact: ${phase.requiredArtifact.path}`,
+    ...artifactContentContractLines(phase.requiredArtifact),
     `- Write scope: ${phase.writeScope}`,
     `- Governed agent: ${phase.defaultAgent ?? phase.generatedAgent ?? 'unavailable'}`,
     `- Intelligence: world-model=${intelligence.worldModel}, AST=${intelligence.ast}, agent-briefs=${intelligence.agentBriefs}`,

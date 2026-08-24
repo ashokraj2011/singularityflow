@@ -2,6 +2,7 @@ import { createHash } from 'node:crypto';
 
 import { BUILTIN_AST_EXTRACTOR, extractBuiltinAstFacts } from './ast-builtin-extractor.mjs';
 import { extractPolyglotSyntax } from './polyglot-syntax-core.mjs';
+import { applySelectionPriority } from './ast-fact-order.mjs';
 
 function canonicalize(value) {
   if (Array.isArray(value)) return value.map(canonicalize);
@@ -198,8 +199,9 @@ export function replayBuiltInDerivation(files, manifest, overlays = []) {
   const predicates = manifest.subject.operation === 'gate'
     ? replayPredicates(facts, manifest.replayRecipe.predicates ?? [], envelopeAssurance)
     : null;
+  const selected = applySelectionPriority(facts, manifest.replayRecipe?.priority ?? null);
   const page = manifest.outputs.page
-    ? facts.slice(manifest.outputs.page.offset, manifest.outputs.page.offset + manifest.outputs.page.returned)
+    ? selected.slice(manifest.outputs.page.offset, manifest.outputs.page.offset + manifest.outputs.page.returned)
     : null;
   return {
     factsSha256: recordSha256(facts),

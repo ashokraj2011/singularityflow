@@ -24,6 +24,7 @@ import { astSemanticWarmCommand } from './ast-semantic-warm.mjs';
 import { OPTIONAL_AST_SEMANTIC_PACKS, optionalSemanticPack } from './ast-semantic-pack-catalog.mjs';
 import { replayAstEvidence } from './ast-replay.mjs';
 import { loadDefinition, WORKFLOW_PATH } from './config.mjs';
+import { applySelectionPriority, FACT_PRIORITIES } from './ast-fact-order.mjs';
 import { gitCommonDir } from './git.mjs';
 import { canonicalJson, recordSha256 } from './records.mjs';
 import { currentSchemaVersion, readRecord } from './schema-migrations.mjs';
@@ -1002,6 +1003,9 @@ function normalizedOperationOptions(runtime, selection, options, operation) {
     inputBudgets: astBudgets(runtime, options),
     outputLimits: outputLimits(options),
     mode: optionString(options, 'mode', 'auto'),
+    // The selection priority is part of the recipe: the recorded page was cut from the selected
+    // order, and a replay that re-cuts from canonical order can never reproduce its hash.
+    priority: factPriority(options),
     predicates: structuredClone(runtime.policy.predicates)
   };
 }
@@ -1366,13 +1370,55 @@ function readCursorPayload(root, handle, expectedOperation) {
   return payload;
 }
 
+/**
+ * Deterministic structural-first selection, applied before pagination.
+ *
+ * The bounded context injects only the first page, and canonical fact order put the file
+ * inventory ahead of everything else — measured on a real repository, all 50 injected facts were
+ * `builtin-text` file entries while the 12 genuinely structural facts (symbols, imports,
+ * relationships, module) never reached a prompt. The page models actually see carried the least
+ * informative kind.
+ *
+ * Rank: semantic facts, then syntax-stage structural facts, then text structural facts, and file
+ * inventory last — files only fill whatever space structure leaves. The sort is stable (rank,
+ * original index), so ordering and page hashes stay deterministic, and the selection is bound into
+ * the read cursor so continuation pages replay the identical order. Raising the fact cap instead
+ * was rejected deliberately: more facts is more tokens with no guarantee the useful ones arrive.
+ */
+export { factSelectionRank, orderFactsStructuralFirst } from './ast-fact-order.mjs';
+
+function factPriority(options) {
+  const value = optionString(options, 'priority');
+  if (value == null) return null;
+  if (!FACT_PRIORITIES.includes(value)) {
+    throw new SingularityFlowError(`AST fact priority must be one of: ${FACT_PRIORITIES.join(', ')}.`, {
+      code: 'AST_REQUEST_INVALID'
+    });
+  }
+  return value;
+}
+
+function applyFactPriority(envelope, priority) {
+  if (priority && envelope.status !== 'disabled') {
+    envelope.facts = applySelectionPriority(envelope.facts, priority);
+  }
+  return envelope;
+}
+
 function selectorForCursor(options) {
-  return { all: optionBoolean(options, 'all'), paths: explicitPaths(options) };
+  return {
+    all: optionBoolean(options, 'all'),
+    paths: explicitPaths(options),
+    ...(factPriority(options) ? { priority: factPriority(options) } : {})
+  };
 }
 
 function cursorOptions(payload) {
   return {
     ...(payload.selector.all ? { all: true } : {}),
+    // The bound selection replays on every page, or a continuation would reshuffle the order the
+    // first page was cut from.
+    ...(payload.selector.priority ? { priority: payload.selector.priority } : {}),
     ...(payload.selector.paths.length ? { paths: payload.selector.paths } : {}),
     'max-files': payload.inputBudgets.maxFiles,
     'max-bytes': payload.inputBudgets.maxBytes,
@@ -1491,7 +1537,10 @@ export async function astContext(root, options = {}, workBinding = null) {
     if (workBinding && recordSha256(workBinding) !== recordSha256(boundWork)) {
       throw new SingularityFlowError('AST read cursor belongs to different governed work.', { code: 'AST_READ_CURSOR_STALE' });
     }
-    const envelope = await buildOrContext(root, cursorOptions(payload), 'context', boundWork);
+    const envelope = applyFactPriority(
+      await buildOrContext(root, cursorOptions(payload), 'context', boundWork),
+      payload.selector.priority ?? null
+    );
     if (envelope.status === 'disabled') {
       return boundedReadPage(root, envelope, {
         operation: 'context', options: cursorOptions(payload), offset: 0,
@@ -1506,7 +1555,7 @@ export async function astContext(root, options = {}, workBinding = null) {
       workBinding: boundWork
     });
   }
-  const envelope = await buildOrContext(root, options, 'context', workBinding);
+  const envelope = applyFactPriority(await buildOrContext(root, options, 'context', workBinding), factPriority(options));
   return boundedReadPage(root, envelope, { operation: 'context', options, workBinding });
 }
 

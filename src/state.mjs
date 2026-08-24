@@ -13,7 +13,7 @@ import {
 } from './config.mjs';
 import { loadSession } from './session.mjs';
 import { buildArtifactSidecar, serializeArtifactSidecar, sidecarRelativePath } from './artifact-sidecar.mjs';
-import { createAgentBriefs, verifyAgentBriefsForReview } from './agent-briefs.mjs';
+import { createAgentBriefs, planAgentBriefs, verifyAgentBriefsForReview } from './agent-briefs.mjs';
 import {
   applyInputsBlock, collectInputs, recordInputs, renderInputsBlock, resolvedPhaseInputs, workflowInputsMode
 } from './inputs.mjs';
@@ -106,6 +106,9 @@ import {
   testReceiptPassing
 } from './code-delivery-tests.mjs';
 import { repositoryCaseInsensitivePaths } from './repository-change-set.mjs';
+import {
+  requiredArtifactRepoPath, validateRequiredArtifactContent as validateRequiredArtifactContentPreflight
+} from './publication-preflight.mjs';
 
 export const CONFIG_PATH = WORKFLOW_PATH;
 export const loadConfig = loadDefinition;
@@ -770,7 +773,7 @@ export async function assertNoPendingPublication(root, config, workflow, action 
   }
 }
 
-function requiredRepoPath(config, workflow, phase) { return `${workDirRelative(config, workflow.workItem.id)}/${phase.requiredArtifact.path}`; }
+function requiredRepoPath(config, workflow, phase) { return requiredArtifactRepoPath(config, workflow, phase); }
 
 /** The artifact's text, or empty when it is not there yet — a missing artifact is `validatePhase`'s. */
 async function readArtifactText(root, relative) {
@@ -978,76 +981,8 @@ export async function scanArtifacts(root, config, workflow, phaseId = undefined)
   return records;
 }
 
-const PLACEHOLDER = /\b(?:TODO|TBD)\b|\{\{[^}]+\}\}|\[\s*(?:describe|add|insert|provide|record)[^\]]*\]/i;
-const MANAGED_INPUTS = /<!-- singularity-flow:inputs:start -->[\s\S]*?<!-- singularity-flow:inputs:end -->/g;
-const SINGLE_WORD_ANGLE_PLACEHOLDERS = new Set([
-  'benefit', 'capability', 'decision', 'requirement', 'role'
-]);
-
-function maskBlock(block) {
-  return '\n'.repeat((block.match(/\n/g) ?? []).length);
-}
-
-function anglePlaceholderFinding(text) {
-  const candidates = text.matchAll(/<([^<>\r\n]+)>/g);
-  for (const candidate of candidates) {
-    const body = candidate[1].trim();
-    if (!body || /^(?:https?:|mailto:|\/|!|\?)/i.test(body) || body.includes('=')) continue;
-    // Uppercase command metavariables are executable documentation, not unfinished prose. They
-    // intentionally occur in phase artifacts such as `--url <AUTHORIZED-URL>` and `<DIRECTORY>`.
-    if (/^[A-Z][A-Z0-9 _-]+$/.test(body)) continue;
-    const singleWord = body.toLocaleLowerCase('en-US');
-    const placeholder = /\s/.test(body)
-      || /[…]|\.\.\./.test(body)
-      || SINGLE_WORD_ANGLE_PLACEHOLDERS.has(singleWord);
-    if (placeholder) return { value: candidate[0], index: candidate.index };
-  }
-  return null;
-}
-
-function placeholderFinding(text) {
-  // Preserve line positions while excluding kernel-owned metadata and immutable approved inputs
-  // from validation of this phase's authored content. Each upstream artifact was responsible for
-  // passing its own publication gate; copying its headings or literal examples downstream must not
-  // make the consumer appear unfinished.
-  const authored = text
-    .replace(/<!-- singularity-flow:metadata[\s\S]*?-->/, maskBlock)
-    .replace(MANAGED_INPUTS, maskBlock);
-  const regular = authored.match(PLACEHOLDER);
-  const angle = anglePlaceholderFinding(authored);
-  const findings = [
-    regular?.index == null ? null : { value: regular[0], index: regular.index },
-    angle
-  ].filter(Boolean).sort((left, right) => left.index - right.index);
-  const match = findings[0];
-  if (!match) return null;
-  return {
-    value: match.value,
-    line: authored.slice(0, match.index).split('\n').length
-  };
-}
-async function validateRequiredArtifactContent(root, config, workflow, phase, {
-  placeholders = true, minimumBytes = true
-} = {}) {
-  const errors = [];
-  const required = requiredRepoPath(config, workflow, phase);
-  const absolute = path.join(root, required);
-  if (!(await exists(absolute))) return [`Required artifact missing: ${required}`];
-  const text = await readFile(absolute, 'utf8');
-  const bytes = Buffer.byteLength(text);
-  if (minimumBytes && bytes < (phase.requiredArtifact.minimumBytes ?? 1)) {
-    errors.push(`Required artifact ${required} is too short (${bytes} bytes).`);
-  }
-  const placeholder = placeholders ? placeholderFinding(text) : null;
-  if (placeholder) {
-    errors.push(
-      `Required artifact ${required} contains unresolved placeholder '${placeholder.value}' at line ${placeholder.line}.`
-    );
-  }
-  return errors;
-}
 async function validatePhase(root, config, workflow, phase, { placeholders = true } = {}) {
-  const errors = await validateRequiredArtifactContent(root, config, workflow, phase, { placeholders });
+  const errors = await validateRequiredArtifactContentPreflight(root, config, workflow, phase, { placeholders });
   const required = requiredRepoPath(config, workflow, phase);
   if (!errors.some((error) => error.startsWith('Required artifact missing:')) && !artifactFor(phase, required)) {
     errors.push(`Required artifact is not registered to ${phase.id}: ${required}`);
@@ -1260,7 +1195,7 @@ export async function publishGeneration(root, config, workflow, { phaseId, usage
   // phase-specific gates (for example specification quality) have more useful diagnoses and have
   // historically taken precedence. Missing files and unmistakable template placeholders are the
   // cases that can be refused early without changing that ordering.
-  const contentErrors = await validateRequiredArtifactContent(root, config, workflow, phase, { minimumBytes: false });
+  const contentErrors = await validateRequiredArtifactContentPreflight(root, config, workflow, phase, { minimumBytes: false });
   if (contentErrors.length) {
     const required = requiredRepoPath(config, workflow, phase);
     throw new SingularityFlowError(
@@ -1272,6 +1207,14 @@ export async function publishGeneration(root, config, workflow, { phaseId, usage
   // before prompt/input preparation and telemetry capture: an artifact-only attempt is a refused
   // preflight, not a half-started generation that has to be repaired in durable state.
   const deliveryPreflight = await evaluateCodeDeliveryPreflight(root, config, workflow, phase);
+  // Downstream briefs are derived later from the exact published bytes, but their authored
+  // heading contract can be validated now. This keeps ambiguity, missing preserved sections, and
+  // size-bound failures on the no-mutation side of the publication boundary.
+  await planAgentBriefs(root, workflow, phase, {
+    itemDirectory: workDir(root, config, workflow.workItem.id),
+    itemRelative: workDirRelative(config, workflow.workItem.id),
+    generation: phase.generation + 1
+  });
   await preparePhaseInputs(root, config, workflow, phase.id);
   const effectiveAuthorship = authorship ?? {
     schemaVersion: currentSchemaVersion('artifact-authorship'), producer: 'legacy-unspecified', channel: 'legacy', actor: structuredClone(session.actor),

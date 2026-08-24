@@ -6,8 +6,8 @@ import path from 'node:path';
 import {
   applyInputsBlock, collectInputs, extractInputsBlock, recordInputs, renderInputsBlock, verifyInputsIntegrity
 } from '../src/inputs.mjs';
-import { createAgentBriefs, verifyAgentBriefsForReview } from '../src/agent-briefs.mjs';
-import { snapshot } from '../src/util.mjs';
+import { createAgentBriefs, planAgentBriefs, verifyAgentBriefsForReview } from '../src/agent-briefs.mjs';
+import { exists, snapshot } from '../src/util.mjs';
 
 async function fixture(mode = 'record', declaration = { phase: 'requirements', optional: false, maxBytes: null, path: 'artifacts/requirements/requirements.md' }) {
   const root = await mkdtemp(path.join(os.tmpdir(), 'sflow-inputs-'));
@@ -183,6 +183,28 @@ test('agent brief projection ignores duplicate headings inside managed approved 
   assert.match(rendered, /repository-native operator/);
   assert.match(rendered, /bind it to AC-001/);
   assert.doesNotMatch(rendered, /upstream heading|upstream proof plan/);
+});
+
+test('agent brief planning reports authored ambiguous headings before writing projections', async () => {
+  const declaration = {
+    phase: 'requirements', optional: false, maxBytes: null, projection: 'approved-summary',
+    preserve: [], maximumSummaryBytes: 4096,
+    expansion: 'hash-bound-reference', fallback: 'block'
+  };
+  const value = await fixture('enforce', declaration);
+  await writeFile(value.producerPath, [
+    '# Requirements', '',
+    '## Agent brief', '', 'First summary.', '',
+    '## Agent brief', '', 'Second summary.'
+  ].join('\n'));
+  await assert.rejects(
+    () => planAgentBriefs(value.root, value.workflow, value.workflow.phases.requirements, value),
+    (error) => error.code === 'AGENT_BRIEF_HEADING_AMBIGUOUS'
+      && error.details.heading === 'agent brief'
+      && JSON.stringify(error.details.lines) === JSON.stringify([3, 7])
+  );
+  assert.equal(await exists(path.join(value.itemDirectory, 'context', 'briefs')), false,
+    'read-only brief planning wrote a derived projection');
 });
 
 test('brief tampering fails closed and whole-artifact fallback does not require summary-only preserved sections', async () => {

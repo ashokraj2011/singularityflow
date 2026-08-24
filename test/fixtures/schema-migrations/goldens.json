@@ -7,6 +7,7 @@
   "action-plan": [{ "schemaVersion": 1, "workId": "OLD-1", "revision": {}, "actions": [] }, { "schemaVersion": 2 }],
   "action-authorization": [{ "schemaVersion": 1 }],
   "action-result": [{ "schemaVersion": 1 }],
+  "recovery-plan": [{ "schemaVersion": 1 }],
   "selection-receipt": [{ "schemaVersion": 1 }],
   "artifact-set": [{ "schemaVersion": 1, "members": [] }],
   "artifact-sidecar": [{ "schemaVersion": 1 }],

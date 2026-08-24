@@ -26,7 +26,19 @@ test('failed required push blocks transitions until sync publishes the retained 
   assert.match(await readFile(path.join(root, '.git/singularity-flow/pending-publication/story--PUSH-1.json'), 'utf8'), /PUSH-1/);
   assert.equal(run('git', ['status', '--porcelain'], root).stdout.trim(), '');
   const blocked = flow(root, ['submit'], { fail: true }); assert.equal(blocked.status, 2); assert.match(blocked.stderr, /Out of sequence/); assert.match(blocked.stderr, /Publication is pending/); assert.match(blocked.stderr, /singularity-flow sync/);
-  run('git', ['remote', 'set-url', 'origin', remote], root); flow(root, ['sync']); const local = run('git', ['rev-parse', 'HEAD'], root).stdout.trim(); const published = run('git', ['ls-remote', 'origin', 'refs/heads/PUSH-1'], root).stdout.split(/\s+/)[0]; assert.equal(published, local);
+  run('git', ['remote', 'set-url', 'origin', remote], root);
+  const plan = JSON.parse(flow(root, ['recover', 'PUSH-1', '--json']).stdout);
+  assert.equal(plan.pendingPublication, true);
+  assert.ok(plan.actions.some((entry) => entry.id === 'publish' && entry.automatic));
+  const unconfirmed = flow(root, ['recover', 'PUSH-1', '--apply', '--json'], { fail: true });
+  assert.equal(unconfirmed.status, 1);
+  assert.match(unconfirmed.stderr, /exact reviewed plan hash/);
+  const applied = JSON.parse(flow(root, [
+    'recover', 'PUSH-1', '--apply', '--confirm', plan.planId, '--json'
+  ]).stdout);
+  assert.equal(applied.postconditionsMet, true);
+  assert.deepEqual(applied.postconditions.map((entry) => entry.id), ['publication-cleared']);
+  const local = run('git', ['rev-parse', 'HEAD'], root).stdout.trim(); const published = run('git', ['ls-remote', 'origin', 'refs/heads/PUSH-1'], root).stdout.split(/\s+/)[0]; assert.equal(published, local);
   assert.equal(run('git', ['status', '--porcelain'], root).stdout.trim(), '');
 });
 

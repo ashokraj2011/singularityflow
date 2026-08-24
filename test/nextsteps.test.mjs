@@ -107,3 +107,16 @@ test('agent trust and synchronization prerequisites precede generation', () => {
   assert.deepEqual(snapshot.actions.slice(0, 2).map((item) => item.skill), ['/sf-agents', '/sf-agents']);
   assert.equal(snapshot.actions[2].skill, '/sf-phase');
 });
+
+test('a consumed generation with changed bytes suppresses ordinary lifecycle retries', () => {
+  const recovery = {
+    requiresRecovery: true, phaseId: 'intake', planId: 'sha256:recovery',
+    blockers: [{ code: 'generation.intent.consumed-changed' }]
+  };
+  const snapshot = nextStepsSnapshot({ workflow: workflow({ generation: 1 }), recovery });
+  assert.equal(snapshot.state, 'recovery_required');
+  assert.equal(snapshot.actions.length, 1);
+  assert.equal(snapshot.actions[0].skill, '/sf-recover');
+  assert.equal(snapshot.actions[0].command, 'singularity-flow recover NEXT-1 --phase intake');
+  assert.equal(snapshot.actions.some((entry) => /submit|publish/.test(entry.command)), false);
+});

@@ -68,6 +68,8 @@ test('VS Code classifies configuration publication as a mutation', () => {
   assert.equal(commandClass(['configuration', 'save', 'singularity/workflow.yml']), 'mutation');
   assert.equal(commandClass(['configuration', 'publish', '--json']), 'mutation');
   assert.equal(commandClass(['configuration', 'portfolio-bootstrap']), 'mutation');
+  assert.equal(commandClass(['recover', 'WORK-1', '--phase', 'implementation', '--json']), 'read');
+  assert.equal(commandClass(['recover', 'WORK-1', '--apply', '--confirm', 'sha256:plan']), 'mutation');
   assert.equal(commandClass(['workspace', 'refresh-configuration', '/work/a', '--dry-run']), 'read');
   assert.equal(commandClass(['workspace', 'refresh-configuration', '/work/a', '--confirm-plan', 'cfgp-1']), 'mutation');
 });

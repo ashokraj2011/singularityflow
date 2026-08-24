@@ -136,7 +136,8 @@ Every public operation is classified before its implementation module is importe
 | quickstart | mutation | never | — | — |
 | receipt | read | never | — | — |
 | recommend | read | never | — | — |
-| recover | mutation | never | — | — |
+| recover.apply | mutation | never | — | — |
+| recover.inspect | read | never | — | — |
 | refresh-branch | mutation | never | — | — |
 | regression | mutation | never | — | — |
 | reinstall | mutation | never | — | — |

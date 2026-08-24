@@ -35,12 +35,22 @@ function afterApprovalActions(workflow, phase) {
   return [action('then', generationSkillForPhase(upcoming), `singularity-flow prepare ${upcoming.id}`, `After ${phase.id} approval advances the workflow, generate and publish ${upcoming.label}.`)];
 }
 
-export function workflowNextSteps(workflow, { publicationPending = false, prerequisites = [], modelMode = { enabled: true } } = {}) {
+export function workflowNextSteps(workflow, {
+  publicationPending = false, recovery = null, prerequisites = [], modelMode = { enabled: true }
+} = {}) {
   const workId = workflow.workItem.id;
   const phase = workflow.currentPhase ? workflow.phases[workflow.currentPhase] : null;
   if (publicationPending) return [
     action('now', null, 'singularity-flow sync', 'Retry the retained commit push; workflow transitions are blocked until publication succeeds.'),
     action('then', '/sflow-nextsteps', `singularity-flow nextsteps ${workId}`, 'Recalculate actions from the synchronized branch state.')
+  ];
+  if (recovery?.requiresRecovery) return [
+    action(
+      'now', '/sf-recover',
+      `singularity-flow recover ${workId}${recovery.phaseId ? ` --phase ${recovery.phaseId}` : ''}`,
+      'The current bytes no longer match their consumed generation or another deterministic recovery boundary. Review the hash-bound recovery plan before continuing.',
+      { operationId: 'recover.inspect', route: 'recovery' }
+    )
   ];
   if (!phase) return workflow.status === 'cancelled' ? cancellationActions(workflow) : completionActions(workId);
 
@@ -87,7 +97,7 @@ export function workflowNextSteps(workflow, { publicationPending = false, prereq
   return actions;
 }
 
-export function nextStepsSnapshot({ initialized = true, branch = null, requestedWorkId = null, workflow = null, publicationPending = false, prerequisites = [], modelMode = { enabled: true } } = {}) {
+export function nextStepsSnapshot({ initialized = true, branch = null, requestedWorkId = null, workflow = null, publicationPending = false, recovery = null, prerequisites = [], modelMode = { enabled: true } } = {}) {
   if (!initialized) return {
     schemaVersion: 1,
     state: 'not_initialized',
@@ -116,13 +126,14 @@ export function nextStepsSnapshot({ initialized = true, branch = null, requested
   };
   return {
     schemaVersion: 1,
-    state: publicationPending ? 'publication_pending' : workflow.status,
+    state: publicationPending ? 'publication_pending' : recovery?.requiresRecovery ? 'recovery_required' : workflow.status,
     branch: workflow.workItem.branch,
     workId: workflow.workItem.id,
     workType: workflow.workItem.workType,
     currentPhase: workflow.currentPhase,
     modelMode: modelMode.enabled ? 'auto' : 'disabled',
-    actions: workflowNextSteps(workflow, { publicationPending, prerequisites, modelMode })
+    recovery: recovery?.requiresRecovery ? recovery : null,
+    actions: workflowNextSteps(workflow, { publicationPending, recovery, prerequisites, modelMode })
   };
 }
 

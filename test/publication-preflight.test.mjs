@@ -6,8 +6,10 @@ import path from 'node:path';
 import test from 'node:test';
 
 import { initializeDefinition, resolveWorkType } from '../src/config.mjs';
+import { recoveryPlan } from '../src/collaboration.mjs';
 import { buildGenerationAuthorship, normalizeAuthorshipOptions } from '../src/manual-authorship.mjs';
 import { withOperationContext } from '../src/operation-context.mjs';
+import { artifactPlaceholderFindings } from '../src/publication-preflight.mjs';
 import { setAgentSession } from '../src/session.mjs';
 import { createWorkflow, loadConfig, publishGeneration, scanArtifacts } from '../src/state.mjs';
 
@@ -128,6 +130,21 @@ const AUTHORSHIP = buildGenerationAuthorship({
   actor: ACTOR,
   governedAgentContext: 'product-owner',
   source: null
+});
+
+test('artifact preflight reports every authored placeholder and excludes approved managed inputs', () => {
+  const findings = artifactPlaceholderFindings([
+    '# Implementation', '',
+    'TODO replace the scaffold.',
+    'Owner: {{owner}}',
+    'Path: <path or module>',
+    'Run with <AUTHORIZED-URL>.',
+    '<!-- singularity-flow:inputs:start -->',
+    'TBD approved upstream text with <legacy path>.',
+    '<!-- singularity-flow:inputs:end -->'
+  ].join('\n'));
+  assert.deepEqual(findings.map((finding) => finding.value), ['TODO', '{{owner}}', '<path or module>']);
+  assert.deepEqual(findings.map((finding) => finding.line), [3, 4, 5]);
 });
 
 test('an untouched prepared template is refused before publication mutates phase state', async () => {
@@ -344,4 +361,20 @@ test('a code phase publishes source and acceptance-mapped tests with a delivery 
     }),
     /already consumed and the source or artifact bytes now differ/
   ));
+  const recovery = await recoveryPlan(context.root, context.config, context.workflow, {
+    phaseId: 'implementation'
+  });
+  assert.equal(recovery.requiresRecovery, true);
+  assert.ok(recovery.blockers.some((entry) => entry.code === 'generation.intent.consumed-changed'));
+  const renewal = recovery.actions.find((entry) => entry.id === 'begin-new-generation:implementation');
+  assert.ok(renewal, 'recovery did not offer a new generation boundary');
+  assert.equal(renewal.mode, 'manual');
+  assert.equal(renewal.command, null, 'blocked adoption policy was bypassed');
+
+  context.workflow.resolution.codeDelivery.generationBoundary.dirtyStart = 'allow-explicit-adoption';
+  const adoptable = await recoveryPlan(context.root, context.config, context.workflow, {
+    phaseId: 'implementation'
+  });
+  const adoption = adoptable.actions.find((entry) => entry.id === 'begin-new-generation:implementation');
+  assert.match(adoption.command, /^singularity-flow phase begin implementation --adopt-existing --confirm sha256:/);
 });

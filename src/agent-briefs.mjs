@@ -19,10 +19,12 @@ function headings(text) {
   const source = String(text);
   const found = [];
   let offset = 0;
+  let lineNumber = 0;
   let fence = null;
   let htmlComment = false;
   for (const lineWithBreak of source.match(/.*(?:\r?\n|$)/g) ?? []) {
     if (!lineWithBreak) continue;
+    lineNumber += 1;
     const line = lineWithBreak.replace(/\r?\n$/, '');
     let visible = line;
     if (htmlComment) {
@@ -54,6 +56,7 @@ function headings(text) {
         level: match[1].length,
         title: match[2],
         normalized: normalizeHeading(match[2]),
+        line: lineNumber,
         index: offset,
         contentStart: offset + line.length
       });
@@ -70,7 +73,13 @@ function sectionFor(text, requested, parsedHeadings = headings(text)) {
   const normalized = normalizeHeading(requested);
   const matches = parsedHeadings.filter((heading) => heading.normalized === normalized);
   if (!matches.length) return null;
-  if (matches.length > 1) throw new SingularityFlowError(`Agent-brief heading '${requested}' is ambiguous.`);
+  if (matches.length > 1) throw new SingularityFlowError(
+    `Agent-brief heading '${requested}' is ambiguous at lines ${matches.map((heading) => heading.line).join(', ')}.`,
+    {
+      code: 'AGENT_BRIEF_HEADING_AMBIGUOUS',
+      details: { heading: requested, lines: matches.map((heading) => heading.line) }
+    }
+  );
   const selected = matches[0];
   const body = String(text).slice(selected.contentStart, selected.end).trim();
   return { heading: selected.title.trim(), body, markdown: String(text).slice(selected.index, selected.end).trim() };
@@ -132,17 +141,26 @@ function renderedBrief({ workflow, producerPhase, consumer, source, summary, pre
   ].join('\n').trimEnd() + '\n';
 }
 
-/** Create immutable brief records inside the producer generation publication transaction. */
-export async function createAgentBriefs(root, workflow, producerPhase, { itemDirectory, itemRelative } = {}) {
+/** Validate and render every downstream brief without writing it. */
+export async function planAgentBriefs(root, workflow, producerPhase, {
+  itemDirectory, itemRelative, generation = producerPhase.generation
+} = {}) {
+  const effectiveProducer = generation === producerPhase.generation
+    ? producerPhase
+    : { ...producerPhase, generation };
   const consumers = consumersFor(workflow, producerPhase);
-  if (!consumers.length) return [];
+  if (!consumers.length) return { created: [], pendingWrites: [] };
   const relativeArtifact = producerPhase.requiredArtifact?.path;
   if (!relativeArtifact || !itemDirectory || !itemRelative) {
-    throw new SingularityFlowError(`Cannot create an agent brief because phase ${producerPhase.id} has no governed artifact location.`);
+    throw new SingularityFlowError(`Cannot create an agent brief because phase ${producerPhase.id} has no governed artifact location.`, {
+      code: 'AGENT_BRIEF_SOURCE_REQUIRED'
+    });
   }
   const sourcePath = path.join(itemDirectory, relativeArtifact);
   const sourceInfo = await snapshot(sourcePath);
-  if (!sourceInfo.exists || !sourceInfo.sha256) throw new SingularityFlowError(`Cannot create an agent brief because ${relativeArtifact} is missing.`);
+  if (!sourceInfo.exists || !sourceInfo.sha256) throw new SingularityFlowError(`Cannot create an agent brief because ${relativeArtifact} is missing.`, {
+    code: 'AGENT_BRIEF_SOURCE_REQUIRED', details: { path: relativeArtifact }
+  });
   const source = {
     path: posix(path.join(itemRelative, relativeArtifact)),
     sha256: sourceInfo.sha256,
@@ -155,7 +173,7 @@ export async function createAgentBriefs(root, workflow, producerPhase, { itemDir
   const pendingWrites = [];
   for (const { consumer, declaration } of consumers) {
     const policy = briefPolicy(declaration);
-    const paths = agentBriefRelativePaths(itemRelative, producerPhase.id, producerPhase.generation, consumer.id);
+    const paths = agentBriefRelativePaths(itemRelative, producerPhase.id, generation, consumer.id);
     const summary = SUMMARY_HEADINGS.map((heading) => sectionFor(authoredMarkdown, heading, parsedHeadings))
       .find((section) => section && authoredText(section.body));
     const preserved = [];
@@ -164,7 +182,8 @@ export async function createAgentBriefs(root, workflow, producerPhase, { itemDir
     if (!summary) {
       if (policy.fallback === 'block') {
         throw new SingularityFlowError(
-          `Phase ${producerPhase.id} requires an Agent brief, Executive summary, Summary, TL;DR, or Overview section before publication for ${consumer.id}.`
+          `Phase ${producerPhase.id} requires an Agent brief, Executive summary, Summary, TL;DR, or Overview section before publication for ${consumer.id}.`,
+          { code: 'AGENT_BRIEF_SUMMARY_REQUIRED', details: { consumerPhase: consumer.id } }
         );
       }
       status = 'fallback-whole';
@@ -177,24 +196,32 @@ export async function createAgentBriefs(root, workflow, producerPhase, { itemDir
         const section = sectionFor(authoredMarkdown, heading, parsedHeadings);
         if (!section || !authoredText(section.body)) {
           throw new SingularityFlowError(
-            `Phase ${producerPhase.id} cannot create the approved agent brief for ${consumer.id}: preserved section '${heading}' is missing or empty.`
+            `Phase ${producerPhase.id} cannot create the approved agent brief for ${consumer.id}: preserved section '${heading}' is missing or empty.`,
+            {
+              code: 'AGENT_BRIEF_PRESERVED_SECTION_REQUIRED',
+              details: { consumerPhase: consumer.id, heading }
+            }
           );
         }
         if (normalizeHeading(section.heading) === normalizeHeading(summary.heading)) continue;
         preserved.push(section);
       }
-      rendered = renderedBrief({ workflow, producerPhase, consumer, source, summary, preserved });
+      rendered = renderedBrief({ workflow, producerPhase: effectiveProducer, consumer, source, summary, preserved });
       const bytes = Buffer.byteLength(rendered);
       if (bytes > policy.maximumSummaryBytes) {
         throw new SingularityFlowError(
-          `Phase ${producerPhase.id} agent brief for ${consumer.id} is ${bytes} bytes; maximumSummaryBytes is ${policy.maximumSummaryBytes}. Shorten the summary/preserved sections or raise the reviewed bound.`
+          `Phase ${producerPhase.id} agent brief for ${consumer.id} is ${bytes} bytes; maximumSummaryBytes is ${policy.maximumSummaryBytes}. Shorten the summary/preserved sections or raise the reviewed bound.`,
+          {
+            code: 'AGENT_BRIEF_MAXIMUM_BYTES_EXCEEDED',
+            details: { consumerPhase: consumer.id, bytes, maximumBytes: policy.maximumSummaryBytes }
+          }
         );
       }
     }
     const record = {
       schemaVersion: currentSchemaVersion('agent-brief-record'),
       workId: workflow.workItem.id,
-      producer: { phase: producerPhase.id, generation: producerPhase.generation },
+      producer: { phase: producerPhase.id, generation },
       consumer: { phase: consumer.id },
       source,
       policy,
@@ -212,7 +239,7 @@ export async function createAgentBriefs(root, workflow, producerPhase, { itemDir
     record.integritySha256 = recordSha256(record);
     pendingWrites.push({ paths, record, rendered });
     created.push({
-      generation: producerPhase.generation,
+      generation,
       consumerPhase: consumer.id,
       status,
       path: paths.record,
@@ -222,8 +249,14 @@ export async function createAgentBriefs(root, workflow, producerPhase, { itemDir
       integritySha256: record.integritySha256
     });
   }
+  return { created, pendingWrites };
+}
+
+/** Create immutable brief records inside the producer generation publication transaction. */
+export async function createAgentBriefs(root, workflow, producerPhase, options = {}) {
   // Validate every consumer before writing any of them. A bad preserve heading or byte bound in
   // one downstream phase must not leave apparently valid sibling projections on disk.
+  const { created, pendingWrites } = await planAgentBriefs(root, workflow, producerPhase, options);
   for (const { paths, record, rendered } of pendingWrites) {
     if (rendered) await writeText(path.join(root, paths.rendered), rendered);
     await writeJson(path.join(root, paths.record), record);

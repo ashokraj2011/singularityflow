@@ -620,6 +620,10 @@ const families = [
   }),
   family({ id: 'action-authorization', currentVersion: 1, paths: [/^\$git\/action-authorizations\/[^/]+\.json$/] }),
   family({ id: 'action-result', currentVersion: 1, paths: [/^\$git\/action-results\/[^/]+\.json$/] }),
+  // Recovery plans are transport-only, recomputed from current repository bytes, and never stored.
+  // Registering the shape still gives every producer one current version without pretending it is
+  // a durable record family with an on-disk path.
+  family({ id: 'recovery-plan', currentVersion: 1 }),
   family({ id: 'selection-receipt', currentVersion: 1, paths: [/^\$git\/choices\/[^/]+\.json$/] }),
   family({ id: 'artifact-set', currentVersion: 1 }),
   family({ id: 'artifact-sidecar', currentVersion: 1, paths: [/^singularity\/work-items\/[^/]+\/context\/sidecars\/[^/]+\.json$/], immutable: true }),

@@ -56,6 +56,15 @@ test('assignments are durable and guided run stops at the authoring boundary', a
 test('safe recovery remains plan-first and Copilot hook emits read-only phase context', async () => {
   const root = await repository(); flow(root, 'start', 'EASY-3', '--from-branch', 'main', '--title', 'Recover safely');
   const recovery = flow(root, 'recover').stdout; assert.match(recovery, /Recovery plan — EASY-3/); assert.match(recovery, /No recoverable publication/);
+  const before = run('git', ['status', '--porcelain'], root).stdout;
+  const phaseRecovery = JSON.parse(flow(root, 'recover', '--phase', 'intake', '--json').stdout);
+  assert.equal(phaseRecovery.schemaVersion, 1);
+  assert.match(phaseRecovery.planId, /^sha256:[a-f0-9]{64}$/);
+  assert.ok(phaseRecovery.blockers.some((entry) => entry.code === 'artifact.placeholder.unresolved'));
+  const placeholder = phaseRecovery.blockers.find((entry) => entry.code === 'artifact.placeholder.unresolved');
+  assert.match(placeholder.path, /artifacts\/intake\/intake\.md$/);
+  assert.ok(Number.isInteger(placeholder.line));
+  assert.equal(run('git', ['status', '--porcelain'], root).stdout, before, 'recovery inspection changed repository bytes');
   const hook = run(process.execPath, [bin, 'hook', 'session-start'], root, { input: '{"cwd":"ignored"}\n' });
   const payload = JSON.parse(hook.stdout); assert.match(payload.additionalContext, /EASY-3/); assert.match(payload.additionalContext, /Never approve automatically/);
 });

@@ -1,11 +1,11 @@
 import { didYouMean, optionBoolean, optionString, SingularityFlowError } from './util.mjs';
 
 const READ_ONLY = new Set(['specify', 'plan', 'implement', 'verify', 'converge', 'about', 'help', 'show', 'choices', 'inbox', 'home', 'recommend', 'status', 'approvals', 'progress', 'receipt', 'guide', 'logs', 'doctor', 'nextsteps', 'snapshot', 'validate', 'explain']);
-const STRUCTURED = new Set(['specify', 'plan', 'implement', 'verify', 'converge', 'start', 'resume', 'return', 'home', 'recommend', 'status', 'approvals', 'progress', 'report', 'receipt', 'impact', 'telemetry', 'context', 'tokens', 'doctor', 'inputs', 'reinstall', 'snapshot', 'validate', 'gate', 'clarification', 'explain', 'fault', 'fix', 'repair', 'goal', 'journal', 'run']);
+const STRUCTURED = new Set(['specify', 'plan', 'implement', 'verify', 'converge', 'start', 'resume', 'return', 'home', 'recommend', 'status', 'approvals', 'progress', 'report', 'receipt', 'impact', 'telemetry', 'context', 'tokens', 'doctor', 'inputs', 'reinstall', 'snapshot', 'validate', 'gate', 'clarification', 'explain', 'fault', 'fix', 'repair', 'recover', 'goal', 'journal', 'run']);
 // `secrets` is here because `resolveOperation` returns `definition.operation` before it consults
 // any resolver, so a command with a single registered operation never reaches its own resolver.
 // Without this line `resolveSecretsOperation` is unreachable and the scan/protect split is inert.
-const MODEL_FREE_MIXED_COMMANDS = new Set(['report', 'telemetry', 'doctor', 'review', 'inputs', 'spec', 'visual', 'clarification', 'story', 'constitution', 'secrets', 'fault', 'fix', 'repair', 'goal', 'journal', 'push', 'next', 'return', 'impact', 'copilot', 'context', 'tokens']);
+const MODEL_FREE_MIXED_COMMANDS = new Set(['report', 'telemetry', 'doctor', 'review', 'inputs', 'spec', 'visual', 'clarification', 'story', 'constitution', 'secrets', 'fault', 'fix', 'repair', 'recover', 'goal', 'journal', 'push', 'next', 'return', 'impact', 'copilot', 'context', 'tokens']);
 
 const LAZY_MODULES = Object.freeze({
   // The five verbs share one dispatcher; each is a registered command in its own right so the
@@ -619,6 +619,12 @@ function resolveCopilotOperation(definition, options) {
     : required('copilot.launch');
 }
 
+function resolveRecoverOperation(definition, options) {
+  return optionBoolean(options, 'apply')
+    ? never('recover.apply', definition, 'mutation')
+    : never('recover.inspect', definition, 'read');
+}
+
 export function resolveOperation({ requestedCommand, positionals, options = {} }) {
   const definition = commandDefinition(requestedCommand);
   if (definition.operation) return definition.operation;
@@ -638,6 +644,7 @@ export function resolveOperation({ requestedCommand, positionals, options = {} }
   if (definition.name === 'fault') return resolveFaultOperation(definition, positionals);
   if (definition.name === 'fix') return resolveFixOperation(definition, options);
   if (definition.name === 'repair') return resolveRepairOperation(definition, positionals);
+  if (definition.name === 'recover') return resolveRecoverOperation(definition, options);
   if (definition.name === 'goal') return resolveGoalOperation(definition, positionals);
   if (definition.name === 'journal') return resolveJournalOperation(definition, positionals, options);
   if (definition.name === 'push') return resolvePushOperation(definition, positionals);
@@ -701,6 +708,7 @@ export function operationCatalog() {
   const faultDefinition = commandDefinition('fault');
   const fixDefinition = commandDefinition('fix');
   const repairDefinition = commandDefinition('repair');
+  const recoverDefinition = commandDefinition('recover');
   const goalDefinition = commandDefinition('goal');
   const journalDefinition = commandDefinition('journal');
   const pushDefinition = commandDefinition('push');
@@ -755,6 +763,8 @@ export function operationCatalog() {
     never('repair.authorize', repairDefinition, 'mutation'),
     never('repair.attempt', repairDefinition, 'mutation'),
     never('repair.cancel', repairDefinition, 'mutation'),
+    never('recover.inspect', recoverDefinition, 'read'),
+    never('recover.apply', recoverDefinition, 'mutation'),
     ...GOAL_READ_SUBCOMMANDS.map((name) => never(`goal.${name}`, goalDefinition, 'read')),
     ...GOAL_MUTATION_SUBCOMMANDS.map((name) => never(`goal.${name}`, goalDefinition, 'mutation')),
     never('goal.plan.approve', goalDefinition, 'mutation'),

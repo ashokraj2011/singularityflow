@@ -65,6 +65,8 @@ test('new CLI reads are classified as reads and mutations remain mutations', () 
   assert.equal(commandClass(['local-reset', '--forget-only', '--dry-run']), 'read');
   assert.equal(commandClass(['return', 'WRK-7', '--json']), 'read');
   assert.equal(commandClass(['return', 'WRK-7', '--apply', '--confirm', 'WRK-7', '--json']), 'mutation');
+  assert.equal(commandClass(['recover', 'WRK-7', '--phase', 'implementation', '--json']), 'read');
+  assert.equal(commandClass(['recover', 'WRK-7', '--apply', '--confirm', 'sha256:plan']), 'mutation');
   assert.equal(commandClass(['wm', 'ast', 'doctor']), 'read');
   assert.equal(commandClass(['wm', 'ast', 'context', '--paths', 'src']), 'read');
   assert.equal(commandClass(['wm', 'ast', 'build', '--paths', 'src']), 'mutation');

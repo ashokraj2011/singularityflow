@@ -4752,8 +4752,12 @@ async function watchCommand(positionals, options) {
 
 async function recoverCommand(positionals, options) {
   const root = repoRoot(); const config = await loadConfig(root); const workflow = await loadStoryAggregate(root, config, positionals[1]);
-  const plan = await recoveryPlan(root, config, workflow, { fetch: optionBoolean(options, 'fetch') });
-  const result = optionBoolean(options, 'apply') ? await applyRecovery(root, config, workflow, plan) : plan;
+  const plan = await recoveryPlan(root, config, workflow, {
+    fetch: optionBoolean(options, 'fetch'), phaseId: optionString(options, 'phase')
+  });
+  const result = optionBoolean(options, 'apply')
+    ? await applyRecovery(root, config, workflow, plan, { confirm: optionString(options, 'confirm') })
+    : plan;
   if (optionBoolean(options, 'json')) console.log(JSON.stringify(result, null, 2)); else process.stdout.write(recoveryText(result));
 }
 

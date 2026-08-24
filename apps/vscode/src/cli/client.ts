@@ -107,6 +107,7 @@ export function commandClass(args: string[]): 'read' | 'mutation' | 'unknown' {
     return READ_ONLY_CONFIGURATION_COMMANDS.has(args[1] ?? '') ? 'read' : 'mutation';
   }
   if (args[0] === 'return') return enabledBooleanOption(args, 'apply') ? 'mutation' : 'read';
+  if (args[0] === 'recover') return enabledBooleanOption(args, 'apply') ? 'mutation' : 'read';
   if (args[0] === 'story' && args[1] === 'return') return 'read';
   if (args[0] === 'report' || args[0] === 'review') return hasOption(args, 'out') ? 'mutation' : 'read';
   if (args[0] === 'telemetry') return (args[1] ?? 'status') === 'status' ? 'read' : 'mutation';

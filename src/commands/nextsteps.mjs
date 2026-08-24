@@ -120,6 +120,24 @@ export async function resolveSnapshot(positionals, { root = repoRoot() } = {}) {
   if (selected?.kind !== 'story') return nextStepsSnapshot({ branch: branch(root), requestedWorkId });
   const workflow = selected.state;
   const modelMode = operationContext()?.modelMode ?? { enabled: true, source: 'default' };
+  const active = activePhase(workflow);
+  const consumedGenerationChanged = active?.generationIntent?.status === 'consumed'
+    && Number(active.generationIntent.generation) === Number(active.generation);
+  // Full publication preflight can inspect a large source change set. `nextsteps` only needs it
+  // automatically at the lifecycle state that otherwise causes the retry loop: a consumed code
+  // generation whose bytes may have changed. Ordinary authoring readiness stays with /sf-phase.
+  let recovery = null;
+  if (consumedGenerationChanged) {
+    // Keep the normal next-step path lightweight. These domains reach configuration, delivery,
+    // projection, and agent code and are needed only for this exceptional lifecycle state.
+    const [{ recoveryPlan }, { loadDefinition }] = await Promise.all([
+      import('../collaboration.mjs'),
+      import('../config.mjs')
+    ]);
+    recovery = await recoveryPlan(root, await loadDefinition(root), workflow, {
+      phaseId: active.id
+    });
+  }
   return {
     ...nextStepsSnapshot({
       branch: branch(root),
@@ -128,6 +146,7 @@ export async function resolveSnapshot(positionals, { root = repoRoot() } = {}) {
         kind: 'story', id: selected.id, migrate: false,
         roots: { workItemRoot: path.dirname(path.dirname(selected.location.path)) }
       })),
+      recovery,
       prerequisites: await storyPrerequisites(root, workflow, selected, modelMode),
       modelMode
     }),

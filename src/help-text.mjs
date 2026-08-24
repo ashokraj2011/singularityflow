@@ -222,7 +222,7 @@ Usage:
   singularity-flow workflow simulate [TYPE] | diff <TYPE>
   singularity-flow assign <PHASE> <ASSIGNEE>
   singularity-flow watch [WORK-ID] [--once] [--fetch] [--interval SECONDS] [--json]
-  singularity-flow recover [WORK-ID] [--fetch] [--apply] [--json]
+  singularity-flow recover [WORK-ID] [--phase PHASE] [--fetch] [--apply --confirm PLAN-HASH] [--json]
   singularity-flow inputs [PHASE] [--dry-run]
   singularity-flow spec analyze [--phase PHASE] [--work-id ID] [--assisted [--model NAME]] [--json]
   singularity-flow spec index [ARTIFACT] [--phase PHASE] [--work-id ID] [--dry-run] [--json]

@@ -38,6 +38,12 @@ async function repository() {
   const workflow = YAML.parse(await readFile(workflowPath, 'utf8'));
   workflow.git.publish = 'off';
   workflow.auto.enabled = true;
+  // Auto planning now probes the concrete execution driver. Keep the fixture hermetic: CI does
+  // not install Copilot, while Node itself is the harmless executable used by the later pilot
+  // fixture as well. Tests that actually author replace the arguments in executableRepository.
+  workflow.models.providers['copilot-cli'] = {
+    type: 'copilot-cli', executable: process.execPath, arguments: []
+  };
   workflow.auto.ceilings = { tokenBudget: { maximum: 30000, assurance: 'best-available' } };
   workflow.workTypes.feature.auto = {
     eligibility: 'bounded', allowedPaces: ['phase'], defaultUntil: 'first-human-boundary'

@@ -1,6 +1,6 @@
 import path from 'node:path';
 import { existsSync } from 'node:fs';
-import { branch, changes, hasRemote, hasUpstream, head } from './git.mjs';
+import { changes, hasRemote, hasUpstream, head } from './git.mjs';
 import { initializationStatus, loadDefinition, WORKFLOW_PATH } from './config.mjs';
 import { loadPortfolio } from './initiative-config.mjs';
 import { loadSession } from './session.mjs';
@@ -271,7 +271,10 @@ export async function doctorSnapshot(root, {
         ? 'Start the agent with singularity-flow copilot, finish one turn, then run singularity-flow telemetry status.'
         : 'Review local metadata-only capture with singularity-flow telemetry enable. Work remains unblocked if you decline.'
   ));
-  const currentBranch = branch(root);
+  // Diagnostics must remain available in CI, release verification, and bisect checkouts where
+  // HEAD is intentionally detached. Lifecycle mutation still uses git.branch() and therefore
+  // continues to reject detached HEAD; doctor merely reports the state instead of crashing.
+  const currentBranch = diagnosticBranch(root);
   const requested = workId ?? currentBranch;
   let workflow = null;
   const subjectIndex = await buildRepositorySubjectIndex(root, { definition });
@@ -411,6 +414,11 @@ export async function doctorSnapshot(root, {
   return summarize(root, checks, workflow, session, definition, activeSubject, performanceReport, schemaReport);
 }
 
+function diagnosticBranch(root) {
+  const result = run('git', ['branch', '--show-current'], { cwd: root, allowFailure: true });
+  return result.status === 0 && result.stdout.trim() ? result.stdout.trim() : '(detached)';
+}
+
 function summarize(root, checks, workflow, session, definition, activeSubject = null, performance = null, schemaReport = null) {
   const counts = Object.fromEntries(['pass', 'warn', 'fail', 'skip'].map((status) => [status, checks.filter((item) => item.status === status).length]));
   const modelFreedom = modelFreedomSnapshot({
@@ -421,7 +429,7 @@ function summarize(root, checks, workflow, session, definition, activeSubject = 
   const subject = workflow
     ? { kind: 'story', id: workflow.workItem.id }
     : activeSubject ? { kind: activeSubject.kind, id: activeSubject.id } : null;
-  return { schemaVersion: 1, repository: root, branch: branch(root), head: head(root), workId: subject?.id ?? null, subject, agent: session?.agent ?? null, healthy: counts.fail === 0, counts, modelFreedom, performance, schemaCensus: schemaReport, checks };
+  return { schemaVersion: 1, repository: root, branch: diagnosticBranch(root), head: head(root), workId: subject?.id ?? null, subject, agent: session?.agent ?? null, healthy: counts.fail === 0, counts, modelFreedom, performance, schemaCensus: schemaReport, checks };
 }
 
 export function doctorText(report) {

@@ -25,6 +25,9 @@ import {
   contextBoundaryHandoff, normalizeContextPolicy
 } from '../src/context-policy.mjs';
 import { phaseRequiresCodeDelivery } from '../src/code-delivery-policy.mjs';
+import {
+  authoredArtifactFingerprint, inspectArtifactContent
+} from '../src/publication-preflight.mjs';
 
 test('starter YAML resolves feature, bugfix, and Figma-mobile templates and agents', async () => {
   const root = await mkdtemp(path.join(os.tmpdir(), 'sflow-config-')); await mkdir(path.join(root, '.git'), { recursive: true }); await initializeDefinition(root);
@@ -107,6 +110,60 @@ test('every shipped workflow profile resolves an explicit safe code-delivery con
     'analyze',
     'the explicitly non-code chore profile must not be silently reclassified'
   );
+});
+
+test('every shipped Story workflow phase renders a contract-consistent guarded artifact', async () => {
+  const root = await mkdtemp(path.join(os.tmpdir(), 'sflow-artifact-contract-matrix-'));
+  await mkdir(path.join(root, '.git'), { recursive: true });
+  await initializeDefinition(root);
+  const starter = await loadDefinition(root);
+  const example = YAML.parse(await readFile(new URL('../examples/workflow-with-quality-gates.yml', import.meta.url), 'utf8'));
+  validateDefinition(example);
+  const matrices = [
+    { name: 'starter', definition: starter, expectedProfiles: 9, expectedPhases: 49 },
+    { name: 'quality-gates-example', definition: example, expectedProfiles: 1, expectedPhases: 6 }
+  ];
+
+  for (const matrix of matrices) {
+    let phases = 0;
+    assert.equal(Object.keys(matrix.definition.workTypes).length, matrix.expectedProfiles, `${matrix.name} profile inventory changed`);
+    for (const workTypeId of Object.keys(matrix.definition.workTypes).sort()) {
+      for (const phase of resolveWorkType(matrix.definition, workTypeId).phases) {
+        phases += 1;
+        const text = await renderArtifactTemplate(root, matrix.definition, phase, {
+          id: 'AUDIT-1', title: 'Artifact contract audit', workType: workTypeId,
+          inputs: '<!-- singularity-flow:inputs:start -->\n' + 'approved input '.repeat(1000) + '\n<!-- singularity-flow:inputs:end -->'
+        });
+        const contract = { ...phase.artifact, generation: 1 };
+        const result = inspectArtifactContent(text, {
+          path: phase.artifact.path,
+          contract,
+          baseline: { generation: 1, fingerprint: authoredArtifactFingerprint(text) }
+        });
+        const label = `${matrix.name}:${workTypeId}/${phase.id}`;
+        assert.ok(result.bytes >= (contract.minimumBytes ?? 1), `${label} starter has ${result.bytes} authored bytes below ${contract.minimumBytes ?? 1}`);
+        assert.ok(result.bytes <= (contract.maximumBytes ?? Number.MAX_SAFE_INTEGER), `${label} starter exceeds its maximum byte contract`);
+        assert.ok(result.findings.some((finding) => finding.code === 'artifact.template.unchanged'), `${label} can publish an untouched template`);
+        assert.equal(result.findings.some((finding) => finding.code === 'artifact.heading.missing'), false, `${label} template omits a required heading`);
+        assert.equal(result.findings.some((finding) => finding.code === 'artifact.heading.empty'), false, `${label} template leaves a required heading structurally empty`);
+      }
+    }
+    assert.equal(phases, matrix.expectedPhases, `${matrix.name} phase inventory changed`);
+  }
+});
+
+test('artifact byte and text-validation contracts fail configuration load when ambiguous', async () => {
+  const source = YAML.parse(await readFile(new URL('../templates/workflow.yml', import.meta.url), 'utf8'));
+  const invalid = (edit, pattern) => {
+    const definition = structuredClone(source);
+    edit(definition.phases.intake.artifact);
+    assert.throws(() => validateDefinition(definition), pattern);
+  };
+  invalid((artifact) => { artifact.minimumBytes = 0; }, /minimumBytes must be a positive safe integer/);
+  invalid((artifact) => { artifact.maximumBytes = '200'; }, /maximumBytes must be a positive safe integer/);
+  invalid((artifact) => { artifact.validation = 'headings'; }, /artifact\.validation must be an object/);
+  invalid((artifact) => { artifact.validation = { requiredHeadings: ['Outcome', ' outcome '] }; }, /requiredHeadings must be an array of non-empty unique strings/);
+  invalid((artifact) => { artifact.validation = { forbiddenPlaceholders: [''] }; }, /forbiddenPlaceholders must be an array of non-empty unique strings/);
 });
 
 test('legacy implementation contracts are upgraded to code and unsafe scopes fail at configuration load', async () => {

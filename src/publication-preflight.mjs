@@ -6,7 +6,7 @@ import { exists } from './util.mjs';
 
 const PLACEHOLDER = /\b(?:TODO|TBD)\b|\{\{[^}]+\}\}|\[\s*(?:describe|add|insert|provide|record)[^\]]*\]/gi;
 const MANAGED_INPUTS = /<!-- singularity-flow:inputs:start -->[\s\S]*?<!-- singularity-flow:inputs:end -->/g;
-const MANAGED_METADATA = /^<!-- singularity-flow:metadata\n[\s\S]*?\n-->\s*/;
+const MANAGED_METADATA = /^<!-- singularity-flow:(?:initiative-)?metadata\n[\s\S]*?\n-->\s*/;
 const SINGLE_WORD_ANGLE_PLACEHOLDERS = new Set([
   'benefit', 'capability', 'decision', 'requirement', 'role'
 ]);
@@ -46,6 +46,21 @@ export function authoredArtifactFingerprint(text) {
     .replace(/\n{3,}/g, '\n\n')
     .trim();
   return sha256(normalized);
+}
+
+/** Human/model-facing rendering of the same authored-content boundary the kernel enforces. */
+export function artifactContentContractLines(contract = null) {
+  if (!contract) return [];
+  const minimum = contract.minimumBytes ?? 1;
+  const maximum = contract.maximumBytes;
+  const headings = contract.validation?.requiredHeadings ?? [];
+  const forbidden = contract.validation?.forbiddenPlaceholders ?? [];
+  return [
+    `- Authored content: at least ${minimum} UTF-8 bytes${maximum == null ? '' : ` and at most ${maximum} UTF-8 bytes`}; managed metadata and approved-input blocks do not count.`,
+    `- Required Markdown headings: ${headings.length ? headings.map((heading) => `\`${heading}\``).join(', ') : 'none beyond the configured template'}.`,
+    `- Completion rule: replace every TODO, TBD, unresolved template marker, and configured forbidden placeholder${forbidden.length ? ` (${forbidden.map((value) => `\`${value}\``).join(', ')})` : ''}; an unchanged prepared template is refused.`,
+    '- Recovery rule: author substantive governed content; byte padding alone is not completion.'
+  ];
 }
 
 function anglePlaceholderFindings(text) {

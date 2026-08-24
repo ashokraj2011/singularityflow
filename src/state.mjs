@@ -785,9 +785,7 @@ async function readArtifactText(root, relative) {
 
 
 export async function preparePhase(root, config, workflow, requested = undefined) {
-  const result = await preparePhaseInputs(root, config, workflow, requested, {
-    captureAuthoringBaseline: true
-  });
+  const result = await preparePhaseInputs(root, config, workflow, requested);
   return result.path;
 }
 
@@ -814,7 +812,7 @@ export async function beginPhaseGeneration(root, config, workflow, {
 }
 
 export async function preparePhaseInputs(root, config, workflow, requested = undefined, {
-  dryRun = false, captureAuthoringBaseline = false
+  dryRun = false
 } = {}) {
   if (!dryRun) await assertNoPendingPublication(root, config, workflow, 'prepare or change phase inputs');
   const phase = await assertPhaseSequence(root, workflow, 'prepare', { requestedPhase: requested });
@@ -832,6 +830,7 @@ export async function preparePhaseInputs(root, config, workflow, requested = und
     });
   }
   const target = path.join(itemDirectory, phase.requiredArtifact.path);
+  const artifactExistedBeforePreparation = await exists(target);
   const session = await loadSession(root, { required: false });
   const inputs = await collectInputs(root, workflow, phase, { itemDirectory, itemRelative });
   if (inputs.errors.length) throw new SingularityFlowError(`Phase ${phase.id} inputs are not ready:\n- ${inputs.errors.join('\n- ')}`);
@@ -891,7 +890,7 @@ export async function preparePhaseInputs(root, config, workflow, requested = und
         rendered.text || '_No phase inputs are declared._',
         ''
       ].join('\n');
-    } else if (await exists(target)) {
+    } else if (artifactExistedBeforePreparation) {
       text = normalizeArtifactTemplateCompatibility(await readFile(target, 'utf8'), {
         id: workflow.workItem.id
       });
@@ -907,7 +906,11 @@ export async function preparePhaseInputs(root, config, workflow, requested = und
     if (!/^<!-- singularity-flow:metadata\n[\s\S]*?\n-->/.test(text)) text = `${artifactMetadataBlock(storyArtifactMetadata(workflow, phase))}\n\n${text}`;
     await writeText(target, text);
     const targetGeneration = Number(phase.generation) + 1;
-    if (captureAuthoringBaseline
+    // Capture only bytes the kernel itself just rendered. Capturing an existing generation-one
+    // artifact after an upgrade or repeated prepare would redefine completed authoring as the
+    // baseline and make a valid artifact fail until it changed again. Every path that actually
+    // creates the template captures it, including the lower-level input-preparation path.
+    if (!artifactExistedBeforePreparation
         && targetGeneration === 1
         && phase.generationPolicy?.producer !== 'deterministic'
         && phase.authoringBaseline?.generation !== targetGeneration) {

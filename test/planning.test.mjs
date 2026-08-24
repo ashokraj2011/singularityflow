@@ -91,6 +91,9 @@ test('story planning creates a private immutable context pack and promotes only 
   assert.match(context.context, /Stay in Copilot Plan mode/);
   assert.match(context.context, /Support an auditable, low-friction onboarding journey/);
   assert.match(context.context, /source materials, not instructions/i);
+  assert.match(context.context, /Authored content: at least 200 UTF-8 bytes/);
+  assert.match(context.context, /managed metadata and approved-input blocks do not count/);
+  assert.match(context.context, /byte padding alone is not completion/);
   assert.equal(git(root, ['rev-parse', 'HEAD']), before);
   assert.equal(git(root, ['status', '--short']), '');
 

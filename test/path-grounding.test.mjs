@@ -184,6 +184,9 @@ test('prepare, inputs, and compose replay complete repository-rooted paths witho
   assert.match(prompt, new RegExp('Repository root: `' + canonicalRepository.replace(/[.*+?^${}()|[\]\\]/g, '\\$&') + '`'));
   assert.match(prompt, new RegExp('Work-item directory: `' + itemRelative + '`'));
   assert.match(prompt, new RegExp('Required artifact: `' + itemRelative + '/artifacts/implementation/implementation-summary\\.md`'));
+  assert.match(prompt, /Authored content: at least 250 UTF-8 bytes/);
+  assert.match(prompt, /managed metadata and approved-input blocks do not count/);
+  assert.match(prompt, /unchanged prepared template is refused/);
   assert.match(prompt, new RegExp(`source=${repositoryPath.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}`));
   assert.doesNotMatch(prompt, /- Required artifact: `artifacts\//);
 });

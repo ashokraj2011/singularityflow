@@ -91,3 +91,27 @@ test('manual artifact import preserves binary bytes, strips managed text metadat
   await assert.rejects(() => importManualArtifact({ sourcePath: link, targetPath: target, contract: {} }), /symbolic link/);
   assert.throws(() => normalizeAuthorshipOptions({ producer: 'human', channel: 'kernel-model' }), /incompatible/);
 });
+
+test('in-place authored validation aggregates placeholders and authored-byte size for host recovery', async () => {
+  const directory = await mkdtemp(path.join(os.tmpdir(), 'sflow-in-place-incomplete-'));
+  const target = path.join(directory, 'intake.md');
+  await writeFile(target, [
+    '<!-- singularity-flow:metadata', JSON.stringify({ managed: 'x'.repeat(500) }), '-->',
+    '# Intake', '', '## Objective', '', 'TODO describe the requested outcome.', ''
+  ].join('\n'));
+  await assert.rejects(
+    () => inspectInPlaceArtifact(target, { minimumBytes: 200 }),
+    (error) => {
+      assert.equal(error.code, 'ARTIFACT_AUTHORING_INCOMPLETE');
+      assert.deepEqual(error.details.findings.map((finding) => finding.code), [
+        'artifact.placeholder.unresolved', 'artifact.required.too-short'
+      ]);
+      assert.ok(error.details.findings.at(-1).bytes < 200);
+      assert.deepEqual(error.details.retry, {
+        skill: '/sf-phase', maximumAttempts: 1, requiresFingerprintChange: true
+      });
+      assert.match(error.message, /adding padding alone is not a recovery/i);
+      return true;
+    }
+  );
+});

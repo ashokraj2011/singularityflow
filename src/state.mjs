@@ -107,7 +107,9 @@ import {
 } from './code-delivery-tests.mjs';
 import { repositoryCaseInsensitivePaths } from './repository-change-set.mjs';
 import {
-  requiredArtifactRepoPath, validateRequiredArtifactContent as validateRequiredArtifactContentPreflight
+  artifactFindingMessage, authoredArtifactFingerprint, authoredArtifactText,
+  inspectRequiredArtifactContent, requiredArtifactRepoPath,
+  validateRequiredArtifactContent as validateRequiredArtifactContentPreflight
 } from './publication-preflight.mjs';
 
 export const CONFIG_PATH = WORKFLOW_PATH;
@@ -783,7 +785,9 @@ async function readArtifactText(root, relative) {
 
 
 export async function preparePhase(root, config, workflow, requested = undefined) {
-  const result = await preparePhaseInputs(root, config, workflow, requested);
+  const result = await preparePhaseInputs(root, config, workflow, requested, {
+    captureAuthoringBaseline: true
+  });
   return result.path;
 }
 
@@ -809,7 +813,9 @@ export async function beginPhaseGeneration(root, config, workflow, {
   });
 }
 
-export async function preparePhaseInputs(root, config, workflow, requested = undefined, { dryRun = false } = {}) {
+export async function preparePhaseInputs(root, config, workflow, requested = undefined, {
+  dryRun = false, captureAuthoringBaseline = false
+} = {}) {
   if (!dryRun) await assertNoPendingPublication(root, config, workflow, 'prepare or change phase inputs');
   const phase = await assertPhaseSequence(root, workflow, 'prepare', { requestedPhase: requested });
   await assertMcpPhaseReadiness(root, workflow, phase);
@@ -900,6 +906,19 @@ export async function preparePhaseInputs(root, config, workflow, requested = und
     text = applyInputsBlock(text, rendered.text, inputs.mode);
     if (!/^<!-- singularity-flow:metadata\n[\s\S]*?\n-->/.test(text)) text = `${artifactMetadataBlock(storyArtifactMetadata(workflow, phase))}\n\n${text}`;
     await writeText(target, text);
+    const targetGeneration = Number(phase.generation) + 1;
+    if (captureAuthoringBaseline
+        && targetGeneration === 1
+        && phase.generationPolicy?.producer !== 'deterministic'
+        && phase.authoringBaseline?.generation !== targetGeneration) {
+      const authored = authoredArtifactText(text);
+      phase.authoringBaseline = {
+        generation: targetGeneration,
+        path: phase.requiredArtifact.path,
+        fingerprint: authoredArtifactFingerprint(authored),
+        bytes: Buffer.byteLength(authored)
+      };
+    }
     if (workflowInputsMode(workflow) !== 'off' && resolvedPhaseInputs(workflow, phase).length) {
       const recorded = await recordInputs(root, workflow, phase, inputs, { itemDirectory });
       phase.inputContext = { generation: inputs.generation, path: recorded.path, sha256: recorded.sha256, renderedSha256: recorded.record.renderedSha256, mode: inputs.mode };
@@ -1191,16 +1210,27 @@ export async function publishGeneration(root, config, workflow, { phaseId, usage
   // sidecars and telemetry begin to move. An untouched prepared template should cost the author one
   // clear correction, not leave a half-started generation that produces the same adoption warning
   // on every retry.
-  // Minimum-size validation intentionally remains at the established late validation boundary:
-  // phase-specific gates (for example specification quality) have more useful diagnoses and have
-  // historically taken precedence. Missing files and unmistakable template placeholders are the
-  // cases that can be refused early without changing that ordering.
-  const contentErrors = await validateRequiredArtifactContentPreflight(root, config, workflow, phase, { minimumBytes: false });
-  if (contentErrors.length) {
+  // Use the same authored-byte boundary as manual import and recovery. Report every deterministic
+  // authoring blocker together so a host can repair the artifact once instead of chasing one
+  // first-error failure per retry.
+  const contentFindings = await inspectRequiredArtifactContent(root, config, workflow, phase);
+  if (contentFindings.length) {
     const required = requiredRepoPath(config, workflow, phase);
     throw new SingularityFlowError(
-      `Phase ${phase.id} generation is not publishable:\n- ${contentErrors.join('\n- ')}\n`
-      + `Complete ${required}, remove every placeholder, and publish again.`
+      `Phase ${phase.id} generation is not publishable:\n- ${contentFindings.map(artifactFindingMessage).join('\n- ')}\n`
+      + `Complete ${required}, then run singularity-flow recover ${workflow.workItem.id} --phase ${phase.id} --json. `
+      + 'A Copilot host may re-author and retry publication once only after the artifact fingerprint changes.',
+      {
+        code: 'ARTIFACT_AUTHORING_INCOMPLETE',
+        details: {
+          findings: contentFindings,
+          fingerprint: contentFindings.find((finding) => finding.fingerprint)?.fingerprint ?? null,
+          retry: {
+            skill: '/sf-phase', maximumAttempts: 1, requiresFingerprintChange: true,
+            command: `singularity-flow phase publish ${phase.id} --authored governed-agent --channel copilot-host`
+          }
+        }
+      }
     );
   }
   // A code-generation phase must deliver code and acceptance-mapped tests. This is deliberately

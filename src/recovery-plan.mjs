@@ -6,11 +6,12 @@ import { buildRepositoryChangeSet } from './repository-change-set.mjs';
 import { inspectRequiredArtifactContent } from './publication-preflight.mjs';
 import { isApplicationChangeEntry } from './work-intervals.mjs';
 
-function action({ id, mode = 'guided', detail, command = null, skill = null, evidence = null }) {
+function action({ id, mode = 'guided', detail, command = null, skill = null, evidence = null, retry = null }) {
   return {
     id, safe: mode !== 'manual', automatic: mode === 'automatic', mode,
     detail, command, skill, evidence,
-    confirmation: mode === 'automatic' ? 'plan-hash' : mode === 'manual' ? 'human-authority' : 'none'
+    confirmation: mode === 'automatic' ? 'plan-hash' : mode === 'manual' ? 'human-authority' : 'none',
+    ...(retry ? { retry } : {})
   };
 }
 
@@ -26,10 +27,16 @@ function artifactActions(workflow, phase, findings) {
   return [action({
     id: `complete-artifact:${phase.id}`,
     detail: first.line
-      ? `Complete the authored artifact at ${first.path}:${first.line}; recovery will not invent or replace its content.`
-      : `Complete the authored artifact at ${first.path}; recovery will not invent or replace its content.`,
+      ? `Complete all ${findings.length} authoring blocker(s), starting at ${first.path}:${first.line}. A Copilot host must re-author from the governed prompt before retrying.`
+      : `Complete all ${findings.length} authoring blocker(s) at ${first.path}. A Copilot host must re-author from the governed prompt before retrying.`,
     command: `singularity-flow phase show ${phase.id} --show-artifact`,
-    skill: '/sf-phase', evidence: { path: first.path, line: first.line }
+    skill: '/sf-phase', evidence: { path: first.path, line: first.line },
+    retry: {
+      maximumAttempts: 1,
+      requiresFingerprintChange: true,
+      beforeRetry: `singularity-flow recover ${workflow.workItem.id} --phase ${phase.id} --json`,
+      command: `singularity-flow phase publish ${phase.id} --authored governed-agent --channel copilot-host`
+    }
   })];
 }
 

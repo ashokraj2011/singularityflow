@@ -11,11 +11,12 @@ import { createAutoPlan, ratifyAutoPlan, readAutoPlan } from '../src/auto/auto-p
 import { startAutoFlight } from '../src/auto/auto-flight.mjs';
 import { executeAutoFlightStep } from '../src/auto/auto-executor.mjs';
 import {
-  authorizeAutoAuthoringAttempt, discardAutoFlight, haltAutoFlight, pauseAutoFlight, readAutoFlightReport,
-  readAutoFlightState, resumeAutoFlight
+  authorizeAutoAuthoringAttempt, discardAutoFlight, haltAutoFlight, mutateAutoFlightState, pauseAutoFlight,
+  readAutoFlightReport, readAutoFlightState, resumeAutoFlight
 } from '../src/auto/auto-flight-store.mjs';
 import { loadDefinition } from '../src/config.mjs';
 import { withOperationContext } from '../src/operation-context.mjs';
+import { withSubjectLock } from '../src/subject-lock.mjs';
 
 const cli = path.resolve('bin/singularity-flow.mjs');
 
@@ -382,3 +383,37 @@ for (const request of ['pause', 'halt']) {
       'the stop command waits until the executor has durably accounted its active time');
   });
 }
+
+test('a stop observed while its flight-state lock is still held remains recoverable', async () => {
+  const root = await executableRepository({ authorDelayMs: 10_000 });
+  const workId = 'AUT-STOP-RACE-1';
+  const plan = await createAutoPlan(root, 'Change the exported application value from one to two.', {
+    ...proposal, workType: 'quick-fix', predictedPaths: ['app.mjs', 'test/app.test.mjs'],
+    suggestedUntil: 'phase-complete:implement'
+  }, { workId, workType: 'quick-fix', fromBranch: 'main' });
+  const started = await startAutoFlight(root, plan.planId, plan.planSha256);
+  const execution = runFlightStep(root, { ...started.flight, worktree: started.story.worktree });
+  let active;
+  for (let attempt = 0; attempt < 250; attempt += 1) {
+    active = await readAutoFlightState(root, started.flight.flightId);
+    if (active.counters.modelInvocations === 1) break;
+    await delay(20);
+  }
+  assert.equal(active.counters.modelInvocations, 1, 'model process never became active');
+
+  await withSubjectLock(root, { kind: 'auto-flight', id: started.flight.flightId }, async () => {
+    await mutateAutoFlightState(root, started.flight.flightId, (draft) => {
+      draft.status = 'paused'; draft.stopReason = 'human-paused';
+      draft.stopRequested = { kind: 'pause', requestedAt: new Date().toISOString() };
+      draft.nextAction = 'Resume with the exact checkpoint hash when ready.';
+    });
+    // Keep the mutation lease beyond the cancellation monitor interval. The executor must retry
+    // its terminal accounting instead of converting this expected overlap into a lock failure.
+    await delay(300);
+  });
+
+  const final = await execution;
+  assert.equal(final.status, 'paused');
+  assert.equal(final.stopReason, 'human-paused');
+  assert.ok(final.counters.activeMilliseconds > 0);
+});

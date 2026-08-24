@@ -138,12 +138,25 @@ function cancellationMonitor(root, flightId, controller) {
 
 async function stoppedByHuman(root, flightId, error, activeSince) {
   if (!['AUTO_STOP_REQUESTED', 'MODEL_CANCELLED', 'AUTO_CHECKPOINT_STALE'].includes(error?.code)) return null;
-  const current = await readAutoFlightState(root, flightId);
-  if (current.status === 'running' && !current.stopRequested) return null;
-  return mutateAutoFlightState(root, flightId, (draft) => {
-    draft.counters.activeMilliseconds = (draft.counters.activeMilliseconds ?? 0)
-      + Math.max(0, Date.now() - activeSince);
-  }, { expectedCheckpoint: current.checkpointSha256 });
+  // The interrupt is durable before pause/halt waits for the step lease. The executor can observe
+  // that new checkpoint while the interrupt command is still releasing the short-lived state
+  // lock. Treat that as ordinary coordination, not as an authoring failure. A stale checkpoint is
+  // retried as well so a concurrent pause-to-halt escalation cannot lose final time accounting.
+  const deadline = Date.now() + 2_000;
+  for (;;) {
+    const current = await readAutoFlightState(root, flightId);
+    if (current.status === 'running' && !current.stopRequested) return null;
+    try {
+      return await mutateAutoFlightState(root, flightId, (draft) => {
+        draft.counters.activeMilliseconds = (draft.counters.activeMilliseconds ?? 0)
+          + Math.max(0, Date.now() - activeSince);
+      }, { expectedCheckpoint: current.checkpointSha256 });
+    } catch (mutationError) {
+      if (!['SUBJECT_LOCK_BUSY', 'AUTO_CHECKPOINT_STALE'].includes(mutationError?.code)
+          || Date.now() >= deadline) throw mutationError;
+      await new Promise((resolve) => setTimeout(resolve, 20));
+    }
+  }
 }
 
 function selectorReached(until, phaseId, boundary) {

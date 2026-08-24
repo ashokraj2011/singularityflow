@@ -8,6 +8,7 @@ import { currentSchemaVersion, readRecord } from './schema-migrations.mjs';
 import { nowIso, posix, SingularityFlowError, snapshot, writeJson, writeText } from './util.mjs';
 
 const SUMMARY_HEADINGS = Object.freeze(['agent brief', 'executive summary', 'summary', 'tl;dr', 'overview']);
+const MANAGED_INPUTS = /<!-- singularity-flow:inputs:start -->[\s\S]*?<!-- singularity-flow:inputs:end -->/g;
 
 function sha256(value) { return createHash('sha256').update(value).digest('hex'); }
 function normalizeHeading(value) {
@@ -79,6 +80,15 @@ function authoredText(value) {
   return String(value).replace(/<!--[^]*?-->/g, '').trim();
 }
 
+function withoutManagedInputs(value) {
+  // An approved upstream artifact is evidence embedded in the current artifact, not part of the
+  // current producer's authored heading namespace. Parsing it as current content makes an ordinary
+  // `## Agent brief` in a nested plan collide with the implementation artifact's own heading. It
+  // also lets a nested summary become the producer's summary when the producer left its own empty.
+  return String(value).replace(MANAGED_INPUTS, (block) =>
+    '\n'.repeat((block.match(/\n/g) ?? []).length));
+}
+
 function briefPolicy(declaration) {
   return {
     projection: 'approved-summary',
@@ -139,13 +149,14 @@ export async function createAgentBriefs(root, workflow, producerPhase, { itemDir
     bytes: sourceInfo.size
   };
   const markdown = await readFile(sourcePath, 'utf8');
-  const parsedHeadings = headings(markdown);
+  const authoredMarkdown = withoutManagedInputs(markdown);
+  const parsedHeadings = headings(authoredMarkdown);
   const created = [];
   const pendingWrites = [];
   for (const { consumer, declaration } of consumers) {
     const policy = briefPolicy(declaration);
     const paths = agentBriefRelativePaths(itemRelative, producerPhase.id, producerPhase.generation, consumer.id);
-    const summary = SUMMARY_HEADINGS.map((heading) => sectionFor(markdown, heading, parsedHeadings))
+    const summary = SUMMARY_HEADINGS.map((heading) => sectionFor(authoredMarkdown, heading, parsedHeadings))
       .find((section) => section && authoredText(section.body));
     const preserved = [];
     let status = 'ready';
@@ -163,7 +174,7 @@ export async function createAgentBriefs(root, workflow, producerPhase, { itemDir
       // fallback and blocks otherwise publishable legacy/manual artifacts. The whole artifact is
       // already the lossless projection in that branch, so there is nothing separate to preserve.
       for (const heading of policy.preserve) {
-        const section = sectionFor(markdown, heading, parsedHeadings);
+        const section = sectionFor(authoredMarkdown, heading, parsedHeadings);
         if (!section || !authoredText(section.body)) {
           throw new SingularityFlowError(
             `Phase ${producerPhase.id} cannot create the approved agent brief for ${consumer.id}: preserved section '${heading}' is missing or empty.`

@@ -154,6 +154,42 @@ test('an untouched prepared template is refused before publication mutates phase
   });
 });
 
+test('scaffold angle placeholders are rejected but immutable approved-input placeholders are ignored', async () => {
+  const unfinished = await fixture('angle-placeholder');
+  await writeFile(unfinished.target, [
+    '# Intake', '',
+    '## Requested outcome', '', 'Deliver reviewed publication evidence.', '',
+    '## Scope and constraints', '', '| Surface | Change |', '|---|---|', '| <path or module> | <what changes> |', '',
+    '## Evidence', '', 'The artifact must contain concrete repository paths.'
+  ].join('\n'));
+  await inContext(unfinished.root, async () => {
+    await assert.rejects(
+      () => publishGeneration(unfinished.root, unfinished.config, unfinished.workflow, {
+        phaseId: 'intake', authorship: AUTHORSHIP
+      }),
+      /contains unresolved placeholder '<path or module>'/
+    );
+  });
+
+  const downstream = await fixture('managed-input-placeholder');
+  await writeFile(downstream.target, [
+    '# Intake', '',
+    '## Requested outcome', '', 'Deliver complete, reviewable evidence.', '',
+    '## Scope and constraints', '', 'The authored portion has no unresolved instructions.', '',
+    '## Evidence', '', 'Repository evidence is identified and bounded.',
+    'Run `singularity-flow mcp smoke playwright --url <AUTHORIZED-URL>` after authorization.', '',
+    '<!-- singularity-flow:inputs:start -->', '',
+    '# Approved upstream evidence', '', 'Legacy approved text containing TODO and <path or module>.', '',
+    '<!-- singularity-flow:inputs:end -->', ''
+  ].join('\n'));
+  await inContext(downstream.root, async () => {
+    const published = await publishGeneration(downstream.root, downstream.config, downstream.workflow, {
+      phaseId: 'intake', authorship: AUTHORSHIP
+    });
+    assert.equal(published.generation, 1);
+  });
+});
+
 test('the required artifact is expected while unrelated untracked files still warn', async () => {
   const { root, config, workflow, phase, target } = await fixture('adoption');
   await inContext(root, async () => {

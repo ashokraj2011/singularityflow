@@ -161,6 +161,30 @@ test('approved summaries inject bounded reviewed briefs and preserve exact criti
   assert.match(rendered, /singularity-flow show sfref_test_approved_source/);
 });
 
+test('agent brief projection ignores duplicate headings inside managed approved inputs', async () => {
+  const declaration = {
+    phase: 'requirements', optional: false, maxBytes: null, projection: 'approved-summary',
+    preserve: ['Test strategy'], maximumSummaryBytes: 4096,
+    expansion: 'hash-bound-reference', fallback: 'block'
+  };
+  const value = await fixture('enforce', declaration);
+  const [brief] = await publishBrief(value, [
+    '# Implementation plan', '',
+    '## Agent brief', '', 'Use the repository-native operator and focused acceptance tests.', '',
+    '## Test strategy', '', 'Run the module suite and bind it to AC-001.', '',
+    '<!-- singularity-flow:inputs:start -->', '',
+    '# Approved phase inputs', '',
+    '## Agent brief', '', 'This upstream heading is evidence, not the current producer summary.', '',
+    '## Test strategy', '', 'This upstream proof plan must not replace the current plan.', '',
+    '<!-- singularity-flow:inputs:end -->', ''
+  ].join('\n'));
+  assert.equal(brief.status, 'ready');
+  const rendered = await readFile(path.join(value.root, brief.renderedPath), 'utf8');
+  assert.match(rendered, /repository-native operator/);
+  assert.match(rendered, /bind it to AC-001/);
+  assert.doesNotMatch(rendered, /upstream heading|upstream proof plan/);
+});
+
 test('brief tampering fails closed and whole-artifact fallback does not require summary-only preserved sections', async () => {
   const declaration = {
     phase: 'requirements', optional: false, maxBytes: null, projection: 'approved-summary',

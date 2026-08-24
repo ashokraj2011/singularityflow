@@ -979,14 +979,50 @@ export async function scanArtifacts(root, config, workflow, phaseId = undefined)
 }
 
 const PLACEHOLDER = /\b(?:TODO|TBD)\b|\{\{[^}]+\}\}|\[\s*(?:describe|add|insert|provide|record)[^\]]*\]/i;
+const MANAGED_INPUTS = /<!-- singularity-flow:inputs:start -->[\s\S]*?<!-- singularity-flow:inputs:end -->/g;
+const SINGLE_WORD_ANGLE_PLACEHOLDERS = new Set([
+  'benefit', 'capability', 'decision', 'requirement', 'role'
+]);
+
+function maskBlock(block) {
+  return '\n'.repeat((block.match(/\n/g) ?? []).length);
+}
+
+function anglePlaceholderFinding(text) {
+  const candidates = text.matchAll(/<([^<>\r\n]+)>/g);
+  for (const candidate of candidates) {
+    const body = candidate[1].trim();
+    if (!body || /^(?:https?:|mailto:|\/|!|\?)/i.test(body) || body.includes('=')) continue;
+    // Uppercase command metavariables are executable documentation, not unfinished prose. They
+    // intentionally occur in phase artifacts such as `--url <AUTHORIZED-URL>` and `<DIRECTORY>`.
+    if (/^[A-Z][A-Z0-9 _-]+$/.test(body)) continue;
+    const singleWord = body.toLocaleLowerCase('en-US');
+    const placeholder = /\s/.test(body)
+      || /[…]|\.\.\./.test(body)
+      || SINGLE_WORD_ANGLE_PLACEHOLDERS.has(singleWord);
+    if (placeholder) return { value: candidate[0], index: candidate.index };
+  }
+  return null;
+}
+
 function placeholderFinding(text) {
-  // Preserve line positions while excluding kernel-owned metadata from author-content validation.
-  const authored = text.replace(/<!-- singularity-flow:metadata[\s\S]*?-->/, (block) =>
-    '\n'.repeat((block.match(/\n/g) ?? []).length));
-  const match = authored.match(PLACEHOLDER);
-  if (!match || match.index == null) return null;
+  // Preserve line positions while excluding kernel-owned metadata and immutable approved inputs
+  // from validation of this phase's authored content. Each upstream artifact was responsible for
+  // passing its own publication gate; copying its headings or literal examples downstream must not
+  // make the consumer appear unfinished.
+  const authored = text
+    .replace(/<!-- singularity-flow:metadata[\s\S]*?-->/, maskBlock)
+    .replace(MANAGED_INPUTS, maskBlock);
+  const regular = authored.match(PLACEHOLDER);
+  const angle = anglePlaceholderFinding(authored);
+  const findings = [
+    regular?.index == null ? null : { value: regular[0], index: regular.index },
+    angle
+  ].filter(Boolean).sort((left, right) => left.index - right.index);
+  const match = findings[0];
+  if (!match) return null;
   return {
-    value: match[0],
+    value: match.value,
     line: authored.slice(0, match.index).split('\n').length
   };
 }

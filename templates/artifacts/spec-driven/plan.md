@@ -11,14 +11,16 @@ for downstream agents. Keep exact commands and source paths when they are operat
 The complete approved plan remains available through its hash-bound expansion reference.
 -->
 
+TODO: Summarize the selected implementation approach, affected surfaces, proof strategy, and principal risks.
+
 ## Approach
 
-How this will be built, and why this way rather than the obvious alternative.
+TODO: Explain how this will be built and why this approach was selected.
 
 ## Affected surfaces
 
-Modules, contracts, data, and interfaces this touches. Expected paths are a planning aid; the
-authority on what actually changed remains reconciliation `[SPK:CON-031]`.
+TODO: Identify the modules, contracts, data, and interfaces this touches. Expected paths are a
+planning aid; the authority on what actually changed remains reconciliation `[SPK:CON-031]`.
 
 | Surface | Change | Serves |
 |---|---|---|
@@ -26,12 +28,12 @@ authority on what actually changed remains reconciliation `[SPK:CON-031]`.
 
 ## Sequencing
 
-The order the work has to happen in, and what each step unblocks.
+TODO: State the implementation order and what each step unblocks.
 
 ## Test strategy
 
-How each requirement will be proved. A requirement with no stated means of proof is a requirement
-that will be argued about at verification.
+TODO: Explain how each requirement will be proved. A requirement with no stated means of proof is a
+requirement that will be argued about at verification.
 
 | Clause | Proof |
 |---|---|
@@ -39,8 +41,8 @@ that will be argued about at verification.
 
 ## Constitution articles
 
-Article IDs this plan is bound by `[SPK:REQ-100]`.
+TODO: List the constitution article IDs this plan is bound by `[SPK:REQ-100]`.
 
 ## Risks and rollback
 
-What could go wrong, how it would be noticed, and how to undo it.
+TODO: Describe what could go wrong, how it would be detected, and how to roll it back.

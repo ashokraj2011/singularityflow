@@ -15,7 +15,7 @@ import { SingularityFlowError, exists, nowIso, optionBoolean, optionNumber, opti
 import { add, assertClean, branch, changes, checkout, commit, fastForwardTo, fetchOrigin, fetchRemote, fileAtRef, gitDir, hasUpstream, head, identity, localBranches, preflightPushBranch, pullFastForward, refExists, refHead, remoteBranches, repoRoot } from './git.mjs';
 import { buildRepositorySubjectIndex, buildRepositorySubjectIndexFromRefs, resolveContext } from './repository-subject-index.mjs';
 import { approvePhase, assertNoPendingPublication, beginPhaseGeneration, cancelWorkflow, commitAndPublish, CONFIG_PATH, createWorkflow, currentPhase, generationResultDigest, loadConfig, preparePhase, preparePhaseInputs, promoteDesignSource, publishGeneration, reconcilePhaseTelemetry, registerArtifact, rejectPhase, reopenWorkflow, resolveWorkItem, saveStoryDraft, transactStory, scanArtifacts, storyPublicationPending, submitPhase, syncPublication, validateId, validateWorkflow, workflowBranchAllowed, workflowPublicationBranch, workflowPath, workDir } from './state-stores.mjs';
-import { phaseRequiresCodeDelivery } from './code-delivery-policy.mjs';
+import { generationSkillForPhase, phaseRequiresCodeDelivery } from './code-delivery-policy.mjs';
 import { generationStartPublicationBinding, verifyOpenGenerationIntent } from './generation-boundary.mjs';
 import { LIFECYCLE_EVENT } from './lifecycle-event.mjs';
 import { copilotTelemetryStatus } from './telemetry.mjs';
@@ -2127,6 +2127,11 @@ async function nextCommand(options) {
     return submitCommand(['submit', phase.id], options);
   }
 
+  // Approval advances the workflow while the local session still names the previous phase's agent.
+  // Open the next authoring boundary only after selecting the new phase's configured default. This
+  // keeps a planning architect from being recorded as the starter of an implementation generation.
+  await activateWorkItemSession(root, config, workflow);
+
   // Lifecycle grounding consumes the repository model, whose durable identity is the scoped
   // source snapshot. Story context is already supplied by the governed workflow prompt. Adding a
   // Story title as a task-guide requirement would make every Story look like a missing model and
@@ -2182,7 +2187,7 @@ async function nextCommand(options) {
   console.log('\nAfter authoring and validation, publish the generation:');
   console.log(`  Run (authored by you): singularity-flow phase publish ${phase.id} --authored human`);
   console.log(`  Run (authored by Copilot): singularity-flow phase publish ${phase.id} --authored governed-agent --channel copilot-host`);
-  console.log(`  In Copilot: /sf-phase ${phase.id}`);
+  console.log(`  In Copilot: ${generationSkillForPhase(phase)} ${phase.id}`);
 }
 
 async function documentsCommand(positionals, options) {

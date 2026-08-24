@@ -187,8 +187,11 @@ export function buildGenerationAuthorship({
           provider: record.provider ?? null,
           requestedModel: null,
           resolvedModel: record.routing?.resolvedModel ?? record.model ?? null,
-          assurance: record.routing?.task ? 'policy-selected'
-            : record.status === 'completed' && record.provider && record.model ? 'host-observed' : 'unavailable',
+          assurance: record.observationIntegrity !== 'external-host-attested'
+            ? 'unavailable'
+            : record.routing?.task ? 'policy-selected'
+              : record.status === 'completed' && record.provider && record.model ? 'host-observed' : 'unavailable',
+          observationIntegrity: record.observationIntegrity ?? 'unverified-local',
           host: 'singularity-flow-kernel',
           source: 'model-invocation-audit',
           observedAt: record.completedAt ?? record.startedAt ?? null,

@@ -1,6 +1,6 @@
 import path from 'node:path';
 import { rm } from 'node:fs/promises';
-import { branch, commitIsolated, head, pushBranch } from './git.mjs';
+import { branch, commitIsolated, head, pushCommitToBranch } from './git.mjs';
 import {
   appendLedgerIntent,
   clearLedgerOutbox,
@@ -17,6 +17,7 @@ import { withSubjectLock } from './subject-lock.mjs';
 import { SingularityFlowError, nowIso, stateFingerprint } from './util.mjs';
 import { currentSchemaVersion } from './schema-migrations.mjs';
 import { capturePublicationPreimage, restorePublicationPreimage } from './publication-recovery.mjs';
+import { recordSha256 } from './records.mjs';
 
 export class GitPublicationUnitOfWork {
   constructor(root) { this.root = root; }
@@ -34,13 +35,14 @@ export class GitPublicationUnitOfWork {
   state = null,
   beforeCommit = null,
   fault = null,
+  transactionId = null,
   recoveryPreimage: suppliedRecoveryPreimage = null
   } = {}) {
   const root = this.root;
   let envelope = assertLifecycleEvent(event, subject);
   if (!commitSpec?.message) throw new SingularityFlowError('Publication requires commit.message.');
   if (!publication?.branch) throw new SingularityFlowError('Publication requires a target branch.');
-  return withSubjectLock(root, subject, async () => {
+  return withSubjectLock(root, subject, async (lockOwner) => {
     if (branch(root) !== publication.branch) {
       throw new SingularityFlowError(`Current branch ${branch(root)} must match ${subject.kind} branch ${publication.branch}.`);
     }
@@ -91,16 +93,22 @@ export class GitPublicationUnitOfWork {
       ?? (state?.captureRecovery
         ? await state.captureRecovery()
         : await capturePublicationPreimage(root, allowedPaths));
-    await beginPublicationJournal(root, {
+    const journal = await beginPublicationJournal(root, {
       subject,
       expectedHead: publicationHead,
       branch: publication.branch,
       remote: publication.remote ?? 'origin',
       event: envelope,
-      recoveryPreimage
+      recoveryPreimage,
+      publicationMode: publication.mode ?? 'required',
+      ...(transactionId ? { transactionId } : {}),
+      lockOwner
     });
     let wroteState = false;
     let ledgerIntentPath = null;
+    let transactionTree = null;
+    let transactionStateSha256 = null;
+    let transactionEventSha256 = journal.eventSha256;
     const unwind = async (error) => {
       if (ledgerIntentPath) await rm(path.join(root, ledgerIntentPath), { force: true });
       let restoreFailure = null;
@@ -111,7 +119,7 @@ export class GitPublicationUnitOfWork {
             stage: 'restoring',
             recoveryAttemptedAt: nowIso(),
             originalError: error?.message ?? String(error)
-          });
+          }, { transactionId: journal.transactionId });
           restoration = state?.rollback
             ? await state.rollback(recoveryPreimage, { preserveCurrent: true })
             : await restorePublicationPreimage(root, recoveryPreimage, { subject, preserveCurrent: true });
@@ -127,7 +135,7 @@ export class GitPublicationUnitOfWork {
           rollbackError: restoreFailure.message,
           rollbackFailedAt: nowIso(),
           rescuePath: restoration?.rescuePath ?? null
-        }).catch(() => {});
+        }, { transactionId: journal.transactionId }).catch(() => {});
         throw new SingularityFlowError(
           `${subject.kind} '${subject.id}' failed to publish and its state could not be restored: ${restoreFailure.message}. `
           + 'The durable recovery journal was retained. Run the appropriate sync command to retry exact restoration. '
@@ -135,7 +143,7 @@ export class GitPublicationUnitOfWork {
           { code: 'PUBLICATION_ROLLBACK_FAILED', details: { subject, originalError: error.message, rollbackError: restoreFailure.message } }
         );
       }
-      await clearPublicationJournal(root, subject);
+      await clearPublicationJournal(root, subject, { transactionId: journal.transactionId });
       throw error;
     };
 
@@ -155,7 +163,25 @@ export class GitPublicationUnitOfWork {
       // the flag false and skipped the undo entirely, which is precisely the durable record of an
       // event that never happened this block exists to prevent. Rolling back a write that had not
       // started yet is harmless: it restores the state that is already on disk.
-      if (state?.write) { wroteState = true; await state.write(envelope); }
+      if (state?.write) {
+        wroteState = true;
+        const writeResult = await state.write(envelope);
+        // A transition may allocate its authoritative actor, decision, or evidence identifiers only
+        // while it owns the transaction lock. In that case state.write finalizes the same envelope
+        // object before returning. Re-hash and persist it before validation or commit so recovery
+        // proves the event that actually describes the result, not the earlier planning intent.
+        if (writeResult?.event) envelope = assertLifecycleEvent(writeResult.event, subject);
+        transactionEventSha256 = `sha256:${recordSha256(envelope)}`;
+        if (transactionEventSha256 !== journal.eventSha256) {
+          await updatePublicationJournal(root, subject, {
+            event: envelope,
+            eventSha256: transactionEventSha256
+          }, { transactionId: journal.transactionId });
+        }
+        if (ledger?.config?.enabled && ledger.intent) {
+          ledger.intent.payload = { ...(ledger.intent.payload ?? {}), lifecycleEvent: envelope };
+        }
+      }
       if (fault) await fault('after-state-write', { envelope });
       if (state?.validate) await state.validate(envelope);
       if (beforeCommit) await beforeCommit(envelope);
@@ -180,11 +206,49 @@ export class GitPublicationUnitOfWork {
         expectedHead: publicationHead,
         sign: commitSpec.sign === true,
         signingKey: commitSpec.signingKey ?? null,
-        fault
+        fault,
+        transaction: {
+          id: journal.transactionId,
+          eventSha256: transactionEventSha256,
+          publicationMode: journal.publicationMode,
+          stateSha256ForTree: (tree) => `sha256:${recordSha256({
+            transactionId: journal.transactionId,
+            expectedHead: publicationHead,
+            branch: publication.branch,
+            tree,
+            eventSha256: transactionEventSha256,
+            publicationMode: journal.publicationMode
+          })}`
+        },
+        onCommitCreated: async ({ sourceCommit: createdCommit, tree, transaction }) => {
+          transactionTree = tree;
+          transactionStateSha256 = transaction.stateSha256;
+          await updatePublicationJournal(root, subject, {
+            stage: 'commit-created',
+            commit: createdCommit,
+            tree,
+            stateSha256: transaction.stateSha256
+          }, { transactionId: journal.transactionId });
+        },
+        onRefAdvanced: async ({ sourceCommit: advancedCommit }) => {
+          await updatePublicationJournal(root, subject, {
+            stage: 'ref-advanced',
+            commit: advancedCommit,
+            refAdvanced: true,
+            recoveryPreimage: null
+          }, { transactionId: journal.transactionId });
+        }
       });
     } catch (error) {
       if (!error.publicationRefAdvanced) await unwind(error);
-      sourceCommit = error.publicationCommit ?? head(root);
+      sourceCommit = error.publicationCommit;
+      if (!sourceCommit) {
+        throw new SingularityFlowError(
+          `${subject.kind} '${subject.id}' advanced its ref without recording the exact transaction commit. `
+          + 'Recovery was stopped to avoid publishing an unrelated HEAD.',
+          { code: 'PUBLICATION_COMMIT_IDENTITY_MISSING', cause: error }
+        );
+      }
       envelope = bindLifecycleEvent(envelope, sourceCommit);
       if (publication.mode !== 'off') {
         await writePendingPublication(root, {
@@ -199,12 +263,17 @@ export class GitPublicationUnitOfWork {
             event: envelope,
             createdAt: nowIso(),
             recoveryStage: 'branch-ref-advanced-before-publication',
+            transactionId: journal.transactionId,
+            tree: error.publicationTree ?? transactionTree,
+            eventSha256: transactionEventSha256,
+            stateSha256: transactionStateSha256,
+            publicationMode: journal.publicationMode,
             error: error.message,
             ...(pendingRecord?.({ sourceCommit, error: error.message, envelope }) ?? {})
           }
         });
       }
-      await clearPublicationJournal(root, subject);
+      await clearPublicationJournal(root, subject, { transactionId: journal.transactionId });
       throw error;
     }
     // The branch ref is now the durable recovery boundary. Drop the potentially large preimage as
@@ -212,17 +281,28 @@ export class GitPublicationUnitOfWork {
     // and publish the commit instead of carrying authored bytes through every journal rewrite.
     await updatePublicationJournal(root, subject, {
       stage: 'committed', commit: sourceCommit, recoveryPreimage: null
-    });
+    }, { transactionId: journal.transactionId });
     // The envelope this function returns is bound to the commit; the intent's payload deliberately
     // is not, so that it matches the file already committed above.
     envelope = bindLifecycleEvent(envelope, sourceCommit);
-    if (publication.mode === 'off') await clearPublicationJournal(root, subject);
+    if (publication.mode === 'off') {
+      await clearPublicationJournal(root, subject, { transactionId: journal.transactionId });
+    }
     if (fault) await fault('after-commit', { envelope, sourceCommit });
     let pushed = false;
     let replayed = false;
     let publishedCommit = sourceCommit;
     if (publication.mode !== 'off') {
-      let result = pushBranch(root, publication.remote ?? 'origin', publication.branch);
+      // Publish the exact commit this transaction created. HEAD is mutable repository state: a
+      // hook, another subject transaction, or a person at the keyboard may advance it after our
+      // compare-and-swap commit and before this push. Using HEAD here would let those unrelated
+      // bytes inherit this transaction's lifecycle event and recovery identity.
+      let result = pushCommitToBranch(
+        root,
+        publication.remote ?? 'origin',
+        sourceCommit,
+        publication.branch
+      );
       if (result.status !== 0 && conflictStrategy) {
         const resolved = await conflictStrategy({ sourceCommit, result, envelope });
         result = resolved.result;
@@ -240,20 +320,27 @@ export class GitPublicationUnitOfWork {
             branch: publication.branch,
             remote: publication.remote ?? 'origin',
             commit: sourceCommit,
+            transactionId: journal.transactionId,
+            tree: transactionTree,
+            eventSha256: journal.eventSha256,
+            stateSha256: transactionStateSha256,
+            publicationMode: journal.publicationMode,
             event: envelope,
             createdAt: nowIso(),
             error,
             ...(pendingRecord?.({ sourceCommit, error, envelope }) ?? {})
           }
         });
-        await clearPublicationJournal(root, subject);
+        await clearPublicationJournal(root, subject, { transactionId: journal.transactionId });
         const message = `${subject.kind} commit ${sourceCommit.slice(0, 8)} was retained locally but push failed.${error ? ` Git reported: ${error}` : ''}`;
         if (publication.mode === 'warn') return { sha: sourceCommit, pushed: false, pending: true, warning: message, replayed, event: envelope, ledger: null };
         throw new SingularityFlowError(`${message} Run the appropriate sync command after fixing remote access.`);
       }
       pushed = true;
-      await updatePublicationJournal(root, subject, { stage: 'pushed', commit: publishedCommit });
-      await clearPublicationJournal(root, subject);
+      await updatePublicationJournal(root, subject, {
+        stage: 'pushed', commit: publishedCommit
+      }, { transactionId: journal.transactionId });
+      await clearPublicationJournal(root, subject, { transactionId: journal.transactionId });
     }
     // Append-only replay can replace the original commit. Event identity always
     // follows the commit that actually became the lifecycle branch head. The intent's payload is

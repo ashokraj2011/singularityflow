@@ -41,18 +41,26 @@ test('the model runner audits and cleans the exact staged attachment bytes', asy
   const auditDirectory = path.join(root, '.git', 'singularity-flow', 'model-invocations');
   const [name] = await readdir(auditDirectory);
   const audit = JSON.parse(await readFile(path.join(auditDirectory, name), 'utf8'));
-  assert.equal(audit.schemaVersion, 2);
+  assert.equal(audit.schemaVersion, 3);
+  assert.equal(audit.attestation.scheme, 'kernel-hmac-sha256-v1');
+  assert.match(audit.generationNonce, /^[A-Za-z0-9_-]{32}$/);
   assert.equal(audit.promptTransport, 'attachment');
   assert.equal(audit.promptEncoding, 'utf-8');
   assert.equal(audit.promptBytes, Buffer.byteLength(prompt));
   assert.equal(audit.promptSha256, createHash('sha256').update(prompt).digest('hex'));
   assert.doesNotMatch(JSON.stringify(audit), /CGR_CANARY|_END/);
+  const verified = await listModelInvocations(root, {
+    subjectId: 'MODEL-1', phase: 'implementation', generationIntentId: 'intent-1', generation: 2
+  });
+  assert.equal(verified[0].observationIntegrity, 'machine-local-mac');
   audit.routing = { task: 'code', mappingRevision: 'test', resolvedModel: audit.model };
   await writeFile(path.join(auditDirectory, name), `${JSON.stringify(audit, null, 2)}\n`);
-  assert.equal((await listModelInvocations(root, {
+  const locallyEdited = await listModelInvocations(root, {
     subjectId: 'MODEL-1', phase: 'implementation', generationIntentId: 'intent-1',
     generation: 2, task: 'code', startedAfter: audit.startedAt
-  })).length, 1);
+  });
+  assert.equal(locallyEdited.length, 1);
+  assert.equal(locallyEdited[0].observationIntegrity, 'unverified-local');
   assert.equal((await listModelInvocations(root, {
     subjectId: 'MODEL-1', phase: 'implementation', generationIntentId: 'another-intent',
     generation: 2, task: 'code'

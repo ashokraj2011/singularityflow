@@ -83,11 +83,17 @@ export function normalizeExternalCommand(value, index = 0) {
     if (!Number.isInteger(minimumPassed) || minimumPassed < 1) {
       throw new SingularityFlowError(`qualityCommands[${index}].result.minimumPassed must be a positive integer.`);
     }
+    const sourceExtensions = value.result.sourceExtensions ?? [];
+    if (!Array.isArray(sourceExtensions) || sourceExtensions.some((extension) =>
+      typeof extension !== 'string' || !/^\.[a-z0-9][a-z0-9.+-]{0,15}$/i.test(extension))) {
+      throw new SingularityFlowError(`qualityCommands[${index}].result.sourceExtensions must contain file extensions such as '.exs'.`);
+    }
     result = {
       adapter: value.result.adapter,
       path: relativePath(value.result.path, `qualityCommands[${index}].result.path`),
       minimumDiscovered,
-      minimumPassed
+      minimumPassed,
+      sourceExtensions: [...new Set(sourceExtensions.map((extension) => extension.toLowerCase()))]
     };
   }
   return {

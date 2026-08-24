@@ -27,7 +27,7 @@ import { normalizeStorage } from './initiative-config.mjs';
 import { normalizeLogging } from './logging.mjs';
 import { normalizeContextPolicy } from './context-policy.mjs';
 import {
-  DEFAULT_APPROVAL_AUTHORITY, normalizeApprovalAuthorities, normalizeApprovalPolicy
+  DEFAULT_APPROVAL_AUTHORITY, normalizeApprovalAuthorities, normalizeApprovalPolicy, normalizeApprovalSecurity
 } from './approval-authority.mjs';
 import { normalizeLedgerConfig } from './ledger-config.mjs';
 import { normalizeClarificationPolicy } from './clarifications.mjs';
@@ -433,7 +433,8 @@ export function validateDefinition(definition) {
   definition.spec = normalizeSpecPolicy(definition.spec ?? {});
   definition.faultRepair = normalizeFaultRepairPolicy(definition.faultRepair ?? {});
   definition.ast = normalizeAstPolicy(definition.ast ?? {});
-  definition.approvalAuthorities = normalizeApprovalAuthorities(definition.approvalAuthorities);
+  definition.approvalSecurity = normalizeApprovalSecurity(definition.approvalSecurity);
+  definition.approvalAuthorities = normalizeApprovalAuthorities(definition.approvalAuthorities, definition.approvalSecurity);
   groundingMode(definition);
   if (definition.worldModel?.runner != null) throw new SingularityFlowError('worldModel.runner is not supported. Configure models.providers with a trusted executable and argument array.');
   if (definition.worldModel?.outputDir) assertRelative(definition.worldModel.outputDir, 'worldModel.outputDir');
@@ -555,7 +556,7 @@ export function validateDefinition(definition) {
     if (template) assertTemplate(template, `Phase '${id}' defaultTemplate`);
     for (const [workTypeId, workType] of Object.entries(definition.workTypes)) if (workType.templateOverrides?.[id]) assertTemplate(workType.templateOverrides[id], `Work type '${workTypeId}' template override for '${id}'`);
     if (!template && !Object.values(definition.workTypes).some((type) => type.templateOverrides?.[id])) throw new SingularityFlowError(`Phase '${id}' has no default or work-type template.`);
-    normalizeApprovalPolicy(phase.approval ?? {}, definition.approvalAuthorities, id);
+    normalizeApprovalPolicy(phase.approval ?? {}, definition.approvalAuthorities, id, definition.approvalSecurity);
     normalizeSourceBoundary(phase.sourceBoundary, id);
     normalizeGenerationPolicy(phase.generation, id);
     phase.mcp = normalizePhaseMcpPolicy(phase.mcp, { servers: definition.mcpServers, phaseId: id });
@@ -945,7 +946,7 @@ export function resolveWorkType(definition, workTypeId) {
     const resolvedTemplate = resolveTemplate(definition, declaredTemplate, { label: `Work type '${workTypeId}' phase '${id}' template` });
     const template = resolvedTemplate?.source === 'catalog' ? resolvedTemplate.path : declaredTemplate;
     const inputs = normalizePhaseInputs(merged.inputs, `Work type '${workTypeId}' phase '${id}' inputs`);
-    const approval = normalizeApprovalPolicy(merged.approval ?? {}, definition.approvalAuthorities, id);
+    const approval = normalizeApprovalPolicy(merged.approval ?? {}, definition.approvalAuthorities, id, definition.approvalSecurity);
     const sourceBoundary = normalizeSourceBoundary(merged.sourceBoundary, id);
     let generation = normalizeGenerationPolicy(merged.generation, id);
     generation = pinCodeDeliveryTask({ ...merged, generation }, 'generation');
@@ -974,6 +975,7 @@ export function resolveWorkType(definition, workTypeId) {
     label: workType.label,
     auto: normalizeAutoWorkTypePolicy(workType.auto, `Work type '${workTypeId}' auto`, workType.phases),
     inputsMode: configuredInputsMode(definition),
+    approvalSecurity: structuredClone(definition.approvalSecurity),
     approvalAuthorities: structuredClone(definition.approvalAuthorities),
     sequenceGates,
     contextPolicy,
@@ -1040,7 +1042,9 @@ export async function snapshotResolution(root, definition, resolved) {
     worldModelGrounding: resolved.worldModelGrounding ?? groundingMode(definition),
     worldModelMaterialization: materializationPolicy(definition),
     worldModelSourceScope: structuredClone(resolved.worldModelSourceScope ?? null),
-    approvalAuthorities: structuredClone(resolved.approvalAuthorities ?? normalizeApprovalAuthorities(definition.approvalAuthorities)),
+    approvalSecurity: structuredClone(resolved.approvalSecurity ?? definition.approvalSecurity),
+    approvalAuthorities: structuredClone(resolved.approvalAuthorities
+      ?? normalizeApprovalAuthorities(definition.approvalAuthorities, definition.approvalSecurity)),
     sequenceGates: resolved.sequenceGates ?? normalizeSequenceGates(definition.sequenceGates ?? {}),
     contextPolicy: resolved.contextPolicy ?? normalizeContextPolicy(definition.contextPolicy ?? {}, { phaseIds: Object.keys(definition.phases) }),
     tokenEconomy: structuredClone(resolved.tokenEconomy ?? normalizeTokenEconomy(definition.tokenEconomy ?? {})),

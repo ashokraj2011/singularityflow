@@ -3,7 +3,9 @@ import { mkdir, readFile, readdir, rm, unlink } from 'node:fs/promises';
 import path from 'node:path';
 import { existsSync } from 'node:fs';
 import YAML from 'yaml';
-import { add, branch, fileAtRef, head, identity, localBranches, pushBranch, remoteBranches } from './git.mjs';
+import {
+  add, branch, fileAtRef, head, identity, localBranches, pushBranch, pushCommitToBranch, remoteBranches
+} from './git.mjs';
 import {
   loadPortfolio, resolveInitiativeProfile, snapshotInitiativeResolution,
   validatePortfolioWorldModelViews
@@ -1237,6 +1239,8 @@ export async function commitInitiativeChange(root, portfolio, initiative, event,
   extraPaths = [],
   appendOnly = false,
   beforeStateWrite = null,
+  eventFromResult = null,
+  transactionId = null,
   rollbackInitiative = null,
   recoveryPreimage = null
 } = {}) {
@@ -1300,9 +1304,45 @@ export async function commitInitiativeChange(root, portfolio, initiative, event,
       // saveInitiative revalidates the runtime aggregate and regenerates STATUS.md,
       // so the authoritative state and its projection enter the commit together.
       write: async (publicationEvent) => {
-        if (beforeStateWrite) await beforeStateWrite();
+        const transitionResult = beforeStateWrite ? await beforeStateWrite() : undefined;
+        if (eventFromResult) {
+          const derived = await eventFromResult(transitionResult, initiative, publicationEvent);
+          if (derived) {
+            const finalized = lifecycleEvent({
+              ...publicationEvent,
+              ...derived,
+              subject: publicationEvent.subject,
+              payload: { ...(publicationEvent.payload ?? {}), ...(derived.payload ?? {}) }
+            });
+            Object.assign(publicationEvent, finalized, {
+              eventId: publicationEvent.eventId,
+              createdAt: publicationEvent.createdAt
+            });
+            if (ledgerIntent) {
+              ledgerIntent.eventType = publicationEvent.type;
+              ledgerIntent.subject.phase = publicationEvent.phaseId;
+              ledgerIntent.subject.generation = publicationEvent.generation;
+              ledgerIntent.actor = {
+                name: publicationEvent.actor?.name ?? null,
+                email: publicationEvent.actor?.email ?? null,
+                githubLogin: publicationEvent.actor?.login ?? publicationEvent.actor?.githubLogin ?? null,
+                identityAssurance: derived.identityAssurance
+                  ?? ledgerIntent.actor?.identityAssurance
+                  ?? 'unavailable'
+              };
+              ledgerIntent.agent = publicationEvent.agent;
+              ledgerIntent.authorityGroup = publicationEvent.authorityGroup;
+              ledgerIntent.payload = {
+                ...(ledgerIntent.payload ?? {}),
+                lifecyclePayload: publicationEvent.payload,
+                lifecycleEvent: publicationEvent
+              };
+            }
+          }
+        }
         recordPublicationProjection(initiative, publicationEvent, ledgerIntent);
-        return saveInitiative(root, portfolio, initiative);
+        await saveInitiative(root, portfolio, initiative);
+        return { event: publicationEvent, transitionResult };
       },
       // Restore the complete governed Initiative directory: a publication that fails after any
       // manifest, context, decision, projection, or state write must leave no unpublished change.
@@ -1320,7 +1360,8 @@ export async function commitInitiativeChange(root, portfolio, initiative, event,
       const pushed = pushBranch(root, remote, initiative.initiative.branch);
       return { result: pushed, replayed: pushed.status === 0, publishedCommit: head(root) };
     } : null,
-    recoveryPreimage
+    recoveryPreimage,
+    transactionId
   });
   if (initiative[Symbol.for('singularity-flow.state-revision')]) {
     initiative[Symbol.for('singularity-flow.state-revision')].head = result.sha;
@@ -1342,8 +1383,15 @@ export async function syncInitiativePublication(root, portfolio, initiative) {
     return { pending: false, pushed: null, ledger: await reconcileLedger(root, initiative.resolution?.ledger ?? {}, { workId: initiative.initiative.id }) };
   }
   const record = pending.record;
+  if (record.recoveryStage === 'publication-recovery-diverged') {
+    throw new SingularityFlowError(
+      `Initiative '${initiative.initiative.id}' recovery diverged and was stopped safely. ${record.error} `
+      + 'Run singularity-flow doctor for the exact journal/branch diagnosis; no commit was pushed.',
+      { code: 'PUBLICATION_RECOVERY_DIVERGED', details: record }
+    );
+  }
   if (record.recoveryStage === 'interrupted-before-branch-ref-advanced') {
-    const liveOwner = livePreparedPublicationOwner(pending);
+    const liveOwner = livePreparedPublicationOwner(pending, root);
     if (liveOwner) {
       throw new SingularityFlowError(
         `Initiative '${initiative.initiative.id}' has an active governed publication command (PID ${liveOwner.pid}`
@@ -1370,7 +1418,9 @@ export async function syncInitiativePublication(root, portfolio, initiative) {
       + 'Inspect the working tree, run singularity-flow doctor, and repair or discard the partial local state before retrying.'
     );
   }
-  const result = pushBranch(root, record.remote, record.branch);
+  const result = record.commit
+    ? pushCommitToBranch(root, record.remote, record.commit, record.branch)
+    : pushBranch(root, record.remote, record.branch);
   if (result.status !== 0) throw new SingularityFlowError(`Initiative push still fails: ${(result.stderr || result.stdout).trim()}`);
   await clearPendingPublication(root, {
     kind: 'initiative',
@@ -1379,7 +1429,7 @@ export async function syncInitiativePublication(root, portfolio, initiative) {
   });
   return {
     pending: false,
-    pushed: head(root),
+    pushed: record.commit ?? head(root),
     remote: record.remote,
     branch: record.branch,
     ledger: await reconcileLedger(root, initiative.resolution?.ledger ?? {}, { workId: initiative.initiative.id })

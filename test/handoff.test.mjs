@@ -43,6 +43,9 @@ test('another clone discovers a remote work ID, attaches safely, and fast-forwar
   const configPath = path.join(first, 'singularity/workflow.yml');
   const config = YAML.parse(await readFile(configPath, 'utf8'));
   config.worldModel.grounding = 'off';
+  config.approvalSecurity = { profile: 'poc' };
+  for (const authority of Object.values(config.approvalAuthorities ?? {})) authority.allowAnyGitIdentity = true;
+  for (const phase of Object.values(config.phases ?? {})) if (phase.approval && phase.approval !== 'none') phase.approval.allowSelfApproval = true;
   await writeFile(configPath, YAML.stringify(config));
   run('git', ['add', 'singularity', '.github/agents'], first);
   run('git', ['commit', '-m', 'configure workflow'], first);

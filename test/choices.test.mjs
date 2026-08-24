@@ -59,6 +59,13 @@ async function repository() {
   const config = YAML.parse(await readFile(configPath, 'utf8'));
   config.git.publish = 'off';
   config.worldModel.grounding = 'off';
+  // This fixture intentionally exercises the self-approval warning. The shipped normal profile is
+  // team-safe; make the test's POC authority explicit instead of weakening production defaults.
+  config.approvalSecurity = { profile: 'poc' };
+  for (const authority of Object.values(config.approvalAuthorities ?? {})) authority.allowAnyGitIdentity = true;
+  for (const phase of Object.values(config.phases ?? {})) {
+    if (phase.approval && phase.approval !== 'none') phase.approval.allowSelfApproval = true;
+  }
   await writeFile(configPath, YAML.stringify(config));
   run('git', ['add', '.'], root);
   run('git', ['commit', '-m', 'initialize'], root);

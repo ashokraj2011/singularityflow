@@ -157,6 +157,9 @@ test('only current regular executable test sources satisfy delivery', async () =
   assert.equal(await isExecutableTestSourcePath(root, 'tests/fixtures/payment.json'), false);
   assert.equal(await isExecutableTestSourcePath(root, 'tests/linked.test.js'), false);
   assert.equal(await isExecutableTestSourcePath(root, 'tests/deleted.test.js'), false);
+  await writeFile(path.join(root, 'tests', 'payment_test.exs'), 'ExUnit.start()\n');
+  assert.equal(await isExecutableTestSourcePath(root, 'tests/payment_test.exs'), false);
+  assert.equal(await isExecutableTestSourcePath(root, 'tests/payment_test.exs', { sourceExtensions: ['.exs'] }), true);
   assert.equal(isSupportingTestResourcePath('tests/README.md'), true);
   assert.equal(isSupportingTestResourcePath('tests/__snapshots__/payment.snap'), true);
 });
@@ -231,6 +234,33 @@ test('directory result discovery ignores stale siblings when fresh results exist
     modelPolicy: 'never', result: { adapter: 'junit-xml', path: 'results', minimumDiscovered: 1 }
   }, { startedAt });
   assert.equal(parsed.tests.discovered, 2);
+});
+
+test('Playwright result traversal includes nested suites and validates reporter statistics', async () => {
+  const root = await mkdtemp(path.join(os.tmpdir(), 'sflow-cga-playwright-'));
+  await mkdir(path.join(root, 'results'), { recursive: true });
+  const resultPath = path.join(root, 'results', 'playwright.json');
+  const command = {
+    id: 'browser', kind: 'test', argv: ['playwright', 'test'], workingDirectory: '.', affectedRoots: ['.'],
+    modelPolicy: 'never', result: { adapter: 'playwright-json', path: 'results/playwright.json', minimumDiscovered: 1 }
+  };
+  const report = {
+    stats: { expected: 1, unexpected: 1, flaky: 1, skipped: 1 },
+    suites: [{ title: 'root', suites: [{ title: 'nested', specs: [{ tests: [
+      { status: 'expected', results: [{ status: 'passed' }] },
+      { status: 'unexpected', results: [{ status: 'failed' }] },
+      { status: 'flaky', results: [{ status: 'failed' }, { status: 'passed' }] },
+      { status: 'skipped', results: [] }
+    ] }] }] }]
+  };
+  await writeFile(resultPath, JSON.stringify(report));
+  assert.deepEqual((await parseTestResult(root, command)).tests, {
+    discovered: 4, passed: 2, failed: 1, skipped: 1
+  });
+  report.stats.expected = 2;
+  await writeFile(resultPath, JSON.stringify(report));
+  await assert.rejects(() => parseTestResult(root, command), (error) =>
+    error.code === 'CODE_TEST_RESULT_REQUIRED' && /statistics differ/.test(error.message));
 });
 
 test('the TRX adapter counts failures, infrastructure outcomes, and skipped tests', async () => {

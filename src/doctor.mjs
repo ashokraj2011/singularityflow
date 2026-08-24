@@ -22,6 +22,7 @@ import { resolveModelProvider } from './model-runner.mjs';
 import { probePromptAttachmentCapability } from './model-provider-capability.mjs';
 import { resolveWorldModelGenerationRouting } from './world-model-generation-routing.mjs';
 import { latestWorldModelBuildDiagnostics } from './world-model-build-diagnostics.mjs';
+import { listStoryStartJournals } from './story-start-journal.mjs';
 
 function check(id, status, message, fix = null, details = {}) { return { id, status, message, fix, ...details }; }
 
@@ -34,6 +35,17 @@ export async function doctorSnapshot(root, {
   const major = Number(process.versions.node.split('.')[0]);
   checks.push(check('node', major >= 20 ? 'pass' : 'fail', `Node.js ${process.versions.node}`, major >= 20 ? null : 'Install Node.js 20 or newer.'));
   checks.push(check('git', 'pass', `Git repository ${root}`));
+  const interruptedStarts = await listStoryStartJournals(root);
+  checks.push(check(
+    'story-start-recovery',
+    interruptedStarts.length ? 'fail' : 'pass',
+    interruptedStarts.length
+      ? `${interruptedStarts.length} Story start transaction(s) require recovery: ${interruptedStarts.map((entry) => entry.record?.subject?.id ?? path.basename(entry.path, '.json')).join(', ')}.`
+      : 'No interrupted Story start transaction is present.',
+    interruptedStarts.length
+      ? 'Re-run singularity-flow start <WORK-ID>; it restores the prior checkout, configuration, sessions, and sibling repositories before retrying.'
+      : null
+  ));
   try {
     schemaReport = await schemaCensus(root);
     const blocked = schemaReport.totals.outsideRange + schemaReport.totals.unreadable;

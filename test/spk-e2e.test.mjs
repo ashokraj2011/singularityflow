@@ -21,6 +21,7 @@ import os from 'node:os';
 import path from 'node:path';
 import test from 'node:test';
 import { fileURLToPath } from 'node:url';
+import YAML from 'yaml';
 
 const packageRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 const CLI = path.join(packageRoot, 'bin', 'singularity-flow.mjs');
@@ -104,6 +105,14 @@ test('a Story runs specification through release from a fresh clone', async (t) 
   // `init` writes the governed definition on a Work-ID branch and leaves it uncommitted, so the
   // base branch is never touched by accident. Seeding `main` means committing it there deliberately.
   sflow(seed, ['init', '--work-id', 'SEED', '--base', 'main']);
+  const workflowPath = path.join(seed, 'singularity/workflow.yml');
+  const workflow = YAML.parse(await readFile(workflowPath, 'utf8'));
+  workflow.approvalSecurity = { profile: 'poc' };
+  for (const authority of Object.values(workflow.approvalAuthorities ?? {})) authority.allowAnyGitIdentity = true;
+  for (const phase of Object.values(workflow.phases ?? {})) {
+    if (phase.approval && phase.approval !== 'none') phase.approval.allowSelfApproval = true;
+  }
+  await writeFile(workflowPath, YAML.stringify(workflow));
   git(seed, 'add', '-A');
   git(seed, 'commit', '-m', 'governance');
   git(seed, 'checkout', '-q', 'main');

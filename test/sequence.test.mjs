@@ -39,6 +39,13 @@ async function repository() {
   const config = YAML.parse(await readFile(configPath, 'utf8'));
   config.git.publish = 'off';
   config.worldModel.grounding = 'off';
+  // This fixture deliberately lets one synthetic identity drive and approve the whole flow.
+  // Keep that POC behavior explicit now that installed workflows default to team-safe approval.
+  config.approvalSecurity = { profile: 'poc' };
+  for (const authority of Object.values(config.approvalAuthorities ?? {})) authority.allowAnyGitIdentity = true;
+  for (const phase of Object.values(config.phases ?? {})) {
+    if (phase.approval && phase.approval !== 'none') phase.approval.allowSelfApproval = true;
+  }
   await writeFile(configPath, YAML.stringify(config));
   execute('git', ['add', 'README.md', 'singularity', '.github/agents'], root);
   execute('git', ['commit', '-m', 'initialize'], root);
@@ -145,6 +152,23 @@ test('review, submit, and approve use the same positional phase grammar', async 
 test('soft gates require confirmation and audit a confirmed override with the selected agent', async () => {
   const root = await repository();
   const workflowFile = path.join(root, 'singularity/work-items/SEQ-1/workflow.json');
+
+  // Build a real immutable submission packet, then put only the aggregate status back one step.
+  // The soft-gate test may override sequencing, but it must not bypass approval evidence.
+  const artifactPath = path.join(root, 'singularity/work-items/SEQ-1/artifacts/intake/intake.md');
+  let artifact = await readFile(artifactPath, 'utf8');
+  artifact = artifact
+    .replace(/TODO:[^\n]*/g, 'The governed sequence fixture has complete, reviewable evidence for this field.')
+    .replace(/\bTODO\b/g, 'complete evidence');
+  artifact += '\n\nThe scope, expected outcome, review boundary, and recovery behavior are explicit for this sequence-gate fixture.\n';
+  await writeFile(artifactPath, artifact);
+  flow(root, ['phase', 'publish', 'intake', '--authored', 'human']);
+  flow(root, ['submit', 'intake', '--skip-checks']);
+  const setup = JSON.parse(await readFile(workflowFile, 'utf8'));
+  setup.phases.intake.status = 'in_progress';
+  await writeFile(workflowFile, `${JSON.stringify(setup, null, 2)}\n`);
+  execute('git', ['add', '.'], root);
+  execute('git', ['commit', '-m', 'fixture: restore soft-gate state with immutable evidence'], root);
 
   const blocked = flow(root, ['approve', '--yes'], { allowFailure: true, agent: 'product-owner' });
   assertSequenceFailure(blocked, /Gate mode: soft/, /interactive terminal/);

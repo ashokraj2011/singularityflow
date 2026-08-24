@@ -26,6 +26,15 @@ export function subjectLockPath(root, subject) {
   return path.join(gitCommonDir(root), 'singularity-flow', 'locks', `${safe(subject.kind)}--${safe(subject.id)}.lock`);
 }
 
+function subjectLockKey(root, subject) {
+  return `${gitCommonDir(root)}\0${subject.kind}\0${subject.id}`;
+}
+
+/** The exact lease inherited by the current async transaction, if any. */
+export function currentSubjectLockOwner(root, subject) {
+  return heldLocks.getStore()?.get(subjectLockKey(root, subject)) ?? null;
+}
+
 function pidAlive(pid) {
   if (!Number.isInteger(pid) || pid <= 0) return false;
   try { process.kill(pid, 0); return true; }
@@ -196,13 +205,16 @@ export async function acquireSubjectLock(root, subject, { ttlMs = DEFAULT_TTL_MS
           : 'another process that is still acquiring it';
         throw new SingularityFlowError(
           `${subject.kind} '${subject.id}' is locked by ${held}. `
-          + `The lock is ${directory}; it is reclaimed automatically once it expires.`
+          + `The lock is ${directory}; it is reclaimed automatically once it expires.`,
+          { code: 'SUBJECT_LOCK_BUSY', details: { subject, lock: directory, owner: existing } }
         );
       }
       await reclaim(directory, existing);
     }
   }
-  throw new SingularityFlowError(`Unable to acquire the ${subject.kind} '${subject.id}' mutation lock.`);
+  throw new SingularityFlowError(`Unable to acquire the ${subject.kind} '${subject.id}' mutation lock.`, {
+    code: 'SUBJECT_LOCK_BUSY', details: { subject, lock: directory }
+  });
 }
 
 export async function releaseSubjectLock(root, subject, owner) {
@@ -214,7 +226,7 @@ export async function releaseSubjectLock(root, subject, owner) {
 }
 
 export async function withSubjectLock(root, subject, callback, options = {}) {
-  const key = `${gitCommonDir(root)}\0${subject.kind}\0${subject.id}`;
+  const key = subjectLockKey(root, subject);
   const inherited = heldLocks.getStore();
   // A creation transaction opens its recovery journal before the aggregate exists, then hands the
   // same lock to the publication transaction. Reentrancy is scoped to this async call chain: an

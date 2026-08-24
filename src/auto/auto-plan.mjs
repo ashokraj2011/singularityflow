@@ -5,7 +5,8 @@
  * committed state and may ask a model for a proposal, but it cannot create lifecycle state, refs,
  * worktrees, approvals, or authorization. Every model-proposed field is revalidated here.
  */
-import { createHash } from 'node:crypto';
+import { createHash, randomUUID } from 'node:crypto';
+import os from 'node:os';
 import { readFile } from 'node:fs/promises';
 import path from 'node:path';
 
@@ -19,10 +20,11 @@ import { invokeModel, resolveModelProvider } from '../model-runner.mjs';
 import { canonicalJson, recordSha256 } from '../records.mjs';
 import { currentSchemaVersion, readRecord } from '../schema-migrations.mjs';
 import { withSubjectLock } from '../subject-lock.mjs';
-import { nowIso, run, SingularityFlowError, writeAtomic } from '../util.mjs';
+import { exists, nowIso, run, SingularityFlowError, writeAtomic } from '../util.mjs';
 import {
   AUTO_AUTHORING_TOOLS, effectiveAutoPolicy, parseAutoPace, parseAutoStopSelector
 } from './auto-policy.mjs';
+import { executionUnitDriverDoctor } from './execution-unit-driver.mjs';
 
 const PLAN_ID = /^APL-[A-F0-9]{26}$/;
 const PLAN_HASH = /^sha256:[a-f0-9]{64}$/;
@@ -35,6 +37,26 @@ function sha256(value) {
 function localRoot(root) { return path.join(gitCommonDir(root), 'singularity-flow'); }
 function planFile(root, planId) { return path.join(localRoot(root), 'auto-plans', `${planId}.json`); }
 function authorizationFile(root, planId) { return path.join(localRoot(root), 'auto-authorizations', `${planId}.json`); }
+const AUTO_CLAIM_LEASE_MS = 10 * 60 * 1000;
+
+function claimOwnerAlive(owner) {
+  // A remote host owns its lease until expiry; on this host, PID liveness lets a crashed start be
+  // recovered immediately instead of making the operator wait for the whole lease window.
+  if (owner?.host && owner.host !== os.hostname()) return true;
+  if (!Number.isInteger(owner?.pid) || owner.pid <= 0) return false;
+  try { process.kill(owner.pid, 0); return true; }
+  catch { return false; }
+}
+
+async function claimedEffects(root, plan, authorization) {
+  const flight = authorization.flightId
+    ? path.join(localRoot(root), 'auto-flights', authorization.flightId, 'state.json')
+    : null;
+  const start = path.join(
+    localRoot(root), 'change-flight-plans', 'starts', `${plan.bindings.flightPlanId}.json`
+  );
+  return { flight: Boolean(flight && await exists(flight)), start: await exists(start) };
+}
 
 function validatePlanId(value) {
   const id = String(value ?? '').trim();
@@ -274,20 +296,26 @@ export async function createAutoPlan(root, requirementValue, proposalValue, opti
   const protectedPaths = protectedPredictions(proposal, definition, capability);
   const selectedHost = resolveModelProvider(definition);
   const hostAllowed = policy.execution.allowedHosts.includes(selectedHost.provider);
-  const hostConfigured = Boolean(selectedHost.providerConfig?.type && selectedHost.providerConfig?.executable);
   const firstPhase = resolution.phases[0]?.id ?? null;
+  const driver = await executionUnitDriverDoctor(root, definition, firstPhase);
   const executionHost = {
     id: selectedHost.provider,
     model: selectedHost.model,
     modelTask: firstPhase ? generationTaskForPhase(definition, firstPhase) : null,
-    modelAssurance: 'unavailable',
-    capabilities: ['artifact-write', 'source-write', 'cancel'],
+    modelAssurance: driver.checks.find((entry) => entry.id === 'model-routed')?.status === 'pass'
+      ? 'configured-route' : 'unavailable',
+    capabilities: ['artifact-write', 'source-write', ...(driver.cancellation.supported ? ['cancel'] : [])],
     writableRoots: ['managed-worktree'], availableTools: [...AUTO_AUTHORING_TOOLS],
-    containment: { managedWorktree: true, networkPolicy: 'host-controlled' }, cancellation: true,
-    status: hostAllowed && hostConfigured ? 'available' : 'unavailable'
+    containment: { managedWorktree: true, networkPolicy: 'host-controlled' },
+    cancellation: driver.cancellation.supported,
+    driver,
+    status: hostAllowed && driver.status === 'available' ? 'available' : 'unavailable'
   };
-  const pilotWindow = ['continuous', 'phase'].includes(pace.mode)
-    && (until.kind === 'first-human-boundary' || until.phase === firstPhase);
+  const selectorWithinPilot = until.kind === 'first-human-boundary'
+    || (until.phase === firstPhase && ['published', 'submitted', 'phase-complete'].includes(until.kind))
+    || (until.kind === 'story-complete' && resolution.phases.length === 1);
+  const pilotWindow = ['continuous', 'phase'].includes(pace.mode) && selectorWithinPilot;
+  const tokenAssuranceStartable = policy.ceilings.tokenBudget.assurance !== 'exact-required';
   const destinationCollision = branchExists(root, workId, remote);
   const startable = policy.eligibility === 'bounded'
     && catalog.repositories.length === 1
@@ -295,6 +323,7 @@ export async function createAutoPlan(root, requirementValue, proposalValue, opti
     && baseHeads[catalog.repositoryId] === head(root)
     && executionHost.status === 'available'
     && pilotWindow
+    && tokenAssuranceStartable
     && !destinationCollision;
   const createdAt = nowIso();
   const expiresAt = new Date(Date.parse(createdAt) + definition.auto.planTtlMinutes * 60 * 1000).toISOString();
@@ -342,8 +371,11 @@ export async function createAutoPlan(root, requirementValue, proposalValue, opti
         ...(protectedPaths.length ? ['protected scope is predicted'] : []),
         ...(baseHeads[catalog.repositoryId] !== head(root) ? ['active HEAD does not equal the selected published base'] : []),
         ...(!hostAllowed ? [`execution host '${selectedHost.provider}' is not allowed by policy`] : []),
-        ...(!hostConfigured ? [`execution host '${selectedHost.provider}' is not fully configured`] : []),
+        ...(driver.status !== 'available'
+          ? driver.checks.filter((entry) => entry.status === 'fail').map((entry) => `execution driver ${entry.id}: ${entry.detail}`)
+          : []),
         ...(!pilotWindow ? ['the thin pilot authorizes only continuous/phase pace through the first phase or human boundary'] : []),
+        ...(!tokenAssuranceStartable ? ['exact-required token assurance cannot be proven before invocation by this execution host'] : []),
         ...(destinationCollision ? [`destination branch '${workId}' already exists`] : [])
       ]
     },
@@ -411,10 +443,29 @@ export async function ratifyAutoPlan(root, planIdValue, confirmation) {
   let existing = null;
   try { existing = readRecord('auto-authorization', await readFile(authorizationFile(root, plan.planId), 'utf8')).record; }
   catch { /* first ratification */ }
-  if (existing?.consumedAt || existing?.claimedAt) {
+  if (existing?.consumedAt) {
     throw new SingularityFlowError(`Auto Plan '${plan.planId}' authorization was already consumed.`, {
       code: 'AUTO_AUTHORIZATION_CONSUMED', details: { flightId: existing.flightId ?? null }
     });
+  }
+  if (existing?.claimedAt) {
+    const leaseExpired = Date.parse(existing.claimExpiresAt ?? existing.expiresAt) <= Date.now();
+    if (!leaseExpired && claimOwnerAlive(existing.claimOwner)) throw new SingularityFlowError(`Auto Plan '${plan.planId}' authorization is claimed by an active start.`, {
+      code: 'AUTO_AUTHORIZATION_CONSUMED', details: { flightId: existing.flightId ?? null, claimExpiresAt: existing.claimExpiresAt ?? null }
+    });
+    const effects = await claimedEffects(root, plan, existing);
+    if (effects.flight) {
+      const consumed = sealAuthorization({ ...existing, consumedAt: nowIso(), claimExpiresAt: null });
+      await writeAtomic(authorizationFile(root, plan.planId), canonicalJson(consumed), { mode: 0o600 });
+      throw new SingularityFlowError(`Auto Plan '${plan.planId}' already created flight '${existing.flightId}'.`, {
+        code: 'AUTO_AUTHORIZATION_CONSUMED', details: { flightId: existing.flightId, recovered: true }
+      });
+    }
+    if (effects.start) return { plan, authorization: { ...existing, recovery: 'reconstruct-flight' } };
+    existing = sealAuthorization({
+      ...existing, claimedAt: null, claimExpiresAt: null, claimOwner: null, claimId: null, flightId: null
+    });
+    await writeAtomic(authorizationFile(root, plan.planId), canonicalJson(existing), { mode: 0o600 });
   }
   const actor = identity(root, { offline: true });
   if (existing?.planSha256 === plan.planSha256) {
@@ -455,14 +506,34 @@ export async function claimAutoAuthorization(root, plan, authorization, flightId
     if (stored.planSha256 !== plan.planSha256 || stored.recordSha256 !== sealAuthorization(stored).recordSha256) {
       throw new SingularityFlowError(`Auto authorization for '${plan.planId}' failed its integrity check.`, { code: 'AUTO_AUTHORIZATION_CORRUPT' });
     }
-    if (stored.claimedAt || stored.consumedAt) throw new SingularityFlowError(`Auto Plan '${plan.planId}' authorization was already consumed.`, {
+    if (stored.consumedAt) throw new SingularityFlowError(`Auto Plan '${plan.planId}' authorization was already consumed.`, {
       code: 'AUTO_AUTHORIZATION_CONSUMED', details: { flightId: stored.flightId }
     });
+    if (stored.claimedAt) {
+      if (stored.flightId === flightId && authorization.recovery === 'reconstruct-flight') {
+        const renewed = sealAuthorization({
+          ...stored,
+          claimExpiresAt: new Date(Date.now() + AUTO_CLAIM_LEASE_MS).toISOString()
+        });
+        await writeAtomic(authorizationFile(root, plan.planId), canonicalJson(renewed), { mode: 0o600 });
+        return renewed;
+      }
+      throw new SingularityFlowError(`Auto Plan '${plan.planId}' authorization is already claimed.`, {
+        code: 'AUTO_AUTHORIZATION_CONSUMED', details: { flightId: stored.flightId }
+      });
+    }
     if (authorization.recordSha256 !== stored.recordSha256) throw new SingularityFlowError('Auto authorization changed before start.', { code: 'AUTO_AUTHORIZATION_STALE' });
     if (!sameActor(stored.actor, identity(root, { offline: true }))) {
       throw new SingularityFlowError('Auto authorization identity changed before start.', { code: 'AUTO_AUTHORIZATION_STALE' });
     }
-    const claimed = sealAuthorization({ ...stored, claimedAt: nowIso(), flightId });
+    const claimed = sealAuthorization({
+      ...stored,
+      claimedAt: nowIso(),
+      claimExpiresAt: new Date(Date.now() + AUTO_CLAIM_LEASE_MS).toISOString(),
+      claimId: randomUUID(),
+      claimOwner: { host: os.hostname(), pid: process.pid },
+      flightId
+    });
     await writeAtomic(authorizationFile(root, plan.planId), canonicalJson(claimed), { mode: 0o600 });
     return claimed;
   });
@@ -476,8 +547,10 @@ export async function finishAutoAuthorization(root, planIdValue, flightId, { suc
       throw new SingularityFlowError(`Auto authorization for '${planId}' is not claimed by '${flightId}'.`, { code: 'AUTO_AUTHORIZATION_STALE' });
     }
     const next = success
-      ? sealAuthorization({ ...stored, consumedAt: nowIso() })
-      : sealAuthorization({ ...stored, claimedAt: null, flightId: null });
+      ? sealAuthorization({ ...stored, consumedAt: nowIso(), claimExpiresAt: null })
+      : sealAuthorization({
+          ...stored, claimedAt: null, claimExpiresAt: null, claimOwner: null, claimId: null, flightId: null
+        });
     await writeAtomic(authorizationFile(root, planId), canonicalJson(next), { mode: 0o600 });
     return next;
   });

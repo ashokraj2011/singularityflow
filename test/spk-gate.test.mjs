@@ -22,6 +22,7 @@ import { initializeDefinition, resolveWorkType } from '../src/config.mjs';
 import { buildGenerationAuthorship, normalizeAuthorshipOptions } from '../src/manual-authorship.mjs';
 import { withOperationContext } from '../src/operation-context.mjs';
 import { setAgentSession } from '../src/session.mjs';
+import { createStoryReviewPacket } from '../src/story-lineage.mjs';
 import { evaluateApprovalChecklist, priorChecklistExceptions } from '../src/specification-gate.mjs';
 import { STARTER_CHECKLIST } from '../src/specification-quality.mjs';
 import { approvePhase, createWorkflow, loadConfig, publishGeneration, scanArtifacts, submitPhase } from '../src/state.mjs';
@@ -76,6 +77,10 @@ async function story(name, { markers = 'block', quality = 'enforce' } = {}) {
 
   const config = await loadConfig(root);
   config.git.publish = 'off';
+  for (const authority of Object.values(config.approvalAuthorities ?? {})) {
+    authority.allowAnyGitIdentity = false;
+    authority.members = [ACTOR];
+  }
   const resolved = resolveWorkType(config, 'spec-driven-standard');
   const specification = resolved.phases.find((phase) => phase.id === 'specification');
   resolved.phases = [{
@@ -279,7 +284,9 @@ test('an approval without its checklist is not an approval', async () => {
   // `[SPK:REQ-060]` `[SPK:REQ-181]`. The reviewer's confirmation is the product of this phase; an
   // approval that skips it records agreement nobody expressed.
   const { root, config, resolved } = await story('checklist', { markers: 'off', quality: 'enforce' });
-  resolved.phases[0].approval = { authorities: ['product-approvers'], minimum: 1, rejectTo: ['specification'] };
+  resolved.phases[0].approval = {
+    authorities: ['product-approvers'], minimum: 1, rejectTo: ['specification'], allowSelfApproval: true
+  };
   await inContext(root, async () => {
     const workflow = await begin(root, config, resolved);
     await author(root, workflow, spec({}));
@@ -289,6 +296,9 @@ test('an approval without its checklist is not an approval', async () => {
     git(root, 'commit', '-m', '[DRIVE-1][phase:specification][generated:1] publish');
     await submitPhase(root, config, workflow, { phaseId: 'specification', runChecks: false });
     assert.equal(workflow.phases.specification.status, 'awaiting_approval');
+    await createStoryReviewPacket(root, config, workflow, workflow.phases.specification);
+    git(root, 'add', '.');
+    git(root, 'commit', '-m', '[DRIVE-1][phase:specification][submit] immutable review evidence');
 
     await assert.rejects(
       () => approvePhase(root, config, workflow, { phaseId: 'specification', persist: false }),

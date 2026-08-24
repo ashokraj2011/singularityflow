@@ -1,15 +1,18 @@
 /** One thin-pilot Auto phase step. Model execution is allowed only under `auto.flight-step`. */
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
+import { spawn, spawnSync } from 'node:child_process';
 
 import { verifyClarificationRecord } from '../clarifications.mjs';
 import { loadDefinition } from '../config.mjs';
-import { changedFiles } from '../git.mjs';
+import { head } from '../git.mjs';
 import { generationTaskForPhase } from '../model-tasks.mjs';
 import { invokeModel, resolveModelProvider } from '../model-runner.mjs';
-import { loadStoryAggregate, preparePhase, saveStoryDraft } from '../state-stores.mjs';
-import { run, SingularityFlowError } from '../util.mjs';
+import { loadStoryAggregate } from '../state-stores.mjs';
+import { SingularityFlowError } from '../util.mjs';
 import { composePhasePrompt } from '../worldmodel.mjs';
+import { buildRepositoryChangeSet } from '../repository-change-set.mjs';
+import { withSubjectLock } from '../subject-lock.mjs';
 import { readAutoPlan, revalidateAutoPlan } from './auto-plan.mjs';
 import { AUTO_AUTHORING_TOOLS } from './auto-policy.mjs';
 import {
@@ -33,25 +36,131 @@ function tokenObservation(usage) {
   return { assurance: available ? 'exact' : 'unavailable', totalTokens: available ? total : null };
 }
 
-async function stop(root, id, status, reason, nextAction, extra = {}) {
+async function stop(root, id, status, reason, nextAction, extra = {}, { activeMilliseconds = 0 } = {}) {
   return mutateAutoFlightState(root, id, (state) => {
     state.status = status;
     state.stopReason = reason;
     state.nextAction = nextAction;
     Object.assign(state, extra);
+    state.counters.activeMilliseconds = (state.counters.activeMilliseconds ?? 0)
+      + Math.max(0, activeMilliseconds);
   });
 }
 
-function childLifecycle(root, args) {
-  const result = run(process.execPath, [BIN, ...args], {
-    cwd: root, allowFailure: true, timeoutMs: 30 * 60 * 1000, maxBuffer: 8 * 1024 * 1024
-  });
-  if (result.status !== 0) {
-    throw new SingularityFlowError((result.stderr || result.stdout || `Lifecycle command failed: ${args.join(' ')}`).trim(), {
-      code: 'AUTO_LIFECYCLE_STEP_FAILED', details: { command: ['singularity-flow', ...args], status: result.status }
+function childLifecycle(root, args, { signal = null, timeoutMs = 30 * 60 * 1000 } = {}) {
+  return new Promise((resolve, reject) => {
+    const child = spawn(process.execPath, [BIN, ...args], {
+      cwd: root, env: process.env, detached: process.platform !== 'win32', stdio: ['ignore', 'pipe', 'pipe']
     });
+    let stdout = ''; let stderr = ''; let bytes = 0; let finished = false; let hardKillTimer = null;
+    const limit = 8 * 1024 * 1024;
+    const terminate = () => {
+      if (!child.pid) return;
+      if (process.platform === 'win32') {
+        const killed = spawnSync('taskkill.exe', ['/PID', String(child.pid), '/T'], {
+          stdio: 'ignore', windowsHide: true, timeout: 5_000
+        });
+        if (killed.error || killed.status !== 0) child.kill('SIGTERM');
+      } else {
+        try { process.kill(-child.pid, 'SIGTERM'); }
+        catch { child.kill('SIGTERM'); }
+      }
+      hardKillTimer ??= setTimeout(() => {
+        if (child.exitCode != null || child.signalCode != null || !child.pid) return;
+        if (process.platform === 'win32') {
+          spawnSync('taskkill.exe', ['/PID', String(child.pid), '/T', '/F'], {
+            stdio: 'ignore', windowsHide: true, timeout: 5_000
+          });
+          return;
+        }
+        try { process.kill(-child.pid, 'SIGKILL'); } catch { child.kill('SIGKILL'); }
+      }, 2_000);
+      hardKillTimer.unref?.();
+    };
+    const onAbort = () => terminate();
+    const timeout = setTimeout(terminate, timeoutMs);
+    signal?.addEventListener('abort', onAbort, { once: true });
+    const append = (current, chunk) => {
+      bytes += chunk.length;
+      if (bytes > limit) terminate();
+      return bytes <= limit ? `${current}${chunk.toString('utf8')}` : current;
+    };
+    child.stdout.on('data', (chunk) => { stdout = append(stdout, chunk); });
+    child.stderr.on('data', (chunk) => { stderr = append(stderr, chunk); });
+    child.once('error', (error) => {
+      if (finished) return;
+      finished = true; clearTimeout(timeout); if (hardKillTimer) clearTimeout(hardKillTimer); signal?.removeEventListener('abort', onAbort);
+      reject(new SingularityFlowError(`Unable to start lifecycle command: ${error.message}`, {
+        code: 'AUTO_LIFECYCLE_STEP_FAILED', cause: error
+      }));
+    });
+    child.once('close', (status, childSignal) => {
+      if (finished) return;
+      finished = true; clearTimeout(timeout); if (hardKillTimer) clearTimeout(hardKillTimer); signal?.removeEventListener('abort', onAbort);
+      if (signal?.aborted) return reject(new SingularityFlowError('Auto lifecycle step was cancelled.', { code: 'AUTO_STOP_REQUESTED' }));
+      if (bytes > limit) return reject(new SingularityFlowError('Auto lifecycle output exceeded 8388608 bytes.', { code: 'AUTO_LIFECYCLE_STEP_FAILED' }));
+      if (status !== 0) return reject(new SingularityFlowError(
+        (stderr || stdout || `Lifecycle command failed: ${args.join(' ')}`).trim(), {
+          code: 'AUTO_LIFECYCLE_STEP_FAILED',
+          details: { command: ['singularity-flow', ...args], status, signal: childSignal }
+        }
+      ));
+      resolve({ status, stdout, stderr, signal: childSignal });
+    });
+  });
+}
+
+async function assertActive(root, flightId, expectedCheckpoint = null) {
+  const current = await readAutoFlightState(root, flightId);
+  if (expectedCheckpoint && current.checkpointSha256 !== expectedCheckpoint) {
+    throw new SingularityFlowError('Auto flight changed during its active step.', { code: 'AUTO_CHECKPOINT_STALE' });
   }
-  return result;
+  if (current.status !== 'running' || current.stopRequested) {
+    throw new SingularityFlowError(`Auto flight '${flightId}' received a stop request.`, { code: 'AUTO_STOP_REQUESTED' });
+  }
+  return current;
+}
+
+function cancellationMonitor(root, flightId, controller) {
+  let checking = false;
+  const timer = setInterval(async () => {
+    if (checking || controller.signal.aborted) return;
+    checking = true;
+    try {
+      const current = await readAutoFlightState(root, flightId);
+      if (current.status !== 'running' || current.stopRequested) controller.abort();
+    } catch { controller.abort(); }
+    finally { checking = false; }
+  }, 100);
+  timer.unref?.();
+  return () => clearInterval(timer);
+}
+
+async function stoppedByHuman(root, flightId, error, activeSince) {
+  if (!['AUTO_STOP_REQUESTED', 'MODEL_CANCELLED', 'AUTO_CHECKPOINT_STALE'].includes(error?.code)) return null;
+  const current = await readAutoFlightState(root, flightId);
+  if (current.status === 'running' && !current.stopRequested) return null;
+  return mutateAutoFlightState(root, flightId, (draft) => {
+    draft.counters.activeMilliseconds = (draft.counters.activeMilliseconds ?? 0)
+      + Math.max(0, Date.now() - activeSince);
+  }, { expectedCheckpoint: current.checkpointSha256 });
+}
+
+function selectorReached(until, phaseId, boundary) {
+  return until?.phase === phaseId && until?.kind === boundary;
+}
+
+async function finishAtBoundary(root, flightId, state, phaseId, boundary) {
+  if (!selectorReached(state.execution.until, phaseId, boundary)) return null;
+  const completed = await mutateAutoFlightState(root, flightId, (draft) => {
+    draft.status = 'completed';
+    draft.stopReason = 'requested-boundary-reached';
+    draft.nextAction = `The ratified Auto boundary '${boundary}:${phaseId}' was reached; inspect the governed Story.`;
+  }, { expectedCheckpoint: state.checkpointSha256 });
+  const report = await persistAutoFlightReport(root, completed);
+  return mutateAutoFlightState(root, flightId, (draft) => {
+    draft.finalReportSha256 = report.reportSha256;
+  }, { expectedCheckpoint: completed.checkpointSha256 });
 }
 
 function actualProtectedPaths(definition, workflow, files) {
@@ -63,7 +172,14 @@ function actualProtectedPaths(definition, workflow, files) {
   return files.filter((file) => protectedPaths.some((guard) => file === guard || file.startsWith(`${guard.replace(/\/$/, '')}/`)));
 }
 
-export async function executeAutoFlightStep(root, flightId, confirmation) {
+async function executeAutoFlightStepLocked(root, flightId, confirmation) {
+  let activeAccountedAt = Date.now();
+  const stopActive = (status, reason, nextAction, extra = {}) => {
+    const now = Date.now();
+    const activeMilliseconds = now - activeAccountedAt;
+    activeAccountedAt = now;
+    return stop(root, flightId, status, reason, nextAction, extra, { activeMilliseconds });
+  };
   let state = await readAutoFlightState(root, flightId);
   if (confirmation !== state.checkpointSha256) throw new SingularityFlowError(`Auto step checkpoint mismatch for '${flightId}'.`, {
     code: 'AUTO_CHECKPOINT_STALE', details: { expected: state.checkpointSha256 }
@@ -74,20 +190,27 @@ export async function executeAutoFlightStep(root, flightId, confirmation) {
   const plan = await readAutoPlan(root, state.planId);
   try { await revalidateAutoPlan(root, plan); }
   catch (error) {
-    return stop(root, flightId, 'halted', 'plan-drift', 'Create and ratify a replacement Plan before continuing.', {
+    return stopActive('halted', 'plan-drift', 'Create and ratify a replacement Plan before continuing.', {
       lastError: { code: error.code ?? 'AUTO_PLAN_STALE', message: error.message }
     });
   }
 
   const elapsedMinutes = (Date.now() - Date.parse(state.createdAt)) / 60_000;
   if (elapsedMinutes >= state.execution.ceilings.maximumElapsedMinutes) {
-    return stop(root, flightId, 'halted', 'elapsed-time-ceiling',
+    return stopActive('halted', 'elapsed-time-ceiling',
       'Create and ratify a replacement Plan; the elapsed authorization window has expired.', {
         ceiling: { name: 'maximumElapsedMinutes', maximum: state.execution.ceilings.maximumElapsedMinutes, consumed: elapsedMinutes }
       });
   }
+  const maximumActiveMs = state.execution.ceilings.maximumActiveMinutes * 60 * 1000;
+  if ((state.counters.activeMilliseconds ?? 0) >= maximumActiveMs) {
+    return stopActive('halted', 'active-time-ceiling',
+      'Create and ratify a replacement Plan; the cumulative active-time budget is exhausted.', {
+        ceiling: { name: 'maximumActiveMinutes', maximum: maximumActiveMs, consumed: state.counters.activeMilliseconds ?? 0 }
+      });
+  }
   if (state.counters.phasesCompleted >= state.execution.ceilings.maximumPhases) {
-    return stop(root, flightId, 'halted', 'phase-ceiling',
+    return stopActive('halted', 'phase-ceiling',
       'Create and ratify a replacement Plan to authorize another phase.', {
         ceiling: { name: 'maximumPhases', maximum: state.execution.ceilings.maximumPhases, consumed: state.counters.phasesCompleted }
       });
@@ -107,11 +230,11 @@ export async function executeAutoFlightStep(root, flightId, confirmation) {
     }
     const clarification = await verifyClarificationRecord(worktree, definition, workflow, phase);
     if (clarification.errors.length) {
-      return stop(root, flightId, 'waiting-human', 'clarification-required', clarification.errors[0]);
+      return stopActive('waiting-human', 'clarification-required', clarification.errors[0]);
     }
   } catch (error) {
     if (error.code === 'AUTO_FLIGHT_STALE') {
-      return stop(root, flightId, 'halted', 'external-state-change', 'Inspect the governed Story and create a replacement Plan.', {
+      return stopActive('halted', 'external-state-change', 'Inspect the governed Story and create a replacement Plan.', {
         lastError: { code: error.code, message: error.message }
       });
     }
@@ -121,15 +244,18 @@ export async function executeAutoFlightStep(root, flightId, confirmation) {
   // A crash after authoring is not permission for a second model call. Only the publish/submit
   // continuation is replayable; an attempt without an authored checkpoint halts for inspection.
   if ((state.counters.authoringAttempts[phase.id] ?? 0) > 0 && state.position === 'story-created') {
-    return stop(root, flightId, 'halted', 'authoring-attempt-state-uncertain',
+    return stopActive('halted', 'authoring-attempt-state-uncertain',
       'Inspect the retained worktree. Auto will not guess whether a prior model attempt changed it.');
   }
 
   if (state.position === 'story-created') {
     let attemptConsumed = false;
     try {
-      await preparePhase(worktree, definition, workflow, phase.id);
-      await saveStoryDraft(worktree, definition, workflow);
+      await childLifecycle(worktree, ['prepare', phase.id]);
+      // Auto enters the same durable generation boundary as an interactive author before any model
+      // can touch source. Publishing without this intent made Auto a privileged bypass of the
+      // code-generation assurance contract.
+      await childLifecycle(worktree, ['phase', 'begin', phase.id]);
       workflow = await loadStoryAggregate(worktree, definition, state.story.workId);
       phase = workflow.phases[phase.id];
       const task = generationTaskForPhase(definition, phase.id);
@@ -137,7 +263,7 @@ export async function executeAutoFlightStep(root, flightId, confirmation) {
         workId: state.story.workId, phase: phase.id, agent: phase.defaultAgent, task
       });
       if (state.execution.ceilings.tokenBudget.assurance === 'exact-required') {
-        return stop(root, flightId, 'halted', 'token-assurance-unavailable',
+        return stopActive('halted', 'token-assurance-unavailable',
           'Exact remaining token budget cannot be proven before invocation; finish manually or ratify a best-available Plan.', {
             token: { assurance: 'unavailable', totalTokens: null },
             ceiling: state.execution.ceilings.tokenBudget
@@ -146,6 +272,7 @@ export async function executeAutoFlightStep(root, flightId, confirmation) {
       state = await authorizeAutoAuthoringAttempt(root, flightId, phase.id);
       if (state.status !== 'running') return state;
       attemptConsumed = true;
+      let authoringCheckpoint = state.checkpointSha256;
       const provider = resolveModelProvider(definition);
       const prompt = [
         composed.trimEnd(), '', '# Ratified Auto execution boundary', '',
@@ -158,41 +285,72 @@ export async function executeAutoFlightStep(root, flightId, confirmation) {
           ? '- Implement and test the requirement. Do not edit the phase artifact; the kernel will regenerate its deterministic summary from your changes.'
           : '- Implement and test the requirement, and completely author the configured phase artifact. Do not leave placeholders.'
       ].join('\n');
-      const invocation = await invokeModel({
-        provider: provider.provider,
-        providerConfig: provider.providerConfig,
-        task,
-        cwd: path.resolve(worktree), allowedRoots: [path.resolve(worktree)],
-        prompt: { text: prompt }, channel: 'auto-phase-authoring',
-        subject: {
-          kind: 'story', id: state.story.workId, phase: phase.id,
-          generation: Number(phase.generation ?? 0) + 1,
-          generationIntentId: phase.generationIntent?.id ?? null,
-          flightId, planSha256: plan.planSha256
-        },
-        tools: { mode: 'allowlist', names: [...AUTO_AUTHORING_TOOLS] },
-        limits: {
-          timeoutMs: Math.min(20, state.execution.ceilings.maximumActiveMinutes) * 60 * 1000,
-          outputBytes: 4 * 1024 * 1024
+      const controller = new AbortController();
+      const stopMonitoring = cancellationMonitor(root, flightId, controller);
+      let invocation;
+      try {
+        const invocationBudgetMs = maximumActiveMs - (state.counters.activeMilliseconds ?? 0)
+          - Math.max(0, Date.now() - activeAccountedAt);
+        if (invocationBudgetMs <= 0) {
+          return stopActive('halted', 'active-time-ceiling',
+            'The cumulative active-time budget was exhausted before model authoring.');
         }
-      });
+        invocation = await invokeModel({
+          provider: provider.provider,
+          providerConfig: provider.providerConfig,
+          task,
+          cwd: path.resolve(worktree), allowedRoots: [path.resolve(worktree)],
+          prompt: { text: prompt }, channel: 'auto-phase-authoring', signal: controller.signal,
+          subject: {
+            kind: 'story', id: state.story.workId, phase: phase.id,
+            generation: Number(phase.generationIntent?.generation ?? (Number(phase.generation ?? 0) + 1)),
+            generationIntentId: phase.generationIntent?.id ?? null,
+            flightId, planSha256: plan.planSha256
+          },
+          tools: { mode: 'allowlist', names: [...AUTO_AUTHORING_TOOLS] },
+          limits: {
+            timeoutMs: Math.min(20 * 60 * 1000, invocationBudgetMs),
+            outputBytes: 4 * 1024 * 1024
+          }
+        });
+      } finally { stopMonitoring(); }
+      await assertActive(root, flightId, authoringCheckpoint);
       const token = tokenObservation(invocation.usage);
+      const invocationActiveMilliseconds = Date.now() - activeAccountedAt;
+      activeAccountedAt = Date.now();
+      state = await mutateAutoFlightState(root, flightId, (draft) => {
+        draft.lastInvocationId = invocation.invocationId;
+        draft.token = token;
+        draft.counters.totalTokens = (draft.counters.totalTokens ?? 0) + (token.totalTokens ?? 0);
+        draft.counters.activeMilliseconds = (draft.counters.activeMilliseconds ?? 0)
+          + invocationActiveMilliseconds;
+      }, { expectedCheckpoint: authoringCheckpoint });
+      authoringCheckpoint = state.checkpointSha256;
       if (state.execution.ceilings.tokenBudget.assurance === 'exact-required' && token.assurance !== 'exact') {
-        return stop(root, flightId, 'halted', 'token-assurance-unavailable',
+        return stopActive('halted', 'token-assurance-unavailable',
           'Finish manually or ratify a Plan whose token policy permits best-available assurance.', {
             token, lastInvocationId: invocation.invocationId
           });
       }
-      if (token.totalTokens != null && token.totalTokens > state.execution.ceilings.tokenBudget.maximum) {
-        return stop(root, flightId, 'halted', 'token-budget-breached',
-          `The one invocation used ${token.totalTokens} tokens; the Plan maximum is ${state.execution.ceilings.tokenBudget.maximum}.`, {
+      const cumulativeTokens = state.counters.totalTokens ?? 0;
+      if (token.totalTokens != null && cumulativeTokens > state.execution.ceilings.tokenBudget.maximum) {
+        return stopActive('halted', 'token-budget-breached',
+          `The flight used ${cumulativeTokens} cumulative tokens; the Plan maximum is ${state.execution.ceilings.tokenBudget.maximum}.`, {
             token, lastInvocationId: invocation.invocationId
           });
       }
-      const files = changedFiles(worktree).sort();
+      const changeSet = await buildRepositoryChangeSet(worktree, {
+        baseCommit: plan.repositories[0].baseCommit,
+        subject: { kind: 'story', id: state.story.workId, phase: phase.id }
+      });
+      const applicationEntries = changeSet.entries.filter((entry) => {
+        const paths = [entry.oldPath, entry.newPath].filter(Boolean);
+        return paths.some((candidate) => !storyControlPath(definition, state.story.workId, candidate));
+      });
+      const files = [...new Set(applicationEntries.flatMap((entry) => [entry.oldPath, entry.newPath]).filter(Boolean))].sort();
       const protectedPaths = actualProtectedPaths(definition, workflow, files);
       if (protectedPaths.length) {
-        return stop(root, flightId, 'halted', 'protected-path-contact',
+        return stopActive('halted', 'protected-path-contact',
           `Review retained worktree changes to protected paths: ${protectedPaths.join(', ')}.`, {
             touchedPaths: files, lastInvocationId: invocation.invocationId
           });
@@ -200,41 +358,50 @@ export async function executeAutoFlightStep(root, flightId, confirmation) {
       const outside = files.filter((file) => !storyControlPath(definition, state.story.workId, file)
         && !allowedPath(file, plan.proposal.predictedPaths));
       if (outside.length) {
-        return stop(root, flightId, 'halted', 'scope-expansion',
+        return stopActive('halted', 'scope-expansion',
           `Review retained worktree changes outside the ratified prediction: ${outside.join(', ')}.`, {
             touchedPaths: files, lastInvocationId: invocation.invocationId
           });
       }
       if (files.length > state.execution.ceilings.maximumTouchedPaths) {
-        return stop(root, flightId, 'halted', 'touched-path-ceiling',
+        return stopActive('halted', 'touched-path-ceiling',
           `The worktree has ${files.length} touched paths; the Plan maximum is ${state.execution.ceilings.maximumTouchedPaths}.`, {
             touchedPaths: files, lastInvocationId: invocation.invocationId
           });
       }
-      if (files.length > state.execution.ceilings.maximumTouchedChanges) {
-        return stop(root, flightId, 'halted', 'touched-change-ceiling',
-          `The canonical change set has ${files.length} changed entries; the Plan maximum is ${state.execution.ceilings.maximumTouchedChanges}.`, {
+      if (applicationEntries.length > state.execution.ceilings.maximumTouchedChanges) {
+        return stopActive('halted', 'touched-change-ceiling',
+          `The canonical change set has ${applicationEntries.length} changed entries; the Plan maximum is ${state.execution.ceilings.maximumTouchedChanges}.`, {
             touchedPaths: files, lastInvocationId: invocation.invocationId
           });
       }
       if (phase.generationPolicy?.producer === 'deterministic') {
         // Re-render after source authoring so the kernel-owned summary names the actual paths. The
         // model cannot claim authorship of or smuggle prose into this artifact.
-        await preparePhase(worktree, definition, workflow, phase.id);
-        await saveStoryDraft(worktree, definition, workflow);
+        await childLifecycle(worktree, ['prepare', phase.id]);
       }
+      const authoringActiveMilliseconds = Date.now() - activeAccountedAt;
+      activeAccountedAt = Date.now();
       state = await mutateAutoFlightState(root, flightId, (draft) => {
         draft.position = 'authored';
         draft.counters.touchedPaths = files.length;
-        draft.counters.touchedChanges = files.length;
+        draft.counters.touchedChanges = applicationEntries.length;
         draft.observedPaths = files.filter((file) => !storyControlPath(definition, state.story.workId, file));
         draft.lastInvocationId = invocation.invocationId;
+        draft.evidence = { ...(draft.evidence ?? {}), changeSetDigest: changeSet.digest };
+        draft.operations = [...(draft.operations ?? []), {
+          operation: 'author', phase: phase.id, outcome: 'succeeded',
+          invocationId: invocation.invocationId, changeSetDigest: changeSet.digest
+        }];
         draft.token = token;
+        draft.counters.activeMilliseconds = (draft.counters.activeMilliseconds ?? 0) + authoringActiveMilliseconds;
         draft.stopReason = 'authoring-complete';
         draft.nextAction = 'Publish the exact authored generation through the normal lifecycle operation.';
-      });
+      }, { expectedCheckpoint: authoringCheckpoint });
     } catch (error) {
-      return stop(root, flightId, 'halted', attemptConsumed ? 'authoring-failed' : 'authoring-preflight-failed',
+      const humanStop = await stoppedByHuman(root, flightId, error, activeAccountedAt);
+      if (humanStop) return humanStop;
+      return stopActive('halted', attemptConsumed ? 'authoring-failed' : 'authoring-preflight-failed',
         attemptConsumed
           ? 'Inspect the retained worktree and finish manually or create a replacement Plan; Auto will not retry.'
           : 'Repair the deterministic preflight and resume with the exact checkpoint; no authoring attempt was consumed.', {
@@ -245,18 +412,42 @@ export async function executeAutoFlightStep(root, flightId, confirmation) {
 
   if (state.position === 'authored') {
     try {
+      await assertActive(root, flightId, state.checkpointSha256);
+      const remainingActiveMs = maximumActiveMs - (state.counters.activeMilliseconds ?? 0)
+        - Math.max(0, Date.now() - activeAccountedAt);
+      if (remainingActiveMs <= 0) {
+        return stopActive('halted', 'active-time-ceiling',
+          'The cumulative active-time budget was exhausted before publication.');
+      }
       const deterministic = phase.generationPolicy?.producer === 'deterministic';
-      childLifecycle(worktree, [
-        'phase', 'publish', phase.id,
-        '--authored', deterministic ? 'deterministic' : 'governed-agent',
-        '--channel', deterministic ? 'kernel-generator' : 'kernel-model'
-      ]);
+      const controller = new AbortController();
+      const stopMonitoring = cancellationMonitor(root, flightId, controller);
+      try {
+        await childLifecycle(worktree, [
+          'phase', 'publish', phase.id,
+          '--authored', deterministic ? 'deterministic' : 'governed-agent',
+          '--channel', deterministic ? 'kernel-generator' : 'kernel-model'
+        ], { signal: controller.signal, timeoutMs: remainingActiveMs });
+      } finally { stopMonitoring(); }
+      await assertActive(root, flightId, state.checkpointSha256);
+      const publicationActiveMilliseconds = Date.now() - activeAccountedAt;
+      activeAccountedAt = Date.now();
       state = await mutateAutoFlightState(root, flightId, (draft) => {
         draft.position = 'published'; draft.stopReason = 'generation-published';
+        draft.counters.activeMilliseconds = (draft.counters.activeMilliseconds ?? 0) + publicationActiveMilliseconds;
+        draft.commits = { ...(draft.commits ?? {}), generation: head(worktree) };
+        draft.lastSuccessfulStoryRevision = head(worktree);
+        draft.operations = [...(draft.operations ?? []), {
+          operation: 'publish', phase: phase.id, outcome: 'succeeded', commit: head(worktree)
+        }];
         draft.nextAction = 'Submit the published generation through the normal lifecycle operation.';
-      });
+      }, { expectedCheckpoint: state.checkpointSha256 });
+      const boundary = await finishAtBoundary(root, flightId, state, phase.id, 'published');
+      if (boundary) return boundary;
     } catch (error) {
-      return stop(root, flightId, 'halted', 'publication-failed',
+      const humanStop = await stoppedByHuman(root, flightId, error, activeAccountedAt);
+      if (humanStop) return humanStop;
+      return stopActive('halted', 'publication-failed',
         'Repair the retained worktree and continue manually; the autonomous authoring attempt is already consumed.', {
           lastError: { code: error.code ?? 'AUTO_LIFECYCLE_STEP_FAILED', message: error.message }
         });
@@ -265,29 +456,77 @@ export async function executeAutoFlightStep(root, flightId, confirmation) {
 
   if (state.position === 'published') {
     try {
-      childLifecycle(worktree, ['submit', phase.id]);
+      await assertActive(root, flightId, state.checkpointSha256);
+      const remainingActiveMs = maximumActiveMs - (state.counters.activeMilliseconds ?? 0)
+        - Math.max(0, Date.now() - activeAccountedAt);
+      if (remainingActiveMs <= 0) {
+        return stopActive('halted', 'active-time-ceiling',
+          'The cumulative active-time budget was exhausted before submission.');
+      }
+      const controller = new AbortController();
+      const stopMonitoring = cancellationMonitor(root, flightId, controller);
+      try { await childLifecycle(worktree, ['submit', phase.id], { signal: controller.signal, timeoutMs: remainingActiveMs }); }
+      finally { stopMonitoring(); }
+      await assertActive(root, flightId, state.checkpointSha256);
+      const submissionActiveMilliseconds = Date.now() - activeAccountedAt;
+      activeAccountedAt = Date.now();
       const current = await loadStoryAggregate(worktree, definition, state.story.workId);
       const completed = current.phases[phase.id];
+      const submittedPacket = [...(current.lineage?.submissions ?? [])].reverse().find((entry) =>
+        entry.phase === phase.id && Number(entry.generation) === Number(completed.generation)) ?? null;
       const waiting = completed.status === 'awaiting_approval';
       const stopped = await mutateAutoFlightState(root, flightId, (draft) => {
         draft.position = 'submitted';
+        draft.commits = { ...(draft.commits ?? {}), submission: head(worktree) };
+        draft.lastSuccessfulStoryRevision = head(worktree);
+        draft.evidence = {
+          ...(draft.evidence ?? {}),
+          changeSetDigest: completed.deliveryEvidence?.changeSet?.digest ?? draft.evidence?.changeSetDigest ?? null,
+          reviewPacketSha256: submittedPacket?.packetSha256 ?? null,
+          artifactSetSha256: submittedPacket?.projection?.submissionEvidence?.artifactSetSha256 ?? null
+        };
+        draft.operations = [...(draft.operations ?? []), {
+          operation: 'submit', phase: phase.id, outcome: 'succeeded', commit: head(worktree),
+          reviewPacketSha256: submittedPacket?.packetSha256 ?? null
+        }];
+        draft.quality = (completed.checks ?? []).map((check) => ({
+          id: check.id, status: check.status, requirement: check.requirement ?? 'required'
+        }));
+        draft.approvals = (completed.approvals ?? []).filter((approval) => !approval.invalidatedAt).map((approval) => ({
+          decision: approval.decision, authorityGroup: approval.authorityGroup ?? null,
+          actor: approval.actor ?? null, at: approval.at ?? null
+        }));
         draft.counters.phasesCompleted += completed.status === 'approved' ? 1 : 0;
-        draft.status = waiting ? 'waiting-human' : 'completed';
-        draft.stopReason = waiting ? 'approval-required' : 'requested-boundary-reached';
-        draft.nextAction = waiting
+        draft.counters.activeMilliseconds = (draft.counters.activeMilliseconds ?? 0) + submissionActiveMilliseconds;
+        const submittedBoundary = selectorReached(draft.execution.until, phase.id, 'submitted');
+        const completedBoundary = selectorReached(draft.execution.until, phase.id, 'phase-complete')
+          && completed.status === 'approved';
+        draft.status = submittedBoundary || completedBoundary ? 'completed' : waiting ? 'waiting-human' : 'completed';
+        draft.stopReason = submittedBoundary || completedBoundary
+          ? 'requested-boundary-reached'
+          : waiting ? 'approval-required' : 'requested-boundary-reached';
+        draft.nextAction = waiting && !submittedBoundary
           ? `Review and decide phase '${phase.id}' through the normal human approval path.`
           : 'The thin single-phase flight is complete; inspect the governed Story for the next phase.';
-      });
+      }, { expectedCheckpoint: state.checkpointSha256 });
       const report = await persistAutoFlightReport(root, stopped);
       return mutateAutoFlightState(root, flightId, (draft) => {
         draft.finalReportSha256 = report.reportSha256;
       });
     } catch (error) {
-      return stop(root, flightId, 'halted', 'verification-or-submission-failed',
+      const humanStop = await stoppedByHuman(root, flightId, error, activeAccountedAt);
+      if (humanStop) return humanStop;
+      return stopActive('halted', 'verification-or-submission-failed',
         'Inspect the ordinary lifecycle failure and retained worktree. Auto will not retry.', {
           lastError: { code: error.code ?? 'AUTO_LIFECYCLE_STEP_FAILED', message: error.message }
         });
     }
   }
   return readAutoFlightState(root, flightId);
+}
+
+/** Hold one durable step lease from checkpoint validation through the final state transition. */
+export async function executeAutoFlightStep(root, flightId, confirmation) {
+  return withSubjectLock(root, { kind: 'auto-flight-step', id: flightId }, () =>
+    executeAutoFlightStepLocked(root, flightId, confirmation));
 }

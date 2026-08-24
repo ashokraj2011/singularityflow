@@ -56,7 +56,7 @@ import {
 } from './change-flight-plan.mjs';
 import { registerReference, resolveReference } from './harness-imports.mjs';
 import { beginHarnessInvocation, completeHarnessInvocation, harnessReport } from './harness-events.mjs';
-import { activateWorkItemSession, loadCopilotSession, loadSession, agentSessionStatus, requireCopilotWorkItemSelection, restoreAgentSession, restoreCopilotSession, selectIntakeSource, selectAgent, selectWorkType, setAgentSession } from './session.mjs';
+import { activateWorkItemSession, loadCopilotSession, loadSession, agentSessionStatus, requireCopilotWorkItemSelection, selectIntakeSource, selectAgent, selectWorkType, setAgentSession } from './session.mjs';
 import { addDocuments, detachDocuments, documentCatalog, fetchRemoteDocument, listRemoteDocuments, previewDocument, viewDocument } from './documents.mjs';
 import { recordClarificationResponses, verifyClarificationRecord } from './clarifications.mjs';
 import { progressBar, progressFlow, progressMarkdown, progressSnapshot } from './progress.mjs';
@@ -128,8 +128,12 @@ import { currentLocalEpicReservation, reserveLocalEpicBranch } from './local-ide
 import { adoptWorkspaceConfiguration, archiveWorkspace, createWorkspace, createWorkspaceConfiguration, fetchWorkspace, forgetWorkspace, listWorkspaceDocuments, previewWorkspace, previewWorkspaceConfiguration, previewWorkspaceUpdate, readWorkspace, readWorkspaceRegistry, rememberWorkspace, repairWorkspace, restoreWorkspace, duplicateWorkspaceConfiguration, isCloneTarget, stageWorkspaceDocuments, updateWorkspaceConfiguration, workspaceRemoteCapabilities, workspaceRemoteDefaults, remoteDefaultBranch, workspaceRepositoryDefaults, workspaceArchiveReadiness, workspaceRepositoryPath, workspaceStatus } from './workspace.mjs';
 import {
   captureConfigurationState, CONFIGURATION_BRANCH, materializeConfigurationSnapshot,
-  resolveConfigurationRemote, restoreConfigurationState
+  resolveConfigurationRemote
 } from './configuration-branch.mjs';
+import {
+  beginStoryStartJournal, clearStoryStartJournal, recoverStoryStart,
+  serializeConfigurationRestorePoint, updateStoryStartJournal
+} from './story-start-journal.mjs';
 import { analyzeWorkspaceImpact, listWorkspaceImpacts, previewWorkspaceImpact, promoteWorkspaceImpact, workspaceImpactStatus } from './workspace-impact.mjs';
 import { activateWorkspaceContext, activeWorkspaceFile, clearActiveWorkspaceContext, discardUnsupportedWorkflowWorkspaces, readActiveWorkspaceContext, workspacePromptLabel, workspaceContextForRepository, workspaceRegistryFile } from './workspace-context.mjs';
 import { refreshWorkspaceConfigurations } from './workspace-configuration-refresh.mjs';
@@ -553,6 +557,10 @@ async function retainCapabilityPublicationRecovery(root, workId, publication, en
 export async function startCommand(positionals, options) {
   const id = requirePositional(positionals, 1, 'work ID');
   const root = repoRoot();
+  // Story start mutates checkout/configuration/session planes before workflow.json exists. Recover
+  // their write-ahead journal before trying to load configuration, because a hard kill may have
+  // interrupted configuration materialization itself.
+  await recoverStoryStart(root, id);
   let config = existsSync(path.join(root, WORKFLOW_PATH)) ? await loadConfig(root) : null;
   // At this point the command has not established whether this is new work or an existing Story
   // carrying an older pinned policy. Enforce the transport-safe shape now; the selected lifecycle
@@ -734,7 +742,7 @@ export async function startCommand(positionals, options) {
   const {
     storyBaseForRepository, preflightStoryRepositories,
     capabilityPublicationPlan, prepareCapabilityRepositories, printCapabilityBase,
-    publishCapabilityRepositories, rollbackCapabilityRepositories
+    publishCapabilityRepositories
   } = await import('./capability-start.mjs');
   if (materializedSeed && requestedBase.length
     && requestedBase.some((value) => value !== materializedSeed.parentBranch)) {
@@ -815,16 +823,43 @@ export async function startCommand(positionals, options) {
   });
   const originalSession = await loadSession(root, { required: false });
   const originalCopilotSession = await loadCopilotSession(root);
+  const siblingRepositories = storyBase.scope === 'capability'
+    ? storyBase.plan.repositories.map((repository) => {
+        const target = repoRoot(path.resolve(storyBase.workspaceRoot, repository.path));
+        const base = storyBase.plan.resolution.resolved[repository.id];
+        const baseRef = `refs/remotes/${remote}/${base.branch}`;
+        return {
+          repository: repository.id,
+          target,
+          from: branch(target),
+          targetBranchExisted: refExists(target, `refs/heads/${canonicalBranch}`),
+          baseCommit: refExists(target, baseRef) ? refHead(target, baseRef) : null
+        };
+      })
+    : [];
+  const startJournal = await beginStoryStartJournal(root, {
+    id,
+    targetBranch: canonicalBranch,
+    targetBranchExisted: refExists(root, localStoryRef),
+    originalBranch,
+    originalHead: head(root),
+    baseCommit: baseCommitAtStart,
+    originalSession,
+    originalCopilotSession,
+    siblingRepositories
+  });
   let createdBranch = false;
   let capabilityRepositoriesPrepared = null;
   let configurationSnapshot = null;
   let configurationRestorePoint = null;
-  let configurationMaterializationStarted = false;
   try {
   const checkoutResult = checkout(root, canonicalBranch, materializedSeed
     ? { base: baseAtStart, fetch: true, existingOnly: true, remote }
     : { base: baseAtStart, fetch: false, remote, preferRemoteBase: true });
   createdBranch = checkoutResult.startsWith('created-from-');
+  await updateStoryStartJournal(root, id, startJournal.transactionId, {
+    stage: 'root-checked-out', createdBranch, checkoutMode: checkoutResult
+  });
 
   /**
    * The siblings follow the same base.
@@ -838,13 +873,19 @@ export async function startCommand(positionals, options) {
       storyBase.workspaceRoot, storyBase.plan, canonicalBranch, { remote }
     );
     if (!optionBoolean(options, 'json')) printCapabilityBase(storyBase.plan, capabilityRepositoriesPrepared);
+    await updateStoryStartJournal(root, id, startJournal.transactionId, {
+      stage: 'siblings-prepared', capabilityRepositoriesPrepared
+    });
   }
   // Application branches do not own shared configuration. A new Story receives the exact approved
   // configuration revision here, before any selection or generation happens, and the initial Story
   // commit publishes the copied files together with their provenance record.
   if (createdBranch && configurationRemote) {
     configurationRestorePoint = await captureConfigurationState(root);
-    configurationMaterializationStarted = true;
+    await updateStoryStartJournal(root, id, startJournal.transactionId, {
+      stage: 'configuration-captured',
+      configurationRestorePoint: serializeConfigurationRestorePoint(configurationRestorePoint)
+    });
     configurationSnapshot = await materializeConfigurationSnapshot(root, {
       remote: configurationRemote,
       remoteName: remote
@@ -855,6 +896,9 @@ export async function startCommand(positionals, options) {
   // template, or world-model policy is what gets pinned into the Story.
   config = await loadConfig(root);
   validateId(config, id);
+  await updateStoryStartJournal(root, id, startJournal.transactionId, {
+    stage: 'configuration-ready', workItemRelative: workDirRelative(config, id)
+  });
   if (receiptToken && !receipt) {
     throw new SingularityFlowError('A start selection receipt requires an initialized governed definition before checkout.');
   }
@@ -979,7 +1023,7 @@ export async function startCommand(positionals, options) {
           } : {} },
           `[${id}][init] start ${workType} workflow`,
           [...(configurationSnapshot?.paths ?? []), returnLocator.path],
-          { recoveryPreimage: creationPreimage }
+          { recoveryPreimage: creationPreimage, transactionId: startJournal.transactionId }
         );
         return { workflow, publication };
       }
@@ -992,6 +1036,7 @@ export async function startCommand(positionals, options) {
     }
     throw error;
   }
+  await clearStoryStartJournal(root, id, startJournal.transactionId);
   // Spent once the start has landed, not before it is attempted.
   if (receiptToken) await consumeSelectionReceipt(root, receiptToken);
   try {
@@ -1012,7 +1057,14 @@ export async function startCommand(positionals, options) {
               label: document.label,
               kind: document.kind
             });
-          }
+            return records;
+          },
+          eventFromResult: (created) => ({
+            payload: {
+              operation: 'supporting-document-upload',
+              documentIds: (created ?? []).map((record) => record.id)
+            }
+          })
         }
       );
     }
@@ -1125,41 +1177,15 @@ export async function startCommand(positionals, options) {
   }
   emitCommandResult(startResult, { json: optionBoolean(options, 'json'), postState: workflow });
   } catch (error) {
-    // Selection and validation happen against the lifecycle branch because that branch owns the
-    // workflow definition and any governed Story seed. If those preflight steps fail before state
-    // exists, restore the caller's branch and remove only the branch this invocation created.
-    // Existing remote/local Story branches and partially-created workflow state are never deleted.
-    const workflowCreated = config ? existsSync(workflowPath(root, config, id)) : false;
-    if (!workflowCreated) {
-      const rollbackFailures = rollbackCapabilityRepositories(
-        capabilityRepositoriesPrepared, canonicalBranch
+    // One recovery implementation handles both an ordinary throw and the next process after a hard
+    // kill. It restores configuration/session/sibling checkouts only while Git still proves they
+    // are the exact uncommitted start state; a durable Story commit is preserved for sync/resume.
+    try { await recoverStoryStart(root, id, { force: true }); }
+    catch (recoveryError) {
+      throw new SingularityFlowError(
+        `${error.message} Story-start recovery also stopped: ${recoveryError.message}`,
+        { code: recoveryError.code ?? 'STORY_START_RECOVERY_FAILED', cause: error }
       );
-      if (rollbackFailures.length) {
-        console.warn(
-          `Warning: start failed before creating workflow state, and capability rollback failed for `
-          + `${rollbackFailures.join('; ')}. The original error follows.`
-        );
-      }
-      await restoreAgentSession(root, originalSession);
-      await restoreCopilotSession(root, originalCopilotSession);
-      if (configurationMaterializationStarted && configurationRestorePoint) {
-        try {
-          await restoreConfigurationState(root, configurationRestorePoint);
-        } catch (rollbackError) {
-          console.warn(
-            `Warning: start failed before creating workflow state, and configuration rollback failed: `
-            + `${rollbackError.message}. The original error follows.`
-          );
-        }
-      }
-    }
-    if (createdBranch && !workflowCreated) {
-      const restored = run('git', ['switch', originalBranch], { cwd: root, stdio: 'inherit', allowFailure: true });
-      if (restored.status === 0) {
-        run('git', ['branch', '-D', canonicalBranch], { cwd: root, stdio: 'inherit', allowFailure: true });
-      } else {
-        console.warn(`Warning: start failed before creating workflow state, but Git could not restore branch '${originalBranch}'. The original error follows.`);
-      }
     }
     throw error;
   }
@@ -2327,7 +2353,14 @@ async function documentsCommand(positionals, options) {
             label: optionString(options, 'label'),
             kind: optionString(options, 'kind')
           });
-        }
+          return records;
+        },
+        eventFromResult: (created) => ({
+          payload: {
+            operation: 'document-upload',
+            documentIds: (created ?? []).map((record) => record.id)
+          }
+        })
       }
     );
     records.forEach((record) => console.log(`${record.id}\t${record.type}\t${record.url ?? record.path}`)); console.log(`Committed ${result.sha.slice(0, 8)}${result.pushed ? ' and pushed' : ''}.`); return;
@@ -2361,7 +2394,15 @@ async function documentsCommand(positionals, options) {
             label: optionString(options, 'label'),
             kind: optionString(options, 'kind')
           });
-        }
+          return records;
+        },
+        eventFromResult: (created) => ({
+          payload: {
+            operation: 'document-fetch',
+            documentIds: (created ?? []).map((record) => record.id),
+            providerIds: [...new Set((created ?? []).map((record) => record.remote?.providerId).filter(Boolean))]
+          }
+        })
       }
     );
     records.forEach((record) => console.log(`${record.id}\t${record.type}\t${record.remote?.providerId ?? ''}\t${record.path}`));
@@ -4207,7 +4248,21 @@ async function approveCommand(positionals, options) {
       checklist,
       persist: false
     }),
-    { paths: phase.artifacts.map((item) => item.path) }
+    {
+      paths: phase.artifacts.map((item) => item.path),
+      eventFromResult: (transition) => ({
+        actor: transition.approval.actor,
+        agent: transition.approval.agent,
+        authorityGroup: transition.approval.authorityGroup,
+        identityAssurance: transition.approval.identityAssurance,
+        payload: {
+          decision: transition.approval.decision,
+          reviewPacketSha256: transition.approval.reviewPacketSha256,
+          evidenceCommit: transition.approval.evidenceCommit,
+          artifactSetSha256: transition.approval.artifactSetSha256
+        }
+      })
+    }
   );
   // Spent once the approval has actually landed. Consuming it up front — before the confirmation
   // prompt, let alone the publication — meant declining at the prompt or hitting any refusal burned
@@ -4251,7 +4306,15 @@ async function rejectCommand(positionals, options) {
       members: optionStrings(options, 'member'),
       channel: process.env.SINGULARITY_FLOW_GITHUB_ACTOR ? 'github-pr-comment' : 'terminal',
       actionContext: activeActionContext()
-    })
+    }),
+    {
+      eventFromResult: (transition) => ({
+        payload: {
+          targetPhaseId: target.id ?? target,
+          changeRequestId: transition.changeRequest.id
+        }
+      })
+    }
   );
   console.log(`Recorded ${phase.changeRequest.id}. Comment: ${phase.changeRequest.comment}`);
   if (phase.changeRequest.clauseIds?.length) console.log(`Clauses requiring revision: ${phase.changeRequest.clauseIds.join(', ')}`);
@@ -4319,7 +4382,18 @@ async function reopenCommand(positionals, options) {
       reason: optionString(options, 'reason'),
       channel: 'terminal',
       actionContext: activeActionContext()
-    })
+    }),
+    {
+      eventFromResult: (transition) => ({
+        actor: transition.changeRequest?.actor ?? session.actor,
+        agent: transition.changeRequest?.agent ?? session.agent,
+        authorityGroup: transition.changeRequest?.authorityGroup ?? authority.authorityGroup,
+        payload: {
+          targetPhaseId: transition.phase.id,
+          changeRequestId: transition.changeRequest.id
+        }
+      })
+    }
   );
   console.log(`Reopened ${workflow.workItem.id} at ${result.phase.id} with ${result.changeRequest.id}.`);
   console.log(publication.pushed

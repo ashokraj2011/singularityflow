@@ -245,6 +245,7 @@ export async function planAgentBriefs(root, workflow, producerPhase, {
       path: paths.record,
       renderedPath: record.rendered?.path ?? null,
       sourceSha256: source.sha256,
+      sourceBytes: source.bytes,
       renderedSha256: record.rendered?.sha256 ?? null,
       integritySha256: record.integritySha256
     });
@@ -292,15 +293,23 @@ export async function readAgentBrief(root, workflow, producerPhase, consumerPhas
       && approval.generation === producerPhase.generation
       && approval.intentAmendmentId
   );
-  const reviewedSource = reviewedSubmission?.projection?.artifacts?.find((artifact) => artifact.path === expectedSource)
-    ?? (amendmentApproval?.agentBriefSource?.path === expectedSource
-      ? amendmentApproval.agentBriefSource
-      : null);
   const reviewedBrief = reviewedSubmission?.projection?.agentBriefs?.find((brief) =>
     brief.consumerPhase === consumerPhase.id && brief.integritySha256 === stored.integritySha256
   ) ?? amendmentApproval?.agentBriefs?.find((brief) =>
     brief.consumerPhase === consumerPhase.id && brief.integritySha256 === stored.integritySha256
   );
+  // Submission refreshes the artifact's kernel-owned metadata after the brief was rendered. The
+  // packet therefore binds the brief's generation source separately from the review artifact's
+  // submission bytes. Conflating the two makes every correctly submitted brief stale at approval.
+  const submittedArtifact = reviewedSubmission?.projection?.artifacts?.find((artifact) => artifact.path === expectedSource);
+  const reviewedSource = reviewedSubmission
+    ? {
+        sha256: reviewedBrief?.sourceSha256 ?? submittedArtifact?.sha256 ?? null,
+        size: reviewedBrief?.sourceBytes ?? null
+      }
+    : amendmentApproval?.agentBriefSource?.path === expectedSource
+      ? amendmentApproval.agentBriefSource
+      : null;
   const identityValid = record.workId === workflow.workItem.id
     && record.producer?.phase === producerPhase.id
     && record.producer?.generation === producerPhase.generation
@@ -312,7 +321,7 @@ export async function readAgentBrief(root, workflow, producerPhase, consumerPhas
   if (!identityValid || recordSha256(core) !== stored.integritySha256
     || record.policySha256 !== recordSha256(expectedPolicy)
     || record.source?.sha256 !== reviewedSource?.sha256
-    || record.source?.bytes !== reviewedSource?.size
+    || (reviewedSource?.size != null && record.source?.bytes !== reviewedSource.size)
     || reviewedBrief?.path !== paths.record
     || reviewedBrief?.renderedPath !== (record.rendered?.path ?? null)) {
     return { status: 'brief_invalid', error: `approved agent brief binding is stale or invalid for ${producerPhase.id} → ${consumerPhase.id}` };

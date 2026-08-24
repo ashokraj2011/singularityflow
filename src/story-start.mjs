@@ -1,19 +1,23 @@
+import path from 'node:path';
 import { loadDefinition, resolveWorkType } from './config.mjs';
 import { addDocuments } from './documents.mjs';
 import {
   assertClean,
+  branch,
   checkout,
   fastForwardTo,
   fetchRemote,
   identity,
   preflightPushBranch,
   refExists,
-  refHead
+  refHead,
+  repoRoot,
+  head
 } from './git.mjs';
 import {
   preflightStoryRepositories, prepareCapabilityRepositories, storyBaseForRepository
 } from './capability-start.mjs';
-import { setAgentSession } from './session.mjs';
+import { loadCopilotSession, loadSession, setAgentSession } from './session.mjs';
 import {
   commitAndPublish,
   createWorkflow,
@@ -28,6 +32,9 @@ import { pinAcceptedChangeFlightPlan } from './change-flight-plan.mjs';
 import { LIFECYCLE_EVENT } from './lifecycle-event.mjs';
 import { pinAcceptedAutoPlan } from './auto/auto-origin.mjs';
 import { runDraftTransaction } from './draft-unit-of-work.mjs';
+import {
+  beginStoryStartJournal, clearStoryStartJournal, recoverStoryStart, updateStoryStartJournal
+} from './story-start-journal.mjs';
 
 function lines(value) {
   if (Array.isArray(value)) return value.map((item) => String(item).trim()).filter(Boolean);
@@ -100,6 +107,7 @@ export async function startStory(root, {
 } = {}) {
   const initialDefinition = await loadDefinition(root);
   validateId(initialDefinition, id);
+  await recoverStoryStart(root, id);
   const normalizedSource = validateStorySource(source, id);
   const actor = identity(root);
   const remote = initialDefinition.git?.remote ?? 'origin';
@@ -119,6 +127,7 @@ export async function startStory(root, {
   let storyBase = null;
   let baseCommit = null;
   let capabilityRepositoriesPrepared = null;
+  let startJournal = null;
   let checkoutMode;
   if (existed) {
     checkoutMode = checkout(root, id, {
@@ -169,23 +178,58 @@ export async function startStory(root, {
         );
       }
     }
+    const siblings = storyBase.scope === 'capability'
+      ? storyBase.plan.repositories.map((repository) => {
+          const target = repoRoot(path.resolve(storyBase.workspaceRoot, repository.path));
+          const base = storyBase.plan.resolution.resolved[repository.id];
+          const baseRef = `refs/remotes/${remote}/${base.branch}`;
+          return {
+            repository: repository.id,
+            target,
+            from: branch(target),
+            targetBranchExisted: refExists(target, `refs/heads/${id}`),
+            baseCommit: refExists(target, baseRef) ? refHead(target, baseRef) : null
+          };
+        })
+      : [];
+    startJournal = await beginStoryStartJournal(root, {
+      id,
+      targetBranch: id,
+      targetBranchExisted: false,
+      originalBranch: branch(root),
+      originalHead: head(root),
+      baseCommit,
+      originalSession: await loadSession(root, { required: false }),
+      originalCopilotSession: await loadCopilotSession(root),
+      siblingRepositories: siblings
+    });
     checkoutMode = checkout(root, id, {
       base: storyBase.localBase,
       remote,
       preferRemoteBase: true
     });
+    await updateStoryStartJournal(root, id, startJournal.transactionId, {
+      stage: 'root-checked-out', createdBranch: true, checkoutMode
+    });
     if (storyBase.scope === 'capability') {
       capabilityRepositoriesPrepared = prepareCapabilityRepositories(
         storyBase.workspaceRoot, storyBase.plan, id, { remote }
       );
+      await updateStoryStartJournal(root, id, startJournal.transactionId, {
+        stage: 'siblings-prepared', capabilityRepositoriesPrepared
+      });
     }
   }
 
+  try {
   // The branch we just materialized is authoritative for new lifecycle configuration. Keeping the
   // definition loaded from the old checkout meant the files came from fresh remote main while the
   // pinned phase graph, agents, templates, and world-model policy came from stale local main.
   const definition = await loadDefinition(root);
   validateId(definition, id);
+  if (startJournal) await updateStoryStartJournal(root, id, startJournal.transactionId, {
+    stage: 'configuration-ready', workItemRelative: workDirRelative(definition, id)
+  });
   if (!definition.workTypes?.[workType]) throw new SingularityFlowError(`Unknown work type '${workType ?? ''}'.`);
   const resolved = resolveWorkType(definition, workType);
   const targetOrigin = normalizeMcpTargetOrigin(targetUrl ?? normalizedSource.targetOrigin, {
@@ -259,7 +303,7 @@ export async function startStory(root, {
         { type: LIFECYCLE_EVENT.BINDING },
         `[${id}][init] start ${workType} workflow`,
         [returnLocator.path],
-        { recoveryPreimage: creationPreimage }
+        { recoveryPreimage: creationPreimage, transactionId: startJournal?.transactionId ?? null }
       );
       return { workflow, publication };
     }
@@ -274,7 +318,15 @@ export async function startStory(root, {
       { type: LIFECYCLE_EVENT.EVIDENCE_RECORDED, payload: { operation: 'document-upload' } },
       `[${id}][documents][upload] governed evidence`,
       [],
-      { beforeStateWrite: async () => { added = await addDocuments(root, definition, workflow, { files }); } }
+      {
+        beforeStateWrite: async () => {
+          added = await addDocuments(root, definition, workflow, { files });
+          return added;
+        },
+        eventFromResult: (created) => ({
+          payload: { operation: 'document-upload', documentIds: (created ?? []).map((record) => record.id) }
+        })
+      }
     );
     documents.push(...added);
   }
@@ -287,10 +339,19 @@ export async function startStory(root, {
       { type: LIFECYCLE_EVENT.EVIDENCE_RECORDED, payload: { operation: 'document-upload' } },
       `[${id}][documents][upload] governed evidence`,
       [],
-      { beforeStateWrite: async () => { added = await addDocuments(root, definition, workflow, { url }); } }
+      {
+        beforeStateWrite: async () => {
+          added = await addDocuments(root, definition, workflow, { url });
+          return added;
+        },
+        eventFromResult: (created) => ({
+          payload: { operation: 'document-upload', documentIds: (created ?? []).map((record) => record.id) }
+        })
+      }
     );
     documents.push(...added);
   }
+  if (startJournal) await clearStoryStartJournal(root, id, startJournal.transactionId);
   return {
     workId: id,
     resumed: false,
@@ -325,4 +386,16 @@ export async function startStory(root, {
     } : {}),
     documents
   };
+  } catch (error) {
+    if (startJournal) {
+      try { await recoverStoryStart(root, id, { force: true }); }
+      catch (recoveryError) {
+        throw new SingularityFlowError(
+          `${error.message} Story-start recovery also stopped: ${recoveryError.message}`,
+          { code: recoveryError.code ?? 'STORY_START_RECOVERY_FAILED', cause: error }
+        );
+      }
+    }
+    throw error;
+  }
 }

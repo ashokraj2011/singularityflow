@@ -1,6 +1,10 @@
 import path from 'node:path';
+import os from 'node:os';
+import { readFileSync, statSync } from 'node:fs';
 import { readdir, unlink } from 'node:fs/promises';
-import { changes, gitDir, head, remoteContains } from './git.mjs';
+import {
+  branch, changes, commitIsAncestor, gitDir, governedCommitIdentity, head, remoteContains
+} from './git.mjs';
 import {
   clearPublicationJournal,
   publicationJournalOwnedByCurrentProcess,
@@ -13,6 +17,7 @@ import { subjectRef } from './subject-ref.mjs';
 import { currentSchemaVersion, readRecord, stampCurrentRecord } from './schema-migrations.mjs';
 import { restorePublicationPreimage } from './publication-recovery.mjs';
 import { withSubjectLock } from './subject-lock.mjs';
+import { subjectLockPath } from './subject-lock.mjs';
 
 const PENDING_PUBLICATION_FAMILY = 'pending-publication';
 
@@ -57,6 +62,51 @@ function legacyCandidates(root, { kind, id, legacyPath = null, roots = {} } = {}
   ].filter(Boolean).map((candidate) => path.resolve(candidate)))];
 }
 
+function recoveryRecord(journal, updates = {}) {
+  return {
+    schemaVersion: currentSchemaVersion(PENDING_PUBLICATION_FAMILY),
+    subject: journal.subject,
+    branch: journal.branch,
+    remote: journal.remote,
+    commit: journal.commit ?? null,
+    event: journal.commit ? bindLifecycleEvent(journal.event, journal.commit) : journal.event,
+    transactionId: journal.transactionId ?? null,
+    tree: journal.tree ?? null,
+    eventSha256: journal.eventSha256 ?? null,
+    stateSha256: journal.stateSha256 ?? null,
+    publicationMode: journal.publicationMode ?? null,
+    createdAt: journal.createdAt,
+    ...updates
+  };
+}
+
+function divergentRecovery(journal, reason) {
+  return recoveryRecord(journal, {
+    recoveryStage: 'publication-recovery-diverged',
+    code: 'PUBLICATION_RECOVERY_DIVERGED',
+    error: `Automatic recovery stopped because ${reason}. The journal was retained and no ref or remote was changed.`
+  });
+}
+
+function verifiedJournalCommit(root, journal) {
+  if (!journal.transactionId || !journal.commit || !journal.tree || !journal.stateSha256) {
+    return { valid: false, reason: 'the journal does not identify one exact transaction commit' };
+  }
+  const identity = governedCommitIdentity(root, journal.commit);
+  if (!identity) return { valid: false, reason: `recorded commit ${journal.commit} is unavailable` };
+  const mismatch = [
+    [identity.parents.length === 1 && identity.parents[0] === journal.expectedHead, 'parent commit'],
+    [identity.tree === journal.tree, 'tree'],
+    [identity.transactionId === journal.transactionId, 'transaction ID'],
+    [identity.eventSha256 === journal.eventSha256, 'event digest'],
+    [identity.stateSha256 === journal.stateSha256, 'state digest'],
+    [identity.publicationMode === journal.publicationMode, 'publication mode']
+  ].find(([matches]) => !matches);
+  return mismatch
+    ? { valid: false, reason: `the recorded commit has a different ${mismatch[1]}` }
+    : { valid: true, identity };
+}
+
 /**
  * Read the machine-local recovery marker, migrating the pre-kernel governed-tree
  * marker on first access. The rename to .git was deliberately a state-plane
@@ -71,31 +121,71 @@ export async function readPendingPublication(root, { kind, id, legacyPath = null
   if (journal) {
     // State validation runs inside the transaction after its journal is durable. That transaction
     // must not diagnose its own marker as a previous crash; every other process still sees it.
-    if (publicationJournalOwnedByCurrentProcess(journal.record)) return null;
+    if (publicationJournalOwnedByCurrentProcess(journal.record, root)) return null;
+    const recorded = journal.record;
     const currentHead = head(root);
-    const advanced = currentHead !== journal.record.expectedHead;
-    if (advanced && remoteContains(root, currentHead, journal.record.remote, journal.record.branch)) {
-      if (migrate) await clearPublicationJournal(root, subject);
+    const currentBranch = branch(root);
+    if (currentBranch !== recorded.branch) {
+      return {
+        path: journal.path,
+        record: divergentRecovery(recorded, `the checkout is on branch '${currentBranch}', not transaction branch '${recorded.branch}'`),
+        migrated: false,
+        journal: true,
+        journalRecord: recorded
+      };
+    }
+    if (!recorded.commit) {
+      const record = currentHead === recorded.expectedHead
+        ? recoveryRecord(recorded, {
+            recoveryStage: 'interrupted-before-branch-ref-advanced',
+            error: 'The process stopped before the governed commit completed; exact pre-transaction recovery is available.'
+          })
+        : divergentRecovery(recorded, `HEAD changed from ${recorded.expectedHead} to ${currentHead} without an identified transaction commit`);
+      return { path: journal.path, record, migrated: false, journal: true, journalRecord: recorded };
+    }
+    const verification = verifiedJournalCommit(root, recorded);
+    if (!verification.valid) {
+      return {
+        path: journal.path,
+        record: divergentRecovery(recorded, verification.reason),
+        migrated: false,
+        journal: true,
+        journalRecord: recorded
+      };
+    }
+    const refAdvanced = currentHead !== recorded.expectedHead
+      && commitIsAncestor(root, recorded.commit, currentHead);
+    if (!refAdvanced) {
+      if (currentHead !== recorded.expectedHead || recorded.refAdvanced === true) {
+        return {
+          path: journal.path,
+          record: divergentRecovery(recorded, `branch '${recorded.branch}' does not contain the exact transaction commit ${recorded.commit}`),
+          migrated: false,
+          journal: true,
+          journalRecord: recorded
+        };
+      }
+      const record = recoveryRecord(recorded, {
+        recoveryStage: 'interrupted-before-branch-ref-advanced',
+        error: 'The transaction commit object was created, but the branch ref was not advanced; exact pre-transaction recovery is available.'
+      });
+      return { path: journal.path, record, migrated: false, journal: true, journalRecord: recorded };
+    }
+    if (recorded.publicationMode === 'off') {
+      if (migrate) await clearPublicationJournal(root, subject, { transactionId: recorded.transactionId });
       return null;
     }
-    const record = {
-      schemaVersion: currentSchemaVersion(PENDING_PUBLICATION_FAMILY),
-      subject,
-      branch: journal.record.branch,
-      remote: journal.record.remote,
-      commit: advanced ? currentHead : null,
-      event: advanced ? bindLifecycleEvent(journal.record.event, currentHead) : journal.record.event,
-      createdAt: journal.record.createdAt,
-      recoveryStage: advanced
-        ? 'branch-ref-advanced-before-publication'
-        : 'interrupted-before-branch-ref-advanced',
-      error: advanced
-        ? 'The process stopped after creating the local commit and before publication completed.'
-        : 'The process stopped before the governed commit completed; inspect and repair the working tree before retrying.'
-    };
-    if (migrate && advanced) {
+    if (remoteContains(root, recorded.commit, recorded.remote, recorded.branch)) {
+      if (migrate) await clearPublicationJournal(root, subject, { transactionId: recorded.transactionId });
+      return null;
+    }
+    const record = recoveryRecord(recorded, {
+      recoveryStage: 'branch-ref-advanced-before-publication',
+      error: 'The process stopped after creating the exact governed commit and before publication completed.'
+    });
+    if (migrate) {
       await writeJson(local, record);
-      await clearPublicationJournal(root, subject);
+      await clearPublicationJournal(root, subject, { transactionId: recorded.transactionId });
       return { path: local, record, migrated: true, migratedFrom: journal.path };
     }
     return { path: journal.path, record, migrated: false, journal: true, journalRecord: journal.record };
@@ -169,6 +259,28 @@ function processIsAlive(pid) {
   catch (error) { return error?.code === 'ESRCH' ? false : null; }
 }
 
+function journalLeaseIsLive(root, journal) {
+  if (!root || !journal?.owner?.lockToken) return processIsAlive(journal?.owner?.pid) === true;
+  const directory = subjectLockPath(root, journal.subject);
+  let owner;
+  try { owner = JSON.parse(readFileSync(path.join(directory, 'owner.json'), 'utf8')); }
+  catch { return false; }
+  if (owner.lockToken !== journal.owner.lockToken
+    || owner.processToken !== journal.owner.processToken
+    || owner.host !== journal.owner.host) return false;
+  const acquired = Date.parse(owner.acquiredAt ?? '');
+  const expires = Date.parse(owner.expiresAt ?? '');
+  const ttlMs = Number.isFinite(acquired) && Number.isFinite(expires) ? expires - acquired : 0;
+  let heartbeat = 0;
+  try {
+    heartbeat = statSync(path.join(directory, `heartbeat-${encodeURIComponent(owner.lockToken).replace(/%/g, '_')}`)).mtimeMs;
+  } catch { /* Missing exact-token heartbeat cannot extend the recorded lease. */ }
+  const deadline = Math.max(Number.isFinite(expires) ? expires : 0, heartbeat + Math.max(0, ttlMs));
+  if (Date.now() > deadline) return false;
+  if (owner.host === os.hostname() && processIsAlive(owner.pid) !== true) return false;
+  return true;
+}
+
 /**
  * Identify a pre-commit journal whose owning process is still running.
  *
@@ -178,13 +290,13 @@ function processIsAlive(pid) {
  * still owns its lock. Recovery callers use this distinction to tell the operator to return to the
  * active command; they still fail closed when liveness is unknown.
  */
-export function livePreparedPublicationOwner(pending) {
+export function livePreparedPublicationOwner(pending, root = null) {
   const journal = pending?.journalRecord;
   if (!pending?.journal
     || pending.record?.recoveryStage !== 'interrupted-before-branch-ref-advanced'
-    || !['prepared', 'restoring', 'rollback-failed'].includes(journal?.stage)
-    || journal?.commit != null
-    || processIsAlive(journal.owner?.pid) !== true) return null;
+    || !['prepared', 'commit-created', 'restoring', 'rollback-failed'].includes(journal?.stage)
+    || journal?.refAdvanced === true
+    || !journalLeaseIsLive(root, journal)) return null;
   return Object.freeze({
     pid: journal.owner.pid,
     processId: journal.owner.processId ?? null,
@@ -202,12 +314,15 @@ export function livePreparedPublicationOwner(pending) {
  */
 export async function recoverPreparedPublication(root, pending) {
   const journal = pending?.journalRecord;
+  const commitIsVerifiedPreRef = journal?.commit == null
+    || (journal?.refAdvanced !== true && verifiedJournalCommit(root, journal).valid);
   if (!pending?.journal
     || pending.record?.recoveryStage !== 'interrupted-before-branch-ref-advanced'
-    || !['prepared', 'restoring', 'rollback-failed'].includes(journal?.stage)
-    || journal?.commit != null
+    || !['prepared', 'commit-created', 'restoring', 'rollback-failed'].includes(journal?.stage)
+    || !commitIsVerifiedPreRef
     || head(root) !== journal.expectedHead
-    || processIsAlive(journal.owner?.pid) !== false) return null;
+    || branch(root) !== journal.branch
+    || journalLeaseIsLive(root, journal)) return null;
   const subject = journal.subject;
   if (!subject?.kind || !subject?.id) return null;
   return withSubjectLock(root, subject, async () => {
@@ -215,13 +330,16 @@ export async function recoverPreparedPublication(root, pending) {
     if (!latest
       || latest.record.owner?.processId !== journal.owner?.processId
       || latest.record.expectedHead !== journal.expectedHead
-      || !['prepared', 'restoring', 'rollback-failed'].includes(latest.record.stage)
-      || latest.record.commit != null
+      || latest.record.transactionId !== journal.transactionId
+      || !['prepared', 'commit-created', 'restoring', 'rollback-failed'].includes(latest.record.stage)
+      || latest.record.refAdvanced === true
       || head(root) !== journal.expectedHead) return null;
     let restoration = { restored: false, rescuePath: null, preimageSha256: null };
     try {
       if (!latest.record.recoveryPreimage && changes(root).trim()) return null;
-      await updatePublicationJournal(root, subject, { stage: 'restoring', recoveryAttemptedAt: new Date().toISOString() });
+      await updatePublicationJournal(root, subject, {
+        stage: 'restoring', recoveryAttemptedAt: new Date().toISOString()
+      }, { transactionId: journal.transactionId });
       if (latest.record.recoveryPreimage) {
         restoration = await restorePublicationPreimage(root, latest.record.recoveryPreimage, {
           subject,
@@ -233,10 +351,10 @@ export async function recoverPreparedPublication(root, pending) {
         stage: 'rollback-failed',
         rollbackError: error?.message ?? String(error),
         rollbackFailedAt: new Date().toISOString()
-      }).catch(() => {});
+      }, { transactionId: journal.transactionId }).catch(() => {});
       throw error;
     }
-    await clearPublicationJournal(root, subject);
+    await clearPublicationJournal(root, subject, { transactionId: journal.transactionId });
     return Object.freeze({ recovered: true, ...restoration });
   });
 }
@@ -253,7 +371,7 @@ export async function recoverPreparedPublicationBySubject(root, subject) {
   if (!pending?.journal || pending.record?.recoveryStage !== 'interrupted-before-branch-ref-advanced') {
     return Object.freeze({ status: pending ? 'not-precommit' : 'absent', subject, pending });
   }
-  const active = livePreparedPublicationOwner(pending);
+  const active = livePreparedPublicationOwner(pending, root);
   if (active) return Object.freeze({ status: 'active', subject, active, pending });
   const recovery = await recoverPreparedPublication(root, pending);
   return recovery

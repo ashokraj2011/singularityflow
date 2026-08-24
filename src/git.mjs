@@ -536,7 +536,10 @@ export async function commitIsolated(root, message, paths, {
   expectedHead = head(root),
   sign = false,
   signingKey = null,
-  fault = null
+  fault = null,
+  transaction = null,
+  onCommitCreated = null,
+  onRefAdvanced = null
 } = {}) {
   // Optional transaction roots may legitimately remain absent (for example an approval that was
   // allowed to harvest knowledge but found none). Git rejects an entirely unknown pathspec even
@@ -577,10 +580,25 @@ export async function commitIsolated(root, message, paths, {
     if (tree === priorTree) throw new SingularityFlowError('No governed changes are ready to commit.');
 
     const signing = sign ? [signingKey ? `-S${signingKey}` : '-S'] : [];
+    const boundTransaction = transaction?.id
+      ? {
+          ...transaction,
+          stateSha256: transaction.stateSha256
+            ?? transaction.stateSha256ForTree?.(tree)
+            ?? null
+        }
+      : null;
+    const transactionMessage = boundTransaction?.id
+      ? `${message}\n\nSingularity-Flow-Transaction: ${transaction.id}`
+        + `\nSingularity-Flow-Event-SHA256: ${boundTransaction.eventSha256 ?? 'none'}`
+        + `\nSingularity-Flow-State-SHA256: ${boundTransaction.stateSha256 ?? 'none'}`
+        + `\nSingularity-Flow-Publication-Mode: ${boundTransaction.publicationMode ?? 'required'}`
+      : message;
     sourceCommit = git(
-      ['commit-tree', tree, '-p', expectedHead, ...signing, '-m', message],
+      ['commit-tree', tree, '-p', expectedHead, ...signing, '-m', transactionMessage],
       { cwd: root, env }
     ).stdout.trim();
+    if (onCommitCreated) await onCommitCreated({ expectedHead, sourceCommit, tree, transaction: boundTransaction });
     if (fault) await fault('after-commit-object', { expectedHead, sourceCommit, tree });
 
     const ref = git(['symbolic-ref', '-q', 'HEAD'], { cwd: root }).stdout.trim();
@@ -592,6 +610,7 @@ export async function commitIsolated(root, message, paths, {
       );
     }
     refAdvanced = true;
+    if (onRefAdvanced) await onRefAdvanced({ expectedHead, sourceCommit, tree, transaction: boundTransaction });
 
     // The real index still describes the old HEAD. Refresh only governed entries so they do not
     // appear as synthetic staged reversions; unrelated staged entries remain byte-for-byte intact.
@@ -602,7 +621,13 @@ export async function commitIsolated(root, message, paths, {
     // Before update-ref succeeds, every object/index artefact is unreachable scratch data. Once the
     // ref advances, the commit is durable and must be recovered/published rather than rolled back.
     error.publicationRefAdvanced = refAdvanced;
-    error.publicationCommit = refAdvanced ? sourceCommit : null;
+    // The exact commit object is useful to recovery even if compare-and-swap did not advance the
+    // branch. `publicationRefAdvanced` remains the authority for deciding whether rollback is
+    // allowed; callers must never infer that boundary from whatever HEAD happens to be later.
+    error.publicationCommit = sourceCommit;
+    error.publicationTree = sourceCommit
+      ? git(['rev-parse', `${sourceCommit}^{tree}`], { cwd: root, allowFailure: true }).stdout.trim() || null
+      : null;
     throw error;
   } finally {
     await rm(scratch, { recursive: true, force: true });
@@ -652,4 +677,35 @@ export function preflightPushBranch(root, remote, sourceRef, branchName) {
 export function remoteContains(root, sha, remote = 'origin', branchName = branch(root)) {
   if (!sha || !refExists(root, `refs/remotes/${remote}/${branchName}`)) return false;
   return git(['merge-base', '--is-ancestor', sha, `refs/remotes/${remote}/${branchName}`], { cwd: root, allowFailure: true }).status === 0;
+}
+
+/** Whether one exact commit is contained by another local commit/ref. */
+export function commitIsAncestor(root, ancestor, descendant = 'HEAD') {
+  if (!ancestor || !descendant) return false;
+  return git(['merge-base', '--is-ancestor', ancestor, descendant], {
+    cwd: root, allowFailure: true
+  }).status === 0;
+}
+
+/** Read the immutable identity embedded in a governed transaction commit. */
+export function governedCommitIdentity(root, sha) {
+  const verified = git(['rev-parse', '--verify', `${sha}^{commit}`], { cwd: root, allowFailure: true });
+  if (verified.status !== 0) return null;
+  const commit = verified.stdout.trim();
+  const tree = git(['rev-parse', `${commit}^{tree}`], { cwd: root }).stdout.trim();
+  const parents = git(['show', '-s', '--format=%P', commit], { cwd: root }).stdout.trim().split(/\s+/).filter(Boolean);
+  const message = git(['show', '-s', '--format=%B', commit], { cwd: root }).stdout;
+  const trailer = (name) => {
+    const matches = [...message.matchAll(new RegExp(`^${name}:\\s*(.+?)\\s*$`, 'gmi'))];
+    return matches.length === 1 ? matches[0][1] : null;
+  };
+  return {
+    commit,
+    tree,
+    parents,
+    transactionId: trailer('Singularity-Flow-Transaction'),
+    eventSha256: trailer('Singularity-Flow-Event-SHA256'),
+    stateSha256: trailer('Singularity-Flow-State-SHA256'),
+    publicationMode: trailer('Singularity-Flow-Publication-Mode')
+  };
 }

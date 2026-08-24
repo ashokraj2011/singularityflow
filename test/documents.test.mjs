@@ -26,7 +26,11 @@ function flow(root, args, options = {}) { return run(process.execPath, [bin, ...
 async function repository() {
   const root = await mkdtemp(path.join(os.tmpdir(), 'sflow-documents-')); run('git', ['init', '-b', 'main'], root); run('git', ['config', 'user.name', 'Document Tester'], root); run('git', ['config', 'user.email', 'documents@example.com'], root);
   await writeFile(path.join(root, 'README.md'), '# Documents\n'); flow(root, ['init']);
-  const configPath = path.join(root, 'singularity/workflow.yml'); const config = YAML.parse(await readFile(configPath, 'utf8')); config.git.publish = 'off'; config.worldModel.grounding = 'off'; config.documents.allowedPhases = ['intake']; await writeFile(configPath, YAML.stringify(config));
+  const configPath = path.join(root, 'singularity/workflow.yml'); const config = YAML.parse(await readFile(configPath, 'utf8')); config.git.publish = 'off'; config.worldModel.grounding = 'off'; config.documents.allowedPhases = ['intake'];
+  config.approvalSecurity = { profile: 'poc' };
+  for (const authority of Object.values(config.approvalAuthorities ?? {})) authority.allowAnyGitIdentity = true;
+  for (const phase of Object.values(config.phases ?? {})) if (phase.approval && phase.approval !== 'none') phase.approval.allowSelfApproval = true;
+  await writeFile(configPath, YAML.stringify(config));
   run('git', ['add', 'README.md', 'singularity', '.github/agents'], root); run('git', ['commit', '-m', 'initialize'], root);
   const remote = `${root}.git`;
   run('git', ['init', '--bare', '-b', 'main', remote], root);

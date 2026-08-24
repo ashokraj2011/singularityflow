@@ -60,11 +60,11 @@ export function isSupportingTestResourcePath(candidate) {
     || /(?:^|[._-])(?:fixture|snapshot|page-object|pageobject)(?:[._-]|$)/i.test(basename);
 }
 
-export async function isExecutableTestSourcePath(root, candidate) {
+export async function isExecutableTestSourcePath(root, candidate, { sourceExtensions = [] } = {}) {
   const relative = normalized(candidate);
   if (!isAllowedTestAutomationPath(relative) || isSupportingTestResourcePath(relative)) return false;
   const extension = path.posix.extname(relative).toLowerCase();
-  if (!TEST_SOURCE_EXTENSIONS.has(extension)) return false;
+  if (!TEST_SOURCE_EXTENSIONS.has(extension) && !new Set(sourceExtensions.map((item) => item.toLowerCase())).has(extension)) return false;
   if (!TEST_SOURCE_NAMES.some((pattern) => pattern.test(path.posix.basename(relative)))) return false;
   try {
     const info = await lstat(path.join(root, relative));
@@ -435,14 +435,44 @@ function countsFromJson(adapter, parsed) {
     passed: number(parsed.numPassedTests), failed: number(parsed.numFailedTests), skipped: number(parsed.numPendingTests)
   };
   if (adapter === 'playwright-json') {
-    const tests = (parsed.suites ?? []).flatMap((suite) => suite.specs ?? []).flatMap((spec) => spec.tests ?? []);
-    const statuses = tests.map((test) => test.results?.at(-1)?.status ?? test.status);
-    return {
-      discovered: tests.length,
-      passed: statuses.filter((status) => status === 'passed').length,
-      failed: statuses.filter((status) => ['failed', 'timedOut', 'interrupted'].includes(status)).length,
-      skipped: statuses.filter((status) => status === 'skipped').length
+    const tests = [];
+    const visitSuite = (suite, depth = 0) => {
+      if (depth > 128) throw new SingularityFlowError('Playwright result suite depth exceeds 128.', { code: 'CODE_TEST_RESULT_REQUIRED' });
+      for (const spec of suite?.specs ?? []) tests.push(...(spec.tests ?? []));
+      for (const child of suite?.suites ?? []) visitSuite(child, depth + 1);
     };
+    for (const suite of parsed.suites ?? []) visitSuite(suite);
+    const outcomes = tests.map((test) => {
+      const outcome = test.status;
+      const execution = test.results?.at(-1)?.status ?? null;
+      if (outcome === 'skipped' || execution === 'skipped') return 'skipped';
+      if (outcome === 'unexpected' || ['failed', 'timedOut', 'interrupted'].includes(execution)) return 'failed';
+      if (outcome === 'flaky' || outcome === 'expected' || execution === 'passed') return 'passed';
+      throw new SingularityFlowError(`Playwright result contains unknown outcome '${outcome ?? execution ?? 'absent'}'.`, {
+        code: 'CODE_TEST_RESULT_REQUIRED'
+      });
+    });
+    const counts = {
+      discovered: tests.length,
+      passed: outcomes.filter((status) => status === 'passed').length,
+      failed: outcomes.filter((status) => status === 'failed').length,
+      skipped: outcomes.filter((status) => status === 'skipped').length
+    };
+    const stats = parsed.stats;
+    if (stats && ['expected', 'unexpected', 'flaky', 'skipped'].every((key) => Number.isInteger(stats[key]))) {
+      const declared = {
+        discovered: stats.expected + stats.unexpected + stats.flaky + stats.skipped,
+        passed: stats.expected + stats.flaky,
+        failed: stats.unexpected,
+        skipped: stats.skipped
+      };
+      if (Object.keys(declared).some((key) => declared[key] !== counts[key])) {
+        throw new SingularityFlowError('Playwright reporter statistics differ from recursively traversed test outcomes.', {
+          code: 'CODE_TEST_RESULT_REQUIRED'
+        });
+      }
+    }
+    return counts;
   }
   if (adapter === 'go-test-json') {
     const events = Array.isArray(parsed) ? parsed : parsed.events ?? [];

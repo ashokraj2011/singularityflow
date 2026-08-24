@@ -1,7 +1,7 @@
-import { createHash, randomUUID } from 'node:crypto';
-import { mkdir, readFile, readdir, realpath } from 'node:fs/promises';
+import { createHash, createHmac, randomBytes, randomUUID, timingSafeEqual } from 'node:crypto';
+import { mkdir, open, readFile, readdir, realpath } from 'node:fs/promises';
 import path from 'node:path';
-import { gitDir } from './git.mjs';
+import { gitCommonDir, gitDir } from './git.mjs';
 import { assertModelInvocationAllowed } from './operation-context.mjs';
 import { modelProvider } from './model-provider-registry.mjs';
 import {
@@ -14,8 +14,66 @@ import { nowIso, SingularityFlowError, writeJson } from './util.mjs';
 import { prepareTelemetryLaunch } from './telemetry-provision.mjs';
 import { repositoryLogger } from './logging.mjs';
 import { recordPromptAudit } from './prompt-audit.mjs';
+import { canonicalJson } from './records.mjs';
 
 function sha256(value) { return createHash('sha256').update(value).digest('hex'); }
+
+function auditKeyPath(root) {
+  return path.join(gitCommonDir(root), 'singularity-flow', 'keys', 'model-observation.key');
+}
+
+async function modelAuditKey(root) {
+  const target = auditKeyPath(root);
+  let key = await readFile(target).catch((error) => error?.code === 'ENOENT' ? null : Promise.reject(error));
+  if (!key) {
+    await mkdir(path.dirname(target), { recursive: true, mode: 0o700 });
+    const candidate = randomBytes(32);
+    try {
+      const handle = await open(target, 'wx', 0o600);
+      try { await handle.writeFile(candidate); }
+      finally { await handle.close(); }
+      key = candidate;
+    } catch (error) {
+      if (error?.code !== 'EEXIST') throw error;
+      key = await readFile(target);
+    }
+  }
+  if (key.length !== 32) throw new SingularityFlowError('Model observation key is invalid.', { code: 'MODEL_AUDIT_KEY_INVALID' });
+  return key;
+}
+
+function auditAttestationPayload(record) {
+  const copy = structuredClone(record);
+  delete copy.attestation;
+  return canonicalJson(copy);
+}
+
+async function attestAudit(root, record) {
+  const key = await modelAuditKey(root);
+  const payload = auditAttestationPayload(record);
+  return {
+    ...record,
+    attestation: {
+      scheme: 'kernel-hmac-sha256-v1',
+      keyId: `sha256:${sha256(key)}`,
+      payloadSha256: `sha256:${sha256(payload)}`,
+      mac: `sha256:${createHmac('sha256', key).update(payload).digest('hex')}`
+    }
+  };
+}
+
+async function verifyAuditAttestation(root, record) {
+  const attestation = record?.attestation;
+  if (attestation?.scheme !== 'kernel-hmac-sha256-v1') return false;
+  const key = await modelAuditKey(root).catch(() => null);
+  if (!key || attestation.keyId !== `sha256:${sha256(key)}`) return false;
+  const payload = auditAttestationPayload(record);
+  if (attestation.payloadSha256 !== `sha256:${sha256(payload)}`) return false;
+  const expected = Buffer.from(createHmac('sha256', key).update(payload).digest('hex'), 'hex');
+  const actualHex = String(attestation.mac ?? '').replace(/^sha256:/, '');
+  if (!/^[a-f0-9]{64}$/.test(actualHex)) return false;
+  return timingSafeEqual(expected, Buffer.from(actualHex, 'hex'));
+}
 
 function inside(candidate, root) {
   const relative = path.relative(path.resolve(root), path.resolve(candidate));
@@ -145,7 +203,12 @@ export async function listModelInvocations(root, {
     if (generation != null && Number(record.subject?.generation) !== Number(generation)) continue;
     if (task && record.routing?.task !== task) continue;
     if (startedAfter && (!record.startedAt || Date.parse(record.startedAt) < Date.parse(startedAfter))) continue;
-    records.push(record);
+    records.push({
+      ...record,
+      // This detects accidental/local-file tampering, but the key is machine-local and readable by
+      // the same OS identity. It is deliberately not promoted to independent strong assurance.
+      observationIntegrity: await verifyAuditAttestation(root, record) ? 'machine-local-mac' : 'unverified-local'
+    });
   }
   return records.sort((a, b) => String(a.completedAt).localeCompare(String(b.completedAt)));
 }
@@ -261,6 +324,7 @@ export async function invokeModel(request) {
     cwdSha256: sha256(normalized.cwd),
     channel: normalized.channel,
     subject: normalized.subject ?? null,
+    generationNonce: randomBytes(24).toString('base64url'),
     toolPolicy: { mode: normalized.tools.mode, names: [...normalized.tools.names] },
     limits: normalized.limits,
     status: 'started',
@@ -324,14 +388,14 @@ export async function invokeModel(request) {
     const outputBytes = result.outputBytes ?? Buffer.byteLength(result.output ?? '', 'utf8');
     const outputSha256 = sha256(Buffer.from(result.output ?? '', 'utf8'));
     const completedAt = nowIso();
-    const completedEvent = {
+    const completedEvent = await attestAudit(resolvedAuditRoot, {
       ...event,
       status: 'completed',
       completedAt,
       outputBytes,
       outputSha256,
       usage: result.usage ?? { status: 'unavailable' }
-    };
+    });
     await writeJson(file, completedEvent);
     await captureInvocationPrompt(resolvedAuditRoot, staged, completedEvent).catch((error) => {
       log.warn('model.prompt.audit-failed', null, { errorCode: error.code ?? 'PROMPT_AUDIT_FAILED' });
@@ -362,12 +426,12 @@ export async function invokeModel(request) {
     };
   } catch (error) {
     if (auditStarted) {
-      const failedEvent = {
+      const failedEvent = await attestAudit(resolvedAuditRoot, {
         ...event,
         status: 'failed',
         completedAt: nowIso(),
         error: { code: error.code ?? 'MODEL_PROVIDER_FAILED' }
-      };
+      }).catch(() => ({ ...event, status: 'failed', completedAt: nowIso(), error: { code: error.code ?? 'MODEL_PROVIDER_FAILED' } }));
       await writeJson(file, failedEvent).catch(() => {});
       await captureInvocationPrompt(resolvedAuditRoot, staged, failedEvent).catch((auditError) => {
         log.warn('model.prompt.audit-failed', null, { errorCode: auditError.code ?? 'PROMPT_AUDIT_FAILED' });

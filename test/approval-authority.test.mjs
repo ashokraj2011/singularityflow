@@ -74,6 +74,10 @@ test('approval authority supports authenticated GitHub login and explicit any-Gi
 test('approval policy normalizes configurable governed change-request controls', () => {
   const defaults = normalizeApprovalPolicy({ authorities: ['architecture-reviewers'] }, authorities, 'design');
   assert.deepEqual(defaults.changeRequests, { commentRequired: true, reopenCompleted: true });
+  assert.equal(defaults.allowSelfApproval, false);
+  assert.equal(normalizeApprovalPolicy(
+    { authorities: ['architecture-reviewers'] }, authorities, 'design', { profile: 'poc' }
+  ).allowSelfApproval, true);
   const configured = normalizeApprovalPolicy({
     authorities: ['architecture-reviewers'],
     changeRequests: { commentRequired: false, reopenCompleted: false }
@@ -84,10 +88,12 @@ test('approval policy normalizes configurable governed change-request controls',
   }, authorities, 'design'), /reopenCompleted must be boolean/);
 });
 
-test('approval authority configuration rejects empty restricted groups and duplicate identities', () => {
+test('regulated approval authority configuration rejects empty restricted groups and duplicate identities', () => {
   assert.throws(
-    () => normalizeApprovalAuthorities({ restricted: { label: 'Restricted', members: [] } }),
-    /must list members/
+    () => normalizeApprovalAuthorities(
+      { restricted: { label: 'Restricted', members: [] } }, { profile: 'regulated' }
+    ),
+    /must list named members/
   );
   assert.throws(
     () => normalizeApprovalAuthorities({

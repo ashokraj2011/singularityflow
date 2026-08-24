@@ -1,5 +1,5 @@
 import assert from 'node:assert/strict';
-import { mkdtemp, rm, writeFile } from 'node:fs/promises';
+import { mkdtemp, readFile, rm, writeFile } from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
 import test from 'node:test';
@@ -9,7 +9,8 @@ import { runQualityCommand } from '../src/quality-command-runner.mjs';
 import { assertSourceBoundary, isTestAutomationPath } from '../src/source-boundary.mjs';
 import { storyPullRequestPlan } from '../src/pull-request.mjs';
 import { setAgentSession } from '../src/session.mjs';
-import { approvePhase, createWorkflow, loadConfig } from '../src/state.mjs';
+import { approvePhase, createWorkflow, loadConfig, publishGeneration, submitPhase } from '../src/state.mjs';
+import { createStoryReviewPacket } from '../src/story-lineage.mjs';
 import { run } from '../src/util.mjs';
 
 test('quality commands stream output larger than spawnSync buffers without false failure', async () => {
@@ -76,19 +77,60 @@ test('a phase cannot advance until every required authority group has decided', 
   run('git', ['switch', '-c', 'POC-AUTH-1'], { cwd: root });
   const config = await loadConfig(root);
   config.git.publish = 'off';
+  config.worldModel.grounding = 'off';
+  config.approvalAuthorities['quality-reviewers'].members = [{
+    name: 'Quality Reviewer', email: 'quality@example.com'
+  }];
+  config.approvalAuthorities['engineering-reviewers'].members = [{
+    name: 'Engineering Reviewer', email: 'engineering@example.com'
+  }];
   const resolved = resolveWorkType(config, 'poc-workflow');
   const publication = resolved.phases.find((phase) => phase.id === 'poc-publication-review');
   resolved.phases = [{ ...publication, order: 0, inputs: [] }];
   const first = { name: 'Quality Reviewer', email: 'quality@example.com', login: null };
-  await setAgentSession(root, config, first, 'poc-validator', 'POC-AUTH-1', { phaseId: publication.id, source: 'test' });
+  const author = { name: 'POC Author', email: 'poc.author@example.com', login: null };
+  await setAgentSession(root, config, author, 'poc-validator', 'POC-AUTH-1', { phaseId: publication.id, source: 'test' });
   const workflow = await createWorkflow(root, config, {
     id: 'POC-AUTH-1',
     title: 'Require independent functions',
     source: { type: 'manual', key: 'POC-AUTH-1', title: 'Require independent functions', description: 'Prove authority coverage.', acceptanceCriteria: [], targetOrigin: 'https://staging.example.test' },
     baseBranch: 'main', workType: 'poc-workflow', agent: 'poc-validator', resolved
   });
-  workflow.phases[publication.id].status = 'awaiting_approval';
-  workflow.phases[publication.id].generation = 1;
+  const artifact = path.join(
+    root, 'singularity', 'work-items', workflow.workItem.id,
+    workflow.phases[publication.id].requiredArtifact.path
+  );
+  await writeFile(artifact, `# Publication and PR review
+
+## Publication boundary
+
+This fixture publishes only the governed POC review artifact on the local Story branch.
+
+## Change and coverage summary
+
+The review proves that independent quality and engineering authority groups each make their own decision. The generated artifact, validation result, and decision sequence are bound to one immutable submission packet.
+
+## Validation evidence
+
+The repository state is committed before submission. No quality command is required by this reduced fixture, and the immutable packet records the exact artifact bytes and empty deterministic check set.
+
+## Residual risk and rollback
+
+The fixture changes no product source. Removing the temporary repository restores the complete pre-test state, while failed or partial approval leaves the phase awaiting the remaining authority.
+
+## Human decision
+
+Quality review must decide first and engineering review must decide independently. One identity cannot satisfy both required authority groups.
+`);
+  await publishGeneration(root, config, workflow, { phaseId: publication.id });
+  run('git', ['add', '.'], { cwd: root });
+  run('git', ['commit', '-m', '[POC-AUTH-1][phase:poc-publication-review][generated:1] publish review generation'], { cwd: root });
+  const submitted = await submitPhase(root, config, workflow, { phaseId: publication.id, runChecks: false });
+  await createStoryReviewPacket(root, config, workflow, submitted);
+  run('git', ['add', '.'], { cwd: root });
+  run('git', ['commit', '-m', 'submit immutable review packet'], { cwd: root });
+  assert.match(await readFile(artifact, 'utf8'), /Human decision/);
+  await setAgentSession(root, config, first, 'poc-validator', 'POC-AUTH-1', { phaseId: publication.id, source: 'test' });
   const one = await approvePhase(root, config, workflow, { phaseId: publication.id, persist: false });
   assert.equal(one.approval.authorityGroup, 'quality-reviewers');
   assert.equal(workflow.status, 'in_progress');

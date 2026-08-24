@@ -1,4 +1,5 @@
 import { createHash } from 'node:crypto';
+import { spawnSync } from 'node:child_process';
 import { readFile } from 'node:fs/promises';
 import path from 'node:path';
 import { assertNotDefaultBranch, branch, changes, defaultBranchName, head, identity } from './git.mjs';
@@ -18,6 +19,28 @@ import { LIFECYCLE_EVENT } from './lifecycle-event.mjs';
 
 function hash(value) {
   return createHash('sha256').update(JSON.stringify(value)).digest('hex');
+}
+
+function reviewArtifactIdentity(artifacts = []) {
+  return artifacts.map((artifact) => ({
+    path: artifact.path,
+    kind: artifact.kind ?? null,
+    sha256: artifact.sha256 ?? null,
+    size: artifact.size ?? null
+  }));
+}
+
+export function reviewArtifactSetSha256(artifacts = []) {
+  return hash(reviewArtifactIdentity(artifacts));
+}
+
+function gitBlobAtCommit(root, commit, relativePath) {
+  const result = spawnSync('git', ['show', `${commit}:${relativePath}`], {
+    cwd: root,
+    encoding: null,
+    maxBuffer: 128 * 1024 * 1024
+  });
+  return { status: result.status, bytes: result.stdout ?? Buffer.alloc(0), error: String(result.stderr ?? '') };
 }
 
 function mediaTypeFor(file) {
@@ -203,8 +226,11 @@ export async function createStoryReviewPacket(root, config, workflow, phase) {
         // evidence is the immutable generation artifact, not that prospective submit commit.
         allowHistorical: true
       });
-      artifact.sha256 = revision.sha256;
-      artifact.size = revision.bytes;
+      // Keep the review artifact identity bound to the exact bytes written by submission. The
+      // reference handle deliberately points at the immutable generation revision, but replacing
+      // the artifact hash with that older revision made the packet internally impossible to
+      // verify: the commit containing the packet also contains the submission metadata update.
+      // The two identities serve different purposes and must remain separate.
       artifact.reference = { handle: registered.handle, recordHash: registered.recordHash };
       references.push({ handle: registered.handle, recordHash: registered.recordHash, purpose: 'review-evidence', required: true });
     }
@@ -214,22 +240,23 @@ export async function createStoryReviewPacket(root, config, workflow, phase) {
     coverage: await evaluateVisualCoverage(root, workflow),
     comparisons: await listVisualComparisons(root, workflow)
   } : null;
-  const submissionEvidence = phase.deliveryEvidence?.receiptPath ? {
-    codeDelivery: {
+  const submissionEvidence = {
+    ...(phase.deliveryEvidence?.receiptPath ? { codeDelivery: {
       path: phase.deliveryEvidence.receiptPath,
       sha256: phase.deliveryEvidence.receiptSha256 ?? null,
       changeSetPath: phase.deliveryEvidence.changeSetPath ?? null,
       changeSetDigest: phase.deliveryEvidence.changeSet?.digest ?? null,
       status: phase.deliveryEvidence.status ?? null
-    },
-    testExecutions: (phase.deliveryEvidence.testExecutions ?? []).map((entry) => ({
+    } } : {}),
+    testExecutions: (phase.deliveryEvidence?.testExecutions ?? []).map((entry) => ({
       commandId: entry.commandId,
       path: entry.receiptPath,
       sha256: entry.receiptSha256,
       status: entry.status
     })),
-    checksSha256: hash(phase.checks ?? [])
-  } : null;
+    checksSha256: hash(phase.checks ?? []),
+    artifactSetSha256: reviewArtifactSetSha256(artifacts)
+  };
   const base = {
     schemaVersion: currentSchemaVersion('story-submission-packet'),
     workId: workflow.workItem.id,
@@ -254,6 +281,7 @@ export async function createStoryReviewPacket(root, config, workflow, phase) {
       path: brief.path,
       renderedPath: brief.renderedPath,
       sourceSha256: brief.sourceSha256,
+      sourceBytes: brief.sourceBytes ?? null,
       renderedSha256: brief.renderedSha256,
       integritySha256: brief.integritySha256
     })),
@@ -309,6 +337,30 @@ export async function readStoryReviewPacket(root, config, workflow, packetSha256
     catch (error) { failures.push(`${evidenceCommit.slice(0, 12)} packet unreadable: ${error.message}`); continue; }
     const { packetSha256: provided, ...base } = packet;
     if (provided !== selected.packetSha256 || hash(base) !== provided) continue;
+    if (!packet.submissionEvidence
+      || packet.submissionEvidence.checksSha256 !== hash(packet.checks ?? [])
+      || packet.submissionEvidence.artifactSetSha256 !== reviewArtifactSetSha256(packet.artifacts ?? [])) {
+      failures.push(`${evidenceCommit.slice(0, 12)} has invalid checks or artifact-set bindings`);
+      continue;
+    }
+    let artifactBindingsValid = true;
+    for (const artifact of packet.artifacts ?? []) {
+      if (!artifact.path || !artifact.sha256 || !Number.isInteger(artifact.size) || artifact.size < 0) {
+        failures.push(`${evidenceCommit.slice(0, 12)} has an incomplete artifact identity`);
+        artifactBindingsValid = false;
+        break;
+      }
+      const historicalArtifact = gitBlobAtCommit(root, evidenceCommit, artifact.path);
+      const actualSha256 = createHash('sha256').update(historicalArtifact.bytes).digest('hex');
+      if (historicalArtifact.status !== 0
+        || actualSha256 !== String(artifact.sha256).replace(/^sha256:/, '')
+        || historicalArtifact.bytes.length !== artifact.size) {
+        failures.push(`${evidenceCommit.slice(0, 12)} lacks the exact artifact ${artifact.path}`);
+        artifactBindingsValid = false;
+        break;
+      }
+    }
+    if (!artifactBindingsValid) continue;
     const bindings = [
       ...(packet.submissionEvidence?.codeDelivery?.path ? [{
         kind: 'code-delivery', path: packet.submissionEvidence.codeDelivery.path,

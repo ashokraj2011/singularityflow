@@ -9,7 +9,7 @@ import YAML from 'yaml';
 
 import { createAutoPlan, ratifyAutoPlan, readAutoPlan } from '../src/auto/auto-plan.mjs';
 import { startAutoFlight } from '../src/auto/auto-flight.mjs';
-import { executeAutoFlightStep } from '../src/auto/auto-executor.mjs';
+import { executeAutoFlightStep, mutateAutoExecutorState } from '../src/auto/auto-executor.mjs';
 import {
   authorizeAutoAuthoringAttempt, discardAutoFlight, haltAutoFlight, mutateAutoFlightState, pauseAutoFlight,
   readAutoFlightReport, readAutoFlightState, resumeAutoFlight
@@ -92,12 +92,23 @@ async function executableRepository({ authorDelayMs = 0 } = {}) {
 function refs(root) { return run('git', ['for-each-ref', '--format=%(refname):%(objectname)', 'refs/heads'], root).stdout; }
 function worktrees(root) { return run('git', ['worktree', 'list', '--porcelain'], root).stdout; }
 
-function runFlightStep(root, flight) {
+function runFlightStep(root, flight, runtime = {}) {
   return withOperationContext({
     operation: { id: 'auto.flight-step', command: 'auto', classification: 'mutation', modelPolicy: 'required' },
     modelMode: { enabled: true }, root: flight.worktree, command: 'auto'
-  }, () => executeAutoFlightStep(root, flight.flightId, flight.checkpointSha256));
+  }, () => executeAutoFlightStep(root, flight.flightId, flight.checkpointSha256, runtime));
 }
+
+test('post-authorization Auto state writes cannot bypass the stop-aware executor CAS', async () => {
+  const source = await readFile(path.resolve('src/auto/auto-executor.mjs'), 'utf8');
+  const authorizationBoundary = source.indexOf('authorizeAutoAuthoringAttempt(');
+  assert.notEqual(authorizationBoundary, -1, 'authoring authorization boundary disappeared');
+  assert.doesNotMatch(
+    source.slice(authorizationBoundary),
+    /\bmutateAutoFlightState\s*\(/,
+    'executor state writes after authoring authorization must use mutateAutoExecutorState'
+  );
+});
 
 async function withRetriedSubjectLock(root, subject, callback, timeoutMs = 2_000) {
   const deadline = Date.now() + timeoutMs;
@@ -108,6 +119,21 @@ async function withRetriedSubjectLock(root, subject, callback, timeoutMs = 2_000
       await delay(20);
     }
   }
+}
+
+function deferred() {
+  let resolve;
+  const promise = new Promise((done) => { resolve = done; });
+  return { promise, resolve };
+}
+
+async function waitForFlight(root, id, predicate, message) {
+  for (let attempt = 0; attempt < 250; attempt += 1) {
+    const state = await readAutoFlightState(root, id);
+    if (predicate(state)) return state;
+    await delay(20);
+  }
+  assert.fail(message);
 }
 
 const proposal = {
@@ -427,4 +453,145 @@ test('a stop observed while its flight-state lock is still held remains recovera
   assert.equal(final.status, 'paused');
   assert.equal(final.stopReason, 'human-paused');
   assert.ok(final.counters.activeMilliseconds > 0);
+});
+
+for (const request of ['pause', 'halt']) {
+  for (const window of ['prepare', 'model-start', 'model-execution', 'model-complete']) {
+    test(`${request} during ${window} quiesces without a stale Auto checkpoint or governed commit`, async () => {
+      const root = await executableRepository();
+      const workId = `AUT-${request.toUpperCase()}-${window.toUpperCase()}-RACE`;
+      const plan = await createAutoPlan(root, 'Change the exported application value from one to two.', {
+        ...proposal, workType: 'quick-fix', predictedPaths: ['app.mjs', 'test/app.test.mjs'],
+        suggestedUntil: 'phase-complete:implement'
+      }, { workId, workType: 'quick-fix', fromBranch: 'main' });
+      const started = await startAutoFlight(root, plan.planId, plan.planSha256);
+      const entered = deferred();
+      const release = deferred();
+      let modelCalls = 0;
+      const invocation = () => ({
+        invocationId: `INV-${request}-${window}`,
+        usage: { totalTokens: 1 },
+        stdout: '', stderr: ''
+      });
+      const runtime = window === 'prepare'
+        ? {
+            childLifecycle: async (_worktree, args) => {
+              assert.equal(args[0], 'prepare');
+              entered.resolve();
+              await release.promise;
+              return { status: 0, stdout: '', stderr: '', signal: null };
+            }
+          }
+        : window === 'model-start'
+          ? {
+              boundary: async (name) => {
+                if (name !== 'model-start') return;
+                entered.resolve();
+                await release.promise;
+              },
+              invokeModel: async () => { modelCalls += 1; return invocation(); }
+            }
+          : window === 'model-execution'
+            ? {
+                invokeModel: async () => {
+                  modelCalls += 1;
+                  entered.resolve();
+                  await release.promise;
+                  return invocation();
+                }
+              }
+            : {
+                invokeModel: async () => { modelCalls += 1; return invocation(); },
+                boundary: async (name) => {
+                  if (name !== 'model-complete') return;
+                  entered.resolve();
+                  await release.promise;
+                }
+              };
+      const storyHead = run('git', ['rev-parse', 'HEAD'], started.story.worktree).stdout.trim();
+      const execution = runFlightStep(root, { ...started.flight, worktree: started.story.worktree }, runtime);
+      await entered.promise;
+      await delay(5);
+      const stopping = request === 'pause'
+        ? pauseAutoFlight(root, started.flight.flightId)
+        : haltAutoFlight(root, started.flight.flightId);
+      await waitForFlight(
+        root,
+        started.flight.flightId,
+        (state) => state.status === (request === 'pause' ? 'paused' : 'halted'),
+        `${request} did not become durable during ${window}`
+      );
+      release.resolve();
+      const [final, stopped] = await Promise.all([execution, stopping]);
+
+      assert.equal(final.status, request === 'pause' ? 'paused' : 'halted');
+      assert.equal(stopped.status, final.status);
+      assert.equal(final.stopRequested.kind, request);
+      assert.equal(final.position, 'story-created');
+      assert.equal(final.commits?.generation, undefined);
+      assert.equal(final.commits?.submission, undefined);
+      assert.equal(run('git', ['rev-parse', 'HEAD'], started.story.worktree).stdout.trim(), storyHead);
+      assert.ok(final.counters.activeMilliseconds > 0, 'active execution time was not charged');
+      if (window === 'model-start') assert.equal(modelCalls, 0, 'model started after a durable stop');
+      if (['model-execution', 'model-complete'].includes(window)) assert.equal(modelCalls, 1);
+
+      const quiescent = await readAutoFlightState(root, started.flight.flightId);
+      await delay(50);
+      const stable = await readAutoFlightState(root, started.flight.flightId);
+      assert.deepEqual({
+        status: stable.status,
+        checkpointSha256: stable.checkpointSha256,
+        recordSha256: stable.recordSha256,
+        activeMilliseconds: stable.counters.activeMilliseconds
+      }, {
+        status: quiescent.status,
+        checkpointSha256: quiescent.checkpointSha256,
+        recordSha256: quiescent.recordSha256,
+        activeMilliseconds: quiescent.counters.activeMilliseconds
+      }, 'executor wrote stale state after the stop command observed quiescence');
+    });
+  }
+}
+
+test('executor state CAS converts 128 portable pause/halt lock races into a durable stop', async () => {
+  const root = await repository();
+  const plan = await createAutoPlan(root, 'Exercise the Auto state lock.', proposal, {
+    workId: 'AUT-LOCK-STRESS', workType: 'feature', fromBranch: 'main'
+  });
+  const started = await startAutoFlight(root, plan.planId, plan.planSha256);
+  const id = started.flight.flightId;
+
+  for (let index = 0; index < 128; index += 1) {
+    const kind = index % 2 === 0 ? 'pause' : 'halt';
+    const reset = await mutateAutoFlightState(root, id, (draft) => {
+      draft.status = 'running';
+      draft.stopRequested = null;
+      draft.stopReason = 'stress-reset';
+      draft.position = 'story-created';
+    });
+    const acquired = deferred();
+    const writer = withRetriedSubjectLock(root, { kind: 'auto-flight', id }, async () => {
+      acquired.resolve();
+      await delay(index % 3);
+      await mutateAutoFlightState(root, id, (draft) => {
+        draft.status = kind === 'pause' ? 'paused' : 'halted';
+        draft.stopReason = `human-${kind}`;
+        draft.stopRequested = { kind, requestedAt: new Date().toISOString() };
+      });
+      await delay(2);
+    });
+    await acquired.promise;
+    const executor = withSubjectLock(root, { kind: 'auto-flight-step', id }, () =>
+      mutateAutoExecutorState(root, id, (draft) => {
+        draft.position = 'authored';
+      }, { expectedCheckpoint: reset.checkpointSha256 }));
+    const [executorResult, writerResult] = await Promise.allSettled([executor, writer]);
+    assert.equal(writerResult.status, 'fulfilled');
+    assert.equal(executorResult.status, 'rejected');
+    assert.equal(executorResult.reason.code, 'AUTO_STOP_REQUESTED');
+    const final = await readAutoFlightState(root, id);
+    assert.equal(final.status, kind === 'pause' ? 'paused' : 'halted');
+    assert.equal(final.stopRequested.kind, kind);
+    assert.equal(final.position, 'story-created', `iteration ${index} accepted a stale executor write`);
+  }
 });

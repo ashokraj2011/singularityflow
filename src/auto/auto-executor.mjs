@@ -36,8 +36,11 @@ function tokenObservation(usage) {
   return { assurance: available ? 'exact' : 'unavailable', totalTokens: available ? total : null };
 }
 
-async function stop(root, id, status, reason, nextAction, extra = {}, { activeMilliseconds = 0 } = {}) {
-  return mutateAutoFlightState(root, id, (state) => {
+async function stop(root, id, status, reason, nextAction, extra = {}, {
+  activeMilliseconds = 0,
+  mutateState = mutateAutoFlightState
+} = {}) {
+  return mutateState(root, id, (state) => {
     state.status = status;
     state.stopReason = reason;
     state.nextAction = nextAction;
@@ -121,6 +124,60 @@ async function assertActive(root, flightId, expectedCheckpoint = null) {
   return current;
 }
 
+function autoStopRequested(flightId, current) {
+  return new SingularityFlowError(`Auto flight '${flightId}' received a stop request.`, {
+    code: 'AUTO_STOP_REQUESTED',
+    details: {
+      status: current?.status ?? null,
+      stopRequested: current?.stopRequested ?? null,
+      checkpointSha256: current?.checkpointSha256 ?? null
+    }
+  });
+}
+
+/**
+ * The one state-CAS path used by an executor after it has consumed authoring authorization.
+ *
+ * A human interrupt deliberately acquires the short state lock while the executor continues to
+ * own its complete-step lease. Lock contention is therefore coordination, not an Auto failure.
+ * Retry the bounded lock overlap, but never advance a stale executor checkpoint after a durable
+ * pause/halt became visible.
+ */
+export async function mutateAutoExecutorState(root, flightId, mutate, {
+  expectedCheckpoint = null,
+  expectedStatuses = ['running'],
+  allowStopRequested = false,
+  timeoutMs = 2_000
+} = {}) {
+  const deadline = Date.now() + timeoutMs;
+  const statusSet = new Set(expectedStatuses);
+  for (;;) {
+    const current = await readAutoFlightState(root, flightId);
+    if ((!allowStopRequested && current.stopRequested) || !statusSet.has(current.status)) {
+      throw autoStopRequested(flightId, current);
+    }
+    if (expectedCheckpoint && current.checkpointSha256 !== expectedCheckpoint) {
+      throw new SingularityFlowError('Auto flight changed during its active step.', {
+        code: 'AUTO_CHECKPOINT_STALE',
+        details: { expected: expectedCheckpoint, actual: current.checkpointSha256 }
+      });
+    }
+    try {
+      return await mutateAutoFlightState(root, flightId, mutate, { expectedCheckpoint });
+    } catch (error) {
+      if (!['SUBJECT_LOCK_BUSY', 'AUTO_CHECKPOINT_STALE'].includes(error?.code)) throw error;
+      const observed = await readAutoFlightState(root, flightId);
+      if ((!allowStopRequested && observed.stopRequested) || !statusSet.has(observed.status)) {
+        throw autoStopRequested(flightId, observed);
+      }
+      // A changed checkpoint with no stop is a real competing mutation. The complete-step lease
+      // means it cannot be another legitimate executor, so never adopt and overwrite it.
+      if (error.code === 'AUTO_CHECKPOINT_STALE' || Date.now() >= deadline) throw error;
+      await new Promise((resolve) => setTimeout(resolve, 20));
+    }
+  }
+}
+
 function cancellationMonitor(root, flightId, controller) {
   let checking = false;
   const timer = setInterval(async () => {
@@ -137,7 +194,10 @@ function cancellationMonitor(root, flightId, controller) {
 }
 
 async function stoppedByHuman(root, flightId, error, activeSince) {
-  if (!['AUTO_STOP_REQUESTED', 'MODEL_CANCELLED', 'AUTO_CHECKPOINT_STALE'].includes(error?.code)) return null;
+  if (![
+    'AUTO_STOP_REQUESTED', 'MODEL_CANCELLED', 'AUTO_CHECKPOINT_STALE',
+    'SUBJECT_LOCK_BUSY', 'AUTO_FLIGHT_NOT_RUNNING'
+  ].includes(error?.code)) return null;
   // The interrupt is durable before pause/halt waits for the step lease. The executor can observe
   // that new checkpoint while the interrupt command is still releasing the short-lived state
   // lock. Treat that as ordinary coordination, not as an authoring failure. A stale checkpoint is
@@ -147,10 +207,14 @@ async function stoppedByHuman(root, flightId, error, activeSince) {
     const current = await readAutoFlightState(root, flightId);
     if (current.status === 'running' && !current.stopRequested) return null;
     try {
-      return await mutateAutoFlightState(root, flightId, (draft) => {
+      return await mutateAutoExecutorState(root, flightId, (draft) => {
         draft.counters.activeMilliseconds = (draft.counters.activeMilliseconds ?? 0)
           + Math.max(0, Date.now() - activeSince);
-      }, { expectedCheckpoint: current.checkpointSha256 });
+      }, {
+        expectedCheckpoint: current.checkpointSha256,
+        expectedStatuses: [...new Set([current.status, 'paused', 'halted'])],
+        allowStopRequested: true
+      });
     } catch (mutationError) {
       if (!['SUBJECT_LOCK_BUSY', 'AUTO_CHECKPOINT_STALE'].includes(mutationError?.code)
           || Date.now() >= deadline) throw mutationError;
@@ -165,15 +229,15 @@ function selectorReached(until, phaseId, boundary) {
 
 async function finishAtBoundary(root, flightId, state, phaseId, boundary) {
   if (!selectorReached(state.execution.until, phaseId, boundary)) return null;
-  const completed = await mutateAutoFlightState(root, flightId, (draft) => {
+  const completed = await mutateAutoExecutorState(root, flightId, (draft) => {
     draft.status = 'completed';
     draft.stopReason = 'requested-boundary-reached';
     draft.nextAction = `The ratified Auto boundary '${boundary}:${phaseId}' was reached; inspect the governed Story.`;
   }, { expectedCheckpoint: state.checkpointSha256 });
   const report = await persistAutoFlightReport(root, completed);
-  return mutateAutoFlightState(root, flightId, (draft) => {
+  return mutateAutoExecutorState(root, flightId, (draft) => {
     draft.finalReportSha256 = report.reportSha256;
-  }, { expectedCheckpoint: completed.checkpointSha256 });
+  }, { expectedCheckpoint: completed.checkpointSha256, expectedStatuses: ['completed'] });
 }
 
 function actualProtectedPaths(definition, workflow, files) {
@@ -185,14 +249,27 @@ function actualProtectedPaths(definition, workflow, files) {
   return files.filter((file) => protectedPaths.some((guard) => file === guard || file.startsWith(`${guard.replace(/\/$/, '')}/`)));
 }
 
-async function executeAutoFlightStepLocked(root, flightId, confirmation) {
+async function executeAutoFlightStepLocked(root, flightId, confirmation, runtime = {}) {
   let activeAccountedAt = Date.now();
-  const stopActive = (status, reason, nextAction, extra = {}) => {
+  const stopActive = async (status, reason, nextAction, extra = {}) => {
+    const activeSince = activeAccountedAt;
     const now = Date.now();
     const activeMilliseconds = now - activeAccountedAt;
     activeAccountedAt = now;
-    return stop(root, flightId, status, reason, nextAction, extra, { activeMilliseconds });
+    try {
+      return await stop(root, flightId, status, reason, nextAction, extra, {
+        activeMilliseconds,
+        mutateState: mutateAutoExecutorState
+      });
+    } catch (error) {
+      const humanStop = await stoppedByHuman(root, flightId, error, activeSince);
+      if (humanStop) return humanStop;
+      throw error;
+    }
   };
+  const runLifecycle = runtime.childLifecycle ?? childLifecycle;
+  const runModel = runtime.invokeModel ?? invokeModel;
+  const boundary = runtime.boundary ?? (async () => {});
   let state = await readAutoFlightState(root, flightId);
   if (confirmation !== state.checkpointSha256) throw new SingularityFlowError(`Auto step checkpoint mismatch for '${flightId}'.`, {
     code: 'AUTO_CHECKPOINT_STALE', details: { expected: state.checkpointSha256 }
@@ -264,11 +341,13 @@ async function executeAutoFlightStepLocked(root, flightId, confirmation) {
   if (state.position === 'story-created') {
     let attemptConsumed = false;
     try {
-      await childLifecycle(worktree, ['prepare', phase.id]);
+      await runLifecycle(worktree, ['prepare', phase.id]);
+      await assertActive(root, flightId, state.checkpointSha256);
       // Auto enters the same durable generation boundary as an interactive author before any model
       // can touch source. Publishing without this intent made Auto a privileged bypass of the
       // code-generation assurance contract.
-      await childLifecycle(worktree, ['phase', 'begin', phase.id]);
+      await runLifecycle(worktree, ['phase', 'begin', phase.id]);
+      await assertActive(root, flightId, state.checkpointSha256);
       workflow = await loadStoryAggregate(worktree, definition, state.story.workId);
       phase = workflow.phases[phase.id];
       const task = generationTaskForPhase(definition, phase.id);
@@ -308,7 +387,9 @@ async function executeAutoFlightStepLocked(root, flightId, confirmation) {
           return stopActive('halted', 'active-time-ceiling',
             'The cumulative active-time budget was exhausted before model authoring.');
         }
-        invocation = await invokeModel({
+        await boundary('model-start', { root, worktree, flightId, phase: phase.id });
+        await assertActive(root, flightId, authoringCheckpoint);
+        invocation = await runModel({
           provider: provider.provider,
           providerConfig: provider.providerConfig,
           task,
@@ -326,12 +407,13 @@ async function executeAutoFlightStepLocked(root, flightId, confirmation) {
             outputBytes: 4 * 1024 * 1024
           }
         });
+        await boundary('model-complete', { root, worktree, flightId, phase: phase.id, invocation });
       } finally { stopMonitoring(); }
       await assertActive(root, flightId, authoringCheckpoint);
       const token = tokenObservation(invocation.usage);
       const invocationActiveMilliseconds = Date.now() - activeAccountedAt;
       activeAccountedAt = Date.now();
-      state = await mutateAutoFlightState(root, flightId, (draft) => {
+      state = await mutateAutoExecutorState(root, flightId, (draft) => {
         draft.lastInvocationId = invocation.invocationId;
         draft.token = token;
         draft.counters.totalTokens = (draft.counters.totalTokens ?? 0) + (token.totalTokens ?? 0);
@@ -391,11 +473,12 @@ async function executeAutoFlightStepLocked(root, flightId, confirmation) {
       if (phase.generationPolicy?.producer === 'deterministic') {
         // Re-render after source authoring so the kernel-owned summary names the actual paths. The
         // model cannot claim authorship of or smuggle prose into this artifact.
-        await childLifecycle(worktree, ['prepare', phase.id]);
+        await runLifecycle(worktree, ['prepare', phase.id]);
+        await assertActive(root, flightId, authoringCheckpoint);
       }
       const authoringActiveMilliseconds = Date.now() - activeAccountedAt;
       activeAccountedAt = Date.now();
-      state = await mutateAutoFlightState(root, flightId, (draft) => {
+      state = await mutateAutoExecutorState(root, flightId, (draft) => {
         draft.position = 'authored';
         draft.counters.touchedPaths = files.length;
         draft.counters.touchedChanges = applicationEntries.length;
@@ -436,7 +519,7 @@ async function executeAutoFlightStepLocked(root, flightId, confirmation) {
       const controller = new AbortController();
       const stopMonitoring = cancellationMonitor(root, flightId, controller);
       try {
-        await childLifecycle(worktree, [
+        await runLifecycle(worktree, [
           'phase', 'publish', phase.id,
           '--authored', deterministic ? 'deterministic' : 'governed-agent',
           '--channel', deterministic ? 'kernel-generator' : 'kernel-model'
@@ -445,7 +528,7 @@ async function executeAutoFlightStepLocked(root, flightId, confirmation) {
       await assertActive(root, flightId, state.checkpointSha256);
       const publicationActiveMilliseconds = Date.now() - activeAccountedAt;
       activeAccountedAt = Date.now();
-      state = await mutateAutoFlightState(root, flightId, (draft) => {
+      state = await mutateAutoExecutorState(root, flightId, (draft) => {
         draft.position = 'published'; draft.stopReason = 'generation-published';
         draft.counters.activeMilliseconds = (draft.counters.activeMilliseconds ?? 0) + publicationActiveMilliseconds;
         draft.commits = { ...(draft.commits ?? {}), generation: head(worktree) };
@@ -478,7 +561,7 @@ async function executeAutoFlightStepLocked(root, flightId, confirmation) {
       }
       const controller = new AbortController();
       const stopMonitoring = cancellationMonitor(root, flightId, controller);
-      try { await childLifecycle(worktree, ['submit', phase.id], { signal: controller.signal, timeoutMs: remainingActiveMs }); }
+      try { await runLifecycle(worktree, ['submit', phase.id], { signal: controller.signal, timeoutMs: remainingActiveMs }); }
       finally { stopMonitoring(); }
       await assertActive(root, flightId, state.checkpointSha256);
       const submissionActiveMilliseconds = Date.now() - activeAccountedAt;
@@ -488,7 +571,7 @@ async function executeAutoFlightStepLocked(root, flightId, confirmation) {
       const submittedPacket = [...(current.lineage?.submissions ?? [])].reverse().find((entry) =>
         entry.phase === phase.id && Number(entry.generation) === Number(completed.generation)) ?? null;
       const waiting = completed.status === 'awaiting_approval';
-      const stopped = await mutateAutoFlightState(root, flightId, (draft) => {
+      const stopped = await mutateAutoExecutorState(root, flightId, (draft) => {
         draft.position = 'submitted';
         draft.commits = { ...(draft.commits ?? {}), submission: head(worktree) };
         draft.lastSuccessfulStoryRevision = head(worktree);
@@ -523,9 +606,9 @@ async function executeAutoFlightStepLocked(root, flightId, confirmation) {
           : 'The thin single-phase flight is complete; inspect the governed Story for the next phase.';
       }, { expectedCheckpoint: state.checkpointSha256 });
       const report = await persistAutoFlightReport(root, stopped);
-      return mutateAutoFlightState(root, flightId, (draft) => {
+      return mutateAutoExecutorState(root, flightId, (draft) => {
         draft.finalReportSha256 = report.reportSha256;
-      });
+      }, { expectedStatuses: [stopped.status] });
     } catch (error) {
       const humanStop = await stoppedByHuman(root, flightId, error, activeAccountedAt);
       if (humanStop) return humanStop;
@@ -539,7 +622,7 @@ async function executeAutoFlightStepLocked(root, flightId, confirmation) {
 }
 
 /** Hold one durable step lease from checkpoint validation through the final state transition. */
-export async function executeAutoFlightStep(root, flightId, confirmation) {
+export async function executeAutoFlightStep(root, flightId, confirmation, runtime = {}) {
   return withSubjectLock(root, { kind: 'auto-flight-step', id: flightId }, () =>
-    executeAutoFlightStepLocked(root, flightId, confirmation));
+    executeAutoFlightStepLocked(root, flightId, confirmation, runtime));
 }

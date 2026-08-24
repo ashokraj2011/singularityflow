@@ -3646,6 +3646,11 @@ test('VS Code exposes workspace prompt auditing and records the governed Copilot
   const panel = await readFile(source('views/prompt-audit.ts'), 'utf8');
   assert.match(panel, /\['prompt-log', 'list', '--include-prompt'/);
   assert.match(panel, /\['prompt-log', this\.snapshot\?\.enabled \? 'off' : 'on'/);
+  for (const section of ['Model and execution', 'Tools', 'Tokens and cost', 'Request and output', 'Prompt']) {
+    assert.match(panel, new RegExp(section));
+  }
+  assert.match(panel, /Observed calls<\/dt><dd>Unavailable/);
+  assert.match(panel, /not provider billing usage/);
 });
 
 test('Flow Impact has a dedicated configuration and reporting entry point', async () => {

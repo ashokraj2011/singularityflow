@@ -17,6 +17,44 @@ interface PromptRecord {
   bytes: number;
   redactions: number;
   prompt: string;
+  source: string;
+  task: string | null;
+  workType: string | null;
+  execution: {
+    observation: string;
+    reason: string | null;
+    invocationId: string | null;
+    operationId: string | null;
+    provider: string | null;
+    model: string | null;
+    channel: string | null;
+    status: string;
+    startedAt: string | null;
+    completedAt: string | null;
+    durationMs: number | null;
+    tools: {
+      policyStatus: string;
+      mode: string | null;
+      allowed: string[];
+      observedCalls: null;
+      observation: string;
+    };
+    tokens: {
+      status: string;
+      assurance: string;
+      input: number | null;
+      output: number | null;
+      cachedInput: number | null;
+      reasoning: number | null;
+      total: number | null;
+      providerCost: number | null;
+      promptEstimate: { value: number | null; assurance: string; basis: string | null };
+    };
+    limits: { timeoutMs?: number; outputBytes?: number; promptBytes?: number } | null;
+    prompt: { bytes: number | null; sha256: string | null; transport: string | null; encoding: string | null } | null;
+    output: { bytes: number; sha256: string | null } | null;
+    error: { code?: string } | null;
+  };
 }
 
 interface PromptAuditSnapshot {
@@ -37,6 +75,15 @@ const SCRIPT = `
     if (record) vscode.postMessage({ type: 'select', id: record.dataset.record });
   });
 `;
+
+function metric(value: number | null): string {
+  return value == null ? 'Unavailable' : value.toLocaleString('en-US');
+}
+
+function duration(value: number | null): string {
+  if (value == null) return 'Unavailable';
+  return value < 1000 ? `${value} ms` : `${(value / 1000).toFixed(2)} s`;
+}
 
 function body(snapshot: PromptAuditSnapshot | null, selected: string | null, error: string | null): string {
   if (!snapshot) return `<header><p class="eyebrow">Local governance</p><h1>${icon('prompt', { size: 24 })}Prompt audit</h1></header>
@@ -62,11 +109,16 @@ function body(snapshot: PromptAuditSnapshot | null, selected: string | null, err
     <section><h2>${icon('commit')}Agent handoffs</h2>${snapshot.records.length ? `<div class="audit-list">${snapshot.records.map((record) => `
       <button class="audit-record${active?.id === record.id ? ' selected' : ''}" data-record="${escape(record.id)}">
         <strong>${escape(record.agent)}</strong><span>${escape(record.workId ?? 'repository')} · ${escape(record.phase)} · generation ${escape(record.generation ?? '—')}</span>
-        <small>${escape(record.recordedAt)} · ${escape(record.promptSha256.slice(0, 12))}</small>
+        <small>${escape(record.recordedAt)} · ${escape(record.source)} · ${escape(record.execution.model ?? 'model unavailable')} · ${escape(record.execution.tokens.total == null ? `~${record.execution.tokens.promptEstimate.value ?? '—'} estimated prompt tokens` : `${record.execution.tokens.total} provider tokens`)}</small>
       </button>`).join('')}</div>` : '<div class="empty"><p>No prompts captured yet. Turn capture on, then run a governed phase handoff.</p></div>'}</section>
-    <section><h2>${icon('document')}Captured prompt</h2>${active ? `
-      <dl class="audit-meta"><div><dt>Agent</dt><dd>${escape(active.agent)}</dd></div><div><dt>Story</dt><dd>${escape(active.workId ?? '—')}</dd></div><div><dt>Phase</dt><dd>${escape(active.phase)}</dd></div><div><dt>Redactions</dt><dd>${active.redactions}</dd></div></dl>
-      <pre class="prompt-content"><code>${escape(active.prompt)}</code></pre>` : '<p class="muted">Select a captured handoff.</p>'}</section>
+    <section><h2>${icon('document')}Structured prompt record</h2>${active ? `
+      <div class="summary-grid"><div class="summary-card"><strong>${escape(active.execution.model ?? 'Unavailable')}</strong><span>Model</span></div><div class="summary-card"><strong>${escape(metric(active.execution.tokens.total))}</strong><span>Provider tokens</span></div><div class="summary-card"><strong>${escape(active.execution.tools.mode ?? 'Unavailable')}</strong><span>Tool policy</span></div><div class="summary-card"><strong>${escape(active.execution.status)}</strong><span>Execution</span></div></div>
+      <h3>Context</h3><dl class="audit-meta"><div><dt>Agent</dt><dd>${escape(active.agent)}</dd></div><div><dt>Story</dt><dd>${escape(active.workId ?? '—')}</dd></div><div><dt>Phase</dt><dd>${escape(active.phase)}</dd></div><div><dt>Generation</dt><dd>${escape(active.generation ?? '—')}</dd></div><div><dt>Source</dt><dd>${escape(active.source)}</dd></div><div><dt>Task</dt><dd>${escape(active.task ?? 'Unavailable')}</dd></div><div><dt>Prompt bytes</dt><dd>${escape(active.bytes.toLocaleString('en-US'))}</dd></div><div><dt>Redactions</dt><dd>${active.redactions}</dd></div></dl>
+      <h3>Model and execution</h3><dl class="audit-meta"><div><dt>Provider</dt><dd>${escape(active.execution.provider ?? 'Unavailable')}</dd></div><div><dt>Model</dt><dd>${escape(active.execution.model ?? 'Unavailable')}</dd></div><div><dt>Channel</dt><dd>${escape(active.execution.channel ?? 'Unavailable')}</dd></div><div><dt>Duration</dt><dd>${escape(duration(active.execution.durationMs))}</dd></div><div><dt>Operation</dt><dd>${escape(active.execution.operationId ?? 'Unavailable')}</dd></div><div><dt>Invocation</dt><dd>${escape(active.execution.invocationId ?? 'Unavailable')}</dd></div><div><dt>Started</dt><dd>${escape(active.execution.startedAt ?? 'Unavailable')}</dd></div><div><dt>Completed</dt><dd>${escape(active.execution.completedAt ?? 'Unavailable')}</dd></div><div><dt>Error code</dt><dd>${escape(active.execution.error?.code ?? 'Unavailable')}</dd></div></dl>${active.execution.reason ? `<p class="muted">${escape(active.execution.reason)}</p>` : ''}
+      <h3>Tools</h3><dl class="audit-meta"><div><dt>Authorization</dt><dd>${escape(active.execution.tools.policyStatus)}</dd></div><div><dt>Policy</dt><dd>${escape(active.execution.tools.mode ?? 'Unavailable')}</dd></div><div><dt>Allowed</dt><dd>${escape(active.execution.tools.mode === 'none' ? 'None' : active.execution.tools.allowed.join(', ') || (active.execution.tools.mode === 'all' ? 'All provider tools' : 'Unavailable'))}</dd></div><div><dt>Observed calls</dt><dd>Unavailable</dd></div></dl><p class="muted">${escape(active.execution.tools.observation)}</p>
+      <h3>Tokens and cost</h3><dl class="audit-meta"><div><dt>Usage status</dt><dd>${escape(`${active.execution.tokens.status} · ${active.execution.tokens.assurance}`)}</dd></div><div><dt>Input</dt><dd>${escape(metric(active.execution.tokens.input))}</dd></div><div><dt>Output</dt><dd>${escape(metric(active.execution.tokens.output))}</dd></div><div><dt>Cached input</dt><dd>${escape(metric(active.execution.tokens.cachedInput))}</dd></div><div><dt>Reasoning</dt><dd>${escape(metric(active.execution.tokens.reasoning))}</dd></div><div><dt>Total</dt><dd>${escape(metric(active.execution.tokens.total))}</dd></div><div><dt>Provider cost</dt><dd>${escape(active.execution.tokens.providerCost == null ? 'Unavailable' : `$${active.execution.tokens.providerCost.toFixed(6)}`)}</dd></div><div><dt>Prompt estimate</dt><dd>${escape(`${metric(active.execution.tokens.promptEstimate.value)} · ${active.execution.tokens.promptEstimate.assurance}`)}</dd></div></dl><p class="muted">Prompt estimates are based on UTF-8 size and are not provider billing usage.</p>
+      <h3>Request and output</h3><dl class="audit-meta"><div><dt>Timeout</dt><dd>${escape(duration(active.execution.limits?.timeoutMs ?? null))}</dd></div><div><dt>Output limit</dt><dd>${escape(active.execution.limits?.outputBytes == null ? 'Unavailable' : `${active.execution.limits.outputBytes.toLocaleString('en-US')} bytes`)}</dd></div><div><dt>Output bytes</dt><dd>${escape(active.execution.output?.bytes == null ? 'Unavailable' : active.execution.output.bytes.toLocaleString('en-US'))}</dd></div><div><dt>Captured prompt hash</dt><dd><code>${escape(active.promptSha256.slice(0, 16))}</code></dd></div><div><dt>Sent prompt bytes</dt><dd>${escape(active.execution.prompt?.bytes == null ? 'Unavailable' : active.execution.prompt.bytes.toLocaleString('en-US'))}</dd></div><div><dt>Sent prompt hash</dt><dd><code>${escape(active.execution.prompt?.sha256?.slice(0, 16) ?? 'Unavailable')}</code></dd></div><div><dt>Transport</dt><dd>${escape(active.execution.prompt?.transport ?? 'Unavailable')}</dd></div><div><dt>Encoding</dt><dd>${escape(active.execution.prompt?.encoding ?? 'Unavailable')}</dd></div></dl>
+      <h3>Prompt</h3><pre class="prompt-content"><code>${escape(active.prompt)}</code></pre>` : '<p class="muted">Select a captured handoff.</p>'}</section>
   </div>`;
 }
 

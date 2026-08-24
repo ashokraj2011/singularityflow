@@ -1,6 +1,6 @@
 import { createHash, randomUUID } from 'node:crypto';
 import path from 'node:path';
-import { appendFile, mkdir, readFile } from 'node:fs/promises';
+import { appendFile, mkdir, readFile, readdir } from 'node:fs/promises';
 import { activeWorkspaceFile, workspaceContextForRepository, workspaceRegistryFile } from './workspace-context.mjs';
 import { gitDir } from './git.mjs';
 import { SingularityFlowError, writeAtomic } from './util.mjs';
@@ -73,6 +73,251 @@ async function entries(file) {
   });
 }
 
+async function invocationEntries(root) {
+  const directory = path.join(gitDir(root), 'singularity-flow', 'model-invocations');
+  const names = await readdir(directory).catch(() => []);
+  const records = [];
+  for (const name of names) {
+    if (!name.endsWith('.json')) continue;
+    const text = await readFile(path.join(directory, name), 'utf8').catch(() => null);
+    if (text === null) continue;
+    try { records.push(readRecord('model-invocation-audit', text).record); }
+    catch { /* One unreadable invocation must not hide otherwise valid prompt records. */ }
+  }
+  return records;
+}
+
+function linkedInvocationId(record) {
+  return (record.supportingEvidence ?? []).find((entry) => (
+    entry?.kind === 'model-invocation-audit' && typeof entry.id === 'string'
+  ))?.id ?? null;
+}
+
+function numericUsage(usage, field) {
+  const raw = usage?.[field];
+  const direct = raw == null ? Number.NaN : Number(raw);
+  if (Number.isFinite(direct) && direct >= 0) return direct;
+  const observedRaw = usage?.observations?.[field]?.value;
+  const observed = observedRaw == null ? Number.NaN : Number(observedRaw);
+  return Number.isFinite(observed) && observed >= 0 ? observed : null;
+}
+
+function executionProjection(record, invocation) {
+  const estimationBytes = Number.isSafeInteger(invocation?.promptBytes)
+    ? invocation.promptBytes : record.bytes;
+  const estimatedPromptTokens = Number.isSafeInteger(estimationBytes)
+    ? Math.ceil(estimationBytes / 4) : null;
+  if (!invocation) return {
+    observation: 'not-observed',
+    reason: record.source === 'vscode-governed-handoff'
+      ? 'This governed prompt was handed to the Copilot host; the kernel did not observe the host invocation.'
+      : 'Prompt composition does not prove that a model invocation occurred.',
+    invocationId: null,
+    operationId: null,
+    provider: null,
+    model: null,
+    channel: null,
+    status: 'not-observed',
+    startedAt: null,
+    completedAt: null,
+    durationMs: null,
+    tools: {
+      policyStatus: 'unavailable', mode: null, allowed: [],
+      observedCalls: null, observation: 'Tool-call execution is not captured for this handoff.'
+    },
+    tokens: {
+      status: 'unavailable', assurance: 'unavailable', input: null, output: null,
+      cachedInput: null, reasoning: null, total: null, providerCost: null,
+      promptEstimate: {
+        value: estimatedPromptTokens, status: estimatedPromptTokens == null ? 'unavailable' : 'estimated',
+        assurance: estimatedPromptTokens == null ? 'unavailable' : 'sflow-estimated',
+        basis: estimatedPromptTokens == null ? null : 'UTF-8 bytes divided by four, rounded up'
+      }
+    },
+    limits: null,
+    prompt: null,
+    output: null,
+    error: null
+  };
+  const input = numericUsage(invocation.usage, 'inputTokens');
+  const output = numericUsage(invocation.usage, 'outputTokens');
+  const total = numericUsage(invocation.usage, 'totalTokens')
+    ?? (input != null && output != null ? input + output : null);
+  const completed = Date.parse(invocation.completedAt);
+  const started = Date.parse(invocation.startedAt);
+  return {
+    observation: 'exact-invocation-audit',
+    reason: null,
+    invocationId: invocation.id,
+    operationId: invocation.operationId ?? null,
+    provider: invocation.provider ?? null,
+    model: invocation.model ?? invocation.routing?.resolvedModel ?? null,
+    routing: invocation.routing ?? null,
+    channel: invocation.channel ?? null,
+    status: invocation.status,
+    startedAt: invocation.startedAt ?? null,
+    completedAt: invocation.completedAt ?? null,
+    durationMs: Number.isFinite(started) && Number.isFinite(completed)
+      ? Math.max(0, completed - started) : null,
+    tools: {
+      policyStatus: 'exact',
+      mode: invocation.toolPolicy?.mode ?? null,
+      allowed: [...(invocation.toolPolicy?.names ?? [])],
+      observedCalls: null,
+      observation: 'The invocation audit records tool authorization, not individual tool calls.'
+    },
+    tokens: {
+      status: invocation.usage?.status ?? (total == null ? 'unavailable' : 'exact'),
+      assurance: invocation.usage?.assurance ?? (total == null ? 'unavailable' : 'provider-reported'),
+      input,
+      output,
+      cachedInput: numericUsage(invocation.usage, 'cachedInputTokens'),
+      reasoning: numericUsage(invocation.usage, 'reasoningTokens'),
+      total,
+      providerCost: Number.isFinite(invocation.usage?.providerCost) ? invocation.usage.providerCost : null,
+      promptEstimate: {
+        value: estimatedPromptTokens, status: estimatedPromptTokens == null ? 'unavailable' : 'estimated',
+        assurance: estimatedPromptTokens == null ? 'unavailable' : 'sflow-estimated',
+        basis: estimatedPromptTokens == null ? null : 'UTF-8 bytes divided by four, rounded up'
+      }
+    },
+    limits: invocation.limits ?? null,
+    prompt: {
+      bytes: invocation.promptBytes ?? null,
+      sha256: invocation.promptSha256 ?? null,
+      transport: invocation.promptTransport ?? null,
+      encoding: invocation.promptEncoding ?? null
+    },
+    output: invocation.outputBytes == null ? null : {
+      bytes: invocation.outputBytes, sha256: invocation.outputSha256 ?? null
+    },
+    error: invocation.error ?? null
+  };
+}
+
+function matchingInvocation(record, invocations) {
+  const linked = linkedInvocationId(record);
+  if (linked) return invocations.find((entry) => entry.id === linked) ?? null;
+  // Exact prompt bytes alone do not prove that a composition handoff became an invocation.
+  // Hash fallback is reserved for invocation records written before the explicit evidence link.
+  if (record.source !== 'model-invocation') return null;
+  const matching = invocations.filter((entry) => entry.promptSha256 === record.promptSha256);
+  if (matching.length < 2) return matching[0] ?? null;
+  const at = Date.parse(record.recordedAt);
+  return matching.sort((left, right) => (
+    Math.abs(Date.parse(left.completedAt ?? left.startedAt) - at)
+    - Math.abs(Date.parse(right.completedAt ?? right.startedAt) - at)
+  ))[0];
+}
+
+async function enrichRecords(root, records) {
+  const invocations = await invocationEntries(root);
+  return records.map((record) => ({
+    ...record,
+    execution: executionProjection(record, matchingInvocation(record, invocations))
+  }));
+}
+
+function display(value, fallback = 'unavailable') {
+  return value == null || value === '' ? fallback : String(value);
+}
+
+function duration(value) {
+  if (!Number.isFinite(value)) return 'unavailable';
+  return value < 1000 ? `${value} ms` : `${(value / 1000).toFixed(2)} s`;
+}
+
+function token(value) { return Number.isFinite(value) ? value.toLocaleString('en-US') : 'unavailable'; }
+
+/** Human-readable projection used by the CLI and relayed unchanged by /sf-prompt-log. */
+export function renderPromptAudit(record) {
+  const execution = record.execution ?? executionProjection(record, null);
+  const tools = execution.tools;
+  const tokens = execution.tokens;
+  const allowed = tools.mode === 'none' ? 'None'
+    : tools.allowed.length ? tools.allowed.map((name) => `\`${name}\``).join(', ')
+      : tools.mode === 'all' ? 'All provider tools' : 'Unavailable';
+  const evidence = record.supportingEvidence ?? [];
+  const references = record.references ?? [];
+  const lines = [
+    `# Prompt audit ${record.id}`,
+    '',
+    '## Context',
+    '',
+    `- Recorded: ${record.recordedAt}`,
+    `- Source: ${display(record.source)}`,
+    `- Agent: ${display(record.agent)}`,
+    `- Story: ${display(record.workId, 'none')}`,
+    `- Work type: ${display(record.workType)}`,
+    `- Phase: ${display(record.phase)}`,
+    `- Generation: ${display(record.generation)}`,
+    `- Task: ${display(record.task)}`,
+    '',
+    '## Model and execution',
+    '',
+    `- Observation: ${execution.observation}`,
+    `- Status: ${execution.status}`,
+    `- Provider: ${display(execution.provider)}`,
+    `- Model: ${display(execution.model)}`,
+    `- Channel: ${display(execution.channel)}`,
+    `- Operation: ${display(execution.operationId)}`,
+    `- Invocation: ${display(execution.invocationId)}`,
+    `- Started: ${display(execution.startedAt)}`,
+    `- Completed: ${display(execution.completedAt)}`,
+    `- Duration: ${duration(execution.durationMs)}`,
+    `- Error code: ${display(execution.error?.code)}`,
+    ...(execution.reason ? [`- Note: ${execution.reason}`] : []),
+    '',
+    '## Tools',
+    '',
+    `- Authorization evidence: ${tools.policyStatus}`,
+    `- Policy: ${display(tools.mode)}`,
+    `- Allowed tools: ${allowed}`,
+    '- Observed tool calls: unavailable',
+    `- Note: ${tools.observation}`,
+    '',
+    '## Tokens and cost',
+    '',
+    `- Provider usage status: ${tokens.status} (${tokens.assurance})`,
+    `- Input tokens: ${token(tokens.input)}`,
+    `- Output tokens: ${token(tokens.output)}`,
+    `- Cached input tokens: ${token(tokens.cachedInput)}`,
+    `- Reasoning tokens: ${token(tokens.reasoning)}`,
+    `- Total provider tokens: ${token(tokens.total)}`,
+    `- Provider cost: ${Number.isFinite(tokens.providerCost) ? `$${tokens.providerCost.toFixed(6)}` : 'unavailable'}`,
+    `- Prompt-only estimate: ${token(tokens.promptEstimate.value)} (${tokens.promptEstimate.assurance})`,
+    ...(tokens.promptEstimate.basis ? [`- Estimate basis: ${tokens.promptEstimate.basis}`] : []),
+    '',
+    '## Request and output',
+    '',
+    `- Captured prompt bytes: ${record.bytes.toLocaleString('en-US')}`,
+    `- Captured prompt SHA-256: ${record.promptSha256}`,
+    `- Secret redactions: ${record.redactions}`,
+    `- Sent prompt bytes: ${execution.prompt?.bytes == null ? 'unavailable' : execution.prompt.bytes.toLocaleString('en-US')}`,
+    `- Sent prompt SHA-256: ${display(execution.prompt?.sha256)}`,
+    `- Prompt transport: ${display(execution.prompt?.transport)}`,
+    `- Prompt encoding: ${display(execution.prompt?.encoding)}`,
+    `- Timeout limit: ${execution.limits?.timeoutMs == null ? 'unavailable' : duration(execution.limits.timeoutMs)}`,
+    `- Output limit: ${execution.limits?.outputBytes == null ? 'unavailable' : `${execution.limits.outputBytes.toLocaleString('en-US')} bytes`}`,
+    `- Output bytes: ${execution.output?.bytes == null ? 'unavailable' : execution.output.bytes.toLocaleString('en-US')}`,
+    `- Output SHA-256: ${display(execution.output?.sha256)}`,
+    '',
+    '## Grounding and references',
+    '',
+    `- Supporting evidence records: ${evidence.length}`,
+    `- Governed references: ${references.length}`,
+    `- Composition cache: ${record.compositionCache ? `${record.compositionCache.hit ? 'hit' : 'miss'} (${record.compositionCache.key})` : 'unavailable'}`,
+    '',
+    '## Prompt',
+    '',
+    '--- BEGIN CAPTURED GOVERNED PROMPT ---',
+    record.prompt,
+    '--- END CAPTURED GOVERNED PROMPT ---',
+    ''
+  ];
+  return lines.join('\n');
+}
+
 export async function promptAuditStatus(root) {
   const target = await location(root);
   const config = await settings(target.settingsFile);
@@ -139,7 +384,7 @@ export async function listPromptAudits(root, filters = {}) {
   for (const key of ['agent', 'phase', 'workId']) {
     if (filters[key]) records = records.filter((record) => record[key] === filters[key]);
   }
-  records = records.slice(-limit).reverse();
+  records = await enrichRecords(root, records.slice(-limit).reverse());
   if (!filters.includePrompt) records = records.map(({ prompt: _prompt, ...record }) => record);
   return { ...status, records };
 }
@@ -149,5 +394,5 @@ export async function readPromptAudit(root, id = 'latest') {
   const records = await entries(status.logFile);
   const record = id === 'latest' ? records.at(-1) : records.find((entry) => entry.id === id);
   if (!record) throw new SingularityFlowError(id === 'latest' ? 'No governed prompts have been captured.' : `Prompt-audit record '${id}' was not found.`);
-  return { status, record };
+  return { status, record: (await enrichRecords(root, [record]))[0] };
 }

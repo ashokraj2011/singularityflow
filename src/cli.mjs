@@ -33,7 +33,7 @@ import {
   TELEMETRY_DISCLOSURE,
   TELEMETRY_DISCLOSURE_CONFIRMATION
 } from './telemetry-provision.mjs';
-import { listPromptAudits, promptAuditStatus, readPromptAudit, setPromptAudit } from './prompt-audit.mjs';
+import { listPromptAudits, promptAuditStatus, readPromptAudit, renderPromptAudit, setPromptAudit } from './prompt-audit.mjs';
 import { assertPhaseSequence, withConfirmationPort } from './sequence.mjs';
 import { addComment, assignIssue, discoverJiraConnection, getIssue, getIssueHierarchy, getMyPermissions, issueToMarkdown, listBoards, listBoardStories, listEpicStories, listEpics, listFields, listIssueTransitions, listMyIssues, listProjects, moveIssueToSprint, setIssuePriority, transitionIssue } from './jira.mjs';
 import { jiraDoctor, jiraDoctorText } from './jira-doctor.mjs';
@@ -7249,17 +7249,34 @@ async function promptLogCommand(positionals, options) {
     throw new SingularityFlowError(`Unknown prompt-log action '${action}'. Use on, off, status, list, or view.`);
   }
   if (optionBoolean(options, 'json')) return console.log(JSON.stringify(result, null, 2));
-  if (action === 'view') return process.stdout.write(`${result.record.prompt}${result.record.prompt.endsWith('\n') ? '' : '\n'}`);
+  if (action === 'view') {
+    if (optionBoolean(options, 'raw')) {
+      return process.stdout.write(`${result.record.prompt}${result.record.prompt.endsWith('\n') ? '' : '\n'}`);
+    }
+    return process.stdout.write(renderPromptAudit(result.record));
+  }
   if (action === 'list') {
     if (!result.records.length) return console.log(`Prompt audit is ${result.enabled ? 'on' : 'off'}; no governed prompts have been captured.`);
     return console.log(table(result.records.map((record) => ({
-      time: record.recordedAt, agent: record.agent, story: record.workId ?? '—', phase: record.phase,
-      generation: record.generation ?? '—', id: record.id
+      time: record.recordedAt,
+      source: record.source === 'model-invocation' ? 'invocation' : 'handoff',
+      agent: record.agent,
+      story: record.workId ?? '—',
+      phase: record.phase,
+      model: record.execution.model ?? '—',
+      tokens: record.execution.tokens.total == null
+        ? `~${record.execution.tokens.promptEstimate.value ?? '—'} est.`
+        : String(record.execution.tokens.total),
+      tools: record.execution.tools.mode ?? '—',
+      status: record.execution.status,
+      id: record.id
     })), [
-      { key: 'time', label: 'TIME' }, { key: 'agent', label: 'AGENT' },
-      { key: 'story', label: 'STORY' }, { key: 'phase', label: 'PHASE' },
-      { key: 'generation', label: 'GEN' }, { key: 'id', label: 'RECORD' }
-    ]));
+      { key: 'time', label: 'TIME' }, { key: 'source', label: 'TYPE' },
+      { key: 'agent', label: 'AGENT' }, { key: 'story', label: 'STORY' },
+      { key: 'phase', label: 'PHASE' }, { key: 'model', label: 'MODEL' },
+      { key: 'tokens', label: 'TOKENS' }, { key: 'tools', label: 'TOOLS' },
+      { key: 'status', label: 'STATUS' }, { key: 'id', label: 'RECORD', shrink: false }
+    ], { min: 5 }));
   }
   console.log(`Prompt audit: ${result.enabled ? 'on' : 'off'} · ${result.count} record(s) · ${result.scope} scope`);
   console.log(`File: ${result.logFile}`);

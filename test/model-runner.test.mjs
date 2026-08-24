@@ -6,6 +6,7 @@ import path from 'node:path';
 import test from 'node:test';
 import { invokeModel, listModelInvocations } from '../src/model-runner.mjs';
 import { withOperationContext } from '../src/operation-context.mjs';
+import { listPromptAudits, setPromptAudit } from '../src/prompt-audit.mjs';
 import { run } from '../src/util.mjs';
 
 function request(root, overrides = {}) {
@@ -24,6 +25,7 @@ test('the model runner rejects calls without registered operation context', asyn
 test('the model runner audits and cleans the exact staged attachment bytes', async () => {
   const root = await mkdtemp(path.join(os.tmpdir(), 'sflow-model-attachment-'));
   run('git', ['init', '-q'], { cwd: root });
+  await setPromptAudit(root, true);
   const prompt = `CGR_CANARY_${'x'.repeat(200 * 1024)}_END`;
   const script = 'const fs=require("node:fs"),a=process.argv.slice(1),f=a[a.indexOf("--attachment")+1],b=fs.readFileSync(f);process.stdout.write(JSON.stringify({file:f,bytes:b.length,body:b.toString("utf8")}))';
   const result = await withOperationContext({
@@ -55,6 +57,15 @@ test('the model runner audits and cleans the exact staged attachment bytes', asy
     subjectId: 'MODEL-1', phase: 'implementation', generationIntentId: 'another-intent',
     generation: 2, task: 'code'
   })).length, 0, 'an unrelated generation intent cannot claim the audit');
+  const prompts = await listPromptAudits(root, { includePrompt: true });
+  assert.equal(prompts.records.length, 1);
+  assert.equal(prompts.records[0].source, 'model-invocation');
+  assert.equal(prompts.records[0].prompt, prompt);
+  assert.equal(prompts.records[0].execution.invocationId, result.invocationId);
+  assert.equal(prompts.records[0].execution.tools.mode, 'none');
+  assert.equal(prompts.records[0].execution.tools.observedCalls, null);
+  assert.equal(prompts.records[0].execution.tokens.status, 'unavailable');
+  assert.equal(prompts.records[0].execution.tokens.total, null, 'missing provider usage is never rendered as zero');
 });
 
 test('unknown providers fail before audit creation', async () => {

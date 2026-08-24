@@ -2008,17 +2008,23 @@ singularity-flow prompt-log on
 singularity-flow prompt-log status
 singularity-flow prompt-log list --agent developer
 singularity-flow prompt-log view latest
+singularity-flow prompt-log view latest --raw
 singularity-flow prompt-log off
 ```
 
-`/sf-prompt-log` exposes the same controls in Copilot. Each record identifies the governed agent,
-Story, phase, generation, timestamp, prompt hash, and secret-redaction count. The append-only JSONL
+`/sf-prompt-log` exposes the same controls in Copilot. The default `view` is a structured report
+with context, model execution, tool authorization, tokens and cost, request/output, grounding, and
+prompt sections; `--raw` prints only the prompt. Each record identifies the governed agent, Story,
+phase, generation, timestamp, prompt hash, and secret-redaction count. The append-only JSONL
 file lives under `<workspace>/.singularity-flow/prompt-audit/prompts.jsonl`; when no active workspace
 matches the repository, it falls back to `.git/singularity-flow/prompt-audit/prompts.jsonl`.
 
-Only prompts produced by `wm compose` for an actual handoff are captured. Read-only
+Prompts produced by `wm compose` for an actual handoff and actual kernel-owned model requests are
+captured. Read-only
 `wm show-prompt` previews, Copilot's hidden system prompt, provider messages, and chat history are
-not captured. Open **Configuration → Prompt audit** in VS Code to toggle capture and review records.
+not captured. Kernel invocation records expose allowed-tool policy and provider usage when
+available, but do not claim individual tool calls. Open **Configuration → Prompt audit** in VS Code
+to toggle capture and review records.
 
 `wm status` and its `wm availability` alias perform a read-only exact-tier and governed-state authority check and never invoke a model. `wm ensure` is
 the explicit authorization boundary: it reuses valid v3 selections from the same source snapshot,
@@ -2876,7 +2882,7 @@ the same start returns the existing binding. Submission compares expected and ac
 unexamined expansion blocks until `impact expansion` records its governed disposition. Verification
 candidates are never counted as evidence merely because they were generated.
 
-singularity-flow prompt-log on|off|status|list|view [ID|latest] [--agent AGENT] [--phase PHASE]
+singularity-flow prompt-log on|off|status|list|view [ID|latest] [--agent AGENT] [--phase PHASE] [--raw]
 singularity-flow telemetry status [--json]
 singularity-flow telemetry probe [--json]
 singularity-flow telemetry enable [--confirm "ENABLE LOCAL USAGE"] [--json]

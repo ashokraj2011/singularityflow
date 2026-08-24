@@ -13,6 +13,7 @@ import { currentSchemaVersion, readRecord } from './schema-migrations.mjs';
 import { nowIso, SingularityFlowError, writeJson } from './util.mjs';
 import { prepareTelemetryLaunch } from './telemetry-provision.mjs';
 import { repositoryLogger } from './logging.mjs';
+import { recordPromptAudit } from './prompt-audit.mjs';
 
 function sha256(value) { return createHash('sha256').update(value).digest('hex'); }
 
@@ -191,6 +192,21 @@ async function resolveRouting(normalized, root) {
   };
 }
 
+async function captureInvocationPrompt(root, staged, event) {
+  const prompt = await readFile(staged.file, 'utf8');
+  return recordPromptAudit(root, {
+    prompt,
+    agent: event.subject?.agent ?? event.subject?.governedAgent ?? 'kernel-model',
+    phase: event.subject?.phase ?? 'unscoped',
+    generation: event.subject?.generation ?? null,
+    workId: event.subject?.id ?? event.subject?.workId ?? null,
+    workType: event.subject?.workType ?? null,
+    task: event.routing?.task ?? null,
+    source: 'model-invocation',
+    supportingEvidence: [{ kind: 'model-invocation-audit', id: event.id }]
+  });
+}
+
 export async function invokeModel(request) {
   const context = assertModelInvocationAllowed();
   const normalized = await normalizeRequest(request, context);
@@ -308,13 +324,17 @@ export async function invokeModel(request) {
     const outputBytes = result.outputBytes ?? Buffer.byteLength(result.output ?? '', 'utf8');
     const outputSha256 = sha256(Buffer.from(result.output ?? '', 'utf8'));
     const completedAt = nowIso();
-    await writeJson(file, {
+    const completedEvent = {
       ...event,
       status: 'completed',
       completedAt,
       outputBytes,
       outputSha256,
       usage: result.usage ?? { status: 'unavailable' }
+    };
+    await writeJson(file, completedEvent);
+    await captureInvocationPrompt(resolvedAuditRoot, staged, completedEvent).catch((error) => {
+      log.warn('model.prompt.audit-failed', null, { errorCode: error.code ?? 'PROMPT_AUDIT_FAILED' });
     });
     log.info('model.provider.completed', null, {
       provider: providerId, transport: 'attachment', promptBytes: staged.bytes,
@@ -341,12 +361,18 @@ export async function invokeModel(request) {
       invocation: { id, path: file, provider: providerId, model: event.model }
     };
   } catch (error) {
-    if (auditStarted) await writeJson(file, {
-      ...event,
-      status: 'failed',
-      completedAt: nowIso(),
-      error: { code: error.code ?? 'MODEL_PROVIDER_FAILED' }
-    }).catch(() => {});
+    if (auditStarted) {
+      const failedEvent = {
+        ...event,
+        status: 'failed',
+        completedAt: nowIso(),
+        error: { code: error.code ?? 'MODEL_PROVIDER_FAILED' }
+      };
+      await writeJson(file, failedEvent).catch(() => {});
+      await captureInvocationPrompt(resolvedAuditRoot, staged, failedEvent).catch((auditError) => {
+        log.warn('model.prompt.audit-failed', null, { errorCode: auditError.code ?? 'PROMPT_AUDIT_FAILED' });
+      });
+    }
     if (providerStartedAt != null) log.info('model.provider.failed', null, {
       provider: providerId, transport: 'attachment', promptBytes: staged.bytes,
       durationMs: Date.now() - providerStartedAt, exitCode: error?.details?.status ?? null,

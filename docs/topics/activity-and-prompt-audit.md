@@ -12,7 +12,7 @@ related:
   - evidence-and-ledger
   - telemetry-and-cost
   - copilot-and-surfaces
-version: 1
+version: 2
 ---
 Activity logs report lifecycle and operational events without exposing secrets. Prompt audit is optional, workspace-local evidence of composed governed prompts and does not replace lifecycle state.
 
@@ -33,6 +33,12 @@ Use this topic when the current goal matches **activity and prompt audit**. Star
 3. Preview or prepare the operation when the command offers a dry-run, plan, packet, or exact confirmation.
 4. Run the smallest applicable command from this topic. Do not substitute an undocumented subcommand.
 5. Re-read state after completion. In Copilot, return to `/sf-home`; in VS Code, refresh the relevant view if it has not already refreshed.
+
+`sflow prompt-log view latest` renders separate context, model execution, tool authorization,
+token and cost, request/output, grounding, and prompt sections. `--raw` returns only the captured
+prompt. Provider token totals remain `unavailable` when the host did not report them; the separate
+prompt-only estimate is labelled `sflow-estimated`. Tool policy describes authorization and never
+claims that an individual tool was called.
 
 ## State and safety
 

@@ -146,7 +146,7 @@ Usage:
     [--host cli|vscode-terminal|intellij-terminal] [--dry-run]
   singularity-flow prompt-log on|off|status
   singularity-flow prompt-log list [--agent ID] [--phase ID] [--work-id ID] [--limit N] [--include-prompt] [--json]
-  singularity-flow prompt-log view [RECORD-ID|latest] [--json]
+  singularity-flow prompt-log view [RECORD-ID|latest] [--raw] [--json]
   singularity-flow ledger init [--json]
   singularity-flow ledger doctor [--json]
   singularity-flow ledger status [--json]

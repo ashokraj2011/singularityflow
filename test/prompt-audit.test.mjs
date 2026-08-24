@@ -1,12 +1,15 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { mkdtemp, readFile, writeFile } from 'node:fs/promises';
+import { mkdir, mkdtemp, readFile, writeFile } from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
 import { run } from '../src/util.mjs';
 import {
-  listPromptAudits, promptAuditStatus, readPromptAudit, recordPromptAudit, setPromptAudit
+  listPromptAudits, promptAuditStatus, readPromptAudit, recordPromptAudit, renderPromptAudit,
+  setPromptAudit
 } from '../src/prompt-audit.mjs';
+
+const cli = path.resolve('bin/singularity-flow.mjs');
 
 async function repository() {
   const root = await mkdtemp(path.join(os.tmpdir(), 'sflow-prompt-audit-'));
@@ -40,8 +43,79 @@ test('enabled audit records agent, Story, phase, generation, hash, and prompt te
   const listed = await listPromptAudits(root, { agent: 'developer', includePrompt: true });
   assert.equal(listed.count, 1);
   assert.equal(listed.records[0].prompt, record.prompt);
+  assert.equal(listed.records[0].execution.status, 'not-observed');
+  assert.equal(listed.records[0].execution.tokens.promptEstimate.assurance, 'sflow-estimated');
   const viewed = await readPromptAudit(root, record.id);
   assert.equal(viewed.record.task, 'Implement the approved design');
+});
+
+test('structured prompt view joins exact invocation tools, tokens, timing, and output without inventing tool calls', async () => {
+  const root = await repository();
+  await setPromptAudit(root, true);
+  const prompt = '# Governed prompt\nImplement the bounded change.\n';
+  const record = await recordPromptAudit(root, {
+    agent: 'developer', phase: 'implementation', workId: 'STORY-TOOLS', workType: 'feature',
+    generation: 3, task: 'code', prompt, source: 'model-invocation',
+    supportingEvidence: [{ kind: 'model-invocation-audit', id: 'invocation-1' }]
+  });
+  const invocationDirectory = path.join(root, '.git/singularity-flow/model-invocations');
+  await mkdir(invocationDirectory, { recursive: true });
+  await writeFile(path.join(invocationDirectory, 'invocation-1.json'), `${JSON.stringify({
+    schemaVersion: 2,
+    id: 'invocation-1',
+    operationId: 'phase.implement',
+    policy: 'required',
+    modelMode: 'enabled',
+    rootOperationId: 'phase.implement',
+    provider: 'copilot-cli',
+    model: 'gpt-5.4',
+    routing: { task: 'code', resolvedModel: 'gpt-5.4' },
+    promptSha256: record.promptSha256,
+    promptBytes: record.bytes,
+    promptTransport: 'attachment',
+    promptEncoding: 'utf-8',
+    cwdSha256: '0'.repeat(64),
+    channel: 'copilot-host',
+    subject: { kind: 'story', id: 'STORY-TOOLS', phase: 'implementation', generation: 3 },
+    toolPolicy: { mode: 'allowlist', names: ['read_file', 'edit_file'] },
+    limits: { timeoutMs: 120000, outputBytes: 4096, promptBytes: 65536 },
+    status: 'completed',
+    startedAt: '2026-08-24T10:00:00.000Z',
+    completedAt: '2026-08-24T10:00:01.250Z',
+    outputBytes: 512,
+    outputSha256: '1'.repeat(64),
+    usage: {
+      status: 'exact', assurance: 'provider-reported', inputTokens: 120,
+      outputTokens: 30, cachedInputTokens: 20, totalTokens: 150, providerCost: 0.001
+    }
+  }, null, 2)}\n`);
+
+  const viewed = await readPromptAudit(root, record.id);
+  assert.equal(viewed.record.execution.observation, 'exact-invocation-audit');
+  assert.deepEqual(viewed.record.execution.tools.allowed, ['read_file', 'edit_file']);
+  assert.equal(viewed.record.execution.tools.observedCalls, null);
+  assert.equal(viewed.record.execution.tokens.total, 150);
+  assert.equal(viewed.record.execution.durationMs, 1250);
+  const rendered = renderPromptAudit(viewed.record);
+  for (const heading of [
+    '## Context', '## Model and execution', '## Tools', '## Tokens and cost',
+    '## Request and output', '## Grounding and references', '## Prompt'
+  ]) assert.match(rendered, new RegExp(heading.replaceAll('#', '\\#')));
+  assert.match(rendered, /Allowed tools: `read_file`, `edit_file`/);
+  assert.match(rendered, /Observed tool calls: unavailable/);
+  assert.match(rendered, /Total provider tokens: 150/);
+  assert.match(rendered, /Provider cost: \$0\.001000/);
+  assert.match(rendered, /Prompt-only estimate: .*sflow-estimated/);
+  assert.match(rendered, /Sent prompt bytes: 48/);
+  assert.match(rendered, /Prompt transport: attachment/);
+  assert.match(rendered, /--- BEGIN CAPTURED GOVERNED PROMPT ---/);
+  const cliView = run(process.execPath, [cli, 'prompt-log', 'view', record.id], { cwd: root }).stdout;
+  assert.match(cliView, /## Tokens and cost/);
+  assert.match(cliView, /Total provider tokens: 150/);
+  const raw = run(process.execPath, [cli, 'prompt-log', 'view', record.id, '--raw'], { cwd: root }).stdout;
+  assert.equal(raw, prompt);
+  const json = JSON.parse(run(process.execPath, [cli, 'prompt-log', 'view', record.id, '--json'], { cwd: root }).stdout);
+  assert.equal(json.record.execution.tokens.total, 150);
 });
 
 test('recognized credentials are removed before a prompt reaches the workspace log', async () => {
